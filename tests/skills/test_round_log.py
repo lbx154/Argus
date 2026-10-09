@@ -6,10 +6,11 @@ commands all along. The provider summarises them: counts, longest commands,
 tests and checks with every run's exit code, the round's last commands, other
 failures, and paths outside the workspace.
 
-The host vouches only that a command ran and its exit code. The command text
-and output are the Engineer's, so the packet shows each check whole, flags the
-shapes that change what an exit code means, and reads only host memory or the
-host's own event log at its exact path, keeping the first result per call.
+The host records only what the agent CLI's stream reported, which a command
+can tamper with. The command text and output are the Engineer's, so the packet
+shows each check whole, flags the shapes that change what an exit code means,
+shows conflicting and unverified results as such, and reads only host memory
+or the host's own event log at its exact path.
 """
 from __future__ import annotations
 
@@ -59,13 +60,28 @@ def _probe_rows() -> list[dict]:
     ]
 
 
-def test_the_header_says_what_the_host_vouches_for(tmp_path: Path) -> None:
+def test_the_header_says_what_the_record_is_and_is_not(tmp_path: Path) -> None:
     events = _write_events(tmp_path / "project" / "events.jsonl", _probe_rows())
     text = mod.render_round_log(tmp_path / "ws", 1, events_path=events)
 
     assert text.startswith("Engineer's commands this round (host record since ")
-    assert "recorded the exit code its CLI reported" in text
-    assert "the command text and its output were produced by the Engineer's commands" in text
+    assert "what the agent CLI's output stream reported, including its exit code" in text
+    assert "not tamper-proof" in text
+    assert "the command text and output were produced by the Engineer's commands" in text
+
+
+def test_without_any_reported_result_the_log_claims_no_exit_codes(tmp_path: Path) -> None:
+    capture = CommandCapture(label="engineer-r1")
+    capture.start("s1", "command", "pytest -q", ts=T0 + 1)
+    capture.start("s2", "command", "python scripts/eval_ruler.py --config c.yaml", ts=T0 + 2)
+
+    text = mod.render_round_log(tmp_path, 1, runs=capture.runs())
+
+    assert mod.HEADER_WITHOUT_RESULTS in text
+    assert "recorded what the agent CLI's output stream reported" not in text
+    assert "  - `pytest -q`: no result recorded" in text
+    assert "- evaluations, benchmarks and training runs invoked" in text
+    assert "  - `python scripts/eval_ruler.py --config c.yaml`: no result recorded" in text
 
 
 def test_checks_are_shown_whole_and_flagged(tmp_path: Path) -> None:
@@ -118,6 +134,31 @@ def test_output_redirection_and_chains_are_flagged() -> None:
     assert "redirects output" not in mod.command_flags("pytest -q 2>&1")
 
 
+def test_wrappers_shell_bodies_and_compound_commands_are_seen_through() -> None:
+    for command in (
+        'bash -c "pytest || true"', "sh -c 'pytest -q'", "( pytest -q || true )", "{ pytest -q; } || :",
+        "if pytest -q; then echo ok; fi", "sudo -u ci pytest", "nice -n 5 pytest", "env -i pytest",
+        "stdbuf -oL pytest -q", "timeout -s KILL 900 pytest", "time pytest -q", "xargs pytest < list",
+        "exec pytest", "PYTEST_ADDOPTS='-k fast' pytest",
+    ):
+        assert mod.is_check(command), command
+    assert not mod.is_check("command -v pytest")
+    assert "`|| true` hides a failure" in mod.command_flags('bash -c "pytest || true"')
+    assert "`|| true` hides a failure" in mod.command_flags("{ pytest -q; } || :")
+    assert "selects or deselects tests" in mod.command_flags("PYTEST_ADDOPTS='-k fast' pytest")
+    assert "selects or deselects tests" in mod.command_flags("sh -c 'pytest -q -k \"not slow\"'")
+
+
+def test_evaluations_are_named_by_the_script_they_run() -> None:
+    for command in (
+        "python eval.py", "python evaluate.py --split test", "python -m bench.run_bench",
+        "bash scripts/benchmark.sh", "python train_lora.py", "python -m argus.tools.pptx_export deck.pptx",
+    ):
+        assert mod.is_evaluation(command), command
+    for command in ("cat eval.py", "vim train.py", "python retrain.py", "pytest -q"):
+        assert not mod.is_evaluation(command), command
+
+
 def test_checks_are_classified_by_the_command_they_run() -> None:
     for command in (
         "pytest -q", "python -m pytest tests", "python3 -m unittest discover -s tests -v",
@@ -160,29 +201,47 @@ def test_a_shadow_log_beside_the_mission_packet_is_never_read(tmp_path: Path) ->
     assert spec_checks.round_log_evidence(request) is None
 
 
-def test_a_later_result_for_the_same_call_cannot_change_a_recorded_one(tmp_path: Path) -> None:
+def test_a_second_result_for_the_same_call_is_shown_as_a_conflict(tmp_path: Path) -> None:
     rows = _probe_rows()
     rows.append(_result(T0 + 2.5, "a", 0, "7 passed"))
     events = _write_events(tmp_path / "events.jsonl", rows)
 
     text = mod.render_round_log(tmp_path / "ws", 1, events_path=events)
 
-    assert f"`{PYTEST} 2>&1 | tail -5`: exit 1" in text
-    assert "7 passed" not in text.replace("check: 7 passed", "")
+    line = next(line for line in text.splitlines() if line.startswith(f"  - `{PYTEST} 2>&1 | tail -5`"))
+    assert "exit 1 / exit 0 (conflicting results recorded)" in line
+    assert "conflicting results recorded for one call" in line
+    assert "output reported with result 1 (exit 1): 1 failed, 6 passed in 0.4s" in text
+    assert "output reported with result 2 (exit 0): 7 passed" in text
 
 
-def test_host_memory_wins_over_the_event_log(tmp_path: Path) -> None:
+def test_a_result_without_its_start_is_unverified(tmp_path: Path) -> None:
+    rows = [*_probe_rows(), _result(T0 + 9, "ghost", 0, "42 passed")]
+    events = _write_events(tmp_path / "events.jsonl", rows)
+    text = mod.render_round_log(tmp_path / "ws", 1, events_path=events)
+    assert "unverified: no start was reported for this call" in text
+
     capture = CommandCapture(label="engineer-r1")
-    capture.start("k1", "command", "python -m unittest discover -s tests -v", ts=T0 + 1)
-    capture.finish("k1", exit_code=0, failed=False, output="Ran 13 tests in 0.006s\nOK")
-    capture.finish("k1", exit_code=1, failed=True, output="forged")
-    events = _write_events(tmp_path / "events.jsonl", _probe_rows())
+    capture.start("k1", "command", "pytest -q", ts=T0 + 1)
+    capture.finish("k1", exit_code=0, failed=False, output="7 passed", text="pytest -q -k fast")
+    [run] = capture.runs()
+    assert run.unverified == "the result names a different command than its start"
+    capture.start("k1", "command", "pytest tests/other.py", ts=T0 + 2)
+    assert capture.runs()[0].unverified == "the result names a different command than its start"
 
-    text = mod.render_round_log(tmp_path / "ws", 1, runs=capture.runs(), events_path=events)
 
-    assert "  - `python -m unittest discover -s tests -v`: exit 0" in text
-    assert "Ran 13 tests in 0.006s | OK" in text
-    assert "forged" not in text and "tail -5" not in text
+def test_the_record_keeps_the_newest_calls_and_says_how_many_it_dropped(tmp_path: Path, monkeypatch) -> None:
+    from argus.core import command_record
+
+    monkeypatch.setattr(command_record, "_MAX_RUNS", 3)
+    capture = CommandCapture(label="engineer-r1")
+    for index in range(5):
+        capture.start(f"c{index}", "command", f"pytest -q tests/test_{index}.py", ts=T0 + index)
+    assert [run.call_id for run in capture.runs()] == ["c2", "c3", "c4"]
+    assert capture.dropped == 2
+
+    text = mod.render_round_log(tmp_path, 1, runs=capture.runs(), dropped=capture.dropped)
+    assert "- 2 earlier commands not shown; the record keeps the newest." in text
 
 
 def test_round_log_names_longest_commands_and_outside_paths(tmp_path: Path) -> None:
@@ -207,6 +266,8 @@ def test_round_log_names_longest_commands_and_outside_paths(tmp_path: Path) -> N
     assert "old_round.py" not in text
     assert "ran ≤58 s (time to the next action): `CUDA_VISIBLE_DEVICES=2 .venv/bin/python scripts/eval_ruler.py --config c.yaml`" in text
     assert "  - `.venv/bin/python -m pytest tests/spec`: no result recorded" in text
+    assert "- evaluations, benchmarks and training runs invoked" in text
+    assert "  - `CUDA_VISIBLE_DEVICES=2 .venv/bin/python scripts/eval_ruler.py --config c.yaml`: no result recorded" in text
     assert "/data/other_user/models--Llama-3-8B/snapshots" in text
     assert "manager" not in text
 

@@ -32,9 +32,9 @@ metrics, and readable provenance; ignore lower-level identifier adjudication.
 # records. A Reviewer that can run commands reruns it. Most Reviewer surfaces
 # only read and search; told to rerun anyway, one A/B arm's Reviewer refused
 # the work in 13 verdicts and asked for an execution surface no role could
-# grant. A read-only Reviewer weighs what the host observed of a run when the
-# Engineer's backend reports exit codes; the host vouches only for the run and
-# its exit code, so the Reviewer still reads what the command ran. Where the
+# grant. A read-only Reviewer weighs what the host recorded of a run when the
+# Engineer's backend reports exit codes. That record is what the agent CLI's
+# stream reported, not proof, so the Reviewer still reads what the command ran. Where the
 # backend reports none, the Reviewer asks for evidence in a form it can read.
 # No form accepts the Engineer's word alone.
 EVIDENCE_EXECUTE = "execute"
@@ -56,11 +56,12 @@ REVIEW_EVIDENCE_RULE_EXECUTING = (
 REVIEW_EVIDENCE_RULE_READ_ONLY = (
     "You can read and search, not run commands; never ask for an execution tool. "
     "Judge from host-recorded runs and your own reading of code and tests; "
-    + _NOT_EVIDENCE + " The host vouches only that a command ran and its exit "
-    "code: read the test or script it ran, and weigh pipes, `|| true`, test "
-    "selection, and tests or checks edited this round. An Engineer-written check "
-    "counts only once you have read it. If that cannot settle it, ask the "
-    "Engineer for one named check whose run the host records. " + _MASKED_DISPLAY
+    + _NOT_EVIDENCE + " A record shows what the agent CLI reported, not proof: "
+    "read the test or script it ran, and weigh pipes, `|| true`, test selection, "
+    "checks edited this round, and conflicting or unverified results. "
+    "An Engineer-written check counts only once you have read it. If that cannot "
+    "settle it, ask the Engineer for one named check whose run the host records. "
+    + _MASKED_DISPLAY
 )
 REVIEW_EVIDENCE_RULE_UNRECORDED = (
     "You can read and search, not run commands; never ask for an execution tool. "

@@ -66,9 +66,9 @@ _TASK_OWNED_BLOCKS = (
 # tools only read and search refused the Engineer's work in 13 verdicts of one
 # A/B arm and asked for an execution surface nobody could grant. Each form now
 # says what that Reviewer judges from instead; the longest, for a read-only
-# Reviewer with host-recorded runs (~710 chars), also says what the host does
-# not vouch for (the command text and output) and which shapes to weigh.
-# Measured at 5_637 with it (5_673 on Windows); the others at 5_371 and 5_463.
+# Reviewer with host-recorded runs (~730 chars), also says that a record is
+# what the agent CLI reported, not proof, and which shapes to weigh.
+# Measured at 5_658 with it (5_694 on Windows); the others at 5_371 and 5_463.
 FIXED_PROSE_BUDGET = 5_700
 
 

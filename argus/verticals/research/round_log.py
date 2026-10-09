@@ -10,18 +10,20 @@ bounds a command's runtime), which tests and checks ran with every run's exit
 code in order, which other commands failed, and which paths lay outside the
 workspace.
 
-What the host vouches for is narrow: that a command ran, and the exit code the
-CLI reported. The command text and the output are the Engineer's; a command
-can pipe a failure away, select tests, or run a check the Engineer just
-edited. The packet therefore shows each check in full, flags those shapes, and
-says which part is the host's, so a Reviewer that cannot run commands reads
-what a check does before weighing its result.
+What the host records is narrow: what the agent CLI's output stream reported
+for each command, including its exit code. That stream is not tamper-proof (a
+command can write CLI-shaped lines to it), so a second, different result for a
+call is shown as a conflict and a result without a matching start as
+unverified. The command text and the output are the Engineer's; a command can
+pipe a failure away, select tests, or run a check the Engineer just edited.
+The packet therefore shows each check in full and flags those shapes, so a
+Reviewer that cannot run commands reads what a check does before weighing its
+result.
 
-The calls come from host memory (:mod:`argus.core.command_record`), which no
-project file can add to or rewrite. Without a capture the provider reads only
+The calls come from host memory (:mod:`argus.core.command_record`), fed by the
+agent CLI's stream rather than by any project file. Without a capture the provider reads only
 the exact event log the host writes for the mission, never a file found by
-walking up from the mission packet, and the first result recorded for a call
-stays final.
+walking up from the mission packet, with the same conflict handling.
 
 Evidence, not a gate: the provider renders text into the Reviewer's
 raw-evidence slot and never decides anything. This module only renders text;
@@ -33,6 +35,7 @@ from __future__ import annotations
 import json
 import os
 import re
+import shlex
 import time
 from collections.abc import Iterable, Iterator
 from pathlib import Path
@@ -52,9 +55,16 @@ _HEAD_CHARS = 480
 _TAIL_CHARS = 200
 
 HEADER = (
-    "The host saw each command below run and recorded the exit code its CLI "
-    "reported; the command text and its output were produced by the Engineer's "
-    "commands, so read what a check runs before weighing its result."
+    "For each command below the host recorded what the agent CLI's output stream "
+    "reported, including its exit code. That record is not tamper-proof (a "
+    "command can write to the same stream), and the command text and output "
+    "were produced by the Engineer's commands, so read what a check runs before "
+    "weighing its result."
+)
+HEADER_WITHOUT_RESULTS = (
+    "The agent CLI reported these commands but no exit codes, so nothing below "
+    "says whether a command passed; the command text and any output were "
+    "produced by the Engineer's commands."
 )
 
 _ABS_PATH = re.compile(r"(?<![\w/])(/(?:data|home|mnt|srv|opt|tmp|var|app|workspace)/[^\s'\"`:;|)>]+)")
@@ -64,10 +74,25 @@ _WRITE_PREFIXES = ("write:", "edit:", "create:", "apply_patch", "str_replace_edi
 _JSON_PATH = re.compile(r'"(?:path|file_path|filePath|file)"\s*:\s*"([^"]+)"')
 
 # --- What counts as a check: decided by the command a segment runs ----------
-_SEGMENT_SPLIT = re.compile(r"\s*(?:&&|\|\||;|\||\n)\s*")
+_OPERATOR_CHARS = frozenset(";&|(){}")
 _ENV_ASSIGNMENT = re.compile(r"^[A-Za-z_][A-Za-z0-9_]*=")
-_WRAPPERS = {"env", "time", "nice", "nohup", "sudo", "xvfb-run", "command", "exec"}
+_KEYWORDS = {"if", "then", "else", "elif", "do", "while", "until", "!", "nohup", "chronic", "unbuffer"}
+#: Wrappers that run the command after them, with the options that take a value.
+_WRAPPER_OPTIONS: dict[str, set[str]] = {
+    "sudo": {"-u", "-g", "-C", "-D", "-h", "-p", "-r", "-t", "-U"},
+    "nice": {"-n"},
+    "ionice": {"-c", "-n", "-p"},
+    "env": {"-u", "-C", "-S"},
+    "stdbuf": {"-i", "-o", "-e"},
+    "timeout": {"-s", "-k", "--signal", "--kill-after"},
+    "xargs": {"-n", "-I", "-L", "-P", "-d", "-a", "-E", "-s", "-i"},
+    "time": {"-f", "-o"},
+    "exec": {"-a"},
+    "xvfb-run": {"-n", "-s", "-e", "-f", "-p"},
+    "taskset": set(),
+}
 _RUNNERS = {"uv", "poetry", "pipenv", "hatch", "pdm", "rye"}
+_SHELLS = {"bash", "sh", "zsh", "dash"}
 _TEST_TOOLS = {
     "pytest", "py.test", "tox", "nox", "jest", "vitest", "mocha", "ctest",
     "phpunit", "rspec", "nosetests", "nose2", "behave", "bats",
@@ -77,89 +102,190 @@ _SUBCOMMAND_TOOLS = {"cargo", "go", "mvn", "gradle", "gradlew", "dotnet", "swift
 _PACKAGE_MANAGERS = {"npm", "yarn", "pnpm", "bun"}
 _MAKE_TARGETS = {"test", "tests", "check", "checks", "verify", "validate"}
 _CHECK_SCRIPT = re.compile(r"(?i)(?:^|[_\-.])(?:tests?|checks?|verify|verification|validate|validation|spec)(?:[_\-.]|$)")
+_EVALUATION_SCRIPT = re.compile(
+    r"(?i)(?:^|[_\-.])(?:eval\w*|bench\w*|train\w*)(?:[_\-.]|$)|figure_lint|pptx_export|generate_figures"
+)
 
 
-def _tokens(segment: str) -> list[str]:
-    tokens = segment.strip().split()
-    while tokens and (_ENV_ASSIGNMENT.match(tokens[0]) or tokens[0] in _WRAPPERS):
-        tokens = tokens[1:]
-    if tokens and tokens[0] == "timeout":
-        tokens = tokens[1:]
-        while tokens and tokens[0].startswith("-"):
-            tokens = tokens[1:]
-        tokens = tokens[1:]  # the duration
-    if len(tokens) > 1 and Path(tokens[0]).name in _RUNNERS and tokens[1] == "run":
-        tokens = tokens[2:]
+def _first_line(command: str) -> str:
+    """A heredoc's body is input, not commands: keep the line that starts it."""
+    return command.split("\n", 1)[0] if "<<" in command else command
+
+
+def _unwrap(tokens: list[str]) -> list[str]:
+    """Drop what runs a command rather than being it: env, wrappers, keywords."""
+    tokens = list(tokens)
+    while tokens:
+        token = tokens[0]
+        name = Path(token).name
+        if _ENV_ASSIGNMENT.match(token) or token in _KEYWORDS:
+            tokens.pop(0)
+            continue
+        if name == "command":
+            if tokens[1:2] and tokens[1] in {"-v", "-V"}:
+                return []  # a lookup, not a run
+            tokens.pop(0)
+            continue
+        if name in _WRAPPER_OPTIONS:
+            takes_value = _WRAPPER_OPTIONS[name]
+            tokens.pop(0)
+            while tokens and tokens[0].startswith("-"):
+                option = tokens.pop(0)
+                if option in takes_value and tokens:
+                    tokens.pop(0)
+            if name in {"timeout", "taskset"} and tokens:
+                tokens.pop(0)  # the duration or CPU mask
+            continue
+        if name in _RUNNERS and tokens[1:2] == ["run"]:
+            tokens = tokens[2:]
+            continue
+        break
     return tokens
+
+
+def command_segments(command: str, _depth: int = 0) -> list[list[str]]:
+    """The simple commands in a command line, each unwrapped, `sh -c` bodies opened."""
+    text = _first_line(command or "")
+    try:
+        lexer = shlex.shlex(text, posix=True, punctuation_chars=";&|(){}")
+        lexer.whitespace_split = True
+        tokens = list(lexer)
+    except ValueError:
+        tokens = text.split()
+    segments: list[list[str]] = []
+    current: list[str] = []
+    for token in tokens:
+        if token and set(token) <= _OPERATOR_CHARS:
+            if current:
+                segments.append(current)
+            current = []
+        else:
+            current.append(token)
+    if current:
+        segments.append(current)
+    found: list[list[str]] = []
+    for segment in segments:
+        segment = _unwrap(segment)
+        if not segment:
+            continue
+        if Path(segment[0]).name in _SHELLS and "-c" in segment and _depth < 3:
+            body = segment.index("-c") + 1
+            if body < len(segment):
+                found.extend(command_segments(segment[body], _depth + 1))
+                continue
+        found.append(segment)
+    return found
+
+
+def _script_name_matches(path: str, pattern: re.Pattern[str]) -> bool:
+    name = Path(path.strip("'\"")).name
+    stem = name.rsplit(".", 1)[0] if "." in name else name
+    return bool(stem) and bool(pattern.search(stem))
 
 
 def _script_is_check(path: str) -> bool:
     name = Path(path.strip("'\"")).name
-    stem = name.rsplit(".", 1)[0] if "." in name else name
-    return bool(stem) and bool(_CHECK_SCRIPT.search(stem) or stem.startswith(("test", "check")))
+    return _script_name_matches(path, _CHECK_SCRIPT) or name.startswith(("test", "check"))
 
 
-def _segment_is_check(segment: str) -> bool:
-    tokens = _tokens(segment)
-    if not tokens:
-        return False
-    head = Path(tokens[0].strip("'\"")).name
+def _program(tokens: list[str]) -> tuple[str, str]:
+    """``(kind, name)`` of what a simple command runs: a module, a script or a tool."""
+    head = Path(tokens[0]).name
     rest = tokens[1:]
-    if head in _TEST_TOOLS:
-        return True
     if head.startswith("python") or head in {"pypy", "pypy3"}:
         args = [token for token in rest if token not in {"-B", "-u", "-O", "-I", "-E", "-s", "-q"}]
         if args[:1] == ["-m"] and len(args) > 1:
-            return args[1].split(".")[0] in _TEST_MODULES
-        if not args or args[0] in {"-c", "-", "<<"} or args[0].startswith(("-", "<<")):
-            return False
-        return args[0].endswith(".py") and _script_is_check(args[0])
+            return "module", args[1]
+        if args and args[0].endswith(".py"):
+            return "script", args[0]
+        return "inline", ""
+    if head in _SHELLS:
+        script = next((token for token in rest if not token.startswith("-")), "")
+        return ("script", script) if script else ("inline", "")
+    if "/" in tokens[0]:
+        return "script", tokens[0]
+    return "tool", head
+
+
+def _segment_is_check(tokens: list[str]) -> bool:
+    head = Path(tokens[0]).name
+    rest = tokens[1:]
+    kind, name = _program(tokens)
+    if kind == "module":
+        return name.split(".")[0] in _TEST_MODULES
+    if kind == "script":
+        return _script_is_check(name)
+    if kind == "inline":
+        return False
+    if head in _TEST_TOOLS:
+        return True
     if head in _PACKAGE_MANAGERS:
         if rest[:1] in (["test"], ["t"]):
             return True
         return len(rest) > 1 and rest[0] == "run" and _script_is_check(rest[1])
-    if head in _SUBCOMMAND_TOOLS or head == "./gradlew":
+    if head in _SUBCOMMAND_TOOLS:
         return bool(rest) and rest[0] in {"test", "check", "verify"}
     if head == "make":
         return any(token in _MAKE_TARGETS for token in rest if not token.startswith("-"))
     if head == "node":
         return "--test" in rest
-    if head in {"bash", "sh", "zsh"}:
-        script = next((token for token in rest if not token.startswith("-")), "")
-        return bool(script) and _script_is_check(script)
-    if "/" in tokens[0] and not head.startswith("python"):
-        return _script_is_check(head)
     return False
 
 
 def is_check(command: str) -> bool:
     """Whether a command runs a test runner or the project's own check script."""
-    return any(_segment_is_check(segment) for segment in _SEGMENT_SPLIT.split(command or "") if segment)
+    return any(_segment_is_check(segment) for segment in command_segments(command))
+
+
+def is_evaluation(command: str) -> bool:
+    """Whether a command runs an evaluation, benchmark or training script."""
+    for segment in command_segments(command):
+        kind, name = _program(segment)
+        if kind == "module":
+            name = name.rsplit(".", 1)[-1]
+        if kind in {"module", "script"} and _script_name_matches(name, _EVALUATION_SCRIPT):
+            return True
+    return False
 
 
 # --- Shapes that change what an exit code means -----------------------------
 _PIPE = re.compile(r"(?<!\|)\|(?![|&])")
-_OR_TRUE = re.compile(r"\|\|\s*(?:true|:|exit\s+0)\b")
+_OR_TRUE = re.compile(r"\|\|\s*(?:true\b|:(?![\w:])|exit\s+0\b)")
 _OR_ANY = re.compile(r"\|\|")
 _CHAIN = re.compile(r";")
 _SELECTION = re.compile(
-    r"(?:^|\s)(?:-k|--deselect|--ignore(?:-glob)?|--lf|--last-failed|--sw|--stepwise|"
+    r"(?:^|[\s'\"=])(?:-k|--deselect|--ignore(?:-glob)?|--lf|--last-failed|--sw|--stepwise|"
     r"--maxfail|--testNamePattern|--filter|--grep)(?:[\s=]|$)"
     r"|\bpy(?:\.)?test\b.*\s-m\s"
     r"|\S::\w"
 )
+_ADDOPTS = re.compile(r"\b(?:PYTEST_ADDOPTS|PYTEST_PLUGINS)=")
 _REDIRECT = re.compile(r"(?<![<>&\d])(?:\d|&)?>{1,2}\s*(?!&)([^\s;|&]+)")
 _QUOTED = re.compile(r"'[^']*'|\"(?:[^\"\\]|\\.)*\"")
+_SHELL_C = re.compile(r"\b(?:bash|sh|zsh|dash)\s+(?:-[A-Za-z]+\s+)*?-c\s+(?:'([^']*)'|\"((?:[^\"\\]|\\.)*)\")")
+
+
+def _open_shell_bodies(command: str) -> str:
+    """Put a `bash -c '…'` body back into the command line it runs in."""
+    for _ in range(3):
+        opened = _SHELL_C.sub(
+            lambda m: "( " + (m.group(1) if m.group(1) is not None else re.sub(r"\\(.)", r"\1", m.group(2))) + " )",
+            command,
+        )
+        if opened == command:
+            break
+        command = opened
+    return command
 
 
 def _shape(command: str) -> str:
-    """The command's shell shape: quoted text and heredoc bodies removed."""
-    first = command.split("\n", 1)[0] if "<<" in command else command
-    return _QUOTED.sub("''", first)
+    """The command's shell shape: `sh -c` bodies opened, quoted text and heredoc bodies removed."""
+    return _QUOTED.sub("''", _first_line(_open_shell_bodies(command)))
 
 
 def command_flags(command: str, edited: Iterable[str] = ()) -> list[str]:
     """What about a command's shape a Reviewer should weigh with its exit code."""
+    opened = _open_shell_bodies(_first_line(command))
     shape = _shape(command)
     flags: list[str] = []
     if _OR_TRUE.search(shape):
@@ -171,7 +297,7 @@ def command_flags(command: str, edited: Iterable[str] = ()) -> list[str]:
     if _CHAIN.search(shape):
         flags.append("`;` chain: the exit code is the last command's")
     check = is_check(command)
-    if check and _SELECTION.search(command):
+    if check and (_SELECTION.search(opened) or _ADDOPTS.search(opened)):
         flags.append("selects or deselects tests")
     if _REDIRECT.search(shape):
         flags.append("redirects output")
@@ -193,12 +319,11 @@ def _edited_paths(runs: Iterable[CommandRun]) -> dict[str, list[str]]:
             paths.extend(_JSON_PATH.findall(run.text))
         elif run.kind == "command":
             shape = _shape(run.text)
-            for segment in _SEGMENT_SPLIT.split(run.text.split("\n", 1)[0]):
-                tokens = segment.split()
-                if tokens[:1] == ["sed"] and any(token.startswith("-i") for token in tokens):
-                    paths.append(tokens[-1].strip("'\""))
-                if tokens[:1] == ["tee"] and len(tokens) > 1:
-                    paths.append(tokens[-1].strip("'\""))
+            for tokens in command_segments(run.text):
+                if Path(tokens[0]).name == "sed" and any(token.startswith("-i") for token in tokens):
+                    paths.append(tokens[-1])
+                if Path(tokens[0]).name == "tee" and len(tokens) > 1:
+                    paths.append(tokens[-1])
             paths.extend(target.strip("'\"") for target in _REDIRECT.findall(shape) if target != "/dev/null")
         if paths:
             edited[run.call_id] = [path for path in paths if path]
@@ -235,12 +360,16 @@ def _duration(seconds: float) -> str:
     return f"{seconds / 3600.0:.1f} h"
 
 
+def _result_word(exit_code: int | None) -> str:
+    return "failed (no exit code)" if exit_code is None else f"exit {exit_code}"
+
+
 def _outcome(run: CommandRun) -> str:
     if not run.finished:
         return "no result recorded"
-    if run.exit_code is None:
-        return "failed (no exit code)"
-    return f"exit {run.exit_code}"
+    if run.conflicting:
+        return " / ".join(_result_word(result.exit_code) for result in run.results) + " (conflicting results recorded)"
+    return _result_word(run.exit_code)
 
 
 def _outcomes(runs: list[CommandRun]) -> str:
@@ -251,22 +380,45 @@ def _outcomes(runs: list[CommandRun]) -> str:
 
 
 def _is_failure(run: CommandRun) -> bool:
-    return run.finished and (run.failed or (run.exit_code is not None and run.exit_code != 0))
+    return run.finished and (run.failed or any(r.exit_code not in (None, 0) for r in run.results))
 
 
 def _command_lines(runs: list[CommandRun], edited: dict[str, list[str]], indent: str = "  ") -> list[str]:
     latest = runs[-1]
     times = f" ×{len(runs)}" if len(runs) > 1 else ""
     flags = command_flags(latest.text, _edited_by_others(edited, latest))
+    if any(run.conflicting for run in runs):
+        flags.insert(0, "conflicting results recorded for one call")
+    unverified = next((run.unverified for run in reversed(runs) if run.unverified), "")
+    if unverified:
+        flags.insert(0, f"unverified: {unverified}")
     note = f" (watch: {'; '.join(flags)})" if flags else ""
     lines = [f"{indent}- `{show_command(latest.text)}`{times}: {_outcomes(runs)}{note}"]
-    if latest.output:
+    if latest.conflicting:
+        for number, result in enumerate(latest.results, 1):
+            if result.output:
+                lines.append(
+                    f"{indent}  output reported with result {number} "
+                    f"({_result_word(result.exit_code)}): {result.output}"
+                )
+    elif latest.output:
         lines.append(f"{indent}  output of the latest run: {latest.output}")
     if not _is_failure(latest):
         failing = next((run for run in reversed(runs[:-1]) if _is_failure(run) and run.output), None)
         if failing is not None:
             lines.append(f"{indent}  output of the last failing run: {failing.output}")
     return lines
+
+
+def _grouped(commands: list[CommandRun], keep) -> dict[str, list[CommandRun]]:
+    """Runs of the same full command together, the most recently run group last."""
+    groups: dict[str, list[CommandRun]] = {}
+    for run in commands:
+        if keep(run.text):
+            key = _flat(run.text)
+            groups.setdefault(key, []).append(run)
+            groups[key] = groups.pop(key)
+    return groups
 
 
 def summarize_runs(runs: list[CommandRun], workdir: Path) -> list[str]:
@@ -288,17 +440,18 @@ def summarize_runs(runs: list[CommandRun], workdir: Path) -> list[str]:
     for run in sorted(timed, key=lambda run: -gaps[id(run)])[:LONGEST_COMMANDS]:
         lines.append(f"- ran ≤{_duration(gaps[id(run)])} (time to the next action): `{_one_line(run.text)}`")
     edited = _edited_paths(runs)
-    groups: dict[str, list[CommandRun]] = {}
-    for run in commands:
-        if is_check(run.text):
-            key = _flat(run.text)
-            groups.setdefault(key, []).append(run)
-            groups[key] = groups.pop(key)  # newest last
+    groups = _grouped(commands, is_check)
     if groups:
-        lines.append("- tests and checks, with every run's exit code in order:")
+        lines.append("- tests and checks, with every run's result in order:")
         for group in list(groups.values())[-CHECKS_SHOWN:]:
             lines.extend(_command_lines(group, edited, indent="  "))
     listed = {id(run) for group in groups.values() for run in group}
+    evaluations = _grouped([run for run in commands if id(run) not in listed], is_evaluation)
+    if evaluations:
+        lines.append("- evaluations, benchmarks and training runs invoked, with every run's result in order:")
+        for group in list(evaluations.values())[-CHECKS_SHOWN:]:
+            lines.extend(_command_lines(group, edited, indent="  "))
+        listed.update(id(run) for group in evaluations.values() for run in group)
     last = [run for run in commands[-LAST_COMMANDS:] if id(run) not in listed]
     if last:
         lines.append("- the round's last commands:")
@@ -386,7 +539,6 @@ def runs_from_events(events: list[dict[str, Any]], since: float) -> list[Command
         ),
         key=lambda e: float(e.get("ts") or 0),
     )
-    known: set[str] = set()
     last_command: dict[str, Any] = {}
     for e in rows:
         kind = e.get("kind")
@@ -399,14 +551,16 @@ def runs_from_events(events: list[dict[str, Any]], since: float) -> list[Command
         output = str(e.get("output_excerpt") or "")
         finished = status not in ("", "running")
         if kind == "tool_result":
-            if call_id in known:
-                record.finish(call_id, exit_code=exit_code, failed=status == "failed", output=output)
+            # A result whose start never appeared is kept and marked unverified.
+            if call_id:
+                record.finish(call_id, exit_code=exit_code, failed=status == "failed", output=output, ts=ts)
             continue
         if kind == "tool_use":
             record.start(call_id or anonymous_call_id(), "tool", text, tool=str(e.get("tool_name") or ""), ts=ts)
             continue
-        if finished and call_id in known:
-            record.finish(call_id, exit_code=exit_code, failed=status == "failed", output=output)
+        if finished and call_id:
+            record.finish(call_id, exit_code=exit_code, failed=status == "failed", output=output,
+                          text=text, ts=ts)
             continue
         if finished and not call_id and last_command.get("text") == text and not last_command.get("done"):
             # Older logs name a failed command again without its call id.
@@ -415,7 +569,6 @@ def runs_from_events(events: list[dict[str, Any]], since: float) -> list[Command
             continue
         run_id = call_id or anonymous_call_id()
         record.start(run_id, "command", text, tool=str(e.get("tool_name") or ""), ts=ts)
-        known.add(run_id)
         last_command = {"id": run_id, "text": text, "done": False}
         if finished:
             record.finish(run_id, exit_code=exit_code, failed=status == "failed", output=output)
@@ -429,11 +582,13 @@ def render_round_log(
     *,
     runs: Iterable[CommandRun] = (),
     events_path: Path | None = None,
+    dropped: int = 0,
 ) -> str:
     """The packet text, or '' when there is nothing to show.
 
     ``runs`` (host memory) wins; otherwise only ``events_path`` is read, the
-    exact log the host writes for this mission.
+    exact log the host writes for this mission. ``dropped`` counts earlier
+    calls the record no longer holds.
     """
     runs = list(runs)
     if not runs and events_path is not None and Path(events_path).is_file():
@@ -447,14 +602,23 @@ def render_round_log(
     lines = summarize_runs(runs, Path(workdir))
     if not lines:
         return ""
+    if dropped:
+        lines.insert(1, f"- {dropped} earlier commands not shown; the record keeps the newest.")
     started = time.strftime("%H:%M", time.localtime(min(run.started_at for run in runs)))
-    return "\n".join([f"Engineer's commands this round (host record since {started}). {HEADER}", *lines])
+    if any(run.finished for run in runs):
+        header = f"Engineer's commands this round (host record since {started}). {HEADER}"
+    else:
+        header = f"Engineer's commands this round (since {started}). {HEADER_WITHOUT_RESULTS}"
+    return "\n".join([header, *lines])
 
 
 __all__ = [
     "HEADER",
+    "HEADER_WITHOUT_RESULTS",
     "command_flags",
+    "command_segments",
     "is_check",
+    "is_evaluation",
     "render_round_log",
     "round_window_start",
     "runs_from_events",

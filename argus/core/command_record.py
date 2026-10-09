@@ -1,16 +1,19 @@
-"""What the host saw of a role's commands, kept in host memory for one turn.
+"""What the agent CLI reported of a role's commands, kept in host memory for one turn.
 
 A Reviewer whose tools only read and search cannot rerun a check. What it can
-weigh instead is what the host itself observed: that a command ran, and the
-exit code the agent CLI reported for it. The command text and its output are
-still the Engineer's (its command printed them), so they are evidence to read,
-not facts to trust.
+weigh instead is what the host recorded from the agent CLI's output stream:
+which commands the CLI reported starting and the exit codes it reported for
+them. The command text and its output are still the Engineer's (its command
+printed them), so they are evidence to read, not facts to trust.
 
-The record lives in memory, not in a file. A file the Engineer can write could
-plant a second log or append a forged result; a capture fed only by the agent
-CLI's own stream cannot be written by any role. Within a capture, the first
-result recorded for a call is final: a later report for the same call id never
-replaces it.
+The record is not tamper-proof. A command can write CLI-shaped lines to the
+stream the host reads, so a reported start or result may not be real. The
+record therefore never quietly settles a disagreement: a second, different
+result for a call is kept beside the first as a conflict, and a result with no
+reported start, or naming a different command than its start, is marked
+unverified. The round log shows both. Keeping the record in memory rather
+than in a project file only removes the easiest forgeries: a planted log file
+or an appended line.
 
 Nothing here decides anything. :mod:`argus.adapters.stream_progress` feeds the
 active captures; the Engineer round opens one around its turn and hands the
@@ -22,6 +25,7 @@ import itertools
 import re
 import threading
 import time
+from collections import OrderedDict
 from collections.abc import Iterator
 from contextlib import contextmanager
 from dataclasses import dataclass, field, replace
@@ -43,6 +47,8 @@ _KEY_LINES = 4
 _TAIL_LINES = 3
 _DIGEST_CHARS = 800
 _MAX_RUNS = 2_000
+_MAX_RESULTS = 4
+_TEXT_CHARS = 4_000
 
 
 def backend_records_command_results(backend: object) -> bool:
@@ -89,12 +95,22 @@ def _clip(line: str) -> str:
 
 
 @dataclass(frozen=True)
+class CommandResult:
+    """One result the CLI reported for a call."""
+
+    exit_code: int | None
+    failed: bool
+    output: str = ""
+
+
+@dataclass(frozen=True)
 class CommandRun:
-    """One tool call of a role as the host saw it.
+    """One tool call of a role as the CLI reported it.
 
     ``kind`` is ``"command"`` for a shell command and ``"tool"`` for any other
-    tool. ``exit_code`` is ``None`` until the CLI reports a result, and for a
-    failure reported without one (``failed`` then says so).
+    tool. ``results`` holds every distinct result reported for the call, in
+    arrival order; more than one is a conflict. ``unverified`` says why the
+    call cannot be tied to a reported start, or is empty.
     """
 
     call_id: str
@@ -102,51 +118,101 @@ class CommandRun:
     text: str
     started_at: float
     tool: str = ""
-    finished: bool = False
-    exit_code: int | None = None
-    failed: bool = False
-    output: str = ""
+    results: tuple[CommandResult, ...] = ()
+    unverified: str = ""
+
+    @property
+    def finished(self) -> bool:
+        return bool(self.results)
+
+    @property
+    def conflicting(self) -> bool:
+        return len(self.results) > 1
+
+    @property
+    def exit_code(self) -> int | None:
+        return self.results[0].exit_code if self.results else None
+
+    @property
+    def failed(self) -> bool:
+        return any(result.failed for result in self.results)
+
+    @property
+    def output(self) -> str:
+        return self.results[0].output if self.results else ""
+
+
+def _flat(text: str) -> str:
+    return " ".join(str(text or "").split())
+
+
+def _clip_text(text: str) -> str:
+    text = _redact(text)
+    if len(text) <= _TEXT_CHARS:
+        return text
+    return text[: _TEXT_CHARS - 1000] + " … " + text[-900:]
 
 
 @dataclass
 class CommandCapture:
-    """The calls of one role turn, in the order they started."""
+    """The calls of one role turn, in the order they started.
+
+    At most ``_MAX_RUNS`` calls are kept; the oldest give way to new ones and
+    ``dropped`` counts them.
+    """
 
     label: str
     started_at: float = field(default_factory=time.time)
-    _runs: dict[str, CommandRun] = field(default_factory=dict)
+    dropped: int = 0
+    _runs: OrderedDict[str, CommandRun] = field(default_factory=OrderedDict)
     _lock: threading.Lock = field(default_factory=threading.Lock, repr=False)
+
+    def _add(self, run: CommandRun) -> None:
+        while len(self._runs) >= _MAX_RUNS:
+            self._runs.popitem(last=False)
+            self.dropped += 1
+        self._runs[run.call_id] = run
 
     def start(self, call_id: str, kind: str, text: str, *, tool: str = "", ts: float | None = None) -> None:
         with self._lock:
-            if call_id in self._runs or len(self._runs) >= _MAX_RUNS:
-                return
-            self._runs[call_id] = CommandRun(
-                call_id=call_id, kind=kind, text=_redact(text), tool=tool,
-                started_at=time.time() if ts is None else ts,
-            )
+            run = self._runs.get(call_id)
+            if run is None:
+                self._add(CommandRun(
+                    call_id=call_id, kind=kind, text=_clip_text(text), tool=tool,
+                    started_at=time.time() if ts is None else ts,
+                ))
+            elif _flat(_clip_text(text)) != _flat(run.text) and not run.unverified:
+                self._runs[call_id] = replace(
+                    run, unverified="a second start named a different command: "
+                    + _flat(_clip_text(text))[:200],
+                )
 
     def finish(
         self, call_id: str, *, exit_code: int | None, failed: bool, output: str,
         kind: str = "command", text: str = "", tool: str = "", ts: float | None = None,
     ) -> None:
-        """Record a call's result once; a later result for the same call is ignored."""
+        """Record a result; a different later result is kept beside the first as a conflict."""
+        result = CommandResult(
+            exit_code=exit_code,
+            failed=failed or (exit_code is not None and exit_code != 0),
+            output=_redact(output_digest(output)),
+        )
         with self._lock:
             run = self._runs.get(call_id)
             if run is None:
-                if len(self._runs) >= _MAX_RUNS:
-                    return
-                run = CommandRun(
-                    call_id=call_id, kind=kind, text=_redact(text), tool=tool,
-                    started_at=time.time() if ts is None else ts,
-                )
-            elif run.finished:
+                self._add(CommandRun(
+                    call_id=call_id, kind=kind, text=_clip_text(text) or "(command not reported)",
+                    tool=tool, started_at=time.time() if ts is None else ts, results=(result,),
+                    unverified="no start was reported for this call",
+                ))
                 return
-            self._runs[call_id] = replace(
-                run, finished=True, exit_code=exit_code,
-                failed=failed or (exit_code is not None and exit_code != 0),
-                output=_redact(output_digest(output)),
-            )
+            unverified = run.unverified
+            if text and run.text and _flat(_clip_text(text)) != _flat(run.text) and not unverified:
+                unverified = "the result names a different command than its start"
+            results = run.results
+            if result not in results and len(results) < _MAX_RESULTS:
+                results = (*results, result)
+            self._runs[call_id] = replace(run, results=results, unverified=unverified)
 
     def runs(self) -> list[CommandRun]:
         with self._lock:
@@ -167,7 +233,8 @@ def anonymous_call_id() -> str:
 def capture(label: str) -> Iterator[CommandCapture]:
     """Record the calls the stream reports for ``label`` while the block runs.
 
-    A helper turn of the same role (``engineer-r2.winddown``) belongs to it.
+    Lines from ``label`` itself and from its dotted sub-labels count, but only
+    while the block is open; a later helper turn is not part of the record.
     """
     record = CommandCapture(label=label)
     with _ACTIVE_LOCK:
@@ -200,6 +267,7 @@ def captures_for(actor: str) -> list[CommandCapture]:
 __all__ = [
     "RESULT_RECORDING_BACKENDS",
     "CommandCapture",
+    "CommandResult",
     "CommandRun",
     "anonymous_call_id",
     "backend_records_command_results",

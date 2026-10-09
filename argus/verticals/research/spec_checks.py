@@ -734,6 +734,7 @@ def round_log_evidence(request: RoundEvidenceRequest) -> RoundEvidence | None:
             request.workdir, request.round_index,
             runs=getattr(request, "command_runs", ()) or (),
             events_path=getattr(request, "events_path", None),
+            dropped=int(getattr(request, "command_runs_dropped", 0) or 0),
         )
     except Exception:  # noqa: BLE001 - evidence must never break a round
         return None

@@ -121,9 +121,10 @@ def test_a_read_only_reviewer_never_asks_for_an_execution_tool() -> None:
 
 def test_host_records_are_read_for_what_they_ran() -> None:
     rule = REVIEW_EVIDENCE_RULE_READ_ONLY
-    assert "The host vouches only that a command ran and its exit code" in rule
+    assert "A record shows what the agent CLI reported, not proof" in rule
     assert "read the test or script it ran" in rule
-    for shape in ("pipes", "`|| true`", "test selection", "tests or checks edited this round"):
+    for shape in ("pipes", "`|| true`", "test selection", "checks edited this round",
+                  "conflicting or unverified results"):
         assert shape in rule
     assert "An Engineer-written check counts only once you have read it" in rule
     assert "one named check whose run the host records" in rule

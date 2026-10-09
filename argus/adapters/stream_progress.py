@@ -302,6 +302,9 @@ def make_stream_progress_callback(
     # toolCallId -> (name, kind, text) so a ``tool.execution_complete`` failure
     # can name the call that started earlier. Per-callback, like the buffers.
     tool_calls: dict[str, tuple[str, str, str]] = {}
+    # How many Codex CLI processes this callback has seen start (see
+    # ``thread.started`` below).
+    codex_process = [0]
     delta_interval_s = (
         _nonnegative_float_env(
             "ARGUS_SKILL_STREAM_PROGRESS_INTERVAL_S",
@@ -435,6 +438,23 @@ def make_stream_progress_callback(
             return
         et = str(event.get("type") or "").strip()
 
+        # Codex item ids restart in every CLI process (``item_0``…), and one
+        # turn can start a second process (an auth replay). Each
+        # ``thread.started`` opens a new namespace for the command record.
+        if et == "thread.started":
+            codex_process[0] += 1
+            return
+        if et == "item.started":
+            item = event.get("item") or {}
+            if isinstance(item, dict) and str(item.get("type") or "") == "command_execution":
+                item_id = str(item.get("id") or "")
+                for record in captures_for(actor):
+                    record.start(
+                        f"codex{codex_process[0]}:{item_id}" if item_id else anonymous_call_id(),
+                        "command", _extract_text(item), tool="shell",
+                    )
+            return
+
         # Codex / copilot dialect: {"type": "item.completed", "item": {...}}
         if et == "item.completed":
             item = event.get("item") or {}
@@ -460,9 +480,10 @@ def make_stream_progress_callback(
                 # A command's verdict is in its failure and summary lines and
                 # at its end, not in its first lines.
                 output_excerpt = output_digest(item.get("aggregated_output") or item.get("output"))
+                item_id = str(item.get("id") or "")
                 for record in captures_for(actor):
                     record.finish(
-                        str(item.get("id") or "") or anonymous_call_id(),
+                        f"codex{codex_process[0]}:{item_id}" if item_id else anonymous_call_id(),
                         exit_code=exit_code if isinstance(exit_code, int) else None,
                         failed=str(status or "").lower() == "failed",
                         output=str(item.get("aggregated_output") or item.get("output") or ""),
@@ -895,7 +916,9 @@ def make_stream_progress_callback(
             failed = success is False or (
                 isinstance(exit_code, int) and exit_code != 0
             )
-            if kind == "command_execution" and call_id:
+            if call_id and (kind == "command_execution" or isinstance(shell, dict)):
+                # Recorded even without a reported start: the record then marks
+                # the result unverified rather than dropping it.
                 for record in captures_for(actor):
                     record.finish(
                         call_id,
