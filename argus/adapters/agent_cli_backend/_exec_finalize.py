@@ -5,10 +5,6 @@
 persists the usage record to the durable ledger, emits a ``provider.call``
 metric, and closes the I/O context.
 
-:func:`finish_quota` finalises the Copilot circuit permit and emits
-the ``provider.request.completed`` event.  It is called on every path that
-got past the subprocess spawn (success, translation failure, subprocess
-exception) but *not* on pre-spawn admission-denial paths.
 """
 from __future__ import annotations
 
@@ -16,7 +12,6 @@ import logging
 import time
 from typing import TYPE_CHECKING
 
-from ...core.event_catalog import EventType
 from ...core.metrics import metrics_root_for_project, record_metric
 from ...core.models import RunnerResult
 from ...core.runner_errors import result_rejected_before_output
@@ -210,27 +205,3 @@ def finalize_result(
     backend._io_logger.close(ctx.call_id)
     return result
 
-
-def finish_quota(
-    ctx: "_ExecContext",
-    *,
-    success: bool,
-    error_text: str = "",
-) -> None:
-    backend = ctx.backend
-    safe_error_text = redact_secrets_text(
-        error_text,
-        known_values=backend._known_secret_values,
-    )
-    if ctx.copilot_permit is not None:
-        ctx.copilot_permit.finish(error_text=safe_error_text, success=success)
-    if ctx.event_permit is not None:
-        backend._log_agent_io(ctx.log_path, {
-            "type": EventType.PROVIDER_REQUEST_COMPLETED,
-            "provider": backend._backend_name,
-            "call_id": ctx.call_id,
-            "run_label": ctx.run_label,
-            "success": bool(success),
-            "error": (safe_error_text or "")[:500],
-            "ts": time.time(),
-        })

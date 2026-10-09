@@ -9,7 +9,7 @@ large set of per-call local variables.
 """
 from __future__ import annotations
 
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
@@ -59,8 +59,6 @@ class _ExecContext:
     # ------------------------------------------------------------------ #
     # Mutable: populated during the admission phase                        #
     # ------------------------------------------------------------------ #
-    copilot_permit: Any = field(default=None)
-    event_permit: Any = field(default=None)
     copilot_token_billing_expected: bool = False
     copilot_usage_cursor: Any = None
     # Provider-session identity Argus allocated for a NEW Copilot session and

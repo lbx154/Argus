@@ -8,9 +8,8 @@ handles all post-admission exit paths:
 * Result translation failure
 * Happy path (successful call, failed call, pre-provider refusal)
 
-On every path it calls :func:`._exec_finalize.finish_quota` and then
-:func:`._exec_finalize.finalize_result`, preserving the original order of
-quota settlement → I/O summary logging → usage accounting on each branch.
+On every path it calls :func:`._exec_finalize.finalize_result`, preserving
+the order of I/O summary logging → usage accounting on each branch.
 
 Note on ``capture_copilot_usage_cursor`` / ``read_copilot_usage_since``:
 these names are module-level so that test monkey-patches targeting
@@ -53,7 +52,7 @@ from ...provider_integrations.copilot_usage import (
     copilot_store_supports_token_billing,
     read_copilot_usage_since,
 )
-from ._exec_finalize import finalize_result, finish_quota
+from ._exec_finalize import finalize_result
 from ._io_log import _command_metadata
 from ._io_log import raw_transcript_path as _raw_transcript_path
 from ._result import _extract_copilot_premium_requests, looks_like_auth_failure
@@ -171,7 +170,7 @@ def _session_id_after_exception(ctx: "_ExecContext", exc: BaseException) -> str 
 def spawn_and_finish(ctx: "_ExecContext", cli_options: Any) -> RunnerResult:
     """Execute the provider subprocess and return a finalised ``RunnerResult``.
 
-    Calls :func:`finish_quota` and :func:`finalize_result` on every exit
+    Calls :func:`finalize_result` on every exit
     path.  The happy path additionally calls ``AgentIOLogger.close`` a first
     time (before writing the I/O-complete summary row) so that the raw stream
     is flushed in the correct replay order; ``finalize_result`` calls it a
@@ -216,7 +215,6 @@ def spawn_and_finish(ctx: "_ExecContext", cli_options: Any) -> RunnerResult:
             "(run_label=%s)",
             ctx.run_label,
         )
-        finish_quota(ctx, error_text=str(exc), success=False)
         backend._log_agent_io(ctx.log_path, {
             "type": EventType.AGENT_IO_ERROR,
             "io_kind": "error",
@@ -250,7 +248,6 @@ def spawn_and_finish(ctx: "_ExecContext", cli_options: Any) -> RunnerResult:
             "%s",
             failure,
         )
-        finish_quota(ctx, error_text=str(exc), success=False)
         backend._log_agent_io(ctx.log_path, {
             "type": EventType.AGENT_IO_ERROR,
             "io_kind": "error",
@@ -272,11 +269,6 @@ def spawn_and_finish(ctx: "_ExecContext", cli_options: Any) -> RunnerResult:
         )
     except Exception as exc:  # noqa: BLE001 — last-line safety net
         log.exception("codex runner raised")
-        finish_quota(
-            ctx,
-            error_text=f"{type(exc).__name__}: {exc}",
-            success=False,
-        )
         backend._log_agent_io(ctx.log_path, {
             "type": EventType.AGENT_IO_ERROR,
             "io_kind": "error",
@@ -329,11 +321,6 @@ def spawn_and_finish(ctx: "_ExecContext", cli_options: Any) -> RunnerResult:
             copilot_usage=copilot_usage,
         )
     except Exception as exc:  # noqa: BLE001
-        finish_quota(
-            ctx,
-            error_text=f"result translation failed: {exc}",
-            success=False,
-        )
         raw_usage = extract_token_usage(
             getattr(cli_result, "json_events", None)
         )
@@ -427,12 +414,6 @@ def spawn_and_finish(ctx: "_ExecContext", cli_options: Any) -> RunnerResult:
             ctx.run_label,
             int(getattr(cli_result, "exit_code", 0) or 0),
         )
-
-    finish_quota(
-        ctx,
-        error_text=terminal_diagnostic,
-        success=not failed,
-    )
 
     # ------------------------------------------------------------------ #
     # Log I/O complete                                                     #

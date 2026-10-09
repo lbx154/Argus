@@ -231,10 +231,8 @@ What Argus does limit is capacity, because one subscription CLI is shared by
 every project on the host. `ARGUS_SKILL_PROVIDER_MAX_CONCURRENCY` (default `0`,
 off) bounds concurrent provider processes and
 `ARGUS_SKILL_PROVIDER_SLOT_WAIT_SECONDS` (default `45`) how long a call waits for
-a slot; `ARGUS_SKILL_COPILOT_MAX_CONCURRENCY` (default `10000`) and
-`ARGUS_SKILL_COPILOT_GUARD` (default `on`) do the same for Copilot and add a
-cooldown after a policy or rate-limit refusal; `ARGUS_SKILL_MAX_ACTIVE_DAEMONS`
-(default `64`) caps running daemons. `--mission-width` (default 2) is the
+a slot. Both apply to every backend alike; no provider gets its own counter.
+`ARGUS_SKILL_MAX_ACTIVE_DAEMONS` (default `64`) caps running daemons. `--mission-width` (default 2) is the
 per-project counterpart; the roofline campaign used `1`, which is the right
 choice when the tasks share four GPUs.
 

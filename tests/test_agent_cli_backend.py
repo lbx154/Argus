@@ -623,7 +623,6 @@ def test_missing_copilot_resume_target_is_not_billed(
     root = tmp_path / "home"
     project = root / "projects" / "p1"
     monkeypatch.setenv("ARGUS_SKILL_HOME", str(root))
-    monkeypatch.setenv("ARGUS_SKILL_COPILOT_GUARD", "0")
     monkeypatch.setattr(
         "argus.adapters.agent_cli_backend._exec_spawn.capture_copilot_usage_cursor",
         lambda: None,
@@ -1195,7 +1194,6 @@ def test_copilot_policy_denial_with_exit_zero_sets_auth_failure(
     tmp_path,
 ) -> None:
     monkeypatch.setenv("ARGUS_SKILL_HOME", str(tmp_path))
-    monkeypatch.setenv("ARGUS_SKILL_COPILOT_GUARD", "1")
     monkeypatch.setenv("ARGUS_SKILL_COPILOT_SLOT_WAIT_S", "0")
     backend = AgentCliBackend(backend="copilot")
 
@@ -1222,9 +1220,6 @@ def test_copilot_policy_denial_with_exit_zero_sets_auth_failure(
 
     assert result.fatal_error == "Error: Access denied by policy settings"
     assert backend._auth_failure_detected is True
-    from argus.provider_integrations.copilot_guard import copilot_guard_snapshot
-
-    assert copilot_guard_snapshot()["blocked_until"] > 0
 
 
 def test_oauth_refresh_timeout_is_a_permanent_auth_blocker(
@@ -1576,7 +1571,6 @@ def test_run_exec_forwards_watchdog_hooks(
 def test_consumed_interrupt_returns_canonical_result_without_starting_provider(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    monkeypatch.setenv("ARGUS_SKILL_COPILOT_GUARD", "0")
     backend = AgentCliBackend(backend="copilot")
     provider_calls = 0
 
@@ -1916,7 +1910,6 @@ def test_context_parser_failure_uses_trusted_completion_receipt(tmp_path, monkey
     root = tmp_path / "home"
     project = root / "projects" / "p1"
     monkeypatch.setenv("ARGUS_SKILL_HOME", str(root))
-    monkeypatch.setenv("ARGUS_SKILL_COPILOT_GUARD", "0")
     monkeypatch.setattr(
         "argus.adapters.agent_cli_backend._exec_spawn.capture_copilot_usage_cursor",
         lambda: None,
