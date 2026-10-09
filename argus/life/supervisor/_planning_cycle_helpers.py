@@ -57,8 +57,11 @@ def _render_revision_request(
         + str(challenge.get("challenge") or _revision_reason(revision_request)),
         "- proposed_alternative: "
         + str(challenge.get("alternative") or "none; inspect evidence before choosing"),
-        "- remaining active nodes:",
     ]
+    instruction = str(challenge.get("manager_instruction") or "").strip()
+    if instruction:
+        lines.append("- manager_instruction: " + instruction)
+    lines.append("- remaining active nodes:")
     lines.extend(
         f"  - {item.node_key or item.id}: [{item.status}] {item.title}" for item in active_items
     )

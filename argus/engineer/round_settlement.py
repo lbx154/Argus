@@ -34,10 +34,46 @@ log = logging.getLogger(__name__)
 def _operator_questions_allowed(supervised_config: "SupervisedConfig") -> bool:
     root = supervised_config.operator_question_policy_root
     if root is not None:
-        from ..manager.directive import active_operator_question_policy
+        from ..manager.directive import effective_operator_question_policy
 
-        return active_operator_question_policy(root) != "forbid"
-    return bool(supervised_config.operator_questions_allowed)
+        return effective_operator_question_policy(root) != "forbid"
+    from ..core.autonomy import operator_available
+
+    return bool(supervised_config.operator_questions_allowed) and operator_available()
+
+
+def _record_forbidden_question(
+    review: ReviewDecision,
+    supervised_config: "SupervisedConfig",
+    action_need: str,
+) -> None:
+    """Without an operator, keep the record the run report is built from.
+
+    An operator-only need is a block, not an assumption; anything else the
+    team now settles itself is logged as a conflict whose chosen reading the
+    Engineer states (``ASSUMPTION=``) and CHECKPOINT.md keeps.
+    """
+    from ..core.autonomy import (
+        OPERATOR_ACTION_NEEDS,
+        operator_available,
+        record_autonomous_assumption,
+        record_operator_block,
+    )
+
+    root = getattr(supervised_config, "operator_question_policy_root", None)
+    if root is None or operator_available():
+        return
+    if action_need in OPERATOR_ACTION_NEEDS:
+        record_operator_block(
+            root, item_id="", reason=review.operator_question, operator_need=action_need
+        )
+        return
+    record_autonomous_assumption(
+        root,
+        item_id="",
+        conflict=review.operator_question,
+        source="round_question",
+    )
 
 
 def _enforce_operator_question_policy(
@@ -53,6 +89,16 @@ def _enforce_operator_question_policy(
         and state.rounds[-1].review.review_source
         in OPERATOR_QUESTION_POLICY_REVIEW_SOURCES
     )
+    from ..core.autonomy import OPERATOR_ACTION_NEEDS, normalize_operator_need
+
+    raw_report = review.planner_report if isinstance(review.planner_report, dict) else {}
+    action_need = normalize_operator_need(raw_report.get("operator_need"))
+    if action_need in OPERATOR_ACTION_NEEDS:
+        # The raising role said this needs an action only the operator can
+        # enable. Continuing "autonomously" could only mean faking it, so the
+        # mission ends blocked at once and says what was missing.
+        repeated = True
+    _record_forbidden_question(review, supervised_config, action_need)
     # ReviewDecision is a plain dataclass, so nothing enforces this field's
     # type at runtime, and it carries model-derived data into a completion
     # decision. ``core.models.ReviewDecision.to_event_payload`` guards the same
@@ -67,6 +113,10 @@ def _enforce_operator_question_policy(
             "authority_impact": "technical",
         }
     )
+    if action_need in OPERATOR_ACTION_NEEDS:
+        planner_report["operator_need"] = action_need
+    else:
+        planner_report.pop("operator_need", None)
     source = (
         "engineer_operator_question_policy"
         if review.review_source == "engineer_operator_question"
@@ -76,7 +126,10 @@ def _enforce_operator_question_policy(
         review,
         status="blocked" if repeated else "continue",
         reason=(
-            "Operator questions are forbidden and the autonomous continuation did "
+            f"Blocked: this needs an operator-only action ({action_need}) and no "
+            f"operator can be asked: {review.operator_question}"[:1200]
+            if action_need in OPERATOR_ACTION_NEEDS
+            else "Operator questions are forbidden and the autonomous continuation did "
             "not clear the obstacle; state is preserved."
             if repeated
             else "Operator questions are forbidden; the obstacle remains owned by "

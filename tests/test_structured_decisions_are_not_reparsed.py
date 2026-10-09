@@ -407,3 +407,32 @@ def test_first_valid_role_decision_event_wins() -> None:
     )
 
     assert latest_role_decision(result, "reviewer")["status"] == "blocked"
+
+
+def test_the_engineers_operator_need_travels_with_its_question() -> None:
+    structured = decision_engineer_handoff({
+        "status": "blocked",
+        "next_owner": "operator",
+        "operator_question": "Use the production deployment key?",
+        "operator_need": "credentials",
+    })
+    assert structured.waits_for_operator
+    assert structured.operator_need == "credentials"
+
+    footer = parse_engineer_handoff(
+        "Decision:\n"
+        "MILESTONE_STATUS=blocked\n"
+        "NEXT_OWNER=operator\n"
+        "OPERATOR_QUESTION=Which release rule wins?\n"
+        "OPERATOR_NEED=scope_or_authority\n"
+    )
+    assert footer.operator_need == "scope_or_authority"
+
+    unclassified = parse_engineer_handoff(
+        "Decision:\n"
+        "MILESTONE_STATUS=blocked\n"
+        "NEXT_OWNER=operator\n"
+        "OPERATOR_QUESTION=Provide packet access; production credentials are unnecessary.\n"
+    )
+    assert unclassified.waits_for_operator
+    assert unclassified.operator_need == ""

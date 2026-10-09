@@ -784,14 +784,14 @@ class SkillLoopExecuteMixin:
         config_kwargs["engineer_log_path"] = (
             str(_project_state_dir / "events.jsonl") if _project_state_dir is not None else ""
         )
-        from ..manager.directive import active_operator_question_policy
+        from ..manager.directive import effective_operator_question_policy
 
         explicit_operator_root = str(getattr(args, "operator_context_dir", "") or "").strip()
         operator_policy_root = (
             Path(explicit_operator_root).expanduser() if explicit_operator_root else _project_state_dir
         )
         config_kwargs["operator_questions_allowed"] = (
-            active_operator_question_policy(operator_policy_root) != "forbid"
+            effective_operator_question_policy(operator_policy_root) != "forbid"
         )
         config_kwargs["operator_question_policy_root"] = operator_policy_root
         # Campaign lifetime metadata forwarded from the daemon namespace so the

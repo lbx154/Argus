@@ -74,6 +74,24 @@ def outcome_manuscript_binding(outcome: object) -> dict[str, str] | None:
     return None
 
 
+
+def _operator_classification(outcome: Any) -> dict[str, str]:
+    report = getattr(outcome, "final_planner_report", None)
+    report = report if isinstance(report, dict) else {}
+    from ...core.autonomy import normalize_operator_need
+
+    fields: dict[str, str] = {}
+    need = normalize_operator_need(report.get("operator_need"))
+    if need:
+        fields["operator_need"] = need
+    authority = str(report.get("authority_impact") or "").strip().lower()
+    if authority:
+        fields["authority_impact"] = authority
+    next_action = str(getattr(outcome, "final_review_next_action", "") or "").strip()
+    if next_action and not bool(getattr(outcome, "success", False)):
+        fields["next_action"] = next_action[:1200]
+    return fields
+
 class MissionExecutionSettlementMixin:
     """Repair settlement, stage guard, final status, and journal emission."""
 
@@ -557,20 +575,31 @@ class MissionExecutionSettlementMixin:
         ).strip()
         operator_question_policy = "unchanged"
         if operator_question:
-            from ...manager.directive import active_operator_question_policy
+            from ...manager.directive import effective_operator_question_policy
 
-            operator_question_policy = active_operator_question_policy(
+            operator_question_policy = effective_operator_question_policy(
                 self._artifact_root()
             )
             from ...core.autonomy import (
+                NO_OPERATOR_NEED,
                 assess_operator_intervention,
+                autonomous_operator_resolution,
+                normalize_operator_need,
+                operator_available,
                 resolve_autonomy_mode,
                 technical_continuation,
             )
 
+            raised_need = normalize_operator_need(
+                (getattr(outcome, "final_planner_report", {}) or {}).get("operator_need")
+                if isinstance(getattr(outcome, "final_planner_report", None), dict)
+                else ""
+            )
             if (
                 operator_question_policy == "forbid"
                 or resolve_autonomy_mode() == "autonomous"
+                # The raiser itself said the team can decide this.
+                or raised_need == NO_OPERATOR_NEED
             ):
                 planner_report = dict(
                     getattr(outcome, "final_planner_report", {}) or {}
@@ -633,6 +662,33 @@ class MissionExecutionSettlementMixin:
                     operator_question = ""
                     if status in {"blocked", "replan_requested"}:
                         status = "replan_requested"
+                elif (
+                    operator_question_policy == "forbid"
+                    and not operator_available()
+                    and status in {"blocked", "replan_requested"}
+                    and autonomous_operator_resolution(intervention.operator_need)
+                    == "assume"
+                ):
+                    # Nobody will answer, and the raising role did not name an
+                    # action only the operator can enable: the question is a
+                    # scope or interpretation decision. Hand it to the Manager
+                    # as an operator-owned challenge without a question; the
+                    # Manager settles it on the most defensible reading and the
+                    # Planner records that assumption.
+                    planner_report.update({
+                        "forward_progress": False,
+                        "plan_signal": "reconsider",
+                        "challenge": str(
+                            planner_report.get("challenge") or operator_question
+                        ),
+                        "authority_impact": "operator",
+                        "operator_need": intervention.operator_need,
+                    })
+                    setattr(outcome, "final_planner_report", planner_report)
+                    setattr(outcome, "operator_question", "")
+                    setattr(outcome, "operator_options", [])
+                    operator_question = ""
+                    status = "replan_requested"
         research_pause = status in {
             "research_incomplete",
             "paused_no_breakthrough",
@@ -772,6 +828,26 @@ class MissionExecutionSettlementMixin:
         ):
             self._share_reviewed_wiki_pages(state, manager_decision)
 
+        if status == "blocked" and not success:
+            from ...core.autonomy import (
+                OPERATOR_ACTION_NEEDS,
+                operator_available,
+                record_operator_block,
+            )
+
+            blocked_need = _operator_classification(outcome).get("operator_need", "")
+            if blocked_need in OPERATOR_ACTION_NEEDS and not operator_available():
+                record_operator_block(
+                    self._project_state_root(),
+                    item_id=item.id,
+                    reason=str(
+                        getattr(outcome, "final_review_reason", "")
+                        or state.stop_reason
+                        or operator_question
+                        or ""
+                    ),
+                    operator_need=blocked_need,
+                )
         forbid_operator_parking = False
         if status == "blocked" and operator_question:
             forbid_operator_parking = (
@@ -1350,6 +1426,9 @@ class MissionExecutionSettlementMixin:
             "operator_question": str(
                 getattr(outcome, "operator_question", "") or ""
             ).strip(),
+            # The raising role's own classification travels with the outcome
+            # so the operator-facing message can say whose decision this is.
+            **_operator_classification(outcome),
             "agent_layer": "engineer",
             "engineer_model": self.engineer_model,
             "reviewer_model": self.reviewer_model,

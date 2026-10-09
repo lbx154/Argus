@@ -753,6 +753,9 @@ class PlanningContextMixin:
 
     def _record_planner_waiting(self, verdict: Any) -> str:
         contract = getattr(verdict, "waiting_contract", None)
+        settled = self._settle_operator_wait_without_operator(verdict, contract)
+        if settled:
+            return settled
         contract_state = (
             self._persist_planner_waiting_contract(contract) if contract is not None else None
         )
@@ -776,6 +779,94 @@ class PlanningContextMixin:
         )
         self._emit_status(f"awaiting external dependency: {reason}")
         return PLAN_AWAITING
+
+    def _settle_operator_wait_without_operator(
+        self, verdict: Any, contract: Any
+    ) -> str:
+        """Without an operator, settle a Planner wait that only one could end.
+
+        The same path a mission challenge takes: the Manager decides on the
+        most defensible interpretation, records the assumption, and asks the
+        Planner once more with that instruction. Only if the Planner still
+        waits on the operator for the same blocker is the wait recorded (and a
+        bounded run then ends as blocked: needs operator).
+        """
+        if contract is None or not bool(getattr(contract, "operator_action_required", False)):
+            return ""
+        from ...core.autonomy import (
+            AUTONOMOUS_ASSUMPTION_INSTRUCTION,
+            operator_available,
+            read_autonomous_assumptions,
+            record_autonomous_assumption,
+        )
+
+        if operator_available():
+            return ""
+        from ...core.autonomy import read_operator_blocks
+
+        if read_operator_blocks(self._project_state_root()):
+            # This run already ended work on an operator-only need (real
+            # credentials, spending, an irreversible step). A wait that
+            # follows from it is that block, not a question of meaning to
+            # assume away; it is recorded and the run ends blocked.
+            return ""
+        key = str(getattr(contract, "blocker_fingerprint", "") or "").strip()
+        condition = str(
+            getattr(contract, "recheck_condition", "")
+            or getattr(verdict, "waiting_reason", "")
+            or getattr(verdict, "reason", "")
+            or ""
+        ).strip()
+        if not key or any(
+            row.get("key") == key and row.get("source") == "planner_wait"
+            for row in read_autonomous_assumptions(self._project_state_root())
+        ):
+            return ""
+        record_autonomous_assumption(
+            self._project_state_root(),
+            item_id="",
+            conflict=condition,
+            source="planner_wait",
+            key=key,
+        )
+        persisted = self._persist_manager_planner_feedback(
+            stage=str(self._current_pipeline_stage() or ""),
+            reason=(
+                "You waited for an operator decision ("
+                + condition[:600]
+                + "), but no operator is available in this run. "
+                + AUTONOMOUS_ASSUMPTION_INSTRUCTION
+                + " Plan the work on that interpretation now, or end the "
+                "campaign blocked if what is missing is an operator-only action."
+            ),
+            diagnostic="no_operator_assumption",
+        )
+        if not persisted:
+            return ""
+        self._emit({
+            "type": EventType.LIFE_MANAGER_PLAN_CHALLENGE_DECIDED,
+            "item_id": "",
+            "manager_action": "revise",
+            "manager_reason": (
+                "No operator is available, so the Manager settles the Planner's "
+                "operator wait on the most defensible interpretation."
+            ),
+            "challenge": condition,
+            "alternative": "",
+            "authority_impact": "operator",
+            "source": "no_operator_planner_wait",
+            "autonomous_assumption": True,
+            "text": (
+                "Manager decided without an operator instead of waiting: "
+                + condition[:240]
+            ),
+        })
+        self._emit_status(
+            "Decided without an operator (assumption recorded for the report): "
+            + condition[:240]
+        )
+        self._reset_idle_backoff()
+        return PLAN_RETRY
 
     def _planner_waiting_contract_path(self) -> Path:
         root = Path(
@@ -896,6 +987,19 @@ class PlanningContextMixin:
             except FileNotFoundError:
                 pass
 
+    def _manager_directive_signature(self) -> list[str]:
+        from ...manager.directive import load_active_manager_directive
+
+        record = load_active_manager_directive(operator_context_state_root(self.memory))
+        if record is None:
+            return []
+        return [
+            str(record.source or ""),
+            str(record.revision or ""),
+            str(record.set_at or ""),
+            hashlib.sha256(str(record.text or "").encode("utf-8")).hexdigest()[:16],
+        ]
+
     def _planner_visible_input_signature(
         self,
         *,
@@ -932,6 +1036,9 @@ class PlanningContextMixin:
                     self._render_research_plan_for_planner().encode("utf-8")
                 ).hexdigest(),
                 "operator_context_revision": int(operator_context_revision),
+                # The Manager's advisory direction reaches the Planner through
+                # OperatorContext without moving its revision counter.
+                "manager_directive": self._manager_directive_signature(),
                 "manager_feedback": (
                     None
                     if feedback is None
@@ -1058,9 +1165,28 @@ class PlanningContextMixin:
         ):
             self._planner_unchanged_skip_signature = state.planner_input_signature
             self._planner_unchanged_skip_armed_at = time.monotonic()
+            self._refresh_operator_wait_signature()
         else:
             self._planner_unchanged_skip_signature = ""
             self._planner_unchanged_skip_armed_at = None
+
+    def _refresh_operator_wait_signature(self) -> None:
+        """Fingerprint the Planner's inputs after a granted turn has run.
+
+        A fingerprint taken before the call would count the Planner's own
+        writes during that turn as new input and buy one more call.
+        """
+        try:
+            contract = self._load_planner_waiting_contract_state()
+        except Exception:  # noqa: BLE001 - bookkeeping only
+            return
+        if not isinstance(contract, dict) or not contract.get("idle_capacity_turn_used"):
+            return
+        current = self._operator_wait_input_signature()
+        if current and current != contract.get("idle_capacity_input_signature"):
+            contract["idle_capacity_input_signature"] = current
+            contract["updated_at"] = time.time()
+            self._write_planner_waiting_contract_state(contract)
 
     def _backlog_planning_signature(self) -> str:
         """Digest of live backlog item ids and statuses.
@@ -1342,10 +1468,12 @@ class PlanningContextMixin:
                         payload["idle_capacity_turn_ts"] = previous[
                             "idle_capacity_turn_ts"
                         ]
-                    if "idle_capacity_backlog_revision" in previous:
-                        payload["idle_capacity_backlog_revision"] = previous[
-                            "idle_capacity_backlog_revision"
-                        ]
+                    for carried in (
+                        "idle_capacity_backlog_revision",
+                        "idle_capacity_input_signature",
+                    ):
+                        if carried in previous:
+                            payload[carried] = previous[carried]
         except (OSError, ValueError):
             pass
         path.parent.mkdir(parents=True, exist_ok=True)
@@ -1597,6 +1725,9 @@ class PlanningContextMixin:
             state["idle_capacity_backlog_revision"] = (
                 self._waiting_backlog_revision()
             )
+            state["idle_capacity_input_signature"] = (
+                self._operator_wait_input_signature()
+            )
             state["updated_at"] = time.time()
             self._write_planner_waiting_contract_state(state)
             # This grant IS the decision to spend one Planner call — the
@@ -1697,7 +1828,44 @@ class PlanningContextMixin:
         if not state.get("operator_action_required"):
             return False
         granted = float(state.get("idle_capacity_turn_ts") or 0.0)
-        return time.time() - granted >= OPERATOR_WAIT_TURN_REGRANT_SECONDS
+        if time.time() - granted < OPERATOR_WAIT_TURN_REGRANT_SECONDS:
+            return False
+        # When the only thing pending is an answer to a question already put
+        # to the operator, time passing is not news: a Planner call on the
+        # same inputs can only repeat its wait, and every call is billed. A
+        # change in anything the Planner reads (the answer itself moves the
+        # backlog, which re-grants above) still earns the turn.
+        recorded = str(state.get("idle_capacity_input_signature") or "")
+        if recorded and self._only_operator_answer_pending():
+            return self._operator_wait_input_signature() != recorded
+        return True
+
+    def _operator_wait_input_signature(self) -> str:
+        """The Planner-visible input digest, as the operator-wait regrant sees it."""
+        return self._planner_visible_input_signature(
+            operator_context_revision=int(
+                getattr(self, "_planning_operator_context_revision", 0) or 0
+            )
+        )
+
+    def _only_operator_answer_pending(self) -> bool:
+        """Is an open operator question the only thing this campaign waits on?"""
+        probe = getattr(self, "_pending_operator_questions", None)
+        if not callable(probe):
+            return False
+        try:
+            questions = probe()
+        except Exception:  # noqa: BLE001 - unknown is not "only the operator"
+            return False
+        if not questions:
+            return False
+        try:
+            return any(
+                item.status == "paused_operator"
+                for item in self.memory.backlog.active()
+            )
+        except Exception:  # noqa: BLE001
+            return False
 
     def _confined_planner_wait_paths(self, values: list[str]) -> list[str]:
         """Validate watched paths before they can influence revision reads."""
@@ -2020,6 +2188,7 @@ class PlanningContextMixin:
                         "idle_capacity_turn_used",
                         "idle_capacity_turn_ts",
                         "idle_capacity_backlog_revision",
+                        "idle_capacity_input_signature",
                     )
                     if key in previous
                 }

@@ -258,6 +258,27 @@ def build_parser() -> argparse.ArgumentParser:
              "keeps generating new work forever)",
     )
     daemon_grp.add_argument(
+        "--no-operator",
+        dest="no_operator",
+        action="store_true",
+        help="declare that nobody will answer operator questions during this run "
+             "(headless or benchmark runs). The Manager settles such decisions "
+             "itself on the most defensible interpretation, records the "
+             "assumption, and continues instead of waiting. Same as "
+             "ARGUS_SKILL_OPERATOR_AVAILABLE=false. --bounded alone does not "
+             "imply this, because a bounded run is often watched.",
+    )
+    daemon_grp.add_argument(
+        "--operator-wait-exit",
+        dest="operator_wait_exit",
+        choices=("auto", "on", "off"),
+        default="auto",
+        help="whether a bounded run whose only remaining work is an unanswered "
+             "operator question ends as 'blocked: needs operator' after "
+             "ARGUS_SKILL_BOUNDED_OPERATOR_WAIT_EXIT_MIN minutes. auto (default): "
+             "on for a foreground --daemon-fg --bounded run, off otherwise.",
+    )
+    daemon_grp.add_argument(
         "--mission-width",
         type=_mission_width,
         default=2,

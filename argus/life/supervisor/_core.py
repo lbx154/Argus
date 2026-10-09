@@ -551,15 +551,23 @@ class LifeSupervisor(
         if action not in {"keep", "revise", "replace", "ask_operator"}:
             action = "revise"
         if action == "ask_operator":
-            from ...manager.directive import active_operator_question_policy
+            from ...manager.directive import effective_operator_question_policy
 
-            if active_operator_question_policy(self.memory.root) == "forbid":
-                from ...core.autonomy import assess_operator_intervention
+            if effective_operator_question_policy(self.memory.root) == "forbid":
+                from ...core.autonomy import (
+                    AUTONOMOUS_ASSUMPTION_INSTRUCTION,
+                    OPERATOR_ACTION_NEEDS,
+                    normalize_operator_need,
+                    operator_available,
+                    record_autonomous_assumption,
+                )
+                from ...manager.plan_boundary import assess_plan_boundary
 
                 reviewer_alternative = str(
                     challenge.get("alternative") or ""
                 ).strip()
-                boundary = assess_operator_intervention(
+                # dev's own boundary check, unchanged.
+                boundary = assess_plan_boundary(
                     question=str(
                         challenge.get("operator_question")
                         or outcome.get("operator_question")
@@ -572,17 +580,71 @@ class LifeSupervisor(
                     planner_report={},
                     mode="autonomous",
                 )
-                action = "blocked" if boundary.required else "revise"
-                challenge["manager_reason"] = (
-                    "Operator questions are forbidden and do not grant authority; "
-                    + (
-                        "no in-scope revision can cross this operator-owned boundary, "
-                        "so the mission is blocked without a question."
-                        if action == "blocked"
-                        else "the Planner must revise strictly within existing "
+                nobody_to_ask = not operator_available()
+                need = normalize_operator_need(
+                    challenge.get("operator_need")
+                    or (report.get("operator_need") if isinstance(report, dict) else "")
+                )
+                # Without an operator, a need the raising role classified as an
+                # operator-only action blocks too: nobody can enable it.
+                blocked = boundary.required or (
+                    nobody_to_ask and need in OPERATOR_ACTION_NEEDS
+                )
+                action = "blocked" if blocked else "revise"
+                if blocked:
+                    challenge["manager_reason"] = (
+                        (
+                            "No operator is available in this run"
+                            + (
+                                f" and the work needs an operator-only action ({need})"
+                                if need in OPERATOR_ACTION_NEEDS
+                                else ""
+                            )
+                            + "; no in-scope revision can cross this "
+                            "operator-owned boundary, so the mission is blocked "
+                            "without a question."
+                        )
+                        if nobody_to_ask
+                        else "Operator questions are forbidden and do not grant "
+                        "authority; no in-scope revision can cross this "
+                        "operator-owned boundary, so the mission is blocked "
+                        "without a question."
+                    )
+                    if need in OPERATOR_ACTION_NEEDS:
+                        challenge["operator_need"] = need
+                elif nobody_to_ask:
+                    # Only a run that declared no operator settles the open
+                    # decision on an assumption; a directive that merely
+                    # forbids questions keeps dev's stricter revision.
+                    challenge["manager_reason"] = (
+                        "No operator is available in this run, so the Manager "
+                        "settles the open decision itself: the Planner revises "
+                        "within existing authority on the most defensible "
+                        "interpretation and records that assumption."
+                    )
+                    challenge["manager_instruction"] = AUTONOMOUS_ASSUMPTION_INSTRUCTION
+                    challenge["autonomous_assumption"] = True
+                    conflict = str(
+                        challenge.get("challenge")
+                        or outcome.get("review_reason")
+                        or ""
+                    ).strip()
+                    record_autonomous_assumption(
+                        self._project_state_root(),
+                        item_id=str(outcome.get("item_id") or ""),
+                        conflict=conflict,
+                        source="mission_challenge",
+                    )
+                    self._emit_status(
+                        "Decided without an operator (assumption recorded for the "
+                        f"report): {conflict[:240]}"
+                    )
+                else:
+                    challenge["manager_reason"] = (
+                        "Operator questions are forbidden and do not grant authority; "
+                        "the Planner must revise strictly within existing "
                         "authority without using the Reviewer alternative."
                     )
-                )
                 challenge["authority_impact"] = "operator"
                 challenge["alternative"] = ""
                 challenge["operator_question"] = ""
@@ -650,6 +712,14 @@ class LifeSupervisor(
             reason = str(challenge.get("manager_reason") or "").strip()
             outcome["status"] = "blocked"
             outcome["review_status"] = "blocked"
+            from ...core.autonomy import record_operator_block
+
+            record_operator_block(
+                self._project_state_root(),
+                item_id=item_id,
+                reason=reason,
+                operator_need=str(challenge.get("operator_need") or ""),
+            )
             self.memory.backlog.update(
                 item_id,
                 status="failed",
@@ -2002,9 +2072,16 @@ class LifeSupervisor(
                     next_action=next_action,
                     planner_report={
                         "authority_impact": (
-                            "operator" if status == "paused_operator" else ""
-                        )
+                            "operator"
+                            if status == "paused_operator"
+                            else str(event.get("authority_impact") or "")
+                        ),
+                        "operator_need": event.get("operator_need") or "",
                     },
+                    # This only describes an outcome; it routes no question,
+                    # so an unclassified blocker is not presented as the
+                    # operator's decision.
+                    unclassified_requires_operator=False,
                 )
                 if operator_question:
                     publish_operator_message(
@@ -2082,6 +2159,15 @@ class LifeSupervisor(
                     if chinese
                     else "This run ended without an openable deliverable."
                 )
+            assumptions_line = ""
+            if success and overall_complete:
+                from ...core.autonomy import render_autonomous_assumptions
+
+                # What was decided without an operator belongs in the
+                # completion message, not only in the event log.
+                assumptions_line = render_autonomous_assumptions(
+                    self._project_state_root()
+                )
             publish_operator_message(
                 life_dir,
                 text="\n".join(
@@ -2091,6 +2177,7 @@ class LifeSupervisor(
                         summary_line,
                         delivery_line,
                         continuation,
+                        assumptions_line,
                     )
                     if part
                 ),

@@ -272,7 +272,8 @@ def test_harbor_directly_installs_and_invokes_argus(
     assert "sk-test-sensitive-value" not in auth_command
     _assert_bash_syntax(auth_command)
     runtime = next(command for command in commands if "--daemon-fg" in command)
-    assert "--continuous --bounded --new" in runtime
+    # A Harbor trial is headless: it declares that nobody answers questions.
+    assert "--continuous --bounded --no-operator --new" in runtime
     assert "--objective-file /logs/agent/argus-objective.txt" in runtime
     assert "--life-dir /logs/agent/argus-state" in runtime
     assert "Fix the task" not in runtime
@@ -283,6 +284,7 @@ def test_harbor_directly_installs_and_invokes_argus(
     assert runtime_call["env"]["ARGUS_SKILL_MODEL"] == "gpt-5.4-mini"
     assert runtime_call["env"]["ARGUS_SKILL_REQUIRE_INDEPENDENT_REVIEW"] == "1"
     assert runtime_call["env"]["ARGUS_SKILL_FORCE_STAGE_CLOSING"] == "1"
+    assert runtime_call["env"]["ARGUS_SKILL_OPERATOR_AVAILABLE"] == "false"
     assert environment.uploads[0][1] == "/logs/agent/argus-objective.txt"
     assert environment.uploads[0][0].read_text(encoding="utf-8") == (
         "Fix the task through the full Argus team."

@@ -34,6 +34,7 @@ import {
 const KNOB_TEXT: Record<string, { label: string; doc: string }> = {
   ARGUS_SKILL_MAX_ACTIVE_DAEMONS: { label: 'settings.knob.activeDaemons', doc: 'settings.knob.activeDaemonsDoc' },
   ARGUS_SKILL_SAFE_MODE: { label: 'settings.knob.safeMode', doc: 'settings.knob.safeModeDoc' },
+  ARGUS_SKILL_OPERATOR_AVAILABLE: { label: 'settings.knob.operatorAvailable', doc: 'settings.knob.operatorAvailableDoc' },
   ARGUS_SKILL_ENABLE_TELEGRAM: { label: 'settings.knob.telegram', doc: 'settings.knob.telegramDoc' },
   ARGUS_SKILL_SHOW_REASONING: { label: 'settings.knob.showReasoning', doc: 'settings.knob.showReasoningDoc' },
 };
@@ -59,7 +60,7 @@ function configSourceLabel(source: string, t: Translate): string {
 
 function configValueLabel(knob: DisplayConfigKnob, t: Translate): string {
   const value = knob.value.trim().toLowerCase();
-  if (['ARGUS_SKILL_SAFE_MODE', 'ARGUS_SKILL_ENABLE_TELEGRAM', 'ARGUS_SKILL_SHOW_REASONING'].includes(knob.name)) {
+  if (['ARGUS_SKILL_SAFE_MODE', 'ARGUS_SKILL_OPERATOR_AVAILABLE', 'ARGUS_SKILL_ENABLE_TELEGRAM', 'ARGUS_SKILL_SHOW_REASONING'].includes(knob.name)) {
     return t(['1', 'true', 'on', 'yes'].includes(value) ? 'settings.value.enabled' : 'settings.value.disabled');
   }
   return knob.value;

@@ -54,6 +54,13 @@ class PlanningCycleIntakeMixin:
 
     def _emit_bounded_project_completion(self, reason: str) -> bool | str:
         """Record bounded completion, then deliver the Manager project report."""
+        from ...core.autonomy import render_autonomous_assumptions
+
+        assumptions = render_autonomous_assumptions(self._project_state_root())
+        if assumptions:
+            # Honest completion: a run that decided without an operator says
+            # so in its completion summary, not only in the event log.
+            reason = f"{reason}\n{assumptions}" if reason else assumptions
         delivered = self._emit_planner_verdict(
             status=PlannerVerdictStatus.COMPLETED,
             completion_kind="project_completed",

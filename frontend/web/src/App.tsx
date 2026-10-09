@@ -19,6 +19,7 @@ import { DoctorModal, ConfigModal, IdentityModal, TranscriptModal } from './comp
 import { PendingBanner } from './components/PendingBanner';
 import { PendingReplyDialog } from './components/PendingReplyDialog';
 import { GuardianBanner } from './components/GuardianBanner';
+import { NoOperatorBanner } from './components/NoOperatorBanner';
 import { hasHumanProjectLabel, rankProjects } from '../../core/src/projects';
 import { ArtifactModal } from './components/ArtifactModal';
 import { QuestionFoundation } from './research-brief/QuestionFoundation';
@@ -1098,6 +1099,7 @@ export default function App() {
         {snap ? (
           <>
             <section className={`${mobileView === 'activity' ? 'flex' : 'hidden'} ${workspaceView === 'map' && !kiosk ? 'mobile-scroll-region' : ''} glass-panel glass-panel--main h-full min-w-0 flex-1 flex-col lg:flex`}>
+              <NoOperatorBanner sid={loadedSid} />
               {workspaceView !== 'map' && <TopBar
                 events={activityEvents}
                 snap={snap}

@@ -34,6 +34,28 @@ _POSIX_LONG_EXPERIMENT_RULE = (
     "`check_with` response; on `state=discussing` answer with `reply_with` "
     "and do not poll in the foreground."
 )
+# The Engineer, not a word list, decides whether its question needs a person.
+def engineer_operator_handoff_rule() -> str:
+    """How the Engineer hands a decision to the operator in this run."""
+    from ...core.autonomy import operator_available
+
+    if not operator_available():
+        return (
+            "No operator is available in this run: never use next_owner=operator. "
+            "Settle only what a requirement means, on the most defensible reading; "
+            "record it in CHECKPOINT.md and state it as ASSUMPTION=<the reading "
+            "you chose>. Never assume facts or results, or fake credentials or "
+            "services; if a required input or operator-only action is missing, "
+            "report blocked and say what."
+        )
+    return (
+        "Use next_owner=operator only for a real operator decision; include one "
+        "operator_question, at most five operator_options, and one "
+        "OPERATOR_NEED=credentials (or spending, irreversible_or_external, "
+        "scope_or_authority, none); that parks the task."
+    )
+
+
 _PERFORMANCE_DIAGNOSTIC_RULE = (
     "Performance root-cause/bottleneck/replacement claims need hot-path/live-resource "
     "evidence plus timing/profiling or controlled A/B. Correctness smoke tests can "
@@ -323,9 +345,9 @@ def build_mission_prompt(
         "## Carrying context between rounds\n"
         "CHECKPOINT.md is the only file you maintain to carry context between rounds; do not create "
         "separate summaries or collections of evidence. Host invokes Reviewer only when required; do not "
-        "spawn a Reviewer subagent. Normally set next_owner=reviewer. Use operator only "
-        "for a real operator decision; include one operator_question and at most five "
-        "operator_options; that parks the task, so record it and yield. Options use "
+        "spawn a Reviewer subagent. Normally set next_owner=reviewer. "
+        + engineer_operator_handoff_rule()
+        + " Options use "
         "`id::label::description`, or `id::true::label::description` when a note "
         "is required.\n\n"
         + RESEARCHER_VOICE + "\n\n"
@@ -404,9 +426,8 @@ def build_mission_prompt(
         + _long_experiment_rule()
         + "\n\n"
         "## Carrying context between rounds\n"
-        "Use next_owner=operator only for an operator-owned choice; its question "
-        "parks the task. Include operator_question and operator_options in that "
-        "decision.\n\n"
+        + engineer_operator_handoff_rule()
+        + "\n\n"
         + RESEARCHER_VOICE + "\n\n"
         + decision_footer_instruction(
             "MILESTONE_STATUS=done\n"
