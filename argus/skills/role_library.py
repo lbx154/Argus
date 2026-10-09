@@ -128,16 +128,17 @@ def render_skill_library_paths(
         "Bundled defaults are read-only; save learning in project or shared libraries.\n"
         + "\n".join(lines)
         + required_block
-        + "\n\nUse native Skill descriptions to decide whether a procedure helps this task, "
-        "in the language of the operator's request. Read the selected Skill before "
-        "applying it; if nothing fits, open nothing. Required paths above must be read "
-        "when the current operation assigns them. Do not treat a keyword overlap as "
-        "proof of relevance, scan all bodies, or start a separate selection Agent. "
-        "If native descriptions are unavailable, use one targeted filename/frontmatter "
-        "search in OWN paths, then REFERENCE paths if necessary. These paths are the "
-        "portable fallback. A different role's Skill is reference material, not a "
-        "reassignment of authority. Task, evidence and current authorization override "
-        "Skills. No unmatched or automatically guessed bodies are injected."
+        + "\n\nUse native Skill descriptions when the CLI lists them; otherwise these paths "
+        "are the portable fallback: run one targeted filename/frontmatter search in OWN "
+        "paths, then REFERENCE paths. "
+        "Choose in the language of the operator's request; keyword overlap is not "
+        "proof of relevance, so do not scan all bodies or start a separate selection "
+        "Agent. Open a chosen Skill by its path with a file-read tool (these libraries "
+        "are files; a CLI's own skill tool may not index them). Read the selected "
+        "Skill before applying it; if nothing fits, open nothing. Required paths above must be read "
+        "when the current operation assigns them. A different role's Skill is reference "
+        "material, not a reassignment of authority. Task, evidence and current "
+        "authorization override Skills."
     )
     return discovery
 

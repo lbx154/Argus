@@ -17,8 +17,13 @@ def shared_checkpoint_instructions(
     *,
     role: str,
     continuation: bool = True,
+    index_listed: bool = False,
 ) -> str:
-    """Tell one role how to take its turn editing the shared note."""
+    """Tell one role how to take its turn editing the shared note.
+
+    ``index_listed`` means the same prompt already names the role-state index
+    (``latest.json``) among its state references, so it is not repeated here.
+    """
     if path is None:
         return ""
     checkpoint = str(Path(path).expanduser().resolve())
@@ -39,6 +44,13 @@ def shared_checkpoint_instructions(
         action = (
             "Create or rewrite it only when another round needs current state, evidence "
             "paths, a blocker, or one next action."
+        )
+    if index_listed:
+        return (
+            "## Shared checkpoint\n"
+            f"Continuation note: `{checkpoint}`\n"
+            "Never create worktree copies of these state files. "
+            f"{action} Keep it as current state, not a log or JSON verdict."
         )
     return (
         "## Shared checkpoint\n"

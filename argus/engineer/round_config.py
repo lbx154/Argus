@@ -38,6 +38,7 @@ _ENGINEER_FULL_ROUND_POLICY_ENV = "ARGUS_SKILL_ENGINEER_FULL_ROUND_POLICY"
 ENGINEER_FULL_ROUND_POLICIES = frozenset({"session", "legacy"})
 _ROLE_SESSION_MAX_TURNS_ENV = "ARGUS_SKILL_ROLE_SESSION_MAX_TURNS"
 _ROLE_SESSION_MAX_INPUT_TOKENS_ENV = "ARGUS_SKILL_ROLE_SESSION_MAX_INPUT_TOKENS"
+_ENGINEER_LEAN_TOOLS_ENV = "ARGUS_SKILL_ENGINEER_LEAN_TOOLS"
 _NARRATIVE_REVIEW_ENFORCEMENT_ENV = "ARGUS_SKILL_NARRATIVE_REVIEW_ENFORCEMENT"
 _CONTINUE_WORK_SENTINEL = "CONTINUE_WORK:"
 _CONTINUE_WORK_MAX_CHARS = 500
@@ -134,6 +135,14 @@ class EngineerConfig:
     dangerous_yolo: bool = False
     sandbox_mode: str | None = None
     isolate_workdir: bool = False
+    # Leave out the agent CLI's own tools the Engineer does not use (for
+    # Copilot CLI: the built-in GitHub MCP server, the session SQL database
+    # and the CLI self-documentation tool). Their schemas and notes are
+    # resent on every tool step; the Engineer reaches GitHub through its
+    # shell and web tools and keeps state in CHECKPOINT.md.
+    lean_tool_surface: bool = field(
+        default_factory=lambda: _env_bool(_ENGINEER_LEAN_TOOLS_ENV, True)
+    )
     # Public, historical caller configuration for pipeline stages in which the
     # engineer runs with codex's native live web_search enabled
     # (``codex exec --search``). The value and type of this default are part of

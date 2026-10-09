@@ -204,8 +204,10 @@ the Engineer's would have changed everything.
 The same ledger explains where the money goes: 33.9 million input tokens
 against 0.3 million output tokens after two hours. Long tool-using rounds
 re-read context, which is why Argus by default sends the full task text only
-on the first round of a session (`ARGUS_SKILL_COMPACT_CONTINUATION_PROMPTS`)
-and why a precise objective with the evidence already in the work directory
+on the first round of a session (`ARGUS_SKILL_COMPACT_CONTINUATION_PROMPTS`),
+why a resumed session receives a one-line pointer instead of a second copy of
+any long section it already holds, why the Engineer's agent CLI runs without
+its own unused tools (`ARGUS_SKILL_ENGINEER_LEAN_TOOLS`), and why a precise objective with the evidence already in the work directory
 costs less than a vague one that makes the Engineer explore.
 
 ## Controlling spend

@@ -9,7 +9,9 @@ text assembly — it makes no completion or control-flow decisions.
 """
 from __future__ import annotations
 
+import hashlib
 import json
+import re
 from pathlib import Path
 from typing import TYPE_CHECKING, Callable
 
@@ -108,6 +110,69 @@ def full_prompt_decision(
             return True, "first_round_without_prior_rounds"
         return False, "resumed_session_with_prior_rounds"
     return False, "resumed_session"
+
+
+# A resumed provider thread still holds every section it was given earlier in
+# the session, and the agent CLI re-sends that whole history on each tool step.
+# Repeating a byte-identical section therefore adds its tokens to every later
+# step of the session for no new information. Sections at least this long that
+# the thread already holds are replaced by a one-line pointer to the earlier
+# copy; shorter ones cost less than the pointer is worth.
+_ELIDE_MIN_SECTION_CHARS = 300
+_SECTION_SPLIT = re.compile(r"(?m)^(?=## )")
+# Always resent in full: the short pointers to the files that carry mission
+# state (what a model reopens after the agent CLI compacts its own history),
+# and the host context and OperatorContext, each of which declares itself the
+# current projection that replaces earlier copies for this turn.
+_NEVER_ELIDED_HEADINGS = (
+    "## Role state references",
+    "## Shared checkpoint",
+    "## Where the mission state lives",
+    "## Current host context",
+    "## OperatorContext",
+)
+_ELIDED_SECTION_NOTE = (
+    "Unchanged from the copy given earlier in this session; that copy still applies."
+)
+
+
+def _section_digest(section: str) -> str:
+    return hashlib.sha256(section.strip().encode("utf-8")).hexdigest()[:20]
+
+
+def elide_delivered_sections(
+    prompt: str,
+    delivered: set[str] | frozenset[str],
+) -> tuple[str, list[str], int]:
+    """Point at sections the provider thread already holds instead of repeating them.
+
+    Returns the prompt to send, the digests of the sections it carries in
+    full, and how many sections were replaced by a pointer. The decision
+    footer is never elided: it is short and its exact shape is what the host
+    parses at the end of the turn. Neither are the state-file pointers.
+    """
+    out: list[str] = []
+    sent: list[str] = []
+    elided = 0
+    for part in _SECTION_SPLIT.split(prompt):
+        body = part.strip()
+        if not body.startswith("## ") or len(body) < _ELIDE_MIN_SECTION_CHARS:
+            out.append(part)
+            continue
+        digest = _section_digest(part)
+        if (
+            digest in delivered
+            and "\nDecision:\n" not in part
+            and not body.startswith(_NEVER_ELIDED_HEADINGS)
+        ):
+            heading = body.splitlines()[0]
+            trailing = part[len(part.rstrip()):]
+            out.append(f"{heading}\n{_ELIDED_SECTION_NOTE}{trailing}")
+            elided += 1
+            continue
+        out.append(part)
+        sent.append(digest)
+    return "".join(out), sent, elided
 
 
 class RoundPromptMixin:
@@ -238,7 +303,12 @@ class RoundPromptMixin:
                 "approval again. Read the canonical checkpoint and latest reviewed "
                 "handoff below first."
             )
-        mission_brief = render_mission_brief(context_packet_path)
+        # The Reviewer guidance section already carries the full review; the
+        # brief's abbreviated copies of it would only repeat it.
+        mission_brief = render_mission_brief(
+            context_packet_path,
+            include_review_text=not bool(reviewer_next_action),
+        )
         capsule_block = role_session.prompt_block()
         # A compact continuation must still point back at the files that carry
         # the task's terms and current state, so the model can read them
@@ -277,6 +347,7 @@ class RoundPromptMixin:
                 shared_checkpoint_instructions(
                     checkpoint_path,
                     role="engineer",
+                    index_listed=bool(capsule_block),
                 ),
             )
             if block
@@ -295,6 +366,18 @@ class RoundPromptMixin:
             background_advisory="",
             external_work_advisory=external_work_advisory,
         )
+        # Only a resumed thread holds earlier sections; every other session
+        # starts from this prompt alone.
+        delivered = (
+            frozenset(getattr(role_session, "delivered_sections", ()) or ())
+            if role_session.policy != "fresh" and role_session.action == "resumed"
+            else frozenset()
+        )
+        engineer_prompt, sent_sections, elided_sections = elide_delivered_sections(
+            engineer_prompt, delivered,
+        )
+        if hasattr(role_session, "pending_sections"):
+            role_session.pending_sections = sent_sections
         if on_event:
             on_event({
                 "type": EventType.ROUND_START,
@@ -306,6 +389,7 @@ class RoundPromptMixin:
                     "prompt_mode_reason": prompt_mode_reason,
                     "prompt_chars": len(engineer_prompt),
                     "prompt_estimated_tokens": (len(engineer_prompt) + 3) // 4,
+                    "elided_sections": elided_sections,
                     "role_session_policy": role_session.policy,
                     "role_session_action": role_session.action,
                     "text": (
