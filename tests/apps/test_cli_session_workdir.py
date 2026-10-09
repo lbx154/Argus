@@ -106,7 +106,7 @@ def test_cli_models_follow_role_specific_backends(monkeypatch, tmp_path) -> None
 
     config = _core._build_worker_config(args)
 
-    assert config.engineer_model == "gpt-5.5"
+    assert config.engineer_model == "gpt-6.1-sol"
     assert config.reviewer_model == ""
 
 

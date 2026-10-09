@@ -62,8 +62,8 @@ class LifeWorkerConfig:
     project_fingerprint: str = ""
     project_label: str = ""
     backend: str = "codex"  # "codex" | "memory"
-    engineer_model: str = "gpt-5.5"
-    reviewer_model: str = "gpt-5.5"
+    engineer_model: str = "gpt-6.1-sol"
+    reviewer_model: str = "gpt-6.1-sol"
     engineer_reasoning_effort: str = "xhigh"
     reviewer_reasoning_effort: str = "high"
     global_daily_cap_usd: float = 0.0

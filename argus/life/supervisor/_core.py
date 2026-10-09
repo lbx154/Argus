@@ -109,8 +109,8 @@ class LifeSupervisor(
         runner: _MissionRunner,
         sink: EventSink,
         config: LifeSupervisorConfig | None = None,
-        engineer_model: str = "gpt-5.5",
-        reviewer_model: str = "gpt-5.5",
+        engineer_model: str = "gpt-6.1-sol",
+        reviewer_model: str = "gpt-6.1-sol",
         planner_runner: Any | None = None,
         skill_store: Any | None = None,
     ) -> None:

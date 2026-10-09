@@ -57,7 +57,7 @@ def test_openai_backend_without_model_keeps_argus_default(backend: str) -> None:
             role_env="ARGUS_SKILL_MANAGER_MODEL",
             env=_env(backend),
         )
-        == "gpt-5.5"
+        == "gpt-6.1-sol"
     )
 
 

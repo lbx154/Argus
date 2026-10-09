@@ -144,11 +144,11 @@ def _resolve_model(role: str, env: Mapping[str, str]) -> str:
             env=env,
         )
     except Exception:  # noqa: BLE001
-        return "gpt-5.5"
+        return "gpt-6.1-sol"
 
 
 def is_reasoning_model(model: str) -> bool:
-    """True when ``model`` supports a reasoning-effort knob (gpt-5.x / o-series).
+    """True when ``model`` supports a reasoning-effort knob (gpt-5 and later / o-series).
 
     A non-reasoning model (e.g. a plain chat model) has no effort setting, so
     the display shows ``—`` rather than a misleading value.
@@ -158,7 +158,7 @@ def is_reasoning_model(model: str) -> bool:
         return False
     if m == "argus-trial":
         return True  # The hosted selector explicitly forwards reasoning effort.
-    if m.startswith("gpt-5") or m.startswith("gpt5"):
+    if re.match(r"^gpt-?[5-9]", m):  # gpt-5.x, gpt-6.1-sol, …
         return True
     if re.match(r"^o[1-9]", m):  # o1 / o3 / o4 …
         return True
