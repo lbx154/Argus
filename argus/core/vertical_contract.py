@@ -11,6 +11,8 @@ from dataclasses import dataclass, field, replace
 from pathlib import Path
 from typing import Any, Callable, Iterable, Protocol
 
+from .round_policy import RoundPolicy, RoundPolicyError, parse_round_policy
+
 VERTICAL_CONTRACT_VERSION = 1
 _COMPLETION_GATES = frozenset({"none", "metric", "certified"})
 _WORKFLOW_MODES = frozenset({"staged", "direct", "proportional"})
@@ -218,6 +220,9 @@ class VerticalContract:
     # explicitly declared empty set ("never search"): the former keeps the
     # framework default, the latter overrides it off.
     engineer_live_search_stages: frozenset[str] | None = None
+    # Round-guard thresholds for this vertical's missions (see
+    # ``core/round_policy.py``). ``None`` keeps the framework default.
+    round_policy: RoundPolicy | None = None
     # False keeps repairs in the current stage; replacing the operator's
     # objective may still reset the pipeline. Existing providers default to True.
     allow_stage_rollback: bool = True
@@ -842,6 +847,12 @@ def vertical_contract(name: str, provider: Any) -> VerticalContract:
         engineer_live_search_stages = _normalize_live_search_stages(
             name, raw_live_search_stages, stage_order
         )
+    try:
+        round_policy = parse_round_policy(
+            f"vertical {name!r}", getattr(provider, "ROUND_POLICY", None)
+        )
+    except RoundPolicyError as exc:
+        raise VerticalContractError(str(exc)) from exc
     raw_verification_profiles = (
         getattr(provider, "VERIFICATION_STAGE_PROFILES", {}) or {}
     )
@@ -944,6 +955,7 @@ def vertical_contract(name: str, provider: Any) -> VerticalContract:
         stage_primary_deliverables=stage_primary_deliverables,
         engineer_stage_operations=engineer_stage_operations,
         engineer_live_search_stages=engineer_live_search_stages,
+        round_policy=round_policy,
     )
 
 

@@ -628,6 +628,19 @@ ENGINEER_STAGE_OPERATIONS = {
     "review": "narrative_edit",
 }
 REQUIRE_INDEPENDENT_REVIEW = True
+# Round guards (core/round_policy.py). Research missions build methods, run
+# experiments, and revise papers; one mission can legitimately take dozens of
+# rounds. The guards stay on but far out: the two-verdict progress window
+# opens after round 60, an explicit progress judgement is required from round
+# 120, and six consecutive explicit no-progress verdicts end the mission.
+# Venue-quality review loops (core/venue_review.py) still turn all of these
+# off for the review stage.
+ROUND_POLICY = {
+    "stall_threshold": 6,
+    "no_progress_threshold": 2,
+    "soft_round_limit": 60,
+    "hard_escalate_rounds": 120,
+}
 
 _AMBITIOUS_RESEARCH_POLICY = (
     "Build a paper around a real contribution and a result worth defending. "

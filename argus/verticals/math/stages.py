@@ -47,6 +47,18 @@ REQUIRE_INDEPENDENT_REVIEW = True
 # Math missions end through the ordinary reviewer-certified final-stage path.
 # They are neither paper-submission missions nor metric-optimization campaigns.
 completion_gate = "none"
+# Round guards (core/round_policy.py). Proof work is a verification loop:
+# counterexample search, proof drafting, and formal checking can sit at the
+# same open gap for many rounds before it closes. The round-count guards are
+# off; the Reviewer's explicit FORWARD_PROGRESS=false streak decides, with
+# room for a long attack on one gap. A Reviewer that stops giving any progress
+# judgement is caught after 200 rounds.
+ROUND_POLICY = {
+    "stall_threshold": 8,
+    "no_progress_threshold": 2,
+    "soft_round_limit": 0,
+    "hard_escalate_rounds": 200,
+}
 COMPLETION_CONTRACT_VERSION = 1
 PROTECTED_ITEM_IDS = frozenset({"review.goal-achieved"})
 

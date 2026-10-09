@@ -226,7 +226,14 @@ class RoundSettlementMixin:
             )
         if policy_retry:
             return None, ""
-        if no_progress_streak >= no_progress_threshold:
+        # Empty Engineer turns are a harness count; the Reviewer's explicit
+        # judgment that this round moved the work forward outranks it (a job
+        # the mission launched can advance while the Engineer says nothing).
+        if (
+            no_progress_threshold > 0
+            and no_progress_streak >= no_progress_threshold
+            and _review_forward_progress(review) is not True
+        ):
             return (
                 "no_progress",
                 "Engineer produced no effective output for "

@@ -33,6 +33,17 @@ completion_gate = "metric"
 #: The Manager's coarse mission kind (``Division.kind`` label): a number to
 #: move, not a paper to write and not a custom data domain.
 MISSION_KIND = "optimize"
+# Round guards (core/round_policy.py). A metric-optimization loop: change the
+# pipeline, re-run the frozen evaluation, compare. Several rounds without a
+# better score are part of searching, so the soft round window is off and the
+# Reviewer's explicit no-progress streak decides. A Reviewer that stops giving
+# any progress judgement is caught after 200 rounds.
+ROUND_POLICY = {
+    "stall_threshold": 6,
+    "no_progress_threshold": 2,
+    "soft_round_limit": 0,
+    "hard_escalate_rounds": 200,
+}
 
 STAGE_ORDER = ["setup", "optimize", "measure", "report"]
 

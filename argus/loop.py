@@ -38,6 +38,7 @@ from .core.event_catalog import EventType
 from .core.models import LoopOutcome, LoopStatus, RoundRecord
 from .core.ports import RunnerBackend
 from .core.role_session import configured_role_session_policy
+from .core.round_policy import RoundPolicy, resolve_round_policy
 from .engineer.runner import (
     EngineerConfig,
     SupervisedConfig,
@@ -89,13 +90,18 @@ class SkillLoopConfig:
     )
     # Zero means no wall-clock-independent ceiling; semantic stall guards still apply.
     max_rounds: int = 0
-    no_progress_threshold: int = 2
-    # Anti-livelock thresholds threaded into SupervisedConfig: at
-    # ``soft_round_limit`` the reviewer is told to escalate an unresolvable
-    # external blocker; at ``hard_escalate_rounds`` continuation requires the
-    # Reviewer's explicit semantic-progress judgment. 0 disables either.
-    soft_round_limit: int = 12
-    hard_escalate_rounds: int = 24
+    # Round guards threaded into SupervisedConfig (see core/round_policy.py):
+    # after ``soft_round_limit`` two verdicts without forward progress settle
+    # the mission; from ``hard_escalate_rounds`` continuation requires the
+    # Reviewer's explicit progress judgment; ``stall_threshold`` counts the
+    # Reviewer's explicit no-progress verdicts; ``no_progress_threshold``
+    # counts empty Engineer turns. ``None`` lets the active vertical's
+    # ROUND_POLICY (else the framework default) decide; an int set here wins
+    # over the vertical, and 0 disables the guard. Operator knobs win over both.
+    no_progress_threshold: int | None = None
+    soft_round_limit: int | None = None
+    hard_escalate_rounds: int | None = None
+    stall_threshold: int | None = None
     backend_failure_threshold: int = 2
     backend_failure_backoff_seconds: float = 15.0
     # Shared declarative knowledge wiki. Roles edit pages directly.
@@ -401,12 +407,14 @@ class SkillLoop(
             vertical=self.config.active_vertical or resolve_vertical_if_decided(vertical_state_root) or "",
             stage=active_stage, scope=scope,
         )
+        round_policy = self._resolve_round_policy(active_vertical, vertical_state_root)
         round_config = SupervisedConfig(
             max_rounds=self.config.max_rounds,
             require_independent_review=self.config.require_independent_review,
-            no_progress_threshold=self.config.no_progress_threshold,
-            soft_round_limit=self.config.soft_round_limit,
-            hard_escalate_rounds=self.config.hard_escalate_rounds,
+            no_progress_threshold=round_policy.no_progress_threshold,
+            stall_threshold=round_policy.stall_threshold,
+            soft_round_limit=round_policy.soft_round_limit,
+            hard_escalate_rounds=round_policy.hard_escalate_rounds,
             backend_failure_threshold=self.config.backend_failure_threshold,
             backend_failure_backoff_seconds=self.config.backend_failure_backoff_seconds,
             session_id=self.config.session_id,
@@ -463,6 +471,35 @@ class SkillLoop(
     # ------------------------------------------------------------------
     # Helpers
     # ------------------------------------------------------------------
+
+    def _resolve_round_policy(self, vertical: str, project_root: Path) -> RoundPolicy:
+        """Resolve this mission's round guards from its vertical and knobs.
+
+        Precedence: operator knob, explicit ``SkillLoopConfig`` value, the
+        vertical's ``ROUND_POLICY``, the framework default. Contract errors
+        propagate for the same reason as in ``_resolve_live_search_stages``:
+        the contract already loaded for this mission's prompt.
+        """
+        vertical_policy = None
+        if str(vertical or "").strip():
+            from .verticals._base import load_vertical_contract
+
+            vertical_policy = load_vertical_contract(
+                vertical, project_root=project_root
+            ).round_policy
+        explicit = RoundPolicy(
+            stall_threshold=self.config.stall_threshold,
+            no_progress_threshold=self.config.no_progress_threshold,
+            soft_round_limit=self.config.soft_round_limit,
+            hard_escalate_rounds=self.config.hard_escalate_rounds,
+        )
+        policy = resolve_round_policy(vertical_policy, explicit=explicit)
+        log.info(
+            "round guards for vertical %r: %s (0 = off)",
+            str(vertical or ""),
+            policy.as_dict(),
+        )
+        return policy
 
     def _resolve_live_search_stages(
         self,

@@ -106,6 +106,16 @@ def _normalize_role_banners(value: object) -> dict[str, str]:
     }
 
 
+def _normalize_round_policy(name: str, value: object) -> Any:
+    from ..core.round_policy import RoundPolicyError, parse_round_policy
+
+    try:
+        return parse_round_policy(f"data domain {name!r}", value)
+    except RoundPolicyError as exc:
+        log.warning("ignoring round_policy: %s", exc)
+        return None
+
+
 class DataDomain:
     """Duck-typed, module-contract-compatible view over a project-local domain.
 
@@ -145,6 +155,9 @@ class DataDomain:
             payload.get("require_independent_review", True)
         )
         self.ROLE_BANNERS = _normalize_role_banners(payload.get("role_banners"))
+        # Optional round-guard policy (see ``core/round_policy.py``). Reads are
+        # fail-open: a malformed block keeps the framework default.
+        self.ROUND_POLICY = _normalize_round_policy(name, payload.get("round_policy"))
 
         # Optional per-stage seed checklist (usually empty for a fresh
         # Manager-authored domain; the Planner authors items at runtime via the
