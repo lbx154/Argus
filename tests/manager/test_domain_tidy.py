@@ -210,3 +210,35 @@ def test_approved_promotion_uses_shared_source_writeback(tmp_path, monkeypatch):
     assert stages_path.is_file()
     assert (stages_path.parent / "__init__.py").is_file()
     assert committed == [stages_path.parent / "__init__.py", stages_path]
+
+
+def test_rendered_stages_py_carries_the_round_policy(tmp_path):
+    """Promotion must not silently reinstate the default round guards."""
+    from argus.core.round_policy import parse_round_policy
+
+    dd.write_data_domain(tmp_path, "long_verify", stages=["build", "verify"])
+    path = tmp_path / "research" / "DOMAINS" / "long_verify.json"
+    payload = json.loads(path.read_text(encoding="utf-8"))
+    payload["round_policy"] = {
+        "soft_round_limit": 0,
+        "hard_escalate_rounds": 200,
+        "stall_threshold": "eight",  # dropped; the valid fields still apply
+    }
+    path.write_text(json.dumps(payload), encoding="utf-8")
+
+    src = dt._render_stages_py("long_verify", tmp_path)
+    src = src.replace("from ...skills.stage_machine", "from argus.skills.stage_machine")
+    mod = types.ModuleType("promoted_long_verify_stages")
+    exec(compile(src, "<stages>", "exec"), mod.__dict__)
+
+    assert mod.ROUND_POLICY == {"soft_round_limit": 0, "hard_escalate_rounds": 200}
+    policy = parse_round_policy("promoted", mod.ROUND_POLICY)
+    assert policy.soft_round_limit == 0
+    assert policy.hard_escalate_rounds == 200
+    assert policy.stall_threshold is None
+
+
+def test_rendered_stages_py_omits_an_undeclared_round_policy(tmp_path):
+    dd.write_data_domain(tmp_path, "plain", stages=["work"])
+    src = dt._render_stages_py("plain", tmp_path)
+    assert "ROUND_POLICY" not in src
