@@ -14,6 +14,7 @@ from .front_door import (
     _ensure_manager_runner,
     _maybe_name_session,
 )
+from .greeting import greeting_reply as local_greeting
 
 _ROLE_BACKEND_ENVS: dict[str, str] = {
     "manager": "ARGUS_SKILL_MANAGER_BACKEND",
@@ -114,6 +115,12 @@ def _front_door_classify(
     chat_state.pop("_frontdoor_lookup_subject", None)
     chat_state.pop("_frontdoor_is_task", None)
     chat_state.pop("_frontdoor_config_unparsed", None)
+    greeting = local_greeting(text)
+    if greeting:
+        # A bare greeting needs no model: answer it here, skip the classifier.
+        chat_state["_frontdoor_greeting_reply"] = greeting
+        chat_state["_frontdoor_self_mode"] = "reply"
+        return None, None, "simple"
     try:
         runner = (ensure_runner or _ensure_manager_runner)(chat_state, mem)
         mgr = getattr(runner, "manager", None) if runner is not None else None

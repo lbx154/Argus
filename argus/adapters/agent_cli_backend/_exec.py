@@ -157,11 +157,17 @@ def _execute_prepared(backend, *, prompt, options, run_label, resume_thread_id):
         )
         ctx.io_mode = io_context["mode"]
         from ...core.paths import global_root
-        from ...core.provider_slots import acquire_provider_slot, release_provider_slot
+        from ...core.provider_slots import (
+            acquire_provider_slot,
+            interactive_run_label,
+            release_provider_slot,
+        )
         from ._exec_finalize import finalize_result
 
         try:
-            slot, reason = acquire_provider_slot(ctx.usage_global_root or global_root())
+            slot, reason = acquire_provider_slot(
+                ctx.usage_global_root or global_root(), interactive=interactive_run_label(run_label),
+            )
         except Exception as exc:  # noqa: BLE001 - fail closed before provider spawn
             reason = f"provider admission unavailable: {type(exc).__name__}: {exc}"
             return finalize_result(ctx, RunnerResult(exit_code=-1, fatal_error=reason,

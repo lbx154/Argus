@@ -956,3 +956,33 @@ def test_front_door_prompt_grounds_intake_in_ongoing_intent() -> None:
     assert "message's language" in prompt
     # A greeting has no topic; titling it yields an untranslated label.
     assert "greeting/chat/settings NONE" in prompt
+
+
+def test_a_field_label_echoed_as_the_reply_is_not_sent_to_the_user():
+    replies, greetings = [], []
+    answer = """ROUTE: SELF
+SELF_MODE: REPLY
+REPLY: greeting
+GREETING: GREETING
+NAME: greeting
+"""
+    decision = classify_front_door("你好", run_exec=_exec(answer),
+                                   reply_sink=replies.append, greeting_sink=greetings.append)
+    assert decision == (None, None, "simple")
+    # The word "greeting" is the classifier's own label, not an answer; the
+    # turn falls through to the full Manager reply instead.
+    assert replies == [] and greetings == []
+
+
+def test_a_real_greeting_reply_still_goes_through():
+    greetings = []
+    answer = "ROUTE: SELF\nSELF_MODE: REPLY\nREPLY: 你好！想从哪里开始？\nGREETING: GREETING\n"
+    classify_front_door("你好", run_exec=_exec(answer), greeting_sink=greetings.append)
+    assert greetings == ["你好！想从哪里开始？"]
+
+
+def test_a_greeting_marked_yes_still_takes_the_one_call_shortcut():
+    greetings = []
+    answer = "ROUTE: SELF\nSELF_MODE: REPLY\nREPLY: 你好！想从哪里开始？\nGREETING: YES\n"
+    classify_front_door("你好", run_exec=_exec(answer), greeting_sink=greetings.append)
+    assert greetings == ["你好！想从哪里开始？"]

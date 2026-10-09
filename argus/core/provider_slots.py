@@ -13,6 +13,16 @@ from .knobs import resolve_knob
 _POLL_SECONDS = 0.25
 # Upper bound so a misconfigured wait can never outlive the provider watchdog.
 _MAX_WAIT_SECONDS = 600.0
+# A reply to the person typing in the chat must not queue behind background
+# work: these calls may take one slot beyond the configured count.
+_INTERACTIVE_LABEL_PREFIXES = (
+    "manager-frontdoor", "manager-classify", "manager-quick-reply", "manager-ask",
+    "manager-domain-dialogue", "manager-route", "simple-", "chat-",
+)
+
+
+def interactive_run_label(run_label: str) -> bool:
+    return str(run_label or "").startswith(_INTERACTIVE_LABEL_PREFIXES)
 
 
 def provider_slot_wait_seconds() -> float:
@@ -33,7 +43,9 @@ def provider_slot_wait_seconds() -> float:
     return min(seconds, _MAX_WAIT_SECONDS)
 
 
-def acquire_provider_slot(root: Path, *, wait_seconds: float | None = None) -> tuple[BinaryIO | None, str]:
+def acquire_provider_slot(
+    root: Path, *, wait_seconds: float | None = None, interactive: bool = False,
+) -> tuple[BinaryIO | None, str]:
     # Explicitly opt in. Older installations keep their provider-specific
     # limits; the public trial sets this to its shared process allowance.
     raw = resolve_knob("ARGUS_SKILL_PROVIDER_MAX_CONCURRENCY", "0").value
@@ -50,8 +62,9 @@ def acquire_provider_slot(root: Path, *, wait_seconds: float | None = None) -> t
     directory = root / "provider-slots"
     directory.mkdir(parents=True, exist_ok=True)
     deadline = time.monotonic() + max(0.0, wait_seconds)
+    slots = count + 1 if interactive else count
     while True:
-        handle = _try_slots(directory, count)
+        handle = _try_slots(directory, slots)
         if handle is not None:
             return handle, ""
         remaining = deadline - time.monotonic()

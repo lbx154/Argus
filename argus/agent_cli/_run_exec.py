@@ -1042,9 +1042,16 @@ class RunExecMixin:
                 log_hint=self._cli_log_hint(),
             )
 
+        exit_code = process.returncode
+        if exit_code and state.turn_completed and not state.turn_failed:
+            # The CLI's own result event closed the turn; the process then ended
+            # non-zero outside it (a wrapper script rewritten by an update while
+            # it ran, a runtime crash at shutdown). The turn stands, and the
+            # stderr line stays in the record.
+            exit_code = 0
         return AgentRunResult(
             command=command,
-            exit_code=process.returncode,
+            exit_code=exit_code,
             thread_id=state.thread_id,
             agent_messages=state.agent_messages,
             json_events=list(state.events),

@@ -187,7 +187,7 @@ a file you can attach to a report.
 | `ARGUS_SKILL_<ROLE>_BACKEND` | inherits | `ENGINEER`, `REVIEWER`, `PLANNER`, `MANAGER`, `SUPERVISOR` |
 | `ARGUS_SKILL_MODEL` | `auto` | a bare model id (`gpt-5.6-sol`, `copilot/opus-5`); free text reaches the CLI verbatim and every call then fails |
 | `ARGUS_SKILL_<ROLE>_MODEL` | `auto` | `ENGINEER`, `REVIEWER`, `PLAN`, `MANAGER`, `SUPERVISOR` |
-| `ARGUS_SKILL_FRONTDOOR_MODEL` | `auto` | the cheap classifier that reads every message (`gpt-5.4-mini` on Copilot) |
+| `ARGUS_SKILL_FRONTDOOR_MODEL` | `auto` | the classifier that reads every message and may answer a greeting (`gpt-6.1-sol` on Copilot) |
 | `ARGUS_SKILL_<ROLE>_REASONING_EFFORT` | Engineer `xhigh`, others `high`, Supervisor `low` | `low`, `medium`, `high`, `xhigh`, `max` |
 | `ARGUS_SKILL_PI_PROVIDER` / `ARGUS_SKILL_OPENCODE_PROVIDER` | unset | provider prefix for bare model ids on those two backends; on OpenCode the model is dropped without it |
 
@@ -232,6 +232,9 @@ every project on the host. `ARGUS_SKILL_PROVIDER_MAX_CONCURRENCY` (default `0`,
 off) bounds concurrent provider processes and
 `ARGUS_SKILL_PROVIDER_SLOT_WAIT_SECONDS` (default `45`) how long a call waits for
 a slot. Both apply to every backend alike; no provider gets its own counter.
+A reply to the person typing in the chat (the front-door classifier, the
+Manager's direct answer) may take one slot beyond the cap, so a running map
+summary or learning review never leaves a message unanswered.
 `ARGUS_SKILL_MAX_ACTIVE_DAEMONS` (default `64`) caps running daemons. `--mission-width` (default 2) is the
 per-project counterpart; the roofline campaign used `1`, which is the right
 choice when the tasks share four GPUs.
