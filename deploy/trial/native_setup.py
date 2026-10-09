@@ -72,7 +72,7 @@ Description=Argus invitation preview {name}
 After=network-online.target
 [Service]
 Type=simple
-WorkingDirectory={json.dumps(str(source))}
+WorkingDirectory={str(source).replace("%", "%%")}
 ExecStart={executable}
 Environment={json.dumps('PYTHONPATH=' + str(source))}
 Environment=PYTHONUNBUFFERED=1

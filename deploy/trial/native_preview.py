@@ -14,6 +14,7 @@ import hashlib
 import hmac
 import json
 import math
+import re
 import secrets
 import sqlite3
 import time
@@ -294,7 +295,7 @@ def portal_app(config: dict, ledger: Ledger) -> FastAPI:
 
     def origin_ok(request: Request) -> bool:
         origin = request.headers.get("origin")
-        return not origin or origin == str(request.base_url).rstrip("/")
+        return not origin or origin == "https://" + request.headers.get("host", "")
 
     @app.get("/healthz")
     async def health():
@@ -334,13 +335,38 @@ def portal_app(config: dict, ledger: Ledger) -> FastAPI:
 
         return Response("""(()=>{async function update(){const r=await fetch('/trial/budget');if(!r.ok)return;const b=await r.json();const host=document.querySelector('.composer-runtime');if(!host)return;let node=document.getElementById('trial-quota');if(!node){node=document.createElement('span');node.id='trial-quota';node.style.cssText='font-size:11px;color:#2069d1';host.append(node)}node.textContent='试用余额 $'+b.remaining_usd.toFixed(2)+' / $'+b.limit_usd.toFixed(2);node.title='全站剩余 $'+b.total_remaining_usd.toFixed(2)+'；模型 GPT-6.1 Sol'}setInterval(update,8000);setTimeout(update,1200)})();""", media_type="text/javascript")
 
+    @app.get("/trial-transport.js")
+    async def transport_script():
+        from fastapi.responses import Response
+
+        return Response((Path(__file__).parent / "trial-transport.js").read_text(), media_type="text/javascript")
+
     @app.websocket("/_relay")
+    @app.websocket("/trial/stream")
     async def relay(socket: WebSocket):
-        if not hmac.compare_digest(socket.headers.get("authorization", ""), "Bearer " + config["relay_secret"]):
+        browser = socket.url.path == "/trial/stream"
+        public_host = socket.headers.get("host", "")
+        if hmac.compare_digest(socket.headers.get("authorization", ""), "Bearer " + config["relay_secret"]):
+            public_host = socket.headers.get("x-argus-public-host", public_host)
+        if browser:
+            if identify(socket.cookies.get(COOKIE, "")) is None:
+                await socket.close(code=4401)
+                return
+            if socket.headers.get("origin") != "https://" + public_host:
+                await socket.close(code=4403)
+                return
+        elif not hmac.compare_digest(socket.headers.get("authorization", ""), "Bearer " + config["relay_secret"]):
             await socket.close(code=4401)
             return
         await socket.accept()
-        frame = await socket.receive_json()
+        frame = await asyncio.wait_for(socket.receive_json(), 20)
+        if browser:
+            if frame.get("method") != "POST" or not re.fullmatch(r"/api/projects/[a-zA-Z0-9_-]+/message/stream", frame.get("path", "")):
+                await socket.close(code=4403)
+                return
+            frame["host"] = public_host
+            frame["headers"] = {"cookie": socket.headers.get("cookie", ""),
+                                "origin": socket.headers["origin"], "content-type": "application/json"}
         raw = base64.b64decode(frame.get("body", ""), validate=True)
         if len(raw) > 16 * 1024 * 1024:
             await socket.close(code=4400)
@@ -442,7 +468,7 @@ def portal_app(config: dict, ledger: Ledger) -> FastAPI:
         if path == "" and response.status_code == 200:
             from fastapi.responses import Response
 
-            html = (await response.aread()).decode().replace("</body>", '<script src="/trial-quota.js" defer></script></body>')
+            html = (await response.aread()).decode().replace("<head>", '<head><script src="/trial-transport.js"></script>').replace("</body>", '<script src="/trial-quota.js" defer></script></body>')
             await client.aclose()
             return Response(html, media_type="text/html", headers=response_headers)
 

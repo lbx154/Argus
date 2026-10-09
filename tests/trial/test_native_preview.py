@@ -200,3 +200,35 @@ def test_meter_exhaustion_never_submits_to_provider(config, ledger, monkeypatch)
     client = TestClient(model_app(config, ledger))
     assert client.post('/v1/responses', headers={'Authorization': 'Bearer meter-a'},
                        json={'model': MODEL, 'input': 'hello'}).status_code == 402
+
+
+def test_browser_stream_requires_session_and_same_origin_and_cannot_choose_other_api(config, ledger):
+    from starlette.websockets import WebSocketDisconnect
+    client = TestClient(portal_app(config, ledger), base_url='https://preview.example')
+    with pytest.raises(WebSocketDisconnect), client.websocket_connect('wss://preview.example/trial/stream', headers={'Origin': 'https://preview.example'}):
+        pass
+    client.post('/login', data={'invite': 'invite-a'}, follow_redirects=False)
+    cookie = COOKIE + '=' + client.cookies.get(COOKIE)
+    with pytest.raises(WebSocketDisconnect), client.websocket_connect('wss://preview.example/trial/stream', headers={'Origin': 'https://evil.example', 'Cookie': cookie}):
+        pass
+    with client.websocket_connect('wss://preview.example/trial/stream', headers={'Origin': 'https://preview.example', 'Cookie': cookie}) as ws:
+        ws.send_json({'method': 'POST', 'path': '/api/system/update', 'body': ''})
+        with pytest.raises(WebSocketDisconnect):
+            ws.receive_json()
+    with client.websocket_connect('wss://preview.example/trial/stream', headers={'Origin': 'https://preview.example', 'Cookie': cookie}) as ws:
+        ws.send_json({'method': 'POST', 'path': '/api/projects/s-test/message/stream', 'body': '',
+                      'host': 'attacker.example', 'headers': {'cookie': 'forged'}})
+        assert ws.receive_json()['status'] == 503  # It uses the authenticated tenant's unavailable socket.
+        assert '工作区' in json.loads(ws.receive_bytes())['detail']
+        assert ws.receive_json()['type'] == 'end'
+
+
+def test_all_auxiliary_model_routes_are_pinned(config, tmp_path):
+    config.update(source=str(tmp_path / 'source'), python_runtime=str(tmp_path / 'python'),
+                  venv=str(tmp_path / 'venv'), node_runtime=str(tmp_path / 'node'),
+                  meter_runtime=str(tmp_path / 'meter'), copilot_package=str(tmp_path / 'package'))
+    config['tenants']['alice']['directory'] = str(tmp_path / 'alice')
+    args = sandbox_command(config, 'alice')
+    for name in ('FRONTDOOR_MODEL', 'PLAN_PREVIEW_MODEL', 'BOUNDED_DAG_MODEL', 'REWRITE_MODEL'):
+        index = args.index('ARGUS_SKILL_' + name)
+        assert args[index + 1] == MODEL

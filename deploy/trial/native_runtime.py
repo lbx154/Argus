@@ -55,6 +55,8 @@ def sandbox_command(config: dict, tenant: str, command: list[str] | None = None)
         "NO_PROXY": "localhost,127.0.0.1", "no_proxy": "localhost,127.0.0.1",
         "ARGUS_SKILL_MAX_ACTIVE_DAEMONS": "1", "ARGUS_SKILL_RESEARCH_BUDGET": "2",
     }
+    for knob in ("FRONTDOOR_MODEL", "PLAN_PREVIEW_MODEL", "BOUNDED_DAG_MODEL", "REWRITE_MODEL"):
+        env["ARGUS_SKILL_" + knob] = MODEL
     for role in ("ENGINEER", "REVIEWER", "PLANNER", "MANAGER"):
         env[f"ARGUS_SKILL_{role}_MODEL"] = MODEL
         env[f"ARGUS_SKILL_{role}_BACKEND"] = "copilot"

@@ -82,3 +82,18 @@ a permanent deployment.
 Check `/healthz` for the pinned revision and authenticated `/trial/budget` for
 actual remaining allowance. Stop the preview with
 `systemctl --user stop 'argus-preview-*'`. The private ledger survives shutdown.
+
+### Direct Quick Tunnel access
+
+The portal also supports using the Quick Tunnel URL directly, without a Worker
+or a temporary account. `trial-transport.js` wraps only the Manager's streamed
+POST endpoint in an authenticated, same-origin browser WebSocket, restoring
+streamed replies despite Quick Tunnels' SSE limitation. Other browser requests
+use ordinary HTTP. The portal supplies the real session cookie to the internal
+request; browser frames cannot select a different tenant or an arbitrary API.
+This URL stays usable while the tunnel process runs, and does not inherit the
+one-hour expiry of Wrangler 4.149's temporary accounts. Restarting the tunnel
+can change the address. Non-browser clients must use the authenticated
+`/trial/stream` protocol or a named tunnel / Worker for streamed requests.
+All main and auxiliary model routes are pinned to GPT-6.1 Sol, including front
+door classification, bounded planning, plan preview and prompt rewriting.
