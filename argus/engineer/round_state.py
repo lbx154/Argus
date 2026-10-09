@@ -58,6 +58,11 @@ class RoundLoopState:
     # The backlog item this mission works on, when its packet names one; an
     # operator's acceptance of a residual risk is recorded against it.
     mission_item_id: str = ""
+    # With no item, the mission (its session) an acceptance is scoped to.
+    mission_ref: str = ""
+    # When this mission began: a file changed since then is its own work and
+    # never grounds a Reviewer's "impossible here".
+    mission_started_at: float | None = None
     reviewer_next_action: str | None = None
     last_decision_progress_at: float = field(default_factory=lambda: time.monotonic())
     backend_failure_streak: int = 0

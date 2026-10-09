@@ -181,10 +181,18 @@ class SupervisedEngineer(
 
             on_event = _redacted_on_event
         state = RoundLoopState()
-        from .obstacle_stall import load_obstacle_stall, mission_item_id, stall_root
+        from .obstacle_stall import (
+            load_obstacle_stall,
+            mission_item_id,
+            mission_started_at,
+            stall_root,
+        )
 
         state.obstacle_stall_root = stall_root(supervised_config)
         state.mission_item_id = mission_item_id(supervised_config)
+        state.mission_ref = str(getattr(supervised_config, "session_id", "") or "")
+        contract_started = mission_started_at(supervised_config)
+        state.mission_started_at = min(time.time(), contract_started or time.time())
         state.obstacle_stall_objective = str(original_objective or objective or "")
         state.carried_obstacle_streak, state.carried_obstacle = load_obstacle_stall(
             state.obstacle_stall_root, state.obstacle_stall_objective,

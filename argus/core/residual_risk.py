@@ -9,9 +9,15 @@ completion conditional on that run, and the loop ran 15 rounds over 5 missions.
 Leaving such a check unverified is a decision about the acceptance standard, so
 it belongs to whoever owns that standard: the operator when one is available,
 the Manager only in a run with no operator. This module keeps those decisions.
-Each acceptance names one check and, when known, the backlog item it applies
-to; nothing here accepts "the objective". An acceptance can be revoked, and a
-revoked one is kept on record but no longer shown or honoured.
+Each acceptance names one check and the backlog item it applies to, or, with
+no item, the one mission it was made in; nothing here accepts "the objective"
+or carries over to another item. An acceptance can be revoked, and a revoked
+one is kept on record but no longer shown or honoured.
+
+An operator accepts on the decision card the Reviewer raised for that check:
+the host adds an accept option bound to the check's text, and only choosing
+that option accepts it. No sentence anywhere else -- in OperatorContext, a
+note, or Argus's own instructions -- is read as an acceptance.
 
 The store records decisions; it judges nothing. The Reviewer still judges the
 check from evidence it has read, and still refuses the Engineer's word alone.
@@ -79,34 +85,99 @@ def _write(root: Path | str, rows: list[dict[str, Any]]) -> None:
         temporary.unlink(missing_ok=True)
 
 
-def risk_id(*, item_id: str, check: str, accepted_by: str, source_ref: str) -> str:
-    material = "\x1f".join((item_id, check.lower(), accepted_by, source_ref))
+def risk_id(*, item_id: str, check: str, accepted_by: str, source_ref: str, mission_ref: str = "") -> str:
+    material = "\x1f".join((item_id, check.lower(), accepted_by, source_ref, mission_ref))
     return "risk-" + hashlib.sha256(material.encode("utf-8")).hexdigest()[:10]
+
+
+def same_check(first: Any, second: Any) -> bool:
+    """Whether two statements name the same check (case, spacing and markup ignored)."""
+    left, right = sanitize_text(first, 240).casefold(), sanitize_text(second, 240).casefold()
+    return bool(left) and left == right
+
+
+#: The decision-card option that accepts one named check's residual risk. The
+#: id is bound to the check's text, so choosing it accepts that check only.
+ACCEPT_OPTION_LABEL = "Accept this residual risk"
+KEEP_OPTION_ID = "keep-standard"
+
+
+def accept_option_id(check: Any) -> str:
+    folded = sanitize_text(check, 240).casefold()
+    return "accept-risk-" + hashlib.sha256(folded.encode("utf-8")).hexdigest()[:12]
+
+
+def _accept_description(check: str) -> str:
+    return f"Leave this check unverified: {check}."
+
+
+def acceptance_options(check: Any, risk: Any) -> list[dict[str, Any]]:
+    """The two choices a Reviewer's acceptance question offers the operator."""
+    check, risk = sanitize_text(check, 240), sanitize_text(risk)
+    return [
+        {
+            "id": accept_option_id(check), "label": ACCEPT_OPTION_LABEL,
+            "description": f"{_accept_description(check)} Risk left: {risk}",
+        },
+        {
+            "id": KEEP_OPTION_ID, "label": "Keep the check required",
+            "description": f"Do not accept leaving it unverified: {check}",
+        },
+    ]
+
+
+def operator_accepted(card: Any, check: Any) -> bool:
+    """Whether this resolved decision card is the operator choosing to accept ``check``.
+
+    Only the selected option counts, and only if it is the accept option for
+    this check as the operator saw it: its id, label and description.
+    """
+    if not isinstance(card, dict) or str(card.get("status") or "") != "resolved":
+        return False
+    selected = str(card.get("selected_option") or "")
+    if not selected or selected != accept_option_id(check):
+        return False
+    option = next(
+        (row for row in card.get("options") or [] if isinstance(row, dict) and str(row.get("id")) == selected),
+        None,
+    )
+    if option is None or str(option.get("label") or "") != ACCEPT_OPTION_LABEL:
+        return False
+    expected = _accept_description(sanitize_text(check, 240)).casefold()
+    return str(option.get("description") or "").casefold().startswith(expected)
 
 
 def accept_residual_risk(
     root: Path | str, *, check: str, risk: str, accepted_by: str, source_ref: str,
-    item_id: str = "", basis: str = "",
+    item_id: str = "", basis: str = "", basis_source: str = "", mission_ref: str = "",
 ) -> dict[str, Any] | None:
-    """Record one acceptance of one named check; None if it names no check or risk.
+    """Record one acceptance of one named check; None if it names no check, risk or scope.
 
-    Idempotent per decision: the same accepter, source and check return the
-    stored record (a revoked one stays revoked).
+    The scope is the backlog item, or with none the mission (``mission_ref``)
+    the acceptance was made in. Idempotent per decision: the same accepter,
+    source, scope and check return the stored record (a revoked one stays
+    revoked).
     """
     check = sanitize_text(check, 240)
     risk = sanitize_text(risk)
     item_id = sanitize_text(item_id, 128)
-    if accepted_by not in ACCEPTERS or not check or not risk or not str(source_ref or "").strip():
+    mission_ref = "" if item_id else sanitize_text(mission_ref, 128)
+    if (
+        accepted_by not in ACCEPTERS or not check or not risk or not str(source_ref or "").strip()
+        or not (item_id or mission_ref)
+    ):
         return None
-    identifier = risk_id(item_id=item_id, check=check, accepted_by=accepted_by, source_ref=str(source_ref))
+    identifier = risk_id(
+        item_id=item_id, check=check, accepted_by=accepted_by, source_ref=str(source_ref), mission_ref=mission_ref,
+    )
     rows = _read(root)
     for row in rows:
         if row.get("id") == identifier:
             return row
     entry = {
-        "id": identifier, "item_id": item_id, "check": check, "risk": risk,
-        "basis": sanitize_text(basis, 400), "accepted_by": accepted_by,
-        "source_ref": str(source_ref)[:200], "accepted_at": time.time(),
+        "id": identifier, "item_id": item_id, "mission_ref": mission_ref, "check": check, "risk": risk,
+        "basis": sanitize_text(basis, 400), "basis_source": sanitize_text(basis_source, 200),
+        "accepted_by": accepted_by, "source_ref": str(source_ref)[:200], "accepted_at": time.time(),
     }
     _write(root, [*rows, entry])
     return entry
@@ -131,12 +202,21 @@ def residual_risk_records(root: Path | str) -> list[dict[str, Any]]:
     return _read(root)
 
 
-def active_residual_risks(root: Path | str, *, item_id: str = "") -> list[dict[str, Any]]:
-    """Acceptances in force for this item: its own, and check-only ones with no item."""
-    item_id = str(item_id or "").strip()
+def _in_scope(row: dict[str, Any], item_id: str, mission_ref: str) -> bool:
+    row_item = str(row.get("item_id") or "")
+    if row_item:
+        return row_item == item_id
+    # With no item, an acceptance holds only in the mission it was made in.
+    row_mission = str(row.get("mission_ref") or "")
+    return bool(row_mission) and not item_id and row_mission == mission_ref
+
+
+def active_residual_risks(root: Path | str, *, item_id: str = "", mission_ref: str = "") -> list[dict[str, Any]]:
+    """Acceptances in force for this item, or, with no item, for this mission only."""
+    item_id, mission_ref = str(item_id or "").strip(), str(mission_ref or "").strip()
     return [
         row for row in _read(root)
-        if not row.get("revoked_at") and (not row.get("item_id") or row.get("item_id") == item_id)
+        if not row.get("revoked_at") and _in_scope(row, item_id, mission_ref)
     ]
 
 
@@ -168,9 +248,9 @@ REVIEWER_BLOCK_PROSE = (
 )
 
 
-def reviewer_block(root: Path | str, *, item_id: str = "") -> str:
+def reviewer_block(root: Path | str, *, item_id: str = "", mission_ref: str = "") -> str:
     """What the Reviewer is told about acceptances for this item, or ""."""
-    rows = active_residual_risks(root, item_id=item_id)
+    rows = active_residual_risks(root, item_id=item_id, mission_ref=mission_ref)
     if not rows:
         return ""
     return "\n".join((
@@ -181,7 +261,8 @@ def reviewer_block(root: Path | str, *, item_id: str = "") -> str:
 
 
 __all__ = [
-    "ACCEPTERS", "FILENAME", "REVIEWER_BLOCK_PROSE", "accept_residual_risk", "active_residual_risks", "describe",
-    "last_decision_at", "residual_risk_records", "reviewer_block", "revoke_residual_risk",
-    "risk_id", "sanitize_text", "store_path",
+    "ACCEPTERS", "ACCEPT_OPTION_LABEL", "FILENAME", "KEEP_OPTION_ID", "REVIEWER_BLOCK_PROSE", "accept_option_id",
+    "accept_residual_risk", "acceptance_options", "active_residual_risks", "describe", "last_decision_at",
+    "operator_accepted", "residual_risk_records", "reviewer_block", "revoke_residual_risk", "risk_id",
+    "same_check", "sanitize_text", "store_path",
 ]

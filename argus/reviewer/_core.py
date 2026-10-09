@@ -650,6 +650,10 @@ class ReviewerConfig:
     # Whether the Engineer's backend reports each command's exit code, so the
     # host holds a record a read-only Reviewer can weigh.
     engineer_records_commands: bool = False
+    # Host-gathered for a mission's Reviewer (``round_reviewer.mission_grounding``):
+    # when the mission began, the files its packet names, and the acceptances
+    # recorded for its item. What "impossible here" and an acceptance must match.
+    mission_grounding: dict[str, Any] | None = field(default=None, repr=False, compare=False)
 
 
 def _load_wiki_curator_skill_if_present(
@@ -688,13 +692,14 @@ def _engineer_log_audit_block(
     )
 
 
-def _review_grounding(
-    config: Any, *, task_parts: tuple[str, ...], operator_messages: list[str],
-) -> Any:
+def _review_grounding(config: Any, *, task_parts: tuple[str, ...]) -> Any:
     """What the Reviewer's "impossible here" quotes and acceptances must match.
 
-    The task as given (never the Engineer's account), the operator context the
-    Reviewer was shown, and the workspace for a quoted environment file.
+    The task as given (never the Engineer's account); the workspace for a
+    quoted environment file that predates the mission or that the packet names;
+    and the acceptances recorded for this item: the Manager's, and the
+    operator's choices on decision cards. Nothing the Reviewer was merely shown
+    as text (OperatorContext included) is read as an acceptance.
     """
     from ..core.autonomy import operator_available
     from .tools import ReviewGrounding
@@ -705,11 +710,18 @@ def _review_grounding(
             getattr(config, "vertical_state_root", None),
         ) if root
     ))
+    mission = getattr(config, "mission_grounding", None) or {}
+    started = mission.get("started_at")
     return ReviewGrounding(
         task_text="\n".join(str(part or "") for part in task_parts),
-        operator_text="\n".join(str(message or "") for message in operator_messages),
         roots=roots,
         operator_available=operator_available(),
+        started_at=float(started) if started else None,
+        packet_refs=tuple(str(ref) for ref in mission.get("packet_refs") or ()),
+        accepted_risks=tuple(dict(row) for row in mission.get("accepted_risks") or () if isinstance(row, dict)),
+        operator_decisions=tuple(
+            dict(card) for card in mission.get("operator_decisions") or () if isinstance(card, dict)
+        ),
     )
 
 
@@ -964,7 +976,6 @@ class Reviewer:
                     grounding=_review_grounding(
                         config,
                         task_parts=(objective, original_objective or "", scope, planner_review_instruction),
-                        operator_messages=operator_messages or [],
                     ),
                 ) as (actions, options):
                     result = gateway_run_exec(

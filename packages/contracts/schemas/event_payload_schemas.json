@@ -1763,6 +1763,9 @@
         "verification_obstacle_basis": {
           "type": "string"
         },
+        "verification_obstacle_basis_source": {
+          "type": "string"
+        },
         "residual_risk": {
           "type": "string"
         },

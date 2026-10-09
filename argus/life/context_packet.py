@@ -515,7 +515,10 @@ def record_reviewed_handoff(
         review_payload["review_source"] = review_source
     # The Manager reads this packet as evidence: a check this environment
     # cannot run, and a risk the Reviewer accepted, belong in it by name.
-    for key in ("verification_obstacle", "verification_obstacle_basis", "residual_risk"):
+    for key in (
+        "verification_obstacle", "verification_obstacle_basis", "verification_obstacle_basis_source",
+        "residual_risk",
+    ):
         value = str(getattr(review, key, "") or "").strip()
         if value:
             review_payload[key] = value[:2000]

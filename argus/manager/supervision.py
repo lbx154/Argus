@@ -461,7 +461,8 @@ def _prompt(observation: ManagerObservation, consult_reason: str = "") -> str:
         "(e.g. a masked display), steer toward a rerunnable check whose result both "
         "can see. A check is impossible here only when the Reviewer quoted the task, "
         "packet or environment saying what it needs exists only at grading or deploy "
-        "time (verification_obstacle_basis); without that quote it is missing, so "
+        "time (verification_obstacle_basis, quoted from verification_obstacle_basis_source); "
+        "without that quote it is missing, so "
         "steer toward it. "
         + _risk_authority_rule()
         + "Choose CONTINUE if the current course is justified; STEER to give a concrete corrected "
@@ -500,18 +501,22 @@ def _owns_reserved_control(root: Path, record: dict[str, Any]) -> bool:
     )
 
 
-def _obstacle_basis(event: dict[str, Any], observation: Any, item_id: str) -> str:
-    """The Reviewer's quoted statement that makes this item's check impossible here."""
+def _obstacle_basis(event: dict[str, Any], observation: Any, item_id: str) -> tuple[str, str]:
+    """The Reviewer's quoted statement that makes this item's check impossible here, and its source.
+
+    Only a review of this same item counts: a basis quoted for another item,
+    or by a review that names no item, grounds nothing here.
+    """
+    if not item_id:
+        return "", ""
     rows = [event, *reversed(list((getattr(observation, "facts", None) or {}).get("recent_events") or []))]
     for row in rows:
-        if not isinstance(row, dict):
-            continue
-        if item_id and str(row.get("item_id") or item_id) != item_id:
+        if not isinstance(row, dict) or str(row.get("item_id") or "") != item_id:
             continue
         basis = " ".join(str(row.get("verification_obstacle_basis") or "").split())
         if basis:
-            return basis
-    return ""
+            return basis, " ".join(str(row.get("verification_obstacle_basis_source") or "").split())[:300]
+    return "", ""
 
 
 def _apply_risk_decision(
@@ -540,16 +545,20 @@ def _apply_risk_decision(
         effects["residual_risk_refused"] = "an operator is available; accepting a residual risk is theirs"
         return
     item_id = str((record.get("trigger") or {}).get("item_id") or "")
-    basis = _obstacle_basis(event, observation, item_id)
+    if not item_id:
+        effects["residual_risk_refused"] = "the decision names no item; an acceptance covers one item's check"
+        return
+    basis, basis_source = _obstacle_basis(event, observation, item_id)
     if not basis:
-        effects["residual_risk_refused"] = "no Reviewer quoted a statement making this check impossible here"
+        effects["residual_risk_refused"] = "no Reviewer of this item quoted a statement making this check impossible here"
         return
     entry = accept_residual_risk(
         root, check=risk.get("check", ""), risk=risk.get("risk", ""), accepted_by="manager",
-        source_ref=source, item_id=item_id, basis=basis,
+        source_ref=source, item_id=item_id, basis=basis, basis_source=basis_source,
     )
     if entry is not None:
         effects["residual_risk_accepted"] = f"[{entry['id']}] {describe(entry)}"
+        effects["residual_risk_basis_source"] = basis_source or "task"
 
 
 def _apply(

@@ -78,6 +78,38 @@ def mission_item_id(supervised_config: Any) -> str:
     return str(payload.get("mission_id") or "").strip() if isinstance(payload, dict) else ""
 
 
+def mission_contract(supervised_config: Any) -> dict[str, Any]:
+    """The mission contract (``mission.json``) the packet belongs to, or {}."""
+    packet = str(getattr(supervised_config, "context_packet_path", "") or "").strip()
+    if not packet:
+        return {}
+    path = Path(packet).expanduser()
+    for _ in range(2):
+        try:
+            payload = json.loads(path.read_text(encoding="utf-8"))
+        except (OSError, ValueError):
+            return {}
+        if not isinstance(payload, dict):
+            return {}
+        if payload.get("kind") == "mission_context":
+            return payload
+        mission = payload.get("mission")
+        reference = str(mission.get("path") or "") if isinstance(mission, dict) else ""
+        if not reference:
+            return {}
+        path = Path(reference).expanduser()
+    return {}
+
+
+def mission_started_at(supervised_config: Any) -> float | None:
+    """When this mission's contract was first written, if the packet says."""
+    try:
+        started = float(mission_contract(supervised_config).get("created_at") or 0)
+    except (TypeError, ValueError):
+        return None
+    return started if started > 0 else None
+
+
 def _words(text: str) -> set[str]:
     return {word for word in _WORD.findall(str(text or "").lower()) if len(word) > 2 and word not in _STOP}
 
@@ -206,5 +238,6 @@ def carried_obstacle_hint(streak: int, obstacle: str, threshold: int) -> str:
 
 __all__ = [
     "FILENAME", "MAX_CARRY_AGE_SECONDS", "carried_obstacle_hint", "clear_obstacle_stall",
-    "load_obstacle_stall", "mission_item_id", "record_obstacle_stall", "same_obstacle", "stall_root",
+    "load_obstacle_stall", "mission_contract", "mission_item_id", "mission_started_at",
+    "record_obstacle_stall", "same_obstacle", "stall_root",
 ]

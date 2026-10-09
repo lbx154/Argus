@@ -199,6 +199,7 @@ def observe_project(root: Path | str, *, event: dict[str, Any] | None = None) ->
         "reason",
         "verification_obstacle",
         "verification_obstacle_basis",
+        "verification_obstacle_basis_source",
         "residual_risk",
         "success",
         "outcome",
@@ -238,7 +239,7 @@ def observe_project(root: Path | str, *, event: dict[str, Any] | None = None) ->
     # Every acceptance of a check left unverified, with its id so the Manager
     # can revoke one; a revoked one stays listed as revoked.
     facts["accepted_residual_risks"] = [
-        {key: row.get(key) for key in ("id", "item_id", "check", "risk", "accepted_by", "basis")}
+        {key: row.get(key) for key in ("id", "item_id", "check", "risk", "accepted_by", "basis", "basis_source")}
         | {"revoked": bool(row.get("revoked_at"))}
         for row in residual_risk_records(root)[-16:]
     ]

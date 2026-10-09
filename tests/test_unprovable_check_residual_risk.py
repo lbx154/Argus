@@ -26,6 +26,7 @@ from __future__ import annotations
 
 import hashlib
 import json
+import os
 import time
 from pathlib import Path
 
@@ -88,10 +89,15 @@ def with_operator(monkeypatch):
     monkeypatch.setenv("ARGUS_SKILL_OPERATOR_AVAILABLE", "true")
 
 
-def _grounding(*, operator: bool, operator_text: str = "", roots: tuple[str, ...] = ()) -> ReviewGrounding:
-    return ReviewGrounding(
-        task_text=_OBJECTIVE, operator_text=operator_text, roots=roots, operator_available=operator,
-    )
+def _grounding(*, operator: bool, roots: tuple[str, ...] = (), **fields) -> ReviewGrounding:
+    fields.setdefault("task_text", _OBJECTIVE)
+    return ReviewGrounding(roots=roots, operator_available=operator, **fields)
+
+
+_MANAGER_ROW = {
+    "id": "risk-0000000000", "item_id": "feed-task", "accepted_by": "manager",
+    "check": "Live feed ingestion with the grading-time token", "risk": "Live feed behaviour is unverified.",
+}
 
 
 def _risk(**overrides) -> dict:
@@ -110,7 +116,9 @@ def _risk(**overrides) -> dict:
 
 
 def test_an_impossible_check_must_quote_the_task_packet_or_environment(tmp_path) -> None:
-    actions = ReviewActions(grounding=_grounding(operator=True, roots=(str(tmp_path),)))
+    (tmp_path / "DEPLOY.md").write_text("Secrets: FEED_TOKEN is injected at deploy time only.\n", encoding="utf-8")
+    started = time.time() + 5  # the mission began after DEPLOY.md was written
+    actions = ReviewActions(grounding=_grounding(operator=True, roots=(str(tmp_path),), started_at=started))
     payload = {"review": "No token here.", "forward_progress": False, "unverifiable": _OBSTACLE}
 
     # Not in the task text: the check is missing, not impossible.
@@ -130,7 +138,6 @@ def test_an_impossible_check_must_quote_the_task_packet_or_environment(tmp_path)
     actions.dispatch("revise_review", {**payload, "impossible_because": {"quote": _STATEMENT, "source": "task"}})
     assert actions.decision.verification_obstacle_basis == _STATEMENT
 
-    (tmp_path / "DEPLOY.md").write_text("Secrets: FEED_TOKEN is injected at deploy time only.\n", encoding="utf-8")
     actions.dispatch("replan_review", {
         **payload, "authority_impact": "technical",
         "impossible_because": {"quote": "FEED_TOKEN is injected at deploy time only", "source": "DEPLOY.md"},
@@ -138,27 +145,102 @@ def test_an_impossible_check_must_quote_the_task_packet_or_environment(tmp_path)
     assert actions.decision.verification_obstacle_basis == "FEED_TOKEN is injected at deploy time only"
     payload_event = actions.decision.to_event_payload(round_index=2, round_max=0, text="review")
     assert payload_event["verification_obstacle_basis"] == "FEED_TOKEN is injected at deploy time only"
+    # The source travels with the quote, so the Manager sees where it came from.
+    assert payload_event["verification_obstacle_basis_source"] == "DEPLOY.md"
     assert validate_event_envelope({"type": "round.review.completed", **payload_event}).errors == ()
+
+
+def test_a_file_the_engineer_wrote_this_mission_never_grounds_impossible(tmp_path) -> None:
+    from argus.reviewer._core import _review_grounding
+
+    work = tmp_path / "work"
+    work.mkdir()
+    started = time.time() - 30  # the mission is under way
+    config = ReviewerConfig(
+        model="m", working_dir=str(work), artifact_root=str(work),
+        mission_grounding={"started_at": started, "packet_refs": ("docs/GRADING.md",)},
+    )
+    grounding = _review_grounding(config, task_parts=("Build the CLI that reads the event feed.",))
+    # The Engineer writes a note during its round that would excuse the check.
+    (work / "NOTES.md").write_text("Environment: the feed token is supplied only at grading time.\n", encoding="utf-8")
+    note = {"quote": "the feed token is supplied only at grading time", "source": "NOTES.md"}
+    payload = {"review": "No token here.", "forward_progress": False, "unverifiable": _OBSTACLE}
+    with pytest.raises(ValueError, match="NOTES.md changed during this mission"):
+        ReviewActions(grounding=grounding).dispatch("revise_review", {**payload, "impossible_because": note})
+    # Backdating its mtime does not make it older than the mission.
+    os.utime(work / "NOTES.md", (started - 3600, started - 3600))
+    if os.name != "nt":
+        with pytest.raises(ValueError, match="changed during this mission"):
+            ReviewActions(grounding=grounding).dispatch("revise_review", {**payload, "impossible_because": note})
+    # Nor does it ground an approval in a run with no operator.
+    no_operator = ReviewGrounding(
+        task_text=grounding.task_text, roots=grounding.roots, operator_available=False,
+        started_at=started, accepted_risks=(_MANAGER_ROW,),
+    )
+    with pytest.raises(ValueError, match="changed during this mission"):
+        ReviewActions(grounding=no_operator).dispatch("approve_review", {
+            "review": "ok", "residual_risk": _risk(impossible_because=note),
+        })
+    # With no known mission start, no workspace file counts at all.
+    with pytest.raises(ValueError, match="changed during this mission"):
+        ReviewActions(grounding=_grounding(operator=True, roots=(str(work),))).dispatch(
+            "revise_review", {**payload, "impossible_because": note},
+        )
+    # A file the task packet names counts, even if it is new.
+    (work / "docs").mkdir()
+    (work / "docs" / "GRADING.md").write_text("The feed token is issued to the grader only.\n", encoding="utf-8")
+    actions = ReviewActions(grounding=grounding)
+    actions.dispatch("revise_review", {**payload, "impossible_because": {
+        "quote": "The feed token is issued to the grader only", "source": "docs/GRADING.md",
+    }})
+    assert actions.decision.verification_obstacle_basis_source == "docs/GRADING.md"
+
+
+def _answered(check: str, option: str = "accept", *, note: str = "") -> dict:
+    """A resolved decision card for a Reviewer question raised with accept_risk."""
+    from argus.core.operator_decision import build_operator_decision
+    from argus.core.residual_risk import acceptance_options
+
+    card = build_operator_decision(
+        item_id="feed-task", title="Ingest the feed", reason="impossible check",
+        question="Leave the live feed check unverified?",
+        options=acceptance_options(check, "Live feed behaviour is unverified."),
+    )
+    chosen = {"accept": card["options"][0]["id"], "keep": card["options"][1]["id"]}.get(option, option)
+    return {**card, "status": "resolved", "selected_option": chosen, "note": note}
+
+
+_CHECK = "Live feed ingestion with the grading-time token"
 
 
 def test_with_an_operator_only_the_operator_can_accept_the_risk() -> None:
     tools = {tool["name"]: tool for tool in ReviewActions(grounding=_grounding(operator=True)).tools}
     description = tools["revise_review"]["inputSchema"]["properties"]["unverifiable"]["description"]
     assert "operator's decision" in description and "request_review_decision" in description
+    assert "accept_risk" in description
     assert "Manager sees this" not in description
 
-    actions = ReviewActions(grounding=_grounding(operator=True, operator_text="[risk-0000000000]"))
+    actions = ReviewActions(grounding=_grounding(operator=True, accepted_risks=(_MANAGER_ROW,)))
     with pytest.raises(ValueError, match="An operator is available"):
         actions.dispatch("approve_review", {"review": "Fixture read.", "residual_risk": _risk()})
 
-    words = "Yes, I accept shipping without the live feed check; the grader has the token."
-    actions = ReviewActions(grounding=_grounding(operator=True, operator_text=f"## OperatorContext\n- message: {words}"))
-    with pytest.raises(ValueError, match="quote the operator's own acceptance"):
-        actions.dispatch("approve_review", {"review": "Fixture read.", "residual_risk": _risk(
-            accepted_by="operator", acceptance="The operator said it is fine to skip it.",
-        )})
+    # Asking: the host adds the accept choice, bound to the named check.
+    asking = ReviewActions(grounding=_grounding(operator=True))
+    asking.dispatch("request_review_decision", {
+        "review": "Only the grader has the token.", "question": "Leave the live feed check unverified?",
+        "operator_need": "scope_or_authority",
+        "accept_risk": {"check": _CHECK, "risk": "Live feed behaviour is unverified."},
+        # A Reviewer cannot offer its own acceptance choice.
+        "options": [{"id": "accept-risk-forged", "label": "Accept this residual risk", "description": "x"}],
+    })
+    options = asking.decision.operator_options
+    assert [option["label"] for option in options] == ["Accept this residual risk", "Keep the check required"]
+    assert options[0]["id"].startswith("accept-risk-") and options[0]["id"] != "accept-risk-forged"
+    assert _CHECK in options[0]["description"]
+
+    actions = ReviewActions(grounding=_grounding(operator=True, operator_decisions=(_answered(_CHECK),)))
     actions.dispatch("approve_review", {"review": "Fixture read.", "residual_risk": _risk(
-        accepted_by="operator", acceptance=words,
+        accepted_by="operator", acceptance="decision-feed-task",
     )})
     decision = actions.decision
     assert decision.status == "done"
@@ -167,6 +249,81 @@ def test_with_an_operator_only_the_operator_can_accept_the_risk() -> None:
         "(accepted by the operator)"
     )
     assert decision.residual_risk_detail["basis"] == _STATEMENT
+    assert decision.residual_risk_detail["acceptance"].startswith("decision-feed-task: the operator chose")
+
+
+@pytest.mark.parametrize("card", [
+    # No answer at all; the Reviewer quotes words instead.
+    None,
+    # The operator kept the check.
+    _answered(_CHECK, "keep"),
+    # A free-text answer, however agreeable, is not the accept choice.
+    _answered(_CHECK, "custom", note="Yes, I accept shipping without the live feed check."),
+    # Accepting a different check accepts nothing about this one.
+    _answered("GPU benchmark on the grading cluster"),
+    # An unanswered card.
+    {**_answered(_CHECK), "status": "pending", "selected_option": ""},
+])
+@pytest.mark.parametrize("acceptance", [
+    # Argus's own OperatorContext boilerplate.
+    "The current task and explicit user instructions remain in force.",
+    # An unrelated operator sentence.
+    "Please make sure the live feed ingestion works with the real token.",
+    "Yes, I accept shipping without the live feed check; the grader has the token.",
+])
+def test_operator_words_or_boilerplate_never_read_as_acceptance(tmp_path, monkeypatch, card, acceptance) -> None:
+    from argus.core.operator_context import build_operator_context_block
+
+    monkeypatch.setenv("ARGUS_SKILL_OPERATOR_AVAILABLE", "true")
+    block, _revision = build_operator_context_block("reviewer", tmp_path)
+    assert "The current task and explicit user instructions remain in force." in block
+    grounding = _grounding(
+        operator=True, task_text=f"{_OBJECTIVE}\n{block}\n- message: {acceptance}",
+        operator_decisions=() if card is None else (card,),
+    )
+    with pytest.raises(ValueError, match="The operator has not accepted this check"):
+        ReviewActions(grounding=grounding).dispatch("approve_review", {
+            "review": "Fixture read.", "residual_risk": _risk(accepted_by="operator", acceptance=acceptance),
+        })
+
+
+def test_the_operator_answer_to_the_reviewer_question_reaches_the_next_mission(tmp_path) -> None:
+    from argus.core.operator_decision import build_operator_decision, selected_decision_text
+    from argus.engineer.round_reviewer import operator_risk_decisions
+    from argus.life.memory import Backlog, BacklogItem
+
+    asking = ReviewActions(grounding=_grounding(operator=True))
+    asking.dispatch("request_review_decision", {
+        "review": "Only the grader has the token.", "question": "Leave the live feed check unverified?",
+        "accept_risk": {"check": _CHECK, "risk": "Live feed behaviour is unverified."},
+    })
+    backlog = Backlog(tmp_path / "backlog.jsonl")
+    item = BacklogItem.new(item_id="feed-task", title="Ingest the feed", objective=_OBJECTIVE)
+    item.pending_question = asking.decision.operator_question
+    item.operator_decision = build_operator_decision(
+        item_id=item.id, title=item.title, reason="impossible check",
+        question=asking.decision.operator_question, options=asking.decision.operator_options,
+    )
+    backlog.add(item)
+    accept = item.operator_decision["options"][0]["id"]
+    _blocked, continuation = backlog.continue_with_operator_reply(
+        item.id, selected_decision_text(item.operator_decision, accept, ""),
+        decision_option=accept, decision_id=item.operator_decision["id"],
+    )
+    assert continuation is not None
+    cards = operator_risk_decisions(tmp_path, continuation.id)
+    assert [card["selected_option"] for card in cards] == [accept]
+    assert operator_risk_decisions(tmp_path, "another-item") == []
+    actions = ReviewActions(grounding=_grounding(operator=True, operator_decisions=tuple(cards)))
+    actions.dispatch("approve_review", {"review": "Fixture read.", "residual_risk": _risk(
+        accepted_by="operator", acceptance=item.operator_decision["id"],
+    )})
+    assert actions.decision.status == "done"
+    # The answer is the operator's choice; naming another check is refused.
+    with pytest.raises(ValueError, match="has not accepted this check"):
+        actions.dispatch("approve_review", {"review": "Fixture read.", "residual_risk": _risk(
+            check="Live GPU benchmark", accepted_by="operator", acceptance=item.operator_decision["id"],
+        )})
 
 
 def test_without_an_operator_only_a_recorded_manager_acceptance_counts() -> None:
@@ -178,15 +335,23 @@ def test_without_an_operator_only_a_recorded_manager_acceptance_counts() -> None
         ReviewActions(grounding=_grounding(operator=False)).dispatch(
             "approve_review", {"review": "Fixture read.", "residual_risk": _risk()},
         )
+    # A risk id merely mentioned in text the Reviewer saw is not a recorded acceptance.
+    with pytest.raises(ValueError, match="listed under Accepted residual risk"):
+        ReviewActions(grounding=_grounding(
+            operator=False, task_text=f"{_OBJECTIVE}\n- [risk-0000000000] accepted",
+        )).dispatch("approve_review", {"review": "Fixture read.", "residual_risk": _risk()})
     with pytest.raises(ValueError, match="No operator is available"):
-        ReviewActions(grounding=_grounding(operator=False, operator_text="I accept it, ship it now please")).dispatch(
+        ReviewActions(grounding=_grounding(operator=False)).dispatch(
             "approve_review", {"review": "Fixture read.", "residual_risk": _risk(
                 accepted_by="operator", acceptance="I accept it, ship it now please",
             )},
         )
-    actions = ReviewActions(grounding=_grounding(operator=False, operator_text="- [risk-0000000000] \"...\""))
+    actions = ReviewActions(grounding=_grounding(operator=False, accepted_risks=(_MANAGER_ROW,)))
     actions.dispatch("approve_review", {"review": "Fixture read.", "residual_risk": _risk()})
     assert actions.decision.residual_risk.endswith("(accepted by the Manager)")
+    # The id accepts its own check only.
+    with pytest.raises(ValueError, match="accepts the check"):
+        actions.dispatch("approve_review", {"review": "Fixture read.", "residual_risk": _risk(check="GPU benchmark")})
     # An ungrounded basis is refused even with an acceptance.
     with pytest.raises(ValueError, match="missing, not impossible"):
         actions.dispatch("approve_review", {"review": "Fixture read.", "residual_risk": _risk(
@@ -227,7 +392,7 @@ def test_every_fixture_rule_names_the_three_faithfulness_conditions(tmp_path, mo
     tools = {tool["name"]: tool for tool in ReviewActions().tools}
     risk_description = " ".join(tools["approve_review"]["inputSchema"]["properties"]["residual_risk"]["description"].split())
     obstacle_description = tools["revise_review"]["inputSchema"]["properties"]["unverifiable"]["description"]
-    accepted = " ".join(reviewer_block(_accepted_store(tmp_path), item_id="").split())
+    accepted = " ".join(reviewer_block(_accepted_store(tmp_path), item_id="feed-task").split())
     monkeypatch.setenv("ARGUS_SKILL_OPERATOR_AVAILABLE", "false")
     rendered, _revision = build_operator_context_block("engineer", tmp_path)
 
@@ -253,7 +418,8 @@ def test_every_fixture_rule_names_the_three_faithfulness_conditions(tmp_path, mo
 
 
 def _accepted_store(root: Path) -> Path:
-    accept_residual_risk(root, check="Live feed", risk="unverified", accepted_by="operator", source_ref="operator:q")
+    accept_residual_risk(root, check="Live feed", risk="unverified", accepted_by="operator", source_ref="operator:q",
+                         item_id="feed-task")
     return root
 
 
@@ -339,7 +505,7 @@ def _supervised_project(root: Path, *, basis: str = _STATEMENT):
         "type": EventType.ROUND_REVIEW_COMPLETED, "item_id": item.id, "status": "continue",
         "review_source": "reviewer", "reason": "No token here.", "verification_obstacle": _OBSTACLE,
         "manager_attention": "needed", "manager_attention_reason": "impossible check",
-        **({"verification_obstacle_basis": basis} if basis else {}),
+        **({"verification_obstacle_basis": basis, "verification_obstacle_basis_source": "task"} if basis else {}),
     }
     return item, event
 
@@ -365,6 +531,7 @@ def test_the_manager_accepts_a_grounded_check_for_its_item_only_without_an_opera
     (row,) = active_residual_risks(tmp_path, item_id=item.id)
     assert accepted.startswith(f"[{row['id']}]")
     assert row["item_id"] == item.id and row["accepted_by"] == "manager" and row["basis"] == _STATEMENT
+    assert row["basis_source"] == "task" and record["effects"]["residual_risk_basis_source"] == "task"
     # Scoped to its item: another item's Reviewer is not told.
     assert active_residual_risks(tmp_path, item_id="other-task") == []
     assert reviewer_block(tmp_path, item_id="other-task") == ""
@@ -390,7 +557,7 @@ def test_the_manager_cannot_accept_with_an_operator_or_without_a_quoted_basis(tm
     monkeypatch.setenv("ARGUS_SKILL_OPERATOR_AVAILABLE", "false")
     item, event = _supervised_project(tmp_path / "ungrounded", basis="")
     record = _supervise(tmp_path / "ungrounded", event, _ACCEPT)
-    assert record["effects"]["residual_risk_refused"].startswith("no Reviewer quoted a statement")
+    assert record["effects"]["residual_risk_refused"].startswith("no Reviewer of this item quoted a statement")
     assert active_residual_risks(tmp_path / "ungrounded", item_id=item.id) == []
 
 
@@ -400,10 +567,16 @@ def test_acceptances_are_per_check_idempotent_and_survive_revocation_as_a_record
     again = accept_residual_risk(tmp_path, check="Live feed", risk="unverified", accepted_by="manager",
                                  source_ref="manager.supervision:a", item_id="item-1")
     assert first == again
-    check_only = accept_residual_risk(tmp_path, check="GPU benchmark", risk="unmeasured", accepted_by="operator",
-                                      source_ref="operator:x")
-    assert {row["id"] for row in active_residual_risks(tmp_path, item_id="item-1")} == {first["id"], check_only["id"]}
-    assert [row["id"] for row in active_residual_risks(tmp_path, item_id="item-2")] == [check_only["id"]]
+    # With no item, an acceptance holds in its own mission only, never for every item.
+    itemless = accept_residual_risk(tmp_path, check="GPU benchmark", risk="unmeasured", accepted_by="operator",
+                                    source_ref="operator:x", mission_ref="mission-a")
+    assert [row["id"] for row in active_residual_risks(tmp_path, item_id="item-1")] == [first["id"]]
+    assert active_residual_risks(tmp_path, item_id="item-2") == []
+    assert [row["id"] for row in active_residual_risks(tmp_path, mission_ref="mission-a")] == [itemless["id"]]
+    assert active_residual_risks(tmp_path, mission_ref="mission-b") == []
+    assert active_residual_risks(tmp_path) == []
+    # An acceptance with neither an item nor a mission is not recorded at all.
+    assert accept_residual_risk(tmp_path, check="x", risk="y", accepted_by="operator", source_ref="s") is None
     assert accept_residual_risk(tmp_path, check="", risk="x", accepted_by="manager", source_ref="s") is None
     assert accept_residual_risk(tmp_path, check="x", risk="y", accepted_by="engineer", source_ref="s") is None
     revoked = revoke_residual_risk(tmp_path, first["id"], revoked_by="operator", reason="token now available")
@@ -433,6 +606,7 @@ def test_the_manager_observation_shows_basis_risk_and_acceptances(tmp_path, no_o
     facts = observe_project(tmp_path, event=event).facts
     rows = [row for row in facts["recent_events"] if row.get("item_id") == item.id]
     assert any(row.get("verification_obstacle_basis") == _STATEMENT for row in rows)
+    assert any(row.get("verification_obstacle_basis_source") == "task" for row in rows)
     assert any(row.get("residual_risk") == approved["residual_risk"] for row in rows)
     assert facts["accepted_residual_risks"][-1]["id"] == entry["id"]
     assert facts["accepted_residual_risks"][-1]["revoked"] is False
@@ -460,7 +634,7 @@ def _engineer(backend: MemoryBackend) -> SupervisedEngineer:
     )
 
 
-def _mission(backend: MemoryBackend, root: Path, tmp_path: Path, verdicts: list[tuple[str, dict]]):
+def _mission(backend: MemoryBackend, root: Path, tmp_path: Path, verdicts: list[tuple[str, dict]], session_id: str = ""):
     for index, (action, payload) in enumerate(verdicts, start=1):
         backend.queue(f"engineer-r{index}", CannedResponse(message=f"round {index}: nothing new to run"))
         backend.queue("reviewer", CannedResponse(review_action=(action, payload)))
@@ -472,7 +646,7 @@ def _mission(backend: MemoryBackend, root: Path, tmp_path: Path, verdicts: list[
         engineer_prompt_builder=lambda _next, _static=True: "Do the task.",
         supervised_config=SupervisedConfig(
             max_rounds=0, stall_threshold=3, decision_progress_timeout_seconds=0,
-            operator_question_policy_root=root,
+            operator_question_policy_root=root, session_id=session_id,
         ),
         workdir=workdir,
         on_event=events.append,
@@ -571,7 +745,8 @@ def test_a_carry_expires_and_an_acceptance_or_revocation_resets_it(tmp_path) -> 
     assert load_obstacle_stall(root, _OBJECTIVE, threshold=4) == (0, "")
     record_obstacle_stall(root, _OBJECTIVE, streak=2, obstacle=_OBSTACLE, now=now - 10)
     assert load_obstacle_stall(root, _OBJECTIVE, threshold=4)[0] == 2
-    accept_residual_risk(root, check="Live feed", risk="unverified", accepted_by="operator", source_ref="operator:y")
+    accept_residual_risk(root, check="Live feed", risk="unverified", accepted_by="operator", source_ref="operator:y",
+                         item_id="feed-task")
     assert load_obstacle_stall(root, _OBJECTIVE, threshold=4) == (0, "")
 
 
@@ -615,13 +790,14 @@ def test_progress_clears_a_carried_stall(tmp_path) -> None:
 
 def test_an_accepted_risk_reaches_the_reviewer_and_its_approval_is_never_plain_verified(tmp_path, no_operator) -> None:
     root = _project(tmp_path)
-    entry = accept_residual_risk(root, check="Live feed ingestion", risk="Live feed behaviour is unverified.",
-                                 accepted_by="manager", source_ref="manager.supervision:z", basis=_STATEMENT)
+    entry = accept_residual_risk(root, check=_CHECK, risk="Live feed behaviour is unverified.",
+                                 accepted_by="manager", source_ref="manager.supervision:z", basis=_STATEMENT,
+                                 mission_ref="mission-a")
     backend = MemoryBackend()
     status, rounds, events = _mission(backend, root, tmp_path, [("approve_review", {
         "review": "Read tests/fixtures/feed_fixture.py and its recorded run.", "forward_progress": True,
         "residual_risk": _risk(acceptance=entry["id"]),
-    })])
+    })], session_id="mission-a")
     assert status == "done", events[-3:]
     prompt = [p for label, p, _ in backend.history if label == "reviewer"][0]
     assert f"[{entry['id']}]" in prompt and "## Accepted residual risk" in prompt

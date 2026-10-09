@@ -17,7 +17,6 @@ from ..core.model_visible_text import FIXTURE_EVIDENCE_RULE
 from ..core.models import ReviewDecision, ReviewStatus, RunnerOptions
 from ..core.operator_decision import normalize_agent_options
 from ..core.research_contract import RESULT_FIELD_CHOICES, normalize_research_result
-from ..core.residual_risk import REVIEWER_BLOCK_PROSE as _ACCEPTED_BLOCK_PROSE
 from ..core.role_tool_bridge import CallBoundBridge, bridge_request
 from ..core.venue_review import ACCEPTED_RECOMMENDATIONS, RECOMMENDATIONS
 from .validation import (
@@ -82,31 +81,59 @@ def _judgment_fields() -> dict[str, dict[str, Any]]:
 
 @dataclass(frozen=True)
 class ReviewGrounding:
-    """What a Reviewer's quotes are checked against.
+    """What a Reviewer's quotes and acceptances are checked against.
 
     ``task_text`` is the task as the Reviewer was given it (objective, scope,
-    packet context); ``operator_text`` is the operator context it was shown,
-    including any accepted residual risks; ``roots`` are the directories a
-    quoted file may come from. Nothing the Engineer wrote this round is a
-    source: a statement that a check is impossible must come from the task,
-    its packet or the environment.
+    packet context). ``roots`` are the directories a quoted file may come from,
+    and a file there counts only if the task packet names it
+    (``packet_refs``) or it has not changed since the mission began
+    (``started_at``); with no start time, no file counts. So nothing an
+    Engineer wrote during this mission is a source: a statement that a check
+    is impossible must come from the task, its packet or the environment.
+
+    ``accepted_risks`` are the Manager's acceptances in force for this item and
+    ``operator_decisions`` the operator's resolved decision cards for it. An
+    acceptance is one of those records, never text the Reviewer was shown.
     """
 
     task_text: str = ""
-    operator_text: str = ""
     roots: tuple[str, ...] = ()
     operator_available: bool = True
+    started_at: float | None = None
+    packet_refs: tuple[str, ...] = ()
+    accepted_risks: tuple[dict[str, Any], ...] = ()
+    operator_decisions: tuple[dict[str, Any], ...] = ()
 
 
 _QUOTE_FOLD = str.maketrans({"\u2018": "'", "\u2019": "'", "\u201c": '"', "\u201d": '"', "`": " ", "*": " "})
 _MIN_QUOTE_CHARS = 20
-# An operator may accept by choosing an option ("Accept the residual risk").
-_MIN_ACCEPTANCE_CHARS = 12
 _MAX_SOURCE_BYTES = 2_000_000
 
 
 def _folded(text: str) -> str:
     return " ".join(str(text or "").translate(_QUOTE_FOLD).casefold().split())
+
+
+def _changed_at(path: Path) -> float:
+    """The latest a file was written or (re)created; a backdated mtime does not hide a new file."""
+    info = path.stat()
+    times = [info.st_mtime, float(getattr(info, "st_birthtime", 0.0) or 0.0)]
+    if os.name != "nt":
+        # Inode change time: moves when the content or the mtime is set.
+        times.append(info.st_ctime)
+    return max(times)
+
+
+def _packet_names(candidate: Path, grounding: ReviewGrounding, base: Path) -> bool:
+    for ref in grounding.packet_refs:
+        try:
+            named = Path(ref).expanduser()
+            named = (named if named.is_absolute() else base / named).resolve()
+        except (OSError, RuntimeError, ValueError):
+            continue
+        if named == candidate:
+            return True
+    return False
 
 
 def _quote_found(quote: str, source: str, grounding: ReviewGrounding) -> str:
@@ -127,6 +154,16 @@ def _quote_found(quote: str, source: str, grounding: ReviewGrounding) -> str:
             continue
         if not candidate.is_relative_to(base) or not candidate.is_file():
             continue
+        if not _packet_names(candidate, grounding, base):
+            try:
+                written_here = grounding.started_at is None or _changed_at(candidate) >= grounding.started_at
+            except OSError:
+                written_here = True
+            if written_here:
+                return (
+                    f"{source} changed during this mission and the task packet does not name it, "
+                    "so it is this mission's own work, not the environment"
+                )
         try:
             with candidate.open("rb") as handle:
                 text = handle.read(_MAX_SOURCE_BYTES).decode("utf-8", "replace")
@@ -145,8 +182,9 @@ def _basis_field() -> dict[str, Any]:
             "Required when you call a check impossible here because what it needs "
             "exists only at grading or deploy time: the task, packet or environment "
             "statement that says so, quoted verbatim, and its source ('task', or a "
-            "file path in the workspace). The host checks the quote. Without such a "
-            "statement the check is missing, not impossible."
+            "workspace file the packet names or that predates this mission; never one "
+            "written during it). The host checks the quote. Without such a statement "
+            "the check is missing, not impossible."
         ),
         "properties": {
             "quote": {"type": "string", "minLength": _MIN_QUOTE_CHARS},
@@ -251,7 +289,7 @@ class ReviewActions:
                         "risk left. " + FIXTURE_EVIDENCE_RULE + " " + (
                             "Leaving it unverified is the operator's decision: ask them "
                             "with request_review_decision (operator_need "
-                            "scope_or_authority)."
+                            "scope_or_authority, accept_risk)."
                             if self.grounding.operator_available else
                             "No operator is available, so the Manager sees this and "
                             "decides whether to accept that risk."
@@ -265,9 +303,11 @@ class ReviewActions:
                     "description": (
                         "Only when one decisive check stays unverified because it is "
                         "impossible here and leaving it so was accepted: by the operator "
-                        "(quote their words) or, in a run with no operator, by the "
-                        "Manager (cite the risk id listed under Accepted residual risk). "
-                        "Without that acceptance, do not approve. The evidence you judged "
+                        "choosing to accept it on the request_review_decision you raised "
+                        "with accept_risk, or, in a run with no operator, by the Manager "
+                        "(cite the risk id listed under Accepted residual risk). Name the "
+                        "check exactly as accepted. Without that acceptance, do not "
+                        "approve. The evidence you judged "
                         "it from must be something you read yourself. "
                         + FIXTURE_EVIDENCE_RULE
                         + " The Engineer's word alone is never that evidence."
@@ -280,7 +320,10 @@ class ReviewActions:
                         "accepted_by": {"enum": ["operator", "manager"]},
                         "acceptance": {
                             "type": "string", "minLength": 3,
-                            "description": "The operator's acceptance quoted verbatim, or the Manager's risk id.",
+                            "description": (
+                                "The Manager's risk id, or the operator's decision id; the host "
+                                "checks the recorded choice, not this text."
+                            ),
                         },
                     },
                     "required": [
@@ -317,6 +360,20 @@ class ReviewActions:
                         "work needs), spending, irreversible_or_external, or "
                         "scope_or_authority; none if the team can decide."
                     ),
+                }
+                fields["accept_risk"] = {
+                    "type": "object",
+                    "description": (
+                        "When the question is whether to leave one check impossible here "
+                        "unverified: name the check and the risk. The host adds the choice to "
+                        "accept that risk or keep the check; only choosing it accepts."
+                    ),
+                    "properties": {
+                        "check": {"type": "string", "minLength": 3},
+                        "risk": {"type": "string", "minLength": 3},
+                    },
+                    "required": ["check", "risk"],
+                    "additionalProperties": False,
                 }
                 required.append("question")
             if name == "replan_review":
@@ -367,11 +424,23 @@ class ReviewActions:
             raise ValueError("The research assessment is incomplete.")
         self._check_grounding(payload)
         status = _ACTIONS[action][0]
+        options = [
+            option for option in payload.get("options", [])
+            # Only the host offers an acceptance choice, bound to its check.
+            if not str(option.get("id") or "").casefold().startswith("accept-risk")
+        ]
+        if isinstance(payload.get("accept_risk"), dict):
+            from ..core.residual_risk import acceptance_options
+
+            options = [
+                *acceptance_options(payload["accept_risk"]["check"], payload["accept_risk"]["risk"]),
+                *options,
+            ]
         decision = ReviewDecision(
             status=status, reason=review,
             next_action="" if status == "done" else review,
             operator_question=question,
-            operator_options=normalize_agent_options(payload.get("options", [])),
+            operator_options=normalize_agent_options(options),
             research_result=research,
             planner_report={"plan_signal": "continue"},
             session_signal=payload.get("session_signal", {}),
@@ -390,9 +459,12 @@ class ReviewActions:
         basis = payload.get("impossible_because")
         if isinstance(basis, dict):
             decision.verification_obstacle_basis = " ".join(str(basis["quote"]).split())[:1000]
+            decision.verification_obstacle_basis_source = " ".join(str(basis["source"]).split())[:300]
         risk = payload.get("residual_risk")
         if isinstance(risk, dict):
-            decision.residual_risk, decision.residual_risk_detail = _residual_risk_record(risk)
+            decision.residual_risk, decision.residual_risk_detail = _residual_risk_record(
+                risk, self._acceptance_record(risk),
+            )
         if action == "replan_review":
             decision.planner_report.update(
                 plan_signal="reconsider", challenge=review,
@@ -439,34 +511,54 @@ class ReviewActions:
                 f"residual_risk.impossible_because: {problem}. Without that statement the "
                 "check is missing, not impossible: revise instead of approving."
             )
-        acceptance = str(risk["acceptance"]).strip()
+        self._acceptance_record(risk)
+
+    def _acceptance_record(self, risk: dict[str, Any]) -> str:
+        """The recorded acceptance of ``risk``'s check, as "<id>: <how>"; raises without one."""
+        from ..core.residual_risk import ACCEPT_OPTION_LABEL, operator_accepted, same_check
+
+        grounding = self.grounding
         if risk["accepted_by"] == "manager":
             if grounding.operator_available:
                 raise ValueError(
                     "An operator is available, so accepting this risk is theirs to decide: "
-                    "ask with request_review_decision (operator_need scope_or_authority)."
+                    "ask with request_review_decision (operator_need scope_or_authority, accept_risk)."
                 )
-            if f"[{acceptance.strip('[]')}]" not in grounding.operator_text:
+            wanted = str(risk["acceptance"]).strip().strip("[]")
+            row = next((
+                row for row in grounding.accepted_risks
+                if row.get("id") == wanted and row.get("accepted_by") == "manager"
+            ), None)
+            if row is None:
                 raise ValueError(
                     "residual_risk.acceptance must be a risk id listed under Accepted "
                     "residual risk for this task; without one, the Manager has not accepted it."
                 )
-            return
+            if not same_check(row.get("check"), risk["check"]):
+                raise ValueError(
+                    f"{wanted} accepts the check \"{row.get('check')}\", not this one; name that "
+                    "check exactly, or revise."
+                )
+            return f"{wanted}: accepted by the Manager"
         if not grounding.operator_available:
             raise ValueError(
                 "No operator is available in this run; only the Manager can accept this "
                 "risk. Name it in unverifiable on a revise_review instead."
             )
-        operator_words = grounding.operator_text.replace(_ACCEPTED_BLOCK_PROSE, " ")
-        if len(_folded(acceptance)) < _MIN_ACCEPTANCE_CHARS or _folded(acceptance) not in _folded(operator_words):
+        card = next((
+            card for card in reversed(grounding.operator_decisions) if operator_accepted(card, risk["check"])
+        ), None)
+        if card is None:
             raise ValueError(
-                "residual_risk.acceptance must quote the operator's own acceptance, verbatim "
-                f"and at least {_MIN_ACCEPTANCE_CHARS} characters; if they have not accepted "
-                "it, ask with request_review_decision."
+                "The operator has not accepted this check: only their choice of "
+                f"\"{ACCEPT_OPTION_LABEL}\" on a request_review_decision raised with "
+                "accept_risk naming this exact check accepts it; their other words do not. "
+                "Ask them, or revise."
             )
+        return f"{card.get('id') or 'decision'}: the operator chose \"{ACCEPT_OPTION_LABEL}\""
 
 
-def _residual_risk_record(risk: dict[str, Any]) -> tuple[str, dict[str, Any]]:
+def _residual_risk_record(risk: dict[str, Any], acceptance: str) -> tuple[str, dict[str, Any]]:
     from ..core.residual_risk import sanitize_text
 
     check, rest = sanitize_text(risk["check"], 240), sanitize_text(risk["risk"])
@@ -475,7 +567,8 @@ def _residual_risk_record(risk: dict[str, Any]) -> tuple[str, dict[str, Any]]:
         "check": check, "risk": rest, "evidence": sanitize_text(risk["evidence"]),
         "basis": sanitize_text(risk["impossible_because"]["quote"], 400),
         "basis_source": sanitize_text(risk["impossible_because"]["source"], 200),
-        "accepted_by": risk["accepted_by"], "acceptance": sanitize_text(risk["acceptance"], 400),
+        # The host's record of the acceptance, never the Reviewer's wording.
+        "accepted_by": risk["accepted_by"], "acceptance": sanitize_text(acceptance, 400),
     }
     return f"{check}: {rest} (accepted by {who})", detail
 

@@ -677,7 +677,8 @@
         "type": "round.review.completed",
         "usage_scope": "delta",
         "verification_obstacle": "verification obstacle",
-        "verification_obstacle_basis": "verification obstacle basis"
+        "verification_obstacle_basis": "verification obstacle basis",
+        "verification_obstacle_basis_source": "verification obstacle basis source"
       },
       "id": "round.review.completed"
     },

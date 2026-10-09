@@ -290,8 +290,9 @@ def _carry_obstacle_stall(
     root, objective = state.obstacle_stall_root, state.obstacle_stall_objective
     detail = review.residual_risk_detail if review.status == "done" else {}
     if root is not None and detail.get("accepted_by") == "operator":
-        # The operator's acceptance, which the Reviewer quoted and the host
-        # matched against the operator's own words, is kept like the Manager's.
+        # The operator's acceptance -- their choice on the decision card, which
+        # the host found before recording the verdict -- is kept like the
+        # Manager's, scoped to this item or, with none, to this mission.
         import hashlib
 
         from ..core.residual_risk import accept_residual_risk
@@ -299,8 +300,8 @@ def _carry_obstacle_stall(
         try:
             accept_residual_risk(
                 root, check=detail.get("check", ""), risk=detail.get("risk", ""),
-                accepted_by="operator", item_id=state.mission_item_id,
-                basis=detail.get("basis", ""),
+                accepted_by="operator", item_id=state.mission_item_id, mission_ref=state.mission_ref,
+                basis=detail.get("basis", ""), basis_source=detail.get("basis_source", ""),
                 source_ref="operator:" + hashlib.sha256(
                     str(detail.get("acceptance", "")).encode("utf-8")
                 ).hexdigest()[:16],

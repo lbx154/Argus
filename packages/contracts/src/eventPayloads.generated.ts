@@ -479,6 +479,7 @@ export interface RoundReviewCompletedEvent extends EventMsg {
   "failure_cause"?: string;
   "verification_obstacle"?: string;
   "verification_obstacle_basis"?: string;
+  "verification_obstacle_basis_source"?: string;
   "residual_risk"?: string;
   "residual_risk_detail"?: Record<string, unknown>;
   "manager_attention"?: "needed" | "not_needed";

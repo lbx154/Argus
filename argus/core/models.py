@@ -230,6 +230,8 @@ class ReviewDecision:
     # the check in ``verification_obstacle`` impossible here (its resource
     # exists only at grading or deploy time). The host checked the quote.
     verification_obstacle_basis: str = ""
+    # Where that quote is from: "task", or the workspace file it was found in.
+    verification_obstacle_basis_source: str = ""
     # On an accepting verdict: a decisive check impossible here, approved on an
     # acceptance the operator (or, with no operator, the Manager) made for that
     # check. ``residual_risk`` is the one-line statement every completion
@@ -355,6 +357,9 @@ class ReviewDecision:
         basis = str(self.verification_obstacle_basis or "").strip()
         if basis:
             payload["verification_obstacle_basis"] = basis[:1000]
+            source = str(self.verification_obstacle_basis_source or "").strip()
+            if source:
+                payload["verification_obstacle_basis_source"] = source[:300]
         residual_risk = str(self.residual_risk or "").strip()
         if residual_risk:
             payload["residual_risk"] = residual_risk[:2000]
