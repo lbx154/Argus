@@ -394,10 +394,16 @@ class PlannerOrchestrationMixin:
                 presence_lines.append(f"  {guidance}")
         except Exception:  # noqa: BLE001 - presence is advisory
             pass
+        from ...provider_integrations.account_budget import role_budget_signal
+
+        # How the account is billed and what is left this month, so plans can
+        # favour fewer, larger tasks or leaner context. Advisory only.
+        budget_line = role_budget_signal(role="planner")
         return "\n".join(
             [
                 "## Host current-reality digest",
                 *presence_lines,
+                *([f"- account_budget: {budget_line}"] if budget_line else []),
                 time_line,
                 f"- vertical: {pipeline.get('vertical') or '(unresolved)'}",
                 f"- workflow_mode: {pipeline.get('workflow_mode') or '(unset)'}",

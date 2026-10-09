@@ -373,6 +373,13 @@ def copilot_runtime_redactions() -> tuple[str, ...]:
     return runtime_redactions()
 
 
+def copilot_hosted_trial(env: Mapping[str, str] | None = None) -> bool:
+    """Whether Copilot calls go to the hosted trial provider, not an account."""
+    from ..trial.client import trial_enabled
+
+    return trial_enabled(os.environ if env is None else env)
+
+
 def copilot_uses_metered_provider() -> bool:
     """Whether replaying a failed Copilot transport could double-charge a turn."""
     from ..trial.client import trial_enabled
@@ -404,6 +411,7 @@ def apply_copilot_home(env: dict[str, str]) -> dict[str, str]:
 
 
 __all__ = [
+    "copilot_hosted_trial",
     "prune_copilot_sessions",
     "COPILOT_HOME_ENV",
     "COPILOT_ACCOUNT_HOME_KNOB",

@@ -500,6 +500,14 @@ class MissionExecutionRuntimeMixin:
             "usage_attempt_id": state.usage_attempt_id,
             "admission": dict(getattr(self, "_claim_admission", None) or {}),
         })
+        from ...core.operator_messages import uses_cjk
+        from ...core.paths import global_root
+        from ...provider_integrations.account_budget import maybe_warn_low_account_quota
+
+        # Early, once per account and quota period; never pauses the work.
+        maybe_warn_low_account_quota(
+            global_root(), self._emit, chinese=uses_cjk(f"{item.title}\n{item.objective}"),
+        )
 
         # Phase-change callback.
         def _phase_cb(layer: str, info: dict[str, Any]) -> None:
@@ -1163,6 +1171,14 @@ class MissionExecutionRuntimeMixin:
             # resumed because the kind, not the status, decided.
             pause_status = state.status
         manager_wait = state.status == "paused_operator" and state.stop_kind is None
+        if manager_wait:
+            from ._mission_budget_pause import park_for_mission_budget
+
+            # The round loop stopped at the operator's per-mission budget; that
+            # is a question for the operator, not a Manager WAIT.
+            parked = park_for_mission_budget(self, state)
+            if parked is not None:
+                return parked
         if manager_wait:
             # A task-scoped Manager WAIT is observed at a safe role boundary;
             # it has no provider interruption and preserves the existing question.

@@ -31,6 +31,7 @@ from .checkpoint import resolve_shared_checkpoint
 
 log = logging.getLogger(__name__)
 # Config dataclasses are re-exported here for historical/test imports.
+from .round_budget_guard import mission_budget_terminal
 from .round_config import (
     DEFAULT_LIVE_SEARCH_STAGES,
     EngineerConfig,
@@ -239,7 +240,9 @@ class SupervisedEngineer(
             else range(1, supervised_config.max_rounds + 1)
         )
         for round_index in round_indices:
-            paused = manager_wait_terminal(supervised_config, state)
+            paused = manager_wait_terminal(supervised_config, state) or mission_budget_terminal(
+                supervised_config, state,
+            )
             if paused is not None:
                 return paused
             control = self._handle_runtime_team_wait(
