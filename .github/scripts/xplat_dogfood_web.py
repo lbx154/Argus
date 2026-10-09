@@ -399,17 +399,29 @@ def run_task(page, sid: str, text: str, filename: str, label: str, expected: int
         if produced is not None:
             run = subprocess.run([sys.executable, str(produced)], capture_output=True, text=True, timeout=60)
             output = (run.stdout or run.stderr).strip()
-        delivery = page.get_by_text(re.compile(r"Result files|结果文件|DELIVERY|交付")).first
-        try:
-            delivery.wait_for(timeout=20000)
-            delivery_shown = True
-        except Exception:  # noqa: BLE001
-            delivery_shown = False
-        page.wait_for_timeout(1500)
+        page.wait_for_timeout(3000)
         page.screenshot(path=str(OUT / f"{label}-done.png"), full_page=True)
+        # A new file delivery is announced by a toast whose Open button shows it.
+        modal = page.get_by_role("heading", name=re.compile(r"^(Result files|成果文件)$"))
+        toast = page.locator(".delivery-toast")
+        delivery = {"toast": False, "modal": False, "toast_text": ""}
+        try:
+            toast.first.wait_for(timeout=20000)
+            delivery["toast"] = True
+            delivery["toast_text"] = toast.first.inner_text()[:200]
+            toast.first.get_by_role("button", name=re.compile(r"^(Open|查看)$")).click(timeout=5000)
+        except Exception:  # noqa: BLE001
+            pass
+        try:
+            modal.first.wait_for(timeout=10000)
+            delivery["modal"] = True
+        except Exception:  # noqa: BLE001
+            pass
+        page.wait_for_timeout(1000)
+        page.screenshot(path=str(OUT / f"{label}-delivery.png"), full_page=True)
         finished = bool(result.pop("ok", False))
         stage(label, finished and produced is not None, mission_completed=finished,
-              delivery_shown=delivery_shown, file=str(produced or ""), output=output, **result)
+              delivery=delivery, file=str(produced or ""), output=output, **result)
         for name in ("Back to map", "返回地图"):
             back = page.get_by_role("button", name=re.compile(name))
             if back.count():

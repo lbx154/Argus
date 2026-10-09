@@ -80,6 +80,36 @@ def check_script(work: Path, name: str) -> dict:
 home, work = fresh("ask")
 run("ask_nihao", ["--ask", "你好"], 180, home=home, work=work)
 
+
+def argus_python() -> str:
+    """The interpreter behind the installed ``argus`` launcher."""
+    try:
+        with open(ARGUS, "rb") as fh:
+            first = fh.readline().decode("utf-8", "replace").strip()
+        if first.startswith("#!") and "python" in first:
+            return first[2:].strip().split()[0]
+    except OSError:
+        pass
+    return sys.executable
+
+
+# 1b. The same --ask with a stack dump every 8 s, to see where a slow call waits.
+home, work = fresh("ask_stacks")
+stacks = OUT / "ask_stacks.txt"
+probe = (
+    "import faulthandler, runpy, sys\n"
+    f"fh = open({str(stacks)!r}, 'w')\n"
+    "faulthandler.dump_traceback_later(8, repeat=True, file=fh)\n"
+    f"sys.argv = ['argus', '--ask', 'hello', '--life-dir', {str(home)!r}]\n"
+    "try:\n    runpy.run_module('argus', run_name='__main__')\n"
+    "finally:\n    faulthandler.cancel_dump_traceback_later()\n"
+)
+t0 = time.time()
+done = subprocess.run([argus_python(), "-c", probe], cwd=str(work), env=ENV, capture_output=True,
+                      text=True, encoding="utf-8", errors="replace", timeout=240)
+REPORT["ask_stacks"] = {"exit_code": done.returncode, "seconds": round(time.time() - t0, 1),
+                        "python": argus_python(), "output": (done.stdout + done.stderr)[-800:]}
+
 # 2. bounded foreground mission
 home, work = fresh("bounded_fg")
 run("bounded_fg", ["--daemon-fg", "--new", "--continuous", "--bounded", "--objective",
