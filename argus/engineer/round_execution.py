@@ -20,6 +20,7 @@ import time
 from pathlib import Path
 from typing import TYPE_CHECKING, Callable
 
+from ..core import command_record
 from ..core.event_catalog import EventType
 from ..core.models import LoopStatus, ReviewDecision, RoundRecord
 from ..core.role_decision import latest_role_decision
@@ -133,6 +134,8 @@ def _record_round_evidence(
     round_index: int,
     supervised_config: "SupervisedConfig",
     state: RoundLoopState,
+    command_runs: tuple = (),
+    command_runs_dropped: int = 0,
 ) -> None:
     """Ask the registered round-evidence providers and stage what they return.
 
@@ -151,6 +154,13 @@ def _record_round_evidence(
                 life_dir=_round_evidence_life_dir(workdir, supervised_config),
                 round_index=round_index,
                 previous_state=state.round_evidence_state,
+                command_runs=tuple(command_runs),
+                command_runs_dropped=command_runs_dropped,
+                events_path=(
+                    Path(str(supervised_config.engineer_log_path)).expanduser()
+                    if str(getattr(supervised_config, "engineer_log_path", "") or "").strip()
+                    else None
+                ),
             )
         )
         if not items:
@@ -194,19 +204,23 @@ class RoundExecutionMixin:
 
         operator_context_revision = operator_context_revision_from_text(engineer_prompt)
         round_started_at = time.time()
-        engineer_result, _round_compactions = self._run_engineer(
-            prompt=engineer_prompt,
-            workdir=workdir,
-            run_label=f"engineer-r{round_index}",
-            resume_thread_id=resume_thread_id,
-            reasoning_effort=(
-                self.engineer_config.initial_reasoning_effort
-                if round_index == 1
-                else self.engineer_config.reasoning_effort
-            ),
-            supervised_config=supervised_config,
-            on_event=on_event,
-        )
+        # What the agent CLI's stream reports of the Engineer's commands is kept
+        # in host memory for the Reviewer, not in a project file. It is not
+        # tamper-proof; the record shows conflicts and unverified results.
+        with command_record.capture(f"engineer-r{round_index}") as round_commands:
+            engineer_result, _round_compactions = self._run_engineer(
+                prompt=engineer_prompt,
+                workdir=workdir,
+                run_label=f"engineer-r{round_index}",
+                resume_thread_id=resume_thread_id,
+                reasoning_effort=(
+                    self.engineer_config.initial_reasoning_effort
+                    if round_index == 1
+                    else self.engineer_config.reasoning_effort
+                ),
+                supervised_config=supervised_config,
+                on_event=on_event,
+            )
         new_tid = engineer_result.thread_id
         if new_tid:
             state.engineer_thread_ids.add(str(new_tid))
@@ -288,6 +302,8 @@ class RoundExecutionMixin:
             round_index=round_index,
             supervised_config=supervised_config,
             state=state,
+            command_runs=tuple(round_commands.runs()),
+            command_runs_dropped=round_commands.dropped,
         )
         state.last_engineer_message = engineer_message or state.last_engineer_message
         orphan_group_id = int(engineer_result.orphan_process_group_id or 0)

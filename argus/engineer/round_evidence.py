@@ -43,6 +43,13 @@ class RoundEvidenceRequest:
     life_dir: Path
     round_index: int
     previous_state: dict = field(default_factory=dict)
+    #: The Engineer's calls this round as its CLI reported them, from host memory
+    #: (:mod:`argus.core.command_record`); empty when nothing was captured.
+    command_runs: tuple = ()
+    #: Earlier calls the in-memory record dropped to stay bounded.
+    command_runs_dropped: int = 0
+    #: The exact event log the host writes for this mission, if it has one.
+    events_path: Path | None = None
 
 
 @dataclass(frozen=True)
