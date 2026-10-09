@@ -73,7 +73,7 @@ per minute). Storage stops require operator cleanup. Files and the model ledger
 survive these restarts. The portal displays a retrying page while the runtime
 is unavailable. Root and device directories are
 read-only; temporary/shared-memory files use each tenant's monitored disk
-directories. Files have a 32 MiB size limit. A 200 MiB / 10,000-entry workspace monitor pauses
+directories. Files have a 32 MiB size limit. A 2 GiB / 100,000-entry workspace monitor pauses
 an oversized runtime; this monitor is not an operating-system disk quota.
 Invitation sessions use signed, secure, HttpOnly cookies. HTTP mutations and
 browser WebSockets check the browser origin. Runtime upgrades and provider /

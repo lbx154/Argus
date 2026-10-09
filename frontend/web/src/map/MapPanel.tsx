@@ -1285,7 +1285,7 @@ export function MapCanvas({
           <div className="map-ambient" aria-hidden="true"><i /><i /><i /></div>
           {conversationOpen && <MapConversation events={actions.conversationEvents} connected={actions.connected} pending={composer.pending} artifacts={actions.artifacts} zh={zh} onClose={() => setConversationOpen(false)} onOpenArtifact={actions.onOpenArtifact} onOpenDelivery={actions.onOpenReceipt} />}
           {agentsOpen && data.kind === 'live' && <aside className="map-agent-drawer nowheel nodrag nopan">
-            <AgentActivity view={snapshot.mission_view} roles={snapshot.roles} events={events}
+            <AgentActivity sid={snapshot.session.id} view={snapshot.mission_view} roles={snapshot.roles} events={events}
               taskId={focusedNode?.data.task.id || snapshot.mission_view?.mission.id || undefined}
               paused={paused && !composer.pending} onClose={() => setAgentsOpen(false)} />
           </aside>}

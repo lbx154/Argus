@@ -584,7 +584,7 @@ export function MissionControl({
             </button>
           ) : <span className="text-xs text-ink-faint">{t('mission.allVisible')}</span>}
         </summary>
-        <div className="mt-3"><AgentActivity view={plainView} roles={snapshot?.roles} events={snapshot?.recent_events}
+        <div className="mt-3"><AgentActivity sid={sid} view={plainView} roles={snapshot?.roles} events={snapshot?.recent_events}
           taskId={selectedTaskId || undefined} selectedRole={selectedRole} showTabs={false}
           paused={snapshot ? !snapshot.daemon.alive : false} /></div>
       </details> : null}

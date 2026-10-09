@@ -87,4 +87,22 @@ describe('Agent activity', () => {
     expect(current).toContain('Preparing the next task.');
     expect(current).toContain('In progress');
   });
+  it('retains the end of a long live record while its bounded snapshot is a preview', () => {
+    const view = emptyMissionView();
+    const full = 'Detailed public findings. '.repeat(300) + 'LONG_RECORD_END_MARKER';
+    view.role_work = [record('engineer:message', 'agent_message', full.slice(0, 4000))];
+    const html = renderToStaticMarkup(<AgentActivity view={view} selectedRole="engineer" events={[
+      { type: 'engineer.progress', kind: 'agent_message', agent_layer: 'engineer', message_id: 'message', text: full },
+    ]} />);
+    expect(html).toContain('LONG_RECORD_END_MARKER');
+  });
+  it('offers earlier rows and a complete-history download instead of silently stopping at 24', () => {
+    const view = emptyMissionView();
+    view.role_work = Array.from({ length: 40 }, (_, index) => ({ ...record(String(index), 'tool_result', `Saved result ${index}.`), ts: index }));
+    const html = renderToStaticMarkup(<AgentActivity sid="s-fixture" view={view} selectedRole="engineer" />);
+    expect(html).toContain('Load earlier records (16 remaining)');
+    expect(html).toContain('Download full work log (including earlier history)');
+    expect(html).toContain('Tool output');
+  });
+
 });

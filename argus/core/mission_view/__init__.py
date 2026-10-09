@@ -31,6 +31,7 @@ is re-exported here so existing imports keep working unchanged.
 from __future__ import annotations
 
 from ._dispatch import reduce_mission_view_event, update_mission_view_event
+from ._reduce_helpers import _event_id as work_record_event_id
 from ._snapshot import merge_mission_view_snapshot, snapshot_mission_view
 from ._view_state import (
     MISSION_VIEW_FILE,
@@ -50,4 +51,5 @@ __all__ = [
     "reduce_mission_view_event",
     "snapshot_mission_view",
     "update_mission_view_event",
+    "work_record_event_id",
 ]
