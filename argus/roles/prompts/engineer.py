@@ -283,14 +283,15 @@ def build_mission_prompt(
         sections.append(_long_experiment_rule())
         sections.append(
             "## Engineer service\n"
-            "Manager set the scope and Planner assigned this task. Inspect only what "
-            "the agreed task requires and implement it end to end. Run the named "
-            "feedback-producing check at the size this verification profile needs; "
-            "use changed feedback, never repeat an unchanged check. Do not reopen "
+            "Inspect only what the task requires and implement it end to end. Run "
+            "the named feedback-producing check at the size this profile needs; "
+            "never repeat an unchanged check. Do not reopen "
             "campaign planning, start another Argus service, or create unrelated "
             "outputs. Within an explore/develop mission, follow feedback into the "
-            "alternative proposal the decision rule authorizes. If a material obstacle "
-            "remains, preserve only the state needed for one next round."
+            "alternative proposal the decision rule authorizes. Fix a reported symptom "
+            "within any design note's rules; call it intended only with support in the "
+            "task text itself. If a material obstacle remains, keep only the state one "
+            "next round needs."
         )
         if learning_block:
             sections.append(learning_block)
@@ -333,7 +334,9 @@ def build_mission_prompt(
         "Python tests already import code, so avoid compile-only ceremony.\n"
         "Web UI: test real Chromium and mobile.\n"
         "Use primary sources when external behavior matters. If repeated attempts fail, "
-        "recheck the underlying assumption instead of making another cosmetic tweak.\n"
+        "recheck the underlying assumption, not another cosmetic tweak. "
+        "Fix a reported symptom within any design note's rules; call it intended "
+        "only with support in the task text itself.\n"
         + ENGINEER_SOURCE_HANDOFF + "\n"
         + _PERFORMANCE_DIAGNOSTIC_RULE
         + "\n"

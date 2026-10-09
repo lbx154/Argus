@@ -503,6 +503,10 @@ def test_no_operator_planner_wait_is_settled_before_the_run_ends(tmp_path, monke
     assert supervisor._record_planner_waiting(verdict) == PLAN_RETRY
     feedback = supervisor._load_manager_planner_feedback()
     assert feedback is not None and "no operator is available" in feedback["reason"]
+    # The Planner's interpretation may settle ambiguity, never drop a stated requirement.
+    assert "never drops or explains away an explicit requirement or reported symptom" in " ".join(
+        feedback["reason"].split()
+    )
     assert read_autonomous_assumptions(supervisor.memory.root)[-1]["source"] == "planner_wait"
     assert supervisor._pending_operator_questions() is None
     # The same blocker again is recorded as a wait, and the run may then end.
