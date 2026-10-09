@@ -19,7 +19,7 @@ def uses_cjk(text: str) -> bool:
     return bool(_CJK_RE.search(str(text or "")))
 
 
-def humanize_runtime_reason(reason: str, *, language_hint: str = "") -> str:
+def humanize_runtime_reason(reason: str, *, language_hint: str = "", interactive: bool = False) -> str:
     """Translate common control-plane failures into useful operator prose.
 
     Keep domain evidence intact; only replace mechanical runtime wording that
@@ -31,10 +31,25 @@ def humanize_runtime_reason(reason: str, *, language_hint: str = "") -> str:
         return ""
     zh = uses_cjk(language_hint)
     lowered = raw.casefold()
+    if "trial_budget_exhausted" in lowered or "试用额度不足" in raw:
+        return ("试用额度不足，任务已暂停。已有文件会保留，请联系管理员。" if zh else
+                "The trial allowance is insufficient. Work is paused and existing files are preserved. Contact the trial administrator.")
+    if "efbig" in lowered or "package extraction" in lowered:
+        return ("执行环境未能准备所需文件，请联系管理员检查环境后重试。" if zh else
+                "The runtime could not prepare its required files. Ask the administrator to check the environment before retrying.")
+    if "process exited with code" in lowered or "before turn completion" in lowered:
+        return ("模型运行中断，未能完成请求。请重试；如果仍然失败，请联系管理员。" if zh else
+                "The model stopped before completing the request. Retry, or contact the administrator if it keeps failing.")
     timeout = _TIMEOUT_RE.search(raw)
     if timeout:
         seconds = timeout.group(1)
         duration = f"{seconds} 秒" if zh and seconds else f"{seconds} seconds" if seconds else "the time limit"
+        if interactive:
+            return (
+                f"这次请求在 {duration} 内没有完成。请重试；如果仍然失败，请联系管理员。"
+                if zh else
+                f"This request did not finish within {duration}. Retry, or contact the administrator if it keeps failing."
+            )
         return (
             f"这次运行在 {duration} 内没有完成；这不代表方案错误。Argus 会先检查任务规模，再做最小诊断。"
             if zh

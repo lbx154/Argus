@@ -8,7 +8,8 @@ import { FontAwesomeIcon } from '@fortawesome/react-fontawesome';
 import { faPause, faPlay } from '@fortawesome/free-solid-svg-icons';
 import { DaemonSpendBadge } from './DaemonSpendBadge';
 import { useI18n } from '../i18n';
-import { currentWorkStatus, workStatusLabel } from '../lib/workStatus';
+import { currentWorkStartedAt, currentWorkStatus } from '../lib/workStatus';
+import { workSummary } from '../lib/workSummary';
 
 export type ThemeMode = 'light' | 'dark';
 
@@ -45,6 +46,8 @@ export function TopBar({
 }) {
   const { t, locale } = useI18n();
   const work = currentWorkStatus(snap, missionView, events);
+  const progress = workSummary(work, missionView, events, locale, streamOk,
+    currentWorkStartedAt(snap, missionView, work.taskId));
   const missionTerminal = ['complete', 'completed', 'done', 'success'].includes(
     String(missionView?.mission.status || '').toLowerCase(),
   );
@@ -101,7 +104,7 @@ export function TopBar({
             className="h-2 w-2 shrink-0 animate-pulse rounded-full motion-reduce:animate-none"
             style={{ background: theme.role[roleName] || 'rgb(var(--ink-faint))' }}
           /> : null}
-          {roleActive || focus ? <span className="shrink-0 text-[10px] font-medium text-ink-dim">{!streamOk ? t('common.reconnecting') : snapshotStale ? t('common.stale') : workStatusLabel(work, locale)}</span> : null}
+          {roleActive || focus ? <span className="min-w-0 truncate text-xs font-medium text-ink-dim" title={progress}>{!streamOk ? t('common.reconnecting') : snapshotStale ? t('common.stale') : progress}</span> : null}
           <SessionWorkdir session={snap.session} />
         </div>
       </div>

@@ -10,13 +10,13 @@ describe("the living status line", () => {
     const since = Date.now() / 1000 - 12 * 60 - 3;
     let root!: ReturnType<typeof create>;
     act(() => { root = create(<LiveLine role="engineer" since={since} zh={false} />); });
-    expect(text(root)).toBe("Engineer at work · 12 min this run");
+    expect(text(root)).toBe("Working on the current task · 12 min this run");
     act(() => root.unmount());
   });
   it("speaks Chinese when the map does, and stays quiet about time it does not know", () => {
     let root!: ReturnType<typeof create>;
     act(() => { root = create(<LiveLine role="reviewer" since={null} zh />); });
-    expect(text(root)).toBe("复核正在处理");
+    expect(text(root)).toBe("正在检查结果是否正确");
     act(() => root.unmount());
   });
 });

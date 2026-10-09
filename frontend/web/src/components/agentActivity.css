@@ -36,3 +36,6 @@
 @keyframes agent-live-breathe{50%{opacity:.5;box-shadow:0 0 0 4px color-mix(in srgb,var(--agent-role-color) 8%,transparent)}}
 @media(max-width:640px){.agent-activity-tabs button{min-height:44px}.agent-current-summary{max-height:160px}.agent-records{max-height:32dvh}}
 @media(prefers-reduced-motion:reduce){.agent-live-indicator i{animation:none}.agent-activity-tabs button{transition:none}}
+.agent-technical-details { margin-top: 8px; color: rgb(var(--ink-dim)); font-size: 11px; line-height: 1.6; }
+.agent-technical-details summary { cursor: pointer; }
+.agent-technical-details p { margin: 6px 0 0; }

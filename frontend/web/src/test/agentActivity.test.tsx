@@ -85,6 +85,6 @@ describe('Agent activity', () => {
     const html = renderToStaticMarkup(<AgentActivity view={view} roles={[{ ...role, role: name }]} selectedRole={name} />);
     const current = html.split('class="agent-current"')[1].split('class="agent-records-heading"')[0];
     expect(current).toContain('Preparing the next task.');
-    expect(current).toContain('LIVE');
+    expect(current).toContain('In progress');
   });
 });

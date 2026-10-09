@@ -1077,7 +1077,8 @@ def test_interrupted_solo_work_reports_failure_without_enqueuing(
 
     assert result["mission_result"] is True
     assert result["success"] is False
-    assert "hard idle timeout" in result["reply"]
+    assert "did not finish within 120 seconds" in result["reply"]
+    assert "hard idle timeout" not in result["reply"]
     assert result["reply"] != "I am building the real workbook."
     assert "delivery" not in result
     assert LifeMemory.open(life).backlog.all() == []

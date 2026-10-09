@@ -75,7 +75,8 @@ import "./design.css";
 import { MapRelationEdge } from "./MapRelationEdge";
 import { MapHistoryChoice } from "./MapHistoryChoice";
 import { livePollInterval, mapIsPaused, mergeMapProgress, parseMapSelection, type MapSelection } from "./incremental";
-import { currentWorkStatus, workStatusLabel } from "../lib/workStatus";
+import { currentWorkStartedAt, currentWorkStatus, workStatusLabel } from "../lib/workStatus";
+import { workSummary } from '../lib/workSummary';
 import { recalledView, rememberView } from "./viewMemory";
 
 interface MapWorkspaceActions {
@@ -163,7 +164,21 @@ export function MapCanvas({
   replacements?: { shown: boolean; toggle: () => void };
 }) {
   const [agentsOpen, setAgentsOpen] = useState(false);
-  const [conversationOpen, setConversationOpen] = useState(false);
+  const [conversationOpen, setConversationOpen] = useState(() => data.kind === 'live' && !readOnly
+    && actions.conversationEvents.some(event => event.type === 'ui.operator' || event.type === 'ui.argus'));
+  const operatorMessage = [...actions.conversationEvents].reverse().find(event => event.type === 'ui.operator');
+  const operatorMessageId = operatorMessage ? String(operatorMessage.message_id || operatorMessage.ts || '') : '';
+  const lastOperatorMessage = useRef(operatorMessageId);
+  const wasPending = useRef(composer.pending);
+  useEffect(() => {
+    if (data.kind === 'live' && !readOnly && ((operatorMessageId && operatorMessageId !== lastOperatorMessage.current)
+      || (composer.pending && !wasPending.current))) {
+      setConversationOpen(true);
+      setAgentsOpen(false);
+    }
+    lastOperatorMessage.current = operatorMessageId;
+    wasPending.current = composer.pending;
+  }, [operatorMessageId, composer.pending, data.kind, readOnly]);
   // Folded subtask groups the reader has unfolded, by group node id.
   const [openGroups, setOpenGroups] = useState<ReadonlySet<string>>(() => new Set());
   const toggleGroup = useCallback((id: string) => {
@@ -997,6 +1012,9 @@ export function MapCanvas({
   const writtenOutcome = useCallback((task: MapTask) => copy?.cards?.[`${task.id}:outcome`]?.summary || "", [copy]);
   const brief = useMemo(() => data.tasks.some((task) => task.turn_kind !== "qa" && task.kind !== "turn")
     ? projectBrief(data.tasks, data.events, zh, writtenOutcome) : null, [data.tasks, data.events, zh, writtenOutcome]);
+  const status = currentWorkStatus(snapshot, snapshot.mission_view, events);
+  const currentWork = workSummary(status, snapshot.mission_view, events, zh ? 'zh-CN' : 'en', actions.connected,
+    currentWorkStartedAt(snapshot, snapshot.mission_view, status.taskId));
   const focus = (id: string) => {
     setTraceId(null);
     setFocusFeedback("");
@@ -1141,10 +1159,10 @@ export function MapCanvas({
           ? ' 调用费用待对账，并非预算耗尽。' : ' Provider usage awaits reconciliation, not budget exhaustion.')}
       </div>}
       {data.kind === "live" && !replaying && brief && (
-        <dl className="map-brief" aria-label={zh ? "项目简报" : "Project brief"}>
-          <div><dt>{zh ? "目标" : "Goal"}</dt><dd title={brief.goal}>{brief.goal}</dd></div>
-          <div><dt>{zh ? "结论" : "Conclusion"}</dt><dd>{brief.conclusion}</dd></div>
-          <div><dt>{zh ? "下一步" : "Next"}</dt><dd>{brief.next}</dd></div>
+        <dl className="map-brief" aria-label={zh ? "任务进展" : "Task progress"}>
+          <div><dt>{zh ? "正在做" : "Now"}</dt><dd title={brief.goal}>{status.state === 'running' || status.state === 'waiting' || status.reason === 'operator_input' ? currentWork : brief.current}</dd></div>
+          <div><dt>{zh ? "已有结果" : "Results"}</dt><dd>{brief.conclusion}</dd></div>
+          <div><dt>{zh ? "接下来" : "Next"}</dt><dd>{brief.next}</dd></div>
         </dl>
       )}
       {/* The second header line: one sentence on where the work stands, and,
@@ -1173,6 +1191,7 @@ export function MapCanvas({
               paused,
               hasOpenWork: data.tasks.some((task) => ["running", "pending", "paused", "held", "question"].includes(statusKey(task))),
               role: activePhase,
+              current: data.kind === 'live' && !['idle', 'step_finished'].includes(status.state) ? currentWork : undefined,
               waiting: waiting?.sentence,
               zh,
             })}
@@ -1198,14 +1217,14 @@ export function MapCanvas({
       {data.kind === "live" && finalReview && !replaying && (
         <div className="map-final-review" role="status">
           <span>
-            <strong>{zh ? "最终交付已通过审稿" : "Final delivery passed review"}</strong>
+            <strong>{zh ? "最终结果已检查通过" : "Final delivery passed review"}</strong>
             {focusedNode?.data.task.id !== finalReview.id
               && focusedNode?.data.task.outcome?.review_status === "unavailable"
               && (finalReview.finished_ts ?? 0) > (focusedNode.data.task.finished_ts ?? 0)
               ? <span>{zh ? " · 本项目后续已交付；此卡保留当次审查异常。" : " · This project was delivered later; this card retains its earlier review error."}</span>
               : null}
           </span>
-          <button type="button" onClick={openFinalReview}>{zh ? "查看最终审稿" : "View final review"}</button>
+          <button type="button" onClick={openFinalReview}>{zh ? "查看结果检查" : "View final review"}</button>
           {actions.deliveryCount > 0 && <button type="button" onClick={actions.onOpenDelivery}>
             {zh ? "查看项目成果" : "View project deliverables"}
           </button>}
@@ -1225,7 +1244,7 @@ export function MapCanvas({
               <p>{summary.reason}</p>
               <p>{summary.next}</p>
               {summary.detail && (summary.showDetail
-                ? <blockquote className="map-attention-quote"><strong>{zh ? "Manager 的原话" : "The Manager's words"}</strong>{" "}{summary.detail}</blockquote>
+                ? <blockquote className="map-attention-quote"><strong>{zh ? "暂停原因原文" : "Recorded reason"}</strong>{" "}{summary.detail}</blockquote>
                 : <details><summary>{zh ? "原始记录" : "Recorded words"}</summary><p>{summary.detail}</p></details>)}
             </div>;
           })()}
@@ -1409,7 +1428,7 @@ export function MapCanvas({
                   title={zh ? '各个 Agent 正在做什么' : 'What each agent is doing'}
                   onClick={() => { setAgentsOpen((open) => !open); setConversationOpen(false); }}
                 >
-                  <Activity size={15} /><i data-active={!!activePhase || composer.pending} aria-hidden /><span>{zh ? 'Agent 动态' : 'Agent activity'}</span>
+                  <Activity size={15} /><i data-active={!!activePhase || composer.pending} aria-hidden /><span>{zh ? '工作详情' : 'Work details'}</span>
                 </button>
                 <button
                   type="button"

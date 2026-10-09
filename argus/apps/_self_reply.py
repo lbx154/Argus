@@ -455,8 +455,6 @@ class SelfReplyMixin:
                         "Argus 正在处理你的消息…",
                         kind="loop.start",
                     )
-                elif event_type == "skill.library.available" and safe_event.get("vertical"):
-                    _phase(f"正在使用 {safe_event['vertical']} 领域流程…", kind=event_type)
                 elif event_type == "engineer.progress" and not is_reply:
                     label, detail = describe_progress_step(safe_event, progress_workspace)
                     self.tally.observe(safe_event)
@@ -484,7 +482,7 @@ class SelfReplyMixin:
 
         # Plain words for the operator: the backend's name is a detail of how
         # Argus works, not something a reader has to know.
-        _phase("正在判断：自己直接做，还是交给团队…")
+        _phase("正在理解你的要求…")
         if route not in ("simple", "complex"):
             if root_task_id is None:
                 route = self.manager.route(objective, run_exec=_classify_run_exec)
@@ -514,7 +512,7 @@ class SelfReplyMixin:
                     "input_tokens": 0, "output_tokens": 0, "usage_scope": "delta",
                 })
                 return _Outcome(success=True, status="done", rounds=0, chat_mode=True)
-            _phase("Argus 自己动手处理…")
+            _phase("正在开始处理这项工作…")
             return self._simple_quick_reply(
                 objective=objective,
                 sink=_PhaseSink(sink),
@@ -524,7 +522,7 @@ class SelfReplyMixin:
                 root_task_id=root_task_id,
                 skill_vertical=skill_vertical,
             )
-        _phase("交给团队按流程执行…")
+        _phase("正在安排接下来要做的事…")
         return None
 
 

@@ -21,11 +21,11 @@ export function activityTitle(kind: string, zh: boolean, tool = ''): string {
     decision: ['确定执行方案', 'Execution decision'], plan: ['制定执行计划', 'Planning the work'],
     agent_message: ['更新执行进度', 'Progress update'], assistant_message: ['更新执行进度', 'Progress update'],
     command_execution: ['运行项目命令', 'Running a project command'], tool_use: ['使用工具', 'Using a tool'],
-    file_change: ['更新项目文件', 'Updating project files'], handoff: ['提交结果与交接', 'Results and handoff'],
-    review: ['复核实现与结果', 'Reviewing implementation and results'], verdict: ['给出审查结论', 'Review verdict'],
+    file_change: ['更新项目文件', 'Updating project files'], handoff: ['整理结果与后续工作', 'Summarizing results and next steps'],
+    review: ['检查实现与结果', 'Checking implementation and results'], verdict: ['说明检查结果', 'Explaining the check result'],
     completion: ['完成任务', 'Task completed'], result: ['产出结果', 'Result'],
   };
-  return (titles[kind] ?? [kind, kind])[zh ? 0 : 1];
+  return (titles[kind] ?? ['处理当前任务', 'Working on the current task'])[zh ? 0 : 1];
 }
 export function agentWork(view: MissionView | null | undefined, role: string, taskId?: string, notBefore = 0): MissionRoleWorkItem[] {
   const unique = new Map<string, MissionRoleWorkItem>();

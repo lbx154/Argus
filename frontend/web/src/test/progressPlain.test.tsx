@@ -59,7 +59,7 @@ describe('progress in plain words', () => {
     view.role_work = [rec];
     const role: Role = { role: 'engineer', backend: 'b', backend_label: 'B', model: 'm', effort: 'high', label: 'working', status: 'running', active: true, age_s: 1 };
     const html = renderToStaticMarkup(<AgentActivity view={view} roles={[role]} selectedRole="engineer" />);
-    expect(html).toContain('LIVE');
+    expect(html).toContain('In progress');
     expect(html).toMatch(/上次更新 [45] 分钟前|last update [45]m ago/);
   });
 });

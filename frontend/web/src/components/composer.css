@@ -37,3 +37,8 @@
 .route-seg button:focus-visible { outline: 2px solid rgb(var(--blue) / .45); outline-offset: 1px; }
 .composer-controls .route-seg { margin-right: auto; }
 .map-island-dock .route-seg { margin-right: auto; }
+
+/* Connection settings stay available without crowding the message box. */
+.composer-runtime-details { position: relative; font-size: 11px; color: rgb(var(--ink-dim)); }
+.composer-runtime-details summary { cursor: pointer; }
+.composer-runtime-details > div { position: absolute; z-index: 20; bottom: calc(100% + 8px); left: 0; padding: 10px 12px; min-width: 220px; max-width: min(380px, 75vw); white-space: normal; line-height: 1.6; border: 1px solid rgb(var(--line)); border-radius: 10px; background: rgb(var(--panel)); box-shadow: 0 8px 24px #0001; }

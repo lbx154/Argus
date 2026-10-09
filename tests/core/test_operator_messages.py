@@ -155,3 +155,15 @@ def test_operator_update_leads_with_result() -> None:
         "Completed: repair the parser.",
         "Reason: 18 focused tests passed.",
     ]
+
+
+@pytest.mark.parametrize('reason,expected', [
+    ('query: HTTP 402 trial_budget_exhausted 试用额度不足', '试用额度不足'),
+    ('Package extraction failed: TAR_ENTRY_ERROR(EFBIG) at sea-loader.js', '执行环境'),
+    ('Process exited with code 1 before turn completion.', '模型运行中断'),
+])
+def test_trial_failures_explain_next_action_without_stack_traces(reason, expected):
+    text = humanize_runtime_reason(reason, language_hint='请继续')
+    assert expected in text
+    assert '管理员' in text
+    assert 'sea-loader' not in text and 'HTTP 402' not in text

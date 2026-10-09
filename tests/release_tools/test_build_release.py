@@ -128,7 +128,11 @@ def test_frontend_python_launcher_prefers_argus_python(tmp_path) -> None:
 
 @pytest.mark.skipif(shutil.which("node") is None, reason="frontend launcher needs Node.js")
 def test_frontend_python_launcher_explains_a_missing_interpreter(tmp_path) -> None:
-    launcher = ROOT / "frontend" / "scripts" / "python.mjs"
+    # A real checkout may contain a usable .venv even when PATH is empty.
+    # Give the launcher a checkout with neither interpreter nor environment.
+    launcher = tmp_path / "checkout" / "frontend" / "scripts" / "python.mjs"
+    launcher.parent.mkdir(parents=True)
+    shutil.copyfile(ROOT / "frontend" / "scripts" / "python.mjs", launcher)
     node = shutil.which("node")
     empty = tmp_path / "no-python"
     empty.mkdir()
