@@ -20,7 +20,7 @@ outward-facing step) ends the work as blocked, without a question.
 
 Plan-challenge routing (a Reviewer replan and its proposed alternative) is
 not changed here: it keeps dev's own boundary check, in
-``manager/_plan_boundary.py``.
+``manager/plan_boundary.py``.
 """
 from __future__ import annotations
 

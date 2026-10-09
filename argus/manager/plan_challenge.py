@@ -50,7 +50,7 @@ def adjudicate_plan_challenge(
             authority_impact=authority,
         )
     if authority == "operator" or str(operator_question or "").strip():
-        from ._plan_boundary import assess_plan_boundary
+        from .plan_boundary import assess_plan_boundary
 
         intervention = assess_plan_boundary(
             question=(

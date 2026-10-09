@@ -561,7 +561,7 @@ class LifeSupervisor(
                     operator_available,
                     record_autonomous_assumption,
                 )
-                from ...manager._plan_boundary import assess_plan_boundary
+                from ...manager.plan_boundary import assess_plan_boundary
 
                 reviewer_alternative = str(
                     challenge.get("alternative") or ""
