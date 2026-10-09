@@ -18,6 +18,7 @@ from collections import deque
 from dataclasses import dataclass, field
 from pathlib import Path
 
+from ..core.control_state_guard import mark_role_process_env
 from ..core.runner_receipts import PROVIDER_BACKGROUND_WAIT_RECEIPT
 from ..core.windows_job import spawn_owned_process, terminate_owned_process
 from ._env import (
@@ -411,7 +412,11 @@ class RunExecMixin:
                     errors="replace",
                     bufsize=1,
                     cwd=options.working_dir or None,
-                    env=self._child_env(options, executable=command[0]),
+                    # Every agent CLI Argus starts is a role process; the
+                    # marker keeps orchestrator control state out of its reach.
+                    env=mark_role_process_env(
+                        self._child_env(options, executable=command[0]),
+                    ),
                     **background_subprocess_kwargs(),
                 )
         except BaseException:

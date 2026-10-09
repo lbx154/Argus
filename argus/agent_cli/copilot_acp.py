@@ -342,6 +342,9 @@ class CopilotAcpClient:
 
         child_env = apply_copilot_account(apply_trial_provider(dict(os.environ)))
         child_env = runner_child_environment(self._agent_bin, env=child_env) or child_env
+        from ..core.control_state_guard import mark_role_process_env
+
+        child_env = mark_role_process_env(child_env)
         self._session_events_root = Path(
             child_env.get("COPILOT_HOME") or Path.home() / ".copilot"
         ).expanduser() / "session-state"

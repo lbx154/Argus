@@ -17,6 +17,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Callable, Iterable
 
+from ..core.control_state_guard import refuse_role_control_write
 from ..core.daemon_lock import WINDOWS_DAEMON_LOCK_OFFSET, is_pid_running
 from ..core.usage import format_usage_cost
 from ..life.supervisor import global_daily_usage_summary
@@ -137,6 +138,7 @@ def request_daemon_control_stop(
     Both PID and the daemon boot timestamp are required.  A stale request can
     therefore never stop a later daemon after Windows reuses the numeric PID.
     """
+    refuse_role_control_write("A daemon stop request", life_dir)
     started = str(started_at_iso or "").strip()
     if int(pid) <= 0 or not started:
         raise ValueError("daemon control stop requires an exact process identity")
@@ -206,6 +208,7 @@ def clear_daemon_control_stop(
 
 def request_daemon_drain(life_dir: Path, *, pid: int) -> None:
     """Persist a PID-bound graceful-drain request before sending SIGTERM."""
+    refuse_role_control_write("A daemon drain request", life_dir)
     life_dir.mkdir(parents=True, exist_ok=True)
     path = _daemon_drain_request_path(life_dir)
     tmp = path.with_suffix(f".{os.getpid()}.tmp")
@@ -505,6 +508,8 @@ def _write_continuous_config_unlocked(
     generation: int,
     before_replace: Callable[[], None] | None = None,
 ) -> bool:
+    # The single continuous.json writer (write, CAS and disable all land here).
+    refuse_role_control_write("The continuous campaign switch (continuous.json)", life_dir)
     life_dir.mkdir(parents=True, exist_ok=True)
     path = _continuous_config_path(life_dir)
     data = {
@@ -1394,6 +1399,7 @@ def request_daemon_stop(life_dir: Path | None = None) -> tuple[bool, int | None]
     """
     status = read_daemon_status(life_dir)
     resolved_dir = status.life_dir
+    refuse_role_control_write("Stopping the Argus daemon", resolved_dir)
     try:
         (resolved_dir / DAEMON_UPGRADE_REQUEST_FILE).unlink(missing_ok=True)
     except OSError:
@@ -1454,6 +1460,7 @@ def stop_daemon(
     """
     status = read_daemon_status(life_dir)
     resolved_dir = status.life_dir
+    refuse_role_control_write("Stopping the Argus daemon", resolved_dir)
     if not preserve_upgrade_request:
         (resolved_dir / DAEMON_UPGRADE_REQUEST_FILE).unlink(missing_ok=True)
     if not status.alive or status.pid is None:

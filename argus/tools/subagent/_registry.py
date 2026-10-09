@@ -235,7 +235,10 @@ def _child_env() -> dict[str, str]:
     default so the useful signal survives in the tail windows. Set
     ``ARGUS_SUBAGENT_QUIET_LOGS=0`` to keep the inherited verbosity untouched.
     """
-    env = os.environ.copy()
+    from ...core.control_state_guard import mark_role_process_env
+
+    # Task commands are authored by a role, so they run as role processes.
+    env = mark_role_process_env(None, "subagent")
     # stdout is a file here, not a tty, so CPython block-buffers it and a long
     # experiment's progress stays invisible until 8KB accumulates or it exits.
     # One campaign held four GPUs for five hours behind a 0-byte stdout.log:
