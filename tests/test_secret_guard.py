@@ -1135,47 +1135,116 @@ def test_scrub_without_git_executable_falls_back_to_mtime_scan(
     assert "<REDACTED:secret>" in artifact.read_text(encoding="utf-8")
 
 
-@pytest.mark.parametrize(
-    "line",
-    [
-        'token = os.environ.get("DISPATCH_EVENT_API_TOKEN")',
-        'api_key = os.getenv("SERVICE_API_KEY")',
-        'token=os.environ["SERVICE_TOKEN"]',
-        "token = load_token()",
-        'token = config.get("token")',
-        "const token = process.env.SERVICE_TOKEN;",
-        "TOKEN=${SERVICE_TOKEN}",
-        'password: "{{ secrets.DB_PASSWORD }}"',
-        "token=$SERVICE_TOKEN",
-        "Authorization: Bearer $SERVICE_TOKEN",
-        "Authorization: Bearer ${SERVICE_TOKEN}",
-        "Authorization: Bearer <token>",
-    ],
+
+# Reads of a credential from the environment stay readable: the Reviewer has
+# to be able to verify the line, and the expression is not the credential.
+_READABLE_CREDENTIAL_READS = (
+    'token = os.environ.get("DISPATCH_EVENT_API_TOKEN")',
+    'api_key = os.getenv("SERVICE_API_KEY")',
+    'token=os.environ["SERVICE_TOKEN"]',
+    "token = os.environ[SERVICE_TOKEN]",
+    "const token = process.env.SERVICE_TOKEN;",
+    "TOKEN=${SERVICE_TOKEN}",
+    "token=$SERVICE_TOKEN",
+    "password={{secrets.DB_PASSWORD}}",
 )
-def test_code_that_reads_a_credential_stays_readable(line: str) -> None:
-    # A Reviewer must be able to read the line that fetches a credential; the
-    # expression is not the credential.
+
+# Every one of these was masked before the exemption existed and must stay
+# masked: the exemption may not be reachable by a value that merely starts
+# like a reference, by a call on an arbitrary name, or by a header literal.
+_MUST_STAY_MASKED = (
+    'token = "live-abcdef1234567890"',
+    "password=Summer2024(xyz)",
+    "password=hunter2hunter2",
+    "api_key: AbCdEf0123456789",
+    "SERVICE_TOKEN=abcd1234efgh5678",
+    "token=$ecretPass99",
+    "auth=Abc(defghijk",
+    "secret = eyJhbGciOiJIUzI1NiJ9.eyJzdWIiOiIxIn0.c2lnbmF0dXJl",
+    "Authorization: Bearer abcdefghijklmnopqrstu",
+    "Authorization: Basic dXNlcjpwYXNzd29yZA==",
+    "Authorization: Bearer <sk_live_abcdef1234567890abcdef>",
+    "Authorization: Bearer <real token value 1234567890 abcdef>",
+    "Authorization: Token {a1b2c3d4e5f6a7b8c9d0}",
+    "Authorization: Basic $dXNlcjpwYXNzd29yZA",
+    "Authorization: token $hunter2password",
+    "Authorization: Bearer ${abc123realtokenvalue}",
+    "api_key={real}Xk9fooBarBazQux1234",
+    "api_key={realsecretvalue1234}",
+    "password=${Xk9fooBarBaz",
+    "password=$(Xk9!fooBarBaz",
+    "password={{Xk9fooBarBaz",
+    "password=$SECRETPASSWORD9",
+    "password=$ADMINPASS2024",
+    "password=$UPER_S3CR3T",
+    "api_key=sk_live_51HabcdefGHIJ123(x)",
+    "api_key=sk_live_51HabcdefGHIJ123[0]",
+    "password=supersecret(",
+    "password=correcthorse[1]battery",
+    "token=eyJhbGciOiJIUzI1NiJ9.eyJzdWIiOiIxIn0.abcDEF123(",
+    "token=f(abcdefghijklmnopqrstuvwxyz0123456789)",
+    "token=a.b(REALSECRETVALUE1234567)",
+    "OPENAI_API_KEY=os.environ_SECRETVALUE123",
+    "token=process.envREALSECRET123",
+    "token=os.environXYZREAL",
+    "token=os.environ.get(REALSECRETVALUE1)x",
+    "secret=my_s3cr3t_pass(word)",
+    "client_secret=Ab_CdEfGh12345[",
+)
+
+# The on-disk scrub drops the ambiguous labels (secret/token/password/auth) by
+# design; these are the high-confidence shapes it masked before the exemption.
+# Listed explicitly so a regression cannot silently drop a line from the check.
+_ARTIFACT_MUST_STAY_MASKED = (
+    "api_key: AbCdEf0123456789",
+    "Authorization: Bearer abcdefghijklmnopqrstu",
+    "Authorization: Basic dXNlcjpwYXNzd29yZA==",
+    "Authorization: Bearer <sk_live_abcdef1234567890abcdef>",
+    "Authorization: Bearer <real token value 1234567890 abcdef>",
+    "Authorization: Token {a1b2c3d4e5f6a7b8c9d0}",
+    "Authorization: Basic $dXNlcjpwYXNzd29yZA",
+    "Authorization: token $hunter2password",
+    "Authorization: Bearer ${abc123realtokenvalue}",
+    "api_key={real}Xk9fooBarBazQux1234",
+    "api_key={realsecretvalue1234}",
+    "api_key=sk_live_51HabcdefGHIJ123(x)",
+    "api_key=sk_live_51HabcdefGHIJ123[0]",
+    "OPENAI_API_KEY=os.environ_SECRETVALUE123",
+    "client_secret=Ab_CdEfGh12345[",
+)
+
+
+@pytest.mark.parametrize("line", _READABLE_CREDENTIAL_READS)
+def test_environment_reads_of_a_credential_stay_readable(line: str) -> None:
     assert redact_secrets_text(line) == line
 
 
-@pytest.mark.parametrize(
-    "line",
-    [
-        'token = "live-abcdef1234567890"',
-        "password=Summer2024(xyz)",
-        "password=hunter2hunter2",
-        "api_key: AbCdEf0123456789",
-        "SERVICE_TOKEN=abcd1234efgh5678",
-        "token=$ecretPass99",
-        "auth=Abc(defghijk",
-        "secret = eyJhbGciOiJIUzI1NiJ9.eyJzdWIiOiIxIn0.c2lnbmF0dXJl",
-        "Authorization: Bearer abcdefghijklmnopqrstu",
-        "Authorization: Bearer $SERVICE_TOKEN trailing",
-        "Authorization: Basic dXNlcjpwYXNzd29yZA==",
-    ],
-)
+@pytest.mark.parametrize("line", _MUST_STAY_MASKED)
 def test_literal_credentials_are_still_masked(line: str) -> None:
     assert "<REDACTED:" in redact_secrets_text(line)
+    assert redact_secrets_record({"note": line}) != {"note": line}
+
+
+def test_artifact_scrub_still_masks_header_and_key_literals(tmp_path: Path) -> None:
+    assert any(line.startswith("Authorization:") for line in _ARTIFACT_MUST_STAY_MASKED)
+    assert any(line.startswith("api_key=") for line in _ARTIFACT_MUST_STAY_MASKED)
+    artifact = tmp_path / "notes.txt"
+    artifact.write_text("\n".join(_ARTIFACT_MUST_STAY_MASKED) + "\n", encoding="utf-8")
+
+    scrub_recent_text_artifacts(tmp_path, modified_since=0.0)
+
+    lines = artifact.read_text(encoding="utf-8").splitlines()
+    assert len(lines) == len(_ARTIFACT_MUST_STAY_MASKED)
+    assert all("<REDACTED:" in line for line in lines), lines
+
+
+@pytest.mark.parametrize("line", _MUST_STAY_MASKED)
+def test_training_capture_still_flags_masked_values(line: str) -> None:
+    from argus.trial.training_capture import _content_diagnostic
+
+    diagnostic = _content_diagnostic("message", {"content": line}, sid="s", mission_id="m")
+    assert diagnostic is not None
+    assert diagnostic["detector"] == "secret_redactor"
 
 
 def test_known_value_is_masked_even_inside_code_shaped_text() -> None:

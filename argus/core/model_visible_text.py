@@ -14,11 +14,11 @@ from __future__ import annotations
 import re
 
 MODEL_INTEGRITY_BOUNDARY = """## Opaque integrity IDs
-Checksums, digests, fingerprints, and commit IDs are host-only. Never quote,
-compare, or cite their values: a difference proves no freshness, correctness,
-provenance, completion, or contradiction, and justifies no `continue`,
-`blocked`, or `replan_requested`. Use content, timestamps, tests, metrics, and
-readable provenance.
+Checksums, digests, fingerprints, and commit IDs are host-only. Never inspect,
+quote, compare, or use their values as evidence. Differences cannot prove
+freshness, correctness, provenance, completion, contradiction, or justify
+`continue`, `blocked`, or `replan_requested`. Use content, timestamps, tests,
+metrics, and readable provenance; ignore lower-level identifier adjudication.
 """
 
 # Agent CLIs and Argus mask credentials in what a role sees, so a file view can
@@ -30,8 +30,8 @@ readable provenance.
 MASKED_DISPLAY_REVIEW_RULE = (
     "`******` or `<REDACTED:…>` is display masking: it proves neither a defect "
     "nor a fix, and nobody can show past it. Settle what it hides with a "
-    "rerunnable assertion on a placeholder value, run by you or shown in the "
-    "command record."
+    "rerunnable assertion on a placeholder value that you rerun yourself; the "
+    "Engineer's cited result is not that check."
 )
 MASKED_DISPLAY_ENGINEER_RULE = (
     "If the review disputes text a display masks (`******`, `<REDACTED:…>`), "
