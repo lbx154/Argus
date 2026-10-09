@@ -136,3 +136,15 @@ def test_successful_prose_about_failures_is_not_reclassified_as_an_error():
     state = {}
     assert triage(runner, state) == reply
     assert "_self_failure" not in state
+
+
+def test_native_process_error_is_readable_and_retains_diagnostic():
+    diagnostic = 'Process exited with code 1 before turn completion.\nat async Lf (sea-loader.js:11:1060)'
+    state = {}
+    runner = OutcomeRunner([], SimpleNamespace(success=False, stop_reason=diagnostic))
+    reply = manager_triage(
+        object(), '请生成一个文件', state, route='simple', ensure_runner=lambda *_: runner,
+    )
+    assert '模型运行中断' in reply and '请重试' in reply
+    assert 'sea-loader' not in reply and 'Process exited' not in reply
+    assert state['_self_failure']['detail'] == diagnostic

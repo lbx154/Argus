@@ -31,6 +31,15 @@ def humanize_runtime_reason(reason: str, *, language_hint: str = "") -> str:
         return ""
     zh = uses_cjk(language_hint)
     lowered = raw.casefold()
+    if "trial_budget_exhausted" in lowered or "试用额度不足" in raw:
+        return ("试用额度不足，任务已暂停。已有文件会保留，请联系管理员。" if zh else
+                "The trial allowance is insufficient. Work is paused and existing files are preserved. Contact the trial administrator.")
+    if "efbig" in lowered or "package extraction" in lowered:
+        return ("执行环境未能准备所需文件，请联系管理员检查环境后重试。" if zh else
+                "The runtime could not prepare its required files. Ask the administrator to check the environment before retrying.")
+    if "process exited with code" in lowered or "before turn completion" in lowered:
+        return ("模型运行中断，未能完成请求。请重试；如果仍然失败，请联系管理员。" if zh else
+                "The model stopped before completing the request. Retry, or contact the administrator if it keeps failing.")
     timeout = _TIMEOUT_RE.search(raw)
     if timeout:
         seconds = timeout.group(1)

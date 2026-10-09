@@ -1283,7 +1283,7 @@ def manager_triage(mem: Any, body: str, chat_state: dict[str, Any],
     chat_state.pop("_self_failure", None)
     captured: list[str] = []
     round_failure: str | None = None
-    from ..core.operator_messages import uses_cjk
+    from ..core.operator_messages import humanize_runtime_reason, uses_cjk
 
     chinese = uses_cjk(body)
     empty_reply = (
@@ -1330,11 +1330,12 @@ def manager_triage(mem: Any, body: str, chat_state: dict[str, Any],
         chat_state["_self_failure"] = {"detail": safe}
         chat_state.pop("_self_delivery", None)
         chat_state.pop("last_thread_id", None)
+        display = humanize_runtime_reason(safe, language_hint=body)
         if formatted:
-            return safe
+            return display
         if chinese:
-            return f"这次没能处理完你的请求，没有新增任务。\n\n具体原因：{safe}"
-        return f"This request did not finish. No new task was added.\n\nReason: {safe}"
+            return f"这次没能处理完你的请求，没有新增任务。\n\n原因：{display}"
+        return f"This request did not finish. No new task was added.\n\nReason: {display}"
 
     def _fragment(kind: str, payload: dict[str, Any]) -> None:
         if not callable(on_fragment):
