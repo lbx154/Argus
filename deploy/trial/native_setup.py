@@ -77,6 +77,8 @@ ExecStart={executable}
 Environment={json.dumps('PYTHONPATH=' + str(source))}
 Environment=PYTHONUNBUFFERED=1
 UMask=0077
+StandardOutput=append:{root / (name + '.log')}
+StandardError=append:{root / (name + '.log')}
 NoNewPrivileges=yes
 Restart=on-failure
 RestartSec=5

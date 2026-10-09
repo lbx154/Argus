@@ -8,6 +8,7 @@ from __future__ import annotations
 
 import argparse
 import asyncio
+import hashlib
 import json
 import os
 import subprocess
@@ -96,12 +97,14 @@ class ResourceWatchdog:
     Account the entire sandbox process tree, including threads. Stop it on
     memory/process excess or sustained CPU excess. Limits stay outside guests.
     """
-    def __init__(self, pid: int, *, memory_bytes: int = 1024**3, tasks: int = 128):
+    def __init__(self, pid: int, *, memory_bytes: int = 1024**3, tasks: int = 128, cpu_core: int | None = None):
         import psutil
 
         self.process = psutil.Process(pid)
         self.memory_limit = memory_bytes
         self.task_limit = tasks
+        self.cpu_core = cpu_core
+        self.memory_bytes = self.threads = 0
         self.last_cpu: dict[int, float] = {}
         self.last_at = time.monotonic()
         self.cpu_excess_since: float | None = None
@@ -117,12 +120,20 @@ class ResourceWatchdog:
             return ""
         for process in processes:
             try:
+                if self.cpu_core is not None:
+                    for thread in process.threads():
+                        os.sched_setaffinity(thread.id, {self.cpu_core})
                 memory += process.memory_info().rss
                 threads += process.num_threads()
                 times = process.cpu_times()
                 cpu[process.pid] = times.user + times.system + times.children_user + times.children_system
             except psutil.NoSuchProcess:
                 continue
+            except ProcessLookupError:
+                continue
+            except (PermissionError, psutil.AccessDenied):
+                return "resource inspection"
+        self.memory_bytes, self.threads = memory, threads
         now = time.monotonic()
         elapsed = max(0.01, now - self.last_at)
         used = sum(max(0, value - self.last_cpu.get(pid, value)) for pid, value in cpu.items()) / elapsed
@@ -131,6 +142,8 @@ class ResourceWatchdog:
             return "memory"
         if threads > self.task_limit:
             return "process/thread"
+        if self.cpu_core is not None:
+            return ""  # Kernel affinity enforces CPU capacity without cancelling ordinary work.
         if used > 1.25:
             self.cpu_excess_since = self.cpu_excess_since or now
             if now - self.cpu_excess_since > 5:
@@ -169,9 +182,16 @@ def main():
         command = extra or None
         if command and command[0] == "--":
             command = command[1:]
-        with subprocess.Popen(sandbox_command(config, args.tenant, command), env={}) as child:
+        core = None
+        before_exec = None
+        if args.mode == "launch":
+            cores = sorted(os.sched_getaffinity(0))
+            index = int(hashlib.sha256(args.tenant.encode()).hexdigest()[:8], 16) % len(cores)
+            core = cores[index]
+            before_exec = lambda: os.sched_setaffinity(0, {core})
+        with subprocess.Popen(sandbox_command(config, args.tenant, command), env={}, preexec_fn=before_exec) as child:
             directory = config["tenants"][args.tenant]["directory"]
-            watchdog = ResourceWatchdog(child.pid)
+            watchdog = ResourceWatchdog(child.pid, cpu_core=core)
             last_storage = 0.0
             while child.poll() is None:
                 now = time.monotonic()
@@ -181,7 +201,7 @@ def main():
                     if storage_exceeded(directory):
                         reason = "workspace storage"
                 if reason:
-                    print(f"Trial {reason} limit reached; pausing runtime.", flush=True)
+                    print(f"Trial {reason} limit reached; pausing runtime. RSS={watchdog.memory_bytes} threads={watchdog.threads}", flush=True)
                     child.terminate()
                     try:
                         child.wait(timeout=5)
