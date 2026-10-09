@@ -212,6 +212,7 @@ class RoundSettlementMixin:
         policy_retry: bool = False,
         soft_limit_stalled: bool = False,
         soft_round_limit: int = 0,
+        blocked_on_healthy_work: bool = False,
     ) -> tuple[LoopStatus | None, str]:
         if review.status == "done":
             return "done", review.reason or "Reviewer judged the objective complete."
@@ -226,13 +227,20 @@ class RoundSettlementMixin:
             )
         if policy_retry:
             return None, ""
-        # Empty Engineer turns are a harness count; the Reviewer's explicit
-        # judgment that this round moved the work forward outranks it (a job
-        # the mission launched can advance while the Engineer says nothing).
+        # Empty Engineer turns are a harness count. A job the mission launched
+        # can advance while the Engineer says nothing, so the Reviewer's
+        # explicit progress judgment outranks the count -- but only while such
+        # a job is actually running and healthy. A progress claim with nothing
+        # running cannot be backed by anything, and without this floor a
+        # Reviewer that always says ``true`` would loop an empty Engineer
+        # forever in runs that have no Manager checkpoint (teammates, CLI).
         if (
             no_progress_threshold > 0
             and no_progress_streak >= no_progress_threshold
-            and _review_forward_progress(review) is not True
+            and not (
+                blocked_on_healthy_work
+                and _review_forward_progress(review) is True
+            )
         ):
             return (
                 "no_progress",
@@ -308,6 +316,7 @@ class RoundSettlementMixin:
             and review.review_source in OPERATOR_QUESTION_POLICY_REVIEW_SOURCES
         )
         explicit_forward_progress = _review_forward_progress(review)
+        healthy_work = _blocked_on_healthy_work(workdir)
         if policy_retry and explicit_forward_progress is None:
             next_semantic_stall_streak = state.semantic_stall_streak
             forward_progress = None
@@ -316,7 +325,7 @@ class RoundSettlementMixin:
                 _next_semantic_stall_streak(
                     review,
                     state.semantic_stall_streak,
-                    blocked_on_healthy_work=_blocked_on_healthy_work(workdir),
+                    blocked_on_healthy_work=healthy_work,
                 )
             )
         now_monotonic = time.monotonic()
@@ -465,6 +474,7 @@ class RoundSettlementMixin:
                 )
             ),
             soft_round_limit=supervised_config.soft_round_limit,
+            blocked_on_healthy_work=healthy_work,
         )
         if terminal_status is not None:
             return control_return(

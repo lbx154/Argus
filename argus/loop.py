@@ -38,7 +38,7 @@ from .core.event_catalog import EventType
 from .core.models import LoopOutcome, LoopStatus, RoundRecord
 from .core.ports import RunnerBackend
 from .core.role_session import configured_role_session_policy
-from .core.round_policy import RoundPolicy, resolve_round_policy
+from .core.round_policy import ROUND_POLICY_FIELDS, RoundPolicy, explain_round_policy
 from .engineer.runner import (
     EngineerConfig,
     SupervisedConfig,
@@ -493,11 +493,15 @@ class SkillLoop(
             soft_round_limit=self.config.soft_round_limit,
             hard_escalate_rounds=self.config.hard_escalate_rounds,
         )
-        policy = resolve_round_policy(vertical_policy, explicit=explicit)
+        policy, sources = explain_round_policy(
+            vertical_policy, explicit=explicit, vertical=str(vertical or "")
+        )
         log.info(
-            "round guards for vertical %r: %s (0 = off)",
-            str(vertical or ""),
-            policy.as_dict(),
+            "round guards (0 = off): %s",
+            ", ".join(
+                f"{name}={getattr(policy, name)} from {sources[name]}"
+                for name in ROUND_POLICY_FIELDS
+            ),
         )
         return policy
 

@@ -21,6 +21,7 @@ from argus.core.round_policy import (
     ROUND_POLICY_KNOBS,
     RoundPolicy,
     RoundPolicyError,
+    explain_round_policy,
     operator_round_policy,
     parse_round_policy,
     resolve_round_policy,
@@ -151,9 +152,26 @@ def test_data_domain_declares_policy_and_reads_fail_open() -> None:
     )
     assert domain.ROUND_POLICY == RoundPolicy(soft_round_limit=0)
     broken = DataDomain(
-        {"name": "probe", "stages": ["work"], "round_policy": {"soft_round_limit": "x"}}
+        {"name": "probe", "stages": ["work"], "round_policy": ["soft_round_limit"]}
     )
     assert broken.ROUND_POLICY is None
+
+
+def test_data_domain_keeps_valid_fields_and_warns_once_per_bad_field(caplog) -> None:
+    raw = {
+        "soft_round_limit": 0,
+        "stall_threshold": "x",
+        "hard_escalate_rounds": -3,
+        "rounds": 5,
+    }
+    with caplog.at_level("WARNING", logger="argus.core.round_policy"):
+        first = DataDomain({"name": "probe_once", "stages": ["work"], "round_policy": raw})
+        DataDomain({"name": "probe_once", "stages": ["work"], "round_policy": raw})
+    assert first.ROUND_POLICY == RoundPolicy(soft_round_limit=0)
+    warnings = [r.getMessage() for r in caplog.records if r.levelname == "WARNING"]
+    assert len(warnings) == 3
+    for field_name in ("stall_threshold", "hard_escalate_rounds", "rounds"):
+        assert sum(f"round_policy.{field_name}:" in message for message in warnings) == 1
 
 
 def test_data_domain_policy_reaches_the_mission(tmp_path) -> None:
@@ -208,9 +226,53 @@ def test_operator_knob_wins_over_everything(monkeypatch, tmp_path) -> None:
     assert policy.hard_escalate_rounds == research.hard_escalate_rounds
 
 
-def test_unusable_operator_knob_declares_nothing() -> None:
+def test_unusable_operator_knob_declares_nothing_and_warns(caplog) -> None:
     env = {"ARGUS_SKILL_HARD_ESCALATE_ROUNDS": "lots", "ARGUS_SKILL_SOFT_ROUND_LIMIT": "-4"}
-    assert operator_round_policy(env=env, persisted={}) == RoundPolicy()
+    with caplog.at_level("WARNING", logger="argus.core.round_policy"):
+        assert operator_round_policy(env=env, persisted={}) == RoundPolicy()
+    warned = " ".join(r.getMessage() for r in caplog.records)
+    assert "ARGUS_SKILL_HARD_ESCALATE_ROUNDS" in warned
+    assert "ARGUS_SKILL_SOFT_ROUND_LIMIT" in warned
+
+
+def test_vertical_knob_value_hands_control_back_silently(caplog) -> None:
+    env = {"ARGUS_SKILL_SOFT_ROUND_LIMIT": "vertical"}
+    with caplog.at_level("WARNING", logger="argus.core.round_policy"):
+        assert operator_round_policy(env=env, persisted={}) == RoundPolicy()
+    assert not caplog.records
+
+
+def test_explain_names_the_source_of_every_value() -> None:
+    policy, sources = explain_round_policy(
+        RoundPolicy(soft_round_limit=0),
+        explicit=RoundPolicy(stall_threshold=7),
+        vertical="kernel_engineering",
+        env={"ARGUS_SKILL_HARD_ESCALATE_ROUNDS": "9"},
+        persisted={"ARGUS_SKILL_NO_PROGRESS_THRESHOLD": "3"},
+    )
+    assert policy == RoundPolicy(
+        stall_threshold=7,
+        no_progress_threshold=3,
+        soft_round_limit=0,
+        hard_escalate_rounds=9,
+    )
+    assert sources["soft_round_limit"] == "vertical 'kernel_engineering' round_policy"
+    assert sources["stall_threshold"] == "mission loop config"
+    assert sources["hard_escalate_rounds"].endswith("(env)")
+    assert sources["no_progress_threshold"].endswith("(persisted)")
+
+
+def test_round_knobs_are_cockpit_editable_with_validation() -> None:
+    from argus.core.knobs import cockpit_editable_names, normalize_cockpit_knob_value
+
+    for knob in ROUND_POLICY_KNOBS.values():
+        assert knob in cockpit_editable_names()
+        assert normalize_cockpit_knob_value(knob, " 0 ") == "0"
+        assert normalize_cockpit_knob_value(knob, "250") == "250"
+        assert normalize_cockpit_knob_value(knob, "Vertical") == "vertical"
+        for bad in ("-1", "lots", "2.5"):
+            with pytest.raises(ValueError):
+                normalize_cockpit_knob_value(knob, bad)
 
 
 def test_persisted_cockpit_knob_applies() -> None:
@@ -243,6 +305,7 @@ def _progress_review(forward_progress: bool | None) -> ReviewDecision:
 
 def test_classify_never_ends_on_counts_while_progress_is_reported() -> None:
     status, reason = RoundSettlementMixin._classify(
+        blocked_on_healthy_work=True,
         review=_progress_review(True),
         no_progress_streak=50,
         no_progress_threshold=2,
@@ -327,3 +390,69 @@ def test_progressing_mission_runs_past_every_round_guard(tmp_path) -> None:
 
     assert status == "done"
     assert len(rounds) == total
+
+
+def test_progress_claim_without_running_work_does_not_excuse_empty_turns() -> None:
+    status, _reason = RoundSettlementMixin._classify(
+        review=_progress_review(True),
+        no_progress_streak=2,
+        no_progress_threshold=2,
+        round_index=3,
+        max_rounds=0,
+        blocked_on_healthy_work=False,
+    )
+    assert status == "no_progress"
+
+
+def _empty_engineer_run(tmp_path, *, rounds: int, final_done: bool):
+    backend = MemoryBackend()
+    for index in range(1, rounds + 1):
+        backend.queue(f"engineer-r{index}", CannedResponse(message=""))
+        done = final_done and index == rounds
+        backend.queue(
+            "reviewer",
+            CannedResponse(review_action=_review_action("done" if done else "continue", True)),
+        )
+    engineer = SupervisedEngineer(
+        engineer_runner=backend,
+        reviewer=Reviewer(runner=backend),
+        engineer_config=EngineerConfig(model="m"),
+        reviewer_config=ReviewerConfig(model="m"),
+    )
+    return engineer.run(
+        objective="Wait for the verification job and report.",
+        engineer_prompt_builder=lambda _next, _static=True: "Do the task.",
+        supervised_config=SupervisedConfig(
+            no_progress_threshold=2,
+            decision_progress_timeout_seconds=0,
+            background_subagent_advisory=False,
+        ),
+        workdir=tmp_path,
+    )
+
+
+def test_empty_engineer_with_healthy_background_work_keeps_running(
+    monkeypatch, tmp_path
+) -> None:
+    from argus.engineer import external_work
+    from argus.engineer.external_work import ExternalWorkState, ExternalWorkStatus
+
+    healthy = ExternalWorkStatus(work_id="verify", state=ExternalWorkState.RUNNING_HEALTHY)
+    monkeypatch.setattr(external_work, "scan_external_work", lambda *_a, **_k: [healthy])
+
+    status, rounds, *_rest = _empty_engineer_run(tmp_path, rounds=5, final_done=True)
+
+    assert status == "done"
+    assert len(rounds) == 5
+
+
+def test_empty_engineer_without_background_work_ends_despite_progress_claims(
+    tmp_path,
+) -> None:
+    status, rounds, _final, reason, _thread = _empty_engineer_run(
+        tmp_path, rounds=6, final_done=False
+    )
+
+    assert status == "no_progress"
+    assert len(rounds) == 2
+    assert "no effective output for 2 consecutive rounds" in reason
