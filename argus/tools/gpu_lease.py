@@ -206,14 +206,13 @@ def keepalive_tree(match: str) -> list[int]:
 
 
 def _alive(pid: int) -> bool:
-    """True if ``pid`` exists and is signalable (not reaped/zombie)."""
-    try:
-        os.kill(pid, 0)
-    except ProcessLookupError:
-        return False
-    except PermissionError:
-        return True
-    return True
+    """True if ``pid`` is still executing (not reaped/zombie).
+
+    Not ``os.kill(pid, 0)``: on Windows that call terminates the process.
+    """
+    from ..core.daemon_lock import is_pid_running
+
+    return is_pid_running(pid)
 
 
 # -- GPU snapshot (best effort) --------------------------------------------
