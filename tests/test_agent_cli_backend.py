@@ -461,7 +461,7 @@ def test_success_persists_provider_reported_cost(
     assert usage_row["cost_basis"] == "provider_reported"
 
 
-def test_usage_context_keeps_explicit_global_budget_root(tmp_path: Path) -> None:
+def test_usage_context_keeps_explicit_global_root(tmp_path: Path) -> None:
     backend = AgentCliBackend(backend="codex")
     project = tmp_path / "state" / "projects" / "s-test"
     global_root = tmp_path / "state"
@@ -477,44 +477,6 @@ def test_usage_context_keeps_explicit_global_budget_root(tmp_path: Path) -> None
         "mission-1",
         global_root,
     )
-
-
-def test_run_exec_passes_global_budget_root_to_cost_control(
-    tmp_path: Path,
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    backend = AgentCliBackend(backend="codex")
-    project = tmp_path / "state" / "projects" / "s-test"
-    global_root = tmp_path / "state"
-    backend.set_usage_context(
-        project_root=project,
-        global_root=global_root,
-        mission_id="mission-1",
-    )
-    captured: dict[str, Any] = {}
-
-    def deny_after_capture(**kwargs):
-        captured.update(kwargs)
-        return None, "captured reservation"
-
-    monkeypatch.setattr(
-        "argus.core.cost_control.cost_control_enabled",
-        lambda: True,
-    )
-    monkeypatch.setattr(
-        "argus.core.cost_control.reserve_call_budget",
-        deny_after_capture,
-    )
-
-    result = backend.run_exec(
-        prompt="test",
-        options=RunnerOptions(working_dir=str(tmp_path)),
-        run_label="manager-frontdoor-classify",
-    )
-
-    assert result.exit_code == -1
-    assert captured["project_root"] == project
-    assert captured["global_root"] == global_root
 
 
 def test_completed_run_exec_counts_after_mission_process_is_killed(
@@ -555,16 +517,13 @@ def test_completed_run_exec_counts_after_mission_process_is_killed(
     assert global_daily_spend(global_root=root) == pytest.approx(result.cost_usd)
 
 
-def test_run_exec_atomically_reserves_and_settles_call_cost(
+def test_run_exec_records_call_cost_and_provider_metric(
     tmp_path,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     root = tmp_path / "home"
     project = root / "projects" / "p1"
     monkeypatch.setenv("ARGUS_SKILL_HOME", str(root))
-    monkeypatch.setenv("ARGUS_SKILL_COST_CONTROL", "1")
-    monkeypatch.setenv("ARGUS_SKILL_CODEX_GUARD", "0")
-    monkeypatch.setenv("ARGUS_SKILL_GLOBAL_DAILY_CAP_USD", "1")
     backend = AgentCliBackend(backend="codex")
     backend.set_usage_context(project_root=project, mission_id="mission-1")
 
@@ -591,18 +550,12 @@ def test_run_exec_atomically_reserves_and_settles_call_cost(
     )
 
     assert result.cost_usd == pytest.approx(0.008)
-    state = json.loads((root / "cost-control.json").read_text())
-    assert state["reservations"] == []
-    assert state["unresolved"] == []
     rows = [json.loads(line) for line in (project / "events.jsonl").read_text().splitlines()]
     assert [row["type"] for row in rows] == [
-        "budget.reservation.created",
         "agent.io.start",
         "agent.io.complete",
         "usage.recorded",
-        "budget.reservation.settled",
     ]
-    assert rows[0]["amount_usd"] == 0.0
     assert rows[-1]["cost_usd"] == pytest.approx(0.008)
     metrics = [json.loads(line) for line in (root / "metrics.jsonl").read_text().splitlines()]
     provider_metric = next(row for row in metrics if row["name"] == "provider.call")
@@ -610,69 +563,13 @@ def test_run_exec_atomically_reserves_and_settles_call_cost(
     assert provider_metric["fields"]["call_id"] == result.call_id
 
 
-def test_settled_call_cost_blocks_the_next_call_at_global_cap(
+def test_unpriceable_model_is_recorded_and_never_refused(
     tmp_path,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     root = tmp_path / "home"
     project = root / "projects" / "p1"
     monkeypatch.setenv("ARGUS_SKILL_HOME", str(root))
-    monkeypatch.setenv("ARGUS_SKILL_COST_CONTROL", "1")
-    monkeypatch.setenv("ARGUS_SKILL_CODEX_GUARD", "0")
-    monkeypatch.setenv("ARGUS_SKILL_GLOBAL_DAILY_CAP_USD", "0.01")
-    backend = AgentCliBackend(backend="codex")
-    backend.set_usage_context(project_root=project, mission_id="mission-overrun")
-    captured: dict[str, Any] = {}
-
-    def fake_run_exec(self: Any, **kwargs: Any) -> AgentRunResult:
-        captured["options"] = kwargs["options"]
-        return _make_cli_result(
-            json_events=[
-                {
-                    "type": "token_count",
-                    "input_tokens": 0,
-                    "output_tokens": 1_000,
-                }
-            ],
-            thread_id="overrun-thread",
-        )
-
-    monkeypatch.setattr(backend._runner.__class__, "run_exec", fake_run_exec, raising=True)
-
-    result = backend.run_exec(
-        prompt="expensive single response",
-        options=RunnerOptions(model="gpt-5.6-sol"),
-        run_label="engineer-r1",
-    )
-
-    assert result.cost_usd == pytest.approx(0.03)
-    rows = [json.loads(line) for line in (project / "events.jsonl").read_text().splitlines()]
-    settled = next(row for row in rows if row["type"] == "budget.reservation.settled")
-    assert settled["amount_usd"] == 0.0
-    assert "overrun_usd" not in settled
-    metrics = [json.loads(line) for line in (root / "metrics.jsonl").read_text().splitlines()]
-    provider_metric = next(row for row in metrics if row["name"] == "provider.call")
-    assert "reservation_usd" not in provider_metric["fields"]
-    assert "overrun_usd" not in provider_metric["fields"]
-
-    denied = backend.run_exec(
-        prompt="next response",
-        options=RunnerOptions(model="gpt-5.6-sol"),
-        run_label="engineer-r1",
-    )
-    assert denied.stop_kind == "budget_exhausted"
-    assert "global daily budget exhausted" in str(denied.fatal_error)
-
-
-def test_unpriceable_model_is_counted_and_never_refused(
-    tmp_path,
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    root = tmp_path / "home"
-    project = root / "projects" / "p1"
-    monkeypatch.setenv("ARGUS_SKILL_HOME", str(root))
-    monkeypatch.setenv("ARGUS_SKILL_COST_CONTROL", "1")
-    monkeypatch.setenv("ARGUS_SKILL_CODEX_GUARD", "0")
     backend = AgentCliBackend(backend="codex")
     backend.set_usage_context(project_root=project, mission_id="mission-1")
     calls = []
@@ -717,23 +614,15 @@ def test_unpriceable_model_is_counted_and_never_refused(
     assert second.pricing_status == "priced" and not second.fatal_error
     assert repeat.pricing_status == "unpriced" and not repeat.fatal_error
     assert calls == ["engineer-r1", "reviewer", "engineer-r1b"]
-    from argus.core.cost_control import cost_control_snapshot
-
-    snapshot = cost_control_snapshot(global_root=root)
-    # Each unpriced call counts at the day's costliest priced call, the reviewer's.
-    assert sorted(row["call_id"] for row in snapshot["unresolved"]) == sorted([first.call_id, repeat.call_id])
-    assert snapshot["unpriced_estimate_usd"] == pytest.approx(second.cost_usd)
-    assert snapshot["counted_unpriced_usd"] == pytest.approx(2 * second.cost_usd)
 
 
-def test_missing_copilot_resume_target_does_not_poison_cost_control(
+def test_missing_copilot_resume_target_is_not_billed(
     tmp_path,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     root = tmp_path / "home"
     project = root / "projects" / "p1"
     monkeypatch.setenv("ARGUS_SKILL_HOME", str(root))
-    monkeypatch.setenv("ARGUS_SKILL_COST_CONTROL", "1")
     monkeypatch.setenv("ARGUS_SKILL_COPILOT_GUARD", "0")
     monkeypatch.setattr(
         "argus.adapters.agent_cli_backend._exec_spawn.capture_copilot_usage_cursor",
@@ -1274,69 +1163,6 @@ def test_default_agent_io_is_bounded_and_drops_duplicate_stream(
     assert "assistant.message_delta" in live[0][1]
 
 
-def test_codex_quota_events_and_daily_denial(
-    tmp_path,
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    log_path = tmp_path / "events.jsonl"
-    monkeypatch.setenv("ARGUS_SKILL_HOME", str(tmp_path / "home"))
-    monkeypatch.setenv("ARGUS_SKILL_CODEX_GUARD", "1")
-    monkeypatch.setenv("ARGUS_SKILL_AGENT_IO_LOG", str(log_path))
-    monkeypatch.setenv("ARGUS_SKILL_CODEX_DAILY_CALL_CAP", "1")
-    codex_home = tmp_path / "codex"
-    codex_home.mkdir()
-    (codex_home / "config.toml").write_text(
-        'model = "gpt-5.5"\n',
-        encoding="utf-8",
-    )
-    monkeypatch.setenv("CODEX_HOME", str(codex_home))
-    backend = AgentCliBackend(backend="codex")
-    calls = []
-
-    def fake_run_exec(self: Any, **kwargs: Any) -> AgentRunResult:
-        calls.append(kwargs["run_label"])
-        return _make_cli_result(agent_messages=["ok"], thread_id="codex-thread")
-
-    monkeypatch.setattr(backend._runner.__class__, "run_exec", fake_run_exec, raising=True)
-    first = backend.run_exec(
-        prompt="first",
-        options=RunnerOptions(working_dir=str(tmp_path)),
-        run_label="engineer-r1",
-    )
-    second = backend.run_exec(
-        prompt="second",
-        options=RunnerOptions(working_dir=str(tmp_path)),
-        run_label="reviewer",
-    )
-
-    assert first.fatal_error is None
-    assert "daily call cap 1 reached" in str(second.fatal_error)
-    assert calls == ["engineer-r1"]
-    rows = [json.loads(line) for line in log_path.read_text().splitlines()]
-    assert [row["type"] for row in rows] == [
-        "provider.request.started",
-        "agent.io.start",
-        "provider.request.completed",
-        "agent.io.complete",
-        "usage.recorded",
-        "provider.request.denied",
-        "usage.recorded",
-    ]
-    assert rows[0]["daily_calls"] == 1
-    assert rows[0]["daily_cap"] == 1
-    usage_rows = [json.loads(line) for line in (tmp_path / "usage.jsonl").read_text().splitlines()]
-    assert len(usage_rows) == 2
-    # The engineer-r1 call pins no model; codex echoes none either. It used to
-    # record an empty model -> "unpriced". Since the empty-model pricing fix it
-    # is attributed to the configured default model, so with no token counts in
-    # this synthetic result it is now "partial" (price known, tokens missing)
-    # rather than "unpriced".
-    assert {row["pricing_status"] for row in usage_rows} == {
-        "partial",
-        "not_billed",
-    }
-
-
 @pytest.mark.parametrize("attempt", [1, 100])
 def test_run_exec_normalizes_recoverable_reconnect_notice(
     monkeypatch: pytest.MonkeyPatch, attempt: int,
@@ -1750,7 +1576,6 @@ def test_run_exec_forwards_watchdog_hooks(
 def test_consumed_interrupt_returns_canonical_result_without_starting_provider(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    monkeypatch.setenv("ARGUS_SKILL_COST_CONTROL", "0")
     monkeypatch.setenv("ARGUS_SKILL_COPILOT_GUARD", "0")
     backend = AgentCliBackend(backend="copilot")
     provider_calls = 0
@@ -1815,7 +1640,8 @@ def test_run_exec_composes_explicit_watchdog_with_defaults(
 
     def explicit_interrupt() -> str | None:
         calls.append("explicit")
-        return "stale"
+        # The pre-spawn check must find no interrupt; later checks see one.
+        return "stale" if calls.count("explicit") > 1 else None
 
     backend = AgentCliBackend(
         backend="codex",
@@ -1840,7 +1666,7 @@ def test_run_exec_composes_explicit_watchdog_with_defaults(
     forwarded = cli_call.call_args.kwargs["options"]
     assert forwarded.external_interrupt_reason_provider is not explicit_interrupt
     assert forwarded.external_interrupt_reason_provider() == "stale"
-    assert calls == ["default", "explicit"]
+    assert calls == ["default", "explicit", "default", "explicit"]
     assert forwarded.watchdog_soft_idle_seconds == 10
     assert forwarded.watchdog_stalled_idle_seconds == 15
     assert forwarded.watchdog_hard_idle_seconds == 20
@@ -2090,7 +1916,6 @@ def test_context_parser_failure_uses_trusted_completion_receipt(tmp_path, monkey
     root = tmp_path / "home"
     project = root / "projects" / "p1"
     monkeypatch.setenv("ARGUS_SKILL_HOME", str(root))
-    monkeypatch.setenv("ARGUS_SKILL_COST_CONTROL", "1")
     monkeypatch.setenv("ARGUS_SKILL_COPILOT_GUARD", "0")
     monkeypatch.setattr(
         "argus.adapters.agent_cli_backend._exec_spawn.capture_copilot_usage_cursor",

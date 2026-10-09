@@ -1083,38 +1083,6 @@ def test_interrupted_solo_work_reports_failure_without_enqueuing(
     assert LifeMemory.open(life).backlog.all() == []
 
 
-def test_known_budget_limit_is_reported_without_claiming_manager_backend_is_unavailable(
-    tmp_path: Path, monkeypatch,
-) -> None:
-    sid = "s-accounting-block"
-    life = _make_project(tmp_path, sid)
-    manager_state._STATES.clear()
-
-    def failed_classify(mem, text, chat_state, **kwargs):
-        chat_state["_frontdoor_failure"] = (
-            "refused before start: global daily budget exhausted ($0.000000 available)"
-        )
-        return None, None, "complex"
-
-    monkeypatch.setattr(config_intent, "_front_door_classify", failed_classify)
-    monkeypatch.setattr(
-        front_door, "manager_triage",
-        lambda *args, **kwargs: pytest.fail("A blocked call must not start another Manager turn"),
-    )
-
-    result = manager_bridge.manager_message(sid, "请继续推进任务", global_root=tmp_path)
-
-    assert result["kind"] == "error"
-    assert result["success"] is False
-    assert result["error_code"] == "classification_failed"
-    assert result["reply"].startswith("[not dispatched]")
-    assert "已达到全局日预算上限" in result["reply"]
-    assert "$0.000000 available" in result["reply"]
-    assert "backend is unavailable" not in result["reply"]
-    assert "argus doctor --deep" not in result["reply"]
-    assert LifeMemory.open(life).backlog.all() == []
-
-
 def test_cancelled_manager_request_cannot_dispatch_after_classification(
     tmp_path: Path,
     monkeypatch,
@@ -2606,20 +2574,20 @@ def test_create_daemon_without_objective_is_idle(tmp_path: Path, monkeypatch) ->
     assert not (tmp_path / "projects" / sid / "continuous.json").exists()  # no campaign armed
 
 
-def test_create_daemon_never_overwrites_global_budget(
+def test_create_daemon_never_overwrites_host_config(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     monkeypatch.setenv("ARGUS_SKILL_HOME", str(tmp_path))
     config = tmp_path / "config.json"
     config.write_text(
-        json.dumps({"ARGUS_SKILL_GLOBAL_DAILY_CAP_USD": "4321"}),
+        json.dumps({"ARGUS_SKILL_MODEL": "gpt-host-default"}),
         encoding="utf-8",
     )
 
     daemon_lifecycle.create_daemon(global_root=tmp_path)
 
-    assert json.loads(config.read_text())["ARGUS_SKILL_GLOBAL_DAILY_CAP_USD"] == "4321"
+    assert json.loads(config.read_text())["ARGUS_SKILL_MODEL"] == "gpt-host-default"
 
 
 def test_create_daemon_at_cap_returns_replacement_candidates(

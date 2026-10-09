@@ -7,8 +7,7 @@ import {
   reduceMissionViewEvent,
 } from '../../core/src/missionView.js';
 import {
-  budgetSummary,
-  requestSummary,
+  spendSummary,
 } from '../src/components/MissionCockpit.js';
 import type { EventMsg, Snapshot } from '../../core/src/types.js';
 
@@ -21,7 +20,6 @@ function snapshot(): Snapshot {
       pid: 1,
       uptime_seconds: 10,
       backend: 'codex',
-      global_daily_cap_usd: 200,
     },
     roles: [
       { role: 'engineer', backend: 'codex', backend_label: 'Codex', model: 'gpt', effort: 'high', active: true, label: 'Profiling', status: 'active', age_s: 0 },
@@ -484,30 +482,10 @@ test('client reducer distinguishes manager routing failure from grounding', () =
   assert.equal(view.timeline.at(-1)?.title, 'Manager routing failed');
 });
 
-test('budget summary is always visible with global spend and cap', () => {
-  assert.equal(
-    budgetSummary(0.26285125, 'priced', 300),
-    '$0.26 model calls / $300 daily cap',
-  );
-  assert.equal(budgetSummary(null, 'empty', 300), '$0.00 model calls / $300 daily cap');
-});
-
-test('request summary includes Codex, Copilot, and premium usage', () => {
-  assert.equal(
-    requestSummary({
-      day: '2026-07-12',
-      codex: {
-        provider: 'codex', day: '2026-07-12', daily_calls: 34, daily_cap: 300,
-        remaining: 266, completed_calls: 32, failed_calls: 2,
-      },
-      copilot: {
-        provider: 'copilot', day: '2026-07-12', daily_calls: 246, daily_cap: 1000,
-        remaining: 754, premium_requests: 360, premium_cap: 1000,
-        premium_remaining: 640, blocked_until: 0, blocked_reason: '',
-      },
-    }),
-    'Codex 34/300 · Copilot 246/1000 · premium 360.0/1000',
-  );
+test('spend summary is always visible, with the pricing status when nothing is settled', () => {
+  assert.equal(spendSummary(0.26285125, 'priced'), '$0.26 model calls');
+  assert.equal(spendSummary(null, 'empty'), '$0.00 model calls');
+  assert.equal(spendSummary(null, 'partial'), 'partial');
 });
 
 test('evolution events expose skill and wiki storage locations', () => {

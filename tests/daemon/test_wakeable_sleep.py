@@ -137,7 +137,7 @@ def test_provider_fence_sleep_wakes_on_explicit_resume(
 
 
 @pytest.mark.parametrize("status", ["paused_provider_fence", "pending"])
-def test_recovery_wake_does_not_bypass_unchanged_fence_or_budget_backoff(
+def test_recovery_wake_does_not_bypass_unchanged_fence_or_pending_backoff(
     tmp_path, status: str,
 ) -> None:
     worker = _worker(tmp_path)
@@ -163,21 +163,21 @@ def test_recovery_wake_does_not_bypass_unchanged_fence_or_budget_backoff(
 
 
 @pytest.mark.parametrize("existing_config", [False, True])
-def test_wakeable_sleep_wakes_when_operator_changes_budget(
+def test_wakeable_sleep_wakes_when_operator_changes_config(
     tmp_path, existing_config: bool,
 ) -> None:
     w = _worker(tmp_path)
     config = tmp_path / "config.json"
     if existing_config:
-        config.write_text('{"ARGUS_SKILL_GLOBAL_DAILY_CAP_USD": "1000"}')
+        config.write_text('{"ARGUS_SKILL_MODEL": "model-a"}')
 
-    def remove_cap() -> None:
+    def change_config() -> None:
         time.sleep(0.2)
         temporary = tmp_path / "config.tmp"
-        temporary.write_text('{"ARGUS_SKILL_GLOBAL_DAILY_CAP_USD": "0"}')
+        temporary.write_text('{"ARGUS_SKILL_MODEL": "model-b"}')
         temporary.replace(config)
 
-    updater = threading.Thread(target=remove_cap, daemon=True)
+    updater = threading.Thread(target=change_config, daemon=True)
     updater.start()
     start = time.monotonic()
     w._wakeable_sleep(5.0, 0.1, tmp_path)

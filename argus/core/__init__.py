@@ -5,8 +5,8 @@ Layer: kernel
 Belongs here: models, ports, event catalog + schemas, contracts
 (vertical/research/project), paths, OS primitives (file_lock, process_stop,
 daemon_lock, windows_job, ...). Also present today and marked as extraction
-candidates (see docs/LAYOUT.md): accounting (usage, cost_control, metrics,
-pricing, token_usage, provider_quota, cost_events), backend config/readiness
+candidates (see docs/LAYOUT.md): accounting (usage, metrics,
+pricing, token_usage, cost_events), backend config/readiness
 (knobs, knob_store, role_config, backend_readiness, config_snapshot), the
 cockpit read model (mission_view, log_view), operator stores
 (operator_context, operator_decision, operator_messages, operator_presence),

@@ -41,7 +41,6 @@ _JPEG_MAGIC = b"\xff\xd8\xff"
 _DEFAULT_TIMEOUT_SECONDS: float | None = None
 # POST model calls get at most one replay; more can duplicate non-idempotent work.
 _DEFAULT_MAX_RETRIES = 2
-_DEFAULT_IMAGE_DAILY_CALL_CAP = 200
 # Retry-After sleeps are bounded so one API throttle cannot occupy a caller forever.
 _MAX_RETRY_DELAY_SECONDS = 45.0
 _TRANSIENT_HTTP_STATUS_CODES = {429, 500, 502, 503, 504}
@@ -171,26 +170,15 @@ def _image_usage_path() -> Path:
     )
 
 
-def _image_daily_cap() -> int:
-    raw = os.environ.get("ARGUS_SKILL_IMAGE_DAILY_CALL_CAP", "").strip()
-    if not raw:
-        return _DEFAULT_IMAGE_DAILY_CALL_CAP
-    try:
-        return max(0, int(raw))
-    except ValueError:
-        return _DEFAULT_IMAGE_DAILY_CALL_CAP
-
-
 def _reserve_image_call(
     route: ModelApiGrant | ModelApiRoute,
     payload: Mapping[str, Any],
     *,
     attempt_index: int,
 ) -> None:
-    """Atomically meter every Azure image request attempt before it is sent."""
+    """Record every Azure image request attempt before it is sent."""
     if str(route.provider or "").strip().lower() != "azure_openai":
         return
-    cap = _image_daily_cap()
     path = _image_usage_path()
     path.parent.mkdir(parents=True, exist_ok=True)
     today = datetime.now(UTC).date().isoformat()
@@ -200,20 +188,6 @@ def _reserve_image_call(
     with path.open("a+", encoding="utf-8") as handle:
         if fcntl is not None:
             fcntl.flock(handle.fileno(), fcntl.LOCK_EX)
-        handle.seek(0)
-        used = 0
-        for line in handle:
-            try:
-                row = json.loads(line)
-            except json.JSONDecodeError:
-                continue
-            if row.get("date_utc") == today:
-                used += 1
-        if cap and used >= cap:
-            raise ImageToolError(
-                f"daily image API call cap reached ({used}/{cap}); inspect "
-                f"{path} before increasing ARGUS_SKILL_IMAGE_DAILY_CALL_CAP"
-            )
         record = {
             "schema_version": 1,
             "date_utc": today,

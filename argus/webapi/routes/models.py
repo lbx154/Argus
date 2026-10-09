@@ -113,10 +113,6 @@ class ConfigSetIn(BaseModel):
     apply_to_roles: bool = False
 
 
-class BudgetSetIn(BaseModel):
-    values: dict[str, str]
-
-
 class ProjectUpdateIn(BaseModel):
     name: str
 

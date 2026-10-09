@@ -1,4 +1,4 @@
-"""A provider-rejected call settles as failed; a call that ran stays held."""
+"""A provider-rejected call is recorded as not billed; a call that ran is not waived."""
 from __future__ import annotations
 
 import os
@@ -9,11 +9,6 @@ from pathlib import Path
 import pytest
 
 from argus.agent_cli.models import AgentRunResult
-from argus.core.cost_control import (
-    cost_admission_reason,
-    cost_control_snapshot,
-    reserve_call_budget,
-)
 from argus.core.models import RunnerResult
 from argus.core.runner_errors import (
     is_provider_http_rejection,
@@ -40,15 +35,6 @@ def home(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Path:
     return tmp_path
 
 
-def _reserve(home: Path, call_id: str, *, provider: str = "codex", model: str = MODEL,
-             run_label: str = "map-summary"):
-    return reserve_call_budget(
-        call_id=call_id, project_root=home / "projects" / "p1", mission_id="map",
-        provider=provider, model=model, run_label=run_label, global_root=home,
-        global_daily_cap_usd=10.0,
-    )
-
-
 def _failed_record(home: Path, call_id: str, *, rejected: bool, usage: TokenUsage | None = None):
     return build_usage_record(
         call_id=call_id, project_root=home / "projects" / "p1", mission_id="map",
@@ -56,13 +42,6 @@ def _failed_record(home: Path, call_id: str, *, rejected: bool, usage: TokenUsag
         started_at=time.time() - 1, completed_at=time.time(), status="error",
         token_usage=usage, error=RELAY_REJECTION, rejected_before_output=rejected,
     )
-
-
-def _settle(home: Path, call_id: str, record) -> None:
-    reservation, reason = _reserve(home, call_id)
-    assert reservation is not None, reason
-    UsageLedger(home / "projects" / "p1", migrate_legacy=False).append(record)
-    reservation.settle(record)
 
 
 def test_relay_rejection_is_recognized_from_the_runner_result() -> None:
@@ -140,7 +119,7 @@ exit 1
     reason="the fake CLI is a bash shebang script, which Windows cannot execute from PATH",
 )
 @pytest.mark.parametrize(("mode", "settles"), [("", True), ("reasoning", False)])
-def test_cli_call_rejected_after_reasoning_stays_unsettled_and_counted(
+def test_cli_call_rejected_after_reasoning_is_not_waived(
     home: Path, tmp_path: Path, monkeypatch: pytest.MonkeyPatch, mode: str, settles: bool,
 ) -> None:
     from argus.adapters.agent_cli_backend import AgentCliBackend
@@ -154,8 +133,6 @@ def test_cli_call_rejected_after_reasoning_stays_unsettled_and_counted(
     (tmp_path / "codex-home").mkdir()
     monkeypatch.setenv("PATH", f"{bin_dir}:{os.environ['PATH']}")
     monkeypatch.setenv("CODEX_HOME", str(tmp_path / "codex-home"))
-    monkeypatch.setenv("ARGUS_SKILL_COST_CONTROL", "1")
-    monkeypatch.setenv("ARGUS_SKILL_CODEX_GUARD", "0")
     monkeypatch.setenv("FAKE_MODE", mode)
 
     backend = AgentCliBackend(backend="codex")
@@ -165,35 +142,23 @@ def test_cli_call_rejected_after_reasoning_stays_unsettled_and_counted(
     assert result.exit_code != 0
     [row] = UsageLedger(home / "projects" / "p1", migrate_legacy=False).records()
     assert row.status == "error"
-    assert cost_admission_reason(global_root=home) == ""
-    snapshot = cost_control_snapshot(global_root=home)
     if settles:
         assert (row.pricing_status, row.pricing_tier) == ("not_billed", PROVIDER_REJECTED_TIER)
-        assert snapshot["unresolved_calls"] == 0
     else:
         assert row.pricing_status != "not_billed"
-        assert [item["call_id"] for item in snapshot["unresolved"]] == [row.call_id]
 
 
-def test_provider_rejected_call_settles_as_failed(home: Path) -> None:
+def test_provider_rejected_call_is_recorded_as_not_billed(home: Path) -> None:
     record = _failed_record(home, "call-rejected", rejected=True)
     assert record.pricing_status == "not_billed"
     assert record.pricing_tier == PROVIDER_REJECTED_TIER
     assert record.cost_usd == 0.0
     assert record.error.startswith("unexpected status 502")
-    _settle(home, "call-rejected", record)
+    UsageLedger(home / "projects" / "p1", migrate_legacy=False).append(record)
 
-    assert cost_admission_reason(global_root=home) == ""
-    snapshot = cost_control_snapshot(global_root=home)
-    assert snapshot["unresolved_calls"] == 0
     stored = UsageLedger(home / "projects" / "p1", migrate_legacy=False).records()
     assert [(r.call_id, r.status, r.pricing_status, r.error) for r in stored] == [
         ("call-rejected", "error", "not_billed", record.error)]
-
-    # The next call on another backend is admitted.
-    nxt, reason = _reserve(home, "call-next", provider="copilot", model="", run_label="manager")
-    assert nxt is not None and reason == ""
-    nxt.release(reason="test")
 
 
 def test_reported_usage_overrides_the_rejection_flag(home: Path) -> None:
@@ -202,17 +167,6 @@ def test_reported_usage_overrides_the_rejection_flag(home: Path) -> None:
     assert record.pricing_status != "not_billed"
 
 
-def test_call_that_ran_without_usage_is_counted_and_names_the_role(home: Path) -> None:
+def test_call_that_ran_without_usage_is_not_waived(home: Path) -> None:
     record = _failed_record(home, "call-ran", rejected=False)
     assert record.pricing_status in {"partial", "unpriced"}
-    _settle(home, "call-ran", record)
-
-    assert cost_admission_reason(global_root=home) == ""
-    snapshot = cost_control_snapshot(global_root=home)
-    [row] = snapshot["unresolved"]
-    assert row["call_id"] == "call-ran" and row["run_label"] == "map-summary"
-    assert row["project_id"] == "p1"
-
-    admitted, reason = _reserve(home, "call-next", provider="copilot", model="", run_label="manager")
-    assert admitted is not None and reason == ""
-    admitted.release(reason="test")

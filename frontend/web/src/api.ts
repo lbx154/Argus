@@ -13,7 +13,6 @@ import type {
   ProjectRow,
   ProjectCostRow,
   ProgressSourceRef,
-  RequestUsage,
   Role,
   Snapshot,
   VerticalAction,
@@ -35,13 +34,11 @@ import type { ResourceStatus } from '../../core/src/resourceStatus.generated';
 export type {
   ArtifactInfo,
   BacklogItem,
-  CostControlSnapshot,
   Daemon,
   EventMsg,
   GitDiffView,
   ProjectRow,
   ProjectCostRow,
-  RequestUsage,
   Role,
   Snapshot,
   UsageSummary,
@@ -303,7 +300,6 @@ export interface StatusView {
   daemon: Daemon;
   roles: Role[];
   active_role: string | null;
-  request_usage?: RequestUsage;
 }
 export interface DoctorCheck {
   name: string;
@@ -445,7 +441,6 @@ export interface MetricsSnapshot {
   provider?: Record<string, unknown>;
   daemon_commands?: Record<string, unknown>;
   event_validation_failures?: number;
-  cost_control?: Record<string, unknown>;
   [key: string]: unknown;
 }
 export interface SourceUpdateStatus {
@@ -1319,11 +1314,6 @@ export const api = {
     postJson<PromptRewrite>(P(sid, '/prompt/rewrite'), { text }),
   setConfig: (sid: string, name: string, value: string, applyToRoles = false) =>
     postJson<Record<string, unknown>>(P(sid, '/config/set'), applyToRoles ? { name, value, apply_to_roles: true } : { name, value }),
-  setBudgets: (sid: string, values: Record<string, string>) =>
-    postJson<{ values: Record<string, string>; restart_required: boolean }>(
-      P(sid, '/config/budget'),
-      { values },
-    ),
   setIdentity: (sid: string, text: string) =>
     postJson<{ ok: boolean }>(P(sid, '/identity'), { text }),
   resetManager: (sid: string) =>

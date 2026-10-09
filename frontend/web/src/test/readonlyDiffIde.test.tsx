@@ -10,7 +10,7 @@ const props: ActiveWorkbenchPageProps = {
   sid: 's-A', active: false,
   project: { id: 's-A', label: 'A', objective: '', last_active: 1, daemon_alive: false, daemon_pid: null, uptime_seconds: null },
   snapshot: { session: { id: 's-A', display_name: 'Synthetic A', cwd: '/synthetic', objective: '', last_active: 1 },
-    daemon: { alive: false, pid: null, uptime_seconds: null, backend: 'memory', global_daily_cap_usd: null },
+    daemon: { alive: false, pid: null, uptime_seconds: null, backend: 'memory'},
     roles: [], backlog: [], recent_events: [] },
   events: [], connected: false, snapshotUpdatedAt: 1, refresh: vi.fn(),
   controls: { start: vi.fn(), stop: vi.fn(), busy: false, error: '' }, navigate: vi.fn(),

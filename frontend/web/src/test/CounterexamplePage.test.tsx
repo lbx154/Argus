@@ -39,7 +39,6 @@ function page(missionStatus: string, candidateStatus = 'queued'): WorkspacePageP
       session: { id: 'lab', display_name: 'Lab', objective: '', last_active: 0, cwd: '' },
       daemon: {
         alive: false, pid: null, uptime_seconds: null, backend: null,
-        global_daily_cap_usd: null,
       },
       roles: [],
       mission_view: mission,

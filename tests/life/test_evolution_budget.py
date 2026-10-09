@@ -69,7 +69,7 @@ def test_supervisor_passes_runner_shared_skill_root(tmp_path, monkeypatch) -> No
         runner=runner,
         sink=_Sink(),
         config=LifeSupervisorConfig(
-            budget=LifeBudget(global_daily_cap_usd=0.0, max_missions=1),
+            budget=LifeBudget(max_missions=1),
             project_worktree=tmp_path,
         ),
     )
@@ -103,7 +103,7 @@ def test_failed_mission_still_reaches_team_learning_review(
         runner=runner,
         sink=_Sink(),
         config=LifeSupervisorConfig(
-            budget=LifeBudget(global_daily_cap_usd=0.0, max_missions=1),
+            budget=LifeBudget(max_missions=1),
             project_worktree=tmp_path,
         ),
     )
@@ -146,7 +146,7 @@ def test_reviewer_confirmed_research_result_reaches_fact_judgment(
         runner=runner,
         sink=_Sink(),
         config=LifeSupervisorConfig(
-            budget=LifeBudget(global_daily_cap_usd=0.0, max_missions=1),
+            budget=LifeBudget(max_missions=1),
             project_worktree=tmp_path / "campaign",
             role_skill_maintenance_enabled=False,
         ),

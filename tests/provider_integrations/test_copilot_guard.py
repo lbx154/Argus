@@ -5,16 +5,12 @@ import pytest
 from argus.provider_integrations import copilot_guard
 from argus.provider_integrations.copilot_guard import (
     acquire_copilot_permit,
-    copilot_budget_reason,
     copilot_guard_snapshot,
     release_denied_permit,
 )
 
 
-def test_default_guard_caps_are_10000() -> None:
-    assert copilot_guard._DEFAULT_DAILY_PREMIUM_CAP == 10_000.0
-    assert copilot_guard._DEFAULT_DAILY_CALL_CAP == 10_000
-    assert copilot_guard._DEFAULT_HOURLY_CALL_CAP == 10_000
+def test_default_concurrency_cap_is_10000() -> None:
     assert copilot_guard._DEFAULT_MAX_CONCURRENCY == 10_000
 
 
@@ -22,23 +18,6 @@ def _enable(monkeypatch, tmp_path) -> None:
     monkeypatch.setenv("ARGUS_SKILL_HOME", str(tmp_path))
     monkeypatch.setenv("ARGUS_SKILL_COPILOT_GUARD", "1")
     monkeypatch.setenv("ARGUS_SKILL_COPILOT_SLOT_WAIT_S", "0.01")
-    monkeypatch.setenv("ARGUS_SKILL_COPILOT_DAILY_CALL_CAP", "100")
-    monkeypatch.setenv("ARGUS_SKILL_COPILOT_HOURLY_CALL_CAP", "100")
-    monkeypatch.setenv("ARGUS_SKILL_COPILOT_DAILY_PREMIUM_CAP", "100")
-
-
-def test_daily_premium_cap_blocks_the_next_provider_call(monkeypatch, tmp_path) -> None:
-    _enable(monkeypatch, tmp_path)
-    monkeypatch.setenv("ARGUS_SKILL_COPILOT_DAILY_PREMIUM_CAP", "2")
-
-    first = acquire_copilot_permit("engineer-r1")
-    assert first.allowed
-    first.finish(premium_requests=2.0, success=True)
-
-    blocked = acquire_copilot_permit("reviewer")
-    assert not blocked.allowed
-    assert "daily premium cap" in blocked.reason
-    release_denied_permit(blocked)
 
 
 def test_policy_denial_opens_a_shared_circuit(monkeypatch, tmp_path) -> None:
@@ -73,11 +52,8 @@ def test_local_diagnostics_do_not_block_the_next_quota_permit(
     _enable(monkeypatch, tmp_path)
     first = acquire_copilot_permit("engineer-r1")
     assert first.allowed
-    first.finish(error_text=diagnostic, premium_requests=2.5, success=False)
-    snapshot = copilot_guard_snapshot()
-    assert snapshot["blocked_until"] == 0
-    assert snapshot["daily_calls"] == 1
-    assert snapshot["premium_requests_remaining"] == 97.5
+    first.finish(error_text=diagnostic, success=False)
+    assert copilot_guard_snapshot()["blocked_until"] == 0
     continuation = acquire_copilot_permit("engineer-r1.winddown")
     assert continuation.allowed
     continuation.finish(success=True)
@@ -98,20 +74,6 @@ def test_real_rate_limit_still_blocks_the_next_quota_permit(
     release_denied_permit(blocked)
 
 
-def test_hourly_call_cap_counts_provider_starts(monkeypatch, tmp_path) -> None:
-    _enable(monkeypatch, tmp_path)
-    monkeypatch.setenv("ARGUS_SKILL_COPILOT_HOURLY_CALL_CAP", "1")
-
-    first = acquire_copilot_permit("matcher")
-    assert first.allowed
-    first.finish(success=True)
-
-    blocked = acquire_copilot_permit("matcher")
-    assert not blocked.allowed
-    assert "hourly call cap" in blocked.reason
-    release_denied_permit(blocked)
-
-
 def test_cross_process_slot_cap_refuses_parallel_call(monkeypatch, tmp_path) -> None:
     _enable(monkeypatch, tmp_path)
     monkeypatch.setenv("ARGUS_SKILL_COPILOT_MAX_CONCURRENCY", "1")
@@ -125,24 +87,6 @@ def test_cross_process_slot_cap_refuses_parallel_call(monkeypatch, tmp_path) -> 
     first.finish(success=True)
 
 
-def test_denied_cap_does_not_leak_a_concurrency_slot(monkeypatch, tmp_path) -> None:
-    _enable(monkeypatch, tmp_path)
-    monkeypatch.setenv("ARGUS_SKILL_COPILOT_MAX_CONCURRENCY", "1")
-    monkeypatch.setenv("ARGUS_SKILL_COPILOT_DAILY_PREMIUM_CAP", "1")
-
-    first = acquire_copilot_permit("engineer")
-    first.finish(premium_requests=1.0, success=True)
-    blocked = acquire_copilot_permit("reviewer")
-    assert not blocked.allowed
-
-    # The denial itself must release the slot; callers should not have to know
-    # that a preflight lock was briefly acquired.
-    monkeypatch.setenv("ARGUS_SKILL_COPILOT_DAILY_PREMIUM_CAP", "0")
-    next_call = acquire_copilot_permit("planner")
-    assert next_call.allowed
-    next_call.finish(success=True)
-
-
 def test_guard_accounting_failure_is_fail_soft(monkeypatch, tmp_path) -> None:
     _enable(monkeypatch, tmp_path)
     permit = acquire_copilot_permit("engineer")
@@ -152,49 +96,5 @@ def test_guard_accounting_failure_is_fail_soft(monkeypatch, tmp_path) -> None:
         lambda *_args, **_kwargs: (_ for _ in ()).throw(OSError("disk full")),
     )
 
-    permit.finish(premium_requests=1.0, success=True)
+    permit.finish(error_text="Error: Access denied by policy settings", success=False)
 
-
-def test_snapshot_exposes_operator_caps(monkeypatch, tmp_path) -> None:
-    _enable(monkeypatch, tmp_path)
-    monkeypatch.setenv("ARGUS_SKILL_COPILOT_DAILY_CALL_CAP", "9")
-    monkeypatch.setenv("ARGUS_SKILL_COPILOT_DAILY_PREMIUM_CAP", "12")
-
-    permit = acquire_copilot_permit("engineer")
-    permit.finish(premium_requests=2.5, success=True)
-    snapshot = copilot_guard_snapshot()
-
-    assert snapshot["daily_calls"] == 1
-    assert snapshot["daily_call_cap"] == 9
-    assert snapshot["daily_calls_remaining"] == 8
-    assert snapshot["daily_premium_cap"] == 12
-    assert snapshot["premium_requests_remaining"] == 9.5
-
-
-@pytest.mark.parametrize("cap", ["ARGUS_SKILL_COPILOT_DAILY_PREMIUM_CAP", "ARGUS_SKILL_COPILOT_DAILY_CALL_CAP"])
-def test_budget_preflight_matches_admission_without_spending(monkeypatch, tmp_path, cap):
-    _enable(monkeypatch, tmp_path)
-    monkeypatch.setenv(cap, "1")
-    first = acquire_copilot_permit("engineer")
-    first.finish(premium_requests=1, success=True)
-    before = copilot_guard_snapshot()
-    reason = copilot_budget_reason(root=tmp_path)
-    assert reason
-    for _ in range(3):
-        assert copilot_budget_reason(root=tmp_path) == reason
-    assert copilot_guard_snapshot() == before
-    denied = acquire_copilot_permit("reviewer")
-    assert not denied.allowed and denied.reason == reason
-    monkeypatch.setenv(cap, "0")
-    assert not copilot_budget_reason(root=tmp_path)
-
-
-def test_budget_preflight_releases_daily_pause_on_day_change(monkeypatch, tmp_path):
-    _enable(monkeypatch, tmp_path)
-    monkeypatch.setenv("ARGUS_SKILL_COPILOT_DAILY_CALL_CAP", "1")
-    monkeypatch.setattr(copilot_guard, "_today", lambda: "2026-09-29")
-    permit = acquire_copilot_permit("engineer")
-    permit.finish(success=True)
-    assert copilot_budget_reason(root=tmp_path)
-    monkeypatch.setattr(copilot_guard, "_today", lambda: "2026-09-30")
-    assert not copilot_budget_reason(root=tmp_path)

@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import errno
 import json
+import logging
 import os
 import re
 import tempfile
@@ -2160,6 +2161,69 @@ def _call_status(value: Any) -> CallStatus:
         return status  # type: ignore[return-value]
     return "error"
 
+
+
+# --------------------------------------------------------------------------- #
+# The daily roll-up across every project on the host                          #
+# --------------------------------------------------------------------------- #
+
+log = logging.getLogger(__name__)
+
+
+def _reconciled_records(ledger: UsageLedger, day_start: float) -> list[UsageRecord]:
+    records = ledger.records(since=day_start)
+    if any(record.provider == "copilot" and (
+        record.cost_usd is None
+        or record.pricing_status in {"partial", "unpriced"}
+        or record.cost_basis == "premium_request"
+    ) for record in records):
+        ledger.ensure_copilot_usage_reconciled()
+        records = ledger.records(since=day_start)
+    return records
+
+
+def daily_records(ledger: UsageLedger, day_start: float) -> list[UsageRecord]:
+    """One project's records since ``day_start``, Copilot usage reconciled.
+
+    A damaged journal is repaired once (damaged lines set aside beside it,
+    complete records kept) and read again.
+    """
+    try:
+        return _reconciled_records(ledger, day_start)
+    except UsageJournalIntegrityError as exc:
+        repair = ledger.repair_journal()
+        if repair is not None:
+            log.warning("usage journal %s repaired: %d damaged line(s) set aside in %s (%s)",
+                        repair.path, len(repair.damaged), repair.damaged_copy, exc)
+    return _reconciled_records(ledger, day_start)
+
+
+def global_daily_usage_summary(
+    *, global_root: Path | str | None = None, now: float | None = None,
+) -> UsageSummary:
+    """Known spend of every project on the host since local midnight, each call once."""
+    from .paths import global_root as default_global_root
+    from .paths import session_states_root
+
+    timestamp = time.time() if now is None else float(now)
+    root = Path(global_root).expanduser() if global_root is not None else default_global_root()
+    day_start = _local_day_floor(timestamp)
+    try:
+        project_roots = [path for path in session_states_root(root).iterdir() if path.is_dir()]
+    except OSError:
+        project_roots = []
+    records: list[UsageRecord] = []
+    for project_root in project_roots:
+        try:
+            records.extend(
+                daily_records(UsageLedger(project_root, migrate_legacy=False), day_start)
+            )
+        except Exception:  # noqa: BLE001 - one project's damage cannot hide the others' spend
+            log.warning("usage journal under %s left out of today's total", project_root,
+                        exc_info=True)
+            continue
+    unique = {(record.project_id, record.call_id): record for record in records}
+    return summarize_usage(unique.values())
 
 __all__ = [
     "CallStatus",

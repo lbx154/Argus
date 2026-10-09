@@ -1140,7 +1140,7 @@ def test_csrf_and_logout(provisioned):
 @pytest.mark.parametrize("path", [
     "/api/runtime/source-update", "/api/runtime/source-update/apply",
     "/api/system/doctor", "/api/system/resources", "/api/metrics", "/metrics",
-    "/api/projects/p/config/set", "/api/projects/p/config/budget",
+    "/api/projects/p/config/set",
     "/api/projects/p/skills", "/api/projects/p/identity", "/api/projects/p/doctor",
     "/api/projects/p/workdir", "/api/projects/p/launch-cwd",
     "/api/projects/p/daemon/upgrade", "/api/projects/p/daemon/upgrade-schedule",

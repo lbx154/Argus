@@ -19,40 +19,6 @@ def uses_cjk(text: str) -> bool:
     return bool(_CJK_RE.search(str(text or "")))
 
 
-def budget_refusal_reply(reason: str, *, language_hint: str = "") -> str | None:
-    raw = str(reason or "").strip()
-    lowered = raw.casefold()
-    zh = uses_cjk(language_hint)
-    if "global daily token budget exhausted" in lowered:
-        explanation = (
-            "已达到今日 token 上限，新的模型调用已暂停。已有文件和任务记录会保留；"
-            "可在设置中调整上限，或下一个预算日继续。"
-            if zh else
-            "Today's token limit has been reached. New model calls are paused; files and task records "
-            "are preserved. Adjust the limit in Settings or continue on the next budget day."
-        )
-    elif "global daily budget exhausted" in lowered:
-        explanation = (
-            "暂未执行：已达到全局日预算上限，任务没有入队。"
-            "请等待下一个预算日，或由你明确调整预算；这不是 Agent CLI 登录故障。"
-            if zh else
-            "The global daily budget is exhausted; no task was queued. Wait for the next "
-            "budget day or explicitly adjust the budget. This is not an Agent CLI login failure."
-        )
-    elif "cost control unavailable" in lowered:
-        explanation = (
-            "暂未执行：无法读取或更新费用记账状态，预算保护阻止了新的模型调用。"
-            "请先处理下方的记账错误；不要通过重新登录 CLI 或删除账本绕过它。"
-            if zh else
-            "The request was not started because cost accounting could not be read or "
-            "updated. Resolve the accounting error below; re-authenticating the CLI or "
-            "deleting the ledger is not a remedy."
-        )
-    else:
-        return None
-    return f"[not dispatched] {explanation}\n\n{raw}"
-
-
 def humanize_runtime_reason(reason: str, *, language_hint: str = "") -> str:
     """Translate common control-plane failures into useful operator prose.
 
@@ -230,7 +196,6 @@ def publish_operator_message(
 
 
 __all__ = [
-    "budget_refusal_reply",
     "humanize_runtime_reason",
     "publish_operator_message",
     "render_operator_update",

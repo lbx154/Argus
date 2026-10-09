@@ -157,7 +157,6 @@ export function requireSnapshotContract(value: unknown): Snapshot {
   }
   if (!daemon) throw new Error('invalid snapshot: daemon section is missing');
   const requiredDaemonFields = [
-    'global_daily_cap_usd',
     'read_status',
     'read_error',
     'protocol_compatible',
@@ -171,8 +170,6 @@ export function requireSnapshotContract(value: unknown): Snapshot {
     'spend_usd',
     'spend_status',
     'usage_summary',
-    'request_usage',
-    'cost_control',
     'daemon_commands',
     'observability',
     'mission_view',

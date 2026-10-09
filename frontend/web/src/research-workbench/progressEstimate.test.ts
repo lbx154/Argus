@@ -28,7 +28,7 @@ function snapshot(overrides: { alive?: boolean; activeStatus?: string; reviewSta
   view.updated_at = 1_000;
   return {
     session: { id: 's-test', display_name: 'Test', objective: '', last_active: 1_000, cwd: '/tmp', workdir: '/tmp' },
-    daemon: { alive: overrides.alive ?? true, pid: 1, uptime_seconds: 500, backend: 'pi', global_daily_cap_usd: null, health: { state: overrides.alive === false ? 'stopped' : 'active', seconds_since_progress: 2 } },
+    daemon: { alive: overrides.alive ?? true, pid: 1, uptime_seconds: 500, backend: 'pi', health: { state: overrides.alive === false ? 'stopped' : 'active', seconds_since_progress: 2 } },
     roles: [
       { role: 'planner', backend: 'pi', backend_label: 'Pi', model: 'm', effort: null, active: false, label: 'done', status: 'done', age_s: 1 },
       { role: 'engineer', backend: 'pi', backend_label: 'Pi', model: 'm', effort: null, active: !complete, label: 'running command', status: complete ? 'done' : 'running', age_s: 1 },

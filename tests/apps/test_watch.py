@@ -15,11 +15,11 @@ import pytest
 
 from argus.apps._inbox import format_inbox_event
 from argus.apps._watch import (
-    _BudgetLineCache,
     _JournalTailCache,
     _mission_context_lines,
     _read_backlog_rows,
     _select_current_backlog_row,
+    _SpendLineCache,
     _WatchState,
 )
 from argus.core import project
@@ -30,8 +30,9 @@ from argus.daemon.life_worker import read_continuous_state
 def _subprocess_env() -> dict[str, str]:
     env = os.environ.copy()
     shim = Path(__file__).resolve().parents[1] / "subprocess_sitecustomize"
-    env["PYTHONPATH"] = str(shim) + (
-        os.pathsep + env["PYTHONPATH"] if env.get("PYTHONPATH") else ""
+    source_root = Path(__file__).resolve().parents[2]
+    env["PYTHONPATH"] = os.pathsep.join(
+        [str(shim), str(source_root)] + ([env["PYTHONPATH"]] if env.get("PYTHONPATH") else [])
     )
     return env
 
@@ -343,31 +344,27 @@ def test_watch_mission_context_lines_include_running_task_and_continuous_state(t
     assert "done_at: 2026-05-12T00:00:00Z" in rendered
 
 
-def test_budget_line_cache_reuses_previous_result_until_inputs_change(
+def test_spend_line_cache_reuses_previous_result_until_inputs_change(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     import argus.apps._watch as watch_mod
 
-    cache = _BudgetLineCache()
+    cache = _SpendLineCache()
     journal_path = tmp_path / "events.jsonl"
     journal_path.write_text("", encoding="utf-8")
-    class _FakeBudget:
-        global_daily_cap_usd = 9.0
-
-    monkeypatch.setattr(watch_mod, "resolve_effective_budget", lambda status: _FakeBudget())
-    monkeypatch.setattr(watch_mod, "global_daily_spend", lambda global_root=None: 1.25)
+    usage = Namespace(known_cost_usd=1.25, cost_usd=1.25, pricing_status="priced", call_count=1)
+    monkeypatch.setattr(watch_mod, "global_daily_usage_summary", lambda global_root=None: usage)
     status = Namespace(
         alive=True,
-        global_daily_cap_usd=9.0,
-    )
+        )
 
     first = cache.render(journal_path=journal_path, journal=object(), status=status)
     second = cache.render(journal_path=journal_path, journal=object(), status=status)
     journal_path.write_text('{"ts": 1, "cost_usd": 1.0}\n', encoding="utf-8")
     third = cache.render(journal_path=journal_path, journal=object(), status=status)
 
-    assert first == "budget   : global $1.25/$9.00 · remaining $7.75"
+    assert first == "spend    : today $1.25 across all projects"
     assert second == first
     assert third == first
 
@@ -375,7 +372,7 @@ def test_budget_line_cache_reuses_previous_result_until_inputs_change(
 def test_journal_tail_cache_reuses_previous_result_until_file_changes(
     tmp_path: Path,
 ) -> None:
-    """Mirrors ``_BudgetLineCache``: ``EventJournal.tail()`` re-scans the whole
+    """Mirrors ``_SpendLineCache``: ``EventJournal.tail()`` re-scans the whole
     events history on every call (no internal caching), so a busy 2Hz refresh
     loop must not re-derive the tail on every tick when the file hasn't grown."""
     cache = _JournalTailCache()
@@ -524,7 +521,6 @@ def test_watch_subprocess_renders_inbox_guidance_and_keeps_offset(tmp_path: Path
     env = _subprocess_env()
     env.update({
         "PYTHONUNBUFFERED": "1",
-        "ARGUS_SKILL_GLOBAL_DAILY_CAP_USD": "5.0",
         "COLUMNS": "260",
         "LINES": "60",
     })
@@ -535,8 +531,8 @@ def test_watch_subprocess_renders_inbox_guidance_and_keeps_offset(tmp_path: Path
         expected="life.inbox.drained",
     )
     after = offset_path.read_text(encoding="utf-8")
-    assert "budget   :" in output
-    assert "remaining $3.50" in output
+    assert "spend    :" in output
+    assert "today $1.50 across all projects" in output
     assert "title" in output
     assert "ship the cockpit" in output
     assert "objective" in output
@@ -649,7 +645,6 @@ def test_watch_subprocess_redirected_output_flushes_and_exits_on_sigterm(
     env = _subprocess_env()
     env.update({
         "PYTHONUNBUFFERED": "1",
-        "ARGUS_SKILL_GLOBAL_DAILY_CAP_USD": "5.0",
         "COLUMNS": "260",
         "LINES": "60",
     })
@@ -686,56 +681,9 @@ def test_watch_subprocess_redirected_output_flushes_and_exits_on_sigterm(
     output = output_path.read_text(encoding="utf-8")
     assert proc.returncode == 0, proc
     assert "argus watch" in output
-    assert "budget   :" in output
+    assert "spend    :" in output
     assert "daemon" in output
     assert "alive" in output
     assert "running-1" in output or "ship the cockpit" in output
     assert "life.mission.started" in output or "round.main.completed" in output
     assert "watch is alive" in output
-
-
-@pytest.mark.integration
-def test_watch_subprocess_shows_paused_budget_when_exhausted(tmp_path: Path) -> None:
-    global_root = tmp_path / "life"
-    repo_dir = tmp_path / "repo"
-    repo_dir.mkdir()
-    fingerprint = project.project_fingerprint(repo_dir).fingerprint
-    (global_root / "projects" / fingerprint).mkdir(parents=True, exist_ok=True)
-
-    _write_events(
-        global_root / "projects" / fingerprint / "events.jsonl",
-        [
-            {
-                "type": "life.mission.completed",
-                "id": "journal-1",
-                "ts": time.time(),
-                "success": True,
-                "title": "spent budget",
-                "summary": "daily spend",
-                "tags": [],
-                "cost_usd": 5.0,
-                "extra": {},
-            }
-        ],
-    )
-    _write_usage(
-        global_root / "projects" / fingerprint,
-        call_id="watch-budget-2",
-        cost_usd=5.0,
-    )
-
-    env = _subprocess_env()
-    env.update({
-        "PYTHONUNBUFFERED": "1",
-        "ARGUS_SKILL_GLOBAL_DAILY_CAP_USD": "5.0",
-        "COLUMNS": "260",
-        "LINES": "60",
-    })
-    output = _run_watch_until_output(
-        global_root=global_root,
-        repo_dir=repo_dir,
-        env=env,
-        expected="remaining $0.00 (paused)",
-    )
-    assert "budget   :" in output
-    assert "remaining $0.00 (paused)" in output

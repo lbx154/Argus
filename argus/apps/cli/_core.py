@@ -680,14 +680,8 @@ def _build_worker_config(args: argparse.Namespace):
     engineer_backend = _resolve_role_runner_backend_name("engineer", backend)
     reviewer_backend = _resolve_role_runner_backend_name("reviewer", backend)
     from ...core.knobs import (
-        resolve_budget_caps,
         resolve_role_model,
         resolve_role_reasoning_effort,
-    )
-
-    budget = resolve_budget_caps(
-        project_state_dir=bundle.project.root,
-        global_root=bundle.global_root,
     )
 
     return LifeWorkerConfig(
@@ -713,7 +707,6 @@ def _build_worker_config(args: argparse.Namespace):
         reviewer_reasoning_effort=resolve_role_reasoning_effort(
             "ARGUS_SKILL_REVIEWER_REASONING_EFFORT"
         ),
-        global_daily_cap_usd=budget.global_daily_cap_usd,
         mission_width=getattr(args, "mission_width", 2),
         planner_task_iteration_max_cycles=int(os.environ.get("ARGUS_SKILL_PLANNER_TASK_ITERATION_MAX_CYCLES", "0")),
         poll_interval=float(os.environ.get("ARGUS_SKILL_DAEMON_POLL_S", "5.0")),
@@ -2254,7 +2247,7 @@ def _latest_user_visible_reply(project_root: Path, *, limit: int = 240) -> str:
 
 def _cmd_status(args: argparse.Namespace) -> int:
     from ...daemon.life_worker import (
-        format_budget_status,
+        format_spend_status,
         read_continuous_state,
         read_daemon_status,
     )
@@ -2306,7 +2299,7 @@ def _cmd_status(args: argparse.Namespace) -> int:
             print(f"  health   : {health_state}{health_detail}")
     else:
         print("  daemon   : not running   (start with `argus --daemon`)")
-    print(f"  {format_budget_status(bundle.journal, status=status)}")
+    print(f"  {format_spend_status(status=status)}")
     print(
         f"  active   : {pending} pending · {running} running · {paused} paused"
     )

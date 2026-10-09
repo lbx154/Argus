@@ -1,9 +1,13 @@
-"""Cross-process integration guard for GitHub Copilot-backed Argus calls.
+"""Cross-process circuit for GitHub Copilot-backed Argus calls.
 
-USD mission budgets are not sufficient for Copilot: the provider enforces
-premium-request and policy/rate limits, while many Argus control-plane calls
-run outside a mission. This module provides one global, persistent guard for
-every Copilot call made by every project on the host.
+Copilot enforces policy and rate limits of its own, and many Argus
+control-plane calls run outside a mission. This module provides one global,
+persistent circuit for every Copilot call made by every project on the host:
+a concurrency ceiling, plus a cooldown after a policy or rate refusal so the
+next call does not repeat a request the provider has just refused.
+
+Spending is not this module's concern. Every call is recorded in the usage
+ledger for display, and a hosted trial is limited at its gateway.
 """
 from __future__ import annotations
 
@@ -33,12 +37,8 @@ log = logging.getLogger(__name__)
 
 _STATE_FILE = "copilot-guard.json"
 _STATE_LOCK = "copilot-guard.lock"
-_USAGE_FILE = "copilot-usage.jsonl"
 _SLOT_DIR = "copilot-slots"
 
-_DEFAULT_DAILY_PREMIUM_CAP = 10_000.0
-_DEFAULT_DAILY_CALL_CAP = 10_000
-_DEFAULT_HOURLY_CALL_CAP = 10_000
 _DEFAULT_MAX_CONCURRENCY = 10_000
 _DEFAULT_SLOT_WAIT_SECONDS = 0.0
 _DEFAULT_POLICY_COOLDOWN_SECONDS = 24 * 60 * 60
@@ -95,17 +95,9 @@ def copilot_guard_enabled() -> bool:
     return _truthy(_setting("ARGUS_SKILL_COPILOT_GUARD", "1"))
 
 
-def _today() -> str:
-    return datetime.now().astimezone().date().isoformat()
-
-
 def _default_state() -> dict[str, Any]:
     return {
-        "version": 1,
-        "day": _today(),
-        "daily_calls": 0,
-        "premium_requests": 0.0,
-        "recent_calls": [],
+        "version": 2,
         "blocked_until": 0.0,
         "blocked_reason": "",
         "updated_at": time.time(),
@@ -113,6 +105,7 @@ def _default_state() -> dict[str, Any]:
 
 
 def _load_state(path: Path) -> dict[str, Any]:
+    """Read the circuit; an older file's call counters are simply ignored."""
     try:
         value = json.loads(path.read_text(encoding="utf-8"))
     except (OSError, ValueError, json.JSONDecodeError):
@@ -120,13 +113,11 @@ def _load_state(path: Path) -> dict[str, Any]:
     if not isinstance(value, dict):
         return _default_state()
     state = _default_state()
-    state.update(value)
-    if str(state.get("day") or "") != _today():
-        blocked_until = float(state.get("blocked_until") or 0.0)
-        blocked_reason = str(state.get("blocked_reason") or "")
-        state = _default_state()
-        state["blocked_until"] = blocked_until
-        state["blocked_reason"] = blocked_reason
+    try:
+        state["blocked_until"] = float(value.get("blocked_until") or 0.0)
+    except (TypeError, ValueError):
+        state["blocked_until"] = 0.0
+    state["blocked_reason"] = str(value.get("blocked_reason") or "")
     return state
 
 
@@ -140,16 +131,6 @@ def _write_state(path: Path, state: dict[str, Any]) -> None:
     )
     os.chmod(tmp, 0o600)
     os.replace(tmp, path)
-
-
-def _append_usage(root: Path, row: dict[str, Any]) -> None:
-    path = root / _USAGE_FILE
-    try:
-        path.parent.mkdir(parents=True, exist_ok=True)
-        with path.open("a", encoding="utf-8") as fh:
-            fh.write(json.dumps(row, ensure_ascii=False, separators=(",", ":")) + "\n")
-    except OSError:
-        return
 
 
 def _lock_state(root: Path) -> BinaryIO:
@@ -243,7 +224,7 @@ def _denied_permit(
 def _circuit(error_text: str) -> tuple[float, str]:
     if is_provider_turn_cap_receipt(error_text) or is_execution_host_startup_error(error_text):
         # A local terminal stop can retain earlier recovered provider errors.
-        # Charge its observed usage, but do not turn that history into a circuit.
+        # That history is not a reason to open the circuit.
         return 0.0, ""
     low = (error_text or "").casefold()
     if any(pattern in low for pattern in _POLICY_BLOCK_PATTERNS):
@@ -274,110 +255,46 @@ class CopilotPermit:
     stop_kind: str | None = None
     slot: BinaryIO | None = None
     guarded: bool = True
-    daily_calls: int = 0
-    daily_cap: int = 0
-    premium_requests_today: float = 0.0
-    premium_cap: float = 0.0
     _finished: bool = False
 
     def finish(
         self,
         *,
-        premium_requests: float = 0.0,
         error_text: str = "",
         success: bool = False,
     ) -> None:
+        """Release the concurrency slot; open the circuit after a provider refusal."""
         if self._finished:
             return
         self._finished = True
         try:
-            if self.allowed and self.guarded:
-                lock: BinaryIO | None = None
-                try:
-                    lock = _lock_state(self.root)
-                    state = _load_state(self.root / _STATE_FILE)
+            if self.allowed and self.guarded and not success:
+                cooldown, reason = _circuit(error_text)
+                if cooldown > 0:
+                    lock: BinaryIO | None = None
                     try:
-                        premium = max(0.0, float(premium_requests or 0.0))
-                    except (TypeError, ValueError):
-                        premium = 0.0
-                    state["premium_requests"] = (
-                        float(state.get("premium_requests") or 0.0) + premium
-                    )
-                    cooldown, reason = _circuit(error_text)
-                    if cooldown > 0:
+                        lock = _lock_state(self.root)
+                        state = _load_state(self.root / _STATE_FILE)
                         state["blocked_until"] = max(
                             float(state.get("blocked_until") or 0.0),
                             time.time() + cooldown,
                         )
                         state["blocked_reason"] = reason
-                    _write_state(self.root / _STATE_FILE, state)
-                    _append_usage(
-                        self.root,
-                        {
-                            "ts": time.time(),
-                            "type": "copilot.call.completed",
-                            "run_label": self.run_label,
-                            "success": bool(success),
-                            "premium_requests": premium,
-                            "error": (error_text or "")[:500],
-                            "blocked_until": state.get("blocked_until", 0.0),
-                        },
-                    )
-                except Exception:  # noqa: BLE001
-                    log.warning("Copilot guard accounting failed", exc_info=True)
-                finally:
-                    if lock is not None:
-                        _unlock_state(lock)
+                        _write_state(self.root / _STATE_FILE, state)
+                    except Exception:  # noqa: BLE001
+                        log.warning("Copilot circuit state could not be written", exc_info=True)
+                    finally:
+                        if lock is not None:
+                            _unlock_state(lock)
         finally:
             _release_slot(self.slot)
             self.slot = None
 
 
-def _budget_reason(state: dict[str, Any]) -> str:
-    premium_cap = _float_setting(
-        "ARGUS_SKILL_COPILOT_DAILY_PREMIUM_CAP", _DEFAULT_DAILY_PREMIUM_CAP,
-    )
-    premium = float(state.get("premium_requests") or 0.0)
-    if premium_cap > 0 and premium >= premium_cap:
-        return f"global Copilot daily premium cap {premium_cap:g} reached (used {premium:g})"
-    daily_cap = _int_setting(
-        "ARGUS_SKILL_COPILOT_DAILY_CALL_CAP", _DEFAULT_DAILY_CALL_CAP,
-    )
-    if daily_cap > 0 and int(state.get("daily_calls") or 0) >= daily_cap:
-        return f"global Copilot daily call cap {daily_cap} reached"
-    return ""
-
-
-def copilot_budget_reason(*, root: Path | None = None) -> str:
-    """Check the current daily limits without reserving a call or a provider slot."""
-    if not copilot_guard_enabled():
-        return ""
-    root = root or global_root()
-    lock = _lock_state(root)
-    try:
-        return _budget_reason(_load_state(root / _STATE_FILE))
-    finally:
-        _unlock_state(lock)
-
-
 def acquire_copilot_permit(run_label: str) -> CopilotPermit:
     root = global_root()
     if not copilot_guard_enabled():
-        return CopilotPermit(
-            True,
-            "",
-            run_label,
-            root,
-            guarded=False,
-            daily_cap=_int_setting(
-                "ARGUS_SKILL_COPILOT_DAILY_CALL_CAP",
-                _DEFAULT_DAILY_CALL_CAP,
-            ),
-            premium_cap=_float_setting(
-                "ARGUS_SKILL_COPILOT_DAILY_PREMIUM_CAP",
-                _DEFAULT_DAILY_PREMIUM_CAP,
-            ),
-        )
+        return CopilotPermit(True, "", run_label, root, guarded=False)
 
     slot, slot_error = _acquire_slot(root)
     if slot_error:
@@ -392,9 +309,8 @@ def acquire_copilot_permit(run_label: str) -> CopilotPermit:
     lock = _lock_state(root)
     try:
         state = _load_state(root / _STATE_FILE)
-        now = time.time()
         blocked_until = float(state.get("blocked_until") or 0.0)
-        if blocked_until > now:
+        if blocked_until > time.time():
             reason = str(state.get("blocked_reason") or "Copilot circuit open")
             return _denied_permit(
                 reason=(
@@ -406,67 +322,7 @@ def acquire_copilot_permit(run_label: str) -> CopilotPermit:
                 slot=slot,
                 stop_kind="provider_cooldown",
             )
-
-        budget_reason = _budget_reason(state)
-        if budget_reason:
-            return _denied_permit(
-                reason=budget_reason,
-                run_label=run_label,
-                root=root,
-                slot=slot,
-                stop_kind="budget_exhausted",
-            )
-
-        daily_cap = _int_setting(
-            "ARGUS_SKILL_COPILOT_DAILY_CALL_CAP", _DEFAULT_DAILY_CALL_CAP
-        )
-        daily_calls = int(state.get("daily_calls") or 0)
-        premium_cap = _float_setting(
-            "ARGUS_SKILL_COPILOT_DAILY_PREMIUM_CAP", _DEFAULT_DAILY_PREMIUM_CAP,
-        )
-
-        recent = [
-            float(value)
-            for value in (state.get("recent_calls") or [])
-            if isinstance(value, (int, float)) and float(value) >= now - 3600.0
-        ]
-        hourly_cap = _int_setting(
-            "ARGUS_SKILL_COPILOT_HOURLY_CALL_CAP", _DEFAULT_HOURLY_CALL_CAP
-        )
-        if hourly_cap > 0 and len(recent) >= hourly_cap:
-            return _denied_permit(
-                reason=f"global Copilot hourly call cap {hourly_cap} reached",
-                run_label=run_label,
-                root=root,
-                slot=slot,
-                stop_kind="provider_cooldown",
-            )
-
-        recent.append(now)
-        state["recent_calls"] = recent[-max(hourly_cap, 1) :]
-        state["daily_calls"] = daily_calls + 1
-        _write_state(root / _STATE_FILE, state)
-        _append_usage(
-            root,
-            {
-                "ts": now,
-                "type": "copilot.call.started",
-                "run_label": run_label,
-                "daily_calls": state["daily_calls"],
-                "premium_requests_today": state.get("premium_requests", 0.0),
-            },
-        )
-        return CopilotPermit(
-            True,
-            "",
-            run_label,
-            root,
-            slot=slot,
-            daily_calls=int(state["daily_calls"]),
-            daily_cap=daily_cap,
-            premium_requests_today=float(state.get("premium_requests") or 0.0),
-            premium_cap=premium_cap,
-        )
+        return CopilotPermit(True, "", run_label, root, slot=slot)
     finally:
         _unlock_state(lock)
 
@@ -499,35 +355,13 @@ def trip_copilot_guard(
 
 
 def copilot_guard_snapshot(*, root: Path | None = None) -> dict[str, Any]:
+    """The circuit as persisted: when it is open and why."""
     root = root or global_root()
     lock = _lock_state(root)
     try:
-        state = dict(_load_state(root / _STATE_FILE))
+        return dict(_load_state(root / _STATE_FILE))
     finally:
         _unlock_state(lock)
-    daily_cap = _int_setting(
-        "ARGUS_SKILL_COPILOT_DAILY_CALL_CAP",
-        _DEFAULT_DAILY_CALL_CAP,
-    )
-    premium_cap = _float_setting(
-        "ARGUS_SKILL_COPILOT_DAILY_PREMIUM_CAP",
-        _DEFAULT_DAILY_PREMIUM_CAP,
-    )
-    daily_calls = int(state.get("daily_calls") or 0)
-    premium = float(state.get("premium_requests") or 0.0)
-    state.update(
-        {
-            "daily_call_cap": daily_cap,
-            "daily_calls_remaining": (
-                max(0, daily_cap - daily_calls) if daily_cap > 0 else None
-            ),
-            "daily_premium_cap": premium_cap,
-            "premium_requests_remaining": (
-                max(0.0, premium_cap - premium) if premium_cap > 0 else None
-            ),
-        }
-    )
-    return state
 
 
 __all__ = [
@@ -535,7 +369,6 @@ __all__ = [
     "acquire_copilot_permit",
     "copilot_guard_enabled",
     "copilot_guard_snapshot",
-    "copilot_budget_reason",
     "release_denied_permit",
     "trip_copilot_guard",
 ]

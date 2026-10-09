@@ -16,10 +16,8 @@ from typing import Any
 
 from ..apps.cli._follow import _read_recent_project_events
 from ..core import paths as core_paths
-from ..core.cost_control import CostControlLockBusyError, cost_control_snapshot
 from ..core.metrics import metrics_snapshot
 from ..core.mission_view import snapshot_mission_view
-from ..core.provider_quota import provider_usage_snapshot
 from ..core.role_config import RoleConfig, resolve_all_roles
 from ..core.runtime_identity import runtime_identity
 from ..core.session import (
@@ -34,7 +32,6 @@ from ..daemon.life_worker import (
     DaemonStatus,
     read_continuous_state,
     read_daemon_status,
-    resolve_effective_budget,
 )
 from ..daemon.protocol import (
     daemon_protocol_compatibility,
@@ -58,8 +55,6 @@ _METRICS_CACHE: dict[str, tuple[float, dict[str, Any]]] = {}
 _METRICS_CACHE_LOCK = threading.Lock()
 _METRICS_CACHE_TTL_SECONDS = 60.0
 _HOST_SNAPSHOT_CACHE_TTL_SECONDS = 60.0
-_COST_CONTROL_CACHE: dict[str, tuple[float, dict[str, Any]]] = {}
-_COST_CONTROL_CACHE_LOCK = threading.Lock()
 _GLOBAL_USAGE_CACHE: dict[str, tuple[float, UsageSummary]] = {}
 _GLOBAL_USAGE_CACHE_LOCK = threading.Lock()
 _HOST_REFRESHING: set[str] = set()
@@ -120,7 +115,6 @@ def _cached_metrics_snapshot(
     root: Path,
     *,
     nonblocking: bool = False,
-    cost_control: dict[str, Any] | None = None,
 ) -> dict[str, Any] | None:
     """Reuse the host-wide projection without blocking compact UI snapshots."""
     key = str(root.resolve())
@@ -135,7 +129,7 @@ def _cached_metrics_snapshot(
             # UI by ~500 ms on large daily logs. Serve stale data when present;
             # otherwise omit observability until a full snapshot requests it.
             return cached[1] if cached is not None else None
-    value = metrics_snapshot(root=root, cost_control=cost_control)
+    value = metrics_snapshot(root=root)
     with _METRICS_CACHE_LOCK:
         _store_bounded_cache_entry(
             _METRICS_CACHE,
@@ -144,19 +138,6 @@ def _cached_metrics_snapshot(
             max_entries=_HOST_CACHE_MAX_ENTRIES,
         )
     return value
-
-
-def _store_cost_control_cache(key: str, value: dict[str, Any]) -> None:
-    with _COST_CONTROL_CACHE_LOCK:
-        _store_bounded_cache_entry(
-            _COST_CONTROL_CACHE,
-            key,
-            (
-                time.monotonic() + _HOST_SNAPSHOT_CACHE_TTL_SECONDS,
-                value,
-            ),
-            max_entries=_HOST_CACHE_MAX_ENTRIES,
-        )
 
 
 def _store_global_usage_cache(key: str, value: UsageSummary) -> None:
@@ -173,7 +154,7 @@ def _store_global_usage_cache(key: str, value: UsageSummary) -> None:
 
 
 def _schedule_host_projection_refresh(root: Path) -> None:
-    """Refresh both expensive host projections once, outside request threads."""
+    """Refresh the host-wide usage roll-up once, outside request threads."""
     key = str(root.resolve())
     with _HOST_REFRESHING_LOCK:
         if key in _HOST_REFRESHING:
@@ -182,13 +163,6 @@ def _schedule_host_projection_refresh(root: Path) -> None:
 
     def _refresh() -> None:
         try:
-            try:
-                _store_cost_control_cache(
-                    key,
-                    cost_control_snapshot(global_root=root),
-                )
-            except Exception:  # noqa: BLE001 - stale UI data remains usable
-                pass
             try:
                 from ..life.supervisor import global_daily_usage_summary
 
@@ -207,33 +181,6 @@ def _schedule_host_projection_refresh(root: Path) -> None:
         name="argus-web-host-snapshot-refresh",
         daemon=True,
     ).start()
-
-
-def _cached_cost_control_snapshot(
-    root: Path,
-    *,
-    nonblocking: bool = False,
-) -> dict[str, Any] | None:
-    """Reuse the expensive host ledger projection for the operator UI."""
-    key = str(root.resolve())
-    now = time.monotonic()
-    with _COST_CONTROL_CACHE_LOCK:
-        cached = _COST_CONTROL_CACHE.get(key)
-        if cached is not None and cached[0] > now:
-            return cached[1]
-    if nonblocking:
-        _schedule_host_projection_refresh(root)
-        return {**cached[1], "snapshot_stale": True} if cached is not None else None
-    try:
-        value = cost_control_snapshot(global_root=root)
-    except CostControlLockBusyError:
-        with _COST_CONTROL_CACHE_LOCK:
-            cached = _COST_CONTROL_CACHE.get(key)
-        if cached is None:
-            raise
-        return {**cached[1], "snapshot_stale": True}
-    _store_cost_control_cache(key, value)
-    return value
 
 
 def _cached_global_daily_usage_summary(
@@ -275,7 +222,6 @@ def project_life_dir(
 
 
 def daemon_dict(status: DaemonStatus, *, life_dir: Path | None = None) -> dict[str, Any]:
-    budget = resolve_effective_budget(status)
     protocol_compatible, protocol_error = daemon_protocol_compatibility(status)
     liveness = web_daemon_liveness(life_dir, status) if life_dir is not None else None
     alive = liveness.alive if liveness is not None else bool(status.alive)
@@ -311,7 +257,6 @@ def daemon_dict(status: DaemonStatus, *, life_dir: Path | None = None) -> dict[s
             ),
         },
         "backend": status.backend,
-        "global_daily_cap_usd": budget.global_daily_cap_usd,
         "mission_width": status.mission_width,
         "read_status": "error" if status.status_read_error else "ok",
         "read_error": status.status_read_error,
@@ -336,11 +281,6 @@ def diagnostic(section: str, exc: BaseException) -> dict[str, str]:
 
 
 def daemon_error_dict(exc: BaseException) -> dict[str, Any]:
-    try:
-        budget = resolve_effective_budget(None)
-        global_daily = budget.global_daily_cap_usd
-    except Exception:  # noqa: BLE001 - the original diagnostic is authoritative
-        global_daily = None
     return {
         "alive": False,
         "pid": None,
@@ -357,7 +297,6 @@ def daemon_error_dict(exc: BaseException) -> dict[str, Any]:
             "seconds_since_progress": None,
         },
         "backend": None,
-        "global_daily_cap_usd": global_daily,
         "mission_width": None,
         "read_status": "error",
         "read_error": str(exc)[:500],
@@ -747,18 +686,6 @@ def build_snapshot(
         diagnostics.append(diagnostic("background_work", exc))
 
     try:
-        request_usage = provider_usage_snapshot(root=root)
-    except Exception as exc:  # noqa: BLE001
-        request_usage = None
-        diagnostics.append(diagnostic("request_usage", exc))
-
-    try:
-        cost_control = _cached_cost_control_snapshot(root, nonblocking=compact)
-    except Exception as exc:  # noqa: BLE001
-        cost_control = None
-        diagnostics.append(diagnostic("cost_control", exc))
-
-    try:
         global_spend = _cached_global_daily_usage_summary(root, nonblocking=compact)
         # A stale host cache must never report less usage than the project
         # currently being rendered. Refresh synchronously only on that
@@ -782,11 +709,7 @@ def build_snapshot(
         diagnostics.append(diagnostic("daemon_commands", exc))
 
     try:
-        observability = _cached_metrics_snapshot(
-            root,
-            nonblocking=compact,
-            cost_control=cost_control,
-        )
+        observability = _cached_metrics_snapshot(root, nonblocking=compact)
     except Exception as exc:  # noqa: BLE001
         observability = None
         diagnostics.append(diagnostic("observability", exc))
@@ -805,8 +728,6 @@ def build_snapshot(
         "global_spend_usd": global_spend.cost_usd,
         "global_spend_status": global_spend.pricing_status,
         "global_usage_summary": global_spend.to_jsonable(),
-        "request_usage": request_usage,
-        "cost_control": cost_control,
         "daemon_commands": daemon_commands,
         "observability": observability,
         "mission_view": mission_view,

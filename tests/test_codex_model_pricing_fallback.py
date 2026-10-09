@@ -4,8 +4,8 @@ Background: a codex call that does not pin ``options.model`` (every Manager
 classify call — ``manager-frontdoor-classify`` / ``manager-route`` / ... build
 ``RunnerOptions(...)`` with no ``model=``) gets no model echoed back in the
 codex response. The usage record was then written with an empty model and priced
-as ``unpriced``. Such a call is counted toward the daily cap at the day's
-costliest priced call and stays visible; it never holds other provider calls.
+as ``unpriced``. Such a call stays visible in the ledger; it is never refused and
+never holds other provider calls.
 
 The pricing fix still backfills the recorded model with the configured/canonical
 model (``resolve_pricing_model`` + ``AgentCliBackend._configured_pricing_model``),
@@ -192,8 +192,6 @@ def _codex_backend(tmp_path, monkeypatch, *, model_env: str = "gpt-5.5"):
     root = tmp_path / "home"
     project = root / "projects" / "p1"
     monkeypatch.setenv("ARGUS_SKILL_HOME", str(root))
-    monkeypatch.setenv("ARGUS_SKILL_COST_CONTROL", "1")
-    monkeypatch.setenv("ARGUS_SKILL_CODEX_GUARD", "0")
     monkeypatch.setenv("ARGUS_SKILL_MODEL", model_env)
     codex_home = tmp_path / "codex"
     codex_home.mkdir()
@@ -239,8 +237,7 @@ def test_codex_call_without_pinned_model_is_priced_not_blocked(
     assert first.cost_usd is not None and first.cost_usd > 0
     assert seen_models == ["gpt-5.5"]
 
-    # The bug was that the first (unpriced) call blocked the NEXT one. With the
-    # fix there is no unresolved unpriced call, so the second call runs fine.
+    # The second call runs fine as well.
     second = backend.run_exec(
         prompt="still up?",
         options=RunnerOptions(),
@@ -249,8 +246,6 @@ def test_codex_call_without_pinned_model_is_priced_not_blocked(
     assert second.pricing_status == "priced"
     assert not second.fatal_error
 
-    state = json.loads((root / "cost-control.json").read_text())
-    assert state["unresolved"] == []
     usage_path = root / "projects" / "p1" / "usage.jsonl"
     usage_rows = [
         json.loads(line)
@@ -281,5 +276,3 @@ def test_codex_unknown_pinned_model_remains_unpriced_without_blocking(
     assert second.exit_code == 0
     assert second.pricing_status == "priced"
     assert seen_models == ["future-model", "gpt-5.6-sol"]
-    state = json.loads((root / "cost-control.json").read_text())
-    assert [row["call_id"] for row in state["unresolved"]] == [first.call_id]

@@ -5,7 +5,6 @@ import json
 import os
 import shutil
 import subprocess
-from contextlib import nullcontext
 from pathlib import Path
 from types import SimpleNamespace
 
@@ -185,7 +184,6 @@ def test_actual_gateway_composes_extensions_and_executes_native_experience_tool(
     save_advisor_config(state, {"enabled": True, "backend": "pi", "model": "independent/expert"})
     monkeypatch.setattr(_core, "known_secret_values", lambda *_args, **_kwargs: ())
     monkeypatch.setattr(secret_guard, "known_secret_values", lambda *_args, **_kwargs: ())
-    monkeypatch.setattr(_exec, "monitor_budget", lambda *_args: nullcontext())
     service = ExperienceToolService(state, role="manager", parent_call_id="seed")
     item = capsule(service)
     script = r'''

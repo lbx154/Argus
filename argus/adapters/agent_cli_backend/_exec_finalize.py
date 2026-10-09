@@ -2,11 +2,10 @@
 
 :func:`finalize_result` is the terminal operation for *every* exit path in
 ``execute()``.  It redacts secrets from the result, stamps call metadata,
-persists the usage record to the durable ledger, settles or releases the
-cost reservation, emits a ``provider.call`` metric, and closes the I/O
-context.
+persists the usage record to the durable ledger, emits a ``provider.call``
+metric, and closes the I/O context.
 
-:func:`finish_quota` finalises the provider-quota permit lifecycle and emits
+:func:`finish_quota` finalises the Copilot circuit permit and emits
 the ``provider.request.completed`` event.  It is called on every path that
 got past the subprocess spawn (success, translation failure, subprocess
 exception) but *not* on pre-spawn admission-denial paths.
@@ -74,7 +73,6 @@ def finalize_result(
         for line in result.stderr_lines
     ]
     completed_at = time.time()
-    usage_record = None
     result.call_id = ctx.call_id
     result.call_id_log_correlated = True
     result.stop_kind = normalize_stop_kind(result.stop_kind)
@@ -181,50 +179,12 @@ def finalize_result(
                 ctx.usage_project_root,
                 migrate_legacy=False,
             ).append(record)
-            usage_record = record
             result.pricing_status = record.pricing_status
             result.cost_usd = record.cost_usd
             if appended:
                 backend._log_agent_io(ctx.log_path, usage_recorded_event(record))
         except Exception:  # noqa: BLE001 — accounting must not break work
             log.exception("failed to persist usage record for %s", ctx.call_id)
-    if ctx.cost_reservation is not None:
-        try:
-            if status == "denied":
-                ctx.cost_reservation.release(
-                    reason=persisted_error or "not_started"
-                )
-                backend._log_agent_io(ctx.log_path, {
-                    "type": EventType.BUDGET_RESERVATION_RELEASED,
-                    "reservation_id": ctx.cost_reservation.reservation_id,
-                    "call_id": ctx.call_id,
-                    "amount_usd": ctx.cost_reservation.amount_usd,
-                    "reason": persisted_error or "not_started",
-                })
-            elif usage_record is not None:
-                ctx.cost_reservation.settle(usage_record)
-                backend._log_agent_io(ctx.log_path, {
-                    "type": EventType.BUDGET_RESERVATION_SETTLED,
-                    "reservation_id": ctx.cost_reservation.reservation_id,
-                    "call_id": ctx.call_id,
-                    "amount_usd": ctx.cost_reservation.amount_usd,
-                    "cost_usd": usage_record.cost_usd,
-                    "pricing_status": usage_record.pricing_status,
-                })
-            else:
-                reason = persisted_error or "usage record was not persisted"
-                ctx.cost_reservation.settle_unknown(reason=reason)
-                backend._log_agent_io(ctx.log_path, {
-                    "type": EventType.BUDGET_RESERVATION_SETTLED,
-                    "reservation_id": ctx.cost_reservation.reservation_id,
-                    "call_id": ctx.call_id,
-                    "amount_usd": ctx.cost_reservation.amount_usd,
-                    "cost_usd": None,
-                    "pricing_status": "unknown",
-                    "error": reason,
-                })
-        except Exception:  # noqa: BLE001 — metering must not break work
-            log.exception("failed to settle cost admission for %s", ctx.call_id)
     if ctx.usage_project_root is not None:
         try:
             record_metric(
@@ -256,7 +216,6 @@ def finish_quota(
     *,
     success: bool,
     error_text: str = "",
-    premium_requests: float = 0.0,
 ) -> None:
     backend = ctx.backend
     safe_error_text = redact_secrets_text(
@@ -264,13 +223,7 @@ def finish_quota(
         known_values=backend._known_secret_values,
     )
     if ctx.copilot_permit is not None:
-        ctx.copilot_permit.finish(
-            premium_requests=premium_requests,
-            error_text=safe_error_text,
-            success=success,
-        )
-    if ctx.codex_permit is not None:
-        ctx.codex_permit.finish(success=success, error_text=safe_error_text)
+        ctx.copilot_permit.finish(error_text=safe_error_text, success=success)
     if ctx.event_permit is not None:
         backend._log_agent_io(ctx.log_path, {
             "type": EventType.PROVIDER_REQUEST_COMPLETED,
@@ -279,8 +232,5 @@ def finish_quota(
             "run_label": ctx.run_label,
             "success": bool(success),
             "error": (safe_error_text or "")[:500],
-            "daily_calls": int(getattr(ctx.event_permit, "daily_calls", 0) or 0),
-            "daily_cap": int(getattr(ctx.event_permit, "daily_cap", 0) or 0),
-            "premium_requests": float(premium_requests or 0.0),
             "ts": time.time(),
         })

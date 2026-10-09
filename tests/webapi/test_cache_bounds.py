@@ -33,7 +33,7 @@ def test_project_state_caches_evict_old_project_and_root_keys(
     monkeypatch.setattr(
         project_state,
         "metrics_snapshot",
-        lambda *, root, cost_control=None: {"root": str(root)},
+        lambda *, root: {"root": str(root)},
     )
     monkeypatch.setattr(
         project_state,
@@ -42,7 +42,6 @@ def test_project_state_caches_evict_old_project_and_root_keys(
     )
     for cache, lock in (
         (project_state._METRICS_CACHE, project_state._METRICS_CACHE_LOCK),
-        (project_state._COST_CONTROL_CACHE, project_state._COST_CONTROL_CACHE_LOCK),
         (project_state._GLOBAL_USAGE_CACHE, project_state._GLOBAL_USAGE_CACHE_LOCK),
         (project_state._SPEND_CACHE, project_state._SPEND_CACHE_LOCK),
     ):
@@ -53,14 +52,12 @@ def test_project_state_caches_evict_old_project_and_root_keys(
     projects = [tmp_path / f"project-{index}" for index in range(5)]
     for root in roots:
         project_state._cached_metrics_snapshot(root)
-        project_state._store_cost_control_cache(str(root.resolve()), {"root": str(root)})
         project_state._store_global_usage_cache(str(root.resolve()), _usage_summary())
     for project in projects:
         project.mkdir()
         project_state.settled_spend(None, project)
 
     assert len(project_state._METRICS_CACHE) == 2
-    assert len(project_state._COST_CONTROL_CACHE) == 2
     assert len(project_state._GLOBAL_USAGE_CACHE) == 2
     assert len(project_state._SPEND_CACHE) == 2
     assert set(project_state._METRICS_CACHE) == {

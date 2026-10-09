@@ -326,7 +326,7 @@ function runtimeFixture(alive = true) {
   missionView.active_role = 'engineer';
   const snapshot: Snapshot = {
     session: { id: 'session', display_name: 'Research', objective: '', cwd: '/tmp', last_active: now },
-    daemon: { alive, pid: alive ? 1 : null, uptime_seconds: 30, backend: 'pi', global_daily_cap_usd: null },
+    daemon: { alive, pid: alive ? 1 : null, uptime_seconds: 30, backend: 'pi'},
     roles: [{ role: 'engineer', active: true, status: 'running', label: 'Working', age_s: 1, backend: 'pi', backend_label: 'Pi', model: 'model', effort: null }],
     backlog: [{ id: 'task-a', title: 'Research task A', objective: '', status: 'running', started_ts: now - 20, priority: 1 }],
     recent_events: [], mission_view: missionView,

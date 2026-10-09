@@ -430,7 +430,6 @@ def spawn_and_finish(ctx: "_ExecContext", cli_options: Any) -> RunnerResult:
 
     finish_quota(
         ctx,
-        premium_requests=translated.premium_requests,
         error_text=terminal_diagnostic,
         success=not failed,
     )

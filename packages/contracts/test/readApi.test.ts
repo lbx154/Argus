@@ -27,7 +27,7 @@ test('shared read projections retain unknown additive fields but reject missing 
   assert.throws(() => requireReadSnapshot(fixtures.snapshot, 's-wrong'), /invalid/);
   const malformed = { ...(fixtures.snapshot as object), backlog: {} };
   assert.throws(() => requireReadSnapshot(malformed, 's-fixture'), /invalid/);
-  const partial = { ...(fixtures.snapshot as object), partial: true, diagnostics: [{ section: 'daemon', error_type: 'OSError', message: 'busy' }], request_usage: null };
+  const partial = { ...(fixtures.snapshot as object), partial: true, diagnostics: [{ section: 'daemon', error_type: 'OSError', message: 'busy' }] };
   assert.equal(requireReadSnapshot(partial, 's-fixture').partial, true);
   assert.throws(() => requireProjectList({ projects: [{}], local_cwd: '' }), /invalid/);
   assert.throws(() => requireProjectCosts({ projects: [], generated_at: NaN }), /invalid/);

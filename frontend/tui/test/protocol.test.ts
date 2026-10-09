@@ -105,7 +105,7 @@ test('protocol contract accepts the current server and rejects missing capabilit
 });
 
 
-test('snapshot contract fails closed when budget fields are absent', () => {
+test('snapshot contract fails closed when daemon status fields are absent', () => {
   assert.throws(
     () => requireSnapshotContract({
       schema_version: SNAPSHOT_SCHEMA_VERSION,
@@ -113,11 +113,10 @@ test('snapshot contract fails closed when budget fields are absent', () => {
       spend_usd: null,
       spend_status: 'empty',
       usage_summary: {},
-      request_usage: {},
       partial: false,
       diagnostics: [],
     }),
-    /daemon fields missing: global_daily_cap_usd/,
+    /daemon fields missing: read_status/,
   );
 });
 

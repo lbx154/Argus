@@ -212,44 +212,31 @@ that makes the Engineer explore.
 
 ## Controlling spend
 
-Spend is controlled at three levels, and the one that surprises new users is
-the third.
+Argus records every provider call in `~/.argus-skill/projects/<id>/usage.jsonl`
+(model, tokens, `cost_usd` and a `pricing_status` of `priced`, `partial`,
+`unpriced` or `not_billed`). `argus --status` and `argus --watch` print
+`spend    : today $X.XX across all projects`; the cockpit's cost panel shows the
+project's own spend beside that figure, read from `GET /api/projects/costs`.
+Late Copilot billing is reconciled when it arrives. A damaged ledger is repaired
+in place: the damaged lines are set aside beside the journal and the complete
+records are kept.
 
-**A daily cap across every project on the host.**
-`ARGUS_SKILL_GLOBAL_DAILY_CAP_USD` (default `1000.0`) and, if you prefer to
-count tokens, `ARGUS_SKILL_GLOBAL_DAILY_TOKEN_CAP` (default `0`, off).
-`argus --status` shows the running total: `budget : global daily $1000.00
-(spent $30.71) · remaining $969.29` was the line two hours into the roofline
-campaign, with `cost : $29.79 cumulative` for that project alone. The
-per-call record is `~/.argus-skill/projects/<id>/usage.jsonl` (model, tokens,
-`cost_usd`), and the web UI reads `GET /api/projects/costs`.
+These figures are for reading, not for refusing work. Argus has no spending cap
+of its own and never pauses a project because of cost. On your own subscription,
+usage and limits are the provider's and are shown there; on an Argus-hosted
+trial, the limit is the invitation's token allowance, enforced at the gateway
+URL.
 
-**Provider-level circuit breakers.** `ARGUS_SKILL_CODEX_DAILY_CALL_CAP`
-(default 300 calls per day), `ARGUS_SKILL_COPILOT_DAILY_CALL_CAP`,
-`ARGUS_SKILL_COPILOT_DAILY_PREMIUM_CAP` and `ARGUS_SKILL_COPILOT_HOURLY_CALL_CAP`
-(default 10000 each), `ARGUS_SKILL_PROVIDER_MAX_CONCURRENCY` (default 0, off)
-and `ARGUS_SKILL_MAX_ACTIVE_DAEMONS` (default 64). These exist because a
-subscription CLI is shared by every project on the host, and one runaway
-campaign should not exhaust it for the others. `--mission-width` (default 2)
-is the per-project counterpart; the roofline campaign used `1`, which is the
-right choice when the tasks share four GPUs.
-
-**A call whose price is not known yet** is never refused for that reason.
-Until the provider settles it, it counts toward the daily cap at the day's
-costliest priced call, or at its observed in-flight spend when that is higher,
-so the cap still holds and the figure can only err against the campaign. The
-cockpit's cost gauge shows `unpriced N · ~$X counted`, and
-`GET /api/projects/<id>/cost-control` carries the same figures as
-`counted_unpriced_usd` and `unpriced_estimate_usd`. A Copilot call on a day
-without any priced call counts as one premium request. Earlier releases
-refused new calls until such a call settled; on a subscription CLI that paused
-fresh installs within a minute, because Copilot's token bill arrives a few
-seconds after the call, and the behaviour was removed.
-
-A last practical point: `ARGUS_SKILL_COST_CONTROL` (default `on`) is the
-switch for the whole admission-and-reconciliation layer. Leave it on; turning
-it off also removes the `paused_cost` state that tells you something is wrong
-with billing.
+What Argus does limit is capacity, because one subscription CLI is shared by
+every project on the host. `ARGUS_SKILL_PROVIDER_MAX_CONCURRENCY` (default `0`,
+off) bounds concurrent provider processes and
+`ARGUS_SKILL_PROVIDER_SLOT_WAIT_SECONDS` (default `45`) how long a call waits for
+a slot; `ARGUS_SKILL_COPILOT_MAX_CONCURRENCY` (default `10000`) and
+`ARGUS_SKILL_COPILOT_GUARD` (default `on`) do the same for Copilot and add a
+cooldown after a policy or rate-limit refusal; `ARGUS_SKILL_MAX_ACTIVE_DAEMONS`
+(default `64`) caps running daemons. `--mission-width` (default 2) is the
+per-project counterpart; the roofline campaign used `1`, which is the right
+choice when the tasks share four GPUs.
 
 ## Which tasks suit Argus
 

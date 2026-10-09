@@ -11,13 +11,11 @@ from __future__ import annotations
 import json
 import logging
 from pathlib import Path
-from types import SimpleNamespace
 from typing import Any
 
 import pytest
 
 from argus.adapters.agent_cli_backend import AgentCliBackend
-from argus.adapters.agent_cli_backend._budget_monitor import LiveBudgetMonitor
 from argus.agent_cli.models import AgentRunResult
 from argus.core.models import RunnerOptions
 
@@ -213,23 +211,3 @@ def test_reported_identity_mismatch_keeps_accounting_unresolved(tmp_path: Path, 
     assert usage["thread_id"] is None and usage["status"] == "error"
     assert "accounting_pending: session_identity_conflict" in usage["error"]
 
-
-def test_live_budget_monitor_reads_the_prebound_session_before_any_event(monkeypatch) -> None:
-    lookups: list[str | None] = []
-
-    def read_usage(cursor, *, session_id, timeout):  # noqa: ARG001
-        lookups.append(session_id)
-        return None
-
-    monkeypatch.setattr(
-        "argus.adapters.agent_cli_backend._budget_monitor.read_copilot_usage_since", read_usage,
-    )
-    ctx = SimpleNamespace(
-        resume_thread_id=None, provider_session_id="prebound-session",
-        backend=SimpleNamespace(_is_copilot=True, _backend_name="copilot"),
-        copilot_usage_cursor=object(), options=SimpleNamespace(model=None),
-        cost_reservation=SimpleNamespace(observe_cost=lambda observed, tokens: None),
-    )
-    monitor = LiveBudgetMonitor(ctx, interval_seconds=0)
-    assert monitor.check() is None
-    assert lookups == ["prebound-session"]

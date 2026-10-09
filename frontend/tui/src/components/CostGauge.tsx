@@ -1,75 +1,43 @@
 import React from 'react';
 import { Box, Text } from 'ink';
 import { theme } from '../theme.js';
-import { fraction } from '../cost.js';
-import type { CostControlSnapshot, Daemon, RequestUsage, UsageSummary } from '../api.js';
+import type { UsageSummary } from '../api.js';
 
-/** Model/API-call spend only; GPU and infrastructure cost are out of scope. */
+function incomplete(summary?: UsageSummary | null): boolean {
+  return summary?.pricing_status === 'partial' || summary?.pricing_status === 'unpriced';
+}
+
+/** A ledger total as text: the settled amount, with "+" while some calls are still unpriced. */
+function spendText(summary?: UsageSummary | null): string {
+  if (summary?.cost_usd == null) return summary && incomplete(summary) ? summary.pricing_status : '$0.00';
+  return `$${summary.cost_usd.toFixed(2)}${incomplete(summary) ? '+' : ''}`;
+}
+
+/** Model/API-call spend as recorded in the usage ledgers; GPU and infrastructure cost are out of scope. Nothing is capped here. */
 export function CostGauge({
-  settledUsd,
-  spendStatus,
-  usageSummary,
-  daemon,
-  requestUsage,
-  costControl,
+  usage,
+  globalUsage,
   width,
 }: {
-  settledUsd?: number | null;
-  spendStatus?: string;
-  usageSummary?: UsageSummary;
-  daemon: Daemon | undefined;
-  requestUsage?: RequestUsage | null;
-  costControl?: CostControlSnapshot | null;
+  /** This project's ledger. */
+  usage?: UsageSummary | null;
+  /** Today's ledger across all projects. */
+  globalUsage?: UsageSummary | null;
   width: number;
 }) {
-  const globalCap = daemon?.global_daily_cap_usd ?? null;
-  const total = settledUsd ?? 0;
-  const incomplete = spendStatus === 'partial' || spendStatus === 'unpriced';
-  if (
-    total <= 0
-    && !incomplete
-    && !globalCap
-    && !requestUsage
-    && !costControl?.active_reservations
-    && !costControl?.unresolved_calls
-  ) return null;
-  const frac = fraction(total, globalCap);
-  const color = frac < 0.6 ? theme.success : frac < 0.85 ? theme.warning : theme.error;
-  const codex = requestUsage?.codex;
-  const copilot = requestUsage?.copilot;
   return (
     <Box flexDirection="column">
-      {(total > 0 || incomplete || globalCap) ? (
-        <Box>
-          <Text dimColor>model/API spend </Text>
-          <Text color={color}>
-            {settledUsd == null && incomplete
-              ? spendStatus
-              : `$${total.toFixed(2)}${incomplete ? '+' : ''}`}
-          </Text>
-          {incomplete && settledUsd != null ? <Text dimColor>{` · ${spendStatus}`}</Text> : null}
-          {globalCap ? <Text dimColor>{` · model cap $${globalCap.toFixed(0)}/d`}</Text> : null}
-        </Box>
-      ) : null}
-      {requestUsage ? (
+      <Box>
+        <Text dimColor>model/API spend </Text>
+        <Text color={incomplete(usage) ? theme.warning : theme.success}>{spendText(usage)}</Text>
+        <Text dimColor>{` · today, all projects ${spendText(globalUsage)}`}</Text>
+      </Box>
+      {usage && usage.call_count > 0 ? (
         <Text dimColor wrap="truncate-end">
           {width < 80
-            ? `requests · C ${codex?.daily_calls ?? 0}/${codex?.daily_cap || '∞'} · P ${copilot?.daily_calls ?? 0}/${copilot?.daily_cap || '∞'}`
-            : `requests today · Codex ${codex?.daily_calls ?? 0}/${codex?.daily_cap || '∞'} · Copilot ${copilot?.daily_calls ?? 0}/${copilot?.daily_cap || '∞'} · premium ${(copilot?.premium_requests ?? 0).toFixed(1)}/${copilot?.premium_cap || '∞'}`}
-        </Text>
-      ) : null}
-      {costControl && (costControl.active_reservations > 0 || costControl.unresolved_calls > 0) ? (
-        <Text dimColor>
-          {costControl.unresolved_calls > 0
-            ? `cost control · in-flight ${costControl.active_reservations} · unpriced ${costControl.unresolved_calls} · ~$${(costControl.counted_unpriced_usd ?? 0).toFixed(2)} counted`
-            : `cost control · in-flight ${costControl.active_reservations}`}
-        </Text>
-      ) : null}
-      {usageSummary && usageSummary.call_count > 0 ? (
-        <Text dimColor wrap="truncate-end">
-          {width < 80
-            ? `tokens · in ${usageSummary.input_tokens} · out ${usageSummary.output_tokens}`
-            : `tokens · input ${usageSummary.input_tokens} · cache read ${usageSummary.cached_input_tokens} · cache write ${usageSummary.cache_write_tokens} · output ${usageSummary.output_tokens} · reasoning ${usageSummary.reasoning_output_tokens}`}
+            ? `tokens · in ${usage.input_tokens} · out ${usage.output_tokens}`
+            : `tokens · input ${usage.input_tokens} · cache read ${usage.cached_input_tokens} · cache write ${usage.cache_write_tokens} · output ${usage.output_tokens} · reasoning ${usage.reasoning_output_tokens}`}
+          {usage.premium_requests > 0 ? ` · premium ${usage.premium_requests.toFixed(1)}` : ''}
         </Text>
       ) : null}
     </Box>

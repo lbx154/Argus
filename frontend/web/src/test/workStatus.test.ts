@@ -6,7 +6,7 @@ import { activeProviderRequest, currentWorkStartedAt, currentWorkStatus, workSta
 function fixture(alive = true): Snapshot {
   return {
     session: { id: 's-research', display_name: 'Research', objective: '', cwd: '/workspace', last_active: 100 },
-    daemon: { alive, pid: alive ? 1 : null, uptime_seconds: 20, backend: 'pi', global_daily_cap_usd: null },
+    daemon: { alive, pid: alive ? 1 : null, uptime_seconds: 20, backend: 'pi'},
     roles: [], backlog: [], recent_events: [],
   };
 }

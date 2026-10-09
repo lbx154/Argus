@@ -5,30 +5,11 @@ import json
 import pytest
 
 from argus.core.operator_messages import (
-    budget_refusal_reply,
     humanize_runtime_reason,
     publish_operator_message,
     render_operator_update,
 )
 from argus.core.transcript import read_turns
-
-
-def test_budget_reply_explains_known_limit_without_claiming_backend_failure() -> None:
-    reason = "refused before start: global daily budget exhausted ($0.000000 available)"
-    reply = budget_refusal_reply(reason, language_hint="继续推进任务")
-    assert reply is not None
-    assert "已达到全局日预算上限" in reply
-    assert reason in reply
-    assert "backend is unavailable" not in reply
-    assert "argus doctor --deep" not in reply
-
-
-def test_budget_refusal_reply_distinguishes_exhaustion_and_accounting_failure() -> None:
-    exhausted = budget_refusal_reply("refused before start: global daily budget exhausted")
-    assert exhausted is not None and "global daily budget" in exhausted
-    unavailable = budget_refusal_reply("cost control unavailable: invalid state")
-    assert unavailable is not None and "accounting" in unavailable
-    assert budget_refusal_reply("authentication failed") is None
 
 
 def test_publish_operator_message_is_idempotent_across_transcript_and_event(tmp_path) -> None:

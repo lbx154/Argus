@@ -66,7 +66,7 @@ export function buildPiCommand(request: PiRunRequest): string[] {
   return args;
 }
 
-/** Experimental transport adapter; the Python daemon still owns task/budget state. */
+/** Experimental transport adapter; the Python daemon still owns task state. */
 export class PiBackend implements RunnerBackend {
   constructor(private readonly options: PiBackendOptions = {}) {}
   fork(): PiBackend { return new PiBackend({ ...this.options }); }
