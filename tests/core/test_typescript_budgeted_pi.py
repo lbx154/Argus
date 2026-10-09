@@ -27,7 +27,6 @@ def root(tmp_path, monkeypatch):
     monkeypatch.setenv("ARGUS_SKILL_HOME", str(tmp_path))
     monkeypatch.setenv("ARGUS_SKILL_GLOBAL_DAILY_CAP_USD", "10")
     monkeypatch.setenv("ARGUS_SKILL_GLOBAL_DAILY_TOKEN_CAP", "0")
-    monkeypatch.setenv("ARGUS_SKILL_UNPRICED_COST_POLICY", "block")
     return tmp_path
 
 
@@ -73,8 +72,9 @@ def test_cap_interrupt_or_operator_cancellation_keeps_partial_cost(root, monkeyp
     row, = UsageLedger(root / "projects/p", migrate_legacy=False).records()
     assert row.cost_usd == pytest.approx(0.753)
     assert row.pricing_status == "partial"
-    assert cost_control_snapshot(global_root=root)["blocking_unresolved_calls"] == 1
-    assert run(root)["admitted"] is False
+    assert cost_control_snapshot(global_root=root)["unresolved_calls"] == 1
+    # Only the cap refuses the next call; an unsettled cost never does.
+    assert run(root)["admitted"] is cancel
 
 
 def test_missing_usage_never_settles_at_zero(root):
@@ -83,7 +83,8 @@ def test_missing_usage_never_settles_at_zero(root):
     assert result["settlement"] == "unresolved"
     row, = UsageLedger(root / "projects/p", migrate_legacy=False).records()
     assert row.cost_usd is None and row.pricing_status == "partial"
-    assert "unresolved provider cost" in cost_admission_reason(global_root=root)
+    assert cost_admission_reason(global_root=root) == ""
+    assert cost_control_snapshot(global_root=root)["unresolved_calls"] == 1
 
 
 def test_invalid_late_usage_preserves_the_earlier_durable_lower_bound(root):
@@ -103,7 +104,7 @@ def test_provider_turn_allowance_retains_native_cost_and_unresolved_liability(ro
     row, = UsageLedger(root / "projects/p", migrate_legacy=False).records()
     assert row.cost_usd == pytest.approx(result["runner"]["providerTurns"] * 0.1)
     assert row.cost_usd >= 0.2 and row.pricing_status == "partial"
-    assert cost_control_snapshot(global_root=root)["blocking_unresolved_calls"] == 1
+    assert cost_control_snapshot(global_root=root)["unresolved_calls"] == 1
 
 
 def test_guarded_structured_call_settles_without_persisting_schema_in_cost_files(root):
@@ -120,4 +121,4 @@ def test_rejected_schema_provider_leaves_a_native_unresolved_receipt(root):
     result = run(root, "structured-unsupported", request={"outputSchema": {"type": "object"}})
     assert result["settlement"] == "unresolved"
     assert not result["runner"]["turnCompleted"]
-    assert cost_control_snapshot(global_root=root)["blocking_unresolved_calls"] == 1
+    assert cost_control_snapshot(global_root=root)["unresolved_calls"] == 1

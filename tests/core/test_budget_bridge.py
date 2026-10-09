@@ -28,7 +28,6 @@ def root(tmp_path, monkeypatch):
     monkeypatch.setenv("ARGUS_SKILL_GLOBAL_DAILY_CAP_USD", "10")
     monkeypatch.setenv("ARGUS_SKILL_GLOBAL_DAILY_TOKEN_CAP", "0")
     monkeypatch.setenv("ARGUS_SKILL_DAILY_TOKEN_CAP_CACHED_WEIGHT", "1")
-    monkeypatch.setenv("ARGUS_SKILL_UNPRICED_COST_POLICY", "block")
     (tmp_path / "projects/p").mkdir(parents=True)
     return tmp_path
 
@@ -49,13 +48,13 @@ def start(root):
     return session
 
 
-def test_active_marker_does_not_block_or_double_count_a_live_call(root):
+def test_live_call_spend_is_counted_once_and_blocks_nothing(root):
     session = start(root)
     try:
         assert session.dispatch("observe", {"accounting": observation()}) == {"stop_reason": ""}
         view = cost_control_snapshot(global_root=root)
         assert view["in_flight_cost_usd"] == 0.25
-        assert view["blocking_unresolved_calls"] == 0
+        assert view["unresolved_calls"] == 0
         another, reason = reserve_call_budget(
             call_id="python-call", project_root=root / "projects/p", mission_id=None,
             provider="pi", model="model", run_label="other", global_root=root,
@@ -64,13 +63,16 @@ def test_active_marker_does_not_block_or_double_count_a_live_call(root):
         another.release()
     finally:
         session.close()
-    assert "unresolved provider cost" in cost_admission_reason(global_root=root)
+    # Closed without a settlement: the observed spend moves to the unsettled
+    # call and still counts, and nothing is refused for it.
+    assert cost_admission_reason(global_root=root) == ""
     view = cost_control_snapshot(global_root=root)
-    assert view["unacknowledged_observed_cost_usd"] == 0.25
+    assert view["unresolved_calls"] == 1
+    assert view["observed_unpriced_usd"] == 0.25
     assert view["in_flight_cost_usd"] == 0
 
 
-def test_settlement_is_durable_before_the_pending_marker_is_removed(root):
+def test_settlement_is_durable(root):
     session = start(root)
     try:
         session.dispatch("observe", {"accounting": observation()})
@@ -84,8 +86,8 @@ def test_settlement_is_durable_before_the_pending_marker_is_removed(root):
     assert len(rows) == 1 and rows[0].cost_usd == 0.25
     assert rows[0].cost_basis == "typescript_pi" and rows[0].thread_id == "pi-session"
     assert rows[0].input_tokens == 100 and rows[0].pricing_status == "priced"
-    assert not list((root / "cost-control.failed").glob("*.json"))
     assert cost_admission_reason(global_root=root) == ""
+    assert cost_control_snapshot(global_root=root)["unresolved_calls"] == 0
 
 
 def test_cancelled_call_keeps_known_cost_and_remains_unresolved(root):
@@ -97,7 +99,8 @@ def test_cancelled_call_keeps_known_cost_and_remains_unresolved(root):
         session.close()
     row, = UsageLedger(root / "projects/p", migrate_legacy=False).records()
     assert row.cost_usd == 0.25 and row.pricing_status == "partial"
-    assert "unresolved provider cost" in cost_admission_reason(global_root=root)
+    assert cost_admission_reason(global_root=root) == ""
+    assert cost_control_snapshot(global_root=root)["unresolved_calls"] == 1
 
 
 @pytest.mark.parametrize("knob,value,message", [
@@ -121,7 +124,7 @@ def test_unstarted_session_releases_without_unknown_liability(root):
     assert not (root / "projects/p/usage.jsonl").exists()
 
 
-def test_ledger_failure_preserves_marker_and_blocks_later_admission(root, monkeypatch):
+def test_ledger_failure_keeps_the_observed_spend_counted(root, monkeypatch):
     session = start(root)
     session.dispatch("observe", {"accounting": observation()})
     monkeypatch.setattr(UsageLedger, "append", lambda *_: (_ for _ in ()).throw(OSError("disk full")))
@@ -130,8 +133,9 @@ def test_ledger_failure_preserves_marker_and_blocks_later_admission(root, monkey
             session.dispatch("settle", {"accounting": observation(), "completed": True, "thread_id": None})
     finally:
         session.close()
-    assert "unresolved provider cost" in cost_admission_reason(global_root=root)
-    assert cost_control_snapshot(global_root=root)["unacknowledged_observed_cost_usd"] == 0.25
+    assert cost_admission_reason(global_root=root) == ""
+    view = cost_control_snapshot(global_root=root)
+    assert view["unresolved_calls"] == 1 and view["observed_unpriced_usd"] == 0.25
 
 
 @pytest.mark.parametrize("field,value", [("sid", "../escape"), ("model", ""), ("mission_id", {})])
@@ -144,7 +148,7 @@ def test_invalid_admission_never_starts_a_reservation(root, field, value):
 
 
 @pytest.mark.parametrize("observed", [False, True])
-def test_killed_budget_owner_exposes_its_marker_to_normal_python_admission(root, observed):
+def test_killed_budget_owner_keeps_its_observed_spend_in_the_days_total(root, observed):
     process = subprocess.Popen(
         [sys.executable, "-m", "argus.adapters.budget_bridge", "--global-root", str(root)],
         stdin=subprocess.PIPE, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True,
@@ -165,33 +169,19 @@ def test_killed_budget_owner_exposes_its_marker_to_normal_python_admission(root,
         assert cost_admission_reason(global_root=root) == ""
         process.kill()
         process.wait(timeout=5)
-        assert "unresolved provider cost" in cost_admission_reason(global_root=root)
+        # The owner is gone; what it had already spent stays in today's total
+        # (a dead reservation without observed spend is simply pruned).
+        assert cost_admission_reason(global_root=root) == ""
         view = cost_control_snapshot(global_root=root)
-        assert view["unacknowledged_observed_cost_usd"] == (0.25 if observed else 0)
-        assert view["blocking_unresolved_calls"] == 1
-        assert view["in_flight_cost_usd"] == 0
+        assert view["in_flight_cost_usd"] == (0.25 if observed else 0)
+        assert view["active_reservations"] == (1 if observed else 0)
+        assert view["unresolved_calls"] == 0
+        assert "budget exhausted" in cost_admission_reason(global_root=root, cap=0.25) if observed else True
     finally:
         if process.poll() is None:
             process.kill()
         process.communicate(timeout=5)
         thread.join(timeout=2)
-
-
-def test_pending_marker_survives_failed_fsync_before_start_ack(root, monkeypatch):
-    from argus.core import cost_control
-
-    session = BudgetSession(root)
-    assert session.dispatch("reserve", PARAMS)["admitted"]
-
-    def no_space(_fd):
-        raise OSError("no space")
-
-    with monkeypatch.context() as patch:
-        patch.setattr(cost_control.os, "fsync", no_space)
-        with pytest.raises(OSError):
-            session.dispatch("start", {})
-    session.close()
-    assert "unresolved provider cost" in cost_admission_reason(global_root=root)
 
 
 def test_next_local_day_observation_does_not_recharge_prior_day_tokens(root, monkeypatch):
@@ -218,39 +208,4 @@ def test_invalid_costs_cannot_be_persisted_as_a_settlement(root, bad):
     finally:
         session.close()
     assert not (root / "projects/p/usage.jsonl").exists()
-    assert "unresolved provider cost" in cost_admission_reason(global_root=root)
-
-
-def test_marker_lock_error_is_not_mistaken_for_a_live_owner(root, monkeypatch):
-    import portalocker
-
-    from argus.core import cost_control
-
-    session = start(root)
-    session.close()
-
-    def unsupported(*_args):
-        raise portalocker.exceptions.LockException("unsupported filesystem lock")
-
-    monkeypatch.setattr(cost_control.portalocker, "lock", unsupported)
-    rows = cost_control._failed_finalization_rows(root)
-    assert len(rows) == 1 and rows[0][1]["blocking"]
-
-
-def test_marker_retired_during_directory_scan_does_not_create_a_phantom_liability(root, monkeypatch):
-    from argus.core import cost_control
-
-    session = start(root)
-    session.close()
-    directory = root / "cost-control.failed"
-    original = Path.iterdir
-
-    def retiring(path):
-        rows = list(original(path))
-        if path == directory:
-            for item in rows:
-                item.unlink()
-        return iter(rows)
-
-    monkeypatch.setattr(Path, "iterdir", retiring)
-    assert cost_control._failed_finalization_rows(root) == []
+    assert cost_control_snapshot(global_root=root)["unresolved_calls"] == 1

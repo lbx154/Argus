@@ -45,7 +45,6 @@ def launch(tmp_path, monkeypatch):
     monkeypatch.setenv("ARGUS_SKILL_HOME", str(root))
     monkeypatch.setenv("ARGUS_SKILL_GLOBAL_DAILY_CAP_USD", "10")
     monkeypatch.setenv("ARGUS_SKILL_GLOBAL_DAILY_TOKEN_CAP", "0")
-    monkeypatch.setenv("ARGUS_SKILL_UNPRICED_COST_POLICY", "block")
     retained = []
     subprocesses = []
     config = {"python": sys.executable, "sourceRoot": str(ROOT), "root": str(root),
@@ -133,11 +132,14 @@ def test_execution_owner_failure_reclaims_temporary_children_and_preserves_cost(
         result = json.loads(Path(config["result"]).read_text())
         assert result["settlement"] in {"unresolved", "failed"}, result
         assert result["runner"] is None or not result["runner"]["turnCompleted"]
-    assert "unresolved provider cost" in cost_admission_reason(global_root=root)
+    assert cost_admission_reason(global_root=root) == ""
     snapshot = cost_control_snapshot(global_root=root)
-    assert snapshot["blocking_unresolved_calls"] == 1
+    # The call is either closed as unsettled or, when the budget owner itself
+    # died, still a reservation carrying what it observed; either way the
+    # spend stays in today's total.
+    assert snapshot["unresolved_calls"] + snapshot["active_reservations"] == 1
     known = sum(row.cost_usd or 0 for row in UsageLedger(root / "projects/p", migrate_legacy=False).records())
-    assert known + snapshot["unacknowledged_observed_cost_usd"] == pytest.approx(0.1)
+    assert known + snapshot["observed_unpriced_usd"] + snapshot["in_flight_cost_usd"] == pytest.approx(0.1)
     assert unrelated.poll() is None
 
 

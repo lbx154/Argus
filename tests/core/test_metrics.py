@@ -159,7 +159,7 @@ def test_empty_metrics_are_healthy_and_do_not_invent_failures(tmp_path: Path) ->
     assert snapshot["slo"] == {"status": "healthy", "violations": []}
 
 
-def test_nonblocking_unpriced_calls_remain_visible_without_degrading_slo(
+def test_unpriced_calls_remain_visible_without_degrading_slo(
     tmp_path: Path,
     monkeypatch,
 ) -> None:
@@ -169,8 +169,6 @@ def test_nonblocking_unpriced_calls_remain_visible_without_degrading_slo(
         lambda **_kwargs: {
             "active_reservations": 0,
             "unresolved_calls": 47,
-            "blocking_unresolved_calls": 0,
-            "policy": "allow",
         },
     )
 
@@ -191,8 +189,6 @@ def test_metrics_reuses_projected_cost_state_without_taking_the_lock(
     projected = {
         "active_reservations": 1,
         "unresolved_calls": 3,
-        "blocking_unresolved_calls": 0,
-        "policy": "allow",
     }
 
     snapshot = metrics_snapshot(root=tmp_path, cost_control=projected)
@@ -216,7 +212,7 @@ def test_transient_cost_lock_contention_does_not_degrade_slo(
     assert snapshot["slo"] == {"status": "healthy", "violations": []}
 
 
-def test_legacy_unpriced_flags_are_informational_but_unavailable_snapshot_degrades_slo(
+def test_unpriced_calls_are_informational_but_unavailable_snapshot_degrades_slo(
     tmp_path: Path,
     monkeypatch,
 ) -> None:
@@ -226,8 +222,6 @@ def test_legacy_unpriced_flags_are_informational_but_unavailable_snapshot_degrad
         lambda **_kwargs: {
             "active_reservations": 0,
             "unresolved_calls": 2,
-            "blocking_unresolved_calls": 2,
-            "policy": "block",
         },
     )
     snapshot = metrics_snapshot(root=tmp_path)

@@ -116,8 +116,9 @@ not daemon work.
 If the execution owner dies, the guard reclaims its temporary provider process
 tree and the budget owner retains unconfirmed spending. On daemon restart, use
 the persistent backlog and existing reconciliation rules. An interrupted provider
-call is not resumed from CPU/RAM state or blindly retried as a free call. Unknown
-costs may pause admission under the configured policy until reconciled.
+call is not resumed from CPU/RAM state or blindly retried as a free call. A
+cost the provider has not settled counts toward the daily cap at the day's
+costliest priced call until it is reconciled.
 
 Explicit durable subagent/command launchers have their own registry and ownership
 boundary. They are distinct from temporary tool descendants; see

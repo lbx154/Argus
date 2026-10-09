@@ -238,17 +238,11 @@ def test_priced_settlement_replaces_hold_with_global_ledger_cost(
     }
 
 
-@pytest.mark.parametrize("provider", ["codex", "dsh"])
-def test_call_with_unpriceable_model_stays_visible_without_blocking_other_models(
+@pytest.mark.parametrize("provider", ["codex", "pi"])
+def test_call_with_unpriceable_model_is_counted_and_never_refused(
     tmp_path: Path,
-    monkeypatch: pytest.MonkeyPatch,
     provider: str,
 ) -> None:
-    from argus.core.knob_store import write_persisted_knob
-
-    monkeypatch.setenv("ARGUS_SKILL_HOME", str(tmp_path))
-    monkeypatch.setenv("ARGUS_SKILL_UNPRICED_COST_POLICY", "block")
-    write_persisted_knob("ARGUS_SKILL_UNPRICED_COST_POLICY", "block")
     project = tmp_path / "projects" / "p1"
     project.mkdir(parents=True)
     reservation, _ = _reserve(tmp_path, project, "call-unknown")
@@ -260,23 +254,15 @@ def test_call_with_unpriceable_model_stays_visible_without_blocking_other_models
 
     snapshot = cost_control_snapshot(global_root=tmp_path)
     assert snapshot["unresolved_calls"] == 1
-    # Nothing will ever settle a model without a price: it is a configuration
-    # problem, not a pending reconciliation that holds every later call.
-    assert snapshot["blocking_unresolved_calls"] == 0
-    assert snapshot["unresolved"][0]["blocking"] is False
-    assert snapshot["unresolved"][0]["missing_price"] is True
     assert snapshot["unresolved"][0]["provider"] == provider
     assert "no configured price for model future-model" in snapshot["unresolved"][0]["reason"]
     assert snapshot["daily_tokens"] > 0
     assert UsageLedger(project, migrate_legacy=False).records()[0].cost_usd is None
 
-    # A call on a priced model proceeds.
-    priced, reason = _reserve(tmp_path, project, "call-2")
-    assert priced is not None and reason == ""
-    priced.release(reason="test")
-
-    # Repeating the unpriceable model is refused up front, naming the model.
-    for model in ("future-model", ""):
+    # Nothing will ever settle a model without a price; it is counted at the
+    # day's costliest priced call (nothing is priced yet here) and work goes on,
+    # on that model or any other.
+    for model in ("future-model", "", "gpt-5.6-sol"):
         again, reason = reserve_call_budget(
             call_id=f"again-{model or 'default'}",
             project_root=project,
@@ -287,20 +273,19 @@ def test_call_with_unpriceable_model_stays_visible_without_blocking_other_models
             global_root=tmp_path,
             global_daily_cap_usd=10.0,
         )
-        assert again is None
-        assert reason.startswith("unpriced model: future-model has no configured price")
-        assert f"provider={provider}" in reason
-        assert "awaiting usage reconciliation" not in reason
+        assert again is not None and reason == ""
+        again.release(reason="test")
 
-    # Policy allow accepts unpriced calls knowingly.
-    monkeypatch.setenv("ARGUS_SKILL_UNPRICED_COST_POLICY", "allow")
-    allowed, reason = reserve_call_budget(
-        call_id="allowed", project_root=project, mission_id="m", provider=provider,
-        model="future-model", run_label="engineer-r1", global_root=tmp_path,
-        global_daily_cap_usd=10.0,
-    )
-    assert allowed is not None and reason == ""
-    allowed.release(reason="test")
+
+def test_unknown_future_state_version_is_not_silently_rewritten(tmp_path: Path) -> None:
+    state = cost_control._default_state(time.time())
+    state["version"] = 999
+    path = tmp_path / COST_CONTROL_STATE_FILE
+    path.write_text(json.dumps(state), encoding="utf-8")
+    before = path.read_bytes()
+    with pytest.raises(cost_control.CostControlStateError, match="unsupported"):
+        cost_control_snapshot(global_root=tmp_path)
+    assert path.read_bytes() == before
 
 
 @pytest.mark.parametrize("daily_cap", [10.0, 0.000001])
@@ -310,7 +295,6 @@ def test_admission_reconciles_known_token_cost_before_deciding_the_budget(
     from argus.core.pricing import MODEL_PRICES_USD_PER_MTOK
 
     monkeypatch.setenv("ARGUS_SKILL_HOME", str(tmp_path))
-    monkeypatch.setenv("ARGUS_SKILL_UNPRICED_COST_POLICY", "allow")
     model = "test-newly-priced-model"
     project = tmp_path / "projects" / "p1"
     project.mkdir(parents=True)
@@ -360,7 +344,6 @@ def test_partial_copilot_cost_does_not_block_new_calls(
     error: str,
 ) -> None:
     monkeypatch.setenv("ARGUS_SKILL_HOME", str(tmp_path))
-    monkeypatch.setenv("ARGUS_SKILL_UNPRICED_COST_POLICY", "allow")
     project = tmp_path / "projects" / "p1"
     project.mkdir(parents=True)
     admission, reason = reserve_call_budget(
@@ -404,7 +387,6 @@ def test_partial_copilot_cost_does_not_block_new_calls(
     assert admitted is not None and reason == ""
     snapshot = cost_control_snapshot(global_root=tmp_path)
     assert snapshot["unresolved_calls"] == 1
-    assert snapshot["blocking_unresolved_calls"] == 0
     admitted.release(reason="test")
 
 

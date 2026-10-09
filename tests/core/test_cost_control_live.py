@@ -26,8 +26,6 @@ def _budget_environment(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None
     monkeypatch.setenv("ARGUS_SKILL_HOME", str(tmp_path))
     monkeypatch.setenv("ARGUS_SKILL_GLOBAL_DAILY_CAP_USD", "1000")
     # These inherited concurrency/accounting cases exercise explicit allow.
-    # Strict admission and operator acknowledgement remain covered separately.
-    monkeypatch.setenv("ARGUS_SKILL_UNPRICED_COST_POLICY", "allow")
 
 
 def _reserve(root: Path, project: Path, call_id: str, **kwargs):
@@ -150,7 +148,6 @@ def test_unpriced_durable_usage_is_nonblocking_and_reconciled(tmp_path: Path) ->
     assert admitted is not None and reason == ""
     snapshot = cost_control_snapshot(global_root=tmp_path)
     assert snapshot["unresolved_calls"] == 1
-    assert snapshot["blocking_unresolved_calls"] == 0
     assert ledger.summary().cost_usd is None
     assert ledger.summary().known_cost_usd == 0
     admitted.release(reason="test")
@@ -173,7 +170,6 @@ def test_unknown_settlement_resolves_when_priced_ledger_arrives(tmp_path: Path) 
     reservation.settle_unknown(reason="provider interrupted before final usage")
     snapshot = cost_control_snapshot(global_root=tmp_path)
     assert snapshot["unresolved_calls"] == 1
-    assert snapshot["blocking_unresolved_calls"] == 0
     admitted, reason = _reserve(tmp_path, project, "before-reconciliation")
     assert admitted is not None and reason == ""
     admitted.release(reason="test")
@@ -223,9 +219,8 @@ def test_uncertain_settlement_preserves_observed_floor_until_reconciliation(
         # provider is still running, but its monetary lower bound remains.
         assert snapshot["active_reservations"] == 0
         assert snapshot["in_flight_cost_usd"] == 0
-        assert snapshot["unacknowledged_observed_cost_usd"] == max(0, 10 - (partial_cost or 0))
+        assert snapshot["observed_unpriced_usd"] == max(0, 10 - (partial_cost or 0))
         assert snapshot["unresolved_calls"] == 1
-        assert snapshot["blocking_unresolved_calls"] == 0
         denied, reason = _reserve(tmp_path, project, "after-finalization")
         assert denied is None and "global daily budget exhausted" in reason
 
@@ -294,8 +289,7 @@ def test_partial_copilot_events_overlap_observed_cost(
     assert ledger.summary().known_cost_usd == 8
     snapshot = cost_control_snapshot(global_root=tmp_path)
     assert snapshot["in_flight_cost_usd"] == 0
-    assert snapshot["unacknowledged_observed_cost_usd"] == observed_cost - 8
-    assert snapshot["blocking_unresolved_calls"] == 0
+    assert snapshot["observed_unpriced_usd"] == observed_cost - 8
     next_call, reason = _reserve(tmp_path, project, "next")
     if observed_cost < 10:
         assert next_call is not None and reason == ""
@@ -324,15 +318,12 @@ def test_partial_known_cost_still_counts_toward_settled_and_live_caps(tmp_path: 
     assert cost_control_snapshot(global_root=tmp_path)["unresolved_calls"] == 1
 
 
-def test_legacy_unresolved_flags_never_block_even_during_lock_contention(tmp_path: Path) -> None:
+def test_unsettled_calls_never_block_even_during_lock_contention(tmp_path: Path) -> None:
     project = tmp_path / "projects" / "p1"
     unknown, _ = _reserve(tmp_path, project, "legacy-unknown")
     assert unknown is not None
     unknown.settle_unknown(reason="provider usage unavailable")
     path = tmp_path / cost_control.COST_CONTROL_STATE_FILE
-    state = json.loads(path.read_text())
-    state["unresolved"][0]["blocking"] = True
-    path.write_text(json.dumps(state), encoding="utf-8")
 
     with _locked(tmp_path):
         admitted, reason = _reserve(
@@ -343,11 +334,8 @@ def test_legacy_unresolved_flags_never_block_even_during_lock_contention(tmp_pat
         snapshot = cost_control_snapshot(global_root=tmp_path, lock_timeout_seconds=0.01)
         assert snapshot["snapshot_stale"] is True
         assert snapshot["unresolved_calls"] == 1
-        assert snapshot["blocking_unresolved_calls"] == 0
-        assert snapshot["unresolved"][0]["blocking"] is False
     cost_control_snapshot(global_root=tmp_path)
-    # Historical flags are metadata, not authority over the explicit policy.
-    assert json.loads(path.read_text())["unresolved"][0]["blocking"] is True
+    assert json.loads(path.read_text())["unresolved"][0]["call_id"] == "legacy-unknown"
     admitted.release(reason="test")
 
 
@@ -380,9 +368,8 @@ def test_observation_recovers_tracking_after_admission_lock_contention(tmp_path:
     snapshot = cost_control_snapshot(global_root=tmp_path)
     assert snapshot["active_reservations"] == 0
     assert snapshot["in_flight_cost_usd"] == 0
-    assert snapshot["unacknowledged_observed_cost_usd"] == 25
+    assert snapshot["observed_unpriced_usd"] == 25
     assert snapshot["unresolved_calls"] == 1
-    assert snapshot["blocking_unresolved_calls"] == 0
     denied, reason = _reserve(tmp_path, project, "over-floor", global_daily_cap_usd=25)
     assert denied is None and "budget exhausted" in reason
 
@@ -496,4 +483,4 @@ def test_admission_reconciles_late_copilot_sqlite_usage_without_ui_refresh(
     settled = ledger.records()[0]
     assert settled.cost_usd == 10
     assert settled.pricing_status == "priced"
-    assert cost_control_snapshot(global_root=tmp_path)["blocking_unresolved_calls"] == 0
+    assert cost_control_snapshot(global_root=tmp_path)["unresolved_calls"] == 0

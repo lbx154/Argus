@@ -9,10 +9,6 @@ from __future__ import annotations
 
 import errno
 import json
-import os
-import subprocess
-import sys
-import threading
 import time
 from pathlib import Path
 
@@ -21,10 +17,6 @@ import pytest
 from argus.core import cost_control, usage
 from argus.core.cost_control import (
     COST_CONTROL_AUDIT_FILE,
-    COST_CONTROL_FAILED_DIR,
-    FAILED_FINALIZATION_REASON,
-    _locked,
-    acknowledge_unpriced_call,
     cost_admission_reason,
     cost_control_snapshot,
     reserve_call_budget,
@@ -37,7 +29,6 @@ from argus.core.usage import UsageJournalIntegrityError, UsageLedger, build_usag
 def _environment(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setenv("ARGUS_SKILL_HOME", str(tmp_path))
     monkeypatch.setenv("ARGUS_SKILL_GLOBAL_DAILY_CAP_USD", "1000")
-    monkeypatch.setenv("ARGUS_SKILL_UNPRICED_COST_POLICY", "block")
     with usage._CALL_ID_CACHE_LOCK:
         usage._CALL_ID_CACHE.clear()
 
@@ -167,9 +158,7 @@ def test_a_truncated_call_is_written_back_as_a_conservative_liability(tmp_path: 
     assert sorted(project.glob("usage.jsonl.damaged-*"))[0].read_bytes() == clean + partial
 
 
-def test_a_truncated_call_without_a_cost_basis_is_held_for_the_operator(tmp_path: Path) -> None:
-    from argus.core.cost_control import acknowledge_unpriced_call
-
+def test_a_truncated_call_without_a_cost_basis_is_counted_not_refused(tmp_path: Path) -> None:
     project = tmp_path / "projects" / "p1"
     ledger = UsageLedger(project, migrate_legacy=False)
     project.mkdir(parents=True)
@@ -180,18 +169,13 @@ def test_a_truncated_call_without_a_cost_basis_is_held_for_the_operator(tmp_path
         + f"{now - 10:.3f}".encode() + b',"pro'
     )
     reservation, reason = _reserve(tmp_path, project, "call-2")
-    assert reservation is None
-    assert reason.startswith("unresolved provider cost: 1 call(s)")
+    assert reservation is not None and reason == ""
+    reservation.release(reason="test")
     liability = ledger.records()[0]
     assert liability.call_id == "call-1" and liability.pricing_status == "unpriced"
     assert liability.cost_usd is None and "cost unknown" in liability.error
-    acknowledge_unpriced_call(
-        global_root=tmp_path, project_id="p1", call_id="call-1",
-        liability_usd=0.5, reason="operator accepts the truncated call at $0.50",
-    )
-    reservation, reason = _reserve(tmp_path, project, "call-2")
-    assert reservation is not None and reason == ""
-    reservation.release(reason="test")
+    snapshot = cost_control_snapshot(global_root=tmp_path)
+    assert [row["call_id"] for row in snapshot["unresolved"]] == ["call-1"]
 
 
 def test_a_repair_that_cannot_write_keeps_admission_refused(
@@ -262,11 +246,12 @@ def test_another_providers_prices_never_price_a_truncated_call(tmp_path: Path) -
     )
 
     reservation, reason = _reserve(tmp_path, project, "call-3")
-    assert reservation is None
-    assert reason.startswith("unresolved provider cost: 1 call(s)")
+    assert reservation is not None and reason == ""
+    reservation.release(reason="test")
     held = {record.call_id: record for record in ledger.records()}["call-2"]
     assert held.provider == "local-llm"
     assert held.pricing_status == "unpriced" and held.cost_usd is None
+    assert "call-2" in [row["call_id"] for row in cost_control_snapshot(global_root=tmp_path)["unresolved"]]
 
 
 def test_a_journal_repaired_by_another_reader_is_read_again_not_refused(
@@ -291,27 +276,22 @@ def test_a_journal_repaired_by_another_reader_is_read_again_not_refused(
     reservation.release(reason="test")
 
 
-def test_a_truncated_record_that_lost_its_call_id_is_held_for_the_operator(
+def test_a_truncated_record_that_lost_its_call_id_is_still_counted(
     tmp_path: Path,
 ) -> None:
     project = tmp_path / "projects" / "p1"
     ledger = _journal_with_truncated_tail(project, b'{"cached_input_tokens":0,"co')
 
     reservation, reason = _reserve(tmp_path, project, "call-3")
-    assert reservation is None
-    assert reason.startswith("unresolved provider cost: 1 call(s)")
+    assert reservation is not None and reason == ""
+    reservation.release(reason="test")
     held = [record for record in ledger.records() if record.call_id != "call-1"]
     assert len(held) == 1
     assert held[0].call_id.startswith("journal-repair:usage.jsonl.damaged-")
     assert held[0].call_id.endswith(":2")
     assert held[0].pricing_status == "unpriced" and held[0].cost_usd is None
-    acknowledge_unpriced_call(
-        global_root=tmp_path, project_id="p1", call_id=held[0].call_id,
-        liability_usd=0.5, reason="operator accepts the unidentified call at $0.50",
-    )
-    reservation, reason = _reserve(tmp_path, project, "call-3")
-    assert reservation is not None and reason == ""
-    reservation.release(reason="test")
+    snapshot = cost_control_snapshot(global_root=tmp_path)
+    assert held[0].call_id in [row["call_id"] for row in snapshot["unresolved"]]
 
 
 def test_the_repair_is_audited_under_the_cost_control_root_wherever_the_project_lives(
@@ -421,114 +401,3 @@ def _finalize_like_the_backend(reservation, project: Path, monkeypatch: pytest.M
         except OSError:
             with pytest.raises(OSError):
                 reservation.settle_unknown(reason="usage record was not persisted")
-
-
-def test_failed_finalization_leaves_a_durable_unresolved_liability(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    project = tmp_path / "projects" / "p1"
-    project.mkdir(parents=True)
-    # The owner PID is already dead when the next admission runs, so the
-    # in-memory/state reservation alone would be pruned to nothing.
-    reservation, reason = _reserve(tmp_path, project, "interrupted", pid=999_999_999)
-    assert reservation is not None and reason == ""
-
-    _finalize_like_the_backend(reservation, project, monkeypatch)
-    markers = list((tmp_path / COST_CONTROL_FAILED_DIR).iterdir())
-    assert [path.name for path in markers] == [f"{reservation.reservation_id}.json"]
-    marker = json.loads(markers[0].read_text(encoding="utf-8"))
-    assert marker["call_id"] == "interrupted" and marker["project_id"] == "p1"
-    assert marker["reason"].startswith(FAILED_FINALIZATION_REASON)
-    assert "ENOSPC" in marker["finalization_error"] or "No space left" in marker["finalization_error"]
-    # No zero-cost usage row or synthetic completion was invented.
-    assert not (project / "usage.jsonl").exists()
-
-    denied, reason = _reserve(tmp_path, project, "next")
-    assert denied is None
-    assert reason.startswith("unresolved provider cost") and "call=interrupted" in reason
-    assert FAILED_FINALIZATION_REASON in reason and "usage record was not persisted" in reason
-    assert cost_admission_reason(global_root=tmp_path) == reason
-    snapshot = cost_control_snapshot(global_root=tmp_path)
-    assert snapshot["active_reservations"] == 0
-    assert snapshot["blocking_unresolved_calls"] == 1
-    assert snapshot["unresolved"][0]["call_id"] == "interrupted"
-
-    # A fresh process reading the same directory is blocked too.
-    fresh = subprocess.run(
-        [sys.executable, "-c", (
-            "import sys; from argus.core.cost_control import reserve_call_budget\n"
-            "r, reason = reserve_call_budget(call_id='fresh', project_root=sys.argv[1],"
-            " mission_id=None, provider='codex', model='gpt-5.6-sol', run_label='engineer-r1',"
-            " global_root=sys.argv[2])\n"
-            "print('None' if r is None else 'ADMITTED'); print(reason)"
-        ), str(project), str(tmp_path)],
-        capture_output=True, text=True, check=True, timeout=120,
-        env={**os.environ, "PYTHONPATH": str(Path(__file__).parents[2])},
-    )
-    assert fresh.stdout.splitlines()[0] == "None"
-    assert FAILED_FINALIZATION_REASON in fresh.stdout
-
-    # The state file rolls over at midnight; the marker does not.
-    tomorrow = time.time() + 86_400
-    denied, reason = _reserve(tmp_path, project, "next-day", now=tomorrow)
-    assert denied is None and FAILED_FINALIZATION_REASON in reason
-
-    # Only an explicit operator decision retires the liability.
-    acknowledge_unpriced_call(
-        global_root=tmp_path, project_id="p1", call_id="interrupted",
-        liability_usd=5.0, reason="operator accepts the bounded unknown",
-    )
-    admitted, reason = _reserve(tmp_path, project, "after-ack")
-    assert admitted is not None and reason == ""
-    admitted.release(reason="test")
-    assert not list((tmp_path / COST_CONTROL_FAILED_DIR).iterdir())
-    assert cost_control_snapshot(global_root=tmp_path)["pending_liability_usd"] == 5.0
-
-
-def test_unknown_settlement_behind_a_busy_lock_is_retained_not_dropped(tmp_path: Path) -> None:
-    project = tmp_path / "projects" / "p1"
-    project.mkdir(parents=True)
-    reservation, reason = _reserve(tmp_path, project, "busy")
-    assert reservation is not None and reason == ""
-    entered = threading.Event()
-    release = threading.Event()
-
-    def hold_lock() -> None:
-        with _locked(tmp_path):
-            entered.set()
-            release.wait(timeout=2)
-
-    holder = threading.Thread(target=hold_lock)
-    holder.start()
-    assert entered.wait(timeout=1)
-    try:
-        assert reservation.settle_unknown(reason="provider interrupted") is True
-        assert holder.is_alive()
-    finally:
-        release.set()
-        holder.join(timeout=1)
-
-    assert len(list((tmp_path / COST_CONTROL_FAILED_DIR).iterdir())) == 1
-    denied, reason = _reserve(tmp_path, project, "next")
-    assert denied is None and FAILED_FINALIZATION_REASON in reason and "provider interrupted" in reason
-
-
-def test_settled_usage_retires_a_failed_finalization_marker(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    project = tmp_path / "projects" / "p1"
-    project.mkdir(parents=True)
-    reservation, _ = _reserve(tmp_path, project, "late-receipt")
-    assert reservation is not None
-    with monkeypatch.context() as patch:
-        patch.setattr(cost_control, "_write_state", _enospc)
-        with pytest.raises(OSError):
-            reservation.settle_unknown(reason="usage record was not persisted")
-    assert len(list((tmp_path / COST_CONTROL_FAILED_DIR).iterdir())) == 1
-
-    # A priced usage row for the same call later reaches the ledger.
-    UsageLedger(project, migrate_legacy=False).append(_record(project, "late-receipt"))
-    admitted, reason = _reserve(tmp_path, project, "next")
-    assert admitted is not None and reason == ""
-    admitted.release(reason="test")
-    assert not list((tmp_path / COST_CONTROL_FAILED_DIR).iterdir())

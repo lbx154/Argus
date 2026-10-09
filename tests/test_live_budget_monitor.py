@@ -131,7 +131,7 @@ time.sleep(8)
             process.wait(timeout=3)
 
 
-def test_unresolved_settlement_does_not_interrupt_live_call_but_known_cap_does(
+def test_unsettled_call_does_not_interrupt_live_call_but_known_cap_does(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     monkeypatch.setenv("ARGUS_SKILL_HOME", str(tmp_path))
@@ -159,7 +159,6 @@ def test_unresolved_settlement_does_not_interrupt_live_call_but_known_cap_does(
     assert monitor.check() is None
     snapshot = cost_control_snapshot(global_root=tmp_path)
     assert snapshot["unresolved_calls"] == 1
-    assert snapshot["blocking_unresolved_calls"] == 1  # New calls wait; the already-running call continues.
     assert snapshot["in_flight_cost_usd"] == 0
     assert "global daily budget exhausted" in healthy.observe_cost(10)
     assert "global daily budget exhausted" in monitor.check()

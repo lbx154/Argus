@@ -24,7 +24,6 @@ def test_trial_usage_reads_its_own_cli_store(tmp_path, monkeypatch):
 
 @pytest.mark.parametrize("hosted_trial", [True, False])
 def test_only_hosted_trial_exempts_unknown_provider_charges(tmp_path, monkeypatch, hosted_trial):
-    monkeypatch.setenv("ARGUS_SKILL_UNPRICED_COST_POLICY", "block")
     project = tmp_path / "project"
     record = build_usage_record(
         call_id="setup", project_root=project, mission_id=None, provider="copilot",
@@ -47,8 +46,10 @@ def test_only_hosted_trial_exempts_unknown_provider_charges(tmp_path, monkeypatc
         call_id="next", project_root=project, mission_id=None, provider="copilot",
         model="argus-trial", run_label="next", global_root=tmp_path / "argus",
     )
-    if hosted_trial:
-        assert reservation is not None and not reason
-        reservation.release(reason="test_complete")
-    else:
-        assert reservation is None and "unresolved provider cost" in reason
+    assert reservation is not None and not reason
+    reservation.release(reason="test_complete")
+    from argus.core.cost_control import cost_control_snapshot
+
+    snapshot = cost_control_snapshot(global_root=tmp_path / "argus")
+    # Only the non-hosted call is an unsettled provider charge; it is counted, not refused.
+    assert snapshot["unresolved_calls"] == (0 if hosted_trial else 1)
