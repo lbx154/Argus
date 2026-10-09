@@ -477,6 +477,10 @@ export interface RoundReviewCompletedEvent extends EventMsg {
   "failure_kind"?: string;
   "failure_cause"?: string;
   "verification_obstacle"?: string;
+  "manager_attention"?: "needed" | "not_needed";
+  "manager_attention_reason"?: string;
+  "learning"?: "worth_reflecting" | "nothing_new";
+  "learning_reason"?: string;
 }
 
 export interface RoundSecretRedactedEvent extends EventMsg {

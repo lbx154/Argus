@@ -15,6 +15,7 @@ from ..core.models import (
     RoundRecord,
     RunnerOptions,
     RunnerResult,
+    without_routing_judgments,
 )
 from ..core.ports import RunnerBackend
 from ..core.role_session import (
@@ -81,10 +82,12 @@ def hold_review_for_pending_background_run(review: ReviewDecision) -> ReviewDeci
 
     The Reviewer's own words are preserved in ``reviewer_words`` and the
     host's change is recorded separately, so later rounds never present the
-    host's sentence as the Reviewer's judgment.
+    host's sentence as the Reviewer's judgment. The Reviewer's routing
+    judgments no longer describe this verdict and are dropped (read as absent).
     """
     return replace(
         review, status="continue",
+        planner_report=without_routing_judgments(review.planner_report),
         reason=review.reason + " The declared background run still has no terminal result.",
         next_action="Await the declared background run, then inspect its result before completing the mission.",
         reviewer_words=review.reviewer_words or {

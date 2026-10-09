@@ -47,6 +47,7 @@ REFLECTION_KNOB = "ARGUS_SKILL_REFLECTION"
 REFLECTION_MODEL_KNOB = "ARGUS_SKILL_REFLECTION_MODEL"
 ANSWER_LEARNING_KNOB = "ARGUS_SKILL_ANSWER_LEARNING"
 RECEIPT_RELATIVE = Path(".argus") / "REFLECTED.json"
+_REVIEWED_FACT_PREFIX = "REVIEWED_FACT:"
 MISSION_RUN_LABEL = "reflection"
 ANSWER_RUN_LABEL = "answer-learning"
 PROMPT_CHAR_LIMIT = 12_000
@@ -402,6 +403,83 @@ def _write_receipt(life_dir: Path, mission_id: str, entry: dict[str, Any]) -> No
         log.warning("reflection: could not write the receipt %s", path, exc_info=True)
 
 
+# --------------------------------------------------------------------------- reviewed facts
+
+
+def _reviewed_facts_section(candidate: dict[str, Any] | None, pointer: str) -> str:
+    """The digest judgment for this mission's Reviewer-confirmed result, never clipped."""
+    if not candidate:
+        return ""
+    from ..manager.reviewed_facts import REVIEWED_FACT_CRITERIA
+
+    refs = "".join(
+        f"\n- {sanitize_model_visible_text(ref)}" for ref in candidate.get("evidence_refs") or []
+    )
+    return (
+        "## Cross-campaign reviewed-facts digest\n"
+        "The Reviewer confirmed the research result below. Decide whether it belongs "
+        "in the cross-campaign reviewed-facts digest. "
+        + REVIEWED_FACT_CRITERIA
+        + " The host writes the digest; do not edit it. Your final message must end "
+        f"with one line: `{_REVIEWED_FACT_PREFIX} "
+        '{"fact": "<prose>", "evidence_refs": ["<ref>"]}` with refs copied verbatim '
+        f"from the allowed refs, or `{_REVIEWED_FACT_PREFIX} none`.\n"
+        f"Reviewer reason: {sanitize_model_visible_text(candidate.get('reviewer_reason') or '')}\n"
+        "Research result summary (key fields pulled out by code):\n"
+        f"{sanitize_model_visible_text(candidate.get('summary') or '')}\n"
+        + (f"The full research result is in this file: {pointer}\n" if pointer else "")
+        + f"Allowed evidence refs:{refs}"
+    )
+
+
+_NO_FACT = "none"
+
+
+def _reviewed_fact_line(text: str) -> dict[str, Any] | str | None:
+    """The last ``REVIEWED_FACT:`` answer of the final message.
+
+    An object is a fact to keep, ``"none"`` an explicit decision to keep none,
+    and ``None`` means the message gave no readable answer.
+    """
+    found: dict[str, Any] | str | None = None
+    for raw in str(text or "").splitlines():
+        line = raw.strip().strip("`").strip()
+        if not line.upper().startswith(_REVIEWED_FACT_PREFIX):
+            continue
+        body = line[len(_REVIEWED_FACT_PREFIX):].strip().strip("`").strip()
+        if body.lower().rstrip(".") == _NO_FACT:
+            found = _NO_FACT
+            continue
+        try:
+            value = json.loads(body)
+        except ValueError:
+            continue
+        if isinstance(value, dict):
+            found = value
+    return found
+
+
+def judge_reviewed_fact_alone(
+    runner: Any, candidate: dict[str, Any] | None, *, global_root: Path,
+) -> None:
+    """The digest judgment as its own call, when no reflection call carries it."""
+    if not candidate or not isinstance(candidate.get("research_result"), dict):
+        return
+    from ..manager.reviewed_facts import review_and_append_fact
+
+    try:
+        review_and_append_fact(
+            runner,
+            digest_path=core_paths.reviewed_facts_digest_path(global_root),
+            source_campaign=str(candidate.get("source_campaign") or ""),
+            reviewer_reason=str(candidate.get("reviewer_reason") or ""),
+            research_result=candidate["research_result"],
+            evidence_refs=candidate.get("evidence_refs") or [],
+        )
+    except Exception:  # noqa: BLE001 - facts never own settlement
+        log.warning("reviewed-facts judgment failed", exc_info=True)
+
+
 # --------------------------------------------------------------------------- mission prompt
 
 
@@ -447,8 +525,14 @@ def build_reflection_prompt(
     existing_lessons: list[str],
     today: date | None = None,
     operator_root: Path | None = None,
+    reviewed_fact: dict[str, Any] | None = None,
+    reviewed_fact_pointer: str = "",
 ) -> str:
-    """The reflection prompt, bounded to ``PROMPT_CHAR_LIMIT`` characters."""
+    """The reflection prompt, bounded to ``PROMPT_CHAR_LIMIT`` characters.
+
+    The reviewed-fact section rides outside that bound: its summary is already
+    bounded by code, and its allowed refs must reach the model whole.
+    """
     day = today or _today()
     stamp = day.strftime("%Y%m%d")
     iso = day.isoformat()
@@ -520,12 +604,14 @@ def build_reflection_prompt(
         "You may write only inside these directories:\n"
         + "\n".join(f"- `{item}`" for item in writable)
         + "\nDo not edit anything else. Finish with one line: `WROTE: <paths>` or "
-        "`WROTE: nothing`.",
+        "`WROTE: nothing`"
+        + (" (then the reviewed-fact line described below)." if reviewed_fact else "."),
     ]
     prompt = "\n\n".join(sections)
     if len(prompt) > PROMPT_CHAR_LIMIT:
         prompt = prompt[: PROMPT_CHAR_LIMIT - 1].rstrip() + "…"
-    return prompt
+    facts = _reviewed_facts_section(reviewed_fact, reviewed_fact_pointer)
+    return f"{prompt}\n\n{facts}" if facts else prompt
 
 
 # --------------------------------------------------------------------------- mission reflection
@@ -560,12 +646,29 @@ def reflect_after_mission(
     emit: Emit,
     elapsed_s: float | None = None,
     rounds: int | None = None,
+    reviewed_fact: dict[str, Any] | None = None,
+    learning: str = "",
+    mission_accepted: bool = False,
 ) -> dict[str, Any]:
     """Reflect once on a finished mission and keep what it taught.
+
+    Whether to look back is the final Reviewer's judgment: ``learning`` is its
+    ``worth_reflecting`` or ``nothing_new``. Only an accepted mission whose final
+    review said ``nothing_new`` is skipped, and only when it was accepted at its
+    first review: missions the Reviewer sent back for repairs almost always
+    teach something. Without the field, reflection runs. A mission that was not
+    accepted always reflects: the Reviewer judged its last round, not the way
+    the mission then ended.
+
+    ``reviewed_fact`` (from :func:`argus.manager.reviewed_facts.reviewed_fact_candidate`)
+    is judged for the cross-campaign digest inside the same call. When the call
+    does not run or fails, the judgment runs on its own, so no fact is lost.
 
     Returns ``{"skipped": reason}`` when nothing ran, otherwise ``{"created":
     [...], "updated": [...], "skipped": "", ...}``. Never raises.
     """
+    fact_state = {"handled": False}
+
     def run(capture):
         return _reflect_after_mission(
             runner=runner, workspace=Path(workspace), life_dir=Path(life_dir),
@@ -574,7 +677,8 @@ def reflect_after_mission(
             mission_id=str(mission_id or "").strip(), title=title, objective=objective,
             acceptance=acceptance, review_status=review_status, review_reason=review_reason,
             stop_reason=stop_reason, host_round_log=host_round_log, run_reality=run_reality,
-            emit=capture, elapsed_s=elapsed_s, rounds=rounds,
+            emit=capture, elapsed_s=elapsed_s, rounds=rounds, reviewed_fact=reviewed_fact,
+            learning=learning, mission_accepted=mission_accepted, fact_state=fact_state,
         )
     try:
         with _learning_write_lock(Path(global_root)):
@@ -585,6 +689,8 @@ def reflect_after_mission(
             return run(emit)
     except Exception:  # noqa: BLE001 - reflection never owns the mission result
         log.exception("reflection after mission %s failed", mission_id)
+        if not fact_state["handled"]:
+            judge_reviewed_fact_alone(runner, reviewed_fact, global_root=Path(global_root))
         return {"skipped": "reflection raised; see the log", "created": [], "updated": []}
 
 
@@ -608,16 +714,36 @@ def _reflect_after_mission(
     emit: Emit,
     elapsed_s: float | None,
     rounds: int | None,
+    reviewed_fact: dict[str, Any] | None = None,
+    learning: str = "",
+    mission_accepted: bool = False,
+    fact_state: dict[str, bool] | None = None,
 ) -> dict[str, Any]:
-    if not reflection_enabled():
-        return {"skipped": f"{REFLECTION_KNOB} is off", "created": [], "updated": []}
+    fact_state = fact_state if fact_state is not None else {"handled": False}
+
+    def judge_alone() -> None:
+        fact_state["handled"] = True
+        judge_reviewed_fact_alone(runner, reviewed_fact, global_root=global_root)
+
+    skipped = ""
     backend = _backend_for(runner)
-    if backend is None:
-        return {"skipped": "no model backend", "created": [], "updated": []}
-    if not mission_id:
-        return {"skipped": "mission has no id", "created": [], "updated": []}
-    if _already_reflected(life_dir, mission_id):
-        return {"skipped": "already reflected on this mission", "created": [], "updated": []}
+    if not reflection_enabled():
+        skipped = f"{REFLECTION_KNOB} is off"
+    elif (
+        mission_accepted
+        and int(rounds or 0) <= 1
+        and str(learning or "").strip().lower() == "nothing_new"
+    ):
+        skipped = "the final review found nothing new to learn"
+    elif backend is None:
+        skipped = "no model backend"
+    elif not mission_id:
+        skipped = "mission has no id"
+    elif _already_reflected(life_dir, mission_id):
+        skipped = "already reflected on this mission"
+    if skipped:
+        judge_alone()
+        return {"skipped": skipped, "created": [], "updated": []}
 
     vertical_root, lesson_scope = _vertical_root(vertical, global_root)
     lesson_dir = vertical_root / "pages" / "lessons"
@@ -627,9 +753,17 @@ def _reflect_after_mission(
         skills_dir.mkdir(parents=True, exist_ok=True)
     except OSError:
         log.warning("reflection: could not prepare the knowledge directories", exc_info=True)
+        judge_alone()
         return {"skipped": "knowledge directories are not writable", "created": [], "updated": []}
     project_wiki = _project_wiki_root(workspace, project_id)
     operator_root = _operator_root(global_root)
+    # The digest path is the host's, derived here; never taken from the candidate.
+    digest_path = core_paths.reviewed_facts_digest_path(global_root)
+    full_record: Path | None = None
+    if reviewed_fact and isinstance(reviewed_fact.get("research_result"), dict):
+        from ..manager.reviewed_facts import write_full_record
+
+        full_record = write_full_record(digest_path, reviewed_fact["research_result"])
 
     prompt = build_reflection_prompt(
         project_id=project_id, vertical=vertical, mission_id=mission_id, title=title,
@@ -637,7 +771,8 @@ def _reflect_after_mission(
         review_reason=review_reason, stop_reason=stop_reason, host_round_log=host_round_log,
         run_reality=run_reality, vertical_root=vertical_root, project_wiki=project_wiki,
         skills_dir=skills_dir, existing_lessons=_existing_titles(vertical_root, "lessons"),
-        operator_root=operator_root,
+        operator_root=operator_root, reviewed_fact=reviewed_fact,
+        reviewed_fact_pointer=full_record.as_posix() if full_record is not None else "",
     )
     roots: list[tuple[Path, str]] = [(vertical_root, lesson_scope), (life_dir / "skills", "project")]
     if project_wiki is not None:
@@ -672,11 +807,39 @@ def _reflect_after_mission(
     except Exception as exc:  # noqa: BLE001 - the mission result is already committed
         failure = f"{type(exc).__name__}: {exc}"
         result = None
+    finally:
+        if full_record is not None:
+            try:
+                full_record.unlink(missing_ok=True)
+            except OSError:
+                log.warning("reflection: could not remove %s", full_record, exc_info=True)
     if result is not None and (
         int(getattr(result, "exit_code", 0) or 0) != 0 or getattr(result, "fatal_error", None)
     ):
         failure = str(getattr(result, "fatal_error", "") or f"exit code {result.exit_code}")
         stop_kind = str(getattr(result, "stop_kind", "") or "")
+    fact_recorded = False
+    if reviewed_fact:
+        from ..manager.stage_decider import extract_answer
+
+        chosen = None if failure or result is None else _reviewed_fact_line(extract_answer(result))
+        if chosen is None:
+            # The call that carried the judgment failed or gave no answer to it.
+            judge_alone()
+        elif isinstance(chosen, dict):
+            from ..manager.reviewed_facts import append_judged_fact
+
+            fact_state["handled"] = True
+            fact_recorded = append_judged_fact(
+                reviewed_fact, digest_path=digest_path,
+                fact=chosen.get("fact"), evidence_refs=chosen.get("evidence_refs"),
+            )
+            if not fact_recorded:
+                # A fact with no usable allowed ref (or no prose) cannot be kept
+                # as written; let the separate judgment decide it instead.
+                judge_alone()
+        else:
+            fact_state["handled"] = True
 
     after = _snapshot(path for root, _scope in roots for path in _markdown_files(root))
     created_paths, updated_paths = _changed(before, after)
@@ -729,6 +892,7 @@ def _reflect_after_mission(
     outcome = {
         "created": created, "updated": updated, "ignored": ignored, "promoted": promoted,
         "failure": failure, "stop_kind": stop_kind, "prompt_chars": len(prompt),
+        "reviewed_fact_recorded": fact_recorded,
     }
     if not failure:
         _write_receipt(life_dir, mission_id, {

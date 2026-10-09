@@ -635,6 +635,10 @@
         "frontier_change": "frontier change",
         "frontier_summary": "frontier summary",
         "input_tokens": 1,
+        "learning": "worth_reflecting",
+        "learning_reason": "learning reason",
+        "manager_attention": "needed",
+        "manager_attention_reason": "manager attention reason",
         "next_action": "next action",
         "operator_options": [
           {

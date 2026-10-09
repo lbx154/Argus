@@ -9,6 +9,8 @@ import re
 from pathlib import Path
 from typing import Any, Mapping
 
+from .models import without_routing_judgments
+
 RECOMMENDATIONS = (
     "strong_reject", "reject", "weak_reject", "borderline",
     "weak_accept", "accept", "strong_accept", "best_paper",
@@ -160,6 +162,8 @@ def _keep_final_repairs_in_place(decision: Any) -> None:
     replanning = decision.status == "replan_requested"
     if replanning:
         decision.status = "blocked" if decision.operator_question else "continue"
+        _drop_routing_judgments(decision)
+        report = dict(decision.planner_report)
     if decision.status != "continue":
         return
     # Preserve the useful technical proposal, but do not turn a final-review
@@ -179,9 +183,14 @@ def _keep_final_repairs_in_place(decision: Any) -> None:
             ) if part
         )
         decision.planner_report = {
-            key: value for key, value in report.items()
+            key: value for key, value in without_routing_judgments(report).items()
             if key not in {"plan_signal", "challenge", "alternative", "authority_impact"}
         }
+
+
+def _drop_routing_judgments(decision: Any) -> None:
+    """The host changed this verdict; the Reviewer's routing judgments no longer hold."""
+    decision.planner_report = without_routing_judgments(decision.planner_report)
 
 
 def enforce_venue_acceptance(
@@ -200,6 +209,7 @@ def enforce_venue_acceptance(
         # An incomplete/wrong-venue response is a Reviewer failure. Retry that
         # read-only leg; do not ask Engineer to alter a paper to fix the protocol.
         decision.status = "blocked"
+        _drop_routing_judgments(decision)
         decision.backend_unavailable = True
         decision.backend_stop_kind = "backend_unavailable"
         decision.reason = f"Final Reviewer omitted a valid assessment for {_venue_phrase(venue)}."
@@ -221,6 +231,7 @@ def enforce_venue_acceptance(
         return
     if decision.status == "done" or (decision.status == "blocked" and not decision.operator_question and not decision.backend_unavailable):
         decision.status = "continue"
+        _drop_routing_judgments(decision)
     # The review already explains its scientific judgment in the user's
     # language. Do not prepend an internal protocol explanation to every
     # rejection, or turn that duplicate text into the Engineer's feedback.

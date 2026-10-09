@@ -2,6 +2,8 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 
+import pytest
+
 from argus.life.memory import BacklogItem, LifeMemory
 from argus.life.supervisor import LifeBudget, LifeSupervisor, LifeSupervisorConfig
 from argus.life.supervisor._evolution import _cross_project_propagation_enabled
@@ -135,10 +137,14 @@ def test_failed_mission_still_reaches_team_learning_review(
     assert "same fixed threshold" in captured["mission_result"]
 
 
+@pytest.mark.parametrize("reflection", ["0", "1"])
 def test_reviewer_confirmed_research_result_reaches_fact_judgment(
     tmp_path,
     monkeypatch,
+    reflection,
 ) -> None:
+    """With reflection on, the judgment rides in the reflection call; off, it runs alone."""
+    monkeypatch.setenv("ARGUS_SKILL_REFLECTION", reflection)
     memory = LifeMemory.open(tmp_path / "life")
     runner = _Runner()
     supervisor = LifeSupervisor(
@@ -173,6 +179,15 @@ def test_reviewer_confirmed_research_result_reaches_fact_judgment(
         source_campaign="campaign-03",
     )
 
-    assert captured["source_campaign"] == "campaign-03"
-    assert captured["research_result"] == result
-    assert captured["evidence_refs"] == ("result.json",)
+    if reflection == "0":
+        assert captured["source_campaign"] == "campaign-03"
+        assert captured["research_result"] == result
+        assert captured["evidence_refs"] == ("result.json",)
+        assert supervisor._pending_reviewed_fact is None
+    else:
+        assert captured == {}
+        pending = supervisor._pending_reviewed_fact
+        assert pending["source_campaign"] == "campaign-03"
+        assert pending["research_result"] == result
+        assert pending["evidence_refs"] == ["result.json"]
+        assert "verified_new_result" in pending["summary"]
