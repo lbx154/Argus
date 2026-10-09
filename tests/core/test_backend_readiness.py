@@ -525,7 +525,7 @@ def test_claude_readiness_fails_on_the_openai_shared_default(
 
     assert not report.ok
     problem = next(p for p in report.problems if p.capability == "model selector")
-    assert "gpt-5.5" in problem.detail
+    assert "gpt-6.1-sol" in problem.detail
     assert "anthropic" in problem.detail
     assert "claude-opus-5" in problem.remediation
 

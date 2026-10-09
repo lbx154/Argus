@@ -1097,10 +1097,11 @@ def _rewrite_model_and_effort() -> tuple[str, str]:
 
     model = resolve_cheap_route_model(
         knob="ARGUS_SKILL_REWRITE_MODEL",
-        # Rewrite has always used the full mid-tier id here rather than the
-        # mini the other three cheap routes take; keep that on the backends
-        # where it resolves, and fall back to the Manager model elsewhere.
-        catalog_default="gpt-5.5",
+        # Rewrite has always used the full default model here rather than
+        # the mini the other three cheap routes take; keep that on the
+        # backends where it resolves, and fall back to the Manager model
+        # elsewhere.
+        catalog_default="gpt-6.1-sol",
         role="manager",
         role_env="ARGUS_SKILL_MANAGER_MODEL",
     )

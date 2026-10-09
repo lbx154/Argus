@@ -162,10 +162,10 @@ def test_planner_reads_plan_model_env():
     assert resolve_role_config("planner", env=env).model == "o3"
 
 
-def test_model_defaults_to_gpt55():
+def test_model_defaults_to_gpt_6_1_sol():
     # No env, no vault override in the test env → the offline default.
     c = resolve_role_config("reviewer", env={})
-    assert c.model == "gpt-5.5"
+    assert c.model == "gpt-6.1-sol"
 
 
 # ── reasoning effort ──────────────────────────────────────────────────────
@@ -198,6 +198,7 @@ def test_manager_effort_mirrors_engineer():
 
 def test_is_reasoning_model():
     assert is_reasoning_model("gpt-5.5")
+    assert is_reasoning_model("gpt-6.1-sol")
     assert is_reasoning_model("gpt-5.5-codex")
     assert is_reasoning_model("o3")
     assert is_reasoning_model("o4-mini")

@@ -69,7 +69,7 @@ def test_manager_runner_uses_persisted_workdir_without_moving_state_root(
     assert args.global_root == str(root)
     assert args.skills_dir == str(root / "skills")
     assert args.operator_workspace == str(workspace.resolve())
-    assert args.engineer_model == "gpt-5.5"
+    assert args.engineer_model == "gpt-6.1-sol"
     assert args.reviewer_model == ""
     assert args.skills_dir == str(root / "skills")
     assert args.manager_memory is memory
