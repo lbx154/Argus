@@ -197,6 +197,7 @@ def observe_project(root: Path | str, *, event: dict[str, Any] | None = None) ->
         "status",
         "summary",
         "reason",
+        "verification_obstacle",
         "success",
         "outcome",
         "agent_layer",

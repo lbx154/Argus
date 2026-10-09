@@ -21,13 +21,38 @@ from typing import Any, Iterable, Mapping
 # the label; guessing a secret from the shape of its value remains out of scope.
 _LABEL_START = r"(?<![A-Za-z0-9])"
 
+# A labeled assignment whose right-hand side is code that *fetches* the
+# credential is not the credential. Masking ``os.environ.get(`` in
+# ``token = os.environ.get("API_TOKEN")`` hid the very line an independent
+# Reviewer had to read, and a Reviewer that cannot read a line cannot verify
+# it: one task spent five extra Engineer/Reviewer rounds arguing over code
+# neither side could see. Only unmistakable reads and references are spared:
+# an environment lookup, a call or subscript on a code-shaped name, a
+# ``${NAME}``/``$(...)``/``{{ ... }}``/``{name}`` template, or an all-caps
+# ``$NAME`` shell reference. A literal value keeps the old treatment, and a
+# value the process actually holds is masked anywhere by the known-value pass
+# that runs before these patterns, whatever expression surrounds it.
+# Case-sensitive on purpose (the enclosing patterns are not): a lowercase
+# callee is code, while ``Summer(`` may be the start of a password.
+_CODE_REFERENCE_VALUE = (
+    r"(?!(?-i:"
+    r"(?:process\.env|import\.meta\.env|os\.environ|Deno\.env)\b"
+    r"|[A-Za-z_]\w*(?:\.[A-Za-z_]\w*)+[(\[]"
+    r"|[A-Za-z0-9]*_\w*[(\[]"
+    r"|[a-z]+[(\[]"
+    r"|\$[({]|\{\{|\{[A-Za-z_][\w.]*\}"
+    r"|\$[A-Z_][A-Z0-9_]*(?![^\s'\",;])"
+    r"))"
+)
+
 _HIGH_CONFIDENCE_INLINE_SECRET_PATTERN = (
     re.compile(
         r"(?i)" + _LABEL_START
         + r"((?:x[_-]?)?api[_-]?key|client[_-]?secret|private[_-]?key)\b"
         r"(['\"]?)([^\S\r\n]*[=:])"
         r"(?![^\S\r\n]*['\"]?<REDACTED:)"
-        r"[^\S\r\n]*['\"]?([^\s'\",;]{8,})['\"]?"
+        r"[^\S\r\n]*['\"]?" + _CODE_REFERENCE_VALUE
+        + r"([^\s'\",;]{8,})['\"]?"
     ),
     r"\1\2\3 <REDACTED:secret>",
 )
@@ -37,7 +62,8 @@ _AMBIGUOUS_INLINE_SECRET_PATTERN = (
         + r"(secret|token|password|passwd|auth)\b"
         r"(['\"]?)([^\S\r\n]*[=:])"
         r"(?![^\S\r\n]*['\"]?<REDACTED:)"
-        r"[^\S\r\n]*['\"]?([^\s'\",;]{8,})['\"]?"
+        r"[^\S\r\n]*['\"]?" + _CODE_REFERENCE_VALUE
+        + r"([^\s'\",;]{8,})['\"]?"
     ),
     r"\1\2\3 <REDACTED:secret>",
 )
@@ -46,7 +72,13 @@ _SECRET_PATTERNS: tuple[tuple[re.Pattern[str], str], ...] = (
     (
         re.compile(
             r"(?im)^([^\S\r\n]*(?:authorization|proxy-authorization)"
-            r"[^\S\r\n]*:)(?![^\S\r\n]*<REDACTED:)[^\r\n]+(\r?)$"
+            r"[^\S\r\n]*:)(?![^\S\r\n]*<REDACTED:)"
+            # A documented header shape such as ``Bearer $API_TOKEN`` names
+            # where the credential comes from; it is not the credential.
+            r"(?![^\S\r\n]*(?:bearer|basic|token)[^\S\r\n]+"
+            r"(?:\$\{?[A-Za-z_]\w*\}?|\{[A-Za-z_][\w.]*\}|<[A-Za-z_][\w .-]{0,40}>)"
+            r"[^\S\r\n]*\r?$)"
+            r"[^\r\n]+(\r?)$"
         ),
         r"\1 <REDACTED:token>\2",
     ),

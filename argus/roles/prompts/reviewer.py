@@ -7,6 +7,7 @@ from pathlib import Path
 from typing import Any, Mapping
 
 from ...core.model_visible_text import (
+    MASKED_DISPLAY_REVIEW_RULE,
     MODEL_INTEGRITY_BOUNDARY,
     sanitize_model_visible_text,
 )
@@ -721,13 +722,11 @@ def render_reviewer_prompt(
         "## Submit your review\n"
         "Express the complete review naturally in the operator's language. No JSON, "
         "fixed fields, named closing lines, or text template is required or parsed. "
-        "Submit the judgment with one native action tool: approve_review for a complete "
-        "task, revise_review for concrete repairs, defer_review while already-running "
-        "work or external evidence is pending, request_review_decision for an actual "
-        "operator-owned question, or replan_review to challenge the plan. Put your "
-        "complete evidence and next steps in the tool's review argument; the host "
-        "passes it unchanged to Engineer. A final chat reply can simply acknowledge "
-        "the action. An action is not a keyword to print: invoke the tool. "
+        "Invoke one native action tool (printing its name does nothing), as each "
+        "tool describes: approve_review, revise_review, defer_review, "
+        "request_review_decision for an operator-owned question, or replan_review. "
+        "Its review argument reaches Engineer unchanged, so put your full evidence "
+        "and next steps there; a final chat reply may just acknowledge it. "
         "Judge forward_progress toward the operator's goal, which even a sound "
         "repair may leave unchanged. For a plan challenge, explain the failed "
         "assumption, alternative and whose authority it affects: technical for "
@@ -781,7 +780,9 @@ def render_reviewer_prompt(
         "Stay within this profile; require no future-proofing. "
         "In `explore`/`develop`, require experimental or research feedback. "
         "Negative results, hedging, limitations, and reruns need grounded "
-        "consequences; positive and negative claims share one evidence standard.\n\n"
+        "consequences; positive and negative claims share one evidence standard. "
+        + MASKED_DISPLAY_REVIEW_RULE
+        + "\n\n"
         + RESEARCHER_VOICE + "\n\n"
         + decision_policy
         + ("" if _requires_engineering_audit else _verification_directive())

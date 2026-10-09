@@ -200,6 +200,10 @@ class ReviewDecision:
     # Reviewer supplies these through its native review action.
     frontier_report: dict[str, Any] = field(default_factory=dict)
     session_signal: dict[str, str] = field(default_factory=dict)
+    # The Reviewer's own judgment that the fact it disputes cannot be observed
+    # through any view it has (a masked display, for example), so repeating the
+    # finding cannot settle it. Routed to the Manager; it decides nothing here.
+    verification_obstacle: str = ""
     review_source: str = "reviewer"
     prompt_block_stats: dict[str, dict[str, int]] = field(default_factory=dict)
     input_tokens: int = 0
@@ -292,6 +296,9 @@ class ReviewDecision:
         signal = self.session_signal if isinstance(self.session_signal, dict) else {}
         if str(signal.get("kind") or "").strip():
             payload["session_signal"] = dict(signal)
+        obstacle = str(self.verification_obstacle or "").strip()
+        if obstacle:
+            payload["verification_obstacle"] = obstacle[:2000]
         if self.research_result is not None:
             payload["research_result"] = dict(self.research_result)
         payload.update(extras)

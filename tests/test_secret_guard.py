@@ -1133,3 +1133,56 @@ def test_scrub_without_git_executable_falls_back_to_mtime_scan(
 
     assert report.redacted_paths == ("artifact.yml",)
     assert "<REDACTED:secret>" in artifact.read_text(encoding="utf-8")
+
+
+@pytest.mark.parametrize(
+    "line",
+    [
+        'token = os.environ.get("DISPATCH_EVENT_API_TOKEN")',
+        'api_key = os.getenv("SERVICE_API_KEY")',
+        'token=os.environ["SERVICE_TOKEN"]',
+        "token = load_token()",
+        'token = config.get("token")',
+        "const token = process.env.SERVICE_TOKEN;",
+        "TOKEN=${SERVICE_TOKEN}",
+        'password: "{{ secrets.DB_PASSWORD }}"',
+        "token=$SERVICE_TOKEN",
+        "Authorization: Bearer $SERVICE_TOKEN",
+        "Authorization: Bearer ${SERVICE_TOKEN}",
+        "Authorization: Bearer <token>",
+    ],
+)
+def test_code_that_reads_a_credential_stays_readable(line: str) -> None:
+    # A Reviewer must be able to read the line that fetches a credential; the
+    # expression is not the credential.
+    assert redact_secrets_text(line) == line
+
+
+@pytest.mark.parametrize(
+    "line",
+    [
+        'token = "live-abcdef1234567890"',
+        "password=Summer2024(xyz)",
+        "password=hunter2hunter2",
+        "api_key: AbCdEf0123456789",
+        "SERVICE_TOKEN=abcd1234efgh5678",
+        "token=$ecretPass99",
+        "auth=Abc(defghijk",
+        "secret = eyJhbGciOiJIUzI1NiJ9.eyJzdWIiOiIxIn0.c2lnbmF0dXJl",
+        "Authorization: Bearer abcdefghijklmnopqrstu",
+        "Authorization: Bearer $SERVICE_TOKEN trailing",
+        "Authorization: Basic dXNlcjpwYXNzd29yZA==",
+    ],
+)
+def test_literal_credentials_are_still_masked(line: str) -> None:
+    assert "<REDACTED:" in redact_secrets_text(line)
+
+
+def test_known_value_is_masked_even_inside_code_shaped_text() -> None:
+    value = "sentinel-value-0123456789"
+    text = f'token = os.environ.get("X") or "{value}"\nheaders = f"Bearer {value}"'
+
+    redacted = redact_secrets_text(text, known_values=(value,))
+
+    assert value not in redacted
+    assert 'os.environ.get("X")' in redacted
