@@ -41,10 +41,40 @@ EVIDENCE_EXECUTE = "execute"
 EVIDENCE_RECORDED = "recorded"
 EVIDENCE_READ = "read"
 
+# A check can also be impossible in this environment rather than missing: the
+# resource it needs exists only when the work is graded or deployed (one task's
+# event-feed token was supplied only during the grader's own commands). Asked
+# for anyway, a Reviewer that agreed the token was unavailable still made
+# completion depend on that run: 15 rounds over 5 missions. "Impossible" has to
+# be grounded, though: only a statement in the task, its packet or the
+# environment makes it so, and the Reviewer quotes it (the host checks the
+# quote). Leaving the check unverified changes the acceptance standard, so it
+# is the operator's call, or the Manager's in a run with no operator; the
+# Reviewer approves only on that acceptance and names the residual risk.
+#
+# A local fixture of the unreachable interface is the usual best evidence, and
+# also the easiest to fake: a fixture that stubs the code under test, or
+# invents a payload shape, proves only that the stub agrees with itself.
+_FIXTURE_CONDITIONS = (
+    "follows the documented interface or schema, runs the real entry point "
+    "(not a stub of the code under test) and is labelled a test fixture"
+)
+FIXTURE_EVIDENCE_RULE = f"A test fixture counts only if it {_FIXTURE_CONDITIONS}."
+# The same faithfulness bar wherever a role is told a fixture may stand in for
+# an interface it cannot reach: the no-operator assumption rule (Engineer,
+# Planner, Manager) and the OperatorContext no-operator line.
+LABELLED_FIXTURE_CARVE_OUT = (
+    "A test fixture of an interface this environment cannot reach (the task, "
+    "packet or environment says its access exists only at grading or deploy "
+    f"time) is test evidence, not a substitute, and counts only if it "
+    f"{_FIXTURE_CONDITIONS}; it never ships in what is delivered."
+)
 _MASKED_DISPLAY = (
     "`******` or `<REDACTED:…>` is display masking that proves neither a defect "
-    "nor a fix; nobody can show past it, so settle it the same way, with a "
-    "rerunnable assertion on a placeholder value."
+    "nor a fix; settle it the same way, with a rerunnable assertion on a "
+    "placeholder value. A check is impossible, not missing, only if the task, "
+    "packet or environment says it needs what exists only at grading or deploy "
+    "time; see unverifiable."
 )
 _NOT_EVIDENCE = "the Engineer's cited claim alone is not evidence."
 REVIEW_EVIDENCE_RULE_EXECUTING = (
@@ -165,6 +195,8 @@ __all__ = [
     "EVIDENCE_EXECUTE",
     "EVIDENCE_READ",
     "EVIDENCE_RECORDED",
+    "FIXTURE_EVIDENCE_RULE",
+    "LABELLED_FIXTURE_CARVE_OUT",
     "MASKED_DISPLAY_ENGINEER_RULE",
     "MODEL_INTEGRITY_BOUNDARY",
     "REVIEW_EVIDENCE_RULE_EXECUTING",

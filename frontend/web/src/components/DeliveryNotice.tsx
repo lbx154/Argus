@@ -30,6 +30,11 @@ export function DeliveryNotice({
         <div className="min-w-0 flex-1">
           <div className="text-[10px] font-semibold uppercase tracking-[0.14em] text-ok">{heading}</div>
           <div className="mt-1 truncate text-sm font-semibold text-ink" title={delivery.title}>{delivery.title}</div>
+          {delivery.residual_risk ? (
+            <div role="note" className="mt-1 rounded-md border border-warn/40 bg-warn/10 px-2 py-1 text-xs leading-5 text-warn">
+              {zh ? '已验证，但有残余风险：' : 'Verified with residual risk: '}{delivery.residual_risk}
+            </div>
+          ) : null}
           {delivery.summary ? <div className="mt-1 line-clamp-3 text-xs leading-5 text-ink-dim"><MarkdownExcerpt>{delivery.summary}</MarkdownExcerpt></div> : null}
           {delivery.review_status && delivery.review_status !== 'not_assessed' ? (
             <div className="mt-2 font-mono text-[10px] text-ink-faint">

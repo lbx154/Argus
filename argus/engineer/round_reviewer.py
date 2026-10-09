@@ -17,7 +17,7 @@ import logging
 import time
 from dataclasses import replace
 from pathlib import Path
-from typing import TYPE_CHECKING, Callable
+from typing import TYPE_CHECKING, Any, Callable
 
 from ..core.command_record import backend_records_command_results
 from ..core.event_catalog import EventType
@@ -31,6 +31,7 @@ from ..core.stop_kinds import (
     stop_kind_from_external_interrupt,
 )
 from ..life.context_packet import render_mission_brief
+from ..life.memory import Backlog
 from .external_work import parse_external_wait_request, render_external_work_advisory
 from .reviewer_findings import (
     own_reviewer_thread,
@@ -154,9 +155,95 @@ def _active_manager_directive_for_reviewer(
             raise OperatorContextUnavailable("Current Reviewer OperatorContext read was cancelled") from exc
         except Exception as exc:
             raise OperatorContextUnavailable("Current Reviewer OperatorContext is unavailable") from exc
-        if message:
-            return [message]
+        # Acceptances of an impossible check, scoped to this item or to a
+        # named check; never to the whole objective.
+        from ..core.residual_risk import reviewer_block
+        from .obstacle_stall import mission_item_id
+
+        try:
+            accepted = reviewer_block(
+                root, item_id=mission_item_id(supervised_config),
+                mission_ref=str(getattr(supervised_config, "session_id", "") or ""),
+            )
+        except Exception:  # noqa: BLE001 - an unreadable record accepts nothing
+            accepted = ""
+        if message or accepted:
+            return [text for text in (message, accepted) if text]
     return []
+
+
+def operator_risk_decisions(root: Path | None, item_id: str) -> list[dict[str, Any]]:
+    """Resolved operator decision cards on this item and the items it continues.
+
+    An operator's answer resolves the blocked item's card and continues the
+    work as a new item, so the card that answers this mission's question sits
+    on the item it continues.
+    """
+    if root is None or not item_id or not (Path(root) / "backlog.jsonl").is_file():
+        return []
+    try:
+        items = Backlog(Path(root) / "backlog.jsonl").history()
+    except Exception:  # noqa: BLE001 - an unreadable backlog accepts nothing
+        return []
+    continued = {
+        str((item.operator_decision or {}).get("continuation_item_id") or ""): item for item in items
+        if isinstance(item.operator_decision, dict)
+    }
+    by_id = {item.id: item for item in items}
+    cards: list[dict[str, Any]] = []
+    current, seen = item_id, set()
+    while current and current not in seen:
+        seen.add(current)
+        own = by_id.get(current)
+        if own is not None and isinstance(own.operator_decision, dict) and own.operator_decision:
+            cards.append(dict(own.operator_decision))
+        previous = continued.get(current)
+        current = previous.id if previous is not None else ""
+    return [card for card in cards if card.get("status") == "resolved"]
+
+
+def mission_grounding(
+    supervised_config: Any, *, item_id: str, mission_ref: str, baseline: dict[str, str] | None,
+) -> dict[str, Any]:
+    """What this mission's Reviewer quotes and acceptances are checked against.
+
+    ``baseline``: the workspace's content hashes when the first mission on this
+    objective began; a file that no longer matches (or was not there) is never
+    a source. ``packet_refs``: files the task packet names, each with the hash
+    the Planner recorded, which are sources while they still match it.
+    ``accepted_risks``: the Manager's acceptances in force for this item;
+    ``operator_decisions``: the operator's resolved decision cards for it.
+    """
+    from ..core.residual_risk import active_residual_risks
+    from .obstacle_stall import mission_contract, stall_root
+
+    contract = mission_contract(supervised_config)
+    refs = tuple(
+        {"ref": str(ref.get("ref") or "").strip(), "content_hash": str(ref.get("content_hash") or "")}
+        for ref in contract.get("context_refs") or []
+        if isinstance(ref, dict) and str(ref.get("ref") or "").strip()
+    )
+    root = stall_root(supervised_config)
+    try:
+        accepted = active_residual_risks(root, item_id=item_id, mission_ref=mission_ref) if root else []
+    except Exception:  # noqa: BLE001 - an unreadable record accepts nothing
+        accepted = []
+    return {
+        "baseline": baseline, "packet_refs": refs, "accepted_risks": tuple(accepted),
+        "operator_decisions": tuple(operator_risk_decisions(root, item_id)),
+    }
+
+
+def _mission_grounding(supervised_config: Any, state: RoundLoopState) -> dict[str, Any] | None:
+    """The objective's workspace baseline, packet files and recorded acceptances, for the Reviewer's tools."""
+    try:
+        return mission_grounding(
+            supervised_config, item_id=state.mission_item_id, mission_ref=state.mission_ref,
+            baseline=state.grounding_baseline,
+        )
+    except Exception:  # noqa: BLE001 - without it, only the task text grounds and nothing is accepted
+        log.debug("reviewer mission grounding unavailable", exc_info=True)
+        return None
 
 
 class RoundReviewerMixin:
@@ -362,6 +449,7 @@ class RoundReviewerMixin:
                     engineer_records_commands=backend_records_command_results(
                         getattr(self, "engineer_runner", None)
                     ),
+                    mission_grounding=_mission_grounding(supervised_config, state),
                 ),
                 prev_review_summary=_previous_review_summary(state),
                 # Host-gathered round evidence (e.g. a vertical's spec checks):
@@ -548,6 +636,14 @@ class RoundReviewerMixin:
                         "told the enforced two-round progress rule"
                     ),
                 })
+        from .obstacle_stall import carried_obstacle_hint
+
+        carried_hint = carried_obstacle_hint(
+            state.carried_obstacle_streak, state.carried_obstacle,
+            supervised_config.stall_threshold,
+        )
+        if carried_hint:
+            escalate_hint = f"{escalate_hint}\n\n{carried_hint}" if escalate_hint else carried_hint
         # Evaluate the reviewer, retrying ONLY the reviewer on an infra flake.
         # The engineer's output for THIS round is already valid and in hand, so
         # a reviewer subprocess crash / 429 / missing-output-schema must retry

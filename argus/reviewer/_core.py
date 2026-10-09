@@ -650,6 +650,11 @@ class ReviewerConfig:
     # Whether the Engineer's backend reports each command's exit code, so the
     # host holds a record a read-only Reviewer can weigh.
     engineer_records_commands: bool = False
+    # Host-gathered for a mission's Reviewer (``round_reviewer.mission_grounding``):
+    # the workspace's content hashes when work on the objective began, the files
+    # its packet names with their recorded hashes, and the acceptances recorded
+    # for its item. What "impossible here" and an acceptance must match.
+    mission_grounding: dict[str, Any] | None = field(default=None, repr=False, compare=False)
 
 
 def _load_wiki_curator_skill_if_present(
@@ -685,6 +690,51 @@ def _engineer_log_audit_block(
         round_index=round_index,
         measured=measured,
         compact=compact,
+    )
+
+
+def _review_grounding(config: Any, *, task_parts: tuple[str, ...]) -> Any:
+    """What the Reviewer's "impossible here" quotes and acceptances must match.
+
+    The task as given (never the Engineer's account); the workspace for a
+    quoted environment file still as it was when work on the objective began,
+    or still as the Planner recorded it when the packet named it;
+    and the acceptances recorded for this item: the Manager's, and the
+    operator's choices on decision cards. Nothing the Reviewer was merely shown
+    as text (OperatorContext included) is read as an acceptance.
+    """
+    from ..core.autonomy import operator_available
+    from .tools import ReviewGrounding
+
+    roots = tuple(dict.fromkeys(
+        str(root) for root in (
+            getattr(config, "working_dir", None), getattr(config, "artifact_root", None),
+            getattr(config, "vertical_state_root", None),
+        ) if root
+    ))
+    from ..core.grounding_baseline import normalize_sha256
+
+    mission = getattr(config, "mission_grounding", None) or {}
+    baseline = mission.get("baseline")
+    return ReviewGrounding(
+        task_text="\n".join(str(part or "") for part in task_parts),
+        roots=roots,
+        operator_available=operator_available(),
+        baseline=(
+            {str(path): str(digest) for path, digest in baseline.items()}
+            if isinstance(baseline, dict) else None
+        ),
+        # A ref without a recorded hash is not a packet source; it counts only
+        # as an unchanged workspace file.
+        packet_refs=tuple(
+            (str(ref.get("ref") or ""), normalize_sha256(ref.get("content_hash")))
+            for ref in mission.get("packet_refs") or ()
+            if isinstance(ref, dict) and normalize_sha256(ref.get("content_hash"))
+        ),
+        accepted_risks=tuple(dict(row) for row in mission.get("accepted_risks") or () if isinstance(row, dict)),
+        operator_decisions=tuple(
+            dict(card) for card in mission.get("operator_decisions") or () if isinstance(card, dict)
+        ),
     )
 
 
@@ -936,6 +986,10 @@ class Reviewer:
                         live_search=True,
                     ),
                     venue=venue, venue_required=venue_required,
+                    grounding=_review_grounding(
+                        config,
+                        task_parts=(objective, original_objective or "", scope, planner_review_instruction),
+                    ),
                 ) as (actions, options):
                     result = gateway_run_exec(
                         self.runner, prompt=prompt, resume_thread_id=resume,

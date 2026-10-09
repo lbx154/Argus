@@ -37,12 +37,14 @@ def _queue(backend: MemoryBackend, round_index: int, payload: dict) -> None:
     backend.queue("reviewer", CannedResponse(review_action=("revise_review", payload)))
 
 
-def test_only_continuing_actions_offer_the_obstacle_field() -> None:
+def test_continuing_and_replanning_actions_offer_the_obstacle_field() -> None:
+    # A Reviewer stopped by a check impossible here may replan over it; the
+    # obstacle has to ride that verdict too, or a replan erases it.
     tools = {tool["name"]: tool for tool in ReviewActions().tools}
 
-    for name in ("revise_review", "defer_review"):
+    for name in ("revise_review", "defer_review", "replan_review"):
         assert "unverifiable" in tools[name]["inputSchema"]["properties"]
-    for name in ("approve_review", "request_review_decision", "replan_review"):
+    for name in ("approve_review", "request_review_decision"):
         assert "unverifiable" not in tools[name]["inputSchema"]["properties"]
 
 

@@ -24,6 +24,7 @@ from __future__ import annotations
 
 import time
 from dataclasses import dataclass, field
+from pathlib import Path
 from typing import Any
 
 from ..core.models import LoopStatus, RoundRecord
@@ -42,6 +43,27 @@ class RoundLoopState:
     last_engineer_message: str = ""
     no_progress_streak: int = 0
     semantic_stall_streak: int = 0
+    # A stall an earlier mission on the same objective left: rounds where its
+    # Reviewer reported no progress and named a check impossible here
+    # (``obstacle_stall.py``). Only a verdict naming the same obstacle continues
+    # it, and only in this mission's first obstacle run.
+    obstacle_stall_root: Path | None = None
+    obstacle_stall_objective: str = ""
+    carried_obstacle_streak: int = 0
+    carried_obstacle: str = ""
+    # This mission's current run of consecutive no-progress rounds naming one
+    # obstacle; plain no-progress rounds are counted elsewhere, never here.
+    obstacle_streak: int = 0
+    obstacle_text: str = ""
+    # The backlog item this mission works on, when its packet names one; an
+    # operator's acceptance of a residual risk is recorded against it.
+    mission_item_id: str = ""
+    # With no item, the mission (its session) an acceptance is scoped to.
+    mission_ref: str = ""
+    # Resolved path -> sha256 of the workspace when the first mission on this
+    # objective began. Only a file still matching it grounds a Reviewer's
+    # "impossible here"; None means no workspace file does.
+    grounding_baseline: dict[str, str] | None = None
     reviewer_next_action: str | None = None
     last_decision_progress_at: float = field(default_factory=lambda: time.monotonic())
     backend_failure_streak: int = 0

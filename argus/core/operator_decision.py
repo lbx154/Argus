@@ -18,6 +18,12 @@ def _human_reason(reason: str, *, language_hint: str) -> str:
     return humanize_runtime_reason(reason, language_hint=language_hint)
 
 
+def normalize_option_id(value: Any) -> str:
+    """The id an option's raw ``id`` becomes on a card ("" when none survives)."""
+    raw_id = str(value or "").strip().casefold()
+    return re.sub(r"[^a-z0-9_-]+", "-", raw_id).strip("-_")
+
+
 def normalize_agent_options(
     options: Iterable[Mapping[str, Any] | str],
 ) -> list[dict[str, Any]]:
@@ -34,8 +40,7 @@ def normalize_agent_options(
         label = str(row.get("label") or "").strip()[:160]
         if not label:
             continue
-        raw_id = str(row.get("id") or "").strip().casefold()
-        option_id = re.sub(r"[^a-z0-9_-]+", "-", raw_id).strip("-_")
+        option_id = normalize_option_id(row.get("id"))
         if not option_id:
             option_id = f"option-{index + 1}"
         elif option_id == "custom":

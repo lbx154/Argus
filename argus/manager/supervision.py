@@ -172,7 +172,10 @@ class SupervisionDecisionError(ValueError):
         self.code = code
 
 
-_DECISION_KEYS = ("ACTION", "REASON", "DIRECTIVE", "EVIDENCE_REFS", "CONSULTATION_ID", "ADVISOR_DISPOSITION")
+_DECISION_KEYS = (
+    "ACTION", "REASON", "DIRECTIVE", "EVIDENCE_REFS", "CONSULTATION_ID", "ADVISOR_DISPOSITION",
+    "ACCEPT_RISK", "RISK_CHECK", "RESIDUAL_RISK",
+)
 _BARE_KEY_LINE = re.compile(
     r"^[`*_]*(?P<key>" + "|".join(sorted(_DECISION_KEYS, key=len, reverse=True)) + r")[`*_]*\s+(?P<value>\S.*)$"
 )
@@ -325,6 +328,47 @@ def _decision(text: str) -> dict[str, Any]:
         raise  # the first reading's failure names what was missing
 
 
+# What a residual-risk field says when it accepts nothing. The Manager answers
+# in prose, so "none", "(none)", "not applicable", "nothing accepted", "not
+# accepted yet" and "none yet ..." must all read as no acceptance; only an
+# explicit ACCEPT_RISK: yes with a named check and risk accepts anything.
+_NO_ACCEPTANCE = re.compile(
+    r"^(?:none|nil|null|n/?a|na|no|nothing|not|never|tbd|pending|unknown|undecided)\b",
+    re.IGNORECASE,
+)
+_RISK_ID = re.compile(r"\brisk-[0-9a-f]{10}\b")
+_RISK_VERB = re.compile(r"^[`*_\s]*(yes|no|revoke)\b", re.IGNORECASE)
+
+
+def _risk_text(value: Any, limit: int = 1000) -> str:
+    """The stated check or risk, or "" when the text accepts nothing."""
+    text = " ".join(str(value or "").split())
+    bare = text.strip(" .,;:`*_-()[]{}\"'").strip()
+    if not bare or _NO_ACCEPTANCE.match(bare):
+        return ""
+    return text[:limit]
+
+
+def _risk_decision(value: dict[str, Any]) -> dict[str, str]:
+    """ACCEPT_RISK: yes (with RISK_CHECK and RESIDUAL_RISK), revoke <id>, or nothing.
+
+    Anything else -- an absent or "no" ACCEPT_RISK, a check or risk that is
+    empty or says none -- accepts nothing. A RESIDUAL_RISK without an explicit
+    ACCEPT_RISK: yes is a remark, not an acceptance.
+    """
+    raw = " ".join(str(value.get("accept_risk") or "").split())
+    verb = _RISK_VERB.match(raw)
+    if verb is None:
+        return {}
+    if verb.group(1).lower() == "revoke":
+        found = _RISK_ID.search(raw) or _RISK_ID.search(str(value.get("risk_check") or ""))
+        return {"action": "revoke", "risk_id": found.group(0)} if found else {}
+    if verb.group(1).lower() != "yes":
+        return {}
+    check, risk = _risk_text(value.get("risk_check"), 240), _risk_text(value.get("residual_risk"))
+    return {"action": "accept", "check": check, "risk": risk} if check and risk else {}
+
+
 def _validated_decision(value: dict[str, Any]) -> dict[str, Any]:
     action = _action_of(value)
     reason = str(value.get("reason") or "").strip()
@@ -345,7 +389,59 @@ def _validated_decision(value: dict[str, Any]) -> dict[str, Any]:
     return {"action": action, "reason": reason, "directive": directive,
             "cited_refs": list(dict.fromkeys(refs)),
             "consultation_id": str(value.get("consultation_id") or "")[:128],
-            "advisor_disposition": str(value.get("advisor_disposition") or "")[:128]}
+            "advisor_disposition": str(value.get("advisor_disposition") or "")[:128],
+            # Accepting (or revoking) the residual risk of one check impossible
+            # here; see _risk_decision for what counts.
+            "risk_decision": _risk_decision(value)}
+
+
+def _manager_accepts_risk() -> bool:
+    """Only in a run with no operator does the Manager accept a residual risk."""
+    from ..core.autonomy import operator_available
+
+    return not operator_available()
+
+
+def _risk_authority_rule() -> str:
+    from ..core.model_visible_text import FIXTURE_EVIDENCE_RULE
+
+    if not _manager_accepts_risk():
+        return (
+            "Leaving such a check unverified changes the acceptance standard, so it is "
+            "the operator's decision, not yours: the Reviewer asks them. Meanwhile steer "
+            "toward the best evidence reachable here. "
+            + FIXTURE_EVIDENCE_RULE + "\n"
+        )
+    return (
+        "No operator is available, so for such a check you decide whether to leave it "
+        "unverified: when the Reviewer has read the best evidence reachable here, "
+        "accept that one check's residual risk with ACCEPT_RISK: yes; when that "
+        "evidence is still missing, steer the Engineer to build it. "
+        + FIXTURE_EVIDENCE_RULE
+        + " An Engineer claim is never that evidence, and an acceptance covers only "
+        "the named check: the Reviewer still judges completion. Revoke an acceptance "
+        "that no longer holds with ACCEPT_RISK: revoke <risk id>.\n"
+    )
+
+
+def _standard_rule() -> str:
+    if _manager_accepts_risk():
+        return (
+            "Apart from accepting or revoking one grounded check's residual risk as "
+            "above, you do not change the objective, acceptance standard, or pipeline "
+            "stage here. "
+        )
+    return "You do not change the objective, acceptance standard, or pipeline stage here. "
+
+
+def _risk_fields() -> str:
+    if not _manager_accepts_risk():
+        return ""
+    return (
+        "ACCEPT_RISK: yes, no, or revoke <risk id>\n"
+        "RISK_CHECK: the one check left unverified (only with yes)\n"
+        "RESIDUAL_RISK: the risk that leaves (only with yes)\n"
+    )
 
 
 def _prompt(observation: ManagerObservation, consult_reason: str = "") -> str:
@@ -360,19 +456,29 @@ def _prompt(observation: ManagerObservation, consult_reason: str = "") -> str:
         "a dispute: neither side is verified by its role. Decide it by whose evidence carries "
         "its own labels and a reproducible command; if neither does, steer both to produce "
         "that evidence rather than adopting either side's number. A review's "
-        "verification_obstacle means the Reviewer cannot observe the disputed fact "
-        "(e.g. a masked display); more rounds of the same request cannot settle it, "
-        "so steer toward a rerunnable check whose result both can see.\n"
-        "Choose CONTINUE if the current course is justified; STEER to give a concrete corrected "
+        "verification_obstacle names a decisive check that cannot happen here; more "
+        "rounds of the same request cannot settle it. If the fact is only hidden "
+        "(e.g. a masked display), steer toward a rerunnable check whose result both "
+        "can see. A check is impossible here only when the Reviewer quoted the task, "
+        "packet or environment saying what it needs exists only at grading or deploy "
+        "time (verification_obstacle_basis, quoted from verification_obstacle_basis_source); "
+        "without that quote it is missing, so "
+        "steer toward it. "
+        + _risk_authority_rule()
+        + "Choose CONTINUE if the current course is justified; STEER to give a concrete corrected "
         "instruction through the persistent Manager direction read at the team's next boundary; WAIT only when a persisted operator "
         "question prevents further work. WAIT pauses automatic planning and preserves the "
         "task and question. Do not use WAIT for ordinary implementation failures; steer a fix. "
-        "You do not change the objective, acceptance standard, or pipeline stage here.\n"
+        + _standard_rule()
+        + "Scheduling belongs to Argus and its operator: never direct a role to pause, "
+        "stop or reschedule work by editing Argus's own state.\n"
         "End your reply with these fields, each on its own line in the form KEY: value:\n"
         "ACTION: continue, steer or wait (the single word)\n"
         "REASON: the decisive observed condition and what should happen next\n"
         "EVIDENCE_REFS: semicolon-separated paths from evidence_refs\n"
-        "DIRECTIVE: the corrected team instruction (only for STEER)\n\n"
+        "DIRECTIVE: the corrected team instruction (only for STEER)\n"
+        + _risk_fields()
+        + "\n"
         + asked
         + observation.render()
     )
@@ -393,6 +499,66 @@ def _owns_reserved_control(root: Path, record: dict[str, Any]) -> bool:
         and {key: value for key, value in current.items() if key != "directive"}
         == {key: value for key, value in reserved.items() if key != "directive"}
     )
+
+
+def _obstacle_basis(event: dict[str, Any], observation: Any, item_id: str) -> tuple[str, str]:
+    """The Reviewer's quoted statement that makes this item's check impossible here, and its source.
+
+    Only a review of this same item counts: a basis quoted for another item,
+    or by a review that names no item, grounds nothing here.
+    """
+    if not item_id:
+        return "", ""
+    rows = [event, *reversed(list((getattr(observation, "facts", None) or {}).get("recent_events") or []))]
+    for row in rows:
+        if not isinstance(row, dict) or str(row.get("item_id") or "") != item_id:
+            continue
+        basis = " ".join(str(row.get("verification_obstacle_basis") or "").split())
+        if basis:
+            return basis, " ".join(str(row.get("verification_obstacle_basis_source") or "").split())[:300]
+    return "", ""
+
+
+def _apply_risk_decision(
+    root: Path, record: dict[str, Any], event: dict[str, Any], observation: Any,
+    effects: dict[str, Any],
+) -> None:
+    """Record the Manager's acceptance or revocation of one check's residual risk.
+
+    An acceptance holds only in a run with no operator, and only for a check a
+    Reviewer grounded with a quoted statement. Idempotent per decision, so a
+    replayed delivery records it once.
+    """
+    from ..core.residual_risk import accept_residual_risk, describe, revoke_residual_risk
+
+    risk = record["decision"].get("risk_decision") or {}
+    source = f"manager.supervision:{record['id']}"
+    if risk.get("action") == "revoke":
+        row = revoke_residual_risk(
+            root, risk.get("risk_id", ""), revoked_by=source, reason=record["decision"].get("reason", ""),
+        )
+        effects["residual_risk_revoked"] = row["id"] if row else ""
+        return
+    if risk.get("action") != "accept":
+        return
+    if not _manager_accepts_risk():
+        effects["residual_risk_refused"] = "an operator is available; accepting a residual risk is theirs"
+        return
+    item_id = str((record.get("trigger") or {}).get("item_id") or "")
+    if not item_id:
+        effects["residual_risk_refused"] = "the decision names no item; an acceptance covers one item's check"
+        return
+    basis, basis_source = _obstacle_basis(event, observation, item_id)
+    if not basis:
+        effects["residual_risk_refused"] = "no Reviewer of this item quoted a statement making this check impossible here"
+        return
+    entry = accept_residual_risk(
+        root, check=risk.get("check", ""), risk=risk.get("risk", ""), accepted_by="manager",
+        source_ref=source, item_id=item_id, basis=basis, basis_source=basis_source,
+    )
+    if entry is not None:
+        effects["residual_risk_accepted"] = f"[{entry['id']}] {describe(entry)}"
+        effects["residual_risk_basis_source"] = basis_source or "task"
 
 
 def _apply(
@@ -431,6 +597,7 @@ def _apply(
             effects = record.setdefault("effects", {"supervision_id": record["id"]})
             if decision["action"] == "continue":
                 effects["effect"] = "current course retained"
+                _apply_risk_decision(root, record, event, observation, effects)
                 record["applied_control_revision"] = observation.control_revision
                 return effects
             if not _owns_reserved_control(root, record):
@@ -465,6 +632,7 @@ def _apply(
                         scope_objective=observation.continuous.objective,
                     )
                 effects.update(directive_revision=directive.revision, directive_delivered=True, inbox_queued=False)
+                _apply_risk_decision(root, record, event, observation, effects)
             effects["automatic_planning_paused"] = decision["action"] == "wait"
             if decision["action"] == "wait":
                 effects["waiting_task_ids"] = record["waiting_task_ids"]

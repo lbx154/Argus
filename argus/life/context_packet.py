@@ -513,6 +513,15 @@ def record_reviewed_handoff(
     review_source = str(getattr(review, "review_source", "") or "").strip()
     if review_source:
         review_payload["review_source"] = review_source
+    # The Manager reads this packet as evidence: a check this environment
+    # cannot run, and a risk the Reviewer accepted, belong in it by name.
+    for key in (
+        "verification_obstacle", "verification_obstacle_basis", "verification_obstacle_basis_source",
+        "residual_risk",
+    ):
+        value = str(getattr(review, key, "") or "").strip()
+        if value:
+            review_payload[key] = value[:2000]
     manuscript_binding = getattr(review, "manuscript_snapshot", None)
     if isinstance(manuscript_binding, dict):
         review_payload["manuscript_snapshot"] = dict(manuscript_binding)

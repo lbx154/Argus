@@ -181,6 +181,31 @@ class SupervisedEngineer(
 
             on_event = _redacted_on_event
         state = RoundLoopState()
+        from ..core.grounding_baseline import objective_baseline
+        from .obstacle_stall import (
+            load_obstacle_stall,
+            mission_item_id,
+            stall_root,
+        )
+
+        state.obstacle_stall_root = stall_root(supervised_config)
+        state.mission_item_id = mission_item_id(supervised_config)
+        state.mission_ref = str(getattr(supervised_config, "session_id", "") or "")
+        state.obstacle_stall_objective = str(original_objective or objective or "")
+        # Before this mission's Engineer writes anything: what the workspace held
+        # when the first mission on this objective began.
+        try:
+            state.grounding_baseline = objective_baseline(
+                state.obstacle_stall_root, state.obstacle_stall_objective,
+                (workdir, getattr(self.reviewer_config, "vertical_state_root", None)),
+            )
+        except Exception:  # noqa: BLE001 - without it, no workspace file grounds
+            log.debug("grounding baseline unavailable", exc_info=True)
+            state.grounding_baseline = None
+        state.carried_obstacle_streak, state.carried_obstacle = load_obstacle_stall(
+            state.obstacle_stall_root, state.obstacle_stall_objective,
+            threshold=int(getattr(supervised_config, "stall_threshold", 0) or 0),
+        )
         if seed_thread_id:
             state.engineer_thread_ids.add(str(seed_thread_id))
         checkpoint_path = resolve_shared_checkpoint(supervised_config.checkpoint_path)

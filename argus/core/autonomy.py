@@ -32,6 +32,8 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Mapping
 
+from .model_visible_text import LABELLED_FIXTURE_CARVE_OUT
+
 AUTONOMY_MODES = frozenset({"cautious", "pragmatic", "autonomous"})
 
 # What a role may name as the reason only the operator can decide.
@@ -93,8 +95,11 @@ AUTONOMOUS_ASSUMPTION_INSTRUCTION = (
     "ambiguity between requirements; it never drops or explains away an "
     "explicit requirement or reported symptom. Never assume facts, data, "
     "measurements, or results. Never substitute placeholder credentials or "
-    "mocked services for something the task requires; if a required input is "
-    "unavailable, end the mission blocked and say what is missing. Record the "
+    "mocked services in what is delivered; if a required input is unavailable "
+    "and the task does not say it arrives only at grading or deploy time, end "
+    "the mission blocked and say what is missing. "
+    + LABELLED_FIXTURE_CARVE_OUT
+    + " Record the "
     "assumption and the conflict that forced it in CHECKPOINT.md and the run "
     "report, not inside machine-graded deliverables. Do not spend money, use "
     "real credentials, or take irreversible or outward-facing actions on it."

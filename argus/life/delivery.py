@@ -492,6 +492,7 @@ def build_delivery_receipt(
     review_status: str,
     final_submission_certified: bool,
     review_source: str = "",
+    residual_risk: str = "",
     workspace: Path | str | None,
     state_root: Path | str | None,
     stage: str = "",
@@ -573,6 +574,9 @@ def build_delivery_receipt(
         # ``engineer_self_review`` and friends are the worker checking itself.
         # A ``done`` status alone does not say which, so the UI needs this.
         "review_source": str(review_source or "").strip()[:80],
+        # One check approved unverified on an accepted risk; the delivery
+        # card shows it instead of a plain pass.
+        "residual_risk": " ".join(str(residual_risk or "").split())[:600],
         "delivered_at": delivered_at,
         "primary_target": dict(targets[0]),
         "targets": targets,
