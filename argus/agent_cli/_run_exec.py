@@ -160,6 +160,8 @@ class _StreamState:
 class RunExecMixin:
     """Owns the public ``run_exec`` entry point and its private phases."""
 
+    backend: str
+
     def run_exec(
         self,
         *,
@@ -363,6 +365,10 @@ class RunExecMixin:
             command, prompt, working_dir=options.working_dir
         )
         command[0] = self._resolve_executable(command[0])
+        if self.backend == BACKEND_COPILOT:
+            from .copilot_launcher import stable_copilot_command
+
+            command = stable_copilot_command(command)
         if options.isolate_workdir:
             try:
                 from ..core.sandbox import isolated_workdir_command
@@ -1012,6 +1018,11 @@ class RunExecMixin:
                 # Housekeeping watchdogs (turn allowance, idle restart) only
                 # fill an absent reason.
                 state.fatal_error = state.watchdog_reason
+        elif state.turn_completed and not state.turn_failed and process.returncode != 0:
+            state.fatal_error = _incomplete_turn_error(
+                state.stderr_since_progress,
+                receipt=f"Process exited with code {process.returncode} after model turn completion.",
+            )
         elif state.turn_completed and not state.turn_failed:
             state.fatal_error = None
         elif state.fatal_error is None and (

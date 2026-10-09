@@ -4,6 +4,7 @@ from __future__ import annotations
 
 _COMPLETED_STATUSES = frozenset({"done", "success", "completed"})
 _INCOMPLETE_STATUSES = frozenset({
+    "stage_continues",
     "research_incomplete",
     "paused_no_breakthrough",
     "exhausted_current_methods",
@@ -28,6 +29,8 @@ def mission_outcome_class(status: str, success: bool) -> str:
     """Map raw mission status flags to the lifecycle outcome buckets."""
 
     normalized = str(status or "").strip().lower()
+    if normalized == "stage_continues":
+        return "incomplete"
     if success or normalized in _COMPLETED_STATUSES:
         return "completed"
     if normalized in _INCOMPLETE_STATUSES:
