@@ -361,7 +361,7 @@ def test_previous_review_summary_keeps_only_last_three_one_line_verdicts() -> No
                 status="continue",
                 reason=f"Repeated reason {index}\nwith extra whitespace",
                 next_action=f"action {index}",
-                independent_review=True,
+                reviewer_authored=True,
             ),
         ))
 

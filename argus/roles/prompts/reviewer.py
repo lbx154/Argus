@@ -38,7 +38,9 @@ _REEVALUATE_HEADER = (
 # for ninety reviews without once returning `incorrect`.
 _INCREMENTAL_REREVIEW_BOUNDARY = (
     "## Incremental re-review boundary\n"
-    "The previous Reviewer judgment below is settled context for this mission. "
+    "The previous Reviewer judgment below is settled context for this mission: "
+    "you need not redo its work, but it is not proven true. If current evidence "
+    "shows your earlier judgment was wrong, say so and correct it. "
     "Inspect the prior `next_action`, the current Engineer summary, the "
     "files changed to satisfy that action, and the relevant "
     "checks. Do not restart repository research, reopen established findings, or "

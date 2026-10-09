@@ -171,6 +171,7 @@ def render_mission_brief(
     *,
     include_engineer_account: bool = True,
     include_previous_review: bool = True,
+    include_missing_condition: bool = True,
 ) -> str:
     """Project canonical mission/frontier state into one compact role briefing.
 
@@ -263,7 +264,7 @@ def render_mission_brief(
     if engineer_summary and include_engineer_account:
         label = "Unreviewed Engineer work" if pending_engineer else "Reviewed Engineer work"
         lines.append(f"- {label}: {engineer_summary}")
-    if reviewed and status != "done" and include_previous_review:
+    if reviewed and status != "done" and include_missing_condition:
         missing = _brief_items(frontier.get("remaining_work"))
         if missing:
             label = "Previously missing condition" if pending_engineer else "Missing condition"
@@ -271,7 +272,8 @@ def render_mission_brief(
     next_action = (
         _brief_text(review.get("next_action")) if include_previous_review else ""
     )
-    if next_action:
+    # The same text already appears as the review reason one line above.
+    if next_action and next_action != reason:
         label = "Previously requested action" if pending_engineer else "Next action"
         lines.append(f"- {label}: {next_action}")
     if isinstance(review.get("venue_review"), Mapping):

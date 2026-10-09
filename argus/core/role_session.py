@@ -219,12 +219,18 @@ class RoleSessionCapsule:
             capsule.static_fingerprint = str(payload.get("static_fingerprint") or "")
             capsule.signal_kind = str(payload.get("signal_kind") or "")
             capsule.signal_detail = str(payload.get("signal_detail") or "")
-            capsule.seen_thread_ids = [
-                str(item) for item in (payload.get("seen_thread_ids") or []) if item
-            ][-_SEEN_THREAD_IDS_LIMIT:]
         elif payload:
             capsule.action = "rotated"
             capsule.rotation_reason = f"{changed}_changed"
+        if payload and payload.get("role") == role:
+            # The role's thread history outlives rotation and context changes:
+            # another role must keep refusing every thread this one used.
+            history = payload.get("seen_thread_ids")
+            seen = [str(item) for item in history if item] if isinstance(history, list) else []
+            previous = str(payload.get("thread_id") or "")
+            if previous and previous not in seen:
+                seen.append(previous)
+            capsule.seen_thread_ids = seen[-_SEEN_THREAD_IDS_LIMIT:]
         if not capsule.thread_id and seed_thread_id and policy != "fresh":
             capsule.thread_id = seed_thread_id
         if policy == "fresh":
@@ -302,17 +308,14 @@ class RoleSessionCapsule:
             raw_input = int(getattr(result, "input_tokens", 0) or 0)
             cached_input = int(getattr(result, "cached_input_tokens", 0) or 0)
             self.input_tokens += max(0, raw_input - max(0, cached_input))
-            self.thread_id = (
-                ""
-                if self.policy == "fresh"
-                else str(getattr(result, "thread_id", "") or "")
-            )
+            result_thread = str(getattr(result, "thread_id", "") or "")
+            if result_thread and result_thread not in self.seen_thread_ids:
+                self.seen_thread_ids = [
+                    *self.seen_thread_ids, result_thread,
+                ][-_SEEN_THREAD_IDS_LIMIT:]
+            self.thread_id = "" if self.policy == "fresh" else result_thread
             if self.policy == "fresh":
                 return True
-            if self.thread_id and self.thread_id not in self.seen_thread_ids:
-                self.seen_thread_ids = [
-                    *self.seen_thread_ids, self.thread_id,
-                ][-_SEEN_THREAD_IDS_LIMIT:]
             self.decisive_output = redact_secrets_text(
                 decisive_output[:2000], known_values=known_secret_values()
             )

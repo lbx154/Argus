@@ -2,7 +2,9 @@
 from __future__ import annotations
 
 import json
+from dataclasses import replace
 from pathlib import Path
+from types import SimpleNamespace
 
 from argus import SkillLoop, SkillLoopConfig
 from argus.adapters.memory_backend import CannedResponse, MemoryBackend
@@ -14,6 +16,7 @@ from argus.engineer.reviewer_findings import (
 )
 from argus.engineer.round_reviewer import _previous_review_summary
 from argus.engineer.round_state import RoundLoopState
+from argus.engineer.runner import hold_review_for_pending_background_run
 from argus.engineer.round_stop_signals import (
     backend_failure_review_decision,
     idle_termination_review_decision,
@@ -103,7 +106,7 @@ def _record(index: int, review: ReviewDecision) -> RoundRecord:
 
 def _reviewer_judgment(reason: str) -> ReviewDecision:
     return ReviewDecision(
-        status="continue", reason=reason, next_action=reason, independent_review=True,
+        status="continue", reason=reason, next_action=reason, reviewer_authored=True,
     )
 
 
@@ -150,7 +153,7 @@ def test_first_round_review_is_unchanged(tmp_path: Path) -> None:
     first = _reviewer_prompts(backend)[0]
     assert _FINDINGS not in first
     assert "previous_review_summary" not in first
-    assert render_previous_findings([], round_index=1) == ""
+    assert not render_previous_findings([], round_index=1)
     kw = dict(
         objective="o", operator_messages=[], planner_review_instruction="",
         round_index=1, session_id=None, main_summary="S", main_error=None,
@@ -158,7 +161,7 @@ def test_first_round_review_is_unchanged(tmp_path: Path) -> None:
     reviewer = Reviewer(runner=None, skill_store=None)
     assert reviewer._build_prompt(**kw) == reviewer._build_prompt(previous_findings="", **kw)
     # Only the independent Reviewer call's own judgment is marked as a finding.
-    assert outcome.rounds[0].review.independent_review is True
+    assert outcome.rounds[0].review.reviewer_authored is True
 
 
 # --- provenance (host placeholders are never Reviewer findings) --------------
@@ -180,26 +183,47 @@ def _placeholders() -> dict[str, ReviewDecision]:
     }
 
 
+_UNJUDGED_LINES = {
+    "provider_turn_cap": (
+        "Round 2 was not reviewed: the Engineer's session reached its per-call turn limit."
+    ),
+    "backend_failure": (
+        "Round 2 was not reviewed: the model service dropped the Engineer's session."
+    ),
+    "silent_command": (
+        "Round 2 was not reviewed: Argus stopped the Engineer's session after a "
+        "command stayed silent for the whole idle limit."
+    ),
+}
+
+
 def test_host_placeholders_are_never_shown_as_reviewer_findings() -> None:
     for name, placeholder in _placeholders().items():
-        assert placeholder.independent_review is False, name
-        state = RoundLoopState(rounds=[_record(1, placeholder)])
-        assert render_previous_findings(state.rounds, round_index=2) == "", name
+        assert placeholder.reviewer_authored is False, name
+        assert placeholder.host_placeholder == name
+        state = RoundLoopState(rounds=[_record(2, placeholder)])
+        findings = render_previous_findings(state.rounds, round_index=3)
+        assert not findings.has_reviewer_findings, name
+        assert _FINDINGS not in findings.text, name
+        assert placeholder.reason[:40] not in findings.text, name
+        assert "ENGINEER-WIND-DOWN" not in findings.text, name
         # Nor as the "settled" previous judgment the incremental boundary cites.
         assert _previous_review_summary(state) == "", name
 
 
-def test_placeholders_after_a_real_review_do_not_displace_it() -> None:
+def test_unjudged_rounds_appear_as_one_host_fact_line_each() -> None:
     for name, placeholder in _placeholders().items():
         rounds = [
             _record(1, _reviewer_judgment("REAL-REVIEWER-FINDING")),
             _record(2, placeholder),
         ]
-        findings = render_previous_findings(rounds, round_index=3)
-        assert "Your judgment in round 1 (`continue`):" in findings, name
-        assert "REAL-REVIEWER-FINDING" in findings, name
-        assert placeholder.reason[:40] not in findings, name
-        assert "ENGINEER-WIND-DOWN" not in findings, name
+        text = render_previous_findings(rounds, round_index=3).text
+        assert "Your judgment in round 1 (`continue`):" in text, name
+        assert "REAL-REVIEWER-FINDING" in text, name
+        host = text.split("## Host facts since then (not your words)\n", 1)[1]
+        assert host.splitlines() == ["- " + _UNJUDGED_LINES[name]], name
+        assert placeholder.reason[:40] not in text, name
+        assert "ENGINEER-WIND-DOWN" not in text, name
         summary = _previous_review_summary(RoundLoopState(rounds=rounds))
         assert summary.splitlines() == ["Round 1 — continue: REAL-REVIEWER-FINDING"], name
 
@@ -209,7 +233,159 @@ def test_self_reviews_are_not_reviewer_findings() -> None:
         status="done", reason="self check passed", next_action="",
         review_source="engineer_self_review",
     )
-    assert render_previous_findings([_record(1, self_review)], round_index=2) == ""
+    findings = render_previous_findings([_record(1, self_review)], round_index=2)
+    assert not findings.has_reviewer_findings
+    assert "self check passed" not in findings.text
+    assert "checked only by the Engineer's self-review" in findings.text
+    # A flag alone is not enough: the source must be the Reviewer as well.
+    flagged = replace(self_review, reviewer_authored=True)
+    assert not render_previous_findings([_record(1, flagged)], round_index=2).has_reviewer_findings
+
+
+# --- host rewrites keep the Reviewer's own words ------------------------------
+
+
+def test_operator_question_policy_replacement_is_not_a_reviewer_finding(
+    monkeypatch,
+) -> None:
+    import argus.engineer.round_settlement as settlement
+
+    monkeypatch.setattr(settlement, "_operator_questions_allowed", lambda _cfg: False)
+    asked = ReviewDecision(
+        status="blocked", reason="REAL: the operator must pick dataset A or B",
+        next_action="REAL: pick", operator_question="A or B?", reviewer_authored=True,
+    )
+    replaced = settlement._enforce_operator_question_policy(
+        asked, supervised_config=SimpleNamespace(), state=RoundLoopState(),
+    )
+    assert replaced.reviewer_authored is False
+    findings = render_previous_findings([_record(1, replaced)], round_index=2)
+    assert not findings.has_reviewer_findings
+    assert "Operator questions are forbidden" not in findings.text
+    assert "the host replaced the review because operator questions" in findings.text
+
+
+def test_background_wait_hold_keeps_the_reviewer_words_and_labels_the_host_change() -> None:
+    approved = ReviewDecision(
+        status="done", reason="REAL: the launch is correct.", next_action="",
+        reviewer_authored=True,
+    )
+    held = hold_review_for_pending_background_run(approved)
+    assert held.status == "continue" and held.reviewer_authored
+    text = render_previous_findings([_record(1, held)], round_index=2).text
+    findings, host = text.split("## Host facts since then (not your words)\n", 1)
+    assert "Your judgment in round 1 (`done`):\nREAL: the launch is correct." in findings
+    assert "still has no terminal result" not in findings
+    assert "Await the declared background run" not in findings
+    assert "held open because a declared background run is still pending" in host
+    summary = _previous_review_summary(RoundLoopState(rounds=[_record(1, held)]))
+    assert summary == "Round 1 — done: REAL: the launch is correct."
+
+
+def test_venue_enforcement_keeps_the_reviewer_words_and_labels_the_host_change(
+    tmp_path: Path,
+) -> None:
+    from argus.core.pipeline_state import read_pipeline_state, write_pipeline_state
+    from argus.core.role_tool_bridge import bridge_request
+    from argus.core.models import RunnerResult
+    from argus.reviewer import ReviewerConfig
+    from argus.skills.vertical_select import persist_vertical
+
+    persist_vertical(tmp_path, "research", target_venue="ICLR")
+    state = read_pipeline_state(tmp_path)
+    state["current_stage"] = "review"
+    state["venue_acceptance_minimum"] = "strong_accept"
+    write_pipeline_state(tmp_path, state)
+    (tmp_path / "paper").mkdir()
+    (tmp_path / "paper/main.tex").write_text("Current manuscript")
+    (tmp_path / "paper/main.pdf").write_bytes(b"Current PDF")
+    prose = "REAL: my recommendation for this version is weak accept."
+
+    class Runner:
+        backend = "pi"
+
+        def run_exec(self, **kwargs):
+            bridge_request(
+                "ARGUS_PLUGIN_REVIEW", "approve_review",
+                {"review": prose, "recommendation": "weak_accept"},
+                env=kwargs["options"].extension_env,
+            )
+            return RunnerResult(exit_code=0, agent_messages=["submitted"])
+
+    review = Reviewer(Runner()).evaluate(
+        objective="Polish the paper.", round_index=1, session_id=None,
+        main_summary="Revised.", main_error=None, scope="final_submission",
+        config=ReviewerConfig(
+            model="m", active_vertical="research",
+            working_dir=str(tmp_path), vertical_state_root=str(tmp_path),
+        ),
+    )
+    assert review.status == "continue"
+    assert review.next_action.startswith("The operator requires actual strong accept")
+    review.reviewer_authored = True
+    text = render_previous_findings([_record(1, review)], round_index=2).text
+    findings, host = text.split("## Host facts since then (not your words)\n", 1)
+    assert f"Your judgment in round 1 (`done`):\n{prose}" in findings
+    assert "The operator requires actual strong accept" not in findings
+    assert "selected-venue acceptance check changed this judgment" in host
+    assert "your `done` became `continue`" in host
+
+
+# --- earlier words are open to correction -------------------------------------
+
+
+def test_findings_are_framed_as_correctable_earlier_words() -> None:
+    reason = "First line of the finding.\n\n\nSecond   paragraph keeps its break."
+    text = render_previous_findings(
+        [_record(1, _reviewer_judgment(reason))], round_index=2,
+    ).text
+    assert "These are your earlier words, not verified facts." in text
+    assert "say so and correct it" in text
+    assert "First line of the finding.\n\nSecond paragraph keeps its break." in text
+    boundary = Reviewer(runner=None, skill_store=None)._build_round_delta(
+        resumed=False, objective="o", operator_messages=[], planner_review_instruction="",
+        round_index=2, session_id=None, main_summary="S", main_error=None,
+        prev_review_summary="Round 1 — continue: x",
+    )
+    assert "settled context" in boundary
+    assert "If current evidence shows your earlier judgment was wrong" in boundary
+
+
+def test_open_items_are_bounded_and_say_when_truncated() -> None:
+    judgment = _reviewer_judgment("Fix the totals.")
+    judgment.frontier_report = {
+        "remaining_work": [f"item {index} " + "x" * 500 for index in range(8)],
+    }
+    findings = render_previous_findings([_record(1, judgment)], round_index=2)
+    assert findings.has_open_items
+    items = [line for line in findings.text.splitlines() if line.startswith("- item")]
+    assert len(items) == 6
+    assert all(len(line) <= 402 for line in items)
+    assert "- (+2 more not shown)" in findings.text
+
+
+def test_brief_keeps_the_missing_condition_when_findings_name_no_open_items(
+    tmp_path: Path,
+) -> None:
+    from argus.life.context_packet import create_mission_context, record_reviewed_handoff
+
+    mission = create_mission_context(
+        life_dir=tmp_path / "state", mission_id="m", stage="develop",
+        objective="o", execution_workdir=str(tmp_path),
+    )
+    review = _reviewer_judgment("Totals are wrong.")
+    review.frontier_report = {"remaining_work": ["recount the totals"], "change": "bounded_regression"}
+    record_reviewed_handoff(
+        mission_context_path=mission, round_index=1, engineer_summary="done",
+        review=review, checkpoint_path=mission.parent / "CHECKPOINT.md",
+    )
+    kept = render_mission_brief(mission, include_previous_review=False)
+    dropped = render_mission_brief(
+        mission, include_previous_review=False, include_missing_condition=False,
+    )
+    assert "Totals are wrong." not in kept
+    assert "- Missing condition: recount the totals" in kept
+    assert "recount the totals" not in dropped
 
 
 # --- own thread only ----------------------------------------------------------
@@ -278,3 +454,41 @@ def test_mission_brief_can_omit_the_previous_review(tmp_path: Path) -> None:
     assert "All rows match." not in render_mission_brief(
         context, include_previous_review=False,
     )
+
+
+def _engineer_capsule(tmp_path: Path, *, model: str = "m", policy: str = "mission"):
+    return RoleSessionCapsule.open(
+        role="engineer", policy=policy, objective_revision="rev",
+        workdir=tmp_path, backend="memory", model=model,
+        checkpoint_path=None,
+        path=tmp_path / "engineer.json" if policy != "fresh" else None,
+    )
+
+
+def test_thread_history_survives_a_context_change_and_ignores_a_bare_string(
+    tmp_path: Path,
+) -> None:
+    first = _engineer_capsule(tmp_path)
+    first.prepare(max_turns=0, max_input_tokens=0)
+    first.complete(type("R", (), {"thread_id": "thr-abc"})())
+    # A changed model rotates the capsule; the thread history stays.
+    rotated = _engineer_capsule(tmp_path, model="other")
+    assert rotated.action == "rotated"
+    assert rotated.seen_thread_ids == ["thr-abc"]
+    assert json.loads((tmp_path / "engineer.json").read_text())["seen_thread_ids"] == [
+        "thr-abc"
+    ]
+    payload = json.loads((tmp_path / "engineer.json").read_text())
+    payload["seen_thread_ids"] = "thr-xyz"
+    payload["thread_id"] = ""
+    (tmp_path / "engineer.json").write_text(json.dumps(payload))
+    # Never split into characters.
+    assert _engineer_capsule(tmp_path, model="other").seen_thread_ids == []
+
+
+def test_fresh_policy_still_records_engineer_threads(tmp_path: Path) -> None:
+    capsule = _engineer_capsule(tmp_path, policy="fresh")
+    capsule.prepare(max_turns=0, max_input_tokens=0)
+    capsule.complete(type("R", (), {"thread_id": "e-fresh"})())
+    assert capsule.thread_id == ""
+    assert capsule.seen_thread_ids == ["e-fresh"]

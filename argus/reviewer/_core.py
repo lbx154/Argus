@@ -685,6 +685,25 @@ def _engineer_log_audit_block(
     )
 
 
+def _note_host_venue_rewrite(decision: ReviewDecision) -> None:
+    """Record, apart from the Reviewer's words, what venue enforcement changed."""
+    words = decision.reviewer_words or {}
+    changes: list[str] = []
+    before_status = words.get("status", "")
+    if decision.status != before_status:
+        changes.append(f"your `{before_status}` became `{decision.status}`")
+    if decision.reason != words.get("reason", "") or (
+        decision.next_action != words.get("next_action", "")
+    ):
+        changes.append("the host added its own guidance to the request")
+    if changes:
+        decision.host_notes = [
+            *decision.host_notes,
+            "the selected-venue acceptance check changed this judgment ("
+            + "; ".join(changes) + ")",
+        ]
+
+
 class Reviewer:
     """One independent judgment per round, with optional same-role resume."""
 
@@ -991,11 +1010,17 @@ class Reviewer:
             # Reviewer owns the scientific recommendation. The host enforces the
             # operator's explicit minimum and current-file binding, not prose or
             # research-result keyword heuristics.
+            decision.reviewer_words = {
+                "status": str(decision.status or ""),
+                "reason": str(decision.reason or ""),
+                "next_action": str(decision.next_action or ""),
+            }
             if venue_required:
                 enforce_venue_acceptance(
                     decision, venue=venue, before=venue_snapshot, artifact_root=artifact_root,
                     minimum=acceptance_minimum,
                 )
+                _note_host_venue_rewrite(decision)
                 if decision.backend_unavailable:
                     return decision
             _persist_research_review(decision, config, authored_text=authored_review)
