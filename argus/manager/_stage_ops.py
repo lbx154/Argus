@@ -172,9 +172,18 @@ class _StageDecisionMixin:
             "challenge",
             "alternative",
             "authority_impact",
+            # Routing judgments for supervision and reflection; they say
+            # nothing about whether the stage is accepted.
+            "manager_attention",
+            "manager_attention_reason",
+            "learning",
+            "learning_reason",
         }
         if not set(planner_report).issubset(allowed_plan_fields):
             return False
+        for name in ("manager_attention", "manager_attention_reason", "learning", "learning_reason"):
+            if name in planner_report and not isinstance(planner_report[name], str):
+                return False
         if "forward_progress" in planner_report:
             progress = planner_report["forward_progress"]
             if not isinstance(progress, bool) or not progress:
@@ -451,7 +460,10 @@ class _StageDecisionMixin:
             completion_reason=completion_reason,
             completion_context=completion_context,
         )
-        run_exec, hold = self._build_stage_run_exec(None, on_event)
+        # Named for what it is: the operator report, not a stage decision.
+        run_exec, hold = self._build_stage_run_exec(
+            None, on_event, run_label="manager-project-report",
+        )
         if hold is not None or run_exec is None:
             from ..core.operator_messages import uses_cjk
 

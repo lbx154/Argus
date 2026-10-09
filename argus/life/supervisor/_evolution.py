@@ -72,26 +72,35 @@ class EvolutionMixin:
             if callable(set_usage):
                 set_usage(usage_mission_id)
 
+            self._pending_reviewed_fact = None
             if (
                 str(reviewer_source or "").strip().casefold() == "reviewer"
                 and isinstance(research_result, dict)
             ):
                 from ...core.paths import reviewed_facts_digest_path
-                from ...manager.reviewed_facts import review_and_append_fact
+                from ...life.reflection import reflection_enabled
+                from ...manager.reviewed_facts import (
+                    review_and_append_fact,
+                    reviewed_fact_candidate,
+                )
 
+                facts_kwargs = dict(
+                    source_campaign=(source_campaign or str(self._project_workdir())),
+                    reviewer_reason=reviewer_reason,
+                    research_result=research_result,
+                    evidence_refs=evidence_refs,
+                )
                 try:
-                    review_and_append_fact(
-                        self.runner,
-                        digest_path=reviewed_facts_digest_path(
-                            self._budget_global_root()
-                        ),
-                        source_campaign=(
-                            source_campaign or str(self._project_workdir())
-                        ),
-                        reviewer_reason=reviewer_reason,
-                        research_result=research_result,
-                        evidence_refs=evidence_refs,
-                    )
+                    if reflection_enabled():
+                        # The post-mission reflection carries this judgment in its
+                        # own call, or runs it alone when it does not reflect.
+                        self._pending_reviewed_fact = reviewed_fact_candidate(**facts_kwargs)
+                    else:
+                        review_and_append_fact(
+                            self.runner,
+                            digest_path=reviewed_facts_digest_path(self._budget_global_root()),
+                            **facts_kwargs,
+                        )
                 except Exception:  # noqa: BLE001 - facts never own settlement
                     log.warning("Manager reviewed-facts hook failed", exc_info=True)
 

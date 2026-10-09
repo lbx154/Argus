@@ -1568,6 +1568,10 @@ class MissionExecutionSettlementMixin:
         from ._evolution import _project_state_root
 
         item, outcome = state.item, state.outcome
+        reviewed_fact = getattr(self, "_pending_reviewed_fact", None)
+        self._pending_reviewed_fact = None
+        review_status = str(getattr(outcome, "final_review_status", "") or "")
+        final_report = getattr(outcome, "final_planner_report", {}) or {}
         workspace = Path(state.execution_workdir or self._project_workdir())
         manager_decision = getattr(item, "manager_decision", {}) or {}
         vertical = (
@@ -1594,7 +1598,7 @@ class MissionExecutionSettlementMixin:
             title=str(item.title or ""),
             objective=str(item.original_objective or item.objective or ""),
             acceptance=str(getattr(item, "acceptance_check", "") or ""),
-            review_status=str(getattr(outcome, "final_review_status", "") or ""),
+            review_status=review_status,
             review_reason=str(getattr(outcome, "final_review_reason", "") or ""),
             stop_reason=(
                 f"status={state.status}; stop_kind={state.stop_kind or 'none'}; "
@@ -1609,6 +1613,17 @@ class MissionExecutionSettlementMixin:
             emit=self._emit,
             elapsed_s=float(state.elapsed or 0.0),
             rounds=int(state.rounds or 0),
+            reviewed_fact=reviewed_fact,
+            # Only the Reviewer's own verdict carries its learning judgment.
+            learning=(
+                str(final_report.get("learning") or "")
+                if isinstance(final_report, dict)
+                and str(getattr(outcome, "final_review_source", "") or "").strip().lower() == "reviewer"
+                else ""
+            ),
+            mission_accepted=bool(
+                state.success and not state.iteration_requeued and not state.replan_requested
+            ),
         )
 
     def _build_settled_experience(self, state: _MissionRunState) -> Any:

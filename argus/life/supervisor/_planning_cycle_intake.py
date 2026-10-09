@@ -558,6 +558,9 @@ class PlanningCycleIntakeMixin:
                 )
                 if unchanged_outcome is not None:
                     return unchanged_outcome
+                failing_hold = self._maybe_hold_failing_planner(state)
+                if failing_hold is not None:
+                    return failing_hold
 
         self._planning_cycles += 1
         state.manager_intent = self._manager_intent_context()

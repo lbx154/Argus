@@ -9,7 +9,7 @@ from pathlib import Path
 from typing import TYPE_CHECKING, Any, Callable
 
 from ..core.event_catalog import EventType
-from ..core.models import LoopStatus, ReviewDecision, RoundRecord
+from ..core.models import LoopStatus, ReviewDecision, RoundRecord, without_routing_judgments
 from .checkpoint import resolve_shared_checkpoint
 from .round_config import (
     OPERATOR_QUESTION_FORBIDDEN_NEXT_ACTION,
@@ -57,9 +57,9 @@ def _enforce_operator_question_policy(
     # type at runtime, and it carries model-derived data into a completion
     # decision. ``core.models.ReviewDecision.to_event_payload`` guards the same
     # field for the same reason; the two should not disagree.
-    planner_report = (
-        dict(review.planner_report) if isinstance(review.planner_report, dict) else {}
-    )
+    # The host overrides this verdict, so the Reviewer's routing judgments no
+    # longer apply to it.
+    planner_report = without_routing_judgments(review.planner_report)
     planner_report.update(
         {
             "plan_signal": "continue",

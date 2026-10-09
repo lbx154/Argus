@@ -40,6 +40,49 @@ def _resolve_manager_workdir(mem: Any) -> Path:
     return active_campaign_workdir(life_dir, base) or base
 
 
+def _node_stage_of_record(
+    state_root: Path | str,
+    node_workdir: Path | str,
+    campaign_workdir: Path | str,
+) -> str:
+    """Stage a new backlog node is bound to, read where the stage is kept.
+
+    The supervisor reads the campaign stage from the project state root and
+    replays reviewed work only for rows tagged with that stage; its own
+    Planner enqueue tags rows the same way. Reading the team workdir instead
+    (which has no pipeline state of its own) tagged every staged node with
+    the vertical's first stage, so its reviewed results were never replayed,
+    the campaign could never certify, and its delivery never arrived.
+
+    A node is nested only when it really runs in another directory than the
+    campaign workdir (``"."``, the campaign path itself, and the
+    deferred-clone fallback all run at the root). A nested repository with a
+    pipeline state of its own keeps its own stage; every other node takes the
+    state-root stage when the state root keeps one.
+    """
+    from ..core.pipeline_state import pipeline_state_exists
+    from ..skills.stage_machine import current_stage
+
+    def _same(left: Path | str, right: Path | str) -> bool:
+        try:
+            return Path(left).expanduser().resolve() == Path(right).expanduser().resolve()
+        except OSError:
+            return str(left) == str(right)
+
+    def _has_state(root: Path | str) -> bool:
+        try:
+            return pipeline_state_exists(root)
+        except OSError:
+            return False
+
+    nested = not _same(node_workdir, campaign_workdir)
+    if nested and _has_state(node_workdir):
+        return current_stage(node_workdir)
+    if _has_state(state_root):
+        return current_stage(state_root)
+    return current_stage(node_workdir)
+
+
 def _stable_topological_nodes(tasks: tuple[Any, ...]) -> list[Any]:
     ordered: list[Any] = []
     done: set[str] = set()
@@ -639,7 +682,6 @@ def enqueue_mission(
             resolve_task_workdir,
             task_workdir_provenance,
         )
-        from ..skills.stage_machine import current_stage
 
         campaign_workdir = _resolve_manager_workdir(mem)
         for index, node in enumerate(nodes):
@@ -663,7 +705,7 @@ def enqueue_mission(
                     node_workdir = campaign_workdir
                 else:
                     raise
-            stage = current_stage(node_workdir)
+            stage = _node_stage_of_record(life_dir, node_workdir, campaign_workdir)
             stage_closing = bool(getattr(node, "stage_closing", False))
             require_review = bool(
                 getattr(node, "require_independent_review", True)

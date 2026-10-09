@@ -188,6 +188,22 @@ class RunnerResult:
         return self.agent_messages[-1]
 
 
+#: Reviewer judgments that route the host's own calls (Manager supervision,
+#: post-mission reflection). When the host rewrites a verdict's status or strips
+#: its signals, these no longer describe what the Reviewer saw, so they are
+#: dropped and read as absent: the Manager looks and reflection runs.
+REVIEW_ROUTING_JUDGMENTS = (
+    "manager_attention", "manager_attention_reason", "learning", "learning_reason",
+)
+
+
+def without_routing_judgments(report: Any) -> dict[str, Any]:
+    """A copy of a planner report without the Reviewer's routing judgments."""
+    if not isinstance(report, dict):
+        return {}
+    return {key: value for key, value in report.items() if key not in REVIEW_ROUTING_JUDGMENTS}
+
+
 @dataclass
 class ReviewDecision:
     """Reviewer verdict on one Engineer round."""
@@ -304,6 +320,10 @@ class ReviewDecision:
             ("challenge", "plan_challenge"),
             ("alternative", "plan_alternative"),
             ("authority_impact", "authority_impact"),
+            ("manager_attention", "manager_attention"),
+            ("manager_attention_reason", "manager_attention_reason"),
+            ("learning", "learning"),
+            ("learning_reason", "learning_reason"),
         ):
             value = str(report.get(source_key) or "").strip()
             if value:

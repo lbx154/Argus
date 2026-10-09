@@ -443,6 +443,12 @@ class _PlanCycleState:
         # Set by the unchanged-input gate in the intake phase; empty when the
         # cycle's inputs could not be fingerprinted (skip stays disabled).
         self.planner_input_signature: str = ""
+        # Set when this cycle turned an unusable Planner answer into an
+        # operator question; the next Planner call then waits for a change.
+        self.planner_asked_operator: bool = False
+        # Set when the turn ended in something other than a Planner failure
+        # (the Manager reconciled an empty plan), so it does not count.
+        self.planner_turn_not_failed: bool = False
 
         # Set by the dedupe/enqueue phases.
         self.existing_items: list[BacklogItem] = []
