@@ -59,7 +59,7 @@ def test_receipt_comes_first_and_an_empty_stderr_is_said_so() -> None:
     )
 
 
-def test_tail_is_clean_redacted_and_keeps_local_paths() -> None:
+def test_tail_is_clean_redacted_and_keeps_local_paths(redact_secrets_on) -> None:
     tail = stderr_tail([
         "\x1b[31mError:\x1b[0m connect ECONNREFUSED 127.0.0.1:18765",
         "Authorization: Bearer xyz0123456789abcdef",
@@ -160,7 +160,7 @@ def test_copilot_exit_one_carries_the_stderr_reason_and_reads_as_infrastructure(
     assert cause.line == "connect ECONNREFUSED 127.0.0.1:18765"
 
 
-def test_copilot_exit_one_redacts_a_bearer_token_from_stderr(monkeypatch) -> None:
+def test_copilot_exit_one_redacts_a_bearer_token_from_stderr(redact_secrets_on, monkeypatch) -> None:
     result = _run_copilot(
         monkeypatch,
         stderr=["Authorization: Bearer xyz0123456789abcdef", ECONNREFUSED],

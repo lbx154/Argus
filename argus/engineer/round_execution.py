@@ -208,6 +208,8 @@ class RoundExecutionMixin:
             on_event=on_event,
         )
         new_tid = engineer_result.thread_id
+        if new_tid:
+            state.engineer_thread_ids.add(str(new_tid))
         fatal_error = engineer_result.fatal_error
         safe_fatal_error = redact_secrets_text(
             str(fatal_error or ""),
@@ -1001,6 +1003,8 @@ class RoundExecutionMixin:
                 supervised_config=supervised_config,
                 on_event=on_event,
             )
+            if wind_down_result.thread_id:
+                state.engineer_thread_ids.add(str(wind_down_result.thread_id))
             wind_down_summary = redact_secrets_text(
                 str(wind_down_result.last_agent_message or "")[:2000],
                 known_values=known_secret_values(),

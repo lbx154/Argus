@@ -47,7 +47,13 @@ interface ModelOptions {
   reasoning?: boolean;
 }
 
-export function redactSecrets(text: string): { text: string; sensitive: boolean } {
+/**
+ * Flag credential-shaped text without rewriting it. Argus shows text as it was
+ * written: masked text cannot be verified by anyone reading it, and an operator
+ * who wants masking turns on ARGUS_SKILL_REDACT_SECRETS, which masks upstream
+ * before events reach any screen. `sensitive` still marks what looks like one.
+ */
+export function scanSecrets(text: string): { text: string; sensitive: boolean } {
   let sanitized = text;
   sanitized = sanitized.replace(
     /^(\s*(?:authorization|proxy-authorization)\s*:).*$/gim,
@@ -71,11 +77,11 @@ export function redactSecrets(text: string): { text: string; sensitive: boolean 
       '$1$2$3 <REDACTED:secret>',
     )
     .replace(/\b([a-z][a-z0-9+.\-]*:\/\/)[^/\s:@]+:[^/\s@]+@/gi, '$1<REDACTED:creds>@');
-  return { text: sanitized, sensitive: sanitized !== text };
+  return { text, sensitive: sanitized !== text };
 }
 
 function visibleText(value: unknown): { text: string; sensitive: boolean } {
-  return redactSecrets(visibleAgentText(value));
+  return scanSecrets(visibleAgentText(value));
 }
 
 function clean(value: unknown, limit: number): string {
@@ -688,7 +694,7 @@ export interface RenderedLine {
   reasoning: boolean;
   /** Keep the complete wrapped body rather than truncating it to one line. */
   expand: boolean;
-  /** Something that looked like a credential was redacted from the text. */
+  /** Something in the text looks like a credential (it is shown as written). */
   sensitive: boolean;
 }
 

@@ -75,8 +75,10 @@ def _redact(text: str, grant: ModelApiGrant | ModelApiRoute | None = None) -> st
     local rule was ``sk-[A-Za-z0-9]{12,}``, which stops at the first hyphen and
     therefore missed the two formats OpenAI and Anthropic actually issue today.
     """
-    from ..core.secret_guard import redact_secrets_text
+    from ..core.secret_guard import redact_secrets_text, secret_redaction_enabled
 
+    if not secret_redaction_enabled():
+        return str(text or "")
     redacted = str(text or "")
     if grant is not None and grant.api_key:
         redacted = redacted.replace(grant.api_key, "<redacted-api-key>")
@@ -125,7 +127,7 @@ def _json_request(
             url,
             data=body,
             headers={
-                "Authorization": "******",
+                "Authorization": f"Bearer {grant.api_key}",
                 "Content-Type": "application/json",
             },
             method="POST",

@@ -169,7 +169,7 @@ def test_command_execution_progress_carries_existing_result_metadata() -> None:
     assert "FAILED tests/foo.py::test_x" in sink.events[-1]["output_excerpt"]
 
 
-def test_progress_callback_redacts_secrets_before_live_sink() -> None:
+def test_progress_callback_redacts_secrets_before_live_sink(redact_secrets_on) -> None:
     """Live sinks may not wrap JsonlEventSink, so redact at the source."""
     sink = _RecordingSink()
     cb = make_stream_progress_callback(sink)

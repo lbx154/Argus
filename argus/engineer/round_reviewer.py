@@ -31,6 +31,12 @@ from ..core.stop_kinds import (
 )
 from ..life.context_packet import render_mission_brief
 from .external_work import parse_external_wait_request, render_external_work_advisory
+from .reviewer_findings import (
+    own_reviewer_thread,
+    render_previous_findings,
+    reviewer_authored_rounds,
+    reviewer_words_of,
+)
 from .round_signals import _review_event_payload
 from .round_state import (
     EngineerTurnOutcome,
@@ -80,14 +86,19 @@ def _background_launch_block(state: RoundLoopState, engineer_message: str) -> st
 
 
 def _previous_review_summary(state: RoundLoopState) -> str:
-    """Render the last three verdicts so repetition is visible to Reviewer."""
-    if not state.rounds:
+    """Render the last three Reviewer verdicts so repetition is visible to it.
+
+    Only judgments the independent Reviewer returned count: host placeholders
+    and self-reviews must never read as settled Reviewer context.
+    """
+    reviewed = reviewer_authored_rounds(state.rounds)
+    if not reviewed:
         return ""
     lines: list[str] = []
-    for record in state.rounds[-3:]:
-        review = record.review
-        status = " ".join(str(review.status or "").split()) or "unknown"
-        reason = " ".join(str(review.reason or "").split()) or "(no reason)"
+    for record in reviewed[-3:]:
+        own_status, own_reason, _ = reviewer_words_of(record.review)
+        status = " ".join(own_status.split()) or "unknown"
+        reason = " ".join(own_reason.split()) or "(no reason)"
         lines.append(
             f"Round {record.round_index} — {status}: {reason[:600]}"
         )
@@ -199,6 +210,24 @@ class RoundReviewerMixin:
             if reviewer_session is not None
             else None
         )
+        engineer_session = state.engineer_session
+        own_resume_id = own_reviewer_thread(
+            reviewer_resume_id,
+            foreign_thread_ids=(
+                *state.engineer_thread_ids,
+                getattr(engineer_session, "thread_id", None),
+                *getattr(engineer_session, "seen_thread_ids", ()),
+                getattr(engineer_result, "thread_id", None),
+            ),
+        )
+        if reviewer_resume_id and own_resume_id is None and reviewer_session is not None:
+            # Never continue the Engineer's conversation: start a fresh
+            # Reviewer thread; its findings arrive through the carry-over.
+            reviewer_session.rotate("foreign_thread")
+        reviewer_resume_id = own_resume_id
+        previous_findings = render_previous_findings(
+            state.rounds, round_index=round_index,
+        )
         capsule_block = reviewer_session.prompt_block() if reviewer_session else ""
         rotation_block = ""
         if (
@@ -216,7 +245,12 @@ class RoundReviewerMixin:
                 "files it points to, then give your judgment on this round."
             )
         mission_brief = render_mission_brief(
-            supervised_config.context_packet_path, include_engineer_account=False,
+            supervised_config.context_packet_path,
+            include_engineer_account=False,
+            # The carry-over is the one copy of this Reviewer's own findings;
+            # the frontier's open items stay unless it already names some.
+            include_previous_review=not previous_findings.has_reviewer_findings,
+            include_missing_condition=not previous_findings.has_open_items,
         )
         shared_context_parts = (
             mission_brief,
@@ -345,6 +379,7 @@ class RoundReviewerMixin:
                 prior_static_fingerprint=(
                     reviewer_session.static_fingerprint if reviewer_session else ""
                 ),
+                previous_findings=previous_findings.text,
             )
         except Exception as exc:  # noqa: BLE001
             if reviewer_session is not None:
@@ -362,6 +397,9 @@ class RoundReviewerMixin:
             # A completed review has seen the host-gathered round evidence; a
             # backend failure keeps it for the retry.
             state.pending_round_evidence_text = ""
+            # Provenance: only this call's own judgment becomes a finding
+            # carried forward to later rounds.
+            review.reviewer_authored = True
         session_metadata_persisted = True
         if reviewer_session is not None:
             if reviewer_resume_id and not review.session_resumed:

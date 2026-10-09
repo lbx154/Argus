@@ -10,7 +10,7 @@ from argus.tools import image_api
 from argus.tools.capability_vault import ModelApiRoute
 
 
-def test_capability_vault_keys_are_known_secrets(tmp_path: Path) -> None:
+def test_capability_vault_keys_are_known_secrets(redact_secrets_on, tmp_path: Path) -> None:
     vault = tmp_path / "model_api.json"
     key = "azure-secret-value-123456789"
     vault.write_text(

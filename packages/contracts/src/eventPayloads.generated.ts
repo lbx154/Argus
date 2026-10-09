@@ -201,7 +201,7 @@ export interface LifeManagerSupervisionFailedEvent extends EventMsg {
   "error_type"?: string;
   "failure_stage"?: "provider" | "decision" | "commit";
   "stop_kind"?: "budget_exhausted" | "provider_cooldown" | "provider_fence" | "daemon_shutdown" | "operator_pause" | "operator_abort" | "backend_unavailable" | "transient_error" | "permanent_error";
-  "error_code"?: "trial_quota_exceeded" | "timeout" | "cancelled" | "superseded" | "observation_incomplete";
+  "error_code"?: "trial_quota_exceeded" | "timeout" | "cancelled" | "superseded" | "observation_incomplete" | "busy" | "decision_missing" | "decision_incomplete" | "decision_invalid" | "directive_missing" | "evidence_uncited" | "evidence_outside_snapshot" | "advisor_unavailable" | "advisor_disposition_missing";
   "backend_exit_code"?: number;
 }
 
@@ -476,6 +476,7 @@ export interface RoundReviewCompletedEvent extends EventMsg {
   "stop_kind"?: "budget_exhausted" | "cost_unreconciled" | "provider_cooldown" | "provider_fence" | "daemon_shutdown" | "operator_pause" | "operator_abort" | "backend_unavailable" | "transient_error" | "permanent_error" | null;
   "failure_kind"?: string;
   "failure_cause"?: string;
+  "verification_obstacle"?: string;
 }
 
 export interface RoundSecretRedactedEvent extends EventMsg {
@@ -1177,6 +1178,7 @@ export interface RoundStallEvent extends EventMsg {
   "stall_threshold"?: number;
   "decision_idle_seconds"?: number;
   "forward_progress"?: boolean;
+  "stall_reason"?: "no_forward_progress" | "unverifiable_through_view";
   "text"?: string;
 }
 

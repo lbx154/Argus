@@ -146,7 +146,7 @@ def test_format_shows_current_value_when_set() -> None:
     assert "= 50" in out  # current effective value surfaced
 
 
-def test_format_redacts_sensitive_current_values() -> None:
+def test_format_redacts_sensitive_current_values(redact_secrets_on) -> None:
     out = format_config_help(env={"ARGUS_SKILL_TELEGRAM_BOT_TOKEN": "super-secret"})
     assert "super-secret" not in out
     assert "= <redacted> (env)" in out

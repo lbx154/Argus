@@ -87,6 +87,9 @@ def _enforce_operator_question_policy(
         operator_options=[],
         planner_report=planner_report,
         review_source=source,
+        # The host replaced this judgment; it is no longer the Reviewer's.
+        reviewer_authored=False,
+        host_placeholder="operator_question_policy",
     )
 
 
@@ -388,6 +391,14 @@ class RoundSettlementMixin:
                     "round_index": round_index,
                     "round_max": supervised_config.max_rounds,
                     "forward_progress": False,
+                    # A Reviewer that cannot observe the disputed fact will
+                    # repeat itself however many rounds run; name that apart
+                    # from an ordinary stall so the Manager can steer.
+                    "stall_reason": (
+                        "unverifiable_through_view"
+                        if str(review.verification_obstacle or "").strip()
+                        else "no_forward_progress"
+                    ),
                     "semantic_stall_streak": state.semantic_stall_streak,
                     "stall_threshold": supervised_config.stall_threshold,
                     "decision_idle_seconds": round(decision_idle_seconds, 1),

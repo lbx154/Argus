@@ -213,8 +213,6 @@ test('semantic renderer shadows current TUI with full-density policy and triaged
     'life.manager.intent.completed': {
       text: 'The team plans to work in stages\nFinish once this objective is met. the current operation needs attention',
     },
-    // The old TUI leaks recognized credentials; the semantic core redacts them.
-    'engineer.progress.secret-redaction': { text: 'using token <REDACTED:github-token>' },
     // A semantic distinction the old whitelist's own task_skipped line loses.
     'life.planner.task_skipped.review-purchase-deferred': { text: 'put off another paper review Purchase another paper review' },
     // The old renderer leaves a trailing space when this schema has no objective field.

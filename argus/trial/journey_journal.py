@@ -58,10 +58,11 @@ import re
 import stat
 import uuid
 
-from argus.core.secret_guard import redact_secrets_record
+from argus.core.secret_guard import contains_secret, redact_secrets_record
 from argus.trial.analytics import (
     _ID,
     AnalyticsError,
+    _mask_credentials,
     _safe_row,
     _sanitize,
     _server_replay_notice,
@@ -279,7 +280,7 @@ def _association(payload):
     turn = {}
     turn_id = payload.get("turn_id")
     if (isinstance(turn_id, str) and _ID.fullmatch(turn_id)
-            and turn_id == _sanitize(redact_secrets_record(turn_id))):
+            and not contains_secret(turn_id) and turn_id == _mask_credentials(turn_id)):
         turn = {"turn_id": turn_id, "turn_evidence": ["turn_id"]}
     for prefix, container in (("", payload), ("result.", payload.get("result", {}))):
         if not isinstance(container, dict):

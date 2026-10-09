@@ -33,7 +33,11 @@ def _run_hidden(*args: Any, **kwargs: Any) -> subprocess.CompletedProcess[Any]:
 
 
 def _redact(value: str) -> str:
+    from ..core.secret_guard import secret_redaction_enabled
+
     text = value.replace(str(Path.home()), "~")
+    if not secret_redaction_enabled():
+        return text
     for pattern in _SECRET_PATTERNS:
         text = pattern.sub("[REDACTED]", text)
     return text

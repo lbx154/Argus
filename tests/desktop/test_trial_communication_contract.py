@@ -95,7 +95,7 @@ def test_onboarding_failure_does_not_pause_current_trial(home, monkeypatch):
     assert not (home / "trial-attention.json").exists()
 
 
-def test_file_backed_trial_key_is_registered_for_redaction(home):
+def test_file_backed_trial_key_is_registered_for_redaction(redact_secrets_on, home):
     assert any(value == KEY for value in client.runtime_redactions())
     from argus.adapters.agent_cli_backend._core import AgentCliBackend
     from argus.adapters.agent_cli_backend._io_log import AgentIOLogger

@@ -667,7 +667,8 @@
         "text": "Renderer event detail",
         "ts": 1700000034,
         "type": "round.review.completed",
-        "usage_scope": "delta"
+        "usage_scope": "delta",
+        "verification_obstacle": "verification obstacle"
       },
       "id": "round.review.completed"
     },
@@ -735,6 +736,7 @@
         "round_index": 1,
         "round_max": 1,
         "semantic_stall_streak": 1,
+        "stall_reason": "no_forward_progress",
         "stall_threshold": 1,
         "text": "Renderer event detail",
         "ts": 1700000039,

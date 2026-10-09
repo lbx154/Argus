@@ -173,7 +173,7 @@ def test_file_change_lists_the_touched_files_and_caps_the_list() -> None:
     assert label == "✎ src/app.py, src/api.py, src/db.py +1"
 
 
-def test_credentials_never_reach_the_status_line() -> None:
+def test_credentials_never_reach_the_status_line(redact_secrets_on) -> None:
     secret = "ghp_" + "A" * 36
     label, detail = describe_progress_step({
         "kind": "command_execution",

@@ -85,7 +85,7 @@ def test_http_capable_backends_keep_the_original_message(
     assert describe_reviewer_route_unavailable(_BOOM, env) == str(_BOOM)
 
 
-def test_secrets_in_the_underlying_error_are_redacted(tmp_path: Path) -> None:
+def test_secrets_in_the_underlying_error_are_redacted(redact_secrets_on, tmp_path: Path) -> None:
     secret = "-".join(("sk", "live", "abcd1234efgh5678"))
     leaked = RuntimeError(f"401 from https://api.example.invalid api_key={secret}")
     message = describe_reviewer_route_unavailable(
@@ -142,7 +142,7 @@ def test_the_gate_stays_blocking_regardless_of_the_message() -> None:
         "-".join(("sk", "abcdefghijkl123456")),
     ],
 )
-def test_provider_key_formats_never_reach_the_operator(
+def test_provider_key_formats_never_reach_the_operator(redact_secrets_on, 
     tmp_path: Path,
     label: str,
     secret: str,

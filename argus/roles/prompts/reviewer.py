@@ -7,6 +7,7 @@ from pathlib import Path
 from typing import Any, Mapping
 
 from ...core.model_visible_text import (
+    MASKED_DISPLAY_REVIEW_RULE,
     MODEL_INTEGRITY_BOUNDARY,
     sanitize_model_visible_text,
 )
@@ -38,7 +39,9 @@ _REEVALUATE_HEADER = (
 # for ninety reviews without once returning `incorrect`.
 _INCREMENTAL_REREVIEW_BOUNDARY = (
     "## Incremental re-review boundary\n"
-    "The previous Reviewer judgment below is settled context for this mission. "
+    "The previous Reviewer judgment below is settled context for this mission: "
+    "you need not redo its work, but it is not proven true. If current evidence "
+    "shows your earlier judgment was wrong, say so and correct it. "
     "Inspect the prior `next_action`, the current Engineer summary, the "
     "files changed to satisfy that action, and the relevant "
     "checks. Do not restart repository research, reopen established findings, or "
@@ -302,8 +305,14 @@ def render_reviewer_prompt(
     vertical: str = "",
     workflow_mode: str | None = None,
     round_started_ts: float | None = None,
+    previous_findings: str = "",
 ) -> tuple[str, str]:
-    """Render the complete Reviewer prompt as ``(static_preamble, round_delta)``."""
+    """Render the complete Reviewer prompt as ``(static_preamble, round_delta)``.
+
+    ``previous_findings`` is the host's carry-over of this Reviewer's own
+    earlier judgments. When present it is the single copy of those verdicts,
+    replacing the shorter ``prev_review_summary`` line beside it.
+    """
     from ...core.project import resolve_project_root
     from ...core.research_contract import (
         RESULT_FIELD_CHOICES,
@@ -610,14 +619,19 @@ def render_reviewer_prompt(
     )
     if _contract_block:
         objective_block += _contract_block + "\n\n"
+    previous_findings = str(previous_findings or "").strip()
     shared_context_block = _format_engineer_shared_context(
         skill_used=active_skill_id,
-        prev_review_summary=prev_review_summary,
+        prev_review_summary="" if previous_findings else prev_review_summary,
     )
     shared_context_block = sanitize_model_visible_text(shared_context_block)
     incremental_review_block = ""
     if round_index > 1 and prev_review_summary.strip():
         incremental_review_block = _INCREMENTAL_REREVIEW_BOUNDARY
+    previous_findings_block = (
+        sanitize_model_visible_text(previous_findings) + "\n\n"
+        if previous_findings else ""
+    )
     # Prefer direct runtime and verifier evidence over the Engineer's summary
     # when callers provide it. Omit the block when no such evidence exists.
     evidence_block = (
@@ -781,7 +795,9 @@ def render_reviewer_prompt(
         "Stay within this profile; require no future-proofing. "
         "In `explore`/`develop`, require experimental or research feedback. "
         "Negative results, hedging, limitations, and reruns need grounded "
-        "consequences; positive and negative claims share one evidence standard.\n\n"
+        "consequences; positive and negative claims share one evidence standard. "
+        + MASKED_DISPLAY_REVIEW_RULE
+        + "\n\n"
         + RESEARCHER_VOICE + "\n\n"
         + decision_policy
         + ("" if _requires_engineering_audit else _verification_directive())
@@ -823,6 +839,7 @@ def render_reviewer_prompt(
         + f"Session ID: {session_id or 'none'}\n"
         + f"{shared_context_block}"
         + f"{incremental_review_block}"
+        + previous_findings_block
         + f"{background_block}"
         + f"Main agent fatal error: {error_text}\n\n"
         + "## Engineer's account of this round\n"
@@ -853,7 +870,9 @@ def render_reviewer_prompt(
             "checkpoint": checkpoint_block,
             "execution_log_audit": engineer_log_audit_block,
             "background": background_block,
-            "shared_context": shared_context_block + incremental_review_block,
+            "shared_context": (
+                shared_context_block + incremental_review_block + previous_findings_block
+            ),
             "main_summary": main_summary,
             "raw_evidence": evidence_block,
             "changed_artifacts": artifact_block,

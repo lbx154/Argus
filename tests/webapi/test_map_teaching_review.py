@@ -485,7 +485,7 @@ def test_partial_reading_replacement_is_rejected_without_applying_any_fields(fie
 
 
 @pytest.mark.parametrize("field", ["title", "why", "scope", "next", "summary", "detail"])
-def test_reading_replacement_needing_redaction_cannot_publish_a_partial_correction(field):
+def test_reading_replacement_needing_redaction_cannot_publish_a_partial_correction(redact_secrets_on, field):
     draft = reading()
     before = copy.deepcopy(draft)
     decision = reading_correction()
@@ -503,7 +503,7 @@ def test_reading_replacement_needing_redaction_cannot_publish_a_partial_correcti
 
 
 @pytest.mark.parametrize("field", ["title", "why", "scope", "next", "summary", "detail"])
-def test_checked_text_fields_redacts_candidates_without_removing_the_final_condition(field):
+def test_checked_text_fields_redacts_candidates_without_removing_the_final_condition(redact_secrets_on, field):
     draft = reading()
     draft[field] = "  api_key=synthetic-candidate-credential-0000; only when the condition holds.  "
     before = copy.deepcopy(draft)
