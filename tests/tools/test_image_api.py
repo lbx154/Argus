@@ -189,7 +189,9 @@ def test_generate_image_writes_artifact_and_secret_free_sidecar(
 
     def fake_urlopen(req: Any, timeout: float) -> FakeResponse:
         seen.append(req.full_url)
-        assert req.get_header("Authorization") == "******"
+        # The grant's key goes in the request; the sidecar check below keeps it
+        # out of what is written to disk.
+        assert req.get_header("Authorization") == "Bearer dummy-key"
         payload = json.loads(req.data.decode("utf-8"))
         assert "size" not in payload
         return FakeResponse({"data": [{"b64_json": base64.b64encode(_PNG_BYTES).decode("ascii")}]})
@@ -504,8 +506,8 @@ def test_image_api_uses_distinct_image_and_review_routes(
     image_api.review_image(image=out, review_instruction="Judge this diagram.", env=env)
 
     assert calls == [
-        ("https://image.invalid/openai/v1/images/generations", "******"),
-        ("https://review.invalid/openai/v1/responses", "******"),
+        ("https://image.invalid/openai/v1/images/generations", "Bearer image-key"),
+        ("https://review.invalid/openai/v1/responses", "Bearer review-key"),
     ]
 
 
