@@ -325,3 +325,16 @@ def test_watchdog_accepts_normal_multirole_copilot_memory():
     assert monitor.exceeded() == ''  # The previously observed 2.2 GiB / 199-thread case must remain usable.
     monitor.process.memory = 9 * 1024**3
     assert monitor.exceeded() == 'memory'
+
+
+def test_storage_limit_allows_a_normal_repository_clone(tmp_path):
+    from deploy.trial.native_runtime import storage_exceeded
+
+    checkout = tmp_path / 'repository'
+    checkout.mkdir()
+    with (checkout / 'fixture').open('wb') as file:
+        file.truncate(251 * 1024**2)
+    assert not storage_exceeded(str(tmp_path))
+    with (checkout / 'fixture').open('wb') as file:
+        file.truncate(2 * 1024**3 + 1)
+    assert storage_exceeded(str(tmp_path))

@@ -159,14 +159,14 @@ def storage_exceeded(directory: str) -> bool:
     count = size = 0
     for root, dirs, files in os.walk(directory, followlinks=False):
         count += len(dirs) + len(files)
-        if count > 10000:
+        if count > 100000:
             return True
         for name in files:
             try:
                 size += os.lstat(os.path.join(root, name)).st_size
             except FileNotFoundError:
                 continue
-            if size > 200 * 1024 * 1024:
+            if size > 2 * 1024**3:
                 return True
     return False
 
