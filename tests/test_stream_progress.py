@@ -704,6 +704,82 @@ def test_a_nonzero_shell_exit_is_a_failure_even_when_the_call_succeeded() -> Non
     assert events[-1]["call_id"] == "k2"
 
 
+def _complete_line(call_id: str, exit_code: int, content: str) -> str:
+    return json.dumps({
+        "type": "tool.execution_complete",
+        "data": {"toolCallId": call_id, "success": True, "shellExecution": {"exitCode": exit_code},
+                 "result": {"content": content}},
+    })
+
+
+def test_command_results_are_kept_in_host_memory_once_per_call() -> None:
+    from argus.core import command_record
+
+    sink = _RecordingSink()
+    cb = make_stream_progress_callback(sink)
+    with command_record.capture("engineer-r2") as record:
+        cb("engineer-r2.stdout", _tool_start_line("bash", {"command": "pytest -q"}, call_id="m1"))
+        cb("engineer-r2.stdout", _complete_line("m1", 1, "FAILED tests/a.py::t - AssertionError\n1 failed"))
+        # A second report for the same call cannot replace the first.
+        cb("engineer-r2.stdout", _complete_line("m1", 0, "1 passed"))
+        cb("engineer-r2.stdout", _tool_start_line("view", {"path": "/app/a.py"}, call_id="m2"))
+        # Another round's stream is not this capture's.
+        cb("engineer-r3.stdout", _tool_start_line("bash", {"command": "pytest"}, call_id="m3"))
+
+    runs = {run.call_id: run for run in record.runs()}
+    assert set(runs) == {"m1", "m2"}
+    assert runs["m1"].kind == "command" and runs["m1"].exit_code == 1 and runs["m1"].failed
+    assert "FAILED tests/a.py::t" in runs["m1"].output
+    assert runs["m2"].kind == "tool"
+    # Outside a capture nothing is kept.
+    cb("engineer-r2.stdout", _tool_start_line("bash", {"command": "pytest"}, call_id="m4"))
+    assert "m4" not in {run.call_id for run in record.runs()}
+
+
+def test_command_results_survive_a_sink_that_keeps_no_progress() -> None:
+    """Under signal verbosity the event log drops most command rows; the Reviewer's record does not."""
+    from argus.core import command_record
+
+    class _DroppingSink(_RecordingSink):
+        def handle_event(self, event: dict[str, Any]) -> None:
+            if event.get("type") != "engineer.progress":
+                super().handle_event(event)
+
+    cb = make_stream_progress_callback(_DroppingSink())
+    with command_record.capture("engineer-r1") as record:
+        cb("engineer-r1.stdout", _tool_start_line("bash", {"command": "cargo test"}, call_id="s1"))
+        cb("engineer-r1.stdout", _complete_line("s1", 0, "test result: ok. 12 passed; 0 failed"))
+
+    [run] = record.runs()
+    assert run.exit_code == 0 and "12 passed" in run.output
+
+
+def test_codex_command_keeps_failure_and_summary_lines_not_its_banner() -> None:
+    from argus.core import command_record
+
+    output = "\n".join([
+        "============ test session starts ============", "platform linux -- Python 3.12",
+        "rootdir: /app", "collected 7 items", "tests/test_a.py F......", "=== FAILURES ===",
+        "E   AssertionError: 3 != 2", "=== short test summary info ===",
+        "FAILED tests/test_a.py::test_x - AssertionError", "1 failed, 6 passed in 0.4s",
+    ])
+    sink = _RecordingSink()
+    cb = make_stream_progress_callback(sink)
+    with command_record.capture("engineer-r1") as record:
+        cb("engineer-r1.stdout", json.dumps({"type": "item.completed", "item": {
+            "id": "item_3", "type": "command_execution", "command": "pytest -q",
+            "status": "completed", "exit_code": 1, "aggregated_output": output,
+        }}))
+
+    [event] = [e for e in sink.events if e["type"] == "engineer.progress"]
+    assert "AssertionError: 3 != 2" in event["output_excerpt"]
+    assert event["output_excerpt"].endswith("1 failed, 6 passed in 0.4s")
+    assert "test session starts" not in event["output_excerpt"]
+    [run] = record.runs()
+    assert run.call_id == "item_3" and run.exit_code == 1
+    assert "FAILED tests/test_a.py::test_x" in run.output
+
+
 def test_manager_stream_is_operator_visible() -> None:
     """The Manager drives the operator's own turn — its work must be narrated."""
     for label in ("simple-1", "chat-1", "manager-frontdoor-classify", "router-classify"):

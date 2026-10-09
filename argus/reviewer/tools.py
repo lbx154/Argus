@@ -6,6 +6,7 @@ import os
 import sys
 from contextlib import contextmanager
 from dataclasses import replace
+from functools import lru_cache
 from pathlib import Path
 from tempfile import TemporaryDirectory
 from typing import Any, Iterator
@@ -54,9 +55,10 @@ def _judgment_fields() -> dict[str, dict[str, Any]]:
     return {
         "manager_attention": judgment(
             "Does the course need the Manager now: stuck, looping or drifting, plan "
-            "doubt, agreement on something unverified, or scope or authority? A "
-            "check you cannot run is not one; ask the Engineer for a host-recorded "
-            "run. When unsure, needed.",
+            "doubt, agreement on something unverified, evidence only the operator "
+            "can supply (credentials, hardware, human judgment), or scope or "
+            "authority? A check you lack is not one: run it if you can, else ask "
+            "the Engineer for it. When unsure, needed.",
             ["needed", "not_needed"],
         ),
         "learning": judgment(
@@ -256,13 +258,40 @@ class ReviewActions:
         return {"recorded": action}
 
 
+def validation_available(image: str) -> bool:
+    """Whether Docker can run the configured validation image on this host."""
+    image = str(image or "").strip()
+    if not image or not sys.platform.startswith("linux"):
+        return False
+    return _docker_image_present(image)
+
+
+@lru_cache(maxsize=8)
+def _docker_image_present(image: str) -> bool:
+    import shutil
+    import subprocess
+
+    docker = shutil.which("docker")
+    if not docker:
+        return False
+    try:
+        result = subprocess.run(
+            [docker, "image", "inspect", "--format", "{{.Id}}", image],
+            capture_output=True, timeout=10, check=False,
+        )
+    except (OSError, subprocess.SubprocessError):
+        return False
+    return result.returncode == 0
+
+
 def reviewer_can_execute(runner: Any) -> bool:
     """Whether this Reviewer's tools can run commands.
 
     Every Reviewer call is read-only (``sandbox_mode="read-only"``). Codex keeps
     its shell inside a read-only sandbox; the other backends reduce the call to
-    file read and search tools. A configured validation image adds
-    :data:`COMMAND_TOOL` on any backend (:func:`review_action_tools`).
+    file read and search tools. A validation image adds :data:`COMMAND_TOOL`
+    on any backend (:func:`review_action_tools`), but counts only when Docker
+    and the image are actually available here.
     """
     if str(getattr(runner, "backend", "")).lower() == "codex":
         return True
@@ -270,9 +299,23 @@ def reviewer_can_execute(runner: Any) -> bool:
     from .validation import IMAGE_ENV
 
     try:
-        return bool(resolve_knob(IMAGE_ENV, "").value.strip())
+        image = resolve_knob(IMAGE_ENV, "").value.strip()
     except Exception:  # noqa: BLE001 - an unreadable knob exposes no tool
         return False
+    return validation_available(image)
+
+
+def reviewer_evidence_mode(runner: Any, *, engineer_records_commands: bool) -> str:
+    """Which evidence rule fits this Reviewer (see ``review_evidence_rule``).
+
+    A read-only Reviewer is told to rely on host-recorded runs only when the
+    Engineer's backend reports each command's exit code.
+    """
+    from ..core.model_visible_text import EVIDENCE_EXECUTE, EVIDENCE_READ, EVIDENCE_RECORDED
+
+    if reviewer_can_execute(runner):
+        return EVIDENCE_EXECUTE
+    return EVIDENCE_RECORDED if engineer_records_commands else EVIDENCE_READ
 
 
 @contextmanager

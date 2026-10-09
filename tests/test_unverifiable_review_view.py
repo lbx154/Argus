@@ -99,6 +99,7 @@ def test_both_roles_learn_that_a_masked_display_is_unobservable() -> None:
         MASKED_DISPLAY_ENGINEER_RULE,
         REVIEW_EVIDENCE_RULE_EXECUTING,
         REVIEW_EVIDENCE_RULE_READ_ONLY,
+        REVIEW_EVIDENCE_RULE_UNRECORDED,
     )
     from argus.roles.prompts.engineer import build_mission_prompt
 
@@ -108,9 +109,11 @@ def test_both_roles_learn_that_a_masked_display_is_unobservable() -> None:
         planner_review_instruction="", round_index=1, session_id=None,
         main_summary="done", main_error=None, prior_checkpoint={},
     )
-    # A Reviewer without a runner has no tool that executes.
-    assert REVIEW_EVIDENCE_RULE_READ_ONLY in review_prompt
-    for rule in (REVIEW_EVIDENCE_RULE_EXECUTING, REVIEW_EVIDENCE_RULE_READ_ONLY):
+    # A Reviewer without a runner has no tool that executes and no host record.
+    assert REVIEW_EVIDENCE_RULE_UNRECORDED in review_prompt
+    for rule in (
+        REVIEW_EVIDENCE_RULE_EXECUTING, REVIEW_EVIDENCE_RULE_READ_ONLY, REVIEW_EVIDENCE_RULE_UNRECORDED,
+    ):
         assert "display masking" in rule and "rerunnable assertion" in rule
 
     for include_static in (True, False):

@@ -26,6 +26,8 @@ from __future__ import annotations
 
 import json
 
+import pytest
+
 from argus.reviewer import Reviewer
 from argus.roles.prompts import reviewer as reviewer_prompt
 from argus.roles.task_contract import NATIVE_WINDOWS_SHELL_SUMMARY
@@ -62,11 +64,12 @@ _TASK_OWNED_BLOCKS = (
 # Raised from 5_300 when that rule became capability-aware
 # (``review_evidence_rule``). Told to rerun a check itself, a Reviewer whose
 # tools only read and search refused the Engineer's work in 13 verdicts of one
-# A/B arm and asked for an execution surface nobody could grant. The read-only
-# form (~500 chars) says what it judges from instead: host-recorded runs and
-# its own reading, or one named check whose run the host records. Measured at
-# 5_422 (5_458 on Windows) with it; the executing form is shorter.
-FIXED_PROSE_BUDGET = 5_500
+# A/B arm and asked for an execution surface nobody could grant. Each form now
+# says what that Reviewer judges from instead; the longest, for a read-only
+# Reviewer with host-recorded runs (~710 chars), also says what the host does
+# not vouch for (the command text and output) and which shapes to weigh.
+# Measured at 5_637 with it (5_673 on Windows); the others at 5_371 and 5_463.
+FIXED_PROSE_BUDGET = 5_700
 
 
 def _fixed_prose_chars(reviewer: Reviewer) -> int:
@@ -76,7 +79,7 @@ def _fixed_prose_chars(reviewer: Reviewer) -> int:
     return stats["static_total"]["chars"] - task_owned
 
 
-def _build(measured: bool, monkeypatch) -> tuple[str, Reviewer]:
+def _build(measured: bool, monkeypatch, evidence_mode: str = "") -> tuple[str, Reviewer]:
     if measured:
         monkeypatch.setenv("ARGUS_SKILL_MEASURED_MODE", "1")
     else:
@@ -91,6 +94,7 @@ def _build(measured: bool, monkeypatch) -> tuple[str, Reviewer]:
         main_summary="HANDOFF: tried X. RESULT correct=true cand_ms=0.5",
         main_error=None,
         prior_checkpoint={},
+        evidence_mode=evidence_mode,
     )
     return prompt, r
 
@@ -118,6 +122,23 @@ def test_fixed_contract_prose_within_budget(monkeypatch):
         "examples) rather than raising this cap, unless a genuinely new "
         "contract block was deliberately added — and say which, here."
     )
+
+
+@pytest.mark.parametrize("mode", ["execute", "recorded", "read"])
+def test_every_evidence_form_fits_the_budget(monkeypatch, mode):
+    _prompt_text, reviewer = _build(measured=False, monkeypatch=monkeypatch, evidence_mode=mode)
+    assert _fixed_prose_chars(reviewer) < FIXED_PROSE_BUDGET
+
+
+@pytest.mark.parametrize("mode", ["execute", "recorded", "read"])
+def test_windows_fixed_contract_prose_within_budget_for_every_form(monkeypatch, mode):
+    monkeypatch.setattr(
+        reviewer_prompt,
+        "native_shell_summary",
+        lambda: NATIVE_WINDOWS_SHELL_SUMMARY,
+    )
+    _prompt_text, reviewer = _build(measured=False, monkeypatch=monkeypatch, evidence_mode=mode)
+    assert _fixed_prose_chars(reviewer) < FIXED_PROSE_BUDGET
 
 
 def test_windows_fixed_contract_prose_within_budget(monkeypatch):
