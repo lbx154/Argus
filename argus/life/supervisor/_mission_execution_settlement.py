@@ -1614,7 +1614,13 @@ class MissionExecutionSettlementMixin:
             elapsed_s=float(state.elapsed or 0.0),
             rounds=int(state.rounds or 0),
             reviewed_fact=reviewed_fact,
-            learning=str(final_report.get("learning") or "") if isinstance(final_report, dict) else "",
+            # Only the Reviewer's own verdict carries its learning judgment.
+            learning=(
+                str(final_report.get("learning") or "")
+                if isinstance(final_report, dict)
+                and str(getattr(outcome, "final_review_source", "") or "").strip().lower() == "reviewer"
+                else ""
+            ),
             mission_accepted=bool(
                 state.success and not state.iteration_requeued and not state.replan_requested
             ),

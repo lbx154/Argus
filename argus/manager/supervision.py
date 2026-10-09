@@ -222,7 +222,8 @@ _LEADING_ACTION = re.compile(
     re.IGNORECASE | re.DOTALL,
 )
 _HEDGE = re.compile(
-    r"^(?:not\b|no\b|never\b|unless\b|if\b|maybe\b|perhaps\b|unnecessary\b|"
+    r"^(?:not\b|no\b|never\b|unless\b|if\b|only if\b|maybe\b|perhaps\b|optional\b|"
+    r"unnecessary\b|unneeded\b|hold off\b|do not\b|don't\b|"
     r"isn't\b|is not\b|would not\b|wouldn't\b|\?)",
     re.IGNORECASE,
 )
@@ -286,9 +287,9 @@ def _action_of(value: dict[str, Any]) -> str:
     a conflict, and no action is read from it.
     """
     stated = str(value.get("action") or "").strip().lower()
-    if stated in _ACTIONS:
-        return stated
     decided = _leading_verb(value.get("decision"))
+    if stated in _ACTIONS:
+        return "conflicting" if decided and decided != stated else stated
     first = _FIRST_VERB.match(str(value.get("action") or "").strip())
     if decided and first and first.group(1).lower() != decided:
         return "conflicting"
@@ -306,6 +307,12 @@ def _decision(text: str) -> dict[str, Any]:
         value = {key.lower(): val for key, val in fields.items()}
     if not isinstance(value, dict):
         raise SupervisionDecisionError("decision_missing", "Manager supervision returned no decision")
+    if isinstance(text, str) and "decision" not in value:
+        # The line reader does not read DECISION; a DECISION that disagrees
+        # with the stated ACTION makes the reply ambiguous.
+        stated_decision = _rescued_fields(text).get("decision")
+        if stated_decision:
+            value = {**value, "decision": stated_decision}
     try:
         return _validated_decision(value)
     except SupervisionDecisionError:
@@ -475,6 +482,7 @@ def _deliver(
         record["effects"] = _apply(root, event, record, cancelled=cancelled)
         record["status"] = "applied"
         record["applied_at"] = time.time()
+        _record_look(root, record.get("trigger") or {})
         record["completed_at"] = time.time()
         for key in ("failure_reason", "failure_stage", "error", "error_type", "error_code", "error_message", "stop_kind"):
             record.pop(key, None)
@@ -515,6 +523,38 @@ def _deliver(
     except OSError:
         LOG.exception("Manager supervision receipt event is unavailable")
     return record
+
+
+def _looks_path(root: Path) -> Path:
+    return root / "manager-supervision" / "looks.json"
+
+
+def _record_look(root: Path, trigger: dict[str, Any]) -> None:
+    """Remember the latest reviewed round of a mission the Manager effectively judged."""
+    item_id = str(trigger.get("item_id") or "")
+    round_index = _round(trigger.get("round_index"))
+    if not item_id or round_index <= 0:
+        return
+    path = _looks_path(root)
+    looks = _read(path)
+    looks = {key: value for key, value in looks.items() if isinstance(value, int)}
+    looks[item_id] = max(round_index, looks.get(item_id, 0))
+    if len(looks) > 500:
+        looks = dict(list(looks.items())[-500:])
+    temporary = path.with_name(f".{path.name}.{uuid.uuid4().hex}.tmp")
+    try:
+        path.parent.mkdir(parents=True, exist_ok=True)
+        temporary.write_text(json.dumps(looks), encoding="utf-8")
+        os.replace(temporary, path)
+    except OSError:
+        LOG.warning("Manager look index is unavailable", exc_info=True)
+    finally:
+        temporary.unlink(missing_ok=True)
+
+
+def _last_look(root: Path, item_id: str) -> int:
+    value = _read(_looks_path(root)).get(item_id) if item_id else None
+    return value if isinstance(value, int) else 0
 
 
 def _is_busy_control(exc: BaseException) -> bool:
@@ -744,6 +784,9 @@ def _dispatch_pending() -> None:
             return
 
 
+#: Within a mission the Manager judges at least once every this many reviewed
+#: rounds, whatever the Reviewer said, so a confidently wrong Reviewer is caught.
+REVIEW_CHECKPOINT_ROUNDS = 3
 #: Consecutive no-progress verdicts after which the Manager is asked even when
 #: the Reviewer did not ask; half the default stall limit, so it can still act.
 STALL_BACKSTOP_STREAK = 2
@@ -800,8 +843,13 @@ def _reviewer_signal(event: dict[str, Any]) -> str:
 
 
 def _attention_reason(event: dict[str, Any]) -> str:
-    """Whether the Reviewer asked for the Manager; absent means it did."""
-    attention = str(event.get("manager_attention") or "").strip().lower()
+    """Whether the Reviewer asked for the Manager; absent means it did.
+
+    A verdict the host wrote or rewrote (any source other than the Reviewer)
+    carries no Reviewer judgment, so it reads as absent.
+    """
+    source = str(event.get("review_source") or "reviewer").strip().lower()
+    attention = str(event.get("manager_attention") or "").strip().lower() if source == "reviewer" else ""
     if attention == "not_needed":
         return _reviewer_signal(event)
     if attention == "needed":
@@ -819,7 +867,8 @@ def _review_consult_reason(root: Path, event: dict[str, Any]) -> str:
     unobservable evidence) count as asking. Only safety nets it cannot see or
     that are no judgment run regardless: a blocked review or operator question,
     a missing or unusable verdict, and a pending Manager decision. A run of
-    no-progress verdicts reaches the Manager through ``round.stall``.
+    no-progress verdicts reaches the Manager through ``round.stall``, and the
+    Manager judges at least every ``REVIEW_CHECKPOINT_ROUNDS`` reviewed rounds.
     """
     if event.get("status") == "blocked":
         return "blocked review"
@@ -827,7 +876,16 @@ def _review_consult_reason(root: Path, event: dict[str, Any]) -> str:
         return "operator question"
     if _flag(event.get("review_skipped")) or _flag(event.get("backend_unavailable")):
         return "review verdict unavailable"
-    return _safety_net(root) or _attention_reason(event)
+    reason = _safety_net(root) or _attention_reason(event)
+    if reason:
+        return reason
+    # A sparse check that does not depend on the Reviewer being right: within a
+    # mission the Manager judges at least every few reviewed rounds. Only a
+    # decision that took effect counts as having looked.
+    round_index = _round(event.get("round_index"))
+    if round_index - _last_look(root, str(event.get("item_id") or "")) >= REVIEW_CHECKPOINT_ROUNDS:
+        return "periodic checkpoint"
+    return ""
 
 
 def _latest_review(root: Path, item_id: str = "") -> dict[str, Any]:
@@ -842,34 +900,26 @@ def _latest_review(root: Path, item_id: str = "") -> dict[str, Any]:
 
 
 def _settled_consult_reason(root: Path, event: dict[str, Any]) -> str | None:
-    """Whether a reviewed success or a project-done verdict needs the Manager.
+    """Whether a reviewed success needs the Manager.
 
-    ``None`` means the event is not such a settlement. A bounded run that is
+    ``None`` means the event is not a reviewed success. A bounded run that is
     ending has no course to steer, and a check started now races orderly
-    daemon shutdown. Otherwise the final review's ``manager_attention`` decides,
-    as during the mission; without it the Manager looks.
+    daemon shutdown. In continuous mode the final review's
+    ``manager_attention`` decides, as during the mission; without it the
+    Manager looks. Planner verdicts are always supervised.
     """
     from ..daemon.state import read_continuous_state
 
-    event_type = event.get("type")
-    continuous = read_continuous_state(root)
-    if event_type == EventType.LIFE_MISSION_COMPLETED:
-        if not (event.get("success") is True and event.get("status") == "done"):
-            return None
-        ending = not continuous.enabled
-        review = _latest_review(root, str(event.get("item_id") or ""))
-    elif event_type == EventType.LIFE_PLANNER_VERDICT:
-        if not (event.get("project_done") is True and event.get("status") == "completed"):
-            return None
-        ending = not continuous.open_ended
-        review = _latest_review(root)
-    else:
+    if event.get("type") != EventType.LIFE_MISSION_COMPLETED or not (
+        event.get("success") is True and event.get("status") == "done"
+    ):
         return None
     net = _safety_net(root)
     if net or _active_tasks(root):
         return net or "work remains after the mission"
-    if ending:
+    if not read_continuous_state(root).enabled:
         return ""
+    review = _latest_review(root, str(event.get("item_id") or ""))
     return _attention_reason(review) if review else "no final review to consult"
 
 
@@ -880,22 +930,26 @@ def schedule_supervision(manager: Any, root: Path | str, event: dict[str, Any]) 
                               EventType.LIFE_DAEMON_DEGRADED,
                               EventType.LIFE_RUNTIME_INCIDENT_ESCALATED}
     relevant |= event_type == EventType.ROUND_REVIEW_COMPLETED and event.get("status") in {"continue", "blocked"}
-    relevant |= event_type == EventType.LIFE_PHASE_STARTED and event.get("agent_layer") == "engineer" and int(event.get("round_index") or 0) > 1
     relevant |= event_type == EventType.ROUND_STALL and _round(event.get("semantic_stall_streak")) >= STALL_BACKSTOP_STREAK
     if not relevant or not callable(getattr(getattr(manager, "runner", None), "fork", None)):
         return False
     project_root = Path(root)
+    reason: str | None = None
     if event_type == EventType.ROUND_REVIEW_COMPLETED:
         reason = _review_consult_reason(project_root, event)
     elif event_type == EventType.ROUND_STALL:
         reason = f"{_round(event.get('semantic_stall_streak'))} rounds without forward progress"
-    else:
+    elif event_type == EventType.LIFE_MISSION_COMPLETED:
         reason = _settled_consult_reason(project_root, event)
     if reason == "":
         LOG.debug("Manager supervision not requested for %s", event_type)
         return False
     if reason:
         event = {**event, "consult_reason": reason}
+    return _admit(manager, root, event)
+
+
+def _admit(manager: Any, root: Path | str, event: dict[str, Any]) -> bool:
     key = str(Path(root).resolve())
     with _GUARD:
         if _CLOSED or key in _STOPPED_ROOTS:
@@ -913,7 +967,10 @@ def recover_issued_supervision(manager: Any, root: Path | str) -> bool:
     if latest.get("status") != "issued":
         return False
     event = latest.get("source_event", {})
-    return schedule_supervision(manager, root, event) if isinstance(event, dict) else False
+    if not isinstance(event, dict) or not callable(getattr(getattr(manager, "runner", None), "fork", None)):
+        return False
+    # A durable issued decision is delivered whatever event it came from.
+    return _admit(manager, root, event)
 
 
 class SupervisionSink:

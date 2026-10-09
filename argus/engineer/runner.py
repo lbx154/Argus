@@ -11,9 +11,11 @@ from typing import Callable
 from ..core.models import (
     LoopOutcome,
     LoopStatus,
+    ReviewDecision,
     RoundRecord,
     RunnerOptions,
     RunnerResult,
+    without_routing_judgments,
 )
 from ..core.ports import RunnerBackend
 from ..core.role_session import (
@@ -73,6 +75,20 @@ from .round_stop_signals import (
     should_clear_thread_id_after_outcome,
 )
 from .round_waits import RoundWaitsMixin
+
+
+def await_declared_background_run(review: ReviewDecision) -> ReviewDecision:
+    """Hold an acceptance while a declared background run has no terminal result.
+
+    The host overrides the Reviewer's status here, so its routing judgments no
+    longer describe this verdict and are dropped (read as absent).
+    """
+    return replace(
+        review, status="continue",
+        planner_report=without_routing_judgments(review.planner_report),
+        reason=review.reason + " The declared background run still has no terminal result.",
+        next_action="Await the declared background run, then inspect its result before completing the mission.",
+    )
 
 
 class SupervisedEngineer(
@@ -373,11 +389,7 @@ class SupervisedEngineer(
                 request = parse_external_wait_request(wait_message)
                 waiting = inspect_external_work(workdir, request[1]) if request else None
                 if review.status == "done" and waiting is not None and waiting.waitable:
-                    review = replace(
-                        review, status="continue",
-                        reason=review.reason + " The declared background run still has no terminal result.",
-                        next_action="Await the declared background run, then inspect its result before completing the mission.",
-                    )
+                    review = await_declared_background_run(review)
                 self._acknowledge_external_wait_review(
                     supervised_config=supervised_config, state=state,
                     review=review, on_event=on_event,

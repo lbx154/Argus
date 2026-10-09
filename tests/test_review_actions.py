@@ -290,17 +290,16 @@ def test_native_validation_tools_can_query_and_cancel_without_deciding(tmp_path,
             assert actions.decision.status == "continue"
 
 
-@pytest.mark.parametrize("action", ["approve_review", "revise_review"])
-def test_reviewer_judges_manager_attention_and_learning_on_the_verdict(action):
+def test_reviewer_judges_manager_attention_and_learning_on_the_verdict():
     actions = ReviewActions()
-    actions.dispatch(action, {
+    actions.dispatch("approve_review", {
         "review": "The fixture now proves the header.",
-        "manager_attention": {"verdict": "not_needed", "reason": "Clear repair under way."},
+        "manager_attention": {"verdict": "not_needed", "reason": "Accepted with evidence."},
         "learning": {"verdict": "worth_reflecting", "reason": "A masked display hid the value."},
     })
     report = actions.decision.planner_report
     assert report["manager_attention"] == "not_needed"
-    assert report["manager_attention_reason"] == "Clear repair under way."
+    assert report["manager_attention_reason"] == "Accepted with evidence."
     assert report["learning"] == "worth_reflecting"
     payload = actions.decision.to_event_payload()
     assert payload["manager_attention"] == "not_needed"
@@ -308,10 +307,34 @@ def test_reviewer_judges_manager_attention_and_learning_on_the_verdict(action):
     assert payload["learning_reason"] == "A masked display hid the value."
 
 
-def test_the_judgments_are_optional_and_closed_vocabularies():
+def test_judgments_are_offered_only_where_the_host_uses_them():
+    tools = {tool["name"]: tool["inputSchema"]["properties"] for tool in ReviewActions().tools}
+    assert {name for name, props in tools.items() if "manager_attention" in props} == {
+        "approve_review", "revise_review", "defer_review",
+    }
+    assert {name for name, props in tools.items() if "learning" in props} == {"approve_review"}
+
+
+@pytest.mark.parametrize("judgment", [
+    {"verdict": "maybe", "reason": "?"}, "needed", {"verdict": "needed"}, {"verdict": "needed", "reason": "x", "extra": 1},
+])
+def test_a_malformed_judgment_is_ignored_and_the_verdict_stands(judgment):
     actions = ReviewActions()
-    actions.dispatch("revise_review", {"review": "Repair grouping."})
+    actions.dispatch("revise_review", {"review": "Repair grouping.", "manager_attention": judgment,
+                                       "learning": judgment})
+    assert actions.decision.status == "continue"
     assert "manager_attention" not in actions.decision.planner_report
+    assert "learning" not in actions.decision.planner_report
     assert "manager_attention" not in actions.decision.to_event_payload()
-    with pytest.raises(ValueError):
-        actions.dispatch("revise_review", {"review": "x", "manager_attention": {"verdict": "maybe", "reason": "?"}})
+
+
+def test_judgments_do_not_break_the_reviewer_acceptance_shortcut():
+    from argus.manager._stage_ops import _StageDecisionMixin
+
+    actions = ReviewActions()
+    actions.dispatch("approve_review", {
+        "review": "Complete with evidence.", "forward_progress": True,
+        "manager_attention": {"verdict": "needed", "reason": "Worth a final look."},
+        "learning": {"verdict": "nothing_new", "reason": "Routine."},
+    })
+    assert _StageDecisionMixin._is_clean_reviewer_acceptance(actions.decision) is True

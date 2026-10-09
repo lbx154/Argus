@@ -37,6 +37,36 @@ _ACTIONS: dict[str, tuple[ReviewStatus, str]] = {
 }
 
 
+#: Verdicts whose Manager supervision follows the Reviewer's attention
+#: judgment; a blocked or replanning verdict always reaches the Manager.
+_ATTENTION_ACTIONS = frozenset({"approve_review", "revise_review", "defer_review"})
+
+
+def _judgment_fields() -> dict[str, dict[str, Any]]:
+    """Optional routing judgments; a malformed one is ignored, never fatal."""
+    def judgment(description: str, verdicts: list[str]) -> dict[str, Any]:
+        return {
+            "type": "object", "description": description,
+            "properties": {"verdict": {"enum": verdicts}, "reason": {"type": "string"}},
+            "required": ["verdict", "reason"], "additionalProperties": False,
+        }
+
+    return {
+        "manager_attention": judgment(
+            "Does the course need the Manager now: stuck, looping or drifting, plan "
+            "doubt, evidence you cannot observe, agreement on something unverified, "
+            "or scope or authority? When unsure, needed.",
+            ["needed", "not_needed"],
+        ),
+        "learning": judgment(
+            "Is anything from this task worth keeping for later work: a failure, a "
+            "correction, a surprise, a new technique, a reusable pattern? When "
+            "unsure, worth_reflecting.",
+            ["worth_reflecting", "nothing_new"],
+        ),
+    }
+
+
 class ReviewActions:
     def __init__(
         self, *, venue: str = "", venue_required: bool = False,
@@ -60,37 +90,11 @@ class ReviewActions:
             "additionalProperties": False,
         }
         tools = []
+        judgments = _judgment_fields()
         for name, (_, description) in _ACTIONS.items():
             fields: dict[str, Any] = {
                 "review": {"type": "string", "minLength": 1, "description": "Your complete natural-language review, including evidence and any next steps. No template or status footer."},
                 "forward_progress": {"type": "boolean", "description": "Whether this round moved toward the operator's goal."},
-                "manager_attention": {
-                    "type": "object",
-                    "description": (
-                        "Does the course need the Manager now: stuck, looping or drifting, "
-                        "plan doubt, evidence you cannot observe, agreement on something "
-                        "unverified, or scope or authority? When unsure, needed."
-                    ),
-                    "properties": {
-                        "verdict": {"enum": ["needed", "not_needed"]},
-                        "reason": {"type": "string"},
-                    },
-                    "required": ["verdict", "reason"],
-                    "additionalProperties": False,
-                },
-                "learning": {
-                    "type": "object",
-                    "description": (
-                        "Is anything from this task worth keeping for later work: a failure, "
-                        "a correction, a surprise, a new technique, a reusable pattern?"
-                    ),
-                    "properties": {
-                        "verdict": {"enum": ["worth_reflecting", "nothing_new"]},
-                        "reason": {"type": "string"},
-                    },
-                    "required": ["verdict", "reason"],
-                    "additionalProperties": False,
-                },
                 "research_result": research,
                 "session_signal": {
                     "type": "object",
@@ -131,6 +135,12 @@ class ReviewActions:
                     "additionalProperties": False,
                 },
             }
+            # Only where the host uses them: attention on verdicts that do not
+            # already reach the Manager, learning on the accepting verdict.
+            if name in _ATTENTION_ACTIONS:
+                fields["manager_attention"] = judgments["manager_attention"]
+            if name == "approve_review":
+                fields["learning"] = judgments["learning"]
             required = ["review"]
             if self.venue_required and name in {"approve_review", "revise_review"}:
                 fields["recommendation"] = {
@@ -168,6 +178,17 @@ class ReviewActions:
         tool = next((tool for tool in self.tools if tool["name"] == action), None)
         if tool is None:
             raise ValueError(f"Unknown review action: {action}")
+        properties = tool["inputSchema"].get("properties", {})
+        payload = dict(payload)
+        for key in ("manager_attention", "learning"):
+            if key not in payload:
+                continue
+            try:
+                validate(payload[key], properties[key])
+            except (KeyError, ValidationError):
+                # Absent rather than fatal: the verdict itself stands, and an
+                # absent judgment means the Manager looks and reflection runs.
+                payload.pop(key)
         try:
             validate(payload, tool["inputSchema"])
         except ValidationError as exc:

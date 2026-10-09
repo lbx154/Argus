@@ -4,7 +4,9 @@ The Reviewer, which already judges each round, says whether the course needs
 the Manager; its other structured signals count as asking, and without an
 answer the Manager looks. Safety nets the Reviewer cannot see still fire: an
 operator question, an unusable verdict, an undelivered decision, a run of
-no-progress verdicts. A bounded run that is ending has no course to steer.
+no-progress verdicts, and a look at least every three reviewed rounds. A
+bounded run that is ending has no course to steer; planner verdicts are always
+supervised.
 """
 from __future__ import annotations
 
@@ -150,7 +152,13 @@ def test_continuous_success_follows_the_final_review_s_judgment(admitted, tmp_pa
     Backlog(tmp_path / "backlog.jsonl").update("grouped", status="done")
     _final_review(tmp_path, attention)
     assert (admitted(SUCCESS) is not None) is asked
-    assert (admitted(DONE) is not None) is asked
+
+
+@pytest.mark.parametrize("attention", ["not_needed", "needed", None])
+def test_a_project_done_verdict_is_always_supervised(admitted, tmp_path, attention):
+    Backlog(tmp_path / "backlog.jsonl").update("grouped", status="done")
+    _final_review(tmp_path, attention)
+    assert admitted(DONE) is not None
 
 
 def test_a_bounded_run_that_is_ending_has_no_course_to_steer(admitted, tmp_path):
@@ -158,7 +166,6 @@ def test_a_bounded_run_that_is_ending_has_no_course_to_steer(admitted, tmp_path)
     write_continuous_config(tmp_path, enabled=False, objective="Produce a validated grouped summary", open_ended=False)
     _final_review(tmp_path, "needed")
     assert admitted(SUCCESS) is None
-    assert admitted(DONE) is None
     supervision._write(tmp_path / "manager-supervision" / "latest.json", {"status": "issued"})
     assert admitted(SUCCESS)["consult_reason"] == "issued decision awaiting delivery"
 
@@ -181,6 +188,42 @@ def test_the_consult_reason_reaches_the_prompt_and_the_receipt(tmp_path):
     assert "ACTION: continue, steer or wait" in backend.prompts[0]
     assert record["trigger"]["round_index"] == 2
     assert record["trigger"]["consult_reason"] == "reviewer asks for the Manager"
+
+
+@pytest.mark.parametrize("source", ["reviewer_operator_question_policy", "engineer_operator_question_policy", "acceptance_guard"])
+def test_a_verdict_the_host_wrote_carries_no_reviewer_judgment(admitted, source):
+    event = admitted(_review(1, review_source=source, **_not_needed()))
+    assert event["consult_reason"] == "reviewer did not say whether the Manager is needed"
+
+
+def test_the_manager_looks_at_least_every_three_reviewed_rounds(admitted):
+    assert admitted(_review(1, **_not_needed())) is None
+    assert admitted(_review(2, **_not_needed())) is None
+    assert admitted(_review(3, **_not_needed()))["consult_reason"] == "periodic checkpoint"
+
+
+def test_the_checkpoint_counts_from_the_last_effective_look(admitted, tmp_path):
+    supervision._record_look(tmp_path, {"item_id": "grouped", "round_index": 3})
+    assert admitted(_review(4, **_not_needed())) is None
+    assert admitted(_review(5, **_not_needed())) is None
+    assert admitted(_review(6, **_not_needed()))["consult_reason"] == "periodic checkpoint"
+
+
+def test_only_an_applied_check_records_a_look(tmp_path):
+    write_continuous_config(tmp_path, enabled=True, objective="Produce a validated grouped summary")
+    Backlog(tmp_path / "backlog.jsonl").add(BacklogItem.new(item_id="grouped", title="t", objective="o"))
+    manager = Manager(tmp_path, runner=_Backend("I am not sure."), memory_maintenance_enabled=False)
+    event = {**_review(3), "consult_reason": "periodic checkpoint"}
+    assert supervision.supervise(manager, tmp_path, event)["status"] == "failed"
+    assert supervision._last_look(tmp_path, "grouped") == 0
+    manager.runner.text = json.dumps({"action": "continue", "reason": "The repair is on course.",
+                                      "evidence_refs": ["backlog.jsonl"]})
+    assert supervision.supervise(manager, tmp_path, event)["status"] == "applied"
+    assert supervision._last_look(tmp_path, "grouped") == 3
+
+
+def test_engineer_phase_starts_no_longer_trigger_a_check(admitted):
+    assert admitted({"type": EventType.LIFE_PHASE_STARTED, "agent_layer": "engineer", "round_index": 3}) is None
 
 
 # --------------------------------------------------------------------------- reading replies
@@ -228,6 +271,14 @@ R = "EVIDENCE_REFS: backlog.jsonl"
     f"DECISION: CONTINUE — ACTION: STEER the engineer to rerun. REASON: x. {R} DIRECTIVE: rerun.",
     f"DECISION: STEER — ACTION: Continue independent review; REASON: unread. {R} — DIRECTIVE: Render it.",
     f"My Decision: steer. Reason: unclear. {R}",
+    f"ACTION: STEER — do not change course yet.\nREASON: ok\n{R}\nDIRECTIVE: x",
+    f"ACTION: STEER — don't, the fix landed.\nREASON: ok\n{R}\nDIRECTIVE: x",
+    f"ACTION: STEER — unneeded.\nREASON: ok\n{R}\nDIRECTIVE: x",
+    f"ACTION: STEER — only if round 4 repeats.\nREASON: ok\n{R}\nDIRECTIVE: x",
+    f"ACTION: WAIT — hold off until the reviewer runs.\nREASON: ok\n{R}",
+    f"ACTION: STEER — optional.\nREASON: ok\n{R}\nDIRECTIVE: x",
+    # An exact ACTION that a DECISION contradicts.
+    f"DECISION: STEER\nACTION: continue\nREASON: ok\n{R}",
 ])
 def test_rescue_reading_never_invents_a_decision(text):
     with pytest.raises(supervision.SupervisionDecisionError):

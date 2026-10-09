@@ -172,9 +172,18 @@ class _StageDecisionMixin:
             "challenge",
             "alternative",
             "authority_impact",
+            # Routing judgments for supervision and reflection; they say
+            # nothing about whether the stage is accepted.
+            "manager_attention",
+            "manager_attention_reason",
+            "learning",
+            "learning_reason",
         }
         if not set(planner_report).issubset(allowed_plan_fields):
             return False
+        for name in ("manager_attention", "manager_attention_reason", "learning", "learning_reason"):
+            if name in planner_report and not isinstance(planner_report[name], str):
+                return False
         if "forward_progress" in planner_report:
             progress = planner_report["forward_progress"]
             if not isinstance(progress, bool) or not progress:

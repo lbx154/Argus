@@ -955,22 +955,26 @@ def _labels(backend: _Backend) -> list[str]:
 def test_an_accepted_mission_the_reviewer_found_routine_is_not_reflected_on(roots: _Roots) -> None:
     backend = _ReplyBackend()
 
-    result = roots.reflect(backend, learning="nothing_new", mission_accepted=True, reviewed_fact=_fact_candidate())
+    result = roots.reflect(
+        backend, learning="nothing_new", mission_accepted=True, rounds=1, reviewed_fact=_fact_candidate(),
+    )
 
     assert "nothing new" in result["skipped"]
     # The reviewed fact is still judged, on its own.
     assert _labels(backend) == ["manager.reviewed_facts"]
 
 
-@pytest.mark.parametrize(("learning", "accepted"), [
-    ("worth_reflecting", True), ("", True), ("nothing_new", False),
+@pytest.mark.parametrize(("learning", "accepted", "rounds"), [
+    ("worth_reflecting", True, 1), ("", True, 1), ("nothing_new", False, 1),
+    # Accepted only after the Reviewer sent it back: reflect whatever the field says.
+    ("nothing_new", True, 2),
 ])
-def test_reflection_runs_when_asked_unanswered_or_after_a_mission_that_was_not_accepted(
-    roots: _Roots, learning: str, accepted: bool,
+def test_reflection_runs_when_asked_unanswered_corrected_or_not_accepted(
+    roots: _Roots, learning: str, accepted: bool, rounds: int,
 ) -> None:
     backend = _ReplyBackend()
 
-    assert roots.reflect(backend, learning=learning, mission_accepted=accepted)["skipped"] == ""
+    assert roots.reflect(backend, learning=learning, mission_accepted=accepted, rounds=rounds)["skipped"] == ""
     assert _labels(backend) == ["reflection"]
 
 
@@ -995,11 +999,71 @@ def test_the_reviewed_fact_rides_in_the_reflection_call_from_its_final_message(r
 
 def test_a_fact_only_in_a_draft_message_is_not_recorded(roots: _Roots) -> None:
     draft = 'REVIEWED_FACT: {"fact": "A draft claim.", "evidence_refs": ["result.json"]}'
+    backend = _ReplyBackend(replies=[draft, "WROTE: nothing\nREVIEWED_FACT: none"])
 
-    result = roots.reflect(_ReplyBackend(replies=[draft, "WROTE: nothing"]), reviewed_fact=_fact_candidate())
+    result = roots.reflect(backend, reviewed_fact=_fact_candidate())
 
     assert result["reviewed_fact_recorded"] is False
     assert not (roots.home / "reviewed-facts.md").exists()
+    # An explicit "none" is an answer: no separate judgment runs.
+    assert _labels(backend) == ["reflection"]
+
+
+def test_a_final_message_without_a_fact_answer_falls_back_to_the_separate_judgment(roots: _Roots) -> None:
+    backend = _ReplyBackend(replies=["WROTE: nothing"])
+
+    roots.reflect(backend, reviewed_fact=_fact_candidate())
+
+    assert _labels(backend) == ["reflection", "manager.reviewed_facts"]
+
+
+def test_unwritable_knowledge_directories_still_judge_the_fact(
+    roots: _Roots, monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    backend = _ReplyBackend()
+    real_mkdir = Path.mkdir
+
+    def refuse(self: Path, *args: Any, **kwargs: Any) -> None:
+        if "lessons" in self.parts:
+            raise PermissionError("read-only")
+        real_mkdir(self, *args, **kwargs)
+
+    monkeypatch.setattr(Path, "mkdir", refuse)
+
+    result = roots.reflect(backend, reviewed_fact=_fact_candidate())
+
+    assert result["skipped"] == "knowledge directories are not writable"
+    assert _labels(backend) == ["manager.reviewed_facts"]
+
+
+def test_a_fact_is_not_judged_twice_when_reflection_raises_after_recording_it(
+    roots: _Roots, monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    final = 'WROTE: nothing\nREVIEWED_FACT: {"fact": "A kept fact.", "evidence_refs": ["log.txt"]}'
+    backend = _ReplyBackend(replies=[final])
+
+    def explode(*_args: Any, **_kwargs: Any) -> None:
+        raise RuntimeError("receipt store broke")
+
+    monkeypatch.setattr(reflection, "_write_receipt", explode)
+
+    result = roots.reflect(backend, reviewed_fact=_fact_candidate())
+
+    assert "raised" in result["skipped"]
+    assert _labels(backend) == ["reflection"]
+    digest = (roots.home / "reviewed-facts.md").read_text(encoding="utf-8")
+    assert digest.count("A kept fact.") == 1
+
+
+def test_the_fact_section_closes_the_prompt_after_the_writing_rules(roots: _Roots) -> None:
+    backend = _ReplyBackend()
+
+    roots.reflect(backend, reviewed_fact=_fact_candidate())
+
+    prompt = backend.calls[0]["prompt"]
+    assert prompt.index("WROTE: nothing") < prompt.index("Cross-campaign reviewed-facts digest")
+    assert "then the reviewed-fact line described below" in prompt
+    assert prompt.rstrip().endswith("- log.txt")
 
 
 def test_a_failed_reflection_still_judges_the_fact_on_its_own(roots: _Roots) -> None:
