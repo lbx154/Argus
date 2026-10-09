@@ -26,7 +26,7 @@ def _scrub(root: Path, cache: guard.SecretScanCache, known=()):
     )
 
 
-def test_rewritten_identical_bytes_reuse_but_same_size_changed_bytes_do_not(
+def test_rewritten_identical_bytes_reuse_but_same_size_changed_bytes_do_not(redact_secrets_on, 
     tmp_path, monkeypatch,
 ):
     secret = "unit-test-credential-12345"
@@ -37,13 +37,13 @@ def test_rewritten_identical_bytes_reuse_but_same_size_changed_bytes_do_not(
     path.write_bytes(clean)
     cache = guard.SecretScanCache()
     scan_calls = []
-    original = guard.redact_secrets_text_with_count
+    original = guard._redact_text_with_count
 
     def count_scans(text, **kwargs):
         scan_calls.append(len(text))
         return original(text, **kwargs)
 
-    monkeypatch.setattr(guard, "redact_secrets_text_with_count", count_scans)
+    monkeypatch.setattr(guard, "_redact_text_with_count", count_scans)
     assert not _scrub(tmp_path, cache, (secret,)).changed
     count_after_scan = len(scan_calls)
     assert count_after_scan > 0
@@ -65,7 +65,7 @@ def test_rewritten_identical_bytes_reuse_but_same_size_changed_bytes_do_not(
     assert cache.hits == 1
 
 
-def test_new_known_credential_invalidates_previously_clean_content(tmp_path):
+def test_new_known_credential_invalidates_previously_clean_content(redact_secrets_on, tmp_path):
     secret = "newly-known-unit-test-credential"
     path = tmp_path / "result.jsonl"
     path.write_bytes(_payload(secret))
@@ -78,7 +78,7 @@ def test_new_known_credential_invalidates_previously_clean_content(tmp_path):
     assert cache.hits == 0
 
 
-def test_known_only_source_scan_cannot_certify_pattern_scanned_output(tmp_path):
+def test_known_only_source_scan_cannot_certify_pattern_scanned_output(redact_secrets_on, tmp_path):
     payload = (json.dumps({"api_key": "synthetic-test-key", "padding": "x" * 100}) + "\n").encode()
     source = tmp_path / "schema.py"
     source.write_bytes(payload)
@@ -93,7 +93,7 @@ def test_known_only_source_scan_cannot_certify_pattern_scanned_output(tmp_path):
     assert b"synthetic-test-key" not in output.read_bytes()
 
 
-def test_concurrent_change_during_digest_check_is_not_a_cache_hit(tmp_path, monkeypatch):
+def test_concurrent_change_during_digest_check_is_not_a_cache_hit(redact_secrets_on, tmp_path, monkeypatch):
     secret = "concurrently-added-test-credential"
     path = tmp_path / "result.jsonl"
     path.write_bytes(_payload("x" * len(secret)))
@@ -117,19 +117,19 @@ def test_concurrent_change_during_digest_check_is_not_a_cache_hit(tmp_path, monk
     assert secret.encode() not in path.read_bytes()
 
 
-def test_failed_scan_never_creates_reusable_evidence(tmp_path, monkeypatch):
+def test_failed_scan_never_creates_reusable_evidence(redact_secrets_on, tmp_path, monkeypatch):
     secret = "failed-scan-test-credential"
     path = tmp_path / "result.jsonl"
     path.write_bytes(_payload(secret))
     cache = guard.SecretScanCache()
-    original = guard.redact_secrets_text_with_count
+    original = guard._redact_text_with_count
 
     def interrupted(*_args, **_kwargs):
         raise OSError("temporary scan failure")
 
-    monkeypatch.setattr(guard, "redact_secrets_text_with_count", interrupted)
+    monkeypatch.setattr(guard, "_redact_text_with_count", interrupted)
     assert _scrub(tmp_path, cache, (secret,)).errors
-    monkeypatch.setattr(guard, "redact_secrets_text_with_count", original)
+    monkeypatch.setattr(guard, "_redact_text_with_count", original)
     report = _scrub(tmp_path, cache, (secret,))
     assert report.changed and not report.errors
     assert cache.hits == 0

@@ -813,7 +813,7 @@ def test_invalid_route_token_preserves_parsed_control() -> None:
     )
 
 
-def test_nonzero_exit_preserves_redacted_runner_diagnostic(monkeypatch) -> None:
+def test_nonzero_exit_preserves_redacted_runner_diagnostic(redact_secrets_on, monkeypatch) -> None:
     result = _FakeResult("", exit_code=1)
     result.fatal_error = ""
     result.stderr_lines = [

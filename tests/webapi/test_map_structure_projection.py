@@ -53,7 +53,7 @@ def formations(value: dict) -> list[dict]:
     return [e for e in value["events"] if e["type"] == "idea.portfolio.formed"]
 
 
-def test_tasks_carry_plan_structure_fields_redacted_and_clipped(tmp_path: Path) -> None:
+def test_tasks_carry_plan_structure_fields_redacted_and_clipped(redact_secrets_on, tmp_path: Path) -> None:
     sid, life, memory = plain_session(tmp_path)
     memory.backlog.add(BacklogItem(
         id="a", ts=1, title="Coverage", objective="Compare methods",
@@ -75,7 +75,7 @@ def test_tasks_carry_plan_structure_fields_redacted_and_clipped(tmp_path: Path) 
     assert all(SECRET not in path for path in task["owns_paths"])
 
 
-def test_supersede_event_passes_the_filter_with_lean_passthrough() -> None:
+def test_supersede_event_passes_the_filter_with_lean_passthrough(redact_secrets_on) -> None:
     rows = [
         {"type": "life.plan.node.superseded", "item_id": "a", "ts": 5,
          "reason": f"retired: api_key = {SECRET}",

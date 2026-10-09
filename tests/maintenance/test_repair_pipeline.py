@@ -320,7 +320,7 @@ def test_completed_plan_is_idempotent(tmp_path: Path) -> None:
     assert second.status == "already_applied"
 
 
-def test_prepare_pr_report_is_sanitized_and_does_not_publish(
+def test_prepare_pr_report_is_sanitized_and_does_not_publish(redact_secrets_on, 
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:

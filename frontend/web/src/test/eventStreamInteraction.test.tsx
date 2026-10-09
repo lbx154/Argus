@@ -371,14 +371,12 @@ describe('historical task receipts', () => {
     expect(visibleText(row.findByProps({ 'data-task-receipt-prose': true }))).toContain('MILESTONE_STATUS=literal research sample');
   });
 
-  it('keeps the existing core secret handling in the original view and copy action', () => {
+  it('shows the recorded report as written in the original view and copy action', () => {
     const text = `${CONTINUED_TASK_REPORT}\nProgress: Configuration receipt\nAuthorization: Bearer example-secret-value`;
     mount([{ type: 'ui.argus', text, ts: 1, mission_result: true, message_id: 'report-with-header' }]);
     const row = renderer!.root.findByProps({ 'data-task-receipt-id': 'report-with-header' });
     const original = row.findByProps({ 'data-task-receipt-original': true }).children.join('');
-    expect(original).toContain('Authorization: <REDACTED:token>');
-    expect(original).not.toContain('example-secret-value');
-    expect(visibleText(row.findByProps({ 'data-task-receipt-prose': true }))).not.toContain('example-secret-value');
+    expect(original).toContain('Authorization: Bearer example-secret-value');
     expect(row.findByType(CopyButton).props.text).toBe(original);
   });
 

@@ -77,7 +77,7 @@ def _seed_tasks(life: Path) -> None:
 # ---------------------------------------------------------------------------
 
 
-def test_chat_turn_expands_references_for_the_manager(
+def test_chat_turn_expands_references_for_the_manager(redact_secrets_on, 
     tmp_path: Path, monkeypatch,
 ) -> None:
     sid = "s-ref-chat"

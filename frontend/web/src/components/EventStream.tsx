@@ -2,7 +2,7 @@ import { useDeferredValue, useEffect, useMemo, useRef, useState } from 'react';
 import { useGsapMotion } from '../lib/motion';
 import type { ArtifactInfo, EventMsg, Snapshot } from '../api';
 import type { DeliveryReceipt, MissionView } from '../../../core/src/types';
-import { redactSecrets, type RenderedLine } from '../../../core/src/eventRender';
+import { type RenderedLine } from '../../../core/src/eventRender';
 import { isReasoning, type EventViewFilter } from '../../../core/src/events';
 import {
   foldFeedRows,
@@ -248,8 +248,7 @@ function ConversationRow({
   const operator = String(ev.type) === 'ui.operator';
   const taskReceipt = !operator && ev.mission_result === true;
   // Preserve the full recorded message, including research/control-like lines.
-  // Reuse the core's existing secret handling without its prose/whitespace filter.
-  const reportText = taskReceipt ? redactSecrets(typeof ev.text === 'string' ? ev.text : r.text).text : r.text;
+  const reportText = taskReceipt ? (typeof ev.text === 'string' ? ev.text : r.text) : r.text;
   const report = taskReceipt ? plainTaskReport(reportText, locale) : null;
   const recordedAt = taskReceipt ? dateOf(ev) : null;
   const draft = operator ? splitDraft(r.text) : null;

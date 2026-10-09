@@ -482,7 +482,7 @@ def test_bad_configuration_and_request_values_are_rejected(setup):
         analytics.dashboard(days=31)
 
 
-def test_secret_session_name_and_nonfinite_untrusted_numbers_are_safe_on_export(setup):
+def test_secret_session_name_and_nonfinite_untrusted_numbers_are_safe_on_export(redact_secrets_on, setup):
     analytics, _, _ = setup
     sid = "argus_trial_" + "f" * 64
     root = project(setup, sid=sid)

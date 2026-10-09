@@ -85,7 +85,7 @@ def test_digest_renders_the_five_most_recent_notes(tmp_path: Path) -> None:
     assert "提示 0" not in note
 
 
-def test_note_text_is_clipped_and_redacted(tmp_path: Path) -> None:
+def test_note_text_is_clipped_and_redacted(redact_secrets_on, tmp_path: Path) -> None:
     project = tmp_path / "project"
     project.mkdir()
     life = tmp_path / "life"

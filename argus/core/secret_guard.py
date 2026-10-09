@@ -21,43 +21,13 @@ from typing import Any, Iterable, Mapping
 # the label; guessing a secret from the shape of its value remains out of scope.
 _LABEL_START = r"(?<![A-Za-z0-9])"
 
-# A labeled assignment whose right-hand side reads the credential from the
-# environment is not the credential. Masking ``os.environ.get(`` in
-# ``token = os.environ.get("API_TOKEN")`` hid the very line an independent
-# Reviewer had to read, and a Reviewer that cannot read a line cannot verify
-# it: one task spent five extra Engineer/Reviewer rounds arguing over code
-# neither side could see. The exemption is deliberately narrow and explicit:
-# the WHOLE value token must be one of these shapes (anchored at both ends),
-#   - a known environment reader, opened or applied to an UPPER_SNAKE name:
-#     ``os.environ.get(``, ``os.getenv(``, ``getenv(``, ``os.environ[``,
-#     ``ENV[``, ``System.getenv(``, ``process.env.NAME``, ``import.meta.env.NAME``;
-#   - an environment reference whose name is letters-only UPPER_SNAKE with at
-#     least one underscore: ``$API_TOKEN`` or ``${API_TOKEN}``;
-#   - a closed ``{{ name.path }}`` template.
-# Any other value -- a call on another name, a brace or ``$`` prefix with
-# trailing characters, an unclosed template, a digit-bearing ``$NAME`` --
-# keeps the old treatment. A value the process actually holds is masked
-# everywhere by the known-value pass that runs before these patterns.
-_ENV_NAME = r"[A-Z]+(?:_[A-Z]+)+"
-_CODE_REFERENCE_VALUE = (
-    r"(?!(?-i:"
-    r"(?:(?:os\.environ\.get|os\.getenv|getenv|System\.getenv)\("
-    r"|(?:os\.environ|ENV)\[)"
-    r"(?:[A-Z_][A-Z0-9_]*[)\]])?"
-    r"|(?:process\.env|import\.meta\.env)\.[A-Z_][A-Z0-9_]*"
-    r"|\$" + _ENV_NAME + r"|\$\{" + _ENV_NAME + r"\}"
-    r"|\{\{[A-Za-z_][\w.]*\}\}"
-    r")(?![^\s'\",;]))"
-)
-
 _HIGH_CONFIDENCE_INLINE_SECRET_PATTERN = (
     re.compile(
         r"(?i)" + _LABEL_START
         + r"((?:x[_-]?)?api[_-]?key|client[_-]?secret|private[_-]?key)\b"
         r"(['\"]?)([^\S\r\n]*[=:])"
         r"(?![^\S\r\n]*['\"]?<REDACTED:)"
-        r"[^\S\r\n]*['\"]?" + _CODE_REFERENCE_VALUE
-        + r"([^\s'\",;]{8,})['\"]?"
+        r"[^\S\r\n]*['\"]?([^\s'\",;]{8,})['\"]?"
     ),
     r"\1\2\3 <REDACTED:secret>",
 )
@@ -67,8 +37,7 @@ _AMBIGUOUS_INLINE_SECRET_PATTERN = (
         + r"(secret|token|password|passwd|auth)\b"
         r"(['\"]?)([^\S\r\n]*[=:])"
         r"(?![^\S\r\n]*['\"]?<REDACTED:)"
-        r"[^\S\r\n]*['\"]?" + _CODE_REFERENCE_VALUE
-        + r"([^\s'\",;]{8,})['\"]?"
+        r"[^\S\r\n]*['\"]?([^\s'\",;]{8,})['\"]?"
     ),
     r"\1\2\3 <REDACTED:secret>",
 )
@@ -516,7 +485,48 @@ def known_secret_values(
     return tuple(sorted(values, key=len, reverse=True))
 
 
-def redact_secrets_text_with_count(
+REDACT_SECRETS_KNOB = "ARGUS_SKILL_REDACT_SECRETS"
+_REDACTION_CACHE: dict[str, Any] = {}
+
+
+def secret_redaction_enabled() -> bool:
+    """Whether Argus rewrites credential-shaped text anywhere. Off by default.
+
+    Masked text is unobservable: a Reviewer shown ``<REDACTED:secret>`` in place
+    of ``os.environ.get(`` cannot verify the line, and one task spent five extra
+    rounds and most of its cost disputing code neither role could read. So
+    Argus leaves text as written unless an operator opts in. Detection
+    (:func:`contains_secret`) is unaffected by this switch.
+
+    Called on every event, so the persisted value is re-read only when the knob
+    store file changes; the environment is checked on every call.
+    """
+    from .knobs import _TRUE_VALUES
+
+    explicit = str(os.environ.get(REDACT_SECRETS_KNOB, "") or "").strip().lower()
+    if explicit:
+        return explicit in _TRUE_VALUES
+    try:
+        from .knob_store import config_path, read_persisted_knobs
+
+        path = config_path()
+        try:
+            info = path.stat()
+            stamp: Any = (info.st_mtime_ns, info.st_size, info.st_ino)
+        except OSError:
+            stamp = None
+        cached = _REDACTION_CACHE.get(str(path))
+        if cached is not None and cached[0] == stamp:
+            return cached[1]
+        saved = str(read_persisted_knobs().get(REDACT_SECRETS_KNOB, "") or "")
+        enabled = saved.strip().lower() in _TRUE_VALUES
+        _REDACTION_CACHE[str(path)] = (stamp, enabled)
+        return enabled
+    except Exception:  # noqa: BLE001 - an unreadable store keeps the default
+        return False
+
+
+def _redact_text_with_count(
     text: str,
     *,
     known_values: Iterable[str] = (),
@@ -532,7 +542,7 @@ def redact_secrets_text_with_count(
         except (json.JSONDecodeError, TypeError):
             parsed = None
         if parsed is not None:
-            redacted_record = redact_secrets_record(
+            redacted_record = _redact_record(
                 parsed,
                 known_values=known_values,
                 redact_ambiguous_record_keys=redact_ambiguous_record_keys,
@@ -561,7 +571,7 @@ def redact_secrets_text_with_count(
                 except (json.JSONDecodeError, TypeError):
                     jsonl_valid = False
                     break
-                redacted_record = redact_secrets_record(
+                redacted_record = _redact_record(
                     record,
                     known_values=known_values,
                     redact_ambiguous_record_keys=redact_ambiguous_record_keys,
@@ -601,34 +611,34 @@ def redact_secrets_text_with_count(
     return out, replacements if out != text else 0
 
 
-def redact_secrets_text(
+def _redact_text(
     text: str,
     *,
     known_values: Iterable[str] = (),
     redact_ambiguous_record_keys: bool = True,
 ) -> str:
-    return redact_secrets_text_with_count(
+    return _redact_text_with_count(
         text,
         known_values=known_values,
         redact_ambiguous_record_keys=redact_ambiguous_record_keys,
     )[0]
 
 
-def redact_secrets_record(
+def _redact_record(
     obj: Any,
     *,
     known_values: Iterable[str] = (),
     redact_ambiguous_record_keys: bool = True,
 ) -> Any:
     if isinstance(obj, str):
-        return redact_secrets_text(
+        return _redact_text(
             obj,
             known_values=known_values,
             redact_ambiguous_record_keys=redact_ambiguous_record_keys,
         )
     if isinstance(obj, list):
         return [
-            redact_secrets_record(
+            _redact_record(
                 value,
                 known_values=known_values,
                 redact_ambiguous_record_keys=redact_ambiguous_record_keys,
@@ -637,7 +647,7 @@ def redact_secrets_record(
         ]
     if isinstance(obj, tuple):
         return tuple(
-            redact_secrets_record(
+            _redact_record(
                 value,
                 known_values=known_values,
                 redact_ambiguous_record_keys=redact_ambiguous_record_keys,
@@ -646,7 +656,7 @@ def redact_secrets_record(
         )
     if isinstance(obj, set):
         return [
-            redact_secrets_record(
+            _redact_record(
                 value,
                 known_values=known_values,
                 redact_ambiguous_record_keys=redact_ambiguous_record_keys,
@@ -679,7 +689,7 @@ def redact_secrets_record(
                     "<REDACTED:secret>" if value else value
                 )
             else:
-                redacted[key] = redact_secrets_record(
+                redacted[key] = _redact_record(
                     value,
                     known_values=known_values,
                     redact_ambiguous_record_keys=redact_ambiguous_record_keys,
@@ -799,7 +809,7 @@ def _scrub_streaming(
     with path.open("rb") as source:
         for segment in _iter_stream_segments(source, path.name):
             scan_digest.update(segment)
-            _, count = redact_secrets_text_with_count(
+            _, count = _redact_text_with_count(
                 segment.decode("utf-8"),
                 known_values=known_values,
                 include_patterns=include_patterns,
@@ -824,7 +834,7 @@ def _scrub_streaming(
             for segment in _iter_stream_segments(source, path.name):
                 rewrite_digest.update(segment)
                 text = segment.decode("utf-8")
-                redacted, count = redact_secrets_text_with_count(
+                redacted, count = _redact_text_with_count(
                     text,
                     known_values=known_values,
                     include_patterns=include_patterns,
@@ -876,7 +886,14 @@ def scrub_recent_text_artifacts(
     known_values: Iterable[str] = (),
     cache: SecretScanCache | None = None,
 ) -> SecretScrubReport:
-    """Redact secrets from text files changed during the current engineer round."""
+    """Redact secrets from text files changed during the current engineer round.
+
+    A no-op returning an empty report unless ``ARGUS_SKILL_REDACT_SECRETS`` is on.
+    """
+    if not secret_redaction_enabled():
+        return SecretScrubReport(
+            scanned_files=0, redacted_paths=(), replacement_count=0, errors=(),
+        )
     root = Path(root).expanduser().resolve()
     known_values = tuple(known_values)
     redacted_paths: list[str] = []
@@ -1033,7 +1050,7 @@ def scrub_recent_text_artifacts(
                 errors.append(f"{relative}: {type(exc).__name__}")
                 continue
             scanned_files += 1
-            redacted, count = redact_secrets_text_with_count(
+            redacted, count = _redact_text_with_count(
                 text,
                 known_values=known_values,
                 include_patterns=include_patterns,
@@ -1068,3 +1085,72 @@ def scrub_recent_text_artifacts(
         errors=tuple(errors),
         skipped_paths=tuple(skipped_paths),
     )
+
+
+def redact_secrets_text_with_count(
+    text: str,
+    *,
+    known_values: Iterable[str] = (),
+    include_patterns: bool = True,
+    redact_ambiguous_record_keys: bool = True,
+) -> tuple[str, int]:
+    """Masked copy and replacement count; ``(text, 0)`` while redaction is off."""
+    if not secret_redaction_enabled():
+        return text, 0
+    return _redact_text_with_count(
+        text,
+        known_values=known_values,
+        include_patterns=include_patterns,
+        redact_ambiguous_record_keys=redact_ambiguous_record_keys,
+    )
+
+
+def redact_secrets_text(
+    text: str,
+    *,
+    known_values: Iterable[str] = (),
+    redact_ambiguous_record_keys: bool = True,
+) -> str:
+    """Masked copy of ``text``; ``text`` itself while redaction is off."""
+    if not secret_redaction_enabled():
+        return text
+    return _redact_text(
+        text,
+        known_values=known_values,
+        redact_ambiguous_record_keys=redact_ambiguous_record_keys,
+    )
+
+
+def redact_secrets_record(
+    obj: Any,
+    *,
+    known_values: Iterable[str] = (),
+    redact_ambiguous_record_keys: bool = True,
+) -> Any:
+    """Masked copy of a JSON-like record; ``obj`` itself while redaction is off."""
+    if not secret_redaction_enabled():
+        return obj
+    return _redact_record(
+        obj,
+        known_values=known_values,
+        redact_ambiguous_record_keys=redact_ambiguous_record_keys,
+    )
+
+
+def contains_secret(
+    obj: Any,
+    *,
+    known_values: Iterable[str] = (),
+    redact_ambiguous_record_keys: bool = True,
+) -> bool:
+    """Whether ``obj`` holds credential-shaped content, whatever the switch says.
+
+    Callers that must refuse or flag such content (training capture, for
+    instance) use this instead of comparing a redacted copy with the original,
+    so turning redaction off never turns their check off with it.
+    """
+    return _redact_record(
+        obj,
+        known_values=known_values,
+        redact_ambiguous_record_keys=redact_ambiguous_record_keys,
+    ) != obj

@@ -805,7 +805,9 @@ def _setup_job(name, spec, root, action, payload):
         operation.update(status="completed", progress="依赖修复完成" if action in {"repair", "platon_runtime"} else "环境检查完成", completed=time.time())
     except Exception as exc:
         error = str(exc)
-        for secret in (payload.get("username"), payload.get("password")):
+        from .secret_guard import secret_redaction_enabled
+
+        for secret in (payload.get("username"), payload.get("password")) if secret_redaction_enabled() else ():
             if secret:
                 error = error.replace(secret, "[redacted]")
         operation.update(

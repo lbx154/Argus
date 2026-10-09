@@ -222,6 +222,13 @@ KNOBS: tuple[Knob, ...] = (
     Knob("ARGUS_SKILL_METRICS_MAX_ARCHIVES", "14", "maximum number of rotated metrics archives to retain", "telemetry"),
     Knob("ARGUS_SKILL_AGENT_IO_MODE", "full", "agent I/O persistence: full saves prompt and every raw stream frame exactly once plus a summary; compact stores summary only", "telemetry"),
     Knob("ARGUS_SKILL_SAFE_MODE", "off", "extra-conservative guardrails", "lifecycle", cockpit=True),
+    Knob(
+        "ARGUS_SKILL_REDACT_SECRETS", "0",
+        "1 = mask credential-shaped text in events, transcripts, model-visible text, "
+        "config views and changed artifacts; off by default because masked text "
+        "cannot be verified (secret detection for training capture is unaffected)",
+        "lifecycle",
+    ),
     # --- learning (what Argus keeps from missions and answers) ---
     Knob("ARGUS_SKILL_REFLECTION", "1", "after each mission, look back once and keep at most one lesson page, two fact pages and one procedure when something durable was learned", "learning", cockpit=True),
     Knob("ARGUS_SKILL_REFLECTION_MODEL", "auto", "model for the post-mission reflection and answer learning; auto uses the cheap front-door model", "models", cockpit=True),
@@ -289,6 +296,7 @@ _TOGGLE_KNOBS = frozenset(
         "ARGUS_SKILL_ROUND_CHECKPOINT",
         "ARGUS_SKILL_REQUIRE_POST_TASK_LEARNING",
         "ARGUS_SKILL_SAFE_MODE",
+        "ARGUS_SKILL_REDACT_SECRETS",
         "ARGUS_SKILL_SHOW_REASONING",
         "ARGUS_SKILL_ENABLE_TELEGRAM",
         "ARGUS_SKILL_ENABLE_FEISHU",
@@ -638,7 +646,14 @@ def normalize_cockpit_knob_value(name: str, value: str) -> str:
 
 
 def redact_knob_value(name: str, value: str, *, source: str) -> str:
-    """Hide configured secrets on operator-facing config surfaces."""
+    """Hide configured secrets on operator-facing config surfaces.
+
+    Follows ``ARGUS_SKILL_REDACT_SECRETS`` like every other Argus redaction.
+    """
+    from .secret_guard import secret_redaction_enabled
+
+    if not secret_redaction_enabled():
+        return value
     if source != "default" and any(marker in name.upper() for marker in _SENSITIVE_MARKERS):
         return "<redacted>" if value else ""
     return value

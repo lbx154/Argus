@@ -19,7 +19,7 @@ from collections import Counter, defaultdict
 from contextlib import closing
 from datetime import datetime, timezone
 
-from argus.core.secret_guard import redact_secrets_record
+from argus.core.secret_guard import contains_secret
 
 from .analytics import AnalyticsError, _private, _sanitize
 from .research_controls import SID
@@ -126,7 +126,7 @@ def _sensitive(value):
         return False
 
     return (_private(value) or detect(value)
-            or _sanitize(redact_secrets_record(value)) != value)
+            or contains_secret(value) or _sanitize(value) != value)
 
 
 def _timestamp(value):
