@@ -1330,7 +1330,7 @@ def manager_triage(mem: Any, body: str, chat_state: dict[str, Any],
         chat_state["_self_failure"] = {"detail": safe}
         chat_state.pop("_self_delivery", None)
         chat_state.pop("last_thread_id", None)
-        display = humanize_runtime_reason(safe, language_hint=body)
+        display = humanize_runtime_reason(safe, language_hint=body, interactive=True)
         if formatted:
             return display
         if chinese:

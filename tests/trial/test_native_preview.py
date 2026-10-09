@@ -232,3 +232,25 @@ def test_all_auxiliary_model_routes_are_pinned(config, tmp_path):
     for name in ('FRONTDOOR_MODEL', 'PLAN_PREVIEW_MODEL', 'BOUNDED_DAG_MODEL', 'REWRITE_MODEL'):
         index = args.index('ARGUS_SKILL_' + name)
         assert args[index + 1] == MODEL
+
+
+def test_host_watchdog_observes_real_child_memory_and_threads():
+    import subprocess
+    import sys
+    import time
+
+    from deploy.trial.native_runtime import ResourceWatchdog
+
+    child = subprocess.Popen([sys.executable, '-c', 'import time; data=bytearray(24*1024*1024); time.sleep(30)'])
+    try:
+        monitor = ResourceWatchdog(child.pid, memory_bytes=16 * 1024 * 1024)
+        reason = ''
+        deadline = time.monotonic() + 5
+        while time.monotonic() < deadline and not reason:
+            reason = monitor.exceeded()
+            time.sleep(0.05)
+        assert reason == 'memory'
+        assert ResourceWatchdog(child.pid, tasks=0).exceeded() == 'process/thread'
+    finally:
+        child.terminate()
+        child.wait(timeout=5)

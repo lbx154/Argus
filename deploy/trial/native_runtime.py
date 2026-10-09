@@ -10,7 +10,6 @@ import argparse
 import asyncio
 import json
 import os
-import resource
 import subprocess
 import time
 from pathlib import Path
@@ -28,14 +27,19 @@ def sandbox_command(config: dict, tenant: str, command: list[str] | None = None)
     for path in ("/usr", "/bin", "/sbin", "/lib", "/lib64"):
         if Path(path).exists():
             args.extend(("--ro-bind", path, path))
-    args.extend(("--proc", "/proc", "--dev", "/dev", "--tmpfs", "/tmp", "--dir", "/etc"))
+    directory = Path(row["directory"])
+    for name in ("tmp", "shm"):
+        (directory / name).mkdir(parents=True, exist_ok=True, mode=0o700)
+    args.extend(("--proc", "/proc", "--dev", "/dev", "--dir", "/etc"))
     for path in ("/etc/ssl", "/etc/ca-certificates", "/etc/hosts", "/etc/nsswitch.conf", "/etc/passwd", "/etc/group", "/etc/ld.so.cache"):
         if Path(path).exists():
             args.extend(("--ro-bind", path, path))
     for path in (source, python, venv, node):
         args.extend(("--ro-bind", str(path), str(path)))
     args.extend(("--bind", row["directory"], "/tenant", "--ro-bind", config["meter_runtime"], "/meter",
-                 "--ro-bind", config["copilot_package"], "/tenant/home/.cache/copilot/pkg"))
+                 "--ro-bind", config["copilot_package"], "/tenant/home/.cache/copilot/pkg",
+                 "--bind", str(directory / "tmp"), "/tmp", "--bind", str(directory / "shm"), "/dev/shm",
+                 "--remount-ro", "/dev", "--remount-ro", "/"))
     env = {
         "HOME": "/tenant/home", "PATH": f"/tenant/bin:{venv}/bin:{node}/bin:/usr/bin:/bin",
         "PYTHONPATH": str(source), "PYTHONUNBUFFERED": "1", "PYTHONDONTWRITEBYTECODE": "1",
@@ -67,6 +71,8 @@ def sandbox_command(config: dict, tenant: str, command: list[str] | None = None)
 
 
 async def inside():
+    import resource
+
     import uvicorn
     from native_egress import bridge
 
@@ -82,6 +88,56 @@ async def inside():
     server = uvicorn.Server(uvicorn.Config(app, uds=str(socket_path), access_log=False, proxy_headers=False))
     async with model, proxy:
         await server.serve()
+
+
+class ResourceWatchdog:
+    """Fallback for hosts without delegated cgroup resource controllers.
+
+    Account the entire sandbox process tree, including threads. Stop it on
+    memory/process excess or sustained CPU excess. Limits stay outside guests.
+    """
+    def __init__(self, pid: int, *, memory_bytes: int = 1024**3, tasks: int = 128):
+        import psutil
+
+        self.process = psutil.Process(pid)
+        self.memory_limit = memory_bytes
+        self.task_limit = tasks
+        self.last_cpu: dict[int, float] = {}
+        self.last_at = time.monotonic()
+        self.cpu_excess_since: float | None = None
+
+    def exceeded(self) -> str:
+        import psutil
+
+        memory = threads = 0
+        cpu: dict[int, float] = {}
+        try:
+            processes = [self.process, *self.process.children(recursive=True)]
+        except psutil.NoSuchProcess:
+            return ""
+        for process in processes:
+            try:
+                memory += process.memory_info().rss
+                threads += process.num_threads()
+                times = process.cpu_times()
+                cpu[process.pid] = times.user + times.system + times.children_user + times.children_system
+            except psutil.NoSuchProcess:
+                continue
+        now = time.monotonic()
+        elapsed = max(0.01, now - self.last_at)
+        used = sum(max(0, value - self.last_cpu.get(pid, value)) for pid, value in cpu.items()) / elapsed
+        self.last_cpu, self.last_at = cpu, now
+        if memory > self.memory_limit:
+            return "memory"
+        if threads > self.task_limit:
+            return "process/thread"
+        if used > 1.25:
+            self.cpu_excess_since = self.cpu_excess_since or now
+            if now - self.cpu_excess_since > 5:
+                return "CPU"
+        else:
+            self.cpu_excess_since = None
+        return ""
 
 
 def storage_exceeded(directory: str) -> bool:
@@ -115,13 +171,25 @@ def main():
             command = command[1:]
         with subprocess.Popen(sandbox_command(config, args.tenant, command), env={}) as child:
             directory = config["tenants"][args.tenant]["directory"]
+            watchdog = ResourceWatchdog(child.pid)
+            last_storage = 0.0
             while child.poll() is None:
-                if args.mode == "launch" and storage_exceeded(directory):
-                    print("Trial workspace storage limit reached; pausing runtime.", flush=True)
+                now = time.monotonic()
+                reason = watchdog.exceeded() if args.mode == "launch" else ""
+                if args.mode == "launch" and now - last_storage >= 2:
+                    last_storage = now
+                    if storage_exceeded(directory):
+                        reason = "workspace storage"
+                if reason:
+                    print(f"Trial {reason} limit reached; pausing runtime.", flush=True)
                     child.terminate()
-                    child.wait(timeout=10)
-                    return  # A clean exit avoids repeated restarts of a full workspace.
-                time.sleep(5 if args.mode == "launch" else 0.1)
+                    try:
+                        child.wait(timeout=5)
+                    except subprocess.TimeoutExpired:
+                        child.kill()
+                        child.wait()
+                    return  # A clean exit requires an operator restart.
+                time.sleep(0.5 if args.mode == "launch" else 0.1)
             raise SystemExit(child.returncode)
 
 

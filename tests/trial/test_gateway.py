@@ -479,7 +479,24 @@ def test_slot_and_tpm_wait_share_one_admission_deadline(settings, monkeypatch):
     monkeypatch.setattr(store_module, "GLOBAL_TPM", 100_000)
 
     async def run():
-        app = create_app(replace(settings, timeout=0.5), transport=httpx.MockTransport(upstream))
+        slot_waiting = asyncio.Event()
+        deadlines = []
+        original_waiting = GatewayAttempt.waiting_for_slot
+        original_timeout = asyncio.timeout
+
+        def waiting(attempt):
+            original_waiting(attempt)
+            slot_waiting.set()
+
+        def timeout(delay):
+            context = original_timeout(delay)
+            if delay == 1.5:
+                deadlines.append(context.when())
+            return context
+
+        monkeypatch.setattr(GatewayAttempt, "waiting_for_slot", waiting)
+        monkeypatch.setattr(asyncio, "timeout", timeout)
+        app = create_app(replace(settings, timeout=1.5), transport=httpx.MockTransport(upstream))
         async with app.router.lifespan_context(app):
             store = app.state.store
             credential = app.state.vault.credential(KEY_ID)
@@ -492,10 +509,13 @@ def test_slot_and_tpm_wait_share_one_admission_deadline(settings, monkeypatch):
                 headers={"Authorization": "Bearer " + credential},
             ) as client:
                 task = asyncio.create_task(client.post("/v1/chat/completions", json=PAYLOAD))
-                await asyncio.sleep(0.3)
+                # Release only after admission actually enters the slot wait.
+                # A fixed sleep can exhaust the deadline on a busy CI worker.
+                await asyncio.wait_for(slot_waiting.wait(), 3)
                 assert not task.done()
                 app.state.request_slots.release()
-                response = await asyncio.wait_for(task, 0.35)
+                response = await asyncio.wait_for(task, 3)
+                assert len(deadlines) == 1  # Neither phase resets the configured deadline.
                 assert response.status_code == 429
                 assert response.json()["error"]["code"] == "trial_tpm_exceeded"
                 assert store.status(KEY_ID)["tokens_used"] == 0

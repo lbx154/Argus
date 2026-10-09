@@ -18,7 +18,7 @@ RESEARCHER_VOICE = (
     "or retries. Call files files and results results. Keep internal role names, "
     "rounds, field names, status tokens, tool arguments and workflow terms "
     "(artifact, gate, verdict, acceptance, pipeline, handoff) out of prose. "
-    "Use concrete nouns and complete sentences; put technical facts in details "
+    "Use clear sentences; put technical facts in details "
     "and required protocol in its separate footer."
 )
 
@@ -28,9 +28,8 @@ RESEARCHER_VOICE = (
 # the brief must state its own ban on protocol labels next to the prose field
 # it defines, the way the front-door prompt does for REPLY.
 RESEARCHER_VOICE_BRIEF = (
-    "Write anything meant for a person as a researcher writes to a "
-    "colleague: precise, natural, plain. Match their language; name the actual "
-    "work, result and next step without internal role names or status tokens."
+    "Write plainly in their language; state the work, result and next step "
+    "without internal tokens."
 )
 
 __all__ = ["RESEARCHER_VOICE", "RESEARCHER_VOICE_BRIEF"]

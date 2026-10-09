@@ -156,9 +156,10 @@ class ServerContext:
             root, row = item
             sid = str(row["id"])
             meta = read_session_meta(root, sid)
+            state_path = self._project_life_dir(sid, global_root=root)
             return max(
                 meta.last_active if meta is not None else 0.0,
-                durable_session_activity(core_paths.session_state_root(sid, root=root)),
+                durable_session_activity(state_path) if state_path is not None else 0.0,
             )
 
         # Match the project index's newest-active ordering before truncating,

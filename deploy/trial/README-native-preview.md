@@ -56,8 +56,14 @@ ports 80/443, rejecting private networks and metadata endpoints. Shell tools
 that use the configured HTTP/HTTPS proxies can access public internet resources.
 Tools needing direct sockets are unavailable.
 
-The user services apply 1 GiB memory, one CPU and 128 process limits per runtime.
-Files have a 32 MiB size limit. A 200 MiB / 10,000-entry workspace monitor pauses
+The user services request 1 GiB memory, one CPU and 128 task limits per runtime.
+Some user managers have no delegated resource controllers. An independent
+host-side watchdog always samples aggregate process-tree RSS and thread counts
+at 0.5-second intervals, pausing above 1 GiB / 128 threads or sustained CPU usage
+above 1.25 cores for five seconds. These sampled limits allow short bursts and
+are not equivalent to kernel cgroup quotas. Root and device directories are
+read-only; temporary/shared-memory files use each tenant's monitored disk
+directories. Files have a 32 MiB size limit. A 200 MiB / 10,000-entry workspace monitor pauses
 an oversized runtime; this monitor is not an operating-system disk quota.
 Invitation sessions use signed, secure, HttpOnly cookies. HTTP mutations and
 browser WebSockets check the browser origin. Runtime upgrades and provider /

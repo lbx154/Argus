@@ -9,7 +9,6 @@ from __future__ import annotations
 import argparse
 import asyncio
 import base64
-import fcntl
 import hashlib
 import hmac
 import json
@@ -497,6 +496,8 @@ def main():
     ledger = Ledger(Path(config["ledger"]), total_usd=config["total_usd"], user_usd=config["user_usd"])
     meter_lock = None
     if args.mode == "meter":
+        import fcntl
+
         meter_lock = open(config["ledger"] + ".lock", "a")
         fcntl.flock(meter_lock, fcntl.LOCK_EX | fcntl.LOCK_NB)
         ledger.recover()
