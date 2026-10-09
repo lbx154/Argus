@@ -109,3 +109,17 @@ def test_shutdown_does_not_wait_for_incomplete_headers_or_bodies():
     finally:
         for stream in sockets:
             stream.close()
+
+
+def test_binding_the_loopback_bridge_does_not_resolve_host_names(monkeypatch):
+    # A reverse lookup of 127.0.0.1 can take tens of seconds on some hosts;
+    # opening a per-call bridge must not wait on name resolution.
+    def no_lookup(*_args, **_kwargs):
+        raise AssertionError("loopback bridge resolved a host name")
+
+    monkeypatch.setattr(socket, "getfqdn", no_lookup)
+    monkeypatch.setattr(socket, "gethostbyaddr", no_lookup)
+    with CallBoundBridge(lambda operation, payload: {"ok": True}, env_prefix="ARGUS_PLUGIN_TEST") as bridge:
+        assert bridge.server.server_name == "127.0.0.1"
+        assert bridge.server.server_port == bridge.server.server_address[1]
+        assert post(bridge, b"{}")[0] == 200
