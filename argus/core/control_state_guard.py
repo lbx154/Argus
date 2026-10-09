@@ -23,8 +23,9 @@ What this module does:
 * Everything else works as before: a role may run Argus against an unrelated
   project or a scratch project of its own (a nested Argus, a benchmark
   subagent). A daemon or web server started from inside a role clears the
-  marker for its own state root (:func:`release_role_marker_for`), so the
-  orchestrator it starts can manage its own campaign.
+  marker for exactly its own state root (:func:`release_role_marker_for`),
+  so the orchestrator it starts can manage its own campaign; its parent's
+  project stays protected.
 
 What it does not do: it closes the observed path, a role calling Argus's API,
 not a determined attacker. A role that edits its own environment (drops the
@@ -116,23 +117,20 @@ def mark_role_process_env(
     return marked
 
 
-def _within(path: str, root: str) -> bool:
-    return path == root or path.startswith(root.rstrip(os.sep) + os.sep)
-
-
 def release_role_marker_for(root: Path | str, env: dict[str, str] | None = None) -> None:
     """Clear the role marker for ``root``, for an orchestrator started inside a role.
 
-    A daemon or web server a role starts runs its own campaign: roots at or
-    under ``root`` are dropped from the protected list (the whole marker goes
-    when none is left), so that orchestrator can manage its own state while
-    its parent's project stays protected.
+    A daemon or web server a role starts runs its own campaign: ``root`` itself,
+    and only that root, is dropped from the protected list (the whole marker
+    goes when none is left), so that orchestrator can manage its own state
+    while its parent's project stays protected. A project root nested under
+    ``root`` (the parent's project under a shared global root) stays protected.
     """
     target = os.environ if env is None else env
     if not role_process(target):
         return
     released = _key(root)
-    remaining = [part for part in protected_roots(target) if not _within(part, released)]
+    remaining = [part for part in protected_roots(target) if part != released]
     if remaining:
         target[ROLE_PROTECTED_ROOTS_ENV] = os.pathsep.join(remaining)
         return
@@ -160,6 +158,19 @@ def refuse_role_control_write(what: str, root: Path | str | None) -> None:
     )
 
 
+def _role_phrase(role: str) -> str:
+    role = role or "agent"
+    return f"{'An' if role[:1].lower() in 'aeiou' else 'A'} {role} role process"
+
+
+def _lead_lower(text: str) -> str:
+    """``The continuous ...`` -> ``the continuous ...``; keeps ``Argus`` and acronyms."""
+    head = text.split(" ", 1)[0]
+    if head[:1].isupper() and head[1:].islower():
+        return text[:1].lower() + text[1:]
+    return text
+
+
 def _record_refusal(root: str, what: str) -> None:
     """One runtime incident per refused attempt; never breaks the refusal."""
     try:
@@ -173,8 +184,9 @@ def _record_refusal(root: str, what: str) -> None:
             severity="error",
             observed={"role": role_process(), "control": str(what)[:200], "pid": os.getpid()},
             reason=(
-                f"A {role_process()} role process tried to change {what}; the change "
-                "was refused. Control changes go through the operator or the Manager."
+                f"{_role_phrase(role_process())} tried a control-state change and was "
+                f"refused: {_lead_lower(str(what))}. Control changes go through the "
+                "operator or the Manager."
             ),
             escalation_after=1,
         )

@@ -184,12 +184,14 @@ def test_an_orchestrator_started_inside_a_role_manages_its_own_root(tmp_path, mo
     disable_continuous_config(parent)
 
 
-def test_a_web_server_started_inside_a_role_releases_its_global_root(tmp_path, monkeypatch):
+def test_a_web_server_started_inside_a_role_releases_only_its_own_root(tmp_path, monkeypatch):
     from argus.webapi import server
 
-    project = _armed(tmp_path / "global" / "projects" / "p1")
+    global_root = _armed(tmp_path / "global")
+    # The role's own project lives under the global root the web server serves.
+    project = _armed(global_root / "projects" / "p1")
     outside = _armed(tmp_path / "outer")
-    _as_role_of(monkeypatch, project, outside)
+    _as_role_of(monkeypatch, project, outside, global_root)
     calls: list[object] = []
 
     class _Uvicorn:
@@ -203,11 +205,28 @@ def test_a_web_server_started_inside_a_role_releases_its_global_root(tmp_path, m
     monkeypatch.setattr("argus.core.runtime_identity.release_match_preflight_error", lambda: "")
     monkeypatch.setattr(server, "_uvicorn_log_config", lambda _uvicorn: None)
 
-    assert server.serve(global_root=tmp_path / "global") == 0
+    assert server.serve(global_root=global_root) == 0
     assert calls == ["app"]
-    disable_continuous_config(project)
+    # Its own root is released ...
+    disable_continuous_config(global_root)
+    # ... but the parent's project under it and an unrelated one stay protected.
+    for protected in (project, outside):
+        with pytest.raises(RoleControlStateWriteDenied):
+            disable_continuous_config(protected)
+    assert os.environ[ROLE_PROCESS_ENV] == "engineer"
+
+
+def test_the_refusal_incident_reads_as_a_sentence(tmp_path, monkeypatch):
+    life_dir = _armed(tmp_path / "project")
+    _as_role_of(monkeypatch, life_dir)
+
     with pytest.raises(RoleControlStateWriteDenied):
-        disable_continuous_config(outside)
+        disable_continuous_config(life_dir)
+    (event,) = RuntimeIncidentStore(life_dir).pending_events()
+    assert event["reason"].startswith(
+        "An engineer role process tried a control-state change and was refused: "
+        "the continuous campaign switch (continuous.json)."
+    )
 
 
 def test_argus_writers_outside_role_processes_keep_working(tmp_path):
