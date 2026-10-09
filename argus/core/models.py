@@ -82,6 +82,12 @@ class RunnerOptions:
     # backend-native sandbox flags, this applies to every CLI backend and fails
     # closed when the host cannot provide isolation.
     isolate_workdir: bool = False
+    # Drop the parts of an agent CLI's own tool surface that a role never
+    # uses. Every tool's schema and usage notes ride along on each model
+    # request of the call, i.e. on every tool step. For Copilot CLI this is
+    # the session SQL todo database and the CLI's self-documentation tool;
+    # built-in MCP servers stay attached. Other backends ignore it.
+    lean_tool_surface: bool = False
     full_auto: bool = False
     dangerous_yolo: bool = False
     # Watchdog hooks — propagated to the codex subprocess so an outer
