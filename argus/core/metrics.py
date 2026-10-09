@@ -462,8 +462,6 @@ def metrics_snapshot(
             cost = {
                 "active_reservations": -1,
                 "unresolved_calls": -1,
-                "blocking_unresolved_calls": 0,
-                "policy": "unknown",
                 "snapshot_stale": True,
                 "error": f"{type(exc).__name__}: {exc}",
             }
@@ -471,8 +469,6 @@ def metrics_snapshot(
             cost = {
                 "active_reservations": 0,
                 "unresolved_calls": -1,
-                "blocking_unresolved_calls": -1,
-                "policy": "unknown",
                 "error": f"{type(exc).__name__}: {exc}",
             }
 

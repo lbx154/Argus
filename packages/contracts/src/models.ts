@@ -176,10 +176,13 @@ export interface CostControlSnapshot {
   premium_by_run_label?: Array<{ run_label: string; premium_requests: number; usd: number; calls: number }>;
   unsettled_tokens?: number;
   active_reservations: number;
+  /** Calls whose cost the provider has not settled yet. They count toward the cap at the day's costliest priced call. */
   unresolved_calls: number;
-  blocking_unresolved_calls?: number;
+  observed_unpriced_usd?: number;
+  counted_unpriced_usd?: number;
+  unpriced_estimate_usd?: number;
+  in_flight_cost_usd?: number;
   unresolved: Array<Record<string, unknown>>;
-  policy: 'block' | 'allow';
 }
 
 export interface DaemonCommandReceipt {

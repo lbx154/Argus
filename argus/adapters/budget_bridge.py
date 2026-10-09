@@ -82,7 +82,6 @@ class BudgetSession:
         self.root = root.resolve()
         self.phase = "new"
         self.reservation = None
-        self.pending = None
         self.project: Path | None = None
         self.call_id = ""
         self.started_at = time.time()
@@ -93,7 +92,7 @@ class BudgetSession:
         self.day_tokens = 0
 
     def dispatch(self, method: str, params: dict) -> dict:
-        from ..core.cost_control import PendingBudgetCall, cached_token_weight, reserve_call_budget
+        from ..core.cost_control import cached_token_weight, reserve_call_budget
         from ..core.usage import UsageLedger, build_usage_record
 
         if method == "reserve":
@@ -128,7 +127,6 @@ class BudgetSession:
         if method == "start":
             if params or self.phase != "reserved":
                 raise ValueError("invalid start operation")
-            self.pending = PendingBudgetCall(self.reservation)
             self.phase = "running"
             return {"started": True}
         if method not in {"observe", "settle"} or self.phase != "running":
@@ -141,7 +139,6 @@ class BudgetSession:
         tokens = usage.input_tokens - round(min(usage.cached_input_tokens, usage.input_tokens)
             * (1.0 - cached_token_weight())) + usage.output_tokens + usage.reasoning_output_tokens
         tokens = max(self.last_tokens, tokens)
-        self.pending.observe(cost, tokens)
         day = time.strftime("%Y-%m-%d")
         if day != self.day:
             self.day, self.day_cost, self.day_tokens = day, 0.0, 0
@@ -172,19 +169,14 @@ class BudgetSession:
         if not ledger.append(record):
             raise RuntimeError("duplicate settlement call id")
         self.reservation.settle(record)
-        self.pending.close(settled=complete)
         self.phase = "closed"
         return {"settlement": "settled" if complete else "unresolved", "call_id": self.call_id}
 
     def close(self) -> None:
-        try:
-            if self.reservation and self.phase == "running":
-                self.reservation.settle_unknown(reason="TypeScript budget session closed without settlement")
-            elif self.reservation and self.phase == "reserved":
-                self.reservation.release(reason="TypeScript budget session closed before start")
-        finally:
-            if self.pending:
-                self.pending.close()
+        if self.reservation and self.phase == "running":
+            self.reservation.settle_unknown(reason="TypeScript budget session closed without settlement")
+        elif self.reservation and self.phase == "reserved":
+            self.reservation.release(reason="TypeScript budget session closed before start")
 
 
 def main() -> int:

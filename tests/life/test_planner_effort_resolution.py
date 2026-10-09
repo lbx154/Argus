@@ -35,5 +35,5 @@ def test_planner_effort_uses_environment_then_persisted_then_default(
     config = supervisor._planner_config()
     assert config.reasoning_effort == expected
     assert config.model == "gpt-6-astra"
-    assert supervisor.engineer_model == "gpt-5.5"
-    assert supervisor.reviewer_model == "gpt-5.5"
+    assert supervisor.engineer_model == "gpt-6.1-sol"
+    assert supervisor.reviewer_model == "gpt-6.1-sol"

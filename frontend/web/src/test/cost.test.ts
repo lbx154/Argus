@@ -62,7 +62,7 @@ describe('CostGauge', () => {
     expect(markup).not.toContain('cumulative cost');
   });
 
-  it('surfaces bounded unresolved model cost without claiming a global block', () => {
+  it('shows what an unsettled call counts for', () => {
     const markup = renderToStaticMarkup(
       React.createElement(CostGauge, {
         settledUsd: 1,
@@ -71,14 +71,16 @@ describe('CostGauge', () => {
           day: '2026-07-11',
           active_reservations: 0,
           unresolved_calls: 1,
-          blocking_unresolved_calls: 0,
+          counted_unpriced_usd: 0.27,
+          unpriced_estimate_usd: 0.27,
           unresolved: [],
-          policy: 'block',
         },
       }),
     );
-    expect(markup).toContain('unresolved 1');
+    expect(markup).toContain('unpriced 1');
+    expect(markup).toContain('$0.27 counted');
     expect(markup).toContain('text-ink-faint');
     expect(markup).not.toContain('text-err');
   });
+
 });

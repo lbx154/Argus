@@ -46,7 +46,7 @@ DEFAULT_PRICES_USD_PER_MTOK: dict[str, tuple[float, float]] = {
 }
 
 
-def price_for(model: str, *, default: str = "gpt-5.5") -> tuple[float, float]:
+def price_for(model: str, *, default: str = "gpt-6.1-sol") -> tuple[float, float]:
     """USD per million ``(input, output)`` tokens for ``model``."""
     if not model:
         return DEFAULT_PRICES_USD_PER_MTOK[default]
@@ -54,7 +54,7 @@ def price_for(model: str, *, default: str = "gpt-5.5") -> tuple[float, float]:
         return DEFAULT_PRICES_USD_PER_MTOK[model]
     if "mini" in model:
         return DEFAULT_PRICES_USD_PER_MTOK["gpt-5.5-mini"]
-    return DEFAULT_PRICES_USD_PER_MTOK["gpt-5.5"]
+    return DEFAULT_PRICES_USD_PER_MTOK[default]
 
 
 def model_price_for(model: str) -> ModelPrice | None:

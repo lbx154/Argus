@@ -4,9 +4,8 @@ Background: a codex call that does not pin ``options.model`` (every Manager
 classify call — ``manager-frontdoor-classify`` / ``manager-route`` / ... build
 ``RunnerOptions(...)`` with no ``model=``) gets no model echoed back in the
 codex response. The usage record was then written with an empty model and priced
-as ``unpriced``. Historical cost control treated that telemetry gap as a second
-admission gate; current policy keeps it visible without freezing unrelated
-provider calls.
+as ``unpriced``. Such a call is counted toward the daily cap at the day's
+costliest priced call and stays visible; it never holds other provider calls.
 
 The pricing fix still backfills the recorded model with the configured/canonical
 model (``resolve_pricing_model`` + ``AgentCliBackend._configured_pricing_model``),
@@ -263,7 +262,6 @@ def test_codex_call_without_pinned_model_is_priced_not_blocked(
 def test_codex_unknown_pinned_model_remains_unpriced_without_blocking(
     tmp_path, monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    monkeypatch.setenv("ARGUS_SKILL_UNPRICED_COST_POLICY", "allow")
     backend, root, seen_models = _codex_backend(tmp_path, monkeypatch)
 
     first = backend.run_exec(

@@ -33,7 +33,7 @@ from ._text import _tail_file
 # ---------------------------------------------------------------------------
 
 REGISTRY_DIR = Path(".argus_subagents")
-SUPERVISOR_MODEL = "gpt-5.5"
+SUPERVISOR_MODEL = "gpt-6.1-sol"
 
 # Reuse one persistent supervisor thread for at most this many checks,
 # then rotate to a fresh thread seeded with a short summary so a multi-hour

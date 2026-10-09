@@ -3,8 +3,9 @@
 ``usage.jsonl`` remains the authoritative settled ledger. This module protects
 the global admission check and unresolved-price policy across concurrent
 daemons. Calls publish observed provider spend while running; they do not
-receive or consume a speculative fixed per-call USD hold. Explicit operator
-risk provisions for unknown settlements are accounted separately from usage.
+receive or consume a speculative fixed per-call USD hold. A call whose cost is
+not settled counts as the day's costliest priced call until it is; nothing is
+ever refused for want of a price, only for the daily cap.
 """
 
 from __future__ import annotations
@@ -51,16 +52,10 @@ JOURNAL_REPAIR_TIER = "journal_repair_estimate"
 COST_CONTROL_STATE_FILE = "cost-control.json"
 COST_CONTROL_LOCK_FILE = "cost-control.lock"
 COST_CONTROL_AUDIT_FILE = "cost-control.jsonl"
-# One marker per call whose unknown-cost settlement could not reach the state
-# file (ENOSPC, busy lock, untracked reservation). Unlike a reservation row it
-# does not depend on the owner PID or the day and blocks admission until the
-# call is acknowledged or a settled usage record appears.
-COST_CONTROL_FAILED_DIR = "cost-control.failed"
 ACCOUNTING_INTEGRITY_REASON = "accounting_integrity"
-FAILED_FINALIZATION_REASON = "unresolved_finalization_liability"
 
-# Version 2 retains explicit operator liabilities. Older writers must refuse
-# it rather than silently discard provisions when refreshing a snapshot.
+# Version 2 files may still carry the retired ``acknowledgements`` map; it is
+# read past and dropped on the next write.
 _STATE_VERSION = 2
 _CALL_STATE_LOCK_TIMEOUT_SECONDS = 0.25
 _THREAD_LOCKS: weakref.WeakValueDictionary[str, threading.Lock] = (
@@ -121,7 +116,6 @@ def _default_state(timestamp: float) -> dict[str, Any]:
         "reservations": [],
         "unresolved": [],
         "project_roots": [],
-        "acknowledgements": {},
         "updated_at": timestamp,
     }
 
@@ -158,17 +152,6 @@ def _read_state(root: Path, timestamp: float) -> dict[str, Any]:
         raise CostControlStateError(
             f"invalid {path}: reservations and unresolved must be arrays"
         )
-    acknowledgements = payload.get("acknowledgements", {})
-    if not isinstance(acknowledgements, dict):
-        raise CostControlStateError("invalid cost acknowledgements: expected an object")
-    for call_id, row in acknowledgements.items():
-        if not isinstance(row, dict):
-            raise CostControlStateError("invalid cost acknowledgement")
-        amount = row.get("liability_usd")
-        if (not call_id or isinstance(amount, bool) or not isinstance(amount, (int, float))
-                or not math.isfinite(amount) or amount <= 0
-                or not row.get("project_id") or not row.get("reason")):
-            raise CostControlStateError("invalid acknowledged cost liability")
     return {
         "version": _STATE_VERSION,
         "day": payload["day"],
@@ -176,7 +159,6 @@ def _read_state(root: Path, timestamp: float) -> dict[str, Any]:
         "unresolved": [row for row in unresolved if isinstance(row, dict)],
         "project_roots": [str(path) for path in payload.get("project_roots", [])
                           if isinstance(path, str)],
-        "acknowledgements": acknowledgements,
         "updated_at": float(payload.get("updated_at") or timestamp),
     }
 
@@ -516,40 +498,58 @@ def _unresolved_observed_costs(
     }
 
 
-def _pending_liabilities(
+def _unpriced_estimate_usd(records: list[UsageRecord]) -> float:
+    """What one unsettled call counts as today: the day's costliest priced call.
+
+    A call whose price is not known yet ran like the others, so the dearest
+    settled call of the same day is the figure that can only err against the
+    campaign. Journal-repair estimates are themselves estimates and stay out.
+    """
+    unique = {record.call_id: record for record in records}.values()
+    return max(
+        (
+            float(record.cost_usd or 0.0) for record in unique
+            if record.status != "denied" and record.pricing_status == "priced"
+            and record.cost_usd is not None and record.pricing_tier != JOURNAL_REPAIR_TIER
+        ),
+        default=0.0,
+    )
+
+
+def _counted_unknown_costs(
     records: list[UsageRecord], state: dict[str, Any],
 ) -> dict[str, float]:
-    """Explicit operator risk holds, never fabricated provider settlements.
+    """What each unresolved call counts toward the cap beyond its known cost.
 
-    Priced reconciliation replaces a hold automatically. A partially priced
-    call contributes its known cost plus only the remaining approved amount.
+    That is the day's costliest priced call, or the call's observed in-flight
+    spend when that is higher; a Copilot call on a day without any priced call
+    counts as one premium request.
     """
+    estimate = _unpriced_estimate_usd(records)
     known = {r.call_id: _known_cost([r]) for r in records}
-    acknowledgements = state.get("acknowledgements", {})
-    pending = {}
+    counted: dict[str, float] = {}
     for row in _unresolved_costs(records, list(state["unresolved"])):
         call_id = str(row.get("call_id") or "")
-        acknowledgement = acknowledgements.get(call_id)
-        if acknowledgement and acknowledgement["project_id"] == row.get("project_id"):
-            pending[call_id] = max(
-                0.0, max(acknowledgement["liability_usd"], float(row.get("observed_cost_usd") or 0))
-                - known.get(call_id, 0.0),
-            )
-    return pending
+        floor = estimate
+        if not floor and str(row.get("provider") or "").strip().lower() == "copilot":
+            floor = copilot_usd_per_premium_request()
+        observed = float(row.get("observed_cost_usd") or 0)
+        counted[call_id] = max(0.0, max(observed, floor) - known.get(call_id, 0.0))
+    return counted
 
 
 def _cost_projection(
     records: list[UsageRecord], state: dict[str, Any],
-) -> tuple[list[dict[str, Any]], float, float, dict[str, float]]:
+) -> tuple[list[dict[str, Any]], float, float]:
     """Partition outstanding spend without adding overlapping evidence twice.
 
     A completed unknown call transfers its observation to unresolved state (v2),
     not to a fictitious live provider call. Before that transfer, partial usage
     may already be durable. Both stages count only the part absent from usage.
+    Returns the live reservations, the in-flight spend not yet covered by an
+    unresolved row, and what unresolved calls count toward the cap.
     """
-    liabilities = _pending_liabilities(records, state)
-    observed_unknown = _unresolved_observed_costs(records, state)
-    unacknowledged = {key: amount for key, amount in observed_unknown.items() if key not in liabilities}
+    counted = _counted_unknown_costs(records, state)
     live = _prune_reservations(list(state["reservations"]), records=records)
     known = {record.call_id: _known_cost([record]) for record in records}
     live_by_id: dict[str, float] = {}
@@ -557,9 +557,8 @@ def _cost_projection(
         call_id = str(row.get("call_id") or "")
         remainder = max(0.0, float(row.get("observed_cost_usd") or 0) - known.get(call_id, 0.0))
         live_by_id[call_id] = max(live_by_id.get(call_id, 0.0), remainder)
-    live_extra = sum(max(0.0, amount - max(liabilities.get(key, 0.0), unacknowledged.get(key, 0.0)))
-                     for key, amount in live_by_id.items())
-    return live, live_extra, sum(unacknowledged.values()), liabilities
+    live_extra = sum(max(0.0, amount - counted.get(key, 0.0)) for key, amount in live_by_id.items())
+    return live, live_extra, sum(counted.values())
 
 
 def cached_token_weight() -> float:
@@ -608,99 +607,19 @@ def _observed_tokens(records: list[UsageRecord], state: dict[str, Any]) -> tuple
     return count(summarize_usage(settled)) + unsettled, unsettled
 
 
-MISSING_PRICE_REASON_PREFIX = "no configured price for model"
-
-
-def _is_missing_price(row: dict[str, Any]) -> bool:
-    """True when no later usage report can ever settle this row's cost.
-
-    Copilot calls are priced from session logs that arrive later; a token call
-    whose model is absent from the price catalog has nothing to wait for.
-    """
-    if str(row.get("provider") or "").strip().lower() == "copilot":
-        return False
-    return str(row.get("reason") or "").startswith(MISSING_PRICE_REASON_PREFIX)
-
-
-def _missing_price_reason(
-    records: list[UsageRecord], state_rows: list[dict[str, Any]], *,
-    provider: str, model: str,
-) -> str:
-    """Refuse a call that would repeat a known-unpriceable model.
-
-    Evidence-based: only a call already recorded today without a price for the
-    same backend (and the same model, when the caller names one) is matched,
-    so backends that are not billed per token are never refused on a guess.
-    """
-    wanted_provider = str(provider or "").strip().lower()
-    wanted_model = str(model or "").strip().lower()
-    matches = [
-        row for row in _unresolved_costs(records, state_rows)
-        if _is_missing_price(row)
-        and str(row.get("provider") or "").strip().lower() == wanted_provider
-        and (not wanted_model or str(row.get("model") or "").strip().lower() == wanted_model)
-    ]
-    if not matches:
-        return ""
-    first = matches[-1]
-    priced_model = str(first.get("model") or wanted_model or "(missing)")
-    return (
-        f"unpriced model: {priced_model} has no configured price "
-        f"(provider={first.get('provider') or provider}, call={first.get('call_id') or '(unknown)'}); "
-        f"{len(matches)} earlier call(s) are recorded with token counts but no cost, "
-        "and no usage report will ever settle them"
-    )
-
-
 def _budget_reason(
     records: list[UsageRecord], state: dict[str, Any], cap: float,
-    *, check_unresolved: bool = True, token_cap: int = 0,
+    *, token_cap: int = 0,
 ) -> str:
     if token_cap > 0:
         tokens, _ = _observed_tokens(records, state)
         if tokens >= token_cap:
             return f"global daily token budget exhausted ({tokens}/{token_cap} tokens)"
-    _live, live_cost, observed_unknown, liabilities = _cost_projection(records, state)
-    spent = _known_cost(records) + sum(liabilities.values()) + observed_unknown + live_cost
+    _live, live_cost, counted_unknown = _cost_projection(records, state)
+    spent = _known_cost(records) + counted_unknown + live_cost
     if cap > 0 and spent >= cap:
         return f"global daily budget exhausted (${cap - spent:.6f} available)"
-    if check_unresolved and _unpriced_policy() == "block":
-        # A call whose model has no price will never be reconciled, so holding
-        # every later call for it would block forever. Those calls stay in the
-        # ledger as unpriced (with their token counts) and are refused up front
-        # by ``_missing_price_reason`` instead, which names the model.
-        unresolved = [row for row in _unresolved_costs(records, list(state["unresolved"]))
-                      if row.get("call_id") not in liabilities and not _is_missing_price(row)]
-        if unresolved:
-            first = unresolved[0]
-            call_id = str(first.get('call_id') or '(unknown)')
-            project_id = str(first.get('project_id') or '(unknown)')
-            detail = (
-                f"call={call_id}, "
-                f"role={first.get('run_label') or '(unknown)'}, "
-                f"project={project_id}, "
-                f"provider={first.get('provider') or '(unknown)'}, "
-                f"model={first.get('model') or '(missing)'}; "
-                f"{str(first.get('reason') or 'usage is incomplete')[:240]}"
-            )
-            return (
-                f"unresolved provider cost: {len(unresolved)} call(s) "
-                f"awaiting usage reconciliation ({detail}); "
-                f"unblock: {unblock_instruction(project_id, call_id)}"
-            )
     return ""
-
-
-def unblock_instruction(project_id: str, call_id: str) -> str:
-    """The exact operator action that releases one held call."""
-    return (
-        f"argus cost acknowledge {call_id} --project {project_id} "
-        '--liability-usd <approved USD> --reason "<why>" (or '
-        f"POST /api/projects/{project_id}/cost-control/acknowledge "
-        f'{{"call_id": "{call_id}", "liability_usd": <approved USD>, "reason": "<why>"}}'
-        "; either approves this call with a budgeted liability), or set "
-        "ARGUS_SKILL_UNPRICED_COST_POLICY=allow"
-    )
 
 
 def global_daily_usage_summary(
@@ -727,57 +646,7 @@ def cost_admission_reason(
     caps = resolve_budget_caps(global_root=root)
     limit = caps.global_daily_cap_usd if cap is None else cap
     state = _read_state(root, timestamp)
-    _fold_failed_finalizations(root, state, records)
     return _budget_reason(records, state, limit, token_cap=caps.global_daily_token_cap)
-
-
-def acknowledge_unpriced_call(
-    *, global_root: Path | str | None, project_id: str, call_id: str,
-    liability_usd: float, reason: str,
-) -> dict[str, Any]:
-    """Approve one unknown call with a budgeted liability, preserving its ledger.
-
-    This is an explicit operator decision, not a claim that the provider charged
-    this amount. Repeating the same decision is idempotent; conflicting decisions
-    are rejected. New unknown calls still fail closed under the block policy.
-    """
-    if (isinstance(liability_usd, bool) or not isinstance(liability_usd, (int, float))
-            or not math.isfinite(liability_usd) or liability_usd <= 0):
-        raise ValueError("liability_usd must be finite and positive")
-    if not project_id or not call_id or not reason.strip() or len(reason) > 1000:
-        raise ValueError("project_id, call_id and a reason (at most 1000 characters) are required")
-    root = _global_root(global_root)
-    timestamp = time.time()
-    records = _global_records(root, _local_day_start(timestamp), state_timestamp=timestamp)
-    with _locked(root, timeout_seconds=2):
-        state = _read_state(root, timestamp)
-        previous = state["acknowledgements"].get(call_id)
-        decision = {"project_id": project_id, "liability_usd": float(liability_usd),
-                    "reason": reason.strip()}
-        if previous:
-            if any(previous.get(key) != value for key, value in decision.items()):
-                raise ValueError("this call already has a different acknowledgement")
-            return {"call_id": call_id, **previous}
-        _fold_failed_finalizations(root, state, records)
-        unresolved = _unresolved_costs(records, list(state["unresolved"]))
-        target = next((row for row in unresolved if row.get("call_id") == call_id
-                       and row.get("project_id") == project_id), None)
-        if target is None:
-            raise LookupError("no unresolved call with this ID belongs to this project today")
-        known = max((_known_cost([r]) for r in records if r.call_id == call_id), default=0.0)
-        live_observed = max((float(row.get("observed_cost_usd") or 0)
-                             for row in state["reservations"] if row.get("call_id") == call_id), default=0.0)
-        known = max(known, float(target.get("observed_cost_usd") or 0), live_observed)
-        if liability_usd < known:
-            raise ValueError("approved liability cannot be less than the already known cost")
-        decision["acknowledged_at"] = timestamp
-        state["acknowledgements"][call_id] = decision
-        target["blocking"] = False
-        state["unresolved"] = unresolved
-        _write_state(root, state, timestamp)
-        _append_audit(root, EventType.BUDGET_UNPRICED_ACKNOWLEDGED,
-                      call_id=call_id, **decision)
-        return {"call_id": call_id, **decision}
 
 
 def _global_records(root: Path, day_start: float, *, state_timestamp: float) -> list[UsageRecord]:
@@ -820,177 +689,6 @@ def _global_records(root: Path, day_start: float, *, state_timestamp: float) -> 
     return records
 
 
-def _failed_finalization_dir(root: Path) -> Path:
-    return root / COST_CONTROL_FAILED_DIR
-
-
-def _record_failed_finalization(
-    reservation: CallBudgetReservation, unresolved_row: dict[str, Any], *, error: str,
-) -> Path:
-    """Durably retain an unknown liability whose state settlement failed.
-
-    The marker's existence is the barrier: creating the directory entry needs
-    no data blocks, so it usually survives the very ENOSPC that broke the
-    settlement. Its payload is best effort; an unreadable marker still blocks.
-    """
-    directory = _failed_finalization_dir(reservation.root)
-    directory.mkdir(parents=True, exist_ok=True)
-    path = directory / f"{reservation.reservation_id}.json"
-    row = {
-        **unresolved_row,
-        "reservation_id": reservation.reservation_id,
-        "pid": os.getpid(),
-        "finalization_error": error,
-        "reason": f"{FAILED_FINALIZATION_REASON}: {unresolved_row.get('reason') or 'settlement failed'}"
-                  f" ({error})",
-    }
-    try:
-        fd = os.open(str(path), os.O_CREAT | os.O_WRONLY | getattr(os, "O_BINARY", 0) | os.O_EXCL, 0o600)
-    except FileExistsError:
-        # A retried finalization of the same reservation is already retained.
-        return path
-    try:
-        payload = json.dumps(row, ensure_ascii=False, sort_keys=True).encode("utf-8") + b"\n"
-        try:
-            os.write(fd, payload)
-            os.fsync(fd)
-        except OSError:
-            # An empty marker still fails admission closed.
-            pass
-    finally:
-        os.close(fd)
-    return path
-
-
-def _failed_finalization_rows(root: Path) -> list[tuple[Path, dict[str, Any]]]:
-    directory = _failed_finalization_dir(root)
-    try:
-        paths = sorted(path for path in directory.iterdir() if path.suffix == ".json")
-    except OSError:
-        return []
-    rows: list[tuple[Path, dict[str, Any]]] = []
-    for path in paths:
-        try:
-            with path.open("r+", encoding="utf-8") as handle:
-                try:
-                    portalocker.lock(handle, portalocker.LOCK_EX | portalocker.LOCK_NB)
-                except portalocker.exceptions.AlreadyLocked:
-                    # A live bridge owns this pending receipt. Its reservation
-                    # already contributes observed spend; do not count it twice.
-                    continue
-                try:
-                    payload = json.load(handle)
-                finally:
-                    portalocker.unlock(handle)
-        except FileNotFoundError:
-            # A live owner may finish between the directory scan and open.
-            continue
-        except (OSError, ValueError, portalocker.exceptions.LockException):
-            payload = None
-        if not isinstance(payload, dict) or not payload.get("call_id"):
-            payload = {
-                "call_id": f"failed-finalization:{path.stem}",
-                "project_id": "",
-                "pricing_status": "unknown",
-                "reason": f"{FAILED_FINALIZATION_REASON}: marker payload unreadable; "
-                          f"inspect and remove {path} after settling the call",
-            }
-        rows.append((path, {**payload, "blocking": True, "marker": str(path)}))
-    return rows
-
-
-class PendingBudgetCall:
-    """A locked liability marker written BEFORE an external owner may start.
-
-    Losing the process releases the OS lock, immediately exposing the marker to
-    every Python admission reader. No PID-liveness guess or recovery daemon is
-    needed. Interrupted writes remain unreadable barriers rather than zero cost.
-    """
-
-    def __init__(self, reservation: CallBudgetReservation) -> None:
-        directory = _failed_finalization_dir(reservation.root)
-        directory.mkdir(parents=True, exist_ok=True)
-        self.path = directory / f"{reservation.reservation_id}.json"
-        self.handle = self.path.open("x+", encoding="utf-8")
-        try:
-            os.chmod(self.path, 0o600)
-            portalocker.lock(self.handle, portalocker.LOCK_EX | portalocker.LOCK_NB)
-            self.row = {
-                "reservation_id": reservation.reservation_id, "call_id": reservation.call_id,
-                "project_root": str(reservation.project_root or ""),
-                "project_id": reservation.project_root.name if reservation.project_root else "",
-                "mission_id": reservation.mission_id, "provider": reservation.provider,
-                "model": reservation.model, "run_label": reservation.run_label,
-                "pricing_status": "unknown", "created_at": time.time(),
-                "reason": "provider call has no durable final settlement",
-                "observed_cost_usd": 0.0, "observed_tokens": 0,
-            }
-            self.observe(0.0, 0)
-            if os.name != "nt":
-                directory_fd = os.open(directory, os.O_RDONLY)
-                try:
-                    os.fsync(directory_fd)
-                finally:
-                    os.close(directory_fd)
-        except BaseException:
-            self.handle.close()
-            raise
-
-    def observe(self, cost: float, tokens: int) -> None:
-        if not math.isfinite(cost) or cost < 0 or type(tokens) is not int or tokens < 0:
-            raise ValueError("pending usage must be finite and nonnegative")
-        self.row["observed_cost_usd"] = max(self.row["observed_cost_usd"], cost)
-        self.row["observed_tokens"] = max(self.row["observed_tokens"], tokens)
-        self.handle.seek(0)
-        json.dump(self.row, self.handle, ensure_ascii=True, allow_nan=False)
-        self.handle.write("\n")
-        self.handle.truncate()
-        self.handle.flush()
-        os.fsync(self.handle.fileno())
-
-    def close(self, *, settled: bool = False) -> None:
-        # Close before unlink for Windows. A priced ledger row already exists
-        # when settled=True, so another admission can safely retire the marker.
-        if not self.handle.closed:
-            self.handle.close()
-        if settled:
-            try:
-                self.path.unlink()
-            except FileNotFoundError:
-                pass
-
-
-def _fold_failed_finalizations(
-    root: Path, state: dict[str, Any], records: list[UsageRecord],
-) -> None:
-    """Carry failed-finalization markers into unresolved state, retiring settled ones.
-
-    Runs on every admission read so the liability outlives the owner PID, a
-    restart and the day rollover of the state file.
-    """
-    settled = {
-        record.call_id for record in records
-        if record.status == "denied" or record.pricing_status == "not_billed"
-        or (record.cost_usd is not None and record.pricing_status not in {"partial", "unpriced"})
-    }
-    acknowledgements = state.get("acknowledgements", {})
-    present = {str(row.get("call_id") or "") for row in state["unresolved"]}
-    for path, row in _failed_finalization_rows(root):
-        call_id = str(row["call_id"])
-        acknowledged = acknowledgements.get(call_id)
-        if call_id in settled or (
-            acknowledged and acknowledged.get("project_id") == row.get("project_id")
-        ):
-            try:
-                path.unlink()
-            except FileNotFoundError:
-                pass
-            continue
-        if call_id not in present:
-            state["unresolved"].append(row)
-            present.add(call_id)
-
-
 def _append_audit(root: Path, event_type: EventType, **payload: Any) -> None:
     try:
         row = new_event(event_type, **payload)
@@ -1000,14 +698,6 @@ def _append_audit(root: Path, event_type: EventType, **payload: Any) -> None:
             )
     except OSError:
         pass
-
-
-def _unpriced_policy() -> str:
-    value = resolve_knob(
-        "ARGUS_SKILL_UNPRICED_COST_POLICY",
-        "block",
-    ).value.strip().lower()
-    return "allow" if value == "allow" else "block"
 
 
 def cost_control_enabled() -> bool:
@@ -1095,10 +785,7 @@ class CallBudgetReservation:
                 state["reservations"].append(row)
             row["observed_cost_usd"] = max(float(row.get("observed_cost_usd") or 0), cost_usd)
             row["observed_tokens"] = max(int(row.get("observed_tokens") or 0), tokens)
-            # An unrelated failed call must not kill a provider turn already
-            # admitted: doing so loses more final usage and cascades the outage.
-            # Monetary limits (including approved risk holds) still interrupt.
-            reason = _budget_reason(records, state, caps.global_daily_cap_usd, check_unresolved=False,
+            reason = _budget_reason(records, state, caps.global_daily_cap_usd,
                                     token_cap=caps.global_daily_token_cap)
             _write_state(self.root, state, timestamp)
             self.state_tracked = True
@@ -1168,23 +855,6 @@ def reserve_call_budget(
             global_records.extend(record for record in project_records
                                   if record.call_id not in known_ids)
 
-    if _unpriced_policy() == "block":
-        try:
-            prior_state = _read_state(root, timestamp)
-        except CostControlStateError:
-            prior_state = _default_state(timestamp)
-        reason = _missing_price_reason(
-            global_records, list(prior_state["unresolved"]), provider=provider, model=model,
-        )
-        if reason:
-            _append_audit(
-                root, EventType.BUDGET_RESERVATION_DENIED, call_id=call_id,
-                project_id=project.name if project is not None else "",
-                mission_id=mission_key or None, provider=provider, model=model,
-                run_label=run_label, reason=reason,
-            )
-            return None, reason
-
     global_spend = _known_cost(global_records)
     available = global_cap - global_spend
     if global_cap > 0 and available <= 0:
@@ -1229,7 +899,6 @@ def reserve_call_budget(
                 records=global_records,
             )
             state["reservations"] = reservations
-            _fold_failed_finalizations(root, state, global_records)
             state["unresolved"] = _unresolved_costs(global_records, list(state["unresolved"]))
             reason = _budget_reason(global_records, state, global_cap, token_cap=caps.global_daily_token_cap)
             if reason:
@@ -1244,7 +913,6 @@ def reserve_call_budget(
         # Atomic state reads still include observed in-flight costs and unknown
         # settlements. Contention must not silently bypass either budget gate.
         state = _read_state(root, timestamp)
-        _fold_failed_finalizations(root, state, global_records)
         reason = _budget_reason(global_records, state, global_cap,
                                 token_cap=caps.global_daily_token_cap)
         if reason:
@@ -1328,7 +996,6 @@ def _close_reservation(
             "run_label": record.run_label,
             "pricing_status": record.pricing_status,
             "reason": usage_pricing_reason(record),
-            "blocking": _unpriced_policy() == "block",
             "created_at": timestamp,
         }
     elif unknown_reason:
@@ -1350,7 +1017,6 @@ def _close_reservation(
             "run_label": reservation.run_label,
             "pricing_status": "unknown",
             "reason": unknown_reason,
-            "blocking": _unpriced_policy() == "block",
             "created_at": timestamp,
         }
 
@@ -1396,14 +1062,12 @@ def _close_reservation(
         except (OSError, CostControlStateError) as exc:
             failure = exc
     if record is None and unresolved_row is not None and not state_updated:
-        # No usage row exists for this call, so the state file was the only
-        # place holding its unknown liability. Retain it durably instead of
-        # leaving a reservation that vanishes with the owner PID.
-        detail = (
-            f"{type(failure).__name__}: {failure}" if failure is not None
-            else "reservation was not state-tracked"
+        log.warning(
+            "call %s ended without a usage record and its unsettled cost could not be "
+            "recorded (%s); it will not count toward today's cap",
+            reservation.call_id,
+            f"{type(failure).__name__}: {failure}" if failure is not None else "reservation was not state-tracked",
         )
-        _record_failed_finalization(reservation, unresolved_row, error=detail)
     if failure is not None and not isinstance(failure, CostControlLockBusyError):
         raise failure
 
@@ -1478,7 +1142,6 @@ def cost_control_snapshot(
     try:
         with _locked(root, timeout_seconds=lock_timeout_seconds):
             state = _read_state(root, timestamp)
-            _fold_failed_finalizations(root, state, records)
             reservations = _prune_reservations(list(state["reservations"]), records=records)
             unresolved = _unresolved_costs(records, list(state["unresolved"]))
             state["reservations"] = reservations
@@ -1490,15 +1153,12 @@ def cost_control_snapshot(
         # call is settling; prune only in the returned projection and leave the
         # writer-owned file untouched.
         state = _read_state(root, timestamp)
-        _fold_failed_finalizations(root, state, records)
         reservations = _prune_reservations(list(state["reservations"]), records=records)
         unresolved = _unresolved_costs(records, list(state["unresolved"]))
         snapshot_stale = True
-    reservations, live_cost, observed_unknown, liabilities = _cost_projection(
-        records, {**state, "unresolved": unresolved, "reservations": reservations},
-    )
-    blocking = [row for row in unresolved
-                if row.get("call_id") not in liabilities and not _is_missing_price(row)]
+    projected = {**state, "unresolved": unresolved, "reservations": reservations}
+    reservations, live_cost, counted_unknown = _cost_projection(records, projected)
+    observed_unknown = sum(_unresolved_observed_costs(records, projected).values())
     tokens, unsettled_tokens = _observed_tokens(records, state)
     payload = {
         "day": state["day"],
@@ -1507,11 +1167,13 @@ def cost_control_snapshot(
         **_premium_usage(records),
         "unsettled_tokens": unsettled_tokens,
         "active_reservations": len(reservations),
+        # Calls whose cost the provider has not settled: how many, the spend
+        # already observed for them, what they count toward the cap, and the
+        # per-call figure behind it (0 when nothing is priced today).
         "unresolved_calls": len(unresolved),
-        "blocking_unresolved_calls": len(blocking) if _unpriced_policy() == "block" else 0,
-        "acknowledged_unresolved_calls": len(liabilities),
-        "pending_liability_usd": sum(liabilities.values()),
-        "unacknowledged_observed_cost_usd": observed_unknown,
+        "observed_unpriced_usd": observed_unknown,
+        "counted_unpriced_usd": counted_unknown,
+        "unpriced_estimate_usd": _unpriced_estimate_usd(records),
         "in_flight_cost_usd": live_cost,
         "unresolved": [
             {
@@ -1530,14 +1192,9 @@ def cost_control_snapshot(
                         "created_at",
                     )
                 },
-                "blocking": (_unpriced_policy() == "block" and row.get("call_id") not in liabilities
-                             and not _is_missing_price(row)),
-                "missing_price": _is_missing_price(row),
-                "acknowledgement": state.get("acknowledgements", {}).get(row.get("call_id")),
             }
             for row in unresolved
         ],
-        "policy": _unpriced_policy(),
     }
     if snapshot_stale:
         payload["snapshot_stale"] = True
@@ -1547,17 +1204,12 @@ def cost_control_snapshot(
 __all__ = [
     "ACCOUNTING_INTEGRITY_REASON",
     "COST_CONTROL_AUDIT_FILE",
-    "COST_CONTROL_FAILED_DIR",
     "COST_CONTROL_LOCK_FILE",
     "COST_CONTROL_STATE_FILE",
-    "FAILED_FINALIZATION_REASON",
     "AccountingIntegrityError",
     "CallBudgetReservation",
-    "PendingBudgetCall",
     "CostControlLockBusyError",
     "CostControlStateError",
-    "acknowledge_unpriced_call",
-    "unblock_instruction",
     "cost_admission_reason",
     "global_daily_usage_summary",
     "cost_control_enabled",

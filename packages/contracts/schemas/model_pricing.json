@@ -1,8 +1,18 @@
 {
   "schema_version": 1,
   "source_url": "https://developers.openai.com/api/docs/pricing",
-  "reference": "Existing Argus public API reference, 2026-09-09; proxy bills may differ. Rates unchanged by the TypeScript migration.",
+  "reference": "Existing Argus public API reference, 2026-09-09; gpt-6.1-sol added from the same page on 2026-10-09; proxy bills may differ. Rates unchanged by the TypeScript migration.",
   "models": {
+    "gpt-6.1-sol": {
+      "input_usd_per_mtok": 2.0,
+      "cached_input_usd_per_mtok": 0.1,
+      "output_usd_per_mtok": 10.0,
+      "long_context_threshold": 272000,
+      "long_input_multiplier": 2.0,
+      "long_cached_input_multiplier": 2.0,
+      "long_output_multiplier": 1.5,
+      "cache_write_multiplier": 1.25
+    },
     "gpt-5.6-luna": {
       "input_usd_per_mtok": 0.2,
       "cached_input_usd_per_mtok": 0.02,
