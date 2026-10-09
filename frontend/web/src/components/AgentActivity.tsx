@@ -1,25 +1,73 @@
-import { useEffect, useState, type CSSProperties } from 'react';
+import { useEffect, useState, type CSSProperties, type SyntheticEvent } from 'react';
 import { Activity, Check, ChevronDown, Clock3, FileText, Pause, Terminal, X } from 'lucide-react';
-import type { EventMsg, MissionView, Role } from '../../../core/src/types';
+import type { EventMsg, MissionRoleWorkItem, MissionView, Role } from '../../../core/src/types';
 import { useI18n } from '../i18n';
 import { MarkdownContent } from './MarkdownContent';
 import { agentRoleColor, agentRoleName, isAgentRole } from '../lib/agentRoles';
 import { currentWorkStartedAt } from '../lib/workStatus';
-import { AGENT_ROLES, activityTitle, agentIsActive, agentWork, latestAgentTool, liveStaleness } from './agentActivityModel';
+import { AGENT_ROLES, activityTitle, agentIsActive, agentWork, latestAgentTool, liveStaleness, cleanActivityText } from './agentActivityModel';
+import { api } from '../api';
+import { CopyButton } from './CopyButton';
 import './agentActivity.css';
 
-export function AgentActivity({ view, roles = [], events = [], taskId, paused = false, selectedRole,
+export function WorkRecordDetail({ sid, record, expanded = false, zh }: {
+  sid?: string; record: MissionRoleWorkItem; expanded?: boolean; zh: boolean;
+}) {
+  const [open, setOpen] = useState(expanded);
+  const [full, setFull] = useState('');
+  const [loading, setLoading] = useState(false);
+  const [error, setError] = useState('');
+  useEffect(() => {
+    if (!open || !sid) return;
+    const controller = new AbortController();
+    setLoading(true); setError('');
+    void api.workRecord(sid, record.role, record.id, controller.signal).then(result => {
+      if (!controller.signal.aborted) setFull(result.detail);
+    }).catch(reason => {
+      if (!controller.signal.aborted) setError(reason instanceof Error ? reason.message : String(reason));
+    }).finally(() => { if (!controller.signal.aborted) setLoading(false); });
+    return () => controller.abort();
+  }, [open, sid, record.id, record.role, record.detail]);
+  const detail = full.length >= record.detail.length ? full : record.detail;
+  return <details open={open} onToggle={(event: SyntheticEvent<HTMLDetailsElement>) => setOpen(event.currentTarget.open)}>
+    <summary><span>{open ? (zh ? '收起详情' : 'Hide details') : (zh ? '展开完整记录' : 'Read full record')}</span><ChevronDown size={12} /></summary>
+    {<>
+      {loading && <small role="status">{zh ? '正在读取完整记录…' : 'Loading the full record…'}</small>}
+      {error && <small role="status">{zh ? '暂未读取到完整记录，已显示保存的摘要。可收起后重试。' : 'Full record unavailable; the saved preview is shown. Reopen to retry.'}</small>}
+      <div className="agent-record-actions"><CopyButton text={detail} label={zh ? '复制完整记录' : 'Copy full record'} copiedLabel={zh ? '已复制' : 'Copied'} /></div>
+      <div className="agent-record-detail"><MarkdownContent>{detail}</MarkdownContent></div>
+      {record.round_index != null && <small>{zh ? `第 ${record.round_index} 轮` : `Round ${record.round_index}`}</small>}
+    </>}
+  </details>;
+}
+
+export function AgentActivity({ sid, view, roles = [], events = [], taskId, paused = false, selectedRole,
   onSelectRole, onClose, showTabs = true }: {
-  view?: MissionView | null; roles?: Role[]; events?: EventMsg[]; taskId?: string; paused?: boolean;
+  sid?: string; view?: MissionView | null; roles?: Role[]; events?: EventMsg[]; taskId?: string; paused?: boolean;
   selectedRole?: string; onSelectRole?: (role: string) => void; onClose?: () => void; showTabs?: boolean;
 }) {
   const { locale, t } = useI18n();
   const zh = locale === 'zh-CN';
   const [choice, setChoice] = useState<string | null>(null);
+  const [visibleCount, setVisibleCount] = useState(24);
+  const [exporting, setExporting] = useState(false);
+  const [exportError, setExportError] = useState('');
   const [now, setNow] = useState(Date.now);
   const role = selectedRole || choice || roles.find((r) => r.active)?.role || view?.active_role || 'manager';
   const active = agentIsActive(view, roles, role, paused, taskId);
-  const records = agentWork(view, role, taskId);
+  const records = agentWork(view, role, taskId).map(record => {
+    let detail = record.detail;
+    for (const event of events) {
+      if (event.kind === 'reasoning') continue;
+      const id = String(event.event_id || event.id || '');
+      const messageId = String(event.message_id || '');
+      if (id !== record.id && (!messageId || record.id !== `${record.role}:${messageId}`)) continue;
+      const text = cleanActivityText(String(event.text || event.reason || event.summary || ''));
+      if (text.length > detail.length) detail = text;
+    }
+    return detail === record.detail ? record : { ...record, detail };
+  });
+  useEffect(() => { setVisibleCount(24); setExportError(''); }, [sid, role, taskId]);
   // The work log keeps every attempt. Only the selected current task's card
   // uses its attempt boundary; an unfiltered role can span multiple tasks.
   const started = taskId ? currentWorkStartedAt(undefined, view, taskId) : 0;
@@ -67,7 +115,7 @@ export function AgentActivity({ view, roles = [], events = [], taskId, paused = 
     </div>
     <div className="agent-records-heading"><span>{zh ? '工作记录' : 'Work log'}</span><span>{records.length} {zh ? '条' : 'records'}</span></div>
     <div className="agent-records" role="log" aria-live="off">
-      {records.slice(0, 24).map((record, index) => {
+      {records.slice(0, visibleCount).map((record, index) => {
         const running = active && record.id === last?.id;
         const done = ['done', 'completed'].includes(record.status);
         const failed = ['failed', 'error', 'rejected'].includes(record.status);
@@ -76,15 +124,19 @@ export function AgentActivity({ view, roles = [], events = [], taskId, paused = 
           <span className="agent-record-icon"><Icon size={13} /></span>
           <div><div className="agent-record-title"><strong>{activityTitle(record.kind, zh)}</strong><time>{new Date(record.ts * 1000).toLocaleTimeString(zh ? 'zh-CN' : 'en-US', { hour: '2-digit', minute: '2-digit', second: '2-digit', hour12: false })}</time></div>
             <small>{running ? (zh ? '进行中' : 'In progress') : failed ? (zh ? '未完成' : 'Did not finish') : done ? (zh ? '已完成' : 'Completed') : (zh ? '已记录' : 'Recorded')}</small>
-            {record.detail && <details open={index === 0 || record === update}>
-              <summary><span>{zh ? '查看详情' : 'Read details'}</span><ChevronDown size={12} /></summary>
-              <div className="agent-record-detail"><MarkdownContent>{record.detail}</MarkdownContent></div>
-              {record.round_index != null && <small>{zh ? `第 ${record.round_index} 轮` : `Round ${record.round_index}`}</small>}
-            </details>}
+            {(record.detail || sid) && <WorkRecordDetail sid={sid} record={record} zh={zh} expanded={index === 0 || record.id === update?.id} />}
           </div>
         </article>;
       })}
       {!records.length && <p className="agent-records-empty">{zh ? `${name(role)}尚未留下这个任务的工作记录。` : `No work has been recorded for this task by ${name(role)}.`}</p>}
+    </div>
+    <div className="agent-records-footer">
+      {visibleCount < records.length && <button type="button" onClick={() => setVisibleCount(value => value + 24)}>{zh ? `加载更早记录（还剩 ${records.length - visibleCount} 条）` : `Load earlier records (${records.length - visibleCount} remaining)`}</button>}
+      {sid && <button type="button" disabled={exporting} onClick={() => {
+        setExporting(true); setExportError('');
+        void api.downloadWorkLog(sid, role, taskId).catch(reason => setExportError(reason instanceof Error ? reason.message : String(reason))).finally(() => setExporting(false));
+      }}>{exporting ? (zh ? '正在准备完整记录…' : 'Preparing full log…') : (zh ? '下载完整工作记录（含更早历史）' : 'Download full work log (including earlier history)')}</button>}
+      {exportError && <small role="alert">{exportError}</small>}
     </div>
   </section>;
 }

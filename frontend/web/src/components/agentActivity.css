@@ -39,3 +39,5 @@
 .agent-technical-details { margin-top: 8px; color: rgb(var(--ink-dim)); font-size: 11px; line-height: 1.6; }
 .agent-technical-details summary { cursor: pointer; }
 .agent-technical-details p { margin: 6px 0 0; }
+
+.agent-records-footer{display:flex;flex-wrap:wrap;gap:8px;margin-top:12px}.agent-records-footer button{border:1px solid rgb(var(--line));border-radius:8px;background:rgb(var(--panel));color:rgb(var(--ink-dim));padding:8px 10px;font-size:11px;cursor:pointer}.agent-records-footer button:disabled{opacity:.6;cursor:wait}.agent-record-actions{display:flex;justify-content:flex-end;margin-bottom:4px}.agent-record-detail pre{white-space:pre-wrap;overflow-wrap:anywhere}

@@ -1071,6 +1071,19 @@ export const api = {
       signal,
     )
       .then((r) => r.events),
+  workRecord: (sid: string, role: string, recordId: string, signal?: AbortSignal) =>
+    getJson<{ id: string; role: string; detail: string; characters: number }>(
+      P(sid, `/work-record?role=${encodeURIComponent(role)}&record_id=${encodeURIComponent(recordId)}`), signal,
+    ),
+  downloadWorkLog: async (sid: string, role: string, taskId = '') => {
+    const path = P(sid, `/work-log/download?role=${encodeURIComponent(role)}&task_id=${encodeURIComponent(taskId)}`);
+    const response = await fetch(path, { headers: authHeaders(), cache: 'no-store' });
+    await ensureResponseOk(response, 'GET', path);
+    const url = URL.createObjectURL(await response.blob());
+    const link = document.createElement('a');
+    link.href = url; link.download = 'work-records.md'; link.click();
+    setTimeout(() => URL.revokeObjectURL(url), 1000);
+  },
   backlogItem: (sid: string, id: string, signal?: AbortSignal) =>
     getJson<{ item: BacklogItem }>(
       P(sid, `/backlog/${encodeURIComponent(id)}`),

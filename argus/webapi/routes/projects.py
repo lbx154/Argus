@@ -35,6 +35,37 @@ def register_project_routes(app, ctx: ServerContext) -> None:
             "generated_at": time.time(),
         }
 
+    @app.get("/api/projects/{sid}/work-record", dependencies=[Depends(ctx.require_auth)])
+    async def _work_record(
+        sid: str,
+        role: str = Query(pattern="^(manager|planner|engineer|reviewer)$"),
+        record_id: str = Query(min_length=1, max_length=256),
+    ) -> dict:
+        from ..work_records import full_work_record
+
+        result = await run_in_threadpool(full_work_record, ctx.resolve_or_404(sid), role, record_id)
+        if result is None:
+            from fastapi import HTTPException
+
+            raise HTTPException(404, "原始记录尚未保存，请稍后重试。")
+        return result
+
+    @app.get("/api/projects/{sid}/work-log/download", dependencies=[Depends(ctx.require_auth)])
+    def _work_log_download(
+        sid: str,
+        role: str = Query(pattern="^(manager|planner|engineer|reviewer)$"),
+        task_id: str = Query(default="", max_length=160),
+    ):
+        from starlette.responses import StreamingResponse
+
+        from ..work_records import export_work_records
+
+        return StreamingResponse(
+            export_work_records(ctx.resolve_or_404(sid), role, task_id),
+            media_type="text/markdown",
+            headers={"Content-Disposition": 'attachment; filename="work-records.md"', "Cache-Control": "no-store"},
+        )
+
     @app.get("/api/trash", dependencies=[Depends(ctx.require_auth)])
     async def _trash(
         limit: int = Query(100, ge=1, le=500),
