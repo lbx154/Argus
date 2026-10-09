@@ -539,3 +539,186 @@ def test_held_cycle_never_calls_the_model(tmp_path, monkeypatch, streak) -> None
     assert planner.planner_calls == 0
     assert summary["stopped_by"] == "awaiting_external"
     assert summary["suggested_sleep"] >= 60.0 - 1e-6
+
+
+def _write_state(supervisor, **fields) -> None:
+    path = supervisor._planner_failure_state_path()
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(
+        json.dumps({"version": 1, "objective": supervisor._planner_failure_objective(), **fields}),
+        encoding="utf-8",
+    )
+
+
+@pytest.mark.parametrize(
+    "content",
+    [
+        "{not json",
+        json.dumps([1, 2, 3]),
+        None,  # filled in below: right envelope, wrongly typed fields
+    ],
+)
+def test_an_unreadable_state_file_never_blocks_the_planner(tmp_path, monkeypatch, content) -> None:
+    supervisor, planner, _sink, _clock = _supervisor(tmp_path, monkeypatch, _ONE_TASK)
+    if content is None:
+        _write_state(supervisor, streak="x", not_before="soon", kind="backend")
+    else:
+        path = supervisor._planner_failure_state_path()
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_text(content, encoding="utf-8")
+
+    _pass(supervisor)
+
+    assert planner.planner_calls == 1
+
+
+@pytest.mark.parametrize(
+    "fields",
+    [
+        {"streak": 3, "not_before": "soon", "first_failed_at": 0, "last_failed_at": 0},
+        {"streak": 3, "not_before": float("nan"), "first_failed_at": 0, "last_failed_at": 0},
+        {"streak": 3, "not_before": 1e300, "first_failed_at": 0, "last_failed_at": 0,
+         "kind": "no-such-kind"},
+        {"streak": 3, "first_failed_at": 0},
+    ],
+)
+def test_wrongly_typed_fields_count_as_an_empty_streak(tmp_path, monkeypatch, fields) -> None:
+    supervisor, planner, _sink, _clock = _supervisor(tmp_path, monkeypatch, _ONE_TASK)
+    _write_state(supervisor, config_signature=supervisor._planner_failure_config_signature(), **fields)
+
+    _pass(supervisor)
+
+    assert planner.planner_calls == 1
+
+
+@pytest.mark.parametrize("kind", [backoff.FAILURE_KIND_DECISION, backoff.FAILURE_KIND_BACKEND])
+def test_a_clock_stepped_back_cannot_stretch_the_hold(tmp_path, monkeypatch, kind) -> None:
+    from argus.life.supervisor._planning_cycle_helpers import _PlanCycleState
+
+    supervisor, planner, _sink, clock = _supervisor(tmp_path, monkeypatch, _ONE_TASK)
+    future = clock.now + 3 * DAY_SECONDS
+    _write_state(
+        supervisor,
+        streak=5,
+        same=5,
+        key="k",
+        kind=kind,
+        first_failed_at=future,
+        last_failed_at=future,
+        not_before=future,
+        alerted_at=future,
+        signature=supervisor._planner_failure_input_signature(_PlanCycleState(None)),
+        config_signature=supervisor._planner_failure_config_signature(),
+    )
+
+    waited = _seconds_until_next_call(supervisor, planner, clock, 5 * DAY_SECONDS)
+
+    assert waited is not None and waited <= CAP
+
+
+def test_an_alert_lost_to_a_crash_is_sent_once_after_restart(tmp_path, monkeypatch) -> None:
+    supervisor, planner, sink, clock = _supervisor(tmp_path, monkeypatch, _UNREADABLE)
+
+    def crash(_alert):
+        raise SystemExit("crashed between saving and emitting the alert")
+
+    monkeypatch.setattr(supervisor, "_alert_repeated_planner_failure", crash)
+    with pytest.raises(SystemExit):
+        _drive(supervisor, clock, 3600.0)
+    assert supervisor._load_planner_failure_state()["alert_pending"] is True
+
+    restarted, _planner, sink, clock = _supervisor(tmp_path, monkeypatch, _UNREADABLE, clock=clock)
+    _drive(restarted, clock, 4 * 3600.0)
+
+    assert len(_alerts(sink)) == 1
+    assert restarted._load_planner_failure_state().get("alert_pending") in (None, False)
+
+
+def test_an_alert_already_in_the_event_log_is_not_sent_again(tmp_path, monkeypatch) -> None:
+    supervisor, planner, sink, clock = _supervisor(tmp_path, monkeypatch, _UNREADABLE)
+    _drive_until_alert(supervisor, sink, clock)
+    record = supervisor._load_planner_failure_state()
+    alert_id = record["alert"]["id"]
+    # The alert reached the log, then the process died before clearing the flag.
+    record["alert_pending"] = True
+    supervisor._save_planner_failure_state(record)
+    events = supervisor._planner_failure_state_path().parent / "events.jsonl"
+    with events.open("a", encoding="utf-8") as handle:
+        handle.write(json.dumps({"type": "life.planner.error", "alert_id": alert_id}) + "\n")
+
+    restarted, _planner, sink, clock = _supervisor(tmp_path, monkeypatch, _UNREADABLE, clock=clock)
+    _drive(restarted, clock, 3600.0)
+
+    assert not _alerts(sink)
+    assert not restarted._load_planner_failure_state().get("alert_pending")
+
+
+def test_project_signing_runs_outside_the_shared_lock(tmp_path, monkeypatch) -> None:
+    import portalocker
+
+    supervisor, planner, _sink, clock = _supervisor(tmp_path, monkeypatch, _UNREADABLE)
+    lock_path = supervisor._planner_failure_state_path().with_suffix(".lock")
+    original = supervisor._planner_failure_input_signature
+    observed: list[bool] = []
+
+    def signing(state):
+        lock_path.parent.mkdir(parents=True, exist_ok=True)
+        with lock_path.open("a+b") as handle:
+            try:
+                portalocker.lock(handle, portalocker.LOCK_EX | portalocker.LOCK_NB)
+                portalocker.unlock(handle)
+                observed.append(True)
+            except portalocker.exceptions.LockException:
+                observed.append(False)
+        return original(state)
+
+    monkeypatch.setattr(supervisor, "_planner_failure_input_signature", signing)
+    _drive(supervisor, clock, 120.0)
+
+    assert observed and all(observed)
+
+
+def test_a_stuck_lock_holder_does_not_stall_planning(tmp_path, monkeypatch) -> None:
+    import portalocker
+
+    supervisor, planner, _sink, _clock = _supervisor(tmp_path, monkeypatch, _UNREADABLE)
+    monkeypatch.setattr(backoff, "_LOCK_WAIT_SECONDS", 0.2)
+    lock_path = supervisor._planner_failure_state_path().with_suffix(".lock")
+    lock_path.parent.mkdir(parents=True, exist_ok=True)
+    started = __import__("time").monotonic()
+    with lock_path.open("a+b") as holder:
+        portalocker.lock(holder, portalocker.LOCK_EX)
+        _pass(supervisor)
+        portalocker.unlock(holder)
+
+    assert planner.planner_calls >= 1
+    assert __import__("time").monotonic() - started < 30.0
+
+
+def test_execution_host_failures_are_backend_failures() -> None:
+    class Verdict:
+        reason = "Planner execution host is unavailable; repair it before retrying."
+        error = "codex: command not found"
+
+    assert backoff.planner_failure_kind(Verdict()) == backoff.FAILURE_KIND_BACKEND
+
+
+def test_an_argus_bug_is_reported_as_an_argus_fault(tmp_path, monkeypatch) -> None:
+    supervisor, planner, sink, clock = _supervisor(tmp_path, monkeypatch, _ONE_TASK)
+
+    def broken(**_kwargs):
+        planner.planner_calls += 1
+        raise KeyError("missing 'stage'")
+
+    monkeypatch.setattr(planner, "run_exec", broken)
+    _drive(supervisor, clock, DAY_SECONDS)
+
+    alerts = _alerts(sink)
+    assert len(alerts) == 1
+    assert alerts[0]["failure_kind"] == backoff.FAILURE_KIND_INTERNAL
+    text = sink.of(EventType.LIFE_DAEMON_DEGRADED)[0]["text"]
+    assert "fault in Argus" in text and "backend has been failing" not in text
+    # It keeps probing at the cap rather than holding for a change.
+    assert DAY_SECONDS // CAP <= planner.planner_calls <= DAY_SECONDS // (CAP / 2) + 10
+    # A planning error raised inside Argus itself is the same class.
+    assert backoff.planner_failure_kind(None) == backoff.FAILURE_KIND_INTERNAL
