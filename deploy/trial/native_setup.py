@@ -66,10 +66,12 @@ def install_services(config: dict, root: Path) -> None:
     for name, command in commands.items():
         # systemd command lines have their own quoting and percent expansion.
         executable = ' '.join(json.dumps(arg.replace('%', '%%')) for arg in command)
-        memory = '2G' if name.startswith('argus-preview-trial') else '512M'
+        memory = '8G' if name.startswith('argus-preview-trial') else '512M'
         text = f'''[Unit]
 Description=Argus invitation preview {name}
 After=network-online.target
+StartLimitIntervalSec=60
+StartLimitBurst=4
 [Service]
 Type=simple
 WorkingDirectory={str(source).replace("%", "%%")}
@@ -84,7 +86,7 @@ Restart=on-failure
 RestartSec=5
 MemoryMax={memory}
 CPUQuota=100%
-TasksMax=256
+TasksMax=512
 KillMode=control-group
 TimeoutStopSec=15
 [Install]

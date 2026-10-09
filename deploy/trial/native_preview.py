@@ -271,6 +271,12 @@ LOGIN = """<!doctype html><html lang="zh-CN"><meta charset="utf-8"><meta name="v
 <form method="post" action="/login"><label>邀请码</label><input name="invite" autocomplete="off" required placeholder="粘贴你的邀请码"><button>进入试用</button></form></main></html>"""
 
 
+RECOVERING = """<!doctype html><html lang="zh-CN"><meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1"><meta http-equiv="refresh" content="5">
+<title>工作区暂时不可用 · Argus</title><style>body{font:16px system-ui;background:#f6f7f9;color:#172333;margin:0}main{max-width:440px;margin:12vh auto;padding:32px;background:white;border-radius:18px}p{line-height:1.7;color:#536071}a{color:#2069d1}</style>
+<main><h1>正在重新连接你的工作区</h1><p>你的文件和试用余额已保留。页面每 5 秒重试连接。</p><p>如果一直无法连接，请联系试用版管理员。</p><a href="/">立即重试</a></main></html>"""
+
+
 def portal_app(config: dict, ledger: Ledger) -> FastAPI:
     app = FastAPI(docs_url=None, redoc_url=None, openapi_url=None)
     sessions = config["session_secret"].encode()
@@ -422,20 +428,23 @@ def portal_app(config: dict, ledger: Ledger) -> FastAPI:
         await socket.accept()
         query = dict(socket.query_params)
         query["token"] = row["web_token"]
-        async with unix_connect(row["socket"], uri="ws://localhost/api/" + path + "?" + urlencode(query), max_size=8 * 1024 * 1024) as backend:
-            async def outward():
-                async for message in backend:
-                    await socket.send_text(message)
-            async def inward():
-                while True:
-                    await backend.send(await socket.receive_text())
-            tasks = [asyncio.create_task(outward()), asyncio.create_task(inward())]
-            try:
-                await asyncio.wait(tasks, return_when=asyncio.FIRST_COMPLETED)
-            finally:
-                for task in tasks:
-                    task.cancel()
-                await asyncio.gather(*tasks, return_exceptions=True)
+        try:
+            async with unix_connect(row["socket"], uri="ws://localhost/api/" + path + "?" + urlencode(query), max_size=8 * 1024 * 1024) as backend:
+                async def outward():
+                    async for message in backend:
+                        await socket.send_text(message)
+                async def inward():
+                    while True:
+                        await backend.send(await socket.receive_text())
+                tasks = [asyncio.create_task(outward()), asyncio.create_task(inward())]
+                try:
+                    await asyncio.wait(tasks, return_when=asyncio.FIRST_COMPLETED)
+                finally:
+                    for task in tasks:
+                        task.cancel()
+                    await asyncio.gather(*tasks, return_exceptions=True)
+        except OSError:
+            await socket.close(code=1013, reason="工作区暂时无法连接，请稍后重试")
 
     @app.api_route("/{path:path}", methods=["GET", "POST", "PUT", "PATCH", "DELETE", "HEAD"])
     async def proxy(request: Request, path: str):
@@ -462,7 +471,10 @@ def portal_app(config: dict, ledger: Ledger) -> FastAPI:
                                                              headers=headers, content=body), stream=True)
         except httpx.HTTPError:
             await client.aclose()
-            return JSONResponse({"detail": "你的工作区正在准备，请稍后重试。"}, 503)
+            headers = {"Retry-After": "5", "Cache-Control": "no-store"}
+            if path == "":
+                return HTMLResponse(RECOVERING, 503, headers=headers)
+            return JSONResponse({"detail": "工作区暂时无法连接，文件和余额已保留，请稍后重试。"}, 503, headers=headers)
         response_headers = {k: v for k, v in response.headers.items() if k.lower() not in ("content-length", "transfer-encoding", "connection", "content-encoding")}
         if path == "" and response.status_code == 200:
             from fastapi.responses import Response
