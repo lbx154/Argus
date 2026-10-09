@@ -151,7 +151,7 @@ KNOBS: tuple[Knob, ...] = (
     Knob("ARGUS_SKILL_SUPERVISOR_REASONING_EFFORT", "low", "subagent supervisor reasoning effort", "reasoning", cockpit=True),
     # Capacity limits are explicit resource admission, not work clocks.
     # --- budget ---
-    Knob("ARGUS_SKILL_PROVIDER_MAX_CONCURRENCY", "0", "concurrent provider processes across all backends and projects; 0 disables", "budget"),
+    Knob("ARGUS_SKILL_PROVIDER_MAX_CONCURRENCY", "0", "concurrent provider processes across all backends and projects; 0 disables; a chat reply may take one more", "budget"),
     Knob("ARGUS_SKILL_PROVIDER_SLOT_WAIT_SECONDS", "45", "seconds a provider call queues for a busy concurrency slot before it is refused; 0 refuses at once", "budget"),
     Knob("ARGUS_SKILL_MAX_ACTIVE_DAEMONS", str(DEFAULT_MAX_ACTIVE_DAEMONS), "host-wide active daemon cap", "budget", cockpit=True),
     Knob("ARGUS_SKILL_SUBAGENT_FAMILY_FAILURE_STREAK_LIMIT", "3", "consecutive unresolved subagent-job failures (same experiment family) before the L4 planner circuit-breaks further retries", "budget"),

@@ -10,6 +10,7 @@ from pathlib import Path
 
 from argus.core.provider_slots import (
     acquire_provider_slot,
+    interactive_run_label,
     provider_slot_wait_seconds,
     release_provider_slot,
 )
@@ -123,3 +124,25 @@ def test_default_wait_is_bounded_and_operator_tunable(monkeypatch):
     assert 0 < provider_slot_wait_seconds() <= 120
     monkeypatch.setenv("ARGUS_SKILL_PROVIDER_SLOT_WAIT_SECONDS", "99999")
     assert provider_slot_wait_seconds() == 600
+
+
+def test_a_chat_reply_has_one_slot_beyond_the_cap(tmp_path, monkeypatch):
+    """Background work holding every slot must not turn away the person typing."""
+    monkeypatch.setenv("ARGUS_SKILL_PROVIDER_MAX_CONCURRENCY", "1")
+    monkeypatch.setenv("ARGUS_SKILL_PROVIDER_SLOT_WAIT_SECONDS", "0")
+    holder, _ = acquire_provider_slot(tmp_path)
+    try:
+        assert acquire_provider_slot(tmp_path)[0] is None
+        chat, reason = acquire_provider_slot(tmp_path, interactive=True)
+        assert chat is not None and not reason
+        try:
+            # One extra slot, not an open door.
+            assert acquire_provider_slot(tmp_path, interactive=True)[0] is None
+        finally:
+            release_provider_slot(chat)
+    finally:
+        release_provider_slot(holder)
+    assert interactive_run_label("manager-frontdoor-classify")
+    assert interactive_run_label("simple-1")
+    assert not interactive_run_label("engineer-r1")
+    assert not interactive_run_label("map-summary")

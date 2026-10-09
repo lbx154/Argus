@@ -222,7 +222,7 @@ def intake_answer(state: dict, answer: dict) -> tuple[str, str]:
 def intake_prompt(catalog: dict[str, str], state: dict) -> str:
     if not catalog:
         return ""
-    menu = {name: purpose[:180] for name, purpose in list(sorted(catalog.items()))[:32]}
+    menu = {name: purpose[:80] for name, purpose in list(sorted(catalog.items()))[:32]}
     pending = {key: value for key, value in state.items() if key not in {"question_id", "asked_at"}} if state.get("phase") in {"offered", "clarifying"} else {}
     return (
         "\nDomain fit (independent of SELF/TEAM): match the requested work to the listed "

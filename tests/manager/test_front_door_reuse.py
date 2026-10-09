@@ -170,7 +170,7 @@ def test_front_door_wrapper_carries_one_turn_greeting_reply() -> None:
 
     decision = _front_door_classify(
         object(),
-        "你好",
+        "你好呀 Argus，初次见面，先打个招呼",
         state,
         ensure_runner=lambda *_args: SimpleNamespace(manager=_Manager(route="simple")),
     )
@@ -230,7 +230,7 @@ def test_front_door_wrapper_marks_classifier_unavailable() -> None:
 
     decision = _front_door_classify(
         object(),
-        "你好",
+        "帮我看看这个项目的进展",
         state,
         ensure_runner=lambda *_args: None,
     )
@@ -251,7 +251,7 @@ def test_a_runner_build_failure_reports_why_it_failed() -> None:
 
     state: dict = {}
 
-    decision = _front_door_classify(object(), "你好", state, ensure_runner=_failing_builder)
+    decision = _front_door_classify(object(), "帮我看看这个项目的进展", state, ensure_runner=_failing_builder)
 
     assert decision == (None, None, "complex")
     assert state["_frontdoor_failure"] == (
