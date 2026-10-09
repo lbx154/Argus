@@ -502,6 +502,7 @@ class AgentCliBackend:
             disable_tools=options.disable_tools,
             review_output=dict(options.review_output) if options.review_output else None,
             isolate_workdir=options.isolate_workdir,
+            lean_tool_surface=getattr(options, "lean_tool_surface", False),
             on_agent_message=options.on_agent_message,
         )
 
