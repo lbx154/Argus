@@ -258,6 +258,17 @@ def build_parser() -> argparse.ArgumentParser:
              "keeps generating new work forever)",
     )
     daemon_grp.add_argument(
+        "--no-operator",
+        dest="no_operator",
+        action="store_true",
+        help="declare that nobody will answer operator questions during this run "
+             "(headless or benchmark runs). The Manager settles such decisions "
+             "itself on the most defensible interpretation, records the "
+             "assumption, and continues instead of waiting. Same as "
+             "ARGUS_SKILL_OPERATOR_AVAILABLE=false. --bounded alone does not "
+             "imply this, because a bounded run is often watched.",
+    )
+    daemon_grp.add_argument(
         "--mission-width",
         type=_mission_width,
         default=2,

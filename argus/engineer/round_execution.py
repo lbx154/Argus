@@ -95,6 +95,9 @@ def _engineer_decision_message(payload: dict) -> str:
     question = str(payload.get("operator_question", "") or "").strip()
     if question:
         lines.append(f"OPERATOR_QUESTION={question}")
+        need = str(payload.get("operator_need", "") or "").strip()
+        if need:
+            lines.append(f"OPERATOR_NEED={need}")
     options = payload.get("operator_options")
     if isinstance(options, list) and options:
         rendered_options = []

@@ -1115,3 +1115,68 @@ def test_backlog_rewrites_without_scheduling_changes_are_not_new_evidence(tmp_pa
     assert after_add != before
     assert supervisor.memory.backlog.resume_paused(item.id) is not None
     assert supervisor._waiting_backlog_revision() not in {before, after_add}
+
+
+def test_open_operator_question_with_unchanged_inputs_never_regrants_on_age(
+    tmp_path: Path,
+    monkeypatch,
+) -> None:
+    """While the only pending thing is an answer to a question already put to
+    the operator, a timed regrant on unchanged inputs bought the same wait at
+    model price every five minutes. Changed inputs still earn the turn."""
+    project = tmp_path / "project"
+    project.mkdir()
+    life = tmp_path / "life"
+    calls = 0
+
+    def _plan_next(_planner, **_kwargs):
+        nonlocal calls
+        calls += 1
+        return PlannerVerdict(
+            project_done=False,
+            reason="the operator resolves the conflicting requirements",
+            waiting=True,
+            waiting_reason="the operator resolves the conflicting requirements",
+            waiting_contract=WaitingContract(
+                blocker_fingerprint="conflicting-requirements-wip",
+                recheck_condition="the operator resolves the conflicting requirements",
+                recheck_token="conflicting-requirements-wip",
+                wait_mode="event",
+                wake_on=("authorization",),
+                operator_action_required=True,
+            ),
+        )
+
+    monkeypatch.setattr("argus.planner.Planner.plan_next", _plan_next)
+    supervisor = _supervisor(project, life)
+    parked = supervisor.memory.backlog.add(
+        BacklogItem.new(title="Plan production", objective="plan production")
+    )
+    supervisor.memory.backlog.update(
+        parked.id,
+        status="paused_operator",
+        pending_question="May the held work order continue?",
+    )
+
+    assert supervisor._plan_next_work() == PLAN_AWAITING
+    assert calls == 1
+    assert supervisor._plan_next_work() == PLAN_AWAITING
+    assert calls == 2
+    wait_path = next(life.glob("planner-waiting-contract-*.json"))
+    wait_state = json.loads(wait_path.read_text(encoding="utf-8"))
+    assert wait_state["idle_capacity_input_signature"]
+
+    for _ in range(3):
+        wait_state = json.loads(wait_path.read_text(encoding="utf-8"))
+        wait_state["idle_capacity_turn_ts"] = (
+            time.time() - 10 * OPERATOR_WAIT_TURN_REGRANT_SECONDS
+        )
+        supervisor._write_planner_waiting_contract_state(wait_state)
+        assert supervisor._plan_next_work() == PLAN_AWAITING
+    assert calls == 2, "an aged wait on unchanged inputs is not news"
+
+    monkeypatch.setattr(
+        supervisor, "_operator_wait_input_signature", lambda: "something-moved"
+    )
+    assert supervisor._plan_next_work() == PLAN_AWAITING
+    assert calls == 3

@@ -601,13 +601,14 @@ class MissionExecutionSettlementMixin:
         ).strip()
         operator_question_policy = "unchanged"
         if operator_question:
-            from ...manager.directive import active_operator_question_policy
+            from ...manager.directive import effective_operator_question_policy
 
-            operator_question_policy = active_operator_question_policy(
+            operator_question_policy = effective_operator_question_policy(
                 self._artifact_root()
             )
             from ...core.autonomy import (
                 assess_operator_intervention,
+                autonomous_operator_resolution,
                 resolve_autonomy_mode,
                 technical_continuation,
             )
@@ -677,6 +678,32 @@ class MissionExecutionSettlementMixin:
                     operator_question = ""
                     if status in {"blocked", "replan_requested"}:
                         status = "replan_requested"
+                elif (
+                    operator_question_policy == "forbid"
+                    and status in {"blocked", "replan_requested"}
+                    and autonomous_operator_resolution(intervention.operator_need)
+                    == "assume"
+                ):
+                    # Nobody will answer, and the raising role did not name an
+                    # action only the operator can enable: the question is a
+                    # scope or interpretation decision. Hand it to the Manager
+                    # as an operator-owned challenge without a question; the
+                    # Manager settles it on the most defensible reading and the
+                    # Planner records that assumption.
+                    planner_report.update({
+                        "forward_progress": False,
+                        "plan_signal": "reconsider",
+                        "challenge": str(
+                            planner_report.get("challenge") or operator_question
+                        ),
+                        "authority_impact": "operator",
+                        "operator_need": intervention.operator_need,
+                    })
+                    setattr(outcome, "final_planner_report", planner_report)
+                    setattr(outcome, "operator_question", "")
+                    setattr(outcome, "operator_options", [])
+                    operator_question = ""
+                    status = "replan_requested"
         research_pause = status in {
             "research_incomplete",
             "paused_no_breakthrough",

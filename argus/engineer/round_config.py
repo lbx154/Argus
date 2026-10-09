@@ -60,6 +60,10 @@ DEFAULT_LIVE_SEARCH_STAGES: frozenset[str] = frozenset({"research"})
 OPERATOR_QUESTION_FORBIDDEN_NEXT_ACTION = (
     "Continue autonomously: solve reversible environment, tool, worktree, and "
     "dependency issues with available capabilities; do not ask the operator. "
+    "Where the question was about an interpretation, scope, or conflicting "
+    "requirement, choose the most defensible interpretation, state it as an "
+    "explicit assumption, and record the assumption and the conflict in the "
+    "deliverable and CHECKPOINT.md. "
     "If only irreversible authority or unavailable credentials remain, preserve "
     "the current state and report blocked without an operator question."
 )

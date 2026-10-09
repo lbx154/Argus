@@ -19,6 +19,9 @@ class EngineerHandoff:
     operator_question: str = ""
     operator_options: tuple[dict, ...] = ()
     source: str = "default"
+    # The Engineer's own answer to "why can only the operator decide this?"
+    # (one of ``core.autonomy.OPERATOR_NEEDS``), or "" when it named none.
+    operator_need: str = ""
 
     @property
     def waits_for_operator(self) -> bool:
@@ -48,6 +51,7 @@ def resolve_engineer_handoff(
     next_owner: object,
     operator_question: object,
     operator_options: Sequence[dict] = (),
+    operator_need: object = "",
 ) -> EngineerHandoff:
     """Resolve the next role from handoff fields that are already separated.
 
@@ -61,16 +65,21 @@ def resolve_engineer_handoff(
         question = ""
     question = question[:500]
     options = tuple(operator_options or ())
+    from .autonomy import normalize_operator_need
+
+    need = normalize_operator_need(operator_need)
 
     if owner == "reviewer":
         return EngineerHandoff("reviewer", source="structured")
     if owner == "operator" and question:
-        return EngineerHandoff("operator", question, options, source="structured")
+        return EngineerHandoff(
+            "operator", question, options, source="structured", operator_need=need
+        )
     if owner == "engineer" and not question:
         return EngineerHandoff("engineer", source="structured")
     if question:
         return EngineerHandoff(
-            "operator", question, options, source="operator_question"
+            "operator", question, options, source="operator_question", operator_need=need
         )
     return EngineerHandoff("reviewer", source="default")
 
@@ -88,6 +97,7 @@ def decision_engineer_handoff(payload: Mapping[str, object]) -> EngineerHandoff:
         next_owner=payload.get("next_owner"),
         operator_question=payload.get("operator_question"),
         operator_options=normalize_agent_options(option_values),
+        operator_need=payload.get("operator_need"),
     )
 
 
@@ -100,6 +110,7 @@ def parse_engineer_handoff(message: str) -> EngineerHandoff:
         next_owner=_named_value(footer, "NEXT_OWNER", limit=32),
         operator_question=_named_value(footer, "OPERATOR_QUESTION"),
         operator_options=tuple(parse_agent_operator_options(footer)),
+        operator_need=_named_value(footer, "OPERATOR_NEED", limit=64),
     )
 
 

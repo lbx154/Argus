@@ -929,18 +929,21 @@ def test_forbidden_questions_request_revision_within_existing_authority(
 
 
 @pytest.mark.parametrize(
-    "alternative",
+    ("alternative", "operator_need"),
     [
-        "Use the operator's API credentials.",
-        "Purchase additional compute capacity.",
-        "Force-push the protected release branch.",
+        ("Use the operator's API credentials.", "credentials"),
+        ("Purchase additional compute capacity.", "spending"),
+        ("Force-push the protected release branch.", "irreversible_or_external"),
     ],
     ids=["credentials", "spending", "irreversible"],
 )
 def test_forbidden_questions_block_out_of_scope_operator_alternative(
     tmp_path: Path,
     alternative: str,
+    operator_need: str,
 ) -> None:
+    # The raising role's own classification, not words in the alternative,
+    # is what marks an action only the operator can enable.
     from argus.manager.directive import set_active_manager_directive
 
     project = tmp_path / "project"
@@ -965,6 +968,7 @@ def test_forbidden_questions_block_out_of_scope_operator_alternative(
             "challenge": "The current plan reaches an operator-owned boundary.",
             "alternative": alternative,
             "authority_impact": "operator",
+            "operator_need": operator_need,
         },
         "plan_challenge": {
             "manager_action": "ask_operator",

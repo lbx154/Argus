@@ -1342,10 +1342,12 @@ class PlanningContextMixin:
                         payload["idle_capacity_turn_ts"] = previous[
                             "idle_capacity_turn_ts"
                         ]
-                    if "idle_capacity_backlog_revision" in previous:
-                        payload["idle_capacity_backlog_revision"] = previous[
-                            "idle_capacity_backlog_revision"
-                        ]
+                    for carried in (
+                        "idle_capacity_backlog_revision",
+                        "idle_capacity_input_signature",
+                    ):
+                        if carried in previous:
+                            payload[carried] = previous[carried]
         except (OSError, ValueError):
             pass
         path.parent.mkdir(parents=True, exist_ok=True)
@@ -1597,6 +1599,9 @@ class PlanningContextMixin:
             state["idle_capacity_backlog_revision"] = (
                 self._waiting_backlog_revision()
             )
+            state["idle_capacity_input_signature"] = (
+                self._operator_wait_input_signature()
+            )
             state["updated_at"] = time.time()
             self._write_planner_waiting_contract_state(state)
             # This grant IS the decision to spend one Planner call — the
@@ -1697,7 +1702,44 @@ class PlanningContextMixin:
         if not state.get("operator_action_required"):
             return False
         granted = float(state.get("idle_capacity_turn_ts") or 0.0)
-        return time.time() - granted >= OPERATOR_WAIT_TURN_REGRANT_SECONDS
+        if time.time() - granted < OPERATOR_WAIT_TURN_REGRANT_SECONDS:
+            return False
+        # When the only thing pending is an answer to a question already put
+        # to the operator, time passing is not news: a Planner call on the
+        # same inputs can only repeat its wait, and every call is billed. A
+        # change in anything the Planner reads (the answer itself moves the
+        # backlog, which re-grants above) still earns the turn.
+        recorded = str(state.get("idle_capacity_input_signature") or "")
+        if recorded and self._only_operator_answer_pending():
+            return self._operator_wait_input_signature() != recorded
+        return True
+
+    def _operator_wait_input_signature(self) -> str:
+        """The Planner-visible input digest, as the operator-wait regrant sees it."""
+        return self._planner_visible_input_signature(
+            operator_context_revision=int(
+                getattr(self, "_planning_operator_context_revision", 0) or 0
+            )
+        )
+
+    def _only_operator_answer_pending(self) -> bool:
+        """Is an open operator question the only thing this campaign waits on?"""
+        probe = getattr(self, "_pending_operator_questions", None)
+        if not callable(probe):
+            return False
+        try:
+            questions = probe()
+        except Exception:  # noqa: BLE001 - unknown is not "only the operator"
+            return False
+        if not questions:
+            return False
+        try:
+            return any(
+                item.status == "paused_operator"
+                for item in self.memory.backlog.active()
+            )
+        except Exception:  # noqa: BLE001
+            return False
 
     def _confined_planner_wait_paths(self, values: list[str]) -> list[str]:
         """Validate watched paths before they can influence revision reads."""
@@ -2020,6 +2062,7 @@ class PlanningContextMixin:
                         "idle_capacity_turn_used",
                         "idle_capacity_turn_ts",
                         "idle_capacity_backlog_revision",
+                        "idle_capacity_input_signature",
                     )
                     if key in previous
                 }

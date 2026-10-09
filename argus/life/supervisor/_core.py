@@ -551,38 +551,52 @@ class LifeSupervisor(
         if action not in {"keep", "revise", "replace", "ask_operator"}:
             action = "revise"
         if action == "ask_operator":
-            from ...manager.directive import active_operator_question_policy
+            from ...manager.directive import effective_operator_question_policy
 
-            if active_operator_question_policy(self.memory.root) == "forbid":
-                from ...core.autonomy import assess_operator_intervention
-
-                reviewer_alternative = str(
-                    challenge.get("alternative") or ""
-                ).strip()
-                boundary = assess_operator_intervention(
-                    question=str(
-                        challenge.get("operator_question")
-                        or outcome.get("operator_question")
-                        or challenge.get("challenge")
-                        or outcome.get("review_reason")
-                        or ""
-                    ),
-                    reason=str(challenge.get("challenge") or ""),
-                    next_action=reviewer_alternative,
-                    planner_report={},
-                    mode="autonomous",
+            if effective_operator_question_policy(self.memory.root) == "forbid":
+                from ...core.autonomy import (
+                    AUTONOMOUS_ASSUMPTION_INSTRUCTION,
+                    autonomous_operator_resolution,
+                    normalize_operator_need,
+                    operator_available,
                 )
-                action = "blocked" if boundary.required else "revise"
+
+                # The raising role's own classification decides: an action
+                # only the operator can enable (real credentials, spending, an
+                # irreversible or outward-facing step) cannot be assumed into
+                # being, so it blocks; a scope or interpretation question is
+                # settled here on the most defensible reading, recorded, and
+                # the work continues.
+                need = normalize_operator_need(
+                    challenge.get("operator_need")
+                    or (report.get("operator_need") if isinstance(report, dict) else "")
+                )
+                action = (
+                    "blocked"
+                    if autonomous_operator_resolution(need) == "blocked"
+                    else "revise"
+                )
+                why_no_question = (
+                    "No operator is available in this run"
+                    if not operator_available()
+                    else "Operator questions are forbidden"
+                )
                 challenge["manager_reason"] = (
-                    "Operator questions are forbidden and do not grant authority; "
+                    why_no_question
+                    + " and that does not grant authority; "
                     + (
-                        "no in-scope revision can cross this operator-owned boundary, "
-                        "so the mission is blocked without a question."
+                        f"the work needs an operator-only action ({need}) that no "
+                        "in-scope revision can provide, so the mission is blocked "
+                        "without a question."
                         if action == "blocked"
-                        else "the Planner must revise strictly within existing "
-                        "authority without using the Reviewer alternative."
+                        else "the Manager settles the open decision itself: the "
+                        "Planner revises within existing authority on the most "
+                        "defensible interpretation and records that assumption."
                     )
                 )
+                if action == "revise":
+                    challenge["manager_instruction"] = AUTONOMOUS_ASSUMPTION_INSTRUCTION
+                    challenge["autonomous_assumption"] = True
                 challenge["authority_impact"] = "operator"
                 challenge["alternative"] = ""
                 challenge["operator_question"] = ""
@@ -1982,8 +1996,11 @@ class LifeSupervisor(
                     next_action=next_action,
                     planner_report={
                         "authority_impact": (
-                            "operator" if status == "paused_operator" else ""
-                        )
+                            "operator"
+                            if status == "paused_operator"
+                            else str(event.get("authority_impact") or "")
+                        ),
+                        "operator_need": event.get("operator_need") or "",
                     },
                 )
                 if operator_question:

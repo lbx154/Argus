@@ -566,6 +566,10 @@ export ARGUS_SKILL_AUTONOMY_MODE=autonomous  # maximize reversible execution
 
 The Web configuration view and `/config` expose the same setting.
 
+Whether a question needs you is decided by the role that raises it: the Engineer names an `operator_need` (credentials, spending, irreversible or outward-facing action, scope or authority change) and the Reviewer marks `authority_impact`. No keyword list overrides that judgement.
+
+Headless runs (benchmarks, CI) have nobody to answer. Declare that with `--no-operator` or `ARGUS_SKILL_OPERATOR_AVAILABLE=false`: the Manager then settles such decisions on the most defensible interpretation, records the assumption in the deliverable or report, and continues; only an action that truly needs you (real credentials, spending, an irreversible or external step) ends the work as blocked. `--bounded` alone does not imply this, because bounded runs are often watched. A bounded run whose only remaining work is an unanswered question ends as `blocked: needs operator` after `ARGUS_SKILL_BOUNDED_OPERATOR_WAIT_EXIT_MIN` minutes (default 30; 0 waits indefinitely), keeping the question so you can answer and resume.
+
 ### Adapt the runtime
 
 If you are an agent enthusiast, deploy Argus locally and make the complete loop fit the way you work. Tune role prompts, workflow boundaries, review policy, tools, and operating conventions; connect your own infrastructure; preserve the behavior you care about with tests.

@@ -170,6 +170,9 @@ def test_failed_mission_explains_reason_and_next_action(tmp_path) -> None:
         "status": "blocked",
         "stop_reason": "The required credentials are unavailable.",
         "next_action": "Provide credentials or remove the external requirement.",
+        # The team's own classification marks this as the operator's call;
+        # the words in the reason do not.
+        "operator_need": "credentials",
     })
 
     text = json.loads(

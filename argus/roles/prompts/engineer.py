@@ -34,6 +34,11 @@ _POSIX_LONG_EXPERIMENT_RULE = (
     "`check_with` response; on `state=discussing` answer with `reply_with` "
     "and do not poll in the foreground."
 )
+# The Engineer, not a word list, decides whether its question needs a person.
+ENGINEER_OPERATOR_NEED_RULE = (
+    "Give an operator question OPERATOR_NEED=credentials|spending|"
+    "irreversible_or_external|scope_or_authority; without one the team decides."
+)
 _PERFORMANCE_DIAGNOSTIC_RULE = (
     "Performance root-cause/bottleneck/replacement claims need hot-path/live-resource "
     "evidence plus timing/profiling or controlled A/B. Correctness smoke tests can "
@@ -327,7 +332,7 @@ def build_mission_prompt(
         "for a real operator decision; include one operator_question and at most five "
         "operator_options; that parks the task, so record it and yield. Options use "
         "`id::label::description`, or `id::true::label::description` when a note "
-        "is required.\n\n"
+        "is required.\n" + ENGINEER_OPERATOR_NEED_RULE + "\n\n"
         + RESEARCHER_VOICE + "\n\n"
         + decision_footer_instruction(
             "MILESTONE_STATUS=done\n"
@@ -406,7 +411,7 @@ def build_mission_prompt(
         "## Carrying context between rounds\n"
         "Use next_owner=operator only for an operator-owned choice; its question "
         "parks the task. Include operator_question and operator_options in that "
-        "decision.\n\n"
+        "decision.\n" + ENGINEER_OPERATOR_NEED_RULE + "\n\n"
         + RESEARCHER_VOICE + "\n\n"
         + decision_footer_instruction(
             "MILESTONE_STATUS=done\n"

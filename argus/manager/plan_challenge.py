@@ -60,7 +60,10 @@ def adjudicate_plan_challenge(
             ),
             reason=challenge,
             next_action=alternative,
-            planner_report={"authority_impact": authority},
+            planner_report={
+                "authority_impact": authority,
+                "operator_need": report.get("operator_need") or "",
+            },
         )
         if intervention.required:
             return PlanChallengeDecision(

@@ -346,6 +346,13 @@ def main(argv: list[str] | None = None) -> int:
     load_backend_runtime_env()
     parser = build_parser()
     args = parser.parse_args(argv)
+    if getattr(args, "no_operator", False):
+        # Declared by headless entry points. The knob, not the flag, is what
+        # every role and any daemon spawned from here reads, so set it in the
+        # process environment that children inherit.
+        from ...core.autonomy import OPERATOR_AVAILABLE_KNOB
+
+        os.environ[OPERATOR_AVAILABLE_KNOB] = "false"
     objective_file = getattr(args, "objective_file", None)
     if objective_file:
         objective_path = Path(objective_file).expanduser().resolve()

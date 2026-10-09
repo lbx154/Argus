@@ -151,6 +151,7 @@ def test_engineer_operator_question_parks_without_reviewer(tmp_path: Path) -> No
                 "The required choice belongs to the operator.\n"
                 "MILESTONE_STATUS=continue\n"
                 "`OPERATOR_QUESTION=Is publishing route A or B acceptable?`\n"
+                "`OPERATOR_NEED=scope_or_authority`\n"
                 "`OPERATOR_OPTIONS=route-a :: 选择 A :: 使用 A 路线继续。; "
                 "route-b :: 选择 B :: 使用 B 路线继续。`"
             ),
@@ -327,7 +328,8 @@ def test_inflight_allow_reenables_engineer_question_boundary(tmp_path: Path) -> 
         return (
             "NEXT_OWNER=operator\n"
             "OPERATOR_QUESTION=Is route A or B acceptable under the operator "
-            "acceptance contract?"
+            "acceptance contract?\n"
+            "OPERATOR_NEED=scope_or_authority"
         )
 
     backend.queue(
@@ -790,3 +792,65 @@ def test_structured_engineer_handoff_continues_without_early_review(
     ]
     assert status == "done"
     assert len(rounds) == 1
+
+
+def test_a_negated_credential_mention_does_not_park_the_round(tmp_path: Path) -> None:
+    """The Engineer asked for Reviewer access and said credentials were not
+    needed; a word match on "credential" parked a headless run for hours. With
+    no operator_need of its own, the question goes to the Reviewer."""
+    backend = MemoryBackend()
+    backend.queue(
+        "engineer-r1",
+        CannedResponse(
+            message=(
+                "MILESTONE_STATUS=blocked\n"
+                "NEXT_OWNER=operator\n"
+                "OPERATOR_QUESTION=Provide the Reviewer with original packet access "
+                "and bounded local execution; production credentials are unnecessary."
+            ),
+            thread_id="t1",
+        ),
+    )
+    backend.queue("reviewer", CannedResponse(review_action=_done_review(), thread_id="v1"))
+
+    status, rounds, _final, _reason, _tid = _engineer(backend).run(
+        objective="build the dispatch tool",
+        engineer_prompt_builder=lambda _na, _include_static=True: "Do the task.",
+        supervised_config=SupervisedConfig(max_rounds=2, require_independent_review=True),
+        workdir=tmp_path,
+    )
+
+    assert [label for label, _prompt, _options in backend.history] == [
+        "engineer-r1",
+        "reviewer",
+    ]
+    assert status == "done"
+    assert rounds[0].review.review_source == "reviewer"
+
+
+def test_a_classified_credential_need_still_parks_the_round(tmp_path: Path) -> None:
+    backend = MemoryBackend()
+    backend.queue(
+        "engineer-r1",
+        CannedResponse(
+            message=(
+                "MILESTONE_STATUS=blocked\n"
+                "NEXT_OWNER=operator\n"
+                "OPERATOR_QUESTION=Provide the deployment key for the staging registry.\n"
+                "OPERATOR_NEED=credentials"
+            ),
+            thread_id="t1",
+        ),
+    )
+
+    status, rounds, _final, _reason, _tid = _engineer(backend).run(
+        objective="deploy to staging",
+        engineer_prompt_builder=lambda _na, _include_static=True: "Do the task.",
+        supervised_config=SupervisedConfig(max_rounds=2, require_independent_review=True),
+        workdir=tmp_path,
+    )
+
+    assert [label for label, _prompt, _options in backend.history] == ["engineer-r1"]
+    assert status == "blocked"
+    assert rounds[0].review.review_source == "engineer_operator_question"
+    assert rounds[0].review.planner_report["operator_need"] == "credentials"

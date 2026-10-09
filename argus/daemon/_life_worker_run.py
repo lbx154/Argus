@@ -135,6 +135,11 @@ def _maybe_consolidate(rf_state: Any, config: Any) -> None:
         log.exception("daemon: knowledge consolidation failed")
 
 
+def _bounded_operator_wait_text(questions: list[str]) -> str:
+    shown = "; ".join(question[:300] for question in questions if question)[:900]
+    return "blocked: needs operator" + (f" — {shown}" if shown else "")
+
+
 class LifeWorkerRunMixin:
     """``run_forever``'s post-boot phases: main loop and shutdown."""
 
@@ -476,6 +481,53 @@ class LifeWorkerRunMixin:
             })
             log.error("daemon: failed stalled running item %s", item.id)
         return failed
+
+    def _bounded_operator_wait_expired(self, supervisors: Any) -> bool:
+        """End a bounded run that has nothing left but an unanswered question.
+
+        A bounded worker that is only waiting on the operator used to sit until
+        an outside timeout killed it. It now waits the configured grace
+        (``ARGUS_SKILL_BOUNDED_OPERATOR_WAIT_EXIT_MIN``; none at all when no
+        operator is available), then records a ``blocked: needs operator``
+        outcome and exits. The question and the parked work stay on disk, so
+        answering it and resuming continues where the run stopped. This is
+        about not hanging; it never caps work that is still running.
+        """
+        from ..core.autonomy import bounded_operator_wait_exit_seconds
+
+        supervisor = next(iter(supervisors or ()), None)
+        probe = getattr(supervisor, "_pending_operator_questions", None)
+        questions = probe() if callable(probe) else None
+        if questions is None:
+            self._operator_wait_since = None
+            return False
+        now = time.monotonic()
+        since = getattr(self, "_operator_wait_since", None)
+        if since is None:
+            since = now
+            self._operator_wait_since = since
+        grace = bounded_operator_wait_exit_seconds()
+        if grace < 0 or now - since < grace:
+            return False
+        text = _bounded_operator_wait_text(questions)
+        log.warning("daemon: bounded run %s; exiting (answer and resume to continue)", text)
+        emit = getattr(supervisor, "_emit", None)
+        status = getattr(supervisor, "_emit_status", None)
+        try:
+            if callable(emit):
+                from ..core.event_catalog import EventType
+
+                emit({
+                    "type": EventType.LIFE_DAEMON_IDLE_TIMEOUT,
+                    "idle_seconds": round(now - since, 1),
+                    "agent_layer": "manager",
+                    "text": text,
+                })
+            if callable(status):
+                status(text + " (answer the question and resume to continue)")
+        except Exception:  # noqa: BLE001 - the exit itself must still happen
+            log.exception("daemon: could not record the operator-wait outcome")
+        return True
 
     def _run_supervisor_pass(self, supervisor: Any) -> dict:
         worker_id = str(
@@ -889,6 +941,8 @@ class LifeWorkerRunMixin:
                                 circuit.get("exception_type") or "error",
                                 circuit.get("callsite") or "unknown callsite",
                             )
+                            break
+                        if self._bounded_operator_wait_expired(supervisors):
                             break
                     # Idle auto-exit: the supervisor judged the project idle past
                     # the cap. Exit the loop so the process shuts down cleanly

@@ -288,6 +288,10 @@ class ArgusHarborAgent(_HarborCodex):  # type: ignore[misc,valid-type]
                     state_root / "special-prompts"
                 ).as_posix(),
                 "ARGUS_SKILL_DAEMON_POLL_S": "0.1",
+                # A Harbor trial is headless: nobody answers operator
+                # questions, so the Manager must decide and record its
+                # assumptions instead of waiting for the harness timeout.
+                "ARGUS_SKILL_OPERATOR_AVAILABLE": "false",
             }
         )
 
@@ -311,6 +315,7 @@ class ArgusHarborAgent(_HarborCodex):  # type: ignore[misc,valid-type]
                 "--daemon-fg",
                 "--continuous",
                 "--bounded",
+                "--no-operator",
                 "--new",
                 "--backend",
                 "codex",

@@ -930,3 +930,26 @@ def test_wiki_correct_command_rewrites_the_page_and_journals_it(tmp_path, monkey
         "wiki", "correct", "pages/lessons/none.md", "--scope", "vertical", "--vertical", "research",
         "--statement", "s", "--reason", "r",
     ]) == 2
+
+
+def test_no_operator_flag_declares_a_headless_run(monkeypatch) -> None:
+    from argus.apps.cli import _core
+
+    args = build_parser().parse_args(["--daemon-fg", "--bounded", "--no-operator"])
+    assert args.no_operator is True
+    assert build_parser().parse_args(["--daemon-fg", "--bounded"]).no_operator is False
+
+    # Registered with monkeypatch so the variable main() sets is restored.
+    monkeypatch.setenv("ARGUS_SKILL_OPERATOR_AVAILABLE", "true")
+
+    class _Stop(Exception):
+        pass
+
+    def _stop_after_parse(*_args, **_kwargs):
+        raise _Stop
+
+    # Stop right after the flag is applied; nothing else in main() matters here.
+    monkeypatch.setattr("argus.core.knobs.resolve_role_backend", _stop_after_parse)
+    with pytest.raises(_Stop):
+        _core.main(["--status", "--no-operator"])
+    assert os.environ["ARGUS_SKILL_OPERATOR_AVAILABLE"] == "false"

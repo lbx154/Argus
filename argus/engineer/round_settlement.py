@@ -34,10 +34,12 @@ log = logging.getLogger(__name__)
 def _operator_questions_allowed(supervised_config: "SupervisedConfig") -> bool:
     root = supervised_config.operator_question_policy_root
     if root is not None:
-        from ..manager.directive import active_operator_question_policy
+        from ..manager.directive import effective_operator_question_policy
 
-        return active_operator_question_policy(root) != "forbid"
-    return bool(supervised_config.operator_questions_allowed)
+        return effective_operator_question_policy(root) != "forbid"
+    from ..core.autonomy import operator_available
+
+    return bool(supervised_config.operator_questions_allowed) and operator_available()
 
 
 def _enforce_operator_question_policy(

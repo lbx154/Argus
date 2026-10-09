@@ -101,9 +101,12 @@ class RoundSelfReviewMixin:
         if handoff.waits_for_operator:
             from ..core.autonomy import assess_operator_intervention
 
+            # The Engineer classified its own question: only an operator_need
+            # it named makes this an operator decision. Words in the question
+            # or the round message are not consulted.
             intervention = assess_operator_intervention(
                 question=handoff.operator_question,
-                reason=outcome.engineer_message,
+                operator_need=handoff.operator_need,
             )
             if not intervention.required:
                 # The Reviewer sees the Engineer's question in the ordinary
@@ -121,6 +124,7 @@ class RoundSelfReviewMixin:
                         "plan_signal": "continue",
                         "challenge": handoff.operator_question,
                         "authority_impact": "operator",
+                        "operator_need": intervention.operator_need,
                     },
                 ),
                 round_index=round_index,
