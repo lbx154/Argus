@@ -288,8 +288,9 @@ def _reply_for(prompt: str, argv: list[str], workdir: Path) -> tuple[str, str]:
         return "manager-chat", ("Hello! This is Argus answering through an offline test backend. "
                                 "I can write and run a small script, show project status, or change settings.")
     if prompt.startswith("You are the persistent project Manager, supervising"):
+        refs = re.findall(r'"path": "([^"]+)"', prompt.split('"evidence_refs"', 1)[-1])[:1]
         return "supervision", ("ACTION: CONTINUE\nREASON: The team is working on the requested change and "
-                               "the next round should show the result.\nEVIDENCE_REFS: ")
+                               "the next round should show the result.\nEVIDENCE_REFS: " + "; ".join(refs))
     if "looking back on a task that just finished" in prompt:
         return "reflection", "Nothing new worth keeping from this small task.\nWROTE: nothing"
     if "Manager chooses ADVANCE, HOLD, ROLLBACK, or COMPLETE" in prompt:
