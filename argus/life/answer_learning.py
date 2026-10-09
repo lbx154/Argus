@@ -17,6 +17,7 @@ from contextlib import contextmanager
 from pathlib import Path
 from typing import Any
 
+from ..core.daemon_lock import is_pid_running
 from ..core.file_lock import exclusive_file_lock
 
 log = logging.getLogger(__name__)
@@ -64,13 +65,16 @@ def learning_status(root: Path, sid: str) -> dict[str, Any]:
         job["outcome"] = json.loads(job["outcome"])
         job["retryable"] = not job["id"].startswith("mission-")
         if not job["retryable"] and job["status"] == "running":
+            # Never probe with os.kill(pid, 0): on Windows CPython maps every
+            # non-console signal to TerminateProcess, so this read-only status
+            # poll used to kill the running daemon that owns the job.
             try:
-                os.kill(int(payload["owner_pid"]), 0)
-            except (ProcessLookupError, KeyError, ValueError):
+                owner_alive = is_pid_running(int(payload["owner_pid"]))
+            except (KeyError, TypeError, ValueError):
+                owner_alive = False
+            if not owner_alive:
                 job["status"] = "failed"
                 pending = max(0, pending - 1)
-            except PermissionError:
-                pass
         jobs.append(job)
     return {"jobs": jobs, "pending": pending, "revision": revision or 0}
 
