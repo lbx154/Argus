@@ -999,7 +999,7 @@ def test_changed_state_discards_pending_report_before_replanning(campaign, monke
 def test_increment_report_fallback_preserves_standing_campaign(objective):
     from argus.manager._stage_ops import _StageDecisionMixin
 
-    manager = SimpleNamespace(_build_stage_run_exec=lambda *_args: (None, None))
+    manager = SimpleNamespace(_build_stage_run_exec=lambda *_args, **_kw: (None, None))
     text = _StageDecisionMixin.report_project_completion(
         manager,
         completion_context={"completion_scope": "certified_increment", "stages": {}},

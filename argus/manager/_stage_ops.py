@@ -451,7 +451,10 @@ class _StageDecisionMixin:
             completion_reason=completion_reason,
             completion_context=completion_context,
         )
-        run_exec, hold = self._build_stage_run_exec(None, on_event)
+        # Named for what it is: the operator report, not a stage decision.
+        run_exec, hold = self._build_stage_run_exec(
+            None, on_event, run_label="manager-project-report",
+        )
         if hold is not None or run_exec is None:
             from ..core.operator_messages import uses_cjk
 
