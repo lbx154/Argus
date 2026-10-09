@@ -75,6 +75,14 @@ _TASK_OWNED_BLOCKS = (
 # task (this increment) states against the deliverable (Engineer-written tests
 # had carried a misread symptom through review). Measured at 5_534 (5_570 on
 # Windows); the others at 5_247 and 5_339.
+#
+# Every evidence form then gained one sentence (~124 chars), also within the
+# cap: a check is impossible, not missing, only if the task, packet or
+# environment says what it needs exists only at grading or deploy time (one
+# task looped 15 rounds over such a token). The quote, the acceptance and the
+# fixture conditions live in the action tool descriptions, not here. Measured
+# at 5_658 (5_694 on Windows); the others at 5_371 and 5_463. No headroom is
+# left on Windows: re-compress before adding prose.
 FIXED_PROSE_BUDGET = 5_700
 
 
