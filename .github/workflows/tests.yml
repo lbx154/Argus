@@ -50,8 +50,6 @@ jobs:
           python -m pip install -e '.[dev,qr,trial]'
       - name: Lint
         run: python -m ruff check argus argus_skill tests
-      - name: Verify shipped frontends match the source
-        run: python -m argus.release_tools.check_artifacts
       - name: Build Node packages for Python integration tests
         run: |
           npm ci

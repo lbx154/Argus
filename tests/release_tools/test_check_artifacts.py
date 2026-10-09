@@ -56,3 +56,8 @@ def test_current_entry_must_match_even_when_an_old_asset_has_the_release_id(
     failures = check_artifacts.check()
     assert len(failures) == 1
     assert "entry bundle does not embed current release" in failures[0]
+
+
+def test_checked_in_frontends_match_the_checked_in_source():
+    """The existing Python CI must reject a stale shipped release."""
+    assert check_artifacts.check() == []
