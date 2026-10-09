@@ -310,7 +310,7 @@ def build_front_door_prompt(text: str, *, active_mission: bool = False, allow_re
         "LIFETIME: TEAM: default BOUNDED for casual unscoped work absent ongoing "
         "intent; BOUNDED_INCREMENT=limited stage; STANDING=ongoing intent. "
         "SELF: NONE.\n\n"
-        "GREETING: pure greetings; REPLY greets + 2-3 starter asks. "
+        "GREETING: GREETING or NONE; REPLY greets + 2-3 starter asks. "
         "NAME: topic in the message's language; greeting/chat/settings NONE.\n\n"
         + decision_footer_instruction(
             "INTAKE_TYPE: EPHEMERAL\n"

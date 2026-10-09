@@ -979,3 +979,10 @@ def test_a_real_greeting_reply_still_goes_through():
     answer = "ROUTE: SELF\nSELF_MODE: REPLY\nREPLY: 你好！想从哪里开始？\nGREETING: GREETING\n"
     classify_front_door("你好", run_exec=_exec(answer), greeting_sink=greetings.append)
     assert greetings == ["你好！想从哪里开始？"]
+
+
+def test_a_greeting_marked_yes_still_takes_the_one_call_shortcut():
+    greetings = []
+    answer = "ROUTE: SELF\nSELF_MODE: REPLY\nREPLY: 你好！想从哪里开始？\nGREETING: YES\n"
+    classify_front_door("你好", run_exec=_exec(answer), greeting_sink=greetings.append)
+    assert greetings == ["你好！想从哪里开始？"]

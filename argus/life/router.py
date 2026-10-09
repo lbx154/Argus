@@ -607,10 +607,11 @@ def classify_front_door(
             lifetime_sink(lifetime)
         except Exception:  # noqa: BLE001 - advisory metadata never owns routing
             pass
-    greeting_token = fields["greeting"].upper()
+    # The prompt asks for the word GREETING; a model that answers YES means the same.
+    greeting_token = fields["greeting"].strip().rstrip(".。!！").upper()
     if (
         callable(greeting_sink)
-        and greeting_token == "GREETING"
+        and greeting_token in {"GREETING", "YES", "TRUE"}
         and route == "simple"
         and intent is None
         and control is None
