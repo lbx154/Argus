@@ -36,6 +36,7 @@ from argus.adapters.memory_backend import CannedResponse, MemoryBackend
 from argus.cli.event_format import format_event_message
 from argus.core.autonomy import AUTONOMOUS_ASSUMPTION_INSTRUCTION
 from argus.core.event_catalog import EventType, validate_event_envelope
+from argus.core.grounding_baseline import snapshot
 from argus.core.model_visible_text import (
     REVIEW_EVIDENCE_RULE_EXECUTING,
     REVIEW_EVIDENCE_RULE_READ_ONLY,
@@ -117,8 +118,8 @@ def _risk(**overrides) -> dict:
 
 def test_an_impossible_check_must_quote_the_task_packet_or_environment(tmp_path) -> None:
     (tmp_path / "DEPLOY.md").write_text("Secrets: FEED_TOKEN is injected at deploy time only.\n", encoding="utf-8")
-    started = time.time() + 5  # the mission began after DEPLOY.md was written
-    actions = ReviewActions(grounding=_grounding(operator=True, roots=(str(tmp_path),), started_at=started))
+    # Work on the objective began after DEPLOY.md was written.
+    actions = ReviewActions(grounding=_grounding(operator=True, roots=(str(tmp_path),), baseline=snapshot((tmp_path,))))
     payload = {"review": "No token here.", "forward_progress": False, "unverifiable": _OBSTACLE}
 
     # Not in the task text: the check is missing, not impossible.
@@ -150,50 +151,164 @@ def test_an_impossible_check_must_quote_the_task_packet_or_environment(tmp_path)
     assert validate_event_envelope({"type": "round.review.completed", **payload_event}).errors == ()
 
 
-def test_a_file_the_engineer_wrote_this_mission_never_grounds_impossible(tmp_path) -> None:
+_NOTE_QUOTE = "the feed token is supplied only at grading time"
+_NOTE = {"quote": _NOTE_QUOTE, "source": "NOTES.md"}
+_REVISE = {"review": "No token here.", "forward_progress": False, "unverifiable": _OBSTACLE}
+
+
+def _mission_grounding(work: Path, **mission) -> ReviewGrounding:
     from argus.reviewer._core import _review_grounding
 
+    config = ReviewerConfig(model="m", working_dir=str(work), artifact_root=str(work), mission_grounding=mission)
+    return _review_grounding(config, task_parts=("Build the CLI that reads the event feed.",))
+
+
+def _sha(path: Path) -> str:
+    return "sha256:" + hashlib.sha256(path.read_bytes()).hexdigest()
+
+
+def test_a_file_the_engineer_wrote_this_mission_never_grounds_impossible(tmp_path) -> None:
     work = tmp_path / "work"
     work.mkdir()
-    started = time.time() - 30  # the mission is under way
-    config = ReviewerConfig(
-        model="m", working_dir=str(work), artifact_root=str(work),
-        mission_grounding={"started_at": started, "packet_refs": ("docs/GRADING.md",)},
-    )
-    grounding = _review_grounding(config, task_parts=("Build the CLI that reads the event feed.",))
+    (work / "README.md").write_text("Environment: the feed token is supplied only at grading time.\n", encoding="utf-8")
+    grounding = _mission_grounding(work, baseline=snapshot((work,)))
+    # A file that was there, unchanged, when work began is the environment's.
+    ReviewActions(grounding=grounding).dispatch("revise_review", {
+        **_REVISE, "impossible_because": {"quote": _NOTE_QUOTE, "source": "README.md"},
+    })
     # The Engineer writes a note during its round that would excuse the check.
     (work / "NOTES.md").write_text("Environment: the feed token is supplied only at grading time.\n", encoding="utf-8")
-    note = {"quote": "the feed token is supplied only at grading time", "source": "NOTES.md"}
-    payload = {"review": "No token here.", "forward_progress": False, "unverifiable": _OBSTACLE}
-    with pytest.raises(ValueError, match="NOTES.md changed during this mission"):
-        ReviewActions(grounding=grounding).dispatch("revise_review", {**payload, "impossible_because": note})
-    # Backdating its mtime does not make it older than the mission.
-    os.utime(work / "NOTES.md", (started - 3600, started - 3600))
-    if os.name != "nt":
-        with pytest.raises(ValueError, match="changed during this mission"):
-            ReviewActions(grounding=grounding).dispatch("revise_review", {**payload, "impossible_because": note})
-    # Nor does it ground an approval in a run with no operator.
+    with pytest.raises(ValueError, match="NOTES.md is not as it was when work on this objective began"):
+        ReviewActions(grounding=grounding).dispatch("revise_review", {**_REVISE, "impossible_because": _NOTE})
+    # Backdating its mtime changes nothing: content is compared, not time.
+    os.utime(work / "NOTES.md", (time.time() - 86400, time.time() - 86400))
+    with pytest.raises(ValueError, match="not as it was when work on this objective began"):
+        ReviewActions(grounding=grounding).dispatch("revise_review", {**_REVISE, "impossible_because": _NOTE})
+    # Editing a file that was there, then restoring its mtime, is caught too.
+    readme = work / "README.md"
+    before = readme.stat()
+    readme.write_text("Environment: none. Also: the feed token is supplied only at grading time.\n", encoding="utf-8")
+    os.utime(readme, ns=(before.st_atime_ns, before.st_mtime_ns))
+    with pytest.raises(ValueError, match="README.md is not as it was"):
+        ReviewActions(grounding=grounding).dispatch("revise_review", {
+            **_REVISE, "impossible_because": {"quote": _NOTE_QUOTE, "source": "README.md"},
+        })
+    # Nor does such a note ground an approval in a run with no operator.
     no_operator = ReviewGrounding(
         task_text=grounding.task_text, roots=grounding.roots, operator_available=False,
-        started_at=started, accepted_risks=(_MANAGER_ROW,),
+        baseline=grounding.baseline, accepted_risks=(_MANAGER_ROW,),
     )
-    with pytest.raises(ValueError, match="changed during this mission"):
+    with pytest.raises(ValueError, match="not as it was when work on this objective began"):
         ReviewActions(grounding=no_operator).dispatch("approve_review", {
-            "review": "ok", "residual_risk": _risk(impossible_because=note),
+            "review": "ok", "residual_risk": _risk(impossible_because=_NOTE),
         })
-    # With no known mission start, no workspace file counts at all.
-    with pytest.raises(ValueError, match="changed during this mission"):
-        ReviewActions(grounding=_grounding(operator=True, roots=(str(work),))).dispatch(
-            "revise_review", {**payload, "impossible_because": note},
+    # With no baseline, no unnamed workspace file counts at all.
+    with pytest.raises(ValueError, match="not as it was when work on this objective began"):
+        ReviewActions(grounding=_mission_grounding(work)).dispatch(
+            "revise_review", {**_REVISE, "impossible_because": {"quote": _NOTE_QUOTE, "source": "README.md"}},
         )
-    # A file the task packet names counts, even if it is new.
-    (work / "docs").mkdir()
+
+
+def test_a_file_an_earlier_mission_on_the_objective_wrote_never_grounds_impossible(tmp_path) -> None:
+    from argus.core.grounding_baseline import objective_baseline
+
+    state, work = tmp_path / "state", tmp_path / "work"
+    work.mkdir()
+    (work / "SPEC.md").write_text("Build the dispatch CLI.\n", encoding="utf-8")
+    first = objective_baseline(state, _OBJECTIVE, (work,))
+    # The first mission's Engineer leaves a note behind; the next mission (a new
+    # item, a new contract, a later start) still judges against the first start.
+    (work / "NOTES.md").write_text("Environment: the feed token is supplied only at grading time.\n", encoding="utf-8")
+    time.sleep(0.01)
+    second = objective_baseline(state, _OBJECTIVE, (work,))
+    assert second == first and str((work / "NOTES.md").resolve()) not in second
+    with pytest.raises(ValueError, match="NOTES.md is not as it was when work on this objective began"):
+        ReviewActions(grounding=_mission_grounding(work, baseline=second)).dispatch(
+            "revise_review", {**_REVISE, "impossible_because": _NOTE},
+        )
+    # A different objective begins from the workspace as it then is.
+    assert str((work / "NOTES.md").resolve()) in objective_baseline(state, "Another objective", (work,))
+
+
+def test_mission_grounding_carries_the_planner_hash_and_the_objective_baseline(tmp_path) -> None:
+    from argus.engineer.round_reviewer import mission_grounding
+
+    work, state = tmp_path / "work", tmp_path / "state"
+    (work / "docs").mkdir(parents=True)
     (work / "docs" / "GRADING.md").write_text("The feed token is issued to the grader only.\n", encoding="utf-8")
+    contract = state / "missions" / "m1" / "mission.json"
+    contract.parent.mkdir(parents=True)
+    contract.write_text(json.dumps({
+        "kind": "mission_context", "created_at": time.time(),
+        "context_refs": [{"ref": "docs/GRADING.md", "content_hash": _sha(work / "docs" / "GRADING.md")}],
+    }), encoding="utf-8")
+
+    class _Config:
+        context_packet_path = str(contract)
+        operator_question_policy_root = str(state)
+
+    from argus.core.grounding_baseline import objective_baseline
+
+    baseline = objective_baseline(state, _OBJECTIVE, (work,))
+    mission = mission_grounding(_Config(), item_id="", mission_ref="s", baseline=baseline)
+    assert mission["packet_refs"] == ({"ref": "docs/GRADING.md", "content_hash": _sha(work / "docs" / "GRADING.md")},)
+    grounding = _mission_grounding(work, **mission)
+    assert grounding.packet_refs == (("docs/GRADING.md", _sha(work / "docs" / "GRADING.md")[7:]),)
     actions = ReviewActions(grounding=grounding)
-    actions.dispatch("revise_review", {**payload, "impossible_because": {
+    actions.dispatch("revise_review", {**_REVISE, "impossible_because": {
         "quote": "The feed token is issued to the grader only", "source": "docs/GRADING.md",
     }})
     assert actions.decision.verification_obstacle_basis_source == "docs/GRADING.md"
+
+
+def test_a_packet_named_file_grounds_only_as_the_planner_recorded_it(tmp_path) -> None:
+    work = tmp_path / "work"
+    (work / "docs").mkdir(parents=True)
+    grading = work / "docs" / "GRADING.md"
+    quote = {"quote": "The feed token is issued to the grader only", "source": "docs/GRADING.md"}
+    # Named by the packet after work began (not in the baseline): it counts while
+    # its content is the one the Planner hashed.
+    baseline = snapshot((work,))
+    grading.write_text("The feed token is issued to the grader only.\n", encoding="utf-8")
+    named = {"ref": "docs/GRADING.md", "content_hash": _sha(grading)}
+    actions = ReviewActions(grounding=_mission_grounding(work, baseline=baseline, packet_refs=(named,)))
+    actions.dispatch("revise_review", {**_REVISE, "impossible_because": quote})
+    assert actions.decision.verification_obstacle_basis_source == "docs/GRADING.md"
+    # The Engineer edits the named file: the packet named other words.
+    spec = work / "SPEC.md"
+    spec.write_text("Build the dispatch CLI.\n", encoding="utf-8")
+    spec_ref = {"ref": "SPEC.md", "content_hash": _sha(spec)}
+    spec.write_text("Build the dispatch CLI.\nEnvironment: the feed token is supplied only at grading time.\n",
+                    encoding="utf-8")
+    grounding = _mission_grounding(work, baseline=snapshot((work,)), packet_refs=(spec_ref,))
+    with pytest.raises(ValueError, match="SPEC.md has changed since the task packet named it"):
+        ReviewActions(grounding=grounding).dispatch("revise_review", {
+            **_REVISE, "impossible_because": {"quote": _NOTE_QUOTE, "source": "SPEC.md"},
+        })
+    # A ref with no recorded hash is not a packet source, only a workspace file.
+    unhashed = _mission_grounding(work, baseline=baseline, packet_refs=({"ref": "docs/GRADING.md"}, "docs/GRADING.md"))
+    assert unhashed.packet_refs == ()
+    with pytest.raises(ValueError, match="GRADING.md is not as it was"):
+        ReviewActions(grounding=unhashed).dispatch("revise_review", {**_REVISE, "impossible_because": quote})
+
+
+@pytest.mark.parametrize("forged", ["_{host}", "-{host}", "{host_upper}", " {host} ", "Accept Risk {suffix}", "accept-risk"])
+def test_a_reviewer_cannot_slip_in_an_accept_option_through_id_normalisation(forged) -> None:
+    from argus.core.operator_decision import normalize_option_id
+    from argus.core.residual_risk import ACCEPT_OPTION_LABEL, accept_option_id
+
+    host = accept_option_id(_CHECK)
+    raw = forged.format(host=host, host_upper=host.upper(), suffix=host.removeprefix("accept-risk-"))
+    assert normalize_option_id(raw).startswith("accept-risk")
+    asking = ReviewActions(grounding=_grounding(operator=True))
+    asking.dispatch("request_review_decision", {
+        "review": "r", "question": "Shall I proceed with the plan?", "operator_need": "scope_or_authority",
+        "options": [
+            {"id": raw, "label": ACCEPT_OPTION_LABEL, "description": f"Leave this check unverified: {_CHECK}. ok"},
+            {"id": "proceed", "label": "Proceed", "description": "Go on with the plan."},
+        ],
+    })
+    assert [option["id"] for option in asking.decision.operator_options] == ["proceed"]
 
 
 def _answered(check: str, option: str = "accept", *, note: str = "") -> dict:

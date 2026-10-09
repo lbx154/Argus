@@ -203,12 +203,14 @@ def operator_risk_decisions(root: Path | None, item_id: str) -> list[dict[str, A
 
 
 def mission_grounding(
-    supervised_config: Any, *, item_id: str, mission_ref: str, started_at: float | None,
+    supervised_config: Any, *, item_id: str, mission_ref: str, baseline: dict[str, str] | None,
 ) -> dict[str, Any]:
     """What this mission's Reviewer quotes and acceptances are checked against.
 
-    ``started_at``: files changed since then (this mission's own writes) are
-    never a source; ``packet_refs``: files the task packet names, which are;
+    ``baseline``: the workspace's content hashes when the first mission on this
+    objective began; a file that no longer matches (or was not there) is never
+    a source. ``packet_refs``: files the task packet names, each with the hash
+    the Planner recorded, which are sources while they still match it.
     ``accepted_risks``: the Manager's acceptances in force for this item;
     ``operator_decisions``: the operator's resolved decision cards for it.
     """
@@ -217,7 +219,8 @@ def mission_grounding(
 
     contract = mission_contract(supervised_config)
     refs = tuple(
-        str(ref.get("ref") or "").strip() for ref in contract.get("context_refs") or []
+        {"ref": str(ref.get("ref") or "").strip(), "content_hash": str(ref.get("content_hash") or "")}
+        for ref in contract.get("context_refs") or []
         if isinstance(ref, dict) and str(ref.get("ref") or "").strip()
     )
     root = stall_root(supervised_config)
@@ -226,17 +229,17 @@ def mission_grounding(
     except Exception:  # noqa: BLE001 - an unreadable record accepts nothing
         accepted = []
     return {
-        "started_at": started_at, "packet_refs": refs, "accepted_risks": tuple(accepted),
+        "baseline": baseline, "packet_refs": refs, "accepted_risks": tuple(accepted),
         "operator_decisions": tuple(operator_risk_decisions(root, item_id)),
     }
 
 
 def _mission_grounding(supervised_config: Any, state: RoundLoopState) -> dict[str, Any] | None:
-    """This mission's start, packet files and recorded acceptances, for the Reviewer's tools."""
+    """The objective's workspace baseline, packet files and recorded acceptances, for the Reviewer's tools."""
     try:
         return mission_grounding(
             supervised_config, item_id=state.mission_item_id, mission_ref=state.mission_ref,
-            started_at=state.mission_started_at,
+            baseline=state.grounding_baseline,
         )
     except Exception:  # noqa: BLE001 - without it, only the task text grounds and nothing is accepted
         log.debug("reviewer mission grounding unavailable", exc_info=True)

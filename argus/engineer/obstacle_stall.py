@@ -101,15 +101,6 @@ def mission_contract(supervised_config: Any) -> dict[str, Any]:
     return {}
 
 
-def mission_started_at(supervised_config: Any) -> float | None:
-    """When this mission's contract was first written, if the packet says."""
-    try:
-        started = float(mission_contract(supervised_config).get("created_at") or 0)
-    except (TypeError, ValueError):
-        return None
-    return started if started > 0 else None
-
-
 def _words(text: str) -> set[str]:
     return {word for word in _WORD.findall(str(text or "").lower()) if len(word) > 2 and word not in _STOP}
 
@@ -238,6 +229,6 @@ def carried_obstacle_hint(streak: int, obstacle: str, threshold: int) -> str:
 
 __all__ = [
     "FILENAME", "MAX_CARRY_AGE_SECONDS", "carried_obstacle_hint", "clear_obstacle_stall",
-    "load_obstacle_stall", "mission_contract", "mission_item_id", "mission_started_at",
+    "load_obstacle_stall", "mission_contract", "mission_item_id",
     "record_obstacle_stall", "same_obstacle", "stall_root",
 ]

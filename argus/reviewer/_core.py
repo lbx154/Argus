@@ -651,8 +651,9 @@ class ReviewerConfig:
     # host holds a record a read-only Reviewer can weigh.
     engineer_records_commands: bool = False
     # Host-gathered for a mission's Reviewer (``round_reviewer.mission_grounding``):
-    # when the mission began, the files its packet names, and the acceptances
-    # recorded for its item. What "impossible here" and an acceptance must match.
+    # the workspace's content hashes when work on the objective began, the files
+    # its packet names with their recorded hashes, and the acceptances recorded
+    # for its item. What "impossible here" and an acceptance must match.
     mission_grounding: dict[str, Any] | None = field(default=None, repr=False, compare=False)
 
 
@@ -696,7 +697,8 @@ def _review_grounding(config: Any, *, task_parts: tuple[str, ...]) -> Any:
     """What the Reviewer's "impossible here" quotes and acceptances must match.
 
     The task as given (never the Engineer's account); the workspace for a
-    quoted environment file that predates the mission or that the packet names;
+    quoted environment file still as it was when work on the objective began,
+    or still as the Planner recorded it when the packet named it;
     and the acceptances recorded for this item: the Manager's, and the
     operator's choices on decision cards. Nothing the Reviewer was merely shown
     as text (OperatorContext included) is read as an acceptance.
@@ -710,14 +712,25 @@ def _review_grounding(config: Any, *, task_parts: tuple[str, ...]) -> Any:
             getattr(config, "vertical_state_root", None),
         ) if root
     ))
+    from ..core.grounding_baseline import normalize_sha256
+
     mission = getattr(config, "mission_grounding", None) or {}
-    started = mission.get("started_at")
+    baseline = mission.get("baseline")
     return ReviewGrounding(
         task_text="\n".join(str(part or "") for part in task_parts),
         roots=roots,
         operator_available=operator_available(),
-        started_at=float(started) if started else None,
-        packet_refs=tuple(str(ref) for ref in mission.get("packet_refs") or ()),
+        baseline=(
+            {str(path): str(digest) for path, digest in baseline.items()}
+            if isinstance(baseline, dict) else None
+        ),
+        # A ref without a recorded hash is not a packet source; it counts only
+        # as an unchanged workspace file.
+        packet_refs=tuple(
+            (str(ref.get("ref") or ""), normalize_sha256(ref.get("content_hash")))
+            for ref in mission.get("packet_refs") or ()
+            if isinstance(ref, dict) and normalize_sha256(ref.get("content_hash"))
+        ),
         accepted_risks=tuple(dict(row) for row in mission.get("accepted_risks") or () if isinstance(row, dict)),
         operator_decisions=tuple(
             dict(card) for card in mission.get("operator_decisions") or () if isinstance(card, dict)

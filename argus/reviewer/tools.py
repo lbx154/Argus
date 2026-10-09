@@ -9,13 +9,13 @@ from dataclasses import dataclass, replace
 from functools import lru_cache
 from pathlib import Path
 from tempfile import TemporaryDirectory
-from typing import Any, Iterator
+from typing import Any, Iterator, Mapping
 
 from jsonschema import ValidationError, validate
 
 from ..core.model_visible_text import FIXTURE_EVIDENCE_RULE
 from ..core.models import ReviewDecision, ReviewStatus, RunnerOptions
-from ..core.operator_decision import normalize_agent_options
+from ..core.operator_decision import normalize_agent_options, normalize_option_id
 from ..core.research_contract import RESULT_FIELD_CHOICES, normalize_research_result
 from ..core.role_tool_bridge import CallBoundBridge, bridge_request
 from ..core.venue_review import ACCEPTED_RECOMMENDATIONS, RECOMMENDATIONS
@@ -85,11 +85,14 @@ class ReviewGrounding:
 
     ``task_text`` is the task as the Reviewer was given it (objective, scope,
     packet context). ``roots`` are the directories a quoted file may come from,
-    and a file there counts only if the task packet names it
-    (``packet_refs``) or it has not changed since the mission began
-    (``started_at``); with no start time, no file counts. So nothing an
-    Engineer wrote during this mission is a source: a statement that a check
-    is impossible must come from the task, its packet or the environment.
+    and a file there counts only if its sha256 now is the one the Planner
+    recorded when the task packet named it (``packet_refs``: path and hash),
+    or the one it had when the first mission on this objective began
+    (``baseline``: resolved path to hash); with no baseline, no unnamed file
+    counts. Content, not timestamps, which can be set. So nothing an Engineer
+    wrote or edited, in this mission or an earlier one on the objective, is a
+    source: a statement that a check is impossible must come from the task,
+    its packet or the environment.
 
     ``accepted_risks`` are the Manager's acceptances in force for this item and
     ``operator_decisions`` the operator's resolved decision cards for it. An
@@ -99,8 +102,8 @@ class ReviewGrounding:
     task_text: str = ""
     roots: tuple[str, ...] = ()
     operator_available: bool = True
-    started_at: float | None = None
-    packet_refs: tuple[str, ...] = ()
+    baseline: Mapping[str, str] | None = None
+    packet_refs: tuple[tuple[str, str], ...] = ()
     accepted_risks: tuple[dict[str, Any], ...] = ()
     operator_decisions: tuple[dict[str, Any], ...] = ()
 
@@ -114,26 +117,39 @@ def _folded(text: str) -> str:
     return " ".join(str(text or "").translate(_QUOTE_FOLD).casefold().split())
 
 
-def _changed_at(path: Path) -> float:
-    """The latest a file was written or (re)created; a backdated mtime does not hide a new file."""
-    info = path.stat()
-    times = [info.st_mtime, float(getattr(info, "st_birthtime", 0.0) or 0.0)]
-    if os.name != "nt":
-        # Inode change time: moves when the content or the mtime is set.
-        times.append(info.st_ctime)
-    return max(times)
-
-
-def _packet_names(candidate: Path, grounding: ReviewGrounding, base: Path) -> bool:
-    for ref in grounding.packet_refs:
+def _packet_hash(candidate: Path, grounding: ReviewGrounding, base: Path) -> str:
+    """The sha256 the Planner recorded when the task packet named ``candidate``, or ""."""
+    for ref, digest in grounding.packet_refs:
         try:
             named = Path(ref).expanduser()
             named = (named if named.is_absolute() else base / named).resolve()
         except (OSError, RuntimeError, ValueError):
             continue
-        if named == candidate:
-            return True
-    return False
+        if named == candidate and digest:
+            return digest
+    return ""
+
+
+def _not_original(candidate: Path, source: str, grounding: ReviewGrounding, base: Path) -> str:
+    """Why ``candidate`` is not the task's or environment's own file, or "" when it is."""
+    from ..core.grounding_baseline import file_sha256
+
+    try:
+        current = file_sha256(candidate)
+    except OSError:
+        return f"{source} cannot be read"
+    recorded = _packet_hash(candidate, grounding, base)
+    if recorded:
+        return "" if current == recorded else (
+            f"{source} has changed since the task packet named it, so the words there "
+            "are this objective's own work, not the packet's"
+        )
+    if grounding.baseline is not None and grounding.baseline.get(str(candidate)) == current:
+        return ""
+    return (
+        f"{source} is not as it was when work on this objective began and the task "
+        "packet does not name it, so it is this objective's own work, not the environment"
+    )
 
 
 def _quote_found(quote: str, source: str, grounding: ReviewGrounding) -> str:
@@ -154,16 +170,9 @@ def _quote_found(quote: str, source: str, grounding: ReviewGrounding) -> str:
             continue
         if not candidate.is_relative_to(base) or not candidate.is_file():
             continue
-        if not _packet_names(candidate, grounding, base):
-            try:
-                written_here = grounding.started_at is None or _changed_at(candidate) >= grounding.started_at
-            except OSError:
-                written_here = True
-            if written_here:
-                return (
-                    f"{source} changed during this mission and the task packet does not name it, "
-                    "so it is this mission's own work, not the environment"
-                )
+        problem = _not_original(candidate, source, grounding, base)
+        if problem:
+            return problem
         try:
             with candidate.open("rb") as handle:
                 text = handle.read(_MAX_SOURCE_BYTES).decode("utf-8", "replace")
@@ -182,8 +191,8 @@ def _basis_field() -> dict[str, Any]:
             "Required when you call a check impossible here because what it needs "
             "exists only at grading or deploy time: the task, packet or environment "
             "statement that says so, quoted verbatim, and its source ('task', or a "
-            "workspace file the packet names or that predates this mission; never one "
-            "written during it). The host checks the quote. Without such a statement "
+            "workspace file the packet names or unchanged since work on this objective "
+            "began; never one written or edited since). The host checks the quote. Without such a statement "
             "the check is missing, not impossible."
         ),
         "properties": {
@@ -426,8 +435,10 @@ class ReviewActions:
         status = _ACTIONS[action][0]
         options = [
             option for option in payload.get("options", [])
-            # Only the host offers an acceptance choice, bound to its check.
-            if not str(option.get("id") or "").casefold().startswith("accept-risk")
+            # Only the host offers an acceptance choice, bound to its check. Judged
+            # on the id the card will carry, so "_accept-risk-…" or "Accept Risk …"
+            # cannot pass here and become the host's id after normalisation.
+            if not normalize_option_id(option.get("id")).startswith("accept-risk")
         ]
         if isinstance(payload.get("accept_risk"), dict):
             from ..core.residual_risk import acceptance_options
