@@ -17,7 +17,7 @@ def test_admin_pi_configuration_preserves_state_and_never_embeds_provider_secret
         "ARGUS_SKILL_MANAGER_BACKEND": "copilot",
         "ARGUS_SKILL_MANAGER_RUNNER_BIN": "/obsolete/copilot",
         "ARGUS_SKILL_MANAGER_MODEL": "old-model",
-        "ARGUS_SKILL_GLOBAL_DAILY_CAP_USD": "0",
+        "ARGUS_SKILL_WIKI": "0",
     })
     project = root / "projects" / "existing"
     project.mkdir(parents=True)
@@ -40,7 +40,7 @@ def test_admin_pi_configuration_preserves_state_and_never_embeds_provider_secret
             assert persisted[f"ARGUS_SKILL_{role}_BACKEND"] == "pi"
             assert persisted[f"ARGUS_SKILL_{role}_RUNNER_BIN"] == str(binary)
         assert persisted["ARGUS_SKILL_MANAGER_MODEL"] == "gpt-5.5"
-        assert persisted["ARGUS_SKILL_GLOBAL_DAILY_CAP_USD"] == "0"
+        assert persisted["ARGUS_SKILL_WIKI"] == "0"
         config_text = (root / "argus-pi-admin" / "models.json").read_text()
         provider = json.loads(config_text)["providers"]["argus"]
         assert provider["api"] == "openai-responses"

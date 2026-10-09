@@ -1292,9 +1292,7 @@ def test_copilot_reconcile_settles_a_pending_interrupted_turn_from_its_receipt(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    """Rows written before this rule existed are settled by reconciliation, and
-    the settlement no longer holds admission under the block policy."""
-    from argus.core.cost_control import _unresolved_costs
+    """Rows written before this rule existed are settled by reconciliation."""
     from argus.core.pricing import copilot_usd_per_premium_request
     from argus.core.usage import INTERRUPTED_REQUEST_TIER
 
@@ -1333,14 +1331,12 @@ def test_copilot_reconcile_settles_a_pending_interrupted_turn_from_its_receipt(
     )
     pending = ledger.records()[0]
     assert pending.pricing_status == "partial"
-    assert _unresolved_costs([pending], []), "the old row blocks admission"
 
     assert ledger.ensure_copilot_usage_reconciled() == 1
     settled = ledger.records()[0]
     assert settled.pricing_status == "priced"
     assert settled.pricing_tier == INTERRUPTED_REQUEST_TIER
     assert settled.cost_usd == pytest.approx(copilot_usd_per_premium_request())
-    assert _unresolved_costs([settled], []) == []
     assert ledger.ensure_copilot_usage_reconciled() == 0
 
     # If the CLI does record the session later, the exact charge replaces the

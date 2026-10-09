@@ -2,7 +2,6 @@ import json
 import os
 import shutil
 import subprocess
-from contextlib import nullcontext
 from pathlib import Path
 from types import SimpleNamespace
 
@@ -19,32 +18,17 @@ from argus.core.usage import UsageLedger
 
 
 @pytest.mark.parametrize("role", ["manager", "planner", "engineer", "reviewer"])
-def test_actual_role_gateway_exposes_native_advisor_with_independent_budget_and_receipt(tmp_path, monkeypatch, role, platform_process_env):
+def test_actual_role_gateway_exposes_native_advisor_with_independent_usage_and_receipt(tmp_path, monkeypatch, role, platform_process_env):
     """Real parent/child backend orchestration; only provider execution is fake."""
     from argus.adapters.agent_cli_backend._exec_finalize import finalize_result
-    from argus.core import cost_control
 
     workspace, state, global_root = tmp_path / "workspace", tmp_path / "state", tmp_path / "global"
     workspace.mkdir()
     (workspace / "evidence.txt").write_text("One test passed; the failure path is untested.")
     save_advisor_config(state, {"enabled": True, "backend": "pi", "model": "independent/expert"})
     monkeypatch.setenv("ARGUS_SKILL_MODEL", "main/worker")
-    monkeypatch.setenv("ARGUS_SKILL_COST_CONTROL", "on")
-    admitted, settled, observed, environments = [], [], [], []
+    observed, environments = [], []
 
-    class Reservation:
-        reservation_id = "test-reservation"
-        amount_usd = 0.01
-
-        def settle(self, record):
-            settled.append(record.call_id)
-
-    def reserve(**kwargs):
-        admitted.append(kwargs)
-        return Reservation(), ""
-
-    monkeypatch.setattr(cost_control, "reserve_call_budget", reserve)
-    monkeypatch.setattr(_exec, "monitor_budget", lambda *_args: nullcontext())
     monkeypatch.setattr(runtime, "AdvisorService", lambda context, config: AdvisorService(
         context, config=config, backend_factory=lambda *_args: AgentCliBackend(backend="pi", runner_bin="unused-fake-pi"),
         redact=lambda text: text,
@@ -104,10 +88,8 @@ process.stdout.write(JSON.stringify(result.details));
     assert result.exit_code == 0
     assert original.trusted_tool_names is None and original.extension_env is None
     assert len(observed) == 2 and observed[0][2] != observed[1][2]
-    assert [item["model"] for item in admitted] == ["main/worker", "independent/expert"]
-    assert all(item["mission_id"] == "mission-owned" and item["global_root"] == global_root for item in admitted)
     records = UsageLedger(state, migrate_legacy=False).records()
-    assert len(records) == 2 and len(settled) == 2
+    assert len(records) == 2
     assert all(row.mission_id == "mission-owned" for row in records)
     receipts = recent_receipts(state)
     assert len(receipts) == 1 and receipts[0]["call_id"] in {row.call_id for row in records}

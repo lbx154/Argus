@@ -14,7 +14,7 @@ import type { ActiveWorkbenchPageProps } from '../research-workbench/pages/pageT
 const snap: Snapshot = {
   session: { id: 's-A', display_name: 'Synthetic A', objective: '', last_active: 1,
     cwd: '/loaded/legacy-cwd', workdir: 'D:\\Synthetic\\研究\\session-A' },
-  daemon: { alive: false, pid: null, uptime_seconds: null, backend: 'memory', global_daily_cap_usd: null },
+  daemon: { alive: false, pid: null, uptime_seconds: null, backend: 'memory'},
   roles: [], backlog: [], recent_events: [],
 };
 const props: ActiveWorkbenchPageProps = {

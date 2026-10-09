@@ -19,7 +19,7 @@ from typing import Any, Callable, Iterable
 
 from ..core.daemon_lock import WINDOWS_DAEMON_LOCK_OFFSET, is_pid_running
 from ..core.usage import format_usage_cost
-from ..life.supervisor import LifeBudget, global_daily_spend, global_daily_usage_summary
+from ..life.supervisor import global_daily_usage_summary
 
 # Stopping the process is not ending the campaign. Both reasons below mean an
 # operator halted this daemon -- to drain it, or to restart it onto new code --
@@ -43,7 +43,6 @@ except ImportError:  # pragma: no cover - POSIX
     msvcrt = None  # type: ignore[assignment]
 
 log = logging.getLogger(__name__)
-_GLOBAL_DAILY_SPEND_IMPL = global_daily_spend
 _TEST_ALLOW_MEMORY_CONTINUOUS_ENV = "ARGUS_SKILL_DAEMON_TEST_ALLOW_MEMORY_CONTINUOUS"
 _DRAIN_REQUEST_FILE = "daemon.drain-request.json"
 _STOP_REQUEST_FILE = "daemon.stop-request.json"
@@ -797,7 +796,6 @@ def _daemon_status_payload(config: Any, *, started_at_iso: str) -> dict[str, Any
             if getattr(config, "project_workdir", None) is not None
             else ""
         ),
-        "global_daily_cap_usd": config.global_daily_cap_usd,
         "mission_width": int(getattr(config, "mission_width", 1)),
         **daemon_protocol_metadata(),
     }
@@ -813,7 +811,6 @@ class DaemonStatus:
     project_workdir: str = ""
     backend: str | None = None
     life_backend: str | None = None
-    global_daily_cap_usd: float | None = None
     mission_width: int | None = None
     protocol_name: str = ""
     protocol_major: int | None = None
@@ -827,35 +824,6 @@ class DaemonStatus:
     last_progress_at: float | None = None
     last_progress_event: str = ""
     seconds_since_progress: float | None = None
-
-
-def _daemon_budget_from_project(
-    project_state_dir: Path | str | None,
-    global_root: Path | str | None = None,
-) -> LifeBudget:
-    from ..core.knobs import resolve_budget_caps
-
-    budget = resolve_budget_caps(
-        project_state_dir=project_state_dir,
-        global_root=global_root,
-    )
-
-    return LifeBudget(
-        global_daily_cap_usd=budget.global_daily_cap_usd,
-    )
-
-
-def resolve_effective_budget(status: Any | None = None) -> LifeBudget:
-    """Return the live budget caps for operator surfaces.
-
-    The sidecar records launch-time settings. Both the supervisor and call
-    gateway now reload operator settings, so a live daemon's old sidecar must
-    not make a removed cap appear active on the status surface.
-    """
-    return _daemon_budget_from_project(
-        getattr(status, "life_dir", None),
-        _status_global_root(status),
-    )
 
 
 def _status_global_root(status: Any | None) -> Path | None:
@@ -872,35 +840,13 @@ def _status_global_root(status: Any | None) -> Path | None:
     return parent.parent
 
 
-def format_budget_status(
-    journal: Any,
-    *,
-    status: Any | None = None,
-    global_spend_fn: Any = None,
-) -> str:
-    budget = resolve_effective_budget(status)
-    global_root = _status_global_root(status)
-    spend_fn = global_spend_fn or global_daily_spend
-    if spend_fn is _GLOBAL_DAILY_SPEND_IMPL:
-        global_usage = global_daily_usage_summary(
-            global_root=global_root,
-            now=time.time(),
-        )
-        global_spend = global_usage.known_cost_usd
-        global_cost_text = format_usage_cost(global_usage)
-    else:
-        global_spend = spend_fn(global_root=global_root, now=time.time())
-        global_cost_text = f"${global_spend:.2f}"
-    if budget.global_daily_cap_usd <= 0:
-        return f"budget   : global daily disabled (spent {global_cost_text})"
-    remaining = max(0.0, budget.global_daily_cap_usd - global_spend)
-    tail = " (paused)" if remaining <= 0 else ""
-    return (
-        "budget   : "
-        f"global daily ${budget.global_daily_cap_usd:.2f} "
-        f"(spent {global_cost_text}) · "
-        f"remaining ${remaining:.2f}{tail}"
+def format_spend_status(*, status: Any | None = None) -> str:
+    """One status line with today's known spend across every project on the host."""
+    usage = global_daily_usage_summary(
+        global_root=_status_global_root(status),
+        now=time.time(),
     )
+    return f"spend    : today {format_usage_cost(usage)} across all projects"
 
 
 def read_daemon_status(life_dir: Path | None = None) -> DaemonStatus:
@@ -937,7 +883,6 @@ def read_daemon_status(life_dir: Path | None = None) -> DaemonStatus:
     backend: str | None = None
     life_backend: str | None = None
     project_workdir = ""
-    global_daily_cap_usd: float | None = None
     mission_width: int | None = None
     protocol_name = ""
     protocol_major: int | None = None
@@ -959,9 +904,6 @@ def read_daemon_status(life_dir: Path | None = None) -> DaemonStatus:
             backend = data.get("backend")
             life_backend = data.get("life_backend")
             project_workdir = str(data.get("project_workdir") or "")
-            raw_global_daily = data.get("global_daily_cap_usd")
-            if raw_global_daily is not None:
-                global_daily_cap_usd = float(raw_global_daily)
             raw_mission_width = data.get("mission_width")
             if raw_mission_width is not None:
                 mission_width = int(raw_mission_width)
@@ -999,7 +941,6 @@ def read_daemon_status(life_dir: Path | None = None) -> DaemonStatus:
         project_workdir=project_workdir,
         backend=backend,
         life_backend=life_backend,
-        global_daily_cap_usd=global_daily_cap_usd,
         mission_width=mission_width,
         protocol_name=protocol_name,
         protocol_major=protocol_major,
@@ -1692,10 +1633,10 @@ __all__ = [
     "ContinuousConfigState", "ContinuousConfigWriteAfterReplaceError",
     "DaemonStatus", "DaemonStopRequest",
     "clear_daemon_control_stop",
-    "continuous_mode_error", "format_budget_status",
+    "continuous_mode_error", "format_spend_status",
     "read_daemon_control_stop",
     "read_continuous_config", "read_continuous_state",
-    "read_daemon_status", "resolve_effective_budget",
+    "read_daemon_status",
     "request_daemon_control_stop", "request_daemon_stop",
     "stop_daemon", "wait_for_daemon_status",
     "write_continuous_config",

@@ -528,11 +528,7 @@ def _apply_config_intent(
         confirmations: list[str] = []
         manager_backend: str | None = None
         quota_knobs = {
-            "global_daily_cap": "ARGUS_SKILL_GLOBAL_DAILY_CAP_USD",
             "max_daemons": "ARGUS_SKILL_MAX_ACTIVE_DAEMONS",
-            "codex_daily_requests": "ARGUS_SKILL_CODEX_DAILY_CALL_CAP",
-            "copilot_daily_requests": "ARGUS_SKILL_COPILOT_DAILY_CALL_CAP",
-            "copilot_daily_premium": "ARGUS_SKILL_COPILOT_DAILY_PREMIUM_CAP",
         }
         toggle_knobs = {
             "safe_mode": "ARGUS_SKILL_SAFE_MODE",
@@ -684,13 +680,9 @@ def _apply_config_intent(
         _invalidate_manager_runner(chat_state)
         return True
 
-    # The host-global cap and provider quotas share the knob_store write path.
+    # Host capacity limits share the knob_store write path.
     quota_knobs = {
-        "global_daily_cap": "ARGUS_SKILL_GLOBAL_DAILY_CAP_USD",
         "max_daemons": "ARGUS_SKILL_MAX_ACTIVE_DAEMONS",
-        "codex_daily_requests": "ARGUS_SKILL_CODEX_DAILY_CALL_CAP",
-        "copilot_daily_requests": "ARGUS_SKILL_COPILOT_DAILY_CALL_CAP",
-        "copilot_daily_premium": "ARGUS_SKILL_COPILOT_DAILY_PREMIUM_CAP",
     }
     if knob in quota_knobs:
         m = re.search(r"\d+(?:\.\d+)?", intent.value)

@@ -202,15 +202,7 @@ function OperationsPanel({
       <Row k="backend" v={snap.daemon.backend_label || snap.daemon.backend || '—'} />
       {!veryCompact ? <Row k="protocol" v={`${snap.daemon.protocol?.name || '—'}/${snap.daemon.protocol?.major ?? '—'}.${snap.daemon.protocol?.minor ?? '—'}`} /> : null}
       {!compact ? <Text> </Text> : null}
-      <CostGauge
-        settledUsd={snap.global_spend_usd}
-        spendStatus={snap.global_spend_status}
-        usageSummary={snap.global_usage_summary}
-        daemon={snap.daemon}
-        requestUsage={snap.request_usage}
-        costControl={snap.cost_control}
-        width={width}
-      />
+      <CostGauge usage={snap.usage_summary} globalUsage={snap.global_usage_summary} width={width} />
       {!compact ? <Text> </Text> : null}
       <Text dimColor>roles</Text>
       {visibleRoles.map((role) => (
@@ -290,12 +282,6 @@ function StatusPanel({ s, resources }: { s: StatusView; resources: ResourceStatu
       <Row k="continuous" v={s.continuous.enabled ? `on · ${s.continuous.objective}` : 'off'} />
       <Row k="inbox" v={`${s.inbox_pending} pending`} />
       <Row k="backlog" v={`${s.backlog_pending.length} pending`} />
-      {s.request_usage ? (
-        <Row
-          k="requests"
-          v={`Codex ${s.request_usage.codex.daily_calls}/${s.request_usage.codex.daily_cap || '∞'} · Copilot ${s.request_usage.copilot.daily_calls}/${s.request_usage.copilot.daily_cap || '∞'}`}
-        />
-      ) : null}
       {s.pending_questions.length > 0 ? (
         <Row k="questions" v={`${s.pending_questions.length} awaiting you`} c={theme.warning} />
       ) : null}

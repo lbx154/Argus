@@ -1002,7 +1002,6 @@ def test_tick_distills_at_bounded_interval(tmp_path: Path) -> None:
 
 def test_twelve_candidate_tasks_do_not_spawn_twelve_workers_by_default(tmp_path, monkeypatch):
     monkeypatch.delenv("ARGUS_TEAM_MAX_TOTAL_IN_FLIGHT", raising=False)
-    monkeypatch.delenv("ARGUS_SKILL_COPILOT_MAX_CONCURRENCY", raising=False)
     root = tmp_path / "team"
     registry.write_marker(tmp_path, team_id="portfolio", team_root=root, cwd=tmp_path, now=1.0)
     pool.update(root, width=12, state="running")

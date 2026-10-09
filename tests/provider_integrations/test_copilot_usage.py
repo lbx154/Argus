@@ -436,7 +436,6 @@ def test_modern_missing_usage_is_pending_and_reconciles_late_wal_write(
     monkeypatch.setenv("HOME", str(tmp_path / "operator"))
     root = tmp_path / "argus"
     monkeypatch.setenv("ARGUS_SKILL_HOME", str(root))
-    monkeypatch.setenv("ARGUS_SKILL_COPILOT_GUARD", "0")
     # Reproduce the actual two-store layout, with no COPILOT_HOME in the parent.
     _db(tmp_path / "operator" / ".copilot")
     home = root / "copilot-home"
@@ -552,7 +551,6 @@ def test_legacy_premium_only_cli_without_token_store_still_settles(
             "(id INTEGER PRIMARY KEY, session_id TEXT, premium_requests REAL)"
         )
     monkeypatch.setenv("COPILOT_HOME", str(home))
-    monkeypatch.setenv("ARGUS_SKILL_COPILOT_GUARD", "0")
     backend = AgentCliBackend(backend="copilot")
     project = tmp_path / "project"
     backend.set_usage_context(project_root=project, mission_id=None)

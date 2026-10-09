@@ -335,7 +335,7 @@ export function OperationsModal({
           ) : null}
           {metrics ? (
             <RawDisclosure>
-              <pre className="mt-1 max-h-48 overflow-auto whitespace-pre-wrap rounded bg-bg p-3 font-mono text-[10px] text-ink-dim scroll-thin">{JSON.stringify({ web: metrics.web, provider: metrics.provider, cost_control: metrics.cost_control }, null, 2)}</pre>
+              <pre className="mt-1 max-h-48 overflow-auto whitespace-pre-wrap rounded bg-bg p-3 font-mono text-[10px] text-ink-dim scroll-thin">{JSON.stringify({ web: metrics.web, provider: metrics.provider }, null, 2)}</pre>
             </RawDisclosure>
           ) : null}
         </section> : null}

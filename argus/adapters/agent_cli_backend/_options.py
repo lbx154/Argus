@@ -85,11 +85,9 @@ def resolve_pricing_model(
     The bug this fixes: a codex call that does not pin a model — e.g. every
     ``Manager`` classify call, which builds ``RunnerOptions(...)`` with no
     ``model=`` — gets no ``model`` echoed back in the codex response, so the
-    usage record used to be written with an empty model.  An empty model is
-    ``unpriced``, and one unresolved ``unpriced`` call trips ``cost_control``'s
-    block guard, freezing every subsequent provider call on the whole root.
+    usage record used to be written with an empty model and stayed ``unpriced``.
     Falling back to the configured/canonical model prices the call truthfully
-    (it IS the model codex used) instead of silently wedging the gate.
+    (it IS the model codex used).
     """
     resp = str(response_model or "").strip()
     if resp:

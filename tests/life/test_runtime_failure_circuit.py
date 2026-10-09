@@ -178,7 +178,7 @@ def test_open_runtime_circuit_holds_pending_mission_without_calling_runner(
         runner=_Runner(),
         sink=_Sink(),
         config=LifeSupervisorConfig(
-            budget=LifeBudget(global_daily_cap_usd=100.0, max_missions=2),
+            budget=LifeBudget(max_missions=2),
         ),
     )
 
@@ -220,7 +220,7 @@ def test_planning_preflight_short_circuits_before_planner_model_call(
         planner_runner=_PlannerMustNotRun(),
         sink=_Sink(),
         config=LifeSupervisorConfig(
-            budget=LifeBudget(global_daily_cap_usd=100.0, max_missions=2),
+            budget=LifeBudget(max_missions=2),
             continuous=True,
             continuous_objective="finish safely",
         ),
@@ -255,7 +255,7 @@ def test_supervisor_run_stops_cleanly_instead_of_spinning_on_open_circuit(
         runner=_Runner(),
         sink=_Sink(),
         config=LifeSupervisorConfig(
-            budget=LifeBudget(global_daily_cap_usd=100.0, max_missions=2),
+            budget=LifeBudget(max_missions=2),
         ),
     ).run()
 
@@ -302,7 +302,7 @@ def test_reviewed_canary_item_bypasses_and_closes_open_circuit(
         runner=_CanaryRunner(),
         sink=_Sink(),
         config=LifeSupervisorConfig(
-            budget=LifeBudget(global_daily_cap_usd=100.0, max_missions=2),
+            budget=LifeBudget(max_missions=2),
         ),
     )
 
@@ -340,7 +340,7 @@ def test_uncaught_mission_exception_opens_circuit_before_second_dispatch(
         runner=_CrashRunner(),
         sink=_Sink(),
         config=LifeSupervisorConfig(
-            budget=LifeBudget(global_daily_cap_usd=100.0, max_missions=3),
+            budget=LifeBudget(max_missions=3),
         ),
     )
 

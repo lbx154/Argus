@@ -53,7 +53,7 @@ test('shared spend ignores lifecycle totals and prefers the server ledger', () =
 test('shared mission state reports a completed campaign even when its daemon is alive', () => {
   const view = deriveMissionView({
     session: { id: 's', display_name: '', objective: '', last_active: 0, cwd: '' },
-    daemon: { alive: true, pid: 1, uptime_seconds: 1, backend: 'x', global_daily_cap_usd: 0 },
+    daemon: { alive: true, pid: 1, uptime_seconds: 1, backend: 'x'},
     roles: [],
     backlog: [],
     recent_events: [],
@@ -66,7 +66,7 @@ test('shared mission state reports a completed campaign even when its daemon is 
 test('a fresh session with a lazy daemon is ready, not offline', () => {
   const view = deriveMissionView({
     session: { id: 's-fresh', display_name: '', objective: '', last_active: 0, cwd: '' },
-    daemon: { alive: false, pid: null, uptime_seconds: null, backend: null, global_daily_cap_usd: null },
+    daemon: { alive: false, pid: null, uptime_seconds: null, backend: null},
     roles: [],
     backlog: [],
     recent_events: [],
@@ -79,7 +79,7 @@ test('a fresh session with a lazy daemon is ready, not offline', () => {
 test('armed or queued work without an executor is not reported as working', () => {
   const snapshot = {
     session: { id: 's', display_name: '', objective: '', last_active: 0, cwd: '' },
-    daemon: { alive: false, pid: null, uptime_seconds: null, backend: null, global_daily_cap_usd: null },
+    daemon: { alive: false, pid: null, uptime_seconds: null, backend: null},
     roles: [],
     recent_events: [],
     backlog: [],
@@ -93,7 +93,7 @@ test('armed or queued work without an executor is not reported as working', () =
 test('pending backlog is shown as queued instead of ready', () => {
   const snapshot = {
     session: { id: 's', display_name: '', objective: '', last_active: 0, cwd: '' },
-    daemon: { alive: false, pid: null, uptime_seconds: null, backend: null, global_daily_cap_usd: null },
+    daemon: { alive: false, pid: null, uptime_seconds: null, backend: null},
     roles: [],
     recent_events: [],
     backlog: [{

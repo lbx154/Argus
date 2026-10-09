@@ -35,20 +35,17 @@ describe('metricsFigures', () => {
     expect(metricsFigures({
       provider: { completed: 40, errors: 2, denied: 0, success_rate: 0.95, p95_duration_ms: 8200 },
       web: { requests: 900, errors_5xx: 0 },
-      cost_control: { active_reservations: 1, in_flight_cost_usd: 0.42 },
     })).toEqual([
       { key: 'calls', value: '42' },
       { key: 'failed', value: '2' },
       { key: 'slowest', value: '8.2s' },
-      { key: 'inFlight', value: '$0.42' },
     ]);
   });
 
-  it('falls back to reservations when no cost is known, and to nothing without metrics', () => {
-    expect(metricsFigures({ provider: { completed: 0, errors: 0 }, cost_control: { active_reservations: 3 } })).toEqual([
+  it('skips the slow-call figure without a p95, and renders nothing without metrics', () => {
+    expect(metricsFigures({ provider: { completed: 0, errors: 0 } })).toEqual([
       { key: 'calls', value: '0' },
       { key: 'failed', value: '0' },
-      { key: 'reservations', value: '3' },
     ]);
     expect(metricsFigures(null)).toEqual([]);
   });

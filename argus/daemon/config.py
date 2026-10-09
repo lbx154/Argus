@@ -66,7 +66,6 @@ class LifeWorkerConfig:
     reviewer_model: str = "gpt-6.1-sol"
     engineer_reasoning_effort: str = "xhigh"
     reviewer_reasoning_effort: str = "high"
-    global_daily_cap_usd: float = 0.0
     # An integer, or "auto": a ceiling of up to four workers bounded by the
     # usable cores, resolved when the config is built; the ready DAG and the
     # resource ledger decide how many of them run at once.
@@ -128,7 +127,6 @@ def config_payload(config: LifeWorkerConfig) -> dict[str, Any]:
         "reviewer_model": config.reviewer_model,
         "engineer_reasoning_effort": config.engineer_reasoning_effort,
         "reviewer_reasoning_effort": config.reviewer_reasoning_effort,
-        "global_daily_cap_usd": config.global_daily_cap_usd,
         "mission_width": config.mission_width,
         "planner_task_iteration_max_cycles": config.planner_task_iteration_max_cycles,
         "subagent_family_failure_streak_limit": config.subagent_family_failure_streak_limit,
@@ -199,7 +197,6 @@ def config_from_payload(data: dict[str, Any]) -> LifeWorkerConfig:
         reviewer_reasoning_effort=str(
             data.get("reviewer_reasoning_effort") or "high"
         ),
-        global_daily_cap_usd=_number("global_daily_cap_usd", 30.0),
         mission_width=int(data.get("mission_width", 2)),
         planner_task_iteration_max_cycles=int(
             data.get("planner_task_iteration_max_cycles", 0) or 0

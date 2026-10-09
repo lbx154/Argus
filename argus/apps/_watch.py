@@ -29,13 +29,11 @@ from types import SimpleNamespace
 from typing import Any, Sequence
 
 from ..core.usage import format_usage_cost
-from ..daemon.life_worker import read_continuous_state, read_daemon_status, resolve_effective_budget
+from ..daemon.life_worker import read_continuous_state, read_daemon_status
 from ..life.memory import Backlog
 from ..life.status import describe_continuous_state, select_current_running_item
-from ..life.supervisor import global_daily_spend, global_daily_usage_summary
+from ..life.supervisor import global_daily_usage_summary
 from ._inbox import count_pending_inbox_messages, format_inbox_event
-
-_GLOBAL_DAILY_SPEND_IMPL = global_daily_spend
 
 
 def _path_signature(path: Path) -> tuple[int, int, int, int] | None:
@@ -193,14 +191,13 @@ class _PathTail:
 
 
 @dataclass
-class _BudgetLineCache:
-    """Cache the rendered budget line until its inputs change."""
+class _SpendLineCache:
+    """Cache the rendered spend line until its inputs change."""
 
     signature: tuple[Any, ...] | None = None
     line: str = ""
 
     def render(self, *, journal_path: Path, journal: Any, status: Any) -> str:
-        budget = resolve_effective_budget(status)
         global_root = None
         life_dir = getattr(status, "life_dir", None)
         try:
@@ -208,37 +205,16 @@ class _BudgetLineCache:
                 global_root = Path(life_dir).expanduser().parent.parent
         except TypeError:
             global_root = None
-        global_status = "priced"
-        global_calls = 0
-        if global_daily_spend is _GLOBAL_DAILY_SPEND_IMPL:
-            global_usage = global_daily_usage_summary(global_root=global_root)
-            global_spend = global_usage.known_cost_usd
-            global_cost_text = format_usage_cost(global_usage)
-            global_status = global_usage.pricing_status
-            global_calls = global_usage.call_count
-        else:
-            global_spend = global_daily_spend(global_root=global_root)
-            global_cost_text = f"${global_spend:.2f}"
+        usage = global_daily_usage_summary(global_root=global_root)
         signature = (
             _path_signature(journal_path),
-            budget.global_daily_cap_usd,
-            global_spend,
-            global_status,
-            global_calls,
+            usage.known_cost_usd,
+            usage.pricing_status,
+            usage.call_count,
         )
         if signature != self.signature:
             self.signature = signature
-            if budget.global_daily_cap_usd <= 0:
-                self.line = f"budget   : global daily disabled (spent {global_cost_text})"
-                return self.line
-            remaining = max(0.0, budget.global_daily_cap_usd - global_spend)
-            tail = " (paused)" if remaining <= 0 else ""
-            self.line = (
-                "budget   : "
-                f"global {global_cost_text}/"
-                f"${budget.global_daily_cap_usd:.2f} · "
-                f"remaining ${remaining:.2f}{tail}"
-            )
+            self.line = f"spend    : today {format_usage_cost(usage)} across all projects"
         return self.line
 
 
@@ -249,7 +225,7 @@ class _JournalTailCache:
     ``EventJournal.tail()`` re-derives its entries by re-scanning the whole
     ``events.jsonl`` history on every call (no internal caching) — cheap for a
     fresh project, but ~0.5s on a multi-hour mission's multi-MB event log.
-    Gating on ``_path_signature`` (mirrors ``_BudgetLineCache``) means a busy
+    Gating on ``_path_signature`` (mirrors ``_SpendLineCache``) means a busy
     refresh loop only re-scans when the file actually grew, not on every tick.
     """
 
@@ -368,7 +344,7 @@ def run_watch(life: Any, *, refresh_hz: float = 2.0) -> int:
         from ..life.memory import EventJournal
 
         journal = EventJournal(journal_path)
-    budget_cache = _BudgetLineCache()
+    spend_cache = _SpendLineCache()
     journal_cache = _JournalTailCache()
     plain_console = None if sys.stdout.isatty() else Console(force_terminal=False, color_system=None)
 
@@ -471,13 +447,13 @@ def run_watch(life: Any, *, refresh_hz: float = 2.0) -> int:
         pid = st.pid if st.alive and st.pid is not None else "-"
         backend = st.backend if st.alive and st.backend else "-"
         inbox_pending = count_pending_inbox_messages(project_root)
-        budget_line = budget_cache.render(journal_path=journal_path, journal=journal, status=st)
+        spend_line = spend_cache.render(journal_path=journal_path, journal=journal, status=st)
         header = Text.from_markup(
             f"[bold]argus watch[/bold]  [cyan]global[/cyan]={global_root}\n"
             f"[cyan]project[/cyan]={project_root}  "
             f"[cyan]daemon[/cyan]={'[green]alive[/green]' if alive else '[red]down[/red]'}  "
             f"pid={pid}  backend={backend}\n"
-            f"{budget_line}\n"
+            f"{spend_line}\n"
             f"[cyan]inbox[/cyan]={inbox_pending} pending  [dim](Ctrl-C to exit)[/dim]"
         )
         layout["header"].update(header)

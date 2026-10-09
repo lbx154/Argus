@@ -33,7 +33,7 @@ export function inputs(taskId = 'a') {
   view.mission = { ...view.mission, id: task.id, title: task.title, objective: task.objective, status: 'working', started_at: task.started_ts ?? 2 };
   const snapshot: Snapshot = {
     session: { id: 's-research', display_name: 'Study', objective: 'Understand the original problem', last_active: 1, cwd: '/workspace' },
-    daemon: { alive: true, pid: 1, uptime_seconds: 1, backend: 'test', global_daily_cap_usd: null },
+    daemon: { alive: true, pid: 1, uptime_seconds: 1, backend: 'test' },
     backlog: [{ id: task.id, title: task.title, objective: task.objective, status: task.status, started_ts: task.started_ts, priority: 100 }], roles: [], recent_events: [],
   };
   return { sid: 's-research', snapshot, view, active: true, locale: 'en-US' };

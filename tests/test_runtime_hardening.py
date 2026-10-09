@@ -21,12 +21,11 @@ def test_capability_vault_keys_are_known_secrets(redact_secrets_on, tmp_path: Pa
     assert key not in redact_secrets_text(f"api_key={key}", known_values=values)
 
 
-def test_azure_image_calls_are_metered_and_capped(
+def test_azure_image_calls_are_metered(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     ledger = tmp_path / "image_usage.jsonl"
     monkeypatch.setenv("ARGUS_SKILL_IMAGE_USAGE_LEDGER", str(ledger))
-    monkeypatch.setenv("ARGUS_SKILL_IMAGE_DAILY_CALL_CAP", "2")
     route = ModelApiRoute(
         name="image",
         api_key="secret-key-value",
@@ -38,8 +37,6 @@ def test_azure_image_calls_are_metered_and_capped(
     payload = {"prompt": "draw a system", "model": "gpt-image-2"}
     image_api._reserve_image_call(route, payload, attempt_index=0)
     image_api._reserve_image_call(route, payload, attempt_index=1)
-    with pytest.raises(image_api.ImageToolError, match="daily image API call cap"):
-        image_api._reserve_image_call(route, payload, attempt_index=2)
     rows = [json.loads(line) for line in ledger.read_text().splitlines()]
     assert len(rows) == 2
     assert all("prompt" not in row and "api_key" not in row for row in rows)

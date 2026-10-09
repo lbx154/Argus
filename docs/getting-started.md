@@ -257,7 +257,7 @@ still shows those flags). About two hours in, `argus --status` reported:
 ```
   project  : .../projects/s-02d3c282
   daemon   : alive (pid 1430124, up 1h 48m, backend live — see /roles, width 1)
-  budget   : global daily $1000.00 (spent $30.71) · remaining $969.29
+  spend    : today $30.71 across all projects
   active   : 0 pending · 1 running · 0 paused
   current  :
     title    : 重绘正式数据图并完成论文稿
@@ -299,7 +299,7 @@ objective asks for a short paper and an internal review, ran with
 
 | Command | What it does |
 |---|---|
-| `argus --status` | one screen: daemon, budget, current task, stage, last events |
+| `argus --status` | one screen: daemon, spend, current task, stage, last events |
 | `argus --follow` | stream the event log to the terminal (`tail -f` style, Ctrl-C to stop) |
 | `argus --watch` | the read-only live cockpit |
 | `argus --notify "text"` | queue guidance for the next Engineer round (`--notify-stage STAGE` holds it until that stage) |
@@ -398,12 +398,11 @@ BF16 125.00, FP32 23.87 on average). The project's usage ledger shows $0.80 for
 the whole exchange, plus two early calls that were never priced (see below).
 
 That first message was actually sent twice. The first attempt (also 06:57:51Z)
-came back as `[not dispatched] Manager could not classify this message
-(refused before start: unresolved provider cost ...)`: on a fresh Copilot
-install the first call's price was not yet known, and that release refused to
-spend money it could not price. A call like that is no longer refused; it
-counts toward the daily cap at the day's costliest priced call until it
-settles, see [controlling spend](best-practices.md#controlling-spend).
+came back as `[not dispatched] Manager could not classify this message ...`:
+on a fresh Copilot install the first call's price was not yet known, and that
+release refused to spend money it could not price. Nothing is refused for that reason any more:
+such a call is recorded as unpriced and shown as such, see
+[controlling spend](best-practices.md#controlling-spend).
 
 ### The endpoints behind the UI
 
@@ -476,8 +475,7 @@ campaign's `paper/` and `results/`), and the per-call record of what it cost is
 in `~/.argus-skill/projects/<id>/usage.jsonl`.
 
 If instead the status shows a task `paused`, read the question with
-`argus --status` or in the cockpit and answer it with `argus --answer`; if it
-shows `paused_cost`, see [controlling spend](best-practices.md#controlling-spend).
+`argus --status` or in the cockpit and answer it with `argus --answer`.
 
 ## Where things live
 

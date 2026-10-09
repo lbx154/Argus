@@ -664,7 +664,7 @@ class LifeWorkerRunMixin:
         # instead, and the operator gets a traceback whose top frame has nothing
         # to do with the actual fault. Refusing here is also the point: booting
         # anyway would silently revert every persisted switch at once (the
-        # backend of every role, the model of every route, the budget cap).
+        # backend of every role, the model of every route).
         from ..core.knob_store import KnobStoreCorruptError, read_persisted_knobs
         from ..core.runtime_identity import (
             release_match_preflight_error,
@@ -1027,8 +1027,8 @@ class LifeWorkerRunMixin:
 
         The sleep is chunked into ``poll_interval`` slices so a stop request or
         newly queued operator guidance interrupts a long backoff promptly.
-        Ready work wakes provider-fence waits only: budget preflight can leave
-        pending missions that must still observe their budget backoff.
+        Ready work wakes provider-fence waits only; other pauses keep their
+        backoff.
         """
         if total_seconds <= 0:
             return
@@ -1096,5 +1096,5 @@ class LifeWorkerRunMixin:
                 self._last_inbox_wake_observation = durable_now
                 return
             if _config_version() != config_baseline:
-                return  # a budget increase/removal must wake paused work
+                return  # an operator config change must wake paused work
             remaining -= chunk

@@ -1,8 +1,8 @@
 # TypeScript runtime migration
 
 Argus is moving its general-purpose runtime to TypeScript in independently
-verified steps. The Python daemon remains the production owner of task state,
-budgets and stage transitions during the staged migration.
+verified steps. The Python daemon remains the production owner of task state
+and stage transitions during the staged migration.
 
 ## Available now
 
@@ -38,12 +38,8 @@ budgets and stage transitions during the staged migration.
   in TypeScript. They preserve pricing completeness, cached/reasoning counts,
   premium-request metadata and Copilot model-event deduplication across calls.
   The Node cost endpoint uses this fold directly.
-- `BudgetedPiBackend` adds an opt-in execution path with Python-owned budget
-  admission, live observations and durable settlement. A locked pending receipt
-  protects calls whose Node caller or budget process disappears before settlement.
-- Budgeted Pi calls now use an OS process guard. Its private lease belongs to the
-  server execution owner, independently of Web/TUI/SSH clients. Native tests cover
-  detached-owner survival and cleanup after owner, guard or budget-process death.
+- `PiBackend` can run under an OS process guard whose private lease belongs to
+  the server execution owner, independently of Web/TUI/SSH clients.
 - Pi native schema transport, explicit plugin bindings and observed provider-turn
   allowances are available in TypeScript. Python loads a checked-in JavaScript
   extension generated from the same TypeScript schema implementation.
@@ -193,8 +189,8 @@ for await (const event of runner.run({
 ```
 
 `PiBackend` invokes the configured provider directly. It is a transport library,
-not a replacement `argus` command or a budgeted mission runner. It does not reserve or
-settle costs, write Argus backlog files, or decide whether a mission is complete.
+not a replacement `argus` command or a mission runner. It does not write Argus
+ledgers or backlog files, or decide whether a mission is complete.
 Its `turnCompleted` field describes only the provider invocation. Tool policy
 selects Pi's tool allowlist; it is not an operating-system sandbox.
 
@@ -216,7 +212,7 @@ full mission orchestration.
 `outputSchema` accepts a JSON Schema object when `toolPolicy` is `disabled`.
 The runtime sends it through a private child environment value and loads the
 built-in schema extension explicitly. It never puts the schema in process
-arguments, budget RPCs or the parent environment. Calls without a schema remove
+arguments or the parent environment. Calls without a schema remove
 ambient `ARGUS_PI_OUTPUT_SCHEMA` values. The extension consumes and removes that
 value before provider dispatch.
 
@@ -229,9 +225,9 @@ the returned application data.
 
 Schemas must contain finite, acyclic JSON values, at most 64 KiB of encoded JSON,
 64 nesting levels and 65,536 values. Operating-system environment limits also
-apply. Invalid schemas or incompatible tool policies fail before budget
-admission. Each call snapshots its schema and plugin bindings before waiting
-for asynchronous admission, so another caller cannot mutate queued settings.
+apply. Invalid schemas or incompatible tool policies fail before the
+provider is launched. Each call snapshots its schema and plugin bindings first,
+so another caller cannot mutate queued settings.
 
 Tool-enabled calls may supply `trustedExtensions` as existing absolute file
 paths. `trustedToolNames` adds explicitly named plugin tools to the `read-only`
@@ -256,8 +252,7 @@ This is an observed context-rotation boundary, not a provider-side hard quota.
 In-flight work and buffered output may exceed the threshold. The library does
 not choose role-specific allowances, write a checkpoint, declare the mission
 complete or automatically submit a continuation. The daemon/orchestrator owns
-those decisions. A budgeted interrupted call conservatively retains partial
-cost and an unresolved liability until reconciled.
+those decisions.
 
 Without a configured guardian, on POSIX the adapter owns and terminates an isolated process group, including
 descendants with redirected or inherited pipes. On Windows it uses `taskkill /T`
@@ -265,87 +260,18 @@ while the root process is alive. Full Windows Job Object ownership after the
 root has exited remains a prerequisite for replacing the production runner;
 the POSIX orphan tests are explicitly skipped on Windows. A nonzero exit,
 missing `agent_settled`, provider error or transport stop cannot produce a
-successful TS receipt. Standalone callers can opt into the same OS guard used
-by `BudgetedPiBackend` with `guardian: { executable: '/path/to/python',
-sourceRoot: '/path/to/Argus' }` in `PiBackend` options.
+successful TS receipt. Callers can opt into an OS process guard with
+`guardian: { executable: '/path/to/python', sourceRoot: '/path/to/Argus' }` in
+`PiBackend` options.
 
-## Budgeted Pi preview
+## Process guard
 
-`BudgetedPiBackend` wraps the existing TS transport with one local Python budget
-session per call. Select an existing project state directory and a Python
-installation with Argus dependencies; both runtimes must come from this checkout:
-
-```ts
-import { BudgetedPiBackend } from '@argus/runtime';
-
-const backend = new BudgetedPiBackend({
-  python: {
-    executable: '/path/to/venv/bin/python',
-    sourceRoot: '/path/to/Argus',
-    globalRoot: '/path/to/argus-state',
-  },
-  pi: { executable: '/path/to/pi' },
-});
-for await (const event of backend.run({
-  projectId: 'existing-project-id',
-  cwd: '/path/to/workspace',
-  model: 'gpt-5.6-sol', provider: 'openai',
-  prompt: 'Reply with one short greeting.', toolPolicy: 'disabled',
-  wallTimeoutMs: 30_000, idleTimeoutMs: 15_000,
-})) {
-  if (event.type === 'result') console.log(event.result);
-}
-```
-
-This invokes the real configured provider and writes real usage. Tests use an
-offline subprocess fixture and isolated temporary projects. The production
-daemon, full HTTP API and ordinary `PiBackend` entrypoint are unchanged.
-
-The budget owner resolves the existing global USD/token caps, cache weighting
-and unresolved-cost policy. The bridge has no request field for changing those
-policies. It receives project/model identifiers and normalized accounting, never
-the provider prompt, tool arguments or output text. Only a validated existing
-direct child of the selected root's `projects` directory can be used.
-
-Before Pi starts, Python reserves the call and fsyncs a pending marker in
-`cost-control.failed`. It holds that marker's advisory OS lock while the call is
-active. Current admission readers skip locked markers because the reservation
-already accounts for live spend. A lost process releases the lock, so subsequent
-Python or TS admissions see an unresolved liability, including when the call had
-not yet emitted usage. Older Python installations do not understand active
-markers and may conservatively block new calls while this preview runs; use the
-same checkout for cooperating owners.
-
-Node checks observed usage after each provider message and polls shared budget
-state every second. Observations are persisted before their budget check; local
-day rollover counts only new observation deltas. The event pump runs independently
-of the caller reading its output, with a 4 MiB/1024-event queue. Slow consumers
-cannot pause budget checks; exceeding the queue limit cancels the invocation.
-Each budget RPC has a 30-second default deadline and 64 KiB line limit. A dead,
-incompatible or unresponsive budget owner aborts the running TS transport.
-
-On completion, Python writes one idempotent call record before retiring the
-pending marker. The `typescript_pi` cost basis preserves TS per-turn pricing and
-prevents Python from repricing a conversation total as a single long-context
-request. A failed/cancelled invocation or missing usage retains a partial cost
-and an unresolved marker. Existing reconciliation/operator acknowledgement flows
-handle unknown costs; this preview does not invent a zero-dollar settlement.
-An unstarted reservation can be released without a usage row.
-
-The final event contains `callId`, `admitted`, `runner`, `settlement` and `reason`.
-`runner` is null when no transport receipt exists. `settlement` distinguishes
-`not_started`, `settled`, `unresolved` and `failed`; transport completion alone is
-not proof that accounting settled. Closing the iterator cancels the provider and
-waits for cleanup. If acknowledgement is lost after a ledger write, the caller
-reports failure and the call ID permits inspection of the durable record.
-
-Observed-cost limits can overshoot while a provider turn is in flight; they are
-not provider-side spending caps. Budgeted calls now always use an independent
-process guard through the configured Python interpreter. On POSIX it anchors a
-private process group and terminates its members when the execution owner dies;
-Node also reclaims that group if the guard itself fails. On Windows the guard
-reuses the existing suspended-spawn, Job assignment and kill-on-close ownership.
-Ordinary children remain owned after their immediate parent exits.
+With `guardian` configured, Pi runs under an independent process guard started
+through the configured Python interpreter. On POSIX it anchors a private process
+group and terminates its members when the execution owner dies; Node also
+reclaims that group if the guard itself fails. On Windows the guard reuses the
+existing suspended-spawn, Job assignment and kill-on-close ownership. Ordinary
+children remain owned after their immediate parent exits.
 
 This guard observes a private runtime pipe, not the operator's terminal or a
 client connection. Closing Web/TUI/SSH leaves a detached daemon and its work
@@ -372,14 +298,8 @@ loop has been validated in this migration step.
 
 ```sh
 npm run check
-python -m pytest tests/core/test_budget_bridge.py \
-  tests/core/test_typescript_budgeted_pi.py tests/core/test_typescript_process_ownership.py \
-  tests/core/test_accounting_integrity.py
+python -m pytest tests/core/test_process_guard.py tests/core/test_accounting_integrity.py
 ```
-
-CI exercises the real Python owner and offline Pi chain on Linux, macOS and
-Windows, including killed-owner liability markers, native process trees,
-detached-client survival and interrupted ledger writes.
 
 For the optional native CLI integration check, explicitly select a compatible
 Argus Pi executable. It uses temporary agent configuration and localhost
@@ -415,7 +335,7 @@ contains only observed provider totals and may cover fewer turns than `pricing`.
 Missing turn usage, unknown prices, cancellation and unsuccessful settlement
 leave a partial/unpriced quote and preserve any known cost. These observations
 are estimates, not durable settlements or permission to spend. The production
-Python accounting path and budget policy remain unchanged.
+Python accounting path remains unchanged.
 
 Node counts and their sums must fit nonnegative safe integers. Out-of-range
 counts or overflowing cost sums raise `UsageAccountingError` in the standalone
@@ -457,7 +377,7 @@ python -m pytest tests/core/test_typescript_usage_summary.py \
 | Backlog live/archive/commit files | Python `LifeMemory` | Read through the Python query bridge |
 | Event journal and mission projections | Python event sink | Read through Python; no TS writes |
 | Continuous configuration and daemon controls | Python daemon | Snapshot reads through Python; no commands |
-| Budget reservations, usage and settlement | Python cost-control layer | Node project-cost fold and Pi quotes; opt-in budgeted calls use the Python owner for reservations, observations and settlement |
+| Usage ledger (`usage.jsonl`) | Python daemon | Node project-cost fold and Pi quotes; no TS writes |
 | Pipeline stages, Manager session and verdict outbox | Python orchestration | No access |
 | Explicit standalone Pi session directory | The invoked Pi process | Caller controls access |
 

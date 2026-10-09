@@ -7,7 +7,7 @@ import ResearchBrief from '../research-brief/ResearchBrief';
 
 const snapshot: Snapshot = {
   session: { id: 's', display_name: 'Old campaign', objective: 'Old campaign', created: 1, last_active: 0, cwd: '' },
-  daemon: { alive: false, pid: 0, uptime_seconds: 0, backend: 'x', global_daily_cap_usd: 3 },
+  daemon: { alive: false, pid: 0, uptime_seconds: 0, backend: 'x'},
   roles: [], backlog: [], recent_events: [],
 };
 const objective = '现在只比较相同批量下的两组延迟。';

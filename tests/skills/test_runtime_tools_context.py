@@ -2,7 +2,6 @@ import json
 import os
 import shutil
 import subprocess
-from contextlib import nullcontext
 from pathlib import Path
 from types import SimpleNamespace
 
@@ -60,10 +59,7 @@ def test_context_preserves_tools_and_memory_switch(tmp_path, monkeypatch, label,
 def test_normal_backend_pi_tools_publish_then_reuse_without_a_second_agent(tmp_path, monkeypatch, platform_process_env):
     """Real backend admission/context + native tool handlers + workers; fake only the model."""
     from argus.adapters.agent_cli_backend._exec_finalize import finalize_result
-
-    monkeypatch.setenv('ARGUS_SKILL_COST_CONTROL', 'off')
     monkeypatch.setenv('ARGUS_SKILL_REQUIRE_POST_TASK_LEARNING', '1')
-    monkeypatch.setattr(_exec, 'monitor_budget', lambda *_args: nullcontext())
     state, workspace = tmp_path / 'state', tmp_path / 'workspace'
     workspace.mkdir()
     observed_calls = []

@@ -95,7 +95,7 @@ def test_config_snapshot_reports_persisted_values_and_sources() -> None:
     from argus.core.knob_store import write_persisted_knob
 
     write_persisted_knob("ARGUS_SKILL_MODEL", "claude-sonnet-5")
-    write_persisted_knob("ARGUS_SKILL_GLOBAL_DAILY_CAP_USD", "75")
+    write_persisted_knob("ARGUS_SKILL_MAX_ACTIVE_DAEMONS", "75")
 
     snapshot = build_config_snapshot(
         env={},
@@ -105,12 +105,12 @@ def test_config_snapshot_reports_persisted_values_and_sources() -> None:
     engineer = next(r for r in snapshot["roles"] if r["role"] == "engineer")
     assert engineer["model"] == "claude-sonnet-5"
     assert engineer["model_source"] == "persisted:ARGUS_SKILL_MODEL"
-    daily_cap = next(
+    daemons = next(
         k for k in snapshot["operator_knobs"]
-        if k["name"] == "ARGUS_SKILL_GLOBAL_DAILY_CAP_USD"
+        if k["name"] == "ARGUS_SKILL_MAX_ACTIVE_DAEMONS"
     )
-    assert daily_cap["value"] == "75"
-    assert daily_cap["source"] == "persisted"
+    assert daemons["value"] == "75"
+    assert daemons["source"] == "persisted"
 
 
 def test_write_config_snapshot_json(tmp_path) -> None:

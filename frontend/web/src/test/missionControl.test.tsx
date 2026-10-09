@@ -10,7 +10,7 @@ import { AGENT_ROLES } from '../lib/agentRoles';
 function missionSnapshot(view: MissionView, status: string, alive = true): Snapshot {
   return {
     session: { id: 's-research', display_name: 'Research', objective: 'Complete the overall research goal', cwd: '/workspace', last_active: 100 },
-    daemon: { alive, pid: alive ? 1 : null, uptime_seconds: 20, backend: 'pi', global_daily_cap_usd: null },
+    daemon: { alive, pid: alive ? 1 : null, uptime_seconds: 20, backend: 'pi'},
     roles: [],
     backlog: [{ id: view.mission.id, title: view.mission.title, objective: view.mission.objective, status, priority: 1 }],
     recent_events: [],
@@ -39,7 +39,7 @@ describe('MissionControl', () => {
     const view = emptyMissionView();
     const snapshot: Snapshot = {
       session: { id: 'empty', display_name: 'Project', objective: 'Compare the two measured implementations.', cwd: '/workspace', last_active: 1 },
-      daemon: { alive: false, pid: null, uptime_seconds: null, backend: null, global_daily_cap_usd: null },
+      daemon: { alive: false, pid: null, uptime_seconds: null, backend: null},
       roles: [], backlog: [], recent_events: [],
     };
     const initial = renderToStaticMarkup(<MissionControl view={view} snapshot={snapshot} onAsk={() => {}} />);

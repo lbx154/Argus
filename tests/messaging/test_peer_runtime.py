@@ -2,7 +2,6 @@ import json
 import os
 import shutil
 import subprocess
-from contextlib import nullcontext
 from pathlib import Path
 from types import SimpleNamespace
 
@@ -25,7 +24,6 @@ def test_pi_manager_native_tool_reaches_durable_peer_queue_through_real_gateway(
     (root / "projects/project-b").mkdir()
     monkeypatch.setattr(_core, "known_secret_values", lambda *_args, **_kwargs: ())
     monkeypatch.setattr(secret_guard, "known_secret_values", lambda *_args, **_kwargs: ())
-    monkeypatch.setattr(_exec, "monitor_budget", lambda *_args: nullcontext())
     node = shutil.which("node")
     assert node
     environments, messages = [], []
