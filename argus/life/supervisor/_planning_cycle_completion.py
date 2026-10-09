@@ -246,6 +246,7 @@ class PlanningCycleCompletionMixin:
         """Separate historical stage decisions from current workspace evidence."""
         import hashlib
 
+        from ...core.autonomy import read_autonomous_assumptions
         from ...core.manuscript_snapshot import manuscript_review_status
         from ...core.pipeline_state import read_pipeline_state
         from ...core.stage_certificate import all_stage_reviews
@@ -254,8 +255,6 @@ class PlanningCycleCompletionMixin:
             _safe_existing_path,
             _vertical_primary_targets,
         )
-
-        from ...core.autonomy import read_autonomous_assumptions
 
         pipeline = read_pipeline_state(self._artifact_root())
         stages = pipeline.get("stages")

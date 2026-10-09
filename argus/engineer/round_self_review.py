@@ -100,7 +100,6 @@ class RoundSelfReviewMixin:
         handoff = _round_handoff(outcome)
         if handoff.waits_for_operator:
             from ..core.autonomy import assess_operator_intervention
-
             from .round_settlement import _operator_questions_allowed
 
             # The Engineer classified its own question; words in the question
