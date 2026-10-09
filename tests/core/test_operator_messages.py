@@ -185,7 +185,7 @@ def test_budget_refusal_reply_names_the_cost_policy_for_unsettled_copilot_calls(
     reply = budget_refusal_reply(reason, language_hint="帮我测一下 GPU")
     assert reply is not None
     assert "ARGUS_SKILL_UNPRICED_COST_POLICY" in reply
-    assert "allow" in reply
+    assert "estimate" in reply
     assert reason in reply
     assert "backend is unavailable" not in reply
     assert "argus doctor --deep" not in reply

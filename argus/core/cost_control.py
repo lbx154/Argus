@@ -3,8 +3,10 @@
 ``usage.jsonl`` remains the authoritative settled ledger. This module protects
 the global admission check and unresolved-price policy across concurrent
 daemons. Calls publish observed provider spend while running; they do not
-receive or consume a speculative fixed per-call USD hold. Explicit operator
-risk provisions for unknown settlements are accounted separately from usage.
+receive or consume a speculative fixed per-call USD hold. A call whose cost is
+not settled counts, by default, as the day's costliest priced call until it
+is; the ``block`` policy refuses new calls instead. Explicit operator risk
+provisions for unknown settlements are accounted separately from usage.
 """
 
 from __future__ import annotations
@@ -516,6 +518,48 @@ def _unresolved_observed_costs(
     }
 
 
+def _unpriced_estimate_usd(records: list[UsageRecord]) -> float:
+    """What one unsettled call counts as today: the day's costliest priced call.
+
+    A call whose price is not known yet ran like the others, so the dearest
+    settled call of the same day is the figure that can only err against the
+    campaign. Journal-repair estimates are themselves estimates and stay out.
+    """
+    unique = {record.call_id: record for record in records}.values()
+    return max(
+        (
+            float(record.cost_usd or 0.0) for record in unique
+            if record.status != "denied" and record.pricing_status == "priced"
+            and record.cost_usd is not None and record.pricing_tier != JOURNAL_REPAIR_TIER
+        ),
+        default=0.0,
+    )
+
+
+def _counted_unknown_costs(
+    records: list[UsageRecord], state: dict[str, Any],
+) -> dict[str, float]:
+    """What each unresolved call counts toward the cap beyond its known cost.
+
+    Under the estimate policy that is the day's costliest priced call, or the
+    call's observed in-flight spend when that is higher; a Copilot call on a
+    day without any priced call counts as one premium request. Under the
+    block policy only observed spend counts: the call is refused instead.
+    """
+    estimating = _unpriced_policy() == "estimate"
+    estimate = _unpriced_estimate_usd(records) if estimating else 0.0
+    known = {r.call_id: _known_cost([r]) for r in records}
+    counted: dict[str, float] = {}
+    for row in _unresolved_costs(records, list(state["unresolved"])):
+        call_id = str(row.get("call_id") or "")
+        floor = estimate
+        if estimating and not floor and str(row.get("provider") or "").strip().lower() == "copilot":
+            floor = copilot_usd_per_premium_request()
+        observed = float(row.get("observed_cost_usd") or 0)
+        counted[call_id] = max(0.0, max(observed, floor) - known.get(call_id, 0.0))
+    return counted
+
+
 def _pending_liabilities(
     records: list[UsageRecord], state: dict[str, Any],
 ) -> dict[str, float]:
@@ -546,10 +590,13 @@ def _cost_projection(
     A completed unknown call transfers its observation to unresolved state (v2),
     not to a fictitious live provider call. Before that transfer, partial usage
     may already be durable. Both stages count only the part absent from usage.
+    Returns the live reservations, the in-flight spend not yet covered by an
+    unresolved row, what unacknowledged unresolved calls count toward the cap,
+    and the operator's acknowledged liabilities.
     """
     liabilities = _pending_liabilities(records, state)
-    observed_unknown = _unresolved_observed_costs(records, state)
-    unacknowledged = {key: amount for key, amount in observed_unknown.items() if key not in liabilities}
+    counted_unknown = _counted_unknown_costs(records, state)
+    unacknowledged = {key: amount for key, amount in counted_unknown.items() if key not in liabilities}
     live = _prune_reservations(list(state["reservations"]), records=records)
     known = {record.call_id: _known_cost([record]) for record in records}
     live_by_id: dict[str, float] = {}
@@ -1003,11 +1050,18 @@ def _append_audit(root: Path, event_type: EventType, **payload: Any) -> None:
 
 
 def _unpriced_policy() -> str:
+    """``estimate`` (the default) or ``block``.
+
+    Under ``estimate`` a call whose cost the provider has not settled counts
+    toward the daily cap at the day's costliest priced call and work goes on.
+    Under ``block`` new calls are refused until it settles or an operator
+    acknowledges it. The retired value ``allow`` is read as ``estimate``.
+    """
     value = resolve_knob(
         "ARGUS_SKILL_UNPRICED_COST_POLICY",
-        "block",
+        "estimate",
     ).value.strip().lower()
-    return "allow" if value == "allow" else "block"
+    return "block" if value == "block" else "estimate"
 
 
 def cost_control_enabled() -> bool:
@@ -1494,8 +1548,11 @@ def cost_control_snapshot(
         reservations = _prune_reservations(list(state["reservations"]), records=records)
         unresolved = _unresolved_costs(records, list(state["unresolved"]))
         snapshot_stale = True
-    reservations, live_cost, observed_unknown, liabilities = _cost_projection(
-        records, {**state, "unresolved": unresolved, "reservations": reservations},
+    projected = {**state, "unresolved": unresolved, "reservations": reservations}
+    reservations, live_cost, counted_unknown, liabilities = _cost_projection(records, projected)
+    observed_unknown = sum(
+        amount for call_id, amount in _unresolved_observed_costs(records, projected).items()
+        if call_id not in liabilities
     )
     blocking = [row for row in unresolved
                 if row.get("call_id") not in liabilities and not _is_missing_price(row)]
@@ -1512,6 +1569,12 @@ def cost_control_snapshot(
         "acknowledged_unresolved_calls": len(liabilities),
         "pending_liability_usd": sum(liabilities.values()),
         "unacknowledged_observed_cost_usd": observed_unknown,
+        # Under the estimate policy: what today's unsettled calls count toward
+        # the cap, and the per-call figure behind it (0 when nothing is priced).
+        "counted_unpriced_usd": counted_unknown,
+        "unpriced_estimate_usd": (
+            _unpriced_estimate_usd(records) if _unpriced_policy() == "estimate" else 0.0
+        ),
         "in_flight_cost_usd": live_cost,
         "unresolved": [
             {

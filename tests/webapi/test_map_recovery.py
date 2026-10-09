@@ -132,6 +132,7 @@ def test_bounded_prompt_does_not_mutate_research_evidence_or_effort(tmp_path, mo
 def test_configurable_deadline_preserves_unpriced_receipt_and_running_research(tmp_path, monkeypatch):
     monkeypatch.setenv("ARGUS_SKILL_HOME", str(tmp_path))
     monkeypatch.setenv("ARGUS_SKILL_COST_CONTROL", "1")
+    monkeypatch.setenv("ARGUS_SKILL_UNPRICED_COST_POLICY", "block")
     monkeypatch.setenv("ARGUS_SKILL_GLOBAL_DAILY_CAP_USD", "100")
     monkeypatch.setenv("ARGUS_SKILL_MAP_TIMEOUT_SECONDS", "600")
     project = tmp_path / "projects/s-map"
@@ -195,6 +196,8 @@ def test_provider_output_length_is_validated_not_just_requested(tmp_path, monkey
 
 def test_cost_acknowledgement_api_requires_auth_and_correct_project(tmp_path, monkeypatch):
     monkeypatch.setenv("ARGUS_SKILL_HOME", str(tmp_path))
+    # Acknowledgement releases a call the block policy holds; estimate never holds one.
+    monkeypatch.setenv("ARGUS_SKILL_UNPRICED_COST_POLICY", "block")
     for sid in ["s-map", "s-other"]:
         write_session_meta(tmp_path, SessionMeta(id=sid, created=1, last_active=1))
     project = tmp_path / "projects/s-map"

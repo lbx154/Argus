@@ -1003,10 +1003,11 @@ def _check_model_pricing(
 ) -> None:
     """Warn when the backend's effective model has no price in the catalog.
 
-    Such calls are recorded with token counts but no cost, and under the
-    default ``ARGUS_SKILL_UNPRICED_COST_POLICY=block`` further calls on that
-    model are refused. Saying so here keeps a fresh install from discovering
-    it only after the first chat message. Only Codex is checked: it reports
+    Such calls are recorded with token counts but no cost. The default
+    ``ARGUS_SKILL_UNPRICED_COST_POLICY=estimate`` counts each at the day's
+    costliest priced call; ``block`` refuses further calls on that model.
+    Saying so here keeps a fresh install from discovering it only after the
+    first chat message. Only Codex is checked: it reports
     tokens and nothing else, so Argus prices its calls from the catalog;
     Copilot settles from its own usage logs and the other CLIs either report
     their own cost or are judged by the model-catalog check above.
@@ -1040,8 +1041,9 @@ def _check_model_pricing(
         report.warnings.append(
             f"model {model!r} ({origin}, backend {backend}, backend chosen by "
             f"{report.profile.backend_source}) has no configured price: its calls are "
-            f"recorded without a cost and, under ARGUS_SKILL_UNPRICED_COST_POLICY=block, "
-            f"further calls on it are refused; set ARGUS_SKILL_MODEL to a priced model, "
+            f"recorded without a cost; ARGUS_SKILL_UNPRICED_COST_POLICY=estimate (the default) "
+            f"counts each at the day's costliest priced call, and block refuses further calls "
+            f"on it; set ARGUS_SKILL_MODEL to a priced model, "
             f"pick another backend with `argus --setup --backend <name>`, or add a price "
             f"entry for it"
         )

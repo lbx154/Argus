@@ -136,6 +136,9 @@ def test_unresolved_settlement_does_not_interrupt_live_call_but_known_cap_does(
 ) -> None:
     monkeypatch.setenv("ARGUS_SKILL_HOME", str(tmp_path))
     monkeypatch.setenv("ARGUS_SKILL_GLOBAL_DAILY_CAP_USD", "10")
+    # The block policy holds new calls behind an unsettled one; this test is
+    # about the call that was already admitted when that happened.
+    monkeypatch.setenv("ARGUS_SKILL_UNPRICED_COST_POLICY", "block")
     reservations = []
     for call_id in ("healthy", "unknown"):
         reservation, reason = reserve_call_budget(

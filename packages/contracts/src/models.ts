@@ -178,8 +178,13 @@ export interface CostControlSnapshot {
   active_reservations: number;
   unresolved_calls: number;
   blocking_unresolved_calls?: number;
+  /** Under the estimate policy: what today's unsettled calls count toward the cap, and the per-call figure. */
+  counted_unpriced_usd?: number;
+  unpriced_estimate_usd?: number;
+  in_flight_cost_usd?: number;
   unresolved: Array<Record<string, unknown>>;
-  policy: 'block' | 'allow';
+  /** `allow` is the retired name of `estimate`, still reported by older servers. */
+  policy: 'estimate' | 'block' | 'allow';
 }
 
 export interface DaemonCommandReceipt {

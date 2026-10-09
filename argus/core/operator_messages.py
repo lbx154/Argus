@@ -61,15 +61,17 @@ def budget_refusal_reply(reason: str, *, language_hint: str = "") -> str | None:
             f"暂未执行：{provider} 后端使用的模型 {model} 没有配置价格，Argus 无法计算它的费用，"
             "而且这类调用永远不会自动结算。这是配置问题，不是等待结算："
             "请切换到有价格的后端/模型（argus --setup --backend <名称> 或设置 ARGUS_SKILL_MODEL），"
-            "或为该模型补充价格条目；确认接受未计价调用，可把 ARGUS_SKILL_UNPRICED_COST_POLICY 改为 allow。"
+            "或为该模型补充价格条目；也可把 ARGUS_SKILL_UNPRICED_COST_POLICY 改回默认的 estimate，"
+            "让这类调用按当天最贵的一笔计入预算后继续执行。"
             "已发生的调用连同 token 数都保留在账本里。"
             if zh else
             f"Not started: the model {model} used by the {provider} backend has no configured "
             "price, so Argus cannot compute its cost and no usage report will ever settle it. "
             "This is a configuration problem, not a pending settlement: switch to a priced "
             "backend/model (argus --setup --backend <name>, or set ARGUS_SKILL_MODEL), or add a "
-            "price entry for this model; set ARGUS_SKILL_UNPRICED_COST_POLICY to allow to accept "
-            "unpriced calls. Earlier calls stay in the ledger with their token counts."
+            "price entry for this model; or set ARGUS_SKILL_UNPRICED_COST_POLICY back to its "
+            "default, estimate, which counts such a call at the day's costliest priced call and "
+            "continues. Earlier calls stay in the ledger with their token counts."
         )
     elif "unresolved provider cost" in lowered or "awaiting usage reconciliation" in lowered:
         provider = _provider_label(raw)
@@ -82,7 +84,8 @@ def budget_refusal_reply(reason: str, *, language_hint: str = "") -> str | None:
             + (f"（角色 {role}）" if role else "")
             + "的费用尚未结算，费用策略"
             "（ARGUS_SKILL_UNPRICED_COST_POLICY=block）在结算完成前不再发起新的模型调用。"
-            f"结算会在 {provider} 记录该调用的用量后自动完成；确认要在未结算时继续，可把该策略改为 allow。"
+            f"结算会在 {provider} 记录该调用的用量后自动完成；要在未结算时继续，可把该策略改回默认的 estimate"
+            "（按当天最贵的一笔计入预算）。"
             "这不是 Agent CLI 登录故障，doctor 不会报错。"
             + (f"立即解除：{unblock}" if unblock else "")
             if zh else
@@ -91,8 +94,9 @@ def budget_refusal_reply(reason: str, *, language_hint: str = "") -> str | None:
             + " has no settled cost yet, and the cost policy "
             "(ARGUS_SKILL_UNPRICED_COST_POLICY=block) holds new model calls until it settles. "
             f"Settlement completes on its own once {provider} records that call's usage; set "
-            "the policy to allow to continue without waiting. This is not an Agent CLI login "
-            "failure, and doctor will not report it."
+            "the policy back to its default, estimate, to continue with the call counted at the "
+            "day's costliest priced call. This is not an Agent CLI login failure, and doctor "
+            "will not report it."
             + (f" To unblock now: {unblock}" if unblock else "")
         )
     elif "cost control unavailable" in lowered:

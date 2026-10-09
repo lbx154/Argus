@@ -235,41 +235,25 @@ is the per-project counterpart; the roofline campaign used `1`, which is the
 right choice when the tasks share four GPUs.
 
 **What to do with a call whose price is not known yet.**
-`ARGUS_SKILL_UNPRICED_COST_POLICY` is `block` by default: a call whose cost the
-provider has not settled is refused before it starts, because a cap that
-cannot see the cost cannot enforce anything. With Copilot's subscription
-billing the first calls on a fresh install report `pricing_status: partial`
-with no `cost_usd`, and that is exactly what happened in the trial:
+`ARGUS_SKILL_UNPRICED_COST_POLICY` decides. The default, `estimate`, keeps
+working: until the provider settles the call, it counts toward the daily cap
+at the day's costliest priced call, or at its observed in-flight spend when
+that is higher. The estimate can only make the day look dearer, so the cap
+still holds, and nothing is hidden: the cockpit's cost gauge shows
+`unpriced N · ~$X counted`, and `GET /api/projects/<id>/cost-control` carries
+the same figures as `counted_unpriced_usd` and `unpriced_estimate_usd`. A
+Copilot call on a day without any priced call counts as one premium request.
 
-- CLI project `s-600e27bf`: the first classify call settled unpriced (its
-  event has `"pricing_status":"partial","cost_usd":null`), the worker went
-  to `paused_cost`, and `cost-control.json` listed the call as unresolved with
-  the reason "Copilot token billing is awaiting local CLI usage
-  reconciliation".
-- Browser project `s-67fb6d62`: the first message came back `[not dispatched]
-  Manager could not classify this message (refused before start: unresolved
-  provider cost: 1 call(s) awaiting usage reconciliation ...)`.
-- The roofline campaign, on a second install a little later, paused 43
-  seconds in for the same reason.
-
-The operator's fix each time was one line in `~/.argus-skill/config.json`,
-`"ARGUS_SKILL_UNPRICED_COST_POLICY": "allow"`, followed by a drain and restart
-(`/config ARGUS_SKILL_UNPRICED_COST_POLICY=allow` in the cockpit writes the
-same key, and the web configuration view exposes it). `allow` means: run the
-call now and let the ledger reconcile later. The trade-off is real. With a
-metered API key, keep `block`; the price of every call is known and the cap
-is exact. With a subscription CLI, `allow` is usually right, because the
-"cost" the ledger reconciles is your subscription's usage, and refusing to run
-does not save money you have already paid. The daily cap still applies to
-everything that does get priced.
-
-Two changes merged on 2026-09-30 (#179 and #183) move this default: Copilot
-calls made through the warm session are now priced from the CLI's own session
-log, and a call Argus itself interrupts before the CLI recorded anything is
-settled as one premium request. A fresh install on a subscription CLI no
-longer pauses under `block`; the three examples above ran before that change.
-`allow` is still the choice when you would rather run than wait for any late
-reconciliation at all.
+`block` is the strict alternative: a call whose cost is not settled is refused
+before it starts, the worker shows `paused_cost`, and an operator releases the
+held call with `argus cost acknowledge <call> --project <id> --liability-usd
+<approved> --reason "<why>"` (or the matching `POST .../cost-control/acknowledge`).
+Choose it when every call runs on a metered API key and the cap has to be
+exact to the cent. Earlier releases defaulted to `block`; on a subscription
+CLI that paused fresh installs within a minute, because Copilot's token bill
+arrives a few seconds after the call (the September 2026 trial's `paused_cost`
+cases), which is why the default moved. `allow`, the previous name for not
+blocking, is still accepted in old configurations and now means `estimate`.
 
 A last practical point: `ARGUS_SKILL_COST_CONTROL` (default `on`) is the
 switch for the whole admission-and-reconciliation layer. Leave it on; turning
