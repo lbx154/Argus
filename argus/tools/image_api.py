@@ -127,7 +127,7 @@ def _json_request(
             url,
             data=body,
             headers={
-                "Authorization": "******",
+                "Authorization": f"Bearer {grant.api_key}",
                 "Content-Type": "application/json",
             },
             method="POST",
