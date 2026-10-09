@@ -657,7 +657,7 @@ def test_large_recent_text_artifact_surfaces_incomplete_coverage(
     monkeypatch.setattr(secret_guard, "_MAX_ARTIFACT_BYTES", 8)
     monkeypatch.setattr(secret_guard, "_HARD_MAX_ARTIFACT_BYTES", 8)
     payload = "x-api-key: response-secret-value\n"
-    (tmp_path / "large.txt").write_text(payload, encoding="utf-8")
+    (tmp_path / "large.txt").write_bytes(payload.encode("utf-8"))
     events: list[dict] = []
 
     report, reviewer_note = _apply_round_secret_guard(
@@ -936,7 +936,7 @@ def test_streaming_time_budget_exhaustion_skips_remaining_large_files(
     )
     payload = "padding line of text\n" * 8
     for name in ("large_a.log", "large_b.log"):
-        (tmp_path / name).write_text(payload, encoding="utf-8")
+        (tmp_path / name).write_bytes(payload.encode("utf-8"))
 
     report = scrub_recent_text_artifacts(
         tmp_path,
@@ -961,7 +961,7 @@ def test_file_budget_exhaustion_enumerates_remaining_candidates(
     monkeypatch.setattr(secret_guard, "_MAX_SCANNED_FILES", 1)
     line = "status: ok\n"
     for index in range(60):
-        (tmp_path / f"file_{index:02d}.txt").write_text(line, encoding="utf-8")
+        (tmp_path / f"file_{index:02d}.txt").write_bytes(line.encode("utf-8"))
 
     report, reviewer_note = _apply_round_secret_guard(
         workdir=tmp_path,
@@ -1117,3 +1117,19 @@ def test_atomic_scrub_refuses_to_overwrite_concurrent_change(
         )
 
     assert b"concurrent-secret-value" in path.read_bytes()
+
+
+def test_scrub_without_git_executable_falls_back_to_mtime_scan(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    # Minimal task containers ship no git binary at all; the round must still
+    # scrub new artifacts instead of raising FileNotFoundError.
+    monkeypatch.setenv("PATH", str(tmp_path / "empty-bin"))
+    artifact = tmp_path / "artifact.yml"
+    now = time.time()
+    artifact.write_text("client_secret: newly-written-secret\n", encoding="utf-8")
+
+    report = scrub_recent_text_artifacts(tmp_path, modified_since=now - 5)
+
+    assert report.redacted_paths == ("artifact.yml",)
+    assert "<REDACTED:secret>" in artifact.read_text(encoding="utf-8")

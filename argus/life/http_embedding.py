@@ -5,6 +5,7 @@ import hashlib
 import http.client
 import json
 import os
+import select
 import socket
 import sqlite3
 import threading
@@ -24,6 +25,32 @@ from .failure_experience_index import EmbeddingUnavailable, _guard_recall_databa
 from .recall_embedding import RecallEmbeddingConfig, _validated
 
 _HTTP_SLOTS = threading.BoundedSemaphore(2)
+_READ_POLL_SECONDS = 0.05
+
+
+def _await_readable(
+    sock: socket.socket | None,
+    abandoned: threading.Event,
+    deadline: float,
+) -> bool:
+    """Return once ``sock`` has data, or False if the caller gave up first."""
+    if sock is None:
+        return False
+    while True:
+        if abandoned.is_set() or current_run_interrupt_reason():
+            return False
+        remaining = deadline - time.monotonic()
+        if remaining <= 0:
+            return False
+        pending = getattr(sock, "pending", None)
+        if callable(pending) and pending():
+            return True
+        try:
+            readable, _, broken = select.select([sock], [], [sock], min(_READ_POLL_SECONDS, remaining))
+        except (OSError, ValueError):
+            return False
+        if readable or broken:
+            return True
 
 
 class HttpEmbeddingAdapter:
@@ -159,6 +186,14 @@ class HttpEmbeddingAdapter:
                 if abandoned.is_set() or current_run_interrupt_reason() or time.monotonic() >= deadline:
                     return
                 connection.request("POST", target.path or "/", body, headers)
+                # Wait for the response with a short poll instead of a blocking
+                # read: shutting a socket down does not wake a blocked reader on
+                # every platform, and a cancelled caller must not leave this
+                # worker parked until the provider answers.
+                if not _await_readable(connection.sock, abandoned, deadline):
+                    return
+                # Remaining reads may not outlive the caller's deadline.
+                connection.sock.settimeout(max(0.01, deadline - time.monotonic()))
                 response = connection.getresponse()
                 if response.status != 200:
                     return  # No redirects and no provider error bodies enter logs.
@@ -216,6 +251,9 @@ class HttpEmbeddingAdapter:
             # here could wait on the same blocked reader we are interrupting.
             raise EmbeddingUnavailable(failure)
         if not result:
+            if time.monotonic() >= deadline:
+                # The worker stopped waiting at the same deadline the caller holds.
+                raise EmbeddingUnavailable("embedding HTTP deadline exceeded")
             raise EmbeddingUnavailable("embedding HTTP response unavailable or oversized")
         return result[0]
 

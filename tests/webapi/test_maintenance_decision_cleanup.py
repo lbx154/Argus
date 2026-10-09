@@ -97,7 +97,7 @@ def test_adopt_publishes_once_and_handoff_is_project_scoped(tmp_path, monkeypatc
 
     monkeypatch.setattr(publication, 'publish_reviewed_change', record)
     first = manager_resolve_operator_decision(mem.project.fingerprint, card['id'], 'adopt', global_root=mem.global_root)
-    assert first['application_status'] == 'accepted'
+    assert first['application_status'] == 'accepted', first.get('error')
     assert first['deployment']['verdict'] == 'ADOPT'
     runtime = Path(first['deployment']['runtime_source_root'])
     assert runtime.is_dir() and runtime != worktree
@@ -130,7 +130,7 @@ def test_publication_failure_retains_same_decision_and_authoring_evidence(tmp_pa
     assert not (mem.project_root / 'maintenance/receipts/daemon-roll.json').exists()
     monkeypatch.setattr(publication, 'publish_reviewed_change', publish)
     second = manager_resolve_operator_decision(mem.project.fingerprint, card['id'], 'adopt', global_root=mem.global_root)
-    assert second['application_status'] == 'accepted'
+    assert second['application_status'] == 'accepted', second.get('error')
 
 
 def test_handoff_failure_retries_same_decision_without_republishing(tmp_path, monkeypatch):
@@ -164,6 +164,7 @@ def test_handoff_failure_retries_same_decision_without_republishing(tmp_path, mo
     monkeypatch.setattr(handoff, 'request_deployment_handoff', fail_handoff)
     first = manager_resolve_operator_decision(mem.project.fingerprint, card['id'], 'adopt', global_root=mem.global_root)
     assert first['application_status'] == 'retryable' and not first['resolved']
+    assert 'handoff write failed' in first['error'], first['error']
     assert _git(tmp_path / 'origin.git', 'rev-parse', 'main') == candidate
     assert len(pushes) == 1
     assert sidecar.read_bytes() == before and worktree.is_dir()
@@ -173,7 +174,7 @@ def test_handoff_failure_retries_same_decision_without_republishing(tmp_path, mo
 
     monkeypatch.setattr(handoff, 'request_deployment_handoff', request_handoff)
     second = manager_resolve_operator_decision(mem.project.fingerprint, card['id'], 'adopt', global_root=mem.global_root)
-    assert second['application_status'] == 'accepted'
+    assert second['application_status'] == 'accepted', second.get('error')
     assert len(pushes) == 1
     assert handoff._consume_deployment_handoff(mem.project_root) == Path(second['deployment']['runtime_source_root'])
     assert not sidecar.exists() and not worktree.exists()

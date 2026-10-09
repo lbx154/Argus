@@ -750,7 +750,7 @@ def _redirect_std_to_log(log_path: Path, *, keep_console: bool = False) -> int |
     Python logs to the terminal / journald), else None."""
     log_path.parent.mkdir(parents=True, exist_ok=True)
     saved = os.dup(2) if keep_console else None
-    fd = os.open(str(log_path), os.O_WRONLY | os.O_CREAT | os.O_APPEND, 0o600)
+    fd = os.open(str(log_path), os.O_WRONLY | getattr(os, "O_BINARY", 0) | os.O_CREAT | os.O_APPEND, 0o600)
     os.dup2(fd, sys.stdout.fileno())
     os.dup2(fd, sys.stderr.fileno())
     os.close(fd)
@@ -1293,6 +1293,32 @@ def _terminate_windows_process_tree(
 _TEAMMATE_ENTRY_MODULES = ("argus.team.teammate_entry", "argus_skill.team.teammate_entry")
 
 
+def _process_argv(pid: int) -> list[str]:
+    """Return a live process's argv; ``/proc`` on Linux, the kernel's process table elsewhere."""
+    proc = Path(f"/proc/{pid}/cmdline")
+    if proc.parent.parent.is_dir() and Path("/proc/self/cmdline").exists():
+        return [value.decode("utf-8", "replace") for value in proc.read_bytes().split(b"\0") if value]
+    import psutil
+
+    try:
+        argv = list(psutil.Process(pid).cmdline())
+    except psutil.NoSuchProcess as error:
+        raise ProcessLookupError(pid) from error
+    except psutil.Error:
+        argv = []
+    if argv:
+        return argv
+    # The argument area can be briefly unreadable (macOS KERN_PROCARGS2);
+    # ps reads the same table and its whitespace split keeps module tokens.
+    completed = subprocess.run(
+        ["ps", "-ww", "-o", "command=", "-p", str(pid)],
+        capture_output=True, text=True, timeout=5, check=False,
+    )
+    if completed.returncode != 0 or not completed.stdout.strip():
+        raise ProcessLookupError(pid)
+    return completed.stdout.split()
+
+
 def _teammate_process_group_ids(pids: Iterable[int]) -> tuple[int, ...]:
     """Return verified POSIX process groups led by Team teammate entries."""
     if os.name == "nt":
@@ -1300,13 +1326,9 @@ def _teammate_process_group_ids(pids: Iterable[int]) -> tuple[int, ...]:
     groups: list[int] = []
     for pid in pids:
         try:
-            argv = [
-                value.decode("utf-8", "replace")
-                for value in Path(f"/proc/{int(pid)}/cmdline").read_bytes().split(b"\0")
-                if value
-            ]
+            argv = _process_argv(int(pid))
             pgid = os.getpgid(int(pid))
-        except (OSError, ProcessLookupError, ValueError):
+        except (OSError, ValueError, subprocess.SubprocessError):
             continue
         if (
             any(module in argv for module in _TEAMMATE_ENTRY_MODULES)
@@ -1363,7 +1385,7 @@ def _daemon_pid_lock_held(pid_path: Path) -> bool | None:
         if msvcrt is None:  # pragma: no cover - Windows safety net
             return None
         try:
-            fd = os.open(str(pid_path), os.O_RDWR)
+            fd = os.open(str(pid_path), os.O_RDWR | getattr(os, "O_BINARY", 0))
         except OSError:
             return None
         try:
@@ -1383,7 +1405,7 @@ def _daemon_pid_lock_held(pid_path: Path) -> bool | None:
     if fcntl is None:  # pragma: no cover - safety net
         return None
     try:
-        fd = os.open(str(pid_path), os.O_RDWR)
+        fd = os.open(str(pid_path), os.O_RDWR | getattr(os, "O_BINARY", 0))
     except OSError:
         return None
     try:

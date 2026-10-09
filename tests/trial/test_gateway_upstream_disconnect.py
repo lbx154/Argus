@@ -7,6 +7,7 @@ import time
 
 import httpx
 import pytest
+from hosted_platform import linux_host_deadlines
 
 from argus.trial.gateway import create_app, prepare
 from argus.trial.gateway_accounting import GatewayAccounting, RequestMonitor
@@ -16,6 +17,7 @@ from tests.trial.test_gateway_billing_lifecycle import asgi_request, issue, offl
 from tests.trial.test_gateway_billing_responsiveness import KEY_ID, PAYLOAD, response_data
 
 
+@linux_host_deadlines
 @pytest.mark.parametrize("phase", ["authorization", "headers", "json-body"])
 @pytest.mark.parametrize("termination", ["disconnect", "cancel"])
 def test_upstream_wait_ends_before_barrier_release(tmp_path, phase, termination):

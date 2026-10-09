@@ -132,7 +132,7 @@ class ResourceLedger:
         _prepare_directory(self.grants_dir, 0o777)
         _prepare_directory(self.queue_dir, 0o777)
         self.lock_path = self.root / "ledger.lock"
-        descriptor = os.open(self.lock_path, os.O_CREAT | os.O_RDWR, 0o666)
+        descriptor = os.open(self.lock_path, os.O_CREAT | os.O_RDWR | getattr(os, "O_BINARY", 0), 0o666)
         os.close(descriptor)
         try:
             os.chmod(self.lock_path, 0o666)

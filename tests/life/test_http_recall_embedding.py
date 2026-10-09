@@ -254,12 +254,19 @@ def test_input_byte_limit_and_missing_credentials_refuse_before_network(tmp_path
 
 
 def test_timeout_is_bounded_and_failure_consumes_shared_durable_budget(tmp_path, embedding_server):
-    configure(tmp_path, embedding_server, timeout_seconds=0.05, batch_timeout_seconds=0.1, daily_request_budget=1)
-    embedding_server.mode = "slow"
+    # The batch budget leaves room for slow local cache I/O so the request
+    # itself reaches the provider; the provider withholds its answer, so only
+    # the per-request timeout can end the call.
+    configure(tmp_path, embedding_server, timeout_seconds=0.05, batch_timeout_seconds=1, daily_request_budget=1)
+    embedding_server.gate = threading.Event()
     started = time.monotonic()
-    with pytest.raises(EmbeddingUnavailable):
-        configured_embedder(tmp_path).embed("database")
-    assert time.monotonic() - started < 0.5
+    try:
+        with pytest.raises(EmbeddingUnavailable, match="deadline"):
+            configured_embedder(tmp_path).embed("database")
+        assert time.monotonic() - started < 1.0
+    finally:
+        embedding_server.gate.set()
+    embedding_server.gate = None
     configure(tmp_path, embedding_server, model="next-model", timeout_seconds=1, batch_timeout_seconds=2, daily_request_budget=1)
     with pytest.raises(EmbeddingUnavailable, match="daily"):
         configured_embedder(tmp_path).embed("different query")

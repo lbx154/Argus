@@ -72,7 +72,13 @@ def test_invalid_queries_never_return_success(method: str, params: dict, tmp_pat
     assert not list(tmp_path.iterdir())
 
 
-@pytest.mark.parametrize("raw", [b"null", b"[]", b"{broken", b'{"value":NaN}', b"x" * 65537])
+# Explicit ids: pytest exports the test id in PYTEST_CURRENT_TEST, and a 64 KiB
+# id exceeds the Windows environment-variable limit.
+@pytest.mark.parametrize(
+    "raw",
+    [b"null", b"[]", b"{broken", b'{"value":NaN}', b"x" * 65537],
+    ids=["null", "array", "broken", "nan", "oversized"],
+)
 def test_malformed_or_oversized_envelopes_are_rejected(raw: bytes, tmp_path: Path) -> None:
     assert read_bridge.reply(raw, global_root=tmp_path)["ok"] is False
 

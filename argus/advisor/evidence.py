@@ -27,7 +27,7 @@ def collect_evidence(
         if scope not in {"workspace", "state"}:
             raise ValueError("evidence scope must be workspace or state")
         path = Path(relative)
-        if path.is_absolute() or not path.parts or ".." in path.parts:
+        if path.is_absolute() or path.anchor or not path.parts or ".." in path.parts:
             raise ValueError("evidence must name a relative project file")
         if any(part.lower() in {".git", ".ssh", "secrets", "credentials", "auth.json", "advisor"}
                or part.lower().startswith(".env") for part in path.parts):

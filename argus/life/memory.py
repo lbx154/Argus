@@ -1446,7 +1446,7 @@ class Backlog:
         size = self.archive_path.stat().st_size if self.archive_path.exists() else 0
         if size < offset:
             raise RuntimeError("backlog archive is shorter than its committed offset")
-        fd = os.open(self.archive_path, os.O_RDWR | os.O_CREAT, 0o600)
+        fd = os.open(self.archive_path, os.O_RDWR | getattr(os, "O_BINARY", 0) | os.O_CREAT, 0o600)
         with os.fdopen(fd, "r+b") as handle:
             # A previous replay may have stopped in a JSON row. Replacing from
             # the saved offset makes partial/multiple replays idempotent, without

@@ -38,9 +38,12 @@ def validate_report(
     receipts = {}
     invalid_comparisons = set()
     receipt_schema = json.loads(Path(__file__).with_name("probe-receipt.schema.json").read_text())
+    # Compare canonical paths on both sides: temporary roots may themselves be
+    # reached through a symlink (for example /var -> /private/var on macOS).
+    evidence_root = (work / "evidence").resolve()
     for test in report["tests"]:
         path = safe_file(work, test["receipt_path"])
-        if not path.is_relative_to((work / "evidence").resolve()):
+        if not path.resolve().is_relative_to(evidence_root):
             raise ValueError("Evidence path escapes the assigned directory")
         receipt = json.loads(path.read_text())
         jsonschema.validate(receipt, receipt_schema)
@@ -61,7 +64,7 @@ def validate_report(
             ):
                 raise ValueError("Signal-terminated probe is not marked incomplete")
             log = safe_file(work, observation["log"])
-            if not log.is_relative_to((work / "evidence").resolve()):
+            if not log.resolve().is_relative_to(evidence_root):
                 raise ValueError("Probe log escapes its evidence directory")
             if digest(log) != observation["log_sha256"]:
                 raise ValueError("Probe log digest mismatch")

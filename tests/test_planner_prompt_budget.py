@@ -56,6 +56,19 @@ MATURE_MATH_SCOPE_BUDGET = 19_050
 RESEARCH_PLAN_DYNAMIC_BUDGET = 8_000
 
 
+def _without_host_shell_guidance(prompt: str) -> str:
+    """Drop native-Windows shell guidance, which is host-specific by design."""
+    from argus.roles.prompts.engineer import _WINDOWS_LONG_EXPERIMENT_RULE
+    from argus.roles.task_contract import (
+        NATIVE_WINDOWS_SHELL_CONTRACT,
+        NATIVE_WINDOWS_SHELL_SUMMARY,
+    )
+
+    for text in (NATIVE_WINDOWS_SHELL_CONTRACT, _WINDOWS_LONG_EXPERIMENT_RULE, NATIVE_WINDOWS_SHELL_SUMMARY):
+        prompt = prompt.replace(text, "")
+    return prompt
+
+
 def _build_math_scope_prompt(
     tmp_path,
     monkeypatch,
@@ -105,8 +118,8 @@ def test_math_scope_prompt_is_compact_and_deduplicated(
 ) -> None:
     prompt, objective = _build_math_scope_prompt(tmp_path, monkeypatch)
 
-    assert len(prompt) < MATH_SCOPE_BUDGET, (
-        f"math scope Planner prompt is {len(prompt)} chars; keep fixed policy "
+    assert len(_without_host_shell_guidance(prompt)) < MATH_SCOPE_BUDGET, (
+        f"math scope Planner prompt is {len(_without_host_shell_guidance(prompt))} chars; keep fixed policy "
         "compact and move state-specific guidance behind structured triggers"
     )
     assert prompt.count(objective) == 1
@@ -241,7 +254,7 @@ def test_mature_math_prompt_keeps_only_bounded_terminal_history(
         journal_tail=journal,
     )
 
-    assert len(prompt) < MATURE_MATH_SCOPE_BUDGET
+    assert len(_without_host_shell_guidance(prompt)) < MATURE_MATH_SCOPE_BUDGET
 
 
 def test_planner_journal_uses_latest_three_terminal_outcomes() -> None:

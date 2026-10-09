@@ -97,7 +97,7 @@ def legacy_source(tmp_path, sid, life, workspace):
     record["resolved_evidence"] = {"task": {"state": "unavailable"}, "events": []}
     record["document"] = "# Legacy explanation\n\nSELECTED OUTPUT\n\nTHE RETAINED EXCERPT\n"
     path.write_text(json.dumps(record))
-    (workspace / ref["path"]).write_text(record["document"])
+    (workspace / ref["path"]).write_bytes(record["document"].encode())  # exact bytes on every OS
     return ref
 
 

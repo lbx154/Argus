@@ -29,9 +29,32 @@ from .state import (
 
 log = logging.getLogger(__name__)
 
+
+def _open_runtime_failure_circuit(supervisors: Any) -> dict[str, Any] | None:
+    """The first active runtime failure circuit among the worker's supervisors.
+
+    The circuit only clears when a different Argus runtime is loaded, so a
+    finite (bounded) worker that hits it can never make progress again.
+    """
+    from ..life.runtime_failure_circuit import active_runtime_failure_circuit
+
+    for supervisor in supervisors or ():
+        root = getattr(getattr(supervisor, "memory", None), "root", None)
+        if root is None:
+            continue
+        try:
+            circuit = active_runtime_failure_circuit(root)
+        except Exception:  # noqa: BLE001 - an unreadable advisory must not stop work
+            log.debug("could not inspect runtime failure circuit", exc_info=True)
+            continue
+        if circuit is not None:
+            return circuit
+    return None
+
 _RUNNING_STALL_ERROR = "executor exited without completing the task"
 _RUNNING_STALL_POLL_SECONDS = 1.0
 _HELPER_WAKE_CHECK_SECONDS = 0.5
+_HELPER_WAKE_SETTLE_SECONDS = 0.05
 
 
 def _backlog_fingerprint(supervisor: Any) -> tuple | None:
@@ -565,8 +588,17 @@ class LifeWorkerRunMixin:
         while True:
             if self._stop.is_set() or primary.done():
                 return True
-            if _backlog_fingerprint(supervisor) != baseline:
-                return False
+            current = _backlog_fingerprint(supervisor)
+            if current != baseline:
+                # Let an in-progress write (truncate-then-write, multi-row
+                # append) settle first, so the helper's next baseline sees the
+                # finished state and one change wakes it once, not twice.
+                while not self._stop.wait(_HELPER_WAKE_SETTLE_SECONDS):
+                    settled = _backlog_fingerprint(supervisor)
+                    if settled == current or time.monotonic() >= deadline:
+                        break
+                    current = settled
+                return self._stop.is_set()
             remaining = deadline - time.monotonic()
             if remaining <= 0:
                 return False
@@ -841,6 +873,23 @@ class LifeWorkerRunMixin:
                     ):
                         log.info("daemon: bounded work completed; exiting cleanly")
                         break
+                    # A bounded worker parked behind an open runtime failure
+                    # circuit would wait forever: the circuit only clears once a
+                    # changed runtime is loaded, which never happens inside this
+                    # process. Release the slot instead of idling until killed.
+                    if (
+                        not rf_state.cfg.continuous_open_ended
+                        and not standing_enabled
+                    ):
+                        circuit = _open_runtime_failure_circuit(supervisors)
+                        if circuit is not None:
+                            log.warning(
+                                "daemon: bounded work blocked by an open runtime failure "
+                                "circuit (%s at %s); exiting",
+                                circuit.get("exception_type") or "error",
+                                circuit.get("callsite") or "unknown callsite",
+                            )
+                            break
                     # Idle auto-exit: the supervisor judged the project idle past
                     # the cap. Exit the loop so the process shuts down cleanly
                     # (the shutdown distillation below runs) — the session model

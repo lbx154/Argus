@@ -18,6 +18,9 @@ _daemon_launch = None
 
 
 def _request(path, action, value, lease=None):
+    if not hasattr(socket, "AF_UNIX"):
+        # Callers treat an unavailable bridge as "not collecting"; never crash a role call.
+        raise OSError("The training bridge needs Unix domain sockets")
     with socket.socket(socket.AF_UNIX, socket.SOCK_STREAM) as client:
         # Capture registration may poll consent and start the observer.
         # Keep daemon fork admission within its existing four-second ack window.

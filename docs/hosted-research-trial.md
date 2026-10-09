@@ -4,6 +4,12 @@ The hosted service supports eleven invitation-scoped workspaces, separate model 
 compute accounting, an operator dashboard, and consent-aware research replay and
 dataset export. It runs on a Linux operator host; ordinary Argus desktop and Web
 installations do not enable this service automatically.
+On another operating system a hosted operation stops with `HostedHostRequired`,
+naming the missing capability (no-follow directory descriptors, POSIX accounts,
+Unix sockets with peer credentials, or `/proc` process identity), instead of
+running with weaker file or peer checks. The client pieces users run on Windows
+and macOS (trial setup, the desktop protocol, and the runtime opt-in hook) do
+not depend on these capabilities.
 
 ## Eleventh workspace and data administrator
 

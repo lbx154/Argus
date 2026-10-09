@@ -232,7 +232,7 @@ def review_action_tools(
             if backend == "copilot":
                 config["mcpServers"][SERVER].update(type="local", tools=names)
             path = Path(directory) / "mcp.json"
-            descriptor = os.open(path, os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o600)
+            descriptor = os.open(path, os.O_WRONLY | getattr(os, "O_BINARY", 0) | os.O_CREAT | os.O_EXCL, 0o600)
             with os.fdopen(descriptor, "w") as handle:
                 json.dump(config, handle)
             extra.extend(

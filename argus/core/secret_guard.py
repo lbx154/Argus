@@ -342,23 +342,30 @@ def _stream_file_digest(path: Path) -> bytes:
 
 
 def _git_changed_paths(root: Path) -> set[str] | None:
-    """Return Git-visible worktree changes, or ``None`` outside a usable repo."""
-    result = subprocess.run(
-        [
-            "git",
-            "-c",
-            f"safe.directory={root}",
-            "-C",
-            str(root),
-            "status",
-            "--porcelain=v1",
-            "-z",
-            "--untracked-files=all",
-        ],
-        stdout=subprocess.PIPE,
-        stderr=subprocess.DEVNULL,
-        check=False,
-    )
+    """Return Git-visible worktree changes, or ``None`` outside a usable repo.
+
+    A host without a ``git`` executable (minimal containers) counts as "no usable
+    repo": the caller falls back to the mtime scan instead of aborting the round.
+    """
+    try:
+        result = subprocess.run(
+            [
+                "git",
+                "-c",
+                f"safe.directory={root}",
+                "-C",
+                str(root),
+                "status",
+                "--porcelain=v1",
+                "-z",
+                "--untracked-files=all",
+            ],
+            stdout=subprocess.PIPE,
+            stderr=subprocess.DEVNULL,
+            check=False,
+        )
+    except OSError:
+        return None
     if result.returncode != 0:
         return None
     records = result.stdout.split(b"\0")
@@ -940,7 +947,7 @@ def scrub_recent_text_artifacts(
                         # the remaining oversized artifact instead of scanning.
                         skipped_paths.append((relative, metadata.st_size))
                         continue
-                    stream_started = time.monotonic()
+                    stream_started = time.perf_counter()  # monotonic ticks ~15 ms on Windows
                     try:
                         count = _scrub_streaming(
                             path,
@@ -968,7 +975,7 @@ def scrub_recent_text_artifacts(
                         errors.append(f"{relative}: UnicodeDecodeError")
                         continue
                     finally:
-                        streaming_seconds_spent += time.monotonic() - stream_started
+                        streaming_seconds_spent += time.perf_counter() - stream_started
                     scanned_files += 1
                     if count:
                         redacted_paths.append(relative)

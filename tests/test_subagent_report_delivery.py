@@ -16,6 +16,7 @@ from __future__ import annotations
 
 import json
 import logging
+import os
 import types
 from pathlib import Path
 
@@ -349,10 +350,11 @@ def test_find_codex_reports_an_unusable_runner_bin_override(
 def test_find_codex_returns_the_binary_on_path(
     monkeypatch: pytest.MonkeyPatch, tmp_path: Path
 ) -> None:
-    codex = _executable(tmp_path / "bin" / "codex")
+    # PATH lookup on Windows only matches PATHEXT launchers such as codex.exe.
+    codex = _executable(tmp_path / "bin" / ("codex.exe" if os.name == "nt" else "codex"))
     monkeypatch.setenv("PATH", str(codex.parent))
 
-    assert _text._find_codex() == str(codex)
+    assert os.path.normcase(_text._find_codex()) == os.path.normcase(str(codex))
 
 
 def test_find_codex_falls_back_to_a_system_path(

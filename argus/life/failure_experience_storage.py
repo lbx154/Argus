@@ -93,7 +93,7 @@ class ExperienceRepository:
     def locked(self, *, timeout_seconds: float = DEFAULT_FILE_LOCK_TIMEOUT_SECONDS) -> Iterator[None]:
         self._guard_paths()
         self.lock_path.parent.mkdir(parents=True, exist_ok=True)
-        with self._open_file(self.lock_path, os.O_RDWR | os.O_CREAT) as handle:
+        with self._open_file(self.lock_path, os.O_RDWR | getattr(os, "O_BINARY", 0) | os.O_CREAT) as handle:
             with exclusive_file_lock(handle, timeout_seconds=timeout_seconds, lock_name="failure experience lock"):
                 self._guard_paths()
                 yield

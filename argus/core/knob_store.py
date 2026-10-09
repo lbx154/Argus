@@ -85,7 +85,7 @@ def _write_lock(path: Path):
         thread_lock = _THREAD_LOCKS.setdefault(key, threading.Lock())
     path.parent.mkdir(parents=True, exist_ok=True)
     with thread_lock:
-        fd = os.open(str(lock_path), os.O_CREAT | os.O_RDWR, 0o600)
+        fd = os.open(str(lock_path), os.O_CREAT | os.O_RDWR | getattr(os, "O_BINARY", 0), 0o600)
         try:
             portalocker.lock(fd, portalocker.LOCK_EX)
             yield
