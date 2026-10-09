@@ -780,16 +780,13 @@ logs.
 
 ## Installation troubleshooting
 
-- Unknown prices or missing usage remain visible for reconciliation; they do
-  not block new calls or interrupt running calls, and are not treated as free.
-  Argus rechecks late or partial Copilot billing and prices pending token
-  records when their recorded model and complete token counts can be priced.
-  Known settled and observed in-flight spend still enforce the global daily
-  budget; provider rate limits and the trial key's server quota still apply.
-  Check the provider, model and reason in
-  `cost-control.json` under the Argus data directory and the project's
-  `usage.jsonl`; do not delete the ledger. Run diagnostic commands in a terminal,
-  not in the Web chat box.
+- Unknown prices or missing usage stay visible in the project's `usage.jsonl`;
+  they never block new calls or interrupt running ones. Argus rechecks late or
+  partial Copilot billing and prices pending records once their model and token
+  counts can be priced. Argus itself has no spending cap: on your own
+  subscription the provider's limits apply; on a hosted trial the invitation's
+  token limit at the gateway applies. Do not delete the ledger. Run diagnostic
+  commands in a terminal, not in the Web chat box.
 - Confirm which executable the shell is using: `Get-Command argus -All` on
   PowerShell, or `type -a argus` on macOS/Linux. Its `argus --version` release
   id should change after an update.

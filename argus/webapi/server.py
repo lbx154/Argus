@@ -452,7 +452,7 @@ def create_app(
     # continuous), artifacts/read-only (artifact + git-diff file serving),
     # Manager streaming/messages (chat, SSE stream, live event WebSocket), and
     # config/diagnostics (meta, metrics, per-project config/identity/doctor,
-    # operator config/budget/identity/reset/skills). Registrars share this
+    # operator config/identity/reset/skills). Registrars share this
     # app's auth/root helpers and narrow daemon services through ``ctx``.
     register_project_routes(app, ctx)
     register_workitem_routes(app, ctx)

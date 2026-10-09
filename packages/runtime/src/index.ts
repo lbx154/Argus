@@ -8,6 +8,3 @@ export { modelPriceFor, quoteTokenUsage, quoteObservedUsage, quoteCopilotUsage, 
 export type { TokenCounts } from './pricing.js';
 export { UsageSummaryAccumulator, summarizeUsage } from './usageSummary.js';
 export type { UsageSummaryLimits } from './usageSummary.js';
-export { BudgetedPiBackend } from './budgetedPi.js';
-export type { BudgetedPiRequest, BudgetedPiOptions } from './budgetedPi.js';
-export type { PythonBudgetOptions } from './budgetClient.js';

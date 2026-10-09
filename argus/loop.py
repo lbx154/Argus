@@ -71,7 +71,7 @@ def _knob_bool_setting(name: str, default: bool) -> bool:
 @dataclass
 class SkillLoopConfig:
     """All knobs for one SkillLoop.run invocation, in one place."""
-    engineer_model: str | None = "gpt-5.5"
+    engineer_model: str | None = "gpt-6.1-sol"
     reviewer_model: str | None = None  # default: same as engineer
     # Direct/bounded work starts at high. A Reviewer-requested second round
     # escalates to ``engineer_reasoning_effort`` (xhigh by default). Staged and

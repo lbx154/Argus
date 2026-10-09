@@ -13,7 +13,6 @@ import pytest
 
 from argus.core.event_catalog import EventType
 from argus.core.pricing import usd_for_tokens
-from argus.core.transcript import read_turns
 from argus.life.memory import BacklogItem, LifeMemory
 from argus.life.supervisor import (
     LifeBudget,
@@ -98,13 +97,6 @@ class _ResearchIncompleteRunner:
             success=False,
             status="research_incomplete",
             stop_reason="doctoral target not reached",
-        )
-
-
-class _ResearchBreakthroughRunner:
-    def execute(self, **kwargs) -> _Outcome:
-        return _Outcome(
-            research_result=_certified_research_result("verified_new_result"),
         )
 
 
@@ -860,79 +852,6 @@ def test_kernel_baseline_mission_receives_clean_reference_without_revert(
     assert reference.read_text(encoding="utf-8") == "baseline\n"
 
 
-def _certified_research_result(result_class: str) -> dict[str, Any]:
-    return {
-        "result_class": result_class,
-        "correctness_status": "verified",
-        "novelty_status": (
-            "verified_new"
-            if result_class == "verified_new_result"
-            else "not_applicable"
-        ),
-        "statement_fidelity_status": "verified",
-        "significance_status": (
-            "doctoral"
-            if result_class == "verified_new_result"
-            else "exploratory"
-        ),
-        "evidence": ["independently checked evidence"],
-        "limitations": [],
-    }
-
-
-def test_budget_pause_is_published_once_in_operator_chat(tmp_path) -> None:
-    mem = LifeMemory.open(tmp_path / "life")
-    sink = _RecordingSink(mem.root)
-    sup = LifeSupervisor(
-        memory=mem,
-        runner=_ResearchBreakthroughRunner(),
-        sink=sink,
-    )
-    event = {
-        "type": EventType.LIFE_BUDGET_PAUSE,
-        "item_id": "task-1",
-        "title": "Long experiment",
-        "reason": "project daily budget exhausted",
-    }
-
-    assert sup._emit(event)
-    assert sup._emit(event)
-
-    (turn,) = read_turns(mem.root)
-    assert "Paused because this project reached its budget limit" in turn["text"]
-    assert "Long experiment" in turn["text"]
-    assert "Existing work is saved" in turn["text"]
-    assert "CHECKPOINT.md" not in turn["text"]
-    ui_events = [
-        event
-        for line in (mem.root / "events.jsonl").read_text(encoding="utf-8").splitlines()
-        if (event := json.loads(line)).get("type") == "ui.argus"
-    ]
-    assert len(ui_events) == 1
-
-
-def test_budget_pause_uses_chinese_for_a_chinese_task(tmp_path) -> None:
-    mem = LifeMemory.open(tmp_path / "life")
-    sup = LifeSupervisor(
-        memory=mem,
-        runner=_ResearchBreakthroughRunner(),
-        sink=_RecordingSink(mem.root),
-    )
-
-    assert sup._emit({
-        "type": EventType.LIFE_BUDGET_PAUSE,
-        "item_id": "task-zh",
-        "title": "运行完整实验",
-        "reason": "项目预算已用完",
-    })
-
-    (turn,) = read_turns(mem.root)
-    assert turn["text"] == (
-        "项目已达到预算上限，任务已暂停：运行完整实验。\n"
-        "现有进度已保存；提高项目预算或缩小任务后即可继续。"
-    )
-
-
 def test_research_incomplete_mission_is_paused_and_resumable(tmp_path) -> None:
     assert "paused" in PLANNER_DEDUP_STATUSES
     mem = LifeMemory.open(tmp_path / "life")
@@ -988,7 +907,6 @@ def test_skill_miss_scientist_spend_is_journaled(
     sink = _RecordingSink(mem.root)
     cfg = LifeSupervisorConfig(
         budget=LifeBudget(
-            global_daily_cap_usd=0.0,
             max_missions=2,
         ),
         poll_interval_seconds=0.01,
@@ -1096,85 +1014,6 @@ def test_global_daily_spend_observes_new_cost_without_ttl_staleness(tmp_path) ->
     assert global_daily_spend(global_root=root, now=now) == pytest.approx(3.0)
 
 
-def test_budget_preflight_includes_registered_external_ledgers_once(
-    tmp_path,
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    from argus.core.cost_control import reserve_call_budget
-    from argus.core.usage import UsageLedger
-
-    root = tmp_path / "runtime"
-    external = tmp_path / "earlier-project-ledger"
-    monkeypatch.setenv("ARGUS_SKILL_HOME", str(root))
-    monkeypatch.delenv("ARGUS_SKILL_GLOBAL_DAILY_CAP_USD", raising=False)
-    now = time.time()
-    _append_usage(external, "earlier-call", now, 1.25)
-    reservation, reason = reserve_call_budget(
-        call_id="register-external-project",
-        project_root=external,
-        mission_id=None,
-        provider="test",
-        model="",
-        run_label="test",
-        global_root=root,
-        global_daily_cap_usd=10.0,
-        now=now,
-    )
-    assert reservation is not None and reason == ""
-    reservation.release(reason="not started")
-
-    assert global_daily_spend(global_root=root, now=now) == pytest.approx(1.25)
-    allowed, reason = LifeBudget(global_daily_cap_usd=1.0).can_start(
-        global_root=root, now=now,
-    )
-    assert allowed is False
-    assert "global daily budget exhausted" in reason
-
-    # A copied/migrated call must not be billed again through another path.
-    record = UsageLedger(external, migrate_legacy=False).records()[0]
-    UsageLedger(root / "projects" / "current-session").append(record)
-    assert global_daily_spend(global_root=root, now=now) == pytest.approx(1.25)
-
-
-def test_can_start_blocks_on_global_daily_cap(
-    tmp_path,
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    monkeypatch.setattr(
-        "argus.life.supervisor._config.global_daily_spend",
-        lambda **_kwargs: 12.0,
-    )
-    budget = LifeBudget(global_daily_cap_usd=12.0)
-
-    allowed, reason = budget.can_start(global_root=tmp_path, now=time.time())
-
-    assert allowed is False
-    assert "global daily budget exhausted" in reason
-
-
-def test_global_daily_cap_zero_is_backward_compatible(
-    tmp_path,
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    budget = LifeBudget(global_daily_cap_usd=0.0)
-    calls = {"n": 0}
-
-    def fake_global_daily_spend(**kwargs: Any) -> float:
-        calls["n"] += 1
-        return 999.0
-
-    monkeypatch.setattr(
-        "argus.life.supervisor._config.global_daily_spend",
-        fake_global_daily_spend,
-    )
-
-    allowed, reason = budget.can_start(global_root=tmp_path, now=time.time())
-
-    assert allowed is True
-    assert reason == ""
-    assert calls["n"] == 0
-
-
 class _BudgetExhaustedRunner:
     """A runner whose provider call was denied by the host-global budget."""
 
@@ -1188,7 +1027,7 @@ def test_budget_exhausted_outcome_pauses_item_and_journals_budget_pause(
     mem = LifeMemory.open(tmp_path / "life")
     sink = _RecordingSink(mem.root)
     cfg = LifeSupervisorConfig(
-        budget=LifeBudget(global_daily_cap_usd=0.0, max_missions=2),
+        budget=LifeBudget(max_missions=2),
         poll_interval_seconds=0.01,
     )
     sup = LifeSupervisor(
@@ -1275,7 +1114,7 @@ def test_blocked_verdict_persists_operator_question_onto_backlog_item(
     mem = LifeMemory.open(tmp_path / "life")
     sink = _RecordingSink()
     cfg = LifeSupervisorConfig(
-        budget=LifeBudget(global_daily_cap_usd=0.0, max_missions=2),
+        budget=LifeBudget(max_missions=2),
         poll_interval_seconds=0.01,
     )
     sup = LifeSupervisor(
@@ -1318,7 +1157,7 @@ def test_late_forbid_prevents_custom_runner_question_from_parking(
         runner=_LateForbidQuestionRunner(mem.root),
         sink=sink,
         config=LifeSupervisorConfig(
-            budget=LifeBudget(global_daily_cap_usd=0.0, max_missions=2),
+            budget=LifeBudget(max_missions=2),
             poll_interval_seconds=0.01,
         ),
     )
@@ -1376,7 +1215,7 @@ def test_pragmatic_autonomy_parks_explicit_operator_question_by_default(
         runner=_TechnicalQuestionRunner(),
         sink=sink,
         config=LifeSupervisorConfig(
-            budget=LifeBudget(global_daily_cap_usd=0.0, max_missions=2),
+            budget=LifeBudget(max_missions=2),
             poll_interval_seconds=0.01,
         ),
     )
@@ -1424,7 +1263,7 @@ def test_forbid_policy_replans_technical_question_without_pausing(
         runner=_TechnicalQuestionRunner(),
         sink=sink,
         config=LifeSupervisorConfig(
-            budget=LifeBudget(global_daily_cap_usd=0.0, max_missions=2),
+            budget=LifeBudget(max_missions=2),
             poll_interval_seconds=0.01,
         ),
     )
@@ -1462,7 +1301,7 @@ def test_pending_wait_status_is_not_repeated_across_supervisor_restarts(
         pending_question="Which dataset should the baseline use?",
     )
     config = LifeSupervisorConfig(
-        budget=LifeBudget(global_daily_cap_usd=0.0, max_missions=2),
+        budget=LifeBudget(max_missions=2),
         poll_interval_seconds=0.01,
         continuous=True,
         continuous_objective="finish the benchmark",
@@ -1508,7 +1347,7 @@ def test_non_blocked_failure_does_not_set_pending_question(tmp_path) -> None:
 
     mem = LifeMemory.open(tmp_path / "life")
     cfg = LifeSupervisorConfig(
-        budget=LifeBudget(global_daily_cap_usd=0.0, max_missions=2),
+        budget=LifeBudget(max_missions=2),
         poll_interval_seconds=0.01,
     )
     sup = LifeSupervisor(
@@ -1559,7 +1398,7 @@ def test_replan_with_operator_question_uses_durable_answer_path(tmp_path) -> Non
     mem = LifeMemory.open(tmp_path / "life")
     sink = _RecordingSink(mem.root)
     cfg = LifeSupervisorConfig(
-        budget=LifeBudget(global_daily_cap_usd=0.0, max_missions=2),
+        budget=LifeBudget(max_missions=2),
         poll_interval_seconds=0.01,
     )
     sup = LifeSupervisor(
@@ -1617,7 +1456,7 @@ def test_operator_question_pauses_its_item_not_the_campaign(tmp_path) -> None:
     """
     mem = LifeMemory.open(tmp_path / "life")
     cfg = LifeSupervisorConfig(
-        budget=LifeBudget(global_daily_cap_usd=0.0, max_missions=2),
+        budget=LifeBudget(max_missions=2),
         poll_interval_seconds=0.01,
         continuous=True,
         continuous_objective="verify the project",
@@ -1673,7 +1512,7 @@ def test_consecutive_replans_are_bounded_and_escalated(tmp_path, monkeypatch) ->
     sink = _RecordingSink(mem.root)
     runner = _CountingReplanRunner()
     cfg = LifeSupervisorConfig(
-        budget=LifeBudget(global_daily_cap_usd=0.0, max_missions=10),
+        budget=LifeBudget(max_missions=10),
         poll_interval_seconds=0.01,
     )
     sup = LifeSupervisor(memory=mem, runner=runner, sink=sink, config=cfg)
@@ -1752,7 +1591,7 @@ def test_replan_after_forward_progress_is_not_redispatched(tmp_path) -> None:
         runner=runner,
         sink=_RecordingSink(mem.root),
         config=LifeSupervisorConfig(
-            budget=LifeBudget(global_daily_cap_usd=0.0, max_missions=2),
+            budget=LifeBudget(max_missions=2),
             poll_interval_seconds=0.01,
         ),
     )
@@ -1786,7 +1625,7 @@ def test_large_replan_threshold_uses_persisted_streak(
         runner=runner,
         sink=_RecordingSink(mem.root),
         config=LifeSupervisorConfig(
-            budget=LifeBudget(global_daily_cap_usd=0.0, max_missions=100),
+            budget=LifeBudget(max_missions=100),
             poll_interval_seconds=0.01,
         ),
     )
@@ -1844,7 +1683,7 @@ def test_stage_progress_resets_persisted_replan_streak(
         runner=runner,
         sink=_RecordingSink(mem.root),
         config=LifeSupervisorConfig(
-            budget=LifeBudget(global_daily_cap_usd=0.0, max_missions=10),
+            budget=LifeBudget(max_missions=10),
             poll_interval_seconds=0.01,
         ),
     )
@@ -1882,7 +1721,7 @@ def test_stage_reconciled_replan_is_untouched_by_convergence_guard(
         stage_transition={"action": "advance", "target_stage": "solve"},
     )
     cfg = LifeSupervisorConfig(
-        budget=LifeBudget(global_daily_cap_usd=0.0, max_missions=10),
+        budget=LifeBudget(max_missions=10),
         poll_interval_seconds=0.01,
     )
     sup = LifeSupervisor(memory=mem, runner=runner, sink=sink, config=cfg)
@@ -1929,7 +1768,7 @@ def test_untracked_replan_streak_survives_journal_dilution(
         runner=runner,
         sink=_RecordingSink(mem.root),
         config=LifeSupervisorConfig(
-            budget=LifeBudget(global_daily_cap_usd=0.0, max_missions=10),
+            budget=LifeBudget(max_missions=10),
             poll_interval_seconds=0.01,
         ),
     )
@@ -1985,7 +1824,7 @@ def test_fresh_backlog_items_never_scan_the_journal_for_replan_streaks(
         runner=_CountingReplanRunner(),
         sink=_RecordingSink(mem.root),
         config=LifeSupervisorConfig(
-            budget=LifeBudget(global_daily_cap_usd=0.0, max_missions=2),
+            budget=LifeBudget(max_missions=2),
             poll_interval_seconds=0.01,
         ),
     )
@@ -2016,7 +1855,7 @@ def test_iteration_requeue_resets_replan_streak(tmp_path, monkeypatch) -> None:
         runner=runner,
         sink=_RecordingSink(mem.root),
         config=LifeSupervisorConfig(
-            budget=LifeBudget(global_daily_cap_usd=0.0, max_missions=10),
+            budget=LifeBudget(max_missions=10),
             poll_interval_seconds=0.01,
         ),
     )
@@ -2058,7 +1897,7 @@ def test_untracked_streak_migration_breaks_at_iteration_progress(
         runner=_CountingReplanRunner(),
         sink=_RecordingSink(mem.root),
         config=LifeSupervisorConfig(
-            budget=LifeBudget(global_daily_cap_usd=0.0, max_missions=2),
+            budget=LifeBudget(max_missions=2),
             poll_interval_seconds=0.01,
         ),
     )
@@ -2101,7 +1940,7 @@ def test_neutral_pause_settlements_do_not_evict_replans_from_window(
         runner=runner,
         sink=_RecordingSink(mem.root),
         config=LifeSupervisorConfig(
-            budget=LifeBudget(global_daily_cap_usd=0.0, max_missions=10),
+            budget=LifeBudget(max_missions=10),
             poll_interval_seconds=0.01,
         ),
     )

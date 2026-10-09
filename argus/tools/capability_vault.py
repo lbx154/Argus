@@ -31,10 +31,11 @@ _IMAGE_REVIEW_MODEL_ENV = "ARGUS_SKILL_IMAGE_REVIEW_MODEL"
 # truth for production model selection is the vault file
 # ``~/.argus-skill/capabilities/model_api.json``; these literals are only the
 # offline fallback when a route is absent from the vault.
-_DEFAULT_TEXT_MODEL = "gpt-5.5"
+_DEFAULT_TEXT_MODEL = "gpt-6.1-sol"
 _DEFAULT_TEXT_MODELS = (_DEFAULT_TEXT_MODEL, _DEFAULT_TEXT_MODEL)
 _DEFAULT_IMAGE_MODEL = "gpt-image-2"
-_DEFAULT_IMAGE_REVIEW_MODEL = _DEFAULT_TEXT_MODEL
+# Image review needs a model that reads images; it keeps the previous default.
+_DEFAULT_IMAGE_REVIEW_MODEL = "gpt-5.5"
 _DEFAULT_ROUTE_MODELS = {
     "engineer": _DEFAULT_TEXT_MODEL,
     "reviewer": _DEFAULT_TEXT_MODEL,

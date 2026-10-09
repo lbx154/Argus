@@ -34,7 +34,6 @@ export interface Daemon {
   health?: DaemonHealth;
   backend: string | null;
   backend_label?: string | null;
-  global_daily_cap_usd: number | null;
   mission_width?: number | null;
   read_status?: 'ok' | 'error';
   read_error?: string;
@@ -145,43 +144,6 @@ export interface ContinuousState {
   done_at?: string;
 }
 
-export interface ProviderRequestUsage {
-  provider: string;
-  day: string;
-  daily_calls: number;
-  daily_cap: number;
-  remaining: number | null;
-  completed_calls?: number;
-  failed_calls?: number;
-  premium_requests?: number;
-  premium_cap?: number;
-  premium_remaining?: number | null;
-  blocked_until?: number;
-  blocked_reason?: string;
-}
-
-export interface RequestUsage {
-  day: string;
-  codex: ProviderRequestUsage;
-  copilot: ProviderRequestUsage;
-}
-
-export interface CostControlSnapshot {
-  day: string;
-  daily_tokens?: number;
-  daily_token_cap?: number;
-  /** Request-billed backends spend premium requests, not tokens: today's count and cost. */
-  daily_premium_requests?: number;
-  daily_premium_usd?: number;
-  premium_by_run_label?: Array<{ run_label: string; premium_requests: number; usd: number; calls: number }>;
-  unsettled_tokens?: number;
-  active_reservations: number;
-  unresolved_calls: number;
-  blocking_unresolved_calls?: number;
-  unresolved: Array<Record<string, unknown>>;
-  policy: 'block' | 'allow';
-}
-
 export interface DaemonCommandReceipt {
   command_id: string;
   operation: string;
@@ -207,7 +169,6 @@ export interface ObservabilitySnapshot {
   daemon_commands: Record<string, unknown>;
   web: Record<string, unknown>;
   event_validation_failures: number;
-  cost_control: CostControlSnapshot | Record<string, unknown>;
   slo: {
     status: 'healthy' | 'degraded';
     violations: string[];
@@ -424,8 +385,6 @@ export interface Snapshot {
   global_spend_usd?: number | null;
   global_spend_status?: 'empty' | 'priced' | 'partial' | 'unpriced' | 'not_billed';
   global_usage_summary?: UsageSummary;
-  request_usage?: RequestUsage | null;
-  cost_control?: CostControlSnapshot | null;
   daemon_commands?: DaemonCommandState | null;
   observability?: ObservabilitySnapshot | null;
   mission_view?: MissionView | null;

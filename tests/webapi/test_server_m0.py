@@ -14,7 +14,6 @@ from pathlib import Path
 
 import pytest
 
-from argus.core.cost_control import CostControlLockBusyError
 from argus.core.session import SessionMeta, write_session_meta
 from argus.core.transcript import append_turn
 from argus.core.usage import UsageLedger, UsageRecord
@@ -223,66 +222,28 @@ def test_project_life_dir_resolves_and_guards(tmp_path: Path) -> None:
     assert project_state.project_life_dir("s-nope", global_root=tmp_path) is None
 
 
-def test_snapshot_reuses_cost_control_cache_during_transient_lock_contention(
-    tmp_path: Path,
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    _make_project(tmp_path)
-    fresh = {
-        "day": "2026-07-20",
-        "active_reservations": 1,
-        "unresolved_calls": 0,
-    }
-    calls = 0
-
-    def snapshot(*, global_root):
-        nonlocal calls
-        calls += 1
-        if calls == 1:
-            return fresh
-        raise CostControlLockBusyError("busy")
-
-    project_state._COST_CONTROL_CACHE.clear()
-    monkeypatch.setattr(project_state, "_HOST_SNAPSHOT_CACHE_TTL_SECONDS", 0.0)
-    monkeypatch.setattr(project_state, "cost_control_snapshot", snapshot)
-
-    first = project_state.build_snapshot("s-testaaaa", global_root=tmp_path)
-    second = project_state.build_snapshot("s-testaaaa", global_root=tmp_path)
-
-    assert first is not None and first["cost_control"] == fresh
-    assert second is not None
-    assert second["partial"] is False
-    assert second["cost_control"] == {**fresh, "snapshot_stale": True}
-
-
-def test_snapshot_reuses_host_cost_and_usage_across_projects(
+def test_snapshot_reuses_host_usage_across_projects(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     _make_project(tmp_path, "s-host-one")
     _make_project(tmp_path, "s-host-two")
-    calls = {"cost": 0, "usage": 0}
-
-    def cost(*, global_root):
-        calls["cost"] += 1
-        return {"day": "2026-07-27", "active_reservations": 0}
+    calls = 0
 
     def usage(*, global_root, now=None):
-        calls["usage"] += 1
+        nonlocal calls
+        calls += 1
         return project_state._empty_usage_summary()
 
     import argus.life.supervisor as supervisor_module
 
-    monkeypatch.setattr(project_state, "cost_control_snapshot", cost)
     monkeypatch.setattr(supervisor_module, "global_daily_usage_summary", usage)
-    with project_state._COST_CONTROL_CACHE_LOCK:
-        project_state._COST_CONTROL_CACHE.clear()
     with project_state._GLOBAL_USAGE_CACHE_LOCK:
         project_state._GLOBAL_USAGE_CACHE.clear()
 
     assert project_state.build_snapshot("s-host-one", global_root=tmp_path) is not None
     assert project_state.build_snapshot("s-host-two", global_root=tmp_path) is not None
-    assert calls == {"cost": 1, "usage": 1}
+    assert calls == 1
 
 
 def test_compact_snapshot_never_reports_global_usage_below_project_usage(
@@ -336,21 +297,15 @@ def test_compact_snapshot_refreshes_host_projections_off_request_thread(
     request_thread = threading.get_ident()
     refresh_threads: list[int] = []
 
-    def slow_cost(*, global_root):
+    def slow_usage(*, global_root, now=None):
         refresh_threads.append(threading.get_ident())
         started.set()
         assert release.wait(timeout=5.0)
-        return {"day": "2026-07-27", "active_reservations": 0}
-
-    def usage(*, global_root, now=None):
         return project_state._empty_usage_summary()
 
     import argus.life.supervisor as supervisor_module
 
-    monkeypatch.setattr(project_state, "cost_control_snapshot", slow_cost)
-    monkeypatch.setattr(supervisor_module, "global_daily_usage_summary", usage)
-    with project_state._COST_CONTROL_CACHE_LOCK:
-        project_state._COST_CONTROL_CACHE.clear()
+    monkeypatch.setattr(supervisor_module, "global_daily_usage_summary", slow_usage)
     with project_state._GLOBAL_USAGE_CACHE_LOCK:
         project_state._GLOBAL_USAGE_CACHE.clear()
     with project_state._HOST_REFRESHING_LOCK:
@@ -364,7 +319,6 @@ def test_compact_snapshot_refreshes_host_projections_off_request_thread(
 
     try:
         assert snap is not None
-        assert snap["cost_control"] is None
         assert snap["global_usage_summary"]["call_count"] == 0
         assert started.wait(timeout=1.0)
         assert len(refresh_threads) == 1
@@ -610,7 +564,6 @@ def test_build_snapshot_shape_and_failsoft(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    monkeypatch.setenv("ARGUS_SKILL_GLOBAL_DAILY_CAP_USD", "55")
     _make_project(tmp_path)
     snap = project_state.build_snapshot("s-testaaaa", global_root=tmp_path)
     assert snap is not None
@@ -629,8 +582,6 @@ def test_build_snapshot_shape_and_failsoft(
         "global_spend_usd",
         "global_spend_status",
         "global_usage_summary",
-        "request_usage",
-        "cost_control",
         "daemon_commands",
         "observability",
         "mission_view",
@@ -641,8 +592,6 @@ def test_build_snapshot_shape_and_failsoft(
     assert snap["schema_version"] == SNAPSHOT_SCHEMA_VERSION
     assert snap["partial"] is False
     assert snap["diagnostics"] == []
-    assert snap["cost_control"]["active_reservations"] == 0
-    assert snap["cost_control"]["unresolved_calls"] == 0
     assert snap["daemon_commands"]["revision"] == 0
     assert snap["observability"]["slo"]["status"] == "healthy"
     assert snap["mission_view"]["schema_version"] == 7
@@ -651,7 +600,6 @@ def test_build_snapshot_shape_and_failsoft(
     assert len(snap["recent_events"]) == 2
     assert snap["backlog"][0]["title"] == "do X"
     assert snap["daemon"]["alive"] is False  # no daemon running
-    assert snap["daemon"]["global_daily_cap_usd"] == 55.0
     assert snap["spend_usd"] is None
     assert snap["spend_status"] == "empty"
     assert snap["usage_summary"]["call_count"] == 0
@@ -668,7 +616,7 @@ def test_build_snapshot_reuses_host_metrics_across_project_switches(
     _make_project(tmp_path, "s-second")
     calls = 0
 
-    def fake_metrics_snapshot(*, root, cost_control=None):
+    def fake_metrics_snapshot(*, root):
         nonlocal calls
         calls += 1
         return {"slo": {"status": "healthy"}, "root": str(root)}
@@ -692,7 +640,7 @@ def test_compact_snapshot_never_runs_expensive_metrics_projection(
     _make_project(tmp_path, "s-fast")
     calls = 0
 
-    def slow_metrics_snapshot(*, root, cost_control=None):
+    def slow_metrics_snapshot(*, root):
         nonlocal calls
         calls += 1
         return {"slo": {"status": "healthy"}, "root": str(root)}
@@ -736,7 +684,6 @@ def test_build_snapshot_marks_failsoft_sections_partial(
     assert snap["partial"] is True
     assert snap["daemon"]["read_status"] == "error"
     assert snap["daemon"]["read_error"] == "status sidecar is unreadable"
-    assert "global_daily_cap_usd" in snap["daemon"]
     assert "mission_width" in snap["daemon"]
     assert snap["diagnostics"] == [
         {
@@ -795,11 +742,6 @@ def test_snapshot_auxiliary_failures_keep_schema_and_report_diagnostics(
         "read_session_meta",
         broken("session"),
     )
-    monkeypatch.setattr(
-        project_state,
-        "provider_usage_snapshot",
-        broken("request usage"),
-    )
 
     snap = project_state.build_snapshot("s-testaaaa", global_root=tmp_path)
 
@@ -808,11 +750,9 @@ def test_snapshot_auxiliary_failures_keep_schema_and_report_diagnostics(
     assert snap["session"]["id"] == "s-testaaaa"
     assert snap["spend_usd"] is None
     assert snap["usage_summary"]["call_count"] == 0
-    assert snap["request_usage"] is None
     assert {item["section"] for item in snap["diagnostics"]} >= {
         "usage",
         "session",
-        "request_usage",
     }
     repeated = project_state.build_snapshot("s-testaaaa", global_root=tmp_path)
     assert repeated is not None

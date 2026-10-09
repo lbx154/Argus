@@ -29,20 +29,13 @@ argus --status --resume PROJECT_ID
 `--daemon` drains the backlog in the background. `--continuous` enables generation
 of further work; `--resume-continuous` restores an already armed, persisted
 campaign. A background worker does not require a connected human, but still
-honors budgets, explicit pauses and operator decisions.
+honors explicit pauses and operator decisions.
 
 Registered background work normally finishes before independent Reviewer
 evaluation. Waiting does not approve the result: the Engineer consumes the
 terminal output and the Reviewer still decides whether the task is complete.
 Set `ARGUS_SKILL_REVIEW_BACKGROUND_LAUNCHES=1` before starting the worker only
 when a separate launch review is needed; it does not replace result review.
-
-Automatic budget-pause recovery checks both the host cost/token limits and,
-when a configured role uses Copilot, its local daily premium/call caps. While
-those caps remain exhausted, the task stays paused without a new attempt or
-provider-call reservation. Raising the cap or starting a new accounting day
-allows the normal resume path to recheck admission. Provider cooldowns and
-explicit operator pauses keep their separate behavior.
 
 ## Linux service supervision
 
@@ -100,8 +93,8 @@ TypeScript migration.
 
 ## Execution ownership during TypeScript migration
 
-The production daemon/backlog are still Python. `BudgetedPiBackend` is the opt-in
-TS execution primitive. Its OS process guard watches a **private pipe from the
+The production daemon/backlog are still Python. The TypeScript `PiBackend` can
+run under an OS process guard. That guard watches a **private pipe from the
 execution owner**. It never watches browser connections, the terminal's stdin or
 an SSH session. A detached Node owner keeps that pipe open after its launcher
 has exited.
@@ -114,10 +107,8 @@ stops the run. The read API's per-request worker cancellation affects queries,
 not daemon work.
 
 If the execution owner dies, the guard reclaims its temporary provider process
-tree and the budget owner retains unconfirmed spending. On daemon restart, use
-the persistent backlog and existing reconciliation rules. An interrupted provider
-call is not resumed from CPU/RAM state or blindly retried as a free call. Unknown
-costs may pause admission under the configured policy until reconciled.
+tree. On daemon restart, use the persistent backlog. An interrupted provider
+call is not resumed from CPU/RAM state or blindly retried.
 
 Explicit durable subagent/command launchers have their own registry and ownership
 boundary. They are distinct from temporary tool descendants; see
@@ -125,9 +116,3 @@ boundary. They are distinct from temporary tool descendants; see
 are not a sandbox against children deliberately creating new sessions. A service
 manager's control group also covers simultaneous loss of the execution owner and
 its guard.
-
-Native tests launch a detached Node owner, let its launcher exit, deliver SIGHUP
-where available, and then allow its task to complete. Separate tests kill the
-execution owner, process guard or budget process and check that temporary
-children/grandchildren exit, known cost survives and unrelated processes remain
-alive. Linux, macOS and Windows CI run these checks.

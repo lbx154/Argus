@@ -5,7 +5,6 @@ import json
 import os
 import stat
 import threading
-from contextlib import nullcontext
 from pathlib import Path
 from types import SimpleNamespace
 
@@ -82,10 +81,8 @@ def test_readonly_copilot_gateway_loads_only_bound_advisor_over_stdio(tmp_path, 
     state, workspace = tmp_path / "state", tmp_path / "workspace"
     workspace.mkdir()
     save_advisor_config(state, {"enabled": True, "backend": "pi", "model": "test/expert"})
-    monkeypatch.setenv("ARGUS_SKILL_COST_CONTROL", "off")
     monkeypatch.setenv("ARGUS_SKILL_SAFE_MODE", "0")
     monkeypatch.setenv(TOKEN_ENV, "unrelated-parent-capability")
-    monkeypatch.setattr(_exec, "monitor_budget", lambda *_args: nullcontext())
     services, paths, environments = [], [], []
 
     def create_service(context, config):

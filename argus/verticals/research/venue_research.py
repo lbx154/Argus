@@ -173,7 +173,7 @@ def _build_prompt(venue: str) -> str:
 
 
 def research_venue_profile(
-    runner: Any, workdir: Any, *, model: str = "gpt-5.5"
+    runner: Any, workdir: Any, *, model: str = "gpt-6.1-sol"
 ) -> bool:
     """Run ONE codex live-web-search + shell round to research the target
     venue's format and write ``research/VENUE_PROFILE.json``.

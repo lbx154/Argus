@@ -174,7 +174,6 @@ def test_in_process_life_planner_receives_refreshed_project_skills(
         reviewer_model="memory",
         once=True,
         max_missions=1,
-        global_daily_cap_usd=0,
         project_worktree=workdir,
         artifact_root=tmp_path / "state",
         quiet=True,

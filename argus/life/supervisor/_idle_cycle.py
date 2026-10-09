@@ -345,7 +345,7 @@ class IdleCycleMixin:
             return "stop_event signalled"
         # In continuous mode, max_missions is not a hard cap — the
         # planner generates new work indefinitely until it declares
-        # the project done. Only the host-global daily budget is enforced.
+        # the project done.
         if not self.config.continuous and self.config.budget.max_missions > 0:
             if self._missions_started >= self.config.budget.max_missions:
                 # Suppress the cap message when there's no held-back work.
@@ -358,18 +358,6 @@ class IdleCycleMixin:
                 if more_pending:
                     return f"max-missions cap reached ({self.config.budget.max_missions})"
                 return "__silent_stop__"
-        allowed, _reason = self.config.budget.can_start(
-            global_root=self._budget_global_root(),
-        )
-        if not allowed:
-            if _reason.startswith("unresolved provider cost"):
-                return "paused_cost"
-            try:
-                if self.memory.backlog.next_pending() is not None:
-                    return "paused_budget"
-            except Exception:  # noqa: BLE001
-                pass
-            return "global daily budget exhausted"
         return ""
 
     def _wait_idle(self) -> bool:

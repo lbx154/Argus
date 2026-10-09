@@ -440,7 +440,7 @@ describe('shared frontend core', () => {
   it('distinguishes mission completion from daemon liveness', () => {
     const view = deriveMissionView({
       session: { id: 's', display_name: '', objective: '', last_active: 0, cwd: '' },
-      daemon: { alive: true, pid: 1, uptime_seconds: 1, backend: 'x', global_daily_cap_usd: 0 },
+      daemon: { alive: true, pid: 1, uptime_seconds: 1, backend: 'x'},
       roles: [],
       backlog: [],
       recent_events: [],
@@ -522,7 +522,7 @@ describe('shared frontend core', () => {
   it('treats a fresh session with a lazy daemon as ready, not offline', () => {
     const view = deriveMissionView({
       session: { id: 's-fresh', display_name: '', objective: '', last_active: 0, cwd: '' },
-      daemon: { alive: false, pid: null, uptime_seconds: null, backend: null, global_daily_cap_usd: null },
+      daemon: { alive: false, pid: null, uptime_seconds: null, backend: null},
       roles: [],
       backlog: [],
       recent_events: [],
@@ -534,7 +534,7 @@ describe('shared frontend core', () => {
   it('does not report armed work as active when the executor is absent', () => {
     const snapshot = {
       session: { id: 's', display_name: '', objective: '', last_active: 0, cwd: '' },
-      daemon: { alive: false, pid: null, uptime_seconds: null, backend: null, global_daily_cap_usd: null },
+      daemon: { alive: false, pid: null, uptime_seconds: null, backend: null},
       roles: [],
       recent_events: [],
       backlog: [],
@@ -677,7 +677,7 @@ describe('shared frontend core', () => {
     view.mission.started_at = 100;
     const snapshot = {
       session: { id: 's', display_name: '', objective: '', created: 10, last_active: 0, cwd: '' },
-      daemon: { alive: true, pid: 1, uptime_seconds: 1, backend: 'x', global_daily_cap_usd: 3 },
+      daemon: { alive: true, pid: 1, uptime_seconds: 1, backend: 'x'},
       roles: [],
       backlog: [{ id: 'solve', title: 'Solve', objective: '', status: 'running', priority: 100, iterate: true, pending_question: '', started_ts: 100, finished_ts: null, deps: [], iteration_max_cycles: 1, iteration_cycles_done: 0 }],
       recent_events: [],
@@ -701,7 +701,7 @@ describe('shared frontend core', () => {
     view.last_event_ts = 10;
     const snapshot = {
       session: { id: 's', display_name: '', objective: '', created: 1, last_active: 0, cwd: '' },
-      daemon: { alive: true, pid: 1, uptime_seconds: 1, backend: 'x', global_daily_cap_usd: 3 },
+      daemon: { alive: true, pid: 1, uptime_seconds: 1, backend: 'x'},
       roles: [],
       backlog: [],
       recent_events: [],
@@ -742,7 +742,7 @@ describe('shared frontend core', () => {
     view.last_event_ts = 10;
     const snapshot = {
       session: { id: 's', display_name: '', objective: '', created: 1, last_active: 0, cwd: '' },
-      daemon: { alive: true, pid: 1, uptime_seconds: 1, backend: 'x', global_daily_cap_usd: 3 },
+      daemon: { alive: true, pid: 1, uptime_seconds: 1, backend: 'x'},
       roles: [],
       backlog: [],
       recent_events: [],

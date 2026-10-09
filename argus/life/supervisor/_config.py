@@ -26,10 +26,10 @@ def global_daily_usage_summary(
     global_root: Path | None = None,
     now: float | None = None,
 ) -> UsageSummary:
-    """Use the call gateway's complete, deduplicated daily ledger view."""
-    from ...core.cost_control import global_daily_usage_summary as admission_usage
+    """Known spend of every project on the host since local midnight."""
+    from ...core.usage import global_daily_usage_summary as ledger_usage
 
-    return admission_usage(global_root=global_root, now=now)
+    return ledger_usage(global_root=global_root, now=now)
 
 
 def global_daily_spend(*, global_root: Path | None = None, now: float | None = None) -> float:
@@ -42,51 +42,14 @@ def global_daily_spend(*, global_root: Path | None = None, now: float | None = N
 
 @dataclass
 class LifeBudget:
-    """Host-global daily cost limit plus an optional mission guard."""
+    """An optional ceiling on the missions one supervisor run starts.
 
-    global_daily_cap_usd: float = 0.0
+    Spending is never a reason to stop: every call is recorded in the usage
+    ledger for display, and a hosted trial is limited at its gateway.
+    """
+
     max_missions: int = 0
-    # Long-lived hosts follow changes to the operator's budget without a
-    # restart. Explicit standalone LifeBudget values remain supported.
-    follow_operator_config: bool = False
 
-    def can_start(
-        self,
-        *,
-        now: float | None = None,
-        global_root: Path | None = None,
-    ) -> tuple[bool, str]:
-        """Follow current caps and recheck the same strict gate as call admission."""
-        from ...core.cost_control import cost_admission_reason, cost_control_enabled
-
-        if self.follow_operator_config:
-            from ...core.knobs import resolve_budget_caps
-
-            self.global_daily_cap_usd = resolve_budget_caps(
-                global_root=global_root,
-            ).global_daily_cap_usd
-        global_cap = float(self.global_daily_cap_usd or 0.0)
-        if cost_control_enabled():
-            reason = cost_admission_reason(global_root=global_root, cap=global_cap, now=now)
-            if reason:
-                return False, reason
-        elif global_cap > 0:
-            spent = global_daily_spend(global_root=global_root, now=now)
-            if spent >= global_cap:
-                return False, (
-                    f"global daily budget exhausted "
-                    f"(${spent:.2f} spent / ${global_cap:.2f})"
-                )
-        from ...core.knobs import resolve_role_backend
-        from ...provider_integrations.copilot_guard import copilot_budget_reason
-
-        # Standalone budget readers and in-memory runners need no CLI provider.
-        if any(resolve_role_backend(role, default="memory").strip().lower() == "copilot"
-               for role in ("manager", "planner", "engineer", "reviewer")):
-            reason = copilot_budget_reason(root=global_root)
-            if reason:
-                return False, reason
-        return True, ""
 
 @dataclass
 class LifeSupervisorConfig:

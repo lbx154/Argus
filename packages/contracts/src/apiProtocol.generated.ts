@@ -23,7 +23,6 @@ export const REQUIRED_API_CAPABILITIES = [
   "project.workdir.v1",
   "research.events.v1",
   "release.identity.v1",
-  "snapshot.budget.v1",
   "snapshot.schema.v1",
   "source.update.v1",
   "usage.recorded.v2",

@@ -15,26 +15,6 @@ import pytest
 pytestmark = pytest.mark.e2e
 
 
-def _reserve_worker(root: str, project: str, start, finish, queue, call_id: str) -> None:
-    from argus.core.cost_control import reserve_call_budget
-
-    start.wait()
-    reservation, reason = reserve_call_budget(
-        call_id=call_id,
-        project_root=Path(project),
-        mission_id="mission-1",
-        provider="codex",
-        model="gpt-5.6-sol",
-        run_label="engineer-r1",
-        global_root=Path(root),
-        global_daily_cap_usd=10,
-    )
-    queue.put((reservation is not None, reason))
-    if reservation is not None:
-        finish.wait(timeout=10)
-        reservation.release(reason="deployment-test")
-
-
 def _command_worker(root: str, start, queue, marker: str) -> None:
     from argus.daemon.commands import execute_daemon_command
 
@@ -67,32 +47,6 @@ def _free_port() -> int:
 def _get_json(url: str) -> tuple[dict, object]:
     with urllib.request.urlopen(url, timeout=2) as response:
         return json.loads(response.read()), response.headers
-
-
-def test_processes_have_no_fixed_per_call_budget_hold(tmp_path: Path) -> None:
-    context = mp.get_context("spawn")
-    project = tmp_path / "projects" / "p1"
-    project.mkdir(parents=True)
-    start = context.Event()
-    finish = context.Event()
-    queue = context.Queue()
-    processes = [
-        context.Process(
-            target=_reserve_worker,
-            args=(str(tmp_path), str(project), start, finish, queue, f"call-{index}"),
-        )
-        for index in range(2)
-    ]
-    for process in processes:
-        process.start()
-    start.set()
-    results = [queue.get(timeout=10) for _ in processes]
-    finish.set()
-    for process in processes:
-        process.join(timeout=10)
-        assert process.exitcode == 0
-    assert all(allowed for allowed, _reason in results)
-    assert all(reason == "" for _allowed, reason in results)
 
 
 def test_processes_claim_duplicate_daemon_command_once(tmp_path: Path) -> None:

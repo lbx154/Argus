@@ -154,8 +154,6 @@ def _worker_runtime_context(
         "## Runtime info\n"
         f"- Engineer model: {cfg.engineer_model}\n"
         f"- Reviewer model: {cfg.reviewer_model}\n"
-        "- Host-global daily budget follows the current operator settings; "
-        "0 means unlimited. The call gateway checks the live value.\n"
         "\n"
         "## Python environments (CRITICAL)\n"
         f"- argus commands: `{argus_python}`\n"
@@ -207,11 +205,7 @@ def _build_supervisor_config(
     final_certification = _final_certification_for_project_root(runtime_root)
 
     return LifeSupervisorConfig(
-        budget=LifeBudget(
-            global_daily_cap_usd=cfg.global_daily_cap_usd,
-            max_missions=0,
-            follow_operator_config=True,
-        ),
+        budget=LifeBudget(max_missions=0),
         planner_task_iteration_max_cycles=cfg.planner_task_iteration_max_cycles,
         subagent_family_failure_streak_limit=cfg.subagent_family_failure_streak_limit,
         subagent_family_failure_window_hours=cfg.subagent_family_failure_window_hours,

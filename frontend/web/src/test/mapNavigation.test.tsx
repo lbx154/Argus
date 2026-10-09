@@ -64,7 +64,7 @@ const props: ComponentProps<typeof MapCanvas> = {
   events: [],
   snapshot: {
     session: { id: "navigation", display_name: "Navigation", objective: "", last_active: 0, cwd: "" },
-    daemon: { alive: false, pid: null, uptime_seconds: null, backend: null, global_daily_cap_usd: null },
+    daemon: { alive: false, pid: null, uptime_seconds: null, backend: null},
     roles: [], backlog: [], recent_events: [],
   },
   composer: {

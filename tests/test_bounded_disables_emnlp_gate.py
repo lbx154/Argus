@@ -42,7 +42,6 @@ def test_worker_bounded_disables_final_certification_gate(tmp_path: Path):
 
     assert cfg.open_ended is False
     assert cfg.final_certification_gate is False
-    assert cfg.budget.follow_operator_config is True
 
 
 def test_worker_unresolved_unbounded_project_does_not_assume_emnlp(tmp_path: Path):
@@ -99,7 +98,6 @@ def test_web_default_worker_does_not_require_an_open_campaign_certificate(tmp_pa
 
 def test_bounded_disables_final_certification_gate(tmp_path: Path):
     cfg = _build_runtime_supervisor_config(
-        global_daily_cap_usd=0.0,
         once=False,
         max_missions=1,
         project_worktree=tmp_path,
@@ -117,7 +115,6 @@ def test_bounded_disables_final_certification_gate(tmp_path: Path):
 
 def test_unresolved_unbounded_project_does_not_assume_emnlp(tmp_path: Path):
     cfg = _build_runtime_supervisor_config(
-        global_daily_cap_usd=0.0,
         once=False,
         max_missions=1,
         project_worktree=tmp_path,
@@ -140,7 +137,6 @@ def _config_for_vertical(tmp_path: Path, vertical: str, *, open_ended: bool = Tr
     root = tmp_path / "life"
     persist_vertical(root, vertical)  # the Manager's decision, persisted
     return _build_runtime_supervisor_config(
-        global_daily_cap_usd=0.0,
         once=False,
         max_missions=1,
         project_worktree=tmp_path,

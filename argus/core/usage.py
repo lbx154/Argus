@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import errno
 import json
+import logging
 import os
 import re
 import tempfile
@@ -58,6 +59,14 @@ _CALL_ID_CACHE_LOCK = threading.Lock()
 _CALL_ID_CACHE_MAX_PROJECTS = 64
 _CALL_ID_CACHE_MAX_IDS = 50_000
 _SUFFIX_PROBE_LIMIT = 256
+# Today's records of each journal, kept in the process so that admission does
+# not parse every project's whole journal before each provider call and again
+# every few seconds while the call runs. A snapshot is valid while the
+# journal's stat signature is unchanged; an append on the same inode is read
+# from where the previous read stopped; anything else is parsed again.
+_RECENT_RECORDS_CACHE: dict[str, "_RecentRecords"] = {}
+_RECENT_RECORDS_CACHE_LOCK = threading.Lock()
+_RECENT_RECORDS_CACHE_MAX_PROJECTS = 128
 
 
 class UsageJournalIntegrityError(RuntimeError):
@@ -276,13 +285,21 @@ def repair_usage_journal(
     )
 
 
-def _iter_usage_json_rows(path: Path, *, writer_excluded: bool = False) -> Iterator[dict[str, Any]]:
-    """Yield every physical record, failing closed on a malformed line.
+def _scan_usage_rows(
+    path: Path,
+    *,
+    offset: int = 0,
+    first_line: int = 1,
+    writer_excluded: bool = False,
+) -> Iterator[tuple[dict[str, Any], int, int]]:
+    """Yield ``(row, end_offset, line_number)`` for every physical record from ``offset``.
 
     Blank lines are benign. A final line without a newline is tolerated only
-    while another writer holds the usage lock (an append in progress);
-    ``writer_excluded`` callers already hold that lock, so for them it is a
-    truncated record. Any unparsable line followed by more data is corruption.
+    while another writer holds the usage lock (an append in progress) and is
+    then left unread, so a later scan from its ``end_offset`` picks it up once
+    it is complete; ``writer_excluded`` callers already hold that lock, so for
+    them it is a truncated record. Any unparsable line followed by more data is
+    corruption and fails closed.
     """
     try:
         handle = path.open("rb")
@@ -290,7 +307,13 @@ def _iter_usage_json_rows(path: Path, *, writer_excluded: bool = False) -> Itera
         return
     lock_path = path.parent / USAGE_LOCK_FILE
     with handle:
-        for line_number, raw in enumerate(handle, start=1):
+        if offset:
+            handle.seek(offset)
+        position = offset
+        line_number = first_line - 1
+        for raw in handle:
+            line_number += 1
+            position += len(raw)
             if not raw.strip():
                 continue
             try:
@@ -298,7 +321,7 @@ def _iter_usage_json_rows(path: Path, *, writer_excluded: bool = False) -> Itera
             except (UnicodeDecodeError, ValueError):
                 row = None
             if isinstance(row, dict):
-                yield row
+                yield row, position, line_number
                 continue
             if row is not None:
                 raise UsageJournalIntegrityError(path, line_number, "record is not a JSON object")
@@ -315,6 +338,51 @@ def _iter_usage_json_rows(path: Path, *, writer_excluded: bool = False) -> Itera
             else:
                 detail = "malformed record"
             raise UsageJournalIntegrityError(path, line_number, detail, recovered_call_id=recovered)
+
+
+def _iter_usage_json_rows(path: Path, *, writer_excluded: bool = False) -> Iterator[dict[str, Any]]:
+    """Yield every physical record, failing closed on a malformed line."""
+    for row, _end, _line in _scan_usage_rows(path, writer_excluded=writer_excluded):
+        yield row
+
+
+def _local_day_floor(timestamp: float) -> float:
+    """Local midnight at or before ``timestamp``; the earliest record a snapshot keeps."""
+    local = time.localtime(timestamp)
+    try:
+        return time.mktime((local.tm_year, local.tm_mon, local.tm_mday, 0, 0, 0, 0, 0, -1))
+    except (OverflowError, OSError, ValueError):
+        return timestamp
+
+
+# How many bytes before the consumed end are kept to recognise an append: a
+# journal that grew on the same inode but no longer ends the way it did was
+# rewritten in place (an operator's editor, a test), not appended to.
+_RECENT_TAIL_BYTES = 256
+
+
+@dataclass(frozen=True)
+class _RecentRecords:
+    """One journal's records since ``floor``, as of ``signature``."""
+
+    signature: tuple[int, int, int]
+    consumed_bytes: int
+    consumed_lines: int
+    floor: float
+    records: tuple[UsageRecord, ...]
+    call_ids: frozenset[str]
+    tail: bytes = b""
+
+
+def _journal_tail(path: Path, end: int, length: int = _RECENT_TAIL_BYTES) -> bytes:
+    """The last ``length`` bytes before ``end``, or ``b""`` when unreadable."""
+    start = max(0, end - length)
+    try:
+        with path.open("rb") as handle:
+            handle.seek(start)
+            return handle.read(end - start)
+    except OSError:
+        return b""
 
 
 @dataclass(frozen=True)
@@ -889,27 +957,93 @@ class UsageLedger:
         if self._migrate_legacy:
             self.ensure_legacy_migrated()
             self.ensure_copilot_usage_reconciled()
-        out: list[UsageRecord] = []
-        seen: set[str] = set()
-        startup_receipts = None
-        for row in _iter_usage_json_rows(self.path):
-            receipt = None
-            if is_local_startup_parser_error(row.get("error")):
-                if startup_receipts is None:
-                    startup_receipts = _startup_completion_receipts(self.project_root)
-                receipt = startup_receipts.get(str(row.get("call_id") or ""))
-            record = UsageRecord.from_jsonable(row, startup_receipt=receipt)
-            if not record.call_id or record.call_id in seen:
-                continue
-            seen.add(record.call_id)
-            if record.completed_at < since:
-                continue
-            if mission_id is not None and record.mission_id != mission_id:
-                continue
-            out.append(record)
+        out = self._recent_records(since) if since > 0 else None
+        if out is None:
+            out = []
+            seen: set[str] = set()
+            startup_receipts = None
+            for row in _iter_usage_json_rows(self.path):
+                receipt = None
+                if is_local_startup_parser_error(row.get("error")):
+                    if startup_receipts is None:
+                        startup_receipts = _startup_completion_receipts(self.project_root)
+                    receipt = startup_receipts.get(str(row.get("call_id") or ""))
+                record = UsageRecord.from_jsonable(row, startup_receipt=receipt)
+                if not record.call_id or record.call_id in seen:
+                    continue
+                seen.add(record.call_id)
+                if record.completed_at < since:
+                    continue
+                out.append(record)
+        if mission_id is not None:
+            out = [record for record in out if record.mission_id == mission_id]
         if self._reconcile_token_pricing(out):
             return self.records(since=since, mission_id=mission_id)
         return out
+
+    def _recent_records(self, since: float) -> list[UsageRecord] | None:
+        """Records completed at or after ``since`` from this process's snapshot.
+
+        Returns ``None`` when the journal has to be read in full: the request
+        reaches back before the snapshot's floor, or a record's reading depends
+        on a startup receipt that may still arrive. Every other read costs one
+        ``stat`` while the journal is unchanged and parses only the appended
+        bytes after an append; a journal replaced or rewritten in place is
+        parsed again from the start.
+        """
+        signature = _path_signature(self.path)
+        if signature is None:
+            return []
+        key = str(self.path.resolve())
+        with _RECENT_RECORDS_CACHE_LOCK:
+            cached = _RECENT_RECORDS_CACHE.get(key)
+        if cached is not None and since < cached.floor:
+            return None
+        if cached is not None and cached.signature == signature:
+            return [record for record in cached.records if record.completed_at >= since]
+        floor = _local_day_floor(time.time())
+        if since < floor:
+            return None
+        appended = (
+            cached is not None
+            and cached.signature[0] == signature[0]
+            and signature[1] > cached.consumed_bytes
+            and _journal_tail(self.path, cached.consumed_bytes) == cached.tail
+        )
+        if appended:
+            assert cached is not None
+            floor = max(cached.floor, floor)
+            records = [record for record in cached.records if record.completed_at >= floor]
+            call_ids = set(cached.call_ids)
+            offset, first_line = cached.consumed_bytes, cached.consumed_lines + 1
+        else:
+            records, call_ids, offset, first_line = [], set(), 0, 1
+        consumed_bytes, consumed_lines = offset, first_line - 1
+        for row, end, line_number in _scan_usage_rows(self.path, offset=offset, first_line=first_line):
+            if is_local_startup_parser_error(row.get("error")):
+                return None
+            consumed_bytes, consumed_lines = end, line_number
+            record = UsageRecord.from_jsonable(row)
+            if not record.call_id or record.call_id in call_ids:
+                continue
+            call_ids.add(record.call_id)
+            if record.completed_at >= floor:
+                records.append(record)
+        snapshot = _RecentRecords(
+            signature=signature,
+            consumed_bytes=consumed_bytes,
+            consumed_lines=consumed_lines,
+            floor=floor,
+            records=tuple(records),
+            call_ids=frozenset(call_ids),
+            tail=_journal_tail(self.path, consumed_bytes),
+        )
+        with _RECENT_RECORDS_CACHE_LOCK:
+            _RECENT_RECORDS_CACHE.pop(key, None)
+            _RECENT_RECORDS_CACHE[key] = snapshot
+            while len(_RECENT_RECORDS_CACHE) > _RECENT_RECORDS_CACHE_MAX_PROJECTS:
+                del _RECENT_RECORDS_CACHE[next(iter(_RECENT_RECORDS_CACHE))]
+        return [record for record in records if record.completed_at >= since]
 
     def _reconcile_token_pricing(self, records: Iterable[UsageRecord]) -> int:
         pending = {
@@ -1235,8 +1369,11 @@ class UsageLedger:
         with self._locked():
             repair = repair_usage_journal(self.path, liabilities=liabilities)
             if repair is not None:
+                key = str(self.path.resolve())
                 with _CALL_ID_CACHE_LOCK:
-                    _CALL_ID_CACHE.pop(str(self.path.resolve()), None)
+                    _CALL_ID_CACHE.pop(key, None)
+                with _RECENT_RECORDS_CACHE_LOCK:
+                    _RECENT_RECORDS_CACHE.pop(key, None)
             return repair
 
     def _call_ids_unlocked(self) -> set[str]:
@@ -2024,6 +2161,69 @@ def _call_status(value: Any) -> CallStatus:
         return status  # type: ignore[return-value]
     return "error"
 
+
+
+# --------------------------------------------------------------------------- #
+# The daily roll-up across every project on the host                          #
+# --------------------------------------------------------------------------- #
+
+log = logging.getLogger(__name__)
+
+
+def _reconciled_records(ledger: UsageLedger, day_start: float) -> list[UsageRecord]:
+    records = ledger.records(since=day_start)
+    if any(record.provider == "copilot" and (
+        record.cost_usd is None
+        or record.pricing_status in {"partial", "unpriced"}
+        or record.cost_basis == "premium_request"
+    ) for record in records):
+        ledger.ensure_copilot_usage_reconciled()
+        records = ledger.records(since=day_start)
+    return records
+
+
+def daily_records(ledger: UsageLedger, day_start: float) -> list[UsageRecord]:
+    """One project's records since ``day_start``, Copilot usage reconciled.
+
+    A damaged journal is repaired once (damaged lines set aside beside it,
+    complete records kept) and read again.
+    """
+    try:
+        return _reconciled_records(ledger, day_start)
+    except UsageJournalIntegrityError as exc:
+        repair = ledger.repair_journal()
+        if repair is not None:
+            log.warning("usage journal %s repaired: %d damaged line(s) set aside in %s (%s)",
+                        repair.path, len(repair.damaged), repair.damaged_copy, exc)
+    return _reconciled_records(ledger, day_start)
+
+
+def global_daily_usage_summary(
+    *, global_root: Path | str | None = None, now: float | None = None,
+) -> UsageSummary:
+    """Known spend of every project on the host since local midnight, each call once."""
+    from .paths import global_root as default_global_root
+    from .paths import session_states_root
+
+    timestamp = time.time() if now is None else float(now)
+    root = Path(global_root).expanduser() if global_root is not None else default_global_root()
+    day_start = _local_day_floor(timestamp)
+    try:
+        project_roots = [path for path in session_states_root(root).iterdir() if path.is_dir()]
+    except OSError:
+        project_roots = []
+    records: list[UsageRecord] = []
+    for project_root in project_roots:
+        try:
+            records.extend(
+                daily_records(UsageLedger(project_root, migrate_legacy=False), day_start)
+            )
+        except Exception:  # noqa: BLE001 - one project's damage cannot hide the others' spend
+            log.warning("usage journal under %s left out of today's total", project_root,
+                        exc_info=True)
+            continue
+    unique = {(record.project_id, record.call_id): record for record in records}
+    return summarize_usage(unique.values())
 
 __all__ = [
     "CallStatus",

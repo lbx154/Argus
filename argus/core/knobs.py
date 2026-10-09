@@ -12,7 +12,6 @@ the authoritative default still lives at each read-site; keep them in sync.
 """
 from __future__ import annotations
 
-import math
 import os
 import re
 from dataclasses import dataclass
@@ -41,19 +40,6 @@ class ResolvedKnob:
     value: str
     source: str
 
-
-@dataclass(frozen=True)
-class BudgetCaps:
-    """Host-global runtime limits, shared by every project and backend."""
-
-    global_daily_cap_usd: float
-    global_daily_token_cap: int = 0
-
-
-BUDGET_KNOB_DEFAULTS: dict[str, str] = {
-    "ARGUS_SKILL_GLOBAL_DAILY_CAP_USD": "1000.0",
-    "ARGUS_SKILL_GLOBAL_DAILY_TOKEN_CAP": "0",
-}
 
 # Daemon count is not provider concurrency: every backend still obeys its own
 # host-wide call/concurrency guard. Keep this high enough for independent
@@ -163,22 +149,10 @@ KNOBS: tuple[Knob, ...] = (
     Knob("ARGUS_SKILL_ENGINEER_REASONING_EFFORT", "xhigh", "engineer reasoning effort: low|medium|high|xhigh", "reasoning", cockpit=True),
     Knob("ARGUS_SKILL_REVIEWER_REASONING_EFFORT", "high", "reviewer reasoning effort", "reasoning", cockpit=True),
     Knob("ARGUS_SKILL_SUPERVISOR_REASONING_EFFORT", "low", "subagent supervisor reasoning effort", "reasoning", cockpit=True),
-    # Provider/cost caps are explicit resource-admission budgets, not work clocks.
+    # Capacity limits are explicit resource admission, not work clocks.
     # --- budget ---
-    Knob("ARGUS_SKILL_GLOBAL_DAILY_CAP_USD", BUDGET_KNOB_DEFAULTS["ARGUS_SKILL_GLOBAL_DAILY_CAP_USD"], "host-global daily USD cap across all projects", "budget", cockpit=True),
-    Knob("ARGUS_SKILL_GLOBAL_DAILY_TOKEN_CAP", "0", "daily input (including cache) plus output/reasoning token limit across all projects; 0 disables", "budget", cockpit=True),
-    Knob("ARGUS_SKILL_DAILY_TOKEN_CAP_CACHED_WEIGHT", "1", "fraction (0..1) of each cached input token counted against the daily token cap; 1 counts cache reads in full", "budget", cockpit=True),
     Knob("ARGUS_SKILL_PROVIDER_MAX_CONCURRENCY", "0", "concurrent provider processes across all backends and projects; 0 disables", "budget"),
     Knob("ARGUS_SKILL_PROVIDER_SLOT_WAIT_SECONDS", "45", "seconds a provider call queues for a busy concurrency slot before it is refused; 0 refuses at once", "budget"),
-    Knob("ARGUS_SKILL_COST_CONTROL", "on", "host-global settled-cost admission and reconciliation", "budget"),
-    Knob("ARGUS_SKILL_UNPRICED_COST_POLICY", "block", "handling for unresolved call cost: block | allow", "budget", cockpit=True),
-    Knob("ARGUS_SKILL_COPILOT_GUARD", "on", "cross-project Copilot premium/call/concurrency circuit breaker", "budget"),
-    Knob("ARGUS_SKILL_CODEX_GUARD", "on", "cross-project Codex daily-call circuit breaker", "budget"),
-    Knob("ARGUS_SKILL_CODEX_DAILY_CALL_CAP", "300", "host-wide Codex provider-call cap per local day", "budget", cockpit=True),
-    Knob("ARGUS_SKILL_COPILOT_DAILY_PREMIUM_CAP", "10000", "host-wide Copilot premium-request cap per local day", "budget", cockpit=True),
-    Knob("ARGUS_SKILL_COPILOT_DAILY_CALL_CAP", "10000", "host-wide Copilot provider-call cap per local day", "budget", cockpit=True),
-    Knob("ARGUS_SKILL_COPILOT_HOURLY_CALL_CAP", "10000", "host-wide Copilot provider-call cap per rolling hour", "budget"),
-    Knob("ARGUS_SKILL_COPILOT_MAX_CONCURRENCY", "10000", "maximum concurrent Copilot calls across all Argus projects", "budget"),
     Knob("ARGUS_SKILL_MAX_ACTIVE_DAEMONS", str(DEFAULT_MAX_ACTIVE_DAEMONS), "host-wide active daemon cap", "budget", cockpit=True),
     Knob("ARGUS_SKILL_SUBAGENT_FAMILY_FAILURE_STREAK_LIMIT", "3", "consecutive unresolved subagent-job failures (same experiment family) before the L4 planner circuit-breaks further retries", "budget"),
     Knob("ARGUS_SKILL_SUBAGENT_FAMILY_FAILURE_WINDOW_HOURS", "72.0", "trailing window (hours) the subagent family failure streak is computed over", "budget"),
@@ -289,7 +263,6 @@ _EFFORT_KNOBS = frozenset(
 )
 _TOGGLE_KNOBS = frozenset(
     {
-        "ARGUS_SKILL_COST_CONTROL",
         "ARGUS_SKILL_WIKI",
         "ARGUS_SKILL_AUTO_INIT_WIKI",
         "ARGUS_SKILL_CROSS_PROJECT_PROPAGATION",
@@ -306,16 +279,7 @@ _TOGGLE_KNOBS = frozenset(
         "ARGUS_SKILL_RECALL_SIBLING_WIKIS",
     }
 )
-_NON_NEGATIVE_INT_KNOBS = frozenset(
-    {
-        "ARGUS_SKILL_CODEX_DAILY_CALL_CAP",
-        "ARGUS_SKILL_COPILOT_DAILY_CALL_CAP",
-        "ARGUS_SKILL_MAX_ACTIVE_DAEMONS",
-    }
-)
-_NON_NEGATIVE_FLOAT_KNOBS = frozenset({
-    "ARGUS_SKILL_COPILOT_DAILY_PREMIUM_CAP",
-})
+_NON_NEGATIVE_INT_KNOBS = frozenset({"ARGUS_SKILL_MAX_ACTIVE_DAEMONS"})
 # A path knob names one absolute filesystem location. ``~`` expands at persist
 # time; a relative path would silently depend on whichever cwd the reading
 # process was started from. Existence is deliberately NOT required: the
@@ -421,104 +385,6 @@ def resolve_runner_bin_setting(
     return ""
 
 
-def _parse_budget_value(name: str, raw: str) -> float:
-    try:
-        value = float(raw)
-    except (TypeError, ValueError) as exc:
-        raise ValueError(f"{name} must be a finite non-negative number; got {raw!r}") from exc
-    if not math.isfinite(value) or value < 0:
-        raise ValueError(f"{name} must be a finite non-negative number; got {raw!r}")
-    return value
-
-
-def _migrate_legacy_budget_into_config(
-    project_state_dir: object | None,
-    global_root: object | None,
-    *,
-    env: Mapping[str, str] | None = None,
-) -> None:
-    """One-time: preserve a pre-existing host-global budget in config.json."""
-    from .knob_store import read_persisted_knobs, write_persisted_knobs
-
-    persisted = read_persisted_knobs()
-    env_map = env if env is not None else os.environ
-
-    def _have(name: str) -> bool:
-        return bool(str(env_map.get(name, "") or "").strip()) or name in persisted
-
-    name = "ARGUS_SKILL_GLOBAL_DAILY_CAP_USD"
-    if _have(name):
-        return
-
-    import json as _json
-    from pathlib import Path
-
-    def _load(path: object) -> dict | None:
-        try:
-            data = _json.loads(Path(str(path)).read_text(encoding="utf-8"))
-            return data if isinstance(data, dict) else None
-        except Exception:  # noqa: BLE001
-            return None
-
-    def _fmt(value: float) -> str:
-        return repr(int(value)) if float(value).is_integer() else repr(float(value))
-
-    groot = global_root
-    if groot is None and project_state_dir is not None:
-        p = Path(str(project_state_dir)).expanduser()
-        groot = p.parent.parent if p.parent.name == "projects" else None
-    if groot is None:
-        return
-    payload = _load(Path(str(groot)).expanduser() / "global_budget.json")
-    if payload is None or "global_daily_cap_usd" not in payload:
-        return
-    try:
-        value = float(payload["global_daily_cap_usd"])
-    except (TypeError, ValueError):
-        return
-    if value != float(BUDGET_KNOB_DEFAULTS[name]):
-        write_persisted_knobs({name: _fmt(value)})
-
-
-def resolve_budget_caps(
-    *,
-    project_state_dir: object | None = None,
-    global_root: object | None = None,
-    env: Mapping[str, str] | None = None,
-    persisted: Mapping[str, str] | None = None,
-) -> BudgetCaps:
-    """Resolve budget caps from the knob layer — ``config.json`` is the single source.
-
-    Precedence is ``env`` > persisted ``config.json`` > default. The retired
-    ``global_budget.json`` is read ONCE (via
-    ``_migrate_legacy_budget_into_config``) only to migrate a pre-existing
-    operator budget into config.json so an upgrade never silently resets caps;
-    ``project_state_dir``/``global_root`` are used solely to locate that file.
-    """
-    if persisted is None:
-        _migrate_legacy_budget_into_config(project_state_dir, global_root, env=env)
-        from .knob_store import read_persisted_knobs
-
-        persisted = read_persisted_knobs()
-
-    def _value(name: str) -> float:
-        resolved = resolve_knob(
-            name,
-            BUDGET_KNOB_DEFAULTS[name],
-            env=env,
-            persisted=persisted,
-        )
-        return _parse_budget_value(name, resolved.value)
-
-    return BudgetCaps(
-        global_daily_cap_usd=_value("ARGUS_SKILL_GLOBAL_DAILY_CAP_USD"),
-        global_daily_token_cap=int(normalize_cockpit_knob_value(
-            "ARGUS_SKILL_GLOBAL_DAILY_TOKEN_CAP",
-            resolve_knob("ARGUS_SKILL_GLOBAL_DAILY_TOKEN_CAP", "0", env=env, persisted=persisted).value,
-        )),
-    )
-
-
 def normalize_cockpit_knob_value(name: str, value: str) -> str:
     """Validate and canonicalize a value before persisting it from the cockpit."""
     raw = str(value or "").strip()
@@ -540,11 +406,6 @@ def normalize_cockpit_knob_value(name: str, value: str) -> str:
         if not 1 <= bounded_integer <= maximum:
             raise ValueError(f"{name} must be an integer from 1 to {maximum}")
         return str(bounded_integer)
-    if name == "ARGUS_SKILL_UNPRICED_COST_POLICY":
-        policy = raw.lower()
-        if policy not in {"block", "allow"}:
-            raise ValueError(f"{name} must be block or allow")
-        return policy
     if name == "ARGUS_SKILL_AUTONOMY_MODE":
         mode = raw.lower()
         if mode not in {"cautious", "pragmatic", "autonomous"}:
@@ -552,17 +413,6 @@ def normalize_cockpit_knob_value(name: str, value: str) -> str:
                 f"{name} must be cautious, pragmatic, or autonomous"
             )
         return mode
-    if name == "ARGUS_SKILL_GLOBAL_DAILY_TOKEN_CAP":
-        try:
-            count = int(raw)
-        except ValueError as exc:
-            raise ValueError(f"{name} must be a non-negative integer") from exc
-        if count < 0:
-            raise ValueError(f"{name} must be a non-negative integer")
-        return str(count)
-    if name in BUDGET_KNOB_DEFAULTS:
-        number = _parse_budget_value(name, raw.removeprefix("$"))
-        return f"{number:g}"
     if name in _NON_NEGATIVE_INT_KNOBS:
         try:
             number = int(raw)
@@ -571,9 +421,6 @@ def normalize_cockpit_knob_value(name: str, value: str) -> str:
         if number < 0:
             raise ValueError(f"{name} must be a non-negative integer")
         return str(number)
-    if name in _NON_NEGATIVE_FLOAT_KNOBS:
-        number = _parse_budget_value(name, raw)
-        return f"{number:g}"
     if name in _PATH_KNOBS:
         from pathlib import Path
 

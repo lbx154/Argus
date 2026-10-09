@@ -19,7 +19,7 @@ const history: EventMsg[] = [
 ];
 const snapshot: Snapshot = {
   session: { id: 's', display_name: '', objective: '', created: 1, last_active: 0, cwd: '' },
-  daemon: { alive: false, pid: 0, uptime_seconds: 0, backend: 'x', global_daily_cap_usd: 3 },
+  daemon: { alive: false, pid: 0, uptime_seconds: 0, backend: 'x'},
   roles: [], backlog: [], recent_events: [],
 };
 

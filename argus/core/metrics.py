@@ -15,7 +15,6 @@ from typing import Any, Iterable, Iterator, Mapping
 
 import portalocker
 
-from .cost_control import CostControlLockBusyError, cost_control_snapshot
 from .event_catalog import canonical_event_type, event_spec
 
 METRICS_FILE = "metrics.jsonl"
@@ -397,7 +396,6 @@ def metrics_snapshot(
     *,
     root: Path | str,
     now: float | None = None,
-    cost_control: Mapping[str, Any] | None = None,
 ) -> dict[str, Any]:
     timestamp = time.time() if now is None else float(now)
     path_root = Path(root).expanduser()
@@ -450,32 +448,6 @@ def metrics_snapshot(
         for row in _metric_rows(rows, "event.validation_failure")
     ))
     goal = _goal_progress_snapshot(rows, now=timestamp)
-    if cost_control is not None:
-        cost = dict(cost_control)
-    else:
-        try:
-            cost = cost_control_snapshot(global_root=path_root, now=timestamp)
-        except CostControlLockBusyError as exc:
-            # A concurrent settlement is ordinary process activity, not an SLO
-            # failure. The Web snapshot path passes its cached projection here;
-            # standalone metric readers expose the transient miss explicitly.
-            cost = {
-                "active_reservations": -1,
-                "unresolved_calls": -1,
-                "blocking_unresolved_calls": 0,
-                "policy": "unknown",
-                "snapshot_stale": True,
-                "error": f"{type(exc).__name__}: {exc}",
-            }
-        except Exception as exc:  # noqa: BLE001
-            cost = {
-                "active_reservations": 0,
-                "unresolved_calls": -1,
-                "blocking_unresolved_calls": -1,
-                "policy": "unknown",
-                "error": f"{type(exc).__name__}: {exc}",
-            }
-
     violations: list[str] = []
     if provider_attempts >= 5 and provider_success_rate < 0.95:
         violations.append(
@@ -489,8 +461,6 @@ def metrics_snapshot(
         violations.append(f"WebAPI 5xx rate {web_5xx_rate:.1%} > 1%")
     if validation_failures > 0:
         violations.append(f"event validation failures: {validation_failures}")
-    if cost.get("error") and not cost.get("snapshot_stale"):
-        violations.append("cost control snapshot unavailable")
 
     return {
         "schema_version": METRICS_SCHEMA_VERSION,
@@ -516,7 +486,6 @@ def metrics_snapshot(
         },
         "event_validation_failures": validation_failures,
         "goal": goal,
-        "cost_control": cost,
         "slo": {
             "status": "healthy" if not violations else "degraded",
             "violations": violations,
@@ -528,7 +497,6 @@ def render_prometheus(snapshot: dict[str, Any]) -> str:
     provider = snapshot["provider"]
     commands = snapshot["daemon_commands"]
     web = snapshot["web"]
-    cost = snapshot["cost_control"]
     goal = snapshot.get("goal", {})
     healthy = 1 if snapshot["slo"]["status"] == "healthy" else 0
     lines = [
@@ -548,8 +516,6 @@ def render_prometheus(snapshot: dict[str, Any]) -> str:
         f'argus_web_requests_total {web["requests"]}',
         "# TYPE argus_web_5xx_total gauge",
         f'argus_web_5xx_total {web["errors_5xx"]}',
-        "# TYPE argus_cost_unresolved_calls gauge",
-        f'argus_cost_unresolved_calls {cost.get("unresolved_calls", 0)}',
         "# TYPE argus_event_validation_failures_total gauge",
         f'argus_event_validation_failures_total {snapshot["event_validation_failures"]}',
         "# TYPE argus_goal_mission_acceptance_ratio gauge",

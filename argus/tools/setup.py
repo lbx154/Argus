@@ -404,8 +404,8 @@ def _configure_pi_api(
         raise ValueError("API key is required when API URL is provided")
     model = str(api_model or "").strip()
     if interactive and not model:
-        model = _prompt("Model", "gpt-5.5")
-    model = model or "gpt-5.5"
+        model = _prompt("Model", "gpt-6.1-sol")
+    model = model or "gpt-6.1-sol"
     return model, _save_pi_provider(url, key, model)
 
 

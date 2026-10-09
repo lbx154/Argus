@@ -88,8 +88,6 @@ def test_status_separates_active_queue_from_history(
     capsys: pytest.CaptureFixture[str],
 ) -> None:
     life_root, repo = project_with_history
-    # Status reads live settings, not the daemon's launch-time budget snapshot.
-    monkeypatch.setenv("ARGUS_SKILL_GLOBAL_DAILY_CAP_USD", "0")
     monkeypatch.setattr(
         "argus.daemon.life_worker.read_daemon_status",
         lambda life_dir: Namespace(
@@ -97,10 +95,8 @@ def test_status_separates_active_queue_from_history(
             pid=4321,
             uptime_seconds=12.0,
             backend="memory",
-            global_daily_cap_usd=0.0,
-        ),
+            ),
     )
-    monkeypatch.setattr("argus.daemon.life_worker.global_daily_spend", lambda *a, **k: 0.0)
     monkeypatch.setattr("argus.apps.cli._core._check_logout_survival", lambda status: None)
 
     rc = _cmd_status(Namespace(life_dir=str(life_root)))
@@ -117,7 +113,7 @@ def test_status_separates_active_queue_from_history(
     assert "continuous: off" in out
     assert "current  :" not in out
     assert (
-        "budget   : global daily disabled (spent $0.00)"
+        "spend    : today $0.00 across all projects"
     ) in out
 
 
@@ -147,14 +143,7 @@ def test_status_projects_latest_persisted_mission_outcome(
             pid=None,
             uptime_seconds=None,
             backend=None,
-            per_mission_cap_usd=9.0,
-            daily_cap_usd=50.0,
-            global_daily_cap_usd=0.0,
-        ),
-    )
-    monkeypatch.setattr(
-        "argus.daemon.life_worker.global_daily_spend",
-        lambda *args, **kwargs: 0.0,
+            ),
     )
     monkeypatch.setattr(
         "argus.apps.cli._core._check_logout_survival",
@@ -211,7 +200,6 @@ def test_status_shows_active_work_when_present(
     capsys: pytest.CaptureFixture[str],
 ) -> None:
     life_root, repo = project_with_active_and_history
-    monkeypatch.setenv("ARGUS_SKILL_GLOBAL_DAILY_CAP_USD", "0")
     monkeypatch.setattr(
         "argus.daemon.life_worker.read_daemon_status",
         lambda life_dir: Namespace(
@@ -219,10 +207,8 @@ def test_status_shows_active_work_when_present(
             pid=4321,
             uptime_seconds=12.0,
             backend="memory",
-            global_daily_cap_usd=0.0,
-        ),
+            ),
     )
-    monkeypatch.setattr("argus.daemon.life_worker.global_daily_spend", lambda *a, **k: 0.0)
     monkeypatch.setattr("argus.apps.cli._core._check_logout_survival", lambda status: None)
 
     rc = _cmd_status(Namespace(life_dir=str(life_root)))
@@ -241,46 +227,7 @@ def test_status_shows_active_work_when_present(
     assert "pending" in out
     assert "running" in out
     assert (
-        "budget   : global daily disabled (spent $0.00)"
-    ) in out
-
-
-def test_status_uses_env_caps_and_pauses_when_budget_exhausted(
-    monkeypatch: pytest.MonkeyPatch,
-    project_with_history: tuple[Path, Path],
-    capsys: pytest.CaptureFixture[str],
-) -> None:
-    life_root, repo = project_with_history
-    bundle = MemoryBundle.for_cwd(repo, global_root=life_root)
-    (bundle.project.root / "events.jsonl").write_text(
-        json.dumps({
-            "type": "life.mission.completed",
-            "ts": time.time(),
-            "cost_usd": 5.0,
-            "success": True,
-        }) + "\n",
-        encoding="utf-8",
-    )
-    monkeypatch.setenv("ARGUS_SKILL_GLOBAL_DAILY_CAP_USD", "30.0")
-    monkeypatch.setattr(
-        "argus.daemon.life_worker.read_daemon_status",
-        lambda life_dir: Namespace(
-            alive=False,
-            pid=None,
-            uptime_seconds=None,
-            backend=None,
-            global_daily_cap_usd=0.0,
-        ),
-    )
-    monkeypatch.setattr("argus.daemon.life_worker.global_daily_spend", lambda *a, **k: 5.0)
-    monkeypatch.setattr("argus.apps.cli._core._check_logout_survival", lambda status: None)
-
-    rc = _cmd_status(Namespace(life_dir=str(life_root)))
-    out = capsys.readouterr().out
-
-    assert rc == 0
-    assert (
-        "budget   : global daily $30.00 (spent $5.00) · remaining $25.00"
+        "spend    : today $0.00 across all projects"
     ) in out
 
 

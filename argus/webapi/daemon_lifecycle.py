@@ -51,22 +51,17 @@ list_projects = project_state.list_projects
 
 
 def _worker_config_from_env(life_dir: Path, global_root: Path) -> LifeWorkerConfig:
-    """Minimal daemon config from the current global cap/backend — mirrors what a
+    """Minimal daemon config from the current backend — mirrors what a
     fresh CLI launch would enforce. Resolve role models/efforts through the
     SAME persisted/env/vault precedence used by /config and the CLI; leaving
     these fields at ``LifeWorkerConfig``'s dataclass defaults silently launched
     gpt-5.5 while the cockpit reported a configured Sonnet model."""
     from ..core.knobs import (
-        resolve_budget_caps,
         resolve_role_backend,
         resolve_role_model,
         resolve_role_reasoning_effort,
     )
 
-    budget = resolve_budget_caps(
-        project_state_dir=life_dir,
-        global_root=global_root,
-    )
     meta = read_session_meta(global_root, life_dir.name)
     if not session_workdir_is_bound(meta):
         prior = daemon_worker.read_daemon_status(life_dir).project_workdir
@@ -102,7 +97,6 @@ def _worker_config_from_env(life_dir: Path, global_root: Path) -> LifeWorkerConf
         reviewer_reasoning_effort=resolve_role_reasoning_effort(
             "ARGUS_SKILL_REVIEWER_REASONING_EFFORT",
         ),
-        global_daily_cap_usd=budget.global_daily_cap_usd,
         planner_task_iteration_max_cycles=int(
             os.environ.get("ARGUS_SKILL_PLANNER_TASK_ITERATION_MAX_CYCLES", "0")
         ),

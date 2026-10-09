@@ -3,18 +3,13 @@ from __future__ import annotations
 import copy
 import json
 import sys
-import time
 
 import pytest
-from fastapi.testclient import TestClient
 
 from argus.agent_cli.agent_cli_runner import AgentCliRunner
 from argus.agent_cli.models import AgentRunResult
-from argus.core import cost_control
-from argus.core.session import SessionMeta, write_session_meta
-from argus.core.usage import UsageLedger, UsageRecord
+from argus.core.usage import UsageLedger
 from argus.webapi import map_model, map_narrative
-from argus.webapi.server import create_app
 
 
 def dataset(count=1):
@@ -129,17 +124,10 @@ def test_bounded_prompt_does_not_mutate_research_evidence_or_effort(tmp_path, mo
     assert documents == original
 
 
-def test_configurable_deadline_preserves_unpriced_receipt_and_running_research(tmp_path, monkeypatch):
+def test_configurable_deadline_preserves_unpriced_receipt(tmp_path, monkeypatch):
     monkeypatch.setenv("ARGUS_SKILL_HOME", str(tmp_path))
-    monkeypatch.setenv("ARGUS_SKILL_COST_CONTROL", "1")
-    monkeypatch.setenv("ARGUS_SKILL_GLOBAL_DAILY_CAP_USD", "100")
     monkeypatch.setenv("ARGUS_SKILL_MAP_TIMEOUT_SECONDS", "600")
     project = tmp_path / "projects/s-map"
-    running, _ = cost_control.reserve_call_budget(
-        call_id="research", project_root=project, mission_id="research", provider="pi",
-        model="test-model", run_label="engineer-r1", global_root=tmp_path,
-    )
-    assert running is not None
     clock = [0.0]
     # Do not change the shared time module used by lock timeout machinery.
     class Clock:
@@ -166,8 +154,6 @@ def test_configurable_deadline_preserves_unpriced_receipt_and_running_research(t
     row = UsageLedger(project, migrate_legacy=False).records()[0]
     assert row.run_label == "map-summary" and row.cost_usd is None
     assert row.pricing_status == "unpriced"
-    assert running.observe_cost(1) == ""
-    assert cost_control.cost_control_snapshot(global_root=tmp_path)["blocking_unresolved_calls"] == 1
     assert not list((tmp_path / "map-presentation").glob("generation-*"))
 
 
@@ -192,35 +178,3 @@ def test_provider_output_length_is_validated_not_just_requested(tmp_path, monkey
                                 project_root=tmp_path, global_root=tmp_path)
     assert not list((tmp_path / "map-presentation").glob("generation-*"))
 
-
-def test_cost_acknowledgement_api_requires_auth_and_correct_project(tmp_path, monkeypatch):
-    monkeypatch.setenv("ARGUS_SKILL_HOME", str(tmp_path))
-    for sid in ["s-map", "s-other"]:
-        write_session_meta(tmp_path, SessionMeta(id=sid, created=1, last_active=1))
-    project = tmp_path / "projects/s-map"
-    ledger = UsageLedger(project, migrate_legacy=False)
-    ledger.append(UsageRecord.from_jsonable({
-        "call_id": "map-timeout", "project_id": "s-map", "provider": "pi", "run_label": "map-summary",
-        "status": "error", "cost_usd": None, "pricing_status": "unpriced", "completed_at": time.time(),
-    }))
-    before = ledger.path.read_bytes()
-    body = {"call_id": "map-timeout", "liability_usd": 5.0, "reason": "Explicit operator approval"}
-    headers = {"Authorization": "Bearer test"}
-    with TestClient(create_app(global_root=tmp_path, auth_token="test")) as client:
-        path = "/api/projects/s-map/cost-control/acknowledge"
-        assert client.post(path, json=body).status_code == 401
-        status_path = "/api/projects/s-map/cost-control"
-        assert client.get(status_path).status_code == 401
-        status = client.get(status_path, headers=headers).json()
-        assert status["cost_control"]["unresolved"][0]["call_id"] == "map-timeout"
-        assert status["admission_reason"].startswith("unresolved provider cost")
-        assert client.post(path.replace("s-map", "s-other"), json=body, headers=headers).status_code == 404
-        assert client.post(path, json={**body, "liability_usd": 0}, headers=headers).status_code == 422
-        result = client.post(path, json=body, headers=headers)
-        assert result.status_code == 200, result.text
-        assert result.json()["cost_control"]["pending_liability_usd"] == 5
-        assert result.json()["cost_control"]["blocking_unresolved_calls"] == 0
-        assert result.json()["admission_reason"] == ""
-        repeated = client.post(path, json=body, headers=headers)
-        assert repeated.json()["acknowledgement"] == result.json()["acknowledgement"]
-    assert ledger.path.read_bytes() == before

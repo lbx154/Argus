@@ -45,7 +45,6 @@ from ..core.models import RunnerOptions
 from ..core.run_gateway import run_exec as gateway_run_exec
 from ..life.supervisor import (
     LifeSupervisor,  # noqa: F401 — monkeypatch seam, see tests/daemon/test_life_worker.py
-    global_daily_spend,
 )
 
 # -- re-exports: daemon admission / workspace / spawn ------------------------
@@ -127,29 +126,18 @@ from .state import (
     continuous_mode_error,
     daemon_drain_requested,
     disable_continuous_config,
+    format_spend_status,  # noqa: F401 — re-exported, see __all__
     read_continuous_config,
     read_continuous_state,
     read_daemon_control_stop,
     read_daemon_status,
-    resolve_effective_budget,
     stop_daemon,
     wait_for_daemon_status,
     write_continuous_config,
 )
-from .state import (
-    format_budget_status as _format_budget_status,
-)
 
 log = logging.getLogger(__name__)
 
-
-def format_budget_status(journal: Any, *, status: Any | None = None) -> str:
-    """Compatibility wrapper preserving the historical monkeypatch seam."""
-    return _format_budget_status(
-        journal,
-        status=status,
-        global_spend_fn=global_daily_spend,
-    )
 
 __all__ = [
     "LifeWorkerConfig",
@@ -158,8 +146,7 @@ __all__ = [
     "ContinuousConfigState",
     "continuous_mode_error",
     "disable_continuous_config",
-    "format_budget_status",
-    "resolve_effective_budget",
+    "format_spend_status",
     "read_daemon_status",
     "stop_daemon",
     "wait_for_daemon_status",
@@ -202,23 +189,6 @@ class LifeWorker(LifeWorkerBootMixin, LifeWorkerRunMixin):
     """
 
     def __init__(self, config: LifeWorkerConfig) -> None:
-        # The host-global daily cap is the only monetary budget.
-        budget_global_root = (
-            Path(config.global_root).expanduser()
-            if config.global_root is not None
-            else (
-                config.life_dir.parent.parent
-                if config.life_dir.parent.name == "projects"
-                else config.life_dir
-            )
-        )
-        from ..core.knobs import resolve_budget_caps
-
-        caps = resolve_budget_caps(
-            project_state_dir=config.life_dir,
-            global_root=budget_global_root,
-        )
-        config.global_daily_cap_usd = caps.global_daily_cap_usd
         self.config = config
         self._stop = threading.Event()
         self._mission_stop = threading.Event()

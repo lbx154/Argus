@@ -212,69 +212,29 @@ that makes the Engineer explore.
 
 ## Controlling spend
 
-Spend is controlled at three levels, and the one that surprises new users is
-the third.
+Argus records every provider call in `~/.argus-skill/projects/<id>/usage.jsonl`
+(model, tokens, `cost_usd` and a `pricing_status` of `priced`, `partial`,
+`unpriced` or `not_billed`). `argus --status` and `argus --watch` print
+`spend    : today $X.XX across all projects`; the cockpit's cost panel shows the
+project's own spend beside that figure, read from `GET /api/projects/costs`.
+Late Copilot billing is reconciled when it arrives. A damaged ledger is repaired
+in place: the damaged lines are set aside beside the journal and the complete
+records are kept.
 
-**A daily cap across every project on the host.**
-`ARGUS_SKILL_GLOBAL_DAILY_CAP_USD` (default `1000.0`) and, if you prefer to
-count tokens, `ARGUS_SKILL_GLOBAL_DAILY_TOKEN_CAP` (default `0`, off).
-`argus --status` shows the running total: `budget : global daily $1000.00
-(spent $30.71) · remaining $969.29` was the line two hours into the roofline
-campaign, with `cost : $29.79 cumulative` for that project alone. The
-per-call record is `~/.argus-skill/projects/<id>/usage.jsonl` (model, tokens,
-`cost_usd`), and the web UI reads `GET /api/projects/costs`.
+These figures are for reading, not for refusing work. Argus has no spending cap
+of its own and never pauses a project because of cost. On your own subscription,
+usage and limits are the provider's and are shown there; on an Argus-hosted
+trial, the limit is the invitation's token allowance, enforced at the gateway
+URL.
 
-**Provider-level circuit breakers.** `ARGUS_SKILL_CODEX_DAILY_CALL_CAP`
-(default 300 calls per day), `ARGUS_SKILL_COPILOT_DAILY_CALL_CAP`,
-`ARGUS_SKILL_COPILOT_DAILY_PREMIUM_CAP` and `ARGUS_SKILL_COPILOT_HOURLY_CALL_CAP`
-(default 10000 each), `ARGUS_SKILL_PROVIDER_MAX_CONCURRENCY` (default 0, off)
-and `ARGUS_SKILL_MAX_ACTIVE_DAEMONS` (default 64). These exist because a
-subscription CLI is shared by every project on the host, and one runaway
-campaign should not exhaust it for the others. `--mission-width` (default 2)
-is the per-project counterpart; the roofline campaign used `1`, which is the
-right choice when the tasks share four GPUs.
-
-**What to do with a call whose price is not known yet.**
-`ARGUS_SKILL_UNPRICED_COST_POLICY` is `block` by default: a call whose cost the
-provider has not settled is refused before it starts, because a cap that
-cannot see the cost cannot enforce anything. With Copilot's subscription
-billing the first calls on a fresh install report `pricing_status: partial`
-with no `cost_usd`, and that is exactly what happened in the trial:
-
-- CLI project `s-600e27bf`: the first classify call settled unpriced (its
-  event has `"pricing_status":"partial","cost_usd":null`), the worker went
-  to `paused_cost`, and `cost-control.json` listed the call as unresolved with
-  the reason "Copilot token billing is awaiting local CLI usage
-  reconciliation".
-- Browser project `s-67fb6d62`: the first message came back `[not dispatched]
-  Manager could not classify this message (refused before start: unresolved
-  provider cost: 1 call(s) awaiting usage reconciliation ...)`.
-- The roofline campaign, on a second install a little later, paused 43
-  seconds in for the same reason.
-
-The operator's fix each time was one line in `~/.argus-skill/config.json`,
-`"ARGUS_SKILL_UNPRICED_COST_POLICY": "allow"`, followed by a drain and restart
-(`/config ARGUS_SKILL_UNPRICED_COST_POLICY=allow` in the cockpit writes the
-same key, and the web configuration view exposes it). `allow` means: run the
-call now and let the ledger reconcile later. The trade-off is real. With a
-metered API key, keep `block`; the price of every call is known and the cap
-is exact. With a subscription CLI, `allow` is usually right, because the
-"cost" the ledger reconciles is your subscription's usage, and refusing to run
-does not save money you have already paid. The daily cap still applies to
-everything that does get priced.
-
-Two changes merged on 2026-09-30 (#179 and #183) move this default: Copilot
-calls made through the warm session are now priced from the CLI's own session
-log, and a call Argus itself interrupts before the CLI recorded anything is
-settled as one premium request. A fresh install on a subscription CLI no
-longer pauses under `block`; the three examples above ran before that change.
-`allow` is still the choice when you would rather run than wait for any late
-reconciliation at all.
-
-A last practical point: `ARGUS_SKILL_COST_CONTROL` (default `on`) is the
-switch for the whole admission-and-reconciliation layer. Leave it on; turning
-it off also removes the `paused_cost` state that tells you something is wrong
-with billing.
+What Argus does limit is capacity, because one subscription CLI is shared by
+every project on the host. `ARGUS_SKILL_PROVIDER_MAX_CONCURRENCY` (default `0`,
+off) bounds concurrent provider processes and
+`ARGUS_SKILL_PROVIDER_SLOT_WAIT_SECONDS` (default `45`) how long a call waits for
+a slot. Both apply to every backend alike; no provider gets its own counter.
+`ARGUS_SKILL_MAX_ACTIVE_DAEMONS` (default `64`) caps running daemons. `--mission-width` (default 2) is the
+per-project counterpart; the roofline campaign used `1`, which is the right
+choice when the tasks share four GPUs.
 
 ## Which tasks suit Argus
 

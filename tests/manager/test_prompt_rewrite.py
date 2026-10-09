@@ -167,11 +167,11 @@ def test_empty_draft_is_rejected_without_calling_the_model() -> None:
     assert backend.prompts == []
 
 
-def test_interactive_rewrite_defaults_to_gpt55_high(monkeypatch) -> None:
+def test_interactive_rewrite_defaults_to_gpt_6_1_sol_high(monkeypatch) -> None:
     monkeypatch.delenv("ARGUS_SKILL_REWRITE_MODEL", raising=False)
     monkeypatch.delenv("ARGUS_SKILL_REWRITE_REASONING_EFFORT", raising=False)
 
-    assert _rewrite_model_and_effort() == ("gpt-5.5", "high")
+    assert _rewrite_model_and_effort() == ("gpt-6.1-sol", "high")
 
 
 def test_interactive_rewrite_keeps_operator_overrides(monkeypatch) -> None:

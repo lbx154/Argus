@@ -115,7 +115,7 @@ def _supervisor(memory: LifeMemory, runner: _MissionRunner) -> LifeSupervisor:
         memory=memory, runner=runner,
         sink=SimpleNamespace(handle_event=lambda _event: None),
         config=LifeSupervisorConfig(
-            budget=LifeBudget(global_daily_cap_usd=100.0, max_missions=5),
+            budget=LifeBudget(max_missions=5),
             poll_interval_seconds=0,
         ),
     )
