@@ -459,6 +459,9 @@ class SupervisedEngineer(
                     dangerous_yolo=self.engineer_config.dangerous_yolo,
                     sandbox_mode=self.engineer_config.sandbox_mode,
                     isolate_workdir=self.engineer_config.isolate_workdir,
+                    lean_tool_surface=getattr(
+                        self.engineer_config, "lean_tool_surface", False
+                    ),
                     working_dir=str(workdir),
                     live_search=_engineer_live_search(
                         self.engineer_config.vertical_state_root or workdir,

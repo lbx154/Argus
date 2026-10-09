@@ -221,6 +221,12 @@ _READ_ONLY_VALUE_SWITCHES = frozenset({
 
 _COPILOT_IDENTITY_FLAGS = ("--resume", "--session-id", "--continue")
 
+# Copilot CLI tools a lean tool surface leaves out. Their schemas and usage
+# notes are resent on every model request; no Engineer turn in the recorded
+# trials called either. The session todo database duplicates CHECKPOINT.md,
+# and the documentation tool answers questions about the CLI itself.
+_COPILOT_LEAN_EXCLUDED_TOOLS = ("sql", "fetch_copilot_cli_documentation")
+
 # Model values that mean "let Copilot choose" rather than naming a model id.
 # Copilot's automatic selection rejects ``--reasoning-effort``, so a call that
 # leaves the choice to Copilot sends neither flag.
@@ -626,6 +632,18 @@ class CommandBuilderMixin:
                 "--no-custom-instructions",
                 "--disable-builtin-mcps",
             ])
+        lean = (
+            getattr(options, "lean_tool_surface", False)
+            and not options.isolate_workdir
+            and not options.disable_tools
+            and options.sandbox_mode != "read-only"
+        )
+        if lean:
+            # A denylist, so a tool the CLI ships later stays available.
+            # Built-in MCP servers (GitHub access) stay attached.
+            command.append(
+                f"--excluded-tools={','.join(_COPILOT_LEAN_EXCLUDED_TOOLS)}"
+            )
         if options.disable_tools:
             command.append(f"--available-tools={_COPILOT_NO_TOOLS_SENTINEL}")
         elif options.sandbox_mode == "read-only":
