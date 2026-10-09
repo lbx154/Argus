@@ -1097,3 +1097,13 @@ def test_the_fact_section_and_its_refs_are_never_cut(roots: _Roots) -> None:
     assert "Allowed evidence refs:" in prompt
     assert all(f"- {ref}" in prompt for ref in refs)
     assert "verified_new_result" in prompt
+
+
+def test_a_chosen_fact_with_only_invalid_refs_falls_back_to_the_separate_judgment(roots: _Roots) -> None:
+    final = 'WROTE: nothing\nREVIEWED_FACT: {"fact": "A claim.", "evidence_refs": ["made-up.json"]}'
+    backend = _ReplyBackend(replies=[final])
+
+    result = roots.reflect(backend, reviewed_fact=_fact_candidate())
+
+    assert result["reviewed_fact_recorded"] is False
+    assert _labels(backend) == ["reflection", "manager.reviewed_facts"]

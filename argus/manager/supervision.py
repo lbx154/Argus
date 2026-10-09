@@ -532,18 +532,48 @@ def _looks_path(root: Path) -> Path:
     return root / "manager-supervision" / "looks.json"
 
 
+#: Missions remembered in the look index; the least recently judged go first.
+MAX_REMEMBERED_LOOKS = 500
+
+
+def _attempt_key(root: Path, item_id: str) -> str:
+    """Which run of a mission this is: rounds restart at 1 on every run.
+
+    A re-queue, an orphan retry or a retry after failure claims the item again
+    (a new ``started_ts``) or advances its ``attempt``; either changes the key.
+    """
+    if not item_id:
+        return ""
+    task = next((task for task in _active_tasks(root) if task.id == item_id), None)
+    if task is None:
+        return ""
+    return f"{int(getattr(task, 'attempt', 1) or 1)}:{getattr(task, 'started_ts', None) or ''}"
+
+
+def _read_looks(root: Path) -> dict[str, dict[str, Any]]:
+    looks: dict[str, dict[str, Any]] = {}
+    for item_id, value in _read(_looks_path(root)).items():
+        if isinstance(value, int):  # an index written before attempts were kept
+            value = {"round": value, "attempt": "", "ts": 0.0}
+        if isinstance(value, dict) and isinstance(value.get("round"), int):
+            looks[str(item_id)] = value
+    return looks
+
+
 def _record_look(root: Path, trigger: dict[str, Any]) -> None:
-    """Remember the latest reviewed round of a mission the Manager effectively judged."""
+    """Remember the reviewed round of a mission run the Manager effectively judged."""
     item_id = str(trigger.get("item_id") or "")
     round_index = _round(trigger.get("round_index"))
     if not item_id or round_index <= 0:
         return
     path = _looks_path(root)
-    looks = _read(path)
-    looks = {key: value for key, value in looks.items() if isinstance(value, int)}
-    looks[item_id] = max(round_index, looks.get(item_id, 0))
-    if len(looks) > 500:
-        looks = dict(list(looks.items())[-500:])
+    looks = _read_looks(root)
+    looks[item_id] = {
+        "round": round_index, "attempt": str(trigger.get("attempt_key") or ""), "ts": time.time(),
+    }
+    if len(looks) > MAX_REMEMBERED_LOOKS:
+        recent = sorted(looks, key=lambda key: float(looks[key].get("ts") or 0.0))[-MAX_REMEMBERED_LOOKS:]
+        looks = {key: looks[key] for key in recent}
     temporary = path.with_name(f".{path.name}.{uuid.uuid4().hex}.tmp")
     try:
         path.parent.mkdir(parents=True, exist_ok=True)
@@ -555,9 +585,19 @@ def _record_look(root: Path, trigger: dict[str, Any]) -> None:
         temporary.unlink(missing_ok=True)
 
 
-def _last_look(root: Path, item_id: str) -> int:
-    value = _read(_looks_path(root)).get(item_id) if item_id else None
-    return value if isinstance(value, int) else 0
+def _last_look(root: Path, item_id: str, *, attempt: str = "", round_index: int = 0) -> int:
+    """The last judged round of this run of the mission, or 0 when none.
+
+    A look from another run never counts: its attempt key differs, or, when the
+    key is unknown, the current round is below the recorded one, which only a
+    restarted run can produce.
+    """
+    look = _read_looks(root).get(item_id) if item_id else None
+    if not look:
+        return 0
+    if str(look.get("attempt") or "") != attempt or (round_index and round_index < look["round"]):
+        return 0
+    return int(look["round"])
 
 
 def _is_busy_control(exc: BaseException) -> bool:
@@ -619,7 +659,7 @@ def supervise(
                 "version": 1, "id": identity,
                 "evidence_revision": observation.evidence_revision,
                 "control_revision": observation.control_revision,
-                "trigger": {key: event[key] for key in ("type", "item_id", "event_id", "round_index", "consult_reason") if key in event},
+                "trigger": {key: event[key] for key in ("type", "item_id", "event_id", "round_index", "consult_reason", "attempt_key") if key in event},
                 "source_event": (observation.facts["recent_events"][-1]
                                  if observation.facts["recent_events"] else {
                     key: event[key] for key in ("type", "item_id", "event_id", "agent_layer", "round_index") if key in event
@@ -886,7 +926,9 @@ def _review_consult_reason(root: Path, event: dict[str, Any]) -> str:
     # mission the Manager judges at least every few reviewed rounds. Only a
     # decision that took effect counts as having looked.
     round_index = _round(event.get("round_index"))
-    if round_index - _last_look(root, str(event.get("item_id") or "")) >= REVIEW_CHECKPOINT_ROUNDS:
+    item_id = str(event.get("item_id") or "")
+    last = _last_look(root, item_id, attempt=_attempt_key(root, item_id), round_index=round_index)
+    if round_index - last >= REVIEW_CHECKPOINT_ROUNDS:
         return "periodic checkpoint"
     return ""
 
@@ -949,6 +991,9 @@ def schedule_supervision(manager: Any, root: Path | str, event: dict[str, Any]) 
         return False
     if reason:
         event = {**event, "consult_reason": reason}
+    if event_type == EventType.ROUND_REVIEW_COMPLETED:
+        # Lets an applied decision record which run of the mission it judged.
+        event = {**event, "attempt_key": _attempt_key(project_root, str(event.get("item_id") or ""))}
     return _admit(manager, root, event)
 
 

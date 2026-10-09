@@ -834,6 +834,10 @@ def _reflect_after_mission(
                 reviewed_fact, digest_path=digest_path,
                 fact=chosen.get("fact"), evidence_refs=chosen.get("evidence_refs"),
             )
+            if not fact_recorded:
+                # A fact with no usable allowed ref (or no prose) cannot be kept
+                # as written; let the separate judgment decide it instead.
+                judge_alone()
         else:
             fact_state["handled"] = True
 

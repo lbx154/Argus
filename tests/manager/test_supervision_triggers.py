@@ -202,11 +202,75 @@ def test_the_manager_looks_at_least_every_three_reviewed_rounds(admitted):
     assert admitted(_review(3, **_not_needed()))["consult_reason"] == "periodic checkpoint"
 
 
+def _look(tmp_path, round_index: int) -> None:
+    attempt = supervision._attempt_key(tmp_path, "grouped")
+    supervision._record_look(tmp_path, {"item_id": "grouped", "round_index": round_index, "attempt_key": attempt})
+
+
 def test_the_checkpoint_counts_from_the_last_effective_look(admitted, tmp_path):
-    supervision._record_look(tmp_path, {"item_id": "grouped", "round_index": 3})
+    _look(tmp_path, 3)
     assert admitted(_review(4, **_not_needed())) is None
     assert admitted(_review(5, **_not_needed())) is None
     assert admitted(_review(6, **_not_needed()))["consult_reason"] == "periodic checkpoint"
+
+
+def test_the_review_trigger_carries_the_run_it_belongs_to(admitted, tmp_path):
+    Backlog(tmp_path / "backlog.jsonl").mark_running("grouped")
+    event = admitted(_review(1))
+    assert event["attempt_key"] == supervision._attempt_key(tmp_path, "grouped") != ""
+
+
+def test_a_requeued_mission_does_not_inherit_the_last_run_s_look(admitted, tmp_path):
+    backlog = Backlog(tmp_path / "backlog.jsonl")
+    backlog.mark_running("grouped")
+    _look(tmp_path, 5)
+    # The same item is claimed again (re-queue or orphan retry): rounds restart.
+    backlog.update("grouped", status="pending", started_ts=None)
+    backlog.update("grouped", status="running", started_ts=12345.0)
+    assert admitted(_review(1, **_not_needed())) is None
+    assert admitted(_review(2, **_not_needed())) is None
+    assert admitted(_review(3, **_not_needed()))["consult_reason"] == "periodic checkpoint"
+
+
+def test_a_retry_after_failure_does_not_inherit_the_last_run_s_look(admitted, tmp_path):
+    backlog = Backlog(tmp_path / "backlog.jsonl")
+    backlog.update("grouped", status="running", started_ts=100.0)
+    _look(tmp_path, 4)
+    backlog.update("grouped", attempt=2)
+    assert admitted(_review(3, **_not_needed()))["consult_reason"] == "periodic checkpoint"
+
+
+def test_a_lower_round_than_the_recorded_look_means_a_new_run(admitted, tmp_path):
+    """Even when the run cannot be told apart, rounds only go down when it restarted."""
+    supervision._record_look(tmp_path, {"item_id": "grouped", "round_index": 5,
+                                        "attempt_key": supervision._attempt_key(tmp_path, "grouped")})
+    assert admitted(_review(3, **_not_needed()))["consult_reason"] == "periodic checkpoint"
+
+
+@pytest.mark.parametrize("stored", [
+    4,  # an index written before runs were told apart
+    {"round": 4, "attempt": "1:", "ts": 1.0},
+])
+def test_the_durable_look_index_survives_a_restart(admitted, tmp_path, stored):
+    """A restarted process reads looks.json from disk; a look counts only for its own run."""
+    path = tmp_path / "manager-supervision" / "looks.json"
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(json.dumps({"grouped": stored}))
+    same_run = isinstance(stored, dict)
+    assert (admitted(_review(5, **_not_needed())) is None) is same_run
+
+
+def test_the_look_index_forgets_the_least_recently_judged_missions(tmp_path, monkeypatch):
+    monkeypatch.setattr(supervision, "MAX_REMEMBERED_LOOKS", 2)
+    clock = iter([3.0, 1.0, 2.0, 4.0])
+    monkeypatch.setattr(supervision.time, "time", lambda: next(clock))
+    path = tmp_path / "manager-supervision" / "looks.json"
+    path.parent.mkdir(parents=True)
+    # "old" was inserted first but judged most recently; "older" goes first.
+    path.write_text(json.dumps({"old": {"round": 1, "attempt": "", "ts": 9.0},
+                                "older": {"round": 1, "attempt": "", "ts": 0.5}}))
+    supervision._record_look(tmp_path, {"item_id": "new", "round_index": 2})
+    assert set(json.loads(path.read_text())) == {"old", "new"}
 
 
 def test_only_an_applied_check_records_a_look(tmp_path):
