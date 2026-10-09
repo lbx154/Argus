@@ -86,12 +86,12 @@ Manager/Planner/Engineer/Reviewer 运行时作为自定义 Agent 直接调用。
 
 ## 微信群
 
-扫码加入 Argus 交流群；点击图片可以查看原图。二维码有效期以图片中的提示为准；
-如果已经过期，请在 Issue 中联系维护者更新。
+扫码加入 Argus 交流群 2 群；点击图片可以查看原图。本次二维码在
+**2026 年 10 月 16 日前**有效（以图片提示为准）；过期后请在 Issue 中联系维护者更新。
 
 <p align="center">
-  <a href="docs/assets/argus-wechat-group-2.jpg?v=20260924">
-    <img src="docs/assets/argus-wechat-group-2.jpg?v=20260924" width="360" alt="Argus 微信交流 2 群二维码">
+  <a href="docs/assets/argus-wechat-group-2.png?v=20261009">
+    <img src="docs/assets/argus-wechat-group-2.png?v=20261009" width="360" alt="Argus 微信交流 2 群二维码">
   </a>
 </p>
 

@@ -99,9 +99,14 @@ def test_install_guides_cover_updates_paths_models_and_doctor_semantics() -> Non
 
 
 def test_readmes_surface_the_wechat_qr_before_installation() -> None:
-    asset = ROOT / "docs" / "assets" / "argus-wechat-group-2.jpg"
+    asset = ROOT / "docs" / "assets" / "argus-wechat-group-2.png"
     assert asset.is_file()
-    assert asset.stat().st_size > 100_000
+    image = asset.read_bytes()
+    assert image.startswith(b"\x89PNG\r\n\x1a\n")
+    assert image[12:16] == b"IHDR"
+    assert int.from_bytes(image[16:20], "big") >= 256
+    assert int.from_bytes(image[20:24], "big") >= 256
+    assert image.endswith(b"\x00\x00\x00\x00IEND\xaeB`\x82")
 
     for name, heading in (
         ("README.md", "## WeChat community"),
@@ -110,7 +115,7 @@ def test_readmes_surface_the_wechat_qr_before_installation() -> None:
         text = (ROOT / name).read_text(encoding="utf-8")
         assert text.count(heading) == 1
         assert len(re.findall(
-            r'src="docs/assets/argus-wechat-group-2\.jpg(?:\?[^"]*)?"', text,
+            r'src="docs/assets/argus-wechat-group-2\.png(?:\?[^"]*)?"', text,
         )) == 1
         assert text.index(heading) < text.index("## Quick Install" if name == "README.md" else "## 快速安装")
         assert "Docker" in text
