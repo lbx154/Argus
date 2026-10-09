@@ -65,11 +65,9 @@ _INCREMENTAL_REREVIEW_BOUNDARY = (
 )
 
 _EXPERIMENT_EVIDENCE_RULE = (
-    "For experiments, inspect the run's recorded prerequisites, earlier run "
-    "and stated change where relevant to the claim. A reason string is not proof "
-    "that inputs changed. Readiness is not scientific validation, and producer-written "
-    "logs cannot replace the independent checker or external observation required "
-    "by the acceptance contract.\n\n"
+    "Check prerequisite/previous runs; a rerun reason is not proof of changed inputs. "
+    "Readiness is not validation; producer logs cannot replace required independent "
+    "checks or external observation.\n\n"
 )
 
 def evaluate_request(
@@ -743,17 +741,16 @@ def render_reviewer_prompt(
         "## Submit your review\n"
         "Express the complete review naturally in the operator's language. No JSON, "
         "fixed fields, named closing lines, or text template is required or parsed. "
-        "Submit with one native action tool: approve_review for a complete task, "
-        "revise_review for repairs, defer_review while work or external evidence "
-        "is pending, request_review_decision for an operator-owned question, or "
-        "replan_review to challenge the plan. Before approving, check each "
+        "Invoke one native action: approve_review for completion, revise_review for "
+        "repairs, defer_review for pending work or evidence, request_review_decision "
+        "for operator-owned questions, or replan_review for plan changes. "
+        "Before approving, check each "
         "requirement and symptom the task (this increment) states against the "
         "deliverable; tests the Engineer wrote show only its reading of them. Put "
-        "complete evidence and next steps in its review argument; invoke the tool, "
-        "never print its name. "
-        "Judge forward_progress toward the operator's goal, not repair effort. "
-        "For a plan challenge, explain the failed assumption, alternative and "
-        "authority: technical for working choices and team plans, "
+        "complete evidence and next steps in its review argument; the host forwards "
+        "it unchanged. Chat cannot replace the tool. Judge forward_progress toward "
+        "the goal, not repair effort. Plan challenges need the failed assumption, "
+        "alternative and authority: technical for working choices/team plans, "
         "manager_contract or operator only for their commitments. "
         "Give Engineer instructions in the review; neither "
         "read nor edit checkpoint or context records.\n\n"

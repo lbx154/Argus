@@ -19,6 +19,7 @@ from ...core.daemon_lock import is_process_group_running
 from ...daemon.state import (
     _terminate_windows_process_tree as terminate_windows_process_tree,
 )
+from ._cpu_admission import cpu_admission_lock
 from ._experiment_preflight import (
     PrerequisiteError,
     experiment_launch_preflight,
@@ -524,18 +525,19 @@ def _run_direct(
             project_root=Path.cwd(),
         )
         with stdout_path.open("w") as out, stderr_path.open("w") as err:
-            prerequisites = submitted_task.get("prerequisites")
-            if prerequisites:
-                resolve_prerequisites(prerequisites, expected_runs=prerequisites)
-            proc = _launch_durable_command(
-                task_id=task_id,
-                run_id=run_id,
-                command=command,
-                stdout=out,
-                stderr=err,
-                cwd=cwd,
-                env=command_env(resource_lease),
-            )
+            with cpu_admission_lock(Path.cwd()):
+                prerequisites = submitted_task.get("prerequisites")
+                if prerequisites:
+                    resolve_prerequisites(prerequisites, expected_runs=prerequisites)
+                proc = _launch_durable_command(
+                    task_id=task_id,
+                    run_id=run_id,
+                    command=command,
+                    stdout=out,
+                    stderr=err,
+                    cwd=cwd,
+                    env=command_env(resource_lease),
+                )
             command_identity = _process_identity(proc.pid)
             running_task = _apply_supervisor_usage_fields({
                 "state": "running", "task_id": task_id,

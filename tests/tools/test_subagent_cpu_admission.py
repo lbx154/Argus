@@ -1,11 +1,35 @@
 from __future__ import annotations
 
 import os
+import subprocess
+import sys
 
 import pytest
 
 from argus.tools import subagent
 from argus.tools.subagent import _cpu_admission as cpu
+
+
+def test_non_posix_admission_lock_excludes_other_processes(monkeypatch, tmp_path):
+    monkeypatch.setattr(cpu, "fcntl", None)
+    monkeypatch.setenv("ARGUS_SKILL_HOME", str(tmp_path / "home"))
+    command = [sys.executable, "-c", """
+import sys
+import portalocker
+with open(sys.argv[1], 'a') as handle:
+    try:
+        portalocker.lock(handle, portalocker.LOCK_EX | portalocker.LOCK_NB)
+    except portalocker.exceptions.LockException:
+        print('blocked')
+    else:
+        print('acquired')
+""", str(tmp_path / "home/subagent-admission.lock")]
+    with cpu.cpu_admission_lock(tmp_path):
+        result = subprocess.run(command, check=True, text=True, capture_output=True, timeout=10)
+        assert result.stdout.strip() == "blocked"
+    result = subprocess.run(command, check=True, text=True, capture_output=True, timeout=10)
+    assert result.stdout.strip() == "acquired"
+    assert not (tmp_path / ".argus_subagents").exists()
 
 
 def test_select_cpu_ids_skips_live_leases(monkeypatch: pytest.MonkeyPatch) -> None:

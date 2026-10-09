@@ -3,6 +3,7 @@ from __future__ import annotations
 import json
 import os
 import sys
+from contextlib import contextmanager
 from pathlib import Path
 from unittest.mock import Mock
 
@@ -246,3 +247,65 @@ def test_independent_evidence_rule_applies_from_first_review(round_index):
         prev_review_summary="Missing evidence" if round_index > 1 else "",
     )
     assert prompt.count(_EXPERIMENT_EVIDENCE_RULE) == 1
+
+
+@pytest.mark.parametrize("mode", ["direct", "supervised"])
+def test_final_check_and_launch_share_submission_lock(monkeypatch, tmp_path, mode):
+    record("prepare")
+    record("dependent", state="starting", exit_code=None,
+           prerequisites={"prepare": "first"})
+    runner = _direct_run if mode == "direct" else _supervised_run
+    original_lock = runner.cpu_admission_lock
+    original_resolve = runner.resolve_prerequisites
+    held = False
+    events = []
+
+    @contextmanager
+    def lock(root):
+        nonlocal held
+        with original_lock(root):
+            held = True
+            try:
+                yield
+            finally:
+                held = False
+
+    def resolve(*args, **kwargs):
+        assert held
+        events.append("checked")
+        return original_resolve(*args, **kwargs)
+
+    def launch(**kwargs):
+        assert held
+        events.append("launched")
+        raise RuntimeError("test stops at the process creation boundary")
+
+    monkeypatch.setattr(runner, "cpu_admission_lock", lock)
+    monkeypatch.setattr(runner, "resolve_prerequisites", resolve)
+    monkeypatch.setattr(runner, "_launch_durable_command", launch)
+    monkeypatch.setattr(runner, "acquire_for_task", lambda *args, **kwargs: None)
+    monkeypatch.setattr(runner, "_alert_engineer", lambda *args: "")
+    if mode == "direct":
+        runner._run_direct("dependent", "echo main", "test", 10, str(tmp_path))
+    else:
+        monkeypatch.setattr(runner, "_persist_experiment_record", lambda *args: None)
+        runner._run_supervised(
+            "dependent", "echo main", "test", 10, 120, "", str(tmp_path), preflight=False,
+        )
+    assert events == ["checked", "launched"]
+    assert not held
+
+
+@pytest.mark.parametrize("model_report", ["", "The experiment completed and its outputs are ready for the Engineer."])
+def test_attempt_context_is_not_optional_model_output(monkeypatch, model_report):
+    monkeypatch.setattr(_reporting, "_supervisor_summarize_report", lambda *args: model_report)
+    context = {
+        "prerequisites": {"prepare": "first"},
+        "previous_run_id": "previous",
+        "rerun_reason": "Corrected the input path",
+    }
+    report = _reporting._build_report(
+        "dependent", "COMPLETED", {"mode": "supervised", **context},
+    )
+    for key, value in context.items():
+        assert f"- {key}: {json.dumps(value)}" in report

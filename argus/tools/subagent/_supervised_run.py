@@ -23,6 +23,7 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
+from ._cpu_admission import cpu_admission_lock
 from ._direct_run import (
     _is_full_scale_rl,
     _looks_like_rl_training,
@@ -831,18 +832,19 @@ def _run_supervised(
             project_root=Path.cwd(),
         )
         with stdout_path.open("w") as out, stderr_path.open("w") as err:
-            prerequisites = submitted_task.get("prerequisites")
-            if prerequisites:
-                resolve_prerequisites(prerequisites, expected_runs=prerequisites)
-            proc = _launch_durable_command(
-                task_id=task_id,
-                run_id=run_id,
-                command=command,
-                stdout=out,
-                stderr=err,
-                cwd=cwd,
-                env=command_env(resource_lease),
-            )
+            with cpu_admission_lock(Path.cwd()):
+                prerequisites = submitted_task.get("prerequisites")
+                if prerequisites:
+                    resolve_prerequisites(prerequisites, expected_runs=prerequisites)
+                proc = _launch_durable_command(
+                    task_id=task_id,
+                    run_id=run_id,
+                    command=command,
+                    stdout=out,
+                    stderr=err,
+                    cwd=cwd,
+                    env=command_env(resource_lease),
+                )
             command_identity = _process_identity(proc.pid)
             current_interval = max(monitor_interval, 1)
             if resource_lease is not None:

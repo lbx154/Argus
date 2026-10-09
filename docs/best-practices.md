@@ -107,7 +107,9 @@ submission to return exit code 1 with `state: blocked`; no dependent job is
 created. This is not a queue that starts automatically when preparation
 finishes. The worker checks the recorded prerequisite `run_id` again before
 execution, including after resource admission. A replaced prerequisite is
-rejected. `--no-preflight` cannot disable this dependency check.
+rejected. The final check and launch share the submission admission lock;
+subsequent reruns do not cancel an already-started dependent.
+`--no-preflight` cannot disable this dependency check.
 
 Resubmitting the same task with the same command requires
 `--rerun-reason "what changed, or why an independent replay is necessary"`.
