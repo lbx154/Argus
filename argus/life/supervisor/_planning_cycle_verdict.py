@@ -21,6 +21,8 @@ from ._planning_cycle_helpers import _PlanCycleState, _render_revision_request
 
 log = logging.getLogger(__name__)
 
+_OPERATOR_DIRECTION_TITLE = "Planner needs operator direction"
+
 
 def _is_content_filter_failure(*values: Any) -> bool:
     text = " ".join(str(value or "") for value in values).casefold()
@@ -108,16 +110,43 @@ class PlanningCycleVerdictMixin:
                 None,
             )
         if item is None:
+            # One open question per campaign: a Planner that keeps coming back
+            # empty refreshes the question it already asked instead of adding
+            # another unanswered row every cycle.
+            item = next(
+                (
+                    row
+                    for row in self.memory.backlog.active()
+                    if row.title == _OPERATOR_DIRECTION_TITLE
+                    and "operator_decision" in (row.tags or [])
+                    and row.status == "paused_operator"
+                    and row.objective == str(self.config.continuous_objective or row.objective)
+                ),
+                None,
+            )
+            already_asked = item is not None and str(
+                getattr(item, "pending_question", "") or ""
+            ).strip() == question
+        else:
+            already_asked = False
+        if item is None:
             from ..memory import BacklogItem
 
             item = self.memory.backlog.add(
                 BacklogItem.new(
-                    title="Planner needs operator direction",
+                    title=_OPERATOR_DIRECTION_TITLE,
                     objective=str(self.config.continuous_objective or question),
                     tags=["planner", "operator_decision", "scope:bounded"],
                     iterate=False,
                 )
             )
+        state.planner_asked_operator = True
+        self._enter_pause_backoff()
+        if already_asked:
+            self._emit_status(
+                "planner still has no concrete task; the operator question stays open"
+            )
+            return PLAN_AWAITING
         try:
             from ...core.operator_decision import build_operator_decision
 
@@ -348,6 +377,9 @@ class PlanningCycleVerdictMixin:
                     # during a replan that review has already been assessed —
                     # assessing it is what produced the revision request.
                     reconciliation = self._reconcile_reviewed_stage_empty_plan(verdict)
+            if reconciliation in {"advance", "complete", "rollback", "hold"}:
+                # The Manager acted on the empty plan; that is not a failed turn.
+                state.planner_turn_not_failed = True
             if reconciliation in {"advance", "complete", "rollback"}:
                 return PLAN_RETRY
             if reconciliation == "hold":

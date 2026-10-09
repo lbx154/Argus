@@ -15,6 +15,7 @@ from ._constants import (
     PLAN_ERROR,
     PLAN_RETRY,
 )
+from ._planner_failure_backoff import PlannerFailureBackoffMixin
 from ._planning_cycle_completion import PlanningCycleCompletionMixin
 from ._planning_cycle_enqueue import PlanningCycleEnqueueMixin
 from ._planning_cycle_helpers import (
@@ -74,6 +75,7 @@ class PlanningCycleMixin(
     PlanningCycleVerdictMixin,
     PlanningCycleCompletionMixin,
     PlanningCycleEnqueueMixin,
+    PlannerFailureBackoffMixin,
 ):
     def _waitable_subagent_jobs(self) -> list[Any]:
         """Live work the Host observes and the Planner may wait on.
@@ -1143,6 +1145,11 @@ class PlanningCycleMixin(
                 self._enter_pause_backoff()
                 return PLAN_ERROR
         self._arm_unchanged_planner_skip(state, result)
+        self._record_planner_turn_outcome(
+            state,
+            result,
+            operator_asked=bool(getattr(state, "planner_asked_operator", False)),
+        )
         return result
 
     def _pc_reconcile_reviewed_stage(
