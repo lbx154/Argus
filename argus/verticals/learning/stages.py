@@ -12,6 +12,14 @@ from ...skills.stage_machine import ChecklistItem
 
 STAGE_ORDER = ["ingest", "study", "curate", "review"]
 completion_gate = "none"
+# Round guards (core/round_policy.py). Ingesting and curating material is
+# bounded editing work, so it keeps the framework defaults (12 / 24 / 4 / 2).
+ROUND_POLICY = {
+    "stall_threshold": 4,
+    "no_progress_threshold": 2,
+    "soft_round_limit": 12,
+    "hard_escalate_rounds": 24,
+}
 PROTECTED_SKILL_TAGS: frozenset[str] = frozenset()
 
 

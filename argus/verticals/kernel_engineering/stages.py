@@ -22,6 +22,19 @@ STAGE_ALIASES = {
 WORKFLOW_MODE = "direct"
 completion_gate = "none"
 MISSION_KIND = "optimize"
+# Round guards (core/round_policy.py). Kernel work is a long verify loop:
+# build, check correctness against the reference, benchmark, profile, change,
+# and repeat. A plateau of several rounds while a correctness or performance
+# regression is chased down is normal, so the round-count guards are off and
+# the Reviewer's own FORWARD_PROGRESS=false streak is the stall signal, with
+# room for a long bounded regression. A Reviewer that stops giving any
+# progress judgement is still caught, but only after 200 rounds.
+ROUND_POLICY = {
+    "stall_threshold": 8,
+    "no_progress_threshold": 2,
+    "soft_round_limit": 0,
+    "hard_escalate_rounds": 200,
+}
 VERIFICATION_STAGE_PROFILES = {"optimize": "develop"}
 # Kernel work should start from the repository and measured behavior, not from
 # framework-authored document bundles.

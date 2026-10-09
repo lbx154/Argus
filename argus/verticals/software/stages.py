@@ -28,6 +28,17 @@ COMPLETION_CONTRACT_VERSION = 1
 # Safe fallback for old callers that have not yet read the Manager-persisted
 # workflow_mode. Runtime orchestration uses resolve_workflow_mode(project_root).
 WORKFLOW_MODE = "staged"
+# Round guards (core/round_policy.py). Software delivery tasks are usually
+# bounded, so they keep the framework defaults: the two-verdict progress
+# window opens after round 12, an explicit progress judgement is required from
+# round 24, and four consecutive explicit no-progress verdicts end the mission.
+# None of these ends a mission while the Reviewer reports forward progress.
+ROUND_POLICY = {
+    "stall_threshold": 4,
+    "no_progress_threshold": 2,
+    "soft_round_limit": 12,
+    "hard_escalate_rounds": 24,
+}
 
 # The build gate is irreducible. Planner checklist ops may extend this contract
 # but may never delete or weaken these ids.

@@ -128,6 +128,16 @@ def _render_stages_py(name: str, project_root: Path) -> str:
     lines.append(f"STAGE_ORDER = {stage_order!r}")
     lines.append(f"CHECKLIST_STAGE_ORDER = {tuple(checklist_order)!r}")
     lines.append(f"completion_gate = {domain.completion_gate!r}")
+    round_policy = getattr(domain, "ROUND_POLICY", None)
+    declared_guards = {
+        key: value
+        for key, value in (round_policy.as_dict() if round_policy else {}).items()
+        if value is not None
+    }
+    if declared_guards:
+        # Round guards the domain declared (core/round_policy.py) survive
+        # promotion; dropping them would silently reinstate the defaults.
+        lines.append(f"ROUND_POLICY = {declared_guards!r}")
     lines.append("")
     lines.append("CHECKLIST_ITEMS = {")
     for stage in checklist_order:
