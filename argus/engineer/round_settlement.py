@@ -87,6 +87,9 @@ def _enforce_operator_question_policy(
         operator_options=[],
         planner_report=planner_report,
         review_source=source,
+        # The host replaced this judgment; it is no longer the Reviewer's.
+        reviewer_authored=False,
+        host_placeholder="operator_question_policy",
     )
 
 

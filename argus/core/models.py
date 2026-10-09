@@ -225,6 +225,20 @@ class ReviewDecision:
     research_result: dict[str, Any] | None = None
     manuscript_snapshot: dict[str, str] | None = None
     venue_review: dict[str, Any] | None = None
+    # Host-owned provenance; the parser never accepts these from a model.
+    # ``reviewer_authored`` is set only on a judgment the independent Reviewer
+    # call itself returned; host placeholders, self-reviews, and host
+    # replacements keep (or reset to) False, so they are never carried forward
+    # as the Reviewer's own findings.
+    reviewer_authored: bool = False
+    # The Reviewer's own status/reason/next_action before any host rewrite
+    # (venue acceptance, pending background run). Later rounds quote these,
+    # and show each rewrite separately from ``host_notes``.
+    reviewer_words: dict[str, str] | None = None
+    host_notes: list[str] = field(default_factory=list)
+    # Why a host-written record stands where no Reviewer judgment was made,
+    # e.g. ``provider_turn_cap``, ``backend_failure``, ``silent_command``.
+    host_placeholder: str = ""
     # These are host-owned facts; the parser never accepts them from a model.
     venue_review_required: bool = False
     venue_review_passed: bool = False
