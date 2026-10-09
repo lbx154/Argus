@@ -137,7 +137,7 @@ def render_operator_update(
         first = f"已完成：{subject}。" if chinese else f"Completed: {subject}."
     elif state in {"aborted", "cancelled", "canceled"}:
         first = f"已取消：{subject}。" if chinese else f"Canceled: {subject}."
-    elif state in {"continue", "running", "in_progress"}:
+    elif state in {"continue", "running", "in_progress", "stage_continues"}:
         first = f"正在继续：{subject}。" if chinese else f"Still working on {subject}."
     elif state in {"blocked", "infra_blocked", "paused_operator"}:
         first = f"暂时无法继续：{subject}。" if chinese else f"Cannot continue yet: {subject}."

@@ -212,6 +212,16 @@ class MissionExecutionRuntimeMixin:
                 else research_plan
             )
         item_metadata = self._render_backlog_item_metadata(item)
+        continuation = (getattr(item, "outcome", None) or {}).get("stage_continuation")
+        if isinstance(continuation, dict) and continuation.get("reason"):
+            direction = (
+                "## Previous Manager stage decision\n"
+                "Continue the existing objective using the reviewed work. Address the "
+                "remaining work below; do not repeat already verified checks without "
+                "new evidence. Newer operator or Manager directions take precedence.\n"
+                + str(continuation["reason"])[:4000]
+            )
+            prelude = prelude + "\n\n" + direction if prelude else direction
         if item_metadata:
             prelude = (
                 item_metadata + "\n---\n\n" + prelude if prelude else item_metadata

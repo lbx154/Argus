@@ -1866,6 +1866,26 @@ class LifeSupervisor(
             outcome = event.get("outcome")
             outcome = outcome if isinstance(outcome, dict) else {}
             status = str(event.get("status") or event.get("outcome_class") or "ended")
+            if status == "stage_continues":
+                publish_operator_message(
+                    life_dir,
+                    text=render_operator_update(
+                        title=title, status=status,
+                        reason=str(event.get("stop_reason") or ""),
+                        next_action=(
+                            "Argus 会自动开始下一轮，继续完成剩余工作。"
+                            if chinese else "Argus will start the next pass automatically to finish the remaining work."
+                        ),
+                        language_hint=language_hint,
+                    ),
+                    message_id=_message_id(f"mission-continued-{item_id}"),
+                    event_fields={
+                        "mission_result": True, "item_id": item_id, "status": status,
+                        "success": success, "campaign_continues": True,
+                        "overall_complete": False, "user_action_required": False,
+                    },
+                )
+                return
             if status == "paused_external_work" and not success:
                 wait = event.get("external_wait") or outcome.get("external_wait")
                 wait = wait if isinstance(wait, dict) else {}

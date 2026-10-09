@@ -233,7 +233,9 @@ def _mission_outcome_presentation(
         outcome_class
     ]
     technical = ""
-    if outcome_class == "completed" and event.get("campaign_continues") is True:
+    if _text(event, "status") == "stage_continues" or (
+        outcome_class == "completed" and event.get("campaign_continues") is True
+    ):
         mission_status, kind, tone = "continued", "mission_continued", "info"
     elif (
         outcome_class == "completed"

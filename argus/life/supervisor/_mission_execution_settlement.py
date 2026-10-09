@@ -310,10 +310,10 @@ class MissionExecutionSettlementMixin:
             except Exception:  # noqa: BLE001 - certificate is observability/control aid
                 log.exception("life supervisor: failed to record stage review certificate")
 
-    def _maybe_short_circuit_for_stage_transition(
+    def _settle_stage_transition(
         self, state: _MissionRunState,
-    ) -> dict[str, Any] | None:
-        """Handle stage-continues / stage-hold early returns.
+    ) -> None:
+        """Classify stage continuation before durable settlement and publication.
 
         ``research_incomplete`` is project-level: it says the persisted final
         research target is not finished. It must NOT cancel a
@@ -321,16 +321,14 @@ class MissionExecutionSettlementMixin:
         legitimately end with project-level research still incomplete while
         the Manager advances ``scope -> solve`` (or rolls back to repair an
         earlier stage). In that case the same bounded item stays pending and
-        continues automatically. Explicit failures, holds, budget/provider
+        continues automatically. Explicit failures, budget/provider
         pauses, and infrastructure blocks do not enter this path.
 
         Also applies the ``planner_node_stage_completed`` override (a
         Planner-authored bounded DAG node closes once the Manager certifies
         ``advance`` for the current project stage, even if the Reviewer
-        described the WHOLE project as ``research_incomplete``) when neither
-        short-circuit fires.
+        described the WHOLE project as ``research_incomplete``).
         """
-        item = state.item
         outcome = state.outcome
         stage_transition = state.stage_transition
         stage_action = state.stage_action
@@ -350,26 +348,9 @@ class MissionExecutionSettlementMixin:
             and stage_action in {"advance", "rollback"}
         )
         if staged_item_continues:
-            usage_summary = state.usage_summary
-            assert usage_summary is not None, "stage settlement requires metered outcome"
-            self.memory.backlog.update(
-                item.id,
-                status="pending",
-                started_ts=None,
-                finished_ts=None,
-                last_error="",
-                consecutive_replans=0,
-                replan_streak_tracked=True,
-            )
-            return {
-                "success": True,
-                "status": "stage_continues",
-                "item_id": item.id,
-                "stage_transition": stage_transition,
-                "cost_usd": state.usd,
-                "known_cost_usd": state.known_usd,
-                "pricing_status": usage_summary.pricing_status,
-            }
+            state.success = True
+            state.status = "stage_continues"
+            state.stop_reason = str(stage_transition.get("reason") or "")
 
         bounded_stage_hold = (
             (success or status == "research_incomplete")
@@ -380,43 +361,19 @@ class MissionExecutionSettlementMixin:
             and stage_action == "hold"
         )
         if bounded_stage_hold:
-            usage_summary = state.usage_summary
-            assert usage_summary is not None, "stage settlement requires metered outcome"
-            hold_reason = str(
+            state.success = False
+            state.stop_reason = str(
                 stage_transition.get("reason")
                 or "Manager held the current stage"
             )
-            hold_outcome = mission_outcome_dimensions(
-                status="stage_hold",
-                success=False,
-                review_status=str(
-                    getattr(outcome, "final_review_status", "") or ""
-                ),
-                stage_transition=stage_transition,
-                stop_kind=state.stop_kind,
-                resumable=False,
-            )
-            self.memory.backlog.mark_failed(
-                item.id,
-                error=f"manager stage hold: {hold_reason}",
-                outcome=hold_outcome,
-            )
-            self._update_no_progress_streak(
-                kind="mission_failed",
-                report={
-                    "forward_progress": False,
-                    "headline": "manager stage decision: hold",
-                },
-            )
-            return {
-                "success": False,
-                "status": "stage_hold",
-                "item_id": item.id,
-                "stage_transition": stage_transition,
-                "cost_usd": state.usd,
-                "known_cost_usd": state.known_usd,
-                "pricing_status": usage_summary.pricing_status,
-            }
+            # Only an explicit model decision means "stay and keep working".
+            # Parser/backend failures also return HOLD and must not busy-loop.
+            if str(getattr(outcome, "operator_question", "") or "").strip():
+                state.status = "blocked"
+            elif stage_transition.get("diagnostic") == "intentional_hold":
+                state.status = "stage_continues"
+            else:
+                state.status = "stage_hold"
 
         # Planner-authored bounded DAG nodes are separate acceptance units: once
         # the Manager has certified ``advance`` for the current project stage,
@@ -433,7 +390,6 @@ class MissionExecutionSettlementMixin:
             state.success = True
             state.status = "done"
             state.stop_reason = ""
-        return None
 
     # ------------------------------------------------------------------
     # Phase: final status resolution against the backlog
@@ -876,6 +832,7 @@ class MissionExecutionSettlementMixin:
         maintenance_reviewed = bool(
             "framework_maintenance" in state.item_tags
             and success
+            and status != "stage_continues"
             and not iteration_requeued
             and final_review_status.strip().lower() == "done"
             and str(
@@ -940,7 +897,32 @@ class MissionExecutionSettlementMixin:
 
         # Update backlog row. A bounded research cycle that did not achieve its
         # persisted success target is resumable, not a success or terminal failure.
-        if success and iteration_requeued:
+        if status == "stage_continues":
+            # Count repeated holds without observed progress, not productive
+            # work inside one stage. Only structured review/planner evidence
+            # resets this guard; "done" alone can describe unchanged artifacts.
+            made_progress = (getattr(outcome, "final_planner_report", None) or {}).get("forward_progress") is True
+            held_rounds = 0 if made_progress else int(getattr(item, "consecutive_replans", 0) or 0) + 1
+            if stage_action == "hold" and held_rounds >= consecutive_replan_escalation_threshold():
+                success = False
+                status = PLANNER_RECENT_FAILURE_STATUS
+                resumable = False
+                err = f"No stage progress after {held_rounds} attempts: {state.stop_reason}"
+                state.stop_reason = err
+                outcome_dimensions = mission_outcome_dimensions(
+                    status=status, success=False, review_status=final_review_status,
+                    stage_transition=stage_transition, resumable=False,
+                )
+                fail(error=err, outcome=outcome_dimensions)
+            else:
+                outcome_dimensions["stage_continuation"] = dict(stage_transition)
+                commit(
+                    status="pending", started_ts=None, finished_ts=None,
+                    last_error=state.stop_reason, outcome=outcome_dimensions,
+                    consecutive_replans=held_rounds if stage_action == "hold" else 0,
+                    replan_streak_tracked=True,
+                )
+        elif success and iteration_requeued:
             # ``requeue_for_iteration`` already performed the only backlog
             # transition allowed here: running -> pending on the same item.
             commit(outcome=outcome_dimensions)
@@ -1209,7 +1191,7 @@ class MissionExecutionSettlementMixin:
             else "mission_complete"
             if success
             else "mission_replan_requested"
-            if state.replan_requested
+            if state.replan_requested or status == "stage_continues"
             else "mission_aborted"
             if state.intentional_abort
             else "mission_failed"
@@ -1248,6 +1230,7 @@ class MissionExecutionSettlementMixin:
             remaining_work = True
         overall_complete = bool(
             success
+            and status != "stage_continues"
             and status != "paused_operator"
             and state.iteration is None
             and (
@@ -1260,7 +1243,7 @@ class MissionExecutionSettlementMixin:
                 or (not self.config.continuous and not remaining_work)
             )
         )
-        campaign_continues = bool(success and not overall_complete)
+        campaign_continues = bool(status == "stage_continues" or (success and not overall_complete))
 
         planner_report = dict(
             getattr(outcome, "final_planner_report", {}) or {}
@@ -1407,7 +1390,7 @@ class MissionExecutionSettlementMixin:
             "stop_kind": state.stop_kind,
             "stop_reason": (
                 state.stop_reason or state.err
-                if kind in {"mission_failed", "mission_aborted"}
+                if kind in {"mission_failed", "mission_aborted"} or status == "stage_continues"
                 else ""
             ),
             "failure_reason": state.err if kind == "mission_failed" else "",
@@ -1440,6 +1423,7 @@ class MissionExecutionSettlementMixin:
             "venue_review_snapshot": getattr(outcome, "venue_review_snapshot", None),
             "overall_complete": overall_complete,
             "campaign_continues": campaign_continues,
+            "stage_transition": state.stage_transition,
             "delivery": delivery,
             "delivery_id": str((delivery or {}).get("delivery_id") or ""),
             "research_result": getattr(outcome, "research_result", None),
@@ -1464,6 +1448,7 @@ class MissionExecutionSettlementMixin:
             "execution_workdir": str(state.execution_workdir),
             "success": success,
             "status": status,
+            "stage_transition": state.stage_transition,
             "review_status": str(
                 getattr(outcome, "final_review_status", "") or ""
             ),
@@ -1521,7 +1506,7 @@ class MissionExecutionSettlementMixin:
         kind = (
             "mission_iterated" if state.iteration_requeued
             else "mission_complete" if success
-            else "mission_replan_requested" if state.replan_requested
+            else "mission_replan_requested" if state.replan_requested or status == "stage_continues"
             else "mission_aborted" if state.intentional_abort else "mission_failed"
         )
         self._update_no_progress_streak(

@@ -334,6 +334,13 @@ def resolve_runner_bin(
     expanded = str(Path(requested).expanduser())
     resolved = shutil.which(expanded)
     if resolved:
+        if chosen == BACKEND_COPILOT and not explicit:
+            from .copilot_launcher import is_vscode_copilot_launcher
+
+            if is_vscode_copilot_launcher(resolved):
+                standalone = _resolve_explicit_candidate(Path.home() / ".local" / "bin" / expanded)
+                if standalone:
+                    return standalone
         return resolved
     if Path(expanded).parent != Path("."):
         return None
