@@ -126,6 +126,11 @@ Engineer and Reviewer share the distinction between readiness and validation;
 producer-written logs cannot replace an independent checker or external
 observation required by the acceptance contract.
 
+Reviewer submits its complete operator-language review through a native action,
+with repair instructions for Engineer rather than edits to checkpoint or context
+records. Team plans remain revisable; changing Manager or operator commitments
+requires the corresponding authority, not just another successful run.
+
 ## Changing direction while it runs
 
 Argus gives you three ways to speak to a running project. They are not
