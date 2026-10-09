@@ -731,6 +731,8 @@ class Reviewer:
         preselected_skill_block: str | None = None,
         resume_thread_id: str | None = None,
         prior_static_fingerprint: str = "",
+        rereview_context: str = "",
+        rereview_context_resumed: str = "",
     ) -> ReviewDecision:
         # Resolve the Reviewer's own library contract once for both the prompt
         # fallback and a backend-native loader.
@@ -803,6 +805,7 @@ class Reviewer:
             vertical=config.active_vertical,
             workflow_mode=config.workflow_mode,
             round_started_ts=config.round_started_ts,
+            rereview_context=rereview_context,
         )
         venue_policy = ""
         if venue_required:
@@ -828,6 +831,19 @@ class Reviewer:
             if resume_thread_id and prior_static_fingerprint == new_fp
             else None
         )
+        carried = rereview_context.strip()
+        compact = rereview_context_resumed.strip()
+        if resume and carried and compact and carried in delta_base:
+            # The resumed thread already holds this Reviewer's own findings in
+            # full; a fresh one (rotation, changed rubric, fresh-only backend)
+            # keeps the complete carry-over rendered above.
+            delta_base = delta_base.replace(carried, compact, 1)
+            delta_bytes = len(delta_base.encode("utf-8"))
+            prompt_block_stats["delta_total"] = {
+                "chars": len(delta_base),
+                "bytes": delta_bytes,
+                "estimated_tokens": (delta_bytes + 3) // 4,
+            }
         from ..roles.prompts.reviewer import (
             _REEVALUATE_HEADER,
             assemble_reviewer_prompt,
@@ -1041,6 +1057,7 @@ class Reviewer:
         vertical: str = "",
         workflow_mode: str | None = None,
         round_started_ts: float | None = None,
+        rereview_context: str = "",
     ) -> tuple[str, str]:
         """F7: render the reviewer prompt as ``(static_preamble, round_delta)``.
 
@@ -1079,6 +1096,7 @@ class Reviewer:
             vertical=vertical,
             workflow_mode=workflow_mode,
             round_started_ts=round_started_ts,
+            rereview_context=rereview_context,
         )
 
     def _build_prompt(self, **kwargs: Any) -> str:

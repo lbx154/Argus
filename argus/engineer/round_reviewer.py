@@ -31,6 +31,7 @@ from ..core.stop_kinds import (
 )
 from ..life.context_packet import render_mission_brief
 from .external_work import parse_external_wait_request, render_external_work_advisory
+from .round_rereview import build_rereview_context, own_reviewer_thread
 from .round_signals import _review_event_payload
 from .round_state import (
     EngineerTurnOutcome,
@@ -199,6 +200,31 @@ class RoundReviewerMixin:
             if reviewer_session is not None
             else None
         )
+        engineer_session = state.engineer_session
+        own_resume_id = own_reviewer_thread(
+            reviewer_resume_id,
+            foreign_thread_ids=(
+                getattr(engineer_session, "thread_id", None),
+                getattr(engineer_result, "thread_id", None),
+            ),
+        )
+        if reviewer_resume_id and own_resume_id is None and reviewer_session is not None:
+            # Never continue the Engineer's conversation: start a fresh
+            # Reviewer thread and let the carry-over below supply its findings.
+            reviewer_session.rotate("foreign_thread")
+        reviewer_resume_id = own_resume_id
+        rereview = build_rereview_context(
+            rounds=state.rounds,
+            round_index=round_index,
+            workdir=workdir,
+            changes_since_ts=(
+                state.last_review_completed_wall
+                if state.last_review_completed_wall is not None
+                else state.round_started_wall
+            ),
+            engineer_log_path=supervised_config.engineer_log_path,
+            commands_since_ts=state.round_started_wall,
+        )
         capsule_block = reviewer_session.prompt_block() if reviewer_session else ""
         rotation_block = ""
         if (
@@ -216,7 +242,10 @@ class RoundReviewerMixin:
                 "files it points to, then give your judgment on this round."
             )
         mission_brief = render_mission_brief(
-            supervised_config.context_packet_path, include_engineer_account=False,
+            supervised_config.context_packet_path,
+            include_engineer_account=False,
+            # The re-review block carries this Reviewer's own previous findings.
+            include_previous_review=rereview is None,
         )
         shared_context_parts = (
             mission_brief,
@@ -345,6 +374,8 @@ class RoundReviewerMixin:
                 prior_static_fingerprint=(
                     reviewer_session.static_fingerprint if reviewer_session else ""
                 ),
+                rereview_context=rereview.full if rereview else "",
+                rereview_context_resumed=rereview.resumed if rereview else "",
             )
         except Exception as exc:  # noqa: BLE001
             if reviewer_session is not None:
@@ -362,6 +393,7 @@ class RoundReviewerMixin:
             # A completed review has seen the host-gathered round evidence; a
             # backend failure keeps it for the retry.
             state.pending_round_evidence_text = ""
+            state.last_review_completed_wall = time.time()
         session_metadata_persisted = True
         if reviewer_session is not None:
             if reviewer_resume_id and not review.session_resumed:

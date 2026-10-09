@@ -39,6 +39,9 @@ class RoundLoopState:
     rounds: list[RoundRecord] = field(default_factory=list)
     # Wall-clock start of the current Engineer turn (for "changed this round").
     round_started_wall: float | None = None
+    # Wall-clock end of the last completed independent review: the start of
+    # the change set a round >= 2 Reviewer is shown.
+    last_review_completed_wall: float | None = None
     last_engineer_message: str = ""
     no_progress_streak: int = 0
     semantic_stall_streak: int = 0
