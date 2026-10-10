@@ -61,6 +61,7 @@ from ._planner_rendering import PlannerRenderingMixin
 from ._planning_context import PlanningContextMixin
 from ._planning_cycle import PlanningCycleMixin
 from ._second_reading import SecondReadingMixin
+from ._wait_holds import WaitHoldMixin
 from .pending_notify import should_report_pending_wait
 
 log = logging.getLogger(__name__)
@@ -72,6 +73,7 @@ _PLAN_PROJECT_DONE = "project_done"
 
 
 class LifeSupervisor(
+    WaitHoldMixin,
     EvolutionMixin,
     LettersMixin,
     SecondReadingMixin,
@@ -954,7 +956,7 @@ class LifeSupervisor(
                     if any(
                         item.status == "paused_external_work"
                         for item in self.memory.backlog.active()
-                    ):
+                    ) or self._has_wait_held_items():
                         self._enter_pause_backoff()
                         self._emit_status(
                             "waiting for background results; the task will resume automatically"
@@ -1213,6 +1215,9 @@ class LifeSupervisor(
         self._drain_peer_inbox()
         if not self._drain_mission_completions():
             return {"status": "mission_delivery_pending", "recoverable": True}
+        # A challenged item held for a Planner wait becomes claimable again the
+        # moment that wait ends, not only when its recheck time lapses.
+        self._release_wait_holds()
         parallel_worker = getattr(self.config, "parallel_worker", False)
         coordinate_claims = getattr(
             self.config,

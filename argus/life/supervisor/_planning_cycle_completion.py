@@ -21,6 +21,7 @@ from ...core.planner_verdict import PlannerVerdictStatus
 from ..memory import BacklogItem
 from ._constants import (
     COMPLETION_REJECTION_CIRCUIT_THRESHOLD,
+    PLAN_AWAITING,
     PLAN_ERROR,
     PLAN_RETRY,
     PLAN_TERMINAL_IDLE,
@@ -577,6 +578,10 @@ class PlanningCycleCompletionMixin:
             if revision_request is None and self._reconcile_open_ended_planner_waiting(verdict):
                 return PLAN_RETRY
             record = self._record_planner_waiting(verdict)
+            if revision_request is not None and record == PLAN_AWAITING:
+                # The Planner answered the challenge by waiting, so the
+                # challenged item must not simply run again on the next tick.
+                self._hold_challenged_item_for_wait(revision_request, verdict)
             # Stall-breaker: if the planner has idled K+ cycles on the same
             # blocker, force a verification probe so reality (not a memory of
             # the blocker) drives the next decision. Running it next tick resets

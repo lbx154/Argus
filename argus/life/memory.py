@@ -1162,6 +1162,14 @@ class BacklogItem:
     # Optional durable return receipt; kept separate from public outcome dimensions.
     mission_result: dict[str, Any] | None = None
     mission_delivery_id: str = ""
+    # Set when the Planner answered a challenge to this item with a wait: the
+    # item stays pending but is not claimable until the hold is released.
+    # ``wait_id`` ties it to the persisted Planner wait contract ("" when no
+    # contract could be persisted); ``until`` is the latest moment it may
+    # hold. The supervisor releases it earlier when that contract ends
+    # (``_release_wait_holds``); ``until`` alone guarantees it is never
+    # stranded, because past it the scheduler ignores the hold.
+    wait_hold: dict[str, Any] = field(default_factory=dict)
     # Scheduler snapshot taken when this item was claimed. Transient: never
     # persisted; the supervisor copies it onto the mission-start event.
     admission: dict[str, Any] = field(default_factory=dict, repr=False, compare=False)
@@ -1254,6 +1262,8 @@ class BacklogItem:
     def to_jsonable(self) -> dict[str, Any]:
         row = asdict(self)
         row.pop("admission")
+        if not self.wait_hold:
+            row.pop("wait_hold")
         if self.mission_result is None:
             row.pop("mission_result")
         if not self.mission_delivery_id:
@@ -1358,7 +1368,27 @@ class BacklogItem:
             ),
             mission_result=(dict(row["mission_result"]) if isinstance(row.get("mission_result"), dict) else None),
             mission_delivery_id=str(row.get("mission_delivery_id") or ""),
+            wait_hold=(
+                dict(row["wait_hold"]) if isinstance(row.get("wait_hold"), dict) else {}
+            ),
         )
+
+
+def wait_hold_active(item: Any, *, now: float | None = None) -> bool:
+    """Is ``item`` held back by a Planner wait right now?
+
+    Only time is read here, so the scheduler never strands an item: a hold
+    always carries ``until`` and lapses then. Ending it earlier, when the
+    wait it belongs to ends, is the supervisor's job.
+    """
+    hold = getattr(item, "wait_hold", None)
+    if not isinstance(hold, dict) or not hold:
+        return False
+    try:
+        until = float(hold.get("until") or 0.0)
+    except (TypeError, ValueError):
+        return False
+    return until > (time.time() if now is None else now)
 
 
 class Backlog:
@@ -1749,6 +1779,7 @@ class Backlog:
         return (
             item.status == "pending"
             and not str(item.pending_question or "").strip()
+            and not wait_hold_active(item)
             and all(d in done for d in item.deps)
         )
 
@@ -2727,6 +2758,7 @@ class Backlog:
             head.status = "running"
             head.started_ts = time.time()
             head.running_owner = str(owner)
+            head.wait_hold = {}
             self._save(items)
             return head
 
