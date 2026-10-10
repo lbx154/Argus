@@ -517,7 +517,7 @@ def record_reviewed_handoff(
     # cannot run, and a risk the Reviewer accepted, belong in it by name.
     for key in (
         "verification_obstacle", "verification_obstacle_basis", "verification_obstacle_basis_source",
-        "residual_risk",
+        "residual_risk", "objective_status", "objective_gap",
     ):
         value = str(getattr(review, key, "") or "").strip()
         if value:

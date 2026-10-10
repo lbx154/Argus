@@ -241,6 +241,14 @@ class ReviewDecision:
     # acceptance. The host validated both before recording the verdict.
     residual_risk: str = ""
     residual_risk_detail: dict[str, Any] = field(default_factory=dict)
+    # On an accepting verdict: whether what was approved establishes the
+    # operator's whole objective, as the Reviewer judged it ("met", "partial",
+    # "not_met"; "" when the verdict did not say). A narrowed increment can be
+    # done while the objective is not, and ``objective_gap`` names what remains.
+    # Only an explicit "met" is met; partial or not_met cannot certify the
+    # project complete (``manager/stage_decider._review_certifies_completion``).
+    objective_status: str = ""
+    objective_gap: str = ""
     review_source: str = "reviewer"
     prompt_block_stats: dict[str, dict[str, int]] = field(default_factory=dict)
     input_tokens: int = 0
@@ -365,6 +373,12 @@ class ReviewDecision:
             payload["residual_risk"] = residual_risk[:2000]
             if self.residual_risk_detail:
                 payload["residual_risk_detail"] = dict(self.residual_risk_detail)
+        objective_status = str(self.objective_status or "").strip()
+        if objective_status:
+            payload["objective_status"] = objective_status
+            gap = str(self.objective_gap or "").strip()
+            if gap:
+                payload["objective_gap"] = gap[:2000]
         if self.research_result is not None:
             payload["research_result"] = dict(self.research_result)
         payload.update(extras)

@@ -307,6 +307,22 @@ class ReviewActions:
                 }
                 fields["impossible_because"] = _basis_field()
             if name == "approve_review":
+                fields["objective_status"] = {
+                    "type": "string", "enum": ["met", "partial", "not_met"],
+                    "description": (
+                        "Does what you approve establish the operator's whole objective "
+                        "(the original task you were shown), not only this increment? "
+                        "met only when you checked that it does. partial or not_met when "
+                        "this task is done but the objective is not established (for "
+                        "example, the task was narrowed to a local check); name what "
+                        "remains in objective_gap. The project is not completed on a "
+                        "partial or not_met approval."
+                    ),
+                }
+                fields["objective_gap"] = {
+                    "type": "string",
+                    "description": "With partial or not_met: what the objective still needs, concretely.",
+                }
                 fields["residual_risk"] = {
                     "type": "object",
                     "description": (
@@ -432,6 +448,13 @@ class ReviewActions:
         if "research_result" in payload and research is None:
             raise ValueError("The research assessment is incomplete.")
         self._check_grounding(payload)
+        objective_status = str(payload.get("objective_status") or "").strip()
+        objective_gap = " ".join(str(payload.get("objective_gap") or "").split())
+        if objective_status in {"partial", "not_met"} and not objective_gap:
+            raise ValueError(
+                f"objective_status {objective_status}: name what the objective still "
+                "needs in objective_gap."
+            )
         status = _ACTIONS[action][0]
         options = [
             option for option in payload.get("options", [])
@@ -476,6 +499,9 @@ class ReviewActions:
             decision.residual_risk, decision.residual_risk_detail = _residual_risk_record(
                 risk, self._acceptance_record(risk),
             )
+        if objective_status:
+            decision.objective_status = objective_status
+            decision.objective_gap = objective_gap[:2000] if objective_status != "met" else ""
         if action == "replan_review":
             decision.planner_report.update(
                 plan_signal="reconsider", challenge=review,

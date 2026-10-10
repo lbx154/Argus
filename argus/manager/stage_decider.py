@@ -332,6 +332,32 @@ def fallback_empty_stage_decision(
     return hold("empty_output_no_manager_judgment")
 
 
+#: Reviewer judgments that what it approved does not establish the objective.
+OBJECTIVE_NOT_ESTABLISHED = frozenset({"partial", "not_met"})
+
+
+def review_objective_issue(review: Any) -> str:
+    """Why an approving review cannot close the project, or "".
+
+    The Reviewer approves the task it was given. When the Planner has narrowed
+    that task (freight-dispatch-shift, ab1009 arm E: mission 15 became "compile
+    and run the local fixtures"), an honest approval can say the increment is
+    done and the operator's objective is not. That judgment arrives as the
+    structured ``objective_status``; a project is never certified complete on a
+    review that says partial or not_met. What remains is carried in the reason
+    so the hold records the gap and the next plan can address it.
+    """
+    status = str(getattr(review, "objective_status", "") or "").strip().lower()
+    if status not in OBJECTIVE_NOT_ESTABLISHED:
+        return ""
+    gap = " ".join(str(getattr(review, "objective_gap", "") or "").split())[:600]
+    return (
+        "the Reviewer approved this increment but judged the operator's objective "
+        f"{'only partly met' if status == 'partial' else 'not met'}"
+        + (f"; remaining: {gap}" if gap else "")
+    )
+
+
 def _review_certifies_completion(
     review: Any,
     *,
@@ -358,6 +384,9 @@ def _review_certifies_completion(
     status = str(getattr(review, "status", "") or "").strip().lower()
     if status != "done":
         return "review_not_done"
+    objective_issue = review_objective_issue(review)
+    if objective_issue:
+        return objective_issue
     if str(vertical or "").strip().lower() == "research":
         # A paper's independent final review is the certification. The
         # structured grades the Reviewer attaches summarize that verdict; they
@@ -663,7 +692,9 @@ __all__ = [
     "fallback_empty_stage_decision",
     "external_completion_gate_rework_decision",
     "external_completion_gate_stage_guard_decision",
+    "OBJECTIVE_NOT_ESTABLISHED",
     "final_stage_completion_blockers",
+    "review_objective_issue",
     "final_stage_completion_decision",
     "build_stage_decision_prompt",
     "parse_stage_decision",

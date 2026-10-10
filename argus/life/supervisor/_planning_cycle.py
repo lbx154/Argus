@@ -594,6 +594,8 @@ class PlanningCycleMixin(
                         review.get("operator_question") or ""
                     ).strip(),
                     review_source="reviewer",
+                    objective_status=str(review.get("objective_status") or "").strip(),
+                    objective_gap=str(review.get("objective_gap") or "").strip(),
                     manuscript_snapshot=manuscript_binding,
                     venue_review=review.get("venue_review"),
                     venue_review_snapshot=review.get("venue_review_snapshot"),
