@@ -106,6 +106,10 @@ class ReviewGrounding:
     packet_refs: tuple[tuple[str, str], ...] = ()
     accepted_risks: tuple[dict[str, Any], ...] = ()
     operator_decisions: tuple[dict[str, Any], ...] = ()
+    # The task under review is narrower than the operator's objective (a
+    # Planner mission, in the daemon nearly always): an approval must then say
+    # whether the objective is met (``objective_status``).
+    objective_narrowed: bool = False
 
 
 _QUOTE_FOLD = str.maketrans({"\u2018": "'", "\u2019": "'", "\u201c": '"', "\u201d": '"', "`": " ", "*": " "})
@@ -315,7 +319,10 @@ class ReviewActions:
                         "met only when you checked that it does. partial or not_met when "
                         "this task is done but the objective is not established (for "
                         "example, the task was narrowed to a local check); name what "
-                        "remains in objective_gap. The project is not completed on a "
+                        "remains in objective_gap. A check left unverified on an "
+                        "accepted residual risk does not by itself make it partial: "
+                        "with everything else established, say met and record the "
+                        "risk in residual_risk. The project is not completed on a "
                         "partial or not_met approval."
                     ),
                 }
@@ -357,6 +364,8 @@ class ReviewActions:
                     "additionalProperties": False,
                 }
             required = ["review"]
+            if name == "approve_review" and self.grounding.objective_narrowed:
+                required.append("objective_status")
             if self.venue_required and name in {"approve_review", "revise_review"}:
                 fields["recommendation"] = {
                     "type": "string", "enum": list(RECOMMENDATIONS),
@@ -449,6 +458,11 @@ class ReviewActions:
             raise ValueError("The research assessment is incomplete.")
         self._check_grounding(payload)
         objective_status = str(payload.get("objective_status") or "").strip()
+        if action == "approve_review" and self.grounding.objective_narrowed and not objective_status:
+            raise ValueError(
+                "This task is narrower than the operator's objective: state "
+                "objective_status (met, partial or not_met) and, unless met, objective_gap."
+            )
         objective_gap = " ".join(str(payload.get("objective_gap") or "").split())
         if objective_status in {"partial", "not_met"} and not objective_gap:
             raise ValueError(
@@ -499,6 +513,7 @@ class ReviewActions:
             decision.residual_risk, decision.residual_risk_detail = _residual_risk_record(
                 risk, self._acceptance_record(risk),
             )
+        decision.objective_narrowed = self.grounding.objective_narrowed
         if objective_status:
             decision.objective_status = objective_status
             decision.objective_gap = objective_gap[:2000] if objective_status != "met" else ""

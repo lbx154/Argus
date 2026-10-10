@@ -34,6 +34,9 @@ class StageDecision:
     # evidence that satisfies the Planner's declared recheck condition. Manager
     # cannot create or expand operator authorization.
     resolves_wait: bool = False
+    # COMPLETE only: "partial" when the Manager judges the operator's objective
+    # unachievable as stated and finishes on the Reviewer's recorded gap.
+    objective_outcome: str = ""
 
 
 _VALID_ACTIONS = ("advance", "hold", "rollback", "complete")
@@ -98,6 +101,7 @@ _STAGE_KEYS = (
     "TARGET_STAGE",
     "REASON",
     "RESOLVES_WAIT",
+    "OBJECTIVE_OUTCOME",
     "LIVE_VIEW_PATHS",
     "LIVE_VIEW_TITLE",
     "LIVE_VIEW_REASON",
@@ -137,6 +141,8 @@ def stage_decision_fields(raw_text: str) -> tuple[Any, str]:
             fields[key.lower()] = read_optional(values, key)
     if "RESOLVES_WAIT" in values:
         fields["resolves_wait"] = read_bool(values, "RESOLVES_WAIT")
+    if "OBJECTIVE_OUTCOME" in values:
+        fields["objective_outcome"] = read_optional(values, "OBJECTIVE_OUTCOME")
     paths = read_list(values, "LIVE_VIEW_PATHS")
     if paths:
         fields["live_view"] = {
@@ -260,11 +266,13 @@ def parse_stage_decision(
         # and the caller turns it into a step forward only when the contract's
         # sole objection is the pipeline's position — see
         # ``stage_position_is_the_only_completion_blocker``.
+        outcome = str(obj.get("objective_outcome") or "").strip().lower()
         return StageDecision(
             "complete",
             cur,
             reason or "operator objective complete",
             "valid_complete",
+            objective_outcome="partial" if outcome == "partial" else "",
         )
 
     if action == "advance":
@@ -336,25 +344,57 @@ def fallback_empty_stage_decision(
 OBJECTIVE_NOT_ESTABLISHED = frozenset({"partial", "not_met"})
 
 
-def review_objective_issue(review: Any) -> str:
+#: Opening of every objective-gap completion blocker. Stable, so the hold it
+#: produces can be recognized (``objective_is_the_only_completion_blocker``)
+#: and counted by the completion stop-loss without matching the gap text.
+OBJECTIVE_BLOCKER = "objective not established"
+
+
+def review_objective_issue(review: Any, *, project_root: Any = None) -> str:
     """Why an approving review cannot close the project, or "".
 
     The Reviewer approves the task it was given. When the Planner has narrowed
     that task (freight-dispatch-shift, ab1009 arm E: mission 15 became "compile
     and run the local fixtures"), an honest approval can say the increment is
     done and the operator's objective is not. That judgment arrives as the
-    structured ``objective_status``; a project is never certified complete on a
-    review that says partial or not_met. What remains is carried in the reason
-    so the hold records the gap and the next plan can address it.
+    structured ``objective_status``:
+
+    - partial / not_met on this review blocks completion;
+    - a narrowed task whose approval did not state it is not certified;
+    - with no real judgment on this review (a synthetic or host review), the
+      latest real one recorded for the project still stands, so a held
+      partial stays held until a real review says met.
+
+    The Manager may still finish such a project as PARTIAL; see
+    ``objective_is_the_only_completion_blocker``.
     """
+    from ..core.objective_status import is_real_review, outstanding_objective_gap
+
     status = str(getattr(review, "objective_status", "") or "").strip().lower()
-    if status not in OBJECTIVE_NOT_ESTABLISHED:
-        return ""
     gap = " ".join(str(getattr(review, "objective_gap", "") or "").split())[:600]
+    if status not in OBJECTIVE_NOT_ESTABLISHED:
+        if status == "met" and is_real_review(review):
+            return ""
+        if bool(getattr(review, "objective_narrowed", False)) and not status:
+            return (
+                f"{OBJECTIVE_BLOCKER}: the approval of this narrowed task did not "
+                "state whether the operator's objective is met"
+            )
+        record = outstanding_objective_gap(project_root)
+        if not record:
+            return ""
+        status, gap = str(record.get("status")), str(record.get("gap") or "")[:600]
     return (
-        "the Reviewer approved this increment but judged the operator's objective "
+        f"{OBJECTIVE_BLOCKER}: the Reviewer judged the operator's objective "
         f"{'only partly met' if status == 'partial' else 'not met'}"
         + (f"; remaining: {gap}" if gap else "")
+    )
+
+
+def objective_is_the_only_completion_blocker(blockers: Sequence[str]) -> bool:
+    """Is an objective gap the sole reason completion was refused?"""
+    return bool(blockers) and all(
+        str(blocker).startswith(OBJECTIVE_BLOCKER) for blocker in blockers
     )
 
 
@@ -366,6 +406,7 @@ def _review_certifies_completion(
     research_target_level: str | None = None,
     checklist_contract: Any | None = None,
     research_result_scope: str = "",
+    project_root: Any = None,
 ) -> str:
     """Empty when this verdict may close the project; a reason otherwise.
 
@@ -384,7 +425,7 @@ def _review_certifies_completion(
     status = str(getattr(review, "status", "") or "").strip().lower()
     if status != "done":
         return "review_not_done"
-    objective_issue = review_objective_issue(review)
+    objective_issue = review_objective_issue(review, project_root=project_root)
     if objective_issue:
         return objective_issue
     if str(vertical or "").strip().lower() == "research":
@@ -438,6 +479,7 @@ def final_stage_completion_decision(
     trigger_diagnostic: str = "",
     trigger_reason: str = "",
     allow_early_completion: bool = False,
+    objective_outcome: str = "",
 ) -> StageDecision | None:
     """Validate a Manager COMPLETE decision against certified stage evidence."""
     cur = (current_stage or "").strip().lower()
@@ -463,7 +505,17 @@ def final_stage_completion_decision(
             if allow_early_completion and cur == "idea" and vertical == "research"
             else ""
         ),
+        project_root=project_root,
     )
+    if missing and missing.startswith(OBJECTIVE_BLOCKER) and objective_outcome == "partial":
+        # The Manager judged the remaining objective unachievable as stated:
+        # finish, but as PARTIAL, never as done. The caller records the gap.
+        return StageDecision(
+            "complete", cur,
+            (trigger_reason or "Manager finished the project as partial") + f" ({missing})",
+            "manager_completion_partial",
+            objective_outcome="partial",
+        )
     if missing:
         return None
     reason = trigger_reason or "Manager completed the certified current stage"
@@ -550,6 +602,7 @@ def final_stage_completion_blockers(
                 if allow_early_completion and cur == "idea" and vertical == "research"
                 else ""
             ),
+            project_root=project_root,
         )
         or ""
     ).strip()
@@ -692,7 +745,9 @@ __all__ = [
     "fallback_empty_stage_decision",
     "external_completion_gate_rework_decision",
     "external_completion_gate_stage_guard_decision",
+    "OBJECTIVE_BLOCKER",
     "OBJECTIVE_NOT_ESTABLISHED",
+    "objective_is_the_only_completion_blocker",
     "final_stage_completion_blockers",
     "review_objective_issue",
     "final_stage_completion_decision",

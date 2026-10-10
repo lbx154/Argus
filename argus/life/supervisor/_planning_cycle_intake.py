@@ -184,6 +184,16 @@ class PlanningCycleIntakeMixin:
         from ...skills.vertical_select import resolve_vertical
 
         vertical = resolve_vertical(artifact_root)
+        from ...core.objective_status import finished_partial
+
+        partial = finished_partial(artifact_root)
+        if partial:
+            gap = str(partial.get("gap") or "").strip()
+            return (
+                f"bounded {vertical} vertical finished as PARTIAL: the operator's "
+                "objective is not fully met"
+                + (f"; remaining: {gap}" if gap else "")
+            )
         return f"bounded {vertical} vertical has a current completion certificate"
 
     def _pc_intake_gate(self, state: _PlanCycleState) -> Any | None:

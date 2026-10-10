@@ -1311,6 +1311,18 @@
         "residual_risk": {
           "type": "string"
         },
+        "objective_status": {
+          "type": "string",
+          "enum": [
+            "",
+            "met",
+            "partial",
+            "not_met"
+          ]
+        },
+        "objective_gap": {
+          "type": "string"
+        },
         "final_output": {
           "type": "string"
         },
@@ -1464,6 +1476,18 @@
               "type": "string"
             },
             "residual_risk": {
+              "type": "string"
+            },
+            "objective_status": {
+              "type": "string",
+              "enum": [
+                "",
+                "met",
+                "partial",
+                "not_met"
+              ]
+            },
+            "objective_gap": {
               "type": "string"
             },
             "delivered_at": {
@@ -1767,6 +1791,18 @@
           "type": "string"
         },
         "residual_risk": {
+          "type": "string"
+        },
+        "objective_status": {
+          "type": "string",
+          "enum": [
+            "",
+            "met",
+            "partial",
+            "not_met"
+          ]
+        },
+        "objective_gap": {
           "type": "string"
         },
         "residual_risk_detail": {

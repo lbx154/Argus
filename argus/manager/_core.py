@@ -84,6 +84,9 @@ class StageTransition:
     # True only when an authoritative Manager HOLD satisfies a persisted
     # Planner waiting condition and requests immediate replanning.
     resolves_wait: bool = False
+    # "partial" when the project was finished as PARTIAL on a recorded
+    # objective gap (``core/objective_status.py``); "" otherwise.
+    objective_outcome: str = ""
 
 
 # ---------------------------------------------------------------------------

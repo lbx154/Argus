@@ -886,6 +886,15 @@ def build_stage_decision_prompt(
     )
     status = str(getattr(review, "status", "") or "")
     reason = str(getattr(review, "reason", "") or "")
+    objective_status = str(getattr(review, "objective_status", "") or "").strip()
+    objective_gap = " ".join(str(getattr(review, "objective_gap", "") or "").split())
+    objective_line = (
+        f"objective_status: {objective_status}"
+        + (f" (remaining: {objective_gap[:600]})" if objective_gap else "")
+        + "\n"
+        if objective_status
+        else ""
+    )
     review_source = str(getattr(review, "review_source", "reviewer") or "reviewer").strip()
     planner_waiting = bool(getattr(planner_verdict, "waiting", False))
     waiting_contract = getattr(planner_verdict, "waiting_contract", None)
@@ -1060,7 +1069,13 @@ def build_stage_decision_prompt(
         # executed as a one-step advance, so neither the obedient nor the
         # improvising Manager loses its verdict; this line only keeps the trace
         # exact.
-        f"For HOLD and for COMPLETE, set TARGET_STAGE to `{current_stage}`.\n\n"
+        f"For HOLD and for COMPLETE, set TARGET_STAGE to `{current_stage}`.\n"
+        "When the Reviewer judged the operator's objective only partly met or not "
+        "met, the project cannot complete as done. If you judge the remaining gap "
+        "cannot be closed as the objective is stated, finish it as partial with "
+        "ACTION=complete and OBJECTIVE_OUTCOME=partial: it is recorded, delivered "
+        "and reported as partial with the gap, never as done. Otherwise HOLD so "
+        "the remaining work is planned.\n\n"
         # The objective and the stage's requirements hold across the
         # campaign's decisions; the wait and scope arbitration, the evidence
         # and the Planner note belong to this one decision, so they close the
@@ -1078,6 +1093,7 @@ def build_stage_decision_prompt(
         f"source: {review_source}\n"
         f"status: {status}\n"
         f"reason: {reason}\n"
+        f"{objective_line}"
         f"{source_instructions}\n"
         "## Planner note (advisory)\n"
         f"{_advisory_planner(planner_verdict)}\n\n"

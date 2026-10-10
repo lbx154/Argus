@@ -493,6 +493,8 @@ def build_delivery_receipt(
     final_submission_certified: bool,
     review_source: str = "",
     residual_risk: str = "",
+    objective_status: str = "",
+    objective_gap: str = "",
     workspace: Path | str | None,
     state_root: Path | str | None,
     stage: str = "",
@@ -577,6 +579,10 @@ def build_delivery_receipt(
         # One check approved unverified on an accepted risk; the delivery
         # card shows it instead of a plain pass.
         "residual_risk": " ".join(str(residual_risk or "").split())[:600],
+        # The Reviewer's judgment of the whole objective; partial / not_met
+        # with the gap is shown instead of a plain pass, like a residual risk.
+        "objective_status": str(objective_status or "").strip()[:20],
+        "objective_gap": " ".join(str(objective_gap or "").split())[:600],
         "delivered_at": delivered_at,
         "primary_target": dict(targets[0]),
         "targets": targets,

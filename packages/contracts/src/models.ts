@@ -124,6 +124,9 @@ export interface DeliveryReceipt {
   review_source?: string;
   /** One check approved unverified on an accepted risk (operator, or Manager with no operator); shown instead of a plain pass. */
   residual_risk?: string;
+  /** The Reviewer's judgment of the operator's whole objective; ``partial``/``not_met`` is shown with ``objective_gap`` instead of a plain pass. */
+  objective_status?: string;
+  objective_gap?: string;
   delivered_at: number;
   primary_target: DeliveryTarget | null;
   targets: DeliveryTarget[];

@@ -693,7 +693,9 @@ def _engineer_log_audit_block(
     )
 
 
-def _review_grounding(config: Any, *, task_parts: tuple[str, ...]) -> Any:
+def _review_grounding(
+    config: Any, *, task_parts: tuple[str, ...], objective_narrowed: bool = False,
+) -> Any:
     """What the Reviewer's "impossible here" quotes and acceptances must match.
 
     The task as given (never the Engineer's account); the workspace for a
@@ -718,6 +720,7 @@ def _review_grounding(config: Any, *, task_parts: tuple[str, ...]) -> Any:
     baseline = mission.get("baseline")
     return ReviewGrounding(
         task_text="\n".join(str(part or "") for part in task_parts),
+        objective_narrowed=objective_narrowed,
         roots=roots,
         operator_available=operator_available(),
         baseline=(
@@ -989,6 +992,11 @@ class Reviewer:
                     grounding=_review_grounding(
                         config,
                         task_parts=(objective, original_objective or "", scope, planner_review_instruction),
+                        objective_narrowed=bool(
+                            str(original_objective or "").strip()
+                            and " ".join(str(original_objective).split())
+                            != " ".join(str(objective or "").split())
+                        ),
                     ),
                 ) as (actions, options):
                     result = gateway_run_exec(

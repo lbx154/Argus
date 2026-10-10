@@ -418,7 +418,15 @@ def _render_life_mission_completed(event: dict[str, Any]) -> str:
         resumable = resumable or outcome.get("resumable") is True
     chinese = uses_cjk(f"{title}\n{summary}")
     residual_risk = str(event.get("residual_risk") or "").strip()
-    if (success or outcome_class == "completed") and residual_risk:
+    objective_gap = str(event.get("objective_gap") or "").strip()
+    if (success or outcome_class == "completed") and objective_gap:
+        headline = (
+            f"任务已完成，但总体目标未完全达成：{title}。" if chinese
+            else f"Task done, objective only partly met: {title}."
+        )
+        if objective_gap not in summary:
+            summary = f"{summary} Remaining: {_trunc(objective_gap, 300)}".strip()
+    elif (success or outcome_class == "completed") and residual_risk:
         headline = (
             f"已完成，但有残余风险：{title}。" if chinese
             else f"Completed with residual risk: {title}."

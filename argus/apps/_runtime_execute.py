@@ -1340,6 +1340,8 @@ class SkillLoopExecuteMixin:
         final_review_next_action = ""
         review_source = ""
         final_residual_risk = ""
+        final_objective_status = ""
+        final_objective_gap = ""
         final_frontier_report: dict = {}
         final_planner_report: dict = {}
         plan_challenge: dict = {}
@@ -1380,6 +1382,10 @@ class SkillLoopExecuteMixin:
                 )
                 review_source = str(getattr(_final_review, "review_source", "") or "").strip()
                 final_residual_risk = str(getattr(_final_review, "residual_risk", "") or "").strip()
+                final_objective_status = str(
+                    getattr(_final_review, "objective_status", "") or ""
+                ).strip()
+                final_objective_gap = str(getattr(_final_review, "objective_gap", "") or "").strip()
                 operator_question = str(
                     getattr(_final_review, "operator_question", "") or ""
                 ).strip()
@@ -1458,6 +1464,8 @@ class SkillLoopExecuteMixin:
             final_review_status = "not_assessed"
             review_source = ""
             final_residual_risk = ""
+            final_objective_status = ""
+            final_objective_gap = ""
             final_submission_certified = False
             completion_evidence = ""
         ex_state.new_tid = new_tid
@@ -1469,6 +1477,10 @@ class SkillLoopExecuteMixin:
         ex_state.final_review_next_action = final_review_next_action
         ex_state.review_source = review_source
         ex_state.final_residual_risk = final_residual_risk if final_review_status == "done" else ""
+        ex_state.final_objective_status = (
+            final_objective_status if final_review_status == "done" else ""
+        )
+        ex_state.final_objective_gap = final_objective_gap if final_review_status == "done" else ""
         ex_state.final_frontier_report = final_frontier_report
         ex_state.final_planner_report = final_planner_report
         ex_state.plan_challenge = plan_challenge
@@ -1641,6 +1653,8 @@ class SkillLoopExecuteMixin:
             final_review_status=ex_state.final_review_status,
             final_review_source=ex_state.review_source,
             final_residual_risk=ex_state.final_residual_risk,
+            final_objective_status=ex_state.final_objective_status,
+            final_objective_gap=ex_state.final_objective_gap,
             final_review_reason=str(
                 getattr(outcome, "final_review_reason", "") or ""
             ),

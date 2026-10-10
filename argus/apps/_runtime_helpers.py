@@ -268,6 +268,8 @@ class _ExecuteState:
         self.final_review_next_action: str = ""
         self.review_source: str = ""
         self.final_residual_risk: str = ""
+        self.final_objective_status: str = ""
+        self.final_objective_gap: str = ""
         self.final_submission_certified: bool = False
         self.completion_evidence: str = ""
 

@@ -388,6 +388,12 @@ export function renderEvent(event: TypedArgusEvent, context: RenderContext): Ren
       const presentation = missionOutcomePresentation(row(event));
       const summary = clean(stringField(event, 'summary'), 240);
       const residualRisk = clean(stringField(event, 'residual_risk'), 200);
+      const objectiveGap = clean(stringField(event, 'objective_gap'), 200);
+      if (objectiveGap && presentation.tone === 'ok') {
+        const label = localized(context, 'task done, objective only partly met', '任务已完成，但总体目标未完全达成');
+        const detail = summary.includes(objectiveGap) ? summary : `${objectiveGap}${summary ? ` · ${summary}` : ''}`;
+        return model('engineer', 'role.engineer', '◐', `${label} · ${detail}`, 'warn', { rule: true });
+      }
       if (residualRisk && presentation.tone === 'ok') {
         const label = localized(context, 'completed with residual risk', '已完成，但有残余风险');
         const detail = summary.includes(residualRisk) ? summary : `${residualRisk}${summary ? ` · ${summary}` : ''}`;

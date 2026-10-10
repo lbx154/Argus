@@ -660,6 +660,7 @@ class _StageDecisionMixin:
                     decision.reason,
                 ),
                 allow_early_completion=_allow_early_completion,
+                objective_outcome=str(getattr(decision, "objective_outcome", "") or ""),
             )
             if final_decision is not None:
                 decision = final_decision
@@ -688,7 +689,20 @@ class _StageDecisionMixin:
                     completion_blocker=_completion_blocker,
                     allow_early_completion=_allow_early_completion,
                 )
-                if stage_position_is_the_only_completion_blocker(blockers):
+                from .stage_decider import objective_is_the_only_completion_blocker
+
+                if objective_is_the_only_completion_blocker(blockers):
+                    # Stable diagnostic, so the completion stop-loss and the
+                    # Planner see one cause however the gap is worded.
+                    decision = StageDecision(
+                        "hold", cur,
+                        "Manager completion rejected: " + "; ".join(blockers)
+                        + ". Plan the remaining work, or, if the objective cannot "
+                        "be met as stated, finish it as partial "
+                        "(ACTION=complete with OBJECTIVE_OUTCOME=partial).",
+                        "objective_not_established",
+                    )
+                elif stage_position_is_the_only_completion_blocker(blockers):
                     # Nothing is wrong with this completion except where the
                     # pipeline is standing, so stand somewhere else. Reporting
                     # the refusal better was not enough on its own: run 15 got
@@ -822,9 +836,14 @@ class _StageDecisionMixin:
                     source="illegal_target_hold",
                     diagnostic="stage_write_illegal_target",
                 )
+            outcome = str(getattr(decision, "objective_outcome", "") or "")
+            if outcome == "partial":
+                from ..core.objective_status import mark_finished_partial
+
+                mark_finished_partial(root, reason=decision.reason)
             return StageTransition("complete", decision.target_stage, decision.reason,
                                    cur, source, decision.diagnostic,
-                                   decision.resolves_wait)
+                                   decision.resolves_wait, objective_outcome=outcome)
 
         if decision.action == "rollback":
             try:
@@ -928,6 +947,14 @@ class _StageDecisionMixin:
             and not list(getattr(planner_verdict, "new_tasks", []) or [])
         )
 
+        # Keep the latest real Reviewer judgment of the whole objective, so a
+        # later turn without one (the synthetic review below) cannot complete
+        # a project the Reviewer said is only partly done.
+        if review is not None:
+            from ..core.objective_status import record_review_objective
+
+            record_review_objective(root, review)
+
         # --- Phase 4: Handle no-review (early hold or build synthetic review) ---
         # No reviewer feedback normally means no stage transition. Structured
         # open-ended terminal and Planner-wait reconciliations are the exceptions.
@@ -953,6 +980,11 @@ class _StageDecisionMixin:
                     ),
                 )
             else:
+                from ..core.objective_status import outstanding_objective_gap
+
+                # Carries the latest real objective judgment for display only;
+                # completion reads the recorded one either way.
+                standing = outstanding_objective_gap(root)
                 review = SimpleNamespace(
                     status="done",
                     reason=(
@@ -960,6 +992,8 @@ class _StageDecisionMixin:
                         "open-ended campaign objective remains unresolved. "
                         f"Planner advisory: {planner_reason}"
                     ),
+                    objective_status=str(standing.get("status") or ""),
+                    objective_gap=str(standing.get("gap") or ""),
                 )
 
         if cur == "experiment":

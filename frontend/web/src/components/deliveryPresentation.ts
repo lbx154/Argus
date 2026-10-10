@@ -57,6 +57,12 @@ export function deliveryReviewLabel(receipt: DeliveryReceipt, zh: boolean): { in
   const status = String(receipt.review_status || '').toLowerCase();
   const source = String(receipt.review_source || '').toLowerCase();
   const residualRisk = String(receipt.residual_risk || '').trim();
+  const objectiveGap = String(receipt.objective_gap || '').trim();
+  if (REVIEW_PASSED.has(status) && source === 'reviewer' && objectiveGap) return {
+    independent: true,
+    text: zh ? '独立复核通过 · 总体目标未完全达成' : 'Independently reviewed · objective partly met',
+    title: zh ? `这项任务已完成，但总体目标仍差：${objectiveGap}` : `This task is done, but the objective still needs: ${objectiveGap}`,
+  };
   if (REVIEW_PASSED.has(status) && source === 'reviewer' && residualRisk) return {
     independent: true,
     text: zh ? '独立复核通过 · 有残余风险' : 'Independently reviewed · residual risk',

@@ -249,6 +249,9 @@ class ReviewDecision:
     # project complete (``manager/stage_decider._review_certifies_completion``).
     objective_status: str = ""
     objective_gap: str = ""
+    # Host-owned: the task under review was narrower than the operator's
+    # objective, so an unstated ``objective_status`` certifies nothing.
+    objective_narrowed: bool = False
     review_source: str = "reviewer"
     prompt_block_stats: dict[str, dict[str, int]] = field(default_factory=dict)
     input_tokens: int = 0

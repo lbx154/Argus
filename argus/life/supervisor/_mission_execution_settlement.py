@@ -1307,6 +1307,20 @@ class MissionExecutionSettlementMixin:
             # Approved with one check left unverified on an accepted risk: the
             # summary every surface shows says so before anything else.
             mission_summary = f"Verified with residual risk: {residual_risk}. {mission_summary}"[:1200].strip()
+        objective_status = (
+            str(getattr(outcome, "final_objective_status", "") or "").strip() if success else ""
+        )
+        objective_gap = (
+            " ".join(str(getattr(outcome, "final_objective_gap", "") or "").split())[:600]
+            if objective_status in {"partial", "not_met"} else ""
+        )
+        if objective_gap:
+            # The task is done, the operator's objective is not: every surface
+            # says so first, like a residual risk.
+            mission_summary = (
+                f"Task done; objective {'partly met' if objective_status == 'partial' else 'not met'}"
+                f" (remaining: {objective_gap}). {mission_summary}"
+            )[:1200].strip()
         final_output = str(getattr(outcome, "final_output", "") or "").strip()
         # A completed mission needs one durable, operator-facing receipt rather
         # than three loosely related hints (event, chat text, and sidebar).
@@ -1366,6 +1380,8 @@ class MissionExecutionSettlementMixin:
                     getattr(outcome, "final_review_source", "") or ""
                 ),
                 residual_risk=residual_risk,
+                objective_status=objective_status,
+                objective_gap=objective_gap,
                 workspace=delivery_workspace,
                 state_root=self._project_state_root(),
                 stage=state.pipeline_stage_at_start,
@@ -1388,6 +1404,8 @@ class MissionExecutionSettlementMixin:
             "status": status,
             "summary": mission_summary,
             "residual_risk": residual_risk,
+            "objective_status": objective_status,
+            "objective_gap": objective_gap,
             "final_output": final_output,
             "execution_workdir": str(state.execution_workdir),
             "review_source": str(

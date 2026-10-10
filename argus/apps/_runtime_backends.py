@@ -72,6 +72,10 @@ class _Outcome:
     # on an operator's or Manager's acceptance. Every completion surface
     # shows it instead of a plain "verified".
     final_residual_risk: str = ""
+    # The final accepting verdict's judgment of the operator's whole objective
+    # (met / partial / not_met) and, when not met, what remains.
+    final_objective_status: str = ""
+    final_objective_gap: str = ""
     final_review_reason: str = ""
     final_review_next_action: str = ""
     final_message: str = ""
