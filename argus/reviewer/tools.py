@@ -651,10 +651,17 @@ def reviewer_evidence_mode(runner: Any, *, engineer_records_commands: bool) -> s
 
 def _readable_input_root(root: str) -> bool:
     """Is ``root`` still a directory the read-only Reviewer may be handed?"""
+    from ..core.task_inputs import denied_reason
     from .validation import _read_root
 
     try:
-        return str(_read_root(root)) == str(Path(root))
+        path = Path(root)
+        return (
+            path.is_absolute()
+            and not path.is_symlink()
+            and not denied_reason(path)
+            and str(_read_root(root)) == str(path)
+        )
     except (OSError, RuntimeError, ValueError):
         return False
 
@@ -678,6 +685,10 @@ def review_action_tools(
     read_dirs = list(options.add_dirs or [])
     if backend == "copilot":
         read_dirs = list(dict.fromkeys([*read_dirs, *approved_dirs, *input_dirs]))
+    elif backend in {"claude", "qoder"}:
+        # Their read-only sessions (Read/Glob/Grep) reach a directory outside
+        # the workdir only through --add-dir, like Copilot's.
+        read_dirs = list(dict.fromkeys([*read_dirs, *input_dirs]))
     validation = configured_validation(options.working_dir, [*approved_dirs, *input_dirs])
     if validation is not None and backend == "copilot":
         read_dirs.append(str(validation.output_root))

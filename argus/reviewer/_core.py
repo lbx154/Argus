@@ -713,10 +713,13 @@ def _review_grounding(config: Any, *, task_parts: tuple[str, ...]) -> Any:
     input_roots = tuple(dict.fromkeys(
         str(root) for root in mission.get("input_roots") or () if str(root or "").strip()
     ))
+    # Input roots first: a relative source name that exists both in the packet
+    # and as a workspace copy means the packet's file, not the copy.
     roots = tuple(dict.fromkeys(
         str(root) for root in (
+            *input_roots,
             getattr(config, "working_dir", None), getattr(config, "artifact_root", None),
-            getattr(config, "vertical_state_root", None), *input_roots,
+            getattr(config, "vertical_state_root", None),
         ) if root
     ))
     baseline = mission.get("baseline")

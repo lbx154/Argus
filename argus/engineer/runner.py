@@ -198,8 +198,10 @@ class SupervisedEngineer(
             from ..core.task_inputs import task_input_roots
             from .obstacle_stall import mission_contract
 
+            # Only the operator's objective and the host's packet refs name
+            # inputs; a Planner-rewritten mission objective never does.
             state.task_input_roots = task_input_roots(
-                texts=(state.obstacle_stall_objective, objective),
+                texts=(str(original_objective or objective or ""),),
                 context_refs=mission_contract(supervised_config).get("context_refs") or (),
                 workdir=workdir,
             )
