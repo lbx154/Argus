@@ -1014,24 +1014,29 @@ def test_wake_normalization_does_not_relax_watched_path_confinement(
 
     state = supervisor._persist_planner_waiting_contract(contract)
 
-    # The unsafe paths are never watched, but the wait itself still holds as a
-    # bounded timed recheck instead of vanishing.
+    # The unsafe paths are never watched, but the wait itself is kept, as a
+    # poll wait the Planner is asked about again, instead of vanishing.
     assert state is not None
     assert state["watched_paths"] == []
     assert state["wait_mode"] == "poll"
-    assert state["recheck_after_seconds"] >= 300
     assert "artifact_revision" not in state["wake_on"]
     assert [entry["path"] for entry in state["rejected_watched_paths"]] == [
         "../outside.json",
         str(tmp_path / "outside.json"),
     ]
-    assert any(
-        event.get("error") == "planner wait has unsafe watched path"
-        for event in events
-    )
+    # Kept waits are not Planner errors (journal planner_error, degraded health).
+    assert not any(event.get("type") == "life.planner.error" for event in events)
+    normalized = [
+        event for event in events
+        if event.get("type") == "life.planner.waiting_contract.normalized"
+    ]
+    assert [entry["path"] for entry in normalized[-1]["rejected_watched_paths"]] == [
+        "../outside.json",
+        str(tmp_path / "outside.json"),
+    ]
     note = supervisor._planner_waiting_contract_runtime_note()
-    assert "../outside.json" in note
-    assert "refused" in note
+    assert "../outside.json" in note and "outside the project workdir" in note
+    assert "asked again on the regular wait cycle" in note
 
 
 def test_absolute_watched_path_inside_project_workdir_is_watched(
@@ -1079,6 +1084,67 @@ def test_absolute_watched_path_inside_project_workdir_is_watched(
     assert state["observed_revision"] == revision()
     evidence.write_text("token supplied\n", encoding="utf-8")
     assert state["observed_revision"] != revision()
+
+
+def test_a_partly_refused_wait_does_not_hang_on_the_surviving_path(
+    tmp_path: Path,
+) -> None:
+    """The refused path may be the real signal: the surviving path alone must
+    not become an event wait that nothing will ever wake."""
+    project = tmp_path / "project"
+    (project / "notes").mkdir(parents=True)
+    supervisor = _supervisor(project, tmp_path / "life")
+    supervisor._emit = lambda event: True
+    contract = WaitingContract(
+        blocker_fingerprint="feed-access",
+        recheck_condition="the grader-side token appears",
+        recheck_token="round-1",
+        wait_mode="event",
+        wake_on=("artifact_revision",),
+        watched_paths=("notes", "~/token"),
+    )
+
+    state = supervisor._persist_planner_waiting_contract(contract)
+
+    assert state is not None
+    assert state["watched_paths"] == ["notes"]
+    assert state["wait_mode"] == "poll"
+    # A poll wait is not answered from the event short circuit: the Planner
+    # stays in the regular wait cycle and is asked again.
+    assert supervisor._planner_event_wait_outcome() == ""
+    note = supervisor._planner_waiting_contract_runtime_note()
+    assert "~/token" in note and "home or environment reference" in note
+
+
+@pytest.mark.parametrize(
+    ("value", "reason"),
+    [
+        ("~/x", "home or environment reference"),
+        ("$HOME/x", "home or environment reference"),
+        ("%APPDATA%/x", "home or environment reference"),
+        ("C:/proj/sub", "drive or network location"),
+        ("//server/share/x", "drive or network location"),
+        ("", "inside the project"),
+    ],
+)
+def test_unexpandable_watched_paths_are_refused_not_taken_literally(
+    tmp_path: Path, value: str, reason: str,
+) -> None:
+    project = tmp_path / "project"
+    project.mkdir()
+    supervisor = _supervisor(project, tmp_path / "life")
+    confined, rejected = supervisor._confined_planner_wait_paths([value])
+    assert confined == []
+    assert reason in rejected[0]["reason"]
+
+
+def test_the_workdir_itself_is_refused_with_its_own_reason(tmp_path: Path) -> None:
+    project = tmp_path / "project"
+    project.mkdir()
+    supervisor = _supervisor(project, tmp_path / "life")
+    for value in (str(project), str(project) + "/"):
+        _confined, rejected = supervisor._confined_planner_wait_paths([value])
+        assert "the project workdir itself" in rejected[0]["reason"]
 
 
 def test_watched_path_through_symlink_out_of_project_is_refused(

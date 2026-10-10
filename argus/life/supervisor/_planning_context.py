@@ -6,6 +6,7 @@ import hashlib
 import json
 import logging
 import os
+import re
 import time
 from dataclasses import replace
 from pathlib import Path
@@ -1894,6 +1895,16 @@ class PlanningContextMixin:
             normalized = ""
             if not value or "\x00" in value or value in {".", "./"}:
                 reason = "watched path must name a file or directory inside the project"
+            elif value.startswith(("~", "$", "%")):
+                reason = (
+                    "watched path uses a home or environment reference, which the "
+                    "Host does not expand; name the path inside the project workdir"
+                )
+            elif re.match(r"^[A-Za-z]:", value) or value.startswith("//"):
+                reason = (
+                    "watched path names a drive or network location; name the "
+                    "path inside the project workdir"
+                )
             else:
                 path = Path(value)
                 if path.is_absolute():
@@ -1905,10 +1916,15 @@ class PlanningContextMixin:
                             break
                         except ValueError:
                             continue
-                    if relative is None or not relative.parts:
+                    if relative is None:
                         reason = (
                             "absolute watched path is outside the project workdir "
                             f"{configured}"
+                        )
+                    elif not relative.parts:
+                        reason = (
+                            "watched path is the project workdir itself; name a "
+                            "file or directory inside it"
                         )
                     else:
                         path = relative
@@ -1967,25 +1983,16 @@ class PlanningContextMixin:
         if rejected_watched_paths:
             # A wait the Planner chose is still a wait. Dropping it because one
             # path could not be watched sent the campaign straight back into
-            # missions (ab1009 arm E: 13 of 13 waits). Keep the wait on what can
-            # be observed -- the remaining paths, other wake sources, or the
-            # bounded timed recheck below -- and tell the Planner which paths
-            # were refused so it can name them correctly next time.
-            self._emit({
-                "type": EventType.LIFE_PLANNER_ERROR,
-                "error": "planner wait has unsafe watched path",
-                "detail": "; ".join(
-                    f"{entry['path']!r}: {entry['reason']}"
-                    for entry in rejected_watched_paths
-                ),
-                "rejected_watched_paths": rejected_watched_paths,
-                "blocker_fingerprint": blocker_fingerprint,
-                "recheck_token": recheck_token,
-                "recoverable": True,
-            })
+            # missions (ab1009 arm E: 13 of 13 waits). The refused paths are
+            # never read; the wait is kept and the Planner is told which paths
+            # were refused and why (see the waiting-contract note), on the
+            # normalization event rather than as a Planner error.
             normalization_reasons.append(
-                "unsafe watched paths dropped: "
-                + ", ".join(entry["path"] for entry in rejected_watched_paths)
+                "watched paths refused: "
+                + "; ".join(
+                    f"{entry['path']} ({entry['reason']})"
+                    for entry in rejected_watched_paths
+                )
             )
         # operator_action_required means only fresh operator input can change
         # this blocker, so the source it wakes on is not the Planner's to pick.
@@ -2071,6 +2078,17 @@ class PlanningContextMixin:
         else:
             wait_mode = "event" if wake_on else "poll"
             normalization_reasons.append(f"wait_mode selected as {wait_mode}")
+        if rejected_watched_paths and not operator_action_required and wait_mode == "event":
+            # A refused path may have been the very signal the Planner meant to
+            # wait for. An event wait on whatever survived would then never
+            # wake, because event waits skip the Planner. A poll wait keeps the
+            # Planner in the regular wait cycle (pause backoff, the
+            # unchanged-input skip, Manager reconciliation), so it is asked
+            # again and can name a watchable path.
+            wait_mode = "poll"
+            normalization_reasons.append(
+                "event wait kept as poll because watched paths were refused"
+            )
 
         degraded = False
         if wait_mode == "event" and not wake_on:
@@ -2081,7 +2099,7 @@ class PlanningContextMixin:
             )
         elif (
             wait_mode == "poll"
-            and (unknown_wake_on or wait_id_source_unknown or rejected_watched_paths)
+            and (unknown_wake_on or wait_id_source_unknown)
             and not wake_on
         ):
             degraded = True
@@ -2117,6 +2135,7 @@ class PlanningContextMixin:
         if normalization_reasons:
             self._emit({
                 "type": "life.planner.waiting_contract.normalized",
+                "rejected_watched_paths": rejected_watched_paths,
                 "blocker_fingerprint": blocker_fingerprint,
                 "recheck_token": recheck_token,
                 "reasons": normalization_reasons,
@@ -2504,9 +2523,11 @@ class PlanningContextMixin:
             for entry in rejected
         )
         return (
-            "- watched_paths the Host refused (the wait fell back to a timed "
-            "recheck for them; name files inside the project workdir, relative "
-            "or absolute, to have them watched):\n" + lines
+            "- watched_paths the Host refused and never reads, with the reason. "
+            "Because of them this wait does not wake on a file change; you are "
+            "asked again on the regular wait cycle instead. Name files or "
+            "directories inside the project workdir (relative, or absolute "
+            "under it) to have them watched:\n" + lines
         )
 
     def _planner_waiting_contract_runtime_note(self) -> str:
