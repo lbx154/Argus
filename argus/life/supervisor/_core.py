@@ -565,26 +565,43 @@ class LifeSupervisor(
                     operator_available,
                     record_autonomous_assumption,
                 )
+                from ...core.requirement_decision import (
+                    decision_text,
+                    normalized_conflict,
+                    planner_instruction,
+                    record_requirement_decision,
+                )
                 from ...manager.plan_boundary import assess_plan_boundary
 
                 reviewer_alternative = str(
                     challenge.get("alternative") or ""
                 ).strip()
-                # dev's own boundary check, unchanged.
+                nobody_to_ask = not operator_available()
+                # A Reviewer's structured requirements conflict is the
+                # Manager's to decide when nobody else can: the boundary check
+                # then reads what the decision does, not the evidence prose
+                # around it (where "purchase orders" read as spending).
+                conflict = (
+                    normalized_conflict(report.get("requirements_conflict"))
+                    if nobody_to_ask and isinstance(report, dict)
+                    else None
+                )
+                # dev's own boundary check; for a conflict, over the decision.
                 boundary = assess_plan_boundary(
-                    question=str(
-                        challenge.get("operator_question")
-                        or outcome.get("operator_question")
-                        or challenge.get("challenge")
-                        or outcome.get("review_reason")
-                        or ""
+                    question=(
+                        decision_text(conflict) if conflict is not None else str(
+                            challenge.get("operator_question")
+                            or outcome.get("operator_question")
+                            or challenge.get("challenge")
+                            or outcome.get("review_reason")
+                            or ""
+                        )
                     ),
-                    reason=str(challenge.get("challenge") or ""),
-                    next_action=reviewer_alternative,
+                    reason="" if conflict is not None else str(challenge.get("challenge") or ""),
+                    next_action="" if conflict is not None else reviewer_alternative,
                     planner_report={},
                     mode="autonomous",
                 )
-                nobody_to_ask = not operator_available()
                 need = normalize_operator_need(
                     challenge.get("operator_need")
                     or (report.get("operator_need") if isinstance(report, dict) else "")
@@ -616,6 +633,28 @@ class LifeSupervisor(
                     )
                     if need in OPERATOR_ACTION_NEEDS:
                         challenge["operator_need"] = need
+                elif conflict is not None:
+                    # The Manager owns a requirements conflict nobody else can
+                    # settle: it decides on the Reviewer's grounded reading and
+                    # records it; an earlier decision on the same requirements
+                    # stands, so a repeated challenge cannot flip it.
+                    decided = record_requirement_decision(
+                        self._project_state_root(),
+                        item_id=str(outcome.get("item_id") or ""),
+                        conflict=conflict,
+                    )
+                    challenge["manager_reason"] = (
+                        "No operator is available in this run, so the Manager owns "
+                        "this requirements conflict and decided it "
+                        f"({decided.get('key')}): {decided.get('reading')}"
+                    )[:1600]
+                    challenge["manager_instruction"] = planner_instruction(decided)
+                    challenge["autonomous_assumption"] = True
+                    challenge["requirement_decision"] = str(decided.get("key") or "")
+                    self._emit_status(
+                        "Decided without an operator (requirement decision recorded "
+                        f"for the report): {str(decided.get('reading') or '')[:240]}"
+                    )
                 elif nobody_to_ask:
                     # Only a run that declared no operator settles the open
                     # decision on an assumption; a directive that merely

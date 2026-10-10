@@ -43,7 +43,7 @@ _ACTIONS: dict[str, tuple[ReviewStatus, str]] = {
     "revise_review": ("continue", "Return concrete in-scope repairs to Engineer."),
     "defer_review": ("continue", "Defer judgment until already-running work or missing external evidence returns. This is not failure or acceptance."),
     "request_review_decision": ("blocked", "Ask an actual operator-owned question; ordinary technical repairs use revise_review."),
-    "replan_review": ("replan_requested", "Challenge the current plan or scope with evidence and a proposed alternative."),
+    "replan_review": ("replan_requested", "Challenge the current plan or scope with evidence and a proposed alternative, or report requirements that cannot all hold (requirements_conflict)."),
 }
 
 
@@ -389,6 +389,11 @@ class ReviewActions:
                 fields["alternative"] = {"type": "string"}
                 fields["authority_impact"] = {"type": "string", "enum": ["technical", "manager_contract", "operator"]}
                 required.append("authority_impact")
+                from ..core.requirement_decision import conflict_field
+
+                fields["requirements_conflict"] = conflict_field(
+                    operator_available=self.grounding.operator_available,
+                )
             tools.append({
                 "name": name, "description": description,
                 "inputSchema": {"type": "object", "properties": fields, "required": required, "additionalProperties": False},
@@ -482,6 +487,12 @@ class ReviewActions:
                 alternative=payload.get("alternative", ""),
                 authority_impact=payload["authority_impact"],
             )
+            from ..core.requirement_decision import normalized_conflict
+
+            conflict = normalized_conflict(payload.get("requirements_conflict"))
+            if conflict is not None:
+                # Requirements are the operator's; without one, the Manager's.
+                decision.planner_report.update(requirements_conflict=conflict, authority_impact="operator")
         if "recommendation" in payload:
             recommendation = payload["recommendation"]
             decision.venue_review = {
@@ -502,6 +513,17 @@ class ReviewActions:
         correct the call: quote the statement, ask the right party, or revise.
         """
         grounding = self.grounding
+        if "requirements_conflict" in payload:
+            from ..core.requirement_decision import conflict_problem
+
+            problem = conflict_problem(
+                payload["requirements_conflict"], lambda quote: _quote_found(quote, "task", grounding),
+            )
+            if problem:
+                raise ValueError(
+                    f"requirements_conflict: {problem}. A conflict needs requirements the "
+                    "task states that cannot all hold; otherwise revise."
+                )
         basis = payload.get("impossible_because")
         if isinstance(basis, dict):
             if not str(payload.get("unverifiable") or "").strip():

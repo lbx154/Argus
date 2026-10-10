@@ -1310,7 +1310,9 @@ def build_operator_context_block(
             "CHECKPOINT.md and the run report, never inside a machine-graded "
             "deliverable. An interpretation may settle ambiguity between "
             "requirements; it never drops or explains away an explicit "
-            "requirement or reported symptom. Never assume facts, data, or "
+            "requirement or reported symptom. Only requirements that cannot all "
+            "hold have one yield, as the Manager's recorded requirement decision "
+            "says. Never assume facts, data, or "
             "results, and never substitute placeholder credentials or mocked "
             "services in what is delivered. "
             + LABELLED_FIXTURE_CARVE_OUT
@@ -1318,6 +1320,11 @@ def build_operator_context_block(
             "spend money, use real credentials, or take irreversible or "
             "outward-facing actions without authority."
         )
+        from .requirement_decision import decisions_block
+
+        decided = decisions_block(life_dir, role=role)
+        if decided:
+            lines.append(decided)
     if role == "reviewer":
         lines.append(
             "- Reviewer boundary: acceptance preferences may clarify or tighten "
