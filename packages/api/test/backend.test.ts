@@ -1,6 +1,7 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
 import { fileURLToPath } from 'node:url';
+import { READ_API } from '@argus/contracts';
 import { PythonQueryBackend, QueryError } from '../src/backend.js';
 
 const fixture = fileURLToPath(new URL('./fixtures/worker.mjs', import.meta.url));
@@ -24,8 +25,21 @@ for (const [mode, code] of [
   ['error', 'invalid_query'], ['overflow', 'response_too_large'],
 ] as const) {
   test(`worker rejects ${mode}`, { timeout: 10_000 }, async t => {
+    let scannedBytes = 0;
+    if (mode === 'overflow') {
+      const byteLength = Buffer.byteLength;
+      t.mock.method(Buffer, 'byteLength', (...args: Parameters<typeof Buffer.byteLength>) => {
+        const size = byteLength(...args);
+        scannedBytes += size;
+        return size;
+      });
+    }
     const worker = backend(mode); t.after(() => worker.close());
     await assert.rejects(worker.query('meta', {}), error => error instanceof QueryError && error.code === code);
+    if (mode === 'overflow') {
+      assert.ok(scannedBytes < 4 * READ_API.max_response_bytes,
+        `overflow handling rescanned ${scannedBytes} bytes for a ${READ_API.max_response_bytes}-byte limit`);
+    }
   });
 }
 

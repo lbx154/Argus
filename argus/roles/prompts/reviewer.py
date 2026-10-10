@@ -65,9 +65,9 @@ _INCREMENTAL_REREVIEW_BOUNDARY = (
 )
 
 _EXPERIMENT_EVIDENCE_RULE = (
-    "Check prerequisite/previous runs; a rerun reason is not proof of changed inputs. "
-    "Readiness is not validation; producer logs cannot replace required independent "
-    "checks or external observation.\n\n"
+    "Check prerequisite/previous runs and actual input changes, not rerun reasons. "
+    "Readiness/producer logs cannot replace required validation, independent checks "
+    "or external observation.\n\n"
 )
 
 def evaluate_request(
@@ -733,25 +733,24 @@ def render_reviewer_prompt(
             "proves no impossibility; a missed threshold describes only that run. "
             "Root-cause, dominant-stage, bottleneck, or replacement claims need code-path "
             "evidence plus profiling, timing, or a controlled comparison. Integrity is "
-            "required, not scientific value. Ask only for authority or facts the operator "
-            "owns. `done` closes a task; at final-submission, possibly the project."
+            "required, not scientific value. Ask only for operator-owned authority/facts. "
+            "`done` closes a task; final-submission may close the project."
         )
     )
     decision_policy = (
         "## Submit your review\n"
-        "Express the complete review naturally in the operator's language. No JSON, "
-        "fixed fields, named closing lines, or text template is required or parsed. "
-        "Invoke one native action: approve_review for completion, revise_review for "
-        "repairs, defer_review for pending work or evidence, request_review_decision "
-        "for operator-owned questions, or replan_review for plan changes. "
+        "Express the complete review naturally in the operator's language. "
+        "No JSON, fixed fields, named closing lines, or text template is required or parsed. "
+        "Call one native action: approve_review, revise_review, defer_review, "
+        "request_review_decision or replan_review. "
         "Before approving, check each "
         "requirement and symptom the task (this increment) states against the "
-        "deliverable; tests the Engineer wrote show only its reading of them. Put "
-        "complete evidence and next steps in its review argument; the host forwards "
-        "it unchanged. Chat cannot replace the tool. Judge forward_progress toward "
-        "the goal, not repair effort. Plan challenges need the failed assumption, "
-        "alternative and authority: technical for working choices/team plans, "
-        "manager_contract or operator only for their commitments. "
+        "deliverable; tests the Engineer wrote show only its reading of them. "
+        "Submit all evidence/next steps unchanged in the review argument. "
+        "Chat cannot replace the tool. Judge forward_progress toward "
+        "the goal, not effort. Plan challenges name a failed assumption, "
+        "alternative and authority: technical for working choices and team plans; "
+        "manager_contract or operator for their commitments. "
         "Give Engineer instructions in the review; neither "
         "read nor edit checkpoint or context records.\n\n"
     )
