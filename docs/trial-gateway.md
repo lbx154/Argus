@@ -143,6 +143,43 @@ Authenticated `GET /trial/status` returns lifetime usage/remaining tokens, activ
 requests and global TPM counters. In-flight reservations count as used. A smaller
 prompt/output request may still fit near the allowance limit.
 
+## Activation codes (USD allowance)
+
+An activation code is a trial key with a dollar allowance instead of a token
+limit. Issue codes with `argus-trial-server issue-codes --count N --usd 5
+[--label L] [--expires 2026-10-31]`; list them with `list-codes` (label,
+allowance, spent, remaining, last use, expiry; never the code). Codes are
+written once to a 0600 operator file; the ledger keeps only their hashes.
+
+**Where the dollar figure comes from.** Every completed Copilot `/responses`
+result carries `copilot_usage.total_nano_aiu`, the provider's own charge for
+that request (its `token_details` list count x `cost_per_batch` / `batch_size`
+per token type). 1e9 nano-AIU = 1 AI credit = $0.01. The gateway settles each
+request with that number (`trial_request_costs.source = provider`) and keeps
+spend as exact nano-AIU integers. Only if a completed response reports token
+usage without that receipt does it charge from the operator's price table
+(`--prices prices.json`, USD per million tokens: `input`, `output`,
+`cache_read`, `cache_write`; source `price_table`).
+
+Admission reserves an upper bound before contacting the provider: every input
+byte counts as a token at the dearest input rate, plus the enforced output
+maximum at the output rate. Reservation and the balance check share one SQLite
+transaction, so concurrent requests cannot jointly exceed the allowance by
+reservation; settlement refunds the difference. Overshoot is limited to what a
+request's actual charge exceeds its own reservation (only possible if the price
+table understates the provider's tariff). Ambiguous outcomes (disconnects,
+timeouts, missing receipts) keep the reservation. A code asking for a model
+missing from the price table is refused with 400 `model_unpriced`; other keys
+and models are unaffected. A refused code gets 402 `quota_exhausted` ("额度已用完 /
+quota used up") at zero balance, or `quota_insufficient` when the balance is
+smaller than this request's reservation. Codes are not subject to the token limit.
+
+`argus.trial.activation_web` runs the hosted web trial for codes on one Linux
+host: `web_portal` with `activation_codes: true` (code login, any contiguous
+trial-01..trial-NN tenants, a header badge with the remaining dollars), one
+`web_runtime` per code in a bubblewrap sandbox mirroring the container mounts,
+the gateway on a Unix socket and the egress proxy. See its module docstring.
+
 ## Client compatibility
 
 ### Pi custom-provider use

@@ -22,6 +22,10 @@ bridge. It uses the authenticated invitation credential, never a web token;
 admin sessions have no compute identity. Authenticated tenants can open
 ``/invite/compute``; its PAGE/SCRIPT assets come from ``compute_page``.
 Only local HTTP testing should set ``secure_cookie: false``.
+``activation_codes: true`` serves USD-metered activation codes instead: any
+contiguous trial-01..trial-NN tenant set (at most 100), each code's dollar
+allowance from the gateway ledger in /invite/status, and a balance badge in
+the workspace header that reads "额度已用完 / quota used up" at zero.
 
 Terminate HTTPS in a trusted reverse proxy, suppress query-string access logs
 there (legacy admin links carry a token), and never publish tenant backends.
@@ -230,6 +234,7 @@ class Settings:
     frontend_dir: Path | None = None
     public_origin: str | None = None
     team_training_policy: dict | None = None
+    activation_codes: bool = False
 
     @classmethod
     def load(cls, source: dict | str | Path | None = None) -> Settings:
@@ -243,7 +248,7 @@ class Settings:
             not isinstance(data, dict) or not required <= data.keys()
             or data.keys() - required - {
                 "admin", "secure_cookie", "compute_url", "compute_uds", "admin_login_token", "token_limit",
-                "frontend_dir", "public_origin", "team_training_policy",
+                "frontend_dir", "public_origin", "team_training_policy", "activation_codes",
             }
         ):
             raise ValueError("Invalid web portal configuration fields")
@@ -252,7 +257,14 @@ class Settings:
             raise ValueError("state_dir and key_file must be absolute paths")
         if not (state / "usage.sqlite3").is_file() or not key.is_file():
             raise ValueError("An existing trial ledger and master key are required")
-        if not isinstance(data["tenants"], dict) or set(data["tenants"]) not in (TENANT_IDS, LEGACY_TENANT_IDS):
+        activation_codes = data.get("activation_codes", False)
+        if type(activation_codes) is not bool:
+            raise ValueError("activation_codes must be a boolean")
+        if activation_codes:
+            count = len(data["tenants"]) if isinstance(data["tenants"], dict) else 0
+            if not 1 <= count <= 100 or set(data["tenants"]) != {f"trial-{n:02d}" for n in range(1, count + 1)}:
+                raise ValueError("Activation codes need contiguous tenants trial-01 through trial-NN (at most 100)")
+        elif not isinstance(data["tenants"], dict) or set(data["tenants"]) not in (TENANT_IDS, LEGACY_TENANT_IDS):
             raise ValueError("Configure exactly trial-01 through trial-11 (legacy trial-01 through trial-10 is supported)")
         secure = data.get("secure_cookie", True)
         if type(secure) is not bool:
@@ -325,7 +337,7 @@ class Settings:
 
             team_training_policy = validate_team_training_policy(team_training_policy, tenants)
         return cls(state, key, tenants, admin, secure, compute, admin_login_token, token_limit, frontend,
-                   public_origin, team_training_policy)
+                   public_origin, team_training_policy, activation_codes)
 
 
 class BackendTransport(httpx.AsyncBaseTransport):
@@ -588,8 +600,12 @@ fieldset label{font-size:13px;line-height:1.7}fieldset{margin-top:20px}
 
 
 def login_page(nonce: str, token_limit: int | None = WEB_TOKEN_LIMIT,
-               notice_version: str | None = None, *, defer_notice: bool = False) -> str:
-    if token_limit is None:
+               notice_version: str | None = None, *, defer_notice: bool = False,
+               activation_codes: bool = False) -> str:
+    if activation_codes:
+        quota_copy = ("每个激活码有独立的工作区和美元额度，模型调用按实际费用扣减；额度用完后模型调用会被拒绝。"
+                      " Each activation code has its own workspace and USD allowance.")
+    elif token_limit is None:
         quota_copy = "每个邀请码不设累计 token 上限，输入与输出仍按实际用量记录；上游服务限流仍然适用。"
     else:
         quota = f"{token_limit // 10_000}万" if token_limit % 10_000 == 0 else f"{token_limit:,}"
@@ -661,6 +677,26 @@ finally{button.disabled=false;}});
 </script></html>"""
 
 
+# Remaining USD balance pinned to the workspace header; polls the portal's own
+# status route, so it never needs the code or a tenant credential.
+QUOTA_BADGE = """(()=>{const badge=document.createElement('a');badge.href='/invite';
+badge.id='argus-quota';badge.setAttribute('role','status');
+badge.style.cssText='position:fixed;top:8px;right:12px;z-index:2147483000;padding:3px 10px;border-radius:999px;'
++'font:12px/1.6 system-ui,sans-serif;text-decoration:none;background:#eef4ff;color:#1d4ed8;'
++'border:1px solid #c7d7fe;box-shadow:0 1px 2px rgba(0,0,0,.08)';
+const money=value=>'$'+Number(value).toFixed(2);
+async function update(){try{const response=await fetch('/invite/status',{credentials:'same-origin',cache:'no-store'});
+if(!response.ok)return;const quota=await response.json();if(typeof quota.usd_limit!=='number')return;
+const empty=quota.quota_exhausted||quota.usd_remaining<=0;
+badge.textContent=empty?'额度已用完 · quota used up ('+money(quota.usd_remaining)+' / '+money(quota.usd_limit)+')'
+:'余额 Balance '+money(quota.usd_remaining)+' / '+money(quota.usd_limit);
+badge.title=empty?'Model calls are refused until the operator adds allowance.':'Remaining USD allowance for this activation code';
+badge.style.background=empty?'#fef2f2':'#eef4ff';badge.style.color=empty?'#b91c1c':'#1d4ed8';
+badge.style.borderColor=empty?'#fecaca':'#c7d7fe';if(!badge.isConnected)document.body.append(badge);}catch{}}
+update();setInterval(update,15000);})();
+"""
+
+
 def admin_login_page(nonce: str) -> str:
     return """<!doctype html><html lang="zh-CN"><head><meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1"><title>Argus · 数据后台登录</title>
@@ -724,6 +760,8 @@ def create_app(config: dict | str | Path | Settings | None = None, *,
             r'''(\b(?:src|href)=["'])(?:\./|/)?(assets/[^"']+|favicon(?:-dark)?\.svg|manifest\.webmanifest|apple-touch-icon(?:-dark)?\.png)(["'])''',
             lambda match: match[1] + asset_root + match[2] + match[3], document,
         )
+        if settings.activation_codes and asset_root == "/":
+            document = document.replace("</body>", '<script src="/invite/quota.js" defer></script></body>', 1)
         nonce = secrets.token_urlsafe(24)
         content = re.sub(r"<script(?=[\s>])", f'<script nonce="{nonce}"', document)
         return HTMLResponse("" if request.method == "HEAD" else content, headers={
@@ -992,6 +1030,7 @@ def create_app(config: dict | str | Path | Settings | None = None, *,
         return HTMLResponse(login_page(
             nonce, settings.token_limit, analytics.notice_version if analytics else None,
             defer_notice=settings.team_training_policy is not None,
+            activation_codes=settings.activation_codes,
         ), headers={
             "content-security-policy": CSP.replace("script-src 'self'", f"script-src 'nonce-{nonce}'")
         })
@@ -1072,9 +1111,15 @@ def create_app(config: dict | str | Path | Settings | None = None, *,
             result.update({key: quota[key] for key in
                            ("token_limit", "tokens_used", "tokens_remaining",
                             "tokens_settled", "tokens_reserved", "tokens_uncertain",
-                            "tokens_unattributed", "token_unlimited")})
+                            "tokens_unattributed", "token_unlimited", "usd_spent", "usd_reserved",
+                            "usd_limit", "usd_remaining", "quota_exhausted", "label") if key in quota})
             result["tester_id"] = await run_in_threadpool(app.state.store.tester_id, identity["tenant"])
         return result
+
+    @app.get("/invite/quota.js")
+    async def quota_badge():
+        return Response(QUOTA_BADGE, media_type="application/javascript",
+                        headers={"cache-control": "no-store"})
 
     @app.post("/invite/logout")
     async def logout(request: Request):

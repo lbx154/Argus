@@ -25,7 +25,8 @@ from .copilot import Copilot
 from .gateway_accounting import GatewayAccounting, RequestMonitor
 from .gateway_observation import GatewayAttempt, GatewayStreamingResponse
 from .model_catalog import configured_model_ids, select_model
-from .responses import chat_chunks, completion, request_payload
+from .pricing import Price, provider_nano_aiu
+from .responses import PROVIDER_COST, chat_chunks, completion, request_payload
 from .secrets import Vault
 from .store import Store, TrialError
 
@@ -65,6 +66,8 @@ class Settings:
     site_dir: Path | None = None
     token_limit: int | None = TOKEN_LIMIT
     models: tuple[str, ...] | None = None
+    # Upstream model ID -> USD per million tokens (see pricing.py).
+    prices: dict[str, Price] | None = None
 
 
 class TextPart(BaseModel):
@@ -220,8 +223,18 @@ def usage_total(data: dict) -> int | None:
     return total
 
 
+def request_cost(price: Price | None, usage: dict, *reports: object) -> tuple[int | None, str | None]:
+    """Settled nano-AIU: the provider's own charge, else the operator's table."""
+    reported = provider_nano_aiu(*reports)
+    if reported is not None:
+        return reported, "provider"
+    charged = price.charge(usage) if price is not None and isinstance(usage, dict) else None
+    return (charged, "price_table") if charged is not None else (None, None)
+
+
 def create_app(settings: Settings, *, transport: httpx.AsyncBaseTransport | None = None) -> FastAPI:
     catalog = configured_model_ids(settings.model, settings.models)
+    prices = settings.prices or {}
     @asynccontextmanager
     async def lifespan(app):
         settings.state_dir.mkdir(parents=True, exist_ok=True, mode=0o700)
@@ -287,6 +300,10 @@ def create_app(settings: Settings, *, transport: httpx.AsyncBaseTransport | None
         request_data = await read_json(request, MAX_BODY_BYTES)
         payload, reserve = prepare(request_data, settings.model, models=catalog)
         response_model = MODEL if request_data.get("model") == MODEL else payload["model"]
+        price = prices.get(payload["model"])
+        output_limit = payload["max_output_tokens"]
+        # Unpriced models reserve no cost; the store refuses them for USD codes.
+        cost_reserve = price.reserve(reserve - output_limit, output_limit) if price is not None else 0
         store, copilot = app.state.store, app.state.copilot
         accounting = app.state.accounting
         monitor = RequestMonitor(request, accounting)
@@ -335,7 +352,7 @@ def create_app(settings: Settings, *, transport: httpx.AsyncBaseTransport | None
                     while True:
                         await monitor.check()
                         try:
-                            request_id = await monitor.wait(lease.reserve(key_id, reserve))
+                            request_id = await monitor.wait(lease.reserve(key_id, reserve, cost_reserve))
                             lease.request_id = request_id
                             attempt.admitted(request_id)
                             break
@@ -387,7 +404,8 @@ def create_app(settings: Settings, *, transport: httpx.AsyncBaseTransport | None
                     handed_off = True
                     attempt.streaming()
                     return GatewayStreamingResponse(
-                        stream_response(response, lease, release_slot, response_model, attempt), media_type="text/event-stream",
+                        stream_response(response, lease, release_slot, response_model, attempt, price),
+                        media_type="text/event-stream",
                         headers={"Cache-Control": "no-store", "X-Accel-Buffering": "no"},
                         background=BackgroundTask(finish_stream, lease, release_slot, attempt),
                     )
@@ -396,6 +414,7 @@ def create_app(settings: Settings, *, transport: httpx.AsyncBaseTransport | None
                 result = completion(data, model_id=response_model)
                 actual = usage_total(result)
                 lease.actual = actual
+                lease.cost, lease.cost_source = request_cost(price, result.get("usage"), data)
                 if actual is None:
                     raise TrialError(502, "provider_usage_missing", "Provider did not report token usage; reservation retained.")
                 # Preserve authoritative usage already in the completed body
@@ -475,8 +494,9 @@ def create_app(settings: Settings, *, transport: httpx.AsyncBaseTransport | None
         # hold that cancelled request on a database write.
         await asyncio.sleep(0)
 
-    async def stream_response(response, lease, release_slot, model_id, attempt):
+    async def stream_response(response, lease, release_slot, model_id, attempt, price):
         actual = None
+        cost = (None, None)
         complete = False
         try:
             async with asyncio.timeout(settings.timeout):
@@ -486,13 +506,16 @@ def create_app(settings: Settings, *, transport: httpx.AsyncBaseTransport | None
                             raise TrialError(502, "provider_usage_missing", "Provider did not report token usage; reservation retained.")
                         complete = True
                         lease.actual = actual
+                        lease.cost, lease.cost_source = cost
                         await lease.wait_settled(lease.monitor)
                         attempt.finish("completed")
                         yield "data: [DONE]\n\n"
                         return
                     reported = usage_total(chunk)
+                    provider = chunk.pop(PROVIDER_COST, None)
                     if reported is not None:
                         actual = reported
+                        cost = request_cost(price, chunk.get("usage"), {"copilot_usage": provider})
                     yield "data: " + json.dumps(chunk, ensure_ascii=False) + "\n\n"
         except (httpx.HTTPError, TimeoutError, OSError, ValueError, TypeError, KeyError, AttributeError, TrialError) as exc:
             # The error response is final. Its termination must not wait for

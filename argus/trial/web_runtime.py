@@ -88,6 +88,8 @@ def main() -> None:
             (18766, "/compute/compute.sock"),
             (3128, "/egress/egress.sock"),
         ):
+            if port == 18766 and not Path(path).exists():
+                continue  # The shared compute queue is optional (activation-code deployments).
             forwards.append(start_forward(port, path))
         os.environ.update({
             "HTTPS_PROXY": "http://127.0.0.1:3128",

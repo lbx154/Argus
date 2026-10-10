@@ -10,6 +10,7 @@ import time
 from contextlib import closing, contextmanager
 from pathlib import Path
 
+from ..provider_integrations.copilot_usage import NANO_AIU_PER_USD
 from . import GLOBAL_TPM, MAX_CONCURRENCY, TOKEN_LIMIT, TPM_WINDOW_SECONDS, TRIAL_KEY_COUNT
 
 log = logging.getLogger(__name__)
@@ -20,6 +21,24 @@ class TrialError(Exception):
         super().__init__(message)
         self.status, self.code = status, code
         self.retry_after = retry_after
+
+
+def usd(nano_aiu: int) -> float:
+    """Activation-code spend is kept in the provider's integer unit, nano-AIU."""
+    return nano_aiu / NANO_AIU_PER_USD
+
+
+def quota_refusal(remaining: int, limit: int, needed: int) -> TrialError:
+    balance = f"${usd(max(0, remaining)):.4f} of ${usd(limit):.2f} remaining"
+    if remaining <= 0:
+        return TrialError(402, "quota_exhausted", f"Activation code quota used up (额度已用完, quota_exhausted): {balance}.")
+    # Admission reserves an upper bound, so a large request can be refused
+    # before the balance reaches zero; say so instead of claiming it is spent.
+    return TrialError(
+        402, "quota_insufficient",
+        f"Activation code balance too low for this request (额度不足, quota_insufficient): {balance}; this request "
+        f"reserves up to ${usd(needed):.4f}. Send a smaller request or ask the operator for more allowance.",
+    )
 
 
 class Store:
@@ -90,6 +109,21 @@ class Store:
                     key_id TEXT PRIMARY KEY REFERENCES trial_keys(key_id),
                     tester_id TEXT UNIQUE NOT NULL,
                     created_at REAL NOT NULL
+                );
+                -- Activation codes: trial keys limited in USD (nano-AIU) only.
+                CREATE TABLE IF NOT EXISTS trial_codes (
+                    key_id TEXT PRIMARY KEY REFERENCES trial_keys(key_id),
+                    label TEXT NOT NULL DEFAULT '',
+                    usd_limit INTEGER NOT NULL CHECK (usd_limit > 0),
+                    cost_used INTEGER NOT NULL DEFAULT 0 CHECK (cost_used >= 0),
+                    created_at REAL NOT NULL,
+                    last_used_at REAL
+                );
+                CREATE TABLE IF NOT EXISTS trial_request_costs (
+                    request_id INTEGER PRIMARY KEY REFERENCES trial_requests(id),
+                    reserved INTEGER NOT NULL,
+                    charged INTEGER NOT NULL,
+                    source TEXT
                 );
             """)
         path.chmod(0o600)
@@ -176,6 +210,43 @@ class Store:
                 (key_id, digest),
             )
 
+    def issue_code(self, key_id: str, credential: str, *, usd_limit: int, label: str = "",
+                   expires_at: float | None = None):
+        """Issue an activation code: a trial key with a USD allowance in nano-AIU.
+
+        Only the credential's hash is stored. Reissuing the same code keeps its
+        allowance and spend.
+        """
+        if type(usd_limit) is not int or usd_limit <= 0:
+            raise ValueError("Activation code allowance must be a positive amount")
+        if not isinstance(label, str) or len(label) > 200:
+            raise ValueError("Activation code label must be text of at most 200 characters")
+        self.issue(key_id, credential)
+        with self.transaction() as db:
+            db.execute("INSERT OR IGNORE INTO trial_codes(key_id,label,usd_limit,created_at) VALUES (?,?,?,?)",
+                       (key_id, label, usd_limit, self.clock()))
+        if expires_at is not None:
+            self.set_access(key_id, enabled=True, expires_at=expires_at)
+
+    def list_codes(self) -> list[dict]:
+        """Operator view of every activation code, never including the code itself."""
+        with closing(sqlite3.connect(self.path)) as db:
+            rows = db.execute("""
+                SELECT c.key_id,c.label,c.usd_limit,c.created_at,c.cost_used,c.last_used_at,
+                       coalesce(a.enabled,1),a.expires_at,
+                       (SELECT coalesce(sum(cost.charged),0) FROM trial_request_costs cost
+                        JOIN trial_requests r ON r.id=cost.request_id
+                        WHERE r.key_id=c.key_id AND r.state='active')
+                FROM trial_codes c LEFT JOIN trial_access a ON a.key_id=c.key_id ORDER BY c.key_id
+            """).fetchall()
+        now = self.clock()
+        return [{
+            "key_id": key_id, "label": label, "usd_limit": usd(limit), "usd_spent": usd(used),
+            "usd_reserved": usd(reserved), "usd_remaining": usd(max(0, limit - used)),
+            "created_at": created, "last_used_at": last_used, "expires_at": expires_at,
+            "active": bool(enabled) and (expires_at is None or expires_at > now) and used < limit,
+        } for key_id, label, limit, created, used, last_used, enabled, expires_at, reserved in rows]
+
     def availability(self) -> dict:
         with closing(sqlite3.connect(self.path)) as db:
             issued, available = db.execute(
@@ -260,7 +331,11 @@ class Store:
             charges = dict(db.execute(
                 "SELECT state,sum(charged) FROM trial_requests WHERE key_id=? GROUP BY state", (key_id,),
             ).fetchall())
-        return {
+            code = db.execute("""SELECT label,usd_limit,cost_used,
+                (SELECT coalesce(sum(cost.charged),0) FROM trial_request_costs cost
+                 JOIN trial_requests r ON r.id=cost.request_id WHERE r.key_id=? AND r.state='active')
+                FROM trial_codes WHERE key_id=?""", (key_id, key_id)).fetchone()
+        result = {
             "token_limit": self.token_limit, "tokens_used": used,
             "tokens_remaining": None if self.token_limit is None else max(0, self.token_limit - used),
             "token_unlimited": self.token_limit is None,
@@ -272,10 +347,21 @@ class Store:
             "tokens_uncertain": sum(v for k, v in charges.items() if k not in {"settled", "active"}),
             "tokens_unattributed": max(0, used - sum(charges.values())),
         }
+        if code is not None:
+            # Spend includes in-flight reservations, so the balance shown is
+            # what a new request can actually be admitted against.
+            label, limit, cost_used, cost_reserved = code
+            result.update({"label": label, "usd_limit": usd(limit), "usd_spent": usd(cost_used),
+                           "usd_reserved": usd(cost_reserved), "usd_remaining": usd(max(0, limit - cost_used)),
+                           "quota_exhausted": cost_used >= limit})
+        return result
 
-    def reserve(self, key_id: str, amount: int, *, operation_key: str | None = None) -> int:
+    def reserve(self, key_id: str, amount: int, *, cost: int = 0, operation_key: str | None = None) -> int:
+        """Reserve tokens and, for an activation code, a USD upper bound in nano-AIU."""
         if amount <= 0:
             raise ValueError("Reservation must be positive")
+        if type(cost) is not int or cost < 0:
+            raise ValueError("Cost reservation must be a non-negative integer")
         if operation_key is not None and (not isinstance(operation_key, str) or not 1 <= len(operation_key) <= 128):
             raise ValueError("Invalid billing operation key")
         with self.transaction() as db:
@@ -293,8 +379,17 @@ class Store:
             used = db.execute(
                 "SELECT used FROM trial_keys WHERE key_id=?", (key_id,)
             ).fetchone()[0]
-            if self.token_limit is not None and used + amount > self.token_limit:
+            code = db.execute("SELECT usd_limit,cost_used FROM trial_codes WHERE key_id=?", (key_id,)).fetchone()
+            # An activation code is limited in USD only; other keys keep tokens.
+            if code is None and self.token_limit is not None and used + amount > self.token_limit:
                 raise TrialError(402, "trial_quota_exceeded", "Insufficient trial tokens for this request.")
+            if code is not None:
+                if cost <= 0:
+                    # A USD allowance cannot be enforced without a cost bound.
+                    raise TrialError(400, "model_unpriced",
+                                     "This model has no configured price, so the gateway refuses to meter it (model_unpriced).")
+                if code["cost_used"] + cost > code["usd_limit"]:
+                    raise quota_refusal(code["usd_limit"] - code["cost_used"], code["usd_limit"], cost)
             active = db.execute("SELECT count(*) FROM trial_requests WHERE state='active'").fetchone()[0]
             if active >= MAX_CONCURRENCY:
                 raise TrialError(429, "trial_busy", "All 10 trial request slots are busy. Try again later.")
@@ -319,6 +414,11 @@ class Store:
             )
             request_id = cursor.lastrowid
             db.execute("INSERT INTO trial_tpm_reservations(request_id,tokens) VALUES (?,?)", (request_id, amount))
+            if code is not None:
+                db.execute("UPDATE trial_codes SET cost_used=cost_used+?, last_used_at=? WHERE key_id=?",
+                           (cost, now, key_id))
+                db.execute("INSERT INTO trial_request_costs(request_id,reserved,charged) VALUES (?,?,?)",
+                           (request_id, cost, cost))
             if operation_key is not None:
                 db.execute("""INSERT INTO trial_request_operations(operation_key,request_id,phase)
                     VALUES (?,?,'reserved')""", (operation_key, request_id))
@@ -335,27 +435,47 @@ class Store:
             self._check_access(db, row["key_id"])
             db.execute("UPDATE trial_request_operations SET phase='submitted' WHERE operation_key=?", (operation_key,))
 
-    def settle_operation(self, operation_key: str, actual: int | None) -> None:
+    def settle_operation(self, operation_key: str, actual: int | None, cost: int | None = None,
+                         cost_source: str | None = None) -> None:
         """Recover ownership even if reserve committed without returning its ID."""
-        if actual is not None and actual < 0:
-            raise ValueError("Usage cannot be negative")
+        self._check_usage(actual, cost)
         with self.transaction() as db:
             row = db.execute("""SELECT r.* FROM trial_requests r
                 JOIN trial_request_operations o ON o.request_id=r.id
                 WHERE o.operation_key=?""", (operation_key,)).fetchone()
             if row is not None:
-                self._settle_row(db, row, actual)
+                self._settle_row(db, row, actual, cost, cost_source)
 
-    def settle(self, request_id: int, actual: int | None):
-        if actual is not None and actual < 0:
-            raise ValueError("Usage cannot be negative")
+    def settle(self, request_id: int, actual: int | None, cost: int | None = None,
+               cost_source: str | None = None):
+        self._check_usage(actual, cost)
         with self.transaction() as db:
             row = db.execute("SELECT * FROM trial_requests WHERE id=?", (request_id,)).fetchone()
-            self._settle_row(db, row, actual)
+            self._settle_row(db, row, actual, cost, cost_source)
 
-    def _settle_row(self, db, row, actual):
+    @staticmethod
+    def _check_usage(actual, cost):
+        if actual is not None and actual < 0:
+            raise ValueError("Usage cannot be negative")
+        if cost is not None and (type(cost) is not int or cost < 0):
+            raise ValueError("Cost cannot be negative")
+
+    def _settle_row(self, db, row, actual, cost=None, cost_source=None):
         if row["state"] != "active":
             return
+        reserved = db.execute("SELECT * FROM trial_request_costs WHERE request_id=?", (row["id"],)).fetchone()
+        if reserved is not None:
+            # Unknown usage keeps the whole reservation, whatever cost was seen.
+            # Known zero usage (nothing generated) owes nothing. Known usage
+            # without a cost figure keeps the bound rather than guess a refund.
+            if actual is None or (cost is None and actual != 0):
+                cost, cost_source = reserved["reserved"], "reserved"
+            elif cost is None:
+                cost = 0
+            db.execute("UPDATE trial_codes SET cost_used=cost_used+? WHERE key_id=?",
+                       (cost - reserved["charged"], row["key_id"]))
+            db.execute("UPDATE trial_request_costs SET charged=?, source=? WHERE request_id=?",
+                       (cost, cost_source, row["id"]))
         charge = row["reserved"] if actual is None else actual
         db.execute(
             "UPDATE trial_keys SET used=used+? WHERE key_id=?",

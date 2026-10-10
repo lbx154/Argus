@@ -13,6 +13,9 @@ from .storage import write_private
 MESSAGES = {
     "invalid_trial_key": "内测 Key 无效，请更换 Key。",
     "trial_quota_exceeded": "余额不足以预留本次请求；有剩余额度也可能无法执行较大的任务。",
+    "quota_exhausted": "激活码额度已用完（quota used up），模型调用会被网关拒绝；请联系管理员增加额度。",
+    "quota_insufficient": "激活码余额不足以预留本次请求；较大的任务需要更多剩余额度，请联系管理员。",
+    "model_unpriced": "所选模型未配置价格，网关拒绝按美元额度计费；请改用默认模型。",
     "trial_busy": "试用服务的 10 路并发已满，请至少等待 5 秒。",
     "trial_tpm_exceeded": "试用服务的 TPM 预留已满，请至少等待 60 秒。",
     "trial_not_ready": "试用服务的上游账号尚未就绪。",
