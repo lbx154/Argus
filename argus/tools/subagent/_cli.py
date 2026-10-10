@@ -19,6 +19,7 @@ from ._discussion_log import (
     _engineer_turn_count,
     _mirror_discussion_md,
 )
+from ._experiment_preflight import resolve_prerequisites
 from ._llm import resolve_supervisor_model
 from ._registry import (
     REGISTRY_DIR,
@@ -316,6 +317,11 @@ def cmd_submit(args: argparse.Namespace) -> int:
     registry_cwd = str(Path.cwd().resolve())
     mode = args.mode
     run_id = f"{task_id}-{time.time_ns()}"
+    rerun_reason = str(getattr(args, "rerun_reason", None) or "").strip()
+    dependency_ids = getattr(args, "depends_on", None) or []
+    if task_id in dependency_ids:
+        print(json.dumps({"error": "a task cannot depend on itself", "task_id": task_id}))
+        return 1
     try:
         resource_demand = _declared_resource_demand(args)
     except ValueError as exc:
@@ -374,25 +380,6 @@ def cmd_submit(args: argparse.Namespace) -> int:
                 "override_reason": override, "ts": time.time(),
             })
 
-    # STOP preflight: a leftover run_dir/STOP would make RunWriter abort this run
-    # the instant it starts. Refuse rather than silently waste a launch; --clear-stop
-    # removes it to reuse the directory deliberately.
-    if run_dir:
-        stop_path = Path(run_dir) / "STOP"
-        if stop_path.exists():
-            if args.clear_stop:
-                try:
-                    stop_path.unlink()
-                except OSError:
-                    pass
-            else:
-                print(json.dumps({
-                    "error": "stale STOP file in run_dir would abort this run immediately",
-                    "stop_file": str(stop_path),
-                    "hint": "Use a fresh --run-dir, or pass --clear-stop to remove it and reuse this directory.",
-                }))
-                return 1
-
     # Admit and reserve CPUs before creating the first task/log/run artifact.
     # The starting record is the lease placeholder during the short fork window.
     try:
@@ -407,12 +394,49 @@ def cmd_submit(args: argparse.Namespace) -> int:
                     ),
                 }))
                 return 1
+            if existing and existing.get("command") == args.command and not rerun_reason:
+                print(json.dumps({
+                    "error": (
+                        "unchanged command requires --rerun-reason describing changed "
+                        "inputs, a repair, new evidence, or an independent replay"
+                    ),
+                    "task_id": task_id,
+                    "previous_run_id": existing.get("run_id"),
+                    "previous_state": existing.get("state"),
+                }))
+                return 1
+            try:
+                prerequisites = resolve_prerequisites(dependency_ids)
+            except ValueError as exc:
+                print(json.dumps({
+                    "state": "blocked", "error": str(exc), "task_id": task_id,
+                }))
+                return 1
             selected_cpu_ids = _cpu_admission.select_cpu_ids(
                 cpu_count=args.cpu_count,
                 cpu_ids=args.cpu_ids,
                 tasks=_list_tasks(),
                 is_pid_alive=_is_pid_alive,
             )
+            # Admission rejection must leave the previous run's STOP intact.
+            if run_dir:
+                stop_path = Path(run_dir) / "STOP"
+                if stop_path.exists():
+                    if not args.clear_stop:
+                        print(json.dumps({
+                            "error": "stale STOP file in run_dir would abort this run immediately",
+                            "stop_file": str(stop_path),
+                            "hint": "Use a fresh --run-dir, or pass --clear-stop to remove it and reuse this directory.",
+                        }))
+                        return 1
+                    try:
+                        stop_path.unlink()
+                    except OSError as exc:
+                        print(json.dumps({
+                            "error": f"could not clear STOP file: {exc}",
+                            "stop_file": str(stop_path),
+                        }))
+                        return 1
             initial_task = {
                 "state": "starting",
                 "task_id": task_id,
@@ -428,6 +452,11 @@ def cmd_submit(args: argparse.Namespace) -> int:
                 "timeout_seconds": timeout_seconds,
                 "timeout_defaulted": timeout_defaulted,
             }
+            if prerequisites:
+                initial_task["prerequisites"] = prerequisites
+            if existing:
+                initial_task["previous_run_id"] = existing.get("run_id")
+                initial_task["rerun_reason"] = rerun_reason or "Launch command changed."
             owner_session_root = os.environ.get("ARGUS_SKILL_SESSION_ROOT", "").strip()
             if owner_session_root:
                 from ...core.paths import resolve_runtime_path
@@ -887,6 +916,14 @@ def main() -> int:
                           help="Run directory whose progress.jsonl/status.json the "
                                "supervisor reads and where it writes STOP on early-stop")
     p_submit.add_argument("--cwd", default=None)
+    p_submit.add_argument(
+        "--depends-on", nargs="+", default=None, metavar="TASK_ID",
+        help="Require successful terminal receipts for these tasks; does not queue or poll.",
+    )
+    p_submit.add_argument(
+        "--rerun-reason", default=None, metavar="REASON",
+        help="Required when resubmitting the same task and command; explain changed inputs or new evidence.",
+    )
     p_submit.add_argument("--override-discussion", default=None, metavar="REASON",
                           help="Break-glass: launch even though a supervisor is "
                                "parked on an open discussion. Records REASON to the "

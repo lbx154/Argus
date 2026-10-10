@@ -75,16 +75,18 @@ _ACCELERATOR_ADMISSION_RULE = (
     "work while it waits. Never put nvidia-smi/GPU polling in the command."
 )
 _DURABLE_WAIT_RULE = (
-    "After submitting a durable job, continue useful work that does not depend on "
-    "its result. If all remaining work needs a healthy running or resource-queued "
-    "job, save the current checkpoint and give a brief progress update whose final "
-    'line is `{"wait_for":"subagent","wait_id":"<task-id>"}`. '
-    "Use the existing task ID, including for a job submitted during this same turn. "
-    "This yields to Argus's background monitor; it is not a completed milestone "
-    "or a handoff for another paper review. Do not append the normal decision "
-    "footer after that wait line, sleep in a foreground polling loop, or relaunch "
-    "the existing job. Argus resumes this Engineer task when the job changes "
-    "state; inspect and validate its outputs before claiming completion."
+    "After submit, do independent work. If only a healthy running or resource-queued "
+    "job remains, save the checkpoint; end the update with "
+    '`{"wait_for":"subagent","wait_id":"<task-id>"}`. '
+    "Use its existing ID, including jobs submitted during this same turn. "
+    "Do not append the normal decision footer, foreground-poll or relaunch. "
+    "Argus resumes this task on state change; validate outputs. Waiting is not "
+    "milestone completion or paper review."
+)
+_EXPERIMENT_PREREQUISITE_RULE = (
+    "Check readiness before costly work; block dependents on failure. "
+    "Use --depends-on for prerequisite jobs, --rerun-reason for retries. "
+    "Preserve attempts in separate output dirs. A readiness pass is not a scientific result."
 )
 
 _WINDOWS_LONG_EXPERIMENT_RULE = (
@@ -104,7 +106,10 @@ def _long_experiment_rule() -> str:
         if native_shell_contract()
         else _POSIX_LONG_EXPERIMENT_RULE
     )
-    return " ".join((shell_rule, _ACCELERATOR_ADMISSION_RULE, _DURABLE_WAIT_RULE))
+    return " ".join((
+        shell_rule, _ACCELERATOR_ADMISSION_RULE, _EXPERIMENT_PREREQUISITE_RULE,
+        _DURABLE_WAIT_RULE,
+    ))
 
 
 def append_live_guidance(prompt: str, guidance: list[str]) -> str:

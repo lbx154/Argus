@@ -5,6 +5,7 @@ inbox queuing, and the EARLY-STOPPED reply-back instruction block.
 """
 from __future__ import annotations
 
+import json
 import logging
 from pathlib import Path
 from typing import Any
@@ -106,6 +107,9 @@ def _supervisor_summarize_report(task_id: str, event: str, task_data: dict[str, 
     )
     if checks:
         prompt += f"Supervisor checks: {checks}\n"
+    for key in ("prerequisites", "previous_run_id", "rerun_reason"):
+        if key in task_data:
+            prompt += f"{key}: {json.dumps(task_data[key], ensure_ascii=False)}\n"
     if decision:
         prompt += f"Your last decision: {decision} | health: {health}\n"
     if stop_reason:
@@ -263,6 +267,11 @@ def _build_report(task_id: str, event: str, task_data: dict[str, Any]) -> str:
     timeout_notice = _timeout_notice(task_data) if event == "TIMEOUT" else ""
     timeout_block = f"**Hard timeout**: {timeout_notice}\n\n" if timeout_notice else ""
     reply_block = _reply_back_block(task_id, event)
+    attempt_lines = [
+        f"- {key}: {json.dumps(task_data[key], ensure_ascii=False)}"
+        for key in ("prerequisites", "previous_run_id", "rerun_reason") if key in task_data
+    ]
+    attempt_block = "\n\n**Attempt context**:\n" + "\n".join(attempt_lines) if attempt_lines else ""
     # The supervisor — which watched the run and made the call — writes the
     # summary and the next step, grounded in its own diagnosis.
     llm_report = ""
@@ -278,7 +287,7 @@ def _build_report(task_id: str, event: str, task_data: dict[str, Any]) -> str:
     if llm_report and len(llm_report) > 50:
         return (
             f"## Subagent Report: {task_id} [{event}]\n\n"
-            f"{timeout_block}{concern_block}{llm_report}{reply_block}"
+            f"{timeout_block}{concern_block}{llm_report}{attempt_block}{reply_block}"
         )
 
     # Fallback: template-based report
@@ -345,6 +354,7 @@ def _build_report(task_id: str, event: str, task_data: dict[str, Any]) -> str:
     # wrong run's settings.
     task_record = _task_record_for_report(task_id, task_data)
     lines.append(f"- task record: `{task_record}`")
+    lines.extend(attempt_lines)
     sup_log = task_data.get("supervisor_log", "")
     if sup_log:
         lines.append(f"- supervisor log: `{sup_log}`")

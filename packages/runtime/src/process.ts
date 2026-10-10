@@ -171,32 +171,45 @@ export async function* executeProcess(options: ProcessOptions): AsyncGenerator<L
   const readers = {} as Record<'stdout' | 'stderr', { data: (chunk: Buffer) => void; end: () => void }>;
   for (const stream of ['stdout', 'stderr'] as const) {
     const decoder = new StringDecoder('utf8');
-    let pending = '';
-    const emit = (line: string): void => {
+    let pending: string[] = [];
+    let pendingBytes = 0;
+    const emit = (): void => {
+      const line = pending.join('');
+      pending = [];
+      pendingBytes = 0;
       if (stopKind) return;
-      if (Buffer.byteLength(line) > lineLimit || !channel.push({ type: 'line', stream, line: line.replace(/\r$/, '') })) {
+      if (!channel.push({ type: 'line', stream, line: line.replace(/\r$/, '') })) {
         requestStop('output_limit', 'Runner output exceeded its bounded buffer.');
+      }
+    };
+    const consume = (text: string): void => {
+      if (stopKind) return;
+      // Scan only new text; a long unterminated line must not rescan its prefix.
+      let start = 0;
+      while (start < text.length) {
+        const newline = text.indexOf('\n', start);
+        const part = text.slice(start, newline === -1 ? text.length : newline);
+        pendingBytes += Buffer.byteLength(part);
+        if (pendingBytes > lineLimit) {
+          pending = [];
+          pendingBytes = 0;
+          requestStop('output_limit', 'Runner output line exceeded its byte limit.');
+          return;
+        }
+        if (part) pending.push(part);
+        if (newline === -1) return;
+        emit();
+        if (stopKind) return;
+        start = newline + 1;
       }
     };
     const data = (chunk: Buffer): void => {
       if (!exited) idle.refresh();
-      if (stopKind) return;
-      pending += decoder.write(chunk);
-      let newline: number;
-      while ((newline = pending.indexOf('\n')) !== -1) {
-        emit(pending.slice(0, newline));
-        pending = pending.slice(newline + 1);
-        if (stopKind) { pending = ''; return; }
-      }
-      if (Buffer.byteLength(pending) > lineLimit) {
-        pending = '';
-        requestStop('output_limit', 'Runner output line exceeded its byte limit.');
-      }
+      if (!stopKind) consume(decoder.write(chunk));
     };
     const end = (): void => {
-      pending += decoder.end();
-      if (pending) emit(pending);
-      pending = '';
+      consume(decoder.end());
+      if (pending.length) emit();
     };
     readers[stream] = { data, end };
     if (!guardian) { child[stream].on('data', data); child[stream].on('end', end); }

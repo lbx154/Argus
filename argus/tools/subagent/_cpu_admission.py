@@ -8,9 +8,13 @@ from contextlib import contextmanager
 from pathlib import Path
 from typing import Any, Callable, Iterable, Iterator, Mapping, Sequence
 
+import portalocker
+
+from ...core.paths import global_root
+
 try:
     import fcntl
-except ImportError:  # pragma: no cover - Windows has no detached subagent support
+except ImportError:  # pragma: no cover - native Windows
     fcntl = None  # type: ignore[assignment]
 
 _ACTIVE_CPU_LEASE_STATES = frozenset({
@@ -184,8 +188,15 @@ def apply_current_process_affinity(cpu_ids: Sequence[int]) -> None:
 def cpu_admission_lock(root: Path | str = ".") -> Iterator[None]:
     """Serialize admission without creating project artifacts on rejection."""
     if fcntl is None:
-        with _PROCESS_LOCK:
-            yield
+        # Windows cannot flock the project directory; keep its lock outside it.
+        home = global_root()
+        home.mkdir(parents=True, exist_ok=True)
+        with _PROCESS_LOCK, (home / "subagent-admission.lock").open("a") as handle:
+            portalocker.lock(handle, portalocker.LOCK_EX)
+            try:
+                yield
+            finally:
+                portalocker.unlock(handle)
         return
     fd = os.open(Path(root), os.O_RDONLY)
     try:

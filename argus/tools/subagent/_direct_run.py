@@ -19,9 +19,12 @@ from ...core.daemon_lock import is_process_group_running
 from ...daemon.state import (
     _terminate_windows_process_tree as terminate_windows_process_tree,
 )
+from ._cpu_admission import cpu_admission_lock
 from ._experiment_preflight import (
+    PrerequisiteError,
     experiment_launch_preflight,
     release_experiment_launch_claim,
+    resolve_prerequisites,
 )
 from ._registry import (
     _ZERO_USAGE_TUPLE,
@@ -475,9 +478,12 @@ def _run_direct(
     stdout_path = log_dir / "stdout.log"
     stderr_path = log_dir / "stderr.log"
     timeout_defaulted = bool(submitted_task.get("timeout_defaulted", False))
-    timeout_fields = {
+    run_fields = {
         "timeout_seconds": timeout,
         "timeout_defaulted": timeout_defaulted,
+        **{key: submitted_task[key] for key in (
+            "prerequisites", "previous_run_id", "rerun_reason",
+        ) if key in submitted_task},
     }
     worker_identity = _process_identity(os.getpid())
     claim_owner = f"{run_id}:{os.getpid()}:{time.time_ns()}"
@@ -490,6 +496,7 @@ def _run_direct(
             cwd=cwd,
             run_dir=run_dir,
             claim_owner=claim_owner,
+            prerequisites=submitted_task.get("prerequisites"),
         )
         if rejected:
             td = {
@@ -506,7 +513,7 @@ def _run_direct(
                 "worker_pid": os.getpid(),
                 "worker_process_identity": worker_identity,
                 "run_dir": run_dir,
-                **timeout_fields,
+                **run_fields,
             }
             _apply_supervisor_usage_fields(td, model="", totals=_ZERO_USAGE_TUPLE)
             _write_task(task_id, td)
@@ -518,15 +525,19 @@ def _run_direct(
             project_root=Path.cwd(),
         )
         with stdout_path.open("w") as out, stderr_path.open("w") as err:
-            proc = _launch_durable_command(
-                task_id=task_id,
-                run_id=run_id,
-                command=command,
-                stdout=out,
-                stderr=err,
-                cwd=cwd,
-                env=command_env(resource_lease),
-            )
+            with cpu_admission_lock(Path.cwd()):
+                prerequisites = submitted_task.get("prerequisites")
+                if prerequisites:
+                    resolve_prerequisites(prerequisites, expected_runs=prerequisites)
+                proc = _launch_durable_command(
+                    task_id=task_id,
+                    run_id=run_id,
+                    command=command,
+                    stdout=out,
+                    stderr=err,
+                    cwd=cwd,
+                    env=command_env(resource_lease),
+                )
             command_identity = _process_identity(proc.pid)
             running_task = _apply_supervisor_usage_fields({
                 "state": "running", "task_id": task_id,
@@ -542,7 +553,7 @@ def _run_direct(
                     _exit_status_path(task_id, run_id).resolve()
                 ),
                 "stdout_log": str(stdout_path), "stderr_log": str(stderr_path),
-                **timeout_fields,
+                **run_fields,
             }, model="", totals=_ZERO_USAGE_TUPLE)
             _write_task(task_id, running_task)
             try:
@@ -583,7 +594,7 @@ def _run_direct(
                     "pid": proc.pid, "worker_pid": os.getpid(),
                     "process_identity": command_identity,
                     "worker_process_identity": worker_identity,
-                    **timeout_fields,
+                    **run_fields,
                     "timeout_message": (
                         f"Hard timeout reached after {timeout} seconds; "
                         "this was the configured --timeout limit."
@@ -614,7 +625,7 @@ def _run_direct(
             "run_dir": run_dir,
             "stdout_tail": stdout_tail, "stderr_tail": stderr_tail,
             "stdout_log": str(stdout_path), "stderr_log": str(stderr_path),
-            **timeout_fields,
+            **run_fields,
             **group_cleanup,
         }
         if group_cleanup:
@@ -646,11 +657,15 @@ def _run_direct(
             "worker_pid": os.getpid(),
             "worker_process_identity": worker_identity,
             "run_dir": run_dir,
-            **timeout_fields,
+            **run_fields,
         }
+        if isinstance(exc, PrerequisiteError):
+            td["preflight"] = True
         _apply_supervisor_usage_fields(td, model="", totals=_ZERO_USAGE_TUPLE)
         _write_task(task_id, td)
-        _alert_engineer(task_id, "CRASHED", td)
+        _alert_engineer(
+            task_id, "PREFLIGHT-REJECTED" if isinstance(exc, PrerequisiteError) else "CRASHED", td,
+        )
     finally:
         if resource_lease is not None:
             resource_lease.release()

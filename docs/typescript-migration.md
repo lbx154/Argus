@@ -30,6 +30,10 @@ and stage transitions during the staged migration.
   stdin prompts, explicit model/provider and tool policy, session directories and
   resume, UTF-8 streaming, final receipts, cancellation, idle/wall deadlines,
   bounded output buffers and isolated execution handles.
+  Stdout/stderr lines are buffered in fragments with incremental UTF-8 byte
+  counts; long lines scan only newly decoded text, not the accumulated prefix.
+  Byte limits include a trailing CR before CRLF normalization and any decoder
+  replacement bytes at EOF. Overflow fails the run rather than truncating it.
 - Token extraction and strict reference pricing now run in TypeScript. Pi
   receipts include usage and a per-turn cost quote. Python and TypeScript load
   one price catalog from `packages/contracts/schemas/model_pricing.json`; this
