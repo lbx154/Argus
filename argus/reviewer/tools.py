@@ -43,7 +43,7 @@ _ACTIONS: dict[str, tuple[ReviewStatus, str]] = {
     "revise_review": ("continue", "Return concrete in-scope repairs to Engineer."),
     "defer_review": ("continue", "Defer judgment until already-running work or missing external evidence returns. This is not failure or acceptance."),
     "request_review_decision": ("blocked", "Ask an actual operator-owned question; ordinary technical repairs use revise_review."),
-    "replan_review": ("replan_requested", "Challenge the current plan or scope with evidence and a proposed alternative, or report requirements that cannot all hold (requirements_conflict)."),
+    "replan_review": ("replan_requested", "Challenge the current plan or scope with evidence and a proposed alternative, or propose requirements that cannot all hold (requirements_conflict)."),
 }
 
 
@@ -97,6 +97,10 @@ class ReviewGrounding:
     ``accepted_risks`` are the Manager's acceptances in force for this item and
     ``operator_decisions`` the operator's resolved decision cards for it. An
     acceptance is one of those records, never text the Reviewer was shown.
+
+    ``operator_text`` is the operator's original task (never the Planner's
+    mission text): what a requirements conflict may quote, with packet files.
+    ``requirement_decisions`` are the recorded conflict proposals and decisions.
     """
 
     task_text: str = ""
@@ -106,6 +110,8 @@ class ReviewGrounding:
     packet_refs: tuple[tuple[str, str], ...] = ()
     accepted_risks: tuple[dict[str, Any], ...] = ()
     operator_decisions: tuple[dict[str, Any], ...] = ()
+    operator_text: str = ""
+    requirement_decisions: tuple[dict[str, Any], ...] = ()
 
 
 _QUOTE_FOLD = str.maketrans({"\u2018": "'", "\u2019": "'", "\u201c": '"', "\u201d": '"', "`": " ", "*": " "})
@@ -182,6 +188,44 @@ def _quote_found(quote: str, source: str, grounding: ReviewGrounding) -> str:
             return ""
         return f"that statement is not in {source}"
     return f"{source} is not a readable file in this workspace"
+
+
+def _source_file(source: str, grounding: ReviewGrounding) -> Path | None:
+    for root in grounding.roots:
+        try:
+            base = Path(root).resolve()
+            candidate = (base / source).resolve()
+        except (OSError, RuntimeError, ValueError):
+            continue
+        if candidate.is_relative_to(base) and candidate.is_file():
+            return candidate
+    return None
+
+
+def _operator_quote(quote: str, source: str, grounding: ReviewGrounding) -> tuple[str, tuple[str, int, int] | None]:
+    """Where a requirement is quoted from: the operator's own task text or a packet file."""
+    from ..core.requirement_decision import locate
+
+    source = str(source or "").strip()
+    if source.lower() in {"", "task", "packet", "task text"}:
+        span = locate(quote, grounding.operator_text)
+        if span is None:
+            return (
+                "not in the operator's original task text, verbatim (mission text the "
+                "Planner wrote does not count)", None,
+            )
+        return "", ("task", *span)
+    problem = _quote_found(quote, source, grounding)
+    candidate = _source_file(source, grounding) if not problem else None
+    if candidate is None:
+        return problem or f"{source} is not a readable file in this workspace", None
+    try:
+        with candidate.open("rb") as handle:
+            text = handle.read(_MAX_SOURCE_BYTES).decode("utf-8", "replace")
+    except OSError:
+        return f"{source} cannot be read", None
+    span = locate(quote, text)
+    return ("", (str(candidate), *span)) if span else (f"that statement is not in {source}", None)
 
 
 def _basis_field() -> dict[str, Any]:
@@ -436,7 +480,7 @@ class ReviewActions:
         research = normalize_research_result(payload.get("research_result"))
         if "research_result" in payload and research is None:
             raise ValueError("The research assessment is incomplete.")
-        self._check_grounding(payload)
+        conflict = self._check_grounding(payload)
         status = _ACTIONS[action][0]
         options = [
             option for option in payload.get("options", [])
@@ -487,12 +531,10 @@ class ReviewActions:
                 alternative=payload.get("alternative", ""),
                 authority_impact=payload["authority_impact"],
             )
-            from ..core.requirement_decision import normalized_conflict
-
-            conflict = normalized_conflict(payload.get("requirements_conflict"))
             if conflict is not None:
-                # Requirements are the operator's; without one, the Manager's.
-                decision.planner_report.update(requirements_conflict=conflict, authority_impact="operator")
+                # A proposal only: its owner (the operator, or the Manager when
+                # there is none) decides whether it is a conflict at all.
+                decision.planner_report["requirements_conflict"] = conflict
         if "recommendation" in payload:
             recommendation = payload["recommendation"]
             decision.venue_review = {
@@ -506,24 +548,26 @@ class ReviewActions:
         self.decision = decision
         return {"recorded": action}
 
-    def _check_grounding(self, payload: dict[str, Any]) -> None:
+    def _check_grounding(self, payload: dict[str, Any]) -> dict[str, Any] | None:
         """Refuse an ungrounded "impossible here" or an unaccepted residual risk.
 
         The refusal goes back to the Reviewer as the tool's error, so it can
         correct the call: quote the statement, ask the right party, or revise.
+        Returns a requirements-conflict proposal that passed its structural checks.
         """
         grounding = self.grounding
+        conflict = None
         if "requirements_conflict" in payload:
-            from ..core.requirement_decision import conflict_problem
+            from ..core.requirement_decision import check_proposal
 
-            problem = conflict_problem(
-                payload["requirements_conflict"], lambda quote: _quote_found(quote, "task", grounding),
+            problem, conflict = check_proposal(
+                payload["requirements_conflict"],
+                locate_quote=lambda quote, source: _operator_quote(quote, source, grounding),
+                objective=grounding.operator_text,
+                decisions=grounding.requirement_decisions,
             )
             if problem:
-                raise ValueError(
-                    f"requirements_conflict: {problem}. A conflict needs requirements the "
-                    "task states that cannot all hold; otherwise revise."
-                )
+                raise ValueError(f"requirements_conflict: {problem}. Otherwise revise.")
         basis = payload.get("impossible_because")
         if isinstance(basis, dict):
             if not str(payload.get("unverifiable") or "").strip():
@@ -537,7 +581,7 @@ class ReviewActions:
                 )
         risk = payload.get("residual_risk")
         if not isinstance(risk, dict):
-            return
+            return conflict
         problem = _quote_found(risk["impossible_because"]["quote"], risk["impossible_because"]["source"], grounding)
         if problem:
             raise ValueError(
@@ -545,6 +589,7 @@ class ReviewActions:
                 "check is missing, not impossible: revise instead of approving."
             )
         self._acceptance_record(risk)
+        return conflict
 
     def _acceptance_record(self, risk: dict[str, Any]) -> str:
         """The recorded acceptance of ``risk``'s check, as "<id>: <how>"; raises without one."""

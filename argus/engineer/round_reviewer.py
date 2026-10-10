@@ -228,9 +228,16 @@ def mission_grounding(
         accepted = active_residual_risks(root, item_id=item_id, mission_ref=mission_ref) if root else []
     except Exception:  # noqa: BLE001 - an unreadable record accepts nothing
         accepted = []
+    try:
+        from ..core.requirement_decision import scoped
+
+        conflicts = scoped(root) if root else []
+    except Exception:  # noqa: BLE001 - an unreadable record decides nothing
+        conflicts = []
     return {
         "baseline": baseline, "packet_refs": refs, "accepted_risks": tuple(accepted),
         "operator_decisions": tuple(operator_risk_decisions(root, item_id)),
+        "requirement_decisions": tuple(conflicts),
     }
 
 

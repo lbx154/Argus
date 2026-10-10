@@ -1310,9 +1310,9 @@ def build_operator_context_block(
             "CHECKPOINT.md and the run report, never inside a machine-graded "
             "deliverable. An interpretation may settle ambiguity between "
             "requirements; it never drops or explains away an explicit "
-            "requirement or reported symptom. Only requirements that cannot all "
-            "hold have one yield, as the Manager's recorded requirement decision "
-            "says. Never assume facts, data, or "
+            "requirement or reported symptom. A requirement yields only where a "
+            "decided requirements conflict says so, for its cases alone. Never "
+            "assume facts, data, or "
             "results, and never substitute placeholder credentials or mocked "
             "services in what is delivered. "
             + LABELLED_FIXTURE_CARVE_OUT

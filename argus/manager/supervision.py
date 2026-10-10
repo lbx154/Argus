@@ -174,7 +174,7 @@ class SupervisionDecisionError(ValueError):
 
 _DECISION_KEYS = (
     "ACTION", "REASON", "DIRECTIVE", "EVIDENCE_REFS", "CONSULTATION_ID", "ADVISOR_DISPOSITION",
-    "ACCEPT_RISK", "RISK_CHECK", "RESIDUAL_RISK",
+    "ACCEPT_RISK", "RISK_CHECK", "RESIDUAL_RISK", "REQUIREMENT_CONFLICT", "CONFLICT_REASON",
 )
 _BARE_KEY_LINE = re.compile(
     r"^[`*_]*(?P<key>" + "|".join(sorted(_DECISION_KEYS, key=len, reverse=True)) + r")[`*_]*\s+(?P<value>\S.*)$"
@@ -369,6 +369,28 @@ def _risk_decision(value: dict[str, Any]) -> dict[str, str]:
     return {"action": "accept", "check": check, "risk": risk} if check and risk else {}
 
 
+_CONFLICT_ID = re.compile(r"\bRD-[0-9a-f]{10}\b")
+# A reason that says nothing ("none", "n/a"); "No reading lets ..." is a reason.
+_EMPTY_REASON = re.compile(r"^(?:none|nil|null|n/?a|tbd|pending|unknown|undecided)?$", re.IGNORECASE)
+_CONFLICT_VERB = re.compile(r"^[`*_\s]*(adopt|reject|revoke)\b", re.IGNORECASE)
+
+
+def _requirement_decision(value: dict[str, Any]) -> dict[str, str]:
+    """REQUIREMENT_CONFLICT: adopt, reject or revoke <RD id>, with CONFLICT_REASON; or nothing.
+
+    A verb without a named id, or a reject or adopt without a reason, decides
+    nothing: the proposal stays pending and is put to the Manager again.
+    """
+    raw = " ".join(str(value.get("requirement_conflict") or "").split())
+    verb, found = _CONFLICT_VERB.match(raw), _CONFLICT_ID.search(raw)
+    if verb is None or found is None:
+        return {}
+    reason = " ".join(str(value.get("conflict_reason") or "").split())[:1000]
+    if not reason or _EMPTY_REASON.match(reason.strip(" .,;:`*_-()[]{}\"'")):
+        return {}
+    return {"action": verb.group(1).lower(), "id": found.group(0), "reason": reason}
+
+
 def _validated_decision(value: dict[str, Any]) -> dict[str, Any]:
     action = _action_of(value)
     reason = str(value.get("reason") or "").strip()
@@ -392,7 +414,10 @@ def _validated_decision(value: dict[str, Any]) -> dict[str, Any]:
             "advisor_disposition": str(value.get("advisor_disposition") or "")[:128],
             # Accepting (or revoking) the residual risk of one check impossible
             # here; see _risk_decision for what counts.
-            "risk_decision": _risk_decision(value)}
+            "risk_decision": _risk_decision(value),
+            # Adopting, rejecting or revoking a proposed requirements conflict;
+            # see _requirement_decision for what counts.
+            "requirement_decision": _requirement_decision(value)}
 
 
 def _manager_accepts_risk() -> bool:
@@ -444,7 +469,33 @@ def _risk_fields() -> str:
     )
 
 
+def _conflict_rule(observation: ManagerObservation) -> tuple[str, str]:
+    """The requirements-conflict rule and its fields, only when one is on record and no operator is."""
+    rows = (getattr(observation, "facts", None) or {}).get("requirement_conflicts") or []
+    if not rows or not _manager_accepts_risk():
+        return "", ""
+    rule = (
+        "No operator is available, so you own requirement conflicts. A Reviewer's "
+        "requirements_conflict (listed under requirement_conflicts) is only a proposal. "
+        "For a proposed one ask: can all of its quoted requirements hold at once, for "
+        "its cases, under any reading of the operator's text and the cited records? If "
+        "any reading satisfies them all (a symptom fixed within another rule's terms, a "
+        "narrower reading of a term, a record the Reviewer misread), reject it and give "
+        "that reading in CONFLICT_REASON: the Reviewer is told it is not a conflict. "
+        "Adopt it only when no reading satisfies them all, and only if what yields is "
+        "limited to the colliding cases and every other requirement is kept; your "
+        "reason is the record the report shows. Revoke a decision in force that no "
+        "longer holds. Until you decide, the team works outside its cases.\n"
+    )
+    fields = (
+        "REQUIREMENT_CONFLICT: adopt <RD id>, reject <RD id>, or revoke <RD id> (only when deciding one)\n"
+        "CONFLICT_REASON: why; for reject, the reading under which all hold\n"
+    )
+    return rule, fields
+
+
 def _prompt(observation: ManagerObservation, consult_reason: str = "") -> str:
+    conflict_rule, conflict_fields = _conflict_rule(observation)
     asked = f"You are consulted now because of: {consult_reason}.\n" if consult_reason else ""
     return (
         "You are the persistent project Manager, supervising the team's progress toward the "
@@ -465,6 +516,7 @@ def _prompt(observation: ManagerObservation, consult_reason: str = "") -> str:
         "without that quote it is missing, so "
         "steer toward it. "
         + _risk_authority_rule()
+        + conflict_rule
         + "Choose CONTINUE if the current course is justified; STEER to give a concrete corrected "
         "instruction through the persistent Manager direction read at the team's next boundary; WAIT only when a persisted operator "
         "question prevents further work. WAIT pauses automatic planning and preserves the "
@@ -478,6 +530,7 @@ def _prompt(observation: ManagerObservation, consult_reason: str = "") -> str:
         "EVIDENCE_REFS: semicolon-separated paths from evidence_refs\n"
         "DIRECTIVE: the corrected team instruction (only for STEER)\n"
         + _risk_fields()
+        + conflict_fields
         + "\n"
         + asked
         + observation.render()
@@ -561,6 +614,30 @@ def _apply_risk_decision(
         effects["residual_risk_basis_source"] = basis_source or "task"
 
 
+def _apply_requirement_decision(root: Path, record: dict[str, Any], effects: dict[str, Any]) -> None:
+    """Record the Manager's answer to a proposed requirements conflict.
+
+    Only in a run with no operator; with one, the proposal is on their card.
+    Idempotent: a replayed delivery finds the record already decided.
+    """
+    from ..core.requirement_decision import decide
+
+    choice = record["decision"].get("requirement_decision") or {}
+    if not choice:
+        return
+    if not _manager_accepts_risk():
+        effects["requirement_conflict_refused"] = "an operator is available; the conflict is theirs"
+        return
+    row, refusal = decide(
+        root, choice["id"], choice["action"],
+        decided_by=f"manager.supervision:{record['id']}", reason=choice["reason"],
+    )
+    if refusal:
+        effects["requirement_conflict_refused"] = refusal
+    elif row is not None:
+        effects["requirement_conflict"] = f"{row['id']}: {row['status']}"
+
+
 def _apply(
     root: Path, event: dict[str, Any], record: dict[str, Any],
     *, cancelled: Callable[[], bool],
@@ -598,6 +675,7 @@ def _apply(
             if decision["action"] == "continue":
                 effects["effect"] = "current course retained"
                 _apply_risk_decision(root, record, event, observation, effects)
+                _apply_requirement_decision(root, record, effects)
                 record["applied_control_revision"] = observation.control_revision
                 return effects
             if not _owns_reserved_control(root, record):
@@ -633,6 +711,7 @@ def _apply(
                     )
                 effects.update(directive_revision=directive.revision, directive_delivered=True, inbox_queued=False)
                 _apply_risk_decision(root, record, event, observation, effects)
+                _apply_requirement_decision(root, record, effects)
             effects["automatic_planning_paused"] = decision["action"] == "wait"
             if decision["action"] == "wait":
                 effects["waiting_task_ids"] = record["waiting_task_ids"]
@@ -1144,6 +1223,12 @@ def schedule_supervision(manager: Any, root: Path | str, event: dict[str, Any]) 
                               EventType.LIFE_RUNTIME_INCIDENT_ESCALATED}
     relevant |= event_type == EventType.ROUND_REVIEW_COMPLETED and event.get("status") in {"continue", "blocked"}
     relevant |= event_type == EventType.ROUND_STALL and _round(event.get("semantic_stall_streak")) >= STALL_BACKSTOP_STREAK
+    # A proposed requirements conflict waits for the Manager's own answer.
+    proposed = (
+        event_type == EventType.LIFE_MANAGER_PLAN_CHALLENGE_DECIDED
+        and event.get("requirement_conflict_status") == "proposed"
+    )
+    relevant |= proposed
     if not relevant or not callable(getattr(getattr(manager, "runner", None), "fork", None)):
         return False
     project_root = Path(root)
@@ -1154,6 +1239,8 @@ def schedule_supervision(manager: Any, root: Path | str, event: dict[str, Any]) 
         reason = f"{_round(event.get('semantic_stall_streak'))} rounds without forward progress"
     elif event_type == EventType.LIFE_MISSION_COMPLETED:
         reason = _settled_consult_reason(project_root, event)
+    elif proposed:
+        reason = f"a Reviewer proposed requirements conflict {event.get('requirement_conflict')}"
     if reason == "":
         LOG.debug("Manager supervision not requested for %s", event_type)
         return False

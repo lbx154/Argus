@@ -243,6 +243,17 @@ def observe_project(root: Path | str, *, event: dict[str, Any] | None = None) ->
         | {"revoked": bool(row.get("revoked_at"))}
         for row in residual_risk_records(root)[-16:]
     ]
+    from ..core.requirement_decision import ADOPTED, PROPOSED, scoped
+
+    # Proposed requirement conflicts await the Manager's answer; decisions in
+    # force stay listed so it can revoke one, or see what a new one replaces.
+    facts["requirement_conflicts"] = [
+        {key: row.get(key) for key in (
+            "id", "status", "item_id", "requirements", "conflict", "cases", "yields", "reason",
+            "basis", "replaces",
+        )}
+        for row in scoped(root) if row.get("status") in {PROPOSED, ADOPTED}
+    ]
     try:
         from ..advisor.receipts import recent_receipts
 
@@ -260,9 +271,14 @@ def observe_project(root: Path | str, *, event: dict[str, Any] | None = None) ->
     revision = _digest({
         **_semantic({key: value for key, value in facts.items()
                      if key not in {"roles", "daemon", "recent_events", "evidence_refs", "continuous_enabled",
-                                    "manager_supervision", "accepted_residual_risks"}}),
+                                    "manager_supervision", "accepted_residual_risks",
+                                    "requirement_conflicts"}}),
         "daemon_health": facts["daemon"]["health"],
         "backlog_revision": backlog_revision,
+        # A new proposal is new evidence; a decision being recorded is not.
+        "proposed_requirement_conflicts": sorted(
+            row["id"] for row in facts["requirement_conflicts"] if row.get("status") == PROPOSED
+        ),
         "source_semantics": source_semantics,
         "unobserved_source_signatures": unobserved,
     })

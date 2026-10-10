@@ -49,6 +49,18 @@ def adjudicate_plan_challenge(
             alternative=alternative,
             authority_impact=authority,
         )
+    conflict = report.get("requirements_conflict")
+    if isinstance(conflict, Mapping) and str(conflict.get("id") or "").startswith("RD-"):
+        # A proposed requirements conflict (structurally checked by the
+        # Reviewer's tool) belongs to whoever owns the requirements: the
+        # operator, or the Manager in a run with none.
+        return PlanChallengeDecision(
+            action="ask_operator",
+            reason="A Reviewer proposed that stated requirements cannot all hold; their owner decides",
+            challenge=challenge,
+            alternative=alternative,
+            authority_impact="operator",
+        )
     if authority == "operator" or str(operator_question or "").strip():
         from .plan_boundary import assess_plan_boundary
 

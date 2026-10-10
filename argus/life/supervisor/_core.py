@@ -71,6 +71,14 @@ _PLAN_TASKS_ADDED = "tasks_added"
 _PLAN_PROJECT_DONE = "project_done"
 
 
+
+def _proposed_conflict(report: Any) -> dict[str, Any] | None:
+    """A Reviewer's structurally checked requirements-conflict proposal, or None."""
+    conflict = report.get("requirements_conflict") if isinstance(report, dict) else None
+    if isinstance(conflict, dict) and str(conflict.get("id") or "").startswith("RD-"):
+        return conflict
+    return None
+
 class LifeSupervisor(
     EvolutionMixin,
     LettersMixin,
@@ -566,10 +574,13 @@ class LifeSupervisor(
                     record_autonomous_assumption,
                 )
                 from ...core.requirement_decision import (
-                    decision_text,
-                    normalized_conflict,
-                    planner_instruction,
-                    record_requirement_decision,
+                    ADOPTED,
+                    REJECTED,
+                    boundary_text,
+                    decided_instruction,
+                    pending_instruction,
+                    propose,
+                    rejected_instruction,
                 )
                 from ...manager.plan_boundary import assess_plan_boundary
 
@@ -577,25 +588,18 @@ class LifeSupervisor(
                     challenge.get("alternative") or ""
                 ).strip()
                 nobody_to_ask = not operator_available()
-                # A Reviewer's structured requirements conflict is the
-                # Manager's to decide when nobody else can: the boundary check
-                # then reads what the decision does, not the evidence prose
-                # around it (where "purchase orders" read as spending).
-                conflict = (
-                    normalized_conflict(report.get("requirements_conflict"))
-                    if nobody_to_ask and isinstance(report, dict)
-                    else None
-                )
-                # dev's own boundary check; for a conflict, over the decision.
+                conflict = _proposed_conflict(report) if nobody_to_ask else None
+                # dev's own boundary check. For a proposed requirements
+                # conflict it reads what a decision would do (the yielding and
+                # every kept requirement, the reason and the cases), never the
+                # evidence prose, where "purchase orders" read as spending.
                 boundary = assess_plan_boundary(
-                    question=(
-                        decision_text(conflict) if conflict is not None else str(
-                            challenge.get("operator_question")
-                            or outcome.get("operator_question")
-                            or challenge.get("challenge")
-                            or outcome.get("review_reason")
-                            or ""
-                        )
+                    question=boundary_text(conflict) if conflict is not None else str(
+                        challenge.get("operator_question")
+                        or outcome.get("operator_question")
+                        or challenge.get("challenge")
+                        or outcome.get("review_reason")
+                        or ""
                     ),
                     reason="" if conflict is not None else str(challenge.get("challenge") or ""),
                     next_action="" if conflict is not None else reviewer_alternative,
@@ -634,26 +638,29 @@ class LifeSupervisor(
                     if need in OPERATOR_ACTION_NEEDS:
                         challenge["operator_need"] = need
                 elif conflict is not None:
-                    # The Manager owns a requirements conflict nobody else can
-                    # settle: it decides on the Reviewer's grounded reading and
-                    # records it; an earlier decision on the same requirements
-                    # stands, so a repeated challenge cannot flip it.
-                    decided = record_requirement_decision(
-                        self._project_state_root(),
+                    # Without an operator the Manager owns the conflict, but a
+                    # Reviewer's conflict is only a proposal: it is recorded
+                    # for the Manager's supervision to adopt or reject, and
+                    # meanwhile the Planner works outside its cases.
+                    row = propose(
+                        self._project_state_root(), conflict,
                         item_id=str(outcome.get("item_id") or ""),
-                        conflict=conflict,
                     )
+                    status = str(row.get("status") or "")
                     challenge["manager_reason"] = (
-                        "No operator is available in this run, so the Manager owns "
-                        "this requirements conflict and decided it "
-                        f"({decided.get('key')}): {decided.get('reading')}"
-                    )[:1600]
-                    challenge["manager_instruction"] = planner_instruction(decided)
-                    challenge["autonomous_assumption"] = True
-                    challenge["requirement_decision"] = str(decided.get("key") or "")
+                        "No operator is available, so the Manager owns this requirements "
+                        f"conflict; {row.get('id')} is {status}."
+                    )
+                    challenge["manager_instruction"] = (
+                        decided_instruction(row) if status == ADOPTED
+                        else rejected_instruction(row) if status == REJECTED
+                        else pending_instruction(row)
+                    )
+                    challenge["requirement_conflict"] = str(row.get("id") or "")
+                    challenge["requirement_conflict_status"] = status
                     self._emit_status(
-                        "Decided without an operator (requirement decision recorded "
-                        f"for the report): {str(decided.get('reading') or '')[:240]}"
+                        f"Requirements conflict {row.get('id')} is {status}; "
+                        "the Manager decides it, and work outside it continues."
                     )
                 elif nobody_to_ask:
                     # Only a run that declared no operator settles the open
@@ -728,11 +735,31 @@ class LifeSupervisor(
                     "Please decide whether this operator-owned constraint may change: "
                     + str(challenge.get("challenge") or outcome.get("review_reason") or "")
                 ).strip()
+                options: list[dict[str, Any]] = []
+                evidence: list[dict[str, Any]] = []
+                conflict = _proposed_conflict(report)
+                if conflict is not None:
+                    from ...core.requirement_decision import operator_options
+
+                    # The structured proposal, not the Reviewer's prose: which
+                    # requirements collide, for which cases, and its recommendation.
+                    question = (
+                        "A Reviewer proposes that these requirements cannot all hold for "
+                        f"{conflict.get('cases')}: "
+                        + "; ".join(
+                            f"\"{row.get('quote')}\"" for row in conflict.get("requirements") or ()
+                        )
+                        + ". Which one gives way for those cases only, or is it not a conflict?"
+                    )
+                    options = operator_options(conflict)
+                    evidence = [{"label": "Why they cannot all hold", "summary": str(conflict.get("conflict") or "")}]
                 card = build_operator_decision(
                     item_id=item.id,
                     title=item.title,
                     reason=str(challenge.get("manager_reason") or ""),
                     question=question,
+                    options=options,
+                    evidence=evidence,
                     project_id=self.memory.root.name,
                     previous_decision=item.operator_decision,
                 )
@@ -2205,12 +2232,15 @@ class LifeSupervisor(
             assumptions_line = ""
             if success and overall_complete:
                 from ...core.autonomy import render_autonomous_assumptions
+                from ...core.requirement_decision import given_up_line
 
                 # What was decided without an operator belongs in the
-                # completion message, not only in the event log.
-                assumptions_line = render_autonomous_assumptions(
-                    self._project_state_root()
-                )
+                # completion message, not only in the event log; a requirement
+                # given up leads it.
+                assumptions_line = "\n".join(part for part in (
+                    given_up_line(self._project_state_root()),
+                    render_autonomous_assumptions(self._project_state_root()),
+                ) if part)
             publish_operator_message(
                 life_dir,
                 text="\n".join(

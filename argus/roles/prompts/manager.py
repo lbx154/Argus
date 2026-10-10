@@ -1155,6 +1155,13 @@ def build_project_completion_report_prompt(
         "and state the evidence limitation rather than substituting historical "
         "numbers. Cite the current output paths in the report.\n\n"
         + (
+            "Begin the report with requirements_given_up exactly as recorded "
+            "(\"Completed with requirement(s) given up: ...\"), naming every "
+            "decision in it; the work is not presented as fully met.\n\n"
+            if completion_context.get("requirements_given_up")
+            else ""
+        )
+        + (
             "Name each recorded assumption in autonomous_assumptions (the conflict "
             "and the reading chosen) in its own line, as decided without an operator.\n\n"
             if completion_context.get("autonomous_assumptions")

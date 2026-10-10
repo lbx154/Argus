@@ -93,9 +93,9 @@ AUTONOMOUS_ASSUMPTION_INSTRUCTION = (
     "defensible interpretation of the conflicting or unclear requirement within "
     "the stated objective and continue on it. An interpretation may settle "
     "ambiguity between requirements; it never drops or explains away an "
-    "explicit requirement or reported symptom. Only requirements that cannot "
-    "all hold have one yield, as the Manager's recorded requirement decision "
-    "says. Never assume facts, data, "
+    "explicit requirement or reported symptom. A requirement yields only "
+    "where a decided requirements conflict says so, for its cases alone. "
+    "Never assume facts, data, "
     "measurements, or results. Never substitute placeholder credentials or "
     "mocked services in what is delivered; if a required input is unavailable "
     "and the task does not say it arrives only at grading or deploy time, end "
@@ -316,13 +316,11 @@ def record_autonomous_assumption(
     reading: str = "",
     source: str,
     key: str = "",
-    details: Mapping[str, Any] | None = None,
 ) -> dict[str, Any]:
     """Append one decision settled without an operator, for this run.
 
     ``conflict`` is what forced a decision; ``reading`` is the interpretation
     the team actually chose, in its own words, when it has stated one.
-    ``details`` adds structured fields (never overriding the ones above).
     """
     row = {
         "ts": time.time(),
@@ -333,8 +331,6 @@ def record_autonomous_assumption(
         "reading": str(reading or "").strip()[:1200],
         "source": str(source or ""),
     }
-    for name, value in (details or {}).items():
-        row.setdefault(str(name), value)
     if not (row["conflict"] or row["reading"]):
         return row
     path = Path(state_root) / AUTONOMOUS_ASSUMPTIONS_FILENAME
@@ -359,8 +355,9 @@ def read_autonomous_assumptions(state_root: Path | str) -> list[dict[str, Any]]:
     ]
 
 
-def render_autonomous_assumptions(state_root: Path | str, *, limit: int = 8) -> str:
-    rows = read_autonomous_assumptions(state_root)[-limit:]
+def render_autonomous_assumptions(state_root: Path | str) -> str:
+    """Every assumption this run made, none dropped: an honest report lists them all."""
+    rows = read_autonomous_assumptions(state_root)
     if not rows:
         return ""
     lines = []

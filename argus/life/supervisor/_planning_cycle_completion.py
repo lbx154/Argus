@@ -249,6 +249,7 @@ class PlanningCycleCompletionMixin:
         from ...core.autonomy import read_autonomous_assumptions
         from ...core.manuscript_snapshot import manuscript_review_status
         from ...core.pipeline_state import read_pipeline_state
+        from ...core.requirement_decision import given_up_line
         from ...core.stage_certificate import all_stage_reviews
         from ..delivery import (
             MAX_DELIVERY_TARGETS,
@@ -342,6 +343,9 @@ class PlanningCycleCompletionMixin:
                 {key: row.get(key) for key in ("conflict", "reading", "source")}
                 for row in read_autonomous_assumptions(self._project_state_root())
             ],
+            # Requirement conflicts decided in force: the report must say what
+            # was given up, every one of them.
+            "requirements_given_up": given_up_line(self._project_state_root()),
             "current_final_certification": {
                 "certified": (
                     self._journal_has_final_certification()
