@@ -263,6 +263,9 @@ class AccountingLease:
         self.operation_key = uuid.uuid4().hex
         self.request_id: int | None = None
         self.actual: int | None = 0
+        # Settled nano-AIU and where it came from; None keeps the reservation.
+        self.cost: int | None = None
+        self.cost_source: str | None = None
         self.inflight = None
         self.reserving = False
         self.cleanup = None
@@ -277,11 +280,11 @@ class AccountingLease:
         if self.inflight is not None and not self.inflight.done():
             raise RuntimeError("A billing lease already owns an active operation")
 
-    def reserve(self, key_id: str, amount: int):
+    def reserve(self, key_id: str, amount: int, cost: int = 0):
         self._can_start()
         self.reserving = True
         self.inflight = self.accounting.run(
-            self.accounting.store.reserve, key_id, amount, operation_key=self.operation_key,
+            self.accounting.store.reserve, key_id, amount, cost=cost, operation_key=self.operation_key,
         )
         return self.inflight
 
@@ -302,7 +305,7 @@ class AccountingLease:
             # Publish one immutable intent before any await. Generator cleanup,
             # response cleanup and shutdown cannot race actual usage with None.
             actual = self.actual
-            self.cleanup = asyncio.create_task(self._settle(actual))
+            self.cleanup = asyncio.create_task(self._settle(actual, self.cost, self.cost_source))
         return self.cleanup
 
     async def wait_settled(self, monitor: RequestMonitor | None = None):
@@ -314,7 +317,7 @@ class AccountingLease:
         if self.error is not None:
             raise TrialError(503, "billing_unavailable", "Trial billing could not be finalized; reservation retained.")
 
-    async def _settle(self, actual: int | None):
+    async def _settle(self, actual: int | None, cost: int | None = None, cost_source: str | None = None):
         try:
             if self.inflight is None:
                 return
@@ -330,7 +333,7 @@ class AccountingLease:
                 # received its ID. A missing operation has no charge to undo.
                 pass
             await _finish_owned(self.accounting.run(
-                self.accounting.store.settle_operation, self.operation_key, actual,
+                self.accounting.store.settle_operation, self.operation_key, actual, cost, cost_source,
             ))
         except Exception as error:
             self.error = error

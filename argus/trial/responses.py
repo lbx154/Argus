@@ -6,6 +6,10 @@ import json
 from . import MODEL, REASONING_EFFORT
 from .store import TrialError
 
+# Private key on the final streamed chunk carrying the provider's own
+# ``copilot_usage`` receipt to the gateway; removed before it reaches clients.
+PROVIDER_COST = "_argus_copilot_usage"
+
 
 def request_payload(chat: dict) -> dict:
     items = []
@@ -133,6 +137,11 @@ async def chat_chunks(response, limit: int, *, model_id: str = MODEL):
                        "choices": [{"index": 0, "delta": {"content": event["delta"]}, "finish_reason": None}]}
             elif kind in {"response.completed", "response.incomplete"}:
                 result = completion(event["response"], model_id=model_id)
+                # The receipt may sit on the event or on its response object.
+                for source in (event, event["response"]):
+                    if isinstance(source.get("copilot_usage"), dict):
+                        result[PROVIDER_COST] = source["copilot_usage"]
+                        break
                 choice = result["choices"][0]
                 delta = choice.pop("message")
                 if sent_text:
