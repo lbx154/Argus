@@ -704,21 +704,26 @@ def _review_grounding(config: Any, *, task_parts: tuple[str, ...]) -> Any:
     as text (OperatorContext included) is read as an acceptance.
     """
     from ..core.autonomy import operator_available
+    from ..core.grounding_baseline import normalize_sha256
     from .tools import ReviewGrounding
 
+    mission = getattr(config, "mission_grounding", None) or {}
+    # The task's own input directories (a packet mounted beside the workdir)
+    # are task statements too; their files ground only while unchanged.
+    input_roots = tuple(dict.fromkeys(
+        str(root) for root in mission.get("input_roots") or () if str(root or "").strip()
+    ))
     roots = tuple(dict.fromkeys(
         str(root) for root in (
             getattr(config, "working_dir", None), getattr(config, "artifact_root", None),
-            getattr(config, "vertical_state_root", None),
+            getattr(config, "vertical_state_root", None), *input_roots,
         ) if root
     ))
-    from ..core.grounding_baseline import normalize_sha256
-
-    mission = getattr(config, "mission_grounding", None) or {}
     baseline = mission.get("baseline")
     return ReviewGrounding(
         task_text="\n".join(str(part or "") for part in task_parts),
         roots=roots,
+        input_roots=input_roots,
         operator_available=operator_available(),
         baseline=(
             {str(path): str(digest) for path, digest in baseline.items()}

@@ -117,26 +117,45 @@ def _write(root: Path, rows: Mapping[str, Mapping[str, str]]) -> None:
         temporary.unlink(missing_ok=True)
 
 
+def _input_key(objective: str, root: Path | str) -> str:
+    return _key(objective, ()) + ":input:" + str(Path(root).resolve())
+
+
 def objective_baseline(
     state_root: Path | str | None, objective: str, roots: Iterable[Path | str],
+    *, input_roots: Iterable[Path | str] = (),
 ) -> dict[str, str]:
     """The workspace as it was when the first mission on ``objective`` started.
 
     Recorded under ``state_root`` the first time and returned unchanged after.
     Without a state root or an objective, the workspace as it is now (this
     mission's start) is the baseline.
+
+    ``input_roots`` are the task's own input directories outside the workspace
+    (``core/task_inputs.py``). Each is snapshotted only together with a new
+    workspace baseline: a directory first named by a later mission may already
+    hold an earlier mission's edits, so it is readable but grounds nothing.
     """
     roots = tuple(str(root) for root in roots if root)
+    inputs = tuple(dict.fromkeys(str(root) for root in input_roots if root))
     if state_root is None or not str(objective or "").strip():
-        return snapshot(roots)
+        return {**snapshot(inputs), **snapshot(roots)}
     key = _key(objective, roots)
     rows = _read(Path(state_root))
     if key in rows:
-        return rows[key]
+        taken_inputs: dict[str, str] = {}
+        for root in inputs:
+            taken_inputs.update(rows.get(_input_key(objective, root), {}))
+        return {**taken_inputs, **rows[key]}
     taken = snapshot(roots)
+    taken_inputs = {}
+    for root in inputs:
+        row = snapshot((root,))
+        rows[_input_key(objective, root)] = row
+        taken_inputs.update(row)
     rows[key] = taken
-    _write(Path(state_root), dict(list(rows.items())[-MAX_OBJECTIVES:]))
-    return taken
+    _write(Path(state_root), dict(list(rows.items())[-MAX_OBJECTIVES * (1 + len(inputs)):]))
+    return {**taken_inputs, **taken}
 
 
 __all__ = [

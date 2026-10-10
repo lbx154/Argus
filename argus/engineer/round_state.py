@@ -64,6 +64,9 @@ class RoundLoopState:
     # objective began. Only a file still matching it grounds a Reviewer's
     # "impossible here"; None means no workspace file does.
     grounding_baseline: dict[str, str] | None = None
+    # The task's own input directories outside the workdir (``core/task_inputs``):
+    # readable by the Reviewer and, while unchanged, a grounding source.
+    task_input_roots: tuple[str, ...] = ()
     reviewer_next_action: str | None = None
     last_decision_progress_at: float = field(default_factory=lambda: time.monotonic())
     backend_failure_streak: int = 0

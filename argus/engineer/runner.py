@@ -195,9 +195,22 @@ class SupervisedEngineer(
         # Before this mission's Engineer writes anything: what the workspace held
         # when the first mission on this objective began.
         try:
+            from ..core.task_inputs import task_input_roots
+            from .obstacle_stall import mission_contract
+
+            state.task_input_roots = task_input_roots(
+                texts=(state.obstacle_stall_objective, objective),
+                context_refs=mission_contract(supervised_config).get("context_refs") or (),
+                workdir=workdir,
+            )
+        except Exception:  # noqa: BLE001 - without them, only the workdir is readable
+            log.debug("task input directories unavailable", exc_info=True)
+            state.task_input_roots = ()
+        try:
             state.grounding_baseline = objective_baseline(
                 state.obstacle_stall_root, state.obstacle_stall_objective,
                 (workdir, getattr(self.reviewer_config, "vertical_state_root", None)),
+                input_roots=state.task_input_roots,
             )
         except Exception:  # noqa: BLE001 - without it, no workspace file grounds
             log.debug("grounding baseline unavailable", exc_info=True)

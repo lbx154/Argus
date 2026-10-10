@@ -204,6 +204,7 @@ def operator_risk_decisions(root: Path | None, item_id: str) -> list[dict[str, A
 
 def mission_grounding(
     supervised_config: Any, *, item_id: str, mission_ref: str, baseline: dict[str, str] | None,
+    input_roots: tuple[str, ...] = (),
 ) -> dict[str, Any]:
     """What this mission's Reviewer quotes and acceptances are checked against.
 
@@ -213,6 +214,8 @@ def mission_grounding(
     the Planner recorded, which are sources while they still match it.
     ``accepted_risks``: the Manager's acceptances in force for this item;
     ``operator_decisions``: the operator's resolved decision cards for it.
+    ``input_roots``: the task's own input directories outside the workdir,
+    which the Reviewer may read and quote from (read-only).
     """
     from ..core.residual_risk import active_residual_risks
     from .obstacle_stall import mission_contract, stall_root
@@ -231,6 +234,7 @@ def mission_grounding(
     return {
         "baseline": baseline, "packet_refs": refs, "accepted_risks": tuple(accepted),
         "operator_decisions": tuple(operator_risk_decisions(root, item_id)),
+        "input_roots": tuple(input_roots),
     }
 
 
@@ -240,6 +244,7 @@ def _mission_grounding(supervised_config: Any, state: RoundLoopState) -> dict[st
         return mission_grounding(
             supervised_config, item_id=state.mission_item_id, mission_ref=state.mission_ref,
             baseline=state.grounding_baseline,
+            input_roots=tuple(getattr(state, "task_input_roots", ()) or ()),
         )
     except Exception:  # noqa: BLE001 - without it, only the task text grounds and nothing is accepted
         log.debug("reviewer mission grounding unavailable", exc_info=True)

@@ -94,6 +94,9 @@ class ReviewGrounding:
     source: a statement that a check is impossible must come from the task,
     its packet or the environment.
 
+    ``input_roots`` are the task's own input directories outside the workdir
+    (also among ``roots``); the Reviewer may read them, never write them.
+
     ``accepted_risks`` are the Manager's acceptances in force for this item and
     ``operator_decisions`` the operator's resolved decision cards for it. An
     acceptance is one of those records, never text the Reviewer was shown.
@@ -101,6 +104,7 @@ class ReviewGrounding:
 
     task_text: str = ""
     roots: tuple[str, ...] = ()
+    input_roots: tuple[str, ...] = ()
     operator_available: bool = True
     baseline: Mapping[str, str] | None = None
     packet_refs: tuple[tuple[str, str], ...] = ()
@@ -191,8 +195,9 @@ def _basis_field() -> dict[str, Any]:
             "Required when you call a check impossible here because what it needs "
             "exists only at grading or deploy time: the task, packet or environment "
             "statement that says so, quoted verbatim, and its source ('task', or a "
-            "workspace file the packet names or unchanged since work on this objective "
-            "began; never one written or edited since). The host checks the quote. Without such a statement "
+            "file in the workspace or the task's own input directories that the packet "
+            "names or that is unchanged since work on this objective began; never one "
+            "written or edited since). The host checks the quote. Without such a statement "
             "the check is missing, not impossible."
         ),
         "properties": {
@@ -644,6 +649,16 @@ def reviewer_evidence_mode(runner: Any, *, engineer_records_commands: bool) -> s
     return EVIDENCE_RECORDED if engineer_records_commands else EVIDENCE_READ
 
 
+def _readable_input_root(root: str) -> bool:
+    """Is ``root`` still a directory the read-only Reviewer may be handed?"""
+    from .validation import _read_root
+
+    try:
+        return str(_read_root(root)) == str(Path(root))
+    except (OSError, RuntimeError, ValueError):
+        return False
+
+
 @contextmanager
 def review_action_tools(
     runner: Any, options: RunnerOptions, *, venue: str, venue_required: bool,
@@ -653,10 +668,17 @@ def review_action_tools(
     if backend not in {"pi", "copilot", "codex", "claude", "qoder", "memory", ""}:
         raise ValueError(f"Reviewer action tools are not supported by backend {backend!r}; no text-parser fallback is available.")
     approved_dirs = configured_read_dirs()
+    # The task's own inputs (a packet mounted beside the workdir) are read-only
+    # sources the Reviewer must be able to open, like the operator's approved
+    # directories; without them it judged the task without its schema.
+    input_dirs = [
+        root for root in (grounding.input_roots if grounding is not None else ())
+        if root not in approved_dirs and _readable_input_root(root)
+    ]
     read_dirs = list(options.add_dirs or [])
     if backend == "copilot":
-        read_dirs = list(dict.fromkeys([*read_dirs, *approved_dirs]))
-    validation = configured_validation(options.working_dir, approved_dirs)
+        read_dirs = list(dict.fromkeys([*read_dirs, *approved_dirs, *input_dirs]))
+    validation = configured_validation(options.working_dir, [*approved_dirs, *input_dirs])
     if validation is not None and backend == "copilot":
         read_dirs.append(str(validation.output_root))
     actions = ReviewActions(
