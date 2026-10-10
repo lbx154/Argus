@@ -30,7 +30,10 @@ import os
 import shlex
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Any
+from typing import TYPE_CHECKING, Any
+
+if TYPE_CHECKING:
+    from ..memory import MemoryBundle
 
 from ...apps._inbox import count_pending_inbox_messages
 from ...apps._life_actions import (
@@ -154,7 +157,9 @@ class CommandRouter:
         """Inbox provenance tag, e.g. ``telegram.nudge`` / ``feishu.nudge``."""
         return f"{self.channel}.{kind}"
 
-    def _intake_operator_text(self, text: str) -> tuple[str, Any, str | None, str]:
+    def _intake_operator_text(
+        self, text: str,
+    ) -> tuple[MemoryBundle, str, Any, str | None, str]:
         """Redact credentials, then run the shared Manager intake classifier."""
         from ...core.operator_context import import_deterministic_credential
         from ...manager.config_intent import _front_door_classify
@@ -176,7 +181,7 @@ class CommandRouter:
             self._state,
             active_mission=bool(select_current_running_item(mem.backlog.active())),
         )
-        return safe_text, intent, control, route
+        return mem, safe_text, intent, control, route
 
     # -- routing -----------------------------------------------------------
 
@@ -218,9 +223,13 @@ class CommandRouter:
         if handler:
             try:
                 handler(arg)
-            except Exception:  # noqa: BLE001
+            except Exception as exc:  # noqa: BLE001
                 log.exception("%s command %s failed", self.channel, cmd_raw)
-                self._reply("❌ 这条命令暂时无法完成。详细错误已记录，请稍后重试。")
+                self._reply(
+                    f"❌ 无法直接回答：{_esc(str(exc))}。未排入任何任务。"
+                    if cmd_raw in {"/ask", "/chat"}
+                    else "❌ 这条命令暂时无法完成。详细错误已记录，请稍后重试。"
+                )
         elif text.startswith("/"):
             self._reply(f"❓ 未知命令: {cmd_raw}\n使用 /help 查看可用命令")
         else:
@@ -256,7 +265,7 @@ class CommandRouter:
 
     def _queue_task(self, arg: str, *, intake_done: bool = False) -> QueuedTask | None:
         if not intake_done:
-            arg, _intent, _control, _route = self._intake_operator_text(arg)
+            _mem, arg, _intent, _control, _route = self._intake_operator_text(arg)
         cfg = self._state.setdefault("config", dict(DEFAULT_LIFE_CONFIG))
         iterate, cycles, body = parse_add_flags(
             arg,
@@ -359,7 +368,7 @@ class CommandRouter:
             )
             return
 
-        text, intent, _control, route = self._intake_operator_text(text.strip())
+        _mem, text, intent, _control, route = self._intake_operator_text(text.strip())
         if intent is not None:
             confirmations: list[str] = []
             manager_mem = MemoryBundle.for_cwd(
@@ -734,8 +743,8 @@ class CommandRouter:
             return
         from ...webapi.manager_bridge import _answer_inline
 
-        question, _intent, _control, _route = self._intake_operator_text(question)
-        self._reply(_esc(_answer_inline(self.life_dir.name, self.life_dir, question)))
+        mem, question, _intent, _control, _route = self._intake_operator_text(question)
+        self._reply(_esc(_answer_inline(mem, question, self._state)))
 
     def _cmd_help(self, _arg: str) -> None:
         self._reply(help_text(self.transport.display_name))
