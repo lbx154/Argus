@@ -640,6 +640,8 @@
         "manager_attention": "needed",
         "manager_attention_reason": "manager attention reason",
         "next_action": "next action",
+        "objective_gap": "objective gap",
+        "objective_status": "",
         "operator_options": [
           {
             "description": "description",
@@ -1049,6 +1051,8 @@
           "delivery_id": "delivery id",
           "item_id": "task-1",
           "kind": "agent_message",
+          "objective_gap": "objective gap",
+          "objective_status": "",
           "primary_target": {
             "value": "recorded"
           },
@@ -1077,6 +1081,8 @@
         "item_id": "task-1",
         "known_cost_usd": 1.25,
         "objective": "Implement the shared semantic event renderer",
+        "objective_gap": "objective gap",
+        "objective_status": "",
         "operator_question": "operator question",
         "outcome": {
           "execution_status": "execution status",
