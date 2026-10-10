@@ -1867,36 +1867,67 @@ class PlanningContextMixin:
         except Exception:  # noqa: BLE001
             return False
 
-    def _confined_planner_wait_paths(self, values: list[str]) -> list[str]:
-        """Validate watched paths before they can influence revision reads."""
+    def _confined_planner_wait_paths(
+        self, values: list[str]
+    ) -> tuple[list[str], list[dict[str, str]]]:
+        """Validate watched paths before they can influence revision reads.
+
+        Returns the confined project-relative paths and the rejected entries
+        (``{"path", "reason"}``). An absolute path naming a file inside the
+        project workdir is the same file as its relative spelling, so it is
+        normalized rather than refused; a Planner whose workdir is ``/app``
+        names ``/app/data`` as readily as ``data``. Anything that resolves
+        outside the project root -- ``..`` traversal, a symlink pointing out,
+        an unrelated absolute path -- stays rejected.
+        """
         if not values:
-            return []
-        root = self._project_workdir().expanduser().resolve(strict=False)
+            return [], []
+        configured = self._project_workdir().expanduser()
+        root = configured.resolve(strict=False)
+        lexical_root = Path(os.path.normpath(str(configured.absolute())))
         confined: list[str] = []
+        rejected: list[dict[str, str]] = []
         seen: set[str] = set()
         for raw in values:
             value = str(raw or "").strip().replace("\\", "/")
-            path = Path(value)
-            if (
-                not value
-                or "\x00" in value
-                or path.is_absolute()
-                or ".." in path.parts
-                or value in {".", "./"}
-            ):
-                raise ValueError(f"watched path must be a project child: {value!r}")
-            normalized = Path(*path.parts).as_posix()
-            candidate = (root / normalized).resolve(strict=False)
-            try:
-                candidate.relative_to(root)
-            except ValueError as exc:
-                raise ValueError(
-                    f"watched path escapes the project root: {value!r}"
-                ) from exc
+            reason = ""
+            normalized = ""
+            if not value or "\x00" in value or value in {".", "./"}:
+                reason = "watched path must name a file or directory inside the project"
+            else:
+                path = Path(value)
+                if path.is_absolute():
+                    absolute = Path(os.path.normpath(value))
+                    relative: Path | None = None
+                    for base in (lexical_root, root):
+                        try:
+                            relative = absolute.relative_to(base)
+                            break
+                        except ValueError:
+                            continue
+                    if relative is None or not relative.parts:
+                        reason = (
+                            "absolute watched path is outside the project workdir "
+                            f"{configured}"
+                        )
+                    else:
+                        path = relative
+                if not reason and ".." in path.parts:
+                    reason = "watched path must not use '..'"
+                if not reason:
+                    normalized = Path(*path.parts).as_posix()
+                    candidate = (root / normalized).resolve(strict=False)
+                    try:
+                        candidate.relative_to(root)
+                    except ValueError:
+                        reason = "watched path resolves outside the project root"
+            if reason:
+                rejected.append({"path": value, "reason": reason})
+                continue
             if normalized not in seen:
                 seen.add(normalized)
                 confined.append(normalized)
-        return confined
+        return confined, rejected
 
     def _persist_planner_waiting_contract(
         self,
@@ -1930,19 +1961,32 @@ class PlanningContextMixin:
             normalization_reasons.append(
                 "unsupported wake hints ignored: " + ", ".join(unknown_wake_on)
             )
-        try:
-            watched_paths = self._confined_planner_wait_paths(
-                [str(value) for value in getattr(contract, "watched_paths", ())]
-            )
-        except ValueError as exc:
+        watched_paths, rejected_watched_paths = self._confined_planner_wait_paths(
+            [str(value) for value in getattr(contract, "watched_paths", ())]
+        )
+        if rejected_watched_paths:
+            # A wait the Planner chose is still a wait. Dropping it because one
+            # path could not be watched sent the campaign straight back into
+            # missions (ab1009 arm E: 13 of 13 waits). Keep the wait on what can
+            # be observed -- the remaining paths, other wake sources, or the
+            # bounded timed recheck below -- and tell the Planner which paths
+            # were refused so it can name them correctly next time.
             self._emit({
                 "type": EventType.LIFE_PLANNER_ERROR,
                 "error": "planner wait has unsafe watched path",
-                "detail": str(exc),
+                "detail": "; ".join(
+                    f"{entry['path']!r}: {entry['reason']}"
+                    for entry in rejected_watched_paths
+                ),
+                "rejected_watched_paths": rejected_watched_paths,
                 "blocker_fingerprint": blocker_fingerprint,
                 "recheck_token": recheck_token,
+                "recoverable": True,
             })
-            return None
+            normalization_reasons.append(
+                "unsafe watched paths dropped: "
+                + ", ".join(entry["path"] for entry in rejected_watched_paths)
+            )
         # operator_action_required means only fresh operator input can change
         # this blocker, so the source it wakes on is not the Planner's to pick.
         # run-05 declared operator waits against subagent_state and had
@@ -2037,7 +2081,7 @@ class PlanningContextMixin:
             )
         elif (
             wait_mode == "poll"
-            and (unknown_wake_on or wait_id_source_unknown)
+            and (unknown_wake_on or wait_id_source_unknown or rejected_watched_paths)
             and not wake_on
         ):
             degraded = True
@@ -2143,6 +2187,7 @@ class PlanningContextMixin:
             "wait_mode": wait_mode,
             "wake_on": wake_on,
             "watched_paths": watched_paths,
+            "rejected_watched_paths": rejected_watched_paths,
             "expires_at": max(
                 0.0,
                 float(getattr(contract, "expires_at", 0.0) or 0.0),
@@ -2445,6 +2490,25 @@ class PlanningContextMixin:
             if key in source
         }
 
+    @staticmethod
+    def _rejected_watched_paths_note(state: dict[str, Any]) -> str:
+        rejected = [
+            entry
+            for entry in state.get("rejected_watched_paths") or []
+            if isinstance(entry, dict) and entry.get("path")
+        ]
+        if not rejected:
+            return ""
+        lines = "".join(
+            f"  - {entry['path']}: {entry.get('reason') or 'rejected'}\n"
+            for entry in rejected
+        )
+        return (
+            "- watched_paths the Host refused (the wait fell back to a timed "
+            "recheck for them; name files inside the project workdir, relative "
+            "or absolute, to have them watched):\n" + lines
+        )
+
     def _planner_waiting_contract_runtime_note(self) -> str:
         state = self._load_planner_waiting_contract_state()
         if state is None or not bool(state.get("active")):
@@ -2460,7 +2524,8 @@ class PlanningContextMixin:
             "- operator_action_required: "
             f"{bool(state.get('operator_action_required'))}\n"
             f"- last_probe_at: {state.get('last_probe_at') or 0}\n"
-            "If current evidence does not satisfy the declared recheck condition, "
+            + self._rejected_watched_paths_note(state)
+            + "If current evidence does not satisfy the declared recheck condition, "
             "reuse the same blocker semantics and token with waiting=true and do not "
             "queue an equivalent polling task. Change the token only when concrete "
             "current evidence changes; the harness does not infer that change. "

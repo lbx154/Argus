@@ -999,6 +999,7 @@ def test_wake_normalization_does_not_relax_watched_path_confinement(
 ) -> None:
     project = tmp_path / "project"
     project.mkdir()
+    (tmp_path / "outside.json").write_text("{}", encoding="utf-8")
     supervisor = _supervisor(project, tmp_path / "life")
     events: list[dict] = []
     supervisor._emit = lambda event: events.append(event) or True
@@ -1008,15 +1009,98 @@ def test_wake_normalization_does_not_relax_watched_path_confinement(
         recheck_token="run-1",
         wait_mode="event",
         wake_on=("artifact_change",),
-        watched_paths=("../outside.json",),
+        watched_paths=("../outside.json", str(tmp_path / "outside.json")),
     )
 
-    assert supervisor._persist_planner_waiting_contract(contract) is None
+    state = supervisor._persist_planner_waiting_contract(contract)
+
+    # The unsafe paths are never watched, but the wait itself still holds as a
+    # bounded timed recheck instead of vanishing.
+    assert state is not None
+    assert state["watched_paths"] == []
+    assert state["wait_mode"] == "poll"
+    assert state["recheck_after_seconds"] >= 300
+    assert "artifact_revision" not in state["wake_on"]
+    assert [entry["path"] for entry in state["rejected_watched_paths"]] == [
+        "../outside.json",
+        str(tmp_path / "outside.json"),
+    ]
     assert any(
         event.get("error") == "planner wait has unsafe watched path"
         for event in events
     )
-    assert list((tmp_path / "life").glob("planner-waiting-contract-*.json")) == []
+    note = supervisor._planner_waiting_contract_runtime_note()
+    assert "../outside.json" in note
+    assert "refused" in note
+
+
+def test_absolute_watched_path_inside_project_workdir_is_watched(
+    tmp_path: Path,
+) -> None:
+    """A Planner names files in its workdir by absolute path as often as by
+    relative path; both spell the same project child."""
+    project = tmp_path / "project"
+    (project / "review-evidence").mkdir(parents=True)
+    evidence = project / "review-evidence" / "access-availability.txt"
+    evidence.write_text("token absent\n", encoding="utf-8")
+    (project / "data").mkdir()
+    supervisor = _supervisor(project, tmp_path / "life")
+    events: list[dict] = []
+    supervisor._emit = lambda event: events.append(event) or True
+    contract = WaitingContract(
+        blocker_fingerprint="feed-access-unavailable",
+        recheck_condition="authorized feed access is supplied",
+        recheck_token="access-round-4",
+        wait_mode="event",
+        wake_on=("authorized_access_supplied",),
+        watched_paths=(str(evidence), str(project / "data"), "data"),
+    )
+
+    state = supervisor._persist_planner_waiting_contract(contract)
+
+    assert state is not None
+    assert state["watched_paths"] == [
+        "review-evidence/access-availability.txt",
+        "data",
+    ]
+    assert state["rejected_watched_paths"] == []
+    assert state["wait_mode"] == "event"
+    assert "artifact_revision" in state["wake_on"]
+    assert not any(
+        event.get("error") == "planner wait has unsafe watched path"
+        for event in events
+    )
+    # The watched file moving is what ends the wait.
+    def revision() -> str:
+        return supervisor._planner_waiting_observed_revision(
+            wake_on=state["wake_on"], watched_paths=state["watched_paths"],
+        )
+
+    assert state["observed_revision"] == revision()
+    evidence.write_text("token supplied\n", encoding="utf-8")
+    assert state["observed_revision"] != revision()
+
+
+def test_watched_path_through_symlink_out_of_project_is_refused(
+    tmp_path: Path,
+) -> None:
+    project = tmp_path / "project"
+    project.mkdir()
+    outside = tmp_path / "outside"
+    outside.mkdir()
+    (project / "link").symlink_to(outside, target_is_directory=True)
+    supervisor = _supervisor(project, tmp_path / "life")
+    supervisor._emit = lambda event: True
+
+    confined, rejected = supervisor._confined_planner_wait_paths(
+        [str(project / "link" / "file.txt"), "link/file.txt"]
+    )
+
+    assert confined == []
+    assert [entry["path"] for entry in rejected] == [
+        str(project / "link" / "file.txt"),
+        "link/file.txt",
+    ]
 
 
 def test_team_wait_id_is_a_host_observed_event_source(tmp_path: Path) -> None:
