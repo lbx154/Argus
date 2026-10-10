@@ -156,6 +156,9 @@ def test_a_sub_task_reviewer_is_held_to_its_increment_not_the_whole_request(tmp_
         verdict=("approve_review", {
             "review": "Read the late-event test and its recorded run; the increment's symptom is fixed.",
             "forward_progress": True,
+            # A narrowed task must say how far the whole request now stands.
+            "objective_status": "partial",
+            "objective_gap": "Session ids still collide across restarts (a separate task).",
         }),
     )
     reviewer = _flat(prompts["reviewer"])
