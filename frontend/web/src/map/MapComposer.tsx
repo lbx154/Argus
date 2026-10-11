@@ -3,6 +3,7 @@ import type { MapSend } from './submission';
 import { useEffect, useId, useRef, useState, type CSSProperties, type ReactNode } from "react";
 import { ArrowUp, Check, ChevronDown, CornerDownLeft, Square, X } from "lucide-react";
 import { ArgusMark } from "../components/Wordmark";
+import { applicationBrand } from "../applicationBrand";
 import { referenceText, splitDraft } from "./presentation";
 import { useI18n } from "../i18n";
 import {
@@ -264,7 +265,7 @@ export function MapComposer({
     ? {
         launching: [zh ? "任务已接收" : "Task accepted", zh ? "正在放入地图…" : "Adding it to your map…"],
         task: [zh ? "任务已进入地图" : "Your task is on the map", zh ? "跟随地图，查看执行进展" : "Follow its progress on the map"],
-        message: [zh ? "Argus 已回复" : "Argus replied", zh ? "在对话中查看回复" : "Open the conversation to read it"],
+        message: [zh ? `${applicationBrand().name} 已回复` : `${applicationBrand().name} replied`, zh ? "在对话中查看回复" : "Open the conversation to read it"],
         error: [zh ? "发送没有成功" : "Message could not be sent", zh ? "草稿已保留，可以重试" : "Your draft is ready to retry"],
         cancelled: [zh ? "正在停止回复" : "Stopping reply", zh ? "可以发送新消息" : "You can send another message"],
       }[dispatchStatus]
@@ -274,8 +275,8 @@ export function MapComposer({
     zh ? "这条回复结束后立即处理" : "Answered right after this reply",
   ];
   const headline = feedback?.[0] || (pending && queued ? queuedCopy[0] : pending
-    ? (zh ? "Argus 正在处理" : "Argus is working")
-    : sent ? (zh ? "已发送给 Argus" : "Sent to Argus") : (zh ? "交给 Argus" : "Ask Argus"));
+    ? (zh ? `${applicationBrand().name} 正在处理` : `${applicationBrand().name} is working`)
+    : sent ? (zh ? `已发送给 ${applicationBrand().name}` : `Sent to ${applicationBrand().name}`) : (zh ? `交给 ${applicationBrand().name}` : `Ask ${applicationBrand().name}`));
   const detail = feedback?.[1] || (pending && queued ? queuedCopy[1] : pending
     ? pendingLabel || (zh ? "正在处理你的消息…" : "Processing your message…")
     : sent ? (zh ? "点此继续对话" : "Tap to keep the conversation going")
@@ -414,8 +415,8 @@ export function MapComposer({
             rows={1}
             tabIndex={compact ? -1 : 0}
             value={text}
-            aria-label={zh ? "给 Argus 发送消息" : "Message Argus"}
-            placeholder={zh ? "告诉 Argus，你想完成什么…" : "What would you like Argus to do?"}
+            aria-label={zh ? `给 ${applicationBrand().name} 发送消息` : `Message ${applicationBrand().name}`}
+            placeholder={zh ? `告诉 ${applicationBrand().name}，你想完成什么…` : `What would you like ${applicationBrand().name} to do?`}
             onFocus={() => setExpanded(true)}
             onChange={(e) => {
               setSent(false);
@@ -467,7 +468,7 @@ export function MapComposer({
               tabIndex={compact ? -1 : 0}
               disabled={!text.trim() || tooLong}
               aria-label={pending
-                ? (zh ? "在 Argus 工作时发送" : "Send while Argus works")
+                ? (zh ? `在 ${applicationBrand().name} 工作时发送` : `Send while ${applicationBrand().name} works`)
                 : (zh ? "发送消息" : "Send message")}
               title={pending
                 ? (zh ? "排队到这条回复之后处理" : "Queued right after this reply")
@@ -487,7 +488,7 @@ export function MapComposer({
           : pending && queued
             ? `${queuedCopy[0]} · ${queuedCopy[1]}`
           : pending
-            ? pendingLabel || (zh ? "Argus 正在处理…" : "Argus is responding…")
+            ? pendingLabel || (zh ? `${applicationBrand().name} 正在处理…` : `${applicationBrand().name} is responding…`)
           : sent
             ? zh
               ? "已发送"

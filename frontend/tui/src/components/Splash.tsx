@@ -1,5 +1,6 @@
 import React, { useEffect, useRef, useState } from 'react';
 import { Box, Text, useInput, useStdout } from 'ink';
+import { applicationBrand } from '../applicationBrand.js';
 import {
   ARGUS_SPLASH_ACTIVE_FRAMES as ACTIVE_FRAMES,
   ARGUS_SPLASH_COLORS as COLORS,
@@ -39,7 +40,10 @@ function AnimatedLine({
 
 export function Splash({ onDone }: { onDone: () => void }) {
   const { stdout } = useStdout();
-  const logo = splashLogoForWidth(stdout.columns ?? 80);
+  const brand = applicationBrand();
+  const width = stdout.columns ?? 80;
+  const logo = brand.id === 'argus' ? splashLogoForWidth(width)
+    : [brand.name, brand.tagline].map((line) => line.slice(0, Math.max(1, width - 2)));
   const [frame, setFrame] = useState(0);
   const finished = useRef(false);
 

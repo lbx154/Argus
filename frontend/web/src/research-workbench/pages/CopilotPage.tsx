@@ -2,6 +2,7 @@ import { Activity, ArrowUp, Check, FileCode2, FileUp, ListFilter, Paperclip, Shi
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { api } from '../api';
 import { ArgusMark } from '../components/Brand';
+import { applicationBrand } from '../../applicationBrand';
 import { Badge, EmptyState, Markdown } from '../components/Common';
 import { roleLabel, statusLabel } from '../enumLabels';
 import { AGENT_ROLES, agentRoleColor } from '../../lib/agentRoles';
@@ -37,7 +38,7 @@ function ToolTrace({ events, roles, connected }: { events: EventMsg[]; roles: Ro
   const iconOf = (event: EventMsg) => String(event.kind ?? '') === 'command_execution' ? TerminalSquare : eventRole(event) === 'reviewer' ? ShieldCheck : /^(read|write|edit):/i.test(eventDetail(event, 120)) ? FileCode2 : Wrench;
   return (
     <div className="copilot-trace copilot-trace-v2">
-      <div className="copilot-trace__header"><div><span>ARGUS TEAM</span><strong>{text('谁正在做什么', 'Who is doing what')}</strong></div><Badge tone={connected ? 'live' : 'warn'} dot>{connected ? text('实时', 'Live') : text('轮询中', 'Polling')}</Badge></div>
+      <div className="copilot-trace__header"><div><span>{applicationBrand().name.toUpperCase()} TEAM</span><strong>{text('谁正在做什么', 'Who is doing what')}</strong></div><Badge tone={connected ? 'live' : 'warn'} dot>{connected ? text('实时', 'Live') : text('轮询中', 'Polling')}</Badge></div>
       <div className="team-pipeline">
         {AGENT_ROLES.map((name, index) => {
           const role = roles.find((item) => item.role === name);
@@ -148,7 +149,7 @@ export function CopilotPage(props: WorkspacePageProps) {
 
   return (
     <div className="ros-page copilot-v2">
-      <header className="ros-page-header"><div><div className="eyebrow">RESEARCH COPILOT</div><h1>{text('与 Argus 对话', 'Chat with Argus')}</h1><p>{text('普通问题由 Manager 回答；复杂研究目标会进入 Planner → Engineer ⇄ Reviewer。', 'The Manager answers ordinary questions; complex goals enter Planner → Engineer ⇄ Reviewer.')}</p></div><Badge tone={props.connected ? 'live' : 'warn'} dot>{props.connected ? text('实时连接', 'Live') : text('重新连接中', 'Reconnecting')}</Badge></header>
+      <header className="ros-page-header"><div><div className="eyebrow">RESEARCH COPILOT</div><h1>{text(`与 ${applicationBrand().name} 对话`, `Chat with ${applicationBrand().name}`)}</h1><p>{text('普通问题由 Manager 回答；复杂研究目标会进入 Planner → Engineer ⇄ Reviewer。', 'The Manager answers ordinary questions; complex goals enter Planner → Engineer ⇄ Reviewer.')}</p></div><Badge tone={props.connected ? 'live' : 'warn'} dot>{props.connected ? text('实时连接', 'Live') : text('重新连接中', 'Reconnecting')}</Badge></header>
       {pending.length ? <div className="pending-question-banner"><Sparkles size={16} /><div><strong>{text('Argus 正在等待你的确认', 'Argus is waiting for your confirmation')}</strong><p>{String(pending[0]?.question || pending[0]?.title || text('请查看待确认问题', 'Review the pending question'))}</p></div><button className="button button--secondary" type="button" onClick={() => setDraft(text(`关于待确认问题：${String(pending[0]?.question || '')}\n我的回答是：`, `Regarding the pending question: ${String(pending[0]?.question || '')}\nMy answer is: `))}>{text('回复', 'Reply')}</button></div> : null}
 
       <div className="copilot-v2__layout">
@@ -158,7 +159,7 @@ export function CopilotPage(props: WorkspacePageProps) {
             {props.transcript.map((turn, index) => turn.role === 'operator' ? (
               <article className="message message--user" key={`${turn.ts}-${index}`}><div><span>{text('你', 'You')}</span><time>{formatClock(turn.ts, locale)}</time></div><Markdown>{turn.text}</Markdown></article>
             ) : (
-              <article className="message message--argus" key={`${turn.ts}-${index}`}><ArgusMark size={28} /><div><header><strong>Argus</strong><time>{formatClock(turn.ts, locale)}</time></header><Markdown>{turn.text}</Markdown></div></article>
+              <article className="message message--argus" key={`${turn.ts}-${index}`}><ArgusMark size={28} /><div><header><strong>{applicationBrand().name}</strong><time>{formatClock(turn.ts, locale)}</time></header><Markdown>{turn.text}</Markdown></div></article>
             ))}
             {(manager.busy || manager.output || manager.error) ? <article className="message message--argus message--stream"><ArgusMark size={28} /><div><header><strong>Argus</strong>{manager.busy ? <Badge tone="live" dot>{manager.phase || text('思考中', 'Thinking')}</Badge> : manager.result?.kind ? <Badge tone="info">{manager.result.kind}</Badge> : null}</header>{manager.phases.length ? <ol className="phase-trail">{manager.phases.map((item, index) => <li key={`${item.at}-${index}`} className={index === manager.phases.length - 1 && manager.busy ? 'is-active' : ''}><span>{index === manager.phases.length - 1 && manager.busy ? '●' : '✓'}</span>{item.label}</li>)}</ol> : null}{manager.output ? <Markdown>{manager.output}</Markdown> : null}{manager.error ? <div className="inline-error">{manager.error}</div> : null}</div></article> : null}
           </div>

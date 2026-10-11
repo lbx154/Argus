@@ -497,6 +497,10 @@ def create_app(
 
     register_pairing_routes(app, ctx)
 
+    from .routes.application_brand import register_application_brand_routes
+
+    register_application_brand_routes(app)
+
     # ── static web UI (optional) ──────────────────────────────────────────
     # When the React frontend has been built (`npm run build` in frontend/web),
     # serve it from the same origin so `argus --web` gives API + UI on one

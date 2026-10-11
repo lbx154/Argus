@@ -1,4 +1,5 @@
 import { ArgusMark as SharedArgusMark } from '../../components/Wordmark';
+import { applicationBrand } from '../../applicationBrand';
 
 export function ArgusMark({ size = 28, className = '' }: { size?: number; className?: string }) {
   return <SharedArgusMark size={size} className={className} />;
@@ -10,7 +11,7 @@ export function ArgusWordmark({ compact = false }: { compact?: boolean }) {
       <ArgusMark size={compact ? 28 : 31} />
       {!compact ? (
         <span className="argus-wordmark__copy">
-          <strong>Argus</strong>
+          <strong>{applicationBrand().name}</strong>
           <small>Workbench</small>
         </span>
       ) : null}

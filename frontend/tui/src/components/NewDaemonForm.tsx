@@ -3,6 +3,7 @@ import { Box, Text } from 'ink';
 import { caretSplit, type Edit } from '../input/editor.js';
 import { daemonDraftValues, type NewDaemonDraft, type NewDaemonField } from '../newDaemonForm.js';
 import { SPINNER, theme } from '../theme.js';
+import { applicationBrand } from '../applicationBrand.js';
 
 function FormField({
   field,
@@ -66,7 +67,7 @@ export function NewDaemonForm({
       <FormField field="objective" label="Objective" edit={draft.objective} active={draft.field === 'objective'} />
       <Box flexDirection="column" marginTop={1}>
         <Text color={armed ? theme.accent : theme.info}>
-          {armed ? '● Campaign starts immediately' : '○ Idle until you message Argus'}
+          {armed ? '● Campaign starts immediately' : `○ Idle until you message ${applicationBrand().name}`}
         </Text>
         <Text dimColor>
           {armed

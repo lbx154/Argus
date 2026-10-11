@@ -6,6 +6,7 @@ import {
   useState,
   type ReactNode,
 } from 'react';
+import { applicationBrand } from './applicationBrand';
 
 export type Locale = 'en' | 'zh-CN';
 type Variables = Record<string, string | number>;
@@ -1527,9 +1528,16 @@ function initialLocale(): Locale {
 }
 
 export function translate(key: string, variables: Variables = {}, locale: Locale = initialLocale()): string {
-  const template = (locale === 'zh-CN' ? zhCN[key] : en[key]) ?? key;
+  let template = (locale === 'zh-CN' ? zhCN[key] : en[key]) ?? key;
+  if (APPLICATION_LABELS.has(key)) template = template.replace(/\bArgus\b/g, applicationBrand().name);
   return template.replace(/\{(\w+)\}/g, (_, name: string) => String(variables[name] ?? `{${name}}`));
 }
+
+const APPLICATION_LABELS = new Set([
+  'handshake.connecting', 'handshake.title', 'splash.starting', 'connection.pairingTitle',
+  'topbar.pauseDaemon', 'topbar.runDaemon', 'chat.messageArgus', 'palette.messageArgus',
+  'palette.stopDaemon', 'palette.startDaemon', 'role.system', 'label.role.argus',
+]);
 
 interface I18nValue {
   locale: Locale;

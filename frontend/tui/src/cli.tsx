@@ -1,5 +1,6 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { Box, render, Text } from 'ink';
+import { applicationBrand } from './applicationBrand.js';
 import {
   ApiClient,
   type CreatedDaemon,
@@ -165,7 +166,7 @@ function Boot({
           setInitialResumeContinuous(Boolean(created.objective));
           const createdNotice = created.start?.admission_required
               ? `created ${created.sid} · choose running work to park`
-              : `created ${created.sid} · message Argus when ready`;
+              : `created ${created.sid} · message ${applicationBrand().name} when ready`;
           setInitialNotice((current) => [current, createdNotice].filter(Boolean).join(' · '));
         } else if (attached) {
           const attachedLabel = attached.label || attached.display_name || attached.id;
@@ -205,7 +206,7 @@ function Boot({
     setInitialResumeContinuous(Boolean(created.objective));
     const createdNotice = created.spawned
         ? `created ${created.sid} · campaign started`
-        : `created ${created.sid} · message Argus when ready`;
+        : `created ${created.sid} · message ${applicationBrand().name} when ready`;
     setInitialNotice((current) => [current, createdNotice].filter(Boolean).join(' · '));
     setPhase('live');
   };
@@ -332,7 +333,7 @@ async function main() {
     // A bind other devices can reach gets the full banner — reachable address,
     // token, and a QR code to scan from a phone.
     if (plan?.pairing && plan.banner) process.stdout.write(`${plan.banner}\n`);
-    else process.stdout.write(`${opened ? 'Opened' : 'Argus Web UI'}: ${url}\n`);
+    else process.stdout.write(`${opened ? 'Opened' : `${applicationBrand().name} Web UI`}: ${url}\n`);
     if (!opened && !args.noOpen) {
       process.stdout.write('No desktop browser detected; open the URL locally or forward this port over SSH.\n');
     }

@@ -4,9 +4,10 @@ import stringWidth from 'string-width';
 import { theme } from '../theme.js';
 import type { Edit } from '../input/editor.js';
 import { useImeCursorTarget } from '../imeCursor.js';
+import { applicationBrand } from '../applicationBrand.js';
 
 const MAX_INPUT_ROWS = 4;
-const FULL_LABEL = 'talk to Argus › ';
+const fullLabel = () => `talk to ${applicationBrand().name} › `;
 const COMPACT_LABEL = '› ';
 
 type SegmentKind = 'text' | 'dim' | 'caret';
@@ -149,7 +150,7 @@ export function PromptBox({
   width?: number;
   rowsBelow?: number;
 }) {
-  const label = width < 52 ? COMPACT_LABEL : FULL_LABEL;
+  const label = width < 52 ? COMPACT_LABEL : fullLabel();
   // App has two columns of outer padding; the box border and padding use four
   // more. Keeping that reserve here makes manual wrapping stable in real use.
   const contentColumns = Math.max(4, width - 6 - stringWidth(`◆ ${label}`));

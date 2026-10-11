@@ -1,8 +1,7 @@
 import React from 'react';
 import { Text } from 'ink';
 import { theme, WORDMARK_GHOST, WORDMARK_RAMP, WORDMARK_SHIMMER } from '../theme.js';
-
-const WORD = 'argus';
+import { applicationBrand } from '../applicationBrand.js';
 
 /**
  * The shared "◆ argus" gradient wordmark, reused by the boot Splash and the
@@ -16,25 +15,27 @@ const WORD = 'argus';
  */
 export function Wordmark({
   d = 'solid',
-  lit = WORD.length,
+  lit = applicationBrand().terminal_wordmark.length,
   sh = -1,
 }: {
   d?: 'ghost' | 'flick' | 'solid';
   lit?: number;
   sh?: number;
 }) {
+  const brand = applicationBrand();
+  const word = brand.terminal_wordmark;
   const markColor = d === 'ghost' ? WORDMARK_GHOST : theme.accent;
   return (
     <Text>
-      <Text color={markColor} bold={d === 'solid'} dimColor={d === 'flick'}>
+      {brand.id === 'argus' ? <Text color={markColor} bold={d === 'solid'} dimColor={d === 'flick'}>
         {'◉'}
-      </Text>
+      </Text> : null}
       {lit >= 0 ? (
         <>
-          <Text> </Text>
-          {[...WORD].map((ch, i) => {
+          {brand.id === 'argus' ? <Text> </Text> : null}
+          {[...word].map((ch, i) => {
             const isShimmer = i === sh;
-            const color = isShimmer ? WORDMARK_SHIMMER : i < lit ? WORDMARK_RAMP[i] : WORDMARK_GHOST;
+            const color = isShimmer ? WORDMARK_SHIMMER : i < lit ? WORDMARK_RAMP[i % WORDMARK_RAMP.length] : WORDMARK_GHOST;
             return (
               <Text key={i} color={color} bold={isShimmer}>
                 {ch}

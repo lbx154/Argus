@@ -1,5 +1,6 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { Box, useApp, useInput, useStdout } from 'ink';
+import { applicationBrand } from './applicationBrand.js';
 import {
   ApiClient,
   type CreatedDaemon,
@@ -365,7 +366,7 @@ export function App({
           ? `created ${created.sid} · choose running work to park`
           : created.spawned
           ? `created ${created.sid} · campaign started`
-          : `created ${created.sid} · message Argus when ready`,
+          : `created ${created.sid} · message ${applicationBrand().name} when ready`,
       );
     } catch (error) {
       if (!mountedRef.current) return;
@@ -448,7 +449,7 @@ export function App({
     const text = edit.value.trim();
     if (!text) return;
     if (!isSlash(text) && managerRequestRef.current) {
-      setNotice('Argus is still working · wait or switch daemons to cancel');
+      setNotice(`${applicationBrand().name} is still working · wait or switch daemons to cancel`);
       return;
     }
     setEdit(EMPTY);

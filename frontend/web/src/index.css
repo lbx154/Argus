@@ -847,3 +847,7 @@ button {
 .delivery-toast span { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .delivery-toast button { border: 0; background: transparent; color: inherit; cursor: pointer; font: inherit; }
 .delivery-toast button:first-of-type { color: rgb(var(--blue)); font-weight: 600; }
+/* Asset selection follows the workbench theme, including manual overrides. */
+.app-brand-image .app-brand-dark { display: none; }
+[data-theme="dark"] .app-brand-image .app-brand-light { display: none; }
+[data-theme="dark"] .app-brand-image .app-brand-dark { display: block; }

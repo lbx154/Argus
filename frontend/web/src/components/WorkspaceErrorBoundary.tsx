@@ -1,5 +1,6 @@
 import { Component, type ReactNode } from 'react';
 import type { Locale } from '../i18n';
+import { applicationBrand } from '../applicationBrand';
 
 /** A failed lazy page must not take the entire cockpit down or reload forever. */
 export class WorkspaceErrorBoundary extends Component<{ children: ReactNode; locale: Locale }, { failed: boolean }> {
@@ -15,7 +16,7 @@ export class WorkspaceErrorBoundary extends Component<{ children: ReactNode; loc
     return (
       <main className="flex min-h-dvh items-center justify-center bg-bg p-8 text-ink" role="alert">
         <section className="max-w-lg rounded-xl border border-line bg-panel p-8 shadow-lg">
-          <p className="mb-3 text-xs font-semibold uppercase tracking-widest text-blue">Argus</p>
+          <p className="mb-3 text-xs font-semibold uppercase tracking-widest text-blue">{applicationBrand().name}</p>
           <h1 className="text-lg font-semibold">{zh ? '工作台暂时无法显示' : 'The workspace could not be displayed'}</h1>
           <p className="mt-3 text-sm leading-relaxed text-ink-dim">
             {zh ? '页面资源未能正确加载。后端任务不会因此被停止；你仍可使用桌面菜单查看日志或设置。重新加载会丢弃页面中尚未发送的输入。'

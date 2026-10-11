@@ -8,6 +8,7 @@ import { PageUpdateNotice } from './components/PageUpdateNotice';
 import { queryRetryPolicy } from './hooks';
 import { installStaleChunkRecovery } from './lib/preloadRecovery';
 import { RELEASE_ID } from '../../core/src/release.generated';
+import { loadApplicationBrand } from './applicationBrand';
 import '@fontsource-variable/geist';
 import '@fontsource-variable/geist-mono';
 import 'katex/dist/katex.min.css';
@@ -51,7 +52,7 @@ function WebApp() {
   );
 }
 
-ReactDOM.createRoot(document.getElementById('root')!).render(
+void (isAdminData ? Promise.resolve() : loadApplicationBrand()).then(() => ReactDOM.createRoot(document.getElementById('root')!).render(
   <React.StrictMode>
     <QueryClientProvider client={queryClient}>
       <I18nProvider>
@@ -59,4 +60,8 @@ ReactDOM.createRoot(document.getElementById('root')!).render(
       </I18nProvider>
     </QueryClientProvider>
   </React.StrictMode>,
-);
+)).catch((error: unknown) => {
+  const root = document.getElementById('root')!;
+  root.setAttribute('role', 'alert');
+  root.textContent = `Cannot open workbench: ${error instanceof Error ? error.message : String(error)}`;
+});

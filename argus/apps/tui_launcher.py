@@ -1,6 +1,7 @@
 """Installed ``argus`` entrypoint: launch the bundled Ink cockpit."""
 from __future__ import annotations
 
+import json
 import os
 import re
 import shutil
@@ -222,8 +223,10 @@ def _tui_local_identity() -> dict[str, object]:
 
 
 def _export_tui_local_identity() -> None:
+    from ..core.application_brand import load_application_brand
     from ..core.paths import global_root
 
+    os.environ["ARGUS_TUI_APPLICATION_BRAND"] = json.dumps(load_application_brand().public)
     identity = _tui_local_identity()
     values = {
         "ARGUS_TUI_LOCAL_RELEASE_ID": identity.get("release_id"),

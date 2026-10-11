@@ -1,5 +1,6 @@
 import { useDeferredValue, useEffect, useMemo, useRef, useState } from 'react';
 import { useGsapMotion } from '../lib/motion';
+import { applicationBrand } from '../applicationBrand';
 import type { ArtifactInfo, EventMsg, Snapshot } from '../api';
 import type { DeliveryReceipt, MissionView } from '../../../core/src/types';
 import { type RenderedLine } from '../../../core/src/eventRender';
@@ -318,7 +319,7 @@ function ConversationRow({
                 ? 'sticky -top-1.5 z-10 mb-1 flex flex-wrap items-center gap-x-2 gap-y-0.5 bg-panel py-1'
                 : 'mb-1 flex items-center gap-2'}
             >
-              <span className="text-xs font-semibold text-blue">Argus</span>
+              <span className="text-xs font-semibold text-blue">{applicationBrand().name}</span>
               {taskReceipt ? <span className="text-[11px] text-ink-dim">
                 {locale === 'zh-CN' ? '任务回报 · 当时记录' : 'Task report · Recorded then'}
               </span> : null}
