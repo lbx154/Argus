@@ -32,6 +32,23 @@ fastapi = pytest.importorskip("fastapi")
 from fastapi.testclient import TestClient  # noqa: E402
 
 
+def test_meta_identifies_the_actual_primary_state_directory(tmp_path: Path) -> None:
+    root = tmp_path / "selected"
+    client = TestClient(server.create_app(global_root=root, auth_token=""))
+    response = client.get("/api/meta")
+    assert response.status_code == 200
+    assert response.json()["runtime"]["state_root"] == str(root.resolve())
+
+
+def test_meta_redacts_state_directory_before_authentication(tmp_path: Path) -> None:
+    client = TestClient(server.create_app(global_root=tmp_path, auth_token="fixture-only"))
+    assert client.get("/api/meta").json()["runtime"]["state_root"] is None
+    authenticated = client.get(
+        "/api/meta", headers={"Authorization": "Bearer fixture-only"},
+    )
+    assert authenticated.json()["runtime"]["state_root"] == str(tmp_path.resolve())
+
+
 def test_static_module_workers_use_a_javascript_mime_on_windows(
     tmp_path: Path,
 ) -> None:

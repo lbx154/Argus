@@ -284,6 +284,7 @@ def create_app(
             roots.append(resolved)
 
     api_meta = build_api_meta()
+    api_meta["runtime"]["state_root"] = str(primary_root)
     app = FastAPI(
         title="argus web API",
         version=str(api_meta["runtime"]["package_version"]),

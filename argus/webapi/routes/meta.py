@@ -100,6 +100,7 @@ def register_meta_routes(app, ctx: ServerContext) -> None:
             return {**api_meta, "authentication": authentication}
         runtime = {
             **api_meta["runtime"],
+            "state_root": None,
             "source_root": "<redacted>",
             "configured_source_root": None,
             "source_root_matches_config": None,

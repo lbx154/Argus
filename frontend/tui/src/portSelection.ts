@@ -53,6 +53,7 @@ export async function selectApiPort(
   if (preferredProbe.state === 'compatible') return options.preferredPort;
   if (
     preferredProbe.state === 'incompatible'
+    && !preferredProbe.stateRootMismatch
     && preferredProbe.meta
     && isLocalApiHost(options.host)
   ) {

@@ -1,5 +1,7 @@
 /** Metadata returned by the current Python WebAPI; protocol-compatible during migration. */
 export interface ApiRuntimeIdentity {
+  /** Canonical primary data directory; absent on older servers, null before authentication. */
+  state_root?: string | null;
   package_version: string;
   source_root: string;
   configured_source_root: string | null;

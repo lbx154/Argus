@@ -467,6 +467,13 @@ first available port starting at `8799` when another program or stale backend
 occupies it. On Windows, a plain `argus` launch also opens the Web UI; use
 `argus --no-open` for the terminal cockpit only.
 
+Local cockpit launches also verify the selected `ARGUS_SKILL_HOME` / `--life-dir`
+against the backend's data-directory identity. A server for another directory
+is neither adopted nor stopped: automatic startup selects another port, while
+an explicitly occupied port reports the mismatch. Older servers that cannot
+prove their data directory are left running. Remote host connections retain
+their normal endpoint and authentication behavior.
+
 ### Web UI
 
 Start Argus and open the Web UI in your default browser:

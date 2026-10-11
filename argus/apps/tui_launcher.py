@@ -222,10 +222,13 @@ def _tui_local_identity() -> dict[str, object]:
 
 
 def _export_tui_local_identity() -> None:
+    from ..core.paths import global_root
+
     identity = _tui_local_identity()
     values = {
         "ARGUS_TUI_LOCAL_RELEASE_ID": identity.get("release_id"),
         "ARGUS_TUI_LOCAL_SOURCE_DIGEST": identity.get("runtime_source_digest"),
+        "ARGUS_TUI_LOCAL_STATE_ROOT": str(global_root().resolve()),
     }
     for name, value in values.items():
         text = str(value or "").strip()

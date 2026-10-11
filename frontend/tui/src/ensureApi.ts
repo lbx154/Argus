@@ -1,6 +1,6 @@
 import { spawn } from 'node:child_process';
 import { existsSync } from 'node:fs';
-import { dirname, resolve } from 'node:path';
+import { dirname, posix, resolve, win32 } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { debuglog } from 'node:util';
 import {
@@ -82,9 +82,24 @@ export function repoBackendPath(
 
 export interface ApiProbeResult {
   state: 'compatible' | 'incompatible' | 'unreachable';
+  /** A different or unproven data directory must never trigger backend replacement. */
+  stateRootMismatch?: boolean;
   message: string;
   warning?: string;
   meta?: ApiMeta;
+}
+
+export function apiStateRootError(meta: ApiMeta | undefined, expected: string): string {
+  const actual = meta?.runtime.state_root;
+  if (typeof actual !== 'string' || !actual.trim()) {
+    return 'backend cannot verify the selected data directory; use another port or update that backend';
+  }
+  const normalize = (value: string) => /^[a-z]:[\\/]|^\\\\/i.test(value)
+    ? win32.normalize(value).replace(/[\\/]+$/, '').toLowerCase()
+    : posix.normalize(value).replace(/\/+$/, '') || '/';
+  return normalize(actual) === normalize(expected)
+    ? ''
+    : 'backend serves a different data directory; select the matching --life-dir or use another port';
 }
 
 function startupPollAttempts(platform: NodeJS.Platform = process.platform): number {
@@ -144,6 +159,8 @@ export async function probeApi(
   port: number,
   token?: string,
 ): Promise<ApiProbeResult> {
+  const localBind = isLocalApiHost(host) || ['0.0.0.0', '::', '::0'].includes(host.trim());
+  const stateRoot = localBind ? process.env.ARGUS_TUI_LOCAL_STATE_ROOT?.trim() : undefined;
   try {
     const headers: Record<string, string> = token ? { Authorization: `Bearer ${token}` } : {};
     return await requestWithTimeout(
@@ -155,17 +172,29 @@ export async function probeApi(
           const suffix = r.status === 404
             ? 'service does not expose /api/meta; it is an older Argus checkout or another process'
             : `GET /api/meta returned HTTP ${r.status}`;
-          return { state: 'incompatible', message: suffix };
+          return { state: 'incompatible', message: suffix, stateRootMismatch: Boolean(stateRoot) };
         }
         let body: unknown;
         try {
           body = await r.json();
         } catch (error) {
           if (!(error instanceof SyntaxError)) throw error;
-          return { state: 'incompatible', message: 'backend returned malformed /api/meta JSON' };
+          return {
+            state: 'incompatible', message: 'backend returned malformed /api/meta JSON',
+            stateRootMismatch: Boolean(stateRoot),
+          };
         }
         const expectation = localRuntimeExpectation();
         const compatibility = inspectApiMeta(body, expectation);
+        const stateError = stateRoot ? apiStateRootError(compatibility.meta, stateRoot) : '';
+        if (stateError) {
+          return {
+            state: 'incompatible',
+            stateRootMismatch: true,
+            message: stateError,
+            meta: compatibility.meta,
+          };
+        }
         if (!compatibility.compatible || !compatibility.meta) {
           return {
             state: 'incompatible',
@@ -439,6 +468,13 @@ export async function ensureApi(opts: {
 
   onStatus?.('checking local and running versions…');
   const initial = await doProbe();
+  if (initial.stateRootMismatch) {
+    return {
+      reachable: false,
+      spawned: false,
+      message: `refusing API at ${host}:${port}: ${initial.message}`,
+    };
+  }
   if (initial.state === 'compatible') {
     // A compatible local API may predate ownership-by-default. Adopt it only
     // when its self-reported PID and live argv prove that it is the exact
