@@ -368,8 +368,8 @@ def test_planner_accepts_json_decision_without_event_prefix(text: str) -> None:
 
 def test_planner_prompt_requires_read_only_delegation_and_minimal_footer() -> None:
     assert 'Assigning work' in _PLANNER_CORE_CONTRACT
-    assert 'do not edit.' in _PLANNER_CORE_CONTRACT
-    assert 'Engineer implements, runs commands and tests, and iterates' in _PLANNER_CORE_CONTRACT
+    assert 'Read state, never edit' in _PLANNER_CORE_CONTRACT
+    assert 'Engineer implements and tests' in _PLANNER_CORE_CONTRACT
     assert "ARGUS_ROLE_DECISION=" not in _PLANNER_CORE_CONTRACT
     assert "PROJECT_DONE=false" in _PLANNER_CORE_CONTRACT
     assert "TASK_KEY=k1" in _PLANNER_CORE_CONTRACT
@@ -449,7 +449,7 @@ def test_planner_forbids_binary_outcome_labels_and_standing_keeps_exploring(
     )
 
     assert "accepted " + "no" + "-go" not in finite.lower()
-    assert 'never a bare work announcement' in finite.lower()
+    assert 'Report what happened and what comes next.' in finite
     assert "what happened" in finite
     assert 'timing, profiling' in finite
     assert 'Continue until stopped by the operator' not in finite

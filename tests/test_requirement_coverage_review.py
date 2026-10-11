@@ -54,8 +54,7 @@ _RULE = (
     "of them."
 )
 _ENGINEER_RULE = (
-    "Fix a reported symptom within any design note's rules; call it intended only "
-    "with support in the task text itself."
+    "Fix reported symptoms within design rules; intended behavior needs task-text support."
 )
 
 

@@ -167,7 +167,7 @@ def test_non_measured_blocks_only_on_claim_critical_evidence(monkeypatch):
 def test_done_tracks_the_current_verification_profile(monkeypatch):
     p = _prompt(measured=False, monkeypatch=monkeypatch)
 
-    assert 'outcome meets this verification profile' in p
+    assert '`done` meets this profile' in p
     assert 'not exhaustive proof or every file' in p
     assert 'operator>objective>mission>preregistration' in p
     assert 'A timeout or failed attempt' in p

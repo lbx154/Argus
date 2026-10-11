@@ -85,9 +85,11 @@ _DURABLE_WAIT_RULE = (
     "milestone completion or paper review."
 )
 _EXPERIMENT_PREREQUISITE_RULE = (
-    "Check readiness; block dependents on failure. "
-    "Use --depends-on for prerequisite jobs, --rerun-reason for retries. "
-    "Preserve attempts in separate output dirs."
+    "Block dependents on failed readiness. Use --depends-on for prerequisites, "
+    "--rerun-reason for retries; keep attempt outputs separate."
+)
+_DESIGN_SYMPTOM_RULE = (
+    "Fix reported symptoms within design rules; intended behavior needs task-text support."
 )
 
 _WINDOWS_LONG_EXPERIMENT_RULE = (
@@ -292,8 +294,8 @@ def build_mission_prompt(
             "Implement this task end to end; run its profile's named feedback check. "
             "Never repeat unchanged checks, reopen campaign planning, start another "
             "Argus service or add unrelated outputs. In explore/develop, follow feedback "
-            "into alternatives authorized by the decision rule. Fix reported symptoms "
-            "within design constraints; call them intended only with task-text support. "
+            "into alternatives authorized by the decision rule. "
+            + _DESIGN_SYMPTOM_RULE + " "
             "If blocked, keep only state needed next round."
         )
         if learning_block:
@@ -338,8 +340,7 @@ def build_mission_prompt(
         "Web UI: test real Chromium and mobile.\n"
         "Use primary sources when external behavior matters. If repeated attempts fail, "
         "recheck the underlying assumption, not another cosmetic tweak. "
-        "Fix a reported symptom within any design note's rules; call it intended "
-        "only with support in the task text itself.\n"
+        + _DESIGN_SYMPTOM_RULE + "\n"
         + ENGINEER_SOURCE_HANDOFF + "\n"
         + _PERFORMANCE_DIAGNOSTIC_RULE
         + "\n"

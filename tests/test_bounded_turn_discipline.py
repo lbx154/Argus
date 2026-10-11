@@ -128,7 +128,9 @@ def test_engineer_surfaces_operator_only_blockers_to_host():
         assert "parks the task" in out or "Never keep opening fresh rounds" in out
 
 
-def test_engineer_fixed_prompt_stays_token_efficient():
+@pytest.mark.parametrize("mode", ["progress-first", "standard", "strict"])
+def test_engineer_fixed_prompt_stays_token_efficient(monkeypatch, mode):
+    monkeypatch.setenv("ARGUS_SKILL_EVIDENCE_POLICY", mode)
     # The shared writing voice, durable accelerator admission, and recoverable
     # background-result contract are intentional fixed costs. Keep only modest
     # headroom for another static section.

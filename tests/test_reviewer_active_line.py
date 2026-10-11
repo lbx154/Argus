@@ -28,11 +28,11 @@ def test_reviewer_is_not_given_checkpoint_bookkeeping():
 
 def test_reviewer_never_acts_as_checkpoint_editor():
     p = _prompt()
-    assert 'Leave sources, outputs, and builds unchanged' in p
+    assert 'Leave source/output/build files unchanged' in p
     assert 'Give Engineer instructions in the review' in p
-    assert 'Check essential uncertainty proportionately' in p
+    assert 'check relevant uncertainty' in p
     assert (
-        'Negative results, hedging, limitations, and reruns need grounded consequences; positive and negative claims share one evidence standard.'
+        'Ground negatives, hedging, limitations and reruns in consequences; all claims share one evidence standard.'
     ) in p
     assert "six total read/search tool calls" not in p
 
@@ -50,9 +50,8 @@ def test_the_no_mutation_rule_says_what_it_covers_and_what_it_does_not():
     """
     p = _prompt()
 
-    for forbidden in ("Leave sources", "outputs, and builds unchanged", "builds unchanged"):
-        assert forbidden in p, "the prohibition still has to enumerate its scope"
-    assert "you may record your judgment with the vertical's command" in p
+    assert "Leave source/output/build files unchanged" in p
+    assert "use the vertical command for judgments" in p
     assert "strictly read-only" not in p
 
 

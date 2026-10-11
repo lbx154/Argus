@@ -227,13 +227,13 @@ def test_shared_role_rule_covers_both_shells(monkeypatch):
         rule = engineer._long_experiment_rule()
         assert "--depends-on" in rule
         assert "--rerun-reason" in rule
-        assert "A readiness pass is not a scientific result." in rule
+        assert "readiness never replaces required independent validation" in rule
 
 
 @pytest.mark.parametrize("round_index", [1, 2])
 def test_independent_evidence_rule_applies_from_first_review(round_index):
     from argus.reviewer import Reviewer
-    from argus.roles.prompts.reviewer import _EXPERIMENT_EVIDENCE_RULE
+    from argus.roles.task_contract import experiment_evidence_contract
 
     prompt = Reviewer(runner=None, skill_store=None)._build_prompt(
         objective="Verify the experiment",
@@ -246,7 +246,8 @@ def test_independent_evidence_rule_applies_from_first_review(round_index):
         prior_checkpoint={},
         prev_review_summary="Missing evidence" if round_index > 1 else "",
     )
-    assert prompt.count(_EXPERIMENT_EVIDENCE_RULE) == 1
+    assert prompt.count(experiment_evidence_contract()) == 1
+    assert "producer logs cannot replace external observation" in prompt
 
 
 @pytest.mark.parametrize("mode", ["direct", "supervised"])
