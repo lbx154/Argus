@@ -1935,7 +1935,9 @@ RETIRED_NAME_OCCURRENCES: dict[str, int] = {
     # manager/self_context adds one required LayeredSkillStore(project_dir=...)
     # keyword naming the Skill directory, not another project-state alias.
     "project_dir": 34,
-    "manager_session_root": 24,
+    # Stage steering reads the existing Manager authority root, not the
+    # execution worktree; this is one new consumer, not a new root alias.
+    "manager_session_root": 25,
     # 20 after the cost-control layer left (its own host-wide ledger walk is
     # gone; core/usage.py now holds the one daily roll-up across projects).
     "session_states_root": 20,
