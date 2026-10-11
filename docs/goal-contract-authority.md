@@ -34,3 +34,9 @@ it does not ask the operator to confirm the same instruction again.
 Ambiguities remain editable unanswered questions. They do not authorize a
 change to a requirement. Stored clauses and role briefings preserve authority
 separately from verification kind.
+
+Stage decisions read the Manager's current, role-scoped OperatorContext from
+the session state directory, not the execution checkout. This read does not
+consume one-shot guidance. The context is part of the stage decision's
+compare-and-commit identity: changed steering invalidates an in-flight verdict
+instead of letting an older decision advance the pipeline.

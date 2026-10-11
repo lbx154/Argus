@@ -73,6 +73,14 @@ class _StageDecisionMixin:
     # Private helpers — each covers one logical phase of decide_stage_transition
     # ------------------------------------------------------------------
 
+    def _stage_operator_context(self) -> str:
+        from ..core.operator_context import build_operator_context_block
+
+        context, _revision = build_operator_context_block(
+            "manager", self.manager_session_root, consume_once=False,
+        )
+        return context
+
     def _stage_context_fingerprint(self, root: Path) -> str:
         """Bind a verdict to the pipeline and campaign that supplied its evidence."""
         import hashlib
@@ -86,6 +94,7 @@ class _StageDecisionMixin:
             "pipeline": read_pipeline_state(root),
             "campaign": asdict(control.campaign_identity()),
             "control_head": asdict(head) if head is not None else None,
+            "operator_context": self._stage_operator_context(),
         }
         return hashlib.sha256(
             json.dumps(payload, sort_keys=True, separators=(",", ":")).encode("utf-8")
@@ -110,7 +119,7 @@ class _StageDecisionMixin:
                 return StageTransition(
                     "hold",
                     current,
-                    "project stage or campaign changed while deciding; recheck "
+                    "project stage, campaign or operator context changed while deciding; recheck "
                     "the current evidence",
                     current_stage=current,
                     source="stale_stage_context_hold",
@@ -1177,6 +1186,9 @@ class _StageDecisionMixin:
                 ),
                 role_context=prompt_context.role_context,
             )
+            from ..core.operator_context import append_operator_context
+
+            prompt = append_operator_context(prompt, self._stage_operator_context())
 
             raw = self._run_stage_model(
                 run_exec,
