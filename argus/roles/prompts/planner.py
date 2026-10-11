@@ -8,7 +8,11 @@ from typing import Any
 
 from ...core.model_visible_text import sanitize_model_visible_text
 from ...core.role_decision import decision_footer_instruction
-from ..task_contract import native_shell_contract, native_shell_summary
+from ..task_contract import (
+    experiment_evidence_contract,
+    native_shell_contract,
+    native_shell_summary,
+)
 from .types import ChecklistMode, RoleName, RolePromptRequest
 from .voice import RESEARCHER_VOICE
 
@@ -57,32 +61,29 @@ _PLANNER_WORKSPACE_SCOPE = (
 # carries the rule in one line, the bounded prompts carry the full statement.
 _PLANNER_CORE_CONTRACT = """
 ## Assigning work
-Read state; do not edit. Engineer implements, runs commands and tests, and iterates.
+Read state, never edit; Engineer implements and tests.
 Plan from the mission workspace only; never read sibling projects or parent directories.
 
-- Reuse settled and Manager decisions. Give each task its decision, inputs, and
-  check. Emit items that differ only in inputs or config, with disjoint outputs,
+- Reuse settled/Manager decisions; name each task's decision, inputs and check.
+  Emit items that differ only in inputs or config, with disjoint outputs,
   together up to the free slots; a shared code change goes first as their dep.
-- Ask before emitting: at the measured throughput in the digest's time line, can
-  this plan reach its first held-out number in the time remaining? If not, which
-  smaller end-to-end version comes first? What other independent work can start
-  this cycle?
+- At the digest's measured throughput, can this plan reach its first held-out
+  number in time? If not, start a smaller end-to-end version. What independent
+  work can start this cycle?
 - Cited `life.planner.error`/`life.manager.intent.failed`, repetitive reviews, or
   corrective OperatorContext may justify `TASK_VERTICAL=argus_maintenance`.
   Require a harness hypothesis, executable check, exclusions, isolated
   Engineer→Reviewer work, and no counters, detectors, gratuitous inspections, or
   make-work. Deploy only after Reviewer `done` and operator approval.
-- Follow requested actions in order; outputs or alternatives cannot replace an
-  unmet action. Invent no cleanup, docs, or rechecks. Do not prolong completed
-  finite work for optional hardening.
+- Follow requested actions in order; outputs or alternatives do not replace unmet actions.
+  Add no cleanup, docs, rechecks or optional hardening to completed finite work.
 - Ground external algorithms beyond Wiki/Skills in primary sources. Consult papers,
   source, issues, or hardware when consequential. Repeated failures require rereading
   primary papers and official code. Performance claims need code-path evidence plus
   timing, profiling, or controlled comparison.
 - Only a complete operator goal permits `project_done=true`. Reviewer `done` closes
-  direct work; review again only on request or a gap. Integrity and reproducibility
-  are prerequisites, not directions. Host needs what happened and what comes next,
-  never a bare work announcement.
+  direct work; re-review only on request or a gap. Integrity/reproducibility are
+  prerequisites, not directions. Report what happened and what comes next.
 - End with `PROJECT_DONE`/`REASON`; tasks need `TASK_TITLE`/`TASK_OBJECTIVE`.
   Optional `ADVANCE_TO_STAGE` must be Host-valid; omit to hold. `TASK_SCOPE`
   defaults to `bounded`. Also: `TASK_KEY`/`TASK_DEPS`, `TASK_HYPOTHESIS`,
@@ -221,6 +222,7 @@ def build_bounded_single_task_prompt(
         "executable DAG node whose owner is Engineer; Reviewer remains Host-invoked."
         + review_policy
         + shell_block
+        + "\n\n" + experiment_evidence_contract()
         + "\n\nRules:\n"
         f"- {_PLANNER_WORKSPACE_SCOPE}\n"
         "- Preserve the Manager's brief exactly: paths, requested outputs, order, "
@@ -304,6 +306,7 @@ def build_bounded_dag_prompt(
         + verification
         + shell_block
         + review_policy
+        + "\n\n" + experiment_evidence_contract()
         + "\n\n"
         "Rules:\n"
         f"- {_PLANNER_WORKSPACE_SCOPE}\n"
@@ -454,7 +457,7 @@ def build_continuous_prompt(
     # Vertical-owned policy arrives through the prompt catalog; this module
     # contributes only role-wide planning behavior.
     optimize_banner = prompt_context.role_banner
-    planner_core_contract = _PLANNER_CORE_CONTRACT
+    planner_core_contract = _PLANNER_CORE_CONTRACT + "\n" + experiment_evidence_contract()
     research_plan_context = (
         _RESEARCH_PLAN_CONTRACT
         + sanitize_model_visible_text(

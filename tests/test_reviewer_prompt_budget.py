@@ -145,7 +145,9 @@ def test_every_evidence_form_fits_the_budget(monkeypatch, mode):
 
 
 @pytest.mark.parametrize("mode", ["execute", "recorded", "read"])
-def test_windows_fixed_contract_prose_within_budget_for_every_form(monkeypatch, mode):
+@pytest.mark.parametrize("policy", ["standard", "progress-first", "strict"])
+def test_windows_fixed_contract_prose_within_budget_for_every_form(monkeypatch, mode, policy):
+    monkeypatch.setenv("ARGUS_SKILL_EVIDENCE_POLICY", policy)
     monkeypatch.setattr(
         reviewer_prompt,
         "native_shell_summary",

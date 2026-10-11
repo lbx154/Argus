@@ -5,6 +5,8 @@ from __future__ import annotations
 import json
 from types import SimpleNamespace
 
+import pytest
+
 from argus.core.pipeline_state import read_pipeline_state, write_pipeline_state
 from argus.life.memory import EventJournal
 from argus.life.supervisor import LifeSupervisor
@@ -112,10 +114,13 @@ def _build_math_scope_prompt(
     return prompt, objective
 
 
+@pytest.mark.parametrize("policy", ["standard", "progress-first", "strict"])
 def test_math_scope_prompt_is_compact_and_deduplicated(
     tmp_path,
     monkeypatch,
+    policy,
 ) -> None:
+    monkeypatch.setenv("ARGUS_SKILL_EVIDENCE_POLICY", policy)
     prompt, objective = _build_math_scope_prompt(tmp_path, monkeypatch)
 
     assert len(_without_host_shell_guidance(prompt)) < MATH_SCOPE_BUDGET, (
@@ -130,10 +135,9 @@ def test_math_scope_prompt_is_compact_and_deduplicated(
     assert prompt.count("PROJECT_DONE=false") == 1
     assert "TASK_KEY=k1" in prompt
     assert 'prerequisites, not directions' in prompt
-    assert prompt.count(
-        'reproducibility\n  are prerequisites'
-    ) == 1
-    assert 'Engineer implements, runs commands and tests, and iterates' in prompt
+    flat = " ".join(prompt.split())
+    assert flat.count('Integrity/reproducibility are prerequisites, not directions') == 1
+    assert 'Engineer implements and tests' in prompt
     assert "JSON matching the provided schema" not in prompt
 
 
@@ -194,8 +198,9 @@ def test_planner_keeps_operator_actions_ahead_of_optional_hardening(
 
     assert 'Follow requested actions in order' in prompt
     assert 'outputs or alternatives' in prompt
-    assert 'outputs or alternatives cannot replace an\n  unmet action' in prompt
-    assert 'Do not prolong completed\n  finite work for optional hardening' in prompt
+    flat = " ".join(prompt.split())
+    assert 'outputs or alternatives do not replace unmet actions' in flat
+    assert 'Add no cleanup, docs, rechecks or optional hardening to completed finite work' in flat
 
 
 def test_bounded_planner_rejects_tautological_acceptance_checks() -> None:

@@ -12,6 +12,7 @@ from ...core.model_visible_text import (
 from ...core.role_decision import decision_footer_instruction
 from ..task_contract import (
     EFFECTIVE_TASK_CONTRACT,
+    experiment_evidence_contract,
     native_shell_contract,
     native_shell_summary,
 )
@@ -84,9 +85,9 @@ _DURABLE_WAIT_RULE = (
     "milestone completion or paper review."
 )
 _EXPERIMENT_PREREQUISITE_RULE = (
-    "Check readiness before costly work; block dependents on failure. "
+    "Check readiness; block dependents on failure. "
     "Use --depends-on for prerequisite jobs, --rerun-reason for retries. "
-    "Preserve attempts in separate output dirs. A readiness pass is not a scientific result."
+    "Preserve attempts in separate output dirs."
 )
 
 _WINDOWS_LONG_EXPERIMENT_RULE = (
@@ -108,7 +109,7 @@ def _long_experiment_rule() -> str:
     )
     return " ".join((
         shell_rule, _ACCELERATOR_ADMISSION_RULE, _EXPERIMENT_PREREQUISITE_RULE,
-        _DURABLE_WAIT_RULE,
+        experiment_evidence_contract(), _DURABLE_WAIT_RULE,
     ))
 
 
@@ -288,15 +289,12 @@ def build_mission_prompt(
         sections.append(_long_experiment_rule())
         sections.append(
             "## Engineer service\n"
-            "Inspect only what the task requires and implement it end to end. Run "
-            "the named feedback-producing check at the size this profile needs; "
-            "never repeat an unchanged check. Do not reopen "
-            "campaign planning, start another Argus service, or create unrelated "
-            "outputs. Within an explore/develop mission, follow feedback into the "
-            "alternative proposal the decision rule authorizes. Fix a reported symptom "
-            "within any design note's rules; call it intended only with support in the "
-            "task text itself. If a material obstacle remains, keep only the state one "
-            "next round needs."
+            "Implement this task end to end; run its profile's named feedback check. "
+            "Never repeat unchanged checks, reopen campaign planning, start another "
+            "Argus service or add unrelated outputs. In explore/develop, follow feedback "
+            "into alternatives authorized by the decision rule. Fix reported symptoms "
+            "within design constraints; call them intended only with task-text support. "
+            "If blocked, keep only state needed next round."
         )
         if learning_block:
             sections.append(learning_block)

@@ -13,6 +13,7 @@ from ...core.model_visible_text import (
 )
 from ..task_contract import (
     EFFECTIVE_TASK_CONTRACT,
+    experiment_evidence_contract,
     native_shell_summary,
 )
 from .types import ChecklistMode, RoleName, RolePromptRequest
@@ -62,12 +63,6 @@ _INCREMENTAL_REREVIEW_BOUNDARY = (
     "and cite a number only when the label comes from the same output. Before "
     "`done`, independently check every value changed in response to a contested "
     "finding; the Engineer's report that it recalculated them is not that check.\n\n"
-)
-
-_EXPERIMENT_EVIDENCE_RULE = (
-    "Check prerequisite/previous runs and actual input changes, not rerun reasons. "
-    "Readiness/producer logs cannot replace required validation, independent checks "
-    "or external observation.\n\n"
 )
 
 def evaluate_request(
@@ -791,22 +786,22 @@ def render_reviewer_prompt(
         + "\n\n"
         + _PRODUCT_ACCEPTANCE_DIRECTIVE
         + "\n\n## Reviewer role\n"
-        "`done` means the outcome meets this verification profile. "
-        "Check essential uncertainty proportionately. Leave sources, outputs, and "
-        "builds unchanged; you may record your judgment with the vertical's command. "
+        "`done` meets this profile; check relevant uncertainty. "
+        "Leave source/output/build files unchanged; use the vertical command for judgments. "
         "Use `continue` for one material gap in scope, `replan_requested` for a wrong target or "
         "scope change, and `blocked` only for external obstacles. Use primary sources "
         "for external claims; community code may ground implementation details. "
         "Stay within this profile; require no future-proofing. "
         "In `explore`/`develop`, require experimental or research feedback. "
-        "Negative results, hedging, limitations, and reruns need grounded "
-        "consequences; positive and negative claims share one evidence standard. "
+        "Ground negatives, hedging, limitations and reruns in consequences; "
+        "all claims share one evidence standard. "
         + review_evidence_rule(
             evidence_mode
             or reviewer_evidence_mode(getattr(owner, "runner", None), engineer_records_commands=False)
         )
         + "\n\n"
-        + _EXPERIMENT_EVIDENCE_RULE
+        + experiment_evidence_contract() + "\n\n"
+        + "Check actual input changes, not rerun reasons; producer logs cannot replace external observation.\n\n"
         + RESEARCHER_VOICE + "\n\n"
         + decision_policy
         + ("" if _requires_engineering_audit else _verification_directive())

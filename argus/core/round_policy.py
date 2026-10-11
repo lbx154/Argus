@@ -28,7 +28,9 @@ declares nothing never gets a tighter hidden cap than before.
 Precedence, highest first: an operator knob (``ARGUS_SKILL_STALL_THRESHOLD``
 and siblings) from the process environment, then the same knob saved from the
 cockpit config view; an explicit value on the mission's loop configuration;
-the vertical's declaration; the default. A knob set to ``vertical`` (the value
+the selected evidence policy; the vertical's declaration; the default.
+``progress-first`` caps enabled stall/soft guards at two/three; other evidence
+policies preserve the vertical values. A knob set to ``vertical`` (the value
 the cockpit saves to hand control back) declares nothing. An unusable knob
 value is ignored with a warning.
 """
@@ -208,12 +210,18 @@ def explain_round_policy(
     persisted: Mapping[str, str] | None = None,
 ) -> tuple[RoundPolicy, dict[str, str]]:
     """Return the mission's policy and where each value came from."""
+    from .knobs import resolve_evidence_policy
+
+    if persisted is None:
+        from .knob_store import read_persisted_knobs
+
+        persisted = read_persisted_knobs()
+    mode = resolve_evidence_policy(env=env, persisted=persisted)
     values: dict[str, int] = {}
     sources: dict[str, str] = {}
     layers = (
         (DEFAULT_ROUND_POLICY, "framework default"),
         (vertical_policy, f"vertical {vertical!r} round_policy" if vertical else "vertical round_policy"),
-        (explicit, "mission loop config"),
     )
     for layer, label in layers:
         if layer is None:
@@ -223,6 +231,17 @@ def explain_round_policy(
             if value is not None:
                 values[name] = value
                 sources[name] = label
+    if mode == "progress-first":
+        for name, limit in (("stall_threshold", 2), ("soft_round_limit", 3)):
+            if values[name] > limit:
+                values[name] = limit
+                sources[name] = "evidence policy progress-first"
+    if explicit is not None:
+        for name in ROUND_POLICY_FIELDS:
+            value = getattr(explicit, name)
+            if value is not None:
+                values[name] = value
+                sources[name] = "mission loop config"
     for name, (value, label) in _operator_values(env, persisted).items():
         values[name] = value
         sources[name] = label
