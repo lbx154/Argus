@@ -298,7 +298,8 @@ jobs:
       - name: Test compatible-product storage without importing Argus state
         env:
           ARGUS_DESKTOP_PROFILE: compatibleapp
-        run: cargo test --manifest-path desktop-tauri/src-tauri/Cargo.toml --locked --test core_tests settings::tests::
+        run: |
+          cargo test --manifest-path desktop-tauri/src-tauri/Cargo.toml --locked --test core_tests settings::tests::
       - name: Build frozen backend and unsigned Tauri package layout
         shell: pwsh
         run: |
