@@ -6,6 +6,7 @@ import { useI18n } from '../i18n';
 import { useWorkbenchTheme } from '../useWorkbenchTheme';
 import { errorText } from '../lib/format';
 import type { WorkflowAction, WorkflowCreate, WorkflowSnapshot } from '../../../core/src/applicationWorkflows';
+import { workflowActorLabel } from '../../../core/src/applicationWorkflows';
 
 export default function WorkflowWorkbench() {
   const { locale, setLocale } = useI18n();
@@ -192,7 +193,7 @@ export default function WorkflowWorkbench() {
             <h2 className="font-semibold">{text('实际执行与审查记录', 'Execution and review records')}</h2>
             <p className="my-2 text-xs text-ink-faint">{text('时长为调用/工具墙钟时间，包含等待，不等于模型推理利用率。', 'Durations are call/tool wall time, including waiting, not inference utilization.')}</p>
             {work.calls.map(call => <div key={call.folder} className="border-t border-line py-3 text-sm">
-              <p>{call.role} · {call.operation} · {call.status}
+              <p>{workflowActorLabel(call.role, text('工具执行', 'Tool execution'))} · {call.operation} · {call.status}
                 {call.decision ? ` · ${text('审查决定', 'review decision')}: ${call.decision.status}` : ''}
                 {call.duration_s !== null ? ` · ${call.duration_s.toFixed(2)}s` : ''}</p>
               {call.detail && <p className="my-1 whitespace-pre-wrap">{call.detail}</p>}

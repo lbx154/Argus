@@ -3,6 +3,7 @@ import { Box, Text, useApp, useInput } from 'ink';
 import stringWidth from 'string-width';
 import type { ApiClient } from './api.js';
 import type { WorkflowCatalog, WorkflowCreate, WorkflowSnapshot } from '../../core/src/applicationWorkflows.js';
+import { workflowActorLabel } from '../../core/src/applicationWorkflows.js';
 import { EMPTY, backspace, fromString, insert, left, right, killToStart, type Edit } from './input/editor.js';
 import { PromptBox } from './components/PromptBox.js';
 import { Wordmark } from './components/Wordmark.js';
@@ -194,7 +195,7 @@ export function WorkflowWorkbench({ api, initialProject = '', initialObjective =
     catalog?.roles.map(role => `${role}${role === 'designer' && work.mode === 'verify' ? ' (not selected)' : ''}`).join(' / ') || '',
     work.feedback,
     ...work.calls.slice(-5).map(call =>
-      `${call.role} ${call.operation}: ${call.status}${call.decision ? `; review ${call.decision.status}` : ''}${call.duration_s === null ? '' : ` (${call.duration_s.toFixed(2)}s wall)`}`),
+      `${workflowActorLabel(call.role)} ${call.operation}: ${call.status}${call.decision ? `; review ${call.decision.status}` : ''}${call.duration_s === null ? '' : ` (${call.duration_s.toFixed(2)}s wall)`}`),
     ...work.jobs.filter(job => job.detail).slice(-1).map(job => `${job.status}: ${job.detail}`),
     ...work.messages.slice(-1).flatMap(turn => [`You: ${turn.user}`, `Coordinator: ${turn.reply}`]),
   ].filter(Boolean).join('\n') : 'Create /new or /open an existing work order. Creation itself makes no model calls.';

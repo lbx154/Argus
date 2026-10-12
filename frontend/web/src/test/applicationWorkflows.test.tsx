@@ -3,9 +3,9 @@ import { afterEach, expect, it, vi } from 'vitest';
 import type { WorkflowSnapshot } from '../../../core/src/applicationWorkflows';
 import WorkflowWorkbench from '../components/WorkflowWorkbench';
 
-const mock = vi.hoisted(() => ({ action: vi.fn(), invalidate: vi.fn(), work: {} as WorkflowSnapshot }));
+const mock = vi.hoisted(() => ({ action: vi.fn(), invalidate: vi.fn(), work: {} as WorkflowSnapshot, locale: 'en' }));
 vi.mock('../api', () => ({ api: { workflows: { action: mock.action } } }));
-vi.mock('../i18n', () => ({ useI18n: () => ({ locale: 'en', setLocale: vi.fn() }) }));
+vi.mock('../i18n', () => ({ useI18n: () => ({ locale: mock.locale, setLocale: vi.fn() }) }));
 vi.mock('../useWorkbenchTheme', () => ({ useWorkbenchTheme: () => ({ cycleTheme: vi.fn() }) }));
 vi.mock('../components/Wordmark', () => ({ Wordmark: () => <span>Example workbench</span> }));
 vi.mock('@tanstack/react-query', () => ({
@@ -16,7 +16,7 @@ vi.mock('@tanstack/react-query', () => ({
       : mock.work,
   }),
 }));
-afterEach(() => { vi.unstubAllGlobals(); vi.clearAllMocks(); });
+afterEach(() => { vi.unstubAllGlobals(); vi.clearAllMocks(); mock.locale = 'en'; });
 
 function mount(status: string, active = false) {
   vi.stubGlobal('window', { location: { search: '?project=work-0001' } });
@@ -63,3 +63,23 @@ it('allows a settled between-phase continuation and preserves host and reviewer 
   expect(output).toContain('test');
   act(() => renderer.unmount());
 });
+
+it.each([['en', 'Tool execution'], ['zh-CN', '工具执行']])(
+  'presents legacy execution records as tools rather than another role in %s',
+  (locale, label) => {
+    mock.locale = locale;
+    const renderer = mount('checks');
+    mock.work.calls = [{
+      role: 'host', operation: 'check:behavior', status: 'passed', detail: '',
+      folder: 'tool-record', started_at: 1, duration_s: 1, live: false, decision: null,
+    }];
+    act(() => renderer.update(<WorkflowWorkbench />));
+    const output = JSON.stringify(renderer.toJSON());
+    expect(output).toContain(label);
+    expect(output).not.toContain('"host"');
+    expect(mock.work.calls[0].role).toBe('host');
+    expect(renderer.root.findAllByType('button').some(button =>
+      button.children.includes(locale === 'en' ? 'Role response' : '角色回复'))).toBe(false);
+    act(() => renderer.unmount());
+  },
+);

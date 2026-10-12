@@ -1,6 +1,14 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
-import { workflowClient } from '../../core/src/applicationWorkflows.js';
+import { workflowActorLabel, workflowClient } from '../../core/src/applicationWorkflows.js';
+
+test('execution labels preserve the historical protocol without adding an agent role', () => {
+  assert.equal(workflowActorLabel('host'), 'Tool execution');
+  assert.equal(workflowActorLabel('host', '工具执行'), '工具执行');
+  for (const role of ['coordinator', 'designer', 'verifier', 'reviewer']) {
+    assert.equal(workflowActorLabel(role), role);
+  }
+});
 
 test('shared workflow client preserves explicit authority and encodes project/document paths', async () => {
   const requests: { path: string; body?: unknown }[] = [];
