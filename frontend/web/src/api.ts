@@ -30,6 +30,7 @@ import {
   type ApiMeta,
 } from '../../core/src/protocol';
 import type { ResourceStatus } from '../../core/src/resourceStatus.generated';
+import { workflowClient } from '../../core/src/applicationWorkflows';
 
 export type {
   ArtifactInfo,
@@ -928,6 +929,7 @@ async function explanationResponse<T>(path: string, body: unknown, signal?: Abor
 }
 
 export const api = {
+  workflows: workflowClient(getJson, postJson),
   advisorSettings: (sid: string, signal?: AbortSignal) => getJson<AdvisorSettings>(P(sid, '/advisor/config'), signal),
   saveAdvisorSettings: (sid: string, config: Partial<Omit<AdvisorConfig, 'schema_version'>>) => postJson<AdvisorSettings>(P(sid, '/advisor/config'), config),
   liveMap: (sid: string, signal?: AbortSignal, after?: string, selection?: import('./map/incremental').MapSelection) => {

@@ -1,4 +1,5 @@
 import WebSocket from 'ws';
+import { workflowClient } from '../../core/src/applicationWorkflows.js';
 import { randomUUID } from 'node:crypto';
 import { homedir } from 'node:os';
 import { posix, win32 } from 'node:path';
@@ -287,6 +288,24 @@ export class ApiClient {
 
   private p(path: string): string {
     return `${this.httpBase}/api/projects/${encodeURIComponent(this.project)}${path}`;
+  }
+
+  workflows = workflowClient(
+    <T>(path: string) => this.workflowRequest<T>('GET', path),
+    <T>(path: string, body: unknown) => this.workflowRequest<T>('POST', path, body),
+  );
+
+  private workflowRequest<T>(method: string, path: string, body?: unknown): Promise<T> {
+    return requestWithTimeout(
+      `${this.httpBase}${path}`,
+      { method, headers: { 'Content-Type': 'application/json', ...this.authHeaders() },
+        body: body === undefined ? undefined : JSON.stringify(body) },
+      this.readTimeoutMs,
+      async (response) => {
+        await ensureResponseOk(response, method, path);
+        return await response.json() as T;
+      },
+    );
   }
 
   meta(): Promise<ApiMeta> {

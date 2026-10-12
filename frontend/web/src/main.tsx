@@ -1,7 +1,8 @@
 import React, { lazy, Suspense } from 'react';
 import ReactDOM from 'react-dom/client';
-import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
-import { adoptTokenFromUrl } from './api';
+import { QueryClient, QueryClientProvider, useQuery } from '@tanstack/react-query';
+import { adoptTokenFromUrl, api } from './api';
+import { APPLICATION_WORKFLOWS } from '../../core/src/applicationWorkflows';
 import { I18nProvider, useI18n } from './i18n';
 import { WorkspaceErrorBoundary } from './components/WorkspaceErrorBoundary';
 import { PageUpdateNotice } from './components/PageUpdateNotice';
@@ -16,6 +17,7 @@ import './index.css';
 
 const isAdminData = window.location.pathname === '/admin/data' || window.location.pathname.startsWith('/admin/data/');
 const App = lazy(() => import('./App'));
+const WorkflowWorkbench = lazy(() => import('./components/WorkflowWorkbench'));
 const AdminDataApp = lazy(() => import('./admin-data/AdminDataApp'));
 
 // A cockpit left open across an update can still reference a deleted hashed
@@ -38,6 +40,20 @@ const queryClient = new QueryClient({
   },
 });
 
+function WorkbenchEntry() {
+  const meta = useQuery({ queryKey: ['api-meta'], queryFn: api.meta });
+  const { locale } = useI18n();
+  if (meta.error) return <div role="alert" className="p-8">
+    {meta.error.message}<button className="ml-4 underline" onClick={() => void meta.refetch()}>
+      {locale === 'zh-CN' ? '重新连接' : 'Reconnect'}
+    </button>
+  </div>;
+  if (!meta.data) return <div className="p-8">{locale === 'zh-CN' ? '正在连接…' : 'Connecting…'}</div>;
+  return meta.data.capabilities.includes(APPLICATION_WORKFLOWS)
+    && new URLSearchParams(window.location.search).get('legacy') !== '1'
+    ? <WorkflowWorkbench /> : <App />;
+}
+
 function WebApp() {
   const { locale } = useI18n();
   return (
@@ -45,7 +61,7 @@ function WebApp() {
       <PageUpdateNotice />
       <WorkspaceErrorBoundary locale={locale}>
         <Suspense fallback={<div className="grid min-h-screen place-items-center text-sm text-ink-faint">{locale === 'zh-CN' ? '正在加载工作台…' : 'Loading workbench…'}</div>}>
-          {isAdminData ? <AdminDataApp /> : <App />}
+          {isAdminData ? <AdminDataApp /> : <WorkbenchEntry />}
         </Suspense>
       </WorkspaceErrorBoundary>
     </>

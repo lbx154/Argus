@@ -1,5 +1,7 @@
 /** Metadata returned by the current Python WebAPI; protocol-compatible during migration. */
 export interface ApiRuntimeIdentity {
+  /** Explicit application route owner; absent on the native Argus workbench. */
+  application_routes?: string;
   /** Canonical primary data directory; absent on older servers, null before authentication. */
   state_root?: string | null;
   package_version: string;

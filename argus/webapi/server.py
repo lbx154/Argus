@@ -501,6 +501,16 @@ def create_app(
 
     register_application_brand_routes(app)
 
+    application_routes = os.environ.get("ARGUS_APPLICATION_ROUTES", "").strip()
+    if application_routes:
+        from importlib import import_module
+
+        module, separator, registrar = application_routes.partition(":")
+        if not separator or not module or not registrar:
+            raise ValueError("ARGUS_APPLICATION_ROUTES must name module:registrar")
+        getattr(import_module(module), registrar)(app, ctx)
+        api_meta["runtime"]["application_routes"] = application_routes
+
     # ── static web UI (optional) ──────────────────────────────────────────
     # When the React frontend has been built (`npm run build` in frontend/web),
     # serve it from the same origin so `argus --web` gives API + UI on one

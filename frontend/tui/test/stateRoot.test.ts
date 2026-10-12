@@ -95,3 +95,53 @@ test('automatic port selection skips foreign data directories without replacemen
   );
   assert.equal(port, 8800);
 });
+
+test('another application is never claimed, signalled or replaced', async () => {
+  const probe = async () => ({
+    state: 'incompatible' as const, applicationMismatch: true,
+    message: 'different application workflow', meta: meta(),
+  });
+  const forbidden = () => { throw new Error('must not touch another application'); };
+  const result = await ensureApi({
+    host: '127.0.0.1', port: 8799, ownerFile: '/state/chosen/owner.json',
+    dependencies: {
+      probeApi: probe, readOwnedApi: forbidden, claimApiOwnership: forbidden,
+      signal: forbidden, spawnApi: forbidden,
+    },
+  });
+  assert.equal(result.reachable, false);
+  assert.equal(result.spawned, false);
+  assert.equal(await selectApiPort(
+    { host: '127.0.0.1', preferredPort: 8799, explicit: false },
+    { probe, replaceable: forbidden, available: async (_host, port) => port === 8800 },
+  ), 8800);
+});
+
+test('HTTP probe checks application ownership in both directions', async (t) => {
+  const names = ['ARGUS_APPLICATION_ROUTES', 'ARGUS_TUI_LOCAL_STATE_ROOT',
+    'ARGUS_TUI_LOCAL_SOURCE_DIGEST', 'ARGUS_TUI_LOCAL_RELEASE_ID'];
+  const previous = names.map(name => process.env[name]);
+  t.after(() => names.forEach((name, index) => {
+    if (previous[index] === undefined) delete process.env[name];
+    else process.env[name] = previous[index];
+  }));
+  delete process.env.ARGUS_TUI_LOCAL_STATE_ROOT;
+  delete process.env.ARGUS_TUI_LOCAL_SOURCE_DIGEST;
+  process.env.ARGUS_TUI_LOCAL_RELEASE_ID = RELEASE_ID;
+  process.env.ARGUS_APPLICATION_ROUTES = 'example:register';
+  const body = meta();
+  const server = createServer((_request, response) => {
+    response.setHeader('Content-Type', 'application/json');
+    response.end(JSON.stringify(body));
+  });
+  await new Promise<void>(resolve => server.listen(0, '127.0.0.1', resolve));
+  t.after(() => new Promise<void>((resolve, reject) => server.close(error => error ? reject(error) : resolve())));
+  const port = (server.address() as AddressInfo).port;
+  assert.equal((await probeApi('127.0.0.1', port)).applicationMismatch, true);
+  body.runtime.application_routes = 'example:register';
+  assert.equal((await probeApi('127.0.0.1', port)).state, 'compatible');
+  delete process.env.ARGUS_APPLICATION_ROUTES;
+  assert.equal((await probeApi('127.0.0.1', port)).applicationMismatch, true);
+  delete body.runtime.application_routes;
+  assert.equal((await probeApi('127.0.0.1', port)).state, 'compatible');
+});

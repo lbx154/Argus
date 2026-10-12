@@ -54,6 +54,7 @@ export async function selectApiPort(
   if (
     preferredProbe.state === 'incompatible'
     && !preferredProbe.stateRootMismatch
+    && !preferredProbe.applicationMismatch
     && preferredProbe.meta
     && isLocalApiHost(options.host)
   ) {

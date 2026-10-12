@@ -84,6 +84,7 @@ export interface ApiProbeResult {
   state: 'compatible' | 'incompatible' | 'unreachable';
   /** A different or unproven data directory must never trigger backend replacement. */
   stateRootMismatch?: boolean;
+  applicationMismatch?: boolean;
   message: string;
   warning?: string;
   meta?: ApiMeta;
@@ -192,6 +193,14 @@ export async function probeApi(
             state: 'incompatible',
             stateRootMismatch: true,
             message: stateError,
+            meta: compatibility.meta,
+          };
+        }
+        const application = process.env.ARGUS_APPLICATION_ROUTES?.trim() || '';
+        if (localBind && (compatibility.meta?.runtime.application_routes || '') !== application) {
+          return {
+            state: 'incompatible', applicationMismatch: true,
+            message: 'backend serves a different application workflow; use another port',
             meta: compatibility.meta,
           };
         }
@@ -468,7 +477,7 @@ export async function ensureApi(opts: {
 
   onStatus?.('checking local and running versions…');
   const initial = await doProbe();
-  if (initial.stateRootMismatch) {
+  if (initial.stateRootMismatch || initial.applicationMismatch) {
     return {
       reachable: false,
       spawned: false,

@@ -47,18 +47,19 @@ export function resolvePairing(
 
 /** Add the project selector to an already-built pairing URL. */
 export function withProject(url: string, project?: string): string {
-  if (!project?.trim()) return url;
+  const legacy = process.env.ARGUS_APPLICATION_MODE === 'legacy';
+  if (!project?.trim() && !legacy) return url;
   const parsed = new URL(url);
-  parsed.searchParams.set('project', project.trim());
+  if (project?.trim()) parsed.searchParams.set('project', project.trim());
+  if (legacy) parsed.searchParams.set('legacy', '1');
   return parsed.toString();
 }
 
 export function webUiUrl(host: string, port: number, project?: string, token?: string): string {
   const browserHost = host === '0.0.0.0' || host === '::' || host === '::0' ? '127.0.0.1' : host;
   const url = new URL(`http://${browserHost}:${port}/`);
-  if (project?.trim()) url.searchParams.set('project', project.trim());
   if (token?.trim()) url.searchParams.set('token', token.trim());
-  return url.toString();
+  return withProject(url.toString(), project);
 }
 
 export function browserCommand(

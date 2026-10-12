@@ -49,7 +49,12 @@ def test_windows_console_streams_are_forced_to_utf8(monkeypatch) -> None:
     assert stderr.calls == expected
 
 
-def test_launcher_execs_node_with_bundled_ink(monkeypatch, tmp_path: Path) -> None:
+@pytest.mark.parametrize("argv,tty", [
+    (["--project", "wiki"], True),
+    (["--once", "--project", "work-0001"], False),
+])
+def test_launcher_execs_node_with_bundled_ink(monkeypatch, tmp_path: Path, argv, tty) -> None:
+    monkeypatch.setattr(tui_launcher.sys, "stdin", _Stdin(tty=tty))
     bundle = tmp_path / "argus.mjs"
     bundle.write_text("// bundle", encoding="utf-8")
     venv_bin = tmp_path / ".venv" / "bin"
@@ -69,9 +74,9 @@ def test_launcher_execs_node_with_bundled_ink(monkeypatch, tmp_path: Path) -> No
         lambda executable, argv: seen.update(executable=executable, argv=argv),
     )
 
-    assert tui_launcher.main(["--project", "wiki"]) == 0
+    assert tui_launcher.main(argv) == 0
     assert seen["executable"] == "/usr/bin/node"
-    assert seen["argv"] == ["/usr/bin/node", str(bundle), "--project", "wiki"]
+    assert seen["argv"] == ["/usr/bin/node", str(bundle), *argv]
     assert tui_launcher.os.environ["ARGUS_SKILL_BIN"] == str(backend)
 
 

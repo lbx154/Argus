@@ -83,3 +83,29 @@ product artwork, the frozen backend, a signing key or an update channel. A
 downstream package still needs its own Tauri identity and a validated package;
 the Argus-specific preview build and installer scripts are not automatically
 downstream installers.
+
+## Application-owned workflows
+
+An installed compatible application can set
+`ARGUS_APPLICATION_ROUTES=package.module:register_routes` before starting the
+normal WebAPI. The trusted registrar receives `(app, ctx)` before the SPA mount.
+It must reuse `ctx.require_auth` and the selected application state root rather
+than create another account, authorization boundary or daemon. Import and
+registration errors fail startup. Without this setting Argus does not import
+the compatible application.
+
+The shared Web/TUI work-order client selects the `application.workflows.v1`
+capability when the registrar actually provides it. Its endpoints under
+`/api/application-workflows` expose create/open, snapshots, explicit actions and
+project-relative documents; the shared TypeScript contract lives in
+`frontend/core/src/applicationWorkflows.ts`. These clients must call the
+application's real engine, not relabel the native Manager/Planner loop.
+`allow_model=true` is explicit on run, resume and dialogue requests. The default
+TUI selects this capability before creating or upgrading any native daemon.
+`--once --project <work-id>` only reads a registered work order.
+
+The backend reports `runtime.application_routes` in metadata. Local port
+selection treats a different application as a different owner even at the same
+state root: it cannot claim, stop or replace that API. The Web `?legacy=1`
+selector and TUI `ARGUS_APPLICATION_MODE=legacy` retain explicit access to
+native Argus sessions, without migrating application work orders.
