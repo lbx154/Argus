@@ -768,21 +768,11 @@ impl BackendSupervisor {
                     ..probe
                 };
             }
-            if package_version.as_deref() != Some(self.inner.release.app_version.as_str()) {
+            if let Err(detail) = self.inner.release.validate_backend_release(
+                package_version.as_deref(), probe.manifest_source_digest.as_deref(),
+            ) {
                 return ProbeIdentity {
-                    detail: Some(format!(
-                        "端口上的 Argus 版本为 {}，当前桌面版为 {}",
-                        package_version.unwrap_or_default(),
-                        self.inner.release.app_version
-                    )),
-                    failure_kind: Some(ProbeFailureKind::Identity),
-                    ..probe
-                };
-            }
-            if probe.manifest_source_digest.as_deref() != Some(self.expected_manifest_digest().as_str())
-            {
-                return ProbeIdentity {
-                    detail: Some("端口上的 Argus 后端不是当前桌面构建".to_owned()),
+                    detail: Some(detail),
                     failure_kind: Some(ProbeFailureKind::Identity),
                     ..probe
                 };

@@ -47,3 +47,14 @@ messages or historical evidence, select a project/state root, grant authority,
 change models, or alter daemon ownership. Backend diagnostics and native CLI
 help can still refer to the actual Argus engine. Desktop installer identity,
 native icons and updater channels are separate packaging concerns.
+
+The Tauri host validates both its bundled files and the authenticated backend
+against the engine release manifest compiled into the host. Its application
+version is independent and remains the version used by the desktop updater.
+A compatible product can therefore have a different version from its pinned
+Argus engine without accepting a different engine version or source digest.
+Executable, token, launch nonce and process-ownership checks still apply.
+This does not configure a downstream installer: it must separately supply its
+own application identity, state directories, icons, backend resources and
+update channel. The standard Argus release builder continues to enforce the
+Argus distribution's version matrix.

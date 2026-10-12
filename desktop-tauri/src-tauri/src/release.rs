@@ -61,9 +61,8 @@ impl ReleaseContext {
         })
     }
 
-    /// The desktop identifies itself by its application version alone; the
-    /// backend it starts is trusted through the launch nonce, process identity
-    /// and token, never through a separately maintained source fingerprint.
+    /// Backend identity comes from the compiled engine manifest. The desktop's
+    /// independent product version is used for application updates, not trust.
     pub fn identity(&self) -> DesktopReleaseIdentity {
         let manifest = build_manifest();
         DesktopReleaseIdentity {
@@ -79,6 +78,24 @@ impl ReleaseContext {
         build_manifest().source_digest.clone()
     }
 
+    pub fn validate_backend_release(
+        &self,
+        package_version: Option<&str>,
+        source_digest: Option<&str>,
+    ) -> Result<(), String> {
+        let expected = build_manifest();
+        if package_version != Some(expected.package_version.as_str()) {
+            return Err(format!(
+                "端口上的 Argus 后端版本为 {}，当前构建要求 {}",
+                package_version.unwrap_or_default(), expected.package_version,
+            ));
+        }
+        if source_digest != Some(expected.source_digest.as_str()) {
+            return Err("端口上的 Argus 后端不是当前桌面构建".to_owned());
+        }
+        Ok(())
+    }
+
     /// Check disk resources before spawning/restarting. During a healthy
     /// connection a failure is reported separately, without changing trust in
     /// the authenticated process or terminating the operator's running work.
@@ -87,7 +104,7 @@ impl ReleaseContext {
         let raw = fs::read_to_string(&path).map_err(|error| format!(
             "无法读取运行包版本清单 {}：{error}。请保留完整解压目录，不要在运行时移动、删除或覆盖它。", path.display()))?;
         let actual = parse_manifest(&raw).map_err(|error| format!("{error} 路径：{}", path.display()))?;
-        if &actual != build_manifest() || actual.package_version != self.app_version {
+        if &actual != build_manifest() {
             return Err(format!("运行包文件与当前 Argus 程序不配套（{}）。请将同一预览包完整解压到新目录后重新启动。", path.display()));
         }
         if let Some(executable) = self.backend_executable() {
@@ -177,6 +194,46 @@ mod tests {
         fs::write(context.manifest_path().unwrap(), value.to_string()).unwrap();
         assert!(context.validate_payload().unwrap_err().contains("不配套"));
         assert_ne!(context.manifest_digest(), "0".repeat(64));
+    }
+
+    #[test]
+    fn application_version_is_independent_of_the_bundled_backend_version() {
+        let directory = tempfile::tempdir().unwrap();
+        let mut context = fixture(directory.path());
+        context.app_version = "42.0.0".into();
+        assert_ne!(context.app_version, context.identity().package_version);
+        assert!(context.validate_payload().is_ok());
+        assert_eq!(context.app_version, "42.0.0");
+    }
+
+    #[test]
+    fn live_backend_uses_engine_version_and_exact_source_identity() {
+        let directory = tempfile::tempdir().unwrap();
+        let mut context = fixture(directory.path());
+        context.app_version = "42.0.0".into();
+        let engine = context.identity();
+        assert!(context.validate_backend_release(
+            Some(&engine.package_version), Some(&engine.source_digest),
+        ).is_ok());
+        for version in [None, Some(""), Some("42.0.0")] {
+            assert!(context.validate_backend_release(version, Some(&engine.source_digest)).is_err());
+        }
+        let other_source = "0".repeat(64);
+        for digest in [None, Some(""), Some(other_source.as_str())] {
+            assert!(context.validate_backend_release(Some(&engine.package_version), digest).is_err());
+        }
+        assert_eq!(context.app_version, "42.0.0");
+    }
+
+    #[test]
+    fn matching_product_version_cannot_authorize_a_replaced_backend() {
+        let directory = tempfile::tempdir().unwrap();
+        let mut context = fixture(directory.path());
+        context.app_version = "42.0.0".into();
+        let mut value: serde_json::Value = serde_json::from_str(BUILD_MANIFEST).unwrap();
+        value["package_version"] = context.app_version.clone().into();
+        fs::write(context.manifest_path().unwrap(), value.to_string()).unwrap();
+        assert!(context.validate_payload().is_err());
     }
 
     #[test]
