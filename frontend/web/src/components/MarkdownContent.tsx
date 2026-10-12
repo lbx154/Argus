@@ -46,6 +46,12 @@ function sameArtifactReference(left: string, right: string): boolean {
   return left === right;
 }
 
+function localFileReference(href: string): string {
+  if (href.startsWith('#')) return '';
+  const path = normalizedArtifactReference(href);
+  return /\.(?:md|markdown|txt|pdf|csv|tsv|json|html|png|jpe?g|svg|zip|pptx|xlsx)$/i.test(path) ? path : '';
+}
+
 export function artifactPathFromHref(
   href: string | undefined,
   artifacts: ArtifactReference[] = [],
@@ -136,7 +142,7 @@ export function MarkdownContent({
       remarkPlugins={markdownRemarkPlugins}
       rehypePlugins={markdownRehypePlugins(locale === 'zh-CN')}
       urlTransform={(url, key) => key === 'href' && onOpenArtifact
-        && artifactPathFromHref(url, artifacts, basePath) ? url : defaultUrlTransform(url)}
+        && (artifactPathFromHref(url, artifacts, basePath) || localFileReference(url)) ? url : defaultUrlTransform(url)}
       components={{
         h1: ({ children: value }) => <h1 className="mb-2 mt-3 text-base font-semibold text-ink first:mt-0">{value}</h1>,
         h2: ({ children: value }) => <h2 className="mb-1.5 mt-3 text-sm font-semibold text-ink first:mt-0">{value}</h2>,
@@ -167,6 +173,17 @@ export function MarkdownContent({
                 {value}
               </a>
             );
+          }
+          const localPath = localFileReference(href || '');
+          if (onOpenArtifact && localPath) {
+            const relativePath = basePath && !/^(?:\/|[a-z]:\/)/i.test(localPath)
+              ? `${basePath.replaceAll('\\', '/').split('/').slice(0, -1).join('/')}/${localPath}`.replace(/^\//, '')
+              : localPath;
+            return <button type="button" onClick={() => onOpenArtifact(relativePath)}
+              title={locale === 'zh-CN' ? '查看文件；不存在或不允许访问时会显示原因' : 'Preview file; unavailable files show an error'}
+              className="inline cursor-pointer text-left text-blue underline decoration-blue/35 underline-offset-2 hover:decoration-blue">
+              {value}
+            </button>;
           }
           return (
             <a href={href} title={title} target="_blank" rel="noreferrer" className="text-blue underline decoration-blue/35 underline-offset-2 hover:decoration-blue">

@@ -1,6 +1,8 @@
 import type { ResourceStatus } from '../../../core/src/resourceStatus.generated';
 import { formatResourceTtl } from '../../../core/src/resourceStatus';
 import { useI18n } from '../i18n';
+import { Cpu } from 'lucide-react';
+import './resourceStatus.css';
 import {
   acceleratorLabel,
   enforcementLabel,
@@ -22,7 +24,8 @@ export function ResourceStatusView({
   status: ResourceStatus | null;
   error: string;
 }) {
-  const { t } = useI18n();
+  const { t, locale } = useI18n();
+  const zh = locale === 'zh-CN';
   return (
     <section className="rounded-lg border border-line bg-panel p-4 lg:col-span-2">
       <div className="flex items-center justify-between gap-3">
@@ -50,7 +53,37 @@ export function ResourceStatusView({
               </div>
             ))}
           </div>
-          <div className="mt-4 grid gap-4 md:grid-cols-2">
+          <div className="gpu-device-grid">
+            {status.accelerators.flatMap(accelerator => (accelerator.devices ?? []).map(device => {
+              const state = device.utilization_percent > 0 ? 'computing' : device.reserved ? 'reserved' : device.used_memory_mib > 0 ? 'allocated' : 'quiet';
+              const label = state === 'computing' ? zh ? '正在计算' : 'Computing'
+                : state === 'reserved' ? zh ? '已预留' : 'Reserved'
+                : state === 'allocated' ? zh ? '仅显存占用' : 'Memory occupied'
+                : zh ? '暂无活动' : 'No activity';
+              const memoryPercent = device.total_memory_mib > 0 ? Math.min(100, device.used_memory_mib / device.total_memory_mib * 100) : 0;
+              return <article key={`${accelerator.kind}:${device.index}`} className="gpu-device-card" data-gpu-state={state} aria-label={`GPU ${device.index} · ${device.name} · ${label}`}>
+                <div className="gpu-device-header">
+                  <span className="gpu-device-icon" aria-hidden="true"><Cpu size={26} strokeWidth={1.5} /></span>
+                  <div><span className="gpu-device-number">{acceleratorLabel(accelerator.kind, t)} · GPU {device.index}</span><h4>{device.name}</h4></div>
+                  <span className="gpu-device-status"><i aria-hidden="true" />{label}</span>
+                </div>
+                <div className="gpu-device-meter">
+                  <div><span>{zh ? '计算负载' : 'Compute load'}</span><strong>{device.utilization_percent}%</strong></div>
+                  <div role="meter" aria-label={zh ? '计算负载' : 'Compute load'} aria-valuemin={0} aria-valuemax={100} aria-valuenow={device.utilization_percent}><i style={{ width: `${device.utilization_percent}%` }} /></div>
+                </div>
+                <div className="gpu-device-meter">
+                  <div><span>{zh ? '显存' : 'GPU memory'}</span><strong>{device.used_memory_mib < 1024 ? `${device.used_memory_mib} MiB` : `${(device.used_memory_mib / 1024).toFixed(1)} GiB`} / {(device.total_memory_mib / 1024).toFixed(1)} GiB</strong></div>
+                  <div role="meter" aria-label={zh ? '显存占用' : 'GPU memory usage'} aria-valuemin={0} aria-valuemax={device.total_memory_mib || 1} aria-valuenow={device.used_memory_mib}><i style={{ width: `${memoryPercent}%` }} /></div>
+                </div>
+                {device.reserved && state !== 'reserved' && <p className="gpu-device-note">{zh ? '已由 Argus 预留' : 'Reserved by Argus'}</p>}
+              </article>;
+            }))}
+          </div>
+          {!!status.accelerators.some(accelerator => accelerator.device_count > 0 && !accelerator.devices) && <p className="mt-3 text-xs text-ink-faint">{zh ? '当前服务尚未提供单卡详情，不能判断各卡使用情况。' : 'This server has no per-device details; individual usage is unknown.'}</p>}
+          <p className="mt-3 text-xs text-ink-faint">{zh ? '编号与主机一致。负载和显存包含其他程序，少量显存可能来自驱动；“暂无活动”是采样结果，不保证可独占使用。' : 'Numbers match host GPU indices. Load and memory include other programs; small memory use can come from drivers. “No activity” is a sample, not a guarantee of exclusive availability.'}</p>
+          <details className="mt-4">
+            <summary className="cursor-pointer text-xs text-ink-dim">{zh ? `Argus 资源预约 ${status.holders.length} · 等待 ${status.queue.length}` : `Argus reservations ${status.holders.length} · Waiting ${status.queue.length}`}</summary>
+          <div className="mt-3 grid gap-4 md:grid-cols-2">
             <div>
               <h4 className="text-[10px] font-semibold uppercase tracking-wide text-ink-faint">{t('resource.inUse', { count: status.holders.length })}</h4>
               <div className="mt-2 space-y-2">
@@ -86,6 +119,7 @@ export function ResourceStatusView({
               </div>
             </div>
           </div>
+          </details>
         </>
       ) : null}
     </section>

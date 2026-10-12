@@ -4,13 +4,14 @@ import { afterEach, beforeEach, expect, it, vi } from 'vitest';
 import { api, type SkillLibraryItem, type WikiLibraryItem } from '../api';
 import { SkillLibrary } from '../components/SkillLibrary';
 import { WikiLibrary } from '../components/WikiLibrary';
+import { LearningLibrary, learningEntries } from '../components/LearningLibrary';
 import { knowledgePurpose } from '../lib/libraryPresentation';
 const state = vi.hoisted(() => ({ locale: 'zh-CN' }));
 vi.mock('../i18n', async importOriginal => {
   const actual = await importOriginal<typeof import('../i18n')>();
   return { ...actual, useI18n: () => ({ locale: state.locale, t: (key: string) => actual.translate(key, {}, state.locale as 'zh-CN' | 'en') }) };
 });
-vi.mock('../api', () => ({ api: { skillLibrary: vi.fn(), skillDocument: vi.fn(), wikiLibrary: vi.fn(), wikiDocument: vi.fn(), knowledgeFeed: vi.fn() } }));
+vi.mock('../api', () => ({ api: { skillLibrary: vi.fn(), skillDocument: vi.fn(), wikiLibrary: vi.fn(), wikiDocument: vi.fn(), knowledgeFeed: vi.fn(), learningStatus: vi.fn() } }));
 vi.mock('../components/MarkdownContent', () => ({ MarkdownContent: ({ children }: { children: string }) => <pre data-original>{children}</pre> }));
 const builtin: SkillLibraryItem = { scope: 'global', vertical: '', source: 'bundled', library: 'global:bundled',
   path: 'engineer/pdf-chat.md', name: 'Progressive PDF Reading', description: 'Original English description',
@@ -32,7 +33,55 @@ beforeEach(() => {
   vi.mocked(api.wikiLibrary).mockResolvedValue({ scopes: ['private', 'global', 'vertical', 'project'], items: [wiki], verticals: [], active_vertical: '', errors: [],
     libraries: [{ scope: 'private', vertical: '', root: '/synthetic/private-notes', pages: [], index_markdown: '# ORIGINAL INDEX', profile: 'Original profile stays intact' }] });
   vi.mocked(api.knowledgeFeed).mockResolvedValue({ events: [] });
+  vi.mocked(api.learningStatus).mockResolvedValue({ jobs: [], pending: 0, revision: 0 });
   vi.mocked(api.wikiDocument).mockResolvedValue({ ...wiki, content: '# ORIGINAL KNOWLEDGE\n\nNo automatic translation.\n', markdown: '', truncated: false });
+});
+
+it('unifies navigation into four categories while keeping private records, indexes and original scope', async () => {
+  await act(async () => { view = create(<QueryClientProvider client={client}><LearningLibrary sid="s-A" initialScope="global" /></QueryClientProvider>); }); await settle();
+  const nav = view!.root.findByType('nav');
+  expect(nav.findAllByType('button').map(content)).toEqual(['学习动态', '全局项目', '垂直领域', '项目']);
+  expect(content(view!.root)).toContain('个人记录 · 原私有范围，不共享');
+  act(() => view!.root.findAllByType('button').find(node => content(node).includes(wiki.title))!.props.onClick()); await settle();
+  expect(api.wikiDocument).toHaveBeenCalledWith('s-A', 'private', '', wiki.path, expect.any(AbortSignal));
+  expect(content(view!.root)).toContain('No automatic translation.');
+  act(() => view!.root.findAllByType('button').find(node => content(node).includes('个人概况（原私有范围）'))!.props.onClick()); await settle();
+  expect(content(view!.root)).toContain('Original profile stays intact');
+  act(() => view!.root.findAllByType('button').find(node => content(node).startsWith('索引'))!.props.onClick()); await settle();
+  expect(content(view!.root)).toContain('# ORIGINAL INDEX');
+});
+
+it('reads skills in the unified browser and resets selection on a project switch', async () => {
+  await act(async () => { view = create(<QueryClientProvider client={client}><LearningLibrary sid="s-A" initialScope="global" /></QueryClientProvider>); }); await settle();
+  act(() => view!.root.findAllByType('button').find(node => content(node).includes('分段阅读 PDF'))!.props.onClick()); await settle();
+  expect(api.skillDocument).toHaveBeenCalledWith('s-A', builtin.library, builtin.path, expect.any(AbortSignal));
+  expect(content(view!.root.findByProps({ 'data-skill-reading-guide': true }))).toContain('不会运行工具或发起模型任务');
+  await act(async () => view!.update(<QueryClientProvider client={client}><LearningLibrary sid="s-B" initialScope="global"
+    initialSelection={{ kind: 'skill', item: builtin }} /></QueryClientProvider>)); await settle();
+  expect(view!.root.findAllByProps({ 'data-skill-reading-guide': true })).toHaveLength(0);
+  expect(api.skillDocument).toHaveBeenCalledTimes(1);
+});
+
+it('separates real learning records from file updates and reports source failures explicitly', async () => {
+  vi.mocked(api.wikiLibrary).mockRejectedValue(new Error('synthetic failure'));
+  await act(async () => { view = create(<QueryClientProvider client={client}><LearningLibrary sid="s-A" /></QueryClientProvider>); }); await settle();
+  expect(content(view!.root)).toContain('学习记录与文件更新分开展示');
+  expect(content(view!.root)).toContain('知识无法加载');
+  expect(content(view!.root)).toContain(custom.name);
+  expect(content(view!.root)).not.toContain('当前分类或筛选条件下没有资料');
+  expect(content(view!.root)).not.toContain('分段阅读 PDF');
+});
+
+it('assigns lessons, principles, profiles and indexes to their original scopes in the four-category browser', async () => {
+  const wikiCatalog = await api.wikiLibrary(null);
+  const skillCatalog = await api.skillLibrary(null);
+  const catalog = { ...wikiCatalog, items: [{ ...wiki, scope: 'vertical' as const, vertical: 'research', kind: 'lesson' }],
+    libraries: [...wikiCatalog.libraries, { scope: 'vertical' as const, vertical: 'research', root: '/synthetic/research',
+      pages: [], index_markdown: '# index', principles: 'Keep the evidence' }] };
+  const entries = learningEntries(catalog, skillCatalog, 'vertical', 'zh-CN');
+  expect(entries.map(entry => entry.kind).sort()).toEqual(['index', 'knowledge', 'principles']);
+  expect(entries.every(entry => entry.scope === 'vertical' && entry.vertical === 'research')).toBe(true);
+  expect(learningEntries(catalog, skillCatalog, 'project', 'en').some(entry => entry.scope === 'private')).toBe(false);
 });
 afterEach(() => { if (view) act(() => view!.unmount()); view = undefined; client.clear(); vi.useRealTimers(); });
 async function skills() {

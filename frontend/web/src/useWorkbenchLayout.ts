@@ -9,8 +9,8 @@ import { useWorkbenchTheme } from './useWorkbenchTheme';
 import { readLocalStorage, writeLocalStorage } from './lib/storage';
 import { preferredPreviewWidth, PREVIEW_DEFAULT_WIDTH, PREVIEW_MAX_WIDTH } from './lib/previewLayout';
 
-type WorkspaceView = 'mission' | 'activity' | 'workbench' | 'map';
-const WORKSPACE_VIEWS: readonly WorkspaceView[] = ['mission', 'activity', 'workbench', 'map'];
+type WorkspaceView = 'activity' | 'workbench' | 'map';
+const WORKSPACE_VIEWS: readonly WorkspaceView[] = ['activity', 'workbench', 'map'];
 // Start with the conversation and results; keep explicitly chosen views.
 const WORKSPACE_VIEW_KEY = 'argus.workspace.view.v3';
 
@@ -33,6 +33,7 @@ export function useWorkbenchLayout() {
   );
   const [workspaceView, setWorkspaceViewState] = useState<WorkspaceView>(() => {
     const requested = params.get('view');
+    if (requested === 'mission') return 'activity';
     if (isWorkspaceView(requested)) return requested;
     const stored = readLocalStorage(WORKSPACE_VIEW_KEY);
     return isWorkspaceView(stored) ? stored : params.get('kiosk') === '1' ? 'map' : 'activity';

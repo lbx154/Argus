@@ -22,7 +22,7 @@ const hasSteps = (value: unknown): value is unknown[] => Array.isArray(value) &&
 /**
  * Show the work behind a reply while it is still happening: the tool steps
  * streamed so far become part of the Argus row (created empty when no words
- * have arrived yet), and ``live`` tells the renderer to keep them unfolded.
+ * have arrived yet), and ``live`` keeps its compact status active.
  */
 export function mergeOptimisticManagerSteps(
   localEvents: EventMsg[],
@@ -31,13 +31,14 @@ export function mergeOptimisticManagerSteps(
   steps: unknown[],
   nowMs = Date.now(),
   live = true,
+  status?: 'completed' | 'failed',
 ): EventMsg[] {
   const index = localEvents.findIndex((event) => (
     event.type === 'ui.argus'
     && Number(event[LOCAL_REQUEST_FIELD]) === requestId
   ));
   if (index < 0) {
-    if (!steps.length) return localEvents;
+    if (!steps.length && !live) return localEvents;
     return [
       ...localEvents,
       {
@@ -50,12 +51,13 @@ export function mergeOptimisticManagerSteps(
         fragment_mode: 'snapshot',
         steps,
         live,
+        ...(status ? { status } : {}),
         [LOCAL_REQUEST_FIELD]: requestId,
       },
     ];
   }
   const next = [...localEvents];
-  next[index] = { ...next[index], ...(steps.length ? { steps } : {}), live };
+  next[index] = { ...next[index], ...(steps.length ? { steps } : {}), live, ...(status ? { status } : {}) };
   return next;
 }
 
@@ -68,6 +70,7 @@ export function settleOptimisticManagerTurn(
   localEvents: EventMsg[],
   requestId: number,
   nowMs = Date.now(),
+  status: 'stopped' | 'failed' = 'stopped',
 ): EventMsg[] {
   return localEvents.map((event) => {
     if (event.type !== 'ui.argus' || Number(event[LOCAL_REQUEST_FIELD]) !== requestId || event.live !== true) {
@@ -79,10 +82,10 @@ export function settleOptimisticManagerTurn(
         const row = step as Record<string, unknown>;
         return row.ended_ts || row.status !== 'running'
           ? step
-          : { ...row, ended_ts: nowMs / 1_000, status: 'stopped' };
+          : { ...row, ended_ts: nowMs / 1_000, status };
       })
       : event.steps;
-    return { ...event, live: false, ...(steps !== undefined ? { steps } : {}) };
+    return { ...event, live: false, status, ...(steps !== undefined ? { steps } : {}) };
   });
 }
 

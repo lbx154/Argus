@@ -51,7 +51,7 @@ def test_continuous_mission_completion_publishes_once(tmp_path) -> None:
         "Progress: Updated the parser and passed focused regression tests."
         in transcript[0]["text"]
     )
-    assert "the Planner is deciding what comes next" in transcript[0]["text"]
+    assert "the next step is being considered" in transcript[0]["text"]
     ui_events = [
         event
         for line in (tmp_path / "events.jsonl").read_text(encoding="utf-8").splitlines()
@@ -294,7 +294,8 @@ def test_bounded_independent_review_completion_is_natural_and_footer_free(
     )["text"]
     assert text.startswith("任务已完成\n")
     assert "完成了缓存方案调研并形成报告。" in text
-    assert "独立 Reviewer 已复核本轮产出，未发现阻断问题。" in text
+    assert "本次结果已由独立审阅者检查，未发现需要先修正的问题。" in text
+    assert "Reviewer" not in text
     assert "实现和测试" not in text
     for internal in (
         "RESULT=",

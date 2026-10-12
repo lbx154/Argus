@@ -60,7 +60,7 @@ describe('A3 snapshot-only session context', () => {
   });
 
   it('retains all module IDs, entry order and navigation actions', () => {
-    expect(WORKBENCH_MODULES.map(row => row.id)).toEqual(['overview', 'timeline', 'experiments', 'ide']);
+    expect(WORKBENCH_MODULES.map(row => row.id)).toEqual(['timeline', 'experiments', 'ide', 'runtime']);
     const navigate = vi.fn();
     let view: ReturnType<typeof create>;
     act(() => { view = create(<ProjectOverviewPage {...props} navigate={navigate} />); });

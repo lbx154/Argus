@@ -338,8 +338,9 @@ function ConversationRow({
                 hour: '2-digit', minute: '2-digit', second: '2-digit', hour12: false,
               }) : clockOf(ev)}{responseLatency}</time>
             </div>
-            {steps.length ? <TurnSteps steps={steps} live={ev.live === true} /> : null}
             {reportText ? <div data-task-receipt-prose={taskReceipt || undefined}><MarkdownContent artifacts={artifacts} onOpenArtifact={onOpenArtifact}>{report?.text ?? reportText}</MarkdownContent></div> : null}
+            {steps.length || ev.live === true ? <TurnSteps steps={steps} live={ev.live === true} startedTs={Number(ev.ts)}
+              status={ev.success === false ? 'failed' : String(ev.status ?? '')} /> : null}
             {report ? <RawDisclosure className="task-receipt-original" label={locale === 'zh-CN' ? '查看原始回报（含技术记录）' : 'View original report (including technical records)'}>
               <pre data-task-receipt-original className="mt-2 max-h-80 overflow-auto whitespace-pre-wrap break-words rounded-lg bg-bg p-3 font-mono text-xs text-ink-dim">{reportText}</pre>
             </RawDisclosure> : null}
@@ -607,7 +608,7 @@ function ConversationThread({
       if (row.ev.mission_result === true) return { reply: row, messages: [] };
       const messages = row.r.text.match(RUNTIME_INFO_PATTERN) ?? [];
       const text = row.r.text.replace(RUNTIME_INFO_PATTERN, '').trim();
-      const working = Array.isArray(row.ev.steps) && row.ev.steps.length > 0;
+      const working = row.ev.live === true || (Array.isArray(row.ev.steps) && row.ev.steps.length > 0);
       return {
         reply: (text || working) && !isSystemMessage(row) ? { ...row, r: { ...row.r, text } } : null,
         messages: isSystemMessage(row) && messages.length === 0 ? [row.r.text] : messages,

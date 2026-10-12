@@ -1817,9 +1817,9 @@ class LifeSupervisor(
             pending = []
         if not pending:
             return (
-                "计划里暂时没有下一项，Planner 正在决定接下来做什么。"
+                "计划里暂时没有下一项，正在考虑接下来做什么。"
                 if chinese
-                else "Nothing is queued yet; the Planner is deciding what comes next."
+                else "Nothing is queued yet; the next step is being considered."
             )
         next_title = " ".join(str(pending[0].title or "").split()) or (
             "下一项" if chinese else "the next item"
@@ -2135,11 +2135,11 @@ class LifeSupervisor(
                 )
             elif overall_complete and independent_review_required and review == "done":
                 continuation = (
-                    "独立 Reviewer 已复核本轮产出，未发现阻断问题。"
+                    "本次结果已由独立审阅者检查，未发现需要先修正的问题。"
                     if chinese
                     else (
-                        "An independent Reviewer reviewed this run's output and "
-                        "found no blocking issues."
+                        "An independent reader checked this result and "
+                        "found no issues that need fixing before proceeding."
                     )
                 )
             elif str(outcome.get("stage_certification") or "").strip() == "deferred":

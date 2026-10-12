@@ -5,7 +5,7 @@ import { MobileTabBar } from '../components/MobileTabBar';
 import { useVisualViewport } from '../useVisualViewport';
 
 describe('MobileTabBar', () => {
-  const markup = (active: 'map' | 'mission' | 'activity' | 'workbench' | 'preview' = 'map') =>
+  const markup = (active: 'map' | 'activity' | 'workbench' | 'preview' = 'map') =>
     renderToStaticMarkup(
       <MobileTabBar active={active} onSelect={() => {}} onOpenSessions={() => {}} />,
     );
@@ -13,12 +13,14 @@ describe('MobileTabBar', () => {
   it('offers every destination that is otherwise reachable only on desktop', () => {
     const html = markup();
 
-    for (const label of ['Projects', 'Map', 'Mission', 'Conversation', 'Workbench', 'Files', 'More']) {
+    for (const label of ['Projects', 'Map', 'Conversation', 'Workbench', 'Files']) {
       expect(html).toContain(`>${label}<`);
     }
+    expect(html).not.toContain('>Mission<');
+    expect(html).not.toContain('>More<');
   });
 
-  it.each(['map', 'mission', 'preview'] as const)('marks only the active %s destination for assistive tech', (active) => {
+  it.each(['map', 'workbench', 'preview'] as const)('marks only the active %s destination for assistive tech', (active) => {
     // The tab that is current carries aria-current; exactly one does.
     expect(markup(active).match(/aria-current="page"/g)).toHaveLength(1);
   });

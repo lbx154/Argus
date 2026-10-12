@@ -26,7 +26,8 @@ describe('shared conversation surface', () => {
       expect(html).toContain('class="map-send');
       expect(html).not.toContain('📎');
     }
-    expect(main).toContain('lucide-paperclip');
+    expect(main).toContain('data-logo="rounded-mark"');
+    expect(main).not.toContain('lucide-paperclip');
     expect(map).toContain('data-logo="rounded-mark"');
   });
 

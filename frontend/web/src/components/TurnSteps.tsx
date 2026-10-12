@@ -2,11 +2,12 @@ import { useEffect, useState } from 'react';
 import { useI18n, type Locale } from '../i18n';
 import { plainToolLabel } from '../lib/feedSteps';
 import type { EventMsg } from '../api';
-import { spinnerFrame } from '../lib/soul';
+import { Check, ChevronDown, ChevronRight, CircleAlert, FilePenLine, LoaderCircle, Square, Terminal, Wrench } from 'lucide-react';
 import { formatStepSeconds, turnStepsElapsedS, type TurnStep } from '../../../core/src/phaseTrail';
 
-const GLYPH: Record<string, string> = { command_execution: '$', tool_use: '⚙', file_change: '✎' };
-const FAILED = new Set(['failed', 'error', 'cancelled', 'canceled']);
+const STEP_ICONS = { command_execution: Terminal, tool_use: Wrench, file_change: FilePenLine };
+const FAILED = new Set(['failed', 'error']);
+const STOPPED = new Set(['cancelled', 'canceled', 'stopped']);
 const LEADING_GLYPH = /^(?:[⚙✎↳$…∴▸]|✗ \$)\s*/u;
 const LEGACY_TOOL_LABEL = /^⚙\s*([\w.-]+)\s*·\s*(.*)$/su;
 
@@ -32,53 +33,60 @@ export function stepText(step: TurnStep, locale: Locale = 'zh-CN'): { primary: s
 
 /**
  * The work behind one Argus reply: which tools ran, on what, and how each
- * ended. Live turns show every step as it happens; finished turns fold the
- * list under a one-line summary so the answer stays in front.
+ * ended. One compact line sits below the reply; details are opt-in.
  */
-export function TurnSteps({ steps, live }: { steps: TurnStep[]; live: boolean }) {
+export function TurnSteps({ steps, live, startedTs, status = '' }: {
+  steps: TurnStep[]; live: boolean; startedTs?: number; status?: string;
+}) {
   const { t, locale } = useI18n();
-  const [open, setOpen] = useState(live);
-  const [tick, setTick] = useState(0);
+  const [open, setOpen] = useState(false);
+  const [, setTick] = useState(0);
   useEffect(() => {
     if (!live) return;
     const id = setInterval(() => setTick((value) => value + 1), 1000);
     return () => clearInterval(id);
   }, [live]);
-  useEffect(() => { if (live) setOpen(true); }, [live]);
-  if (!steps.length) return null;
+  useEffect(() => { if (!live) setOpen(false); }, [live]);
+  if (!steps.length && !live) return null;
   const now = Date.now() / 1000;
-  const running = live && steps.some((step) => step.status === 'running');
-  const failed = steps.filter((step) => FAILED.has(step.status)).length;
-  const seconds = formatStepSeconds(turnStepsElapsedS(steps, now));
-  const summary = running
-    ? t('chat.stepsLive', { count: steps.length })
-    : t('chat.stepsDone', { count: steps.length, seconds: seconds || '<1s' });
+  const failed = FAILED.has(status) || steps.some((step) => FAILED.has(step.status));
+  const stopped = STOPPED.has(status) || steps.some((step) => STOPPED.has(step.status));
+  const seconds = formatStepSeconds(live && startedTs ? Math.max(0, now - startedTs) : turnStepsElapsedS(steps, now)) || '<1s';
+  const active = [...steps].reverse().find(step => step.status === 'running');
+  const summary = live
+    ? `${active ? stepText(active, locale).primary : locale === 'zh-CN' ? '正在准备回复' : 'Preparing a reply'} · ${seconds}`
+    : failed ? `${locale === 'zh-CN' ? '过程出现问题，请查看详情' : 'An issue occurred; see details'} · ${seconds}`
+      : stopped ? `${locale === 'zh-CN' ? '已停止' : 'Stopped'} · ${seconds}`
+        : t('chat.stepsDone', { count: steps.length, seconds });
+  const StatusIcon = live ? LoaderCircle : failed ? CircleAlert : stopped ? Square : Check;
+  const Chevron = open ? ChevronDown : ChevronRight;
   return (
-    <div className="turn-steps mb-2 rounded-lg border border-line/50 bg-surface/50 text-xs" data-live={live || undefined}>
+    <div className="turn-steps mt-3 rounded-lg border border-line/50 bg-surface/50 text-xs" data-live={live || undefined}>
       <button
         type="button"
         onClick={() => setOpen((value) => !value)}
         aria-expanded={open}
+        aria-label={locale === 'zh-CN' ? '查看工作过程' : 'View work progress'}
         className="flex w-full items-center gap-2 px-3 py-1.5 text-left text-ink-dim hover:text-ink"
       >
-        <span className={`w-3 shrink-0 text-center font-mono ${running ? 'text-manager' : failed ? 'text-err' : 'text-ok'}`}>
-          {running ? spinnerFrame(tick) : failed ? '✗' : '✓'}
-        </span>
+        <StatusIcon size={14} aria-hidden="true" className={`shrink-0 ${live ? 'animate-spin text-manager motion-reduce:animate-none' : failed ? 'text-err' : stopped ? 'text-ink-faint' : 'text-ok'}`} />
         <span className="min-w-0 flex-1 truncate">{summary}</span>
-        <span className="shrink-0 text-ink-faint">{open ? '▾' : '▸'}</span>
+        <Chevron size={14} aria-hidden="true" className="shrink-0 text-ink-faint" />
       </button>
       {open ? (
         <ol className="space-y-1 border-t border-line/40 px-3 py-2">
+          {!steps.length && <li className="text-ink-faint">{locale === 'zh-CN' ? '尚未记录工具操作。' : 'No tool operations recorded yet.'}</li>}
           {steps.map((step, index) => {
             const { primary, secondary } = stepText(step, locale);
             const isRunning = step.status === 'running';
             const isFailed = FAILED.has(step.status);
+            const isStopped = STOPPED.has(step.status);
+            const Icon = step.kind === 'command_execution' ? STEP_ICONS.command_execution
+              : step.kind === 'file_change' ? STEP_ICONS.file_change : STEP_ICONS.tool_use;
             const elapsed = formatStepSeconds(Math.max(0, (step.ended_ts || now) - step.started_ts));
             return (
               <li key={step.call_id || `${index}:${step.started_ts}`} className="flex min-w-0 items-baseline gap-2">
-                <span className={`w-3 shrink-0 text-center font-mono ${isFailed ? 'text-err' : 'text-ink-faint'}`}>
-                  {GLYPH[step.kind] ?? '▸'}
-                </span>
+                <Icon size={13} aria-hidden="true" className={`shrink-0 self-start mt-0.5 ${isFailed ? 'text-err' : 'text-ink-faint'}`} />
                 <span className="min-w-0 flex-1">
                   <span className={`${isRunning && live ? 'text-ink' : isFailed ? 'text-err' : 'text-ink-dim'}`} title={secondary || primary}>
                     {primary}
@@ -94,7 +102,8 @@ export function TurnSteps({ steps, live }: { steps: TurnStep[]; live: boolean })
                   ) : null}
                 </span>
                 <span className={`shrink-0 font-mono tabular-nums ${isRunning && live ? 'text-manager' : 'text-ink-faint'}`}>
-                  {isRunning && live ? spinnerFrame(tick) : isFailed ? t('chat.stepFailed') : elapsed}
+                  {isRunning && live ? <LoaderCircle size={12} className="animate-spin motion-reduce:animate-none" aria-hidden="true" />
+                    : isFailed ? t('chat.stepFailed') : isStopped ? (locale === 'zh-CN' ? '已停止' : 'Stopped') : elapsed}
                 </span>
               </li>
             );

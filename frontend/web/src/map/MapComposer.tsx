@@ -27,6 +27,7 @@ export interface MapComposerProps {
   onAttachmentsChange: (files: File[]) => void;
   pending: boolean;
   pendingLabel?: string;
+  progressVisible?: boolean;
   dispatchStatus?: "launching" | "task" | "message" | "error" | "cancelled";
   onCancel: () => void;
   focusSignal: number;
@@ -54,6 +55,7 @@ export function MapComposer({
   onAttachmentsChange,
   pending,
   pendingLabel,
+  progressVisible = true,
   dispatchStatus,
   onCancel,
   focusSignal,
@@ -275,10 +277,12 @@ export function MapComposer({
     zh ? "这条回复结束后立即处理" : "Answered right after this reply",
   ];
   const headline = feedback?.[0] || (pending && queued ? queuedCopy[0] : pending
-    ? (zh ? `${applicationBrand().name} 正在处理` : `${applicationBrand().name} is working`)
+    ? progressVisible ? (zh ? `${applicationBrand().name} 正在处理` : `${applicationBrand().name} is working`)
+      : (zh ? '继续对话' : 'Continue chatting')
     : sent ? (zh ? `已发送给 ${applicationBrand().name}` : `Sent to ${applicationBrand().name}`) : (zh ? `交给 ${applicationBrand().name}` : `Ask ${applicationBrand().name}`));
   const detail = feedback?.[1] || (pending && queued ? queuedCopy[1] : pending
-    ? pendingLabel || (zh ? "正在处理你的消息…" : "Processing your message…")
+    ? progressVisible ? pendingLabel || (zh ? "正在处理你的消息…" : "Processing your message…")
+      : (zh ? '可发送后续消息或停止回复' : 'Send a follow-up or stop the reply')
     : sent ? (zh ? "点此继续对话" : "Tap to keep the conversation going")
       : hasDraft ? (zh ? "草稿已保留，点此继续" : "Draft saved — tap to continue")
         : (zh ? "描述目标，看它变成成果" : "Turn your next idea into a result"));
@@ -488,7 +492,7 @@ export function MapComposer({
           : pending && queued
             ? `${queuedCopy[0]} · ${queuedCopy[1]}`
           : pending
-            ? pendingLabel || (zh ? `${applicationBrand().name} 正在处理…` : `${applicationBrand().name} is responding…`)
+            ? ""
           : sent
             ? zh
               ? "已发送"

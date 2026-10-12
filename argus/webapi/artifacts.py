@@ -180,6 +180,7 @@ def registered_delivery_artifacts(
     title = "Delivered results"
     targets: list[Any] = []
     completion_summaries: list[object] = []
+    reply_references: list[object] = []
     if isinstance(delivery, dict):
         title = str(delivery.get("title") or title).strip() or title
         raw_targets = delivery.get("targets")
@@ -190,6 +191,14 @@ def registered_delivery_artifacts(
     from ..core.transcript import read_turns
 
     for turn in reversed(read_turns(life_dir)):
+        if (
+            turn.get("role") == "argus"
+            and not turn.get("mission_result")
+            and not turn.get("delivery")
+            and turn.get("success") is not False
+            and not turn.get("live")
+        ):
+            reply_references.append(turn.get("text"))
         if (turn.get("mission_result") is True and turn.get("success") is True
                 and not turn.get("item_id")):
             # A resumed direct task can verify already-written outputs without
@@ -247,6 +256,17 @@ def registered_delivery_artifacts(
                 "group_title": title,
             })
     if resolved_workspace:
+        from ..life.delivery import referenced_delivery_paths
+
+        for path in referenced_delivery_paths(resolved_workspace, reply_references, limit=12):
+            if path not in seen:
+                seen.add(path)
+                results.append({
+                    "path": path,
+                    "why": "File referenced in a saved reply; not an independently reviewed result.",
+                    "source": "reply",
+                    "group_title": "Referenced files",
+                })
         from ..life.delivery import linked_report_paths
 
         for path in linked_report_paths(resolved_workspace, [row["path"] for row in results]):

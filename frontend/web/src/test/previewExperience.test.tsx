@@ -87,7 +87,7 @@ describe('role identity and focused workbench', () => {
   });
 
   it('keeps the shared research tools available in project navigation and the overview', () => {
-    expect(WORKBENCH_MODULES.map((module) => module.id)).toEqual(['overview', 'timeline', 'experiments', 'ide']);
+    expect(WORKBENCH_MODULES.map((module) => module.id)).toEqual(['timeline', 'experiments', 'ide', 'runtime']);
     expect(WORKSPACE_DESTINATIONS.map((module) => module.id)).toEqual(['timeline', 'experiments', 'ide']);
   });
 });

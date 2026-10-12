@@ -28,7 +28,7 @@ interface BuildWebCommandHandlersOptions {
   onSetEventFilter: (filter: EventViewFilter) => void;
   onSetEventQuery: (query: string) => void;
   onSetTaskItemId: (id: string) => void;
-  onSetWorkspaceView: (view: 'mission' | 'activity') => void;
+  onSetWorkspaceView: (view: 'activity') => void;
   onShowArtifacts: () => void;
   onStopIteration: (id: string) => void;
   onStopWaiting: () => void;
@@ -68,7 +68,7 @@ export function buildWebCommandHandlers({
     status: async () => onOpenInspector(),
     roles: async () => onOpenOperations(),
     journal: async () => onOpenInspector(),
-    backlog: async () => onSetWorkspaceView('mission'),
+    backlog: async () => onOpenInspector(),
     item: async (rest) => { if (rest) onSetTaskItemId(rest); },
     artifacts: async () => onShowArtifacts(),
     artifact: async (rest) => { if (rest) onSetArtifactPath(rest); },

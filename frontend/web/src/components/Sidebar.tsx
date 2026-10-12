@@ -1,7 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
-import type { ProjectRow, SkillLibraryItem, WikiLibraryItem } from '../api';
-import { SkillLibraryEntry } from './SkillLibrary';
-import { WikiEntry } from './WikiEntry';
+import type { ProjectRow } from '../api';
+import { LearningLibraryEntry, type LearningScope } from './LearningLibrary';
 import { PluginLauncher } from './PluginLauncher';
 import { VerticalStoreEntry } from './VerticalStore';
 import { WorkspaceSidePanel } from './WorkspaceShell';
@@ -58,8 +57,7 @@ export function Sidebar({
   onResume,
   resumingId,
   onOpenPanel,
-  onOpenSkills,
-  onOpenWiki,
+  onOpenLearning,
   onOpenVerticals,
   onNew,
   loading,
@@ -82,8 +80,7 @@ export function Sidebar({
   onResume?: (id: string) => void;
   resumingId?: string | null;
   onOpenPanel: (p: 'doctor' | 'config' | 'identity') => void;
-  onOpenSkills?: (item?: SkillLibraryItem) => void;
-  onOpenWiki?: (page?: WikiLibraryItem) => void;
+  onOpenLearning?: (scope: LearningScope) => void;
   onOpenVerticals?: () => void;
   onNew: () => void;
   loading: boolean;
@@ -153,26 +150,16 @@ export function Sidebar({
       ) : null}
 
       {slim ? <PluginLauncher compact /> : null}
+      {slim && onOpenLearning ? <LearningLibraryEntry onOpen={onOpenLearning} compact /> : null}
       {slim && onOpenVerticals ? <VerticalStoreEntry compact onOpen={onOpenVerticals} /> : null}
-      {slim && onOpenSkills ? <SkillLibraryEntry sid={activeId} onOpen={onOpenSkills} compact /> : null}
-      {slim && onOpenWiki ? <WikiEntry sid={activeId} onOpen={onOpenWiki} compact /> : null}
       {!slim ? (
         <>
           <nav aria-label={locale === 'zh-CN' ? '工具与知识' : 'Tools and knowledge'} data-sidebar-resources
             className="shrink-0 overflow-y-auto overscroll-contain border-b border-line/50 px-2 py-2 scroll-thin [&>section]:mx-2 [&>section]:border-0 [&>section]:py-0 [&>section>div>button:first-child]:px-3"
             style={{ maxHeight: 'min(40dvh, 360px)' }}>
             <PluginLauncher />
-            {onOpenSkills && <SkillLibraryEntry sid={activeId} onOpen={onOpenSkills} />}
-            {onOpenWiki && <WikiEntry sid={activeId} onOpen={onOpenWiki} />}
-            <details className="sidebar-tools mx-2 mt-1">
-              <summary className="cursor-pointer px-2 py-2 text-xs text-ink-dim">{locale === 'zh-CN' ? '更多工具与资源' : 'More tools and resources'}</summary>
-              {onOpenVerticals ? <VerticalStoreEntry onOpen={onOpenVerticals} /> : null}
-              {import.meta.env.VITE_ARGUS_HOSTED_TRIAL === '1' ? (
-                <a href="/invite/compute" className="mx-3 mb-2 flex items-center gap-2 rounded-md border border-line/50 px-3 py-2 text-xs text-blue hover:bg-bg">
-                  <FontAwesomeIcon icon={faMicrochip} className="h-3.5 w-3.5" />{t('sidebar.compute')}
-                </a>
-              ) : null}
-            </details>
+            {onOpenLearning && <LearningLibraryEntry onOpen={onOpenLearning} />}
+            {onOpenVerticals ? <VerticalStoreEntry onOpen={onOpenVerticals} /> : null}
           </nav>
           <div className="flex shrink-0 items-center gap-2 px-4 pb-1 pt-3">
             <span className="text-xs font-medium text-ink-faint">{locale === 'zh-CN' ? '项目' : 'Projects'}</span>
@@ -349,6 +336,12 @@ export function Sidebar({
             <button type="button" onClick={() => onOpenPanel('config')} className="icon-control flex h-8 w-8 items-center justify-center" aria-label={t('sidebar.openSettings')} title={t('common.settings')}>
               <FontAwesomeIcon icon={faGear} className="h-3.5 w-3.5" />
             </button>
+            {import.meta.env.VITE_ARGUS_HOSTED_TRIAL === '1' ? (
+              <a href="/invite/compute" aria-label={t('sidebar.compute')} title={t('sidebar.compute')}
+                className="icon-control flex h-8 w-8 items-center justify-center text-blue">
+                <FontAwesomeIcon icon={faMicrochip} className="h-3.5 w-3.5" />
+              </a>
+            ) : null}
             <AppearanceControls themeMode={themeMode} onCycleTheme={onCycleTheme} />
           </div>
         </>

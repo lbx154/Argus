@@ -32,6 +32,11 @@ def _resource_status_payload(snapshot: dict[str, Any], *, now: float) -> dict[st
     from ...tools.resource_ledger.status_schema_generated import validate_resource_status
 
     probe = snapshot["probe"]
+    reserved_devices = {
+        device["identity"]
+        for record in snapshot["grants"]
+        for device in record["grant"]["devices"]
+    }
     holders = []
     for record in snapshot["grants"]:
         owner = record["owner"]
@@ -72,6 +77,17 @@ def _resource_status_payload(snapshot: dict[str, Any], *, now: float) -> dict[st
                 "status": accelerator["status"],
                 "device_count": len(accelerator["devices"]),
                 "detail": accelerator["detail"],
+                "devices": [
+                    {
+                        "index": device["index"],
+                        "name": device["name"],
+                        "total_memory_mib": device["total_memory_mib"],
+                        "used_memory_mib": device["used_memory_mib"],
+                        "utilization_percent": device["utilization_percent"],
+                        "reserved": device["identity"] in reserved_devices,
+                    }
+                    for device in accelerator["devices"]
+                ],
             }
             for accelerator in probe["accelerators"]
         ],

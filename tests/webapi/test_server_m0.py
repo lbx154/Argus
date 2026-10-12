@@ -983,7 +983,8 @@ def test_system_resources_requires_auth_and_redacts_status(
             "accelerators": [{
                 "kind": "cuda",
                 "status": "degraded",
-                "devices": [{"identity": "GPU-abcdef0123456789"}],
+                "devices": [{"identity": "GPU-abcdef0123456789", "index": "3", "name": "NVIDIA A100",
+                             "total_memory_mib": 40960, "used_memory_mib": 12000, "utilization_percent": 75}],
                 "detail": "partial telemetry",
             }],
         },
@@ -1036,6 +1037,7 @@ def test_system_resources_requires_auth_and_redacts_status(
     assert rejected.value.status_code == 401
     assert auth("Bearer secret") is None
 
+    monkeypatch.setattr("argus.webapi.routes.meta.time.time", lambda: now)
     payload = route.endpoint()
     assert payload["schema_version"] == 1
     assert payload["enforcement"] == "advisory"
@@ -1044,6 +1046,8 @@ def test_system_resources_requires_auth_and_redacts_status(
         "status": "degraded",
         "device_count": 1,
         "detail": "partial telemetry",
+        "devices": [{"index": "3", "name": "NVIDIA A100", "total_memory_mib": 40960,
+                     "used_memory_mib": 12000, "utilization_percent": 75, "reserved": True}],
     }]
     assert payload["holders"][0]["project"] == "alpha"
     assert payload["holders"][0]["device_count"] == 1

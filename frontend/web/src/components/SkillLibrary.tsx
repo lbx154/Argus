@@ -19,7 +19,7 @@ const identity = (item: SkillLibraryItem) => `${item.library}/${item.path}`;
 export const recentSkills = (items: SkillLibraryItem[]) => items.filter(item => !item.is_default && item.updated_at != null)
   .sort((a, b) => (b.updated_at ?? 0) - (a.updated_at ?? 0) || identity(a).localeCompare(identity(b)));
 
-function useSkillLibrary(sid: string | null, enabled = true) {
+export function useSkillLibrary(sid: string | null, enabled = true) {
   return useQuery({
     queryKey: ['skill-library', sid],
     queryFn: ({ signal }) => api.skillLibrary(sid, signal),
