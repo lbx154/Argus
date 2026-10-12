@@ -1,5 +1,9 @@
 export const APPLICATION_WORKFLOWS = 'application.workflows.v1';
 
+export function workflowActorLabel(role: string, executionLabel = 'Tool execution'): string {
+  return role === 'host' ? executionLabel : role;
+}
+
 export interface WorkflowCatalog {
   domains: Record<string, string[]>;
   roles: string[];

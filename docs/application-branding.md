@@ -104,6 +104,11 @@ application's real engine, not relabel the native Manager/Planner loop.
 TUI selects this capability before creating or upgrading any native daemon.
 `--once --project <work-id>` only reads a registered work order.
 
+The shared workbenches display persisted `host` calls as **Tool execution**
+(`工具执行` in the Chinese Web interface). This distinguishes runtime checks
+from application agent roles without changing historical protocol identifiers,
+source records or the native Argus role model.
+
 The backend reports `runtime.application_routes` in metadata. Local port
 selection treats a different application as a different owner even at the same
 state root: it cannot claim, stop or replace that API. The Web `?legacy=1`
