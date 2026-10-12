@@ -17,7 +17,7 @@ _PACKAGE = "argus"
 _LEGACY_PACKAGE = "argus_skill"
 
 
-def _canonical_frozen_module(module: str) -> str | None:
+def _canonical_frozen_module(module: str, application_package: str | None = None) -> str | None:
     """``unittest`` or an in-package module under its canonical name; else ``None``."""
     if module == "unittest":
         return module
@@ -26,6 +26,10 @@ def _canonical_frozen_module(module: str) -> str | None:
             return _PACKAGE
         if module.startswith(package + "."):
             return _PACKAGE + module[len(package):]
+    if application_package and (
+        module == application_package or module.startswith(application_package + ".")
+    ):
+        return module
     return None
 
 
@@ -132,7 +136,9 @@ def _system_exit_code(exc: SystemExit) -> int:
     return 1
 
 
-def _python_compat_entrypoint(argv: list[str]) -> tuple[bool, int]:
+def _python_compat_entrypoint(
+    argv: list[str], *, application_package: str | None = None,
+) -> tuple[bool, int]:
     """Implement the Python invocation subset exposed by ARGUS_SKILL_PYTHON.
 
     A one-folder PyInstaller build has no standalone ``python.exe``. Argus
@@ -147,7 +153,7 @@ def _python_compat_entrypoint(argv: list[str]) -> tuple[bool, int]:
     original_path = sys.path[:]
     try:
         if len(args) >= 2 and args[0] == "-m":
-            module = _canonical_frozen_module(args[1].strip())
+            module = _canonical_frozen_module(args[1].strip(), application_package)
             if module is None:
                 print(
                     f"argus-backend: refusing non-Argus frozen module {args[1].strip()!r}",
@@ -189,7 +195,7 @@ def _python_compat_entrypoint(argv: list[str]) -> tuple[bool, int]:
     return False, 0
 
 
-def _entrypoint() -> int:
+def _entrypoint(*, application_package: str | None = None) -> int:
     from argus.apps.tui_launcher import _configure_windows_console_encoding
 
     # Python-compatible commands bypass the normal CLI's Windows stdio setup.
@@ -209,7 +215,9 @@ def _entrypoint() -> int:
             _emit_report(report, error=True)
             return 1
 
-    handled, code = _python_compat_entrypoint(sys.argv[1:])
+    handled, code = _python_compat_entrypoint(
+        sys.argv[1:], application_package=application_package,
+    )
     if handled:
         return code
 
@@ -218,5 +226,14 @@ def _entrypoint() -> int:
     return int(main())
 
 
+def main(*, application_package: str | None = None) -> int:
+    """Run the shared backend, optionally admitting one trusted product package.
+
+    The embedding entry point supplies this value, never process arguments or
+    environment variables. Default Argus builds keep their existing module set.
+    """
+    return _entrypoint(application_package=application_package)
+
+
 if __name__ == "__main__":
-    sys.exit(_entrypoint())
+    sys.exit(main())

@@ -1,4 +1,5 @@
 import './style.css';
+import { applicationName, hasApplicationBrand } from './product';
 import { visibleEyeCycle } from './startup';
 import { nativePathRequests } from './nativePaths';
 import {
@@ -164,6 +165,7 @@ let returnFocus: HTMLElement | null = null;
 // A DOM paint is not proof that the native window was exposed. Count actual
 // visible frames, including when a second EXE launch reactivates a resident host.
 function newEyeCycle() {
+  if (hasApplicationBrand) return undefined;
   return visibleEyeCycle({
     eye: document.querySelector('.argus-splash-eye') as SVGElement,
     nativeVisible: () => desktopBridge.isWindowVisible(),
@@ -328,7 +330,7 @@ async function hideSplashAfterCockpitLoad(): Promise<void> {
   if (!cockpitMounted || !cockpitLoaded) return;
   cancelSplashTransition();
   const generation = splashGeneration;
-  if (coldStart) await eyeCycle.finished;
+  if (coldStart) await eyeCycle?.finished;
   const canReveal = () => generation === splashGeneration && cockpitMounted
     && cockpitLoaded && !wizardOpen && document.body.dataset.state !== 'error';
   if (!canReveal()) return;
@@ -355,13 +357,13 @@ function replayLaunchEye(): void {
   if (!cockpitMounted || !cockpitLoaded || wizardOpen || document.body.dataset.state !== 'ready') return;
   if (!splashEl.hidden) return;
   cancelSplashTransition();
-  eyeCycle.cancel();
+  eyeCycle?.cancel();
   coldStart = true;
   splashEl.hidden = false;
   splashEl.classList.remove('is-ready');
   cockpitEl.classList.add('is-loading');
   cockpitEl.inert = true;
-  statusEl.textContent = '正在返回 Argus 工作台';
+  statusEl.textContent = `正在返回 ${applicationName} 工作台`;
   eyeCycle = newEyeCycle();
   void hideSplashAfterCockpitLoad();
 }
@@ -445,7 +447,7 @@ async function handleReady(): Promise<void> {
       cockpitOpening = false;
       return;
     }
-    if (!result.ok) renderIpcFailure('无法打开 Argus 工作台', result.detail);
+    if (!result.ok) renderIpcFailure(`无法打开 ${applicationName} 工作台`, result.detail);
     else mountCockpit(result.value);
   });
 }
@@ -542,7 +544,7 @@ function goToStep(step: number): void {
 
 function showWizard(setup: DesktopSetup): void {
   coldStart = false; // The visible first-run/settings eye already owns this flow.
-  eyeCycle.cancel();
+  eyeCycle?.cancel();
   cancelSplashTransition();
   if (!wizardOpen) returnFocus = document.activeElement as HTMLElement | null;
   wizardOpen = true;
@@ -674,7 +676,7 @@ function updateMessage(status: UpdateStatus): {
     const notes = (status.notes || '已发现可安装的新版本。').slice(0, 900);
     return {
       kicker: '发现新版本',
-      title: `Argus ${status.availableVersion || '更新'} 已准备好`,
+      title: `${applicationName} ${status.availableVersion || '更新'} 已准备好`,
       detail: `${notes}\n\n请在任务边界安装；签名验证通过后会停止当前安装拥有的后端。其他安装和预览不受影响。`,
       showInstall: true,
       showSecurity: true,
@@ -694,7 +696,7 @@ function updateMessage(status: UpdateStatus): {
     return {
       kicker: '正在安装',
       title: '正在验证并安装更新',
-      detail: '安装器接管后会安全重启 Argus。',
+      detail: `安装器接管后会安全重启 ${applicationName}。`,
       showInstall: false,
       showSecurity: true,
     };
@@ -712,7 +714,7 @@ function updateMessage(status: UpdateStatus): {
     return {
       kicker: '手动检查结果',
       title: '已是最新版本',
-      detail: `当前运行的是 Argus ${status.currentVersion}。`,
+      detail: `当前运行的是 ${applicationName} ${status.currentVersion}。`,
       showInstall: false,
       showSecurity: false,
     };
@@ -761,9 +763,9 @@ function renderUpdate(status: UpdateStatus): void {
 
 retryEl.addEventListener('click', () => {
   retryEl.disabled = true;
-  statusEl.textContent = '正在重新启动 Argus';
+  statusEl.textContent = `正在重新启动 ${applicationName}`;
   void capture(() => desktopBridge.restartBackend()).then((result) => {
-    if (!result.ok) renderIpcFailure('无法重新启动 Argus', result.detail);
+    if (!result.ok) renderIpcFailure(`无法重新启动 ${applicationName}`, result.detail);
   }).finally(() => {
     retryEl.disabled = false;
   });

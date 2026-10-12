@@ -2,7 +2,19 @@ import { expect, test, type Page } from '@playwright/test';
 import { mkdirSync, readFileSync } from 'node:fs';
 import { verifyColdStartupTiming, verifyEyeMotion } from '../scripts/preview-eye-checks.mjs';
 
-async function launch(page: Page, complete = false, options: { state?: string; cockpitReady?: Promise<void>; theme?: 'light' | 'dark' | 'system'; nativeVisible?: boolean; eyeMotion?: 'on' | 'off' | 'system'; delayAppearance?: boolean } = {}) {
+async function launch(page: Page, complete = false, options: { state?: string; cockpitReady?: Promise<void>; theme?: 'light' | 'dark' | 'system'; nativeVisible?: boolean; eyeMotion?: 'on' | 'off' | 'system'; delayAppearance?: boolean; product?: string } = {}) {
+  if (options.product) {
+    await page.route('**/product.ts', async (route) => {
+      const response = await route.fetch();
+      const source = await response.text();
+      expect(source).toContain('const brand = __ARGUS_DESKTOP_BRAND__;');
+      const mark = 'data:image/svg+xml;base64,PHN2ZyB4bWxucz0iaHR0cDovL3d3dy53My5vcmcvMjAwMC9zdmciIHdpZHRoPSIxNiIgaGVpZ2h0PSIxNiI+PHJlY3Qgd2lkdGg9IjE2IiBoZWlnaHQ9IjE2IiBmaWxsPSJyZWQiLz48L3N2Zz4=';
+      await route.fulfill({ response, body: source.replace(
+        'const brand = __ARGUS_DESKTOP_BRAND__;',
+        `const brand = ${JSON.stringify({ name: options.product, mark, markDark: mark })};`,
+      ) });
+    });
+  }
   await page.route('**/bridge.ts', (route) => route.fulfill({
     contentType: 'application/javascript',
     body: 'export const desktopBridge = window.desktopTest.bridge;',
@@ -123,6 +135,20 @@ async function openSettings(page: Page) {
 // Only the test harness owns this object; production ships no test IPC or globals.
 async function configure(page: Page, changes: Record<string, unknown>) {
   await page.evaluate((values) => Object.assign((window as any).desktopTest, values), changes);
+}
+
+for (const theme of ['light', 'dark'] as const) {
+  test(`embedded product keeps its identity and reaches the cockpit in ${theme} mode`, async ({ page }) => {
+    await launch(page, true, { theme, product: 'Example Hardware' });
+    await expect(page).toHaveTitle('Example Hardware');
+    await expect(page.locator('#cockpitFrame')).toHaveAttribute('title', 'Example Hardware 工作台');
+    await expect(page.locator('#cockpit')).toBeVisible();
+    await openSettings(page);
+    await expect(page.locator('#wizardTitle')).toHaveText('设置 Example Hardware');
+    await expect(page.locator(`.wizard-mark img.desktop-product-${theme}`)).toBeVisible();
+    await expect(page.locator(`.wizard-mark img.desktop-product-${theme === 'dark' ? 'light' : 'dark'}`)).toBeHidden();
+    await expect(page.locator('.wizard-mark svg')).toBeHidden();
+  });
 }
 
 test('trial byte progress remains available in the exclusive account-mode layout', async ({ page }) => {

@@ -3,6 +3,8 @@
 """PyInstaller specification for the Tauri desktop's frozen backend."""
 
 from pathlib import Path
+from importlib import import_module
+import os
 import sys
 
 from PyInstaller.utils.hooks import collect_data_files, collect_submodules
@@ -107,8 +109,19 @@ hiddenimports = (
     + domain_overlay_modules
 )
 
+entry = str(ROOT / "argus" / "desktop_backend_entry.py")
+# A trusted build-time product hook extends packaging, not the runtime loader.
+application = os.environ.get("ARGUS_FROZEN_APPLICATION", "").strip()
+if application:
+    module, separator, function = application.partition(":")
+    if not separator or not module or not function:
+        raise ValueError("ARGUS_FROZEN_APPLICATION must be module:function")
+    entry, application_datas, application_imports = getattr(import_module(module), function)(ROOT)
+    datas += application_datas
+    hiddenimports += application_imports
+
 a = Analysis(
-    [str(ROOT / "argus" / "desktop_backend_entry.py")],
+    [entry],
     pathex=[str(ROOT)],
     binaries=[],
     datas=datas,

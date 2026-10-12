@@ -3,10 +3,10 @@
   <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <title>Argus</title>
+    <title data-desktop-brand>Argus</title>
   </head>
   <body data-state="starting">
-    <header class="desktop-menu-bar" id="desktopMenuBar" aria-label="Argus 桌面菜单">
+    <header class="desktop-menu-bar" id="desktopMenuBar" aria-label="Argus 桌面菜单" data-desktop-brand>
       <nav class="desktop-menu-nav">
         <div class="desktop-menu-group">
           <button class="desktop-menu-trigger" id="fileMenuTrigger" type="button" aria-haspopup="menu" aria-expanded="false">文件</button>
@@ -28,7 +28,7 @@
             <button type="button" role="menuitem" data-menu-action="diagnostics">导出诊断包</button>
             <button type="button" role="menuitem" data-menu-action="check-update">检查更新</button>
             <span class="desktop-menu-separator" role="separator"></span>
-            <button type="button" role="menuitem" data-menu-action="about">关于 Argus</button>
+            <button type="button" role="menuitem" data-menu-action="about" data-desktop-brand>关于 Argus</button>
           </div>
         </div>
       </nav>
@@ -46,7 +46,7 @@
         <circle class="argus-mark-pupil" cx="244" cy="266" r="42"></circle>
         <circle class="argus-mark-highlight" cx="262" cy="248" r="12"></circle>
       </svg>
-      <span>Argus</span>
+      <span data-desktop-brand>Argus</span>
     </div>
 
     <svg class="icon-defs" aria-hidden="true">
@@ -96,7 +96,7 @@
           </li>
         </ol>
 
-        <p class="status" id="status">正在启动 Argus</p>
+        <p class="status" id="status" data-desktop-brand>正在启动 Argus</p>
         <div class="progress" aria-hidden="true"><span id="bar"></span></div>
         <p class="detail" id="detail" hidden></p>
         <div class="actions">
@@ -111,10 +111,11 @@
       </section>
     </main>
 
-    <section class="cockpit" id="cockpit" hidden aria-label="Argus 工作台">
+    <section class="cockpit" id="cockpit" hidden aria-label="Argus 工作台" data-desktop-brand>
       <iframe
         id="cockpitFrame"
         title="Argus 工作台"
+        data-desktop-brand
         sandbox="allow-forms allow-same-origin allow-scripts allow-downloads"
         referrerpolicy="no-referrer"
       ></iframe>
@@ -152,7 +153,7 @@
             </svg>
           </div>
           <div class="wizard-heading">
-            <h2 id="wizardTitle">设置 Argus</h2>
+            <h2 id="wizardTitle" data-desktop-brand>设置 Argus</h2>
             <p id="wizardCaption">Agent CLI</p>
           </div>
           <ol class="stepper" id="stepper" aria-label="设置步骤">
@@ -253,7 +254,7 @@
                   <span>127.0.0.1:</span>
                   <input id="portInput" type="number" min="1024" max="65535" inputmode="numeric" value="8799" aria-describedby="portError" />
                 </div>
-                <p class="field-hint">仅供当前电脑上的 Argus 工作台访问。</p>
+                <p class="field-hint" data-desktop-brand>仅供当前电脑上的 Argus 工作台访问。</p>
                 <p class="field-error" id="portError" hidden>端口需在 1024 - 65535 之间</p>
               </div>
               <div class="runtime-card">
@@ -262,7 +263,7 @@
                 </span>
                 <div>
                   <div class="runtime-title">内置后端</div>
-                  <p>运行环境已随 Argus 一起安装，无需配置 Python、源码目录或开发依赖。</p>
+                  <p data-desktop-brand>运行环境已随 Argus 一起安装，无需配置 Python、源码目录或开发依赖。</p>
                 </div>
                 <span class="runtime-badge">默认启用</span>
               </div>

@@ -216,6 +216,10 @@ fn request_stop_and_quit(app: &AppHandle) {
     });
 }
 
+fn application_name(app: &AppHandle) -> &str {
+    app.config().product_name.as_deref().unwrap_or("Argus")
+}
+
 fn handle_menu(app: &AppHandle, id: &str) {
     match id {
         "show" => reveal_window(app),
@@ -224,7 +228,7 @@ fn handle_menu(app: &AppHandle, id: &str) {
             let app = app.clone();
             tauri::async_runtime::spawn(async move {
                 let answer = rfd::AsyncMessageDialog::new()
-                    .set_title("停止 Argus 并退出")
+                    .set_title(format!("停止 {} 并退出", application_name(&app)))
                     .set_description("停止本地后端会中断正在运行的工作。确定停止并退出吗？")
                     .set_buttons(rfd::MessageButtons::YesNo)
                     .show().await;
@@ -238,14 +242,14 @@ fn handle_menu(app: &AppHandle, id: &str) {
 }
 
 fn install_tray(app: &AppHandle) -> tauri::Result<()> {
-    let show = MenuItem::with_id(app, "show", "显示 Argus", true, None::<&str>)?;
+    let show = MenuItem::with_id(app, "show", format!("显示 {}", application_name(app)), true, None::<&str>)?;
     let hide = MenuItem::with_id(app, "hide", "隐藏窗口", true, None::<&str>)?;
     let separator = PredefinedMenuItem::separator(app)?;
     let stop = MenuItem::with_id(app, "stop-quit", "停止本地后端并退出", true, None::<&str>)?;
     let menu = Menu::with_items(app, &[&show, &hide, &separator, &stop])?;
     let icon = app.default_window_icon().cloned();
     let mut builder = TrayIconBuilder::with_id("argus-tray")
-        .tooltip("Argus · 后台运行")
+        .tooltip(format!("{} · 后台运行", application_name(app)))
         .menu(&menu)
         .show_menu_on_left_click(false)
         .on_menu_event(|app, event| handle_menu(app, event.id().as_ref()))
@@ -659,10 +663,13 @@ fn stop_backend_and_quit(app: AppHandle) {
 fn show_about(app: AppHandle) {
     let version = app.package_info().version.to_string();
     let _ = rfd::MessageDialog::new()
-        .set_title("关于 Argus")
+        .set_title(format!("关于 {}", application_name(&app)))
         .set_description(format!(
-            "Argus {version}{}\nTauri / Rust · Windows x64\n运行身份：{}\n桌面数据：{}\n关闭窗口后任务继续；停止本地后端并退出才会结束任务。",
+            "{} {version}{}\nTauri / Rust · {} {}\n运行身份：{}\n桌面数据：{}\n关闭窗口后任务继续；停止本地后端并退出才会结束任务。",
+            application_name(&app),
             if release::preview_mode() { " · Preview（不安装发布更新）" } else { "" },
+            std::env::consts::OS,
+            std::env::consts::ARCH,
             state(&app).supervisor.release().identity().release_id,
             state(&app).settings.data_dir().display(),
         ))
@@ -810,13 +817,21 @@ fn dismiss_update(app: AppHandle) {
     state(&app).updater.dismiss();
 }
 
+#[cfg(feature = "default-host")]
 pub fn run() {
+    run_with_context(tauri::generate_context!());
+}
+
+/// Compatible products provide their own identity, resources and permissions;
+/// backend ownership, setup and lifecycle remain in this shared host.
+pub fn run_with_context(mut context: tauri::Context<tauri::Wry>) {
+    let product_name = context.config().product_name.as_deref().unwrap_or("Argus").to_owned();
     // On Windows an ambient test flag alone must not duplicate a real profile.
     let qa_requested = std::env::var("ARGUS_DESKTOP_DISABLE_SINGLE_INSTANCE").as_deref() == Ok("1");
     let isolated_qa = qa_requested && (!cfg!(windows) || identity::isolated_host_qa_from_env());
     if qa_requested && !isolated_qa {
         rfd::MessageDialog::new()
-            .set_title("Argus 测试环境未隔离")
+            .set_title(format!("{product_name} 测试环境未隔离"))
             .set_description("请移除单实例测试开关，或使用完整隔离的宿主验收脚本。未打开或修改现有用户配置。")
             .set_level(rfd::MessageLevel::Error)
             .show();
@@ -900,7 +915,6 @@ pub fn run() {
         install_update,
         dismiss_update,
     ]);
-    let mut context = tauri::generate_context!();
     let test_identifier = identity::preview_instance_identifier(
         &context.config().identifier,
         release::preview_mode(),
@@ -911,7 +925,7 @@ pub fn run() {
         Ok(app) => app,
         Err(error) => {
             rfd::MessageDialog::new()
-                .set_title("Argus 无法启动")
+                .set_title(format!("{product_name} 无法启动"))
                 .set_description(format!("无法初始化桌面环境，已有数据不会被清空。\n{error}"))
                 .set_level(rfd::MessageLevel::Error)
                 .show();

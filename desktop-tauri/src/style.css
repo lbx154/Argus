@@ -1554,3 +1554,6 @@ button {
   .entry-mode strong { font-size: 12px; }
   .entry-mode span { font-size: 10px; }
 }
+img.desktop-product-dark { display: none; }
+html[data-theme='dark'] img.desktop-product-dark { display: block; }
+html[data-theme='dark'] img.desktop-product-light { display: none; }

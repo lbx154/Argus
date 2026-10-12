@@ -189,7 +189,7 @@ impl UpdateManager {
                 None,
                 None,
                 None,
-                Some("当前为预览／开发构建，已禁用发布更新；不会下载或安装正式版本。".to_owned()),
+                Some("此构建已禁用发布更新；不会下载或安装其他版本。".to_owned()),
                 manual,
             );
             if manual {

@@ -158,6 +158,47 @@ def test_frozen_python_compat_dispatches_argus_modules_and_code(capsys) -> None:
     assert "refusing non-Argus" in capsys.readouterr().err
 
 
+def test_embedded_frozen_package_is_explicit_and_boundary_scoped(monkeypatch, capsys):
+    calls = []
+    monkeypatch.setattr(
+        desktop_backend_entry.runpy, "run_module",
+        lambda module, **kwargs: calls.append((module, list(sys.argv))),
+    )
+    original_argv = sys.argv[:]
+    assert _python_compat_entrypoint(["-m", "example_product.worker"]) == (True, 2)
+    assert "refusing non-Argus" in capsys.readouterr().err
+    assert _python_compat_entrypoint(
+        ["-I", "-m", "example_product.worker", "request.json"],
+        application_package="example_product",
+    ) == (True, 0)
+    assert calls == [("example_product.worker", ["example_product.worker", "request.json"])]
+    assert sys.argv == original_argv
+    for module in ("example_product_extra.worker", "pip"):
+        assert _python_compat_entrypoint(
+            ["-m", module], application_package="example_product",
+        ) == (True, 2)
+    assert len(calls) == 1
+
+
+def test_frozen_build_hook_extends_existing_payload(monkeypatch):
+    import types
+
+    def extend(root):
+        assert root == ROOT
+        return "product_entry.py", [("product_assets", "product/assets")], ["example_product.worker"]
+
+    monkeypatch.setitem(sys.modules, "example_frozen_build", types.SimpleNamespace(extend=extend))
+    monkeypatch.setenv("ARGUS_FROZEN_APPLICATION", "example_frozen_build:extend")
+    namespace, _ = _execute_spec_collection(ast.parse(SPEC_PATH.read_text()))
+    assert namespace["entry"] == "product_entry.py"
+    assert ("product_assets", "product/assets") in namespace["datas"]
+    assert "example_product.worker" in namespace["hiddenimports"]
+    assert "argus.trial.desktop" in namespace["hiddenimports"]
+    monkeypatch.setenv("ARGUS_FROZEN_APPLICATION", "invalid-hook")
+    with pytest.raises(ValueError, match="module:function"):
+        _execute_spec_collection(ast.parse(SPEC_PATH.read_text()))
+
+
 def _frozen_console_streams(monkeypatch, encoding, *, platform_name="nt"):
     stdout = io.TextIOWrapper(io.BytesIO(), encoding=encoding, errors="strict", newline="\n", write_through=True)
     stderr = io.TextIOWrapper(io.BytesIO(), encoding=encoding, errors="strict", newline="\n", write_through=True)

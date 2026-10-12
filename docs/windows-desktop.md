@@ -70,6 +70,31 @@ Desktop release，不能直接修改安装目录中的冻结文件。
 
 ## 架构
 
+### 兼容产品宿主
+
+下游产品可以把 `argus-desktop` 作为 Rust path dependency，设置
+`default-features = false`，再调用
+`argus_desktop_lib::run_with_context(tauri::generate_context!())`。产品自己的
+Tauri context 提供名称、版本、identifier、图标、资源和 capabilities；后端
+ownership、设置和生命周期仍由共享宿主负责。默认 Argus 构建保留 `default-host`
+feature，行为不变。编译时仍须设置独立的 `ARGUS_DESKTOP_PROFILE`，且产品后端的
+Argus release manifest 必须与宿主使用的精确上游源码一致。
+
+共享启动页的 Vite 构建接受 `ARGUS_DESKTOP_BRAND` JSON，字段为 `name`、
+`mark`、`markDark`，两张图片使用 `data:image/...` URL。自定义产品展示自己的
+浅／深色图标，不等待已隐藏的 Argus 眼睛动画。未配置时保留原始 Argus 外观。
+
+冻结打包可设置可信的构建期 `ARGUS_FROZEN_APPLICATION=module:function`；
+函数接收 Argus 源码根目录，返回 `(entry_path, additional_datas, additional_imports)`。
+产品入口调用 `argus.desktop_backend_entry.main(application_package="产品包名")`，
+只为该包及其子模块开放冻结 `-m` 派发。此参数不是命令行或环境中的运行时白名单；
+原有 provider fail-fast、兼容解释器和 Argus 默认模块边界保留。
+产品需自行携带依赖及其 provenance metadata，不得跳过精确版本核验。
+
+下游不得继承 Argus 的更新 endpoint 或签名公钥。未设置产品签名更新渠道时，
+产品入口应设置 `ARGUS_DESKTOP_DISABLE_UPDATE_CHECK=1`，并关闭自己的
+`createUpdaterArtifacts`。这些扩展不表示下游产品已完成任何平台的安装包验收。
+
 ```text
 Windows native non-client frame
   └─ Argus.exe (Tauri/Rust)
