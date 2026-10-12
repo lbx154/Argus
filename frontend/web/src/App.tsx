@@ -1,15 +1,13 @@
 import type { DispatchObserver, MapSendOptions } from './map/submission';
 import { lazy, Suspense, useCallback, useEffect, useMemo, useReducer, useRef, useState } from 'react';
-import { artifactRefreshEventKey, snapshotRefreshEventKey, useProjects, useProjectCosts, useSnapshot, useEventStream, useProjectActions, useArtifacts, useJournal, useGitDiff } from './hooks';
+import { artifactRefreshEventKey, snapshotRefreshEventKey, useProjects, useProjectCosts, useSnapshot, useEventStream, useProjectActions, useArtifacts, useJournal } from './hooks';
 import { useConversationHistory } from './useConversationHistory';
 import { api, isConnectionError, newRequestId, type EventMsg, type MessageRouteOverride, type SkillLibraryItem, type SkillScope, type WikiLibraryItem, PairingRequiredError } from './api';
-import { SkillLibrary } from './components/SkillLibrary';
-import { WikiLibrary } from './components/WikiLibrary';
+import { LearningLibrary, type LearningScope, type LearningSelection } from './components/LearningLibrary';
 import { LearningStatus } from './components/LearningStatus';
 import { ComposerRuntime } from './components/ComposerRuntime';
 import { TopBar } from './components/TopBar';
 import { WorkspaceShell } from './components/WorkspaceShell';
-import ResearchBrief from './research-brief';
 import { EventStream, latestConversationDelivery } from './components/EventStream';
 import { ChatBox } from './components/ChatBox';
 import { appendPhaseStep, closePhaseTrail, type PhaseStep, trailToTurnSteps, turnStepsFrom } from '../../core/src/phaseTrail';
@@ -22,9 +20,7 @@ import { GuardianBanner } from './components/GuardianBanner';
 import { NoOperatorBanner } from './components/NoOperatorBanner';
 import { hasHumanProjectLabel, rankProjects } from '../../core/src/projects';
 import { ArtifactModal } from './components/ArtifactModal';
-import { QuestionFoundation } from './research-brief/QuestionFoundation';
-import { ProgressQuestionsProvider, ProgressQuestionHistoryButton } from './research-brief/ProgressQuestions';
-import { readerPreview } from './map/copyMode';
+import { ProgressQuestionsProvider } from './research-brief/ProgressQuestions';
 import {
   missionIsComplete,
   ResearchCanvas,
@@ -37,9 +33,7 @@ import { ProjectInspectorModal } from './components/ProjectInspectorModal';
 import { TaskDetailModal } from './components/TaskDetailModal';
 import { currentWorkStatus } from './lib/workStatus';
 import { SplitHandle } from './components/SplitHandle';
-import { Modal, ModalHeader } from './components/Modal';
-import { MissionControl } from './components/MissionControl';
-import { OperationsModal } from './components/OperationsModal';
+import { Modal } from './components/Modal';
 import { VerticalStore } from './components/VerticalStore';
 import { Landing } from './components/Landing';
 import { MobileTabBar } from './components/MobileTabBar';
@@ -82,7 +76,7 @@ import {
   subscribeDesktopNewChat,
 } from './lib/desktopBridge';
 
-type Overlay = 'none' | 'palette' | 'help' | 'doctor' | 'config' | 'identity' | 'transcript' | 'inspector' | 'operations' | 'reading' | 'skills' | 'wiki' | 'verticals';
+type Overlay = 'none' | 'palette' | 'help' | 'doctor' | 'config' | 'identity' | 'transcript' | 'inspector' | 'learning' | 'verticals';
 interface ActiveMessageRequest {
   id: number;
   serverRequestId: string;
@@ -156,17 +150,22 @@ export default function App() {
     .find((error) => isConnectionError(error));
 
   const [overlay, setOverlay] = useState<Overlay>('none');
-  const [skillSelection, setSkillSelection] = useState<SkillLibraryItem | null>(null);
-  const [skillScope, setSkillScope] = useState<SkillScope | 'recent'>('recent');
-  const openSkillLibrary = useCallback((item?: SkillLibraryItem, scope: SkillScope | 'recent' = 'recent') => {
-    setSkillSelection(item ?? null);
-    setSkillScope(scope);
-    setOverlay('skills');
+  const [learningSelection, setLearningSelection] = useState<LearningSelection | null>(null);
+  const [learningScope, setLearningScope] = useState<LearningScope>('feed');
+  const openLearningLibrary = useCallback((scope: LearningScope) => {
+    setLearningSelection(null);
+    setLearningScope(scope);
+    setOverlay('learning');
   }, []);
-  const [wikiSelection, setWikiSelection] = useState<WikiLibraryItem | null>(null);
+  const openSkillLibrary = useCallback((item?: SkillLibraryItem, scope: SkillScope | 'recent' = 'recent') => {
+    setLearningSelection(item ? { kind: 'skill', item } : null);
+    setLearningScope(item?.scope ?? (scope === 'recent' ? 'feed' : scope));
+    setOverlay('learning');
+  }, []);
   const openWiki = useCallback((page?: WikiLibraryItem) => {
-    setWikiSelection(page ?? null);
-    setOverlay('wiki');
+    setLearningSelection(page ? { kind: 'knowledge', item: page } : null);
+    setLearningScope(page?.scope === 'private' ? 'global' : page?.scope ?? 'feed');
+    setOverlay('learning');
   }, []);
   const {
     cycleTheme,
@@ -193,17 +192,18 @@ export default function App() {
     themeMode,
     workspaceView,
   } = useWorkbenchLayout();
-  const [standardWorkspaceView, setStandardWorkspaceView] = useState<'mission' | 'activity'>(
-    () => workspaceView === 'mission' ? 'mission' : 'activity',
-  );
   const [workbenchOpened, setWorkbenchOpened] = useState(workspaceView === 'workbench');
+  const [runtimeRequest, setRuntimeRequest] = useState(0);
+  const openRuntimeControls = useCallback(() => {
+    setOverlay('none');
+    setMobileView('activity');
+    setWorkspaceView('workbench');
+    setRuntimeRequest(value => value + 1);
+  }, [setMobileView, setWorkspaceView]);
   useEffect(() => {
     if (workspaceView === 'workbench') {
       setWorkbenchOpened(true);
-      return;
     }
-    if (workspaceView === 'map') return;
-    setStandardWorkspaceView(workspaceView);
   }, [workspaceView]);
   // Share the visible-height decision with the reading card and composer.
   const compactViewport = useVisualViewport();
@@ -375,7 +375,6 @@ export default function App() {
   const loadedSid = snap?.session.id === activeSid ? activeSid : null;
   const continuous = snap?.continuous;
   const artifactsQ = useArtifacts(loadedSid, true);
-  const gitDiffQ = useGitDiff(loadedSid, standardWorkspaceView === 'mission');
   const { events, connected } = useEventStream(loadedSid, eventView.reconnectKey);
   const artifactRefreshKey = useMemo(() => artifactRefreshEventKey(events), [events]);
   const snapshotRefreshKey = useMemo(() => snapshotRefreshEventKey(events), [events]);
@@ -404,7 +403,7 @@ export default function App() {
   }, [loadedSid, queryClient, snapshotRefreshKey]);
   const guardianAlert = useMemo(() => activeGuardianAlert(events), [events]);
   const { query: transcriptQ, events: activityEvents, status: historyStatus } = useConversationHistory(
-    loadedSid, standardWorkspaceView === 'activity', events, localConversationEvents, localConversationSid.current,
+    loadedSid, true, events, localConversationEvents, localConversationSid.current,
   );
   const activeManagerRequestId = loadedSid
     ? snap?.manager_requests?.filter(request => request.status === 'running').at(-1)?.request_id || ''
@@ -496,11 +495,14 @@ export default function App() {
       if (userInitiated) setWorkspaceView('map');
       return;
     }
-    if (workspaceView === 'map') { setArtifactPath(target); return; }
+    if (workspaceView === 'map' || !artifactsQ.data?.some(file => file.path === target && file.exists)) {
+      setArtifactPath(target);
+      return;
+    }
     setRightPanelOpen(true);
     setMobileView('preview');
     setPreviewPathRequest((current) => ({ path: target, token: current.token + 1 }));
-  }, [setMobileView, setRightPanelOpen, setWorkspaceView, workspaceView]);
+  }, [artifactsQ.data, setMobileView, setRightPanelOpen, setWorkspaceView, workspaceView]);
   const deliveryCenter = useDeliveryCenter(loadedSid, Boolean(snap) && !transcriptQ.isPending, delivery, !artifactPath && !hasPendingDeliveryDependents(snap?.backlog ?? [], delivery?.item_id));
   const openDelivery = deliveryCenter.open;
   const deliveryHistory = useMemo(() => {
@@ -638,7 +640,7 @@ export default function App() {
     onOpenIdentity: () => setOverlay('identity'),
     onOpenInspector: () => setOverlay('inspector'),
     onOpenNewDaemon: startNewSession,
-    onOpenOperations: () => setOverlay('operations'),
+    onOpenOperations: openRuntimeControls,
     onOpenSidebar: () => setSidebarOpen(true),
     onOpenSkills: () => openSkillLibrary(undefined, 'global'),
     onReconnectEvents: () => dispatchEventView({ kind: 'reconnect' }),
@@ -659,6 +661,7 @@ export default function App() {
     notify,
     openPreview,
     openSkillLibrary,
+    openRuntimeControls,
     renameCurrentProject,
     requestDispose,
     requestStopIteration,
@@ -749,10 +752,10 @@ export default function App() {
     }
     const sameConversation = localConversationSid.current === requestSid;
     localConversationSid.current = requestSid;
-    setLocalConversationEvents((current) => [
+    setLocalConversationEvents((current) => mergeOptimisticManagerSteps([
       ...(sameConversation ? current : []),
       optimisticOperatorEvent(requestSid, requestId, text),
-    ]);
+    ], requestSid, requestId, []));
 
     const showManagerText = (
       reply: unknown,
@@ -796,6 +799,7 @@ export default function App() {
 
     const finishMessage = (result: Record<string, unknown>) => {
       if (!isCurrent()) return;
+      void queryClient.invalidateQueries({ queryKey: ['artifacts', requestSid] });
       finishManagerMessage(result, {
         dispatchTask,
         notifyError: (error) => notify('error', error),
@@ -863,7 +867,7 @@ export default function App() {
               const journaled = turnStepsFrom(result.steps);
               const steps = journaled.length ? journaled : trailToTurnSteps(trail, Date.now() / 1000, true);
               setLocalConversationEvents((current) => mergeOptimisticManagerSteps(
-                current, requestSid, requestId, steps, Date.now(), false,
+                current, requestSid, requestId, steps, Date.now(), false, result.kind === 'error' ? 'failed' : 'completed',
               ));
               showManagerText(result.reply, '', 'snapshot');
               finishMessage(result);
@@ -895,7 +899,9 @@ export default function App() {
         }
       } finally {
         // Whatever ended the turn, nothing in it is live any more.
-        setLocalConversationEvents((current) => settleOptimisticManagerTurn(current, requestId, Date.now()));
+        setLocalConversationEvents((current) => settleOptimisticManagerTurn(
+          current, requestId, Date.now(), streamErr && !controller.signal.aborted ? 'failed' : 'stopped',
+        ));
         if (controller.signal.aborted) observe?.({ type: 'settled', outcome: 'cancelled' });
         resetCurrentRequest();
       }
@@ -958,7 +964,7 @@ export default function App() {
       ...(kiosk ? [] : [{ id: 'new', label: t('palette.newDaemon'), hint: '+', group: t('palette.view'), run: startNewSession }]),
       { id: 'transcript', label: t('palette.openTranscript'), hint: '/transcript', group: t('palette.view'), run: () => setOverlay('transcript') },
       { id: 'inspector', label: t('palette.openProject'), hint: t('palette.projectHint'), group: t('palette.view'), run: () => setOverlay('inspector') },
-      { id: 'operations', label: t('palette.openOperations'), hint: t('palette.operationsHint'), group: t('palette.view'), run: () => setOverlay('operations') },
+      { id: 'operations', label: t('palette.openOperations'), hint: t('palette.operationsHint'), group: t('palette.view'), run: openRuntimeControls },
       { id: 'verticals', label: t('verticals.openStore'), hint: t('verticals.paletteHint'), group: t('palette.view'), run: () => setOverlay('verticals') },
       { id: 'help', label: t('help.title'), hint: '?', group: t('palette.view'), run: () => setOverlay('help') },
       {
@@ -1068,8 +1074,7 @@ export default function App() {
           onResume={(sid) => void resumeSession(sid)}
           resumingId={resumingSid}
           onOpenPanel={(panel) => setOverlay(panel)}
-          onOpenSkills={openSkillLibrary}
-          onOpenWiki={openWiki}
+          onOpenLearning={openLearningLibrary}
           onOpenVerticals={() => setOverlay('verticals')}
           onNew={startNewSession}
           loading={projectsQ.isLoading}
@@ -1116,20 +1121,8 @@ export default function App() {
                 <div className="workspace-tabs">
                   <button type="button" onClick={() => setWorkspaceView('map')} className="workspace-tab" data-selected={workspaceView === 'map'}>{t('mobile.map')}</button>
                   <button type="button" onClick={() => setWorkspaceView('activity')} className="workspace-tab" data-selected={workspaceView === 'activity'}>{t('mobile.activity')}</button>
+                  <button type="button" onClick={() => setWorkspaceView('workbench')} className="workspace-tab" data-selected={workspaceView === 'workbench'}>{t('mobile.workbench')}</button>
                 </div>
-                <details className="workspace-more" onKeyDown={event => {
-                  if (event.key === 'Escape') { event.currentTarget.open = false; event.currentTarget.querySelector('summary')?.focus(); }
-                }}>
-                  <summary>{workspaceView === 'mission' ? t('mobile.mission') : workspaceView === 'workbench' ? t('mobile.workbench') : locale === 'zh-CN' ? '更多' : 'More'}</summary>
-                  <div className="workspace-more-menu" onClick={event => {
-                    if ((event.target as HTMLElement).closest('button')) event.currentTarget.closest('details')?.removeAttribute('open');
-                  }}>
-                    <button type="button" onClick={() => setWorkspaceView('mission')}>{t('mobile.mission')}</button>
-                    <button type="button" onClick={() => setOverlay('reading')}>{locale === 'zh-CN' ? '任务说明与依据' : 'Task explanation and evidence'}</button>
-                    <button type="button" onClick={() => setWorkspaceView('workbench')}>{t('mobile.workbench')}</button>
-                    {!kiosk ? <button type="button" onClick={() => setOverlay('operations')}>{t('mission.operations')}</button> : null}
-                  </div>
-                </details>
                 <button type="button" className="ml-auto px-2 py-1 text-sm text-ink-dim hover:text-ink" aria-expanded={rightPanelOpen}
                   onClick={() => {
                     if (rightPanelOpen) { setRightPanelOpen(false); setMobileView('activity'); }
@@ -1149,24 +1142,9 @@ export default function App() {
                 }}
                 onOpenReceipt={openDelivery} onOpenArtifact={setArtifactPath} onAnswer={() => setPendingReplyOpen(true)}
               /></Suspense>}
-              <div className={`${workspaceView === 'workbench' || workspaceView === 'map' ? 'hidden' : 'flex'} min-h-0 flex-1 flex-col`}>
+              <div className={`${workspaceView === 'activity' ? 'flex' : 'hidden'} workspace-view-surface min-h-0 flex-1 flex-col`}>
                 <GuardianBanner alert={guardianAlert} />
                 {/* The mobile activity minimum includes its header/status and 120px of conversation. */}
-                {standardWorkspaceView === 'mission' && missionView ? (
-                  <MissionControl
-                    events={activityEvents}
-                    connected={connected && !snapQ.isError}
-                    view={missionView}
-                    sid={snap.session.id}
-                    snapshot={snap}
-                    gitDiff={gitDiffQ.data}
-                    artifacts={artifactsQ.data}
-                    onOpenArtifact={focusDeliveryPath}
-                    onOpenDelivery={openDelivery}
-                    onNotify={notify}
-                    onAsk={kiosk ? undefined : draft => { setComposerDraft(previous => previous.trim() ? `${previous}\n\n${draft}` : draft); setComposerFocus(value => value + 1); }}
-                  />
-                ) : (
                   <div className={`flex flex-1 flex-col ${compactViewport ? 'min-h-0' : 'min-h-[209px] lg:min-h-0'}`}>
                   <EventStream
                     key={loadedSid}
@@ -1188,7 +1166,6 @@ export default function App() {
                     onOpenDelivery={openDelivery}
                   />
                   </div>
-                )}
                 {!kiosk ? (
                   <div className="composer-dock shrink-0 px-4 pt-3">
                     <div className="mx-auto w-full max-w-full lg:max-w-[61.8vw]">
@@ -1210,7 +1187,6 @@ export default function App() {
                       pending={messagePending}
                       focusSignal={composerFocus}
                       embedded
-                      steps={managerSteps}
                       onRewrite={rewriteDraft}
                       rewriting={rewriting}
                       slashSelection={slashSelection}
@@ -1224,9 +1200,10 @@ export default function App() {
                 ) : null}
               </div>
               {workbenchOpened && activeSid ? (
-                <div className={`${workspaceView === 'workbench' ? 'flex' : 'hidden'} min-h-0 flex-1`}>
+                <div className={`${workspaceView === 'workbench' ? 'flex' : 'hidden'} workspace-view-surface min-h-0 flex-1`}>
                   <Suspense fallback={<div className="flex min-h-0 flex-1 items-center justify-center text-xs text-ink-faint">{t('common.loading')}</div>}>
-                    <ResearchWorkbenchPanel sid={activeSid} active={workspaceView === 'workbench'} />
+                    <ResearchWorkbenchPanel sid={activeSid} active={workspaceView === 'workbench'} readOnly={kiosk} runtimeRequest={runtimeRequest}
+                      onRestored={async restoredSid => { await projectsQ.refetch(); selectProject(restoredSid); }} />
                   </Suspense>
                 </div>
               ) : null}
@@ -1275,7 +1252,7 @@ export default function App() {
                 activityEvents={activityEvents}
                 requestedPath={previewPathRequest.path}
                 requestedPathToken={previewPathRequest.token}
-                routeVisible={workspaceView !== 'mission'}
+                routeVisible
               />
             </aside>}
           </>
@@ -1302,20 +1279,9 @@ export default function App() {
       </main>
 
       {/* global overlays */}
-      <Modal open={overlay === 'skills'} onClose={() => setOverlay('none')} label={locale === 'zh-CN' ? '技能库' : 'Skill library'} width="max-w-6xl">
-        {overlay === 'skills' && <SkillLibrary sid={activeSid} projectName={projects.find(project => project.id === activeSid)?.display_name} initialSelection={skillSelection} initialScope={skillScope} />}
-      </Modal>
-      <Modal open={overlay === 'wiki'} onClose={() => setOverlay('none')} label={locale === 'zh-CN' ? '知识库' : 'Knowledge base'} width="max-w-6xl">
-        {overlay === 'wiki' && <WikiLibrary sid={activeSid} projectName={projects.find(project => project.id === activeSid)?.display_name} projectNames={Object.fromEntries(projects.flatMap(project => project.display_name ? [[project.id, project.display_name] as const] : []))} initialSelection={wikiSelection} />}
-      </Modal>
-      <Modal open={overlay === 'reading'} onClose={() => setOverlay('none')} label={locale === 'zh-CN' ? '任务说明与依据' : 'Task explanation and evidence'}>
-        <ModalHeader title={locale === 'zh-CN' ? '任务说明与依据' : 'Task explanation and evidence'} />
-        {overlay === 'reading' && snap && missionView?.mission.id && activeSid ? <>
-          {readerPreview() === 'question-foundation' ? <QuestionFoundation sid={activeSid} objective={snap.session.objective} readOnly={kiosk} onOpenArtifact={setArtifactPath} /> : null}
-          <ResearchBrief key={activeSid} sid={activeSid} snapshot={snap} view={missionView} active readOnly={kiosk} onOpenArtifact={setArtifactPath}
-            onAsk={draft => { setComposerDraft(previous => previous.trim() ? `${previous}\n\n${draft}` : draft); setComposerFocus(value => value + 1); setOverlay('none'); }} />
-          <div className="px-4 pb-4"><ProgressQuestionHistoryButton /></div>
-        </> : <p className="px-6 pb-6 text-sm text-ink-dim">{locale === 'zh-CN' ? '开始任务后，可以在这里查看说明和依据。' : 'Task explanations and evidence appear here once work begins.'}</p>}
+      <Modal open={overlay === 'learning'} onClose={() => setOverlay('none')} label={locale === 'zh-CN' ? '技能库' : 'Skill library'} width="max-w-6xl">
+        {overlay === 'learning' && <LearningLibrary sid={activeSid} initialSelection={learningSelection} initialScope={learningScope}
+          projectNames={Object.fromEntries(projects.flatMap(project => project.display_name ? [[project.id, project.display_name] as const] : []))} />}
       </Modal>
       <CommandPalette open={overlay === 'palette'} onClose={() => setOverlay('none')} items={paletteItems} />
       <VerticalStore open={overlay === 'verticals'} onClose={() => setOverlay('none')} />
@@ -1340,23 +1306,6 @@ export default function App() {
           onDispose={requestDispose}
           onStop={requestStopIteration}
           onInspect={setTaskItemId}
-        />
-      ) : null}
-      {activeSid && snap ? (
-        <OperationsModal
-          open={overlay === 'operations'}
-          onOpenSkills={() => openSkillLibrary(undefined, 'global')}
-          sid={activeSid}
-          snap={snap}
-          onClose={() => setOverlay('none')}
-          onChanged={() => {
-            void snapQ.refetch();
-            void projectsQ.refetch();
-          }}
-          onRestored={async (restoredSid) => {
-            await projectsQ.refetch();
-            selectProject(restoredSid);
-          }}
         />
       ) : null}
       <ArtifactModal sid={activeSid} path={artifactPath} artifacts={artifactsQ.data ?? []}
@@ -1422,8 +1371,6 @@ export default function App() {
             setWorkspaceView(tab);
           }}
           onOpenSessions={() => setSidebarOpen(true)}
-          onRead={() => setOverlay('reading')}
-          onOpenSkills={() => openSkillLibrary()}
         />
       ) : null}
     </WorkspaceShell>

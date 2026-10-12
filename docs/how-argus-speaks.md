@@ -12,6 +12,14 @@ every word is doing work. It is a request for accuracy and grace.
 
 ## Principles
 
+Default to an ordinary reader, not someone who knows Argus or the field. Lead
+with the answer and what it means for that person, then the evidence and limits
+that matter. Explain necessary unfamiliar terms in everyday words at first use.
+Keep numbers, sources and uncertainty intact. Simple questions need direct
+answers, not a fixed multi-section template; professional questions still need
+precise terminology and detail. Give a next step only when the person needs to
+act. Internal technical records and parsed closing lines remain unchanged.
+
 1. **Say what happened and what it means, in the words of the field.**
    "The effect held on the untouched worlds" rather than "the artifact passed
    the gate." "The comparison went against the mechanism" rather than "the

@@ -2,7 +2,6 @@ import { FontAwesomeIcon } from '@fortawesome/react-fontawesome';
 import {
   faBars,
   faDiagramProject,
-  faEllipsis,
   faFlask,
   faListUl,
   faWindowMaximize,
@@ -10,7 +9,7 @@ import {
 import type { IconDefinition } from '@fortawesome/fontawesome-svg-core';
 import { useI18n } from '../i18n';
 
-export type MobileTab = 'sessions' | 'mission' | 'activity' | 'workbench' | 'map' | 'preview';
+export type MobileTab = 'sessions' | 'activity' | 'workbench' | 'map' | 'preview';
 
 /** The map is home; conversation and files stay within one tap. */
 export function MobileTabBar({
@@ -18,20 +17,17 @@ export function MobileTabBar({
   onSelect,
   onOpenSessions,
   sidebarOpen = false,
-  onRead,
-  onOpenSkills,
 }: {
   active: Exclude<MobileTab, 'sessions'>;
   onSelect: (tab: Exclude<MobileTab, 'sessions'>) => void;
   onOpenSessions?: () => void;
   sidebarOpen?: boolean;
-  onRead?: () => void;
-  onOpenSkills?: () => void;
 }) {
-  const { t, locale } = useI18n();
+  const { t } = useI18n();
   const tabs: { id: Exclude<MobileTab, 'sessions'>; label: string; icon: IconDefinition }[] = [
     { id: 'map', label: t('mobile.map'), icon: faDiagramProject },
     { id: 'activity', label: t('mobile.activity'), icon: faListUl },
+    { id: 'workbench', label: t('mobile.workbench'), icon: faFlask },
     { id: 'preview', label: t('mobile.preview'), icon: faWindowMaximize },
   ];
 
@@ -70,22 +66,6 @@ export function MobileTabBar({
           </button>
         );
       })}
-      <details className="workspace-more mobile-more flex-1" onKeyDown={event => {
-        if (event.key === 'Escape') { event.currentTarget.open = false; event.currentTarget.querySelector('summary')?.focus(); }
-      }}>
-        <summary className="min-h-[3.25rem]" aria-current={active === 'mission' || active === 'workbench' ? 'page' : undefined}>
-          <FontAwesomeIcon icon={faEllipsis} className="h-4 w-4" />
-          <span>{locale === 'zh-CN' ? '更多' : 'More'}</span>
-        </summary>
-        <div className="workspace-more-menu" onClick={event => {
-          if ((event.target as HTMLElement).closest('button')) event.currentTarget.closest('details')?.removeAttribute('open');
-        }}>
-          {onOpenSkills && <button type="button" onClick={onOpenSkills}>{locale === 'zh-CN' ? '技能库' : 'Skill library'}</button>}
-          <button type="button" onClick={() => onSelect('mission')}><FontAwesomeIcon icon={faListUl} />{t('mobile.mission')}</button>
-          {onRead ? <button type="button" onClick={onRead}>{locale === 'zh-CN' ? '任务说明与依据' : 'Task explanation and evidence'}</button> : null}
-          <button type="button" onClick={() => onSelect('workbench')}><FontAwesomeIcon icon={faFlask} />{t('mobile.workbench')}</button>
-        </div>
-      </details>
     </nav>
   );
 }

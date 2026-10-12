@@ -1,27 +1,33 @@
-import { useCallback, useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useState } from 'react';
 import { useI18n } from '../i18n';
 import { EmptyState, Spinner } from './components/Common';
 import { ExperimentsPage } from './pages/ExperimentsPage';
 import { IdePage } from './pages/IdePage';
 import { TimelinePage } from './timeline/TimelinePage';
 import type { ActiveWorkbenchPageProps } from './pages/pageTypes';
-import { ProjectOverviewPage } from './pages/ProjectOverviewPage';
+import { RuntimeControlPage } from './pages/RuntimeControlPage';
 import { WORKBENCH_MODULES } from './modules';
 import type { PageId } from './types';
 import { useArgusData, useProjects } from './useArgusData';
 import './styles.css';
 
-export function ResearchWorkbenchPanel({ sid, active }: { sid: string; active: boolean }) {
+export function ResearchWorkbenchPanel({ sid, active, readOnly = false, runtimeRequest = 0, onRestored }: {
+  sid: string; active: boolean; readOnly?: boolean; runtimeRequest?: number;
+  onRestored: (sid: string) => void | Promise<void>;
+}) {
   const { locale } = useI18n();
   const [page, setPage] = useState<PageId>(() => {
     const requested = new URLSearchParams(window.location.search).get('module');
-    return WORKBENCH_MODULES.find((module) => module.id === requested)?.id ?? 'overview';
+    return WORKBENCH_MODULES.find((module) => module.id === requested)?.id ?? 'runtime';
   });
   const [openedPages, setOpenedPages] = useState(() => new Set<PageId>([page]));
   const navigate = useCallback((next: PageId) => {
     setPage(next);
     setOpenedPages((current) => current.has(next) ? current : new Set([...current, next]));
   }, []);
+  useEffect(() => {
+    if (runtimeRequest) navigate('runtime');
+  }, [runtimeRequest, navigate]);
   const projectsQ = useProjects(active);
   const projects = projectsQ.data?.projects ?? [];
   const project = useMemo(() => projects.find((item) => item.id === sid) ?? null, [projects, sid]);
@@ -72,8 +78,8 @@ export function ResearchWorkbenchPanel({ sid, active }: { sid: string; active: b
       ) : !pageProps ? (
         <div className="boot-state"><Spinner label={locale === 'zh-CN' ? '正在载入工作台' : 'Loading workbench'} /></div>
       ) : WORKBENCH_MODULES.filter(({ id }) => openedPages.has(id)).map(({ id }) => (
-        <div key={`${sid}:${id}`} className={`ros-content min-h-0 flex-1 overflow-x-hidden overflow-y-auto ${activePage === id ? '' : 'hidden'}`} aria-hidden={activePage !== id}>
-          {id === 'overview' ? <ProjectOverviewPage {...pageProps} active={active && activePage === id} />
+        <div key={`${sid}:${id}`} className={`ros-content workspace-view-surface min-h-0 flex-1 overflow-x-hidden overflow-y-auto ${activePage === id ? '' : 'hidden'}`} aria-hidden={activePage !== id}>
+          {id === 'runtime' ? <RuntimeControlPage {...pageProps} active={active && activePage === id} readOnly={readOnly} onRestored={onRestored} />
             : id === 'timeline' ? <TimelinePage sid={sid} />
             : id === 'experiments' ? <ExperimentsPage {...pageProps} active={active && activePage === id} />
             : <IdePage {...pageProps} active={active && activePage === id} />}

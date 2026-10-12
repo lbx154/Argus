@@ -49,4 +49,15 @@ describe('conversation as the starting view', () => {
     mount();
     expect(layout.workspaceView).toBe('map');
   });
+  it('routes removed mission links and saved choices to the conversation', () => {
+    storage.set('argus.workspace.view.v3', 'map');
+    window.location.search = '?view=mission';
+    mount();
+    expect(layout.workspaceView).toBe('activity');
+    act(() => tree.unmount());
+    window.location.search = '';
+    storage.set('argus.workspace.view.v3', 'mission');
+    mount();
+    expect(layout.workspaceView).toBe('activity');
+  });
 });

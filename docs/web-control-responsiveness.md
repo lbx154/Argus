@@ -1,5 +1,33 @@
 # Web request cancellation
 
+## Workbench navigation and runtime controls
+
+The main views are Map, Conversation, and Workbench. Workbench modules are
+Research timeline, Execution, AI IDE, and Runtime controls, in that order.
+Runtime controls replaces the separate operations modal and project overview.
+Legacy `view=mission` links open the conversation; removed or invalid module
+selections open Runtime controls. Task history and execution capabilities are
+unchanged. New work and adjustments belong in the conversation rather than a
+second composer inside runtime controls.
+
+Runtime controls reads device telemetry while visible and keeps maintenance,
+recovery, and diagnostics collapsed until needed. Opening the page does not
+check/apply source updates, restart a daemon, or submit work. Safe pause drains
+current work, and maintenance commands retain command revisions and explicit
+confirmation. Read-only views cannot execute controls.
+
+Each GPU card displays the host's original device index, reported model,
+compute utilization, memory usage, and Argus reservation state. Computing,
+reserved, memory occupied, and no activity are distinct observations. Host
+telemetry includes other programs; zero utilization is not proof that a device
+is exclusively available. Probe failures remain visible rather than becoming
+idle cards. The authenticated resource API exposes these normalized facts
+without device UUIDs, owner identities, or private project paths.
+
+The attachment button uses the existing Argus mark while retaining its Add files
+label and file-picker behavior. Core transitions use brief opacity/transform
+feedback, do not replay on every streamed fragment, and honor reduced motion.
+
 The composer stops its current Manager request on the server. Every submission
 has a fresh `request_id`; `POST /api/projects/{sid}/message/cancel` targets that
 identity. The cancellation POST has its own connection lifetime and a five-second

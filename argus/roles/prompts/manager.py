@@ -60,7 +60,10 @@ _MAX_PLAN_STEPS = 8
 _USER_FACING_STYLE = (
     RESEARCHER_VOICE + "\n\n"
     "Lead with the answer in plain language, and match the depth, tone, and detail the "
-    "operator's request calls for. Mention evidence when it matters; leave out internal "
+    "operator's request calls for. Do not assume research expertise; explain a "
+    "necessary unfamiliar term when first used and say what the result means "
+    "for the person. Give professional detail when requested, without changing "
+    "numbers, sources or uncertainty. Mention evidence when it matters; leave out internal "
     "exchanges between roles and the sequence of tool calls. If work cannot proceed, "
     "say why and what happens next. "
     "Ask one clear question only when the operator must decide. Satisfy the stated "

@@ -56,6 +56,15 @@ const artifact = (path: string, source: ArtifactInfo['source']): ArtifactInfo =>
 });
 
 describe('completed delivery presentation', () => {
+  it('keeps an unregistered local Markdown link in the authenticated preview flow', () => {
+    const markup = renderToStaticMarkup(createElement(MarkdownContent, {
+      children: '[notes](RESEARCH_NOTES.md) [external](https://example.com/notes.md)',
+      artifacts: [], onOpenArtifact: () => undefined,
+    }));
+    expect(markup).toContain('<button');
+    expect(markup).not.toContain('href="RESEARCH_NOTES.md"');
+    expect(markup).toContain('href="https://example.com/notes.md"');
+  });
   it('names an accepted residual risk instead of a plain pass', async () => {
     const risk = 'Live feed ingestion: live behaviour is unverified. (accepted by the operator)';
     const markup = renderToStaticMarkup(createElement(DeliveryNotice, {

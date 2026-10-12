@@ -4,7 +4,6 @@ import { isImeComposing } from '../lib/ime';
 import { spinnerFrame } from '../lib/soul';
 import { slashCompletions, applyCompletion } from '../../../core/src/commands';
 import { isPromptRewriteShortcut } from '../../../core/src/shortcuts';
-import { formatStepSeconds, stepElapsedS, visibleTrail, type PhaseStep } from '../../../core/src/phaseTrail';
 import { clampSlashCompletionSelection, slashCompletionOptionId, SlashCompletionMenu, SLASH_COMPLETION_LISTBOX_ID, SLASH_COMPLETION_VISIBLE_ROWS } from './SlashCompletionMenu';
 import { useI18n } from '../i18n';
 import { addComposerFiles, dataTransferHasFiles, extractFilesFromDataTransfer, MESSAGE_ATTACHMENT_MAX_BYTES, MESSAGE_ATTACHMENT_MAX_COUNT, MESSAGE_ATTACHMENT_TOTAL_MAX_BYTES } from '../lib/attachments';
@@ -37,7 +36,7 @@ export function handlePromptRewriteShortcut(event: RewriteShortcutEvent, state: 
 /** Main-conversation actions around the same input surface used by the map. */
 export function ChatBox({
   value, onChange, onSend, onCancel, disabled, pending, focusSignal,
-  attachments, onAttachmentsChange, steps = [], onRewrite, rewriting = false,
+  attachments, onAttachmentsChange, onRewrite, rewriting = false,
   slashSelection, onSlashSelectionChange, routeOverride = 'auto', onRouteOverrideChange, footer,
 }: {
   value: string;
@@ -50,7 +49,6 @@ export function ChatBox({
   embedded?: boolean;
   attachments: File[];
   onAttachmentsChange: (files: File[]) => void;
-  steps?: PhaseStep[];
   onRewrite?: (draft: string) => void;
   rewriting?: boolean;
   slashSelection: number;
@@ -78,8 +76,6 @@ export function ChatBox({
     return () => clearInterval(id);
   }, [pending, rewriting]);
   useEffect(() => { if (focusSignal && !disabled) taRef.current?.focus(); }, [focusSignal, disabled]);
-  const trailRows = visibleTrail(steps);
-  const trailNow = Date.now() / 1000;
   const visibleCompletions = slashCompletions(value).slice(0, SLASH_COMPLETION_VISIBLE_ROWS);
   const completionOpen = visibleCompletions.length > 0 && !menuDismissed;
   const bounded = completionOpen ? clampSlashCompletionSelection(slashSelection, visibleCompletions.length) : 0;
@@ -152,18 +148,7 @@ export function ChatBox({
       if (!dataTransferHasFiles(event.dataTransfer)) return;
       event.preventDefault(); setDragDepth(0); addFiles(extractFilesFromDataTransfer(event.dataTransfer));
     }}>
-    {pending ? <div className="px-3 py-2">
-      {trailRows.length ? <ol className="mt-1.5 space-y-0.5">{trailRows.map((step, index) => {
-        const active = index === trailRows.length - 1 && !step.endedTs;
-        const seconds = formatStepSeconds(stepElapsedS(step, trailNow));
-        return <li key={step.id} className="flex min-w-0 items-baseline gap-2 text-xs">
-          <span className={`shrink-0 font-mono ${active ? 'text-manager' : 'text-ok'}`}>{active ? spinnerFrame(thinkTick) : '✓'}</span>
-          <span className={`min-w-0 flex-1 truncate font-mono ${active ? 'text-ink' : 'text-ink-faint'}`} title={step.detail || step.label}>{step.label}</span>
-          {seconds ? <span className="shrink-0 font-mono tabular-nums text-ink-faint">{seconds}</span> : null}
-        </li>;
-      })}</ol> : null}
-      <div className="mt-1 text-xs text-ink-faint" role="status">{queuedNotice ? t('chat.queuedWhileRunning') : t('chat.stopWaitingHint')}</div>
-    </div> : null}
+    {pending ? <div className="px-3 py-2 text-xs text-ink-faint" role="status">{queuedNotice ? t('chat.queuedWhileRunning') : t('chat.stopWaitingHint')}</div> : null}
     {completionOpen ? <SlashCompletionMenu query={value} selected={bounded} onSelect={applySelected} /> : null}
     {(attachments.length || attachmentNotice || dragDepth > 0) ? <div className="px-3 py-2">
       {dragDepth > 0 ? <div className="mb-2 text-xs text-manager">{t('chat.attachDrop')}</div> : null}

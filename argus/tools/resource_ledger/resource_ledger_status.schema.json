@@ -41,6 +41,19 @@
     }
   },
   "$defs": {
+    "ResourceDeviceStatus": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["index", "name", "total_memory_mib", "used_memory_mib", "utilization_percent", "reserved"],
+      "properties": {
+        "index": {"type": "string"},
+        "name": {"type": "string"},
+        "total_memory_mib": {"type": "integer", "minimum": 0},
+        "used_memory_mib": {"type": "integer", "minimum": 0},
+        "utilization_percent": {"type": "number", "minimum": 0, "maximum": 100},
+        "reserved": {"type": "boolean"}
+      }
+    },
     "ResourceAcceleratorStatus": {
       "type": "object",
       "additionalProperties": false,
@@ -68,6 +81,10 @@
         },
         "detail": {
           "type": "string"
+        },
+        "devices": {
+          "type": "array",
+          "items": {"$ref": "#/$defs/ResourceDeviceStatus"}
         }
       }
     },

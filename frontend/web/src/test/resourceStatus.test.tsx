@@ -47,4 +47,32 @@ describe('ResourceStatusView', () => {
     expect(markup).not.toContain('train-1');
     expect(markup).not.toContain('eval-2');
   });
+  it('shows host indices, models and distinct telemetry / reservation states without guessing availability', () => {
+    const device = { index: '0', name: 'NVIDIA A100', total_memory_mib: 40960, used_memory_mib: 0, utilization_percent: 0, reserved: false };
+    const status: ResourceStatus = {
+      schema_version: 1, enforcement: 'strict', holders: [], queue: [],
+      accelerators: [{ kind: 'cuda', status: 'available', device_count: 4, detail: '', devices: [
+        { ...device, index: '3', utilization_percent: 72, used_memory_mib: 10240 },
+        { ...device, index: '5', reserved: true },
+        { ...device, index: '7', used_memory_mib: 512 },
+        { ...device, index: '9' },
+      ] }],
+    };
+    const html = renderToStaticMarkup(<ResourceStatusView status={status} error="" />);
+    for (const state of ['computing', 'reserved', 'allocated', 'quiet']) expect(html).toContain(`data-gpu-state="${state}"`);
+    for (const index of ['3', '5', '7', '9']) expect(html).toContain(`GPU ${index}`);
+    expect(html).toContain('NVIDIA A100');
+    expect(html).toContain('72%');
+    expect(html).toContain('10.0 GiB / 40.0 GiB');
+    expect(html).toContain('512 MiB');
+    expect(html).toContain('not a guarantee of exclusive availability');
+  });
+  it('does not invent device cards when telemetry is inaccessible or absent', () => {
+    const html = renderToStaticMarkup(<ResourceStatusView status={{
+      schema_version: 1, enforcement: 'advisory', holders: [], queue: [],
+      accelerators: [{ kind: 'cuda', status: 'inaccessible', device_count: 0, detail: 'permission denied', devices: [] }],
+    }} error="" />);
+    expect(html).toContain('permission denied');
+    expect(html).not.toContain('data-gpu-state=');
+  });
 });

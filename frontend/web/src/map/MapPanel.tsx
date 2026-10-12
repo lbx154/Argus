@@ -1563,7 +1563,7 @@ export function MapCanvas({
             </button>
           </div>
           {!readOnly && (
-            <MapComposer {...composer} pendingLabel={pendingLabel}
+            <MapComposer {...composer} pendingLabel={pendingLabel} progressVisible={!conversationOpen}
               dispatchStatus={flight?.result?.type === 'task' ? flight.landed || composer.historical ? 'task' : 'launching' : flight?.result?.outcome}
               onSend={submitFromMap} onCancel={cancelFromMap} overview={!camera.detailed} />
           )}

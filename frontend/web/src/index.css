@@ -455,7 +455,7 @@ select optgroup {
   border-bottom: 2px solid transparent;
   color: rgb(var(--ink-faint));
   font-size: 0.875rem;
-  transition: color 200ms ease;
+  transition: color 180ms ease, border-color 180ms ease;
 }
 
 .workspace-tab[data-selected='true'] {
@@ -499,6 +499,18 @@ select optgroup {
   background: rgb(var(--blue) / 8%);
   color: rgb(var(--ink));
   box-shadow: none;
+}
+
+@keyframes workspace-surface-enter {
+  from { opacity: .4; transform: translateY(4px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+.workspace-view-surface:not(.hidden) { animation: workspace-surface-enter 240ms cubic-bezier(.32,.72,0,1); }
+.runtime-control-page .button { transition: transform 160ms cubic-bezier(.32,.72,0,1), background-color 160ms ease, color 160ms ease; }
+.runtime-control-page .button:not(:disabled):active { transform: scale(.97); }
+@media (prefers-reduced-motion: reduce) {
+  .workspace-view-surface:not(.hidden) { animation: none; }
+  .runtime-control-page .button { transition: none; transform: none !important; }
 }
 
 .role-log-group {
