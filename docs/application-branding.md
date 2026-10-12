@@ -58,3 +58,28 @@ This does not configure a downstream installer: it must separately supply its
 own application identity, state directories, icons, backend resources and
 update channel. The standard Argus release builder continues to enforce the
 Argus distribution's version matrix.
+
+### Desktop storage profiles
+
+A compatible Tauri build must set `ARGUS_DESKTOP_PROFILE` **at compile time**,
+for example `ARGUS_DESKTOP_PROFILE=vulcan`. The profile is a 1–32 character
+lowercase ASCII identifier starting with a letter and containing only letters
+and digits. Invalid profiles fail compilation; a runtime environment variable
+cannot redirect the compiled desktop's settings. A non-Argus Tauri application
+identifier requires a non-Argus profile, and a custom profile cannot use the
+Argus identifier. This check runs before opening settings or starting a backend.
+
+The default profile keeps `argus-desktop`, its existing legacy-settings
+migration, and `~/.argus-skill` unchanged. Custom profiles use
+`<profile>-desktop` in the platform application-data directory and never import
+Argus settings, tokens, backend ownership or projects. Their default engine root
+is `~/.<profile>`; an explicit `<PROFILE>_HOME` is supported, while the established
+`ARGUS_SKILL_HOME` override takes precedence for compatibility. Preview storage
+remains separate and ignores both engine-home overrides.
+
+These settings are shared by the real desktop backend, trial setup, diagnostics,
+updater cache and Windows webview callers. Profile selection does not configure
+product artwork, the frozen backend, a signing key or an update channel. A
+downstream package still needs its own Tauri identity and a validated package;
+the Argus-specific preview build and installer scripts are not automatically
+downstream installers.

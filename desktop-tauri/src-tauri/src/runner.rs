@@ -24,7 +24,16 @@ pub fn argus_home_dir() -> PathBuf {
     env::var_os("ARGUS_SKILL_HOME")
         .filter(|value| !value.is_empty())
         .map(PathBuf::from)
-        .unwrap_or_else(|| home_dir().join(".argus-skill"))
+        .unwrap_or_else(|| {
+            let profile = crate::settings::desktop_profile();
+            if profile == "argus" {
+                return home_dir().join(".argus-skill");
+            }
+            env::var_os(format!("{}_HOME", profile.to_ascii_uppercase()))
+                .filter(|value| !value.to_string_lossy().trim().is_empty())
+                .map(PathBuf::from)
+                .unwrap_or_else(|| home_dir().join(format!(".{profile}")))
+        })
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]

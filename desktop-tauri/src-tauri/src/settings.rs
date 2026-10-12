@@ -18,6 +18,45 @@ use std::{
 /// the Web token and can prove ownership of a prior bundled backend.
 const CANONICAL_USER_DATA_DIR: &str = "argus-desktop";
 
+const DESKTOP_PROFILE: &str = match option_env!("ARGUS_DESKTOP_PROFILE") {
+    Some(profile) => profile,
+    None => "argus",
+};
+const _: () = assert!(valid_desktop_profile(DESKTOP_PROFILE),
+    "ARGUS_DESKTOP_PROFILE must be 1-32 lowercase ASCII letters/digits, starting with a letter");
+
+const fn valid_desktop_profile(profile: &str) -> bool {
+    let bytes = profile.as_bytes();
+    if bytes.is_empty() || bytes.len() > 32 || !bytes[0].is_ascii_lowercase() {
+        return false;
+    }
+    let mut index = 0;
+    while index < bytes.len() {
+        if !bytes[index].is_ascii_lowercase() && !bytes[index].is_ascii_digit() {
+            return false;
+        }
+        index += 1;
+    }
+    true
+}
+
+pub(crate) fn desktop_profile() -> &'static str {
+    DESKTOP_PROFILE
+}
+
+pub(crate) fn validate_application_identifier(identifier: &str) -> anyhow::Result<()> {
+    validate_profile_identifier(desktop_profile(), identifier)
+}
+
+fn validate_profile_identifier(profile: &str, identifier: &str) -> anyhow::Result<()> {
+    let argus_identifier = identifier == "cn.argusbot.desktop"
+        || identifier.starts_with("cn.argusbot.desktop.");
+    anyhow::ensure!((profile == "argus") == argus_identifier,
+        "Desktop application identifier and compiled ARGUS_DESKTOP_PROFILE disagree; \
+         compatible products must use their own identifier and storage profile.");
+    Ok(())
+}
+
 pub struct SettingsStore {
     data_dir: PathBuf,
     settings_path: PathBuf,
@@ -29,7 +68,7 @@ impl SettingsStore {
         let data_dir = desktop_data_dir();
         fs::create_dir_all(&data_dir)?;
         let settings_path = data_dir.join("settings.json");
-        if !crate::release::preview_mode() {
+        if desktop_profile() == "argus" && !crate::release::preview_mode() {
             migrate_legacy_settings(&data_dir, &settings_path)?;
         }
         let (settings, should_save) = load_settings_file(&settings_path)?;
@@ -152,7 +191,12 @@ pub fn available_backend_port(settings: &DesktopSettings) -> io::Result<u16> {
 pub(crate) fn desktop_data_dir() -> PathBuf {
     // A new preview namespace gives manual acceptance a genuinely empty profile
     // without deleting or silently importing an earlier preview's account/data.
-    let name = if crate::release::preview_mode() { "argus-desktop-preview-integration-20260913" } else { CANONICAL_USER_DATA_DIR };
+    let name = match (desktop_profile(), crate::release::preview_mode()) {
+        ("argus", false) => CANONICAL_USER_DATA_DIR.to_owned(),
+        ("argus", true) => "argus-desktop-preview-integration-20260913".to_owned(),
+        (profile, false) => format!("{profile}-desktop"),
+        (profile, true) => format!("{profile}-desktop-preview"),
+    };
     #[cfg(not(windows))]
     {
         let home = env::var_os("HOME")
@@ -440,6 +484,101 @@ mod tests {
             assert!(super::load_settings_file(&file).is_err());
             assert_eq!(std::fs::read_to_string(&file).unwrap(), raw);
         }
+    }
+
+    #[test]
+    fn compiled_product_storage_is_isolated() {
+        let profile = option_env!("ARGUS_DESKTOP_PROFILE").unwrap_or("argus");
+        let product_home = format!("{}_HOME", profile.to_ascii_uppercase());
+        for explicit_home in ["default", "compat", "product", "both"] {
+            let directory = tempfile::tempdir().unwrap();
+            let mut command = std::process::Command::new(std::env::current_exe().unwrap());
+            command.args(["--exact", "settings::tests::product_storage_child", "--ignored"])
+                .env("ARGUS_STORAGE_TEST_ROOT", directory.path())
+                .env("HOME", directory.path())
+                .env("USERPROFILE", directory.path())
+                .env("APPDATA", directory.path())
+                .env_remove("ARGUS_SKILL_HOME")
+                .env_remove(&product_home)
+                // A launcher environment must not change a compiled product.
+                .env("ARGUS_DESKTOP_PROFILE", "anotherproduct");
+            if matches!(explicit_home, "compat" | "both") {
+                command.env("ARGUS_SKILL_HOME", directory.path().join("explicit-engine"));
+            }
+            if matches!(explicit_home, "product" | "both") {
+                command.env(&product_home, directory.path().join("product-engine"));
+            }
+            let output = command.output().unwrap();
+            assert!(output.status.success(), "{}\n{}",
+                String::from_utf8_lossy(&output.stdout), String::from_utf8_lossy(&output.stderr));
+        }
+    }
+
+    #[test]
+    #[ignore = "isolated child process for compiled_product_storage_is_isolated"]
+    fn product_storage_child() {
+        let root = std::path::PathBuf::from(std::env::var_os("ARGUS_STORAGE_TEST_ROOT").unwrap());
+        let base = if cfg!(windows) { root.clone() }
+            else if cfg!(target_os = "macos") { root.join("Library/Application Support") }
+            else { root.join(".local/share") };
+        let profile = option_env!("ARGUS_DESKTOP_PROFILE").unwrap_or("argus");
+        let preview = crate::release::preview_mode();
+        let name = match (profile, preview) {
+            ("argus", false) => "argus-desktop".to_owned(),
+            ("argus", true) => "argus-desktop-preview-integration-20260913".to_owned(),
+            (_, false) => format!("{profile}-desktop"),
+            (_, true) => format!("{profile}-desktop-preview"),
+        };
+        let legacy = base.join("Argus").join("settings.json");
+        std::fs::create_dir_all(legacy.parent().unwrap()).unwrap();
+        let legacy_bytes = br#"{"token":"legacy-token","runnerConfigured":true,"runnerKind":"copilot"}"#;
+        std::fs::write(&legacy, legacy_bytes).unwrap();
+        let ownership = base.join("argus-desktop/runtime/backend.json");
+        std::fs::create_dir_all(ownership.parent().unwrap()).unwrap();
+        std::fs::write(&ownership, b"existing ownership must not move").unwrap();
+        let store = super::SettingsStore::open().unwrap();
+        assert_eq!(store.data_dir(), base.join(name));
+        if profile == "argus" && !preview {
+            assert_eq!(store.snapshot().token, "legacy-token");
+        } else {
+            assert_ne!(store.snapshot().token, "legacy-token");
+            assert!(!store.snapshot().runner_configured);
+            assert!(!store.data_dir().join("runtime/backend.json").exists());
+        }
+        let expected_home = if preview { store.data_dir().join("argus-home") }
+            else if let Some(explicit) = std::env::var_os("ARGUS_SKILL_HOME") {
+                std::path::PathBuf::from(explicit)
+            } else if profile == "argus" { root.join(".argus-skill") }
+            else if let Some(explicit) = std::env::var_os(format!("{}_HOME", profile.to_ascii_uppercase())) {
+                std::path::PathBuf::from(explicit)
+            }
+            else { root.join(format!(".{profile}")) };
+        assert_eq!(crate::runner::argus_home_dir(), expected_home);
+        assert_eq!(std::fs::read(&legacy).unwrap(), legacy_bytes);
+        assert_eq!(std::fs::read(&ownership).unwrap(), b"existing ownership must not move");
+        let token = store.snapshot().token;
+        assert_eq!(super::SettingsStore::open().unwrap().snapshot().token, token);
+    }
+
+    #[test]
+    fn product_profiles_cannot_select_paths_or_argus_engine_home() {
+        for profile in ["argus", "vulcan", "product2"] {
+            assert!(super::valid_desktop_profile(profile));
+        }
+        for profile in ["", "../argus", "argus-skill", ".argus-skill", "/tmp", "Vulcan", "2app",
+                        "a\\b", " app", "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"] {
+            assert!(!super::valid_desktop_profile(profile), "{profile}");
+        }
+    }
+
+    #[test]
+    fn compatible_identifiers_require_a_separate_compiled_storage_profile() {
+        for identifier in ["cn.argusbot.desktop", "cn.argusbot.desktop.preview.integration20260913"] {
+            assert!(super::validate_profile_identifier("argus", identifier).is_ok());
+            assert!(super::validate_profile_identifier("vulcan", identifier).is_err());
+        }
+        assert!(super::validate_profile_identifier("argus", "io.github.ahappend.vulcan").is_err());
+        assert!(super::validate_profile_identifier("vulcan", "io.github.ahappend.vulcan").is_ok());
     }
 
     #[test]

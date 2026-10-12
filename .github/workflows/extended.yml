@@ -295,6 +295,10 @@ jobs:
           npm --prefix desktop-tauri run test:ui
           cargo check --manifest-path desktop-tauri/src-tauri/Cargo.toml
           cargo test --manifest-path desktop-tauri/src-tauri/Cargo.toml --test core_tests
+      - name: Test compatible-product storage without importing Argus state
+        env:
+          ARGUS_DESKTOP_PROFILE: compatibleapp
+        run: cargo test --manifest-path desktop-tauri/src-tauri/Cargo.toml --locked --test core_tests settings::tests::
       - name: Build frozen backend and unsigned Tauri package layout
         shell: pwsh
         run: |

@@ -63,6 +63,7 @@ fn find_webview2_loader(target_arch: &str) -> Option<PathBuf> {
 }
 
 fn main() {
+    println!("cargo:rerun-if-env-changed=ARGUS_DESKTOP_PROFILE");
     stage_webview2_loader();
     tauri_build::build()
 }

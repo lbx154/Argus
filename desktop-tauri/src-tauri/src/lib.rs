@@ -281,6 +281,8 @@ fn make_release_context(app: &AppHandle) -> ReleaseContext {
 }
 
 fn initialize(app: &AppHandle) -> tauri::Result<()> {
+    settings::validate_application_identifier(&app.config().identifier)
+        .map_err(tauri::Error::Anyhow)?;
     let expected_preview_id = identity::preview_instance_identifier(
         "cn.argusbot.desktop.preview.integration20260913", true,
         std::env::var("ARGUS_DESKTOP_TEST_INSTANCE").ok().as_deref(),
