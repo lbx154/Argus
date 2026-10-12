@@ -20,6 +20,10 @@ answers, not a fixed multi-section template; professional questions still need
 precise terminology and detail. Give a next step only when the person needs to
 act. Internal technical records and parsed closing lines remain unchanged.
 
+Role prompts share one compact statement of these rules; the front-door
+classifier uses its brief form. Keep both within the existing composed-prompt
+budgets without weakening readability, uncertainty or protocol separation.
+
 1. **Say what happened and what it means, in the words of the field.**
    "The effect held on the untouched worlds" rather than "the artifact passed
    the gate." "The comparison went against the mechanism" rather than "the

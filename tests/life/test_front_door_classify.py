@@ -111,13 +111,12 @@ def test_front_door_prompt_has_a_strict_token_efficiency_budget(tmp_path) -> Non
     assert "Reason naturally" in prompt
     assert "VERTICAL:" not in prompt
     assert "TARGET:" not in prompt
-    assert "explicit continue/resume after a pause is not a control token" in prompt
-    assert "resumes are TEAM" in prompt
+    assert "Explicit continue/resume after pause: TEAM, not control." in prompt
     assert "WORKFLOW:" not in prompt
     assert "FAST_REPLY:" not in prompt
     assert "ACTIVE_MISSION: YES" in prompt
-    assert "Questions, explanations, criticism and suggestions are NONE" in prompt
-    assert "Ambiguity is NONE" in prompt
+    assert "Questions/explanations/criticism/suggestions: NONE" in prompt
+    assert "Ambiguity: NONE" in prompt
     assert all(mode in prompt for mode in ("PROJECTSTATUS", "ARGUSSTATUS", "HOSTSTATUS"))
     assert "FORBID only for an explicit command" in prompt
     assert "ALLOW only when explicitly re-enabled" in prompt

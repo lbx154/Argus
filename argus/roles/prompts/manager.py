@@ -289,9 +289,9 @@ def build_front_door_prompt(text: str, *, active_mission: bool = False, allow_re
         "codex_daily_requests,copilot_daily_requests,copilot_daily_premium,safe_mode,"
         "show_reasoning,telegram. Questions/task-local: NONE. Join with `; `.\n\n"
         "CONTROL: PAUSE=stop campaign; ABORT=end current mission; NO_DISPATCH=no new work; "
-        "STEER=explicit new direction for an active mission. Questions, explanations, "
-        "criticism and suggestions are NONE. An explicit continue/resume after a pause is not a control token; "
-        "resumes are TEAM. Ambiguity is NONE; controls: ROUTE SELF.\n\n"
+        "STEER=explicit new direction for an active mission. Questions/explanations/"
+        "criticism/suggestions: NONE. Explicit continue/resume after pause: TEAM, "
+        "not control. Ambiguity: NONE; controls: ROUTE SELF.\n\n"
         "AUTHORIZATION: explicit grants: "
         "validator_repair,"
         "acceptance_retry,provenance_repair,artifact_refresh,resume_blocked_work. "
@@ -337,7 +337,6 @@ def build_front_door_prompt(text: str, *, active_mission: bool = False, allow_re
         + "\n"
         f"ACTIVE_MISSION: {'YES' if active_mission else 'NO'}\n\n"
         f"Message:\n{cleaned}\n\n"
-        "Decide now.\n"
     )
 
 
