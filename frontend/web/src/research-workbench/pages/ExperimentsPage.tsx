@@ -16,7 +16,7 @@ import type { ActiveWorkbenchPageProps } from './pageTypes';
 const DONE = new Set(['done', 'completed', 'accepted', 'success']);
 const ACTIVE = new Set(['running', 'in_progress', 'claimed', 'active', 'working']);
 
-export function ExperimentsPage(props: ActiveWorkbenchPageProps) {
+export function ExperimentsPage(props: ActiveWorkbenchPageProps & { onCompose: () => void; readOnly: boolean }) {
   const { locale, text, t } = useWorkbenchText();
   const [now, setNow] = useState(() => Date.now() / 1_000);
   const [selectedTask, setSelectedTask] = useState('');
@@ -51,11 +51,23 @@ export function ExperimentsPage(props: ActiveWorkbenchPageProps) {
     if (confirm(message)) await props.controls.stop(drain);
   };
 
+  if (!dag.length && !view?.mission.id && !props.snapshot.session.objective && progress.runtime.state === 'idle') {
+    return <div className="ros-page experiment-v3">
+      <header className="ros-page-header"><div><h1>{text('任务进展', 'Work progress')}</h1></div></header>
+      <section className="ros-card p-6">
+        <EmptyState icon={Workflow} title={text('还没有开始任务', 'No work started yet')}
+          description={text('在对话里告诉 Argus 你的目标和期望产出。任务开始后，这里会显示真实进展与结果，不需要先启动后台运行。', 'Tell Argus your goal and expected output in the conversation. Actual progress and results will appear here once work starts; no background start is needed first.')} />
+        {!props.readOnly && <div className="flex justify-center pb-4"><button className="button button--primary" onClick={props.onCompose}>{text('描述任务', 'Describe a task')}</button></div>}
+        {props.controls.error && <p role="alert" className="inline-error">{props.controls.error}</p>}
+      </section>
+    </div>;
+  }
+
   return (
     <div className="ros-page experiment-v3">
       <header className="ros-page-header">
         <div><h1>{text('任务进展', 'Work progress')}</h1><p>{text('看清做了哪些工作、结论核对到了哪里，以及团队接下来要做什么。', 'See what work was done, which conclusions were checked, and what the team needs to do next.')}</p></div>
-        <div className="experiment-header-actions"><button className="button button--secondary" type="button" onClick={() => void props.refresh()}><RefreshCw size={14} />{text('刷新', 'Refresh')}</button>{!(props.snapshot.daemon.alive && props.snapshot.daemon.control_available === false) ? props.snapshot.daemon.alive ? <><button className="button button--secondary" type="button" disabled={props.controls.busy} onClick={() => void stop(true)}><Pause size={14} />{text('当前步后停止', 'Stop after step')}</button><button className="button button--danger" type="button" disabled={props.controls.busy} onClick={() => void stop(false)}><Square size={13} />{text('立即停止', 'Stop now')}</button></> : <button className="button button--primary" type="button" disabled={props.controls.busy} onClick={() => void props.controls.start()}><Play size={14} />{text('继续运行', 'Resume')}</button> : null}</div>
+        <div className="experiment-header-actions"><button className="button button--secondary" type="button" onClick={() => void props.refresh()}><RefreshCw size={14} />{text('刷新', 'Refresh')}</button>{!props.readOnly && !(props.snapshot.daemon.alive && props.snapshot.daemon.control_available === false) ? props.snapshot.daemon.alive ? <><button className="button button--secondary" type="button" disabled={props.controls.busy || props.snapshot.daemon.protocol_compatible === false} onClick={() => void stop(true)}><Pause size={14} />{text('当前步后停止', 'Stop after step')}</button><button className="button button--danger" type="button" disabled={props.controls.busy || props.snapshot.daemon.protocol_compatible === false} onClick={() => void stop(false)}><Square size={13} />{text('立即停止', 'Stop now')}</button></> : <button className="button button--primary" type="button" disabled={props.controls.busy || ['running', 'waiting', 'unknown'].includes(progress.runtime.state)} onClick={() => void props.controls.start()}><Play size={14} />{['running', 'waiting'].includes(progress.runtime.state) ? text('正在处理…', 'Working…') : progress.runtime.state === 'paused' ? text('继续运行', 'Resume') : text('启动运行', 'Start work')}</button> : null}</div>
       </header>
 
       <section className="experiment-progress-hero">

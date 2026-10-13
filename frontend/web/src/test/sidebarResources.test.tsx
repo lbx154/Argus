@@ -21,7 +21,7 @@ describe('top resource navigation', () => {
   it('puts plugins, skill library and vertical store directly above project search in order', () => {
     const html = markup();
     expect(html.indexOf('data-sidebar-resources')).toBeGreaterThan(0);
-    const labels = ['aria-label="Plugins"', 'aria-label="Skill library"', 'aria-label="Verticals"'];
+    const labels = ['aria-label="Plugins"', 'aria-label="Knowledge &amp; skills"', 'aria-label="Domain store"'];
     for (const label of labels) {
       expect(html).toContain(label);
       expect(html.indexOf(label)).toBeLessThan(html.indexOf('id="daemon-search"'));
@@ -39,21 +39,21 @@ describe('top resource navigation', () => {
   it('keeps the existing compact entry rail and collapse controls', () => {
     const html = markup(true);
     expect(html).toContain('aria-label="Expand sessions"');
-    const labels = ['aria-label="Plugins"', 'aria-label="Skill library"', 'aria-label="Verticals"'];
+    const labels = ['aria-label="Plugins"', 'aria-label="Knowledge &amp; skills"', 'aria-label="Domain store"'];
     for (const label of labels) expect(html).toContain(label);
     expect(labels.map(label => html.indexOf(label))).toEqual(labels.map(label => html.indexOf(label)).sort((a, b) => a - b));
     expect(html).not.toContain('aria-label="Learning feed"');
     expect(html).not.toContain('aria-label="Knowledge base"');
     expect(html).not.toContain('id="daemon-search"');
   });
-  it('opens the skill library at its internal learning feed from one sidebar entry', () => {
+  it('opens reusable material rather than the learning feed from the sidebar entry', () => {
     const onOpen = vi.fn();
     let view: ReturnType<typeof create>;
     act(() => { view = create(<LearningLibraryEntry onOpen={onOpen} />); });
     try {
       expect(view!.root.findAllByType('button')).toHaveLength(1);
       act(() => view!.root.findByType('button').props.onClick());
-      expect(onOpen).toHaveBeenCalledExactlyOnceWith('feed');
+      expect(onOpen).toHaveBeenCalledExactlyOnceWith('global');
     } finally { act(() => view!.unmount()); }
   });
 });

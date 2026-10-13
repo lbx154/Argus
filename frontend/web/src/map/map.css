@@ -4,7 +4,6 @@
   --map-canvas: #f5f7fa;
   --map-dot: #d6dfe9;
   --map-minimap-mask: rgba(242, 245, 249, 0.75);
-  --map-vignette: rgba(36, 54, 76, 0.045);
   display: flex;
   flex: 1;
   flex-direction: column;
@@ -21,7 +20,6 @@
   --map-canvas: #10161f;
   --map-dot: #263241;
   --map-minimap-mask: rgba(13, 19, 27, 0.72);
-  --map-vignette: rgba(0, 0, 0, 0.3);
 }
 /* The header is two lines: the session's name, then one sentence on where
  * the work stands. Everything else about the map lives behind the options
@@ -772,19 +770,6 @@
   border-radius: 2px;
   background: color-mix(in srgb, var(--state) 75%, transparent);
   transition: width 0.4s ease-out;
-}
-/* --- Canvas atmosphere: a quiet vignette keeps the eye on the center. --- */
-.map-canvas-wrap::after {
-  content: "";
-  position: absolute;
-  inset: 0;
-  pointer-events: none;
-  z-index: 4;
-  background: radial-gradient(
-    120% 92% at 50% 42%,
-    transparent 62%,
-    var(--map-vignette) 100%
-  );
 }
 /* --- Frame-rate work: cull invisible paint, animate on the compositor. --- */
 /* An unfocused card's inner submap is opacity:0 by design, yet its whole

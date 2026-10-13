@@ -287,11 +287,26 @@ function renderPage(value: Snapshot, taskEvents: EventMsg[] = events) {
     refresh: () => {}, navigate: () => {},
     controls: { start: async () => {}, stop: async () => {}, busy: false, error: '' },
   };
-  return renderToStaticMarkup(createElement(ExperimentsPage, props));
+  return renderToStaticMarkup(createElement(ExperimentsPage, { ...props, onCompose: () => {}, readOnly: false }));
 }
 
 describe('ExperimentsPage recorded work presentation', () => {
   afterEach(() => vi.useRealTimers());
+
+  it('shows a single next step instead of empty metrics, checkpoints and a resume control', () => {
+    const value = snapshot();
+    value.session.objective = '';
+    value.daemon.alive = false;
+    value.backlog = [];
+    value.roles = [];
+    value.mission_view = undefined;
+    const html = renderPage(value, []);
+    expect(html).toContain('No work started yet');
+    expect(html).toContain('Describe a task');
+    expect(html).not.toContain('progress-metrics');
+    expect(html).not.toContain('checkpoint-list');
+    expect(html).not.toContain('Resume');
+  });
 
   it('does not present a non-running role’s previous blocked or completed status as its current state', () => {
     vi.useFakeTimers();

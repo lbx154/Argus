@@ -10,8 +10,8 @@ export function SessionWorkdir({ session }: { session: Pick<Snapshot['session'],
   const path = session.workdir || session.cwd || '';
   const value = path || (zh ? '待确认' : 'Pending confirmation');
   return <details className="session-workdir" data-session-workdir>
-    <summary title={`${label}: ${value}`} aria-label={`${label}: ${value}`}>
-      <span>{label}</span><code>{value}</code>
+    <summary aria-label={label}>
+      <span>{label}</span>
     </summary>
     <div className="session-workdir__detail">
       <strong>{label}</strong>

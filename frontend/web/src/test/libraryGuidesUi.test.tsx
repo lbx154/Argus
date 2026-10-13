@@ -40,7 +40,7 @@ beforeEach(() => {
 it('unifies navigation into four categories while keeping private records, indexes and original scope', async () => {
   await act(async () => { view = create(<QueryClientProvider client={client}><LearningLibrary sid="s-A" initialScope="global" /></QueryClientProvider>); }); await settle();
   const nav = view!.root.findByType('nav');
-  expect(nav.findAllByType('button').map(content)).toEqual(['学习动态', '全局项目', '垂直领域', '项目']);
+  expect(nav.findAllByType('button').map(content)).toEqual(['通用资料', '领域资料', '项目资料', '学习动态']);
   expect(content(view!.root)).toContain('个人记录 · 原私有范围，不共享');
   act(() => view!.root.findAllByType('button').find(node => content(node).includes(wiki.title))!.props.onClick()); await settle();
   expect(api.wikiDocument).toHaveBeenCalledWith('s-A', 'private', '', wiki.path, expect.any(AbortSignal));
@@ -64,12 +64,21 @@ it('reads skills in the unified browser and resets selection on a project switch
 
 it('separates real learning records from file updates and reports source failures explicitly', async () => {
   vi.mocked(api.wikiLibrary).mockRejectedValue(new Error('synthetic failure'));
-  await act(async () => { view = create(<QueryClientProvider client={client}><LearningLibrary sid="s-A" /></QueryClientProvider>); }); await settle();
+  await act(async () => { view = create(<QueryClientProvider client={client}><LearningLibrary sid="s-A" initialScope="feed" /></QueryClientProvider>); }); await settle();
   expect(content(view!.root)).toContain('学习记录与文件更新分开展示');
   expect(content(view!.root)).toContain('知识无法加载');
   expect(content(view!.root)).toContain(custom.name);
   expect(content(view!.root)).not.toContain('当前分类或筛选条件下没有资料');
   expect(content(view!.root)).not.toContain('分段阅读 PDF');
+});
+
+it('opens on reusable material by default and loads learning history only when selected', async () => {
+  await act(async () => { view = create(<QueryClientProvider client={client}><LearningLibrary sid="s-A" /></QueryClientProvider>); }); await settle();
+  expect(content(view!.root)).toContain('分段阅读 PDF');
+  expect(api.knowledgeFeed).not.toHaveBeenCalled();
+  act(() => button('学习动态').props.onClick()); await settle();
+  expect(api.knowledgeFeed).toHaveBeenCalled();
+  expect(content(view!.root)).toContain('学习记录与文件更新分开展示');
 });
 
 it('assigns lessons, principles, profiles and indexes to their original scopes in the four-category browser', async () => {

@@ -11,14 +11,15 @@ import type { PageId } from './types';
 import { useArgusData, useProjects } from './useArgusData';
 import './styles.css';
 
-export function ResearchWorkbenchPanel({ sid, active, readOnly = false, runtimeRequest = 0, onRestored }: {
+export function ResearchWorkbenchPanel({ sid, active, readOnly = false, runtimeRequest = 0, onRestored, onCompose }: {
   sid: string; active: boolean; readOnly?: boolean; runtimeRequest?: number;
   onRestored: (sid: string) => void | Promise<void>;
+  onCompose: () => void;
 }) {
   const { locale } = useI18n();
   const [page, setPage] = useState<PageId>(() => {
     const requested = new URLSearchParams(window.location.search).get('module');
-    return WORKBENCH_MODULES.find((module) => module.id === requested)?.id ?? 'runtime';
+    return WORKBENCH_MODULES.find((module) => module.id === requested)?.id ?? 'experiments';
   });
   const [openedPages, setOpenedPages] = useState(() => new Set<PageId>([page]));
   const navigate = useCallback((next: PageId) => {
@@ -79,9 +80,9 @@ export function ResearchWorkbenchPanel({ sid, active, readOnly = false, runtimeR
         <div className="boot-state"><Spinner label={locale === 'zh-CN' ? '正在载入工作台' : 'Loading workbench'} /></div>
       ) : WORKBENCH_MODULES.filter(({ id }) => openedPages.has(id)).map(({ id }) => (
         <div key={`${sid}:${id}`} className={`ros-content workspace-view-surface min-h-0 flex-1 overflow-x-hidden overflow-y-auto ${activePage === id ? '' : 'hidden'}`} aria-hidden={activePage !== id}>
-          {id === 'runtime' ? <RuntimeControlPage {...pageProps} active={active && activePage === id} readOnly={readOnly} onRestored={onRestored} />
+          {id === 'runtime' ? <RuntimeControlPage {...pageProps} active={active && activePage === id} readOnly={readOnly} onRestored={onRestored} onCompose={onCompose} />
             : id === 'timeline' ? <TimelinePage sid={sid} />
-            : id === 'experiments' ? <ExperimentsPage {...pageProps} active={active && activePage === id} />
+            : id === 'experiments' ? <ExperimentsPage {...pageProps} active={active && activePage === id} readOnly={readOnly} onCompose={onCompose} />
             : <IdePage {...pageProps} active={active && activePage === id} />}
         </div>
       ))}

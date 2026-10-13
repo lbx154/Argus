@@ -95,7 +95,7 @@ export function TopBar({
       ) : null}
       <div className="topbar-heading flex min-w-0 flex-1 flex-col justify-center gap-0.5">
         <div className="topbar-title min-w-0 truncate text-sm font-semibold text-ink" title={snap.session.display_name || snap.session.id}>
-          {snap.session.display_name || snap.session.id}
+          {snap.session.display_name || t('sidebar.unnamedSession')}
         </div>
         <div className="flex min-w-0 items-center gap-2">
           {roleActive ? <span

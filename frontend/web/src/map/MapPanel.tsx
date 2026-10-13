@@ -419,31 +419,6 @@ export function MapCanvas({
     });
     return () => cancelAnimationFrame(frame);
   }, [nodesReady, camera.fit, camera.enter, camera.restore, data.kind, data.tasks, scene.cards, data.history_loading, copyReady]);
-  // The ambient light leans a little toward the pointer. A direct style
-  // write on the wrapper keeps this off React's render path entirely.
-  useEffect(() => {
-    const el = canvasRef.current;
-    if (!el || camera.reducedMotion) return;
-    let frame: number | null = null;
-    const lean = (event: PointerEvent) => {
-      if (frame != null) return;
-      frame = requestAnimationFrame(() => {
-        frame = null;
-        const rect = el.getBoundingClientRect();
-        if (!rect.width || !rect.height) return;
-        el.style.setProperty("--lean-x", ((event.clientX - rect.left) / rect.width - 0.5).toFixed(3));
-        el.style.setProperty("--lean-y", ((event.clientY - rect.top) / rect.height - 0.5).toFixed(3));
-      });
-    };
-    const rest = () => { el.style.setProperty("--lean-x", "0"); el.style.setProperty("--lean-y", "0"); };
-    el.addEventListener("pointermove", lean);
-    el.addEventListener("pointerleave", rest);
-    return () => {
-      if (frame != null) cancelAnimationFrame(frame);
-      el.removeEventListener("pointermove", lean);
-      el.removeEventListener("pointerleave", rest);
-    };
-  }, [camera.reducedMotion]);
   useEffect(() => {
     if (!fitted || savedView.current?.camera || camera.reducedMotion) return;
     setArriving(true);
@@ -1015,6 +990,22 @@ export function MapCanvas({
   const status = currentWorkStatus(snapshot, snapshot.mission_view, events);
   const currentWork = workSummary(status, snapshot.mission_view, events, zh ? 'zh-CN' : 'en', actions.connected,
     currentWorkStartedAt(snapshot, snapshot.mission_view, status.taskId));
+  const statusSentence = mapStatusSentence({
+    total: data.tasks.length,
+    qa: data.tasks.filter(task => task.turn_kind === 'qa').length,
+    complete,
+    ended: tally.ended,
+    reviewUnavailable: tally.review_unavailable,
+    held: tally.held,
+    running: tally.running,
+    pending: composer.pending,
+    paused,
+    hasOpenWork: data.tasks.some((task) => ["running", "pending", "paused", "held", "question"].includes(statusKey(task))),
+    role: activePhase,
+    current: data.kind === 'live' && !['idle', 'step_finished'].includes(status.state) ? currentWork : undefined,
+    waiting: waiting?.sentence,
+    zh,
+  });
   const focus = (id: string) => {
     setTraceId(null);
     setFocusFeedback("");
@@ -1167,7 +1158,7 @@ export function MapCanvas({
       )}
       {/* The second header line: one sentence on where the work stands, and,
           when something waits on the reader, a link straight to it. */}
-      <div className="map-status-row">
+      {(statusSentence || attention.length > 0) && <div className="map-status-row">
         {/* How the tasks divide, as one thin bar ahead of the sentence that says
             it in words: the eye takes the proportion, the sentence the detail. */}
         {data.tasks.length > 0 && (
@@ -1178,24 +1169,7 @@ export function MapCanvas({
         )}
         <p className="map-status-line" role="status">
           {(composer.pending || (!paused && (activePhase || waiting))) ? <i className="map-live-dot" aria-hidden /> : null}
-          <span className="map-status-text">
-            {mapStatusSentence({
-              total: data.tasks.length,
-              qa: data.tasks.filter(task => task.turn_kind === 'qa').length,
-              complete,
-              ended: tally.ended,
-              reviewUnavailable: tally.review_unavailable,
-              held: tally.held,
-              running: tally.running,
-              pending: composer.pending,
-              paused,
-              hasOpenWork: data.tasks.some((task) => ["running", "pending", "paused", "held", "question"].includes(statusKey(task))),
-              role: activePhase,
-              current: data.kind === 'live' && !['idle', 'step_finished'].includes(status.state) ? currentWork : undefined,
-              waiting: waiting?.sentence,
-              zh,
-            })}
-          </span>
+          <span className="map-status-text">{statusSentence}</span>
           {attention.length > 0 && (
             <>
               <span className="map-status-sep" aria-hidden>·</span>
@@ -1213,7 +1187,7 @@ export function MapCanvas({
             </>
           )}
         </p>
-      </div>
+      </div>}
       {data.kind === "live" && finalReview && !replaying && (
         <div className="map-final-review" role="status">
           <span>
@@ -1282,7 +1256,6 @@ export function MapCanvas({
           data-fitted={fitted}
           data-hovering={!!hoverId && !camera.detailed}
         >
-          <div className="map-ambient" aria-hidden="true"><i /><i /><i /></div>
           {conversationOpen && <MapConversation events={actions.conversationEvents} connected={actions.connected} pending={composer.pending} artifacts={actions.artifacts} zh={zh} onClose={() => setConversationOpen(false)} onOpenArtifact={actions.onOpenArtifact} onOpenDelivery={actions.onOpenReceipt} />}
           {agentsOpen && data.kind === 'live' && <aside className="map-agent-drawer nowheel nodrag nopan">
             <AgentActivity sid={snapshot.session.id} view={snapshot.mission_view} roles={snapshot.roles} events={events}
@@ -1744,7 +1717,7 @@ export const MapPanel = memo(function MapPanel({
   routeOverride?: MessageRouteOverride;
   onRouteOverrideChange?: (route: MessageRouteOverride) => void;
 } & MapWorkspaceActions) {
-  const { locale } = useI18n();
+  const { locale, t } = useI18n();
   const zh = locale === "zh-CN";
   const [localAttachments, setLocalAttachments] = useState<File[]>([]);
   const attachments = controlledAttachments ?? localAttachments;
@@ -1946,13 +1919,13 @@ export const MapPanel = memo(function MapPanel({
       pending,
       onCancel,
       focusSignal,
-      sessionName: snapshot.session.display_name || snapshot.session.id,
+      sessionName: snapshot.session.display_name || t("sidebar.unnamedSession"),
       historical: source !== "live",
       zh,
     }),
     [routeOverride, onRouteOverrideChange, draft, onDraftChange, send, attachments,
      pending, onCancel, focusSignal, snapshot.session.display_name, snapshot.session.id,
-     source, zh, snapshot.roles, snapshot.daemon.alive, snapshot.manager_requests, snapshot.last_call,
+     source, zh, t, snapshot.roles, snapshot.daemon.alive, snapshot.manager_requests, snapshot.last_call,
      readOnly, onOpenSettings],
   );
   const switchSource = (value: string) => {
@@ -1970,8 +1943,7 @@ export const MapPanel = memo(function MapPanel({
     >
       <header className="map-header">
         <div className="map-heading">
-          <span className="map-kicker" aria-hidden="true">{zh ? "ARGUS · 研究地图" : "ARGUS · RESEARCH MAP"}</span>
-          <h1 title={snapshot.session.display_name}>{snapshot.session.display_name}</h1>
+          <h1 title={snapshot.session.display_name}>{snapshot.session.display_name || t("sidebar.unnamedSession")}</h1>
         </div>
         <details className="map-more">
           <summary aria-label={zh ? "地图选项" : "Map options"} title={zh ? "地图选项" : "Map options"}>
@@ -1988,7 +1960,7 @@ export const MapPanel = memo(function MapPanel({
               >
                 <option value="live">
                   {zh ? "当前会话" : "Current session"} ·{" "}
-                  {snapshot.session.display_name}
+                  {snapshot.session.display_name || t("sidebar.unnamedSession")}
                 </option>
                 {!index.data?.datasets.some((d) => d.id === source) &&
                   source !== "live" && <option value={source}>{source}</option>}

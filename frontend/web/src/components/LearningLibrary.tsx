@@ -14,10 +14,10 @@ import { pageKind, useWikiLibrary, wikiKindLabels } from './WikiLibrary';
 
 export type LearningScope = 'feed' | 'global' | 'vertical' | 'project';
 export type LearningSelection = { kind: 'knowledge'; item: WikiLibraryItem } | { kind: 'skill'; item: SkillLibraryItem };
-const scopes: LearningScope[] = ['feed', 'global', 'vertical', 'project'];
+const scopes: LearningScope[] = ['global', 'vertical', 'project', 'feed'];
 export const learningScopeLabels = {
-  'zh-CN': { feed: '学习动态', global: '全局项目', vertical: '垂直领域', project: '项目' },
-  en: { feed: 'Learning feed', global: 'Across projects', vertical: 'Vertical', project: 'Project' },
+  'zh-CN': { feed: '学习动态', global: '通用资料', vertical: '领域资料', project: '项目资料' },
+  en: { feed: 'Learning feed', global: 'General', vertical: 'Domain', project: 'Project' },
 };
 type Entry = {
   id: string; title: string; description: string; path: string; scope: WikiScope;
@@ -58,16 +58,16 @@ export function LearningLibraryEntry({ onOpen, compact = false }: {
   onOpen: (scope: LearningScope) => void; compact?: boolean;
 }) {
   const { locale } = useI18n();
-  const label = locale === 'zh-CN' ? '技能库' : 'Skill library';
+  const label = locale === 'zh-CN' ? '知识与技能' : 'Knowledge & skills';
   return <section className={`shrink-0 ${compact ? 'py-2' : 'mx-2 py-1'}`} data-learning-navigation>
-    <button type="button" onClick={() => onOpen('feed')} aria-label={label} title={label}
+    <button type="button" onClick={() => onOpen('global')} aria-label={label} title={label}
       className={`flex w-full items-center gap-2 rounded-md px-3 py-2 text-left text-sm text-ink-dim hover:bg-bg hover:text-ink ${compact ? 'justify-center' : ''}`}>
       <BookOpen size={16} aria-hidden="true" />{!compact && label}
     </button>
   </section>;
 }
 
-export function LearningLibrary({ sid, initialScope = 'feed', initialSelection = null, projectNames = {} }: {
+export function LearningLibrary({ sid, initialScope = 'global', initialSelection = null, projectNames = {} }: {
   sid: string | null; initialScope?: LearningScope; initialSelection?: LearningSelection | null;
   projectNames?: Record<string, string>;
 }) {
@@ -131,8 +131,8 @@ function LearningBrowser({ sid, initialScope, initialSelection, projectNames }: 
   };
 
   return <div className="flex h-[min(780px,84dvh)] min-h-0 flex-col" data-learning-library>
-    <ModalHeader title={zh ? '技能库' : 'Skill library'}
-      sub={zh ? '在一起查看学到的知识、可复用的方法和原始资料。' : 'Explore learned knowledge, reusable methods and original sources together.'} />
+    <ModalHeader title={zh ? '知识与技能' : 'Knowledge & skills'}
+      sub={zh ? '浏览知识、可复用的方法和原始资料，不会运行任务或安装插件。学习记录在“学习动态”中查看。' : 'Browse knowledge, reusable methods and original sources without running tasks or installing plugins. Open Learning feed for learning history.'} />
     <LearningStatus sid={sid} onOpenKnowledge={() => pick('feed')} onOpenSkills={() => pick('feed')} />
     <nav aria-label={zh ? '学习资源分类' : 'Learning resource categories'} className="flex shrink-0 overflow-x-auto border-b border-line/60 px-4">
       {scopes.map(value => <button key={value} type="button" aria-pressed={scope === value} onClick={() => pick(value)}

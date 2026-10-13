@@ -7,6 +7,7 @@ import { RawDisclosure } from '../../components/primitives';
 import { useI18n } from '../../i18n';
 import { isImeComposing } from '../../lib/ime';
 import { requestFailureText, routeRefused } from '../../lib/requestFailure';
+import { currentWorkStatus, workStatusLabel } from '../../lib/workStatus';
 import type { ActiveWorkbenchPageProps } from './pageTypes';
 import './runtimeControl.css';
 
@@ -24,8 +25,8 @@ async function requireCommandSuccess(operation: Promise<unknown>) {
 }
 
 export function RuntimeControlPage({
-  sid, snapshot: snap, active, connected, controls, refresh, readOnly, onRestored,
-}: ActiveWorkbenchPageProps & { readOnly: boolean; onRestored: (sid: string) => void | Promise<void> }) {
+  sid, snapshot: snap, active, connected, controls, refresh, readOnly, onRestored, events, onCompose,
+}: ActiveWorkbenchPageProps & { readOnly: boolean; onRestored: (sid: string) => void | Promise<void>; onCompose: () => void }) {
   const { t, locale } = useI18n();
   const zh = locale === 'zh-CN';
   const [settingsOpen, setSettingsOpen] = useState(false);
@@ -62,6 +63,9 @@ export function RuntimeControlPage({
   const disabled = readOnly || !!busy || controls.busy;
   const external = snap.daemon.alive && snap.daemon.control_available === false;
   const incompatible = snap.daemon.alive && snap.daemon.protocol_compatible === false;
+  const work = currentWorkStatus(snap, snap.mission_view, events);
+  const empty = work.state === 'idle' && !snap.backlog.length && !snap.mission_view?.mission.id && !snap.session.objective;
+  const foreground = !snap.daemon.alive && ['running', 'waiting'].includes(work.state);
   const run = async (key: string, operation: () => Promise<unknown>, message: string) => {
     if (readOnly || busyRef.current || controls.busy) return;
     busyRef.current = true;
@@ -89,24 +93,26 @@ export function RuntimeControlPage({
     <section className="runtime-summary">
       <div className="runtime-summary-copy">
         <span className="runtime-eyebrow">{zh ? '运行控制' : 'Runtime controls'}</span>
-        <h2>{snap.session.display_name || sid}</h2>
+        <h2>{snap.session.display_name || t('sidebar.unnamedSession')}</h2>
         <div className="runtime-status-line">
-          <span className="runtime-status" data-running={snap.daemon.alive}>
-            <i aria-hidden="true" />{snap.daemon.alive ? zh ? '持续运行中' : 'Running continuously' : zh ? '持续运行已暂停' : 'Continuous work paused'}
+          <span className="runtime-status" data-running={work.state === 'running'}>
+            <i aria-hidden="true" />{workStatusLabel(work, locale)}
           </span>
           <span>{connected ? zh ? '实时连接' : 'Live connection' : zh ? '连接恢复中，状态可能延迟' : 'Reconnecting; status may be delayed'}</span>
-          {!!snap.manager_requests?.length && <span>{zh ? '对话处理中' : 'Reply in progress'}</span>}
+          {work.foreground && <span>{zh ? '对话处理中' : 'Reply in progress'}</span>}
         </div>
       </div>
       <div className="runtime-main-actions">
-        <button className="button button--primary" disabled={disabled || external || incompatible}
-          onClick={() => { if (snap.daemon.alive) void controls.stop(true); else void controls.start(); }}>
+        <button className="button button--primary" disabled={disabled || external || incompatible || foreground || work.state === 'unknown'}
+          onClick={() => { if (empty) onCompose(); else if (snap.daemon.alive) void controls.stop(true); else void controls.start(); }}>
           {snap.daemon.alive ? <Pause size={16} /> : <Play size={16} />}
-          {controls.busy ? zh ? '正在处理…' : 'Working…' : snap.daemon.alive ? zh ? '安全暂停' : 'Pause safely' : zh ? '启动运行' : 'Start work'}
+          {controls.busy || foreground ? zh ? '正在处理…' : 'Working…' : empty ? zh ? '描述任务' : 'Describe a task' : snap.daemon.alive ? zh ? '安全暂停' : 'Pause safely' : work.state === 'paused' ? zh ? '继续运行' : 'Resume' : zh ? '启动运行' : 'Start work'}
         </button>
         <button className="button button--ghost" disabled={resources.isFetching} onClick={() => { void resources.refetch(); void refresh(); }}><RefreshCw size={15} />{zh ? '刷新状态' : 'Refresh'}</button>
       </div>
-      <p className="runtime-summary-hint">{zh ? '安全暂停会等待当前工作结束。新的任务和调整直接在对话中告诉 Argus。' : 'Safe pause waits for current work to finish. Send new tasks and adjustments in the conversation.'}</p>
+      <p className="runtime-summary-hint">{empty
+        ? zh ? '先在对话里描述目标，无需先启动后台运行。有任务后，这里会显示实际运行状态。' : 'Describe your goal in the conversation; no background start is needed first. Actual work status will appear here.'
+        : zh ? '安全暂停会等待当前工作结束。新的任务和调整直接在对话中告诉 Argus。' : 'Safe pause waits for current work to finish. Send new tasks and adjustments in the conversation.'}</p>
       {readOnly && <p>{zh ? '当前为只读展示，不能执行控制操作。' : 'Read-only view; control actions are disabled.'}</p>}
       {external && <p role="alert">{zh ? '此运行实例由外部管理，请在其启动端控制。' : 'This instance is externally managed. Control it from its host.'}</p>}
       {incompatible && <p role="alert">{zh ? '运行实例版本不兼容，请展开运行设置进行安全重启。' : 'The running version is incompatible. Open settings to restart safely.'}</p>}

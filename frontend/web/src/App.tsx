@@ -151,7 +151,7 @@ export default function App() {
 
   const [overlay, setOverlay] = useState<Overlay>('none');
   const [learningSelection, setLearningSelection] = useState<LearningSelection | null>(null);
-  const [learningScope, setLearningScope] = useState<LearningScope>('feed');
+  const [learningScope, setLearningScope] = useState<LearningScope>('global');
   const openLearningLibrary = useCallback((scope: LearningScope) => {
     setLearningSelection(null);
     setLearningScope(scope);
@@ -1203,6 +1203,7 @@ export default function App() {
                 <div className={`${workspaceView === 'workbench' ? 'flex' : 'hidden'} workspace-view-surface min-h-0 flex-1`}>
                   <Suspense fallback={<div className="flex min-h-0 flex-1 items-center justify-center text-xs text-ink-faint">{t('common.loading')}</div>}>
                     <ResearchWorkbenchPanel sid={activeSid} active={workspaceView === 'workbench'} readOnly={kiosk} runtimeRequest={runtimeRequest}
+                      onCompose={() => { setWorkspaceView('activity'); setMobileView('activity'); setComposerFocus(value => value + 1); }}
                       onRestored={async restoredSid => { await projectsQ.refetch(); selectProject(restoredSid); }} />
                   </Suspense>
                 </div>
@@ -1279,7 +1280,7 @@ export default function App() {
       </main>
 
       {/* global overlays */}
-      <Modal open={overlay === 'learning'} onClose={() => setOverlay('none')} label={locale === 'zh-CN' ? '技能库' : 'Skill library'} width="max-w-6xl">
+      <Modal open={overlay === 'learning'} onClose={() => setOverlay('none')} label={locale === 'zh-CN' ? '知识与技能' : 'Knowledge & skills'} width="max-w-6xl">
         {overlay === 'learning' && <LearningLibrary sid={activeSid} initialSelection={learningSelection} initialScope={learningScope}
           projectNames={Object.fromEntries(projects.flatMap(project => project.display_name ? [[project.id, project.display_name] as const] : []))} />}
       </Modal>

@@ -27,6 +27,45 @@ beforeEach(() => {
 });
 afterEach(() => { if (renderer) act(() => renderer.unmount()); vi.useRealTimers(); });
 
+it('creates and saves a typed plan from user-entered estimates without loading sample data', async () => {
+  const draftReport: TimelineReport = { ...report, selected_proposal_id: 'idea-1', proposals: [{
+    ...report.proposals[0], id: 'idea-1', title: '验证我的研究问题',
+    schedule: [{ ...report.proposals[0].schedule[0], id: 'task-1', title: '准备公开数据' }],
+  }] };
+  vi.mocked(api.timelineEstimate).mockResolvedValue(draftReport);
+  await mount();
+  expect(button('创建计划草稿').props.disabled).toBe(true);
+  act(() => {
+    labelInput('研究目标 / 计划名称').props.onChange({ target: { value: '验证我的研究问题' } });
+    labelInput('第一个任务').props.onChange({ target: { value: '准备公开数据' } });
+    ['乐观工期（小时）', '最可能工期（小时）', '悲观工期（小时）'].forEach((label, i) =>
+      labelInput(label).props.onChange({ target: { value: String([1, 3, 6][i]) } }));
+    renderer.root.findAllByType('label').find(node => node.children[0] === '估计依据')!.findByType('textarea')
+      .props.onChange({ target: { value: '仅作排期假设，未实测' } });
+  });
+  expect(button('创建计划草稿').props.disabled).toBe(false);
+  act(() => renderer.root.findByType('form').props.onSubmit({ preventDefault: vi.fn() }));
+  await settleEstimate();
+  const input: TimelineInput = {
+    selected_proposal_id: 'idea-1', resources: {}, now_hours: 0, deadline_hours: null, defer_optional: false,
+    proposals: [{ id: 'idea-1', title: '验证我的研究问题', tasks: [{
+      id: 'task-1', title: '准备公开数据', phase: 'planning', basis: '仅作排期假设，未实测', duration_hours: [1, 3, 6],
+    }] }],
+  };
+  expect(api.timelineEstimate).toHaveBeenCalledWith(input, expect.any(AbortSignal));
+  expect(api.timelineExample).not.toHaveBeenCalled();
+  expect(api.timelineSave).not.toHaveBeenCalled();
+  expect(JSON.stringify(renderer.toJSON())).toContain('当前估计不含资源排队时间');
+  vi.mocked(api.timelineSave).mockResolvedValue({ version: 1, input, report: draftReport, reason: '创建研究计划', created_at: '' });
+  await act(async () => button('保存计划版本').props.onClick());
+  expect(api.timelineSave).toHaveBeenCalledWith('demo', input, 0, '创建研究计划');
+  vi.mocked(api.timelineEstimate).mockResolvedValue(report);
+  await act(async () => button('加载论文示例').props.onClick());
+  await settleEstimate();
+  expect(labelInput('方案名称').props.value).toBe('研究方案');
+  expect(JSON.stringify(renderer.toJSON())).toContain('5.0 h');
+});
+
 it('exposes the timeline in workbench navigation and calculates edited deadlines', async () => {
   expect(WORKBENCH_MODULES.find((m) => m.id === 'timeline')?.zh).toBe('研究排期');
   await mount();

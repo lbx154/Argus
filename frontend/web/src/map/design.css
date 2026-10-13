@@ -300,7 +300,6 @@
   --map-card-surface: #fffdf8;
   --map-dot: rgb(74 66 52 / 0.09);
   --map-minimap-mask: rgb(244 241 234 / 0.78);
-  --map-vignette: rgb(58 50 38 / 0.07);
   --ink-1: #1f2226; /* 焦墨 */
   --ink-2: #3c4248; /* 浓墨 */
   --ink-3: #6d737a; /* 淡墨 */
@@ -331,7 +330,6 @@
   --map-card-surface: #1c1f23;
   --map-dot: rgb(226 220 205 / 0.06);
   --map-minimap-mask: rgb(19 21 24 / 0.74);
-  --map-vignette: rgb(0 0 0 / 0.34);
   --ink-1: #eceae4;
   --ink-2: #c4c6c8;
   --ink-3: #8f959b;
@@ -389,62 +387,6 @@
 [data-theme="dark"] .argus-map .map-canvas-wrap::before {
   opacity: 0.4;
   background-image: url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' width='240' height='240'><filter id='n' x='0' y='0' width='100%' height='100%'><feTurbulence type='fractalNoise' baseFrequency='0.82' numOctaves='3' stitchTiles='stitch'/><feColorMatrix values='0 0 0 0 0.84  0 0 0 0 0.82  0 0 0 0 0.76  0 0 0 0.07 0'/></filter><rect width='240' height='240' filter='url(%23n)'/></svg>");
-}
-/* Washes of diluted ink drift where coloured light used to: mist between
- * hills, not a gradient mesh. One carries a breath of indigo, one of ochre.
- * Their softness is in the gradient's own long falloff. A blur filter on a
- * layer this large, which also drifts, was re-blurred on every frame and cost
- * more than everything else on the map together. */
-.argus-map .map-ambient i:nth-child(1) {
-  left: -14%;
-  top: -30%;
-  width: 66%;
-  height: 78%;
-  background: radial-gradient(ellipse 64% 54% at 46% 54%, rgb(52 58 66 / 0.12), rgb(52 58 66 / 0.075) 26%, rgb(52 58 66 / 0.03) 52%, rgb(52 58 66 / 0.008) 70%, transparent 82%);
-}
-.argus-map .map-ambient i:nth-child(2) {
-  right: -18%;
-  bottom: -34%;
-  width: 70%;
-  height: 80%;
-  background: radial-gradient(ellipse 62% 50% at 52% 46%, rgb(48 66 84 / 0.11), rgb(48 66 84 / 0.07) 26%, rgb(48 66 84 / 0.028) 54%, rgb(48 66 84 / 0.007) 72%, transparent 84%);
-}
-.argus-map .map-ambient i:nth-child(3) {
-  left: 30%;
-  top: 34%;
-  width: 46%;
-  height: 50%;
-  background: radial-gradient(ellipse 60% 48% at 50% 50%, rgb(120 92 58 / 0.065), rgb(120 92 58 / 0.03) 38%, rgb(120 92 58 / 0.008) 64%, transparent 80%);
-}
-[data-theme="dark"] .argus-map .map-ambient i:nth-child(1) {
-  background: radial-gradient(ellipse 64% 54% at 46% 54%, rgb(190 198 208 / 0.075), rgb(190 198 208 / 0.045) 26%, rgb(190 198 208 / 0.016) 52%, rgb(190 198 208 / 0.004) 70%, transparent 82%);
-}
-[data-theme="dark"] .argus-map .map-ambient i:nth-child(2) {
-  background: radial-gradient(ellipse 62% 50% at 52% 46%, rgb(104 142 178 / 0.095), rgb(104 142 178 / 0.058) 26%, rgb(104 142 178 / 0.02) 54%, rgb(104 142 178 / 0.005) 72%, transparent 84%);
-}
-[data-theme="dark"] .argus-map .map-ambient i:nth-child(3) {
-  background: radial-gradient(ellipse 60% 48% at 50% 50%, rgb(176 142 96 / 0.055), rgb(176 142 96 / 0.026) 38%, rgb(176 142 96 / 0.007) 64%, transparent 80%);
-}
-/* Far hills at the foot of the sheet, three ridges in thinning ink. They sit
- * under everything and stay with the viewport, so they never compete with
- * the work drawn above them. */
-.argus-map .map-ambient::after {
-  content: "";
-  position: absolute;
-  left: 0;
-  right: 0;
-  bottom: 4%;
-  height: 34%;
-  opacity: 0.55;
-  background: center bottom / 100% 100% no-repeat
-    url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 1600 420' preserveAspectRatio='none'><defs><filter id='b'><feGaussianBlur stdDeviation='5'/></filter><linearGradient id='f' x1='0' y1='0' x2='0' y2='1'><stop offset='0' stop-color='%23343a42' stop-opacity='1'/><stop offset='1' stop-color='%23343a42' stop-opacity='0'/></linearGradient></defs><g filter='url(%23b)'><path fill='url(%23f)' opacity='0.05' d='M0 250 C120 190 210 150 330 176 C430 198 470 118 590 96 C700 76 770 168 880 176 C1000 184 1060 96 1180 84 C1300 72 1390 170 1480 186 C1540 196 1580 176 1600 170 L1600 420 L0 420 Z'/><path fill='url(%23f)' opacity='0.075' d='M0 310 C90 270 170 226 280 240 C380 252 430 300 540 292 C660 284 720 196 850 190 C960 186 1010 262 1120 270 C1240 278 1300 218 1410 214 C1500 210 1560 250 1600 262 L1600 420 L0 420 Z'/><path fill='url(%23f)' opacity='0.11' d='M0 366 C110 340 190 318 300 330 C420 344 500 372 620 360 C740 348 800 300 920 304 C1040 308 1110 356 1230 352 C1350 348 1420 316 1510 322 C1560 326 1590 338 1600 342 L1600 420 L0 420 Z'/></g></svg>");
-}
-/* On the night sheet the same ridges are drawn in pale ink. Inverting and
- * screening the day drawing gave the same picture at the price of a filter
- * and a blend over the full width of the canvas. */
-[data-theme="dark"] .argus-map .map-ambient::after {
-  opacity: 0.8;
-  background-image: url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 1600 420' preserveAspectRatio='none'><defs><filter id='b'><feGaussianBlur stdDeviation='5'/></filter><linearGradient id='f' x1='0' y1='0' x2='0' y2='1'><stop offset='0' stop-color='%23d3d7dd' stop-opacity='1'/><stop offset='1' stop-color='%23d3d7dd' stop-opacity='0'/></linearGradient></defs><g filter='url(%23b)'><path fill='url(%23f)' opacity='0.05' d='M0 250 C120 190 210 150 330 176 C430 198 470 118 590 96 C700 76 770 168 880 176 C1000 184 1060 96 1180 84 C1300 72 1390 170 1480 186 C1540 196 1580 176 1600 170 L1600 420 L0 420 Z'/><path fill='url(%23f)' opacity='0.075' d='M0 310 C90 270 170 226 280 240 C380 252 430 300 540 292 C660 284 720 196 850 190 C960 186 1010 262 1120 270 C1240 278 1300 218 1410 214 C1500 210 1560 250 1600 262 L1600 420 L0 420 Z'/><path fill='url(%23f)' opacity='0.11' d='M0 366 C110 340 190 318 300 330 C420 344 500 372 620 360 C740 348 800 300 920 304 C1040 308 1110 356 1230 352 C1350 348 1420 316 1510 322 C1560 326 1590 338 1600 342 L1600 420 L0 420 Z'/></g></svg>");
 }
 .argus-map .react-flow__background {
   opacity: clamp(0.2, calc(var(--z) * 1.8), 0.7);
@@ -559,14 +501,6 @@
 
 /* ── The head of the sheet ──────────────────────────────────────────────── */
 
-.argus-map .map-kicker {
-  display: block;
-  font-size: 10px;
-  font-weight: 600;
-  letter-spacing: 0.22em;
-  color: var(--ink-3);
-  margin-bottom: 3px;
-}
 .argus-map .map-heading h1 {
   font-family: var(--map-serif);
   font-size: 21px;

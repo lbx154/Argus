@@ -81,6 +81,7 @@ export function VerticalCard({ row, locale, hosted, busy, failure, known, onAct,
           <h3 className="font-medium">{row.name}</h3>
           <span className={badge(kindTone)} data-testid="vertical-kind">{t(kindLabelKey(row.kind))}</span>
           {row.kind !== 'available' && <span className={badge(row.enabled ? 'ok' : 'neutral')}>{row.enabled ? t('verticals.enabled') : t('verticals.disabledState')}</span>}
+          {(row.missing_python.length > 0 || !!row.runtime_issues?.length) && <span className={badge('warn')} data-testid="vertical-environment-required">{t('verticals.environmentRequired')}</span>}
           {row.update_available && <span className={badge('warn')} data-testid="vertical-update">{t('verticals.updateAvailable')}</span>}
         </div>
         <p className="mt-1 text-sm leading-relaxed text-ink-faint">{purposeText(row, locale)}</p>

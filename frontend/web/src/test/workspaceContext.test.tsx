@@ -45,6 +45,7 @@ describe('A3 snapshot-only session context', () => {
     expect(html).toContain(locale === 'en' ? 'Session directory' : '会话目录');
     expect(html).toContain(snap.session.workdir);
     expect(html).toContain('<summary');
+    expect(html.match(/<summary[^>]*>[\s\S]*?<\/summary>/)?.[0]).not.toContain(snap.session.workdir);
     expect(html).toContain(locale === 'en' ? 'not each task’s actual cwd or a security sandbox boundary' : '不是每个任务的实际 cwd，也不是安全沙箱边界');
     expect(html).toContain(locale === 'en' ? 'Manage session' : '管理会话');
     expect(html).toContain(locale === 'en' ? 'Run Argus' : '运行 Argus');
