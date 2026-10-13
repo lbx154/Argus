@@ -5,12 +5,21 @@ The conversation file picker, drop and paste paths accept up to **100 MiB
 formats remain PNG, JPEG, WebP, PDF, UTF-8 Markdown/text, JSON and CSV. Selecting
 files does not upload them or start a task.
 
-The browser reads the project upload limits, then sends one file at a time in
-requests of at most 4 MiB. Uploading, validating and file-ready states are
-distinct from sending a message or an agent reading its attachments. Network
-failures get at most two recovery attempts: query the actual offset first,
-then send only missing bytes. Agent message requests are never automatically
-replayed.
+Fresh non-JSON files use one multipart request when each file is at most
+10 MiB and the batch is at most 25 MiB. Browser upload progress is shown while
+bytes are being sent; files become ready only after receiving the complete
+server receipt. A failed or canceled multipart request is never automatically
+replayed: a lost response cannot prove whether the server committed it.
+Canceling stops the browser request and prevents agent dispatch, but cannot
+undo files already committed by the server.
+
+Larger batches, JSON files and existing partial uploads retain the resumable
+protocol: read the project limits, then send one file at a time in requests
+of at most 4 MiB. Network failures get at most two recovery attempts: query
+the actual offset first, then send only missing bytes. JSON keeps its bounded
+streaming validation even for small files. Uploading, validating and file-ready
+states are distinct from sending a message or an agent reading its attachments.
+Agent message requests are never automatically replayed.
 
 Completed attachment references are saved with the project draft, not file
 bytes. A failed message can reuse them. After a refresh, completed references
@@ -26,6 +35,10 @@ from the final filename; validation and an atomic metadata write register the
 completed attachment. An interrupted final rename can be completed again.
 An acknowledged offset follows a flushed, synced write; duplicate or stale
 offsets return 409 rather than appending twice.
+Each chunk syncs its payload once, without rewriting the upload metadata.
+Offsets are recovered from the actual file length and last-write activity from
+the payload modification time (or the previous version's persisted timestamp).
+Status reads do not write metadata or extend an otherwise idle reservation.
 
 Admission reserves at most 500 MiB/five incomplete files per project and
 2 GiB/20 per instance. Two chunk requests may be in flight at once. Storage
@@ -57,8 +70,9 @@ Original files remain downloadable.
 All routes require the existing authentication and project ownership. Finished
 uploads return the same metadata and references used by existing messages.
 Canceling a completed upload never deletes its attachment. JSON request limits
-and other API/WebSocket limits are unchanged. The legacy multipart endpoint
-retains its 10 MiB/file, 25 MiB/request bounds for old clients.
+and other API/WebSocket limits are unchanged. `POST /api/projects/{sid}/attachments`
+retains its 10 MiB/file, 25 MiB/request multipart bounds and serves both the
+small-file fast path and old clients.
 
 Deploy the matching backend before the new page. This feature does not enable
 customer invitations, change the trial hostname/token, introduce a storage

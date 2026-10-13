@@ -274,6 +274,12 @@ class AttachmentUploads:
                             continue
                         metadata = directory.read(_PENDING)
                         store._validate_metadata_payload(metadata, sid, attachment_id)
+                        payload = _PART if directory.exists(_PART) else metadata["stored_name"]
+                        if directory.exists(payload):
+                            with directory.file(payload) as handle:
+                                metadata["updated_at"] = max(
+                                    float(metadata["updated_at"]), os.fstat(handle.fileno()).st_mtime,
+                                )
                         pending.append((workspace, sid, attachment_id, metadata))
         return pending
 
@@ -400,7 +406,6 @@ class AttachmentUploads:
                             os.fsync(handle.fileno())
                         elif action != "status":
                             raise UploadError("unknown upload operation")
-                    metadata["updated_at"] = time.time()
                     if action == "complete":
                         if payload == _PART:
                             directory.rename(_PART, metadata["stored_name"])
@@ -408,7 +413,6 @@ class AttachmentUploads:
                         directory.write("metadata.json", metadata)
                         return {"attachment_id": attachment_id, "offset": actual, "size_bytes": actual,
                                 "complete": True, "attachment": metadata}
-                    directory.write(_PENDING, metadata)
                     return {"attachment_id": attachment_id, "offset": actual,
                             "size_bytes": metadata["size_bytes"], "complete": False}
             _remove(workspace, sid, attachment_id)

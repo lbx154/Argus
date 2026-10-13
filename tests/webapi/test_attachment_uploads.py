@@ -218,9 +218,53 @@ def test_pending_quota_cleanup_and_completed_files_survive(client, tmp_path):
         value = json.loads(filename.read_text())
         value["updated_at"] = time.time() - uploads.IDLE_SECONDS - 1
         filename.write_text(json.dumps(value))
+        if path != done:
+            os.utime(filename.parent / ".upload.part", (value["updated_at"], value["updated_at"]))
     uploads.AttachmentUploads([tmp_path]).cleanup()
     assert all(client.get(path).status_code == 404 for path in paths)
     assert client.get(done).json()["complete"] is True
+
+
+def test_chunk_syncs_payload_once_and_status_never_rewrites_metadata(client, tmp_path, monkeypatch):
+    path = begin(client)
+    folder = tmp_path / "workspaces/s-upload/.argus/attachments/s-upload" / path.rsplit("/", 1)[1]
+    pending = folder / ".upload.json"
+    before = (pending.read_bytes(), pending.stat().st_mtime_ns)
+    original_fsync = os.fsync
+    synced = []
+
+    def fsync(fd):
+        synced.append(os.fstat(fd).st_ino)
+        original_fsync(fd)
+
+    monkeypatch.setattr(uploads.os, "fsync", fsync)
+    assert append(client, path, b"abc").status_code == 200
+    assert synced == [(folder / ".upload.part").stat().st_ino]
+    assert client.get(path).json()["offset"] == 3
+    assert len(synced) == 1
+    assert (pending.read_bytes(), pending.stat().st_mtime_ns) == before
+    restarted = uploads.AttachmentUploads([tmp_path])
+    assert restarted.operate(tmp_path, "s-upload", path.rsplit("/", 1)[1], "status")["offset"] == 3
+    assert len(synced) == 1
+
+
+def test_cleanup_uses_payload_activity_but_status_does_not_extend_expiry(client, tmp_path):
+    path = begin(client)
+    folder = tmp_path / "workspaces/s-upload/.argus/attachments/s-upload" / path.rsplit("/", 1)[1]
+    pending = folder / ".upload.json"
+    metadata = json.loads(pending.read_text())
+    old = time.time() - uploads.IDLE_SECONDS - 10
+    metadata["updated_at"] = old
+    pending.write_text(json.dumps(metadata))
+    os.utime(folder / ".upload.part", (old, old))
+    assert append(client, path, b"abc").status_code == 200
+    restarted = uploads.AttachmentUploads([tmp_path])
+    restarted.cleanup()
+    assert client.get(path).json()["offset"] == 3
+    os.utime(folder / ".upload.part", (old, old))
+    assert client.get(path).json()["offset"] == 3
+    restarted.cleanup()
+    assert client.get(path).status_code == 404
 
 
 def test_disk_and_concurrency_failures_do_not_register_files(client, monkeypatch):

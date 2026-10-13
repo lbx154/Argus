@@ -31,7 +31,10 @@ import {
 } from '../../core/src/protocol';
 import type { ResourceStatus } from '../../core/src/resourceStatus.generated';
 import { workflowClient } from '../../core/src/applicationWorkflows';
-import { attachmentMime } from './lib/attachments';
+import {
+  attachmentMime, attachmentSuffix, MESSAGE_ATTACHMENT_MAX_BYTES,
+  MESSAGE_ATTACHMENT_MAX_COUNT, MESSAGE_ATTACHMENT_TOTAL_MAX_BYTES,
+} from './lib/attachments';
 
 export type {
   ArtifactInfo,
@@ -727,6 +730,59 @@ async function uploadRequest<T>(
   });
 }
 
+function uploadSmallAttachments(
+  path: string, files: File[], signal?: AbortSignal,
+  onProgress?: AttachmentUploadOptions['onProgress'],
+): Promise<AttachmentUploadResponse> {
+  requireCurrentPage();
+  signal?.throwIfAborted();
+  const xhr = new XMLHttpRequest();
+  const abort = () => xhr.abort();
+  const total = files.reduce((sum, file) => sum + file.size, 0);
+  const progress = (sent: number, phase: AttachmentUploadProgress['phase']) => {
+    let index = 0;
+    while (index < files.length - 1 && sent >= files[index].size) sent -= files[index++].size;
+    const file = files[index];
+    onProgress?.({ name: file.name, index: index + 1, count: files.length,
+      loaded: Math.min(sent, file.size), total: file.size, phase });
+  };
+  return new Promise<AttachmentUploadResponse>((resolve, reject) => {
+    xhr.open('POST', path);
+    xhr.timeout = 120_000;
+    for (const [name, value] of Object.entries(authHeaders())) xhr.setRequestHeader(name, value);
+    xhr.upload.onprogress = event => {
+      if (event.lengthComputable && event.total > 0) {
+        progress(Math.floor(total * event.loaded / event.total), 'uploading');
+      }
+    };
+    xhr.upload.onload = () => progress(total, 'validating');
+    xhr.onload = async () => {
+      try {
+        await ensureResponseOk({
+          ok: xhr.status >= 200 && xhr.status < 300, status: xhr.status,
+          statusText: xhr.statusText, text: async () => xhr.responseText,
+        }, 'POST', path);
+        observePageRelease(xhr.getResponseHeader('X-Argus-Release'));
+        resolve(JSON.parse(xhr.responseText) as AttachmentUploadResponse);
+      } catch (error) { reject(error); }
+    };
+    xhr.onerror = () => reject(new LocalArgusUnavailableError('POST', path,
+      'lost the upload response; completion was not confirmed (no automatic retry)'));
+    xhr.ontimeout = () => reject(new LocalArgusUnavailableError('POST', path,
+      'timed out after 120s; completion was not confirmed (no automatic retry)'));
+    xhr.onabort = () => reject(signal?.reason ?? new DOMException('Aborted', 'AbortError'));
+    signal?.addEventListener('abort', abort, { once: true });
+    const body = new FormData();
+    files.forEach(file => body.append('files', file.slice(0, file.size, attachmentMime(file)), file.name));
+    progress(0, 'uploading');
+    if (signal?.aborted) {
+      reject(signal.reason);
+      return;
+    }
+    xhr.send(body);
+  }).finally(() => signal?.removeEventListener('abort', abort));
+}
+
 export function requireDaemonCommand<T>(result: T): T {
   const row = result && typeof result === 'object'
     ? result as Record<string, unknown>
@@ -1231,6 +1287,49 @@ export const api = {
     options: AttachmentUploadOptions = {},
   ): Promise<AttachmentUploadResponse> => {
     await compatibleApiMeta();
+    signal?.throwIfAborted();
+    const attachments = [...(options.ready ?? [])];
+    if (files.length + attachments.length > MESSAGE_ATTACHMENT_MAX_COUNT
+      || files.some(file => file.size > MESSAGE_ATTACHMENT_MAX_BYTES)
+      || files.reduce((sum, file) => sum + file.size, attachments.reduce((sum, file) => sum + file.size_bytes, 0)) > MESSAGE_ATTACHMENT_TOTAL_MAX_BYTES) {
+      throw new Error('Attachments exceed the server file/count/total limits');
+    }
+    const fresh = files.filter(file => !options.completed?.has(file));
+    if (fresh.length === 0) {
+      for (const file of files) {
+        const attachment = options.completed?.get(file);
+        if (!attachment) throw new Error('Missing completed attachment receipt');
+        attachments.push(attachment);
+      }
+      return { attachments, limits: {
+        max_count: MESSAGE_ATTACHMENT_MAX_COUNT, max_bytes_per_file: MESSAGE_ATTACHMENT_MAX_BYTES,
+        max_total_bytes: MESSAGE_ATTACHMENT_TOTAL_MAX_BYTES,
+      } };
+    }
+    // Preserve streamed JSON resource limits and existing partial upload identities.
+    if (fresh.length > 0
+      && fresh.every(file => file.size <= 10 * 1024 * 1024 && attachmentSuffix(file.name) !== '.json'
+        && !pendingUploads.get(file)?.has(sid))
+      && fresh.reduce((sum, file) => sum + file.size, 0) <= 25 * 1024 * 1024) {
+      const result = await uploadSmallAttachments(P(sid, '/attachments'), fresh, signal, progress =>
+        options.onProgress?.({ ...progress, index: files.indexOf(fresh[progress.index - 1]) + 1, count: files.length }));
+      if (!Array.isArray(result.attachments) || result.attachments.length !== fresh.length
+        || result.attachments.some((attachment, index) =>
+          !attachment.attachment_id || attachment.size_bytes !== fresh[index].size)) {
+        throw new Error('Server did not return a complete attachment batch');
+      }
+      const received = new Map(fresh.map((file, index) => [file, result.attachments[index]]));
+      for (const [index, file] of files.entries()) {
+        const attachment = options.completed?.get(file) ?? received.get(file);
+        if (!attachment) throw new Error('Server did not return a completed attachment');
+        attachments.push(attachment);
+        if (received.has(file)) options.onUploaded?.(file, attachment);
+        options.onProgress?.({ name: file.name, index: index + 1, count: files.length,
+          loaded: file.size, total: file.size, phase: 'ready' });
+      }
+      signal?.throwIfAborted();
+      return { attachments, limits: result.limits };
+    }
     const limits = await getJson<AttachmentUploadResponse['limits'] & { chunk_bytes: number }>(
       P(sid, '/attachments/limits'), signal,
     );
@@ -1238,7 +1337,6 @@ export const api = {
       .every(value => Number.isSafeInteger(value) && value > 0) || limits.chunk_bytes > 4 * 1024 * 1024) {
       throw new Error('Invalid attachment upload limits from server');
     }
-    const attachments = [...(options.ready ?? [])];
     if (files.length + attachments.length > limits.max_count
       || files.some(file => file.size > limits.max_bytes_per_file)
       || files.reduce((sum, file) => sum + file.size, attachments.reduce((sum, file) => sum + file.size_bytes, 0)) > limits.max_total_bytes) {

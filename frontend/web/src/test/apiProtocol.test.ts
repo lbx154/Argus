@@ -582,7 +582,7 @@ describe('web API protocol handshake', () => {
     expect(onDelta).toHaveBeenCalledWith('partial', '', 'auto');
   });
 
-  it('uploads small chunks and reuses attachment ids in message requests', async () => {
+  it('keeps JSON on streamed chunks and reuses attachment ids in message requests', async () => {
     const fetchMock = vi.fn(async (path: string, init?: RequestInit) => {
       if (path === '/api/meta') return Response.json(currentMeta);
       if (path.endsWith('/attachments/limits')) return Response.json({
@@ -590,7 +590,7 @@ describe('web API protocol handshake', () => {
         max_total_bytes: 500 * 1024 * 1024, chunk_bytes: 4 * 1024 * 1024,
       });
       if (path.endsWith('/uploads')) {
-        expect(JSON.parse(String(init?.body))).toEqual({ name: 'notes.md', mime: 'text/markdown', size_bytes: 7 });
+        expect(JSON.parse(String(init?.body))).toEqual({ name: 'notes.json', mime: 'application/json', size_bytes: 7 });
         return Response.json({ attachment_id: 'att-123456789abc', offset: 0, size_bytes: 7, complete: false });
       }
       if (init?.method === 'PUT') {
@@ -603,10 +603,10 @@ describe('web API protocol handshake', () => {
         return Response.json({ attachment_id: 'att-123456789abc', offset: 7, size_bytes: 7, complete: true,
           attachment: {
             attachment_id: 'att-123456789abc',
-            relative_path: '.argus/attachments/s-test/att-123456789abc/notes.md',
-            original_name: 'notes.md',
-            stored_name: 'notes.md',
-            mime: 'text/markdown',
+            relative_path: '.argus/attachments/s-test/att-123456789abc/notes.json',
+            original_name: 'notes.json',
+            stored_name: 'notes.json',
+            mime: 'application/json',
             size_bytes: 7,
           },
         });
@@ -620,7 +620,7 @@ describe('web API protocol handshake', () => {
     });
     vi.stubGlobal('fetch', fetchMock);
     const { api } = await import('../api');
-    const file = new File(['# note\n'], 'notes.md', { type: 'text/markdown' });
+    const file = new File(['[1, 2]\n'], 'notes.json', { type: 'application/json' });
 
     const upload = await api.uploadAttachments('s-test', [file]);
     const result = await api.message('s-test', 'summarize the note', {
@@ -638,7 +638,7 @@ describe('web API protocol handshake', () => {
     const completed = vi.fn();
     let actual = 0;
     let lost = true;
-    const file = new File(['abcdefgh'], 'data.txt');
+    const file = new File(['["abcd"]'], 'data.json');
     const state = () => ({ attachment_id: 'att-123456789abc', offset: actual, size_bytes: file.size, complete: false });
     vi.stubGlobal('fetch', vi.fn(async (path: string, init?: RequestInit) => {
       if (path === '/api/meta') return Response.json(currentMeta);
@@ -664,8 +664,8 @@ describe('web API protocol handshake', () => {
   });
 
   it('preserves earlier completed files on partial failure and does not upload them on retry', async () => {
-    const first = new File(['a'], 'first.txt');
-    const second = new File(['b'], 'second.txt');
+    const first = new File(['1'], 'first.json');
+    const second = new File(['2'], 'second.json');
     const completed = new Map<File, import('../api').UploadedAttachment>();
     let begins = 0;
     const fetchMock = vi.fn(async (path: string, init?: RequestInit) => {
@@ -690,7 +690,7 @@ describe('web API protocol handshake', () => {
     expect(completed.has(first)).toBe(true);
     const before = fetchMock.mock.calls.length;
     await api.uploadAttachments('s-test', [first], undefined, { completed });
-    expect(fetchMock.mock.calls.slice(before).map(([path]) => path)).toEqual(['/api/projects/s-test/attachments/limits']);
+    expect(fetchMock.mock.calls.slice(before).map(([path]) => path)).toEqual([]);
   });
 
   it('cancels an incomplete file without posting a message and reports cleanup failure', async () => {
@@ -709,10 +709,220 @@ describe('web API protocol handshake', () => {
       return Response.json({ detail: 'cleanup offline' }, { status: 503 });
     }));
     const { api } = await import('../api');
-    await expect(api.uploadAttachments('s-test', [new File(['a'], 'a.txt')], controller.signal,
+    await expect(api.uploadAttachments('s-test', [new File(['1'], 'a.json')], controller.signal,
       { onCleanupError: cleanupError })).rejects.toMatchObject({ name: 'AbortError' });
     expect(methods).toEqual(['POST', 'PUT', 'DELETE']);
     expect(cleanupError).toHaveBeenCalledOnce();
+  });
+});
+
+describe('small attachment batch fast path', () => {
+  const limits = { max_count: 5, max_bytes_per_file: 100 * 1024 * 1024, max_total_bytes: 500 * 1024 * 1024 };
+  let requests: MultipartRequest[];
+  let fetchMock: ReturnType<typeof vi.fn>;
+
+  class MultipartRequest {
+    method = '';
+    path = '';
+    timeout = 0;
+    status = 200;
+    statusText = 'OK';
+    responseText = '';
+    release = RELEASE_ID;
+    headers: Record<string, string> = {};
+    body = new FormData();
+    upload: {
+      onprogress: ((event: { lengthComputable: boolean; loaded: number; total: number }) => void) | null;
+      onload: (() => void) | null;
+    } = { onprogress: null, onload: null };
+    onload: (() => Promise<void>) | null = null;
+    onerror: (() => void) | null = null;
+    onabort: (() => void) | null = null;
+    ontimeout: (() => void) | null = null;
+    open(method: string, path: string) { this.method = method; this.path = path; }
+    setRequestHeader(name: string, value: string) { this.headers[name] = value; }
+    getResponseHeader() { return this.release; }
+    send(body: FormData) { this.body = body; requests.push(this); }
+    abort() { this.onabort?.(); }
+    files() {
+      return this.body.getAll('files').map(file => {
+        if (typeof file === 'string') throw new Error('Expected uploaded file');
+        return file;
+      });
+    }
+    async reply(body?: unknown, status = 200) {
+      this.status = status;
+      this.responseText = JSON.stringify(body ?? { limits, attachments: this.files().map((file, index) => ({
+        attachment_id: `att-${String(index).padStart(12, '0')}`,
+        original_name: file.name, stored_name: file.name, mime: file.type,
+        relative_path: `registered/${file.name}`, size_bytes: file.size,
+      })) });
+      await this.onload?.();
+    }
+  }
+
+  beforeEach(() => {
+    vi.resetModules();
+    requests = [];
+    vi.stubGlobal('window', { location: { search: '' } });
+    vi.stubGlobal('localStorage', { getItem: () => 'paired-test-token' });
+    vi.stubGlobal('XMLHttpRequest', MultipartRequest);
+    fetchMock = vi.fn(async (path: string) => {
+      if (path === '/api/meta') return Response.json(currentMeta);
+      throw new Error(`Chunk path requested: ${path}`);
+    });
+    vi.stubGlobal('fetch', fetchMock);
+  });
+  afterEach(() => vi.unstubAllGlobals());
+
+  it('sends five small files in one authenticated request, reports byte progress and reuses receipts', async () => {
+    const { api } = await import('../api');
+    const files = Array.from({ length: 5 }, (_, i) => new File(['abcd'], `${i}.txt`));
+    const completed = new Map<File, import('../api').UploadedAttachment>();
+    const onProgress = vi.fn();
+    const pending = api.uploadAttachments('s-test', files, undefined, {
+      completed, onUploaded: (file, attachment) => completed.set(file, attachment), onProgress,
+    });
+    await vi.waitFor(() => expect(requests).toHaveLength(1));
+    const xhr = requests[0];
+    expect([xhr.method, xhr.path]).toEqual(['POST', '/api/projects/s-test/attachments']);
+    expect(xhr.headers).toEqual({ Authorization: 'Bearer paired-test-token' });
+    expect(xhr.files().map(file => file.name)).toEqual(files.map(file => file.name));
+    expect(xhr.files().every(file => file.type === 'text/plain')).toBe(true);
+    xhr.upload.onprogress?.({ lengthComputable: true, loaded: 50, total: 100 });
+    expect(onProgress).toHaveBeenLastCalledWith(expect.objectContaining({ index: 3, loaded: 2, total: 4, phase: 'uploading' }));
+    xhr.upload.onload?.();
+    expect(onProgress).toHaveBeenLastCalledWith(expect.objectContaining({ index: 5, phase: 'validating' }));
+    expect(completed.size).toBe(0);
+    await xhr.reply();
+    const result = await pending;
+    expect(completed.size).toBe(5);
+    expect(onProgress).toHaveBeenLastCalledWith(expect.objectContaining({ index: 5, phase: 'ready' }));
+    expect(await api.uploadAttachments('s-test', files, undefined, { completed })).toEqual(result);
+    expect(requests).toHaveLength(1);
+    expect(fetchMock.mock.calls.map(([path]) => path)).toEqual(['/api/meta']);
+  });
+
+  it('keeps cached references in file order and uploads only the fresh files', async () => {
+    const { api } = await import('../api');
+    const files = [new File(['a'], 'fresh.txt'), new File(['b'], 'cached.txt')];
+    const cached = { attachment_id: 'att-abcdef123456', original_name: 'cached.txt', stored_name: 'cached.txt',
+      mime: 'text/plain', relative_path: 'registered/cached.txt', size_bytes: 1 };
+    const onUploaded = vi.fn();
+    const pending = api.uploadAttachments('s-test', files, undefined, {
+      completed: new Map([[files[1], cached]]), onUploaded,
+    });
+    await vi.waitFor(() => expect(requests).toHaveLength(1));
+    expect(requests[0].files().map(file => file.name)).toEqual(['fresh.txt']);
+    await requests[0].reply();
+    const result = await pending;
+    expect(result.attachments[1]).toEqual(cached);
+    expect(onUploaded).toHaveBeenCalledOnce();
+    expect(onUploaded.mock.calls[0][0]).toBe(files[0]);
+  });
+
+  it('accepts the exact 10 MiB per-file and 25 MiB batch fast-path boundaries', async () => {
+    const { api } = await import('../api');
+    const data = new Uint8Array(10 * 1024 * 1024);
+    const files = [new File([data], 'a.txt'), new File([data], 'b.txt'),
+      new File([data.subarray(0, 5 * 1024 * 1024)], 'c.txt')];
+    const pending = api.uploadAttachments('s-test', files);
+    await vi.waitFor(() => expect(requests).toHaveLength(1));
+    expect(requests[0].files().reduce((sum, file) => sum + file.size, 0)).toBe(25 * 1024 * 1024);
+    await requests[0].reply();
+    expect((await pending).attachments).toHaveLength(3);
+  });
+
+  it.each(['file', 'batch', 'json'])('keeps %s overflow/resource cases on the chunk protocol', async kind => {
+    const { api } = await import('../api');
+    const data = new Uint8Array(10 * 1024 * 1024 + 1);
+    const files = kind === 'json' ? [new File(['{}'], 'data.JSON')]
+      : kind === 'file' ? [new File([data], 'large.txt')]
+      : [new File([data.subarray(0, 10 * 1024 * 1024)], 'a.txt'),
+        new File([data.subarray(0, 10 * 1024 * 1024)], 'b.txt'),
+        new File([data.subarray(0, 5 * 1024 * 1024 + 1)], 'c.txt')];
+    await expect(api.uploadAttachments('s-test', files)).rejects.toThrow('/attachments/limits');
+    expect(fetchMock.mock.calls.at(-1)?.[0]).toBe('/api/projects/s-test/attachments/limits');
+    expect(requests).toHaveLength(0);
+  });
+
+  it('resumes an existing small partial file instead of starting a new multipart upload', async () => {
+    const { api } = await import('../api');
+    const data = new Uint8Array(10 * 1024 * 1024);
+    const files = [new File([data], 'a.txt'), new File([data], 'b.txt'),
+      new File([data.subarray(0, 6 * 1024 * 1024)], 'c.txt')];
+    let fail = true, offset = 0, begins = 0, statuses = 0;
+    const state = () => ({ attachment_id: 'att-abcdef123456', offset, size_bytes: files[0].size, complete: false });
+    fetchMock.mockImplementation(async (path: string, init?: RequestInit) => {
+      if (path === '/api/meta') return Response.json(currentMeta);
+      if (path.endsWith('/limits')) return Response.json({ ...limits, chunk_bytes: 4 * 1024 * 1024 });
+      if (path.endsWith('/uploads')) { begins++; return Response.json(state()); }
+      if (init?.method === 'PUT') {
+        if (fail) { fail = false; return Response.json({ detail: 'disk full' }, { status: 507 }); }
+        if (!(init.body instanceof Blob)) throw new Error('Expected chunk bytes');
+        offset += init.body.size;
+        return Response.json(state());
+      }
+      if (path.endsWith('/complete')) return Response.json({ ...state(), complete: true, attachment: {
+        attachment_id: 'att-abcdef123456', original_name: 'a.txt', stored_name: 'a.txt',
+        mime: 'text/plain', relative_path: 'registered/a.txt', size_bytes: files[0].size,
+      } });
+      statuses++;
+      return Response.json(state());
+    });
+    await expect(api.uploadAttachments('s-test', files)).rejects.toThrow('disk full');
+    expect((await api.uploadAttachments('s-test', [files[0]])).attachments[0].size_bytes).toBe(files[0].size);
+    expect([begins, statuses, requests.length]).toEqual([1, 1, 0]);
+  });
+
+  it('rejects an oversized combined draft before starting multipart', async () => {
+    const { api } = await import('../api');
+    const ready = { attachment_id: 'att-abcdef123456', original_name: 'ready.txt', stored_name: 'ready.txt',
+      mime: 'text/plain', relative_path: 'registered/ready.txt', size_bytes: 500 * 1024 * 1024 };
+    await expect(api.uploadAttachments('s-test', [new File(['a'], 'new.txt')], undefined, { ready: [ready] }))
+      .rejects.toThrow('Attachments exceed');
+    expect(requests).toHaveLength(0);
+  });
+
+  it('cancels the request without confirming files or sending a message', async () => {
+    const { api } = await import('../api');
+    const controller = new AbortController();
+    const onUploaded = vi.fn();
+    const pending = expect(api.uploadAttachments('s-test', [new File(['a'], 'a.txt')],
+      controller.signal, { onUploaded })).rejects.toMatchObject({ name: 'AbortError' });
+    await vi.waitFor(() => expect(requests).toHaveLength(1));
+    controller.abort();
+    await pending;
+    expect(onUploaded).not.toHaveBeenCalled();
+    expect(fetchMock.mock.calls.map(([path]) => path)).toEqual(['/api/meta']);
+  });
+
+  it.each(['onerror', 'ontimeout'] as const)('does not blindly replay an unconfirmed batch after %s', async event => {
+    const { api } = await import('../api');
+    const onUploaded = vi.fn();
+    const pending = expect(api.uploadAttachments('s-test', [new File(['a'], 'a.txt')], undefined, { onUploaded }))
+      .rejects.toThrow('no automatic retry');
+    await vi.waitFor(() => expect(requests).toHaveLength(1));
+    requests[0][event]?.();
+    await pending;
+    expect(onUploaded).not.toHaveBeenCalled();
+    expect(requests).toHaveLength(1);
+  });
+
+  it('surfaces the server error and refuses incomplete receipts', async () => {
+    const { api } = await import('../api');
+    const files = [new File(['a'], 'a.txt')];
+    const failed = expect(api.uploadAttachments('s-test', files)).rejects.toMatchObject({ status: 413, detail: 'too large' });
+    await vi.waitFor(() => expect(requests).toHaveLength(1));
+    await requests[0].reply({ detail: 'too large' }, 413);
+    await failed;
+    const onUploaded = vi.fn();
+    const incomplete = expect(api.uploadAttachments('s-test', files, undefined, { onUploaded }))
+      .rejects.toThrow('complete attachment batch');
+    await vi.waitFor(() => expect(requests).toHaveLength(2));
+    await requests[1].reply({ attachments: [], limits });
+    await incomplete;
+    expect(onUploaded).not.toHaveBeenCalled();
   });
 });
 
