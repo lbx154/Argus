@@ -1,10 +1,17 @@
 import { useCallback, useEffect, useReducer, useRef, type SetStateAction } from 'react';
+import type { UploadedAttachment } from './api';
+
+interface CompletedFile {
+  file?: File;
+  attachment: UploadedAttachment;
+}
 
 export interface SessionDraft {
   text: string;
   attachments: File[];
   revision: number;
   missingAttachments?: string[];
+  uploaded?: CompletedFile[];
 }
 export interface DraftSnapshot extends SessionDraft { sid: string }
 interface RewriteOperation extends DraftSnapshot { request: number }
@@ -12,8 +19,14 @@ const EMPTY: SessionDraft = { text: '', attachments: [], revision: 0 };
 
 const draftKey = (sid: string) => `argus.composer.draft.v1:${sid}`;
 
-/** File bytes stay in memory. Only text and reminders about unuploaded files
- * survive reloads; revisions still fence asynchronous writes. */
+function isUploadedAttachment(value: unknown): value is UploadedAttachment {
+  return Boolean(value && typeof value === 'object'
+    && ['attachment_id', 'relative_path', 'original_name', 'stored_name', 'mime']
+      .every(key => key in value && typeof Reflect.get(value, key) === 'string')
+    && 'size_bytes' in value && Number.isSafeInteger(value.size_bytes) && Number(value.size_bytes) >= 0);
+}
+
+/** File bytes stay in memory; only completed references survive reloads. */
 export function useSessionComposer(sid: string | null) {
   const drafts = useRef(new Map<string, SessionDraft>());
   const rewrites = useRef(new Map<string, RewriteOperation>());
@@ -26,6 +39,7 @@ export function useSessionComposer(sid: string | null) {
     if (cached) return cached;
     let text = '';
     let missingAttachments: string[] = [];
+    let uploaded: CompletedFile[] = [];
     try {
       const raw = globalThis.localStorage?.getItem(draftKey(id));
       if (raw) {
@@ -35,11 +49,15 @@ export function useSessionComposer(sid: string | null) {
           || !saved.attachments.every(name => typeof name === 'string')) throw new Error('Invalid saved draft');
         text = saved.text;
         missingAttachments = saved.attachments;
+        if ('uploaded' in saved) {
+          if (!Array.isArray(saved.uploaded) || !saved.uploaded.every(isUploadedAttachment)) throw new Error('Invalid uploaded references');
+          uploaded = saved.uploaded.map(attachment => ({ attachment }));
+        }
       }
     } catch {
       storageErrors.current.set(id, true);
     }
-    const value = { text, missingAttachments, attachments: [], revision: ++sequence.current };
+    const value = { text, missingAttachments, uploaded, attachments: [], revision: ++sequence.current };
     drafts.current.set(id, value);
     return value;
   };
@@ -48,22 +66,47 @@ export function useSessionComposer(sid: string | null) {
     return () => { mounted.current = false; };
   }, []);
 
-  const put = useCallback((id: string, value: Pick<SessionDraft, 'text' | 'attachments' | 'missingAttachments'>): DraftSnapshot => {
-    const next = { text: value.text, attachments: [...value.attachments], revision: ++sequence.current };
-    const draft = { ...next, missingAttachments: value.missingAttachments ?? [] };
-    drafts.current.set(id, draft);
+  const persist = useCallback((id: string, draft: SessionDraft) => {
     try {
       if (!globalThis.localStorage) throw new Error('Browser storage unavailable');
-      const attachments = [...draft.missingAttachments, ...draft.attachments.map(file => file.name)];
-      if (draft.text || attachments.length) localStorage.setItem(draftKey(id), JSON.stringify({ text: draft.text, attachments }));
+      const uploaded = draft.uploaded ?? [];
+      const attachments = [...(draft.missingAttachments ?? []), ...draft.attachments
+        .filter(file => !uploaded.some(item => item.file === file)).map(file => file.name)];
+      if (draft.text || attachments.length || uploaded.length) localStorage.setItem(draftKey(id), JSON.stringify({
+        text: draft.text, attachments,
+        ...(uploaded.length ? { uploaded: uploaded.map(item => item.attachment) } : {}),
+      }));
       else localStorage.removeItem(draftKey(id));
       storageErrors.current.set(id, false);
     } catch {
       storageErrors.current.set(id, true);
     }
+  }, []);
+  const put = useCallback((id: string, value: Pick<SessionDraft, 'text' | 'attachments' | 'missingAttachments' | 'uploaded'>): DraftSnapshot => {
+    const next = { text: value.text, attachments: [...value.attachments], revision: ++sequence.current };
+    const draft = { ...next, missingAttachments: value.missingAttachments ?? [],
+      uploaded: (value.uploaded ?? []).filter(item => !item.file || value.attachments.includes(item.file)) };
+    drafts.current.set(id, draft);
+    persist(id, draft);
     if (mounted.current) redraw();
     return { sid: id, ...draft };
-  }, []);
+  }, [persist]);
+  const rememberUploaded = useCallback((operation: DraftSnapshot, file: File, attachment: UploadedAttachment) => {
+    const item = { file, attachment };
+    operation.uploaded = [...(operation.uploaded ?? []).filter(row => row.file !== file), item];
+    const current = drafts.current.get(operation.sid);
+    if (!current?.attachments.includes(file)) return;
+    const draft = { ...current, uploaded: [...(current.uploaded ?? []).filter(row => row.file !== file), item] };
+    // Receipt bookkeeping is not a user edit; do not invalidate the send revision.
+    drafts.current.set(operation.sid, draft);
+    persist(operation.sid, draft);
+    if (mounted.current) redraw();
+  }, [persist]);
+  const removeUploaded = useCallback((attachmentId: string) => {
+    if (!sid) return;
+    const current = drafts.current.get(sid);
+    if (current) put(sid, { ...current, uploaded: current.uploaded?.filter(item => item.attachment.attachment_id !== attachmentId) });
+  }, [put, sid]);
   const setText = useCallback((value: SetStateAction<string>) => {
     if (!sid) return;
     const current = drafts.current.get(sid) ?? EMPTY;
@@ -92,6 +135,7 @@ export function useSessionComposer(sid: string | null) {
     return put(operation.sid, {
       text: '', attachments: operation.attachments.filter(file => !sent.includes(file)),
       missingAttachments: operation.missingAttachments,
+      uploaded: operation.uploaded?.filter(item => item.file && !sent.includes(item.file)),
     });
   }, [isCurrent, put]);
   const restore = useCallback((cleared: DraftSnapshot, original: DraftSnapshot) => {
@@ -136,6 +180,6 @@ export function useSessionComposer(sid: string | null) {
       if (sid) put(sid, { ...(drafts.current.get(sid) ?? EMPTY), missingAttachments: [] });
     },
     rewriting: Boolean(sid && rewrites.current.has(sid)),
-    setText, setAttachments, capture, consume, restore, beginRewrite, finishRewrite, drop,
+    setText, setAttachments, capture, consume, restore, beginRewrite, finishRewrite, drop, rememberUploaded, removeUploaded,
   };
 }

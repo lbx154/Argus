@@ -155,7 +155,8 @@ describe('App session composer ownership', () => {
     act(() => props().onAttachmentsChange([file]));
     let sent!: Promise<boolean>;
     act(() => { sent = Promise.resolve(props().onSend('A upload', [file])); });
-    expect(api.uploadAttachments).toHaveBeenCalledWith('s-A', [file], expect.any(AbortSignal));
+    expect(api.uploadAttachments).toHaveBeenCalledWith('s-A', [file], expect.any(AbortSignal),
+      expect.objectContaining({ onUploaded: expect.any(Function), onProgress: expect.any(Function) }));
     select('s-B');
     expect(props().value).toBe('');
     type('B untouched');

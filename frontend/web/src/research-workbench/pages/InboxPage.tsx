@@ -6,6 +6,7 @@ import { formatDate } from '../utils';
 import { useManagerRun } from '../useManagerRun';
 import { useWorkbenchText } from '../useWorkbenchText';
 import type { WorkspacePageProps } from './pageTypes';
+import { MESSAGE_ATTACHMENT_MAX_BYTES, MESSAGE_ATTACHMENT_TOTAL_MAX_BYTES } from '../../lib/attachments';
 
 interface InboxDraft {
   id: string; title: string; source: string; raw: string; prompt: string;
@@ -61,15 +62,15 @@ export function InboxPage(props: WorkspacePageProps) {
     const binaryPattern = /\.(pdf|png|jpe?g|webp|wav|mp3|m4a|ogg)$/i;
     const unsupported = incoming.filter((file) => !textPattern.test(file.name) && !binaryPattern.test(file.name));
     if (unsupported.length) { setError(text(`不支持的附件：${unsupported.map((file) => file.name).join('、')}`, `Unsupported attachments: ${unsupported.map((file) => file.name).join(', ')}`)); return; }
-    const tooLarge = incoming.find((file) => file.size > 10 * 1024 * 1024);
-    if (tooLarge) { setError(text(`${tooLarge.name} 超过单文件 10 MB 限制`, `${tooLarge.name} exceeds the 10 MB per-file limit`)); return; }
+    const tooLarge = incoming.find((file) => file.size > MESSAGE_ATTACHMENT_MAX_BYTES);
+    if (tooLarge) { setError(text(`${tooLarge.name} 超过单文件 100 MiB 限制`, `${tooLarge.name} exceeds the 100 MiB per-file limit`)); return; }
     if (files.length + textImportCount + incoming.length > MAX_FILES) { setError(text(`每次分析最多导入 ${MAX_FILES} 个文件`, `You can import up to ${MAX_FILES} files per analysis`)); return; }
     const textFiles = incoming.filter((file) => textPattern.test(file.name));
     const oversizedText = textFiles.find((file) => file.size > 1024 * 1024);
     if (oversizedText) { setError(text(`${oversizedText.name} 超过本机文本导入 1 MB 限制；请改为摘要或拆分文件`, `${oversizedText.name} exceeds the 1 MB local text-import limit. Summarize or split the file.`)); return; }
     const binaryFiles = incoming.filter((file) => binaryPattern.test(file.name));
     const merged = [...files, ...binaryFiles];
-    if (merged.reduce((total, file) => total + file.size, 0) > 25 * 1024 * 1024) { setError(text('附件总大小超过 25 MB', 'Attachments exceed the 25 MB total limit')); return; }
+    if (merged.reduce((total, file) => total + file.size, 0) > MESSAGE_ATTACHMENT_TOTAL_MAX_BYTES) { setError(text('附件总大小超过 500 MiB', 'Attachments exceed the 500 MiB total limit')); return; }
     const blocks = await Promise.all(textFiles.map(async (file) => `\n\n--- ${text('文件', 'File')}: ${file.name} ---\n${await file.text()}`));
     const nextRaw = `${selected?.raw ?? ''}${blocks.join('')}`.trim();
     if (nextRaw.length > MAX_RAW_CHARS) { setError(text(`原始输入超过 ${MAX_RAW_CHARS.toLocaleString(locale)} 字符限制，请拆分或摘要`, `Raw input exceeds the ${MAX_RAW_CHARS.toLocaleString(locale)}-character limit. Split or summarize it.`)); return; }

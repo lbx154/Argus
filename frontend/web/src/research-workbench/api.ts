@@ -11,7 +11,7 @@ import type {
   StatusView,
   Turn,
 } from './types';
-import { authHeaders, authToken, compatibleApiMeta, requestWithTimeout, requireDaemonCommand } from '../api';
+import { api as webApi, authHeaders, authToken, compatibleApiMeta, requestWithTimeout, requireDaemonCommand } from '../api';
 import type { TimelineEntry, TimelineInput, TimelineReport } from './timeline/types';
 
 const LOCAL_READ_TIMEOUT_MS = 12_000;
@@ -173,21 +173,7 @@ export const api = {
       body: JSON.stringify({ text }),
     }),
 
-  uploadAttachments: async (sid: string, files: File[], signal?: AbortSignal) => {
-    await compatibleApiMeta();
-    const form = new FormData();
-    files.forEach((file) => form.append('files', file, file.name));
-    const response = await fetch(projectPath(sid, '/attachments'), {
-      method: 'POST',
-      headers: apiAuthHeaders(),
-      body: form,
-      signal,
-    });
-    if (!response.ok) throw new Error(await response.text() || `attachment upload failed (${response.status})`);
-    return await response.json() as {
-      attachments: Array<{ attachment_id: string; original_name: string; size_bytes: number; mime: string }>;
-    };
-  },
+  uploadAttachments: webApi.uploadAttachments,
 
   createDaemon: (objective: string, name = '', workdir = '') =>
     request<{ sid: string; rc: number; daemon: Record<string, unknown>; objective: string; workdir: string }>('/api/daemons', {

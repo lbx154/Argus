@@ -71,6 +71,10 @@ export function ArtifactModal({
     setPreviewUrl(null);
     setPreviewError('');
     if (!sid || !path || !info || !['image', 'pdf', 'audio', 'video'].includes(info.kind)) return;
+    if (info.kind === 'pdf') {
+      setPreviewUrl(api.artifactRawUrl(sid, path));
+      return;
+    }
     let alive = true;
     let objectUrl = '';
     const controller = new AbortController();

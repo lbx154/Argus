@@ -582,29 +582,32 @@ describe('web API protocol handshake', () => {
     expect(onDelta).toHaveBeenCalledWith('partial', '', 'auto');
   });
 
-  it('uploads attachments as multipart and reuses attachment ids in message requests', async () => {
+  it('uploads small chunks and reuses attachment ids in message requests', async () => {
     const fetchMock = vi.fn(async (path: string, init?: RequestInit) => {
       if (path === '/api/meta') return Response.json(currentMeta);
-      if (path === '/api/projects/s-test/attachments') {
-        expect(init?.method).toBe('POST');
-        expect(init?.body).toBeInstanceOf(FormData);
-        const entries = Array.from((init?.body as FormData).entries());
-        expect(entries).toHaveLength(1);
-        expect(entries[0][0]).toBe('files');
-        expect((entries[0][1] as File).name).toBe('notes.md');
-        return Response.json({
-          attachments: [{
+      if (path.endsWith('/attachments/limits')) return Response.json({
+        max_count: 5, max_bytes_per_file: 100 * 1024 * 1024,
+        max_total_bytes: 500 * 1024 * 1024, chunk_bytes: 4 * 1024 * 1024,
+      });
+      if (path.endsWith('/uploads')) {
+        expect(JSON.parse(String(init?.body))).toEqual({ name: 'notes.md', mime: 'text/markdown', size_bytes: 7 });
+        return Response.json({ attachment_id: 'att-123456789abc', offset: 0, size_bytes: 7, complete: false });
+      }
+      if (init?.method === 'PUT') {
+        expect(path).toContain('?offset=0');
+        expect(init.body).toBeInstanceOf(Blob);
+        expect((init.body as Blob).size).toBe(7);
+        return Response.json({ attachment_id: 'att-123456789abc', offset: 7, size_bytes: 7, complete: false });
+      }
+      if (path.endsWith('/complete')) {
+        return Response.json({ attachment_id: 'att-123456789abc', offset: 7, size_bytes: 7, complete: true,
+          attachment: {
             attachment_id: 'att-123456789abc',
             relative_path: '.argus/attachments/s-test/att-123456789abc/notes.md',
             original_name: 'notes.md',
             stored_name: 'notes.md',
             mime: 'text/markdown',
             size_bytes: 7,
-          }],
-          limits: {
-            max_count: 5,
-            max_bytes_per_file: 10 * 1024 * 1024,
-            max_total_bytes: 25 * 1024 * 1024,
           },
         });
       }
@@ -628,6 +631,88 @@ describe('web API protocol handshake', () => {
 
     expect(upload.attachments[0].attachment_id).toBe('att-123456789abc');
     expect(result.reply).toBe('ok');
+  });
+
+  it('checks the committed offset after a lost chunk response rather than appending twice', async () => {
+    const offsets: number[] = [];
+    const completed = vi.fn();
+    let actual = 0;
+    let lost = true;
+    const file = new File(['abcdefgh'], 'data.txt');
+    const state = () => ({ attachment_id: 'att-123456789abc', offset: actual, size_bytes: file.size, complete: false });
+    vi.stubGlobal('fetch', vi.fn(async (path: string, init?: RequestInit) => {
+      if (path === '/api/meta') return Response.json(currentMeta);
+      if (path.endsWith('/limits')) return Response.json({ max_count: 5, max_bytes_per_file: 100, max_total_bytes: 500, chunk_bytes: 4 });
+      if (path.endsWith('/uploads')) return Response.json(state());
+      if (init?.method === 'PUT') {
+        offsets.push(Number(new URL(path, 'https://test').searchParams.get('offset')));
+        actual += (init.body as Blob).size;
+        if (lost) { lost = false; throw new TypeError('response lost'); }
+        return Response.json(state());
+      }
+      if (path.endsWith('/complete')) return Response.json({ ...state(), complete: true, attachment: {
+        attachment_id: 'att-123456789abc', original_name: file.name, stored_name: file.name,
+        size_bytes: file.size, mime: 'text/plain', relative_path: 'registered/data.txt',
+      } });
+      return Response.json(state());
+    }));
+    const { api } = await import('../api');
+    const result = await api.uploadAttachments('s-test', [file], undefined, { onUploaded: completed });
+    expect(offsets).toEqual([0, 4]);
+    expect(completed).toHaveBeenCalledOnce();
+    expect(result.attachments[0].size_bytes).toBe(8);
+  });
+
+  it('preserves earlier completed files on partial failure and does not upload them on retry', async () => {
+    const first = new File(['a'], 'first.txt');
+    const second = new File(['b'], 'second.txt');
+    const completed = new Map<File, import('../api').UploadedAttachment>();
+    let begins = 0;
+    const fetchMock = vi.fn(async (path: string, init?: RequestInit) => {
+      if (path === '/api/meta') return Response.json(currentMeta);
+      if (path.endsWith('/limits')) return Response.json({ max_count: 5, max_bytes_per_file: 100, max_total_bytes: 500, chunk_bytes: 4 });
+      if (path.endsWith('/uploads')) {
+        begins++;
+        if (begins === 2) return Response.json({ detail: 'disk full' }, { status: 507 });
+        return Response.json({ attachment_id: 'att-123456789abc', offset: 0, size_bytes: 1, complete: false });
+      }
+      if (init?.method === 'PUT') return Response.json({ attachment_id: 'att-123456789abc', offset: 1, size_bytes: 1, complete: false });
+      return Response.json({ attachment_id: 'att-123456789abc', offset: 1, size_bytes: 1, complete: true, attachment: {
+        attachment_id: 'att-123456789abc', original_name: first.name, stored_name: first.name,
+        size_bytes: 1, mime: 'text/plain', relative_path: 'registered/first.txt',
+      } });
+    });
+    vi.stubGlobal('fetch', fetchMock);
+    const { api } = await import('../api');
+    await expect(api.uploadAttachments('s-test', [first, second], undefined, {
+      completed, onUploaded: (file, attachment) => completed.set(file, attachment),
+    })).rejects.toThrow('disk full');
+    expect(completed.has(first)).toBe(true);
+    const before = fetchMock.mock.calls.length;
+    await api.uploadAttachments('s-test', [first], undefined, { completed });
+    expect(fetchMock.mock.calls.slice(before).map(([path]) => path)).toEqual(['/api/projects/s-test/attachments/limits']);
+  });
+
+  it('cancels an incomplete file without posting a message and reports cleanup failure', async () => {
+    const controller = new AbortController();
+    const cleanupError = vi.fn();
+    const methods: string[] = [];
+    vi.stubGlobal('fetch', vi.fn(async (path: string, init?: RequestInit) => {
+      if (path === '/api/meta') return Response.json(currentMeta);
+      if (path.endsWith('/limits')) return Response.json({ max_count: 5, max_bytes_per_file: 100, max_total_bytes: 500, chunk_bytes: 4 });
+      methods.push(init?.method ?? 'GET');
+      if (path.endsWith('/uploads')) return Response.json({ attachment_id: 'att-123456789abc', offset: 0, size_bytes: 1, complete: false });
+      if (init?.method === 'PUT') {
+        controller.abort();
+        throw new DOMException('Aborted', 'AbortError');
+      }
+      return Response.json({ detail: 'cleanup offline' }, { status: 503 });
+    }));
+    const { api } = await import('../api');
+    await expect(api.uploadAttachments('s-test', [new File(['a'], 'a.txt')], controller.signal,
+      { onCleanupError: cleanupError })).rejects.toMatchObject({ name: 'AbortError' });
+    expect(methods).toEqual(['POST', 'PUT', 'DELETE']);
+    expect(cleanupError).toHaveBeenCalledOnce();
   });
 });
 

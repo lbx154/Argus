@@ -1,6 +1,8 @@
 """Bound request bytes before JSON parsing or multipart temporary-file writes."""
 from __future__ import annotations
 
+import re
+
 from starlette.datastructures import Headers
 from starlette.exceptions import HTTPException
 from starlette.formparsers import MultiPartException
@@ -9,6 +11,8 @@ from starlette.responses import JSONResponse
 MESSAGE_MAX_CHARS = 32_000
 JSON_BODY_MAX_BYTES = 256 * 1024
 UPLOAD_BODY_MAX_BYTES = 26 * 1024 * 1024  # 25 MiB files plus multipart headers
+CHUNK_BODY_MAX_BYTES = 4 * 1024 * 1024
+_CHUNK_PATH = re.compile(r"^/api/projects/[^/]+/attachments/uploads/att-[a-f0-9]{12}$")
 TOO_LARGE = "内容过长，请缩短消息或拆分附件后重试。 / Request too large; shorten the message or split attachments."
 
 
@@ -22,6 +26,8 @@ class RequestSizeLimitMiddleware:
         headers = Headers(scope=scope)
         multipart = headers.get("content-type", "").lower().startswith("multipart/form-data")
         limit = UPLOAD_BODY_MAX_BYTES if multipart else JSON_BODY_MAX_BYTES
+        if scope.get("method") == "PUT" and _CHUNK_PATH.fullmatch(scope.get("path", "")):
+            limit = CHUNK_BODY_MAX_BYTES
         try:
             length = int(headers.get("content-length", "0"))
             if length < 0:

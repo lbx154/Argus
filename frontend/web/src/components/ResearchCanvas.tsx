@@ -372,6 +372,10 @@ export function ResearchCanvas({
     setPreviewUrl(null);
     setPreviewError('');
     if (!sid || !selected || !info || !['image', 'pdf', 'audio', 'video'].includes(info.kind)) return;
+    if (info.kind === 'pdf') {
+      setPreviewUrl(api.artifactRawUrl(sid, selected.path));
+      return;
+    }
     let alive = true;
     let objectUrl = '';
     const controller = new AbortController();

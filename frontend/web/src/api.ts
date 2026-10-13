@@ -31,6 +31,7 @@ import {
 } from '../../core/src/protocol';
 import type { ResourceStatus } from '../../core/src/resourceStatus.generated';
 import { workflowClient } from '../../core/src/applicationWorkflows';
+import { attachmentMime } from './lib/attachments';
 
 export type {
   ArtifactInfo,
@@ -427,6 +428,29 @@ export interface AttachmentUploadResponse {
     max_total_bytes: number;
   };
 }
+export interface AttachmentUploadProgress {
+  name: string;
+  index: number;
+  count: number;
+  loaded: number;
+  total: number;
+  phase: 'uploading' | 'validating' | 'ready' | 'retrying';
+}
+export interface AttachmentUploadOptions {
+  ready?: UploadedAttachment[];
+  completed?: Map<File, UploadedAttachment>;
+  onUploaded?: (file: File, attachment: UploadedAttachment) => void;
+  onProgress?: (progress: AttachmentUploadProgress) => void;
+  onCleanupError?: (error: unknown) => void;
+}
+interface AttachmentUploadState {
+  attachment_id: string;
+  offset: number;
+  size_bytes: number;
+  complete: boolean;
+  attachment?: UploadedAttachment;
+}
+const pendingUploads = new WeakMap<File, Map<string, string>>();
 export interface TrashEntry {
   trash_id: string;
   sid: string;
@@ -681,21 +705,26 @@ async function postJson<T = Record<string, unknown>>(
   return (await (await postResponse(path, body, signal)).json()) as T;
 }
 
-async function postMultipart<T>(
+async function uploadRequest<T>(
+  method: string,
   path: string,
-  body: FormData,
+  body?: Blob | Record<string, unknown>,
   signal?: AbortSignal,
 ): Promise<T> {
   requireCurrentPage();
-  const r = await fetch(path, {
-    method: 'POST',
-    headers: authHeaders(),
-    body,
+  return requestWithTimeout(path, {
+    method,
+    headers: {
+      ...authHeaders(),
+      ...(body === undefined ? {} : { 'Content-Type': body instanceof Blob ? 'application/octet-stream' : 'application/json' }),
+    },
+    body: body === undefined ? undefined : body instanceof Blob ? body : JSON.stringify(body),
     signal,
+  }, method === 'DELETE' ? 5_000 : 120_000, async response => {
+    await ensureResponseOk(response, method, path);
+    observePageRelease(response.headers.get('X-Argus-Release'));
+    return await response.json() as T;
   });
-  await ensureResponseOk(r, 'POST', path);
-  observePageRelease(r.headers.get('X-Argus-Release'));
-  return (await r.json()) as T;
 }
 
 export function requireDaemonCommand<T>(result: T): T {
@@ -1113,6 +1142,8 @@ export const api = {
     if (download) q.set('download', 'true');
     return getBlob(P(sid, `/artifact/raw?${q}`), signal);
   },
+  artifactRawUrl: (sid: string, path: string) =>
+    P(sid, `/artifact/raw?${new URLSearchParams({ path })}`),
   gitDiff: (sid: string, signal?: AbortSignal) =>
     getJson<GitDiffView>(P(sid, '/git-diff'), signal),
   deliveryDiff: (sid: string, change: { path: string; before: string; after: string }, signal?: AbortSignal) =>
@@ -1197,11 +1228,94 @@ export const api = {
     sid: string,
     files: File[],
     signal?: AbortSignal,
-  ) => {
+    options: AttachmentUploadOptions = {},
+  ): Promise<AttachmentUploadResponse> => {
     await compatibleApiMeta();
-    const form = new FormData();
-    files.forEach((file) => form.append('files', file, file.name));
-    return postMultipart<AttachmentUploadResponse>(P(sid, '/attachments'), form, signal);
+    const limits = await getJson<AttachmentUploadResponse['limits'] & { chunk_bytes: number }>(
+      P(sid, '/attachments/limits'), signal,
+    );
+    if (![limits.max_count, limits.max_bytes_per_file, limits.max_total_bytes, limits.chunk_bytes]
+      .every(value => Number.isSafeInteger(value) && value > 0) || limits.chunk_bytes > 4 * 1024 * 1024) {
+      throw new Error('Invalid attachment upload limits from server');
+    }
+    const attachments = [...(options.ready ?? [])];
+    if (files.length + attachments.length > limits.max_count
+      || files.some(file => file.size > limits.max_bytes_per_file)
+      || files.reduce((sum, file) => sum + file.size, attachments.reduce((sum, file) => sum + file.size_bytes, 0)) > limits.max_total_bytes) {
+      throw new Error('Attachments exceed the server file/count/total limits');
+    }
+    for (const [index, file] of files.entries()) {
+      signal?.throwIfAborted();
+      const progress = (loaded: number, phase: AttachmentUploadProgress['phase']) =>
+        options.onProgress?.({ name: file.name, index: index + 1, count: files.length, loaded, total: file.size, phase });
+      const cached = options.completed?.get(file);
+      if (cached) {
+        attachments.push(cached);
+        progress(file.size, 'ready');
+        continue;
+      }
+      let fileUploads = pendingUploads.get(file);
+      if (!fileUploads) { fileUploads = new Map(); pendingUploads.set(file, fileUploads); }
+      let id = fileUploads.get(sid);
+      let path = id ? P(sid, `/attachments/uploads/${encodeURIComponent(id)}`) : '';
+      try {
+        let state = id
+          ? await uploadRequest<AttachmentUploadState>('GET', path, undefined, signal)
+          : await uploadRequest<AttachmentUploadState>('POST', P(sid, '/attachments/uploads'),
+            { name: file.name, mime: attachmentMime(file), size_bytes: file.size }, signal);
+        id = state.attachment_id;
+        fileUploads.set(sid, id);
+        path = P(sid, `/attachments/uploads/${encodeURIComponent(id)}`);
+        let failures = 0;
+        while (!state.complete) {
+          signal?.throwIfAborted();
+          if (!Number.isSafeInteger(state.offset) || state.offset < 0 || state.offset > file.size || state.size_bytes !== file.size) {
+            throw new Error('Invalid upload offset or file identity returned by server');
+          }
+          const completing = state.offset === file.size;
+          progress(state.offset, completing ? 'validating' : 'uploading');
+          try {
+            state = completing
+              ? await uploadRequest<AttachmentUploadState>('POST', `${path}/complete`, {}, signal)
+              : await uploadRequest<AttachmentUploadState>('PUT', `${path}?offset=${state.offset}`,
+                file.slice(state.offset, Math.min(file.size, state.offset + limits.chunk_bytes)), signal);
+            failures = 0;
+          } catch (error) {
+            if (signal?.aborted || (error instanceof ApiError && ![409, 429, 500, 502, 503, 504].includes(error.status)) || ++failures > 2) throw error;
+            progress(state.offset, 'retrying');
+            await new Promise<void>((resolve, reject) => {
+              const abort = () => { clearTimeout(timer); reject(signal?.reason ?? new DOMException('Aborted', 'AbortError')); };
+              const timer = setTimeout(() => { signal?.removeEventListener('abort', abort); resolve(); }, 500 * failures);
+              signal?.addEventListener('abort', abort, { once: true });
+              if (signal?.aborted) abort();
+            });
+            // A lost acknowledgement may already have committed the bytes.
+            // Always ask the server before writing again; never replay a task.
+            state = await uploadRequest<AttachmentUploadState>('GET', path, undefined, signal);
+          }
+        }
+        if (!state.attachment || state.attachment.attachment_id !== id || state.attachment.size_bytes !== file.size) {
+          throw new Error('Server did not return a completed attachment');
+        }
+        attachments.push(state.attachment);
+        options.onUploaded?.(file, state.attachment);
+        fileUploads.delete(sid);
+        progress(file.size, 'ready');
+      } catch (error) {
+        if (id && (signal?.aborted || (error instanceof ApiError && [400, 413, 415, 422].includes(error.status)))) {
+          try {
+            await uploadRequest('DELETE', path);
+            fileUploads.delete(sid);
+          } catch (cleanupError) {
+            options.onCleanupError?.(cleanupError);
+            if (!options.onCleanupError) throw new Error(`Upload failed; temporary cleanup also failed: ${String(cleanupError)}`, { cause: error });
+          }
+        }
+        if (error instanceof ApiError && error.status === 404) fileUploads.delete(sid);
+        throw error;
+      }
+    }
+    return { attachments, limits };
   },
   answerDomain: (sid: string, id: string, optionId: string, note: string) =>
     postJson<{ kind: string; reply?: string; resolved?: boolean; daemon?: { rc?: number; error?: string } }>(

@@ -38,8 +38,8 @@ describe('starting and revisiting work', () => {
     act(() => { view = create(<Landing loading={false} hasProjects={false} canCreate onNew={onNew} onRetry={vi.fn()} onChoose={vi.fn()} />); });
     expect(onNew).not.toHaveBeenCalled();
     expect(view.root.findByType(StartPrompts).findAllByType('button')).toHaveLength(4);
-    act(() => button('分析表格').props.onClick());
-    expect(onNew).toHaveBeenCalledWith(expect.stringContaining('不要使用虚构数据'));
+    act(() => button('调研清楚，帮我做决策').props.onClick());
+    expect(onNew).toHaveBeenCalledWith(expect.stringContaining('不编造依据'));
     expect(text(view.root)).toContain('不会自动开始任务');
   });
 

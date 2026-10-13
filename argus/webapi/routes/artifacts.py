@@ -89,7 +89,10 @@ def register_artifact_routes(app, ctx: ServerContext) -> None:
                 # text; prohibit browser MIME sniffing from turning them back
                 # into executable content.
                 "X-Content-Type-Options": "nosniff",
-                "Cache-Control": "private, no-store",
+                # PDF.js needs the original length and byte offsets. Whole-file
+                # gzip disables its Range reader and defeats bounded previews.
+                "Content-Encoding": "identity",
+                "Cache-Control": "private, no-store, no-transform",
             },
         )
 

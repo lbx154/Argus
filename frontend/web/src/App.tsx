@@ -2,7 +2,7 @@ import type { DispatchObserver, MapSendOptions } from './map/submission';
 import { lazy, Suspense, useCallback, useEffect, useMemo, useReducer, useRef, useState } from 'react';
 import { artifactRefreshEventKey, snapshotRefreshEventKey, useProjects, useProjectCosts, useSnapshot, useEventStream, useProjectActions, useArtifacts, useJournal } from './hooks';
 import { useConversationHistory } from './useConversationHistory';
-import { api, isConnectionError, newRequestId, type EventMsg, type MessageRouteOverride, type SkillLibraryItem, type SkillScope, type WikiLibraryItem, PairingRequiredError } from './api';
+import { api, isConnectionError, newRequestId, type AttachmentUploadOptions, type AttachmentUploadProgress, type EventMsg, type MessageRouteOverride, type SkillLibraryItem, type SkillScope, type WikiLibraryItem, PairingRequiredError } from './api';
 import { LearningLibrary, type LearningScope, type LearningSelection } from './components/LearningLibrary';
 import { LearningStatus } from './components/LearningStatus';
 import { ComposerRuntime } from './components/ComposerRuntime';
@@ -86,6 +86,7 @@ interface ActiveMessageRequest {
   sid: string;
   controller: AbortController;
   recovered?: boolean;
+  uploading?: boolean;
 }
 interface CompletionContext {
   sid: string;
@@ -214,6 +215,7 @@ export default function App() {
   const [slashSelection, setSlashSelection] = useState(0);
   const [routeOverride, setRouteOverride] = useState<MessageRouteOverride>('auto');
   const [chatPending, setChatPending] = useState(false);
+  const [uploadProgress, setUploadProgress] = useState<AttachmentUploadProgress | null>(null);
   const [localConversationEvents, setLocalConversationEvents] = useState<EventMsg[]>([]);
   const localConversationSid = useRef<string | null>(null);
   const [managerSteps, setManagerSteps] = useState<PhaseStep[]>([]);
@@ -249,6 +251,7 @@ export default function App() {
     messageRequestRef.current?.controller.abort();
     messageRequestRef.current = null;
     setChatPending(false);
+    setUploadProgress(null);
     setManagerSteps([]);
     return cancelled;
   }, []);
@@ -256,6 +259,10 @@ export default function App() {
   const stopWaiting = useCallback(() => {
     const request = messageRequestRef.current;
     if (!request || !cancelActiveMessage()) return;
+    if (request.uploading) {
+      notify('info', locale === 'zh-CN' ? '已取消上传；草稿和已完成的附件保留，尚未发送给 Argus。' : 'Upload cancelled. The draft and completed files are preserved; nothing was sent to Argus.');
+      return;
+    }
     const epoch = messageEpochRef.current;
     notify('info', t('chat.stoppingReply'));
     // This POST has its own lifetime: aborting the SSE connection must not
@@ -266,7 +273,7 @@ export default function App() {
     }).catch((error: unknown) => {
       if (messageEpochRef.current === epoch) notify('error', t('chat.stopReplyFailed', { error: errorText(error) }));
     });
-  }, [cancelActiveMessage, notify, t]);
+  }, [cancelActiveMessage, notify, t, locale]);
   const {
     activeSid,
     clearProjectSelection: clearSelectedProject,
@@ -289,11 +296,12 @@ export default function App() {
     setTaskItemId,
   });
   const {
-    draft: { text: composerDraft, attachments: composerAttachments, missingAttachments = [] },
+    draft: { text: composerDraft, attachments: composerAttachments, missingAttachments = [], uploaded: composerUploaded = [] },
     storageError: draftStorageError, seed: seedDraft, dismissMissingAttachments,
     rewriting, setText: setComposerDraft, setAttachments: setComposerAttachments,
     capture: captureDraft, consume: consumeDraft, restore: restoreDraft,
     beginRewrite, finishRewrite, drop: dropSessionDraft,
+    rememberUploaded, removeUploaded,
   } = useSessionComposer(selectedSid);
   const selectProject = useCallback((id: string, mode?: ProjectHistoryMode) => {
     cancelDeliveryNavigationRef.current();
@@ -720,7 +728,7 @@ export default function App() {
     toggleSidebarCollapse: () => setLeftPanelOpen((value) => !value),
   });
 
-  const sendMessage = async (text: string, attachments: File[] = [], observe?: DispatchObserver): Promise<boolean> => {
+  const sendMessage = async (text: string, attachments: File[] = [], observe?: DispatchObserver, uploadOptions?: AttachmentUploadOptions): Promise<boolean> => {
     const requestSid = activeSid;
     if (!requestSid || requestSid !== sidRef.current || messageSubmitLockRef.current || messageRequestRef.current) return false;
     const requestEpoch = messageEpochRef.current;
@@ -730,7 +738,7 @@ export default function App() {
     let serverRequestId: string;
     let controller: AbortController;
     try {
-      if (!attachments.length) {
+      if (!attachments.length && !uploadOptions?.ready?.length) {
         const command = await dispatchWebCommand(text, commandHandlers);
         if (command.kind === 'handled') { observe?.({ type: 'settled', outcome: 'message' }); return true; }
         if (command.kind === 'error') {
@@ -764,6 +772,7 @@ export default function App() {
       if (messageRequestRef.current?.id === requestId) {
         messageRequestRef.current = null;
         setChatPending(false);
+        setUploadProgress(null);
         setManagerSteps([]);
       }
     };
@@ -771,17 +780,27 @@ export default function App() {
     setChatPending(true);
     setManagerSteps([]);
     let attachmentRefs: Array<{ attachment_id: string }> = [];
-    if (attachments.length) {
+    if (attachments.length || uploadOptions?.ready?.length) {
+      if (messageRequestRef.current) messageRequestRef.current.uploading = true;
       try {
         const uploaded = await api.uploadAttachments(
           requestSid,
           attachments,
           controller.signal,
+          {
+            ...uploadOptions,
+            onProgress: progress => { if (isCurrent()) setUploadProgress(progress); },
+            onCleanupError: error => notify('error', locale === 'zh-CN'
+              ? `临时上传未能立即清理，将在闲置 24 小时后回收：${errorText(error)}`
+              : `Temporary upload cleanup failed; idle uploads expire after 24 hours: ${errorText(error)}`),
+          },
         );
         if (!isCurrent()) return false;
         attachmentRefs = uploaded.attachments.map((attachment) => ({
           attachment_id: attachment.attachment_id,
         }));
+        if (messageRequestRef.current) messageRequestRef.current.uploading = false;
+        setUploadProgress(null);
       } catch (error) {
         if (isCurrent()) {
           notify('error', t('chat.attachmentUploadFailed', { error: errorText(error) }));
@@ -963,6 +982,10 @@ export default function App() {
       return false;
     }
     if (options?.whileRunning) {
+      if (files.length || draft.uploaded?.length) {
+        notify('error', t('chat.attachWhileRunning'));
+        return false;
+      }
       // The running reply keeps its own request. Commands still run as
       // commands; a plain message is shown now and answered as the next turn
       // (Argus decides whether it steers a live mission or is answered in chat).
@@ -983,13 +1006,17 @@ export default function App() {
     let cleared: DraftSnapshot | null = null;
     let failedBeforeAcceptance = false;
     // /rewrite owns its pending revision until its preview lands, not a send.
-    const rewriteCommand = !files.length && parseCommand(text.trim())?.cmd?.id === 'rewrite';
+    const rewriteCommand = !files.length && !draft.uploaded?.length && parseCommand(text.trim())?.cmd?.id === 'rewrite';
     const accepted = await sendMessage(text, files, (result) => {
       if (result.type === 'settled' && result.outcome === 'error') {
         failedBeforeAcceptance = true;
         if (cleared) restoreDraft(cleared, draft);
       }
       if (sidRef.current === draft.sid) observe?.(result);
+    }, {
+      ready: draft.uploaded?.filter(item => !item.file).map(item => item.attachment),
+      completed: new Map(draft.uploaded?.flatMap(item => item.file ? [[item.file, item.attachment] as const] : [])),
+      onUploaded: (file, attachment) => rememberUploaded(draft, file, attachment),
     });
     if (accepted && !failedBeforeAcceptance && !rewriteCommand) {
       cleared = consumeDraft(draft, files);
@@ -1176,6 +1203,20 @@ export default function App() {
                   {locale === 'zh-CN' ? '文件' : 'Files'}{artifactsQ.data?.length ? ` · ${artifactsQ.data.filter(file => file.exists).length}` : ''}
                 </button>
               </nav>
+              {!kiosk && (uploadProgress || composerUploaded.some(item => !item.file)) && <div className="draft-status flex-wrap" role="status">
+                {uploadProgress && <>
+                  <span>{locale === 'zh-CN' ? '附件' : 'File'} {uploadProgress.index}/{uploadProgress.count} · {uploadProgress.name} · {Math.floor(uploadProgress.loaded / Math.max(1, uploadProgress.total) * 100)}% · {
+                    uploadProgress.phase === 'validating' ? locale === 'zh-CN' ? '正在校验，尚未发送' : 'Validating, not yet sent'
+                      : uploadProgress.phase === 'retrying' ? locale === 'zh-CN' ? '正在确认进度并重试' : 'Checking offset and retrying'
+                        : uploadProgress.phase === 'ready' ? locale === 'zh-CN' ? '文件已就绪，尚未读取' : 'File ready, not yet read'
+                          : locale === 'zh-CN' ? '正在上传，尚未发送' : 'Uploading, not yet sent'}</span>
+                  <button type="button" onClick={stopWaiting}>{locale === 'zh-CN' ? '取消上传' : 'Cancel upload'}</button>
+                </>}
+                {composerUploaded.filter(item => !item.file).map(({ attachment }) => <span key={attachment.attachment_id}>
+                  {attachment.original_name} · {locale === 'zh-CN' ? '已上传，待发送' : 'Uploaded, not sent'}{' '}
+                  <button type="button" disabled={messagePending} onClick={() => removeUploaded(attachment.attachment_id)}>{locale === 'zh-CN' ? '移除' : 'Remove'}</button>
+                </span>)}
+              </div>}
               {!kiosk && workspaceView === 'workbench' && <LearningStatus sid={activeSid} onOpenKnowledge={() => openWiki()} onOpenSkills={() => openSkillLibrary()} />}
               {workspaceView === 'map' && <Suspense fallback={<div className="m-auto text-sm text-ink-faint">{t('common.loading')}</div>}><MapPanel key={snap.session.id} snapshot={snap} events={mapEvents} managerSteps={managerSteps} draft={composerDraft} onDraftChange={setComposerDraft} onSend={sendComposerMessage} attachments={composerAttachments} onAttachmentsChange={setComposerAttachments} pending={messagePending} onCancel={stopWaiting} focusSignal={composerFocus} readOnly={kiosk} onOpenSettings={() => setOverlay('config')}
                 currentTaskId={missionView?.mission.id}

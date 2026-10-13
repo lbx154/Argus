@@ -19,6 +19,48 @@ beforeEach(() => {
 afterEach(() => { act(() => renderer?.unmount()); vi.unstubAllGlobals(); });
 
 describe('persistent text drafts and in-memory file revisions', () => {
+  it('persists completed references, retains unfinished reminders and fences removed files', () => {
+    mount();
+    const first = new File(['a'], 'first.txt');
+    const second = new File(['b'], 'second.txt');
+    const attachment = { attachment_id: 'att-123456789abc', original_name: 'first.txt',
+      stored_name: 'first.txt', relative_path: 'registered/first.txt', mime: 'text/plain', size_bytes: 1 };
+    act(() => { controller.setText('send'); controller.setAttachments([first, second]); });
+    const original = controller.capture('s-A')!;
+    act(() => controller.rememberUploaded(original, first, attachment));
+    expect(controller.draft.revision).toBe(original.revision);
+    expect(original.uploaded?.[0].attachment).toEqual(attachment);
+    act(() => renderer.unmount());
+    mount();
+    expect(controller.draft.attachments).toEqual([]);
+    expect(controller.draft.missingAttachments).toEqual(['second.txt']);
+    expect(controller.draft.uploaded).toEqual([{ attachment }]);
+    act(() => controller.removeUploaded(attachment.attachment_id));
+    expect(controller.draft.uploaded).toEqual([]);
+    act(() => { controller.setAttachments([first]); });
+    const stale = controller.capture('s-A')!;
+    act(() => controller.setAttachments([]));
+    act(() => controller.rememberUploaded(stale, first, attachment));
+    expect(controller.draft.uploaded).toEqual([]);
+  });
+
+  it('restores completed references after a failed dispatch without overwriting a newer draft', () => {
+    mount();
+    const file = new File(['a'], 'a.txt');
+    act(() => { controller.setText('original'); controller.setAttachments([file]); });
+    const original = controller.capture('s-A')!;
+    const attachment = { attachment_id: 'att-123456789abc', original_name: 'a.txt',
+      stored_name: 'a.txt', relative_path: 'registered/a.txt', mime: 'text/plain', size_bytes: 1 };
+    act(() => controller.rememberUploaded(original, file, attachment));
+    let cleared!: DraftSnapshot;
+    act(() => { cleared = controller.consume(original, [file])!; });
+    expect(controller.draft.uploaded).toEqual([]);
+    act(() => { expect(controller.restore(cleared, original)).toBe(true); });
+    expect(controller.draft.uploaded?.[0].attachment).toEqual(attachment);
+    act(() => controller.setText('newer'));
+    act(() => { expect(controller.restore(cleared, original)).toBe(false); });
+    expect(controller.draft.text).toBe('newer');
+  });
   it('restores project text after remount but never serializes or restores File bytes', () => {
     mount();
     const file = new File(['A'], 'report.md');
