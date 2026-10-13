@@ -1,6 +1,7 @@
 import { BackendHandshake } from './BackendHandshake';
 import { Button } from './primitives';
 import { useI18n } from '../i18n';
+import { StartPrompts } from './StartPrompts';
 
 /** Full-viewport picker/empty landing shown until a daemon is selectable. */
 export function Landing({
@@ -11,27 +12,29 @@ export function Landing({
   onNew,
   onChoose,
   canCreate,
+  creating = false,
 }: {
   loading: boolean;
   hasProjects: boolean;
   error?: string;
   onRetry: () => void;
-  onNew: () => void;
+  onNew: (draft?: string) => void;
   onChoose: () => void;
   canCreate: boolean;
+  creating?: boolean;
 }) {
   const { t, locale } = useI18n();
   return (
-    <div className="flex h-full w-full flex-col items-center justify-center gap-4 px-6 text-center">
+    <div className="flex h-full w-full flex-col items-center justify-start gap-4 overflow-y-auto px-6 py-8 text-center lg:justify-center">
       {loading ? <BackendHandshake /> : (
         <>
-          <h1 className="text-2xl font-semibold text-ink">{locale === 'zh-CN' ? hasProjects ? '继续你的项目' : '开始一个项目' : hasProjects ? 'Continue your work' : 'Start a project'}</h1>
+          <h1 className="text-2xl font-semibold text-ink">{locale === 'zh-CN' ? hasProjects ? '继续你的项目' : '你想完成什么？' : hasProjects ? 'Continue your work' : 'What would you like to accomplish?'}</h1>
           <p className={`max-w-md text-sm leading-relaxed ${error ? 'text-err' : 'text-ink-faint'}`}>
             {error
               ? error
               : hasProjects
               ? t('landing.selectOrCreate')
-              : t('landing.noSessions')}
+              : locale === 'zh-CN' ? '告诉 Argus 你的目标，或选一个起点。先交流需求，再一起完成工作。' : 'Tell Argus your goal or choose a starting point. Clarify what you need, then work together.'}
           </p>
         </>
       )}
@@ -43,7 +46,7 @@ export function Landing({
           {hasProjects ? (
             <Button onClick={onChoose}>{t('landing.select')}</Button>
           ) : canCreate ? (
-            <Button onClick={onNew} variant="primary">{t('landing.new')}</Button>
+            <Button onClick={() => onNew()} disabled={creating} variant="primary">{creating ? t('common.loading') : t('landing.new')}</Button>
           ) : null}
           {/* Phones have no sidebar or tab bar until a project exists; give them the menu. */}
           {!hasProjects && !error ? (
@@ -51,6 +54,10 @@ export function Landing({
           ) : null}
         </div>
       )}
+      {!loading && !error && !hasProjects && canCreate && <div className="w-full max-w-2xl">
+        <StartPrompts onPick={onNew} disabled={creating} />
+        <p className="mt-4 text-xs text-ink-faint">{locale === 'zh-CN' ? '选择后会填入草稿，你可以修改；不会自动开始任务。' : 'A starting point fills a draft for you to edit. It does not start work automatically.'}</p>
+      </div>}
     </div>
   );
 }

@@ -67,18 +67,20 @@ export function LearningLibraryEntry({ onOpen, compact = false }: {
   </section>;
 }
 
-export function LearningLibrary({ sid, initialScope = 'global', initialSelection = null, projectNames = {} }: {
+export function LearningLibrary({ sid, initialScope = 'global', initialSelection = null, projectNames = {}, onUse }: {
   sid: string | null; initialScope?: LearningScope; initialSelection?: LearningSelection | null;
   projectNames?: Record<string, string>;
+  onUse?: (title: string, content: string, scope: string) => void;
 }) {
   const originalSid = useRef(sid);
   return <LearningBrowser key={sid ?? 'no-project'} sid={sid} initialScope={initialScope}
-    initialSelection={originalSid.current === sid ? initialSelection : null} projectNames={projectNames} />;
+    initialSelection={originalSid.current === sid ? initialSelection : null} projectNames={projectNames} onUse={onUse} />;
 }
 
-function LearningBrowser({ sid, initialScope, initialSelection, projectNames }: {
+function LearningBrowser({ sid, initialScope, initialSelection, projectNames, onUse }: {
   sid: string | null; initialScope: LearningScope; initialSelection: LearningSelection | null;
   projectNames: Record<string, string>;
+  onUse?: (title: string, content: string, scope: string) => void;
 }) {
   const { locale } = useI18n();
   const zh = locale === 'zh-CN';
@@ -184,6 +186,17 @@ function LearningBrowser({ sid, initialScope, initialSelection, projectNames }: 
           <h3 className="break-words text-lg font-semibold text-ink">{selected.title}</h3>
           <p className="mt-1 text-xs text-ink-faint">{kind(selected)} · {location(selected)}</p>
           <p className="mt-1 break-all text-xs text-ink-faint">{selected.path}</p>
+          {sid && onUse && <div className="mt-4 flex flex-wrap items-center gap-3">
+            <button type="button" disabled={(selected.kind === 'knowledge' || selected.kind === 'skill') && (!document.data || document.isError || document.isPending)}
+              onClick={() => {
+                const content = selected.kind === 'knowledge' || selected.kind === 'skill' ? document.data?.content : selected.content;
+                if (content) onUse(selected.title, content, `${location(selected)} · ${selected.path}${knowledge && wikiDocument.data?.truncated ? (zh ? ' · 仅当前可见节选' : ' · Visible excerpt only') : ''}`);
+              }}
+              className="rounded-lg border border-blue/30 bg-blue/5 px-3 py-2 text-sm text-blue disabled:opacity-40">{zh ? '用于当前对话' : 'Use in this conversation'}</button>
+            <span className="text-xs text-ink-faint">{zh ? '加入附件草稿；发送前可移除，不会自动执行技能。' : 'Adds a draft attachment you can remove before sending. It does not run a skill.'}
+              {selected.scope === 'private' && <span className="mt-1 block text-warn">{zh ? '这份资料来自私有范围。发送后，所选内容会作为附件保存在当前项目；请先确认范围合适。' : 'This material comes from a private scope. Sending saves the selected content as an attachment in the current project; confirm that this scope is appropriate.'}</span>}
+            </span>
+          </div>}
           {knowledge && <KnowledgeReadingGuide item={knowledge} />}
           {skill && guide && <SkillReadingGuide item={skill} guide={guide} />}
           <div className="mt-5 border-t border-line/60 pt-5 text-sm text-ink">

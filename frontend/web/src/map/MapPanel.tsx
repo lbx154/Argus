@@ -164,8 +164,7 @@ export function MapCanvas({
   replacements?: { shown: boolean; toggle: () => void };
 }) {
   const [agentsOpen, setAgentsOpen] = useState(false);
-  const [conversationOpen, setConversationOpen] = useState(() => data.kind === 'live' && !readOnly
-    && actions.conversationEvents.some(event => event.type === 'ui.operator' || event.type === 'ui.argus'));
+  const [conversationOpen, setConversationOpen] = useState(false);
   const operatorMessage = [...actions.conversationEvents].reverse().find(event => event.type === 'ui.operator');
   const operatorMessageId = operatorMessage ? String(operatorMessage.message_id || operatorMessage.ts || '') : '';
   const lastOperatorMessage = useRef(operatorMessageId);

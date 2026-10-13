@@ -24,6 +24,30 @@ export interface StoreFilter {
 
 export const EMPTY_FILTER: StoreFilter = { query: '', kind: 'all', tag: null };
 
+// Customer-facing descriptions of the bundled verticals; the catalog's full
+// description remains available in each card's technical details.
+export const BUNDLED_GUIDES: Record<string, { title: string; purpose: string; input: string; output: string }> = {
+  research: { title: '学术研究', purpose: '从研究问题出发，逐步完成分析、实验与论文写作。', input: '研究问题、已有资料和目标范围', output: '研究结论、实验记录或论文，按确认的范围完成' },
+  software: { title: '软件开发', purpose: '修复项目问题、开发功能，并检查修改是否符合要求。', input: '代码项目、问题描述或功能要求', output: '代码修改、检查结果和使用说明' },
+  argus_maintenance: { title: 'Argus 维护', purpose: '修复或改进 Argus 本身，适合维护服务的开发者。', input: 'Argus 问题、相关记录和修改范围', output: '修复、回归检查与发行检查结果' },
+  kernel_engineering: { title: '计算性能优化', purpose: '优化模型推理、数据传输和 GPU 计算代码的实际性能。', input: '代码、目标硬件、基准和性能目标', output: '优化实现、正确性检查和性能对比' },
+  math: { title: '数学研究', purpose: '探索数学问题，结合文献、计算或形式化方法检查证明。', input: '问题或猜想、已知条件和已有推导', output: '推导、证明检查或尚未解决的问题' },
+  math_synth: { title: '数学推理数据', purpose: '在固定求解和评估规则下，生成并评估数学推理样本。', input: '固定求解器、验证规则和评估要求', output: '推理样本和对应评估结果' },
+  learning: { title: '资料整理与学习', purpose: '把你提供的材料整理为可再次使用的知识和技能。', input: '需要整理的资料与保存范围', output: '新增、更新或归档的知识与技能内容' },
+};
+
+const VERTICAL_TITLES: Record<string, string> = {
+  chip_design: '芯片设计', classical_poetry: '古典诗词', digital_circuit: '数字电路',
+  digital_circuit_benchmark: '数字电路评测', fiction_writing: '小说创作', kernelbench: 'GPU 内核评测',
+  literary_editor: '文学编辑', materials: '材料科学', medical: '生物医药证据研究',
+  modern_poetry: '现代诗创作', nanochat: '语言模型训练优化', nanogpt_speedrun: '语言模型训练加速',
+};
+
+export function verticalTitle(row: Pick<VerticalRow, 'name' | 'kind'>, locale: string): string {
+  if (locale !== 'zh-CN') return row.name.replaceAll('_', ' ');
+  return (row.kind === 'builtin' ? BUNDLED_GUIDES[row.name]?.title : undefined) ?? VERTICAL_TITLES[row.name] ?? row.name.replaceAll('_', ' ');
+}
+
 /** The hosted trial build sets this flag; the host also reports it per payload. */
 export function hostedTrialBuild(env: Record<string, string | boolean | undefined> = import.meta.env): boolean {
   return env.VITE_ARGUS_HOSTED_TRIAL === '1';
@@ -42,7 +66,8 @@ export function matchesKind(kind: VerticalKind, filter: KindFilter): boolean {
 export function matchesQuery(row: VerticalRow, query: string): boolean {
   const needle = query.trim().toLowerCase();
   if (!needle) return true;
-  const haystack = [row.name, row.purpose, row.purpose_zh ?? '', ...(row.routing_path ?? []), ...row.tags, ...row.requires]
+  const guide = row.kind === 'builtin' ? BUNDLED_GUIDES[row.name] : undefined;
+  const haystack = [row.name, verticalTitle(row, 'zh-CN'), guide?.purpose ?? '', row.purpose, row.purpose_zh ?? '', ...(row.routing_path ?? []), ...row.tags, ...row.requires]
     .join('\n')
     .toLowerCase();
   return haystack.includes(needle);

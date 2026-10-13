@@ -10,6 +10,7 @@ import {
   EMPTY_FILTER, KIND_FILTERS, VERTICAL_ACTIONS, actionLabelKey, anyRunning, deriveRoutingPaths, deriveTags, failureDetail, filterLabelKey,
   filterRows, formatSize, hasStoreCapability, hostedTrialBuild, isRunning, isStoreConflict, isStoreMissing, kindLabelKey,
   knownNames, operationLabelKey, pollInterval, progressPercent, purposeText, visibleActions, type StoreFilter,
+  BUNDLED_GUIDES, verticalTitle,
 } from '../lib/verticalStore';
 
 /**
@@ -59,6 +60,9 @@ export function VerticalCard({ row, locale, hosted, busy, failure, known, onAct,
   const { t } = useI18n();
   const [confirming, setConfirming] = useState(false);
   const [showProjects, setShowProjects] = useState(false);
+  const zh = locale === 'zh-CN';
+  const guide = zh && row.kind === 'builtin' ? BUNDLED_GUIDES[row.name] : undefined;
+  const needsEnvironment = row.missing_python.length > 0 || !!row.runtime_issues?.length;
   const running = isRunning(row);
   const disabled = busy || running;
   const actions = visibleActions(row, hosted);
@@ -78,16 +82,28 @@ export function VerticalCard({ row, locale, hosted, busy, failure, known, onAct,
       <Layers size={22} strokeWidth={1.25} className="mt-0.5 shrink-0 text-blue" />
       <div className="min-w-0 flex-1">
         <div className="flex flex-wrap items-center gap-2">
-          <h3 className="font-medium">{row.name}</h3>
+          <h3 className="font-medium">{verticalTitle(row, locale)}</h3>
           <span className={badge(kindTone)} data-testid="vertical-kind">{t(kindLabelKey(row.kind))}</span>
           {row.kind !== 'available' && <span className={badge(row.enabled ? 'ok' : 'neutral')}>{row.enabled ? t('verticals.enabled') : t('verticals.disabledState')}</span>}
           {(row.missing_python.length > 0 || !!row.runtime_issues?.length) && <span className={badge('warn')} data-testid="vertical-environment-required">{t('verticals.environmentRequired')}</span>}
           {row.update_available && <span className={badge('warn')} data-testid="vertical-update">{t('verticals.updateAvailable')}</span>}
         </div>
-        <p className="mt-1 text-sm leading-relaxed text-ink-faint">{purposeText(row, locale)}</p>
-        {row.routing_path?.length ? <p className="mt-1 text-xs text-ink-faint">{row.routing_path.join(' / ')}</p> : null}
+        <p className="mt-1 text-sm leading-relaxed text-ink-dim">{guide?.purpose ?? purposeText(row, locale)}</p>
       </div>
     </div>
+    {guide && <dl className="mt-3 space-y-2 rounded-lg bg-bg/60 p-3 text-xs leading-5">
+      <div><dt className="inline text-ink-faint">准备：</dt><dd className="inline text-ink-dim">{guide.input}</dd></div>
+      <div><dt className="inline text-ink-faint">产出：</dt><dd className="inline text-ink-dim">{guide.output}</dd></div>
+    </dl>}
+    <p className={`mt-3 text-xs leading-5 ${needsEnvironment ? 'text-warn' : 'text-ink-faint'}`}>{needsEnvironment
+      ? zh ? '当前环境尚未准备好，请让服务维护者查看下方环境详情。' : 'This environment is not ready. Ask the service maintainer to review the details below.'
+      : row.kind === 'available' ? zh ? '尚未安装。部署完成并检查环境后，才能用于工作。' : 'Not installed. Deployment and environment checks are required before use.'
+        : row.enabled ? zh ? '已启用。可以在对话中说明目标；实际执行条件会随任务检查。' : 'Enabled. Describe your goal in the conversation; execution requirements are checked for each task.'
+          : zh ? '当前未启用。启用前请确认用途与运行条件。' : 'Currently disabled. Confirm the intended use and requirements before enabling.'}</p>
+    <details className="mt-3 rounded-lg border border-line/50 px-3 py-2">
+      <summary className="cursor-pointer text-xs text-ink-faint">{zh ? '能力原文与环境详情' : 'Original description and environment details'}</summary>
+      <p className="mt-2 break-words text-xs text-ink-faint">{row.name} · {purposeText(row, locale)}</p>
+      {row.routing_path?.length ? <p className="mt-1 text-xs text-ink-faint">{row.routing_path.join(' / ')}</p> : null}
     <div className="mt-3 flex flex-wrap gap-x-4 gap-y-1 text-xs text-ink-faint">
       {row.installed_version && <span>{t('verticals.installedVersion', { version: row.installed_version })}</span>}
       {row.version && row.version !== row.installed_version && <span>{t('verticals.catalogVersion', { version: row.version })}</span>}
@@ -119,6 +135,7 @@ export function VerticalCard({ row, locale, hosted, busy, failure, known, onAct,
     {!!row.install_issues?.length && <p role="status" className="mt-3 rounded-lg bg-warn/10 p-2.5 text-xs text-warn" data-testid="vertical-install-issues">
       {t('verticals.installIssues', { issues: row.install_issues.join('; ') })}
     </p>}
+    </details>
     {row.used_by.length > 0 && <div className="mt-3 text-xs text-ink-faint">
       <button type="button" aria-expanded={showProjects} onClick={() => setShowProjects((value) => !value)} className="inline-flex items-center gap-1 transition-colors hover:text-ink" data-testid="vertical-used-by">
         {row.used_by.length === 1 ? t('verticals.usedByOne') : t('verticals.usedBy', { count: row.used_by.length })}
@@ -151,7 +168,9 @@ export function VerticalCard({ row, locale, hosted, busy, failure, known, onAct,
         <Trash2 size={14} />{t('verticals.removeAnyway')}
       </button>}
     </div>}
-    {actions.length > 0 && <div className="mt-4 flex flex-wrap items-center gap-2">
+    {actions.length > 0 && <details className="mt-4"><summary className="cursor-pointer text-xs text-ink-dim">{zh ? '管理此能力' : 'Manage this capability'}</summary>
+      <p className="mt-2 text-xs text-ink-faint">{zh ? '安装、停用和卸载属于环境管理，不会开始你的任务。' : 'Installing, disabling or removing capabilities manages the environment. It does not start your task.'}</p>
+      <div className="mt-3 flex flex-wrap items-center gap-2">
       {actions.map((action) => {
         const Icon = actionIcon[action];
         if (action === 'uninstall') {
@@ -172,7 +191,7 @@ export function VerticalCard({ row, locale, hosted, busy, failure, known, onAct,
           <Icon size={14} />{label}
         </button>;
       })}
-    </div>}
+    </div></details>}
   </article>;
 }
 
@@ -195,14 +214,14 @@ export function VerticalStoreView({ payload, filter, onFilter, hosted, supported
     <p className="mt-2 text-sm text-ink-faint">{hosted ? t('verticals.hostedNote') : t('verticals.intro')}</p>
     {supported === false && <p role="alert" className="mt-4 rounded-lg border border-line bg-bg/70 p-3 text-sm text-ink-dim" data-testid="vertical-store-too-old">{t('verticals.tooOld')}</p>}
     {supported !== false && <>
-      {catalog && <div className="mt-4 flex flex-wrap items-center gap-x-3 gap-y-1 text-xs text-ink-faint" data-testid="vertical-catalog">
+      {catalog && <details className="mt-3 rounded-lg border border-line/50 p-3"><summary className="cursor-pointer text-xs text-ink-faint">{locale === 'zh-CN' ? '目录来源与更新' : 'Catalog source and updates'}</summary><div className="mt-3 flex flex-wrap items-center gap-x-3 gap-y-1 text-xs text-ink-faint" data-testid="vertical-catalog">
         <span className="min-w-0 truncate" title={catalog.source}>{t('verticals.catalogSource', { source: catalog.source })}</span>
         {catalog.release_tag && <span className="rounded bg-bg px-1.5 py-0.5 font-mono">{t('verticals.catalogRelease', { tag: catalog.release_tag })}</span>}
         <span>{catalog.fetched_at ? t('verticals.catalogFetched', { time: whenText(catalog.fetched_at, locale) }) : t('verticals.catalogNever')}</span>
         <button type="button" className={`${control} ml-auto`} disabled={refreshing || loading} onClick={onRefresh} data-testid="vertical-refresh-catalog">
           <RefreshCw size={14} className={refreshing ? 'animate-spin' : ''} />{refreshing ? t('verticals.refreshing') : t('verticals.refreshCatalog')}
         </button>
-      </div>}
+      </div></details>}
       {catalog?.error && <p role="alert" className="mt-3 rounded-lg border border-warn/40 bg-warn/10 p-2.5 text-sm text-warn" data-testid="vertical-catalog-error">{t('verticals.catalogError', { error: catalog.error })}</p>}
       {error && <p role="alert" className="mt-3 text-sm text-err" data-testid="vertical-store-error">{error}</p>}
       <div className="mt-4 flex flex-wrap items-center gap-2">

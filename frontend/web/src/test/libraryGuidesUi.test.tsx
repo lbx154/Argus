@@ -62,6 +62,27 @@ it('reads skills in the unified browser and resets selection on a project switch
   expect(api.skillDocument).toHaveBeenCalledTimes(1);
 });
 
+it('adds only an explicitly selected, loaded document with its original scope to the draft', async () => {
+  const onUse = vi.fn();
+  await act(async () => { view = create(<QueryClientProvider client={client}><LearningLibrary sid="s-A" onUse={onUse} /></QueryClientProvider>); }); await settle();
+  expect(onUse).not.toHaveBeenCalled();
+  act(() => view!.root.findAllByType('button').find(node => content(node).includes(wiki.title))!.props.onClick()); await settle();
+  expect(button('用于当前对话').props.disabled).toBe(false);
+  act(() => button('用于当前对话').props.onClick());
+  expect(onUse).toHaveBeenCalledWith(wiki.title, '# ORIGINAL KNOWLEDGE\n\nNo automatic translation.\n', expect.stringContaining('原私有范围'));
+  expect(onUse.mock.calls[0][2]).toContain(wiki.path);
+  expect(content(view!.root)).toContain('不会自动执行技能');
+});
+
+it('does not offer an unreadable document as usable context', async () => {
+  vi.mocked(api.wikiDocument).mockRejectedValue(new Error('unavailable'));
+  const onUse = vi.fn();
+  await act(async () => { view = create(<QueryClientProvider client={client}><LearningLibrary sid="s-A" onUse={onUse} /></QueryClientProvider>); }); await settle();
+  act(() => view!.root.findAllByType('button').find(node => content(node).includes(wiki.title))!.props.onClick()); await settle();
+  expect(button('用于当前对话').props.disabled).toBe(true);
+  expect(onUse).not.toHaveBeenCalled();
+});
+
 it('separates real learning records from file updates and reports source failures explicitly', async () => {
   vi.mocked(api.wikiLibrary).mockRejectedValue(new Error('synthetic failure'));
   await act(async () => { view = create(<QueryClientProvider client={client}><LearningLibrary sid="s-A" initialScope="feed" /></QueryClientProvider>); }); await settle();

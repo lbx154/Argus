@@ -1,4 +1,5 @@
 import { useEffect } from 'react';
+import { useI18n } from '../i18n';
 
 export type NoticeTone = 'success' | 'error' | 'info';
 
@@ -16,9 +17,11 @@ export function ActionNotice({
   notice: UiNotice | null;
   onClose: () => void;
 }) {
+  const { locale } = useI18n();
   useEffect(() => {
     if (!notice) return;
-    const timeout = window.setTimeout(onClose, notice.tone === 'error' ? 8_000 : 4_000);
+    if (notice.tone === 'error') return;
+    const timeout = window.setTimeout(onClose, 5_000);
     return () => window.clearTimeout(timeout);
   }, [notice, onClose]);
 
@@ -32,7 +35,7 @@ export function ActionNotice({
     <div
       role={notice.tone === 'error' ? 'alert' : 'status'}
       aria-live={notice.tone === 'error' ? 'assertive' : 'polite'}
-      className={`fixed bottom-4 left-4 right-4 z-[70] flex items-start gap-2 rounded-md border px-3 py-2.5 shadow-glow sm:left-auto sm:max-w-md ${colors}`}
+      className={`fixed bottom-20 left-4 right-4 z-[70] flex items-start gap-2 rounded-md border px-3 py-2.5 shadow-glow sm:left-auto sm:max-w-md lg:bottom-4 ${colors}`}
     >
       <span aria-hidden="true" className="mt-px shrink-0">
         {notice.tone === 'error' ? '!' : notice.tone === 'success' ? '✓' : 'i'}
@@ -42,7 +45,7 @@ export function ActionNotice({
       </span>
       <button
         type="button"
-        aria-label="dismiss notification"
+        aria-label={locale === 'zh-CN' ? '关闭提示' : 'Dismiss notification'}
         onClick={onClose}
         className="shrink-0 rounded px-1 text-base leading-none opacity-70 hover:bg-white/5 hover:opacity-100"
       >

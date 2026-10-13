@@ -21,6 +21,38 @@ than claiming growth. Shared Wiki guidance is available even before a project
 creates its own Wiki. Existing role recall and Skill discovery make the saved
 pages and procedures available to subsequent work.
 
+Answer learning aims to add understanding, not to reformat the delivered reply.
+A short answer can lead to a deeper note: explain the mechanism, connect related
+examples and existing methods, and retain assumptions or counterexamples that
+matter in another task. A supported derivation or a useful connection can justify
+an update even when the underlying facts are unchanged. Additional length alone
+does not. Existing topical pages and methods are improved rather than splitting
+each exchange into a separate summary.
+
+Answer and mission notes use the same prose guidance: explain the subject to a
+reader, rather than narrating how the agent collected and saved material. Start
+from an idea or example before introducing notation. Audit and evidence-assessment
+terminology is not the default narrative frame; use such terms only when they
+belong to the subject itself. Keep limitations that change the meaning alongside
+the relevant claim, expressed concretely, and collect source-access details in one
+short source note. Existing Skills are rewritten coherently instead of retaining
+fixed English headings around new paragraphs.
+
+Notes use natural prose and subject-specific headings in the operator's language.
+There is no fixed question/conclusion/review-date form or mandatory body word
+count. References and specific limitations remain visible; reasoning is not
+presented as measured evidence. A historical finding does not receive an arbitrary
+90-day expiry. The answer-learning prompt has a separate 18,000-character budget,
+including up to 6,000 characters of observed work; tool traces omit transport
+identifiers and timing fields instead of spending that budget on bookkeeping.
+When updating a transcript-shaped note, the pass rebuilds the explanation rather
+than preserving its old headings. Comparisons and proposed explanations are not
+silently strengthened into causal conclusions. Answer synthesis uses medium
+reasoning effort; model selection and the number of learning calls are unchanged.
+Both prompt budgets preserve the writing rules, shortening task material when
+needed. Making an obscured explanation readable can justify a revision; repeatedly
+restyling already clear notes does not count as useful learning.
+
 Answer learning edits a temporary copy of the relevant libraries. The host
 validates all changed pages before publishing any of them. A failed provider,
 malformed page, attempted deletion or conflicting concurrent edit leaves the

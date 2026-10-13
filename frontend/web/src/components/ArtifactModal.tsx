@@ -30,6 +30,7 @@ export function ArtifactModal({
   onSelectPath,
   reviewActivity,
   artifacts = [],
+  onRevise,
 }: {
   sid: string | null;
   path: string | null;
@@ -40,6 +41,7 @@ export function ArtifactModal({
   onSelectPath?: (path: string) => void;
   reviewActivity?: 'revising' | 'reviewing';
   artifacts?: Array<{ path: string; storage_path?: string }>;
+  onRevise?: (path: string) => void;
 }) {
   const { t, locale } = useI18n();
   const zh = locale === 'zh-CN';
@@ -117,7 +119,7 @@ export function ArtifactModal({
         <div className="delivery-heading"><span className="delivery-mark"><PackageCheck size={22} /></span><div>
           <p>DELIVERY · {zh ? '交付成果' : 'Your results'}</p>
           <h2>{zh ? '成果文件' : 'Result files'}</h2>
-        </div><button type="button" onClick={onClose} className="delivery-return" aria-label={zh ? '关闭交付弹窗' : 'Close delivery'}>{zh ? '返回地图' : 'Back to map'} ×</button></div>
+        </div><button type="button" onClick={onClose} className="delivery-return" aria-label={zh ? '关闭交付弹窗' : 'Close delivery'}>{zh ? '返回工作' : 'Back to work'} ×</button></div>
         {deliveries.length > 1 ? <select aria-label={zh ? '选择交付任务' : 'Choose delivery'} className="delivery-task-select" value={delivery.delivery_id} onChange={(e) => { const receipt = deliveries.find((item) => item.delivery_id === e.target.value); if (receipt) onSelectDelivery?.(receipt); }}>
           {deliveries.map((receipt) => <option key={receipt.delivery_id} value={receipt.delivery_id}>{receipt.title}</option>)}
         </select> : <p className="delivery-task-title" title={delivery.title}>{delivery.title}</p>}
@@ -139,6 +141,8 @@ export function ArtifactModal({
           </p>
         </div>
         {delivery && <button type="button" onClick={() => setExpanded((value) => !value)} aria-label={expanded ? (zh ? '收起预览' : 'Exit full screen') : (zh ? '全屏预览' : 'Full screen preview')} title={zh ? '切换全屏预览' : 'Toggle full screen preview'} className="shrink-0 rounded-md border border-line p-2 text-ink-dim">{expanded ? <Minimize2 size={16} /> : <Maximize2 size={16} />}</button>}
+        {onRevise && path && <button type="button" disabled={!info} onClick={() => onRevise(path)}
+          className="shrink-0 rounded-md border border-blue/30 bg-blue/5 px-3 py-2 text-xs text-blue disabled:opacity-50">{zh ? '继续修改' : 'Revise'}</button>}
         {info?.kind === 'html' && <button type="button" disabled={downloading} onClick={() => void download(true)} className="shrink-0 rounded-md border border-blue-deep/60 bg-blue-deep/10 px-3 py-2 text-xs text-blue-sky disabled:opacity-50">{zh ? '下载完整网页' : 'Download website'}</button>}
         <button
           type="button"
@@ -166,7 +170,8 @@ export function ArtifactModal({
         {delivery && sid && (() => { const change = previousDeliveryVersion(delivery, deliveries, path); return change ? <DeliveryChanges key={`${change.before}:${change.after}`} sid={sid} change={change} zh={zh} /> : null; })()}
         {artifactQ.isLoading ? <div className="m-auto"><Spinner /></div> : null}
         {artifactQ.isError ? (
-          <div className="m-auto text-sm text-err">{t('artifact.unavailable')} · {(artifactQ.error as Error).message}</div>
+          <div className="m-auto text-sm text-err">{t('artifact.unavailable')} · {(artifactQ.error as Error).message}
+            <button type="button" className="ml-2 underline" onClick={() => void artifactQ.refetch()}>{t('common.retry')}</button></div>
         ) : null}
         {info?.why && !foundation && !progressSnapshot && !pdfPreview && !delivery ? (
           <div className="mb-3 rounded-md border border-line bg-surface px-3 py-2 text-xs text-ink-dim">

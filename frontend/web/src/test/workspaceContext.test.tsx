@@ -48,7 +48,7 @@ describe('A3 snapshot-only session context', () => {
     expect(html.match(/<summary[^>]*>[\s\S]*?<\/summary>/)?.[0]).not.toContain(snap.session.workdir);
     expect(html).toContain(locale === 'en' ? 'not each task’s actual cwd or a security sandbox boundary' : '不是每个任务的实际 cwd，也不是安全沙箱边界');
     expect(html).toContain(locale === 'en' ? 'Manage session' : '管理会话');
-    expect(html).toContain(locale === 'en' ? 'Run Argus' : '运行 Argus');
+    expect(html).not.toContain(locale === 'en' ? 'Run Argus' : '运行 Argus');
     expect(fetch).not.toHaveBeenCalled();
   });
 
@@ -58,6 +58,11 @@ describe('A3 snapshot-only session context', () => {
     expect(html).not.toContain('/stale/project-index');
     expect(html).not.toMatch(/Both modules|两个模块/);
     expect(fetch).not.toHaveBeenCalled();
+  });
+
+  it('keeps the existing runtime action for actual queued work and an active daemon', () => {
+    expect(markup(topbar({ ...snap, backlog: [{ id: 'queued', title: 'Continue work', objective: 'Continue work', status: 'pending', priority: 1 }] }))).toContain('Run Argus');
+    expect(markup(topbar({ ...snap, daemon: { ...snap.daemon, alive: true, pid: 1 } }))).toContain('Pause Argus');
   });
 
   it('retains all module IDs, entry order and navigation actions', () => {

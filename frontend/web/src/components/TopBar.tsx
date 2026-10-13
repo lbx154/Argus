@@ -66,6 +66,7 @@ export function TopBar({
   // A foreground request (a direct answer or a one-agent task) runs without
   // the daemon; offering "Run" then reads as if nothing had started.
   const foregroundWork = !snap.daemon.alive && ['running', 'waiting'].includes(currentWorkStatus(snap, missionView, events).state);
+  const hasQueuedWork = snap.backlog.some(item => ['pending', 'queued', 'running', 'in_progress', 'claimed', 'paused'].includes(item.status));
   const daemonActionLabel = externalDaemon
     ? t('topbar.externallyManaged')
     : snap.daemon.alive
@@ -146,7 +147,7 @@ export function TopBar({
       ) : null}
       {!readOnly ? (
         <>
-          <button
+          {(snap.daemon.alive || foregroundWork || hasQueuedWork) && <button
             type="button"
             disabled={busy || externalDaemon || foregroundWork}
             onClick={snap.daemon.alive ? onStop : onStart}
@@ -156,7 +157,7 @@ export function TopBar({
           >
             <FontAwesomeIcon icon={snap.daemon.alive ? faPause : faPlay} className="h-3 w-3" />
             <span className="hidden sm:inline">{externalDaemon ? t('common.external') : snap.daemon.alive ? t('common.pause') : foregroundWork ? t('common.working') : t('common.run')}</span>
-          </button>
+          </button>}
           <button
             type="button"
             aria-label={t('topbar.manageSession')}

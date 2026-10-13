@@ -20,6 +20,7 @@ import pytest
 from argus.core.models import RunnerResult
 from argus.life import reflection
 from argus.life.reflection import (
+    ANSWER_PROMPT_CHAR_LIMIT,
     PROMPT_CHAR_LIMIT,
     reflect_after_answer,
     reflect_after_mission,
@@ -445,6 +446,7 @@ def test_survey_page_is_created_indexed_and_recorded(roots: _Roots) -> None:
     assert result["created"] == [str(survey_path)]
     call = backend.calls[0]
     assert call["run_label"] == "answer-learning"
+    assert call["options"].reasoning_effort == "medium"
     draft = Path(call["options"].working_dir)
     assert draft.parent == roots.life / ".learning-drafts"
     assert call["options"].add_dirs == [str(draft)]
@@ -454,10 +456,10 @@ def test_survey_page_is_created_indexed_and_recorded(roots: _Roots) -> None:
     assert "- https://example.org/notes" in prompt
     assert "- https://example.org/issues" in prompt
     assert "kind: survey" in prompt
-    assert "## Re-verify after" in prompt
+    assert "## Re-verify after" not in prompt
     today = datetime.now(timezone.utc).date()
     assert f"created: {today.isoformat()}" in prompt
-    assert len(prompt) <= PROMPT_CHAR_LIMIT
+    assert len(prompt) <= ANSWER_PROMPT_CHAR_LIMIT
 
     index = (global_root / "INDEX.md").read_text(encoding="utf-8")
     assert "## Surveys" in index
@@ -597,10 +599,52 @@ def test_long_answers_keep_the_writing_boundaries_and_preference_rules(roots: _R
     backend = _Backend()
     _answer(roots, backend, operator_text="request " * 2000, reply="answer " * 6000, evidence="trace " * 6000)
     prompt = backend.calls[0]["prompt"]
-    assert len(prompt) <= PROMPT_CHAR_LIMIT
+    assert len(prompt) <= ANSWER_PROMPT_CHAR_LIMIT
     assert "Only explicit user statements support a lasting preference" in prompt
     assert "You may write only inside" in prompt
     assert prompt.endswith("`WROTE: nothing`.")
+
+
+def test_long_mission_reflection_preserves_prose_and_writing_rules(roots: _Roots) -> None:
+    backend = _Backend()
+    roots.reflect(
+        backend, objective="objective " * 1000, acceptance="acceptance " * 1000,
+        review_reason="review " * 1000, host_round_log="observation " * 1000,
+        run_reality="result " * 1000,
+    )
+    prompt = backend.calls[0]["prompt"]
+    assert len(prompt) <= PROMPT_CHAR_LIMIT
+    assert reflection._LEARNING_PROSE in prompt
+    assert "You may write only inside these directories" in prompt
+    assert prompt.endswith("`WROTE: nothing`.")
+    for heading in ("## What happened", "## Evidence", "## When", "## Pitfalls"):
+        assert heading not in prompt
+
+
+def test_answer_learning_preserves_later_evidence_and_requests_understanding_not_a_form(tmp_path: Path) -> None:
+    evidence = "Observed source detail.\n" * 160 + "Late observation: original table was not accessible."
+    prompt = reflection.build_answer_prompt(
+        project_id=SID, vertical="", operator_text="Briefly explain two cases.",
+        reply="Two examples involve different distributions across groups.",
+        evidence=evidence, root=tmp_path / "wiki", existing=[],
+        skills_dir=tmp_path / "skills",
+    )
+    assert evidence in prompt
+    assert len(prompt) <= ANSWER_PROMPT_CHAR_LIMIT
+    assert "A request for a short answer does not require a shallow" in prompt
+    assert "A supported derivation or a useful connection" in prompt
+    assert "Improve an existing method" in prompt
+    assert "operator's language, including headings" in prompt
+    assert "Do not assign a routine expiry date" in prompt
+    assert "preserve its path and useful knowledge, not its template" in prompt
+    assert "conditioning or adjustment alone does not establish causality" in prompt
+    assert reflection._LEARNING_PROSE in prompt
+    assert "not the act of learning it" in prompt
+    assert "collect source-access and checking details in one short source note" in prompt
+    assert "rewrite the prose and headings together" in prompt
+    assert "at most 300 words" not in prompt
+    assert "## What we concluded" not in prompt
+    assert "reverify_after:" not in prompt
 
 
 def test_a_vertical_answer_lands_in_the_vertical_wiki(roots: _Roots) -> None:
