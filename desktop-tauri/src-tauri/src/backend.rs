@@ -253,7 +253,7 @@ impl BackendSupervisor {
             Err(error) => {
                 self.set_status(
                     BackendState::Error,
-                    "无法准备 Argus 本地运行环境",
+                    "无法准备本地运行环境",
                     Some(error.to_string()),
                 );
                 return;
@@ -286,11 +286,11 @@ impl BackendSupervisor {
                 self.set_status(
                     BackendState::Error,
                     format!(
-                        "端口 {} 已由未受当前桌面进程管理的 Argus 占用",
+                        "端口 {} 已由未受当前桌面进程管理的应用占用",
                         settings.port
                     ),
                     Some(
-                        "请先正常退出另一份 Argus；桌面端不会接管或终止无法证明所有权的进程。"
+                        "请先正常退出另一份应用；桌面端不会接管或终止无法证明所有权的进程。"
                             .to_owned(),
                     ),
                 );
@@ -312,7 +312,7 @@ impl BackendSupervisor {
             if may_replace {
                 self.set_status(
                     BackendState::Starting,
-                    "正在升级受管理的 Argus 本地后端",
+                    "正在升级受管理的本地后端",
                     probe.detail.clone(),
                 );
                 if !self
@@ -321,8 +321,8 @@ impl BackendSupervisor {
                 {
                     self.set_status(
                         BackendState::Error,
-                        "无法安全替换上一版本的 Argus 本地后端",
-                        Some("旧后端的身份已验证，但其监听进程未能在限定时间内退出；请从旧版 Argus 正常退出后重试。".to_owned()),
+                        "无法安全替换上一版本的本地后端",
+                        Some("旧后端的身份已验证，但其监听进程未能在限定时间内退出；请从旧版应用正常退出后重试。".to_owned()),
                     );
                     return;
                 }
@@ -357,9 +357,9 @@ impl BackendSupervisor {
             }
         }
 
-        self.set_status(BackendState::Starting, "正在启动 Argus 本地后端", None);
+        self.set_status(BackendState::Starting, "正在启动本地后端", None);
         if let Err(error) = self.spawn_backend(command, settings, generation).await {
-            self.handle_backend_failure("无法准备 Argus 本地运行环境", error.to_string())
+            self.handle_backend_failure("无法准备本地运行环境", error.to_string())
                 .await;
         }
     }
@@ -430,7 +430,7 @@ impl BackendSupervisor {
                 .recovery_scheduled = false;
             self.set_status(
                 BackendState::Error,
-                "Argus 本地服务无法自动恢复",
+                "本地服务无法自动恢复",
                 Some(format!("{detail}\n已完成 {attempts}/{max_attempts} 次自动恢复；请检查诊断信息后手动重试。")),
             );
             return;
@@ -587,7 +587,7 @@ impl BackendSupervisor {
                     HealthDecision::Fail { .. } => {
                         supervisor.set_status(
                             BackendState::Error,
-                            "Argus 本地后端身份验证失败",
+                            "本地后端身份验证失败",
                             Some(format!(
                                 "{detail}\n桌面端不会接管、重启或终止无法证明所有权的进程。"
                             )),
@@ -705,7 +705,7 @@ impl BackendSupervisor {
                     compatible: false,
                     occupied: true,
                     authenticated: false,
-                    detail: Some("端口上的服务返回了无法验证的 Argus 身份数据".to_owned()),
+                    detail: Some("端口上的服务返回了无法验证的后端身份数据".to_owned()),
                     pid: None,
                     executable: None,
                     manifest_source_digest: None,
@@ -721,10 +721,10 @@ impl BackendSupervisor {
             .and_then(|auth| auth.authenticated)
             .unwrap_or(false);
         if !authenticated {
-            return identity_probe("端口上的服务未通过当前 Argus 桌面端身份认证", false, None);
+            return identity_probe("端口上的服务未通过当前桌面端身份认证", false, None);
         }
         let Some(runtime) = runtime else {
-            return identity_probe("端口上的服务缺少当前 Argus 桌面运行身份", true, None);
+            return identity_probe("端口上的服务缺少当前桌面运行身份", true, None);
         };
         let package_version = runtime.package_version.clone();
         let probe = ProbeIdentity {
@@ -744,7 +744,7 @@ impl BackendSupervisor {
             || probe.started_at.as_deref().map_or(true, str::is_empty)
         {
             return ProbeIdentity {
-                detail: Some("端口上的服务缺少当前 Argus 桌面运行身份".to_owned()),
+                detail: Some("端口上的服务缺少当前桌面运行身份".to_owned()),
                 failure_kind: Some(ProbeFailureKind::Identity),
                 ..probe
             };
@@ -761,7 +761,7 @@ impl BackendSupervisor {
             }) {
                 return ProbeIdentity {
                     detail: Some(format!(
-                        "端口由另一份 Argus 占用：{}",
+                        "端口由另一份应用占用：{}",
                         probe.executable.clone().unwrap_or_default()
                     )),
                     failure_kind: Some(ProbeFailureKind::Identity),
@@ -1249,7 +1249,7 @@ impl BackendSupervisor {
                 }
                 self.inner.runtime.lock().expect("runtime mutex poisoned").launch_nonce = probe.launch_nonce.clone();
                 if self.ownership_matches(&probe, &settings, &command) {
-                    self.mark_backend_ready(generation, "Argus 桌面端已就绪");
+                    self.mark_backend_ready(generation, "桌面端已就绪");
                     return;
                 }
                 last_detail = "本地后端身份记录未能通过完整性校验".to_owned();
@@ -1315,7 +1315,7 @@ impl BackendSupervisor {
         let detail = format!("exit code: {code}\n{}", self.log_tail());
         self.handle_backend_failure(
             if reached_ready {
-                "Argus 本地后端意外退出"
+                "本地后端意外退出"
             } else {
                 "本地后端启动失败"
             },

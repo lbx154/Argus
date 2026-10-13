@@ -160,7 +160,9 @@ def test_delivery_notification_restores_the_authenticated_cockpit() -> None:
     main = (TAURI_ROOT / "src-tauri" / "src" / "lib.rs").read_text(encoding="utf-8")
 
     assert "tauri_winrt_notification::Toast" in main
-    assert '.title("Argus · 任务已完成")' in main
+    assert '.title(&format!("{} · 任务已完成", application_name(app)))' in main
+    assert '.title(format!("{} · Task complete", application_name(app)))' in main
+    assert 'format!("任务已完成，可返回 {} 查看结果。", application_name(&app))' in main
     assert ".text1(&input.title)" in main
     assert ".text2(body)" in main
     assert '"查看成果"' in main
@@ -168,6 +170,22 @@ def test_delivery_notification_restores_the_authenticated_cockpit() -> None:
     assert '"argus:open-delivery"' in main
     assert "reveal_window(&click_app)" in main
     assert "if !backgrounded" not in main
+
+
+def test_compatible_desktop_uses_product_attribution_not_argus_status_labels() -> None:
+    source = TAURI_ROOT / "src-tauri" / "src"
+    diagnostics = (source / "diagnostics.rs").read_text(encoding="utf-8")
+    assert 'format!("导出 {product_name} 诊断包")' in diagnostics
+    assert 'format!("{product_name}-diagnostics-{stamp}.zip")' in diagnostics
+    for filename in ("backend.rs", "release.rs", "runner.rs"):
+        text = (source / filename).read_text(encoding="utf-8")
+        assert "Argus 本地" not in text
+        assert "Argus 桌面" not in text
+        assert "另一份 Argus" not in text
+    main = (source / "lib.rs").read_text(encoding="utf-8")
+    assert "application_name(&app).to_owned()," in main
+    assert "argus:open-delivery" in main
+    assert "argus-backend" in (source / "release.rs").read_text(encoding="utf-8")
 
 
 def test_update_checks_leave_startup_idle_and_retry_transient_failures() -> None:

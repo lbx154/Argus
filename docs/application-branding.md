@@ -48,6 +48,12 @@ change models, or alter daemon ownership. Backend diagnostics and native CLI
 help can still refer to the actual Argus engine. Desktop installer identity,
 native icons and updater channels are separate packaging concerns.
 
+The shared desktop uses the Tauri product name for task notifications and
+diagnostic-export labels. Backend lifecycle messages are product-neutral:
+compatible applications are not mislabeled as Argus. This does not rename
+the actual `argus-backend` dependency, protocol events, account bindings or
+retained logs, and does not move an existing Copilot authentication directory.
+
 The Tauri host validates both its bundled files and the authenticated backend
 against the engine release manifest compiled into the host. Its application
 version is independent and remains the version used by the desktop updater.

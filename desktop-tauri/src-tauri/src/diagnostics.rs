@@ -25,13 +25,14 @@ fn add_text(zip: &mut ZipWriter<fs::File>, name: &str, text: &str) -> anyhow::Re
 
 pub async fn export_diagnostics(
     data_dir: PathBuf,
+    product_name: String,
     app_version: String,
     logger: DesktopLogger,
 ) -> Result<Option<String>, String> {
     let stamp = Utc::now().format("%Y-%m-%dT%H-%M-%S").to_string();
     let Some(file) = AsyncFileDialog::new()
-        .set_title("导出 Argus 诊断包")
-        .set_file_name(format!("Argus-diagnostics-{stamp}.zip"))
+        .set_title(format!("导出 {product_name} 诊断包"))
+        .set_file_name(format!("{product_name}-diagnostics-{stamp}.zip"))
         .add_filter("ZIP", &["zip"])
         .save_file()
         .await

@@ -643,6 +643,7 @@ async fn export_diagnostics(app: AppHandle) -> Result<Option<String>, String> {
     let app_state = state(&app);
     write_diagnostics(
         app_state.settings.data_dir().to_path_buf(),
+        application_name(&app).to_owned(),
         app.package_info().version.to_string(),
         app_state.logger.clone(),
     )
@@ -693,7 +694,7 @@ fn open_cockpit(app: AppHandle) -> Result<String, String> {
     let settings = app_state.settings.snapshot();
     let status = app_state.supervisor.current_status();
     if status.state != BackendState::Ready {
-        return Err("Argus 本地服务尚未就绪。".to_owned());
+        return Err("本地服务尚未就绪。".to_owned());
     }
     app_state
         .logger
@@ -733,7 +734,7 @@ fn show_delivery_notification(
 ) -> bool {
     // Use the native Windows toast pattern: a short state title, one task line,
     // one concise result line, and a single clear action. Clicking either the
-    // body or action restores Argus and opens the result when one exists.
+    // body or action restores the application and opens the result when one exists.
     use tauri_winrt_notification::Toast;
 
     let click_app = app.clone();
@@ -744,7 +745,7 @@ fn show_delivery_notification(
         "查看任务"
     };
     Toast::new(app.config().identifier.as_str())
-        .title("Argus · 任务已完成")
+        .title(&format!("{} · 任务已完成", application_name(app)))
         .text1(&input.title)
         .text2(body)
         .add_button(action_label, "open-delivery")
@@ -765,7 +766,7 @@ fn show_delivery_notification(
 ) -> bool {
     app.notification()
         .builder()
-        .title("Argus · Task complete")
+        .title(format!("{} · Task complete", application_name(app)))
         .body(format!("{}\n{}", input.title, body))
         .show()
         .is_ok()
@@ -786,7 +787,7 @@ fn notify_delivery(app: AppHandle, input: DeliveryNotificationInput) -> bool {
         return false;
     }
     let body = if input.summary.is_empty() {
-        "任务已完成，可返回 Argus 查看结果。".to_owned()
+        format!("任务已完成，可返回 {} 查看结果。", application_name(&app))
     } else {
         input.summary.clone()
     };
