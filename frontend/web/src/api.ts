@@ -1309,6 +1309,8 @@ export const api = {
           } catch (cleanupError) {
             options.onCleanupError?.(cleanupError);
             if (!options.onCleanupError) throw new Error(`Upload failed; temporary cleanup also failed: ${String(cleanupError)}`, { cause: error });
+          } finally {
+            if (signal?.aborted) fileUploads.delete(sid);
           }
         }
         if (error instanceof ApiError && error.status === 404) fileUploads.delete(sid);

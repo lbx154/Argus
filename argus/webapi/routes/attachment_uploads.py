@@ -6,7 +6,6 @@ import errno
 import logging
 from contextlib import suppress
 
-from anyio import from_thread
 from fastapi import Depends, HTTPException, Query, Request
 from pydantic import BaseModel, Field
 from starlette.concurrency import run_in_threadpool
@@ -89,10 +88,9 @@ def register_attachment_upload_routes(app, ctx):
             uploads.slots.release()
 
     @app.post("/api/projects/{sid}/attachments/uploads/{attachment_id}/complete", dependencies=[Depends(ctx.require_auth)])
-    async def complete(sid: str, attachment_id: str, request: Request):
-        return await call(uploads.operate, ctx.project_root_or_404(sid), sid, attachment_id, "complete",
-                          cancelled=lambda: from_thread.run(request.is_disconnected))
+    async def complete(sid: str, attachment_id: str):
+        return await call(uploads.operate, ctx.project_root_or_404(sid), sid, attachment_id, "complete")
 
     @app.delete("/api/projects/{sid}/attachments/uploads/{attachment_id}", dependencies=[Depends(ctx.require_auth)])
     async def cancel(sid: str, attachment_id: str):
-        return await call(uploads.operate, ctx.project_root_or_404(sid), sid, attachment_id, "cancel")
+        return await call(uploads.cancel, ctx.project_root_or_404(sid), sid, attachment_id)

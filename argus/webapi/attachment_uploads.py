@@ -28,6 +28,7 @@ DISK_RESERVE_BYTES = 256 * 1024 * 1024
 JSON_TOKEN_BYTES = 4 * 1024 * 1024
 _PART = ".upload.part"
 _PENDING = ".upload.json"
+_CANCELLED = ".upload-cancelled.json"
 _CONTROL = re.compile(r"[\x00-\x07\x0b\x0e-\x1f]")
 _JSON_DELIMITERS = re.compile(rb'["\\{}\[\],:\s]')
 _JSON_BOUNDARY = re.compile(rb'[{}\[\],:\s]')
@@ -280,7 +281,9 @@ class AttachmentUploads:
         live = []
         now = time.time()
         for workspace, sid, attachment_id, metadata in self._pending():
-            if now - float(metadata["updated_at"]) >= IDLE_SECONDS:
+            with _directory(workspace, sid, attachment_id) as directory:
+                cancelled = directory.exists(_CANCELLED)
+            if cancelled or now - float(metadata["updated_at"]) >= IDLE_SECONDS:
                 _remove(workspace, sid, attachment_id)
             else:
                 live.append((workspace, sid, attachment_id, metadata))
@@ -338,6 +341,19 @@ class AttachmentUploads:
                 raise
             return {"attachment_id": attachment_id, "offset": 0, "size_bytes": size, "complete": False}
 
+    def cancel(self, root: Path, sid: str, attachment_id: str) -> dict[str, Any]:
+        workspace = project_workspace(sid, global_root=root)
+        if workspace is None:
+            raise UploadError("project workspace is unavailable", 404)
+        # Signal before waiting for the commit lock: a long validator must be
+        # interruptible even when the proxy keeps its HTTP request connected.
+        with _directory(workspace, sid, attachment_id) as directory:
+            if not directory.exists("metadata.json"):
+                metadata = directory.read(_PENDING)
+                store._validate_metadata_payload(metadata, sid, attachment_id)
+                directory.write(_CANCELLED, {"cancelled": True})
+        return self.operate(root, sid, attachment_id, "cancel")
+
     def operate(self, root: Path, sid: str, attachment_id: str, action: str, *,
                 offset: int = 0, content: bytes = b"", cancelled: Callable[[], bool] | None = None) -> dict[str, Any]:
         workspace = project_workspace(sid, global_root=root)
@@ -376,8 +392,10 @@ class AttachmentUploads:
                         elif action == "complete":
                             if actual != metadata["size_bytes"]:
                                 raise UploadError(f"upload is incomplete; received {actual} bytes", 409)
-                            _validate_file(handle, metadata, cancelled)
-                            if cancelled and cancelled():
+                            def interrupted():
+                                return directory.exists(_CANCELLED) or bool(cancelled and cancelled())
+                            _validate_file(handle, metadata, interrupted)
+                            if interrupted():
                                 raise UploadError("upload validation interrupted; retry or cancel the upload", 409)
                             os.fsync(handle.fileno())
                         elif action != "status":

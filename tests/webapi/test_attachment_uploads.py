@@ -3,6 +3,7 @@ from __future__ import annotations
 import codecs
 import json
 import os
+import threading
 import time
 from concurrent.futures import ThreadPoolExecutor
 from types import SimpleNamespace
@@ -158,6 +159,29 @@ def test_interrupted_validation_never_registers_the_file(client, tmp_path):
         manager.operate(tmp_path, "s-upload", attachment_id, "complete", cancelled=lambda: True)
     assert client.get(path).json()["complete"] is False
     assert client.delete(path).status_code == 200
+    assert client.get(path).status_code == 404
+
+
+def test_explicit_cancel_interrupts_validation_while_commit_lock_is_held(client, monkeypatch):
+    path = begin(client, "cancel.json", 7)
+    assert append(client, path, b'{"a":1}').status_code == 200
+    started = threading.Event()
+
+    def validating(handle, metadata, cancelled=None):
+        started.set()
+        deadline = time.monotonic() + 3
+        while time.monotonic() < deadline:
+            if cancelled and cancelled():
+                raise uploads.UploadError("upload validation interrupted", 409)
+            time.sleep(0.01)
+        raise AssertionError("explicit cancellation did not reach the validator")
+
+    monkeypatch.setattr(uploads, "_validate_file", validating)
+    with ThreadPoolExecutor(max_workers=1) as executor:
+        completion = executor.submit(client.post, path + "/complete")
+        assert started.wait(timeout=2)
+        assert client.delete(path).status_code == 200
+        assert completion.result().status_code == 409
     assert client.get(path).status_code == 404
 
 
