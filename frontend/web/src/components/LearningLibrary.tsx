@@ -14,10 +14,10 @@ import { pageKind, useWikiLibrary, wikiKindLabels } from './WikiLibrary';
 
 export type LearningScope = 'feed' | 'global' | 'vertical' | 'project';
 export type LearningSelection = { kind: 'knowledge'; item: WikiLibraryItem } | { kind: 'skill'; item: SkillLibraryItem };
-const scopes: LearningScope[] = ['global', 'vertical', 'project', 'feed'];
+const scopes: LearningScope[] = ['feed', 'global', 'vertical', 'project'];
 export const learningScopeLabels = {
-  'zh-CN': { feed: '学习动态', global: '通用资料', vertical: '领域资料', project: '项目资料' },
-  en: { feed: 'Learning feed', global: 'General', vertical: 'Domain', project: 'Project' },
+  'zh-CN': { feed: '学习动态', global: '全局项目', vertical: '垂直领域', project: '项目' },
+  en: { feed: 'Learning feed', global: 'Across projects', vertical: 'Vertical', project: 'Project' },
 };
 type Entry = {
   id: string; title: string; description: string; path: string; scope: WikiScope;
@@ -60,14 +60,14 @@ export function LearningLibraryEntry({ onOpen, compact = false }: {
   const { locale } = useI18n();
   const label = locale === 'zh-CN' ? '知识与技能' : 'Knowledge & skills';
   return <section className={`shrink-0 ${compact ? 'py-2' : 'mx-2 py-1'}`} data-learning-navigation>
-    <button type="button" onClick={() => onOpen('global')} aria-label={label} title={label}
+    <button type="button" onClick={() => onOpen('feed')} aria-label={label} title={label}
       className={`flex w-full items-center gap-2 rounded-md px-3 py-2 text-left text-sm text-ink-dim hover:bg-bg hover:text-ink ${compact ? 'justify-center' : ''}`}>
       <BookOpen size={16} aria-hidden="true" />{!compact && label}
     </button>
   </section>;
 }
 
-export function LearningLibrary({ sid, initialScope = 'global', initialSelection = null, projectNames = {}, onUse }: {
+export function LearningLibrary({ sid, initialScope = 'feed', initialSelection = null, projectNames = {}, onUse }: {
   sid: string | null; initialScope?: LearningScope; initialSelection?: LearningSelection | null;
   projectNames?: Record<string, string>;
   onUse?: (title: string, content: string, scope: string) => void;

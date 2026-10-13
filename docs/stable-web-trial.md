@@ -85,6 +85,9 @@ project list. Archive does not delete files, stop a worker or change server
 permissions. Archived projects can be restored. Follow-up is an explicit user
 marker, not a claim about unobserved background tasks.
 
+Knowledge & skills opens on Learning feed, followed by Across projects,
+Vertical and Project. Explicit links to a document still select its own scope.
+
 Use in conversation adds an explicitly selected, loaded knowledge/skill
 document to the attachment draft with its source scope. Sending copies that
 content to the current project; the original library's scope is unchanged.

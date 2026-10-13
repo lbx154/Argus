@@ -46,14 +46,14 @@ describe('top resource navigation', () => {
     expect(html).not.toContain('aria-label="Knowledge base"');
     expect(html).not.toContain('id="daemon-search"');
   });
-  it('opens reusable material rather than the learning feed from the sidebar entry', () => {
+  it.each([false, true])('opens the learning feed from the sidebar entry (compact=%s)', (compact) => {
     const onOpen = vi.fn();
     let view: ReturnType<typeof create>;
-    act(() => { view = create(<LearningLibraryEntry onOpen={onOpen} />); });
+    act(() => { view = create(<LearningLibraryEntry onOpen={onOpen} compact={compact} />); });
     try {
       expect(view!.root.findAllByType('button')).toHaveLength(1);
       act(() => view!.root.findByType('button').props.onClick());
-      expect(onOpen).toHaveBeenCalledExactlyOnceWith('global');
+      expect(onOpen).toHaveBeenCalledExactlyOnceWith('feed');
     } finally { act(() => view!.unmount()); }
   });
 });

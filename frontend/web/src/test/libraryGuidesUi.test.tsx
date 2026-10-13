@@ -40,7 +40,8 @@ beforeEach(() => {
 it('unifies navigation into four categories while keeping private records, indexes and original scope', async () => {
   await act(async () => { view = create(<QueryClientProvider client={client}><LearningLibrary sid="s-A" initialScope="global" /></QueryClientProvider>); }); await settle();
   const nav = view!.root.findByType('nav');
-  expect(nav.findAllByType('button').map(content)).toEqual(['通用资料', '领域资料', '项目资料', '学习动态']);
+  expect(nav.findAllByType('button').map(content)).toEqual(['学习动态', '全局项目', '垂直领域', '项目']);
+  expect(nav.findAllByType('button').map(node => node.props['aria-pressed'])).toEqual([false, true, false, false]);
   expect(content(view!.root)).toContain('个人记录 · 原私有范围，不共享');
   act(() => view!.root.findAllByType('button').find(node => content(node).includes(wiki.title))!.props.onClick()); await settle();
   expect(api.wikiDocument).toHaveBeenCalledWith('s-A', 'private', '', wiki.path, expect.any(AbortSignal));
@@ -93,13 +94,20 @@ it('separates real learning records from file updates and reports source failure
   expect(content(view!.root)).not.toContain('分段阅读 PDF');
 });
 
-it('opens on reusable material by default and loads learning history only when selected', async () => {
+it.each([
+  { locale: 'zh-CN', labels: ['学习动态', '全局项目', '垂直领域', '项目'], skillName: '分段阅读 PDF' },
+  { locale: 'en', labels: ['Learning feed', 'Across projects', 'Vertical', 'Project'], skillName: 'Progressive PDF Reading' },
+])('restores the original category order and learning-feed default in $locale', async ({ locale, labels, skillName }) => {
+  state.locale = locale;
   await act(async () => { view = create(<QueryClientProvider client={client}><LearningLibrary sid="s-A" /></QueryClientProvider>); }); await settle();
-  expect(content(view!.root)).toContain('分段阅读 PDF');
-  expect(api.knowledgeFeed).not.toHaveBeenCalled();
-  act(() => button('学习动态').props.onClick()); await settle();
+  const tabs = view!.root.findByType('nav').findAllByType('button');
+  expect(tabs.map(content)).toEqual(labels);
+  expect(tabs.map(node => node.props['aria-pressed'])).toEqual([true, false, false, false]);
   expect(api.knowledgeFeed).toHaveBeenCalled();
-  expect(content(view!.root)).toContain('学习记录与文件更新分开展示');
+  expect(content(view!.root)).not.toContain(skillName);
+  act(() => button(labels[1]).props.onClick()); await settle();
+  expect(content(view!.root)).toContain(skillName);
+  expect(view!.root.findByType('nav').findAllByType('button').map(node => node.props['aria-pressed'])).toEqual([false, true, false, false]);
 });
 
 it('assigns lessons, principles, profiles and indexes to their original scopes in the four-category browser', async () => {

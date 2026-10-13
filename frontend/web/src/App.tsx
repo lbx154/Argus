@@ -154,7 +154,7 @@ export default function App() {
 
   const [overlay, setOverlay] = useState<Overlay>('none');
   const [learningSelection, setLearningSelection] = useState<LearningSelection | null>(null);
-  const [learningScope, setLearningScope] = useState<LearningScope>('global');
+  const [learningScope, setLearningScope] = useState<LearningScope>('feed');
   const openLearningLibrary = useCallback((scope: LearningScope) => {
     setLearningSelection(null);
     setLearningScope(scope);
