@@ -1146,9 +1146,18 @@ def test_newer_replan_review_blocks_older_stage_replay(
     assert state["current_stage"] == "scope"
 
 
+@pytest.mark.parametrize(("wait_kind", "retirement_failure"), [
+    ("none", False),
+    ("subagent", False),
+    ("subagent", True),
+    ("operator", False),
+    ("authorization", False),
+])
 def test_bounded_continuous_campaign_replays_deferred_stage_review(
     tmp_path: Path,
     monkeypatch,
+    wait_kind: str,
+    retirement_failure: bool,
 ) -> None:
     """A bounded staged campaign still traverses stages.
 
@@ -1206,6 +1215,27 @@ def test_bounded_continuous_campaign_replays_deferred_stage_review(
             "resumable": False,
         },
     )
+    if wait_kind != "none":
+        from argus.planner import WaitingContract
+
+        wake_on = ("authorization",) if wait_kind == "authorization" else ("subagent_state",)
+        supervisor._persist_planner_waiting_contract(WaitingContract(
+            blocker_fingerprint="completed-verification-job",
+            recheck_condition="Wait for the independent verification review.",
+            recheck_token=item.id,
+            wait_mode="event",
+            wake_on=wake_on,
+            observed_revision=supervisor._planner_waiting_observed_revision(
+                wake_on=("authorization",) if wait_kind == "operator" else wake_on,
+                watched_paths=(),
+            ),
+            operator_action_required=wait_kind == "operator",
+        ))
+        waiting = supervisor._load_planner_waiting_contract_state()
+        assert waiting["wait_mode"] == "event"
+        assert waiting["wake_on"] == (
+            ["subagent_state"] if wait_kind == "subagent" else ["authorization"]
+        )
 
     assert supervisor._plan_next_work() == PLAN_RETRY
 
@@ -1220,6 +1250,33 @@ def test_bounded_continuous_campaign_replays_deferred_stage_review(
         and event.get("recovered_item_id") == item.id
         for event in sink.events
     )
+    if wait_kind != "none":
+        waiting = supervisor._load_planner_waiting_contract_state()
+        assert waiting is not None
+        assert waiting["blocker_fingerprint"] == "completed-verification-job"
+        assert waiting["active"] is True
+        assert waiting["idle_capacity_turn_used"] is True
+    if wait_kind == "subagent":
+        assert backend.planner_calls == 0
+        if retirement_failure:
+            with monkeypatch.context() as failed_storage:
+                failed_storage.setattr(
+                    supervisor, "_write_planner_waiting_contract_state", lambda _state: False,
+                )
+                assert supervisor._plan_next_work() == PLAN_ERROR
+            assert supervisor._load_planner_waiting_contract_state()["active"] is True
+            assert backend.planner_calls == 0
+            assert any(
+                event.get("error") == "failed to persist event-wait wake"
+                for event in sink.events
+            )
+        supervisor._plan_next_work()
+        assert backend.planner_calls > 0
+        assert supervisor._load_planner_waiting_contract_state()["active"] is False
+        assert backend.manager_calls == 1
+    elif wait_kind != "none":
+        assert supervisor._plan_next_work() == PLAN_AWAITING
+        assert backend.planner_calls == 0
 
 
 def test_deterministic_stage_gate_hold_is_not_re_adjudicated_next_cycle(
@@ -1278,8 +1335,21 @@ def test_deterministic_stage_gate_hold_is_not_re_adjudicated_next_cycle(
             "resumable": False,
         },
     )
+    from argus.planner import WaitingContract
+
+    supervisor._persist_planner_waiting_contract(WaitingContract(
+        blocker_fingerprint="verification-job",
+        recheck_condition="Wait for independently accepted verification.",
+        recheck_token=item.id,
+        wait_mode="event",
+        wake_on=("subagent_state",),
+        observed_revision=supervisor._planner_waiting_observed_revision(
+            wake_on=("subagent_state",), watched_paths=(),
+        ),
+    ))
 
     assert supervisor._reconcile_reviewed_stage_empty_plan(None) == ""
+    assert supervisor._load_planner_waiting_contract_state()["active"] is True
     stored = next(row for row in supervisor.memory.backlog.all() if row.id == item.id)
     assert stored.outcome["stage_certification"] == "not_certified"
     assert backend.manager_calls == 1

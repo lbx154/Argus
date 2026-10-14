@@ -121,6 +121,13 @@ and shared preparation must succeed. A readiness pass is not a scientific
 result. Keep dependencies inside an existing script or Make target where
 possible, and propagate failures instead of launching their dependents.
 
+Non-authorization event waits also watch the current planning stage. When an
+accepted review moves that stage, the Planner wakes even if its watched job
+has already finished. A failed wake-state write is reported and retried before
+planning; it cannot consume the transition. A HOLD without a stage change does
+not wake the wait. Operator-action and authorization waits still require their
+declared input; a stage change does not grant permission or rerun a job.
+
 When preparation is already a background job, a dependent submission can bind
 its successful receipt:
 
