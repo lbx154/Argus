@@ -1510,20 +1510,27 @@ def _cmd_notify(args: argparse.Namespace) -> int:
     bundle.project.root.mkdir(parents=True, exist_ok=True)
     target_stage = str(getattr(args, "notify_stage", "") or "").strip()
     if target_stage:
+        from ...core.pipeline_state import pipeline_state_exists
         from ...daemon.state import read_daemon_status
         from ...skills.stage_machine import normalize_stage_for_project
+        from ...skills.vertical_select import VerticalResolutionError, resolve_vertical_if_decided
 
-        status = read_daemon_status(bundle.project.root)
-        stage_root = (
-            Path(status.project_workdir)
-            if status.project_workdir
-            else Path.cwd()
-        )
-        target_stage = normalize_stage_for_project(
-            stage_root,
-            target_stage,
-            require_known=True,
-        )
+        stage_root = bundle.project.root
+        vertical = ""
+        try:
+            if pipeline_state_exists(stage_root):
+                vertical = resolve_vertical_if_decided(stage_root)
+                if vertical is None:
+                    raise VerticalResolutionError("session pipeline has no Manager-persisted vertical")
+            else:
+                status = read_daemon_status(bundle.project.root)
+                stage_root = Path(status.project_workdir) if status.project_workdir else Path.cwd()
+            target_stage = normalize_stage_for_project(
+                stage_root, target_stage, require_known=True, vertical=vertical,
+            )
+        except (OSError, ValueError, VerticalResolutionError) as exc:
+            sys.stderr.write(f"argus: cannot resolve --notify-stage for the active project: {exc}\n")
+            return 2
         if not target_stage:
             sys.stderr.write("argus: --notify-stage is not valid for the active vertical\n")
             return 2

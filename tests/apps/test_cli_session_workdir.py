@@ -11,6 +11,81 @@ from argus.core.session import SessionMeta, read_session_meta, write_session_met
 from argus.life import MemoryBundle
 
 
+@pytest.mark.parametrize("workspace_vertical", [None, "research"])
+def test_notify_stage_uses_session_authority_not_workspace(
+    tmp_path, monkeypatch, capsys, workspace_vertical,
+) -> None:
+    from argus.core.pipeline_state import write_pipeline_state
+
+    state = tmp_path / "state"
+    workspace = tmp_path / "workspace"
+    workspace.mkdir()
+    write_pipeline_state(state, {"vertical": "software", "current_stage": "delivery"})
+    if workspace_vertical:
+        write_pipeline_state(workspace, {"vertical": workspace_vertical, "current_stage": "paper"})
+    monkeypatch.setattr(_core, "_resolve_project_bundle", lambda _args: SimpleNamespace(
+        project=SimpleNamespace(root=state), project_worktree=workspace,
+    ))
+    monkeypatch.setattr("argus.daemon.state.read_daemon_status",
+                        lambda _root: SimpleNamespace(project_workdir=str(workspace)))
+    queued = []
+    monkeypatch.setattr(_core, "queue_inbox_message",
+                        lambda *args, **kwargs: queued.append((args, kwargs)))
+    args = SimpleNamespace(notify="bounded guidance", notify_stage="delivery")
+    assert _core._cmd_notify(args) == 0
+    assert queued == [((state, "bounded guidance"), {"source": "cli.notify", "stage": "delivery"})]
+    assert "stage=delivery" in capsys.readouterr().out
+
+    queued.clear()
+    args.notify_stage = "paper"
+    assert _core._cmd_notify(args) == 2
+    assert queued == []
+    assert "not valid for the active vertical" in capsys.readouterr().err
+
+
+def test_notify_stage_keeps_legacy_workspace_aliases(tmp_path, monkeypatch) -> None:
+    from argus.core.pipeline_state import write_pipeline_state
+
+    state = tmp_path / "state"
+    workspace = tmp_path / "workspace"
+    write_pipeline_state(workspace, {"vertical": "research", "current_stage": "paper"})
+    monkeypatch.setattr(_core, "_resolve_project_bundle", lambda _args: SimpleNamespace(
+        project=SimpleNamespace(root=state), project_worktree=workspace,
+    ))
+    monkeypatch.setattr("argus.daemon.state.read_daemon_status",
+                        lambda _root: SimpleNamespace(project_workdir=str(workspace)))
+    queued = []
+    monkeypatch.setattr(_core, "queue_inbox_message",
+                        lambda *args, **kwargs: queued.append((args, kwargs)))
+    assert _core._cmd_notify(SimpleNamespace(notify="legacy", notify_stage="draft")) == 0
+    assert queued == [((state, "legacy"), {"source": "cli.notify", "stage": "paper"})]
+
+
+@pytest.mark.parametrize("payload", ["{invalid", "{}", '{"vertical": "unavailable_domain"}'])
+def test_notify_stage_never_falls_back_from_invalid_session_authority(
+    tmp_path, monkeypatch, capsys, payload,
+) -> None:
+    from argus.core.pipeline_state import primary_pipeline_state_path, write_pipeline_state
+
+    state = tmp_path / "state"
+    workspace = tmp_path / "workspace"
+    path = primary_pipeline_state_path(state)
+    path.parent.mkdir(parents=True)
+    path.write_text(payload, encoding="utf-8")
+    write_pipeline_state(workspace, {"vertical": "research", "current_stage": "paper"})
+    monkeypatch.setattr(_core, "_resolve_project_bundle", lambda _args: SimpleNamespace(
+        project=SimpleNamespace(root=state), project_worktree=workspace,
+    ))
+    monkeypatch.setattr("argus.daemon.state.read_daemon_status",
+                        lambda _root: SimpleNamespace(project_workdir=str(workspace)))
+    queued = []
+    monkeypatch.setattr(_core, "queue_inbox_message",
+                        lambda *args, **kwargs: queued.append((args, kwargs)))
+    assert _core._cmd_notify(SimpleNamespace(notify="must not queue", notify_stage="paper")) == 2
+    assert queued == []
+    assert "cannot resolve --notify-stage" in capsys.readouterr().err
+
+
 def _args() -> SimpleNamespace:
     return SimpleNamespace(
         backend="memory",

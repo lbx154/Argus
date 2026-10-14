@@ -175,11 +175,16 @@ interchangeable, because they enter at different points of the loop.
 | You want to | Command line | Cockpit | Web API | What happens |
 |---|---|---|---|---|
 | Add guidance the next round should read | `argus --notify "text"` | `/nudge text` | `POST /api/projects/{sid}/nudge` | the text is queued in the project's durable inbox and spliced into the next Engineer round's prompt as operator guidance |
-| Hold guidance until a later stage | `argus --notify "text" --notify-stage paper` | | | same, delivered only when the project reaches that stage (aliases such as `writeup` are canonicalized; unknown stages are refused) |
+| Hold guidance until a later stage | `argus --notify "text" --notify-stage paper` | | | same, delivered only when the project reaches that stage (aliases such as `draft` are canonicalized; unknown stages are refused) |
 | Change the direction of the current task, pause or abort | (type it) | type it, or `/abort` | `POST /api/projects/{sid}/message` | the Manager classifies the message: `STEER` records a new direction for the active task, `PAUSE` stops the campaign, `ABORT` ends the task, `NO_DISPATCH` stops new work |
 | Set a rule for the whole project | (type it) | type it | `POST .../message` | text that sounds standing ("always", "never", "from now on", "do not ask") is stored as a project-wide directive; other amendments are scoped to the current task |
 | Answer a question the task stopped on | `argus --answer "text"` (`--answer-item ID` if several wait) | answer in the pending-question prompt | `POST /api/projects/{sid}/backlog/{item_id}/answer` | the paused task is replaced by a continuation whose objective carries your answer as authority, and the worker is restarted if needed |
 | Ask something without touching the run | `argus --ask "question"` | `/ask question` | `route_override: "chat"` on `/message` | the Manager answers from project state; nothing is queued |
+
+Stage-qualified notifications use the selected session's persisted vertical,
+not a separate evidence worktree or the shell's current directory. Legacy
+projects without session pipeline state still use their daemon workdir; invalid
+session state is reported rather than replaced by a workspace's stage contract.
 
 Why the nudge is deliberately weak: it is guidance the next round *reads*, not
 an order the runtime *enforces*. The inbox is durable (a queue under the
