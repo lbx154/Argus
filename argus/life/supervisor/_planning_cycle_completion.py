@@ -503,15 +503,12 @@ class PlanningCycleCompletionMixin:
                     # to the waiting contract rather than another replan.
                     self._clear_manager_planner_feedback()
                 else:
-                    self._emit(
-                        {
-                            "type": "life.manager.feedback.unresolved",
-                            "reason": "planner returned waiting instead of revision tasks",
-                        }
-                    )
-                    self._emit_status(
-                        "planner ignored unresolved Manager feedback; retry later"
-                    )
+                    if self._record_manager_feedback_no_progress(
+                        "planner returned waiting instead of revision tasks"
+                    ):
+                        self._emit_status(
+                            "planner ignored unresolved Manager feedback; retry later"
+                        )
                     self._enter_idle_backoff()
                     return PLAN_ERROR
             if self._pc_is_certified_operator_wait(state):

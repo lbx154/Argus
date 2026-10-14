@@ -1265,6 +1265,26 @@ class PlanningContextMixin:
             }
         )
 
+    def _record_manager_feedback_no_progress(self, reason: str) -> bool:
+        feedback = self._load_manager_planner_feedback()
+        if feedback is None:
+            return True
+        payload = dict(feedback)
+        payload.update(
+            attempts=int(feedback.get("attempts", 1) or 0) + 1,
+            updated_at=time.time(),
+            last_rejection=reason,
+        )
+        if not self._write_manager_planner_feedback(payload):
+            self._emit_status("failed to persist unresolved Manager feedback")
+            return False
+        self._emit({
+            "type": "life.manager.feedback.unresolved",
+            "reason": reason,
+            "attempts": payload["attempts"],
+        })
+        return True
+
     def _clear_manager_planner_feedback(self) -> None:
         state = self._load_manager_planner_feedback()
         if state is None:

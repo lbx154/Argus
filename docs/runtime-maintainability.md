@@ -186,6 +186,13 @@ HTTP 路径、返回结构与直接 Python 调用保留兼容。`daemon_lifecycl
 
 ### 控制面等待与取消
 
+Planner 在未解决的 Manager 反馈下返回等待，并不代表反馈已处理。该拒绝通过
+`_record_manager_feedback_no_progress` 累计到原有持久重试上限；重启或改写等待理由
+不重置计数。原始原因、证据签名、创建时间和修复关联保持，最近拒绝另记
+`last_rejection`，写入失败显式报告。到上限后由原 intake 进入等待新证据或操作者
+输入的终态空闲，不修改科研任务终态。因所有新任务都重复已有工作而产生的
+filtered-task 反馈仍可由合法等待解除；普通等待和新证据唤醒不受此拒绝计数影响。
+
 bounded 与 continuous handoff 都在提交前请求让出任务边界。当前任务结束后，Supervisor
 会先让 Manager 提交，再继续领取后续任务；这里提供任务边界让出，不承诺严格 FIFO。
 
