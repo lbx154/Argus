@@ -12,6 +12,7 @@ import hashlib
 import json
 import logging
 import os
+import re
 import subprocess
 import time
 from dataclasses import dataclass, field
@@ -131,6 +132,65 @@ def _checkpoint_open_items(path: str) -> list[str]:
     return items[:20]
 
 
+_SECTION_HEADING = re.compile(r"^#{2,3} \S")
+# Sections shorter than this stay inline: naming them costs about as much.
+_ELIDE_MIN_SECTION_CHARS = 400
+
+
+def _prompt_sections(prompt: str) -> list[str]:
+    """Split a prompt at its level-2/3 headings, ignoring fenced code."""
+    sections: list[str] = []
+    current: list[str] = []
+    fenced = False
+    for line in prompt.splitlines():
+        if line.startswith("```"):
+            fenced = not fenced
+        if not fenced and current and _SECTION_HEADING.match(line):
+            sections.append("\n".join(current))
+            current = []
+        current.append(line)
+    if current:
+        sections.append("\n".join(current))
+    return sections
+
+
+def elide_repeated_sections(prompt: str, previous: str) -> str:
+    """Drop the sections a resumed thread already holds verbatim.
+
+    ``previous`` is the full prompt of the thread's last completed turn. A
+    section byte-identical to one of its sections is already in the thread's
+    context, so it is named instead of repeated. The first section, which
+    frames the turn, is always kept. Resumed Planner turns on 2026-10-15 were
+    two-thirds identical to the turn before, and each repeat stayed in the
+    thread for every later turn to pay for again.
+    """
+    seen = {section.strip() for section in _prompt_sections(previous)}
+    sections = _prompt_sections(prompt)
+    kept: list[str] = []
+    omitted: list[str] = []
+    for index, section in enumerate(sections):
+        body = section.strip()
+        if (
+            index
+            and len(body) >= _ELIDE_MIN_SECTION_CHARS
+            and _SECTION_HEADING.match(body)
+            and body in seen
+        ):
+            omitted.append(body.splitlines()[0].lstrip("#").strip())
+        else:
+            kept.append(section)
+    if not omitted:
+        return prompt
+    note = (
+        "## Unchanged since your previous turn\n"
+        "These sections are identical to the copies already in this session and "
+        "still apply as written: "
+        + "; ".join(f"`{title}`" for title in omitted)
+        + ".\n"
+    )
+    return "\n".join([kept[0], note, *kept[1:]]) + "\n"
+
+
 @dataclass
 class RoleSessionCapsule:
     role: str
@@ -157,6 +217,9 @@ class RoleSessionCapsule:
     # Bounded history of this role's provider threads in the mission, kept so
     # another role can refuse to resume any of them after a process restart.
     seen_thread_ids: list[str] = field(default_factory=list)
+    # Full text of the last prompt the current thread completed; a resumed turn
+    # omits the sections the thread already holds from it.
+    last_prompt: str = ""
     updated_at: float = 0.0
     path: Path | None = field(default=None, repr=False)
     action: str = field(default="fresh", repr=False)
@@ -219,6 +282,7 @@ class RoleSessionCapsule:
             capsule.static_fingerprint = str(payload.get("static_fingerprint") or "")
             capsule.signal_kind = str(payload.get("signal_kind") or "")
             capsule.signal_detail = str(payload.get("signal_detail") or "")
+            capsule.last_prompt = str(payload.get("last_prompt") or "")
         elif payload:
             capsule.action = "rotated"
             capsule.rotation_reason = f"{changed}_changed"
@@ -278,12 +342,19 @@ class RoleSessionCapsule:
         self.save()
         return self.thread_id or None
 
+    def resume_prompt(self, prompt: str) -> str:
+        """The prompt to send: unchanged sections are dropped on a resumed thread."""
+        if self.action != "resumed" or not self.last_prompt:
+            return prompt
+        return elide_repeated_sections(prompt, self.last_prompt)
+
     def complete(
         self,
         result: Any,
         *,
         decisive_output: str = "",
         static_fingerprint: str = "",
+        prompt: str = "",
     ) -> bool:
         """Persist compact role metadata without changing the turn outcome.
 
@@ -294,6 +365,7 @@ class RoleSessionCapsule:
         """
         self.persistence_error = ""
         try:
+            resumed_thread = self.thread_id if self.action == "resumed" else ""
             if self.action != "resumed":
                 self.turns = 0
                 self.input_tokens = 0
@@ -316,6 +388,11 @@ class RoleSessionCapsule:
             self.thread_id = "" if self.policy == "fresh" else result_thread
             if self.policy == "fresh":
                 return True
+            # A resume answered on another thread never saw the omitted
+            # sections, so the next turn must send everything again.
+            self.last_prompt = (
+                prompt if not resumed_thread or result_thread == resumed_thread else ""
+            )
             self.decisive_output = redact_secrets_text(
                 decisive_output[:2000], known_values=known_secret_values()
             )
@@ -354,6 +431,7 @@ class RoleSessionCapsule:
         self.thread_id = ""
         self.turns = 0
         self.input_tokens = 0
+        self.last_prompt = ""
         self.action = "rotated"
         self.rotation_reason = reason
         self.save()
@@ -407,6 +485,7 @@ class RoleSessionCapsule:
                 "signal_kind": self.signal_kind,
                 "signal_detail": self.signal_detail,
                 "seen_thread_ids": self.seen_thread_ids,
+                "last_prompt": self.last_prompt,
                 "updated_at": self.updated_at,
             }
             self.path.parent.mkdir(parents=True, exist_ok=True)

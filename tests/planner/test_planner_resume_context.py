@@ -104,3 +104,25 @@ def test_fresh_session_ignores_the_delta(tmp_path: Path) -> None:
     assert "FULL JOURNAL BODY ALPHA" in prompt
     assert "PLAN BODY ALPHA" in prompt
     assert "Newly settled work" not in prompt
+
+
+def test_resumed_session_is_not_resent_unchanged_sections(tmp_path: Path) -> None:
+    persist_vertical(tmp_path, "software")
+    runner = _RecordingRunner()
+    planner = Planner(runner)
+    for cycle in range(3):
+        planner.plan_next(
+            continuous_objective="improve the solver",
+            journal_tail="FULL JOURNAL BODY ALPHA",
+            research_plan="PLAN BODY ALPHA",
+            journal_delta=f"- mission_complete: cycle {cycle}",
+            research_plan_unchanged=True,
+            planning_cycle=cycle,
+            config=_config(tmp_path),
+        )
+
+    second, third = runner.calls[1]["prompt"], runner.calls[2]["prompt"]
+    assert runner.calls[2]["resume_thread_id"] == "planner-thread"
+    assert "## Unchanged since your previous turn" in third
+    assert len(third) < len(second)
+    assert "mission_complete: cycle 2" in third, "what changed is always sent"
