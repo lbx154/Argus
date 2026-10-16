@@ -295,7 +295,16 @@ class RoleSessionCapsule:
             if previous and previous not in seen:
                 seen.append(previous)
             capsule.seen_thread_ids = seen[-_SEEN_THREAD_IDS_LIMIT:]
-        if not capsule.thread_id and seed_thread_id and policy != "fresh":
+        # A seed continues the thread the capsule would have resumed. It must not
+        # undo a rotation: a changed objective, model, backend, or workdir, or
+        # a pending cross-role signal, means the old thread no longer applies.
+        if (
+            not capsule.thread_id
+            and seed_thread_id
+            and policy != "fresh"
+            and capsule.action != "rotated"
+            and not capsule.signal_kind
+        ):
             capsule.thread_id = seed_thread_id
         if policy == "fresh":
             return capsule
@@ -542,7 +551,7 @@ def signal_role_session_file(path: Path | str, kind: str, detail: str = "") -> b
         ),
         "updated_at": time.time(),
     })
-    temporary = target.with_suffix(".tmp")
+    temporary = target.with_name(f"{target.name}.tmp-{os.getpid()}-{time.time_ns()}")
     temporary.write_text(
         json.dumps(payload, ensure_ascii=False, indent=2) + "\n",
         encoding="utf-8",

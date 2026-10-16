@@ -61,6 +61,22 @@ if TYPE_CHECKING:
 log = logging.getLogger(__name__)
 
 
+def _no_reviewer_judgment(review: ReviewDecision) -> ReviewDecision:
+    """The record a round keeps when the Reviewer leg rendered no verdict.
+
+    The decision stays as the backend reported it; only its provenance now
+    says the host wrote it, so the mission journal never credits this
+    ``blocked`` to the Reviewer and the Manager's stage writer is not asked to
+    act on it. The ``round.review.completed`` event already went out with the
+    Reviewer as the unreachable role.
+    """
+    return replace(
+        review,
+        review_source="reviewer_unavailable",
+        host_placeholder="reviewer_unavailable",
+    )
+
+
 def _background_launch_block(state: RoundLoopState, engineer_message: str) -> str:
     """Tell the Reviewer it is judging a launch, not waiting on one.
 
@@ -105,6 +121,24 @@ def _previous_review_summary(state: RoundLoopState) -> str:
             f"Round {record.round_index} — {status}: {reason[:600]}"
         )
     return "\n".join(lines)
+
+
+def _unreviewed_turns_block(state: RoundLoopState) -> str:
+    """Show the Reviewer the Engineer turns no review has judged yet.
+
+    A turn that handed the work to the Engineer again, or waited on background
+    work, ended without review, and the round summary is only the last turn's
+    account. A change made in an earlier turn (switching the evaluation split,
+    say) reached the Reviewer only if that last account happened to mention it.
+    """
+    if not state.unreviewed_engineer_accounts:
+        return ""
+    return (
+        "## Earlier Engineer turns since the last review\n"
+        "These turns continued without review. Their work is part of what you "
+        "are judging, and the modified-files list covers them too.\n\n"
+        + "\n\n".join(state.unreviewed_engineer_accounts)
+    )
 
 
 def _active_manager_directive_for_reviewer(
@@ -342,6 +376,7 @@ class RoundReviewerMixin:
         )
         shared_context_parts = (
             mission_brief,
+            _unreviewed_turns_block(state),
             capsule_block,
             rotation_block,
             *state.pending_secret_guard_notes,
@@ -455,7 +490,7 @@ class RoundReviewerMixin:
                 # Host-gathered round evidence (e.g. a vertical's spec checks):
                 # facts the Reviewer weighs, rendered as raw evidence rather
                 # than as supervised-subagent chatter.
-                raw_evidence=state.pending_round_evidence_text,
+                raw_evidence="\n\n".join(state.pending_round_evidence),
                 scope=scope,
                 checkpoint_path=str(checkpoint_path or ""),
                 background_context=reviewer_background_context,
@@ -486,9 +521,13 @@ class RoundReviewerMixin:
                 backend_stop_kind="backend_unavailable",
             )
         if not review.backend_unavailable:
-            # A completed review has seen the host-gathered round evidence; a
-            # backend failure keeps it for the retry.
-            state.pending_round_evidence_text = ""
+            # A completed review has seen the host-gathered round evidence and
+            # every Engineer turn since the last review; a backend failure keeps
+            # them for the retry. The next window opens with the next turn.
+            state.pending_round_evidence.clear()
+            state.unreviewed_engineer_accounts.clear()
+            state.engineer_self_handoffs = 0
+            state.round_started_wall = None
             # Provenance: only this call's own judgment becomes a finding
             # carried forward to later rounds.
             review.reviewer_authored = True
@@ -544,20 +583,33 @@ class RoundReviewerMixin:
             }.get(signal_target)
             applied = False
             effective_policy = getattr(target_session, "policy", "fresh")
+            capsule_path = getattr(target_session, "path", None)
             if target_session is not None and target_session.policy != "fresh":
                 target_session.signal(signal_kind, signal_detail)
                 applied = True
-            elif signal_target == "planner" and supervised_config.role_session_dir:
-                # A planner capsule exists only for a resumable policy. Avoid
-                # materialising rotation metadata for a fresh-only backend.
+            elif signal_target == "planner" and supervised_config.context_packet_path:
+                # The Planner keeps one project-level capsule beside
+                # ``handoffs/`` (``<state>/handoffs/<mission>/mission.json``),
+                # not one per mission. It exists only for a resumable policy;
+                # the signal never creates one, so a missing file means there
+                # is no Planner thread to rotate.
                 effective_policy = supervised_config.role_session_policy
                 from ..core.role_session import signal_role_session_file
 
+                capsule_path = (
+                    Path(supervised_config.context_packet_path).expanduser().parents[2]
+                    / "role-sessions" / "planner.json"
+                )
                 applied = signal_role_session_file(
-                    supervised_config.role_session_dir / "planner.json",
+                    capsule_path,
                     signal_kind,
                     signal_detail,
                 )
+                if not applied:
+                    log.info(
+                        "Reviewer signal %s for the Planner found no capsule at %s",
+                        signal_kind, capsule_path,
+                    )
             if applied and on_event:
                 on_event({
                     "type": EventType.ROLE_SESSION_TURN,
@@ -568,14 +620,7 @@ class RoundReviewerMixin:
                     "round_index": round_index,
                     "signal_kind": signal_kind,
                     "signal_detail": signal_detail,
-                    "capsule_path": str(
-                        getattr(target_session, "path", "")
-                        or (
-                            supervised_config.role_session_dir / f"{signal_target}.json"
-                            if supervised_config.role_session_dir
-                            else ""
-                        )
-                    ),
+                    "capsule_path": str(capsule_path or ""),
                 })
         return review
 
@@ -737,7 +782,7 @@ class RoundReviewerMixin:
                     round_index=round_index,
                     engineer_message=engineer_message,
                     engineer_exit_code=engineer_result.exit_code,
-                    review=review,
+                    review=_no_reviewer_judgment(review),
                     fatal_error=reviewer_fatal_error,
                     stop_kind=reviewer_stop_kind,
                 ))
@@ -901,7 +946,7 @@ class RoundReviewerMixin:
                     round_index=round_index,
                     engineer_message=engineer_message,
                     engineer_exit_code=engineer_result.exit_code,
-                    review=review,
+                    review=_no_reviewer_judgment(review),
                     fatal_error=engineer_result.fatal_error,
                 ))
                 # Said in the language of the task, since this sentence is
@@ -958,7 +1003,7 @@ class RoundReviewerMixin:
                         round_index=round_index,
                         engineer_message=engineer_message,
                         engineer_exit_code=engineer_result.exit_code,
-                        review=review,
+                        review=_no_reviewer_judgment(review),
                         fatal_error=f"External interrupt: {interrupt_reason}",
                         stop_kind=interrupt_kind,
                     ))

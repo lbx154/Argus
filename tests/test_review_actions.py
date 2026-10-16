@@ -82,6 +82,23 @@ def test_failed_turn_cannot_commit_an_earlier_approval(tmp_path):
     assert result.backend_unavailable and result.status == "blocked"
 
 
+def test_a_refused_correction_withdraws_an_earlier_approval():
+    actions = ReviewActions()
+    actions.dispatch("approve_review", {"review": "Checks passed."})
+    with pytest.raises(ValueError):
+        actions.dispatch("revise_review", {"review": " "})
+    assert actions.decision is None
+
+
+def test_a_refused_approval_leaves_an_earlier_revision_standing():
+    actions = ReviewActions()
+    actions.dispatch("revise_review", {"review": "Repair the date parser."})
+    with pytest.raises(ValueError):
+        actions.dispatch("approve_review", {"review": " "})
+    assert actions.decision.status == "continue"
+    assert actions.decision.reason == "Repair the date parser."
+
+
 def test_action_scope_is_call_bound_and_rejects_invalid_arguments():
     actions = ReviewActions()
     with pytest.raises(ValueError, match="Unknown review action"):

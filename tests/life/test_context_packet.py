@@ -313,6 +313,44 @@ def test_mission_brief_uses_newest_review_after_round_numbers_restart(tmp_path: 
     assert "OLD_REVIEW" not in brief
 
 
+def test_a_new_run_keeps_the_earlier_runs_round_records(tmp_path: Path) -> None:
+    def review(marker: str) -> SimpleNamespace:
+        return SimpleNamespace(status="continue", reason=marker, next_action=marker)
+
+    first = create_mission_context(
+        life_dir=tmp_path, mission_id="rerun", stage="review", objective="First objective",
+    )
+    record_engineer_handoff(
+        mission_context_path=first, round_index=1, engineer_summary="RUN1_WORK",
+        checkpoint_path=None,
+    )
+    first_review = record_reviewed_handoff(
+        mission_context_path=first, round_index=1, engineer_summary="RUN1_WORK",
+        review=review("RUN1_REVIEW"), checkpoint_path=None,
+    )
+    second = create_mission_context(
+        life_dir=tmp_path, mission_id="rerun", stage="review", objective="Requeued objective",
+    )
+    engineer = record_engineer_handoff(
+        mission_context_path=second, round_index=1, engineer_summary="RUN2_WORK",
+        checkpoint_path=None,
+    )
+    second_review = record_reviewed_handoff(
+        mission_context_path=second, round_index=1, engineer_summary="RUN2_WORK",
+        review=review("RUN2_REVIEW"), checkpoint_path=None,
+    )
+
+    assert second == first
+    assert json.loads(second.read_text())["run"] == 2
+    assert first_review == second.parent / "round-0001.json"
+    assert second_review == second.parent / "round-0001-run-02.json"
+    assert engineer == second.parent / "round-0001-run-02-engineer.json"
+    assert json.loads(first_review.read_text())["review"]["reason"] == "RUN1_REVIEW"
+    assert (second.parent / "round-0001-engineer.json").is_file()
+    assert json.loads(second_review.read_text())["run"] == 2
+    assert "Last review: continue: RUN2_REVIEW" in render_mission_brief(second)
+
+
 def test_pending_engineer_work_is_not_replaced_by_an_older_reviewed_account(tmp_path: Path) -> None:
     mission = create_mission_context(
         life_dir=tmp_path, mission_id="pending-review", stage="review", objective="Improve the paper",

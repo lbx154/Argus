@@ -76,6 +76,25 @@ from .round_stop_signals import (
 )
 from .round_waits import RoundWaitsMixin
 
+# The next Reviewer reads at most this many earlier unreviewed Engineer
+# accounts, each kept to its head and tail when longer than the char bound.
+_UNREVIEWED_ACCOUNT_TURNS = 4
+_UNREVIEWED_ACCOUNT_CHARS = 3000
+
+
+def _carry_unreviewed_turn(state: RoundLoopState, round_index: int, message: str) -> None:
+    """Keep the account of an Engineer turn that continued without review."""
+    account = str(message or "").strip() or "(no message)"
+    if len(account) > _UNREVIEWED_ACCOUNT_CHARS:
+        omitted = len(account) - 2900
+        account = (
+            account[:2000]
+            + f"\n…[middle omitted {omitted} characters]…\n"
+            + account[-900:]
+        )
+    state.unreviewed_engineer_accounts.append(f"### Engineer round {round_index}\n{account}")
+    del state.unreviewed_engineer_accounts[:-_UNREVIEWED_ACCOUNT_TURNS]
+
 
 def hold_review_for_pending_background_run(review: ReviewDecision) -> ReviewDecision:
     """Keep a ``done`` open while a declared background run has no result.
@@ -328,7 +347,8 @@ class SupervisedEngineer(
                 engineer_prompt += "\n\n" + state.pending_external_work_followup
                 state.pending_external_work_followup = ""
 
-            state.round_started_wall = time.time()
+            if state.round_started_wall is None:
+                state.round_started_wall = time.time()
             outcome = self._run_engineer_turn(
                 round_index=round_index,
                 engineer_prompt=engineer_prompt,
@@ -380,6 +400,7 @@ class SupervisedEngineer(
                 if control.action == "return":
                     return enforce_terminal_question_policy(control.terminal, supervised_config)
                 if control.action == "continue_loop":
+                    _carry_unreviewed_turn(state, round_index, outcome.engineer_message)
                     continue
 
             control = self._handle_progress_and_self_review(
@@ -398,6 +419,7 @@ class SupervisedEngineer(
                     supervised_config,
                 )
             if control.action == "continue_loop":
+                _carry_unreviewed_turn(state, round_index, outcome.engineer_message)
                 continue
 
             control = self._invoke_reviewer_with_retry(

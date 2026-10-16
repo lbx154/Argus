@@ -344,6 +344,55 @@ def test_copilot_reviewer_gets_skill_and_operator_read_roots(tmp_path, monkeypat
     assert not options.dangerous_yolo
 
 
+@pytest.mark.parametrize("backend_name", ["copilot", "memory"])
+def test_copilot_reviewer_can_read_the_files_its_prompt_names(tmp_path, backend_name):
+    # Trial s-a43d1018: Copilot Reviewers were denied the Engineer log, the
+    # round handoffs and checks, the goal contract, and the research playbook
+    # their own prompt told them to open, then kept handing the gap back.
+    from argus.skills.builtins import vertical_skill_source_path
+
+    workdir = tmp_path / "workspaces" / "s-1"
+    project_state = tmp_path / "projects" / "s-1"
+    handoff = project_state / "handoffs" / "m-1"
+    workdir.mkdir(parents=True)
+    handoff.mkdir(parents=True)
+    engineer_log = project_state / "events.jsonl"
+    engineer_log.write_text("", encoding="utf-8")
+    checkpoint = handoff / "CHECKPOINT.md"
+    checkpoint.write_text("", encoding="utf-8")
+    backend = MemoryBackend()
+    backend.backend = backend_name
+    backend.queue("reviewer", CannedResponse(
+        review_action=("revise_review", {"review": "One repair remains."}),
+    ))
+
+    Reviewer(backend, skill_store=SkillStore(tmp_path / "skills")).evaluate(
+        objective="Review the experiment round", round_index=1, session_id=None,
+        main_summary="The run finished.", main_error=None,
+        config=ReviewerConfig(
+            working_dir=str(workdir), active_vertical="research",
+            vertical_state_root=str(project_state),
+        ),
+        engineer_log_path=str(engineer_log), checkpoint_path=str(checkpoint),
+    )
+
+    options = backend.history[0][2]
+    if backend_name != "copilot":
+        assert not options.add_dirs
+        return
+    readable = [Path(path) for path in options.add_dirs]
+    for named in (
+        engineer_log,
+        checkpoint,
+        project_state / "goal_contract.json",
+        handoff / "round-checks" / "round-1.txt",
+        vertical_skill_source_path("research") / "research-experiment-playbook.md",
+    ):
+        assert any(named.resolve().is_relative_to(root) for root in readable), named
+    assert options.sandbox_mode == "read-only"
+    assert not options.dangerous_yolo
+
+
 @pytest.mark.parametrize(("environment_image", "persisted_image", "expected_image"), [
     (None, None, None),
     ("", None, None),

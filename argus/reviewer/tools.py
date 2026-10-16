@@ -403,6 +403,11 @@ class ReviewActions:
         tool = next((tool for tool in self.tools if tool["name"] == action), None)
         if tool is None:
             raise ValueError(f"Unknown review action: {action}")
+        if action in _ACTIONS and self.decision is not None and self.decision.status == "done":
+            # A new verdict replaces an approval. If this one is refused, the
+            # turn must not settle on the approval it was correcting; any other
+            # earlier verdict keeps the round open and may stand.
+            self.decision = None
         properties = tool["inputSchema"].get("properties", {})
         payload = dict(payload)
         for key in ("manager_attention", "learning"):

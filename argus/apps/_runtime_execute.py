@@ -20,6 +20,7 @@ from ..core.knobs import resolve_role_reasoning_effort
 from ..core.ports import EventSink
 from ..core.role_reply import strip_named_lines
 from ..core.runner_errors import is_execution_host_startup_error
+from ..engineer.round_config import HOST_PLACEHOLDER_REVIEW_SOURCES
 from ..engineer.runner import should_clear_thread_id_after_outcome
 from ._env import env_flag as _env_flag
 from ._runtime_backends import _Outcome
@@ -91,6 +92,20 @@ def _execution_host_blocked_outcome(outcome: object) -> bool:
         and getattr(outcome, "stop_kind", None) == "backend_unavailable"
         and is_execution_host_startup_error(getattr(outcome, "reason", ""))
     )
+
+
+def _final_round_unjudged(outcome: object) -> bool:
+    """Whether the last round record is a host placeholder, not a judgment.
+
+    The Reviewer leg rendered no verdict (it raised or failed until the
+    mission stopped), or the Engineer turn ended in a way nobody judged.
+    Neither is Reviewer evidence: the Manager's stage writer must not decide
+    on a ``blocked`` the Reviewer never said, and the journal must not credit
+    it to the Reviewer.
+    """
+    rounds = getattr(outcome, "rounds", None) or []
+    review = getattr(rounds[-1], "review", None) if rounds else None
+    return getattr(review, "review_source", "") in HOST_PLACEHOLDER_REVIEW_SOURCES
 
 
 def _engineer_guidance(
@@ -1460,6 +1475,10 @@ class SkillLoopExecuteMixin:
             final_residual_risk = ""
             final_submission_certified = False
             completion_evidence = ""
+        elif _final_round_unjudged(outcome):
+            # The status stays as recorded (resume and dedupe read it); only
+            # the credit goes, since no Reviewer judged this round.
+            review_source = ""
         ex_state.new_tid = new_tid
         ex_state.auth_fail = auth_fail
         ex_state.rounds_list = rounds_list
@@ -1525,6 +1544,7 @@ class SkillLoopExecuteMixin:
             not maintenance_mission
             and not workflow_skips_stage_transition
             and not _execution_host_blocked_outcome(outcome)
+            and not _final_round_unjudged(outcome)
             and _should_run_stage_transition(
                 effective_status,
                 mission_scope=ex_state.mission_scope,
@@ -1580,6 +1600,7 @@ class SkillLoopExecuteMixin:
         ex_state.stage_transition_deferred = bool(
             planned_node_holds_stage
             and not _execution_host_blocked_outcome(outcome)
+            and not _final_round_unjudged(outcome)
             and not ex_state.stage_transition_skipped
             and not stage_transition
         )

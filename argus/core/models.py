@@ -273,6 +273,8 @@ class ReviewDecision:
     host_notes: list[str] = field(default_factory=list)
     # Why a host-written record stands where no Reviewer judgment was made,
     # e.g. ``provider_turn_cap``, ``backend_failure``, ``silent_command``.
+    # Those records name the same kind in ``review_source``, so no consumer
+    # that trusts ``review_source == "reviewer"`` reads them as a verdict.
     host_placeholder: str = ""
     # These are host-owned facts; the parser never accepts them from a model.
     venue_review_required: bool = False

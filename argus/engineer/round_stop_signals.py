@@ -477,6 +477,7 @@ def idle_termination_review_decision(
     threshold = max(1, int(threshold or 1))
     return ReviewDecision(
         host_placeholder="silent_command",
+        review_source="silent_command",
         status="continue",
         reason=(
             "Argus stopped the Engineer's session because neither the model nor "
@@ -516,6 +517,7 @@ def backend_failure_review_decision(
     # "Technical record:" marker so a consumer can set them aside.
     return ReviewDecision(
         host_placeholder="backend_failure",
+        review_source="backend_failure",
         status="continue",
         reason=(
             "The model service dropped the Engineer's session before it "
@@ -526,6 +528,16 @@ def backend_failure_review_decision(
         ),
         next_action=retry_text,
     )
+
+
+# Opens every turn-limit restart note, so a later restart can find and
+# replace an earlier one in the pending next action.
+PROVIDER_TURN_CAP_NEXT_ACTION = (
+    "Continue the same task in a fresh session; the previous session ended "
+    "at its per-call provider-turn allowance, not because anything went "
+    "wrong. Read the continuation note (CHECKPOINT.md) first and pick up "
+    "the next action recorded there."
+)
 
 
 def provider_turn_cap_review_decision(
@@ -549,18 +561,14 @@ def provider_turn_cap_review_decision(
         f"{streak}/{streak_limit} in a row"
         if streak_limit > 0 else f"{streak} checkpointed session rotations"
     )
-    next_action = (
-        "Continue the same task in a fresh session; the previous session ended "
-        "at its per-call provider-turn allowance, not because anything went "
-        "wrong. Read the continuation note (CHECKPOINT.md) first and pick up "
-        "the next action recorded there."
-    )
+    next_action = PROVIDER_TURN_CAP_NEXT_ACTION
     if summary:
         next_action += (
             " The previous session left this summary before pausing:\n" + summary
         )
     return ReviewDecision(
         host_placeholder="provider_turn_cap",
+        review_source="provider_turn_cap",
         status="continue",
         reason=(
             "The Engineer's session reached the length limit for a single "
@@ -792,6 +800,7 @@ def operator_abort_review_decision(
 __all__ = [
     "BACKEND_FAILURE_SAME_CAUSE_THRESHOLD",
     "BACKEND_FAILURE_BACKOFF_CAP_SECONDS",
+    "PROVIDER_TURN_CAP_NEXT_ACTION",
     "BackendFailureCause",
     "backend_failure_cause",
     "backend_failure_signature",
