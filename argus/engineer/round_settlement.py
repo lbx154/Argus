@@ -11,7 +11,9 @@ from typing import TYPE_CHECKING, Any, Callable
 from ..core.event_catalog import EventType
 from ..core.models import LoopStatus, ReviewDecision, RoundRecord, without_routing_judgments
 from .checkpoint import resolve_shared_checkpoint
+from .reviewer_findings import reviewer_authored_rounds
 from .round_config import (
+    HOST_PLACEHOLDER_REVIEW_SOURCES,
     OPERATOR_QUESTION_FORBIDDEN_NEXT_ACTION,
     OPERATOR_QUESTION_POLICY_REVIEW_SOURCES,
 )
@@ -84,9 +86,15 @@ def _enforce_operator_question_policy(
 ) -> ReviewDecision:
     if _operator_questions_allowed(supervised_config) or not review.operator_question:
         return review
+    # A turn nobody judged (a turn-limit restart, a dropped session) between
+    # two forbidden questions does not make the second one new.
+    judged = [
+        record for record in state.rounds
+        if record.review.review_source not in HOST_PLACEHOLDER_REVIEW_SOURCES
+    ]
     repeated = bool(
-        state.rounds
-        and state.rounds[-1].review.review_source
+        judged
+        and judged[-1].review.review_source
         in OPERATOR_QUESTION_POLICY_REVIEW_SOURCES
     )
     from ..core.autonomy import OPERATOR_ACTION_NEEDS, normalize_operator_need
@@ -122,20 +130,34 @@ def _enforce_operator_question_policy(
         if review.review_source == "engineer_operator_question"
         else "reviewer_operator_question_policy"
     )
+    status = "blocked" if repeated else "continue"
+    reason = (
+        f"Blocked: this needs an operator-only action ({action_need}) and no "
+        f"operator can be asked: {review.operator_question}"[:1200]
+        if action_need in OPERATOR_ACTION_NEEDS
+        else "Operator questions are forbidden and the autonomous continuation did "
+        "not clear the obstacle; state is preserved."
+        if repeated
+        else "Operator questions are forbidden; the obstacle remains owned by "
+        "the autonomous mission."
+    )
+    # Only the routing is overridden. The review's own findings and requested
+    # repairs still stand: the Engineer works from them next round, and the
+    # Planner reads them if the mission ends here.
+    own_reason = str(review.reason or "").strip()
+    if own_reason:
+        reason += "\n\nThe review's own findings:\n" + own_reason
+    next_action = "" if repeated else "\n\n".join(
+        part
+        for part in (str(review.next_action or "").strip(), OPERATOR_QUESTION_FORBIDDEN_NEXT_ACTION)
+        if part
+    )
+    from_reviewer = (review.review_source or "reviewer") == "reviewer"
     return replace(
         review,
-        status="blocked" if repeated else "continue",
-        reason=(
-            f"Blocked: this needs an operator-only action ({action_need}) and no "
-            f"operator can be asked: {review.operator_question}"[:1200]
-            if action_need in OPERATOR_ACTION_NEEDS
-            else "Operator questions are forbidden and the autonomous continuation did "
-            "not clear the obstacle; state is preserved."
-            if repeated
-            else "Operator questions are forbidden; the obstacle remains owned by "
-            "the autonomous mission."
-        ),
-        next_action="" if repeated else OPERATOR_QUESTION_FORBIDDEN_NEXT_ACTION,
+        status=status,
+        reason=reason,
+        next_action=next_action,
         operator_question="",
         operator_options=[],
         planner_report=planner_report,
@@ -143,6 +165,25 @@ def _enforce_operator_question_policy(
         # The host replaced this judgment; it is no longer the Reviewer's.
         reviewer_authored=False,
         host_placeholder="operator_question_policy",
+        # The Reviewer's own words stay quotable apart from the host's change.
+        reviewer_words=(
+            review.reviewer_words or {
+                "status": review.status,
+                "reason": review.reason,
+                "next_action": review.next_action,
+            }
+            if from_reviewer
+            else review.reviewer_words
+        ),
+        host_notes=(
+            [
+                *review.host_notes,
+                "operator questions are not allowed in this mission, so your "
+                f"question was not sent (your `{review.status}` became `{status}`)",
+            ]
+            if from_reviewer
+            else review.host_notes
+        ),
     )
 
 
@@ -608,13 +649,16 @@ class RoundSettlementMixin:
             decision_idle_seconds=decision_idle_seconds,
             decision_timeout_seconds=(supervised_config.decision_progress_timeout_seconds),
             policy_retry=policy_retry,
+            # The Reviewer's last two judgments, not the last two records:
+            # a host placeholder for an unjudged turn carries no progress
+            # judgment and must not push a real one out of the window.
             soft_limit_stalled=bool(
                 supervised_config.soft_round_limit > 0
                 and round_index > supervised_config.soft_round_limit
-                and len(state.rounds) >= 2
+                and len(reviewer_rounds := reviewer_authored_rounds(state.rounds)) >= 2
                 and all(
                     _review_forward_progress(row.review) is not True
-                    for row in state.rounds[-2:]
+                    for row in reviewer_rounds[-2:]
                 )
             ),
             soft_round_limit=supervised_config.soft_round_limit,

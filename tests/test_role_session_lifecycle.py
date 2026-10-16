@@ -482,3 +482,77 @@ def test_cross_role_signal_file_migrates_old_capsule_and_forces_fresh_thread(
     assert payload["thread_id"] == ""
     assert payload["turns"] == 0
     assert payload["signal_kind"] == "repeated_contradiction"
+
+
+def test_reviewer_planner_signal_rotates_the_project_planner_capsule(tmp_path: Path) -> None:
+    context, checkpoint = _context(tmp_path)
+    # The Planner's capsule is project-level, beside ``handoffs/``.
+    planner_capsule = tmp_path / "state" / "role-sessions" / "planner.json"
+    planner_capsule.parent.mkdir(parents=True)
+    planner_capsule.write_text(json.dumps({
+        "schema_version": 2,
+        "role": "planner",
+        "policy": "mission",
+        "thread_id": "planner-old",
+        "turns": 3,
+    }), encoding="utf-8")
+    backend = MemoryBackend()
+    backend.queue("engineer-r1", CannedResponse(message="first", thread_id="e1"))
+    backend.queue(
+        "reviewer",
+        CannedResponse(
+            review_action=('approve_review', {'review': 'The plan step is complete.', 'session_signal': {'kind': 'repeated_contradiction', 'target': 'planner', 'detail': 'The plan keeps asserting a stage that the record contradicts.'}}),
+            thread_id="v1",
+        ),
+    )
+    events: list[dict] = []
+
+    outcome = _loop(
+        backend, tmp_path, context, checkpoint, policy="mission", events=events,
+    ).run("finish the plan step", workdir=tmp_path)
+
+    assert outcome.successful
+    payload = json.loads(planner_capsule.read_text(encoding="utf-8"))
+    assert payload["thread_id"] == ""
+    assert payload["signal_kind"] == "repeated_contradiction"
+    assert not (context.parent / "role-sessions" / "planner.json").exists()
+    signal = next(
+        event for event in events
+        if event.get("rotation_reason") == "signal:repeated_contradiction"
+    )
+    assert signal["role"] == "planner"
+    assert signal["capsule_path"] == str(planner_capsule)
+
+
+def test_rotated_capsule_does_not_resume_the_seed_thread(tmp_path: Path) -> None:
+    path = tmp_path / "role-sessions" / "engineer.json"
+    common = {
+        "role": "engineer",
+        "policy": "mission",
+        "workdir": tmp_path,
+        "backend": "memory",
+        "model": "model",
+        "checkpoint_path": None,
+        "path": path,
+    }
+    first = RoleSessionCapsule.open(objective_revision="objective-a", **common)
+    first.prepare(max_turns=6, max_input_tokens=0)
+    first.complete(RunnerResult(exit_code=0, thread_id="thread-old"))
+
+    same = RoleSessionCapsule.open(
+        objective_revision="objective-a", seed_thread_id="thread-old", **common,
+    )
+    assert same.prepare(max_turns=6, max_input_tokens=0) == "thread-old"
+
+    changed = RoleSessionCapsule.open(
+        objective_revision="objective-b", seed_thread_id="thread-old", **common,
+    )
+    assert changed.rotation_reason == "objective_revision_changed"
+    assert changed.prepare(max_turns=6, max_input_tokens=0) is None
+
+    changed.complete(RunnerResult(exit_code=0, thread_id="thread-new"))
+    assert signal_role_session_file(path, "quality_degradation")
+    signalled = RoleSessionCapsule.open(
+        objective_revision="objective-b", seed_thread_id="thread-new", **common,
+    )
+    assert signalled.prepare(max_turns=6, max_input_tokens=0) is None

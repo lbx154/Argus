@@ -277,8 +277,9 @@ def render_mission_brief(
         label = "Previously requested action" if pending_engineer else "Next action"
         lines.append(f"- {label}: {next_action}")
     if isinstance(review.get("venue_review"), Mapping):
-        reviewed_round = max(1, int(reviewed.get("round") or 1))
-        feedback_path = mission_path.parent / f"round-{reviewed_round:04d}.json"
+        feedback_path = round_handoff_path(
+            mission_path.parent, int(reviewed.get("round") or 1), mission_run(reviewed),
+        )
         lines.append(
             f"- Complete final-review feedback: `{feedback_path}`. Read review.next_action "
             "and review.venue_review before revising; the brief above is abbreviated."
@@ -312,6 +313,28 @@ def _latest_handoff_reference(
 
 def mission_context_dir(life_dir: Path | str, mission_id: str) -> Path:
     return Path(life_dir).expanduser() / HANDOFF_DIRNAME / str(mission_id)
+
+
+def mission_run(payload: Mapping[str, Any]) -> int:
+    """Which run of the mission a mission context or round handoff belongs to.
+
+    Records written before runs were counted belong to the first run.
+    """
+    return max(1, int(payload.get("run") or 1))
+
+
+def round_handoff_path(root: Path, round_index: int, run: int, suffix: str = "") -> Path:
+    """Name one round record without colliding with another run's rounds.
+
+    Every run of a mission (resume, requeue for iteration, orphan retry) keeps
+    the mission id but counts rounds from one again. The first run keeps the
+    original names; later runs carry their run number, so a new run never
+    overwrites an earlier run's record.
+    """
+    stem = f"round-{max(1, int(round_index)):04d}"
+    if run > 1:
+        stem += f"-run-{run:02d}"
+    return root / f"{stem}{suffix}.json"
 
 
 def create_mission_context(
@@ -348,6 +371,9 @@ def create_mission_context(
         existing_created_at = float(existing.get("created_at") or existing_created_at)
     except (OSError, ValueError, TypeError):
         pass
+    # The supervisor creates the context once at the start of every run of
+    # this mission, so each call opens the next run.
+    run = mission_run(existing) + 1 if existing else 1
     frontier_path = root / FRONTIER_FILENAME
     from ..core.task_frontier import (
         TaskFrontier,
@@ -403,6 +429,7 @@ def create_mission_context(
         "schema_version": CONTEXT_PACKET_VERSION,
         "kind": "mission_context",
         "mission_id": str(mission_id),
+        "run": run,
         "stage": str(stage or ""),
         "scope": str(scope or ""),
         "objective": str(objective or "").strip(),
@@ -464,11 +491,13 @@ def record_engineer_handoff(
         return None
     mission_path = Path(mission_context_path)
     root = mission_path.parent
+    run = mission_run(_read_json_object(mission_path))
     payload = {
         "schema_version": CONTEXT_PACKET_VERSION,
         "kind": "round_engineer_handoff",
         "mission_context": str(mission_path),
         "mission_id": root.name,
+        "run": run,
         "round": max(1, int(round_index)),
         "producer_role": "engineer",
         "engineer_summary": str(engineer_summary or "").strip()[:4000],
@@ -477,7 +506,7 @@ def record_engineer_handoff(
         "frontier": _file_reference(root / FRONTIER_FILENAME),
         "created_at": time.time(),
     }
-    path = root / f"round-{max(1, int(round_index)):04d}-engineer.json"
+    path = round_handoff_path(root, round_index, run, "-engineer")
     _atomic_write_json(path, payload)
     _atomic_write_json(
         root / "latest.json",
@@ -563,6 +592,7 @@ def record_reviewed_handoff(
         "kind": "round_reviewed_handoff",
         "mission_context": str(mission_path),
         "mission_id": root.name,
+        "run": mission_run(mission),
         "round": max(1, int(round_index)),
         "producer_role": "reviewer",
         "engineer_summary": str(engineer_summary or "").strip()[:4000],
@@ -571,7 +601,7 @@ def record_reviewed_handoff(
         "frontier": _file_reference(frontier_path),
         "created_at": time.time(),
     }
-    path = root / f"round-{max(1, int(round_index)):04d}.json"
+    path = round_handoff_path(root, round_index, mission_run(mission))
     _atomic_write_json(path, payload)
     _atomic_write_json(
         root / "latest.json",
@@ -590,8 +620,10 @@ __all__ = [
     "FRONTIER_FILENAME",
     "create_mission_context",
     "mission_context_dir",
+    "mission_run",
     "record_engineer_handoff",
     "record_reviewed_handoff",
     "render_mission_brief",
     "render_mission_contract",
+    "round_handoff_path",
 ]

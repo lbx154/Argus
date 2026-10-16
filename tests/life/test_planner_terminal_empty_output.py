@@ -1424,6 +1424,82 @@ def test_review_only_item_is_never_replayed_into_stage_writer(
     assert state["current_stage"] == "scope"
 
 
+@pytest.mark.parametrize("second_run_accepts", [True, False])
+def test_replay_reads_only_the_latest_run_of_a_requeued_mission(
+    tmp_path: Path,
+    monkeypatch,
+    second_run_accepts: bool,
+) -> None:
+    supervisor, _backend, _sink = _make_supervisor(
+        tmp_path,
+        monkeypatch,
+        terminal_stage_done=False,
+        split_memory=True,
+    )
+    project = Path(supervisor.config.project_worktree)
+    _write_reviewed_math_scope_state(project)
+    item = supervisor.memory.backlog.add(
+        BacklogItem.new(
+            title="Define the mathematical scope",
+            objective="State the admissible conjecture class.",
+            tags=["planner", "scope:bounded"],
+        )
+    )
+
+    def run(objective: str, statuses: list[str], marker: str) -> None:
+        mission_path = create_mission_context(
+            life_dir=supervisor.memory.project_root,
+            mission_id=item.id,
+            stage="scope",
+            objective=objective,
+            scope="bounded",
+        )
+        for round_index, status in enumerate(statuses, start=1):
+            record_reviewed_handoff(
+                mission_context_path=mission_path,
+                round_index=round_index,
+                engineer_summary="",
+                review=SimpleNamespace(
+                    status=status,
+                    reason=f"{marker} round {round_index}",
+                    next_action="",
+                    operator_question="",
+                ),
+                checkpoint_path=None,
+            )
+
+    # The first run is accepted at round 3; a requeue then rewrites the
+    # objective and the second run counts its rounds from one again.
+    run(item.objective, ["continue", "continue", "done"], "OLD")
+    run(
+        "State the admissible conjecture class and its completion bar.",
+        ["continue", "done" if second_run_accepts else "continue"],
+        "NEW",
+    )
+    supervisor.memory.backlog.mark_done(
+        item.id,
+        outcome={
+            "execution_status": "completed",
+            "review_status": "done",
+            "stage_certification": "not_assessed",
+            "interruption_kind": "none",
+            "resumable": False,
+        },
+    )
+
+    recovered = supervisor._latest_unassessed_review_for_current_stage()
+
+    if second_run_accepts:
+        assert recovered is not None
+        assert recovered[1].reason == "NEW round 2"
+    else:
+        assert recovered is None
+    handoffs = supervisor.memory.project_root / "handoffs" / item.id
+    assert json.loads((handoffs / "round-0003.json").read_text())["review"]["reason"] == (
+        "OLD round 3"
+    )
+
+
 def test_replan_with_no_planner_tasks_reaches_the_manager(
     tmp_path: Path,
     monkeypatch,

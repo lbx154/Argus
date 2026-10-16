@@ -518,15 +518,28 @@ class PlanningCycleMixin(
                 or str(mission.get("stage") or "").strip().lower() != stage
             ):
                 return None
-            for handoff_path in sorted(
-                handoff_root.glob("round-[0-9][0-9][0-9][0-9].json"),
-                reverse=True,
-            ):
+            # The item's outcome describes its latest run, which is the run
+            # mission.json names. Rounds restart at one in every run, so an
+            # earlier run's acceptance (possibly of an objective that a requeue
+            # has since rewritten) must not be replayed, and only creation time
+            # orders this run's reviews.
+            from ..context_packet import mission_run
+
+            current_run = mission_run(mission)
+            run_handoffs: list[dict] = []
+            for handoff_path in handoff_root.glob("round-*.json"):
                 try:
                     handoff = json.loads(handoff_path.read_text(encoding="utf-8"))
                 except (OSError, TypeError, ValueError):
                     continue
-                review = handoff.get("review") if isinstance(handoff, dict) else None
+                if isinstance(handoff, dict) and mission_run(handoff) == current_run:
+                    run_handoffs.append(handoff)
+            for handoff in sorted(
+                run_handoffs,
+                key=lambda payload: float(payload.get("created_at") or 0),
+                reverse=True,
+            ):
+                review = handoff.get("review")
                 if (
                     handoff.get("kind") != "round_reviewed_handoff"
                     or str(handoff.get("mission_id") or "") != item.id

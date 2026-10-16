@@ -23,6 +23,9 @@ from .round_stop_signals import _runner_result_has_successful_work_signal
 if TYPE_CHECKING:
     from .runner import SupervisedConfig
 
+# Consecutive NEXT_OWNER=engineer turns allowed before the Reviewer judges.
+_ENGINEER_SELF_HANDOFF_LIMIT = 2
+
 
 def _control_line(line: str) -> str:
     text = str(line or "").strip()
@@ -220,7 +223,17 @@ class RoundSelfReviewMixin:
                 on_event=on_event,
             )
         if handoff.next_owner == "engineer" and not state.pending_external_wait_review:
-            return control_continue_loop()
+            # A self-handoff skips the Reviewer and, with it, every round guard
+            # (those are evaluated at settlement). Where independent review is
+            # required, two in a row continue and the third goes to the
+            # Reviewer, so the Engineer cannot run unjudged.
+            if (
+                not supervised_config.require_independent_review
+                or state.engineer_self_handoffs < _ENGINEER_SELF_HANDOFF_LIMIT
+            ):
+                state.engineer_self_handoffs += 1
+                return control_continue_loop()
+            return control_proceed()
         if not supervised_config.require_independent_review and successful_work:
             if milestone_done:
                 return self._settle_round(
