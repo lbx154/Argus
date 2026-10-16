@@ -13,7 +13,7 @@ from argus.core.models import RunnerOptions, RunnerResult
 from argus.core.run_gateway import run_exec
 from argus.daemon.state import read_continuous_state, write_continuous_config
 from argus.life.event_log import JsonlEventSink
-from argus.life.memory import Backlog, BacklogItem
+from argus.life.memory import Backlog, BacklogItem, MemoryBundle
 from argus.manager import Manager
 from argus.manager._session_ops import manager_pipeline_lock
 from argus.manager.directive import load_active_manager_directive
@@ -126,24 +126,26 @@ def test_dialogue_and_restarted_daemon_share_the_persistent_manager_identity(tmp
     from argus.manager import front_door
     from argus.webapi import manager_bridge, manager_state
 
-    project(tmp_path)
+    memory = MemoryBundle.for_cwd(fingerprint="persistent-sid", global_root=tmp_path)
+    life = memory.project_root
+    project(life)
     first = EvidenceBackend()
-    manager = Manager(tmp_path, runner=first, memory_maintenance_enabled=False)
+    manager = Manager(life, runner=first, memory_maintenance_enabled=False)
     frontend = SimpleNamespace(manager=manager, _backend=first)
     monkeypatch.setattr(front_door, "_ensure_manager_runner", lambda *args: frontend)
-    reply = manager_bridge._answer_inline("persistent-sid", tmp_path, "What is running now?")
+    reply = manager_bridge._answer_inline(memory, "What is running now?", {})
     assert "grouped-mean" in reply
     assert "Current project evidence" in first.calls[0][0]
     assert first.calls[0][1] is None
 
     second = EvidenceBackend()
-    restarted = Manager(tmp_path, runner=second, memory_maintenance_enabled=False)
-    record = supervise(restarted, tmp_path, {"type": "life.mission.completed", "item_id": "check"})
+    restarted = Manager(life, runner=second, memory_maintenance_enabled=False)
+    record = supervise(restarted, life, {"type": "life.mission.completed", "item_id": "check"})
     assert record["status"] == "applied"
     assert second.calls[0][1] == "persistent-manager"
 
     manager_state.release_manager_context("persistent-sid")
-    again = SimpleNamespace(manager=Manager(tmp_path, runner=second, memory_maintenance_enabled=False), _backend=second)
+    again = SimpleNamespace(manager=Manager(life, runner=second, memory_maintenance_enabled=False), _backend=second)
     result = run_exec(conversation_backend(again), prompt="Explain your last decision", options=RunnerOptions(), run_label="simple-1")
     assert result.thread_id == "persistent-manager"
     assert second.calls[-1][1] == "persistent-manager"
@@ -498,7 +500,9 @@ def test_background_yields_the_shared_session_when_an_interactive_ask_arrives(tm
     from argus.manager import front_door
     from argus.webapi import manager_bridge
 
-    project(tmp_path)
+    memory = MemoryBundle.for_cwd(fingerprint="priority-sid", global_root=tmp_path)
+    life = memory.project_root
+    project(life)
     entered = threading.Event()
 
     class Cooperative(EvidenceBackend):
@@ -515,19 +519,19 @@ def test_background_yields_the_shared_session_when_an_interactive_ask_arrives(tm
             return super().run_exec(**kwargs)
 
     backend = Cooperative()
-    manager = Manager(tmp_path, runner=backend, memory_maintenance_enabled=False)
+    manager = Manager(life, runner=backend, memory_maintenance_enabled=False)
     monkeypatch.setattr(front_door, "_ensure_manager_runner", lambda *args: SimpleNamespace(manager=manager, _backend=backend))
-    assert "grouped-mean" in manager_bridge._answer_inline("priority-sid", tmp_path, "What is the task?")
+    assert "grouped-mean" in manager_bridge._answer_inline(memory, "What is the task?", {})
     with ThreadPoolExecutor(max_workers=1) as pool:
-        background = pool.submit(supervise, manager, tmp_path, {"type": EventType.LIFE_MISSION_COMPLETED})
+        background = pool.submit(supervise, manager, life, {"type": EventType.LIFE_MISSION_COMPLETED})
         assert entered.wait(1)
         started = time.monotonic()
-        assert "grouped-mean" in manager_bridge._answer_inline("priority-sid", tmp_path, "Please answer now")
+        assert "grouped-mean" in manager_bridge._answer_inline(memory, "Please answer now", {})
         assert time.monotonic() - started < 1
         assert background.result(timeout=1)["status"] == "superseded"
     assert backend.calls[-1][1] == "persistent-manager"
     assert manager._session.thread_id == "persistent-manager"
-    assert not list((tmp_path / ".manager_session_foreground").glob("*.json"))
+    assert not list((life / ".manager_session_foreground").glob("*.json"))
 
 
 @pytest.mark.parametrize("failure_point", ["directive", "continuous", "final_receipt"])
