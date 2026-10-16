@@ -16,6 +16,13 @@ This policy applies to `lbx154/Argus`.
 Both long-lived branches run the existing CI. Branch organization adds no
 separate release validation workflow.
 
+## Where to start
+
+Open work items are listed in [the roadmap](docs/ROADMAP.md)
+([中文](docs/ROADMAP.zh-CN.md)), each with its principle, files, acceptance
+tests, and dependencies. Every change names the principle in
+[docs/PRINCIPLES.md](docs/PRINCIPLES.md) that requires it.
+
 ## TypeScript runtime
 
 The root npm workspace contains the shared contracts, experimental runtime and

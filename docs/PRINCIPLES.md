@@ -26,6 +26,14 @@ project-local, reproducible environment or reports that the capability is
 unavailable. Preinstalled virtual environments, caches, paths, credentials,
 and one person's shell configuration are not product capabilities.
 
+The runtime never speaks for an agent. A judgment is recorded once, by the
+actor that made it, and nobody else rewrites it. When the runtime intervenes
+with a budget stop, a pause, or a policy, it records its own fact beside the
+judgment instead of editing or imitating it. Whether work is progressing is a
+judgment too: the runtime enforces the budgets a principal set, not its own
+estimate of progress. Summaries, checkpoints, and "latest" views are
+projections rebuilt from these records, never a second source of truth.
+
 ## 2. Core provides capability; Verticals provide domain policy
 
 Core is a small stable kernel for execution, persistence, scheduling,
@@ -83,6 +91,16 @@ authorize a downstream decision is already a claim and cannot retain an
 Ceremonial gates, repeated certification, and artifact counts cannot replace
 direct evidence.
 
+The runtime, not the producer, freezes the candidate: everything that changed
+since the last accepted state, with the evidence that produced it. The reviewer
+reads that change and evidence directly and can read everything the producer
+could change; the producer's account guides the reading but is not the
+evidence. The standard a claim must meet is set by its owner before the
+candidate exists. Review judges the candidate against that standard and says
+what would change the verdict. A concern outside the standard is recorded for
+its owner instead of moving the standard, unless it breaches the integrity
+floor, which always blocks.
+
 ## 6. Failure updates strategy; it is not automatically the product
 
 A negative result first distinguishes setup, implementation, optimization,
@@ -119,7 +137,13 @@ toolchain merely to make one task runnable.
 
 Questions are a last resort, not a way to transfer risk. Independent Reviewers
 serve material claims and work that genuinely needs a second judgment; they are
-not a permission layer for every local action.
+not a permission layer for every local action. Work in progress is not gated
+turn by turn; review happens when a candidate is frozen.
+
+Authority and obstacles go to whoever can act on them. A role asked for a
+judgment receives the access that judgment needs. An obstacle such as a missing
+permission or a conflicting contract goes to the actor that can remove it,
+never back to a role that cannot.
 
 ## 9. Evolution is proven only by end-to-end outcomes
 
@@ -145,6 +169,15 @@ These are currently sensible policies, not eternal principles:
 - explore/develop/certify follows principle 5;
 - using negative results to repair or reroute follows principles 6 and 7;
 - one independent review of a frozen final candidate follows principle 5;
+- the runtime snapshots the workspace and gives the Reviewer the change since
+  the last accepted state follows principles 1 and 5;
+- acceptance criteria written before execution, verdicts given per criterion,
+  and out-of-scope concerns kept as follow-ups follow principles 5 and 7;
+- one append-only record per actor, with runtime interventions recorded as the
+  runtime's own and every summary file rebuilt from those records, follows
+  principle 1;
+- round limits expressed as principal-set budgets, not inferred progress,
+  follow principles 1 and 8;
 - asking fewer questions and autonomously installing project-local
   dependencies follows principle 8;
 - discovering CUDA, drivers, disk, and schedulers, creating a version-locked
@@ -156,7 +189,7 @@ Implementations may change while the principles remain. When an implementation
 conflicts with a principle, change the implementation instead of adding an
 exception.
 
-## Five design questions
+## Six design questions
 
 1. Is this a semantic judgment or a mechanical fact only the runtime can know?
 2. Is this domain policy or a capability every Vertical needs?
@@ -164,6 +197,8 @@ exception.
 4. Will this model call change an artifact, strategy, material uncertainty, or
    independent judgment?
 5. Will this work advance the programme's final outcome?
+6. Who is the only author of this record, and does the judgment that uses it
+   read the evidence itself rather than someone's account of it?
 
 If a mechanism repeatedly cannot answer these questions, delete it rather than
 adding another layer to protect it.
