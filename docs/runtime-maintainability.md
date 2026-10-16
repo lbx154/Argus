@@ -87,6 +87,16 @@ Reviewer 的语义判断和 Host 的状态提交发生在不同位置；定位�
 的 CLI/Web 普通任务可以正常验收结束，不要求额外传 `--bounded`。显式开放式 campaign、
 有限 campaign、守护进程驻留和已有终态证据的语义保持不变。
 
+有限 campaign 的完成证书也不能跳过尚未处理的操作者输入。外层完成快捷路径
+先沿原收件入口接纳消息，并保留给 Planner intake；持久 ledger 中尚未被 Planner
+确认的 revision 同样阻止快捷结束。已接纳输入的 planning cycle 必须先让 Planner
+处理，不删除或伪造旧阶段证书，也不把工程验收等同于后来要求的报告交付。
+新的输入还会使保留的 `project_completed` / `certified_increment` 调度决定失效，
+先记录包含原 verdict 和交付状态的 superseded 事件，再清除待重放的 outbox；
+否则旧的 bounded `False` outcome 会在 Planner 前再次结束本轮。原完成事件、
+工程证书和任务终态保持不变；尚未被 Planner 处理的原生收件仍可按同一身份重入。
+没有新输入的已验收有限任务仍可直接结束，不强制购买额外 Planner 调用。
+
 有限任务的 Planner 预览也通过角色目录读取会话 state root 中选定的 vertical
 和阶段，并接收该领域的阶段规则；工作目录只作为代码、数据和执行位置，
 不能因为它没有 `PIPELINE_STATE.json` 就回退到 research。

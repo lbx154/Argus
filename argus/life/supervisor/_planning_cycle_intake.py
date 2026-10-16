@@ -98,6 +98,8 @@ class PlanningCycleIntakeMixin:
         intent = state.manager_intent if isinstance(state.manager_intent, dict) else {}
         if str(intent.get("workflow_mode") or "").strip().lower() != "direct":
             return None
+        if self._manager_final_stage_is_completed():
+            return None
         objective = str(
             intent.get("execution_task")
             or self.config.continuous_objective
@@ -179,6 +181,22 @@ class PlanningCycleIntakeMixin:
             getattr(self.config, "open_ended", False)
             or self._effective_final_certification_gate(artifact_root)
             or self._bounded_completion_issue()
+        ):
+            return ""
+        from ...apps._inbox_delivery import unique_operator_messages
+        from ...core.operator_context import (
+            OperatorContextStore,
+            operator_context_state_root,
+        )
+
+        messages = self._drain_user_inbox()
+        self._operator_guidance_carryover = unique_operator_messages(
+            list(getattr(self, "_operator_guidance_carryover", None) or []) + messages
+        )
+        context = OperatorContextStore(operator_context_state_root(self.memory))
+        if (
+            self._operator_guidance_carryover
+            or context.revision > context.acknowledged_revision("planner")
         ):
             return ""
         from ...skills.vertical_select import resolve_vertical
@@ -267,8 +285,18 @@ class PlanningCycleIntakeMixin:
             record = load_planner_verdict_outbox(self.memory.root)
             if (
                 record is not None
-                and record["event"].get("completion_kind") == "certified_increment"
+                and record["event"].get("completion_kind")
+                in {"certified_increment", "project_completed"}
             ):
+                if not self._emit({
+                    "type": "life.planner.verdict.discarded",
+                    "cycle": self._planning_cycles,
+                    "reason": "new operator input superseded the prior completion decision",
+                    "delivery_id": record["delivery_id"],
+                    "prior_verdict": record["event"],
+                    "prior_delivered": record.get("delivered", False),
+                }):
+                    return PLAN_RETRY
                 clear_planner_verdict_outbox(self.memory.root)
         if revision_request is None:
             feedback = self._load_manager_planner_feedback()
@@ -669,9 +697,19 @@ class PlanningCycleIntakeMixin:
         if manager_intent:
             state.manager_intent = manager_intent
 
-        reason = "" if revision_request is not None else self._bounded_completion_reason()
+        reason = (
+            ""
+            if (
+                revision_request is not None
+                or state.had_operator_messages
+                or state.has_unhandled_operator_input
+            )
+            else self._bounded_completion_reason()
+        )
         if reason:
             return self._emit_bounded_project_completion(reason)
+        if getattr(self, "_operator_guidance_carryover", None):
+            return PLAN_RETRY
         direct = self._enqueue_bounded_manager_direct(state)
         if direct is not None:
             return direct
