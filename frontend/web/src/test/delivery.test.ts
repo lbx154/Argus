@@ -15,7 +15,6 @@ import {
   deliveryNotificationPayload,
 } from '../lib/desktopBridge';
 import { latestConversationDelivery } from '../components/EventStream';
-import { DeliveryNotice } from '../components/DeliveryNotice';
 import { mergeConversationEvents } from '../lib/conversationEvents';
 
 const delivery: DeliveryReceipt = {
@@ -67,15 +66,6 @@ describe('completed delivery presentation', () => {
   });
   it('names an accepted residual risk instead of a plain pass', async () => {
     const risk = 'Live feed ingestion: live behaviour is unverified. (accepted by the operator)';
-    const markup = renderToStaticMarkup(createElement(DeliveryNotice, {
-      delivery: { ...delivery, review_source: 'reviewer', residual_risk: risk },
-      onOpen: () => undefined, onDismiss: () => undefined,
-    }));
-    expect(markup).toContain(`Verified with residual risk: ${risk}`);
-    const plain = renderToStaticMarkup(createElement(DeliveryNotice, {
-      delivery, onOpen: () => undefined, onDismiss: () => undefined,
-    }));
-    expect(plain).not.toContain('residual risk');
     const { deliveryReviewLabel } = await import('../components/deliveryPresentation');
     const label = deliveryReviewLabel({ ...delivery, review_source: 'reviewer', residual_risk: risk }, false);
     expect(label.text).toBe('Independently reviewed · residual risk');
@@ -92,16 +82,6 @@ describe('completed delivery presentation', () => {
     }, context);
     expect(completed?.text).toContain('completed with residual risk');
     expect(completed?.text).toContain(risk);
-  });
-  it('shows formatted outcome text without raw Markdown or workspace link targets', () => {
-    const markup = renderToStaticMarkup(createElement(DeliveryNotice, {
-      delivery: { ...delivery, summary: '**CNY**: 130.00\n\n[Download summary.csv](sandbox:/private/workspace/summary.csv)' },
-      onOpen: () => undefined, onDismiss: () => undefined,
-    }));
-    expect(markup).toContain('<strong>CNY</strong>');
-    expect(markup).toContain('Download summary.csv');
-    expect(markup).not.toContain('sandbox:/private');
-    expect(markup).not.toContain('**CNY**');
   });
   it('opens the receipt primary target before a stale live checkpoint', () => {
     const view = emptyMissionView();

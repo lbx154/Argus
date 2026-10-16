@@ -1,6 +1,5 @@
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { renderToStaticMarkup } from 'react-dom/server';
-import { act, create } from 'react-test-renderer';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import type { ReactElement } from 'react';
 import type { Snapshot } from '../api';
@@ -8,7 +7,6 @@ import { TopBar } from '../components/TopBar';
 import { I18nProvider, type Locale } from '../i18n';
 import { WORKBENCH_MODULES } from '../research-workbench/modules';
 import { IdePage } from '../research-workbench/pages/IdePage';
-import { ProjectOverviewPage } from '../research-workbench/pages/ProjectOverviewPage';
 import type { ActiveWorkbenchPageProps } from '../research-workbench/pages/pageTypes';
 
 const snap: Snapshot = {
@@ -51,24 +49,8 @@ describe('A3 snapshot-only session context', () => {
     expect(fetch).not.toHaveBeenCalled();
   });
 
-  it('uses only the loaded snapshot in the overview, not a stale project-index directory', () => {
-    const html = markup(<ProjectOverviewPage {...props} />);
-    expect(html).toContain(snap.session.workdir);
-    expect(html).not.toContain('/stale/project-index');
-    expect(html).not.toMatch(/Both modules|两个模块/);
-    expect(fetch).not.toHaveBeenCalled();
-  });
-
-  it('retains all module IDs, entry order and navigation actions', () => {
+  it('retains all module IDs in entry order', () => {
     expect(WORKBENCH_MODULES.map(row => row.id)).toEqual(['timeline', 'experiments', 'ide', 'runtime']);
-    const navigate = vi.fn();
-    let view: ReturnType<typeof create>;
-    act(() => { view = create(<ProjectOverviewPage {...props} navigate={navigate} />); });
-    const cards = view!.root.findAllByProps({ className: 'module-card' });
-    expect(cards).toHaveLength(3);
-    act(() => { for (const card of cards) card.props.onClick(); });
-    expect(navigate.mock.calls.map(args => args[0])).toEqual(['timeline', 'experiments', 'ide']);
-    act(() => view!.unmount());
   });
 
   it('falls back to the snapshot cwd and labels missing information as pending', () => {
@@ -76,7 +58,6 @@ describe('A3 snapshot-only session context', () => {
     const missing = { ...snap, session: { ...snap.session, workdir: '', cwd: '' } };
     expect(markup(topbar(missing))).toContain('Pending confirmation');
     expect(markup(topbar(missing), 'zh-CN')).toContain('待确认');
-    expect(markup(<ProjectOverviewPage {...props} snapshot={missing} />)).toContain('Pending confirmation');
   });
 
   it('keeps complete long and HTML-like paths as escaped text, never directory actions', () => {

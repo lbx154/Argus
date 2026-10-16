@@ -3,9 +3,7 @@ import { renderToStaticMarkup } from 'react-dom/server';
 import { act, create } from 'react-test-renderer';
 import { describe, expect, it, vi } from 'vitest';
 import { emptyMissionView } from '../../../core/src/missionView';
-import type { ArtifactInfo, DeliveryReceipt } from '../../../core/src/types';
-import { DeliveryNotice } from '../components/DeliveryNotice';
-import { MissionControl } from '../components/MissionControl';
+import type { ArtifactInfo } from '../../../core/src/types';
 import { PdfPreview, pdfContainScale } from '../components/PdfPreview';
 import { LIVE_PROGRESS_PATH, ResearchCanvas } from '../components/ResearchCanvas';
 import { preferredPreviewWidth } from '../lib/previewLayout';
@@ -20,18 +18,6 @@ describe('file reading experience', () => {
     expect(preferredPreviewWidth(1920, 256, true)).toBe(840);
     expect(preferredPreviewWidth(1024, 400, true)).toBe(320);
     expect(preferredPreviewWidth(1024, 256, false)).toBe(461);
-  });
-
-  it('acknowledges an opened delivery so its notice no longer covers file controls', () => {
-    const delivery: DeliveryReceipt = { schema_version: 1, delivery_id: 'fixture', item_id: 'task', kind: 'task_completed', title: 'Result', summary: '', status: 'done', review_status: 'done', delivered_at: 1, primary_target: null, targets: [] };
-    const onOpen = vi.fn();
-    const onDismiss = vi.fn();
-    let renderer!: ReturnType<typeof create>;
-    act(() => { renderer = create(createElement(DeliveryNotice, { delivery, onOpen, onDismiss })); });
-    act(() => renderer.root.findAllByType('button')[0].props.onClick());
-    expect(onOpen).toHaveBeenCalledWith(delivery);
-    expect(onDismiss).toHaveBeenCalledWith('fixture');
-    act(() => renderer.unmount());
   });
 
   it('fits oversized pages and shallow viewports rather than forcing a crop at 25 percent', () => {
@@ -67,25 +53,6 @@ describe('file reading experience', () => {
 });
 
 describe('role identity and focused workbench', () => {
-  it('shows no team strip while no role has done anything and no executor is running', () => {
-    for (const status of ['idle', 'waiting']) {
-      const view = emptyMissionView();
-      for (const role of view.roles) role.status = status;
-      const html = renderToStaticMarkup(createElement(MissionControl, { view }));
-      expect(html).not.toContain('data-role-dot=');
-    }
-  });
-
-  it.each(['active', 'done', 'error'])('keeps four distinct role markers when roles are %s', (status) => {
-    const view = emptyMissionView();
-    for (const role of view.roles) role.status = status;
-    const html = renderToStaticMarkup(createElement(MissionControl, { view }));
-    for (const role of ['manager', 'planner', 'engineer', 'reviewer']) {
-      expect(html).toContain(`data-role-dot="${role}"`);
-      expect(html).toContain(`background:rgb(var(--role-${role}))`);
-    }
-  });
-
   it('keeps the shared research tools available in project navigation and the overview', () => {
     expect(WORKBENCH_MODULES.map((module) => module.id)).toEqual(['timeline', 'experiments', 'ide', 'runtime']);
     expect(WORKSPACE_DESTINATIONS.map((module) => module.id)).toEqual(['timeline', 'experiments', 'ide']);

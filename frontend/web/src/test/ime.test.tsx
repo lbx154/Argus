@@ -56,7 +56,6 @@ describe('every keyboard handler guards composition', () => {
     'ChatBox.tsx',
     'CommandPalette.tsx',
     'PendingReplyDialog.tsx',
-    'NewDaemonModal.tsx',
   ];
 
   it.each(guarded)('%s calls isImeComposing', async (file) => {

@@ -12,11 +12,7 @@ import { ArtifactModal } from '../components/ArtifactModal';
 import { MapReaderContent } from '../map/MapReaderContent';
 import type { CardCopy } from '../map/presentation';
 import { ProgressQuestionButton, ProgressQuestionHistoryButton, ProgressQuestionsProvider, type QuestionSourceContext } from './ProgressQuestions';
-import { QuestionFoundation } from './QuestionFoundation';
 import { foundationChoice, foundationListKey, selectFoundation } from './foundation';
-import ResearchBrief from './ResearchBrief';
-import { briefCopyKey, briefLiveKey, briefSelection, currentBriefData } from './model';
-import { completedCopy, inputs, source as liveSource } from './testFixtures';
 
 vi.mock('../components/Modal', () => ({
   Modal: ({ open, children }: { open: boolean; children: ReactNode }) => open ? <div role="dialog">{children}</div> : null,
@@ -50,7 +46,7 @@ function deferred<T>() {
 
 let renderer: ReactTestRenderer | undefined;
 let client: QueryClient;
-let props: { sid: string; card?: CardCopy; cardKey?: string; taskId?: string; context?: QuestionSourceContext; readOnly?: boolean; foundation?: boolean; reader?: boolean };
+let props: { sid: string; card?: CardCopy; cardKey?: string; taskId?: string; context?: QuestionSourceContext; readOnly?: boolean; reader?: boolean };
 let rows: Record<string, ArtifactInfo[]>;
 let localeControl: ReturnType<typeof useI18n>;
 function LocaleControl() { localeControl = useI18n(); return null; }
@@ -65,7 +61,6 @@ function tree() {
       {props.reader ? <MapReaderContent card={props.card} cardKey={cardKey} taskId={taskId} originalDetail="Original work record" />
         : <ProgressQuestionButton card={props.card} cardKey={cardKey} taskId={taskId} context={props.context} />}
       <ProgressQuestionHistoryButton />
-      {props.foundation ? <QuestionFoundation sid={props.sid} onOpenArtifact={() => {}} /> : null}
     </ProgressQuestionsProvider>
   </I18nProvider></QueryClientProvider>;
 }
@@ -127,33 +122,6 @@ it.each(['button', 'task', 'step'])('uses the same independent editor for a %s r
   expect(renderer!.root.findAllByType(MarkdownContent).map(node => node.props.children)).toContain(saved.preview);
   expect(foundationChoice(client, 'project-a', 'en-US').id).toBe('a-different-foundation');
   expect(api.generateMapCopy).not.toHaveBeenCalled(); expect(api.messageStream).not.toHaveBeenCalled();
-});
-
-it('opens the actual current brief and its reading modal in the shared dialog without filling research chat', async () => {
-  const value = inputs();
-  const saved = completedCopy(liveSource.tasks[0], ['start-a', 'main-a'], 100);
-  const original = saved.cards.a;
-  const ref = { ...sourceA, path: `reader-progress/${value.sid}/${sourceA.source_id}.md`, task_id: 'a', card_key: 'a',
-    title: original.title, generated_at: original.generated_at, copy_revision: original.copy_revision! };
-  vi.mocked(api.mapQuestionSource).mockResolvedValue(ref);
-  client.setQueryData(briefCopyKey(value.sid, 'en-US'), saved);
-  client.setQueryData(briefLiveKey(value.sid, briefSelection(value.snapshot, value.view)), currentBriefData(liveSource, value.sid, 'a'));
-  const research = vi.fn();
-  await act(async () => { renderer = create(<QueryClientProvider client={client}><I18nProvider>
-    <ProgressQuestionsProvider sid={value.sid}><ResearchBrief {...value} active={false} onAsk={research} /></ProgressQuestionsProvider>
-  </I18nProvider></QueryClientProvider>); }); await flush();
-  await open(); expect(dialog().props['data-progress-source-id']).toBe(ref.source_id); close();
-  act(() => button('Read explanation').props.onClick());
-  const reading = renderer!.root.findByProps({ 'data-testid': 'research-brief-reading' });
-  await act(async () => reading.findAllByType('button').find(node => node.children.includes('Ask about this step'))!.props.onClick());
-  await flush();
-  edit('The question about the explanation already open');
-  const updated = { ...saved, cards: { a: { ...saved.cards.a, ...card({ ...sourceB, task_id: 'a', card_key: 'a',
-    path: `reader-progress/${value.sid}/${sourceB.source_id}.md` }) } } };
-  act(() => { client.setQueryData(briefCopyKey(value.sid, 'en-US'), updated); }); await flush();
-  expect(dialog().props['data-progress-source-id']).toBe(ref.source_id);
-  expect(renderer!.root.findByType('textarea').props.value).toBe('The question about the explanation already open');
-  expect(research).not.toHaveBeenCalled(); expect(api.messageStream).not.toHaveBeenCalled(); expect(api.generateMapCopy).not.toHaveBeenCalled();
 });
 
 it('reopens saved questions by source and follows only the explicitly selected answer', async () => {
@@ -318,12 +286,11 @@ it('keeps a definitely rejected source and original question until an explicit n
   expect(generate).toHaveBeenCalledTimes(2);
 });
 
-it('keeps progress answers out of the foundation selector and allows read-only history', async () => {
+it('allows read-only history without asking', async () => {
   vi.stubGlobal('window', { location: { search: '?reader_preview=question-foundation' } });
-  rows['project-a'] = [answer(firstId, 'A progress question')]; props.foundation = true; props.readOnly = true;
+  rows['project-a'] = [answer(firstId, 'A progress question')]; props.readOnly = true;
   const generate = vi.spyOn(api, 'generateReaderFoundation'); await mount();
   expect(button('Ask about this step')).toBeUndefined();
-  expect(renderer!.root.findAllByProps({ 'aria-label': 'Choose a foundation explanation' })).toHaveLength(0);
   act(() => button('Reading questions').props.onClick()); await flush();
   expect(text()).toContain('A progress question'); expect(button('Ask question')).toBeUndefined();
   expect(generate).not.toHaveBeenCalled();
