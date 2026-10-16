@@ -557,3 +557,24 @@ def test_research_engineer_plain_mission_carries_the_stage_guidance(tmp_path) ->
     assert "## Authoritative stage playbook" in with_stage.role_banner
     assert "## Engineer responsibility" in with_stage.role_banner
     assert "## Method card and executable spec" not in without_stage.role_banner
+
+
+def test_planner_prompts_carry_one_operator_context_block(tmp_path) -> None:
+    """The Supervisor renders the projection it acknowledges into the runtime
+    digest; the builders read the store only when no caller did that."""
+    persist_vertical(tmp_path, "software")
+    append_directive(tmp_path, "Keep the evaluation split fixed.", expected_revision=0)
+    supervisor_block = build_operator_context_block("planner", tmp_path, consume_once=False)[0]
+    kwargs = dict(
+        continuous_objective="Improve the solver.",
+        journal_tail="cycle 0 completed work",
+        planning_cycle=1,
+        project_root=tmp_path,
+        state_root=tmp_path,
+    )
+    for build in (build_continuous_prompt, build_continuous_resume_prompt):
+        supplied = build(runtime_change_summary="facts\n\n" + supervisor_block, **kwargs)
+        assert supplied.count("## OperatorContext") == 1
+        assert supplied.count("Keep the evaluation split fixed.") == 1
+        alone = build(runtime_change_summary="facts", **kwargs)
+        assert alone.count("## OperatorContext") == 1

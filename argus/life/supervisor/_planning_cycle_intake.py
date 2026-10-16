@@ -204,10 +204,23 @@ class PlanningCycleIntakeMixin:
             if revision_request is None
             else []
         )
-        from ...apps._inbox_delivery import operator_live_turn, unique_operator_messages
+        from ...apps._inbox_delivery import (
+            is_host_report,
+            operator_live_turn,
+            unique_operator_messages,
+        )
 
         transient_messages = unique_operator_messages(transient_messages)
-        state.had_operator_messages = bool(transient_messages)
+        # A subagent's completion report is the host telling itself a job
+        # settled. The job's state already reaches the waits and the
+        # unchanged-input digest through the external-work registry, so the
+        # report rides along with the next Planner turn instead of forcing one.
+        # Counting it as operator input dropped every wait: on 2026-10-15 it
+        # forced 63 of 131 back-to-back "still waiting" Planner calls.
+        operator_messages = [
+            message for message in transient_messages if not is_host_report(message)
+        ]
+        state.had_operator_messages = bool(operator_messages)
         state.inbox_delivery_messages = list(transient_messages)
         # Draining appends fresh messages to the durable ledger. Re-render after
         # the drain so this same planning turn sees the complete standing block
@@ -238,10 +251,10 @@ class PlanningCycleIntakeMixin:
                 self._enter_idle_backoff()
                 self._emit_status("Waiting for the requested operator facts; unchanged work is not being reviewed again")
                 return PLAN_AWAITING
-        if transient_messages:
+        if operator_messages:
             self._clear_manager_planner_feedback()
             self._reset_idle_backoff()
-        if transient_messages or state.has_unhandled_operator_input:
+        if operator_messages or state.has_unhandled_operator_input:
             self._deactivate_planner_waiting_contract()
             self._last_open_ended_project_done_signature = ""
             # The inbox was already drained above. Do not let a durable idle
