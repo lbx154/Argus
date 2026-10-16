@@ -23,6 +23,10 @@ LIFECYCLE_BLOCK_HEARTBEAT_SECONDS = 1800.0
 # escalation or a probe), so unchanged files must not silence it forever. The
 # cadence matches the idle journal heartbeat above.
 PLANNER_UNCHANGED_SKIP_MAX_SECONDS = 1800.0
+# Spare-slot planning beside running missions starts at the idle cap and
+# doubles while the backlog stays the same, up to this. Each ask is a full
+# Planner LLM call; at a flat 300 s a six-hour job bought 72 of them.
+PARALLEL_PLAN_INTERVAL_CAP_SECONDS = 7200.0
 PLAN_TERMINAL_IDLE = "planner_terminal_idle"
 PLAN_AWAITING = "awaiting_external"
 PLAN_ERROR = "planner_error"
