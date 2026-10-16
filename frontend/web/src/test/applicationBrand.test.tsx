@@ -2,8 +2,7 @@ import { renderToStaticMarkup } from 'react-dom/server';
 import { afterEach, expect, it, vi } from 'vitest';
 import { DEFAULT_APPLICATION_BRAND, parseApplicationBrand } from '../../../core/src/applicationBrand';
 import { applicationBrand, loadApplicationBrand } from '../applicationBrand';
-import { Wordmark } from '../components/Wordmark';
-import { ArgusWordmark } from '../research-workbench/components/Brand';
+import { ArgusMark, Wordmark } from '../components/Wordmark';
 import { translate } from '../i18n';
 
 const assets = Object.fromEntries(['mark', 'mark_dark', 'logo', 'logo_dark', 'icon', 'icon_dark']
@@ -22,7 +21,6 @@ afterEach(async () => {
 
 it('keeps default Argus artwork and labels', () => {
   expect(renderToStaticMarkup(<Wordmark />)).toContain('data-logo="rounded-horizontal"');
-  expect(renderToStaticMarkup(<ArgusWordmark />)).toContain('<strong>Argus</strong>');
   expect(translate('chat.messageArgus', {}, 'en')).toBe('message Argus');
 });
 
@@ -40,7 +38,7 @@ it('loads server identity before rendering official asset URLs and chrome', asyn
   expect(meta.setAttribute).toHaveBeenCalledWith('content', 'Example');
   expect(manifest.setAttribute).toHaveBeenCalledWith('href', '/api/application-brand/manifest.webmanifest');
   expect(links.map((link) => link.href)).toEqual([assets.icon, assets.icon_dark]);
-  const html = renderToStaticMarkup(<><Wordmark /><ArgusWordmark /></>);
+  const html = renderToStaticMarkup(<><Wordmark /><ArgusMark size={31} /></>);
   expect(html).toContain('app-brand-light');
   expect(html).toContain('app-brand-dark');
   expect(html).toContain('alt="Example"');

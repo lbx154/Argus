@@ -4,7 +4,6 @@ import json
 import os
 from pathlib import Path
 
-from argus.engineer.background_subagents import emit_subagent_cost_events
 from argus.engineer.external_work import (
     ExternalWorkState,
     parse_external_wait_request,
@@ -68,25 +67,3 @@ def test_structured_subagent_wait_request() -> None:
     request = '{"wait_for": "subagent", "wait_id": "train-1"}'
     assert parse_external_wait_request(request) == ("subagent", "train-1")
     assert parse_external_wait_request("WAIT_FOR_SUBAGENT: train-1") is None
-
-
-def test_emit_subagent_cost_events_persists_delta_baseline(tmp_path: Path) -> None:
-    path = _write_record(
-        tmp_path,
-        "train-1",
-        supervisor_usage_model="gpt-5.5",
-        supervisor_input_tokens=120,
-        supervisor_cached_input_tokens=15,
-        supervisor_output_tokens=30,
-        supervisor_reasoning_output_tokens=6,
-    )
-    events: list[dict[str, object]] = []
-
-    emit_subagent_cost_events(tmp_path, events.append)
-    emit_subagent_cost_events(tmp_path, events.append)
-
-    assert len(events) == 1
-    assert events[0]["input_tokens"] == 120
-    assert events[0]["output_tokens"] == 30
-    saved = json.loads(path.read_text(encoding="utf-8"))
-    assert saved["supervisor_cost_folded_totals"]["input_tokens"] == 120

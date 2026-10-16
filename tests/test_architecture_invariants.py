@@ -1123,7 +1123,6 @@ MODULE_LEVEL_UPWARD_ALLOWLIST: frozenset[str] = frozenset({
     "manager/observation.py -> daemon",
     "manager/supervision.py -> daemon",
     "provider_integrations/authorization_retry.py -> tools",
-    "tools/event_log_query.py -> life",
     "tools/experience.py -> life",
     "tools/manager_live_view.py -> life",
     "tools/manager_live_view.py -> manager",
