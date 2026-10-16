@@ -250,8 +250,9 @@ def test_bounded_ordinary_wait_does_not_reach_the_manager(contracted: bool) -> N
 
 
 @pytest.mark.parametrize("explicit", [False, True])
+@pytest.mark.parametrize("workflow_mode", ["staged", "direct"])
 def test_real_manager_receives_bounded_wait_without_advancing_without_review(
-    tmp_path, explicit: bool,
+    tmp_path, explicit: bool, workflow_mode: str,
 ) -> None:
     import json
 
@@ -262,7 +263,7 @@ def test_real_manager_receives_bounded_wait_without_advancing_without_review(
     state = tmp_path / "state"
     work = tmp_path / "work"
     work.mkdir()
-    persist_vertical(state, "math_synth", workflow_mode="staged")
+    persist_vertical(state, "math_synth", workflow_mode=workflow_mode)
     before = (state / ".argus/PIPELINE_STATE.json").read_bytes()
     prompts = []
 

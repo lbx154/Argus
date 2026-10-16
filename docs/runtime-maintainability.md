@@ -209,6 +209,12 @@ remain unchanged. This grants a stage-authority decision, not permission to
 expand operator scope, skip required stages, certify a project, or replay work.
 Operator-gated waits still require the operator; existing Manager reconciliation
 deduplication, retry cadence and stage validators remain authoritative.
+Bounded reconciliation cannot advance or complete without Reviewer evidence,
+including direct workflows. Native subagent reports remain host evidence, not
+new operator requests that could repeatedly defer bounded completion. Once a
+current completion certificate exists, report-only native receipts are settled
+before checking the next inbox item; a retained report must not conceal a queued
+operator instruction. Operator receipts still require actual Planner handling.
 
 bounded 与 continuous handoff 都在提交前请求让出任务边界。当前任务结束后，Supervisor
 会先让 Manager 提交，再继续领取后续任务；这里提供任务边界让出，不承诺严格 FIFO。

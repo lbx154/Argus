@@ -183,19 +183,27 @@ class PlanningCycleIntakeMixin:
             or self._bounded_completion_issue()
         ):
             return ""
-        from ...apps._inbox_delivery import unique_operator_messages
+        from ...apps._inbox_delivery import is_host_report, unique_operator_messages
         from ...core.operator_context import (
             OperatorContextStore,
             operator_context_state_root,
         )
 
         messages = self._drain_user_inbox()
+        host_reports: list[str] = []
+        while messages and all(is_host_report(message) for message in messages):
+            # The current certificate already covers these system reports.
+            # Settle their native receipts to expose operator work behind them.
+            host_reports.extend(messages)
+            self._settle_operator_inbox(messages)
+            messages = self._drain_user_inbox()
         self._operator_guidance_carryover = unique_operator_messages(
-            list(getattr(self, "_operator_guidance_carryover", None) or []) + messages
+            list(getattr(self, "_operator_guidance_carryover", None) or [])
+            + host_reports + messages
         )
         context = OperatorContextStore(operator_context_state_root(self.memory))
         if (
-            self._operator_guidance_carryover
+            any(not is_host_report(message) for message in self._operator_guidance_carryover)
             or context.revision > context.acknowledged_revision("planner")
         ):
             return ""
@@ -708,7 +716,12 @@ class PlanningCycleIntakeMixin:
         )
         if reason:
             return self._emit_bounded_project_completion(reason)
-        if getattr(self, "_operator_guidance_carryover", None):
+        from ...apps._inbox_delivery import is_host_report
+
+        if any(
+            not is_host_report(message)
+            for message in getattr(self, "_operator_guidance_carryover", None) or []
+        ):
             return PLAN_RETRY
         direct = self._enqueue_bounded_manager_direct(state)
         if direct is not None:

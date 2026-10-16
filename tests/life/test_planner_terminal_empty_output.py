@@ -31,6 +31,60 @@ from argus.manager import Manager
 from argus.planner import NO_CONCRETE_TASKS_ERROR, PlannerVerdict
 
 
+@pytest.mark.parametrize("report_count", [1, 12])
+def test_operator_behind_native_host_reports_reaches_planner_before_completion(
+    tmp_path: Path, monkeypatch, report_count: int,
+) -> None:
+    from argus.apps._inbox import queue_inbox_message
+    from argus.apps._inbox_delivery import DurableInboxReceiver
+    from argus.core.operator_context import IntakeDecision
+
+    supervisor, backend, sink = _make_supervisor(
+        tmp_path, monkeypatch, terminal_stage_done=True,
+    )
+    supervisor.config.open_ended = False
+    receiver = DurableInboxReceiver(
+        supervisor.memory.root, consumer="planner",
+        project_root=Path(supervisor.config.artifact_root),
+    )
+    callback = lambda: None
+    monkeypatch.setattr(callback, "operator_receiver", receiver, raising=False)
+    supervisor.config.user_inbox = callback
+    monkeypatch.setattr(
+        "argus.apps._inbox_delivery.classify_operator_message",
+        lambda *args, **kwargs: IntakeDecision(kind="ephemeral"),
+    )
+    prompts = []
+    run_exec = backend.run_exec
+
+    def record_prompt(**kwargs):
+        if kwargs["run_label"].startswith("planner.cycle"):
+            assert not any(
+                event.get("completion_kind") == "project_completed" for event in sink.events
+            )
+            prompts.append(kwargs["prompt"])
+        return run_exec(**kwargs)
+
+    monkeypatch.setattr(backend, "run_exec", record_prompt)
+    for index in range(report_count):
+        queue_inbox_message(
+            supervisor.memory.root, f"Retained verification {index} finished.",
+            source="subagent",
+        )
+    instruction = "Inspect the newly requested delivery constraint before closing."
+    queue_inbox_message(supervisor.memory.root, instruction, source="operator")
+    try:
+        assert supervisor._bounded_completion_reason() == ""
+        assert not any(
+            event.get("completion_kind") == "project_completed" for event in sink.events
+        )
+        supervisor._plan_next_work()
+        assert prompts
+        assert instruction in prompts[0]
+    finally:
+        receiver.release_pending()
+
+
 class _RecordingSink:
     def __init__(self) -> None:
         self.events: list[dict[str, Any]] = []
@@ -387,6 +441,50 @@ def test_bounded_completed_campaign_stops_before_planner_cycle(
         event.get("type") == EventType.LIFE_PLANNER_START
         for event in sink.events
     )
+
+
+@pytest.mark.parametrize("terminal_stage_done", [False, True])
+def test_native_host_report_does_not_block_bounded_planning_or_completion(
+    tmp_path: Path, monkeypatch, terminal_stage_done: bool,
+) -> None:
+    from argus.apps._inbox import queue_inbox_message
+    from argus.apps._inbox_delivery import DurableInboxReceiver, is_host_report
+    from argus.life.supervisor._planning_cycle_helpers import _PlanCycleState
+
+    supervisor, _backend, sink = _make_supervisor(
+        tmp_path, monkeypatch, terminal_stage_done=terminal_stage_done,
+    )
+    supervisor.config.open_ended = False
+    monkeypatch.setattr(
+        supervisor, "_manager_publish_project_report", lambda _reason: "reported",
+    )
+    receiver = DurableInboxReceiver(
+        supervisor.memory.root, consumer="planner",
+        project_root=Path(supervisor.config.artifact_root),
+    )
+    callback = lambda: None
+    monkeypatch.setattr(callback, "operator_receiver", receiver, raising=False)
+    supervisor.config.user_inbox = callback
+    state = _PlanCycleState(None)
+    assert supervisor._pc_intake_gate(state) is None
+    state.manager_intent = {"vertical": "software", "workflow_mode": "staged"}
+    queue_inbox_message(
+        supervisor.memory.root, "Retained verification job finished.", source="subagent",
+    )
+    try:
+        supervisor._operator_guidance_carryover = receiver.receive()
+        assert is_host_report(supervisor._operator_guidance_carryover[0])
+        result = supervisor._pc_preflight_shortcircuits(state)
+        if terminal_stage_done:
+            assert result is False
+            assert any(
+                event.get("completion_kind") == "project_completed"
+                for event in sink.events
+            )
+        else:
+            assert result is None
+    finally:
+        receiver.release_pending()
 
 
 def test_bounded_completion_waits_for_live_backlog(

@@ -562,7 +562,7 @@ class _StageDecisionMixin:
 
             if (
                 planner_wait_reconciliation
-                and resolve_workflow_mode(root) != "direct"
+                and (not open_ended or resolve_workflow_mode(root) != "direct")
                 and decision.action in {"advance", "complete"}
             ):
                 decision = StageDecision(
@@ -749,7 +749,7 @@ class _StageDecisionMixin:
 
         if (
             planner_wait_reconciliation
-            and resolve_workflow_mode(root) != "direct"
+            and (not open_ended or resolve_workflow_mode(root) != "direct")
             and decision.action in {"advance", "complete"}
         ):
             decision = StageDecision(
