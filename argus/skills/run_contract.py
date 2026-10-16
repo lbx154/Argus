@@ -85,7 +85,7 @@ MIN_PROBE_STEPS = 5
 # Relative tolerance for matching a floating hyperparameter (e.g. LR) between the
 # frozen contract and the launch command.
 LR_REL_TOL = 1e-3
-# Saturation guards on the probe stats (mirror rl_training_health advisory eps).
+# Saturation guards on the probe stats.
 _ADVANTAGE_SPAN_EPS = 1e-6   # probe advantage max-min at/below this == no signal
 _REWARD_CEILING = 0.99       # probe reward mean at/above this == already solved
 _WITHIN_GROUP_STD_EPS = 1e-6  # per-group reward std at/below this == no contrast

@@ -97,10 +97,6 @@ The term's precise meaning depends on the layer using it:
   states such as execution and review state. Its separate, nullable
   `argus_project_id` links it to an Argus Project. This is a FLYWHEEL domain entity,
   not a new level in the core runtime hierarchy.
-- **Vertical-specific workflow:** the [kernel engineering campaign loop](../argus/verticals/kernel_engineering/campaign.py)
-  tracks optimization attempts, benchmark outcomes, and whether to continue
-  optimization or validate and deliver. That specialized use of "campaign" does
-  not add a universal core container either.
 
 Use **Project** and **Mission** when referring to core identity, ownership, or
 lifecycle. Qualify **campaign** by its layer (for example, "core continuous
