@@ -716,13 +716,12 @@ class PlanningCycleMixin(
     def _reconcile_open_ended_planner_waiting(self, verdict: Any) -> str:
         """Let the Manager repair a stage/Planner mutual wait.
 
-        Every new non-operator wait gets one immediate liveness review. If the
+        Open-ended campaigns review every new non-operator wait; bounded
+        campaigns review only explicit stage-reconciliation requests. If the
         Manager confirms that the blocker remains external, unchanged waits are
         reviewed again only at the bounded cadence below. The Manager alone
         decides HOLD versus ROLLBACK.
         """
-        if not getattr(self.config, "open_ended", False):
-            return ""
         if not bool(getattr(verdict, "waiting", False)):
             return ""
         if bool(getattr(verdict, "project_done", False)):
@@ -731,6 +730,11 @@ class PlanningCycleMixin(
             return ""
 
         contract = getattr(verdict, "waiting_contract", None)
+        explicitly_requested = bool(
+            getattr(contract, "stage_reconciliation_required", False)
+        )
+        if not getattr(self.config, "open_ended", False) and not explicitly_requested:
+            return ""
         blocker_fingerprint, recheck_token = self._waiting_contract_key(contract)
         if not blocker_fingerprint or not recheck_token:
             # Uncontracted waits still require Manager review. Use stage plus a
@@ -759,9 +763,6 @@ class PlanningCycleMixin(
             self._planner_waits_since_reconciliation = 0
             return ""
 
-        explicitly_requested = bool(
-            getattr(contract, "stage_reconciliation_required", False)
-        )
         wake_on = set(getattr(contract, "wake_on", ()) or ())
         if (
             str(getattr(contract, "wait_mode", "") or "").strip().lower()
@@ -866,7 +867,7 @@ class PlanningCycleMixin(
             planner_verdict=verdict,
             project_root=root,
             on_event=on_event,
-            open_ended=True,
+            open_ended=bool(self.config.open_ended),
             continuous_objective=self.config.continuous_objective,
         )
         self._emit({

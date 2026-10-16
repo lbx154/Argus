@@ -193,6 +193,13 @@ Planner 在未解决的 Manager 反馈下返回等待，并不代表反馈已处
 输入的终态空闲，不修改科研任务终态。因所有新任务都重复已有工作而产生的
 filtered-task 反馈仍可由合法等待解除；普通等待和新证据唤醒不受此拒绝计数影响。
 
+Bounded campaigns also route a Planner wait to the Manager when its contract
+explicitly sets `stage_reconciliation_required=true`. Ordinary bounded waits
+remain unchanged. This grants a stage-authority decision, not permission to
+expand operator scope, skip required stages, certify a project, or replay work.
+Operator-gated waits still require the operator; existing Manager reconciliation
+deduplication, retry cadence and stage validators remain authoritative.
+
 bounded 与 continuous handoff 都在提交前请求让出任务边界。当前任务结束后，Supervisor
 会先让 Manager 提交，再继续领取后续任务；这里提供任务边界让出，不承诺严格 FIFO。
 

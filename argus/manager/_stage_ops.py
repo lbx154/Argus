@@ -929,7 +929,14 @@ class _StageDecisionMixin:
             and cur == order[-1]
         )
         planner_wait_reconciliation = bool(
-            open_ended
+            (
+                open_ended
+                or bool(getattr(
+                    getattr(planner_verdict, "waiting_contract", None),
+                    "stage_reconciliation_required",
+                    False,
+                ))
+            )
             and review is None
             and planner_verdict is not None
             and bool(getattr(planner_verdict, "waiting", False))
