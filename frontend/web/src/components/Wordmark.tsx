@@ -1,6 +1,6 @@
 import { applicationBrand } from '../applicationBrand';
 
-function ApplicationImage({ kind, size, className = '' }: { kind: 'mark' | 'logo'; size: number; className?: string }) {
+function ApplicationImage({ kind, size, className = '' }: { kind: 'mark' | 'logo'; size: number | string; className?: string }) {
   const brand = applicationBrand();
   return (
     <span className={`app-brand-image shrink-0 ${className}`} style={{ display: 'inline-flex', height: size }}>
@@ -10,7 +10,7 @@ function ApplicationImage({ kind, size, className = '' }: { kind: 'mark' | 'logo
   );
 }
 
-export function ArgusMark({ size, className = 'text-ink' }: { size: number; className?: string }) {
+export function ArgusMark({ size, className = 'text-ink' }: { size: number | string; className?: string }) {
   if (applicationBrand().assets.mark) return <ApplicationImage kind="mark" size={size} className={className} />;
   return (
     <svg data-logo="rounded-mark" viewBox="0 0 512 512" role="img" aria-label="Argus" style={{ width: size, height: size }} className={`argus-brand-mark shrink-0 ${className}`}>

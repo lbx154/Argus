@@ -2,6 +2,7 @@ import { BackendHandshake } from './BackendHandshake';
 import { Button } from './primitives';
 import { useI18n } from '../i18n';
 import { StartPrompts } from './StartPrompts';
+import { ArgusMark } from './Wordmark';
 
 /** Full-viewport picker/empty landing shown until a daemon is selectable. */
 export function Landing({
@@ -28,7 +29,10 @@ export function Landing({
     <div className="flex h-full w-full flex-col items-center justify-start gap-4 overflow-y-auto px-6 py-8 text-center lg:justify-center">
       {loading ? <BackendHandshake /> : (
         <>
-          <h1 className="text-2xl font-semibold text-ink">{locale === 'zh-CN' ? hasProjects ? '继续你的项目' : '你想完成什么？' : hasProjects ? 'Continue your work' : 'What would you like to accomplish?'}</h1>
+          <div className="flex flex-col items-center gap-3 [--landing-mark-size:56px] lg:gap-4 lg:[--landing-mark-size:72px]">
+            {!hasProjects && !error && <ArgusMark size="var(--landing-mark-size)" className="landing-mark text-ink" />}
+            <h1 className="text-2xl font-semibold text-ink">{locale === 'zh-CN' ? hasProjects ? '继续你的项目' : '你想完成什么？' : hasProjects ? 'Continue your work' : 'What would you like to accomplish?'}</h1>
+          </div>
           <p className={`max-w-md text-sm leading-relaxed ${error ? 'text-err' : 'text-ink-faint'}`}>
             {error
               ? error

@@ -21,6 +21,11 @@ it('offers an empty workspace a direct start, four draft examples and the phone 
   expect(html).toContain('does not start work automatically');
   expect(html).toContain('landing.menu');
   expect(html).toContain('class="lg:hidden"');
+  expect(html.match(/class="[^"]*landing-mark text-ink"/g)).toHaveLength(1);
+  expect(html).toContain('width:var(--landing-mark-size);height:var(--landing-mark-size)');
+  expect(html.indexOf('landing-mark text-ink')).toBeLessThan(html.indexOf('<h1'));
+  expect(html).toContain('[--landing-mark-size:56px]');
+  expect(html).toContain('lg:[--landing-mark-size:72px]');
 });
 
 it('does not offer plugin management while the host is disconnected', () => {
@@ -34,4 +39,20 @@ it('does not offer plugin management while the host is disconnected', () => {
     onChoose={() => undefined}
   />);
   expect(html).not.toContain('aria-label="Plugins"');
+  expect(html).not.toContain('landing-mark text-ink');
+});
+
+it.each([
+  { loading: true, hasProjects: false },
+  { loading: false, hasProjects: true },
+])('does not add a landing logo to the loading or existing-project state: %j', (state) => {
+  const html = renderToStaticMarkup(<Landing
+    {...state}
+    canCreate
+    onRetry={() => undefined}
+    onNew={() => undefined}
+    onChoose={() => undefined}
+  />);
+  expect(html).not.toContain('landing-mark text-ink');
+  if (state.loading) expect(html.match(/data-logo="rounded-mark"/g)).toHaveLength(1);
 });
