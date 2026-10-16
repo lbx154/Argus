@@ -18,6 +18,7 @@ export function ComposerAttachmentChip({
   useEffect(() => {
     if (
       !isImageAttachment(file)
+      || file.size > 4 * 1024 * 1024
       || typeof URL === 'undefined'
       || typeof URL.createObjectURL !== 'function'
     ) {

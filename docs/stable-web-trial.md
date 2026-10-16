@@ -54,6 +54,12 @@ subject to the existing disabled-by-default formation policy.
 
 ## Results and downloads
 
+The first-use examples prepare editable drafts; they do not submit work.
+Conversation, map and workbench keep their existing visual style and separate
+responsibilities. Opening Files shows the registered files first, not execution
+logs. Revise brings a specific result back into the conversation, appends to
+any unsent text and waits for the user to send.
+
 Completed direct replies and registered reports expose their explicitly linked,
 existing workspace files. Report-relative links work in both the side preview
 and delivery modal. Numeric model files, ZIP archives, and patches can be
@@ -63,6 +69,33 @@ symlinks outside the workspace remain excluded.
 
 Transcript and live reply identities are shared so a result appears once after
 replay. Legacy receipts can be matched by their durable delivery identity.
+
+## Browser continuity and project organization
+
+Text drafts are saved per project in this browser's local storage. They are
+not a server backup or encrypted storage: clear drafts on a shared device
+before handing it over. File bytes are never stored there or uploaded by
+selecting a file. After reload, the interface names unuploaded files that must
+be selected again or explicitly discarded before sending. Storage failures
+remain visible, and asynchronous replies cannot overwrite a newer draft.
+Conversation reading position and file selection are also project-specific.
+
+Pins, manual follow-up markers and archives organize only this browser's
+project list. Archive does not delete files, stop a worker or change server
+permissions. Archived projects can be restored. Follow-up is an explicit user
+marker, not a claim about unobserved background tasks.
+
+Knowledge & skills opens on Learning feed, followed by Across projects,
+Vertical and Project. Explicit links to a document still select its own scope.
+
+Use in conversation adds an explicitly selected, loaded knowledge/skill
+document to the attachment draft with its source scope. Sending copies that
+content to the current project; the original library's scope is unchanged.
+Private-source documents warn about this copy before sending. This action
+does not execute a skill or assert that a model has already read the material.
+Capability descriptions remain separate from reported environment readiness;
+deployment settings are expandable and retain the server's allowed actions,
+license consent and failure details.
 
 ## Deployment acceptance
 

@@ -62,7 +62,7 @@ export function mapStatusSentence(input: {
           ? zh ? "已暂停" : "paused"
           : total > 0
             ? zh ? "没有在进行的工作" : "nothing in progress"
-            : zh ? "就绪" : "ready"
+            : ""
       : current
         ? current
       : role

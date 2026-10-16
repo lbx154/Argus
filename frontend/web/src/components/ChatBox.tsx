@@ -154,9 +154,10 @@ export function ChatBox({
       {dragDepth > 0 ? <div className="mb-2 text-xs text-manager">{t('chat.attachDrop')}</div> : null}
       <div className="map-attachment-tray">{attachments.map((file, index) => <ComposerAttachmentChip key={`${file.name}:${file.lastModified}:${index}`}
         file={file} removeLabel={t('chat.attachRemove', { name: file.name })}
+        disabled={pending}
         onRemove={() => { onAttachmentsChange(attachments.filter((item) => item !== file)); setAttachmentNotice(''); }} />)}</div>
       <div className={`text-xs ${attachmentNotice ? 'text-err' : 'text-ink-faint'}`}>
-        {attachmentNotice || t('chat.attachHint', { count: MESSAGE_ATTACHMENT_MAX_COUNT, perFile: formatBytes(MESSAGE_ATTACHMENT_MAX_BYTES), total: formatBytes(MESSAGE_ATTACHMENT_TOTAL_MAX_BYTES) })}
+        {attachmentNotice || t('chat.attachHint', { count: MESSAGE_ATTACHMENT_MAX_COUNT, perFile: `${MESSAGE_ATTACHMENT_MAX_BYTES / 1024 ** 2} MiB`, total: `${MESSAGE_ATTACHMENT_TOTAL_MAX_BYTES / 1024 ** 2} MiB` })}
       </div>
     </div> : null}
     <ComposerSurface value={value} onChange={(text) => { onChange(text); onSlashSelectionChange(0); setMenuDismissed(false); }}

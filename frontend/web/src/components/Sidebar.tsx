@@ -23,8 +23,29 @@ import {
   faPlay,
 } from '@fortawesome/free-solid-svg-icons';
 import { useI18n } from '../i18n';
+import { Archive, Pin, Flag } from 'lucide-react';
+import { writeLocalStorage } from '../lib/storage';
 
 type Scope = 'local' | 'all';
+type ProjectPreference = { pinned: boolean; archived: boolean; followup: boolean };
+const ORGANIZATION_KEY = 'argus.project.organization.v1';
+const DEFAULT_PREFERENCE: ProjectPreference = { pinned: false, archived: false, followup: false };
+
+function readOrganization(): { values: Record<string, ProjectPreference>; error: boolean } {
+  try {
+    const raw = globalThis.localStorage?.getItem(ORGANIZATION_KEY);
+    if (!raw) return { values: {}, error: false };
+    const saved: unknown = JSON.parse(raw);
+    if (!saved || typeof saved !== 'object' || Array.isArray(saved)) throw new Error('Invalid project preferences');
+    const values: Record<string, ProjectPreference> = {};
+    for (const [id, value] of Object.entries(saved)) {
+      if (!value || typeof value !== 'object' || typeof value.pinned !== 'boolean'
+        || typeof value.archived !== 'boolean' || typeof value.followup !== 'boolean') throw new Error('Invalid project preference');
+      values[id] = { pinned: value.pinned, archived: value.archived, followup: value.followup };
+    }
+    return { values, error: false };
+  } catch { return { values: {}, error: true }; }
+}
 
 function projectGroupLabel(path: string): string {
   const parts = path.replace(/[\\/]+$/, '').split(/[\\/]/);
@@ -98,6 +119,21 @@ export function Sidebar({
   const initialScopeResolved = useRef(false);
   const [query, setQuery] = useState('');
   const [collapsedGroups, setCollapsedGroups] = useState<Set<string>>(() => new Set());
+  const [organization, setOrganization] = useState(readOrganization);
+  const [projectFilter, setProjectFilter] = useState<'active' | 'followup' | 'archived'>('active');
+  const [organizing, setOrganizing] = useState<string | null>(null);
+  const [organizationNotice, setOrganizationNotice] = useState('');
+  const zh = locale === 'zh-CN';
+  const preference = (id: string) => organization.values[id] ?? DEFAULT_PREFERENCE;
+  const organize = (id: string, field: keyof ProjectPreference) => {
+    const next = { ...organization.values, [id]: { ...preference(id), [field]: !preference(id)[field] } };
+    setOrganization({ values: next, error: !writeLocalStorage(ORGANIZATION_KEY, JSON.stringify(next)) });
+    setOrganizing(null);
+    setOrganizationNotice(field === 'archived'
+      ? zh ? '只整理此浏览器的列表，不删除文件、不停止工作。可在“已归档”中找回。' : 'Only this browser’s list changes. No files are deleted and no work is stopped. Restore from Archived.'
+      : zh ? '标记已更新，只保存在此浏览器。' : 'The marker was updated in this browser only.');
+  };
+  useEffect(() => { setOrganizing(null); }, [activeId]);
   const slim = collapsed && !mobileOpen;
   const normalizedLocalCwd = localCwd.trim();
   const localProjects = useMemo(
@@ -113,17 +149,22 @@ export function Sidebar({
   }, [activeId, loading, normalizedLocalCwd, projects]);
   const scoped = scope === 'local' ? localProjects : projects;
   const rawVisible = query.trim() ? filterProjects(scoped, query) : scoped;
-  const visible = rawVisible;
+  const visible = rawVisible.filter(project => projectFilter === 'archived'
+    ? preference(project.id).archived
+    : !preference(project.id).archived && (projectFilter !== 'followup' || preference(project.id).followup));
   const grouped = useMemo(() => {
-    if (scope === 'local') return visible.length > 0 ? [[normalizedLocalCwd || 'Local', visible] as const] : [];
+    const pinned = visible.filter(project => preference(project.id).pinned);
+    const rest = visible.filter(project => !preference(project.id).pinned);
+    const first: Array<readonly [string, ProjectRow[]]> = pinned.length ? [['__pinned__', pinned]] : [];
+    if (scope === 'local') return [...first, ...(rest.length ? [[normalizedLocalCwd || 'Local', rest] as const] : [])];
     const groups = new Map<string, ProjectRow[]>();
-    visible.forEach((project) => {
+    rest.forEach((project) => {
       const path = project.launch_cwd?.trim() || t('common.unassigned');
       const rows = groups.get(path) ?? [];
       rows.push(project);
       groups.set(path, rows);
     });
-    return [...groups.entries()];
+    return [...first, ...groups.entries()];
   }, [normalizedLocalCwd, scope, visible]);
   const groupIsCollapsed = (path: string) => collapsedGroups.has(path) && !query.trim();
 
@@ -193,6 +234,18 @@ export function Sidebar({
               ) : null}
             </div>
           </div>
+          <div className="flex gap-1 px-3 pb-2" role="group" aria-label={zh ? '整理项目' : 'Organize projects'}>
+            {(['active', 'followup', 'archived'] as const).map(filter => <button type="button" key={filter}
+              aria-pressed={projectFilter === filter} onClick={() => { setProjectFilter(filter); setOrganizing(null); }}
+              className={`rounded-md px-2 py-1 text-xs ${projectFilter === filter ? 'bg-blue/10 text-blue' : 'text-ink-faint hover:bg-bg'}`}>
+              {filter === 'active' ? zh ? '最近' : 'Recent' : filter === 'followup' ? zh ? '待跟进' : 'Follow up' : zh ? '已归档' : 'Archived'}
+            </button>)}
+          </div>
+          {organization.error && <p role="alert" className="px-4 pb-2 text-xs text-warn">{zh ? '浏览器无法读取或保存项目标记；服务器项目不受影响。' : 'This browser cannot read or save project markers. Server projects are unaffected.'}</p>}
+          {organizationNotice && <p role="status" className="px-4 pb-2 text-[11px] leading-5 text-ink-faint">{organizationNotice}</p>}
+          {projectFilter !== 'active' && <p className="px-4 pb-2 text-[11px] text-ink-faint">{projectFilter === 'followup'
+            ? zh ? '你手动标记的项目，不代表后台任务状态。' : 'Projects you marked manually, not background task status.'
+            : zh ? '归档只收起列表，项目内容和运行不受影响。' : 'Archiving only hides list entries. Project data and running work are unchanged.'}</p>}
 
           <div className="mobile-scroll-region min-h-0 flex-1 overflow-x-hidden overflow-y-auto px-3 pb-3 scroll-thin">
             {loading && projects.length === 0 ? <div className="px-1 py-3 text-xs text-ink-faint">{t('common.loading')}</div> : null}
@@ -203,7 +256,9 @@ export function Sidebar({
             ) : null}
             {!loading && !error && visible.length === 0 ? (
               <div className="px-1 py-4 text-xs text-ink-faint">
-                <div>{query.trim() ? t('sidebar.noMatches', { query: query.trim() }) : t('sidebar.noSessions')}</div>
+                <div>{query.trim() ? t('sidebar.noMatches', { query: query.trim() }) : projectFilter === 'followup'
+                  ? zh ? '还没有标记待跟进的项目。' : 'No projects marked for follow-up.'
+                  : projectFilter === 'archived' ? zh ? '还没有归档的项目。' : 'No archived projects.' : t('sidebar.noSessions')}</div>
                 {query.trim() ? (
                   <button
                     type="button"
@@ -217,10 +272,10 @@ export function Sidebar({
             ) : null}
             {grouped.map(([path, rows]) => (
               <section key={path} className="mb-1 last:mb-0">
-                {rows.length > 1 && grouped.length > 1 ? <button
+                {path === '__pinned__' || rows.length > 1 && grouped.length > 1 ? <button
                   type="button"
                   aria-expanded={!groupIsCollapsed(path)}
-                  title={path}
+                  title={path === '__pinned__' ? (zh ? '置顶项目' : 'Pinned projects') : path}
                   onClick={() => setCollapsedGroups((current) => {
                     const next = new Set(current);
                     if (next.has(path)) next.delete(path);
@@ -231,9 +286,9 @@ export function Sidebar({
                 >
                   <FontAwesomeIcon icon={faChevronDown} className={`h-2.5 w-2.5 transition-transform ${groupIsCollapsed(path) ? '-rotate-90' : ''}`} />
                   <FontAwesomeIcon icon={faFolder} className="h-3 w-3" />
-                  <span className="min-w-0 flex-1 truncate">{projectGroupLabel(path)}</span>
+                  <span className="min-w-0 flex-1 truncate">{path === '__pinned__' ? (zh ? '置顶项目' : 'Pinned projects') : projectGroupLabel(path)}</span>
                 </button> : null}
-                {rows.length === 1 || grouped.length === 1 || !groupIsCollapsed(path) ? rows.map((project) => {
+                {(path === '__pinned__' ? !groupIsCollapsed(path) : rows.length === 1 || grouped.length === 1 || !groupIsCollapsed(path)) ? rows.map((project) => {
                   const active = project.id === activeId;
                   const work = active && activeWork?.sessionId === project.id ? activeWork : undefined;
                   const workLabel = work ? workStatusLabel(work.status, locale, work.connected) : undefined;
@@ -255,7 +310,7 @@ export function Sidebar({
                       onPointerEnter={() => {
                         if (!active) onPrefetch?.(project.id);
                       }}
-                      className={`session-card group relative mb-0.5 h-14 w-full rounded-md transition-colors duration-150 ease-panel ${
+                      className={`session-card group relative mb-0.5 ${organizing === project.id ? '' : 'h-14'} w-full rounded-md transition-colors duration-150 ease-panel ${
                         active ? 'text-ink' : 'text-ink-dim hover:text-ink'
                       }`}
                     >
@@ -276,6 +331,7 @@ export function Sidebar({
                             title={updateRequired ? t('sidebar.updateRequired') : project.daemon_alive ? t('sidebar.daemonAlive') : t('sidebar.stopped')}
                           />
                           <span className="min-w-0 flex-1 truncate text-sm font-medium">{name}</span>
+                          {preference(project.id).followup && <Flag size={12} className="shrink-0 text-warn" aria-label={zh ? '待跟进' : 'Follow up'} />}
                         </div>
                         <div className="mt-1 flex min-w-0 items-center gap-1.5 pl-3.5 text-[11px] text-ink-faint">
                           <span className={`min-w-0 truncate ${updateRequired ? 'text-warn' : ''}`} title={workLabel}
@@ -317,14 +373,21 @@ export function Sidebar({
                         type="button"
                         onClick={(event) => {
                           event.stopPropagation();
-                          onManage(project.id);
+                          setOrganizing(current => current === project.id ? null : project.id);
                         }}
                         aria-label={t('sidebar.manage', { name })}
                         title={t('sidebar.manageHint')}
+                        aria-expanded={organizing === project.id}
                         className="absolute right-1 top-3 flex h-8 w-8 items-center justify-center rounded-md text-ink-faint opacity-100 transition-opacity hover:bg-panel-raised hover:text-ink sm:opacity-0 sm:group-hover:opacity-100 sm:group-focus-within:opacity-100"
                       >
                         <FontAwesomeIcon icon={faEllipsis} className="h-4 w-4" />
                       </button>
+                      {organizing === project.id && <div className="mx-2 mb-2 flex flex-col gap-1 rounded-lg border border-line bg-panel p-1 text-xs">
+                        <button type="button" className="flex items-center gap-2 rounded px-2 py-2 text-left hover:bg-bg" onClick={() => organize(project.id, 'pinned')}><Pin size={13} />{preference(project.id).pinned ? zh ? '取消置顶' : 'Unpin' : zh ? '置顶项目' : 'Pin project'}</button>
+                        <button type="button" className="flex items-center gap-2 rounded px-2 py-2 text-left hover:bg-bg" onClick={() => organize(project.id, 'followup')}><Flag size={13} />{preference(project.id).followup ? zh ? '取消待跟进' : 'Clear follow-up' : zh ? '标记待跟进' : 'Mark for follow-up'}</button>
+                        <button type="button" className="flex items-center gap-2 rounded px-2 py-2 text-left hover:bg-bg" onClick={() => organize(project.id, 'archived')}><Archive size={13} />{preference(project.id).archived ? zh ? '移出归档' : 'Restore to recent' : zh ? '归档项目' : 'Archive project'}</button>
+                        <button type="button" className="rounded border-t border-line px-2 py-2 text-left hover:bg-bg" onClick={() => { setOrganizing(null); onManage(project.id); }}>{zh ? '名称与项目管理' : 'Name and project settings'}</button>
+                      </div>}
                     </div>
                   );
                 }) : null}

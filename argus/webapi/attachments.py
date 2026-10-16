@@ -25,8 +25,8 @@ from .artifacts import project_workspace
 ATTACHMENT_SCHEMA_VERSION = 1
 ATTACHMENT_ROOT = Path(".argus") / "attachments"
 MESSAGE_ATTACHMENT_MAX_COUNT = 5
-MESSAGE_ATTACHMENT_MAX_BYTES = 10 * 1024 * 1024
-MESSAGE_ATTACHMENT_TOTAL_MAX_BYTES = 25 * 1024 * 1024
+MESSAGE_ATTACHMENT_MAX_BYTES = 100 * 1024 * 1024
+MESSAGE_ATTACHMENT_TOTAL_MAX_BYTES = 500 * 1024 * 1024
 
 _ATTACHMENT_IO_CHUNK_BYTES = 64 * 1024
 _ATTACHMENT_METADATA_MAX_BYTES = 256 * 1024
@@ -646,18 +646,16 @@ def _windows_load_attachment_metadata(
             if not isinstance(payload, dict):
                 raise ValueError(f"attachment metadata is malformed for {attachment_id}")
             stored_name = _validate_metadata_payload(payload, sid, attachment_id)
-            content = _windows_read_regular_file(
-                attachment_root / stored_name,
-                display_path=_attachment_payload_relative_path(sid, attachment_id, stored_name),
-                max_bytes=MESSAGE_ATTACHMENT_MAX_BYTES,
-            )
+            with _windows_guard_path(attachment_root / stored_name, directory=False):
+                with (attachment_root / stored_name).open("rb") as handle:
+                    actual_size = os.fstat(handle.fileno()).st_size
     except FileNotFoundError as exc:
         raise ValueError(f"unknown attachment_id for this session: {attachment_id}") from exc
     try:
         expected_size = int(payload.get("size_bytes") or 0)
     except (TypeError, ValueError) as exc:
         raise ValueError(f"attachment metadata is malformed for {attachment_id}") from exc
-    if len(content) != expected_size:
+    if actual_size != expected_size or actual_size > MESSAGE_ATTACHMENT_MAX_BYTES:
         raise ValueError(f"attachment payload size mismatch for {attachment_id}")
     payload.pop("sha256", None)
     payload.pop("integrity", None)
@@ -978,15 +976,10 @@ def _read_regular_file_bytes(
 
 def _measure_regular_file(parent_fd: int, name: str, *, display_path: str) -> int:
     descriptor = _open_regular_file(parent_fd, name, display_path=display_path)
-    total = 0
     try:
-        while True:
-            chunk = os.read(descriptor, _ATTACHMENT_IO_CHUNK_BYTES)
-            if not chunk:
-                break
-            total += len(chunk)
-            if total > MESSAGE_ATTACHMENT_MAX_BYTES:
-                raise ValueError(f"attachment payload size mismatch for {Path(display_path).parent.name}")
+        total = os.fstat(descriptor).st_size
+        if total > MESSAGE_ATTACHMENT_MAX_BYTES:
+            raise ValueError(f"attachment payload size mismatch for {Path(display_path).parent.name}")
         return total
     finally:
         os.close(descriptor)

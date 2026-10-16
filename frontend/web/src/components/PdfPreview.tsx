@@ -7,6 +7,7 @@ import type {
 import { useI18n } from '../i18n';
 import { loadPdfEngine, resetPdfEngine } from '../lib/pdfEngine';
 import { Spinner } from './primitives';
+import { authHeaders } from '../api';
 
 export function pdfContainScale(
   pageWidth: number,
@@ -68,7 +69,6 @@ export function PdfPreview({
 
   useEffect(() => {
     let alive = true;
-    const controller = new AbortController();
     let task: PDFDocumentLoadingTask | null = null;
     setPdf(null);
     setPageNumber(1);
@@ -78,15 +78,15 @@ export function PdfPreview({
     setError('');
     setLoading(true);
 
-    void Promise.all([
-      fetch(src, { signal: controller.signal }).then((response) => {
-        if (!response.ok) throw new Error(`PDF request failed (${response.status})`);
-        return response.arrayBuffer();
-      }),
-      loadPdfEngine(),
-    ]).then(async ([bytes, pdfjs]) => {
+    void loadPdfEngine().then(async (pdfjs) => {
       if (!alive) return;
-      task = pdfjs.getDocument({ data: new Uint8Array(bytes) });
+      task = pdfjs.getDocument({
+        url: src,
+        httpHeaders: src.startsWith('/api/') ? authHeaders() : undefined,
+        rangeChunkSize: 256 * 1024,
+        disableAutoFetch: true,
+        disableStream: true,
+      });
       const loaded = await task.promise;
       if (!alive) return;
       setPdf(loaded);
@@ -99,7 +99,6 @@ export function PdfPreview({
 
     return () => {
       alive = false;
-      controller.abort();
       void task?.destroy().catch(() => {});
     };
   }, [src, loadAttempt]);

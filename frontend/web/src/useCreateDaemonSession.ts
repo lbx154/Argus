@@ -15,6 +15,7 @@ interface UseCreateDaemonSessionOptions {
   refetchProjects: () => Promise<unknown>;
   selectProject: (id: string) => void;
   translate?: (key: string) => string;
+  onCreated?: (sid: string, draft: string) => void;
 }
 
 export function useCreateDaemonSession({
@@ -25,6 +26,7 @@ export function useCreateDaemonSession({
   refetchProjects,
   selectProject,
   translate,
+  onCreated,
 }: UseCreateDaemonSessionOptions) {
   const [creatingDaemon, setCreatingDaemon] = useState(false);
   const creatingDaemonRef = useRef(false);
@@ -33,6 +35,7 @@ export function useCreateDaemonSession({
     name: string,
     objective: string,
     workdir: string,
+    draft = '',
   ): Promise<boolean> => {
     if (creatingDaemonRef.current) return false;
     creatingDaemonRef.current = true;
@@ -66,6 +69,7 @@ export function useCreateDaemonSession({
           ...(current?.projects ?? []).filter((project) => project.id !== result.sid),
         ],
       }));
+      onCreated?.(result.sid, draft);
       selectProject(result.sid);
       void refetchProjects();
       window.setTimeout(onFocusComposer, 0);

@@ -122,7 +122,10 @@ def _frontdoor_says_nothing_to_learn(frontdoor: dict[str, Any] | None) -> bool:
 
 
 def _answer_learning_evidence(steps: list[dict[str, Any]], workdir: str | None) -> str:
-    trace = "\n".join(str(step) for step in steps)[-6000:]
+    trace = "\n".join(str({
+        key: value for key, value in step.items()
+        if key not in {"call_id", "started_ts", "ended_ts"}
+    }) for step in steps)[-6000:]
     if not workdir:
         return trace
     from ..tools.web_source import source_read_receipts

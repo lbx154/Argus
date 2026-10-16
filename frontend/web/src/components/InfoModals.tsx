@@ -21,6 +21,8 @@ import { roleLabel } from '../lib/enumLabels';
 import { agentRoleDescription, isAgentRole } from '../lib/agentRoles';
 import { useI18n } from '../i18n';
 import { requestFailureText } from '../lib/requestFailure';
+import { AppearanceControls } from './AppearanceControls';
+import type { ThemeMode } from './TopBar';
 import {
   BACKEND_OPTIONS,
   backendLabel,
@@ -145,12 +147,16 @@ export function ConfigModal({
   sid,
   open,
   onClose,
+  themeMode,
+  onCycleTheme,
 }: {
   sid: string;
   open: boolean;
   onClose: () => void;
+  themeMode?: ThemeMode;
+  onCycleTheme?: () => void;
 }) {
-  const { t } = useI18n();
+  const { t, locale } = useI18n();
   const queryClient = useQueryClient();
   const { data, isLoading, isError, isFetching, refetch } = useConfig(sid, open);
   const [advancedOpen, setAdvancedOpen] = useState(false);
@@ -263,6 +269,11 @@ export function ConfigModal({
     <Modal open={open} onClose={onClose} label={t('common.settings')} width="max-w-4xl">
       <ModalHeader title={t('common.settings')} sub={t('settings.subtitle')} />
       <div className="p-4">
+        {themeMode && onCycleTheme && <section className="mb-4 flex items-center gap-3 rounded-lg border border-line p-3">
+          <div className="min-w-0 flex-1"><h3 className="text-sm font-medium">{locale === 'zh-CN' ? '此浏览器的偏好' : 'Preferences for this browser'}</h3>
+            <p className="mt-1 text-xs text-ink-faint">{locale === 'zh-CN' ? '语言与明暗外观，不改变项目和任务设置。' : 'Language and light/dark appearance. Project and task settings are unchanged.'}</p></div>
+          <AppearanceControls themeMode={themeMode} onCycleTheme={onCycleTheme} />
+        </section>}
         {isLoading && <div className="flex justify-center py-8"><Spinner /></div>}
         {!isLoading && isError && <LoadFailure message={t('settings.loadError')} retrying={isFetching} onRetry={() => void refetch()} t={t} />}
         {!isLoading && !isError && !hasData && <EmptyHint>{t('settings.empty')}</EmptyHint>}
@@ -270,6 +281,9 @@ export function ConfigModal({
           <div className="space-y-4">
             {!data.trial_mode && <section className="rounded-lg border border-line glass-card p-3">
               <div className="mb-2 text-[10px] font-semibold uppercase tracking-wide text-ink-faint">{t('settings.quickConfig')}</div>
+              <details className="mb-3 rounded border border-line/60 p-2">
+                <summary className="cursor-pointer text-xs text-ink-faint">{locale === 'zh-CN' ? '服务连接设置 · 由维护者配置' : 'Service connection · Maintainer settings'}</summary>
+                <p className="my-2 text-[11px] text-ink-faint">{locale === 'zh-CN' ? '普通使用无需修改。更换连接前，请确认服务已配置好相应账号与环境。' : 'Not required for ordinary use. Confirm the account and environment before changing this connection.'}</p>
               <label className="flex flex-wrap items-center gap-2">
                 <span className="w-12 shrink-0 text-[10px] text-ink-faint">{t('settings.backend')}</span>
                 <select
@@ -314,6 +328,7 @@ export function ConfigModal({
                   </span>
                 )}
               </label>
+              </details>
               <div className="mt-2 flex items-center gap-2">
                 <span className="w-12 shrink-0 text-[10px] text-ink-faint">{t('settings.model')}</span>
                 <select

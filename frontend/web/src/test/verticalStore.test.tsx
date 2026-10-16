@@ -105,9 +105,21 @@ describe('vertical cards', () => {
 
   it('warns about Python packages missing from the environment Argus runs from', () => {
     const html = card(kernel);
+    expect(html).toContain('verticals.environmentRequired');
     expect(html).toContain('data-testid="vertical-missing-python"');
     expect(html).toContain('verticals.missingPython pandas, torch');
     expect(card(materials)).not.toContain('vertical-missing-python');
+    expect(card(materials)).not.toContain('vertical-environment-required');
+  });
+
+  it('separates an installable package from runtime readiness without changing allowed actions', () => {
+    const html = card(row({ name: 'quant', missing_python: ['pandas'], actions: ['install'] }));
+    expect(html).toContain('verticals.kind.available');
+    expect(html).toContain('verticals.environmentRequired');
+    expect(actionsOf(html)).toEqual(['install']);
+    const incompatible = card(row({ name: 'old', kind: 'installed', runtime_issues: ['incompatible runtime'], actions: ['uninstall'] }));
+    expect(incompatible).toContain('verticals.environmentRequired');
+    expect(actionsOf(incompatible)).toEqual(['uninstall']);
   });
 
   it('distinguishes an incompatible update from the installed runtime and keeps allowed actions', () => {

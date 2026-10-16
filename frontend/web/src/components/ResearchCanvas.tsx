@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import type { ArtifactInfo, EventMsg, Snapshot } from '../api';
 import type { DeliveryReceipt, MissionView } from '../../../core/src/types';
 import { api } from '../api';
@@ -21,8 +21,11 @@ import { plainProgress, plainRouteStatus, plainStage, plainStatus } from '../lib
 import { WorkStatusBar } from './WorkStatusBar';
 import { currentWorkStatus, eventTaskId } from '../lib/workStatus';
 import { readableRecord } from '../map/submap';
+import { FileText } from 'lucide-react';
+import { readLocalStorage, writeLocalStorage } from '../lib/storage';
 
 export const LIVE_PROGRESS_PATH = '__argus_live_progress__';
+export const FILES_PATH = '__argus_files__';
 
 const ACTIVE_MISSION_STATUSES = new Set([
   'framed', 'grounding', 'queued', 'running', 'in_progress', 'working',
@@ -272,6 +275,10 @@ export function ResearchCanvas({
   routeVisible = true,
   snapshot,
   connected = true,
+  filesFirst = false,
+  onRevise,
+  onRetry,
+  loading = false,
 }: {
   sid: string | null;
   artifacts?: ArtifactInfo[];
@@ -289,6 +296,10 @@ export function ResearchCanvas({
   routeVisible?: boolean;
   snapshot?: Snapshot;
   connected?: boolean;
+  filesFirst?: boolean;
+  onRevise?: (path: string) => void;
+  onRetry?: () => void;
+  loading?: boolean;
 }) {
   const { t, locale } = useI18n();
   const previewArtifacts = useMemo(
@@ -303,31 +314,44 @@ export function ResearchCanvas({
     return previewArtifacts.find((item) => item.path === receiptPath && item.exists)
       ?? selectCompletionArtifact(artifacts);
   }, [artifacts, completed, missionView?.delivery?.primary_target?.path, previewArtifacts]);
-  const [manualPath, setManualPath] = useState<string | null>(null);
+  const [manualPath, setManualPath] = useState<string | null>(() => filesFirst && sid ? readLocalStorage(`argus.preview.file.v1:${sid}`) : null);
+  const [saveFailed, setSaveFailed] = useState(false);
+  const handledRequest = useRef<{ sid: string | null; path: string; token: number | undefined } | null>(null);
 
   useEffect(() => {
     // New/running work always returns to the truthful event-sourced progress
     // view. Once that same mission becomes terminal, select its best real file.
-    setManualPath(completed && completionArtifact ? completionArtifact.path : null);
-  }, [completed, completionArtifact?.path, missionView?.mission.id, sid]);
+    if (!filesFirst) setManualPath(completed && completionArtifact ? completionArtifact.path : null);
+  }, [completed, completionArtifact?.path, missionView?.mission.id, sid, filesFirst]);
+  useEffect(() => {
+    if (filesFirst) setManualPath(sid ? readLocalStorage(`argus.preview.file.v1:${sid}`) : null);
+  }, [sid, filesFirst]);
   useEffect(() => {
     if (!requestedPath) return;
+    const previous = handledRequest.current;
+    if (previous?.sid === sid && previous.path === requestedPath && previous.token === requestedPathToken) return;
     const target = previewArtifacts.find(
       (item) => item.path === requestedPath && item.exists,
     );
-    if (target) setManualPath(target.path);
-  }, [previewArtifacts, requestedPath, requestedPathToken]);
+    const path = filesFirst && requestedPath === FILES_PATH ? FILES_PATH : target?.path;
+    if (!path) return;
+    handledRequest.current = { sid, path, token: requestedPathToken };
+    setManualPath(path);
+    if (filesFirst && sid) setSaveFailed(!writeLocalStorage(`argus.preview.file.v1:${sid}`, path));
+  }, [previewArtifacts, requestedPath, requestedPathToken, filesFirst, sid]);
 
   const selectPreviewPath = (path: string) => {
     setManualPath(path);
+    if (filesFirst && sid) setSaveFailed(!writeLocalStorage(`argus.preview.file.v1:${sid}`, path));
     if (path !== LIVE_PROGRESS_PATH) onOpenFile?.();
   };
-  const effectivePath = manualPath ?? defaultPreviewPath(missionView, artifacts);
+  const effectivePath = manualPath ?? (filesFirst ? FILES_PATH : defaultPreviewPath(missionView, artifacts));
   const showLiveProgress = effectivePath === LIVE_PROGRESS_PATH;
-  const selected = showLiveProgress
+  const showFiles = effectivePath === FILES_PATH;
+  const selected = showLiveProgress || showFiles
     ? null
     : previewArtifacts.find((item) => item.path === effectivePath)
-      ?? (completed ? completionArtifact : preferred);
+      ?? (filesFirst ? null : completed ? completionArtifact : preferred);
   const artifactQ = useArtifact(
     sid,
     selected?.exists ? selected.path : null,
@@ -348,6 +372,10 @@ export function ResearchCanvas({
     setPreviewUrl(null);
     setPreviewError('');
     if (!sid || !selected || !info || !['image', 'pdf', 'audio', 'video'].includes(info.kind)) return;
+    if (info.kind === 'pdf') {
+      setPreviewUrl(api.artifactRawUrl(sid, selected.path));
+      return;
+    }
     let alive = true;
     let objectUrl = '';
     const controller = new AbortController();
@@ -377,7 +405,7 @@ export function ResearchCanvas({
   const deliveryLabel = locale === 'zh-CN'
     ? (delivery?.kind === 'submission_certified' ? '交付已认证' : '已完成')
     : (delivery?.kind === 'submission_certified' ? 'Certified delivery' : 'Delivered result');
-  const title = showingDelivery
+  const title = filesFirst ? (locale === 'zh-CN' ? '文件与成果' : 'Files and results') : showingDelivery
     ? deliveryLabel
     : showLiveProgress
       ? t('research.liveProgress')
@@ -403,16 +431,17 @@ export function ResearchCanvas({
           <span className={`h-2 w-2 rounded-full ${showingDelivery ? 'bg-ok' : liveStatus ? 'animate-pulse bg-blue' : 'bg-ink-faint/60'}`} />
           <h2 className="max-w-24 truncate text-sm font-semibold text-ink sm:max-w-48">{title}</h2>
         </div>
-        {missionView || previewArtifacts.length > 0 ? (
+        {filesFirst || missionView || previewArtifacts.length > 0 ? (
           <label className="min-w-0 flex-1">
             <span className="sr-only">{t('research.previewArtifact')}</span>
             <select
-              value={showLiveProgress ? LIVE_PROGRESS_PATH : selected?.path ?? ''}
+              value={showFiles ? FILES_PATH : showLiveProgress ? LIVE_PROGRESS_PATH : selected?.path ?? FILES_PATH}
               onChange={(event) => selectPreviewPath(event.target.value)}
               title={showLiveProgress ? t('research.liveProgress') : selected?.storage_path || selected?.path}
               className="h-8 w-full min-w-0 max-w-64 truncate rounded-md border border-line/50 bg-bg px-2 font-mono text-xs text-ink-dim outline-none focus:border-blue/60"
             >
-              {missionView ? <option value={LIVE_PROGRESS_PATH}>{t('research.liveProgress')}</option> : null}
+              {filesFirst && <option value={FILES_PATH}>{locale === 'zh-CN' ? '所有文件' : 'All files'}</option>}
+              {!filesFirst && missionView ? <option value={LIVE_PROGRESS_PATH}>{t('research.liveProgress')}</option> : null}
               {previewArtifacts.map((item) => (
                 <option key={item.path} value={item.path} disabled={!item.exists} title={item.storage_path || item.path}>
                   {item.source === 'delivery' ? `${t('research.optionDelivery')} · ` : ''}{artifactLabel(item)}{item.exists ? '' : ` · ${t('research.optionPending')}`}
@@ -424,6 +453,8 @@ export function ResearchCanvas({
         <div className="shrink-0">
           {selected ? (
             <div className="flex shrink-0 items-center gap-1">
+              {onRevise && <button type="button" disabled={!selected.exists} onClick={() => onRevise(selected.path)}
+                className="rounded-md px-2 py-1 text-xs text-blue hover:bg-bg">{locale === 'zh-CN' ? '继续修改' : 'Revise'}</button>}
               <button
                 type="button"
                 onClick={() => void download()}
@@ -457,7 +488,7 @@ export function ResearchCanvas({
         ) : null}
       </header>
 
-      {snapshot ? <WorkStatusBar snapshot={snapshot} view={missionView} events={activityEvents} connected={connected} compact /> : liveStatus ? (
+      {!filesFirst && snapshot ? <WorkStatusBar snapshot={snapshot} view={missionView} events={activityEvents} connected={connected} compact /> : !filesFirst && liveStatus ? (
         <div className="shrink-0 border-b border-line/50 bg-blue-deep/10 px-4 py-3">
           <div className="flex items-center gap-2 text-xs">
             <span data-role-dot={liveStatus.role} className="h-2 w-2 shrink-0 animate-pulse rounded-full motion-reduce:animate-none" style={{ background: theme.role[liveStatus.role] ?? theme.inkFaint }} aria-hidden="true" />
@@ -472,24 +503,34 @@ export function ResearchCanvas({
       ) : null}
 
       <div className="relative flex min-h-0 flex-1 flex-col bg-bg">
+        {saveFailed && <p role="status" className="p-3 text-xs text-warn">{locale === 'zh-CN' ? '浏览器未能保存阅读位置；刷新后请重新选择文件。' : 'This browser could not save your reading selection. Choose the file again after reloading.'}</p>}
+        {showFiles && <div className="file-browser">
+          <p className="text-xs leading-5 text-ink-faint">{locale === 'zh-CN' ? '打开文件即可阅读或下载；继续修改会把文件带回对话，不会自动执行。' : 'Open a file to read or download it. Revise brings it into the conversation without starting work.'}</p>
+          {loading && <p role="status" className="text-sm text-ink-faint">{t('common.loading')}</p>}
+          {previewArtifacts.map(file => <button type="button" key={file.path} onClick={() => selectPreviewPath(file.path)}>
+            <FileText size={20} className="shrink-0 text-blue" aria-hidden="true" />
+            <span className="min-w-0"><strong>{artifactLabel(file)}</strong><small>{file.kind} · {formatBytes(file.size)}{file.source === 'delivery' ? (locale === 'zh-CN' ? ' · 交付文件' : ' · Delivered file') : ''}</small></span>
+          </button>)}
+        </div>}
         {showLiveProgress && missionView ? (
           <LiveProgressPreview view={missionView} artifacts={artifacts} onOpenArtifact={selectPreviewPath} routeVisible={routeVisible} snapshot={snapshot} connected={connected} />
         ) : null}
         {!showLiveProgress && error ? (
           <div className="m-auto max-w-sm px-6 text-center text-sm text-warn">
             {t('research.unavailable')}
+            {onRetry && <button type="button" onClick={onRetry} className="ml-2 text-blue underline">{t('common.retry')}</button>}
           </div>
         ) : null}
-        {!showLiveProgress && !error && previewArtifacts.length === 0 ? (
+        {!showLiveProgress && !loading && !error && previewArtifacts.length === 0 ? (
           <div className="m-auto max-w-sm px-8 text-center">
             <div className="text-3xl text-ink-faint">◇</div>
             <h3 className="mt-3 text-xs text-ink-faint">{t('research.noPreview')}</h3>
           </div>
         ) : null}
-        {!showLiveProgress && !error && previewArtifacts.length > 0 && !selected ? (
+        {!showLiveProgress && !showFiles && !error && previewArtifacts.length > 0 && !selected ? (
           <div className="m-auto max-w-sm px-8 text-center">
-            <Spinner />
-            <p className="mt-3 text-xs text-ink-faint">{t('research.waiting')}</p>
+            {filesFirst ? <><p className="text-sm text-ink-dim">{locale === 'zh-CN' ? '上次查看的文件不在当前列表中。' : 'The previously opened file is no longer listed.'}</p><button type="button" className="mt-3 text-sm text-blue" onClick={() => selectPreviewPath(FILES_PATH)}>{locale === 'zh-CN' ? '查看所有文件' : 'See all files'}</button></>
+              : <><Spinner /><p className="mt-3 text-xs text-ink-faint">{t('research.waiting')}</p></>}
           </div>
         ) : null}
         {selected && !selected.exists ? (

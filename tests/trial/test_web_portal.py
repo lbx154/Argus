@@ -276,6 +276,39 @@ def login(client, vault, tenant="trial-01", readonly=False):
     return response
 
 
+def test_chunk_upload_routes_keep_tenant_origin_and_readonly_boundaries(provisioned):
+    _, vault, _ = provisioned
+    seen = []
+
+    def upstream(request):
+        seen.append(request)
+        return httpx.Response(200, stream=Chunks([b'{"ok":true}']), headers={"content-type": "application/json"})
+
+    base = "/api/projects/s-upload/attachments/uploads"
+    path = base + "/att-123456789abc"
+    with client_for(provisioned, upstream) as client:
+        assert client.put(path + "?offset=0", content=b"part").status_code == 401
+        login(client, vault)
+        assert client.post(base, json={}, headers={"Origin": "https://other.test"}).status_code == 403
+        headers = {"Origin": ORIGIN, "Content-Type": "application/octet-stream"}
+        assert client.post(base, json={"name": "a.txt", "size_bytes": 4}, headers={"Origin": ORIGIN}).status_code == 200
+        assert client.put(path + "?offset=0", content=b"part", headers=headers).status_code == 200
+        assert seen[-1].url.host == "trial-01"
+        assert seen[-1].url.params["offset"] == "0"
+        assert seen[-1].content == b"part"
+        assert seen[-1].headers["content-type"] == "application/octet-stream"
+        assert client.post(path + "/complete", json={}, headers={"Origin": ORIGIN}).status_code == 200
+        assert client.delete(path, headers={"Origin": ORIGIN}).status_code == 200
+        assert not portal.permitted(base + "/arbitrary", "PUT")
+        assert not portal.permitted(path + "/complete", "DELETE")
+        count = len(seen)
+        login(client, vault, readonly=True)
+        assert client.post(base, json={}, headers={"Origin": ORIGIN}).status_code == 403
+        assert client.put(path, content=b"part", headers=headers).status_code == 403
+        assert client.delete(path, headers={"Origin": ORIGIN}).status_code == 403
+        assert len(seen) == count
+
+
 def test_private_training_policy_supports_eleven_members_and_requires_analytics(provisioned):
     config, _, _ = provisioned
     members = sorted(config["tenants"])

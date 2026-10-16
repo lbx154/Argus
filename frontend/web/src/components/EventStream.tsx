@@ -34,6 +34,8 @@ import { WorkStatusBar } from './WorkStatusBar';
 export { activeProviderRequest } from '../lib/workStatus';
 import { splitDraft } from '../map/presentation';
 import type { ConversationHistoryStatus } from '../useConversationHistory';
+import { StartPrompts } from './StartPrompts';
+import { writeLocalStorage } from '../lib/storage';
 
 type ActivityRow = { ev: EventMsg; r: RenderedLine; key: string };
 type ConversationGroup = { key: string; operator: ActivityRow; rows: ActivityRow[] };
@@ -680,6 +682,8 @@ export function EventStream({
   historyStatus = 'ready',
   historyRefreshing = false,
   onRetryHistory,
+  onCompose,
+  rememberPosition = false,
 }: {
   events: EventMsg[];
   connected: boolean;
@@ -698,6 +702,8 @@ export function EventStream({
   historyStatus?: ConversationHistoryStatus;
   historyRefreshing?: boolean;
   onRetryHistory?: () => void;
+  onCompose?: (text: string) => void;
+  rememberPosition?: boolean;
 }) {
   const { locale, t } = useI18n();
   const [following, setFollowing] = useState(true);
@@ -706,6 +712,7 @@ export function EventStream({
   const [activityTick, setActivityTick] = useState(() => Date.now());
   const scroller = useRef<HTMLDivElement>(null);
   const content = useRef<HTMLDivElement>(null);
+  const [readingError, setReadingError] = useState(false);
   // Rendering a long Markdown/event history is interruptible, so incoming
   // provider fragments never take priority over typing or scrolling.
   const deferredEvents = useDeferredValue(events);
@@ -791,7 +798,28 @@ export function EventStream({
   useEffect(() => {
     const el = scroller.current;
     if (!el) return;
+    const positionKey = rememberPosition && snapshot ? `argus.conversation.position.v1:${snapshot.session.id}` : null;
+    let restored = false;
+    const restorePosition = () => {
+      if (restored || !positionKey || historyStatus !== 'ready' || el.clientHeight === 0) return;
+      restored = true;
+      try {
+        const raw = localStorage.getItem(positionKey);
+        if (!raw) return;
+        const saved: unknown = JSON.parse(raw);
+        if (!saved || typeof saved !== 'object' || !('top' in saved) || typeof saved.top !== 'number'
+          || !Number.isFinite(saved.top) || saved.top < 0 || !('following' in saved) || typeof saved.following !== 'boolean') throw new Error('Invalid reading position');
+        followingRef.current = saved.following;
+        setFollowing(saved.following);
+        if (!saved.following) {
+          el.scrollTop = saved.top;
+          lastScrollTop.current = el.scrollTop;
+        }
+      } catch { setReadingError(true); }
+    };
+    restorePosition();
     const onScroll = () => {
+      if (el.clientHeight === 0) return;
       const atBottom = el.scrollHeight - el.scrollTop - el.clientHeight < 40;
       // Scroll anchoring can move down during layout growth before the resize
       // callback catches up. Only an upward movement leaves an active follow;
@@ -799,10 +827,12 @@ export function EventStream({
       followingRef.current = atBottom || (followingRef.current && el.scrollTop >= lastScrollTop.current - 1);
       lastScrollTop.current = el.scrollTop;
       setFollowing(followingRef.current);
+      if (positionKey && restored) setReadingError(!writeLocalStorage(positionKey, JSON.stringify({ top: el.scrollTop, following: followingRef.current })));
     };
     el.addEventListener('scroll', onScroll, { passive: true });
     let frame: number | null = null;
     const observer = new ResizeObserver(() => {
+      restorePosition();
       if (!followingRef.current) return;
       if (frame !== null) window.cancelAnimationFrame(frame);
       frame = window.requestAnimationFrame(() => {
@@ -822,7 +852,7 @@ export function EventStream({
       observer.disconnect();
       if (frame !== null) window.cancelAnimationFrame(frame);
     };
-  }, []);
+  }, [snapshot?.session.id, historyStatus, rememberPosition]);
 
   const jump = () => {
     followingRef.current = true;
@@ -884,10 +914,16 @@ export function EventStream({
             {t('stream.historyRetry')}
           </button> : null}
       </div> : null}
+      {readingError && <p role="status" className="px-4 py-1 text-xs text-warn">{locale === 'zh-CN' ? '浏览器无法恢复或保存阅读位置；对话记录不受影响。' : 'This browser could not restore or save the reading position. Conversation records are unaffected.'}</p>}
       <div ref={scroller} className="min-h-0 flex-1 overflow-x-hidden overflow-y-auto pb-6 pt-1.5 scroll-thin" aria-busy={historyStatus === 'loading'}>
         <div ref={content} className="flow-root" data-event-stream-content>
         {rows.list.length === 0 ? (
-          historyStatus === 'ready' ? <EmptyHint>{t('stream.ready')}</EmptyHint> : null
+          historyStatus === 'ready' ? onCompose ? <div className="mx-auto max-w-2xl px-5 py-8">
+            <h2 className="text-xl font-medium text-ink">{locale === 'zh-CN' ? '从你想完成的事开始' : 'Start with what you want to accomplish'}</h2>
+            <p className="mt-2 text-sm leading-6 text-ink-faint">{locale === 'zh-CN' ? '直接说出目标，也可以选择下面的场景，再补充你的材料和要求。' : 'Describe your goal, or choose a starting point and add your material and requirements.'}</p>
+            <StartPrompts onPick={onCompose} />
+            <p className="mt-4 text-xs text-ink-faint">{locale === 'zh-CN' ? '选择只准备草稿。你确认发送后，Argus 才开始处理。' : 'A selection only prepares a draft. Argus starts after you send it.'}</p>
+          </div> : <EmptyHint>{t('stream.ready')}</EmptyHint> : null
         ) : (
           <>
             {conversations.projectWork.length > 0 ? (

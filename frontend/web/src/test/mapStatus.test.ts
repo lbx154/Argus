@@ -2,6 +2,11 @@ import { describe, expect, it } from "vitest";
 import { completionScope, mapStatusSentence } from "../map/status";
 
 describe("map status sentence", () => {
+  it.each([false, true])("leaves an idle empty map quiet with zh=%s", zh => {
+    expect(mapStatusSentence({ total: 0, complete: 0, running: 0, pending: false, paused: true, hasOpenWork: false, zh }))
+      .toBe("");
+  });
+
   it("says how much is done and who is working", () => {
     expect(mapStatusSentence({ total: 6, complete: 6, running: 0, pending: false, paused: true, hasOpenWork: false, zh: true }))
       .toBe("6 个任务 · 已全部完成");

@@ -313,6 +313,10 @@ def artifact_metadata(
     if safe is None:
         return None
     normalized, resolved = safe
+    return _file_metadata(normalized, resolved, why=why, preview_bytes=preview_bytes)
+
+
+def _file_metadata(normalized: str, resolved: Path, *, why: str = "", preview_bytes: int = 0) -> dict[str, Any]:
     try:
         exists = resolved.is_file()
         stat = resolved.stat() if exists else None
@@ -360,6 +364,73 @@ def artifact_metadata(
     return row
 
 
+def _uploaded_artifact(sid: str, artifact_path: str, *, global_root=None, preview_bytes=0):
+    from .attachment_uploads import _directory
+    from .attachments import _ATTACHMENT_ID_RE, _validate_metadata_payload
+
+    parts = PurePosixPath(artifact_path).parts
+    if (len(parts) != 5 or parts[:3] != (".argus", "attachments", sid)
+            or not _ATTACHMENT_ID_RE.fullmatch(parts[3])):
+        return None
+    workspace = project_workspace(sid, global_root=global_root)
+    if workspace is None:
+        return None
+    try:
+        with _directory(workspace, sid, parts[3]) as directory:
+            if not directory.exists("metadata.json"):
+                return None
+            metadata = directory.read("metadata.json")
+            name = _validate_metadata_payload(metadata, sid, parts[3])
+            if artifact_path != metadata["relative_path"]:
+                return None
+            with directory.file(name) as handle:
+                import os
+                if os.fstat(handle.fileno()).st_size != metadata["size_bytes"]:
+                    raise ValueError("attachment payload size mismatch")
+                row = _file_metadata(artifact_path, workspace / artifact_path)
+                if preview_bytes and row["kind"] in {"markdown", "json", "text", "table"}:
+                    raw = handle.read(preview_bytes + 1)
+                    row["preview"] = raw[:preview_bytes].decode("utf-8", errors="replace")
+                    row["truncated"] = len(raw) > preview_bytes
+    except FileNotFoundError:
+        return None
+    return {**row, "name": metadata["original_name"], "mime": metadata["mime"],
+            "source": "attachment", "group_title": "Uploaded files"}
+
+
+def _uploaded_artifacts(sid: str, *, global_root=None):
+    import os
+
+    from .attachment_uploads import _directory
+    from .attachments import _ATTACHMENT_ID_RE, _validate_metadata_payload
+
+    workspace = project_workspace(sid, global_root=global_root)
+    if workspace is None:
+        return []
+    try:
+        with _directory(workspace, sid) as directory:
+            names = os.listdir(directory.location)
+    except FileNotFoundError:
+        return []
+    rows = []
+    for attachment_id in names:
+        if not _ATTACHMENT_ID_RE.fullmatch(attachment_id):
+            continue
+        try:
+            with _directory(workspace, sid, attachment_id) as directory:
+                if not directory.exists("metadata.json"):
+                    continue
+                metadata = directory.read("metadata.json")
+                _validate_metadata_payload(metadata, sid, attachment_id)
+        except FileNotFoundError:
+            # Cancellation/expiry can remove an unfinished directory during a listing.
+            continue
+        row = _uploaded_artifact(sid, metadata["relative_path"], global_root=global_root)
+        if row is not None:
+            rows.append(row)
+    return rows
+
+
 def list_project_artifacts(
     sid: str,
     *,
@@ -401,6 +472,7 @@ def list_project_artifacts(
         from .reader_foundation import registered_foundation_artifacts
 
         rows.extend(registered_foundation_artifacts(resolve_global_root(global_root), sid))
+    rows.extend(_uploaded_artifacts(sid, global_root=global_root))
     return rows
 
 
@@ -411,6 +483,9 @@ def get_project_artifact(
     global_root: Path | str | None = None,
     preview_bytes: int = 128 * 1024,
 ) -> dict[str, Any] | None:
+    if PurePosixPath(artifact_path).parts[:2] == (".argus", "attachments"):
+        return _uploaded_artifact(sid, artifact_path, global_root=global_root,
+                                  preview_bytes=max(0, min(int(preview_bytes), 512 * 1024)))
     if PurePosixPath(str(artifact_path).strip().replace("\\", "/")).parts[:1] == ("reader-progress",):
         from .reader_progress import registered_progress_artifact
 
@@ -465,7 +540,7 @@ def resolved_project_artifact(
         global_root=global_root,
         preview_bytes=0,
     )
-    if info is not None and info.get("source") in {"reader_foundation", "progress_snapshot"}:
+    if info is not None and info.get("source") in {"reader_foundation", "progress_snapshot", "attachment"}:
         # This address was resolved from this session's registered fixed
         # workspace by get_project_artifact, never from a request field.
         path = Path(info["storage_path"])

@@ -37,6 +37,7 @@ dependencies = [
   "pypdf>=5,<7",
   "fastapi>=0.110",
   "python-multipart>=0.0.9",
+  "ijson>=3.3,<4",
   "uvicorn[standard]>=0.29",
   "websockets>=12",
   "mcp>=1.20,<2",

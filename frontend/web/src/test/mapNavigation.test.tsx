@@ -103,6 +103,18 @@ afterEach(() => {
   vi.unstubAllGlobals();
 });
 
+it("omits the empty status row and ambient decoration without hiding active work", () => {
+  const empty = { ...data, tasks: [], events: [] };
+  act(() => renderer.update(<QueryClientProvider client={client}><MapCanvas {...props} data={empty} /></QueryClientProvider>));
+  expect(renderer.root.findAllByProps({ className: "map-status-row" })).toHaveLength(0);
+  expect(renderer.root.findAllByProps({ className: "map-ambient" })).toHaveLength(0);
+  expect(renderer.root.findAllByProps({ className: "map-canvas-wrap" })).toHaveLength(1);
+
+  act(() => renderer.update(<QueryClientProvider client={client}><MapCanvas {...props} data={empty}
+    composer={{ ...props.composer, pending: true }} /></QueryClientProvider>));
+  expect(renderer.root.findByProps({ className: "map-status-text" }).children.join("")).toBe("working on your message");
+});
+
 it("keeps the explicitly opened task reader when new copy changes relations and background focus", async () => {
   const key = ['map-copy', 'project', 'navigation', 'en-US', 'navigation'];
   const retained: MapCopy = { version: 22, available: true, relations: [], cards: { failed: {

@@ -64,6 +64,10 @@ async def _read_uploaded_attachments(
 
     uploads = list(files or [])
     limits = attachment_limits()
+    # Keep the legacy multipart endpoint bounded; large files use small,
+    # independently acknowledged requests instead of one in-memory batch.
+    limits["max_bytes_per_file"] = min(limits["max_bytes_per_file"], 10 * 1024 * 1024)
+    limits["max_total_bytes"] = min(limits["max_total_bytes"], 25 * 1024 * 1024)
 
     payload: list[tuple[str, str, bytes]] = []
     total_bytes = 0
@@ -136,6 +140,9 @@ async def _read_uploaded_attachments(
 
 
 def register_manager_routes(app, ctx: ServerContext) -> None:
+    from .attachment_uploads import register_attachment_upload_routes
+
+    register_attachment_upload_routes(app, ctx)
     from ..manager_state import manager_control_generation
     from ..message_requests import (
         MessageRequestCancelled,

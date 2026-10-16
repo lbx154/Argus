@@ -41,6 +41,7 @@ it('unifies navigation into four categories while keeping private records, index
   await act(async () => { view = create(<QueryClientProvider client={client}><LearningLibrary sid="s-A" initialScope="global" /></QueryClientProvider>); }); await settle();
   const nav = view!.root.findByType('nav');
   expect(nav.findAllByType('button').map(content)).toEqual(['学习动态', '全局项目', '垂直领域', '项目']);
+  expect(nav.findAllByType('button').map(node => node.props['aria-pressed'])).toEqual([false, true, false, false]);
   expect(content(view!.root)).toContain('个人记录 · 原私有范围，不共享');
   act(() => view!.root.findAllByType('button').find(node => content(node).includes(wiki.title))!.props.onClick()); await settle();
   expect(api.wikiDocument).toHaveBeenCalledWith('s-A', 'private', '', wiki.path, expect.any(AbortSignal));
@@ -62,14 +63,51 @@ it('reads skills in the unified browser and resets selection on a project switch
   expect(api.skillDocument).toHaveBeenCalledTimes(1);
 });
 
+it('adds only an explicitly selected, loaded document with its original scope to the draft', async () => {
+  const onUse = vi.fn();
+  await act(async () => { view = create(<QueryClientProvider client={client}><LearningLibrary sid="s-A" onUse={onUse} /></QueryClientProvider>); }); await settle();
+  expect(onUse).not.toHaveBeenCalled();
+  act(() => view!.root.findAllByType('button').find(node => content(node).includes(wiki.title))!.props.onClick()); await settle();
+  expect(button('用于当前对话').props.disabled).toBe(false);
+  act(() => button('用于当前对话').props.onClick());
+  expect(onUse).toHaveBeenCalledWith(wiki.title, '# ORIGINAL KNOWLEDGE\n\nNo automatic translation.\n', expect.stringContaining('原私有范围'));
+  expect(onUse.mock.calls[0][2]).toContain(wiki.path);
+  expect(content(view!.root)).toContain('不会自动执行技能');
+});
+
+it('does not offer an unreadable document as usable context', async () => {
+  vi.mocked(api.wikiDocument).mockRejectedValue(new Error('unavailable'));
+  const onUse = vi.fn();
+  await act(async () => { view = create(<QueryClientProvider client={client}><LearningLibrary sid="s-A" onUse={onUse} /></QueryClientProvider>); }); await settle();
+  act(() => view!.root.findAllByType('button').find(node => content(node).includes(wiki.title))!.props.onClick()); await settle();
+  expect(button('用于当前对话').props.disabled).toBe(true);
+  expect(onUse).not.toHaveBeenCalled();
+});
+
 it('separates real learning records from file updates and reports source failures explicitly', async () => {
   vi.mocked(api.wikiLibrary).mockRejectedValue(new Error('synthetic failure'));
-  await act(async () => { view = create(<QueryClientProvider client={client}><LearningLibrary sid="s-A" /></QueryClientProvider>); }); await settle();
+  await act(async () => { view = create(<QueryClientProvider client={client}><LearningLibrary sid="s-A" initialScope="feed" /></QueryClientProvider>); }); await settle();
   expect(content(view!.root)).toContain('学习记录与文件更新分开展示');
   expect(content(view!.root)).toContain('知识无法加载');
   expect(content(view!.root)).toContain(custom.name);
   expect(content(view!.root)).not.toContain('当前分类或筛选条件下没有资料');
   expect(content(view!.root)).not.toContain('分段阅读 PDF');
+});
+
+it.each([
+  { locale: 'zh-CN', labels: ['学习动态', '全局项目', '垂直领域', '项目'], skillName: '分段阅读 PDF' },
+  { locale: 'en', labels: ['Learning feed', 'Across projects', 'Vertical', 'Project'], skillName: 'Progressive PDF Reading' },
+])('restores the original category order and learning-feed default in $locale', async ({ locale, labels, skillName }) => {
+  state.locale = locale;
+  await act(async () => { view = create(<QueryClientProvider client={client}><LearningLibrary sid="s-A" /></QueryClientProvider>); }); await settle();
+  const tabs = view!.root.findByType('nav').findAllByType('button');
+  expect(tabs.map(content)).toEqual(labels);
+  expect(tabs.map(node => node.props['aria-pressed'])).toEqual([true, false, false, false]);
+  expect(api.knowledgeFeed).toHaveBeenCalled();
+  expect(content(view!.root)).not.toContain(skillName);
+  act(() => button(labels[1]).props.onClick()); await settle();
+  expect(content(view!.root)).toContain(skillName);
+  expect(view!.root.findByType('nav').findAllByType('button').map(node => node.props['aria-pressed'])).toEqual([false, true, false, false]);
 });
 
 it('assigns lessons, principles, profiles and indexes to their original scopes in the four-category browser', async () => {

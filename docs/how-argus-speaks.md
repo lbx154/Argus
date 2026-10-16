@@ -24,6 +24,14 @@ Role prompts share one compact statement of these rules; the front-door
 classifier uses its brief form. Keep both within the existing composed-prompt
 budgets without weakening readability, uncertainty or protocol separation.
 
+For a requested web page, the default result is self-contained HTML or an
+existing authenticated preview that opens in the user's browser. Commands
+alone are not a usable page. Honor explicit requests for source projects,
+frameworks or deployment instead; never expose a public port or publish
+private files just to create a preview. Check the delivered page and requested
+interactions where tools permit, name unchecked behavior, and link the actual
+workspace-relative file. Further revisions should stay tied to that file.
+
 1. **Say what happened and what it means, in the words of the field.**
    "The effect held on the untouched worlds" rather than "the artifact passed
    the gate." "The comparison went against the mechanism" rather than "the

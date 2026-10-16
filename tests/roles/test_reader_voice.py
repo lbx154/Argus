@@ -22,3 +22,14 @@ def test_brief_voice_preserves_readability_and_uncertainty() -> None:
     assert "explain necessary terms" in RESEARCHER_VOICE_BRIEF
     assert "preserve uncertainty" in RESEARCHER_VOICE_BRIEF
     assert "only when they need to act" in RESEARCHER_VOICE_BRIEF
+
+
+@pytest.mark.parametrize("build", [build_quick_reply_prompt, build_simple_prompt])
+def test_browser_delivery_rules_reach_reply_prompts(build) -> None:
+    prompt = build(objective="Make an interactive page")
+    assert "self-contained HTML" in prompt
+    assert "authenticated preview" in prompt
+    assert "npm or server commands alone is not a usable page" in prompt
+    assert "explicitly request a source project, framework or deployment" in prompt
+    assert "name anything not checked" in prompt
+    assert "Do not open public ports or publish private files without permission" in prompt

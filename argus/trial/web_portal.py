@@ -488,6 +488,10 @@ def permitted(path: str, method: str) -> bool:
         return False
     if method in SAFE_METHODS:
         return True
+    if re.fullmatch(r"/api/projects/[^/]+/attachments/uploads/att-[a-f0-9]{12}", path):
+        return method in {"PUT", "DELETE"}
+    if re.fullmatch(r"/api/projects/[^/]+/attachments/uploads(?:/att-[a-f0-9]{12}/complete)?", path):
+        return method == "POST"
     if method == "POST":
         return bool(
             PROJECT_WRITES.fullmatch(path) or PLUGIN_WRITES.fullmatch(path)

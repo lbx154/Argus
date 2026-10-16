@@ -2,7 +2,7 @@ import type { DispatchObserver, MapSendOptions } from './map/submission';
 import { lazy, Suspense, useCallback, useEffect, useMemo, useReducer, useRef, useState } from 'react';
 import { artifactRefreshEventKey, snapshotRefreshEventKey, useProjects, useProjectCosts, useSnapshot, useEventStream, useProjectActions, useArtifacts, useJournal } from './hooks';
 import { useConversationHistory } from './useConversationHistory';
-import { api, isConnectionError, newRequestId, type EventMsg, type MessageRouteOverride, type SkillLibraryItem, type SkillScope, type WikiLibraryItem, PairingRequiredError } from './api';
+import { api, isConnectionError, newRequestId, type AttachmentUploadOptions, type AttachmentUploadProgress, type EventMsg, type MessageRouteOverride, type SkillLibraryItem, type SkillScope, type WikiLibraryItem, PairingRequiredError } from './api';
 import { LearningLibrary, type LearningScope, type LearningSelection } from './components/LearningLibrary';
 import { LearningStatus } from './components/LearningStatus';
 import { ComposerRuntime } from './components/ComposerRuntime';
@@ -25,6 +25,7 @@ import {
   missionIsComplete,
   ResearchCanvas,
   selectCompletionArtifact,
+  FILES_PATH,
 } from './components/ResearchCanvas';
 import { ActionNotice, type NoticeTone, type UiNotice } from './components/ActionNotice';
 import { DaemonManageModal } from './components/DaemonManageModal';
@@ -66,6 +67,8 @@ import { useWorkbenchLayout } from './useWorkbenchLayout';
 import { PREVIEW_DEFAULT_WIDTH, PREVIEW_MAX_WIDTH } from './lib/previewLayout';
 import { useI18n } from './i18n';
 import { ConnectionProblemBanner } from './components/ConnectionProblemBanner';
+import { addComposerFiles, MESSAGE_TEXT_MAX_CHARS } from './lib/attachments';
+import './components/customerExperience.css';
 import { useDeliveryCenter } from './useDeliveryCenter';
 import { deliveryFiles, defaultDeliverySelection, selectActiveDelivery, hasPendingDeliveryDependents } from './components/deliveryPresentation';
 import type { ArtifactInfo, DeliveryReceipt, MissionView } from '../../core/src/types';
@@ -83,6 +86,7 @@ interface ActiveMessageRequest {
   sid: string;
   controller: AbortController;
   recovered?: boolean;
+  uploading?: boolean;
 }
 interface CompletionContext {
   sid: string;
@@ -211,6 +215,7 @@ export default function App() {
   const [slashSelection, setSlashSelection] = useState(0);
   const [routeOverride, setRouteOverride] = useState<MessageRouteOverride>('auto');
   const [chatPending, setChatPending] = useState(false);
+  const [uploadProgress, setUploadProgress] = useState<AttachmentUploadProgress | null>(null);
   const [localConversationEvents, setLocalConversationEvents] = useState<EventMsg[]>([]);
   const localConversationSid = useRef<string | null>(null);
   const [managerSteps, setManagerSteps] = useState<PhaseStep[]>([]);
@@ -246,6 +251,7 @@ export default function App() {
     messageRequestRef.current?.controller.abort();
     messageRequestRef.current = null;
     setChatPending(false);
+    setUploadProgress(null);
     setManagerSteps([]);
     return cancelled;
   }, []);
@@ -253,6 +259,10 @@ export default function App() {
   const stopWaiting = useCallback(() => {
     const request = messageRequestRef.current;
     if (!request || !cancelActiveMessage()) return;
+    if (request.uploading) {
+      notify('info', locale === 'zh-CN' ? '已取消上传；草稿和已完成的附件保留，尚未发送给 Argus。' : 'Upload cancelled. The draft and completed files are preserved; nothing was sent to Argus.');
+      return;
+    }
     const epoch = messageEpochRef.current;
     notify('info', t('chat.stoppingReply'));
     // This POST has its own lifetime: aborting the SSE connection must not
@@ -263,7 +273,7 @@ export default function App() {
     }).catch((error: unknown) => {
       if (messageEpochRef.current === epoch) notify('error', t('chat.stopReplyFailed', { error: errorText(error) }));
     });
-  }, [cancelActiveMessage, notify, t]);
+  }, [cancelActiveMessage, notify, t, locale]);
   const {
     activeSid,
     clearProjectSelection: clearSelectedProject,
@@ -286,10 +296,12 @@ export default function App() {
     setTaskItemId,
   });
   const {
-    draft: { text: composerDraft, attachments: composerAttachments },
+    draft: { text: composerDraft, attachments: composerAttachments, missingAttachments = [], uploaded: composerUploaded = [] },
+    storageError: draftStorageError, seed: seedDraft, dismissMissingAttachments,
     rewriting, setText: setComposerDraft, setAttachments: setComposerAttachments,
     capture: captureDraft, consume: consumeDraft, restore: restoreDraft,
     beginRewrite, finishRewrite, drop: dropSessionDraft,
+    rememberUploaded, removeUploaded,
   } = useSessionComposer(selectedSid);
   const selectProject = useCallback((id: string, mode?: ProjectHistoryMode) => {
     cancelDeliveryNavigationRef.current();
@@ -360,10 +372,15 @@ export default function App() {
     refetchProjects: projectsQ.refetch,
     selectProject,
     translate: t,
+    onCreated: (sid, draft) => { if (draft) seedDraft(sid, draft); },
   });
   // A new session starts as an idle conversation in the default workspace;
   // the first message names what it is for, so there is nothing to ask up front.
-  const startNewSession = useCallback(() => { void createDaemon('', '', ''); }, [createDaemon]);
+  const startNewSession = useCallback((draft = '') => {
+    setWorkspaceView('activity');
+    setMobileView('activity');
+    void createDaemon('', '', '', draft);
+  }, [createDaemon, setWorkspaceView, setMobileView]);
   const startNewSessionRef = useRef(startNewSession);
   startNewSessionRef.current = startNewSession;
   useEffect(() => subscribeDesktopNewChat(() => startNewSessionRef.current()), []);
@@ -505,6 +522,37 @@ export default function App() {
   }, [artifactsQ.data, setMobileView, setRightPanelOpen, setWorkspaceView, workspaceView]);
   const deliveryCenter = useDeliveryCenter(loadedSid, Boolean(snap) && !transcriptQ.isPending, delivery, !artifactPath && !hasPendingDeliveryDependents(snap?.backlog ?? [], delivery?.item_id));
   const openDelivery = deliveryCenter.open;
+  const composeContext = (text: string) => {
+    if (!loadedSid || loadedSid !== sidRef.current || kiosk) return;
+    const next = [composerDraft, text].filter(Boolean).join('\n\n');
+    if (next.length > MESSAGE_TEXT_MAX_CHARS) { notify('error', t('chat.messageTooLong')); return; }
+    setComposerDraft(next);
+    setOverlay('none');
+    setArtifactPath(null);
+    deliveryCenter.close();
+    setWorkspaceView('activity');
+    setMobileView('activity');
+    setComposerFocus(value => value + 1);
+  };
+  const reviseArtifact = (path: string) => composeContext(locale === 'zh-CN'
+    ? `请继续修改当前项目的成果文件：${path}\n修改要求：`
+    : `Please revise this result in the current project: ${path}\nRequested changes:`);
+  const useMaterial = (title: string, content: string, scope: string) => {
+    if (!loadedSid || loadedSid !== sidRef.current || kiosk) return;
+    const name = `${title.replace(/[\\/:*?"<>|]/g, '-')}.md`;
+    const file = new File([`# ${title}\n\n${scope}\n\n---\n\n${content}`], name, { type: 'text/markdown' });
+    const { accepted, issues } = addComposerFiles(composerAttachments, [file]);
+    if (issues.length || !accepted.length) {
+      notify('error', locale === 'zh-CN' ? '资料未加入：请检查附件数量和大小限制，或先移除一个附件。' : 'Material was not added. Check attachment size/count limits or remove an attachment first.');
+      return;
+    }
+    setComposerAttachments([...composerAttachments, ...accepted]);
+    setOverlay('none');
+    setWorkspaceView('activity');
+    setMobileView('activity');
+    setComposerFocus(value => value + 1);
+    notify('info', locale === 'zh-CN' ? '资料已选择到当前项目的草稿。确认后发送才会上传；尚未交给 Argus 读取。' : 'Material is selected in this project draft. It uploads only when you send; Argus has not read it yet.');
+  };
   const deliveryHistory = useMemo(() => {
     const receipts = new Map<string, DeliveryReceipt>();
     for (const event of activityEvents) {
@@ -680,7 +728,7 @@ export default function App() {
     toggleSidebarCollapse: () => setLeftPanelOpen((value) => !value),
   });
 
-  const sendMessage = async (text: string, attachments: File[] = [], observe?: DispatchObserver): Promise<boolean> => {
+  const sendMessage = async (text: string, attachments: File[] = [], observe?: DispatchObserver, uploadOptions?: AttachmentUploadOptions): Promise<boolean> => {
     const requestSid = activeSid;
     if (!requestSid || requestSid !== sidRef.current || messageSubmitLockRef.current || messageRequestRef.current) return false;
     const requestEpoch = messageEpochRef.current;
@@ -690,7 +738,7 @@ export default function App() {
     let serverRequestId: string;
     let controller: AbortController;
     try {
-      if (!attachments.length) {
+      if (!attachments.length && !uploadOptions?.ready?.length) {
         const command = await dispatchWebCommand(text, commandHandlers);
         if (command.kind === 'handled') { observe?.({ type: 'settled', outcome: 'message' }); return true; }
         if (command.kind === 'error') {
@@ -724,6 +772,7 @@ export default function App() {
       if (messageRequestRef.current?.id === requestId) {
         messageRequestRef.current = null;
         setChatPending(false);
+        setUploadProgress(null);
         setManagerSteps([]);
       }
     };
@@ -731,17 +780,27 @@ export default function App() {
     setChatPending(true);
     setManagerSteps([]);
     let attachmentRefs: Array<{ attachment_id: string }> = [];
-    if (attachments.length) {
+    if (attachments.length || uploadOptions?.ready?.length) {
+      if (messageRequestRef.current) messageRequestRef.current.uploading = true;
       try {
         const uploaded = await api.uploadAttachments(
           requestSid,
           attachments,
           controller.signal,
+          {
+            ...uploadOptions,
+            onProgress: progress => { if (isCurrent()) setUploadProgress(progress); },
+            onCleanupError: error => notify('error', locale === 'zh-CN'
+              ? `临时上传未能立即清理，将在闲置 24 小时后回收：${errorText(error)}`
+              : `Temporary upload cleanup failed; idle uploads expire after 24 hours: ${errorText(error)}`),
+          },
         );
         if (!isCurrent()) return false;
         attachmentRefs = uploaded.attachments.map((attachment) => ({
           attachment_id: attachment.attachment_id,
         }));
+        if (messageRequestRef.current) messageRequestRef.current.uploading = false;
+        setUploadProgress(null);
       } catch (error) {
         if (isCurrent()) {
           notify('error', t('chat.attachmentUploadFailed', { error: errorText(error) }));
@@ -918,7 +977,15 @@ export default function App() {
   const sendComposerMessage = async (text: string, files: File[] = [], observe?: DispatchObserver, options?: MapSendOptions): Promise<boolean> => {
     const draft = captureDraft(sidRef.current);
     if (!draft) return false;
+    if (draft.missingAttachments?.length) {
+      notify('error', locale === 'zh-CN' ? '刷新前的附件尚未上传。请重新选择，或在对话中移除提醒后再发送。' : 'Files selected before reloading were not uploaded. Select them again or discard their reminder in the conversation before sending.');
+      return false;
+    }
     if (options?.whileRunning) {
+      if (files.length || draft.uploaded?.length) {
+        notify('error', t('chat.attachWhileRunning'));
+        return false;
+      }
       // The running reply keeps its own request. Commands still run as
       // commands; a plain message is shown now and answered as the next turn
       // (Argus decides whether it steers a live mission or is answered in chat).
@@ -939,13 +1006,17 @@ export default function App() {
     let cleared: DraftSnapshot | null = null;
     let failedBeforeAcceptance = false;
     // /rewrite owns its pending revision until its preview lands, not a send.
-    const rewriteCommand = !files.length && parseCommand(text.trim())?.cmd?.id === 'rewrite';
+    const rewriteCommand = !files.length && !draft.uploaded?.length && parseCommand(text.trim())?.cmd?.id === 'rewrite';
     const accepted = await sendMessage(text, files, (result) => {
       if (result.type === 'settled' && result.outcome === 'error') {
         failedBeforeAcceptance = true;
         if (cleared) restoreDraft(cleared, draft);
       }
       if (sidRef.current === draft.sid) observe?.(result);
+    }, {
+      ready: draft.uploaded?.filter(item => !item.file).map(item => item.attachment),
+      completed: new Map(draft.uploaded?.flatMap(item => item.file ? [[item.file, item.attachment] as const] : [])),
+      onUploaded: (file, attachment) => rememberUploaded(draft, file, attachment),
     });
     if (accepted && !failedBeforeAcceptance && !rewriteCommand) {
       cleared = consumeDraft(draft, files);
@@ -1046,6 +1117,7 @@ export default function App() {
         delivery={deliveryCenter.selection.receipt} deliveries={deliveryHistory}
         reviewActivity={deliveryCenter.selection.sid === loadedSid ? reviewActivity : undefined}
         onSelectDelivery={openDelivery} onSelectPath={deliveryCenter.selectPath} onClose={deliveryCenter.close}
+        onRevise={kiosk ? undefined : reviseArtifact}
       />}
       {!kiosk && sidebarOpen ? (
         <button
@@ -1076,7 +1148,7 @@ export default function App() {
           onOpenPanel={(panel) => setOverlay(panel)}
           onOpenLearning={openLearningLibrary}
           onOpenVerticals={() => setOverlay('verticals')}
-          onNew={startNewSession}
+          onNew={() => startNewSession()}
           loading={projectsQ.isLoading}
           creating={creatingDaemon}
           error={projectsQ.isError ? errorText(projectsQ.error) : undefined}
@@ -1126,12 +1198,26 @@ export default function App() {
                 <button type="button" className="ml-auto px-2 py-1 text-sm text-ink-dim hover:text-ink" aria-expanded={rightPanelOpen}
                   onClick={() => {
                     if (rightPanelOpen) { setRightPanelOpen(false); setMobileView('activity'); }
-                    else openPreview();
+                    else { setPreviewPathRequest(current => ({ path: FILES_PATH, token: current.token + 1 })); openPreview(); }
                   }}>
                   {locale === 'zh-CN' ? '文件' : 'Files'}{artifactsQ.data?.length ? ` · ${artifactsQ.data.filter(file => file.exists).length}` : ''}
                 </button>
               </nav>
-              {!kiosk && <LearningStatus sid={activeSid} onOpenKnowledge={() => openWiki()} onOpenSkills={() => openSkillLibrary()} />}
+              {!kiosk && (uploadProgress || composerUploaded.some(item => !item.file)) && <div className="draft-status flex-wrap" role="status">
+                {uploadProgress && <>
+                  <span>{locale === 'zh-CN' ? '附件' : 'File'} {uploadProgress.index}/{uploadProgress.count} · {uploadProgress.name} · {Math.floor(uploadProgress.loaded / Math.max(1, uploadProgress.total) * 100)}% · {
+                    uploadProgress.phase === 'validating' ? locale === 'zh-CN' ? '正在校验，尚未发送' : 'Validating, not yet sent'
+                      : uploadProgress.phase === 'retrying' ? locale === 'zh-CN' ? '正在确认进度并重试' : 'Checking offset and retrying'
+                        : uploadProgress.phase === 'ready' ? locale === 'zh-CN' ? '文件已就绪，尚未读取' : 'File ready, not yet read'
+                          : locale === 'zh-CN' ? '正在上传，尚未发送' : 'Uploading, not yet sent'}</span>
+                  <button type="button" onClick={stopWaiting}>{locale === 'zh-CN' ? '取消上传' : 'Cancel upload'}</button>
+                </>}
+                {composerUploaded.filter(item => !item.file).map(({ attachment }) => <span key={attachment.attachment_id}>
+                  {attachment.original_name} · {locale === 'zh-CN' ? '已上传，待发送' : 'Uploaded, not sent'}{' '}
+                  <button type="button" disabled={messagePending} onClick={() => removeUploaded(attachment.attachment_id)}>{locale === 'zh-CN' ? '移除' : 'Remove'}</button>
+                </span>)}
+              </div>}
+              {!kiosk && workspaceView === 'workbench' && <LearningStatus sid={activeSid} onOpenKnowledge={() => openWiki()} onOpenSkills={() => openSkillLibrary()} />}
               {workspaceView === 'map' && <Suspense fallback={<div className="m-auto text-sm text-ink-faint">{t('common.loading')}</div>}><MapPanel key={snap.session.id} snapshot={snap} events={mapEvents} managerSteps={managerSteps} draft={composerDraft} onDraftChange={setComposerDraft} onSend={sendComposerMessage} attachments={composerAttachments} onAttachmentsChange={setComposerAttachments} pending={messagePending} onCancel={stopWaiting} focusSignal={composerFocus} readOnly={kiosk} onOpenSettings={() => setOverlay('config')}
                 currentTaskId={missionView?.mission.id}
                 routeOverride={routeOverride} onRouteOverrideChange={setRouteOverride}
@@ -1142,6 +1228,12 @@ export default function App() {
                 }}
                 onOpenReceipt={openDelivery} onOpenArtifact={setArtifactPath} onAnswer={() => setPendingReplyOpen(true)}
               /></Suspense>}
+              {workspaceView === 'map' && !kiosk && (missingAttachments.length > 0 || draftStorageError) && <div className="draft-status" role="status">
+                <span className="text-warn">{draftStorageError
+                  ? locale === 'zh-CN' ? '浏览器未能保存草稿，请在离开前复制内容。' : 'This browser could not save the draft. Copy it before leaving.'
+                  : locale === 'zh-CN' ? '刷新前的附件尚未上传，请重新选择或移除提醒。' : 'Unuploaded files must be selected again or discarded.'}</span>
+                <button type="button" onClick={() => { setWorkspaceView('activity'); setMobileView('activity'); }}>{locale === 'zh-CN' ? '前往对话处理' : 'Review in conversation'}</button>
+              </div>}
               <div className={`${workspaceView === 'activity' ? 'flex' : 'hidden'} workspace-view-surface min-h-0 flex-1 flex-col`}>
                 <GuardianBanner alert={guardianAlert} />
                 {/* The mobile activity minimum includes its header/status and 120px of conversation. */}
@@ -1164,6 +1256,8 @@ export default function App() {
                     artifacts={artifactsQ.data}
                     onOpenArtifact={focusDeliveryPath}
                     onOpenDelivery={openDelivery}
+                    onCompose={kiosk ? undefined : composeContext}
+                    rememberPosition
                   />
                   </div>
                 {!kiosk ? (
@@ -1195,6 +1289,13 @@ export default function App() {
                       onRouteOverrideChange={setRouteOverride}
                       footer={activeSid ? <ComposerRuntime sid={snap.session.id} roles={snap.roles} running={snap.daemon.alive || Boolean(snap.manager_requests?.length)} lastCall={snap.last_call} onOpenSettings={() => setOverlay('config')} /> : undefined}
                     />
+                    {(composerDraft || composerAttachments.length > 0 || missingAttachments.length > 0 || draftStorageError) && <div className="draft-status" role="status">
+                      <span>{draftStorageError
+                        ? locale === 'zh-CN' ? '浏览器未能保存草稿，请在离开前复制内容。' : 'This browser could not save the draft. Copy it before leaving.'
+                        : locale === 'zh-CN' ? '文字草稿仅保存在此浏览器 · 附件发送后才会上传' : 'Text draft saved in this browser · Attachments upload when sent'}</span>
+                      {missingAttachments.length > 0 && <><span className="text-warn">{locale === 'zh-CN' ? '刷新前的附件尚未上传，请重新选择：' : 'Unuploaded files must be selected again: '}{missingAttachments.join('、')}</span><button type="button" onClick={dismissMissingAttachments}>{locale === 'zh-CN' ? '不再使用这些附件' : 'Discard missing attachments'}</button></>}
+                      {composerDraft && <button type="button" onClick={() => setComposerDraft('')}>{locale === 'zh-CN' ? '清空文字草稿' : 'Clear text draft'}</button>}
+                    </div>}
                     </div>
                   </div>
                 ) : null}
@@ -1203,6 +1304,7 @@ export default function App() {
                 <div className={`${workspaceView === 'workbench' ? 'flex' : 'hidden'} workspace-view-surface min-h-0 flex-1`}>
                   <Suspense fallback={<div className="flex min-h-0 flex-1 items-center justify-center text-xs text-ink-faint">{t('common.loading')}</div>}>
                     <ResearchWorkbenchPanel sid={activeSid} active={workspaceView === 'workbench'} readOnly={kiosk} runtimeRequest={runtimeRequest}
+                      onCompose={() => { setWorkspaceView('activity'); setMobileView('activity'); setComposerFocus(value => value + 1); }}
                       onRestored={async restoredSid => { await projectsQ.refetch(); selectProject(restoredSid); }} />
                   </Suspense>
                 </div>
@@ -1252,6 +1354,10 @@ export default function App() {
                 activityEvents={activityEvents}
                 requestedPath={previewPathRequest.path}
                 requestedPathToken={previewPathRequest.token}
+                filesFirst
+                loading={artifactsQ.isLoading}
+                onRevise={kiosk ? undefined : reviseArtifact}
+                onRetry={() => void artifactsQ.refetch()}
                 routeVisible
               />
             </aside>}
@@ -1274,13 +1380,15 @@ export default function App() {
             onNew={startNewSession}
             onChoose={() => setSidebarOpen(true)}
             canCreate={!kiosk}
+            creating={creatingDaemon}
           />
         )}
       </main>
 
       {/* global overlays */}
-      <Modal open={overlay === 'learning'} onClose={() => setOverlay('none')} label={locale === 'zh-CN' ? '技能库' : 'Skill library'} width="max-w-6xl">
+      <Modal open={overlay === 'learning'} onClose={() => setOverlay('none')} label={locale === 'zh-CN' ? '知识与技能' : 'Knowledge & skills'} width="max-w-6xl">
         {overlay === 'learning' && <LearningLibrary sid={activeSid} initialSelection={learningSelection} initialScope={learningScope}
+          onUse={kiosk ? undefined : useMaterial}
           projectNames={Object.fromEntries(projects.flatMap(project => project.display_name ? [[project.id, project.display_name] as const] : []))} />}
       </Modal>
       <CommandPalette open={overlay === 'palette'} onClose={() => setOverlay('none')} items={paletteItems} />
@@ -1290,6 +1398,8 @@ export default function App() {
       {activeSid && (
         <ConfigModal
           sid={activeSid}
+          themeMode={themeMode}
+          onCycleTheme={cycleTheme}
           open={overlay === 'config'}
           onClose={() => setOverlay('none')}
         />
@@ -1309,6 +1419,7 @@ export default function App() {
         />
       ) : null}
       <ArtifactModal sid={activeSid} path={artifactPath} artifacts={artifactsQ.data ?? []}
+        onRevise={kiosk ? undefined : reviseArtifact}
         reviewActivity={activeSid === loadedSid ? reviewActivity : undefined}
         onSelectPath={setArtifactPath}
         onClose={() => setArtifactPath(null)} />
@@ -1364,6 +1475,7 @@ export default function App() {
           sidebarOpen={sidebarOpen}
           onSelect={(tab) => {
             if (tab === 'preview') {
+              setPreviewPathRequest(current => ({ path: FILES_PATH, token: current.token + 1 }));
               setMobileView('preview');
               return;
             }

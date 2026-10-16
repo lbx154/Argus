@@ -1,6 +1,5 @@
 /* Atlas' visual language follows real task state; geometry remains in the layout model. */
 .argus-map { --atlas-flow: #3f9fba; }
-.map-canvas-wrap { background-image: radial-gradient(ellipse at 45% 40%, rgb(var(--blue) / .035), transparent 70%); }
 .map-macro { border-radius: 28px; border-top-width: 4px; box-shadow: 0 12px 36px rgb(var(--ink) / .06); }
 .map-macro[data-active=true] { border-color: rgb(var(--line)); border-top-color: var(--state); box-shadow: 0 12px 36px rgb(var(--blue) / .09); }
 .map-macro[data-active=true]::before { content: none; }

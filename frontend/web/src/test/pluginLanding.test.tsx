@@ -6,7 +6,7 @@ vi.mock('../i18n', () => ({
   useI18n: () => ({ locale: 'en', t: (key: string) => key }),
 }));
 
-it('gives an empty workspace one primary action plus the phone menu', () => {
+it('offers an empty workspace a direct start, four draft examples and the phone menu', () => {
   const html = renderToStaticMarkup(<Landing
     loading={false}
     hasProjects={false}
@@ -15,10 +15,10 @@ it('gives an empty workspace one primary action plus the phone menu', () => {
     onNew={() => undefined}
     onChoose={() => undefined}
   />);
-  expect(html).toContain('Start a project');
+  expect(html).toContain('What would you like to accomplish?');
   expect(html).toContain('landing.new');
-  // One primary action; the second button is the phone-only menu (hidden at lg).
-  expect(html.match(/<button /g)).toHaveLength(2);
+  expect(html.match(/<button /g)).toHaveLength(6);
+  expect(html).toContain('does not start work automatically');
   expect(html).toContain('landing.menu');
   expect(html).toContain('class="lg:hidden"');
 });

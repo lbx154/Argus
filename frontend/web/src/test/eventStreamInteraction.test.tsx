@@ -335,6 +335,24 @@ function runtimeFixture(alive = true) {
   return { snapshot, missionView, events };
 }
 
+it('restores an opted-in conversation reading position without jumping to the latest reply', () => {
+  const { snapshot } = runtimeFixture(false);
+  const setItem = vi.fn();
+  vi.stubGlobal('localStorage', {
+    getItem: () => JSON.stringify({ top: 140, following: false }),
+    setItem,
+  });
+  act(() => { renderer = create(<EventStream events={[{ type: 'ui.argus', text: 'Earlier result', ts: 1 }]}
+    snapshot={snapshot} connected showReasoning={false} onToggleReasoning={() => {}} rememberPosition embedded />,
+    { createNodeMock: nodeMock }); });
+  paint();
+  expect(outer.scrollTop).toBe(140);
+  outer.scrollTop = 180;
+  const onScroll = outer.addEventListener.mock.calls.find(call => call[0] === 'scroll')![1];
+  act(() => onScroll());
+  expect(setItem).toHaveBeenCalledWith('argus.conversation.position.v1:session', JSON.stringify({ top: 180, following: false }));
+});
+
 describe('historical task receipts', () => {
   it.each([
     [CONTINUED_TASK_REPORT, 'Recorded then: work continued.'],

@@ -110,6 +110,19 @@ def test_learning_gets_source_access_receipts_only_for_completed_reads(tmp_path)
     )
     assert "https://publisher.test/jev" not in manager_bridge._answer_learning_evidence([], str(tmp_path))
 
+def test_learning_trace_keeps_observations_instead_of_runtime_identifiers():
+    evidence = manager_bridge._answer_learning_evidence([{
+        "tool": "web_fetch", "status": "failed",
+        "detail": "Original table was not accessible; only the abstract was read.",
+        "result": "A source-specific limitation",
+        "call_id": "transport-only-identity", "started_ts": 12345, "ended_ts": 12346,
+    }], None)
+    assert "Original table was not accessible" in evidence
+    assert "A source-specific limitation" in evidence
+    assert "'status': 'failed'" in evidence
+    assert "transport-only-identity" not in evidence
+    assert "12345" not in evidence and "12346" not in evidence
+
 
 def test_learning_does_not_follow_source_links_outside_the_workspace_cache(tmp_path):
     from argus.tools.web_source import source_read_receipts
