@@ -36,7 +36,7 @@ def training(tmp_path):
                           tmp_path / "trial.sqlite3", tmp_path / "compute.sqlite3")
     store = Store(analytics.trial_db)
     with store.transaction() as db:
-        db.execute("INSERT INTO trial_keys(key_id,credential_hash) VALUES ('tenant-one','test-only')")
+        db.execute("INSERT INTO trial_keys(key_id,credential) VALUES ('tenant-one','test-only')")
     analytics.record_consent("tenant-one", analytics.notice_version)
     root = tmp_path / "tenant/home/.argus-skill/projects/s-project"
     root.mkdir(parents=True)

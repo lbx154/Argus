@@ -1,7 +1,6 @@
 """Stop automatic paid retries after a hosted-trial failure until user review."""
 from __future__ import annotations
 
-import hashlib
 import json
 import math
 import os
@@ -32,9 +31,9 @@ def _path():
     return trial_home() / "trial-attention.json"
 
 
-def _fingerprint():
-    config = json.loads(profile_path().read_text(encoding="utf-8"))
-    return hashlib.sha256(str(config["api_key"]).encode()).hexdigest()
+def _profile_key():
+    """The configured trial key; a pause belongs to the key it was recorded under."""
+    return str(json.loads(profile_path().read_text(encoding="utf-8"))["api_key"])
 
 
 def state() -> dict:
@@ -42,7 +41,11 @@ def state() -> dict:
         return {}  # Explicit onboarding has already checked the server balance.
     try:
         row = json.loads(_path().read_text(encoding="utf-8"))
-        return row if row.get("profile") == _fingerprint() else {}
+        profile = str(row.get("profile") or "")
+        # A pause recorded before keys were stored names its key by a digest;
+        # it stays until the user reviews it, whichever key is configured now.
+        legacy = len(profile) == 64 and all(c in "0123456789abcdef" for c in profile)
+        return row if legacy or profile == _profile_key() else {}
     except FileNotFoundError:
         return {}
     except (OSError, ValueError, KeyError):
@@ -69,7 +72,7 @@ def record_failure(diagnostic: str) -> str:
     if os.environ.get("ARGUS_DESKTOP_TRIAL_PROFILE"):
         return message + " 本次验证失败，原设置和正在使用的试用状态未更改。"
     try:
-        write_private(_path(), json.dumps({"profile": _fingerprint(), "code": code,
+        write_private(_path(), json.dumps({"profile": _profile_key(), "code": code,
             "message": message, "resume_after": time.time() + delay}).encode())
     except (OSError, ValueError, KeyError):
         pass

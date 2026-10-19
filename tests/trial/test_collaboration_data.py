@@ -8,7 +8,7 @@ from test_training_data import training as training
 
 from argus.trial.analytics import AnalyticsError
 from argus.trial.collaboration_data import CollaborationData
-from argus.trial.training_data import _hash, _json
+from argus.trial.training_data import _key
 
 
 def event(training, event_type, *, tenant="tenant-one", task="task-real", **payload):
@@ -172,10 +172,10 @@ def test_auto_review_is_exactly_bound_and_read_only(training):
     data, _, now = training
     grant(data)
     episode_id = episode(training)
-    key = _hash(_json(["pi_episode", "tenant-one", "s-project", episode_id]).encode())
+    key = _key("pi_episode", "tenant-one", "s-project", episode_id)
     data.export("internal_training", [{"tenant_id": "tenant-one", "sid": "s-project"}], review={
         "content_approved": True, "tool_context_approved": True, "approved_event_ids": [key],
-        "reviewer_kind": "automated_acceptance", "evidence_sha256": "a" * 64,
+        "reviewer_kind": "automated_acceptance", "evidence_bytes": 64,
     })
     view = CollaborationData(data)
     detail = view.detail("internal_training", "tenant-one", "s-project", "task-real")
@@ -184,7 +184,7 @@ def test_auto_review_is_exactly_bound_and_read_only(training):
     assert evidence["human_reviewed"] is False
     assert evidence["reviewer_kind"] == "automated_acceptance"
     with data.analytics._db() as db:
-        db.execute("UPDATE training_sample_reviews SET sample_sha256=?", ("b" * 64,))
+        db.execute("UPDATE training_sample_reviews SET sample_bytes=sample_bytes+1")
         before = dict(db.execute("SELECT * FROM training_sample_reviews").fetchone())
     assert view.detail("internal_training", "tenant-one", "s-project", "task-real")["quality"]["approved_samples"] == 0
     with data.analytics._db() as db:

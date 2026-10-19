@@ -6,19 +6,15 @@ traffic is intercepted by MockTransport; the durable state is a local fixture.
 from __future__ import annotations
 
 import asyncio
-import hashlib
 import json
 import sqlite3
 import threading
 import time
-from pathlib import Path
 
 import httpx
 import pytest
 from cryptography.fernet import Fernet
 
-from argus.trial import gateway, gateway_observation
-from argus.trial import store as store_module
 from argus.trial.gateway import Settings, create_app, prepare
 from argus.trial.secrets import Vault, write_private
 
@@ -165,8 +161,7 @@ def test_billing_writer_does_not_delay_asgi_or_cancellation(tmp_path, phase):
         app = create_app(settings, transport=httpx.MockTransport(provider))
         async with app.router.lifespan_context(app):
             store = app.state.store
-            credential = app.state.vault.credential(KEY_ID)
-            store.issue(KEY_ID, credential)
+            credential = app.state.store.issue(KEY_ID)
             writer = HeldWriter(store.path)
             sent_body = False
 
@@ -228,10 +223,6 @@ def test_billing_writer_does_not_delay_asgi_or_cancellation(tmp_path, phase):
         observation["http_statuses"] = [m["status"] for m in messages if m["type"] == "http.response.start"]
         observation["sse_done_sent"] = any(b"[DONE]" in m.get("body", b"") for m in messages)
         observation["reservation_estimate"] = prepare(payload, settings.model)[1]
-        observation["source_hashes"] = {
-            str(Path(module.__file__).resolve()): hashlib.sha256(Path(module.__file__).read_bytes()).hexdigest()
-            for module in (gateway, gateway_observation, store_module)
-        }
         (tmp_path / "billing-responsiveness.json").write_text(json.dumps(observation, indent=2) + "\n")
         with sqlite3.connect(state / "usage.sqlite3") as source, sqlite3.connect(tmp_path / "usage-snapshot.sqlite3") as destination:
             source.backup(destination)

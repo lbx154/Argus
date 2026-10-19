@@ -1,5 +1,4 @@
 """Synthetic retained-journal fixtures only; never connect to live trial stores."""
-import hashlib
 import io
 import json
 import subprocess
@@ -32,7 +31,7 @@ def training(tmp_path):
     store = Store(analytics.trial_db, clock=lambda: now[0])
     for tenant, config in analytics.tenants.items():
         with store.transaction() as db:
-            db.execute("INSERT INTO trial_keys(key_id,credential_hash) VALUES (?,?)", (tenant, tenant))
+            db.execute("INSERT INTO trial_keys(key_id,credential) VALUES (?,?)", (tenant, tenant))
         analytics.record_consent(tenant, analytics.notice_version)
         path = config["data_dir"] / "home/.argus-skill/projects/s-project"
         path.mkdir(parents=True)
@@ -114,7 +113,7 @@ def test_independent_consent_version_revoke_regrant_and_no_retroactive_content(t
     assert not data.preview("external_sharing", selection())["projects"][0]["eligible"]
 
 
-def test_real_capture_reviewed_chat_zip_hashes_dedup_and_empty_validation(training):
+def test_real_capture_reviewed_chat_zip_sizes_dedup_and_empty_validation(training):
     data, _, _ = training
     grant(data)
     chat(training)
@@ -136,8 +135,7 @@ def test_real_capture_reviewed_chat_zip_hashes_dedup_and_empty_validation(traini
     assert files["hf_trl_train.jsonl"] == files["sft_train.jsonl"]
     manifest = json.loads(files["manifest.json"])
     for name, metadata in manifest["files"].items():
-        assert hashlib.sha256(files[name]).hexdigest() == metadata["sha256"]
-        assert len(files[name]) == metadata["bytes"]
+        assert metadata == {"bytes": len(files[name])}
     assert manifest["rights_status"] == "unknown" and not manifest["legal_certification"]
     later_only, _ = unpack(data, review={"content_approved": True, "approved_event_ids": [ids[-1]]})
     assert len(records(later_only, "sft_train.jsonl")) == 1
@@ -1066,20 +1064,20 @@ def test_automated_acceptance_exports_evidence_without_claiming_human_review(tra
               "approved_event_ids": [candidate["event_id"]], "reviewer_kind": "automated_acceptance"}
     with pytest.raises(AnalyticsError, match="automated_acceptance_evidence_required"):
         unpack(data, review=review)
-    digest = hashlib.sha256(b"Independent synthetic acceptance report").hexdigest()
-    files, _ = unpack(data, review={**review, "evidence_sha256": digest})
+    size = len(b"Independent synthetic acceptance report")
+    files, _ = unpack(data, review={**review, "evidence_bytes": size})
     manifest = json.loads(files["manifest.json"])
     assert manifest["reviewer_kind"] == "automated_acceptance"
-    assert manifest["human_reviewed"] is False and manifest["evidence_sha256"] == digest
+    assert manifest["human_reviewed"] is False and manifest["evidence_bytes"] == size
     report = json.loads(files["quality_report.json"])
     assert report["review"]["reviewer_kind"] == "automated_acceptance"
     evidence = records(files, "samples.jsonl")[0]["quality_evidence"]
     assert evidence["reviewer_kind"] == "automated_acceptance"
-    assert evidence["human_reviewed"] is False and evidence["evidence_sha256"] == digest
+    assert evidence["human_reviewed"] is False and evidence["evidence_bytes"] == size
     events = data.review_audit()["events"]
     completed = next(event for event in events if event["outcome"] == "completed")
     assert completed["action"] == "training.export.automated_acceptance"
-    assert completed["actor"] == "operator" and completed["evidence_sha256"] == digest
+    assert completed["actor"] == "operator" and completed["evidence_bytes"] == size
     assert b"not human review" in files["README.txt"]
     with data.analytics._db() as db:
         db.execute("DELETE FROM research_audit")
@@ -1096,7 +1094,7 @@ def test_unspecified_review_stays_unspecified_and_reviewer_fields_are_validated(
     assert json.loads(files["manifest.json"])["reviewer_kind"] == "unspecified"
     assert records(files, "samples.jsonl")[0]["quality_evidence"]["human_reviewed"] is False
     for invalid in ({"reviewer_kind": "inferred_human"}, {"reviewer_kind": True},
-                    {"evidence_sha256": "not-a-digest"}):
+                    {"evidence_bytes": "not-a-size"}, {"evidence_bytes": 0}):
         with pytest.raises(ValueError):
             unpack(data, review={**review, **invalid})
 
@@ -1222,15 +1220,15 @@ def test_tool_review_remains_visible_and_expires_with_its_source_episode(trainin
     now[0] += 1
     assert forward_episode(training, pi_observations(now[0]))["state"] == "complete"
     candidate = data.preview("internal_training", selection())["candidates"][0]
-    digest = hashlib.sha256(b"Independent acceptance evidence").hexdigest()
+    size = len(b"Independent acceptance evidence")
     unpack(data, review={"content_approved": True, "tool_context_approved": True,
-                        "reviewer_kind": "automated_acceptance", "evidence_sha256": digest,
+                        "reviewer_kind": "automated_acceptance", "evidence_bytes": size,
                         "approved_event_ids": [candidate["event_id"]]})
     refreshed = data.preview("internal_training", selection())
     assert refreshed["counts"]["tool_sft"] == 1 and refreshed["agentic_tool_training_ready"]
     assert "explicit_tool_context_review_required" not in refreshed["reason_counts"]
     evidence = refreshed["candidates"][0]["quality_evidence"]
-    assert evidence["reviewer_kind"] == "automated_acceptance" and evidence["evidence_sha256"] == digest
+    assert evidence["reviewer_kind"] == "automated_acceptance" and evidence["evidence_bytes"] == size
     assert evidence["human_reviewed"] is False
     now[0] += 31 * 86400
     data.capture.prune()

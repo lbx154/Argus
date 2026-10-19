@@ -126,7 +126,7 @@ class ResearchControls:
             raise ValueError("Satisfaction must be yes, no or unknown")
         deviation = data.get("first_deviation_event_id")
         if deviation is not None and (
-            not isinstance(deviation, str) or not re.fullmatch(r"[A-Za-z0-9_.:-]{1,160}", deviation)
+            not isinstance(deviation, str) or not 0 < len(deviation) <= 1024
         ):
             raise ValueError("Invalid deviation event identifier")
         values = (

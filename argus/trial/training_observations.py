@@ -15,7 +15,7 @@ from pathlib import Path
 from .analytics import AnalyticsError
 from .collaboration_data import ROLES, _code, _role, _task_id
 from .training_capture import OBSERVED_POLICY
-from .training_data import PURPOSES, REVIEWER_KINDS, _hash, _json
+from .training_data import PURPOSES, REVIEWER_KINDS, SAMPLE_FORMAT, _json, _key, _sample_bytes
 
 MAX_PAGE_BYTES = 20 * 1024 * 1024
 MAX_EPISODE_METADATA = 128
@@ -132,7 +132,7 @@ class ObservedData:
         result = {"state": "not_evaluated", "approved": False}
         if runtime.get("capture_policy") == OBSERVED_POLICY or row["state"] != "complete":
             return result
-        key = _hash(_json(["pi_episode", row["tenant_id"], row["sid"], row["id"]]).encode())
+        key = _key("pi_episode", row["tenant_id"], row["sid"], row["id"])
         receipt = db.execute(
             "SELECT * FROM training_sample_reviews WHERE tenant_id=? AND sid=? AND purpose=? AND event_id=?",
             (row["tenant_id"], row["sid"], purpose, key),
@@ -149,7 +149,7 @@ class ObservedData:
                                                     hosted=row["runtime_profile"] == HOSTED_PROFILE)
         except (ValueError, TypeError, KeyError, IndexError):
             return result
-        if _hash(_json(sample).encode()) == receipt["sample_sha256"]:
+        if receipt["sample_format"] == SAMPLE_FORMAT and receipt["sample_bytes"] == _sample_bytes(sample):
             result.update(state="approved", approved=True, reviewer_kind=receipt["reviewer_kind"],
                           reviewed_at=receipt["reviewed_at"])
         return result

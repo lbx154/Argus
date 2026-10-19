@@ -180,7 +180,7 @@ export interface CollaborationEpisode {
   quality_evidence: {
     reviewer_kind: string;
     human_reviewed: boolean;
-    evidence_sha256: string | null;
+    evidence_bytes: number | null;
     reviewed_at: number;
   } | null;
   tool_pairs: ToolPair[];
@@ -331,7 +331,7 @@ export interface AuditEvent {
   action: string;
   outcome: string;
   reviewer_kind: string | null;
-  evidence_sha256: string | null;
+  evidence_bytes: number | null;
   purpose: Purpose | null;
   projects: number | null;
   sft: number | null;

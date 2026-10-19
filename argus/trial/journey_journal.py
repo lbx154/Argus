@@ -50,7 +50,6 @@ independent proof of task success is implied by a lifecycle observation.
 """
 from __future__ import annotations
 
-import hashlib
 import json
 import math
 import os
@@ -123,10 +122,6 @@ _LIMITATIONS = [
 
 def _json(value):
     return json.dumps(value, ensure_ascii=True, allow_nan=False, separators=(",", ":"))
-
-
-def _hash(value):
-    return hashlib.sha256(value).hexdigest()
 
 
 def _scalar(value):
@@ -437,7 +432,7 @@ class Journal:
             elif isinstance(part, list):
                 pending.extend(part)
         warnings = sorted(set(warnings))
-        identity = _hash(_json([*self._key(tenant, sid), source_kind, source]).encode())
+        identity = _json([*self._key(tenant, sid), source_kind, source])
         if not (_scalar(source_timestamp) and not isinstance(source_timestamp, bool)):
             source_timestamp = None
         if isinstance(source_timestamp, str):
@@ -466,7 +461,7 @@ class Journal:
     def _link_http_request(self, db, tenant, sid, interaction_id, task_id, association, response_id):
         """Enrich only the request sharing the exact durable interaction receipt."""
         source = {"name": "interactions", "interaction_id": interaction_id, "phase": "request"}
-        identity = _hash(_json([*self._key(tenant, sid), "http_interaction", source]).encode())
+        identity = _json([*self._key(tenant, sid), "http_interaction", source])
         row = db.execute("SELECT record FROM journey_events WHERE id=?", (identity,)).fetchone()
         if row is None:
             return
@@ -480,7 +475,7 @@ class Journal:
 
     def _repair_http_response(self, db, tenant, sid, source, payload, warnings):
         """Upgrade a retained projection, never resurrect expired/deleted records."""
-        identity = _hash(_json([*self._key(tenant, sid), "http_interaction", source]).encode())
+        identity = _json([*self._key(tenant, sid), "http_interaction", source])
         row = db.execute("SELECT record FROM journey_events WHERE id=?", (identity,)).fetchone()
         if row is None:
             return
@@ -504,7 +499,7 @@ class Journal:
     @staticmethod
     def _fingerprint(handle, offset):
         width = min(offset, 512)
-        return _hash(os.pread(handle, width, 0) + os.pread(handle, width, offset - width))
+        return (os.pread(handle, width, 0) + os.pread(handle, width, offset - width)).hex()
 
     def _runtime(self, db, tenant, sid, directory, checkpoint):
         try:
@@ -590,7 +585,7 @@ class Journal:
             for relative, line, error in positions:
                 source = {
                     "name": "events.jsonl", "generation": checkpoint["generation"],
-                    "offset": start + relative, "sha256": _hash(line) if line else None,
+                    "offset": start + relative, "bytes": len(line) if line else None,
                 }
                 if error:
                     inserted += self._gap(db, tenant, sid, error, source)
@@ -917,10 +912,8 @@ class Journal:
         clean.pop("item_id", None)
         if task_id is not None:
             clean["task_id"] = task_id
-        source = {"name": "user_event", "key": _hash(
-            (idempotency_key if idempotency_key is not None else uuid.uuid4().hex).encode(),
-        )}
-        identity = _hash(_json([*self._key(tenant_id, sid), "user_observation", source]).encode())
+        source = {"name": "user_event", "key": idempotency_key if idempotency_key is not None else uuid.uuid4().hex}
+        identity = _json([*self._key(tenant_id, sid), "user_observation", source])
         self.prune()
         with self.analytics._project(tenant_id, sid) as directory:
             meta, _ = self.analytics._meta(directory, sid)
