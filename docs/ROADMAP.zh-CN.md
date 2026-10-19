@@ -314,8 +314,10 @@
 #### CO-20 删除项目状态目录的 sha1 迁移
 `0.2` · `S` · 依赖：无 · 新人友好
 - 现在：项目状态目录改为按项目路径（或远端地址）百分号转义命名，不再用 `sha1(路径)[:12]`。
-  `core/project.py` 的 `migrate_legacy_project_state` 在查找目录时把旧名字的目录原子改名过去，这是全仓唯一还用哈希的地方。
-- 要做：等带迁移的版本部署过一个发布周期后，删除这个函数、它在 `core/paths.py` 里的调用和对应测试。
+  `core/project.py` 的 `migrate_legacy_project_state` 在查找目录时把旧名字的目录原子改名过去，这是全仓唯一还用哈希的地方；
+  改名前把 `{旧名: 新名}` 记进 `projects/.legacy-names.json`，`resolve_legacy_project_state` 用它把保存下来的旧路径换成新路径。
+- 要做：等带迁移的版本部署过一个发布周期后，删除这两个函数、`_record_legacy_name`、`LEGACY_NAMES`，
+  它们在 `core/paths.py`、`daemon/config.py` 和命令行 `--life-dir` 里的调用，以及对应测试。
 - 做完的样子：`argus/` 下搜不到 `hashlib`。
 
 ---

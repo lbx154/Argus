@@ -391,9 +391,11 @@ layers with dependencies pointing only downward, so a newcomer can find things f
 `0.2` · `S` · Depends on: none · good first issue
 - Today: project state directories are named by percent-encoding the project path (or remote URL) instead of
   `sha1(path)[:12]`. `migrate_legacy_project_state` in `core/project.py` renames an old directory atomically when one is
-  looked up; it is the last use of a hash in the repository.
-- Do: once a release carrying the migration has been deployed for one release cycle, delete the function, its call in
-  `core/paths.py` and its tests.
+  looked up; it is the last use of a hash in the repository. Before renaming it records `{old: new}` in
+  `projects/.legacy-names.json`, which `resolve_legacy_project_state` uses to turn a saved old path into the new one.
+- Do: once a release carrying the migration has been deployed for one release cycle, delete both functions,
+  `_record_legacy_name`, `LEGACY_NAMES`, their calls in `core/paths.py`, `daemon/config.py` and the CLI `--life-dir`,
+  and their tests.
 - Done when: `hashlib` no longer appears under `argus/`.
 
 ---

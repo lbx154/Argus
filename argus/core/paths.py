@@ -138,10 +138,10 @@ def session_state_root(
     root: str | Path | None = None,
 ) -> Path:
     """Return one session's internal state root, never its execution workdir."""
-    from .project import migrate_legacy_project_state
+    from .project import migrate_legacy_project_state, resolve_legacy_project_state
 
     name = _safe_component(session_id, label="session id")
-    return migrate_legacy_project_state(session_states_root(root), name)
+    return resolve_legacy_project_state(migrate_legacy_project_state(session_states_root(root), name))
 
 
 def session_trash_root(root: str | Path | None = None) -> Path:

@@ -1,6 +1,7 @@
 """Tests for ``core.project`` — fingerprinting a working directory."""
 from __future__ import annotations
 
+import json
 import logging
 import subprocess
 from pathlib import Path
@@ -227,3 +228,40 @@ def test_legacy_project_state_with_a_running_daemon_waits(
     assert core_paths.session_state_root(_NAME, root=tmp_path) == states / _NAME
     assert (states / _NAME).is_dir()
     assert not (states / _LEGACY).exists()
+
+
+def test_a_path_saved_before_the_migration_finds_the_new_directory(tmp_path: Path) -> None:
+    from argus.daemon.config import LifeWorkerConfig, config_from_payload, config_payload
+
+    states = core_paths.session_states_root(tmp_path)
+    (states / _LEGACY).mkdir(parents=True)
+    saved = config_payload(LifeWorkerConfig(
+        life_dir=states / _LEGACY, global_root=tmp_path, project_fingerprint=_LEGACY, backend="memory",
+    ))
+    core_paths.session_state_root(_NAME, root=tmp_path)
+
+    assert json.loads((states / project.LEGACY_NAMES).read_text(encoding="utf-8")) == {_LEGACY: _NAME}
+    restarted = config_from_payload(saved)
+    assert restarted.life_dir == states / _NAME
+    assert restarted.project_fingerprint == _NAME
+    assert core_paths.session_state_root(_LEGACY, root=tmp_path) == states / _NAME
+    assert project.resolve_legacy_project_state(states / _LEGACY) == states / _NAME
+    assert sorted(path.name for path in states.iterdir()) == sorted(
+        [_NAME, project.LEGACY_NAMES, ".legacy-names.lock"],
+    )
+
+
+def test_project_scans_ignore_the_legacy_name_table(tmp_path: Path) -> None:
+    import time
+
+    from argus.core.project_gc import gc_stale_projects
+    from argus.core.session import list_sessions
+
+    states = core_paths.session_states_root(tmp_path)
+    (states / _LEGACY).mkdir(parents=True)
+    core_paths.session_state_root(_NAME, root=tmp_path)
+
+    assert [meta.id for meta in list_sessions(tmp_path)] == [_NAME]
+    pruned = gc_stale_projects(tmp_path, retention_days=0, now=time.time() + 86400)
+    assert pruned == [_NAME]
+    assert sorted(path.name for path in states.iterdir()) == [project.LEGACY_NAMES, ".legacy-names.lock"]

@@ -24,6 +24,7 @@ silently to the path branch.
 """
 from __future__ import annotations
 
+import json
 import logging
 import os
 import re
@@ -38,6 +39,7 @@ __all__ = [
     "migrate_legacy_project_state",
     "project_fingerprint",
     "normalize_git_remote",
+    "resolve_legacy_project_state",
     "resolve_project_root",
 ]
 
@@ -51,6 +53,9 @@ _KEPT = frozenset(string.ascii_letters + string.digits + "-_~@+,=")
 _MAX_NAME_BYTES = 255
 # Project state directories this process already checked for an older name.
 _MIGRATION_CHECKED: set[tuple[str, str]] = set()
+# 迁移专用，下个版本删除: ``{old name: new name}`` of every migrated directory,
+# beside them; the leading dot keeps it out of every project scan.
+LEGACY_NAMES = ".legacy-names.json"
 
 
 def resolve_project_root(explicit: str | Path | None = None) -> Path:
@@ -133,9 +138,10 @@ def migrate_legacy_project_state(states_root: Path, name: str) -> Path:
 
     Returns the state directory of ``name``. Releases before this one named a
     project's directory ``sha1(label)[:12]``; when only that one exists it is
-    renamed to ``name`` in one atomic step, unless a daemon still runs in it,
-    which keeps it until a lookup after the daemon stops. When both exist, the
-    new one is used and the old one is left untouched.
+    recorded in :data:`LEGACY_NAMES` and renamed to ``name`` in one atomic
+    step, unless a daemon still runs in it, which keeps it until a lookup after
+    the daemon stops. When both exist, the new one is used and the old one is
+    left untouched.
     """
     import hashlib
 
@@ -156,6 +162,11 @@ def migrate_legacy_project_state(states_root: Path, name: str) -> Path:
         return legacy
     else:
         try:
+            _record_legacy_name(states_root, legacy.name, name)
+        except (OSError, ValueError):  # unrecorded, a saved old path would lose it; try again later
+            log.warning("project state %s was not migrated: its new name could not be recorded", legacy)
+            return legacy
+        try:
             os.rename(legacy, target)
         except OSError:  # another process migrated it, or created the new one, first
             pass
@@ -163,6 +174,49 @@ def migrate_legacy_project_state(states_root: Path, name: str) -> Path:
             log.info("migrated project state %s to %s", legacy, target)
     _MIGRATION_CHECKED.add(key)
     return target
+
+
+def _record_legacy_name(states_root: Path, legacy: str, name: str) -> None:
+    """迁移专用，下个版本删除: add ``legacy -> name`` to :data:`LEGACY_NAMES`."""
+    from .atomic_replace import replace
+    from .file_lock import exclusive_file_lock
+
+    table = states_root / LEGACY_NAMES
+    temporary = table.with_name(f"{LEGACY_NAMES}.{os.getpid()}.tmp")
+    with (
+        open(table.with_suffix(".lock"), "a+b") as handle,
+        exclusive_file_lock(handle, lock_name="legacy project names"),
+    ):
+        try:
+            names = json.loads(table.read_text(encoding="utf-8"))
+        except FileNotFoundError:
+            names = {}
+        names[legacy] = name
+        try:
+            with temporary.open("w", encoding="utf-8") as output:
+                json.dump(names, output, ensure_ascii=False, indent=1)
+                output.flush()
+                os.fsync(output.fileno())
+            replace(temporary, table)
+        finally:
+            temporary.unlink(missing_ok=True)
+
+
+def resolve_legacy_project_state(path: Path) -> Path:
+    """迁移专用，下个版本删除 (migration only; delete in the next release).
+
+    ``path``, or, when it does not exist and names a directory a migration
+    renamed, the directory it was renamed to: a path saved before the
+    migration still finds its project and never recreates an empty one.
+    """
+    path = Path(path)
+    if path.exists():
+        return path
+    try:
+        name = json.loads((path.parent / LEGACY_NAMES).read_text(encoding="utf-8")).get(path.name)
+    except (OSError, ValueError, AttributeError):
+        return path
+    return path.parent / name if isinstance(name, str) and name else path
 
 
 def _git_env() -> dict[str, str]:
