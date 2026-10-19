@@ -2,18 +2,16 @@
 from __future__ import annotations
 
 import asyncio
-import hashlib
 import json
 import socket
 import time
-from pathlib import Path
 
 import httpx
 import pytest
 import uvicorn
 from hosted_platform import linux_host_deadlines
 
-from argus.trial import gateway, gateway_accounting
+from argus.trial import gateway
 from tests.trial.test_gateway_billing_responsiveness import KEY_ID, PAYLOAD, response_data
 from tests.trial.test_gateway_billing_shutdown import lock_available, settings_for
 
@@ -67,8 +65,7 @@ def test_actual_tcp_disconnect_releases_slot_before_upstream_gate(tmp_path, phas
         try:
             assert await wait_until(lambda: server.started)
             store = app.state.store
-            credential = app.state.vault.credential(KEY_ID)
-            store.issue(KEY_ID, credential)
+            credential = app.state.store.issue(KEY_ID)
             if phase == "authorization":
                 original = app.state.copilot.authorization
 
@@ -125,10 +122,6 @@ def test_actual_tcp_disconnect_releases_slot_before_upstream_gate(tmp_path, phas
         observation["new_tasks_remaining_after_shutdown"] = [
             task.get_name() for task in asyncio.all_tasks() if task not in baseline_tasks and not task.done()
         ]
-        observation["source_hashes"] = {
-            str(Path(module.__file__).resolve()): hashlib.sha256(Path(module.__file__).read_bytes()).hexdigest()
-            for module in (gateway, gateway_accounting)
-        }
 
     asyncio.run(run())
     (tmp_path / "tcp-disconnect-observation.json").write_text(json.dumps(observation, indent=2) + "\n")
@@ -202,8 +195,7 @@ def test_tcp_disconnect_then_shutdown_keeps_late_response_and_close_owned(tmp_pa
         try:
             assert await wait_until(lambda: server.started)
             store = app.state.store
-            credential = app.state.vault.credential(KEY_ID)
-            store.issue(KEY_ID, credential)
+            credential = app.state.store.issue(KEY_ID)
             _reader, writer = await asyncio.open_connection(*listener.getsockname())
             body = json.dumps(PAYLOAD).encode()
             headers = ("POST /v1/chat/completions HTTP/1.1\r\nHost: localhost\r\n"

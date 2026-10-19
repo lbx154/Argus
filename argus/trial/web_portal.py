@@ -40,8 +40,6 @@ from __future__ import annotations
 
 import argparse
 import asyncio
-import hashlib
-import hmac
 import html
 import ipaddress
 import json
@@ -59,7 +57,6 @@ from urllib.parse import parse_qsl, quote, urlencode, urlsplit
 
 import anyio
 import httpx
-from cryptography.fernet import InvalidToken
 from fastapi import FastAPI, HTTPException, Request, WebSocket, WebSocketDisconnect
 from fastapi.responses import (
     HTMLResponse,
@@ -85,8 +82,6 @@ ADMIN_COOKIE = "argus_admin_session"
 SESSION_SECONDS = 7 * 24 * 3600
 RESEARCH_POLL_SECONDS = 5
 MAX_BODY_BYTES = 16 * 1024 * 1024
-COOKIE_DOMAIN = b"argus-web-invitation-session-v1\x00"
-ADMIN_COOKIE_DOMAIN = b"argus-web-private-admin-session-v2\x00"
 TENANT_IDS = {f"trial-{number:02d}" for number in range(1, 12)}
 LEGACY_TENANT_IDS = TENANT_IDS - {"trial-11"}
 SAFE_METHODS = {"GET", "HEAD"}
@@ -743,27 +738,12 @@ def create_app(config: dict | str | Path | Settings | None = None, *,
         app.state.session_limiter = anyio.CapacityLimiter(16)
         vault = Vault(settings.key_file, settings.state_dir / "github-token.enc")
         store = Store(settings.state_dir / "usage.sqlite3", token_limit=settings.token_limit,
-                      key_limit=len(settings.tenants))
+                      key_limit=len(settings.tenants), master_key=settings.key_file)
         # Check provisioned identities, without issuing keys, recovering active
         # requests, or acquiring the model gateway's process ownership lock.
-        for key_id in settings.tenants:
-            with store.transaction() as db:
-                found = db.execute("SELECT credential_hash FROM trial_keys WHERE key_id=?", (key_id,)).fetchone()
-            if found is None or not hmac.compare_digest(
-                found[0], hashlib.sha256(vault.credential(key_id).encode()).hexdigest(),
-            ):
-                raise ValueError("Provisioned trial identities do not match the master key")
+        if any(store.credential(key_id) is None for key_id in settings.tenants):
+            raise ValueError("Provisioned trial identities are missing from the trial store")
         app.state.vault, app.state.store = vault, store
-        # Bind admin cookies to the current private login authority. Previously
-        # issued public-demo cookies and cookies from a rotated login cannot pass.
-        app.state.admin_binding = (
-            hmac.digest(
-                vault.signing_key,
-                b"argus-web-private-admin-session-v1\x00" + settings.admin_login_token.encode(),
-                "sha256",
-            ).hex()
-            if settings.admin_login_token is not None else None
-        )
         async with httpx.AsyncClient(
             transport=transport if transport is not None else BackendTransport(settings),
             trust_env=False, follow_redirects=False,
@@ -824,42 +804,26 @@ def create_app(config: dict | str | Path | Settings | None = None, *,
 
     def read_session(request: Request | WebSocket, *, admin: bool = False) -> dict | None:
         cookie = request.cookies.get(ADMIN_COOKIE if admin else COOKIE, "")
-        if not cookie or len(cookie) > 4096:
+        if not cookie or len(cookie) > 128:
             return None
-        domain = ADMIN_COOKIE_DOMAIN if admin else COOKIE_DOMAIN
-        try:
-            raw = app.state.vault.cipher.decrypt(cookie.encode(), ttl=SESSION_SECONDS)
-            if not raw.startswith(domain):
-                return None
-            value = json.loads(raw[len(domain):])
-            if not isinstance(value, dict):
-                return None
-            fields = {"tenant", "role", "readonly", "exp"}
-            if admin:
-                fields.add("admin_binding")
-            if (
-                set(value) != fields
-                or type(value["readonly"]) is not bool or type(value["exp"]) is not int
-                or value["exp"] <= time.time() or value["exp"] > time.time() + SESSION_SECONDS
-                or value["role"] != ("admin" if admin else "trial")
-                or not isinstance(value["tenant"], str)
-                or (not admin and value["tenant"] not in settings.tenants)
-                or (admin and value["tenant"] != "admin")
-            ):
-                return None
-            if admin and (
-                app.state.admin_binding is None or not isinstance(value["admin_binding"], str)
-                or not hmac.compare_digest(value["admin_binding"], app.state.admin_binding)
-            ):
-                return None
-            if not admin:
-                try:
-                    app.state.store.check_access(value["tenant"])
-                except TrialError:
-                    return None
-            return value
-        except (InvalidToken, ValueError, UnicodeError, TypeError):
+        value = app.state.store.session(cookie)
+        if (
+            value is None
+            or value["role"] != ("admin" if admin else "trial")
+            or (not admin and value["tenant"] not in settings.tenants)
+        ):
             return None
+        if admin:
+            # A rotated login authority ends every administrator session it opened.
+            login = settings.admin_login_token
+            if login is None or not secrets.compare_digest(value.pop("admin_login").encode(), login.encode()):
+                return None
+        else:
+            try:
+                app.state.store.check_access(value["tenant"])
+            except TrialError:
+                return None
+        return value
 
     def session(request: Request | WebSocket) -> dict | None:
         if "argus.portal_session" in request.scope:
@@ -869,12 +833,11 @@ def create_app(config: dict | str | Path | Settings | None = None, *,
 
     def set_session(response, tenant: str, readonly: bool, role: str = "trial"):
         admin = role == "admin"
-        value = {"tenant": tenant, "role": role, "readonly": readonly,
-                 "exp": int(time.time()) + SESSION_SECONDS}
+        expires = int(time.time()) + SESSION_SECONDS
+        value = {"tenant": tenant, "role": role, "readonly": readonly, "exp": expires}
         if admin:
-            value["admin_binding"] = app.state.admin_binding
-        domain = ADMIN_COOKIE_DOMAIN if admin else COOKIE_DOMAIN
-        cookie = app.state.vault.cipher.encrypt(domain + json.dumps(value).encode()).decode()
+            value["admin_login"] = settings.admin_login_token
+        cookie = app.state.store.open_session(value, expires)
         response.set_cookie(ADMIN_COOKIE if admin else COOKIE, cookie, max_age=SESSION_SECONDS,
                             secure=settings.secure_cookie, httponly=True, samesite="strict",
                             path="/admin" if admin else "/")
@@ -960,6 +923,7 @@ def create_app(config: dict | str | Path | Settings | None = None, *,
         response = (RedirectResponse("/admin/login", status_code=303)
                     if "text/html" in request.headers.get("accept", "")
                     else JSONResponse({"redirect": "/admin/login"}))
+        await run_in_threadpool(app.state.store.close_session, request.cookies.get(ADMIN_COOKIE, ""))
         response.delete_cookie(ADMIN_COOKIE, path="/admin", secure=settings.secure_cookie,
                                httponly=True, samesite="strict")
         return response
@@ -973,7 +937,7 @@ def create_app(config: dict | str | Path | Settings | None = None, *,
                 or not isinstance(token, str) or type(readonly) is not bool):
             raise HTTPException(400, "Invalid administrator sign-in")
         if (settings.admin_login_token is None
-                or not hmac.compare_digest(token.encode(), settings.admin_login_token.encode())):
+                or not secrets.compare_digest(token.encode(), settings.admin_login_token.encode())):
             raise HTTPException(401, "Invalid administrator credentials")
         if analytics is not None:
             await run_in_threadpool(
@@ -1090,6 +1054,7 @@ def create_app(config: dict | str | Path | Settings | None = None, *,
             if "text/html" in request.headers.get("accept", "")
             else JSONResponse({"redirect": "/invite"})
         )
+        await run_in_threadpool(app.state.store.close_session, request.cookies.get(COOKIE, ""))
         response.delete_cookie(COOKIE, path="/", secure=settings.secure_cookie,
                                httponly=True, samesite="strict")
         return response
@@ -1101,12 +1066,12 @@ def create_app(config: dict | str | Path | Settings | None = None, *,
         # logic never sees or stores the administrator credential.
         if path == "/" and request.method == "GET" and "token" in request.query_params:
             values = request.query_params.getlist("token")
-            if settings.admin is not None and len(values) == 1 and hmac.compare_digest(values[0].encode(), settings.admin.token.encode()):
+            if settings.admin is not None and len(values) == 1 and secrets.compare_digest(values[0].encode(), settings.admin.token.encode()):
                 return RedirectResponse("/invite", status_code=303)
             if (
                 len(values) != 1
                 or settings.admin_login_token is None
-                or not hmac.compare_digest(values[0].encode(), settings.admin_login_token.encode())
+                or not secrets.compare_digest(values[0].encode(), settings.admin_login_token.encode())
             ):
                 raise HTTPException(401, "入口凭证无效")
             if request.headers.get("origin") and not same_origin(request):
@@ -1151,7 +1116,7 @@ def create_app(config: dict | str | Path | Settings | None = None, *,
             if not compute_permitted(path, request.method):
                 raise HTTPException(403, "Route not available")
             backend = settings.compute
-            credential = app.state.vault.credential(identity["tenant"])
+            credential = app.state.store.credential(identity["tenant"])
             route_key = "compute"
         else:
             if not permitted(path, request.method):

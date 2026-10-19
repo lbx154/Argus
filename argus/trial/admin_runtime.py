@@ -17,15 +17,16 @@ from .secrets import Vault, write_private
 
 
 def configure_provider(root: Path, agent_bin: Path, vault: Vault, *, tenant: str | None = None,
-                       model_port: int = 18765, training_socket: Path | None = None) -> None:
+                       api_key: str | None = None, model_port: int = 18765,
+                       training_socket: Path | None = None) -> None:
     from ..core.knob_store import write_persisted_knobs
     from ..core.knobs import KNOBS
 
     if not agent_bin.is_file() or not os.access(agent_bin, os.X_OK):
         raise ValueError("The configured Argus-Pi executable is unavailable")
-    if tenant and training_socket is None:
-        raise ValueError("An enrolled workspace requires a training socket")
-    token = vault.credential(tenant) if tenant else vault.read()
+    if tenant and (training_socket is None or not api_key):
+        raise ValueError("An enrolled workspace requires a training socket and its trial credential")
+    token = api_key if tenant else vault.read()
     agent_dir = root / ("argus-pi" if tenant else "argus-pi-admin")
     provider = {
         "baseUrl": f"http://127.0.0.1:{model_port}/v1" if tenant else BASE_URL,
@@ -104,7 +105,10 @@ def main() -> None:
         if endpoint.uds != str(args.uds.resolve()):
             parser.error("The workspace socket must match its configured tenant endpoint")
         args.uds.parent.mkdir(parents=True, exist_ok=True, mode=0o700)
-        configure_provider(root, args.pi_bin.resolve(strict=True), vault, tenant=args.tenant,
+        from .store import Store
+
+        api_key = Store(settings.state_dir / "usage.sqlite3", master_key=settings.key_file).credential(args.tenant)
+        configure_provider(root, args.pi_bin.resolve(strict=True), vault, tenant=args.tenant, api_key=api_key,
                            model_port=args.model_port, training_socket=args.uds.parent / "training.sock")
         from ..webapi.server import create_app
         from .socket_forward import start_forward

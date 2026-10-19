@@ -2,15 +2,11 @@
 from __future__ import annotations
 
 import asyncio
-import hashlib
 import json
-from pathlib import Path
 
 import httpx
 import pytest
 
-from argus.trial import gateway, gateway_accounting, gateway_observation
-from argus.trial import store as store_module
 from argus.trial.gateway import create_app, prepare
 from tests.trial.test_gateway_billing_responsiveness import (
     KEY_ID,
@@ -53,8 +49,7 @@ def test_upstream_close_errors_keep_http_and_observation_consistent(tmp_path, mo
         app = create_app(settings, transport=httpx.MockTransport(provider))
         async with app.router.lifespan_context(app):
             store = app.state.store
-            credential = app.state.vault.credential(KEY_ID)
-            store.issue(KEY_ID, credential)
+            credential = app.state.store.issue(KEY_ID)
             receive, send = asgi_exchange(payload, messages)
             observation["asgi_exception"] = None
             try:
@@ -78,10 +73,6 @@ def test_upstream_close_errors_keep_http_and_observation_consistent(tmp_path, mo
             m["type"] == "http.response.body" and not m.get("more_body", False) for m in messages
         )
         observation["sse_done_sent"] = b"[DONE]" in body
-        observation["source_hashes"] = {
-            str(Path(module.__file__).resolve()): hashlib.sha256(Path(module.__file__).read_bytes()).hexdigest()
-            for module in (gateway, gateway_accounting, gateway_observation, store_module)
-        }
 
     asyncio.run(run())
     (tmp_path / "billing-close-error.json").write_text(json.dumps(observation, indent=2) + "\n")

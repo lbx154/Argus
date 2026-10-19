@@ -229,8 +229,7 @@ def test_real_argus_setup_and_copilot_tool_round_trip(tmp_path, monkeypatch, loc
     while not server.started and time.monotonic() < deadline:
         time.sleep(0.01)
     assert server.started
-    credential = app.state.vault.credential("test-key")
-    app.state.store.issue("test-key", credential)
+    credential = app.state.store.issue("test-key")
     project = Path(__file__).resolve().parents[2]
     # Isolate Copilot/Argus state and remove all inherited provider credentials and
     # role overrides. Preserve HOME itself rather than repurposing it.

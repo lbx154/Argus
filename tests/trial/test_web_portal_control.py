@@ -27,7 +27,7 @@ def provisioned(tmp_path):
     vault = Vault(key, state / "github-token.enc")
     store = Store(state / "usage.sqlite3", key_limit=len(portal.TENANT_IDS))
     for tenant in portal.TENANT_IDS:
-        store.issue(tenant, vault.credential(tenant))
+        store.issue(tenant)
     config = {
         "state_dir": str(state), "key_file": str(key),
         "tenants": {
@@ -38,9 +38,9 @@ def provisioned(tmp_path):
     return config, vault, store
 
 
-async def login(client, vault, tenant="trial-01", *, readonly=False):
+async def login(client, store, tenant="trial-01", *, readonly=False):
     response = await client.post("/invite/login", headers={"Origin": ORIGIN}, json={
-        "code": vault.credential(tenant), "readonly": readonly,
+        "code": store.credential(tenant), "readonly": readonly,
         "data_notice_accepted": True,
         "notice_version": COMBINED_NOTICE_VERSION,
     })
@@ -76,8 +76,8 @@ def test_slow_authorization_leaves_event_loop_and_other_tenant_control_available
                 httpx.AsyncClient(transport=httpx.ASGITransport(app), base_url=ORIGIN) as slow_client,
                 httpx.AsyncClient(transport=httpx.ASGITransport(app), base_url=ORIGIN) as other_client,
             ):
-                await login(slow_client, vault)
-                await login(other_client, vault, "trial-02")
+                await login(slow_client, store)
+                await login(other_client, store, "trial-02")
                 original = app.state.store.check_access
                 loop_thread = threading.get_ident()
 
@@ -116,7 +116,7 @@ def test_slow_authorization_leaves_event_loop_and_other_tenant_control_available
 
 
 def test_reserved_pool_forwards_control_while_real_data_connection_is_occupied(provisioned, monkeypatch):
-    config, vault, _ = provisioned
+    config, vault, store = provisioned
     real_transport = httpx.AsyncHTTPTransport
     pools = []
 
@@ -178,7 +178,7 @@ def test_reserved_pool_forwards_control_while_real_data_connection_is_occupied(p
         try:
             async with server, app.router.lifespan_context(app):
                 async with httpx.AsyncClient(transport=httpx.ASGITransport(app), base_url=ORIGIN) as client:
-                    await login(client, vault)
+                    await login(client, store)
                     stream = asyncio.create_task(client.post(
                         "/api/projects/demo/message/stream", headers={"Origin": ORIGIN}, json={"text": "run"},
                     ))
@@ -258,7 +258,7 @@ def test_reserved_pool_forwards_control_while_real_data_connection_is_occupied(p
                         assert all("overflow=1" not in path for _, path, _ in seen)
                         release_controls.set()
                         assert all(response.status_code == 200 for response in await asyncio.gather(*controls))
-                        await login(client, vault, readonly=True)
+                        await login(client, store, readonly=True)
                         readonly = await client.post(
                             "/api/projects/demo/daemon/stop", headers={"Origin": ORIGIN}, json={},
                         )
@@ -296,14 +296,14 @@ def test_reserved_pool_forwards_control_while_real_data_connection_is_occupied(p
     ("Sun, 99 Sep 2026 12:00:00 GMT", None),
 ])
 def test_retry_after_reaches_browser_without_backend_error_content(provisioned, value, expected):
-    config, vault, _ = provisioned
+    config, vault, store = provisioned
     app = portal.create_app(config, transport=httpx.MockTransport(lambda request: httpx.Response(
         503, headers={"Retry-After": value},
         json={"detail": "internal-trial-01-secret /private/backend/file"},
     )))
     with TestClient(app, base_url=ORIGIN) as client:
         assert client.post("/invite/login", headers={"Origin": ORIGIN}, json={
-            "code": vault.credential("trial-01"),
+            "code": store.credential("trial-01"),
         }).status_code == 200
         response = client.get("/api/projects")
         assert response.status_code == 503
@@ -313,13 +313,13 @@ def test_retry_after_reaches_browser_without_backend_error_content(provisioned, 
 
 
 def test_retry_after_nominated_as_hop_header_is_not_forwarded(provisioned):
-    config, vault, _ = provisioned
+    config, vault, store = provisioned
     app = portal.create_app(config, transport=httpx.MockTransport(lambda request: httpx.Response(
         503, headers={"Retry-After": "1", "Connection": "Retry-After"},
     )))
     with TestClient(app, base_url=ORIGIN) as client:
         assert client.post("/invite/login", headers={"Origin": ORIGIN}, json={
-            "code": vault.credential("trial-01"),
+            "code": store.credential("trial-01"),
         }).status_code == 200
         response = client.get("/api/projects")
         assert response.status_code == 503 and "Retry-After" not in response.headers
@@ -327,7 +327,7 @@ def test_retry_after_nominated_as_hop_header_is_not_forwarded(provisioned):
 
 @pytest.mark.parametrize("failure", [sqlite3.OperationalError, OSError])
 def test_authorization_storage_failure_stays_closed_and_sanitized(provisioned, monkeypatch, failure):
-    config, vault, _ = provisioned
+    config, vault, store = provisioned
     forwarded = []
     app = portal.create_app(config, transport=httpx.MockTransport(lambda request: forwarded.append(request)))
 
@@ -336,7 +336,7 @@ def test_authorization_storage_failure_stays_closed_and_sanitized(provisioned, m
 
     with TestClient(app, base_url=ORIGIN) as client:
         assert client.post("/invite/login", headers={"Origin": ORIGIN}, json={
-            "code": vault.credential("trial-01"),
+            "code": store.credential("trial-01"),
         }).status_code == 200
         monkeypatch.setattr(app.state.store, "check_access", unavailable)
         response = client.post("/api/projects/demo/daemon/stop", headers={"Origin": ORIGIN}, json={})

@@ -159,14 +159,14 @@ def test_gateway_observation_does_not_invent_legacy_times_or_statuses(tmp_path):
     with sqlite3.connect(path) as db:
         db.executescript("""
             CREATE TABLE trial_keys (
-                key_id TEXT PRIMARY KEY, credential_hash TEXT UNIQUE NOT NULL,
+                key_id TEXT PRIMARY KEY, credential TEXT UNIQUE NOT NULL,
                 used INTEGER NOT NULL DEFAULT 0 CHECK (used >= 0), claim_hash TEXT UNIQUE
             );
             CREATE TABLE trial_requests (
                 id INTEGER PRIMARY KEY, key_id TEXT NOT NULL REFERENCES trial_keys(key_id),
                 reserved INTEGER NOT NULL, charged INTEGER NOT NULL, state TEXT NOT NULL DEFAULT 'active'
             );
-            INSERT INTO trial_keys VALUES ('legacy', 'existing-credential-hash', 120, NULL);
+            INSERT INTO trial_keys VALUES ('legacy', 'existing-credential', 120, NULL);
             INSERT INTO trial_requests VALUES (1, 'legacy', 1000, 20, 'settled');
             INSERT INTO trial_requests VALUES (2, 'legacy', 100, 100, 'active');
         """)

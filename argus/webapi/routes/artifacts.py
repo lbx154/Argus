@@ -164,8 +164,8 @@ def register_artifact_routes(app, ctx: ServerContext) -> None:
         sid: str,
         response: Response,
         path: str = Query(..., min_length=1, max_length=1024),
-        before: str = Query(..., pattern=r"^[0-9a-f]{64}$"),
-        after: str = Query(..., pattern=r"^[0-9a-f]{64}$"),
+        before: str = Query(..., pattern=r"^[0-9a-f]{32}$"),
+        after: str = Query(..., pattern=r"^[0-9a-f]{32}$"),
     ) -> dict[str, Any]:
         response.headers["Cache-Control"] = "private, no-store"
         return ctx.not_found_if_none(

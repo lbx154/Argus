@@ -58,8 +58,7 @@ def test_queued_request_cancels_before_observation_writer_releases(tmp_path):
         app = create_app(Settings(state, key, timeout=2), transport=httpx.MockTransport(forbidden))
         async with app.router.lifespan_context(app):
             store = app.state.store
-            credential = app.state.vault.credential("a" * 64)
-            store.issue("a" * 64, credential)
+            credential = app.state.store.issue("a" * 64)
             app.state.request_slots = asyncio.Semaphore(0)
             async with httpx.AsyncClient(transport=httpx.ASGITransport(app), base_url="http://test") as client:
                 assert (await client.get("/healthz")).status_code == 200

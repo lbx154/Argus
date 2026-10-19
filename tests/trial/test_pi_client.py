@@ -144,8 +144,7 @@ def test_real_pi_chat_completions_text_tools_and_follow_up(tmp_path, monkeypatch
         while not server.started and time.monotonic() < deadline:
             time.sleep(0.01)
         assert server.started
-        credential = app.state.vault.credential("pi-test-key")
-        app.state.store.issue("pi-test-key", credential)
+        credential = app.state.store.issue("pi-test-key")
         env["ARGUS_PI_TEST_KEY"] = credential
         for prompt, expected in prompts:
             result = subprocess.run(

@@ -34,8 +34,8 @@ def test_fixed_ten_keys_and_rerun_preserves_usage(pool, tmp_path):
     if os.name == "posix":  # Windows grants access through ACLs, not mode bits.
         assert (tmp_path / "operator-keys.json").stat().st_mode & 0o777 == 0o600
     with pytest.raises(ValueError, match="10 trial keys"):
-        store.issue("eleventh", vault.credential("eleventh"))
-    assert all(k["api_key"].encode() not in store.path.read_bytes() for k in keys)
+        store.issue("eleventh")
+    assert all(store.credential(k["key_id"]) == k["api_key"] for k in keys)
 
 
 def test_concurrent_issuance_never_exceeds_ten_keys(tmp_path):
@@ -70,12 +70,12 @@ def test_explicit_eleventh_key_keeps_first_ten_credentials_balances_and_normal_a
     issue_keys(vault, tmp_path, tmp_path / "operator-keys.json", key_count=11)
     assert (tmp_path / "operator-keys.json").read_bytes() == before
     with pytest.raises(ValueError, match="11 trial keys"):
-        Store(store.path, key_limit=11).issue("trial-12", vault.credential("trial-12"))
+        Store(store.path, key_limit=11).issue("trial-12")
 
 
 def test_public_claim_and_recovery_are_removed_but_private_keys_work(pool):
     settings, vault, store = pool
-    key = vault.credential("trial-01")
+    key = store.credential("trial-01")
     record = store.reserve("trial-01", 100)
     store.settle(record, 30)
     with TestClient(create_app(settings), base_url="https://argusbot.cn") as browser:
@@ -95,14 +95,14 @@ def test_public_claim_and_recovery_are_removed_but_private_keys_work(pool):
 def test_old_machine_credential_is_not_accepted(pool):
     settings, vault, _store = pool
     with TestClient(create_app(settings)) as client:
-        old = vault.credential("a" * 64)
+        old = "argus_trial_" + "a" * 64
         assert client.get("/trial/status", headers={"Authorization": "Bearer " + old}).status_code == 401
 
 
 def test_only_downloads_are_public_even_if_old_pages_remain_on_disk(pool, tmp_path):
     from dataclasses import replace
 
-    settings, vault, _store = pool
+    settings, vault, store = pool
     site = tmp_path / "site"
     for folder in ("trial", "zh/trial", "trial/downloads"):
         path = site / folder
@@ -117,5 +117,5 @@ def test_only_downloads_are_public_even_if_old_pages_remain_on_disk(pool, tmp_pa
         response = client.get("/trial/downloads/argus.whl")
         assert response.status_code == 200 and response.content == b"wheel"
         assert response.headers["cache-control"] == "no-store"
-        auth = {"Authorization": "Bearer " + vault.credential("trial-01")}
+        auth = {"Authorization": "Bearer " + store.credential("trial-01")}
         assert client.get("/trial/status", headers=auth).status_code == 200

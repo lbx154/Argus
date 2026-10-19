@@ -20,7 +20,7 @@ def setup(tmp_path):
     }
     meter, compute = tmp_path / "usage.sqlite3", tmp_path / "compute.sqlite3"
     with closing(sqlite3.connect(meter)) as db, db:
-        db.execute("CREATE TABLE trial_keys(key_id TEXT,used INTEGER,credential_hash TEXT)")
+        db.execute("CREATE TABLE trial_keys(key_id TEXT,used INTEGER,credential TEXT)")
         db.executemany(
             "INSERT INTO trial_keys VALUES(?,?,?)",
             [("trial-01", 123, "DO-NOT-READ"), ("trial-02", 456, "DO-NOT-READ"),

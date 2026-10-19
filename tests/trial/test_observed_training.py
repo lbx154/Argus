@@ -243,7 +243,7 @@ def test_legacy_approved_sample_and_raw_source_are_preserved(training):
     selection = [{"tenant_id": "tenant-one", "sid": "s-project"}]
     candidate = data.preview("internal_training", selection)["candidates"][0]
     data.export("internal_training", selection, review={"content_approved": True, "tool_context_approved": True,
-                "approved_event_ids": [candidate["event_id"]], "reviewer_kind": "automated_acceptance", "evidence_sha256": "a" * 64})
+                "approved_event_ids": [candidate["event_id"]], "reviewer_kind": "automated_acceptance", "evidence_bytes": 64})
     with data.analytics._db() as db:
         original = db.execute("SELECT record FROM training_tool_episodes").fetchone()[0]
     page = data.observations("internal_training", "tenant-one", "s-project")

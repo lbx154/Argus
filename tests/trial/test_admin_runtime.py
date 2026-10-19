@@ -67,15 +67,14 @@ def test_existing_workspace_enrolls_with_trial_meter_and_live_capture_without_mo
     binary.write_text("#!/bin/sh\nexit 0\n")
     binary.chmod(0o700)
     vault = Mock(spec=Vault)
-    vault.credential.return_value = "argus_trial_" + "a" * 64
+    api_key = "argus_trial_" + "a" * 64
     socket = tmp_path / "run" / "training.sock"
     with patch.dict(os.environ, {"ARGUS_ADMIN_PROVIDER_TOKEN": "old-provider-secret"}):
-        configure_provider(root, binary, vault, tenant="trial-11", training_socket=socket)
+        configure_provider(root, binary, vault, tenant="trial-11", api_key=api_key, training_socket=socket)
         vault.read.assert_not_called()
-        vault.credential.assert_called_once_with("trial-11")
         provider = json.loads((root / "argus-pi" / "models.json").read_text())["providers"]["argus"]
         assert provider["api"] == "openai-completions"
-        assert provider["apiKey"] == vault.credential.return_value
+        assert provider["apiKey"] == api_key
         assert provider["baseUrl"] == "http://127.0.0.1:18765/v1"
         assert "headers" not in provider and "old-provider-secret" not in json.dumps(provider)
         assert "ARGUS_ADMIN_PROVIDER_TOKEN" not in os.environ
@@ -99,9 +98,9 @@ def test_native_restart_keeps_explicit_map_effort_and_research_effort(tmp_path, 
     binary.write_text("#!/bin/sh\nexit 0\n")
     binary.chmod(0o700)
     vault = Mock(spec=Vault)
-    vault.credential.return_value = "test-only-credential"
     with patch.dict(os.environ):
-        configure_provider(tmp_path, binary, vault, tenant="trial-11", training_socket=tmp_path / "training.sock")
+        configure_provider(tmp_path, binary, vault, tenant="trial-11", api_key="test-only-credential",
+                           training_socket=tmp_path / "training.sock")
         assert os.environ["ARGUS_SKILL_MAP_REASONING_EFFORT"] == "low"
         saved = read_persisted_knobs()
         assert saved["ARGUS_SKILL_MAP_REASONING_EFFORT"] == "low"
