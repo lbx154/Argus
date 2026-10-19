@@ -14,6 +14,8 @@ from __future__ import annotations
 
 import json
 import time
+
+import pytest
 from pathlib import Path
 
 from argus.apps._inbox import queue_inbox_message
@@ -305,3 +307,48 @@ def test_planner_errors_never_arm_the_skip(tmp_path: Path, monkeypatch) -> None:
     # answered from a decision that was never made.
     assert supervisor._plan_next_work() == PLAN_AWAITING
     assert calls["count"] == 2
+
+
+@pytest.mark.parametrize("declared", [False, True])
+def test_hours_waiting_on_an_answer_cost_no_more_planner_calls(
+    tmp_path: Path, monkeypatch, declared: bool
+) -> None:
+    """The daemon returns at least every IDLE_BACKOFF_CAP_SECONDS while a
+    mission waits on the operator's answer. A return is not news: on unchanged
+    inputs it buys no Planner turn, whether the Planner waits plainly or
+    declares the operator wait (which earns one idle-capacity turn)."""
+    from argus.life.supervisor._constants import IDLE_BACKOFF_CAP_SECONDS
+
+    project = tmp_path / "project"
+    project.mkdir()
+    verdict = PlannerVerdict(
+        project_done=False,
+        reason="the dataset choice is the operator's",
+        waiting=True,
+        waiting_reason="the dataset choice is the operator's",
+        waiting_contract=WaitingContract(
+            blocker_fingerprint="dataset-choice",
+            recheck_condition="the operator picks a dataset",
+            recheck_token="dataset-choice",
+            operator_action_required=True,
+        ),
+    ) if declared else _waiting_verdict()
+    calls = _install_planner(monkeypatch, verdicts=[verdict] * 36)
+    supervisor = _supervisor(project, tmp_path / "life")
+    if not declared:
+        # A mission parked on its card; a declared wait parks the plan itself.
+        item = supervisor.memory.backlog.add(BacklogItem.new(
+            title="Choose the dataset", objective="Train on the dataset the operator picks.",
+        ))
+        supervisor.memory.backlog.update(
+            item.id, status="paused_operator", pending_question="Which dataset should I use?",
+        )
+
+    start = time.time()
+    for cycle in range(36):  # three hours of returns at the backoff cap
+        now = start + cycle * IDLE_BACKOFF_CAP_SECONDS
+        monkeypatch.setattr(time, "time", lambda now=now: now)
+        monkeypatch.setattr(time, "monotonic", lambda now=now: now)
+        supervisor.run()
+
+    assert calls["count"] == (2 if declared else 1)
