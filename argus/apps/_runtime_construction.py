@@ -318,7 +318,6 @@ class _RunnerConstructionMixin:
         self.reviewer_backend = _role_backend("reviewer")
         self.planner_backend = _role_backend("planner")
         self.manager_backend = _role_backend("manager")
-        self.curator_backend = _role_backend("curator")
         self._args = args
         self._role_memory_maintenance_enabled = (
             SkillLoopConfig().require_post_task_learning
@@ -486,7 +485,6 @@ class _RunnerConstructionMixin:
             getattr(self, "engineer_backend", None),
             getattr(self, "reviewer_backend", None),
             getattr(self, "planner_backend", None),
-            getattr(self, "curator_backend", None),
             getattr(self, "manager_backend", None),
         ):
             if be is not None and id(be) not in seen:

@@ -341,7 +341,7 @@ def test_daemon_launched_with_backend_copilot_gives_the_reviewer_copilot(
 
     assert resolve_role_backend("reviewer") == "copilot"
     # and the whole fleet, not just the role that happened to fail first
-    for role in ("manager", "planner", "engineer", "reviewer", "curator"):
+    for role in ("manager", "planner", "engineer", "reviewer"):
         assert resolve_role_backend(role) == "copilot"
 
 
@@ -440,7 +440,7 @@ def test_daemon_boot_records_each_role_backend_with_its_source(
     worker._rf_record_role_backends(rf_state)
 
     by_role = {event["role"]: event for event in recorded}
-    assert set(by_role) == {"manager", "planner", "engineer", "reviewer", "curator"}
+    assert set(by_role) == {"manager", "planner", "engineer", "reviewer"}
     for role, event in by_role.items():
         assert event["type"] == f"life.{role}.backend_resolved"
         assert event["backend"] == "copilot"

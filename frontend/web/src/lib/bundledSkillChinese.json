@@ -6,13 +6,6 @@
     "source": "argus/builtin_skills/agent-team-lead.md",
     "sourceBytes": 6933
   },
-  "global/curator/argus-curator-role.md": {
-    "title": "团队成果整理",
-    "summary": "维护团队候选成果池和比较记录，归纳后续策略；整理者不代替执行者完成工程任务。",
-    "originalName": "Team Curator",
-    "source": "argus/builtin_skills/curator/argus-curator-role.md",
-    "sourceBytes": 2798
-  },
   "global/engineer/minimal-coding-agent.md": {
     "title": "最小且严谨的软件修改",
     "summary": "用足够小的改动实现、修复或重构软件与界面，保留既有行为，避免无依据的抽象和新增依赖。",

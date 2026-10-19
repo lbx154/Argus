@@ -461,7 +461,7 @@ export function ConfigModal({
                         {data.roles.map((role) => (
                           <div key={role.role} className="rounded-lg border border-line bg-surface p-3">
                             <div className="flex items-center justify-between gap-2">
-                              <div className="text-xs font-semibold text-ink">{role.role === 'curator' ? t('settings.role.curator') : roleLabel(role.role, t)}</div>
+                              <div className="text-xs font-semibold text-ink">{roleLabel(role.role, t)}</div>
                               <span className="text-[10px] text-ink-faint">{role.backend_label}</span>
                             </div>
                             <div className="mt-2 truncate font-mono text-[11px] text-ink-dim" title={role.model}>{role.model}</div>
@@ -473,7 +473,7 @@ export function ConfigModal({
                                 </span>
                               )}
                             </div>
-                            {(isAgentRole(role.role) || role.role === 'curator') && <p className="mt-2 text-[10px] leading-relaxed text-ink-faint">{isAgentRole(role.role) ? agentRoleDescription(role.role, t) : t('settings.role.curatorDoc')}</p>}
+                            {isAgentRole(role.role) && <p className="mt-2 text-[10px] leading-relaxed text-ink-faint">{agentRoleDescription(role.role, t)}</p>}
                           </div>
                         ))}
                       </div>
