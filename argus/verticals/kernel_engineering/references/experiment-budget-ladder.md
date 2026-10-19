@@ -20,7 +20,7 @@ idea to a full correctness suite or an all-section profiler run.
 5. **Focused NCU/NSYS:** only after leverage passes, collect the launches and
    sections needed to choose one mechanism. Avoid all-section replay unless the
    decision requires it.
-6. **One source change:** preserve baseline/candidate identity and diff hash.
+6. **One source change:** preserve baseline/candidate identity and the diff itself.
 7. **Targeted correctness + micro A/B:** a correct candidate that does not clear
    noise is a failed candidate, not immediate proof that the direction is exhausted.
    Use the remaining reviewed Try budget for a materially distinct implementation

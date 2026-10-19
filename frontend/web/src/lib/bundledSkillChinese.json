@@ -613,7 +613,7 @@
     "summary": "忠实保留命题与范围，诚实区分结果类别；需要 Lean 证据时实际编译，不虚构证明。",
     "originalName": "Math Research Execution",
     "source": "argus/verticals/math/skills/engineer/math-research-execution.md",
-    "sourceBytes": 16586
+    "sourceBytes": 16600
   },
   "vertical/math/manager/math-research-manager.md": {
     "title": "数学研究任务协调",
