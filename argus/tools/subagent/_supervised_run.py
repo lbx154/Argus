@@ -23,6 +23,7 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
+from ...core.file_facts import file_facts
 from ._cpu_admission import cpu_admission_lock
 from ._direct_run import (
     _is_full_scale_rl,
@@ -181,6 +182,31 @@ def _supervisor_check_rules(command: str) -> str:
     return rules
 
 
+def _run_signal_paths(run_dir: str | None, cwd: str) -> tuple[Path, Path]:
+    """``progress.jsonl`` and ``status.json`` (experiment_io.RunWriter contract).
+
+    They live in the run directory, resolved against the task cwd, else in cwd.
+    """
+    base = Path(run_dir) if run_dir else Path(cwd)
+    if not base.is_absolute():
+        base = Path(cwd) / base
+    return base / "progress.jsonl", base / "status.json"
+
+
+def _supervisor_inputs(paths: tuple[Path, ...]) -> list[list[int]]:
+    """The file facts of everything the supervisor reads; ``[]`` for a missing file."""
+    return [file_facts(path) if path.is_file() else [] for path in paths]
+
+
+def _record_next_check(task_id: str, run_id: str, interval: float) -> None:
+    """Renew the running record: its next check time is the worker's heartbeat."""
+    task = _read_task(task_id) or {}
+    if str(task.get("run_id") or "") == run_id and task.get("state") == "running":
+        task["current_monitor_interval"] = interval
+        task["next_check_at"] = time.time() + interval
+        _write_task(task_id, task)
+
+
 def _supervisor_check_with_usage(
     task_id: str,
     command: str,
@@ -212,23 +238,9 @@ def _supervisor_check_with_usage(
     """
     stdout_tail = _tail_file(stdout_path, 2000)
     stderr_tail = _tail_file(stderr_path, 1000)
-
-    # Structured run signals live in the run directory (experiment_io.RunWriter
-    # contract). Resolve run_dir relative to the task cwd; fall back to cwd.
-    if run_dir:
-        signal_base = Path(run_dir)
-        if not signal_base.is_absolute():
-            signal_base = Path(cwd) / signal_base
-    else:
-        signal_base = Path(cwd)
-    progress_tail = ""
-    progress_path = signal_base / "progress.jsonl"
-    if progress_path.exists():
-        progress_tail = _tail_file(progress_path, 1500)
-    status_tail = ""
-    status_path = signal_base / "status.json"
-    if status_path.exists():
-        status_tail = _tail_file(status_path, 800)
+    progress_path, status_path = _run_signal_paths(run_dir, cwd)
+    progress_tail = _tail_file(progress_path, 1500) if progress_path.exists() else ""
+    status_tail = _tail_file(status_path, 800) if status_path.exists() else ""
 
     full_rules = thread_id is None or check_number % _RUBRIC_REPIN_EVERY == 0
 
@@ -879,6 +891,15 @@ def _run_supervised(
             decision, health, concern = "continue", "unknown", ""
             consecutive_supervisor_failures = 0
             supervision_alerted = False
+            # The supervisor is asked only about inputs it has not yet judged.
+            # Output silent past the stale rule external work applies to a
+            # silent owner is itself news, worth exactly one more look. A failed
+            # look judged nothing, so it is retried.
+            watched = (stdout_path, stderr_path, *_run_signal_paths(resolved_run_dir, cwd))
+            last_inputs: list[list[int]] | None = None
+            moved_at = start_time
+            quiet_after = max(monitor_interval, 900) * 2.0
+            judged: tuple[list[list[int]], bool] | None = None
             # Health-adaptive backoff: start at the configured interval,
             # then double while healthy (save supervisor tokens), snap back to the
             # base interval the moment health degrades.
@@ -922,6 +943,14 @@ def _run_supervised(
                     _persist_experiment_record(task_id, "TIMEOUT", td, cwd, report)
                     return
 
+                inputs = _supervisor_inputs(watched)
+                if inputs != last_inputs:
+                    last_inputs, moved_at = inputs, time.time()
+                quiet = time.time() - moved_at >= quiet_after
+                if judged is not None and judged[0] == inputs and (judged[1] or not quiet):
+                    _record_next_check(task_id, run_id, current_interval)
+                    continue
+
                 # Supervisor LLM check (+ optional concern confirmation).
                 check_number += 1
                 (
@@ -950,6 +979,8 @@ def _run_supervised(
                     supervisor_usage_totals=supervisor_usage_totals,
                 )
 
+                if health != "supervisor_unavailable":
+                    judged = (inputs, quiet)
                 if health == "supervisor_unavailable":
                     consecutive_supervisor_failures += 1
                     if (
@@ -1002,14 +1033,7 @@ def _run_supervised(
                         current_interval,
                         max(1.0, resource_lease.ttl_seconds / 3.0),
                     )
-                task = _read_task(task_id) or {}
-                if (
-                    str(task.get("run_id") or "") == run_id
-                    and task.get("state") == "running"
-                ):
-                    task["current_monitor_interval"] = current_interval
-                    task["next_check_at"] = time.time() + current_interval
-                    _write_task(task_id, task)
+                _record_next_check(task_id, run_id, current_interval)
 
             # Process exited naturally.
             elapsed = round(time.time() - start_time, 1)
