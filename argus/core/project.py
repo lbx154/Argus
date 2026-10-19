@@ -36,6 +36,7 @@ from urllib.parse import unquote
 
 __all__ = [
     "ProjectIdentity",
+    "is_state_directory_name",
     "migrate_legacy_project_state",
     "project_fingerprint",
     "normalize_git_remote",
@@ -131,6 +132,14 @@ def _directory_name(label: str) -> str:
     if len(name.encode("utf-8")) > _MAX_NAME_BYTES:
         raise ValueError(f"project path is too long to name its state directory: {label[:60]!r}...")
     return name
+
+
+def is_state_directory_name(name: str) -> bool:
+    """Whether ``name`` is a project state directory's name: an escaped label."""
+    try:
+        return "%" in name and _directory_name(unquote(name)) == name
+    except ValueError:
+        return False
 
 
 def migrate_legacy_project_state(states_root: Path, name: str) -> Path:
