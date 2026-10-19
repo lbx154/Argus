@@ -26,7 +26,6 @@ disciplines later edits.
 
 from __future__ import annotations
 
-import hashlib
 import json
 import os
 import secrets
@@ -62,15 +61,14 @@ class Clause:
 
     @property
     def id(self) -> str:
-        """A stable handle for this clause, derived from its content.
+        """A stable handle for this clause: its kind and text themselves.
 
-        Content-derived rather than sequential so that a confirmation naming a
-        clause cannot be silently redirected to a different one by reordering
-        the list. Ownership edits are checked as additions/removals from the
-        protected set, so keeping this legacy id cannot bypass confirmation.
+        Content rather than sequential so that a confirmation naming a clause
+        cannot be silently redirected to a different one by reordering the
+        list. Ownership edits are checked as additions/removals from the
+        protected set, so keeping this id cannot bypass confirmation.
         """
-        raw = f"{self.kind}\0{self.text.strip()}"
-        return hashlib.sha256(raw.encode("utf-8")).hexdigest()[:16]
+        return f"{self.kind}:{self.text.strip()}"
 
     def to_dict(self) -> dict[str, Any]:
         return {"id": self.id, "kind": self.kind, "text": self.text, "authority": self.authority}
@@ -221,7 +219,7 @@ def _dedup(clauses: Iterable[Clause]) -> tuple[Clause, ...]:
 
 def _protected_ids(clauses: Iterable[Clause], exclusions: Iterable[str]) -> set[str]:
     return {c.id for c in _dedup(clauses) if c.authority == AUTHORITY_OPERATOR} | {
-        "exclusion:" + hashlib.sha256(str(text).strip().encode("utf-8")).hexdigest()[:16]
+        "exclusion:" + str(text).strip()
         for text in exclusions if str(text).strip()
     }
 

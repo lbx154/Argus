@@ -1,7 +1,6 @@
 """Canonical intake effects and durable source acknowledgements share one identity."""
 from __future__ import annotations
 
-import hashlib
 import json
 import os
 import subprocess
@@ -26,14 +25,11 @@ from argus.core.operator_context import (
     apply_operator_delivery,
     close_operator_delivery_prefix,
     freeze_operator_intake,
-    operator_delivery_effect_digest,
 )
 
 
 def identity(sequence=1, *, stream="operator-queue", generation=1):
-    raw = (json.dumps({"text": "original inbox line", "sequence": sequence}) + "\n").encode()
-    return {"stream": stream, "generation": generation, "sequence": sequence,
-            "digest": hashlib.sha256(raw).hexdigest()}
+    return {"stream": stream, "generation": generation, "sequence": sequence}
 
 
 def prefix(value):
@@ -59,12 +55,11 @@ def test_frozen_intake_preserves_target_and_mission_without_writes(tmp_path, mon
     assert not project.exists()
     assert plan["effect"]["mission_id"] == "mission-before"
     assert json.loads(json.dumps(plan)) == plan
-    expected = hashlib.sha256((json.dumps(plan, ensure_ascii=False, sort_keys=True, allow_nan=False) + "\n").encode()).hexdigest()
-    assert operator_delivery_effect_digest(plan) == expected
     with monkeypatch.context() as patch:
         patch.setattr(context, "_current_mission_id", lambda *_: pytest.fail("apply must not rebind the mission"))
         receipt = apply_operator_delivery(plan, identity())
-    assert receipt["effect_digest"] == expected
+    assert receipt["format"] == "operator-delivery-receipt-v2"
+    assert receipt["plan"] == plan
     store = OperatorContextStore(project)
     assert len(store.project("engineer", mission_id="mission-before").directives) == 1
     assert store.project("engineer", mission_id="mission-after").directives == ()
@@ -193,15 +188,13 @@ def test_global_preference_and_revoke_replay_keep_original_target_and_revision(t
     assert not ledger(project).exists()
 
 
-@pytest.mark.parametrize("change", ["digest", "effect", "bound_target"])
-def test_open_identity_rejects_different_digest_effect_or_target(tmp_path, change):
+@pytest.mark.parametrize("change", ["effect", "bound_target"])
+def test_open_identity_rejects_different_effect_or_target(tmp_path, change):
     plan, delivery = once_plan(tmp_path), identity()
     apply_operator_delivery(plan, delivery)
     before = ledger(tmp_path).read_bytes()
     plan, delivery = deepcopy(plan), deepcopy(delivery)
-    if change == "digest":
-        delivery["digest"] = "f" * 64
-    elif change == "effect":
+    if change == "effect":
         plan["effect"]["text"] = "different operator authority"
     else:
         plan["target_root"] = str(tmp_path / "another")
@@ -278,7 +271,7 @@ def test_receipt_capacity_can_be_released_only_by_a_source_acknowledged_prefix(t
 
 
 @pytest.mark.parametrize("changes", [
-    {"generation": True}, {"sequence": 0}, {"sequence": 2 ** 63}, {"stream": "../other"}, {"digest": "not-a-digest"},
+    {"generation": True}, {"sequence": 0}, {"sequence": 2 ** 63}, {"stream": "../other"}, {"extra": "field"},
 ])
 def test_invalid_delivery_identity_never_creates_authority(tmp_path, changes):
     with pytest.raises(ValueError):
@@ -298,8 +291,6 @@ def test_malformed_replay_metadata_is_rejected_before_projection(tmp_path, corru
             stream["closed_sequence"] = True
         else:
             stream["receipts"]["1"]["identity"]["sequence"] = 2
-    value.pop("checkpoint_digest")
-    value["checkpoint_digest"] = hashlib.sha256(storage.encode(value)).hexdigest()
     ledger(tmp_path).write_bytes(storage.encode(value))
     before = ledger(tmp_path).read_bytes()
     with pytest.raises(ValueError):
@@ -322,3 +313,20 @@ def test_ordinary_checkpoints_keep_v2_until_the_first_delivery(tmp_path):
     assert json.loads(ledger(tmp_path).read_text())["format"] == storage.FORMAT
     apply_operator_delivery(once_plan(tmp_path), identity())
     assert json.loads(ledger(tmp_path).read_text())["format"] == storage.DELIVERY_FORMAT
+
+
+def test_a_receipt_and_identity_written_with_digests_still_replay(tmp_path):
+    plan = once_plan(tmp_path)
+    receipt = apply_operator_delivery(plan, identity())
+    value = json.loads(ledger(tmp_path).read_text())
+    stored = value["state"][storage.DELIVERY_STATE_KEY]["streams"]["operator-queue"]["receipts"]["1"]
+    stored.pop("plan")
+    stored.update(format="operator-delivery-receipt-v1", effect_digest="0" * 64)
+    stored["identity"]["digest"] = "1" * 64
+    value["checkpoint_digest"] = "2" * 64
+    ledger(tmp_path).write_bytes(storage.encode(value))
+
+    replayed = apply_operator_delivery(plan, {**identity(), "digest": "3" * 64})
+
+    assert replayed["format"] == "operator-delivery-receipt-v1"
+    assert replayed["revision"] == receipt["revision"]

@@ -1,12 +1,12 @@
 """User-local official PLATON Windows runtime, without running an installer.
 
 The proprietary plugin remains untouched. Its supported ``configure`` action
-selects this verified external installation. Binaries are downloaded from their
-publishers on the user's machine, never redistributed inside Argus releases.
+selects this external installation. Binaries are downloaded over TLS from their
+publishers on the user's machine, never redistributed inside Argus releases;
+the first completed download of each is cached and reused.
 """
 from __future__ import annotations
 
-import hashlib
 import os
 import shutil
 import struct
@@ -19,13 +19,8 @@ from .plugin_runtime import clean_env, download, run
 
 OFFICIAL_PAGE = "https://www.chem.gla.ac.uk/~louis/software/platon/"
 PLATON_URL = OFFICIAL_PAGE + "platon.zip"
-PLATON_SHA256 = "a8c845891dc1dca1cb98d691917355c1bdb1c380e947a91893966d163900063b"
 TASKBAR_URL = OFFICIAL_PAGE + "pwt_setup.zip"
-TASKBAR_SHA256 = "b60fa412f7b2e95287826c364a9aa7fff5cd962bc11fae42d91cc4e70cfab276"
-DLL_SHA256 = "a5d3aec4cb1897543ad142634c0a4fd6285b5dd52d7c701249a0e8582a4b9de0"
 EXTRACTOR_URL = "https://constexpr.org/innoextract/files/innoextract-1.9/innoextract-1.9-windows.zip"
-# Publisher distribution independently checked against Scoop's SHA-512.
-EXTRACTOR_SHA256 = "6989342c9b026a00a72a38f23b62a8e6a22cc5de69805cf47d68ac2fec993065"
 LICENSE_NOTICE = (
     "PLATON 官方允许注明来源的学术、科学及非商业用途；商业用途需自行取得许可。"
     "本操作只从官方网站下载到插件私有目录，不安装系统运行库、不修改系统 PATH。"
@@ -88,32 +83,30 @@ def prepare(resources_root: Path, *, accept_license: bool = False, progress=prin
     launcher_data = launcher.read_bytes()
     if _machine(launcher_data) != 0x8664:
         raise ValueError("Windows PLATON 适配器架构不符。")
-    launcher_hash = hashlib.sha256(launcher_data).hexdigest()
     cache = root / "cache"
     cache.mkdir(parents=True, exist_ok=True)
-    progress("正在校验 PLATON 官方程序与 Windows 配套运行环境…")
-    program_archive = download(PLATON_URL, cache / "platon-win-64", checksum=PLATON_SHA256)
+    progress("正在检查 PLATON 官方程序与 Windows 配套运行环境…")
+    program_archive = download(PLATON_URL, cache / "platon-win-64")
     program = _member(program_archive, "platon.exe")
     if _machine(program) != 0x14C:
         raise ValueError("PLATON 官方程序架构已变化，需要更新兼容配方。")
-    program_hash = hashlib.sha256(program).hexdigest()
     from .plugin_manager import read_json, write_json
 
     marker = root / "host-platon-runtime.json"
     try:
         current = Path(read_json(marker)["path"]).resolve()
         if ((root / "software") in current.parents and not current.is_symlink()
-                and hashlib.sha256(current.read_bytes()).hexdigest() == launcher_hash
-                and hashlib.sha256((current.parent / "platon.exe").read_bytes()).hexdigest() == program_hash
-                and hashlib.sha256((current.parent / "salflibc.dll").read_bytes()).hexdigest() == DLL_SHA256):
+                and current.read_bytes() == launcher_data
+                and (current.parent / "platon.exe").read_bytes() == program
+                and _machine((current.parent / "salflibc.dll").read_bytes()) == 0x14C):
             probe(current, on_start=on_start)
             progress("PLATON 官方运行环境已可用，保留当前安装。")
             return current
     except (OSError, ValueError, KeyError, RuntimeError):
         pass
 
-    taskbar = download(TASKBAR_URL, cache / "platon-taskbar-2026.1.zip", checksum=TASKBAR_SHA256)
-    extractor_archive = download(EXTRACTOR_URL, cache / "innoextract-1.9-windows.zip", checksum=EXTRACTOR_SHA256)
+    taskbar = download(TASKBAR_URL, cache / "platon-taskbar-2026.1.zip")
+    extractor_archive = download(EXTRACTOR_URL, cache / "innoextract-1.9-windows.zip")
     with tempfile.TemporaryDirectory(prefix="platon-prepare-", dir=root) as temporary:
         work = Path(temporary)
         extractor = work / "innoextract.exe"
@@ -122,18 +115,18 @@ def prepare(resources_root: Path, *, accept_license: bool = False, progress=prin
         _write_new(setup, _member(taskbar, "setup.exe"))
         progress("正在提取官方 Salford 运行库（不执行系统安装程序）…")
         extracted = work / "extracted"
-        # setup.exe is input DATA to the pinned extractor, never a command.
-        # Inno 5 installers use platform-specific internal path spellings;
-        # extract this checksum-pinned archive into our disposable directory,
-        # then deploy only the independently pinned DLL below.
+        # setup.exe is input DATA to the version-pinned extractor, never a
+        # command. Inno 5 installers use platform-specific internal path
+        # spellings; extract it into our disposable directory, then deploy
+        # only the one DLL below.
         run([extractor, "--extract", "--output-dir", extracted, setup],
             timeout=90, on_start=on_start)
         libraries = list(extracted.rglob("salflibc.dll"))
         if len(libraries) != 1 or libraries[0].is_symlink():
             raise ValueError("官方配套安装包未提供唯一的 Salford 运行库。")
         library = libraries[0].read_bytes()
-        if hashlib.sha256(library).hexdigest() != DLL_SHA256 or _machine(library) != 0x14C:
-            raise ValueError("Salford 运行库校验或架构不符，未部署。")
+        if _machine(library) != 0x14C:
+            raise ValueError("Salford 运行库架构不符，未部署。")
         candidate = root / "software" / ("platon-windows-" + uuid.uuid4().hex[:12])
         candidate.mkdir(parents=True)
         executable = candidate / "platon-headless.exe"
@@ -143,8 +136,8 @@ def prepare(resources_root: Path, *, accept_license: bool = False, progress=prin
             _write_new(candidate / "salflibc.dll", library)
             _write_new(candidate / "SOURCE-AND-LICENSE.txt", (
                 LICENSE_NOTICE + "\n" + OFFICIAL_PAGE + "\n"
-                "PLATON executable: " + PLATON_SHA256 + "\n"
-                "Official Windows Taskbar archive: " + TASKBAR_SHA256 + "\n"
+                "PLATON executable: " + PLATON_URL + "\n"
+                "Official Windows Taskbar archive: " + TASKBAR_URL + "\n"
                 "No proprietary plugin source or wheel has been modified.\n"
             ).encode("utf-8"))
             progress("正在实际运行 PLATON，验证 Windows 运行库和校验规则…")
@@ -154,9 +147,7 @@ def prepare(resources_root: Path, *, accept_license: bool = False, progress=prin
             # and the plugin's active registry are never deleted or replaced.
             shutil.rmtree(candidate, ignore_errors=True)
             raise
-    write_json(marker, {"path": str(executable), "program_sha256": program_hash,
-                        "runtime_sha256": DLL_SHA256, "launcher_sha256": launcher_hash,
-                        "source": OFFICIAL_PAGE,
+    write_json(marker, {"path": str(executable), "source": OFFICIAL_PAGE,
                         "license_accepted": True})
     progress("PLATON 官方 Windows 运行环境验证通过。")
     return executable

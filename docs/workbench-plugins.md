@@ -4,7 +4,7 @@ Argus provides the plugin center and lifecycle API. CrystalPilot is distributed 
 
 ## Install and use
 
-Open **Plugins → Argus CrystalPilot → Install**. Argus downloads the wheel specified by its bundled `argus/plugin_catalog.json`, verifies SHA-256, creates an isolated Python environment, installs the plugin and scientific dependencies, and activates it only after its core and host interface validate.
+Open **Plugins → Argus CrystalPilot → Install**. Argus downloads the version-pinned wheel specified by its bundled `argus/plugin_catalog.json` over HTTPS, creates an isolated Python environment, installs the plugin and scientific dependencies, and activates it only after its core and host interface validate.
 
 The public distribution page is https://crystalpilot-downloads.argusbot.cn/. Immutable wheel and source archives are under `/releases/<version>/`. Argus installs the wheel; it never clones a private repository. The source ZIP is for inspection and independent builds. Upstream scientific binaries, model credentials and research datasets are not included in these artifacts.
 
@@ -123,7 +123,7 @@ SHELXL/SHELXT: their licensed credentials must come from the license holder.
 
 ## Release maintenance
 
-The catalog is curated and pinned to reviewed HTTPS artifacts and SHA-256 digests. New plugin releases require a catalog update; this implementation does not automatically trust an online latest manifest. The public catalog at the distribution source helps maintainers inspect releases but does not override a user's bundled trust configuration.
+The catalog is curated and pinned to reviewed, versioned HTTPS artifacts; an installed release is identified by its `version` and source `git_commit`. New plugin releases require a catalog update; this implementation does not automatically trust an online latest manifest. The public catalog at the distribution source helps maintainers inspect releases but does not override a user's bundled trust configuration.
 
 Host release builds preserve external entries even when no plugin source exists in the checkout. They neither download nor rebuild CrystalPilot. Host contracts can run in public Argus CI without access to the private repository. A four-platform installer workflow example is provided in `docs/ci-examples/plugin-compatibility.yml`; it is not active until a maintainer with workflow permission copies it into `.github/workflows/`. Existing repository CI remains unchanged. An example is not evidence of a successful platform run.
 

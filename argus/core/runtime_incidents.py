@@ -1,7 +1,6 @@
 """Durable runtime incident recording and recovery verification."""
 from __future__ import annotations
 
-import hashlib
 import json
 import os
 import tempfile
@@ -9,6 +8,7 @@ import time
 from contextlib import contextmanager
 from pathlib import Path
 from typing import Any, Callable, Mapping
+from urllib.parse import quote
 
 from .file_lock import exclusive_file_lock
 
@@ -22,8 +22,9 @@ _EVENT_TYPES = {
 
 
 def _identity(detector: str, invariant: str, subject_kind: str, subject_id: str) -> str:
-    payload = "\0".join((detector, invariant, subject_kind, subject_id))
-    return hashlib.sha256(payload.encode("utf-8")).hexdigest()
+    """The four parts, each percent-encoded and joined by ``+``: readable and
+    one file name per incident, since an encoded part never contains ``+``."""
+    return "+".join(quote(part, safe="") for part in (detector, invariant, subject_kind, subject_id))
 
 
 def _json_value(value: Any) -> Any:

@@ -53,9 +53,7 @@ def test_session_locks_use_the_path_safe_session_id(tmp_path: Path) -> None:
     assert (tmp_path / ".session-lifecycle-locks" / "s-readable.lock").is_file()
 
 
-def test_session_locks_hash_names_that_would_exceed_windows_path_limits(
-    tmp_path: Path,
-) -> None:
+def test_long_session_ids_keep_their_readable_lock_name(tmp_path: Path) -> None:
     long_sid = "s-" + ("x" * 200)
 
     with session_meta_lock(tmp_path, long_sid):
@@ -63,8 +61,5 @@ def test_session_locks_hash_names_that_would_exceed_windows_path_limits(
     with session_lifecycle_lock(tmp_path, long_sid):
         pass
 
-    meta_locks = list((tmp_path / ".session-locks").iterdir())
-    lifecycle_locks = list((tmp_path / ".session-lifecycle-locks").iterdir())
-    assert len(meta_locks) == len(lifecycle_locks) == 1
-    assert len(meta_locks[0].name) < 80
-    assert meta_locks[0].name == lifecycle_locks[0].name
+    assert [path.name for path in (tmp_path / ".session-locks").iterdir()] == [f"{long_sid}.lock"]
+    assert [path.name for path in (tmp_path / ".session-lifecycle-locks").iterdir()] == [f"{long_sid}.lock"]

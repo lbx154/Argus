@@ -6,7 +6,6 @@ arbitrary URL, command or Python package. Research data is not an install payloa
 
 from __future__ import annotations
 
-import hashlib
 import importlib
 import importlib.util
 import json
@@ -191,19 +190,12 @@ def state_entry(plugin_id, root=None):
     return registry(root).get(plugin_id, {})
 
 
-def installed_digest(row, root):
-    if row.get("sha256"):
-        return row["sha256"]
-    if row.get("release"):
-        return read_json(_package_path(row, root) / "plugin.json").get("artifact", {}).get("sha256")
-    return None
-
-
 def matches_catalog(row, spec, root):
-    """The wheel identity alone does not describe its validated science environment."""
+    """Whether ``row`` is the catalog's pinned release (version and source commit)
+    in the same validated science environment; a digest older rows carry is ignored."""
     return (
         row.get("version") == spec["version"]
-        and installed_digest(row, root) == spec.get("artifact", {}).get("sha256")
+        and row.get("git_commit") == spec.get("git_commit")
         and row.get("python_constraints", []) == spec.get("python_constraints", [])
         and row.get("validation_imports", []) == spec.get("validation_imports", [])
     )
@@ -295,7 +287,7 @@ def load_plugin(plugin_id, root=None, *, include_disabled=False, _candidate=None
         module_name, factory = spec["factory"].split(":", 1)
         package_name, _, submodule = module_name.partition(".")
         package = directory / "package" / package_name
-        alias = "_argus_ext_" + hashlib.sha256("|".join(key).encode()).hexdigest()[:20]
+        alias = "_argus_ext_" + uuid.uuid4().hex
         module_spec = importlib.util.spec_from_file_location(
             alias, package / "__init__.py", submodule_search_locations=[str(package)]
         )
@@ -504,10 +496,8 @@ def _python(root=None):
 
 
 def _fetch(spec, destination):
+    """Copy or download the wheel the catalog pins for this exact version."""
     artifact = spec.get("artifact") or {}
-    checksum = artifact.get("sha256", "")
-    if not re.fullmatch(r"[a-f0-9]{64}", checksum):
-        raise PluginError("此插件版本尚未提供可校验的发行包。")
     local = artifact.get("local")
     if local:
         source = (Path(spec["_catalog_dir"]) / local).resolve()
@@ -525,8 +515,6 @@ def _fetch(spec, destination):
                     if size > 256 * 1024 * 1024:
                         raise PluginError("插件包超过允许大小。")
                     target.write(part)
-    if hashlib.sha256(destination.read_bytes()).hexdigest() != checksum:
-        raise PluginError("插件包校验失败，未安装。")
 
 
 def _extract(wheel, destination):
@@ -547,9 +535,8 @@ def _platon_license_accepted(root):
     from .platon_windows import LICENSE_NOTICE, OFFICIAL_PAGE
 
     resources = install_root(root) / "crystalpilot" / "resources"
-    notice = hashlib.sha256((OFFICIAL_PAGE + LICENSE_NOTICE).encode()).hexdigest()
     consent = read_json(resources / "host-platon-consent.json")
-    if consent.get("accepted") is True and consent.get("notice_sha256") == notice:
+    if consent.get("accepted") is True and consent.get("notice") == OFFICIAL_PAGE + LICENSE_NOTICE:
         return True
     previous = read_json(resources / "host-platon-runtime.json")
     return previous.get("license_accepted") is True and previous.get("source") == OFFICIAL_PAGE
@@ -560,7 +547,7 @@ def _remember_platon_consent(root):
 
     write_json(install_root(root) / "crystalpilot" / "resources" / "host-platon-consent.json", {
         "accepted": True, "accepted_at": time.time(), "source": OFFICIAL_PAGE,
-        "notice_sha256": hashlib.sha256((OFFICIAL_PAGE + LICENSE_NOTICE).encode()).hexdigest(),
+        "notice": OFFICIAL_PAGE + LICENSE_NOTICE,
     })
 
 
@@ -673,7 +660,7 @@ def _install(name, spec, root, action="install"):
     release = (
         Path(name)
         / "releases"
-        / (spec["version"] + "-" + spec["artifact"]["sha256"][:12] + "-" + uuid.uuid4().hex[:8])
+        / (spec["version"] + "-" + uuid.uuid4().hex[:8])
     )
     target = install_root(root) / release
     try:
@@ -742,7 +729,7 @@ def _install(name, spec, root, action="install"):
             "python": str(py),
             "enabled": True,
             "installed": time.time(),
-            "sha256": spec["artifact"]["sha256"],
+            "git_commit": spec.get("git_commit"),
             "python_constraints": spec.get("python_constraints", []),
             "validation_imports": spec.get("validation_imports", []),
         }

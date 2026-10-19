@@ -7,7 +7,7 @@ page images and text derived from that same PDF.
 """
 from __future__ import annotations
 
-import hashlib
+import filecmp
 import json
 import re
 import shutil
@@ -16,7 +16,9 @@ from contextlib import contextmanager
 from dataclasses import dataclass
 from datetime import UTC, datetime
 from pathlib import Path
-from typing import Iterator
+from typing import Any, Iterator
+
+from .file_facts import file_facts
 
 _INTERNAL_DIR = Path(".argus/internal/narrative-runtime")
 _EXCLUDED_NAMES = frozenset(
@@ -46,8 +48,8 @@ class NarrativeSnapshotPair:
 
     before_paper: Path
     after_paper: Path
-    before_sha256: str
-    after_sha256: str
+    #: The two copies hold byte-identical reader-facing closures.
+    identical: bool
 
 
 def _safe_component(value: str) -> str:
@@ -74,18 +76,24 @@ def _included_files(paper_root: Path) -> tuple[Path, ...]:
     return tuple(files)
 
 
-def manuscript_closure_sha256(project_root: Path | str) -> str:
-    """Hash the reader-facing source closure without Git or review artifacts."""
+def manuscript_closure_facts(project_root: Path | str) -> list[list[Any]]:
+    """``[relative path, *file_facts]`` for each file of the reader-facing closure."""
     paper_root = Path(project_root).expanduser().resolve() / "paper"
-    digest = hashlib.sha256()
-    for path in _included_files(paper_root):
-        relative = path.relative_to(paper_root).as_posix().encode("utf-8")
-        digest.update(len(relative).to_bytes(8, "big"))
-        digest.update(relative)
-        with path.open("rb") as handle:
-            for chunk in iter(lambda: handle.read(1024 * 1024), b""):
-                digest.update(chunk)
-    return digest.hexdigest()
+    return [
+        [path.relative_to(paper_root).as_posix(), *file_facts(path)]
+        for path in _included_files(paper_root)
+    ]
+
+
+def closures_identical(first_root: Path | str, second_root: Path | str) -> bool:
+    """Whether two projects hold the same closure files with the same bytes."""
+    first = Path(first_root).expanduser().resolve() / "paper"
+    second = Path(second_root).expanduser().resolve() / "paper"
+    names = [path.relative_to(first).as_posix() for path in _included_files(first)]
+    if names != [path.relative_to(second).as_posix() for path in _included_files(second)]:
+        return False
+    _match, mismatch, errors = filecmp.cmpfiles(first, second, names, shallow=False)
+    return not mismatch and not errors
 
 
 def rendered_pdf_freshness(project_root: Path | str) -> tuple[bool, str]:
@@ -107,15 +115,18 @@ def rendered_pdf_freshness(project_root: Path | str) -> tuple[bool, str]:
     return True, "paper/main.pdf is current"
 
 
-def _copy_closure(project_root: Path, destination: Path) -> str:
+def _copy_closure(project_root: Path, destination: Path) -> list[list[Any]]:
+    """Copy the closure; refuse a copy the project changed under."""
     paper_root = project_root / "paper"
-    digest = manuscript_closure_sha256(project_root)
+    facts = manuscript_closure_facts(project_root)
     for source in _included_files(paper_root):
         relative = source.relative_to(paper_root)
         target = destination / "paper" / relative
         target.parent.mkdir(parents=True, exist_ok=True)
         shutil.copy2(source, target)
-    return digest
+    if manuscript_closure_facts(project_root) != facts:
+        raise RuntimeError("paper changed while the snapshot was copied")
+    return facts
 
 
 def prepare_narrative_snapshot(
@@ -139,11 +150,10 @@ def prepare_narrative_snapshot(
     root.parent.mkdir(parents=True, exist_ok=True)
     temporary = Path(tempfile.mkdtemp(prefix=f".{root.name}.", dir=root.parent))
     try:
-        before_sha256 = _copy_closure(project, temporary / "before")
+        _copy_closure(project, temporary / "before")
         payload = {
-            "version": 1,
+            "version": 2,
             "recorded_at": datetime.now(UTC).isoformat(),
-            "before_sha256": before_sha256,
         }
         (temporary / "manifest.json").write_text(
             json.dumps(payload, indent=2, sort_keys=True) + "\n",
@@ -165,37 +175,35 @@ def snapshot_after_edit(
     project_root: Path | str,
     snapshot_root: Path | str,
 ) -> NarrativeSnapshotPair:
-    """Capture one content-addressed post-edit closure and return the pair."""
+    """Capture the post-edit closure, reusing the latest copy it still matches."""
     project = Path(project_root).expanduser().resolve()
     root = Path(snapshot_root).expanduser().resolve()
-    manifest = json.loads((root / "manifest.json").read_text(encoding="utf-8"))
-    before_sha256 = str(manifest["before_sha256"])
-    after_sha256 = manuscript_closure_sha256(project)
-    after_root = root / "after" / after_sha256
-    after_paper = after_root / "paper"
-    if not after_paper.is_dir():
-        after_parent = root / "after"
-        after_parent.mkdir(parents=True, exist_ok=True)
-        temporary = Path(
-            tempfile.mkdtemp(prefix=f".{after_sha256}.", dir=after_parent)
-        )
+    after_parent = root / "after"
+    after_parent.mkdir(parents=True, exist_ok=True)
+    copies = sorted(
+        (path for path in after_parent.iterdir() if path.name.isdigit()),
+        key=lambda path: int(path.name),
+    )
+    after_root = copies[-1] if copies and closures_identical(copies[-1], project) else None
+    if after_root is None:
+        temporary = Path(tempfile.mkdtemp(prefix=".after.", dir=after_parent))
         try:
-            copied_sha256 = _copy_closure(project, temporary)
-            if copied_sha256 != after_sha256:
-                raise RuntimeError("paper changed while the post-edit snapshot was copied")
-            try:
-                temporary.rename(after_root)
-            except FileExistsError:
-                shutil.rmtree(temporary)
+            _copy_closure(project, temporary)
+            sequence = int(copies[-1].name) if copies else 0
+            while after_root is None:
+                sequence += 1
+                candidate = after_parent / f"{sequence:04d}"
+                if not candidate.exists():
+                    temporary.rename(candidate)
+                    after_root = candidate
         except Exception:
             if temporary.exists():
                 shutil.rmtree(temporary)
             raise
     return NarrativeSnapshotPair(
         before_paper=root / "before" / "paper",
-        after_paper=after_paper,
-        before_sha256=before_sha256,
-        after_sha256=after_sha256,
+        after_paper=after_root / "paper",
+        identical=closures_identical(root / "before", after_root),
     )
 
 
@@ -249,8 +257,9 @@ def isolated_pdf_workspace(
 
 __all__ = [
     "NarrativeSnapshotPair",
+    "closures_identical",
     "isolated_pdf_workspace",
-    "manuscript_closure_sha256",
+    "manuscript_closure_facts",
     "prepare_narrative_snapshot",
     "rendered_pdf_freshness",
     "snapshot_after_edit",

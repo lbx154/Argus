@@ -62,3 +62,12 @@ def test_ui_downgrades_stale_certification(tmp_path: Path) -> None:
     assert view["review"]["status"] == "stale"
     assert view["delivery"]["kind"] == "submission_stale"
     assert "reviewed an earlier manuscript version" in view["review"]["reason"]
+
+
+def test_a_binding_written_with_a_digest_never_reads_as_current(tmp_path: Path) -> None:
+    manuscript = tmp_path / "paper/main.tex"
+    manuscript.parent.mkdir(parents=True)
+    manuscript.write_text("reviewed\n", encoding="utf-8")
+    payload = {"manuscript_snapshot": {"path": "paper/main.tex", "sha256": "0" * 64, "recorded_at": "then"}}
+
+    assert manuscript_review_status(payload, tmp_path)["status"] == "stale"

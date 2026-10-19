@@ -25,7 +25,6 @@ check from evidence it has read, and still refuses the Engineer's word alone.
 
 from __future__ import annotations
 
-import hashlib
 import json
 import os
 import re
@@ -85,26 +84,17 @@ def _write(root: Path | str, rows: list[dict[str, Any]]) -> None:
         temporary.unlink(missing_ok=True)
 
 
-def risk_id(*, item_id: str, check: str, accepted_by: str, source_ref: str, mission_ref: str = "") -> str:
-    material = "\x1f".join((item_id, check.lower(), accepted_by, source_ref, mission_ref))
-    return "risk-" + hashlib.sha256(material.encode("utf-8")).hexdigest()[:10]
-
-
 def same_check(first: Any, second: Any) -> bool:
     """Whether two statements name the same check (case, spacing and markup ignored)."""
     left, right = sanitize_text(first, 240).casefold(), sanitize_text(second, 240).casefold()
     return bool(left) and left == right
 
 
-#: The decision-card option that accepts one named check's residual risk. The
-#: id is bound to the check's text, so choosing it accepts that check only.
+#: The decision-card option that accepts one named check's residual risk. Its
+#: description names the check, so choosing it accepts that check only.
+ACCEPT_OPTION_ID = "accept-risk"
 ACCEPT_OPTION_LABEL = "Accept this residual risk"
 KEEP_OPTION_ID = "keep-standard"
-
-
-def accept_option_id(check: Any) -> str:
-    folded = sanitize_text(check, 240).casefold()
-    return "accept-risk-" + hashlib.sha256(folded.encode("utf-8")).hexdigest()[:12]
 
 
 def _accept_description(check: str) -> str:
@@ -116,7 +106,7 @@ def acceptance_options(check: Any, risk: Any) -> list[dict[str, Any]]:
     check, risk = sanitize_text(check, 240), sanitize_text(risk)
     return [
         {
-            "id": accept_option_id(check), "label": ACCEPT_OPTION_LABEL,
+            "id": ACCEPT_OPTION_ID, "label": ACCEPT_OPTION_LABEL,
             "description": f"{_accept_description(check)} Risk left: {risk}",
         },
         {
@@ -135,7 +125,8 @@ def operator_accepted(card: Any, check: Any) -> bool:
     if not isinstance(card, dict) or str(card.get("status") or "") != "resolved":
         return False
     selected = str(card.get("selected_option") or "")
-    if not selected or selected != accept_option_id(check):
+    # Cards from before the fixed id carried "accept-risk-<digest>".
+    if not selected.startswith(ACCEPT_OPTION_ID):
         return False
     option = next(
         (row for row in card.get("options") or [] if isinstance(row, dict) and str(row.get("id")) == selected),
@@ -167,17 +158,21 @@ def accept_residual_risk(
         or not (item_id or mission_ref)
     ):
         return None
-    identifier = risk_id(
-        item_id=item_id, check=check, accepted_by=accepted_by, source_ref=str(source_ref), mission_ref=mission_ref,
-    )
+    source_ref = str(source_ref)[:200]
     rows = _read(root)
     for row in rows:
-        if row.get("id") == identifier:
+        if (
+            row.get("item_id") == item_id and row.get("mission_ref") == mission_ref
+            and same_check(row.get("check"), check)
+            and row.get("accepted_by") == accepted_by and row.get("source_ref") == source_ref
+        ):
             return row
     entry = {
-        "id": identifier, "item_id": item_id, "mission_ref": mission_ref, "check": check, "risk": risk,
+        # Ten hex characters, the shape a Manager names when it revokes one.
+        "id": "risk-" + uuid.uuid4().hex[:10],
+        "item_id": item_id, "mission_ref": mission_ref, "check": check, "risk": risk,
         "basis": sanitize_text(basis, 400), "basis_source": sanitize_text(basis_source, 200),
-        "accepted_by": accepted_by, "source_ref": str(source_ref)[:200], "accepted_at": time.time(),
+        "accepted_by": accepted_by, "source_ref": source_ref, "accepted_at": time.time(),
     }
     _write(root, [*rows, entry])
     return entry
@@ -261,8 +256,8 @@ def reviewer_block(root: Path | str, *, item_id: str = "", mission_ref: str = ""
 
 
 __all__ = [
-    "ACCEPTERS", "ACCEPT_OPTION_LABEL", "FILENAME", "KEEP_OPTION_ID", "REVIEWER_BLOCK_PROSE", "accept_option_id",
+    "ACCEPTERS", "ACCEPT_OPTION_ID", "ACCEPT_OPTION_LABEL", "FILENAME", "KEEP_OPTION_ID", "REVIEWER_BLOCK_PROSE",
     "accept_residual_risk", "acceptance_options", "active_residual_risks", "describe", "last_decision_at",
-    "operator_accepted", "residual_risk_records", "reviewer_block", "revoke_residual_risk", "risk_id",
+    "operator_accepted", "residual_risk_records", "reviewer_block", "revoke_residual_risk",
     "same_check", "sanitize_text", "store_path",
 ]

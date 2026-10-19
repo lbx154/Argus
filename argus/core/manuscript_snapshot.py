@@ -1,38 +1,37 @@
-"""Content identity and freshness facts for manuscript judgments."""
+"""Identity and freshness facts for manuscript judgments.
+
+A judgment records the manuscript's stat facts (``core.file_facts``) when it
+was made; it is current while the manuscript still has exactly those facts.
+"""
 from __future__ import annotations
 
-import hashlib
 import json
 from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any, Mapping
 
+from .file_facts import file_facts
+
 MANUSCRIPT_PATH = Path("paper/main.tex")
 MANUSCRIPT_SNAPSHOT_FIELD = "manuscript_snapshot"
 
 
-def manuscript_sha256(project_root: Path | str) -> str:
-    """SHA-256 of the exact manuscript bytes, or ``""`` when absent."""
+def manuscript_facts(project_root: Path | str) -> list[int]:
+    """The manuscript's ``file_facts``, or ``[]`` when it is absent."""
     path = Path(project_root) / MANUSCRIPT_PATH
-    if not path.is_file():
-        return ""
-    digest = hashlib.sha256()
-    with path.open("rb") as handle:
-        for chunk in iter(lambda: handle.read(1024 * 1024), b""):
-            digest.update(chunk)
-    return digest.hexdigest()
+    return file_facts(path) if path.is_file() else []
 
 
 def manuscript_snapshot(
     project_root: Path | str,
     *,
     recorded_at: str | None = None,
-    sha256: str | None = None,
-) -> dict[str, str]:
+    facts: list[int] | None = None,
+) -> dict[str, Any]:
     """Return the stable file shape embedded by review-producing processes."""
     return {
         "path": MANUSCRIPT_PATH.as_posix(),
-        "sha256": manuscript_sha256(project_root) if sha256 is None else str(sha256),
+        "facts": manuscript_facts(project_root) if facts is None else list(facts),
         "recorded_at": recorded_at or datetime.now(UTC).isoformat(),
     }
 
@@ -42,55 +41,38 @@ def bind_manuscript_snapshot(
     project_root: Path | str,
     *,
     recorded_at: str | None = None,
-    sha256: str | None = None,
+    facts: list[int] | None = None,
 ) -> dict[str, Any]:
     payload[MANUSCRIPT_SNAPSHOT_FIELD] = manuscript_snapshot(
         project_root,
         recorded_at=recorded_at,
-        sha256=sha256,
+        facts=facts,
     )
     return payload
 
 
-def recorded_manuscript_snapshot(payload: Mapping[str, Any]) -> dict[str, str] | None:
-    raw = payload.get(MANUSCRIPT_SNAPSHOT_FIELD)
-    if isinstance(raw, Mapping):
-        digest = str(raw.get("sha256") or "").strip().lower()
-        if digest:
-            return {
-                "path": str(raw.get("path") or MANUSCRIPT_PATH.as_posix()),
-                "sha256": digest,
-                "recorded_at": str(
-                    raw.get("recorded_at")
-                    or payload.get("created_at")
-                    or payload.get("certified_at")
-                    or payload.get("recorded_at")
-                    or "unknown time"
-                ),
-            }
+def recorded_manuscript_snapshot(payload: Mapping[str, Any]) -> dict[str, Any] | None:
+    """The binding a judgment recorded, or ``None`` when it recorded no manuscript.
 
-    # Read compatibility for reviews written before the top-level binding was
-    # introduced. The main source snapshot is already the exact manuscript.
-    snapshots = payload.get("source_snapshots")
-    if isinstance(snapshots, list):
-        for item in snapshots:
-            if not isinstance(item, Mapping):
-                continue
-            if Path(str(item.get("path") or "")).as_posix() != MANUSCRIPT_PATH.as_posix():
-                continue
-            digest = str(item.get("sha256") or "").strip().lower()
-            if digest:
-                return {
-                    "path": MANUSCRIPT_PATH.as_posix(),
-                    "sha256": digest,
-                    "recorded_at": str(
-                        payload.get("created_at")
-                        or payload.get("certified_at")
-                        or payload.get("recorded_at")
-                        or "unknown time"
-                    ),
-                }
-    return None
+    A binding from before stat facts held a content digest instead: it names a
+    version that can no longer be checked, so its ``facts`` are ``None`` and it
+    never reads as current.
+    """
+    raw = payload.get(MANUSCRIPT_SNAPSHOT_FIELD)
+    if not isinstance(raw, Mapping) or not raw or raw.get("facts") == []:
+        return None
+    facts = raw.get("facts")
+    return {
+        "path": str(raw.get("path") or MANUSCRIPT_PATH.as_posix()),
+        "facts": list(facts) if isinstance(facts, list) else None,
+        "recorded_at": str(
+            raw.get("recorded_at")
+            or payload.get("created_at")
+            or payload.get("certified_at")
+            or payload.get("recorded_at")
+            or "unknown time"
+        ),
+    }
 
 
 def stale_review_message(
@@ -109,18 +91,18 @@ def manuscript_review_status(
 ) -> dict[str, Any]:
     """Mechanically compare one recorded judgment with the current manuscript."""
     recorded = recorded_manuscript_snapshot(payload)
-    current = manuscript_sha256(project_root)
+    current = manuscript_facts(project_root)
     if recorded is None:
         return {
             "status": "unbound",
-            "current_sha256": current,
+            "current_facts": current,
             "message": "unbound (review did not record the manuscript version)",
         }
-    if recorded["sha256"] != current:
+    if recorded["facts"] != current:
         return {
             "status": "stale",
-            "recorded_sha256": recorded["sha256"],
-            "current_sha256": current,
+            "recorded_facts": recorded["facts"],
+            "current_facts": current,
             "reviewed_at": recorded["recorded_at"],
             "message": stale_review_message(
                 reviewed_at=recorded["recorded_at"],
@@ -128,8 +110,8 @@ def manuscript_review_status(
         }
     return {
         "status": "current",
-        "recorded_sha256": recorded["sha256"],
-        "current_sha256": current,
+        "recorded_facts": recorded["facts"],
+        "current_facts": current,
         "reviewed_at": recorded["recorded_at"],
         "message": "current",
     }
@@ -165,9 +147,9 @@ __all__ = [
     "MANUSCRIPT_PATH",
     "MANUSCRIPT_SNAPSHOT_FIELD",
     "bind_manuscript_snapshot",
+    "manuscript_facts",
     "manuscript_review_status",
     "manuscript_review_artifact_statuses",
-    "manuscript_sha256",
     "manuscript_snapshot",
     "recorded_manuscript_snapshot",
     "stale_review_message",

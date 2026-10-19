@@ -124,15 +124,15 @@ def venue_review_issue(value: Any, *, venue: str, minimum: str = "weak_accept") 
     return ""
 
 
-def paper_review_snapshot(project_root: Path | str) -> dict[str, str] | None:
-    """Bind the actual paper closure, including rendered PDF and figure bytes."""
-    from .manuscript_narrative_runtime import manuscript_closure_sha256
+def paper_review_snapshot(project_root: Path | str) -> dict[str, Any] | None:
+    """Bind the actual paper closure, including rendered PDF and figure files."""
+    from .manuscript_narrative_runtime import manuscript_closure_facts
 
     root = Path(project_root)
     if not (root / "paper/main.tex").is_file() or not (root / "paper/main.pdf").is_file():
         return None
     try:
-        return {"sha256": manuscript_closure_sha256(root)}
+        return {"files": manuscript_closure_facts(root)}
     except (OSError, ValueError):
         return None
 
@@ -149,7 +149,8 @@ def current_venue_acceptance_issue(review: Any, *, state_root: Path | str, artif
         return "final venue recommendation was not supplied by the independent Reviewer"
     recorded = getattr(review, "venue_review_snapshot", None)
     current = paper_review_snapshot(artifact_root)
-    if not recorded or not current:
+    # A binding from before file facts named a digest that can no longer be checked.
+    if not isinstance(recorded, dict) or not recorded.get("files") or not current:
         return "venue recommendation is not bound to a complete source and rendered paper"
     if recorded != current:
         return "the paper or its figures changed after the venue recommendation"
@@ -194,7 +195,7 @@ def _drop_routing_judgments(decision: Any) -> None:
 
 
 def enforce_venue_acceptance(
-    decision: Any, *, venue: str, before: dict[str, str] | None, artifact_root: Path | str,
+    decision: Any, *, venue: str, before: dict[str, Any] | None, artifact_root: Path | str,
     minimum: str = "weak_accept",
 ) -> None:
     """Apply the stated minimum to the Reviewer's own assessment, never re-grade it."""

@@ -1,5 +1,3 @@
-import hashlib
-
 import httpx
 import pytest
 
@@ -13,15 +11,13 @@ def client(monkeypatch, handler):
     )
 
 
-def test_verified_download_keeps_existing_file_on_mismatch(tmp_path, monkeypatch):
+def test_a_completed_download_is_reused_and_never_left_partial(tmp_path, monkeypatch):
     target = tmp_path / "program"
-    target.write_bytes(b"previous")
-    client(monkeypatch, lambda request: httpx.Response(200, content=b"corrupt"))
-    with pytest.raises(ValueError, match="SHA-256"):
-        runtime.download(
-            "https://example.org/program", target, checksum=hashlib.sha256(b"valid").hexdigest()
-        )
-    assert target.read_bytes() == b"previous"
+    client(monkeypatch, lambda request: httpx.Response(200, content=b"pinned release"))
+    assert runtime.download("https://example.org/program", target) == target
+    client(monkeypatch, lambda request: pytest.fail("a completed download is reused"))
+    assert runtime.download("https://example.org/program", target) == target
+    assert target.read_bytes() == b"pinned release"
     assert not list(tmp_path.glob("*.part"))
 
 

@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import hashlib
 import json
 import logging
 import os
@@ -19,6 +18,7 @@ from .operator_context_storage import (
     MAX_OPERATOR_DELIVERY_RECEIPTS,
     MAX_OPERATOR_DELIVERY_STREAMS,
     MAX_SOURCE_BYTES,
+    RECEIPT_FORMAT,
     ContextDocument,
     checkpoint_bytes,
     compact_document,
@@ -403,11 +403,6 @@ def _frozen_operator_plan(value: Any) -> dict[str, Any]:
     return cast(dict[str, Any], json.loads(encode(value)))
 
 
-def operator_delivery_effect_digest(plan: dict[str, Any]) -> str:
-    """Hash the complete frozen plan using the versioned checkpoint JSON encoding."""
-    return hashlib.sha256(encode(_frozen_operator_plan(plan))).hexdigest()
-
-
 class OperatorContextStore:
     """One physical revision namespace; projection may read explicit shared preferences."""
 
@@ -653,7 +648,6 @@ class OperatorContextStore:
         plan, identity = _frozen_operator_plan(plan), operator_delivery_identity(identity)
         if plan["target_root"] != str(self.root.resolve()):
             raise OperatorDeliveryConflict("frozen operator intake names another target")
-        effect_digest = operator_delivery_effect_digest(plan)
         with self._locked():
             doc = self._load()
             replay = doc.state.setdefault(DELIVERY_STATE_KEY, {"version": 1, "streams": {}})
@@ -674,11 +668,13 @@ class OperatorContextStore:
                 raise OperatorDeliveryClosed("operator delivery sequence is already closed")
             previous = stream["receipts"].get(str(identity["sequence"]))
             if previous is not None:
+                # A version-1 receipt bound a digest of its plan, not the plan.
                 if (
-                    previous["identity"] != identity or previous["effect_digest"] != effect_digest
+                    operator_delivery_identity(previous["identity"]) != identity
+                    or previous.get("plan", plan) != plan
                     or previous["target_root"] != plan["target_root"]
                 ):
-                    raise OperatorDeliveryConflict("operator delivery identity has a different frozen effect or digest")
+                    raise OperatorDeliveryConflict("operator delivery identity has a different frozen effect")
                 return cast(dict[str, Any], json.loads(encode(previous)))
             if sum(len(row["receipts"]) for row in streams.values()) >= MAX_OPERATOR_DELIVERY_RECEIPTS:
                 raise OperatorDeliveryCapacityError("operator delivery receipt capacity is full")
@@ -687,8 +683,8 @@ class OperatorContextStore:
                 written, _appended = self._stage_record(doc, _record_from_dict(plan["effect"]))
                 revision = written.revision
             receipt = {
-                "format": "operator-delivery-receipt-v1", "identity": identity,
-                "target_root": plan["target_root"], "effect_digest": effect_digest, "revision": revision,
+                "format": RECEIPT_FORMAT, "identity": identity,
+                "target_root": plan["target_root"], "plan": plan, "revision": revision,
             }
             stream["receipts"][str(identity["sequence"])] = receipt
             # The v3 checkpoint contains both the authority effect and receipt.
@@ -698,7 +694,7 @@ class OperatorContextStore:
 
     def close_operator_delivery_prefix(self, prefix: dict[str, Any]) -> dict[str, Any]:
         """Close only a source-acknowledged prefix; retain bounded stream tombstones."""
-        prefix = operator_delivery_identity(prefix, prefix=True)
+        prefix = operator_delivery_identity(prefix)
         result = {"format": "operator-delivery-close-v1", "target_root": str(self.root.resolve()), **prefix}
         with self._locked():
             doc = self._load()
@@ -1391,7 +1387,6 @@ __all__ = [
     "operator_context_revision_from_text",
     "operator_context_state_root",
     "operator_context_global_root",
-    "operator_delivery_effect_digest",
     "preference_state_root",
     "persist_intake_decision",
     "persist_once_answer",

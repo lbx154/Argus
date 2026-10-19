@@ -1,11 +1,11 @@
 from __future__ import annotations
 
-import hashlib
 import os
 import subprocess
 import sys
 import textwrap
 import time
+from pathlib import Path
 
 import pytest
 
@@ -28,9 +28,8 @@ def test_workspace_lease_path_exposes_canonical_workdir(tmp_path, monkeypatch) -
     uid = os.getuid() if hasattr(os, "getuid") else 0
     expected_root = temp_root / f"argus-skill-workspaces-{uid}"
     if os.name == "nt":
-        identity = os.path.normcase(str(workspace.resolve()))
-        digest = hashlib.sha256(identity.encode("utf-8")).hexdigest()
-        assert path == expected_root / f"workspace-{digest[:32]}.lock"
+        spelled = Path(os.path.normcase(str(workspace.resolve())))
+        assert path.parts[-len(spelled.parts) - 1:] == (spelled.drive.strip("\\/:"), *spelled.parts[1:], "lease.lock")
     else:
         assert path == expected_root.joinpath(*workspace.resolve().parts[1:], "lease.lock")
     assert path.parent.is_dir()

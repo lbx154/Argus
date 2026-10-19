@@ -1,7 +1,10 @@
-"""Append-only evidence records with explicit, traceable corrections."""
+"""Append-only evidence records with explicit, traceable corrections.
+
+A record id names one immutable payload: appending it again with different
+content is refused by comparing the payloads themselves.
+"""
 from __future__ import annotations
 
-import hashlib
 import json
 import os
 import time
@@ -22,12 +25,13 @@ def _canonical_bytes(value: object) -> bytes:
     ).encode("utf-8")
 
 
-def _payload_sha256(payload: dict[str, Any]) -> str:
-    return hashlib.sha256(_canonical_bytes(payload)).hexdigest()
+# Ledger metadata, and the digest older corrections carried, are not content.
+_NOT_PAYLOAD = frozenset({"_ledger", "target_record_sha256"})
 
 
-def _row_payload(row: dict[str, Any]) -> dict[str, Any]:
-    return {key: value for key, value in row.items() if key != "_ledger"}
+def _same_payload(row: dict[str, Any], payload: dict[str, Any]) -> bool:
+    stored = {key: value for key, value in row.items() if key not in _NOT_PAYLOAD}
+    return _canonical_bytes(stored) == _canonical_bytes(payload)
 
 
 def _legacy_record_id(row: dict[str, Any]) -> str:
@@ -46,15 +50,6 @@ def _record_id(row: dict[str, Any]) -> str:
         if value:
             return value
     return _legacy_record_id(row)
-
-
-def _record_sha256(row: dict[str, Any]) -> str:
-    metadata = row.get("_ledger")
-    if isinstance(metadata, dict):
-        value = str(metadata.get("payload_sha256") or "").strip()
-        if value:
-            return value
-    return _payload_sha256(_row_payload(row))
 
 
 class EvidenceLedger:
@@ -123,7 +118,6 @@ class EvidenceLedger:
             raise ValueError("record_type must be non-empty")
         clean_payload = dict(payload)
         clean_payload.pop("_ledger", None)
-        digest = _payload_sha256(clean_payload)
         with self._locked_handle() as handle:
             with exclusive_file_lock(
                 handle,
@@ -132,7 +126,7 @@ class EvidenceLedger:
                 rows = self._rows_unlocked()
                 existing = self._existing_by_id(rows, normalized_id)
                 if existing is not None:
-                    if _record_sha256(existing) != digest and not preserve_existing:
+                    if not preserve_existing and not _same_payload(existing, clean_payload):
                         raise ValueError(
                             f"record_id {normalized_id!r} already names different evidence"
                         )
@@ -146,7 +140,6 @@ class EvidenceLedger:
                         "created_at": (
                             time.time() if created_at is None else float(created_at)
                         ),
-                        "payload_sha256": digest,
                     },
                 }
                 self._append_unlocked(row)
@@ -163,7 +156,7 @@ class EvidenceLedger:
         payload: dict[str, Any] | None = None,
         created_at: float | None = None,
     ) -> dict[str, Any]:
-        """Append a correction bound to the exact original record digest."""
+        """Append a correction to one existing record."""
         normalized_id = str(correction_id or "").strip()
         normalized_target = str(target_record_id or "").strip()
         normalized_relation = str(relation or "").strip()
@@ -191,20 +184,17 @@ class EvidenceLedger:
                     raise KeyError(
                         f"cannot correct missing evidence record {normalized_target!r}"
                     )
-                target_sha256 = _record_sha256(target)
                 correction_payload = {
                     **clean_payload,
                     "correction_id": normalized_id,
                     "target_record_id": normalized_target,
-                    "target_record_sha256": target_sha256,
                     "relation": normalized_relation,
                     "reason": normalized_reason,
                     "evidence_refs": refs,
                 }
-                digest = _payload_sha256(correction_payload)
                 existing = self._existing_by_id(rows, normalized_id)
                 if existing is not None:
-                    if _record_sha256(existing) != digest:
+                    if not _same_payload(existing, correction_payload):
                         raise ValueError(
                             f"correction_id {normalized_id!r} already names "
                             "different evidence"
@@ -219,9 +209,7 @@ class EvidenceLedger:
                         "created_at": (
                             time.time() if created_at is None else float(created_at)
                         ),
-                        "payload_sha256": digest,
                         "target_record_id": normalized_target,
-                        "target_record_sha256": target_sha256,
                     },
                 }
                 self._append_unlocked(row)
