@@ -126,6 +126,19 @@ def hold_review_for_pending_background_run(review: ReviewDecision) -> ReviewDeci
     )
 
 
+def _paper_unchanged_since_venue_review(rounds: list[RoundRecord], workdir: Path) -> bool:
+    """Whether the paper the last venue review judged is still the paper here.
+
+    Reviewing it again could only repeat that paid verdict, so the unchanged
+    return climbs to the Planner instead (the baton's third invariant).
+    """
+    from ..core.venue_review import paper_review_snapshot
+
+    last = next((record.review for record in reversed(rounds) if record.review.venue_review_required), None)
+    recorded = last.venue_review_snapshot if last is not None else None
+    return bool(recorded) and recorded == paper_review_snapshot(workdir)
+
+
 class SupervisedEngineer(
     RoundPromptMixin,
     RoundExecutionMixin,
@@ -490,6 +503,28 @@ class SupervisedEngineer(
                     _carry_unreviewed_turn(state, round_index, outcome.engineer_message)
                     continue
 
+            if _paper_unchanged_since_venue_review(state.rounds, workdir):
+                control = self._settle_round(
+                    review=ReviewDecision(
+                        status="replan_requested",
+                        reason=(
+                            "The paper and its figures are unchanged since the last venue "
+                            "review; reviewing them again would only repeat that verdict."
+                        ),
+                        next_action="",
+                        review_source="unchanged_paper",
+                    ),
+                    round_index=round_index,
+                    supervised_config=supervised_config,
+                    workdir=workdir,
+                    outcome=outcome,
+                    state=state,
+                    review_completed_hook=review_completed_hook,
+                    continue_adaptor=continue_adaptor,
+                    on_event=on_event,
+                )
+                return enforce_terminal_question_policy(control.terminal, supervised_config)
+
             control = self._invoke_reviewer_with_retry(
                 objective=objective,
                 original_objective=original_objective,
@@ -555,6 +590,19 @@ class SupervisedEngineer(
             # else "proceed": fall through to the next round.
 
         # Only an explicit positive max_rounds can exhaust the finite range.
+        if state.rounds and state.rounds[-1].review.venue_review_required:
+            return enforce_terminal_question_policy(
+                (
+                    "blocked",
+                    state.rounds,
+                    state.last_engineer_message,
+                    f"The final Review spent its budget of {supervised_config.max_rounds} "
+                    "reviewed rounds without the paper reaching the bar; the Manager decides "
+                    "whether to fund more revision, settle, or stop.",
+                    None,
+                ),
+                supervised_config,
+            )
         return enforce_terminal_question_policy(
             (
                 "max_rounds",

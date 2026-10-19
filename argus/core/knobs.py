@@ -193,6 +193,12 @@ KNOBS: tuple[Knob, ...] = (
         "mission",
     ),
     Knob("ARGUS_SKILL_MAX_ROUNDS", "0", "optional engineer-round cap per mission; disabled by default", "mission"),
+    Knob(
+        "ARGUS_SKILL_VENUE_REVIEW_MAX_ROUNDS",
+        "6",
+        "reviewed rounds a research paper's final Review may buy (each pays for a venue-scale review) before the Manager decides whether to fund more, settle, or stop; 0 is no cap",
+        "mission",
+    ),
     Knob("ARGUS_SKILL_STALL_THRESHOLD", "(vertical)", "consecutive Reviewer no-progress verdicts that end a mission; overrides every vertical's round_policy; 0 disables; 'vertical' hands control back", "mission", cockpit=True),
     Knob("ARGUS_SKILL_NO_PROGRESS_THRESHOLD", "(vertical)", "consecutive empty Engineer turns that end a mission unless the Reviewer reports progress; overrides every vertical's round_policy; 0 disables; 'vertical' hands control back", "mission", cockpit=True),
     Knob("ARGUS_SKILL_SOFT_ROUND_LIMIT", "(vertical)", "round after which two verdicts without forward progress end a mission; overrides every vertical's round_policy; 0 disables; 'vertical' hands control back", "mission", cockpit=True),
