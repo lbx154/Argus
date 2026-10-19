@@ -25,7 +25,7 @@ Experiment ledger:
   frontier. Only the reproducible champion may become the baseline ratchet.
 - A benchmark is valid for the idea only when its shapes demonstrably exercise
   the changed dispatch/code path. Record baseline revision, candidate revision
-  plus dirty-diff hash, and dispatch/trace evidence; matching commit labels on a
+  plus the saved dirty diff, and dispatch/trace evidence; matching commit labels on a
   dirty worktree are not sufficient provenance.
 - Amdahl/leverage analysis is useful for performance claims but must not block
   high-risk exploration or research into mechanisms whose system-level effect is not

@@ -56,8 +56,8 @@ stage requires it to show a fresh real compiler run with no proof holes, so run
     python -m argus.verticals.math.lean_evidence verify Main.lean \
         --statement-fidelity statement_fidelity.md --claim C1
 
-which compiles the source, records the answer beside it stamped with the source
-hash, and — because of `--claim` — writes the outcome into the claim ledger as
+which compiles the source, records the answer beside it together with the exact
+text it compiled, and — because of `--claim` — writes the outcome into the claim ledger as
 mechanical evidence. Editing the source after a run invalidates that record;
 re-run it. Editing it *during* one is different: the run is refused outright and
 nothing is written at all, because the compiler's answer would then be about text
@@ -88,8 +88,8 @@ Compilation checks the theorem you encoded, not the one you meant, so the
 separate `statement_fidelity.md` states which objects, quantifiers, hypotheses,
 and conclusion the formal statement carries and names the declarations it
 describes. A compiling proof of a mistranslated statement is the most expensive
-wrong answer available here. The document is hashed into the compiler result, so
-rewriting it afterwards invalidates the run rather than quietly re-labelling it,
+wrong answer available here. The document's text is recorded in the compiler
+result, so rewriting it afterwards invalidates the run rather than quietly re-labelling it,
 and rewriting it while the compiler is running refuses the run the same way the
 source does.
 Nothing checks that the document is *true* — that half of the argument is yours,
@@ -136,7 +136,7 @@ there is no argument you can type that produces it. Keep it current with
 
     # your own or a reviewer's opinion, recorded as an opinion
     $S judge --claim C1 --verdict supports --by "reviewer:alice" \
-        --artifact research/lean/certificates/C1-<digest>.json
+        --artifact research/lean/certificates/C1-<n>.json
 
     # the next version, when the definitions or the theorem change
     $S revise-context --id ctx --define "term=corrected meaning"

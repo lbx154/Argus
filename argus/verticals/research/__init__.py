@@ -40,11 +40,6 @@ from ._review_contract_constants import (
     LAYOUT_REVIEW_HISTORY_PATH,
     PAPER_INFRASTRUCTURE_REVIEW_GENERATED_BY,
     PAPER_INFRASTRUCTURE_REVIEW_HISTORY_PATH,
-    REVIEW_INPUT_SHA256_FIELD,
-    REVIEW_PROMPT_SHA256_FIELD,
-    review_sha256_file,
-    review_sha256_json,
-    review_sha256_text,
 )
 
 # ---------------------------------------------------------------------------
@@ -121,11 +116,6 @@ __all__ = [
     "LAYOUT_REVIEW_HISTORY_PATH",
     "PAPER_INFRASTRUCTURE_REVIEW_GENERATED_BY",
     "PAPER_INFRASTRUCTURE_REVIEW_HISTORY_PATH",
-    "REVIEW_INPUT_SHA256_FIELD",
-    "REVIEW_PROMPT_SHA256_FIELD",
-    "review_sha256_file",
-    "review_sha256_json",
-    "review_sha256_text",
     # academic_language_review
     "ACADEMIC_LANGUAGE_REVIEW_JSON_PATH",
     "ACADEMIC_LANGUAGE_REVIEW_MD_PATH",

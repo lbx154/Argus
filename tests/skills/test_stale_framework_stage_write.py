@@ -45,7 +45,7 @@ def project(tmp_path: Path, monkeypatch) -> Path:
     monkeypatch.setattr(
         stage_machine, "_ensure_stage_completion", lambda *a, **k: None
     )
-    # These three tests are about what a *mismatched fingerprint* reports, and
+    # These three tests are about what a *mismatched contract* reports, and
     # they reach a completion record the cheapest way there is: complete at
     # ``scope``. That is early completion, which since run 13 requires standing
     # — ``direct`` workflow mode on the read side, the explicit argument on the
@@ -66,7 +66,7 @@ def _state(project: Path) -> dict:
 
 
 def test_the_completion_records_which_framework_stamped_it(project):
-    """When a reader cannot reproduce the hash, the first question is always
+    """When a reader cannot reproduce the contract, the first question is always
     "was this written by the code I am running?" — record the answer."""
     stage_machine.complete_final_stage(
         project, reason="scope is enough", allow_early_completion=True
@@ -79,8 +79,8 @@ def test_the_completion_records_which_framework_stamped_it(project):
 
 
 def test_the_rejection_names_the_stage_that_holds_the_disputed_record(project):
-    """The old message hashed ``stages[-1]`` — ``review``, a stage this project
-    never reached — while the comparison that failed was on ``scope``."""
+    """The old message described ``stages[-1]`` — ``review``, a stage this
+    project never reached — while the comparison that failed was on ``scope``."""
     from argus.life.supervisor._planning_cycle_helpers import (
         _staged_goal_completion_issue,
     )
@@ -90,20 +90,17 @@ def test_the_rejection_names_the_stage_that_holds_the_disputed_record(project):
     )
     state_path = project / ".argus" / "PIPELINE_STATE.json"
     state = _state(project)
-    expected = state["stages"]["scope"]["completion_contract_sha256"]
-    state["stages"]["scope"]["completion_contract_sha256"] = "6248efde" + "0" * 56
+    expected = state["stages"]["scope"]["completion_contract"]
+    state["stages"]["scope"]["completion_contract"] = {**expected, "items": []}
     state_path.write_text(json.dumps(state, indent=2), encoding="utf-8")
 
     issue = _staged_goal_completion_issue(project)
 
     assert "certified_stage=scope" in issue
-    assert expected in issue, "must print the fingerprint the framework expects"
-    assert "6248efde" in issue, "must print the fingerprint actually stored"
+    assert "'id': 'scope." in issue, "must print the contract the framework expects"
+    assert "'items': []" in issue, "must print the contract actually stored"
     assert "re-certify" in issue
-    review_hash = stage_machine.completion_contract_fingerprint(
-        project, "review", version=1
-    )
-    assert review_hash not in issue, "the stage that never ran is not the subject"
+    assert "'stage': 'review'" not in issue, "the stage that never ran is not the subject"
 
 
 def test_a_matching_certificate_still_passes_the_gate(project):

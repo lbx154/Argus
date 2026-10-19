@@ -4,7 +4,7 @@ from __future__ import annotations
 import json
 from pathlib import Path
 
-from argus.skills.run_contract import RunContract, compute_curriculum_hash
+from argus.skills.run_contract import RunContract
 from argus.tools.subagent import (
     _flag,
     _is_full_scale_rl,
@@ -12,7 +12,13 @@ from argus.tools.subagent import (
     _run_contract_preflight,
 )
 
-CUR_HASH = compute_curriculum_hash([f"math_{i}" for i in range(1200)], seed=42)
+TASKS = sorted(f"math_{i}" for i in range(1200))
+
+
+def _write_curriculum(root: Path, name: str, task_ids: list[str]) -> None:
+    (root / "research").mkdir(parents=True, exist_ok=True)
+    (root / "research" / name).write_text(
+        json.dumps({"task_ids": task_ids}), encoding="utf-8")
 
 
 def _write_contract(root: Path) -> None:
@@ -23,19 +29,19 @@ def _write_contract(root: Path) -> None:
         total_steps=1200,
         batch_size=1,
         curriculum_slice_id="math1200",
-        curriculum_hash=CUR_HASH,
+        curriculum_task_ids=TASKS,
         distinct_tasks=1200,
         seed=42,
         scale="full",
-    ).with_hash()
-    (root / "research").mkdir(parents=True, exist_ok=True)
+    )
+    _write_curriculum(root, "slice.json", TASKS)
     (root / "research" / "RUN_CONTRACT.json").write_text(
         json.dumps(contract.to_dict()), encoding="utf-8")
 
 
 def _write_packet(root: Path, **over) -> None:
     packet = dict(
-        curriculum_hash=CUR_HASH, distinct_tasks=1200, total_steps=1200,
+        curriculum_task_ids=TASKS, distinct_tasks=1200, total_steps=1200,
         batch_size=1, group_size=8, reward_mean=0.45, reward_std=0.5,
         per_group_reward_std_mean=0.4, advantage_span_max=1.3,
         frac_reward_zero_std=0.2, probe_steps=20,
@@ -51,7 +57,7 @@ def _cmd(**flag_over) -> str:
         "--lr": "5e-6", "--total-training-steps": "1200", "--train-batch-size": "1",
         "--run-contract": "research/RUN_CONTRACT.json",
         "--feasibility-packet": "research/PACKET.json",
-        "--curriculum-hash": CUR_HASH,
+        "--curriculum": "research/slice.json",
     }
     flags.update(flag_over)
     parts = ["python", "code/run.py"]
@@ -105,8 +111,9 @@ def test_preflight_rejects_lr_drift(tmp_path):
 def test_preflight_rejects_curriculum_drift(tmp_path):
     _write_contract(tmp_path)
     _write_packet(tmp_path)
+    _write_curriculum(tmp_path, "other.json", TASKS[:50])
     reject, concern, status = _run_contract_preflight(
-        _cmd(**{"--curriculum-hash": "f" * 64}), str(tmp_path))
+        _cmd(**{"--curriculum": "research/other.json"}), str(tmp_path))
     assert reject is True and "curriculum" in concern.lower()
     assert status == ""
 

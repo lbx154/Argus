@@ -15,7 +15,7 @@ from typing import Iterable
 import portalocker
 
 from ...core.atomic_replace import replace as _replace
-from ...core.file_digest import sha256_file as _sha256
+from ...core.file_facts import file_facts
 
 FIGURE_PROVENANCE_PATH = Path("paper/figures/FIGURE_PROVENANCE.json")
 FIGURE_PROVENANCE_SCHEMA_VERSION = 1
@@ -109,11 +109,11 @@ def _atomic_write_json(path: Path, payload: dict[str, object]) -> None:
     _replace(temporary, path)
 
 
-def _file_record(project_root: Path, raw: Path | str) -> dict[str, str]:
+def _file_record(project_root: Path, raw: Path | str) -> dict[str, object]:
     path = _project_path(project_root, raw)
     if not path.is_file():
         raise FileNotFoundError(path)
-    return {"path": _relative(project_root, path), "sha256": _sha256(path)}
+    return {"path": _relative(project_root, path), "facts": file_facts(path)}
 
 
 def _transaction_lock_path(project_root: Path) -> Path:
@@ -174,7 +174,7 @@ def register_figure(
     manifest_path: Path = FIGURE_PROVENANCE_PATH,
     _transaction_locked: bool = False,
 ) -> dict[str, object]:
-    """Upsert one figure from real source/output files and computed hashes."""
+    """Upsert one figure from real source/output files and their file facts."""
     if not figure_id.strip():
         raise ValueError("figure_id must be non-empty")
     if not role.strip():
@@ -197,18 +197,18 @@ def register_figure(
         "role": role.strip(),
         "renderer": renderer.strip(),
         "source_path": source["path"],
-        "source_sha256": source["sha256"],
+        "source_facts": source["facts"],
         "output_path": output["path"],
-        "output_sha256": output["sha256"],
+        "output_facts": output["facts"],
         "inputs": input_records,
         "registered_at": datetime.now(UTC).isoformat(),
     }
     if review is not None:
         entry["review_path"] = review["path"]
-        entry["review_sha256"] = review["sha256"]
+        entry["review_facts"] = review["facts"]
     if render_metadata is not None:
         entry["render_metadata_path"] = render_metadata["path"]
-        entry["render_metadata_sha256"] = render_metadata["sha256"]
+        entry["render_metadata_facts"] = render_metadata["facts"]
     if command.strip():
         entry["command"] = command.strip()
 
@@ -228,16 +228,15 @@ def _validate_recorded_file(
     figure_id: str,
     entry: dict[str, object],
     path_field: str,
-    hash_field: str,
+    facts_field: str,
 ) -> str | None:
     raw_path = str(entry.get(path_field) or "").strip()
-    expected_hash = str(entry.get(hash_field) or "").strip().lower()
-    if not raw_path or not expected_hash:
+    if not raw_path:
         report.issues.append(
             FigureProvenanceIssue(
                 code="missing_file_record",
                 figure_id=figure_id,
-                detail=f"{path_field} and {hash_field} are required",
+                detail=f"{path_field} is required",
             )
         )
         return None
@@ -257,13 +256,13 @@ def _validate_recorded_file(
             )
         )
         return None
-    actual_hash = _sha256(path)
-    if actual_hash != expected_hash:
+    # A record written before file facts were kept has none to compare.
+    if facts_field in entry and entry[facts_field] != file_facts(path):
         report.issues.append(
             FigureProvenanceIssue(
-                "hash_mismatch",
+                "file_changed",
                 figure_id,
-                f"{hash_field} does not match {raw_path}",
+                f"{raw_path} changed after it was registered",
             )
         )
         return None
@@ -351,7 +350,7 @@ def validate_figure_provenance(
             figure_id=figure_id,
             entry=entry,
             path_field="source_path",
-            hash_field="source_sha256",
+            facts_field="source_facts",
         )
         output = _validate_recorded_file(
             report=report,
@@ -359,7 +358,7 @@ def validate_figure_provenance(
             figure_id=figure_id,
             entry=entry,
             path_field="output_path",
-            hash_field="output_sha256",
+            facts_field="output_facts",
         )
         if output:
             report.output_paths.add(output)
@@ -391,20 +390,20 @@ def validate_figure_provenance(
                 figure_id=figure_id,
                 entry=input_record,
                 path_field="path",
-                hash_field="sha256",
+                facts_field="facts",
             )
-        for path_field, hash_field in (
-            ("review_path", "review_sha256"),
-            ("render_metadata_path", "render_metadata_sha256"),
+        for path_field, facts_field in (
+            ("review_path", "review_facts"),
+            ("render_metadata_path", "render_metadata_facts"),
         ):
-            if path_field in entry or hash_field in entry:
+            if path_field in entry:
                 _validate_recorded_file(
                     report=report,
                     project_root=root,
                     figure_id=figure_id,
                     entry=entry,
                     path_field=path_field,
-                    hash_field=hash_field,
+                    facts_field=facts_field,
                 )
         report.entries.append(entry)
     return report

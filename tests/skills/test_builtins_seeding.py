@@ -1,14 +1,13 @@
 """Vertical-aware builtin-skill seeding."""
 from __future__ import annotations
 
-import hashlib
 import json
 
 import pytest
 
+from argus.core.file_facts import file_facts
 from argus.skills.builtins import (
-    _LEGACY_BUILTIN_SEED_HASHES,
-    _RETIRED_BUILTIN_SEED_HASHES,
+    _RETIRED_BUILTIN_SEEDS,
     _validate_builtin,
     iter_builtin_skill_texts,
     iter_common_builtin_skill_texts,
@@ -161,8 +160,8 @@ def test_agent_team_lead_is_a_common_builtin() -> None:
 def test_machine_specific_nanochat_playbook_seeds_stay_retired() -> None:
     # The H100 nanochat traces once lived in the flat builtin pool; operator
     # libraries seeded before they were retired still carry copies, so the
-    # retirement hashes must survive the vertical's move to argus-verticals.
-    assert RETIRED_NANOCHAT_SKILLS <= _RETIRED_BUILTIN_SEED_HASHES.keys()
+    # retirement names must survive the vertical's move to argus-verticals.
+    assert RETIRED_NANOCHAT_SKILLS <= _RETIRED_BUILTIN_SEEDS
 
 
 def test_retire_orphaned_builtin_seeds_archives_edited_copies(
@@ -171,25 +170,19 @@ def test_retire_orphaned_builtin_seeds_archives_edited_copies(
 ) -> None:
     import argus.skills.builtins as builtins
 
-    unchanged_body = b"retired seed\n"
-    edited_body = unchanged_body + b"operator edit\n"
-    retired = {
-        "engineer/unchanged.md": hashlib.sha256(unchanged_body).hexdigest(),
-        "engineer/edited.md": hashlib.sha256(unchanged_body).hexdigest(),
-    }
+    body = "retired seed\n"
+    names = ("engineer/unchanged.md", "engineer/edited.md")
     monkeypatch.setattr(
-        builtins,
-        "_RETIRED_BUILTIN_SEED_HASHES",
-        retired,
-        raising=False,
+        builtins, "iter_builtin_skill_texts", lambda: iter((name, body) for name in names),
     )
+    monkeypatch.setattr(builtins, "_RETIRED_BUILTIN_SEEDS", frozenset())
+    seed_builtin_skills(tmp_path)
     unchanged = tmp_path / "engineer" / "unchanged.md"
     edited = tmp_path / "engineer" / "edited.md"
-    edited.parent.mkdir(parents=True)
-    unchanged.write_bytes(unchanged_body)
-    edited.write_bytes(edited_body)
+    edited.write_text(body + "operator edit\n", encoding="utf-8")
+    monkeypatch.setattr(builtins, "_RETIRED_BUILTIN_SEEDS", frozenset(names))
 
-    removed = retire_orphaned_builtin_seeds(tmp_path)
+    removed = retire_orphaned_builtin_seeds(tmp_path, include_moved=False)
 
     assert removed == ["engineer/edited.md", "engineer/unchanged.md"]
     assert not unchanged.exists()
@@ -200,85 +193,8 @@ def test_retire_orphaned_builtin_seeds_archives_edited_copies(
         / "engineer"
         / "edited.md.retired"
     )
-    assert archived.read_bytes() == edited_body
-
-
-def test_retiring_removes_an_unedited_copy_of_an_older_shipped_revision(
-    tmp_path,
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    # A workspace seeded long ago still holds the first shipped text, not the
-    # last one recorded as retired; that copy is factory-owned and goes away
-    # instead of being archived as if an operator had edited it.
-    import argus.skills.builtins as builtins
-
-    relative = "engineer/consolidated.md"
-    first_body = b"first shipped text\n"
-    last_body = b"last shipped text\n"
-    monkeypatch.setattr(
-        builtins,
-        "_RETIRED_BUILTIN_SEED_HASHES",
-        {relative: hashlib.sha256(last_body).hexdigest()},
-    )
-    monkeypatch.setattr(
-        builtins,
-        "_LEGACY_BUILTIN_SEED_HASHES",
-        {relative: hashlib.sha256(first_body).hexdigest()},
-    )
-    legacy_copy = tmp_path / relative
-    legacy_copy.parent.mkdir(parents=True)
-    legacy_copy.write_bytes(first_body)
-
-    removed = retire_orphaned_builtin_seeds(tmp_path, include_moved=False)
-
-    assert relative in removed
-    assert not legacy_copy.exists()
-    assert not (tmp_path / "_retired_builtin_skills").exists()
-
-
-def test_retiring_removes_a_copy_matching_the_recorded_seed(tmp_path, monkeypatch) -> None:
-    import argus.skills.builtins as builtins
-
-    relative = "engineer/consolidated.md"
-    seeded_body = b"text this workspace was seeded with\n"
-    monkeypatch.setattr(
-        builtins,
-        "_RETIRED_BUILTIN_SEED_HASHES",
-        {relative: hashlib.sha256(b"a later revision\n").hexdigest()},
-    )
-    monkeypatch.setattr(builtins, "_LEGACY_BUILTIN_SEED_HASHES", {})
-    (tmp_path / ".argus-builtin-seeds.json").write_text(
-        json.dumps({relative: hashlib.sha256(seeded_body).hexdigest()}),
-        encoding="utf-8",
-    )
-    copy = tmp_path / relative
-    copy.parent.mkdir(parents=True)
-    copy.write_bytes(seeded_body)
-
-    retire_orphaned_builtin_seeds(tmp_path, include_moved=False)
-
-    assert not copy.exists()
-    assert not (tmp_path / "_retired_builtin_skills").exists()
-
-
-def test_pre_manifest_seed_digests_are_never_dropped() -> None:
-    # Workspaces seeded before the manifest existed are recognised only by
-    # these digests; retiring or merging a skill must keep its entry.
-    kept = {
-        "agent-md-optimize-project-template.md": "52fbd7e6",
-        "engineer/argus-engineer-role.md": "8823e0c0",
-        "engineer/mermaid-graphviz-diagrams.md": "d340f45b",
-        "engineer/environment-readiness.md": "f8615f2a",
-        "engineer/training-infrastructure-guide.md": "43d1cbc1",
-        "engineer/semantic-scholar-search.md": "9d4c7db9",
-        "engineer/stale-world-model.md": "1a461c11",
-        "engineer/presentation-master.md": "16fb15d8",
-        "manager/argus-manager-role.md": "dc193f31",
-        "planner/argus-planner-role.md": "30d16975",
-        "reviewer/guiding-the-engineer.md": "4636cfe9",
-    }
-    for relative, prefix in kept.items():
-        assert _LEGACY_BUILTIN_SEED_HASHES.get(relative, "").startswith(prefix), relative
+    assert archived.read_text(encoding="utf-8") == body + "operator edit\n"
+    assert not (archived.parent / "unchanged.md.retired").exists()
 
 
 def test_seeding_retires_existing_obsolete_skill(
@@ -287,15 +203,10 @@ def test_seeding_retires_existing_obsolete_skill(
 ) -> None:
     import argus.skills.builtins as builtins
 
-    body = b"retired seed\n"
-    monkeypatch.setattr(
-        builtins,
-        "_RETIRED_BUILTIN_SEED_HASHES",
-        {"engineer/obsolete.md": hashlib.sha256(body).hexdigest()},
-    )
+    monkeypatch.setattr(builtins, "_RETIRED_BUILTIN_SEEDS", frozenset({"engineer/obsolete.md"}))
     obsolete = tmp_path / "engineer" / "obsolete.md"
     obsolete.parent.mkdir(parents=True)
-    obsolete.write_bytes(body)
+    obsolete.write_bytes(b"retired seed\n")
 
     builtins.seed_builtin_skills(tmp_path)
 
@@ -320,35 +231,6 @@ def test_atomic_write_accepts_concurrent_identical_winner(
 
     assert destination.read_text(encoding="utf-8") == "same runtime seed\n"
     assert list(tmp_path.glob("shared.md.tmp.*")) == []
-
-
-def test_seeding_refreshes_a_known_unmodified_legacy_builtin(
-    tmp_path,
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    import argus.skills.builtins as builtins
-
-    relative = "engineer/example.md"
-    old = "old factory body\n"
-    new = "new factory body\n"
-    destination = tmp_path / relative
-    destination.parent.mkdir(parents=True)
-    destination.write_text(old, encoding="utf-8")
-    monkeypatch.setattr(
-        builtins,
-        "iter_builtin_skill_texts",
-        lambda: iter(((relative, new),)),
-    )
-    monkeypatch.setattr(
-        builtins,
-        "_LEGACY_BUILTIN_SEED_HASHES",
-        {relative: hashlib.sha256(old.encode()).hexdigest()},
-    )
-
-    changed = builtins.seed_builtin_skills(tmp_path)
-
-    assert changed[relative] is True
-    assert destination.read_text(encoding="utf-8") == new
 
 
 def test_seeding_refreshes_manifest_owned_builtin_but_preserves_user_edit(
@@ -396,7 +278,7 @@ def test_global_seeding_retires_manifest_owned_moved_research_skill(
     destination.parent.mkdir(parents=True)
     destination.write_text(body, encoding="utf-8")
     (tmp_path / ".argus-builtin-seeds.json").write_text(
-        json.dumps({relative: hashlib.sha256(body.encode()).hexdigest()}),
+        json.dumps({relative: file_facts(destination)}),
         encoding="utf-8",
     )
 
@@ -505,83 +387,3 @@ def test_seed_for_research_does_not_pull_another_verticals_skills(tmp_path) -> N
     for relative in MATH_SKILLS:
         assert not (tmp_path / relative).exists(), relative
     assert (tmp_path / "engineer" / "paper-framework-figure-studio.md").is_file()
-
-
-# --- seeds of verticals that left the package -------------------------------
-
-
-def test_moved_vertical_seed_table_names_only_departed_verticals() -> None:
-    import re
-
-    import argus.skills.builtins as builtins
-    from argus.skills.vertical_select import VERTICALS
-
-    table = builtins._MOVED_VERTICAL_SEED_HASHES
-    assert set(table) <= {
-        "quant", "kernelbench", "speedrun", "nanogpt_speedrun", "nanochat", "chip_design",
-        "digital_circuit", "digital_circuit_benchmark", "fiction_writing", "prose",
-        "modern_poetry", "classical_poetry", "literary_editor", "medical", "materials",
-        "physics", "ale_last_exam",
-    }
-    assert set(table).isdisjoint(VERTICALS)
-    current = {name for v in VERTICALS for name, _ in iter_vertical_skill_texts(v)}
-    current |= {name for name, _ in iter_builtin_skill_texts()}
-    for vertical, seeds in table.items():
-        assert seeds, vertical
-        for relative, digest in seeds.items():
-            assert re.fullmatch(r"[0-9a-f]{64}", digest), (vertical, relative)
-            assert relative not in current, f"{vertical}:{relative} is still shipped"
-
-
-def test_pre_split_seeds_of_an_uninstalled_vertical_are_pruned_but_edits_survive(
-    tmp_path, monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    import argus.skills.builtins as builtins
-    import argus.skills.vertical_select as vertical_select
-
-    # "Uninstalled" must hold even in a venv that carries the community package.
-    real_available = vertical_select.available_verticals
-    monkeypatch.setattr(
-        vertical_select, "available_verticals", lambda: [v for v in real_available() if v != "quant"],
-    )
-    factory = "factory quant playbook as seeded on dev\n"
-    monkeypatch.setattr(builtins, "_MOVED_VERTICAL_SEED_HASHES", {
-        "quant": {
-            "engineer/quant-factor-loop.md": hashlib.sha256(factory.encode()).hexdigest(),
-            "engineer/kline-chart.md": hashlib.sha256(factory.encode()).hexdigest(),
-        },
-    })
-    pristine = tmp_path / "engineer" / "quant-factor-loop.md"
-    edited = tmp_path / "engineer" / "kline-chart.md"
-    pristine.parent.mkdir(parents=True)
-    pristine.write_text(factory.replace("\n", "\r\n"), encoding="utf-8", newline="")  # CRLF copy
-    edited.write_text(factory + "operator note\n", encoding="utf-8")
-
-    removed = builtins.retire_orphaned_builtin_seeds(tmp_path)
-
-    assert "engineer/quant-factor-loop.md" in removed
-    assert not pristine.exists()
-    assert edited.read_text(encoding="utf-8") == factory + "operator note\n"
-    assert not (tmp_path / "_retired_builtin_skills").exists()
-
-
-def test_seeds_of_an_installed_community_vertical_are_left_to_the_plugin(
-    tmp_path, monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    import argus.skills.builtins as builtins
-    from argus.skills import vertical_select
-
-    factory = "factory quant playbook\n"
-    monkeypatch.setattr(builtins, "_MOVED_VERTICAL_SEED_HASHES", {
-        "quant": {"engineer/quant-factor-loop.md": hashlib.sha256(factory.encode()).hexdigest()},
-    })
-    monkeypatch.setattr(
-        vertical_select, "available_verticals",
-        lambda: (*vertical_select.VERTICALS, "quant"),
-    )
-    path = tmp_path / "engineer" / "quant-factor-loop.md"
-    path.parent.mkdir(parents=True)
-    path.write_text(factory, encoding="utf-8")
-
-    assert builtins.retire_uninstalled_vertical_seeds(tmp_path) == []
-    assert path.exists()

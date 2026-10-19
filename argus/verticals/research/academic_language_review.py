@@ -20,15 +20,11 @@ from argus.tools.image_api import (
     _require_route,
 )
 
-from ...core.manuscript_snapshot import bind_manuscript_snapshot, manuscript_sha256
+from ...core.file_facts import file_facts
+from ...core.manuscript_snapshot import MANUSCRIPT_SNAPSHOT_FIELD, manuscript_snapshot
 from ._review_contract_constants import (
     ACADEMIC_LANGUAGE_REVIEW_GENERATED_BY,
     ACADEMIC_LANGUAGE_REVIEW_HISTORY_PATH,
-    REVIEW_INPUT_SHA256_FIELD,
-    REVIEW_PROMPT_SHA256_FIELD,
-    review_sha256_file,
-    review_sha256_json,
-    review_sha256_text,
 )
 from ._reviewer_runner_fallback import (
     ReviewerRunnerError,
@@ -189,12 +185,12 @@ def generate_academic_language_review(
     """Review paper prose and optionally persist review artifacts."""
 
     root = Path(project_root)
-    reviewed_manuscript_sha = manuscript_sha256(root)
+    reviewed_manuscript = manuscript_snapshot(root)
     venue = resolve_venue_profile(root)
     iteration = iteration or _next_iteration(root)
     source_paths, missing_sources = collect_latex_source_paths(root)
     source_snapshots = [
-        {"path": rel_path, "sha256": review_sha256_file(root / rel_path)}
+        {"path": rel_path, "facts": file_facts(root / rel_path)}
         for rel_path in source_paths
         if (root / rel_path).is_file()
     ]
@@ -300,12 +296,7 @@ def generate_academic_language_review(
     }
     if model_review is not None:
         result["model_review"] = model_review
-    bind_manuscript_snapshot(
-        result,
-        root,
-        recorded_at=result["created_at"],
-        sha256=reviewed_manuscript_sha,
-    )
+    result[MANUSCRIPT_SNAPSHOT_FIELD] = reviewed_manuscript
 
     if write:
         _write_json(root / ACADEMIC_LANGUAGE_REVIEW_JSON_PATH, result)
@@ -664,7 +655,6 @@ def _run_model_review(
         deterministic=deterministic,
         venue=venue,
     )
-    prompt_sha256 = review_sha256_text(prompt)
     try:
         route = _require_route("reviewer", env)
     except ImageToolError:
@@ -715,17 +705,6 @@ def _run_model_review(
     parsed["model"] = review_model
     parsed["endpoint"] = endpoint
     parsed["reviewed_root"] = str(root)
-    parsed[REVIEW_PROMPT_SHA256_FIELD] = prompt_sha256
-    parsed[REVIEW_INPUT_SHA256_FIELD] = review_sha256_json(
-        {
-            "deterministic": deterministic,
-            "prompt_sha256": prompt_sha256,
-            "source_sha256": {
-                path: review_sha256_text(text)
-                for path, text in sorted(source_text_by_path.items())
-            },
-        }
-    )
     return parsed
 
 
@@ -1597,11 +1576,7 @@ def _append_history(root: Path, path: Path, result: dict[str, Any]) -> None:
         "endpoint": (result.get("model_review") or {}).get("endpoint")
         if isinstance(result.get("model_review"), dict)
         else None,
-        "source_sha256": {
-            entry.get("path"): entry.get("sha256")
-            for entry in result.get("source_snapshots", [])
-            if isinstance(entry, dict)
-        },
+        "source_snapshots": result.get("source_snapshots", []),
         "issue_codes": [
             issue.get("code")
             for issue in result.get("issues", [])

@@ -7,7 +7,6 @@ from a copy of the ``argus-verticals`` checkout when it is present.
 from __future__ import annotations
 
 import json
-import logging
 import os
 import re
 import stat
@@ -142,14 +141,14 @@ def test_stale_cache_is_served_with_the_error_when_the_fetch_fails(release, monk
         (lambda c: c.update(schema=2), "schema 2"),
         (lambda c: c["verticals"]["solo_v"]["archive"].update(url="https://evil.example/solo.zip"), "not allowed"),
         (lambda c: c["verticals"]["solo_v"]["archive"].update(url="http://github.com/x.zip"), "not https"),
-        (lambda c: c["verticals"]["solo_v"]["archive"].update(sha256="nope"), "sha256"),
+        (lambda c: c["verticals"]["solo_v"]["archive"].update(size=0), "archive size 0"),
         (lambda c: c["verticals"]["solo_v"].update(module="argus_verticals.other.stages"), "does not live in paths"),
         (lambda c: c["verticals"]["solo_v"].update(paths=["../escape"]), "invalid entry"),
         (lambda c: c["verticals"]["solo_v"].update(requires=["ghost_v"]), "unknown vertical 'ghost_v'"),
         (lambda c: c["verticals"]["solo_v"].update(requires=["solo_v"]), "requires itself"),
         (lambda c: c["verticals"]["solo_v"].pop("archive"), "archive is missing"),
     ],
-    ids=["schema", "foreign-host", "plain-http", "bad-sha", "module-outside-paths", "path-escape",
+    ids=["schema", "foreign-host", "plain-http", "bad-size", "module-outside-paths", "path-escape",
          "unknown-requires", "self-requires", "index-not-release"],
 )
 def test_invalid_catalogs_are_rejected_by_name(release, mutate, message) -> None:
@@ -396,7 +395,6 @@ def test_shared_tree_ownership_survives_the_first_owner_leaving(release, home) -
     store.install("child_v", wait=True)
     shared = store.registry()["shared"]["argus_verticals/lit/shared"]
     assert shared["owners"] == ["base_v", "child_v"]
-    assert set(shared["sha256s"]) == {"base_v", "child_v"}
     store.uninstall("child_v", wait=True)
     assert store.registry()["shared"]["argus_verticals/lit/shared"]["owners"] == ["base_v"]
     assert (store.package_root() / "lit" / "shared").is_dir()
@@ -605,10 +603,10 @@ def _catalog_with(release: Path, entry: dict) -> None:
     store.load_catalog(refresh=True)
 
 
-def test_sha256_mismatch_installs_nothing(release, home) -> None:
+def test_a_size_mismatch_installs_nothing(release, home) -> None:
     item = fake.spec("solo_v")
-    _catalog_with(release, fake.write_raw_archive(release.parent, item, fake.archive_members(item), wrong_sha=True))
-    with pytest.raises(store.VerticalStoreError, match="sha256 .* does not match"):
+    _catalog_with(release, fake.write_raw_archive(release.parent, item, fake.archive_members(item), wrong_size=True))
+    with pytest.raises(store.VerticalStoreError, match="bytes, the catalog says"):
         store.install("solo_v", wait=True)
     assert store.installed() == {} and not (store.package_root() / "solo_v").exists()
     assert store.operation("solo_v")["status"] == "failed"
@@ -725,6 +723,10 @@ def test_requires_cycles_in_a_catalog_are_reported(release) -> None:
         store._closure(catalog, ["child_v"])
 
 
+def _tree_bytes(root: Path) -> dict[str, bytes]:
+    return {path.relative_to(root).as_posix(): path.read_bytes() for path in root.rglob("*") if path.is_file()}
+
+
 def test_a_failure_after_the_nested_copy_restores_both_trees_and_the_registry(release, tmp_path, monkeypatch) -> None:
     """The backup stays complete (nested trees are copied, not moved), so a late failure rolls back exactly."""
     dist = tmp_path / "dist"
@@ -735,7 +737,7 @@ def test_a_failure_after_the_nested_copy_restores_both_trees_and_the_registry(re
     registry_before = store.registry()
     parent_before = (package / "parent_v" / "stages.py").read_text(encoding="utf-8")
     bench_before = (package / "parent_v" / "bench" / "stages.py").read_text(encoding="utf-8")
-    bench_digest = store._tree_digest(package / "parent_v" / "bench")
+    bench_tree = _tree_bytes(package / "parent_v" / "bench")
 
     _publish_parent_v2(dist, catalog)
     original = store._save_registry
@@ -754,7 +756,7 @@ def test_a_failure_after_the_nested_copy_restores_both_trees_and_the_registry(re
     assert store.registry() == registry_before
     assert (package / "parent_v" / "stages.py").read_text(encoding="utf-8") == parent_before
     assert (package / "parent_v" / "bench" / "stages.py").read_text(encoding="utf-8") == bench_before
-    assert store._tree_digest(package / "parent_v" / "bench") == bench_digest
+    assert _tree_bytes(package / "parent_v" / "bench") == bench_tree
     assert not list((store.store_root() / ".staging").iterdir()) if (store.store_root() / ".staging").exists() else True
     assert {"parent_v", "parent_v_bench"} <= set(vertical_select.available_verticals())
     assert store.update("parent_v", wait=True)["status"] == "done"  # the retry succeeds
@@ -970,7 +972,7 @@ def test_orphaned_staging_directories_are_swept(release) -> None:
     assert mine.exists() and fresh.exists()
 
 
-def test_a_shared_tree_that_differs_between_owners_is_logged(release, tmp_path, caplog) -> None:
+def test_a_later_owner_s_shared_tree_replaces_the_installed_copy(release, tmp_path) -> None:
     store.install("base_v", wait=True)
     fake.build_release(tmp_path / "dist", [
         fake.spec("base_v", shared=("argus_verticals/lit/shared",), python_requirements=("PyYAML>=6",)),
@@ -979,14 +981,8 @@ def test_a_shared_tree_that_differs_between_owners_is_logged(release, tmp_path, 
         fake.spec("solo_v", skills=False),
     ])
     store.load_catalog(refresh=True)
-    with caplog.at_level(logging.WARNING, logger="argus.verticals.store"):
-        store.install("child_v", wait=True)
-    assert any(
-        "shared tree argus_verticals/lit/shared shipped by child_v differs from the copy base_v installed" in r.getMessage()
-        for r in caplog.records
-    )
-    shared = store.registry()["shared"]["argus_verticals/lit/shared"]
-    assert shared["sha256s"]["base_v"] != shared["sha256s"]["child_v"]
+    store.install("child_v", wait=True)
+    assert store.registry()["shared"]["argus_verticals/lit/shared"]["owners"] == ["base_v", "child_v"]
     assert (store.package_root() / "lit" / "shared" / "__init__.py").read_text(encoding="utf-8") == "SHARED = ' v2'\n"
 
 
@@ -1137,7 +1133,6 @@ def test_real_community_archives_install_load_and_seed_skills(community_release,
     store.install("modern_poetry", wait=True)
     shared = store.registry()["shared"]["argus_verticals/literary/shared"]
     assert shared["owners"] == ["prose", "modern_poetry"]
-    assert len(set(shared["sha256s"].values())) == 1  # both archives ship the same helper tree
     store.uninstall("prose", wait=True)
     assert (store.package_root() / "literary" / "shared").is_dir()
     assert load_vertical("modern_poetry").VERTICAL_PURPOSE

@@ -8,7 +8,6 @@ are used before their (fake) https URLs.
 """
 from __future__ import annotations
 
-import hashlib
 import io
 import json
 import os
@@ -122,7 +121,6 @@ def catalog_entry(item: dict[str, Any], data: bytes, *, tag: str, url: str | Non
         "archive": {
             "file": file_name,
             "url": url or REPO_URL.format(tag=tag, file=file_name),
-            "sha256": hashlib.sha256(data).hexdigest(),
             "size": len(data),
         },
     }
@@ -154,7 +152,7 @@ def build_release(dist: Path, items: list[dict[str, Any]], *, tag: str = "vtest"
 
 def write_raw_archive(
     dist: Path, item: dict[str, Any], members: dict[str, bytes | str], *, symlink: str | None = None,
-    corrupt: bool = False, wrong_sha: bool = False,
+    corrupt: bool = False, wrong_size: bool = False,
 ) -> dict[str, Any]:
     """An archive with arbitrary members; the catalog entry describes the bytes as written."""
     data = zip_bytes(members, symlink=symlink)
@@ -162,8 +160,8 @@ def write_raw_archive(
         data = data[: len(data) // 2] + b"\0" * (len(data) - len(data) // 2)
     (dist / f"{item['name']}-{item['version']}.zip").write_bytes(data)
     entry = catalog_entry(item, data, tag="vtest")
-    if wrong_sha:
-        entry["archive"]["sha256"] = "0" * 64
+    if wrong_size:
+        entry["archive"]["size"] += 1
     return entry
 
 

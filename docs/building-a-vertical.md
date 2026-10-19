@@ -294,7 +294,7 @@ described by a `catalog.json`. The catalog entry the store validates
 | `module` | `argus_verticals.<name>.stages`, and it must live in `paths[0]` |
 | `paths` | at least `["argus_verticals/<name>"]` |
 | `purpose` | non-empty |
-| `archive.file`, `archive.url`, `archive.sha256`, `archive.size` | the zip's name, location, digest and exact byte size; a non-`https` URL is only accepted when the catalog itself is local |
+| `archive.file`, `archive.url`, `archive.size` | the zip's name, location and exact byte size; a non-`https` URL is only accepted when the catalog itself is local |
 
 Optional: `purpose_zh`, `requires` (other verticals to install first),
 `shared` (helper trees outside the vertical's own directory),
@@ -330,7 +330,6 @@ The catalog it wrote:
       "archive": {
         "file": "lab_notebook-0.1.0.zip",
         "url": "file:///tmp/lab-store/lab_notebook-0.1.0.zip",
-        "sha256": "5b36…b8e0",
         "size": 3099
       }
     }
@@ -338,8 +337,8 @@ The catalog it wrote:
 }
 ```
 
-The `sha256` and `size` are checked byte-for-byte at install; regenerate the
-catalog whenever the zip changes.
+The `size` is checked at install; regenerate the catalog whenever the zip
+changes. An older catalog may still carry an archive `sha256`; it is ignored.
 
 ## Step 4: install it and confirm Argus sees it
 

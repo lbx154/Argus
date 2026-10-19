@@ -28,7 +28,6 @@ they sit.
 """
 from __future__ import annotations
 
-import hashlib
 import json
 import os
 import sys
@@ -132,7 +131,7 @@ def _write_fidelity(root: Path, text: str = FIDELITY) -> Path:
 
 
 def _write_result(root: Path, name: str = "Main.lean", **overrides) -> Path:
-    """A complete, hash-stamped success — the only shape that passes."""
+    """A complete success carrying the text it compiled — the only shape that passes."""
     source = _lean_dir(root) / name
     payload = {
         "schema_version": 1,
@@ -151,7 +150,7 @@ def _write_result(root: Path, name: str = "Main.lean", **overrides) -> Path:
         "audit_stdout": "",
         "audit_stderr": "",
         "duration_ms": 10,
-        "source_sha256": hashlib.sha256(source.read_bytes()).hexdigest(),
+        "source_text": source.read_text(encoding="utf-8"),
     }
     payload.update(overrides)
     for key in [k for k, v in payload.items() if v is _ABSENT]:
@@ -453,7 +452,7 @@ def test_a_minimal_hand_written_pass_is_not_evidence(tmp_path: Path) -> None:
         "stderr",
         "proof_holes",
         "audit_exit_code",
-        "source_sha256",
+        "source_text",
     ],
 )
 def test_every_required_field_is_actually_required(
@@ -477,7 +476,7 @@ def test_every_required_field_is_actually_required(
         ("exit_code", "0"),
         ("stdout", None),
         ("status", "verified"),
-        ("source_sha256", "abc"),
+        ("source_text", 1),
     ],
 )
 def test_a_mistyped_field_is_not_evidence(
@@ -514,18 +513,18 @@ def test_a_self_contradicting_result_is_not_evidence(
     assert "lean_result_invalid" in _codes(root), overrides
 
 
-def test_a_result_without_a_hash_cannot_certify_anything(tmp_path: Path) -> None:
-    """Review point 7: a hash-less record is unverifiable, not merely old.
+def test_a_result_without_the_compiled_text_cannot_certify_anything(tmp_path: Path) -> None:
+    """Review point 7: a record that cannot name its text is unverifiable, not merely old.
 
-    The generic `lean_check` CLI writes no hash, and modification order is not
-    a substitute — `os.utime` rewrites it in one call.
+    The generic `lean_check` CLI records no source text, and modification order
+    is not a substitute — `os.utime` rewrites it in one call.
     """
     root = _project(tmp_path)
     source = _write_source(root)
     _write_fidelity(root)
     result = _write_result(root)
     payload = json.loads(result.read_text(encoding="utf-8"))
-    payload.pop("source_sha256")
+    payload.pop("source_text")
     result.write_text(json.dumps(payload), encoding="utf-8")
     # Even with the source made to look older than the result.
     stamp = result.stat().st_mtime_ns - 10**9
@@ -835,45 +834,21 @@ def test_a_symlinked_source_inside_the_project_is_followed_once(
     assert validate_lean_evidence(root).issues == ()
 
 
-# -- caching: fast, but never a stale pass ----------------------------------
+# -- every check reads the files, never a remembered verdict ----------------
 
-def test_repeated_checks_do_not_repeat_the_work(
-    tmp_path: Path,
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    import argus.verticals.math.lean_evidence as module
-
-    root = _project(tmp_path)
-    _sound(root)
-    module._CACHE.clear()
-
-    calls: list[Path] = []
-    real = module.validate_lean_evidence
-    monkeypatch.setattr(
-        module,
-        "validate_lean_evidence",
-        lambda r, **kw: (calls.append(Path(str(r))), real(r, **kw))[1],
-    )
-
-    assert module.lean_evidence_issues(root) == ()
-    assert module.lean_evidence_issues(root) == ()
-    assert len(calls) == 1
-
-
-def test_the_cache_cannot_be_fooled_by_restoring_the_timestamp(
+def test_restoring_the_timestamp_cannot_pass_off_a_forged_proof(
     tmp_path: Path,
 ) -> None:
-    """Review point 5: the memo keyed on size and mtime, both forgeable.
+    """Review point 5: size and mtime are both forgeable.
 
     The replacement proof is written to the exact byte length of the original
-    and `os.utime` puts the timestamp back, so every piece of metadata the old
-    key looked at is unchanged. Only the content differs.
+    and `os.utime` puts the timestamp back, so every piece of metadata is
+    unchanged. Only the content differs.
     """
     import argus.verticals.math.lean_evidence as module
 
     root = _project(tmp_path)
     source = _sound(root)
-    module._CACHE.clear()
     assert module.lean_evidence_issues(root) == ()
 
     before = source.stat()
@@ -883,7 +858,7 @@ def test_the_cache_cannot_be_fooled_by_restoring_the_timestamp(
     source.write_text(forged, encoding="utf-8")
     os.utime(source, ns=(before.st_atime_ns, before.st_mtime_ns))
 
-    # Every metadata field the old cache key used is identical.
+    # Every metadata field is identical.
     after = source.stat()
     assert after.st_size == before.st_size
     assert after.st_mtime_ns == before.st_mtime_ns
@@ -893,10 +868,10 @@ def test_the_cache_cannot_be_fooled_by_restoring_the_timestamp(
     assert any("proof holes" in issue for issue in issues)
 
 
-def test_the_cache_notices_a_fidelity_document_above_the_source(
+def test_a_gutted_fidelity_document_above_the_source_is_noticed(
     tmp_path: Path,
 ) -> None:
-    """Review point 6: an ancestor document was consulted but never keyed."""
+    """Review point 6: an ancestor document the verdict depended on."""
     import argus.verticals.math.lean_evidence as module
 
     root = _project(tmp_path)
@@ -904,7 +879,6 @@ def test_the_cache_notices_a_fidelity_document_above_the_source(
     _write_result(root)
     ancestor = root / "research" / "statement_fidelity.md"
     ancestor.write_text(FIDELITY, encoding="utf-8")
-    module._CACHE.clear()
 
     assert module.lean_evidence_issues(root) == ()
 
@@ -919,12 +893,11 @@ def test_the_cache_notices_a_fidelity_document_above_the_source(
     assert module.lean_evidence_issues(root) != ()
 
 
-def test_the_cache_notices_a_replaced_result(tmp_path: Path) -> None:
+def test_a_replaced_result_is_noticed(tmp_path: Path) -> None:
     import argus.verticals.math.lean_evidence as module
 
     root = _project(tmp_path)
     _sound(root)
-    module._CACHE.clear()
     assert module.lean_evidence_issues(root) == ()
 
     result = _lean_dir(root) / "lean_check.json"
@@ -1005,7 +978,7 @@ def test_verify_records_a_real_pass_that_the_gate_then_accepts(
 
     assert result["status"] == "success", result
     assert result["audit_exit_code"] == 0
-    assert result["source_sha256"]
+    assert result["source_text"] == source.read_text(encoding="utf-8")
     assert result["environment_failure"] == ""
     assert (_lean_dir(root) / "compile.log").is_file()
 
@@ -1322,11 +1295,11 @@ def test_audit_answers_whether_import_mathlib_would_resolve(
 # -- the window the compiler is reading in -----------------------------------
 #
 # A certificate exists to bind one compiler verdict to the exact bytes that
-# were compiled. For as long as this module existed it hashed the source
-# *after* `run_lean_check` returned, so an edit landing inside the compile
-# window produced a record carrying the new text's digest and the old text's
-# verdict — and `lean_evidence check` then confirmed the record was current,
-# because the recorded digest and the file on disk agreed perfectly. The window
+# were compiled. Reading the source only *after* `run_lean_check` returned
+# would let an edit landing inside the compile window produce a record
+# carrying the new text and the old text's verdict — and `lean_evidence check`
+# would then confirm the record was current, because the recorded text and the
+# file on disk agreed perfectly. The window
 # is not hypothetical: `prepare_canonical_lean_artifacts` snapshots the source
 # only when it is not already `Main.lean`, and the documented invocation
 # compiles `research/lean/Main.lean` in place.
@@ -1351,7 +1324,7 @@ def _compiler_that_edits(path: Path, text: str):
     Deliberately the true ordering of the bug: the real checker runs against
     the bytes that were there, and only then does the editor's write land. So
     the returned verdict genuinely describes the old text, which is what makes
-    publishing it against the new text's digest a lie rather than a mismatch.
+    publishing it against the new text a lie rather than a mismatch.
     """
     real = lean_check.run_lean_check
 
@@ -1370,11 +1343,11 @@ def _bare_lean(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> str:
     return _fake_lake(tmp_path)
 
 
-def test_verify_records_the_digests_of_the_bytes_that_were_compiled(
+def test_verify_records_the_text_that_was_compiled(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    """The ordinary path: both digests name the files as the compiler saw them."""
+    """The ordinary path: both texts are the files as the compiler saw them."""
     lean_bin = _bare_lean(tmp_path, monkeypatch)
     root = _project(tmp_path)
     source = _write_source(root)
@@ -1384,17 +1357,13 @@ def test_verify_records_the_digests_of_the_bytes_that_were_compiled(
         source, statement_fidelity=fidelity, lean_bin=lean_bin
     )
 
-    assert result["source_sha256"] == hashlib.sha256(
-        source.read_bytes()
-    ).hexdigest()
-    assert result["statement_fidelity_sha256"] == hashlib.sha256(
-        fidelity.read_text(encoding="utf-8").encode("utf-8")
-    ).hexdigest()
+    assert result["source_text"] == source.read_text(encoding="utf-8")
+    assert result["statement_fidelity_text"] == fidelity.read_text(encoding="utf-8")
     recorded = json.loads(
         (_lean_dir(root) / "lean_check.json").read_text(encoding="utf-8")
     )
-    assert recorded["source_sha256"] == result["source_sha256"]
-    assert recorded["statement_fidelity_sha256"] == result["statement_fidelity_sha256"]
+    assert recorded["source_text"] == result["source_text"]
+    assert recorded["statement_fidelity_text"] == result["statement_fidelity_text"]
     assert not {"lean_result_stale", "lean_fidelity_changed"} & _codes(root)
 
 
@@ -1434,7 +1403,7 @@ def test_a_fidelity_note_rewritten_under_the_compiler_publishes_nothing(
     """The unchecked half of the argument has the same binding, so the same rule.
 
     A note rewritten after the compiler answered re-labels a proof of one thing
-    as a proof of another, and nothing downstream can tell: the recorded digest
+    as a proof of another, and nothing downstream can tell: the recorded text
     would match the new note exactly, so `lean_fidelity_changed` never fires.
     """
     lean_bin = _bare_lean(tmp_path, monkeypatch)
@@ -1495,7 +1464,7 @@ def test_a_file_deleted_under_the_compiler_is_the_same_refusal(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    """Gone is a kind of changed; a digest that cannot be re-taken is not a match."""
+    """Gone is a kind of changed; a file that cannot be re-read is not a match."""
     lean_bin = _bare_lean(tmp_path, monkeypatch)
     root = _project(tmp_path)
     source = _write_source(root)

@@ -148,7 +148,7 @@ _KNOB_ALIASES: dict[str, tuple[str, ...]] = {
     "total_steps": ("total_steps", "total_training_steps", "max_steps", "steps"),
     "batch_size": ("batch_size", "train_batch_size"),
     "model_id": ("model", "model_id", "model_path"),
-    "curriculum_hash": ("curriculum_hash",),
+    "curriculum": ("curriculum",),
     "run_contract": ("run_contract", "contract"),
     "feasibility_packet": ("feasibility_packet", "packet"),
 }
@@ -248,15 +248,16 @@ def _run_contract_preflight(command: str, cwd: str) -> tuple[bool, str, str]:
             except ValueError:
                 return None
 
+        base = Path(cwd)
+        curriculum = _flag(flags, "curriculum")
         knobs = rc.LaunchKnobs(
             lr=_to_float(_flag(flags, "lr")),
             group_size=_to_int(_flag(flags, "group_size")),
             total_steps=_to_int(_flag(flags, "total_steps")),
             batch_size=_to_int(_flag(flags, "batch_size")),
             model_id=_flag(flags, "model_id"),
-            curriculum_hash=_flag(flags, "curriculum_hash"),
+            curriculum=str(base / curriculum) if curriculum else None,
         )
-        base = Path(cwd)
         contract_rel = _flag(flags, "run_contract") or rc.DEFAULT_RUN_CONTRACT_PATH
         contract_path = Path(contract_rel)
         if not contract_path.is_absolute():

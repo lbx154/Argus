@@ -2,8 +2,8 @@
 
 The ``argus-verticals`` repository publishes, per GitHub release, one zip per
 vertical (exactly that vertical's ``paths`` + ``shared`` trees with their
-repo-relative paths) and a ``catalog.json`` naming every archive's URL,
-sha256 and size. This module is the consumer side: it downloads an archive,
+repo-relative paths) and a ``catalog.json`` naming every archive's URL and
+size. This module is the consumer side: it downloads an archive,
 verifies it, extracts it under ``<store root>/argus_verticals/<name>/`` and
 records the result in ``registry.json``. Nothing here runs ``pip``; a vertical's
 ``python_requirements`` are shown to the operator, never installed.
@@ -36,7 +36,7 @@ otherwise), so the frozen desktop works without any dist-info.
 
 Security: catalog and archive URLs must be https on an allow-listed GitHub
 host, redirects are followed only within that allow-list, archives are
-size-capped, sha256-verified, and extracted only after every member is checked
+size-capped, must have exactly the catalog's size, and are extracted only after every member is checked
 (no absolute paths, no ``..``, no symlinks, no file outside the trees the
 catalog declares for that vertical). Local ``file://`` sources are honoured only
 when the catalog itself came from a local file (offline mirrors and tests).
@@ -47,7 +47,6 @@ percent 0-100. Vertical names are lowercased on the way in.
 """
 from __future__ import annotations
 
-import hashlib
 import importlib
 import importlib.machinery
 import importlib.util
@@ -121,7 +120,6 @@ HOST_MANAGED = (
 _NAME = re.compile(r"^[a-z][a-z0-9_]{0,47}$")
 _MODULE = re.compile(r"^argus_verticals(\.[a-z][a-z0-9_]*)+\.stages$")
 _TREE = re.compile(r"^argus_verticals(/[a-z][a-z0-9_]*)+$")
-_SHA256 = re.compile(r"^[a-f0-9]{64}$")
 _ARCHIVE_FILE = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._+-]*\.zip$")
 _REQUIREMENT_NAME = re.compile(r"^\s*([A-Za-z0-9][A-Za-z0-9._-]*)")
 _FEATURE_NAME = re.compile(r"^[a-z][a-z0-9-]*$")
@@ -292,7 +290,6 @@ def registry(root: str | Path | None = None) -> dict[str, Any]:
         "shared": {
             tree: {
                 "owners": [o for o in (entry.get("owners") or []) if isinstance(o, str)],
-                "sha256s": dict(entry.get("sha256s") or {}),
             }
             for tree, entry in shared.items()
             if isinstance(tree, str) and _TREE.fullmatch(tree) and isinstance(entry, dict)
@@ -550,9 +547,6 @@ def _validate_entry(name: str, raw: object, *, local_source: bool) -> dict[str, 
     file_name = archive.get("file")
     if not isinstance(file_name, str) or not _ARCHIVE_FILE.fullmatch(file_name):
         raise VerticalStoreError(f"{where}: invalid archive file name {file_name!r}")
-    sha256 = archive.get("sha256")
-    if not isinstance(sha256, str) or not _SHA256.fullmatch(sha256):
-        raise VerticalStoreError(f"{where}: archive sha256 is missing or malformed")
     size = archive.get("size")
     if not isinstance(size, int) or isinstance(size, bool) or size <= 0 or size > ARCHIVE_LIMIT:
         raise VerticalStoreError(f"{where}: archive size {size!r} is invalid")
@@ -599,7 +593,7 @@ def _validate_entry(name: str, raw: object, *, local_source: bool) -> dict[str, 
         "min_argus": str(raw.get("min_argus") or ""),
         "argus_features": _argus_features(raw.get("argus_features", []), where=where),
         "maintainers": _string_list(raw.get("maintainers"), where=f"{where}.maintainers"),
-        "archive": {"file": file_name, "url": url, "sha256": sha256, "size": size},
+        "archive": {"file": file_name, "url": url, "size": size},
     }
 
 
@@ -757,7 +751,12 @@ def _closure(catalog: dict[str, Any], names: Iterable[str]) -> list[str]:
 
 
 def _is_current(entry: dict[str, Any], spec: dict[str, Any]) -> bool:
-    return entry.get("version") == spec["version"] and entry.get("sha256") == spec["archive"]["sha256"]
+    source = entry.get("source")
+    return (
+        entry.get("version") == spec["version"]
+        and isinstance(source, dict)
+        and source.get("url") == spec["archive"]["url"]
+    )
 
 
 def runtime_issues(verticals: dict[str, dict[str, Any]], name: str) -> list[str]:
@@ -802,25 +801,6 @@ def runtime_issues(verticals: dict[str, dict[str, Any]], name: str) -> list[str]
 # --------------------------------------------------------------------------- #
 
 
-def _sha256_file(path: Path) -> str:
-    digest = hashlib.sha256()
-    with path.open("rb") as handle:
-        for chunk in iter(lambda: handle.read(1 << 20), b""):
-            digest.update(chunk)
-    return digest.hexdigest()
-
-
-def _tree_digest(root: Path) -> str:
-    """Content digest of a directory: sorted relative paths and file digests."""
-    digest = hashlib.sha256()
-    for path in sorted(p for p in root.rglob("*") if p.is_file()):
-        digest.update(path.relative_to(root).as_posix().encode("utf-8"))
-        digest.update(b"\0")
-        digest.update(_sha256_file(path).encode("ascii"))
-        digest.update(b"\n")
-    return digest.hexdigest()
-
-
 def _archive_origin(spec: dict[str, Any], source: str) -> Path | str:
     """A local archive next to a local catalog (an offline mirror), a local URL, or the https URL."""
     archive = spec["archive"]
@@ -855,9 +835,6 @@ def _fetch_archive(spec: dict[str, Any], destination: Path, source: str) -> None
         raise VerticalStoreError(
             f"{name}: archive is {actual} bytes, the catalog says {spec['archive']['size']}; nothing was installed"
         )
-    digest = _sha256_file(destination)
-    if digest != spec["archive"]["sha256"]:
-        raise VerticalStoreError(f"{name}: archive sha256 {digest[:12]}... does not match the catalog; nothing was installed")
 
 
 def _safe_member(member: str) -> bool:
@@ -974,7 +951,6 @@ def _place(
                             shutil.copytree(kept, target / relative, symlinks=True)
             data["verticals"][name] = {
                 "version": spec["version"],
-                "sha256": spec["archive"]["sha256"],
                 "module": spec["module"],
                 "source": {
                     "repo": catalog["generated_from"]["repo"],
@@ -990,17 +966,9 @@ def _place(
                 "api_version": spec["api_version"],
             }
             for tree in spec["shared"]:
-                owners = data["shared"].setdefault(tree, {"owners": [], "sha256s": {}})
-                digest = _tree_digest(store / tree)
-                for other, recorded in owners["sha256s"].items():
-                    if other != name and recorded != digest:
-                        log.warning(
-                            "shared tree %s shipped by %s differs from the copy %s installed; "
-                            "the newer archive's copy is now in place", tree, name, other,
-                        )
+                owners = data["shared"].setdefault(tree, {"owners": []})
                 if name not in owners["owners"]:
                     owners["owners"].append(name)
-                owners["sha256s"][name] = digest
             _save_registry(root, data)
         except Exception:
             for target in moved:
@@ -1333,7 +1301,7 @@ def update(
     timeout: float = 3600,
     on_progress: Callable[[dict[str, Any]], None] | None = None,
 ) -> dict[str, Any]:
-    """Reinstall ``name`` from the catalog when its version or digest changed."""
+    """Reinstall ``name`` from the catalog when its version or archive changed."""
     name = _valid_name(name)
     if managed_by_host():
         raise VerticalStoreError(HOST_MANAGED)
@@ -1447,7 +1415,6 @@ def _uninstall_job(root: str | Path | None, name: str, *, progress: Callable[[in
             if owners is None:
                 continue
             owners["owners"] = [o for o in owners["owners"] if o != name]
-            owners["sha256s"].pop(name, None)
             if not owners["owners"]:
                 shutil.rmtree(store / tree, ignore_errors=True)
                 del data["shared"][tree]

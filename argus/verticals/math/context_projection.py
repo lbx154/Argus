@@ -29,10 +29,7 @@ every list rendered below is additionally capped by ``_MAX_ROWS`` and says how
 many rows it withheld.
 
 **Deterministic.** The same store and the same mission render byte-identical
-text. No timestamps, no host paths, no reliance on ``dict`` order. The fragment
-carries a digest of its own content so two of them can be told apart without
-diffing prose — and so a reader who sees the same digest twice knows nothing
-moved, rather than assuming it.
+text. No timestamps, no host paths, no reliance on ``dict`` order.
 
 **It never raises into a mission.** A missing store means "this project does no
 recorded mathematics" and produces nothing at all; a store that will not load
@@ -69,7 +66,6 @@ from ...proof_ledger import (
     MathState,
     MathStateError,
     assess_route,
-    content_digest,
     load_state,
 )
 
@@ -437,11 +433,10 @@ def _citation(citation: CitationAssessment | None) -> dict[str, Any]:
 
 
 def _payload(state: MathState, target: MissionTarget) -> dict[str, Any]:
-    """Everything the fragment says, as plain data, so the digest covers it all.
+    """Everything the fragment says, as plain data.
 
-    The rendering below reads only this mapping. That is what makes the digest
-    honest: it cannot go stale against text that was assembled somewhere else,
-    and ``content_digest`` sorts keys, so it cannot depend on insertion order.
+    The rendering below reads only this mapping, so the text cannot go stale
+    against anything assembled somewhere else.
     """
     claim_id = target.claim_id
     # No ``assert claim is not None`` here. It would be inert three times over:
@@ -541,9 +536,7 @@ def _payload(state: MathState, target: MissionTarget) -> dict[str, Any]:
     stale_rows, more_stale = _rows(list(assessment.stale_evidence))
     issue_rows, more_issues = _rows(list(assessment.issues))
     # Every list below is a ``_rows`` pair. Nothing may be written into this
-    # mapping that the renderer does not read: an unrendered key still feeds
-    # ``content_digest``, so it could move the digest without changing a byte
-    # of the text, and the digest's whole job is to mean "this fragment".
+    # mapping that the renderer does not read.
     return {
         "claim_id": claim_id,
         "version": claim.version,
@@ -724,15 +717,14 @@ def _citation_line(citation: dict[str, Any]) -> str:
 
 
 def _render(payload: dict[str, Any]) -> str:
-    digest = content_digest(payload)
     context = payload["context"]
     lines = [
         f"## Mathematical state — claim `{payload['claim_id']}` "
         f"v{payload['version']} ({payload['status']})",
         "",
-        f"Projected from `{_STATE_REF}`; fragment digest `{digest[:16]}`. This is "
-        "one claim's neighbourhood, not the project: the definitions it is "
-        "stated against, what it still takes on faith, the judgements recorded "
+        f"Projected from `{_STATE_REF}`. This is one claim's neighbourhood, "
+        "not the project: the definitions it is stated against, what it still "
+        "takes on faith, the judgements recorded "
         "against this exact statement, and its immediate obligations. Other "
         "claims and retired branches are deliberately absent — do not infer "
         "from their absence that they do not exist.",

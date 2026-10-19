@@ -32,11 +32,11 @@ OPTIMIZATION_CHECKLIST_ITEMS: dict[str, tuple[ChecklistItem, ...]] = {
                 "UNCHANGED and modifies ONLY that editable file. The reviewer must "
                 "confirm the agent did NOT touch the harness, the evaluation, the metric, "
                 "the held-out data, or the budget — they are byte-identical to the scaffold "
-                "(hash / `git diff` against the pinned scaffold) — and that the candidate is "
+                "(`git diff` or a byte comparison against the pinned scaffold) — and that the candidate is "
                 "scored through the mission's frozen scorer exactly as the mission specifies."
             ),
             evidence_hint=(
-                "the editable file + an unchanged-harness hash vs the pinned scaffold + "
+                "the editable file + an empty harness `git diff` vs the pinned scaffold + "
                 "a run log produced through the mission's frozen scorer"
             ),
         ),

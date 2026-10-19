@@ -18,7 +18,6 @@ from __future__ import annotations
 
 import argparse
 import ast
-import hashlib
 import json
 import os
 import subprocess
@@ -99,7 +98,7 @@ def _fidelity(root: Path, text: str = FIDELITY) -> Path:
 
 
 def _result(root: Path, **overrides) -> dict:
-    """A complete, twice-hash-stamped success, written where verify puts it.
+    """A complete success carrying both texts it was compiled against, written where verify puts it.
 
     Synthesized rather than compiled so the refusals below can be provoked one
     at a time; the end-to-end test at the bottom runs the real toolchain.
@@ -129,11 +128,9 @@ def _result(root: Path, **overrides) -> dict:
         "audit_stdout": "",
         "audit_stderr": "",
         "duration_ms": 10,
-        "source_sha256": hashlib.sha256(source.read_bytes()).hexdigest(),
+        "source_text": source.read_text(encoding="utf-8"),
         "statement_fidelity": str(note),
-        "statement_fidelity_sha256": hashlib.sha256(
-            note.read_text(encoding="utf-8").encode("utf-8")
-        ).hexdigest(),
+        "statement_fidelity_text": note.read_text(encoding="utf-8"),
     }
     payload.update(overrides)
     (_lean_dir(root) / "lean_check.json").write_text(
@@ -840,10 +837,10 @@ def test_a_fidelity_note_edited_after_the_compile_records_nothing(
     assert any("edited since this result" in text for text in recording.refusals)
 
 
-def test_a_result_carrying_no_fidelity_digest_records_nothing(
+def test_a_result_carrying_no_fidelity_text_records_nothing(
     tmp_path: Path,
 ) -> None:
-    """Fail closed on the pre-digest artifact rather than trusting it.
+    """Fail closed on a result that does not carry the note rather than trusting it.
 
     ``lean_evidence check`` keeps accepting such a result, because a project
     that verified before this change is not retroactively wrong. Minting kernel
@@ -852,13 +849,13 @@ def test_a_result_carrying_no_fidelity_digest_records_nothing(
     """
     source = _proved_project(tmp_path)
     payload = json.loads((_lean_dir(tmp_path) / "lean_check.json").read_text())
-    del payload["statement_fidelity_sha256"]
+    del payload["statement_fidelity_text"]
     (_lean_dir(tmp_path) / "lean_check.json").write_text(json.dumps(payload))
 
     assert validate_lean_evidence(tmp_path).issues == ()
     recording = record_lean_evidence(tmp_path, claim_id="C1", source=source)
     assert recording.record is None
-    assert any("does not carry the digest" in text for text in recording.refusals)
+    assert any("does not carry the text" in text for text in recording.refusals)
 
 
 def test_a_missing_fidelity_note_records_nothing(tmp_path: Path) -> None:
@@ -986,18 +983,14 @@ def test_a_second_claim_does_not_overwrite_the_first_claims_certificate(
     assert archived["lean_source"]["text"] == ALPHA
     assert archived["statement_fidelity"]["text"] == ALPHA_FIDELITY
     assert archived["subject"]["subject_id"] == "A"
-    assert archived["lean_check"]["source_sha256"] == hashlib.sha256(
-        ALPHA.encode("utf-8")
-    ).hexdigest()
+    assert archived["lean_check"]["source_text"] == ALPHA
 
     # The canonical name is B's now, exactly as before; what changed is that
     # nothing cites it.
     canonical = json.loads(
         (_lean_dir(tmp_path) / "lean_check.json").read_text(encoding="utf-8")
     )
-    assert canonical["source_sha256"] == hashlib.sha256(
-        BETA.encode("utf-8")
-    ).hexdigest()
+    assert canonical["source_text"] == BETA
     state = load_state(tmp_path)
     assert not any(
         item.artifact == "research/lean/lean_check.json" for item in state.evidence

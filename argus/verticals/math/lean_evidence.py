@@ -26,8 +26,8 @@ The governing rule is narrow and absolute:
 
 So a project with no ``.lean`` file gets no issues and pays no import cost;
 ``lean_check`` is not even loaded. But once a ``.lean`` file exists, it must be
-able to show a current, complete, hash-bound compiler result that says the
-proof went through. Anything else blocks — including the cases where the
+able to show a current, complete compiler result, carrying the exact text it
+compiled, that says the proof went through. Anything else blocks — including the cases where the
 compiler never reached the mathematics at all.
 
 That last point is the one worth being explicit about, because an earlier
@@ -53,7 +53,6 @@ the same thing on the same terms.
 from __future__ import annotations
 
 import argparse
-import hashlib
 import json
 import os
 import re
@@ -156,9 +155,6 @@ _MIN_FIDELITY_BODY_CHARS = 40
 #: Below this length a declaration name matches unrelated prose too easily
 #: (``P``, ``add``), so it must appear as code rather than as a bare word.
 _SHORT_NAME_LENGTH = 3
-
-_SHA256_HEX = re.compile(r"^[0-9a-f]{64}$")
-
 
 @dataclass(frozen=True)
 class LeanIssue:
@@ -446,27 +442,23 @@ def _missing_module_names(result: dict[str, Any] | None) -> tuple[str, ...]:
 
 # -- the recorded result -----------------------------------------------------
 
-def _sha256(data: bytes) -> str:
-    return hashlib.sha256(data).hexdigest()
-
-
-def _digest_file(path: Path) -> str | None:
+def _read_source(path: Path) -> bytes | None:
     try:
-        return _sha256(path.read_bytes())
+        return path.read_bytes()
     except OSError:
         return None
 
 
-def _digest_fidelity(path: Path) -> str | None:
-    """The fidelity document's digest, taken the way every reader takes it.
+def _read_fidelity(path: Path) -> str | None:
+    """The fidelity document, read the way every reader reads it.
 
-    Through ``read_text`` rather than over raw bytes, because that is how
+    Through ``read_text`` rather than as raw bytes, because that is how
     ``verify_lean_source`` records it and how ``_fidelity_issues`` compares
-    against it. Hashing the same document two ways would make an untouched note
-    read as an edited one.
+    against it. Reading the same document two ways would make an untouched
+    note read as an edited one.
     """
     try:
-        return _sha256(path.read_text(encoding="utf-8").encode("utf-8"))
+        return path.read_text(encoding="utf-8")
     except (OSError, UnicodeError):
         return None
 
@@ -496,10 +488,9 @@ def _schema_problems(result: dict[str, Any], source: Path) -> list[str]:
             f"source names {Path(recorded_source).name!r}, not {source.name!r}"
         )
 
-    digest = result.get("source_sha256")
-    if not isinstance(digest, str) or not _SHA256_HEX.match(digest.strip().lower()):
+    if not isinstance(result.get("source_text"), str):
         problems.append(
-            "source_sha256 is missing or malformed; without it the result "
+            "source_text is missing; without the text it compiled the result "
             "cannot be tied to the proof it claims to certify — re-run "
             "`lean_evidence verify`"
         )
@@ -657,8 +648,8 @@ def _validate_source(source: Path, project_root: Path) -> LeanSourceEvidence:
         )
 
     # 2. The recorded compiler answer, loaded before fidelity is judged because
-    #    the digest it carries is what makes the fidelity check a check about
-    #    the document that was actually in force.
+    #    the fidelity text it carries is what makes the fidelity check a check
+    #    about the document that was actually in force.
     result, result_path, load_note = _load_result(source)
 
     # 3. Statement fidelity. The one thing Lean structurally cannot check, and
@@ -756,8 +747,8 @@ def _fidelity_issues(
                 "checked against this source",
             )
         ]
-    recorded = str((result or {}).get("statement_fidelity_sha256") or "").strip().lower()
-    if recorded and recorded != _sha256(text.encode("utf-8")):
+    recorded = (result or {}).get("statement_fidelity_text")
+    if isinstance(recorded, str) and recorded != text:
         return [
             LeanIssue(
                 "lean_fidelity_changed",
@@ -789,8 +780,7 @@ def _result_issues(
             )
         ]
 
-    digest = str(result.get("source_sha256") or "").strip().lower()
-    if digest != _sha256(source_bytes):
+    if str(result["source_text"]).encode("utf-8") != source_bytes:
         return [
             LeanIssue(
                 "lean_result_stale",
@@ -911,28 +901,6 @@ def validate_lean_evidence(project_root: Path | str) -> LeanEvidenceReport:
 
 # -- the completion hook -----------------------------------------------------
 
-#: Memo keyed by the *content* of every artifact the verdict depends on, not by
-#: its metadata. Keying on size and mtime was wrong in a way that mattered: a
-#: broken proof of the same byte length, with `os.utime` used to restore the
-#: timestamp, reused the previous pass. A digest cannot be restored that way.
-_CACHE: dict[tuple[Any, ...], tuple[str, ...]] = {}
-_CACHE_LIMIT = 64
-
-
-def _cache_key(project_root: Path, sources: tuple[Path, ...]) -> tuple[Any, ...]:
-    parts: list[Any] = [str(project_root.resolve())]
-    for source in sources:
-        parts.append(("source", str(source), _digest_file(source)))
-        result = source.parent / _LEAN_CHECK_RESULT_NAME
-        parts.append(("result", str(result), _digest_file(result)))
-        # Every location `_find_fidelity` would consult, not just the nearest
-        # one: editing a fidelity document at the project root has to
-        # invalidate a verdict that was computed from it.
-        for candidate in _fidelity_candidates(source, project_root):
-            parts.append(("fidelity", str(candidate), _digest_file(candidate)))
-    return tuple(parts)
-
-
 def lean_evidence_issues(project_root: Path | str) -> tuple[str, ...]:
     """Blocking Lean issues for the completion gate, or ``()`` when there is no Lean.
 
@@ -945,18 +913,7 @@ def lean_evidence_issues(project_root: Path | str) -> tuple[str, ...]:
     if not sources and not discovery_issues:
         return ()
 
-    key = _cache_key(root, sources)
-    cached = _CACHE.get(key)
-    if cached is not None:
-        return cached
-
-    rendered = tuple(
-        issue.rendered() for issue in validate_lean_evidence(root).issues
-    )
-    if len(_CACHE) >= _CACHE_LIMIT:
-        _CACHE.clear()
-    _CACHE[key] = rendered
-    return rendered
+    return tuple(issue.rendered() for issue in validate_lean_evidence(root).issues)
 
 
 def source_evidence(source: Path | str, project_root: Path | str) -> LeanSourceEvidence:
@@ -1008,7 +965,9 @@ class CompiledArtifactChangedError(ValueError):
     """
 
 
-def _drift(label: str, path: Path, before: str, after: str | None) -> str | None:
+def _drift(
+    label: str, path: Path, before: bytes | str, after: bytes | str | None
+) -> str | None:
     if after == before:
         return None
     if after is None:
@@ -1018,20 +977,20 @@ def _drift(label: str, path: Path, before: str, after: str | None) -> str | None
 
 def _refuse_if_moved_under_the_compiler(
     source: Path,
-    source_digest: str,
+    source_bytes: bytes,
     fidelity: Path,
-    fidelity_digest: str,
+    fidelity_text: str,
 ) -> None:
     """Refuse to certify a compile whose inputs did not hold still.
 
-    The digests were taken before ``run_lean_check`` was called; these are the
+    The texts were read before ``run_lean_check`` was called; these are the
     same files afterwards. If either moved, the compiler's answer and the bytes
     on disk are about different text, and there is no honest record to write:
-    stamping the run with the digests taken beforehand publishes a verdict about
-    a file the project no longer has, and stamping it with the digests taken
-    afterwards — which is what this module did — hands the *new* text the *old*
-    text's verdict, with ``lean_evidence check`` then finding everything current
-    and consistent. Both are worse than no certificate.
+    stamping the run with the text read beforehand publishes a verdict about
+    a file the project no longer has, and stamping it with the text read
+    afterwards hands the *new* text the *old* text's verdict, with
+    ``lean_evidence check`` then finding everything current and consistent.
+    Both are worse than no certificate.
 
     The window is real rather than theoretical. ``prepare_canonical_lean_artifacts``
     snapshots the source only when it is not already the canonical
@@ -1042,12 +1001,12 @@ def _refuse_if_moved_under_the_compiler(
     reasons = [
         reason
         for reason in (
-            _drift("the Lean source", source, source_digest, _digest_file(source)),
+            _drift("the Lean source", source, source_bytes, _read_source(source)),
             _drift(
                 f"the {_STATEMENT_FIDELITY_NAME}",
                 fidelity,
-                fidelity_digest,
-                _digest_fidelity(fidelity),
+                fidelity_text,
+                _read_fidelity(fidelity),
             ),
         )
         if reason
@@ -1072,29 +1031,28 @@ def verify_lean_source(
     lake_bin: str | None = None,
     use_lake: bool | None = None,
 ) -> dict[str, Any]:
-    """Compile one source and record the answer beside it, hash included.
+    """Compile one source and record the answer beside it, with the text it compiled.
 
     Thin over ``lean_check``: it reuses that module's canonical artifact
     preparation, directory lock, atomic writes, and log rendering, and adds two
-    digests. ``source_sha256`` is what later lets staleness be decided by
-    identity rather than guessed from modification order.
-    ``statement_fidelity_sha256`` does the same for the other half of the
+    texts. ``source_text`` is what later lets staleness be decided by comparing
+    the file with what was compiled rather than guessed from modification order.
+    ``statement_fidelity_text`` does the same for the other half of the
     argument: the compiler's answer is only evidence about a mathematical claim
     in the presence of a document saying what the formal statement means, and
-    without a digest that document could be rewritten after the compile to make
+    without its text that document could be rewritten after the compile to make
     a proof of one thing read as a proof of another — with every existing check
     still passing, because they only ask whether *some* substantive note names
     the declaration. Nothing here establishes that the note is *true*; no tool
     in this repository does, and no field claims otherwise.
 
-    Both digests are taken *before* the compiler is started and re-taken after
-    it returns, and a run whose source or note moved in between publishes
-    nothing at all — see ``_refuse_if_moved_under_the_compiler``. Hashing after
-    the compile, which is what this did, meant an edit landing inside the
-    compile window produced a certificate carrying the new text's digest and the
-    old text's verdict; every later check then agreed the record was current,
-    because the recorded digest and the file on disk matched perfectly. There is
-    no ordering of one read that fixes this, only two reads and a refusal.
+    Both texts are read *before* the compiler is started and re-read after it
+    returns, and a run whose source or note moved in between publishes nothing
+    at all — see ``_refuse_if_moved_under_the_compiler``. Reading only after the
+    compile would let an edit landing inside the compile window produce a
+    certificate carrying the new text and the old text's verdict; every later
+    check would then agree the record was current. There is no ordering of one
+    read that fixes this, only two reads and a refusal.
 
     ``use_lake`` defaults to ``None``, meaning *decide from the host*: compile
     through ``lake env lean`` when a Lake workspace applies to this source, and
@@ -1139,16 +1097,13 @@ def verify_lean_source(
         )
         workspace = _resolve_lake_workspace(canonical_source)
         through_lake = workspace is not None if use_lake is None else use_lake
-        # Read once, here, and record *these* digests. What the certificate has
-        # to bind is the verdict to the bytes the verdict is about, and bytes
-        # read after `run_lean_check` returns are not necessarily those bytes.
+        # Read once, here, and record *this* text. What the certificate has to
+        # bind is the verdict to the bytes the verdict is about, and bytes read
+        # after `run_lean_check` returns are not necessarily those bytes. The
+        # fidelity note is read through `read_text`, the way the later check
+        # reads it, so a BOM does not read as a changed meaning.
         compiled_bytes = canonical_source.read_bytes()
         compiled_fidelity = canonical_fidelity.read_text(encoding="utf-8")
-        source_digest = _sha256(compiled_bytes)
-        # Hashed through `read_text` rather than from the raw bytes because the
-        # check that later compares against it reads the document the same way;
-        # a digest over bytes would report a BOM as a changed meaning.
-        fidelity_digest = _sha256(compiled_fidelity.encode("utf-8"))
         result = run_lean_check(
             canonical_source,
             timeout_seconds=timeout_seconds,
@@ -1160,13 +1115,13 @@ def verify_lean_source(
         # returned dict: a raced run has no certificate, not a weakened one.
         _refuse_if_moved_under_the_compiler(
             canonical_source,
-            source_digest,
+            compiled_bytes,
             canonical_fidelity,
-            fidelity_digest,
+            compiled_fidelity,
         )
-        result["source_sha256"] = source_digest
+        result["source_text"] = compiled_bytes.decode("utf-8", errors="replace")
         result["statement_fidelity"] = str(canonical_fidelity)
-        result["statement_fidelity_sha256"] = fidelity_digest
+        result["statement_fidelity_text"] = compiled_fidelity
         result["lake_workspace"] = str(workspace) if through_lake and workspace else ""
         result["environment_failure"] = classify_environment_failure(result)
         _atomic_artifact_write(
