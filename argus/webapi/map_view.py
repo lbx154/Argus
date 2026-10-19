@@ -79,8 +79,12 @@ def facts(value) -> str:
 
 
 def event_id(row: dict) -> str:
-    """The row's own id; older rows without one are named by their type and time."""
-    return str(row.get("event_id") or f"{row.get('type', '')}@{row.get('ts', 0)}")
+    """The row's own id; older rows without one are named by type, time, owner and round."""
+    if row.get("event_id"):
+        return str(row["event_id"])
+    owner = row.get("item_id") or row.get("mission_id") or ""
+    number = row.get("round_index", row.get("round", ""))
+    return f"{row.get('type', '')}@{row.get('ts', 0)}:{owner}:{number}"
 
 
 def text(value, limit=6000):

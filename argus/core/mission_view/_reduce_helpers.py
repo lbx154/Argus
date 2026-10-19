@@ -51,8 +51,10 @@ def _event_id(event: Mapping[str, Any]) -> str:
     explicit = event.get("event_id") or event.get("id")
     if explicit:
         return str(explicit)
-    # Legacy rows without an id: its type and timestamp identify a replay of it.
-    return f"{event.get('type') or 'event'}@{event.get('ts') or ''}"
+    # Legacy rows without an id: type, time, owner and round identify a replay of it.
+    owner = event.get("item_id") or event.get("mission_id") or ""
+    number = event.get("round_index", event.get("round", ""))
+    return f"{event.get('type') or 'event'}@{event.get('ts') or ''}:{owner}:{number}"
 
 
 def _upsert(rows: list[dict[str, Any]], key: str, value: str, patch: dict[str, Any]) -> None:
