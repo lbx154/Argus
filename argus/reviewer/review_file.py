@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 import argparse
-import hashlib
 import json
 import sys
 from pathlib import Path
@@ -36,18 +35,15 @@ class ReviewFileStore:
 
         text = redact_secrets_text(text, known_values=known_secret_values())
         atomic_write(self.path, text)
-        atomic_write(self.receipt, json.dumps({
-            "sha256": hashlib.sha256(text.encode("utf-8")).hexdigest(),
-        }))
+        atomic_write(self.receipt, json.dumps({"text": text}))
         return {"path": str(self.path), "characters": len(text)}
 
     def authored_review(self) -> str | None:
         """A preexisting Engineer-editable report is not this review's output."""
         if not self.receipt.is_file():
             return None
-        expected = json.loads(self.receipt.read_text(encoding="utf-8"))["sha256"]
         text = self.read_review()
-        if hashlib.sha256(text.encode("utf-8")).hexdigest() != expected:
+        if json.loads(self.receipt.read_text(encoding="utf-8")).get("text") != text:
             raise ValueError("the review file changed after the Reviewer's write")
         return text
 

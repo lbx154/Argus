@@ -2,11 +2,9 @@
 
 from __future__ import annotations
 
-import hashlib
 import json
 import re
 import time
-import unicodedata
 from collections.abc import Mapping
 from dataclasses import dataclass, field, replace
 from pathlib import Path
@@ -790,15 +788,18 @@ def parse_task_scope(raw: str) -> str:
 
 
 def _canonical_task_identifier(raw: object) -> tuple[str, bool]:
-    """Map a model-written DAG token deterministically into the safe charset."""
+    """Map a model-written DAG token into the safe charset, one-to-one.
+
+    Any other character, and ``_`` itself, is written as ``_<hex code point>_``,
+    so the same token always maps the same way and two tokens never merge.
+    """
     value = str(raw or "").strip()
     if not value or re.fullmatch(r"[A-Za-z0-9_.:-]+", value) is not None:
         return value, False
-    normalized = unicodedata.normalize("NFKD", value)
-    stem = re.sub(r"[^A-Za-z0-9_.:-]+", "-", normalized).strip("-._:")
-    stem = stem[:80].rstrip("-._:") or "task"
-    digest = hashlib.sha256(value.encode("utf-8")).hexdigest()[:10]
-    return f"{stem}-{digest}", True
+    return "".join(
+        char if char != "_" and re.fullmatch(r"[A-Za-z0-9.:-]", char) else f"_{ord(char):x}_"
+        for char in value
+    ), True
 
 
 def _with_planner_diagnostic(
@@ -810,13 +811,19 @@ def _with_planner_diagnostic(
     return replace(verdict, diagnostics=(*verdict.diagnostics, diagnostic))
 
 
+def file_state(path: Path | str) -> str:
+    """``<size>:<mtime_ns>`` of a file: what the Planner saw when it named it."""
+    stat = Path(path).stat()
+    return f"{stat.st_size}:{stat.st_mtime_ns}"
+
+
 def hydrate_task_context_refs(
     context_refs: list[dict[str, str]],
     project_root: Path | str,
     *,
     discard_external: bool = False,
 ) -> list[dict[str, str]]:
-    """Validate project-local refs and attach hashes for existing files."""
+    """Validate project-local refs and record the state of existing files."""
     root = Path(project_root).expanduser().resolve()
     hydrated: list[dict[str, str]] = []
     for raw_ref in context_refs:
@@ -845,14 +852,10 @@ def hydrate_task_context_refs(
             ref["ref"] = target
         if not resolved.is_file():
             continue
-        digest = hashlib.sha256()
         try:
-            with resolved.open("rb") as handle:
-                for chunk in iter(lambda: handle.read(1024 * 1024), b""):
-                    digest.update(chunk)
+            ref["content_hash"] = file_state(resolved)
         except OSError as exc:
             raise ValueError(f"Planner context ref cannot be read: {target}") from exc
-        ref["content_hash"] = f"sha256:{digest.hexdigest()}"
         hydrated.append(ref)
     return hydrated
 

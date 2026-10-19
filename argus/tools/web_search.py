@@ -2,9 +2,9 @@
 from __future__ import annotations
 
 import argparse
-import hashlib
 import json
 import os
+import re
 import tempfile
 import time
 from pathlib import Path
@@ -42,8 +42,10 @@ def search_web(query: str, workdir: Path, *, refresh: bool = False) -> dict:
     if not query or len(query) > 200:
         raise ValueError("Use a public search phrase of 1–200 characters")
     directory = workdir.resolve() / ".argus" / "sources"
-    key = hashlib.sha256(query.encode()).hexdigest()[:24]
-    cache = directory / f"search-{key}.json"
+    # Named by the query itself; the stored query is checked on every read, so
+    # two queries that share a name only displace each other's snapshot.
+    name = re.sub(r"\W+", "-", query).strip("-")[:80] or "query"
+    cache = directory / f"search-{name}.json"
     if not refresh:
         try:
             if cache.stat().st_size > MAX_RESPONSE_BYTES:

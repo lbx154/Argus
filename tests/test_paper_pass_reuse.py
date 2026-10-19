@@ -235,10 +235,11 @@ def test_source_change_is_reviewed_even_when_rendered_bytes_match(paper_review):
     _parallel_final_review_passes(runner, config)
     (project / "paper" / "main.tex").write_text("a changed scientific claim")
     # Rebuilt output can be byte-identical; the source comparison still matters.
+    # The rebuild is a new file state, so the PDF passes run again too.
     (project / "paper" / "main.pdf").write_bytes(b"%PDF-current")
     result = _parallel_final_review_passes(runner, config)
     assert runner.shared.calls.count("reviewer-scientificloss") == 1
-    assert result.input_tokens == 10
+    assert result.input_tokens == 30
     _parallel_final_review_passes(runner, config)
     assert runner.shared.calls.count("reviewer-scientificloss") == 2
 
@@ -398,11 +399,11 @@ def test_failed_assessments_are_not_reused(paper_review):
     assert len(runner.shared.calls) == 4
 
 
-def test_uncertain_pdf_fingerprint_runs_fresh_isolated_passes(paper_review, monkeypatch):
+def test_unreadable_pdf_state_runs_fresh_isolated_passes(paper_review, monkeypatch):
     _, config = paper_review
     from argus.reviewer import _paper_pass_cache
 
-    monkeypatch.setattr(_paper_pass_cache, "pdf_sha256", lambda _: "")
+    monkeypatch.setattr(_paper_pass_cache, "pdf_state", lambda _: "")
     runner = PaperRunner()
     _parallel_final_review_passes(runner, config)
     _parallel_final_review_passes(runner, config)

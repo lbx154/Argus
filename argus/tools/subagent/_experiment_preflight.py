@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import hashlib
 import json
 import os
 import shlex
@@ -254,8 +253,9 @@ def _live_run_owner(run_dir: Path, *, task_id: str) -> dict[str, Any] | None:
 
 
 def _claim_path(run_dir: Path) -> Path:
-    digest = hashlib.sha256(str(run_dir).encode("utf-8")).hexdigest()
-    return REGISTRY_DIR / "run_claims" / f"{digest}.lock"
+    """The lock for ``run_dir``: its own path, mirrored under the claims directory."""
+    mirrored = REGISTRY_DIR / "run_claims" / (run_dir.drive.rstrip(":") or "root")
+    return (mirrored / run_dir.relative_to(run_dir.anchor)).with_name(f"{run_dir.name}.lock")
 
 
 def _claim_run_dir(

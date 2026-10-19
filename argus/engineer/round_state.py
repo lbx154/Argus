@@ -70,9 +70,9 @@ class RoundLoopState:
     mission_item_id: str = ""
     # With no item, the mission (its session) an acceptance is scoped to.
     mission_ref: str = ""
-    # Resolved path -> sha256 of the workspace when the first mission on this
-    # objective began. Only a file still matching it grounds a Reviewer's
-    # "impossible here"; None means no workspace file does.
+    # Resolved path -> each workspace file as recorded when the first mission on
+    # this objective began (``core.grounding_baseline``). Only a file still
+    # matching it grounds a Reviewer's "impossible here"; None means none does.
     grounding_baseline: dict[str, str] | None = None
     reviewer_next_action: str | None = None
     last_decision_progress_at: float = field(default_factory=lambda: time.monotonic())

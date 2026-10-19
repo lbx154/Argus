@@ -11,9 +11,8 @@ not a verdict parsed from the model's prose.
 """
 from __future__ import annotations
 
-import hashlib
 import logging
-from contextlib import ExitStack
+from contextlib import ExitStack, suppress
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any, TypedDict
@@ -98,10 +97,11 @@ def _parallel_final_review_passes(
     from ._paper_pass_cache import (
         identical_snapshot_pair,
         paper_pass_key,
-        pdf_sha256,
+        pdf_state,
+        same_pdf,
     )
 
-    pdf_digest = pdf_sha256(workdir)
+    pdf_seen = pdf_state(workdir)
     pdf_only_visual = (workdir / "paper" / "main.pdf").is_file()
     common = (
         "Read the current paper in read-only mode. Do not edit files. Start from "
@@ -172,10 +172,8 @@ def _parallel_final_review_passes(
             "ScientificLoss": (
                 science_policy
                 + "\n\nCompare these immutable trees:\n"
-                f"- before: `{comparison.before_paper}` "
-                f"(sha256 {comparison.before_sha256})\n"
-                f"- after: `{comparison.after_paper}` "
-                f"(sha256 {comparison.after_sha256})\n"
+                f"- before: `{comparison.before_paper}`\n"
+                f"- after: `{comparison.after_paper}`\n"
                 "Use the live project only for a direct claim-critical dispute. Return "
                 "pass/fail and identify every loss by fact, prior carrier, and required "
                 "replacement carrier."
@@ -279,10 +277,10 @@ def _parallel_final_review_passes(
         )
     pass_keys = {
         label: paper_pass_key(
-            pdf_digest=pdf_digest, prompt=prompt, config=config, runner=runner
+            pdf_state=pdf_seen, prompt=prompt, config=config, runner=runner
         )
         for label, prompt in prompts.items()
-        if label in {"Visual", "ColdRead"} and pdf_digest
+        if label in {"Visual", "ColdRead"} and pdf_seen
     }
     for label, key in pass_keys.items():
         if not key:
@@ -362,17 +360,15 @@ def _parallel_final_review_passes(
             pdf_workspace = workspace_stack.enter_context(
                 isolated_pdf_workspace(workdir, readable=True)
             )
-            rendered_digest = pdf_sha256(pdf_workspace)
-            identity_note = f"Its SHA-256 is {rendered_digest}. " if rendered_digest else ""
+            copied_as_seen = same_pdf(workdir, pdf_workspace, pdf_seen)
             for label in pdf_only_passes:
                 working_dirs[label] = pdf_workspace
-                if rendered_digest != pdf_digest:
+                if not copied_as_seen:
                     pass_keys.pop(label, None)
             for label in source_pdf_passes:
                 prompts[label] += (
                     "\n\n## Current rendered paper supplied by the host\n"
                     "The host copied the current PDF for this review. "
-                    f"{identity_note}"
                     f"Read its extracted text at `{pdf_workspace / 'paper/main.txt'}` "
                     f"and page images at `{pdf_workspace / 'paper/pages'}/page-*.png`. "
                     "These derivatives were generated from that same current PDF. "
@@ -530,7 +526,7 @@ def _parallel_final_review_passes(
         )
     # A provider may have run while another process updated the rendered paper.
     # Keep its result for adjudication, but never reuse it under the new bytes.
-    if pdf_digest and pdf_sha256(workdir) == pdf_digest:
+    if pdf_seen and pdf_state(workdir) == pdf_seen:
         for label, key in pass_keys.items():
             if key:
                 config.paper_pass_cache[label] = (key, findings[label])
@@ -651,9 +647,9 @@ class ReviewerConfig:
     # host holds a record a read-only Reviewer can weigh.
     engineer_records_commands: bool = False
     # Host-gathered for a mission's Reviewer (``round_reviewer.mission_grounding``):
-    # the workspace's content hashes when work on the objective began, the files
-    # its packet names with their recorded hashes, and the acceptances recorded
-    # for its item. What "impossible here" and an acceptance must match.
+    # the workspace's files as recorded when work on the objective began, the
+    # files its packet names with their recorded state, and the acceptances
+    # recorded for its item. What "impossible here" and an acceptance must match.
     mission_grounding: dict[str, Any] | None = field(default=None, repr=False, compare=False)
 
 
@@ -712,8 +708,6 @@ def _review_grounding(config: Any, *, task_parts: tuple[str, ...]) -> Any:
             getattr(config, "vertical_state_root", None),
         ) if root
     ))
-    from ..core.grounding_baseline import normalize_sha256
-
     mission = getattr(config, "mission_grounding", None) or {}
     baseline = mission.get("baseline")
     return ReviewGrounding(
@@ -729,12 +723,12 @@ def _review_grounding(config: Any, *, task_parts: tuple[str, ...]) -> Any:
             {str(path): str(digest) for path, digest in baseline.items()}
             if isinstance(baseline, dict) else None
         ),
-        # A ref without a recorded hash is not a packet source; it counts only
-        # as an unchanged workspace file.
+        # A ref without a recorded file state is not a packet source; it counts
+        # only as an unchanged workspace file.
         packet_refs=tuple(
-            (str(ref.get("ref") or ""), normalize_sha256(ref.get("content_hash")))
+            (str(ref.get("ref") or ""), str(ref.get("content_hash") or "").strip())
             for ref in mission.get("packet_refs") or ()
-            if isinstance(ref, dict) and normalize_sha256(ref.get("content_hash"))
+            if isinstance(ref, dict) and str(ref.get("content_hash") or "").strip()
         ),
         accepted_risks=tuple(dict(row) for row in mission.get("accepted_risks") or () if isinstance(row, dict)),
         operator_decisions=tuple(
@@ -844,14 +838,12 @@ class Reviewer:
         reviewed_manuscript_snapshot = None
         snapshot_root = config.artifact_root or config.working_dir
         if snapshot_root is not None:
-            try:
-                from ..core.manuscript_snapshot import manuscript_snapshot
+            from ..core.manuscript_snapshot import MANUSCRIPT_PATH, manuscript_snapshot
 
-                candidate_snapshot = manuscript_snapshot(snapshot_root)
-                if candidate_snapshot["sha256"]:
-                    reviewed_manuscript_snapshot = candidate_snapshot
-            except Exception:  # noqa: BLE001 - non-paper reviews have no manuscript
-                pass
+            # An unreadable manuscript binds no review.
+            if (Path(snapshot_root) / MANUSCRIPT_PATH).is_file():
+                with suppress(OSError):
+                    reviewed_manuscript_snapshot = manuscript_snapshot(snapshot_root)
         # Split the prompt into a byte-stable STATIC preamble and per-round DELTA.
         # A matching same-role session receives only the new delta.
         static, delta_base = self._render(
@@ -904,11 +896,10 @@ class Reviewer:
             for name, amount in extra_stats.items():
                 if "static_total" in prompt_block_stats:
                     prompt_block_stats["static_total"][name] = prompt_block_stats["static_total"].get(name, 0) + amount
-        fingerprint_input = bytearray(static.encode("utf-8"))
-        new_fp = hashlib.sha256(fingerprint_input).hexdigest()
+        # The session resumes only under the very same static preamble.
         resume = (
             resume_thread_id
-            if resume_thread_id and prior_static_fingerprint == new_fp
+            if resume_thread_id and prior_static_fingerprint == static
             else None
         )
         from ..roles.prompts.reviewer import (
@@ -957,7 +948,7 @@ class Reviewer:
             )
             decision.premium_requests = float(getattr(result, "premium_requests", 0.0) or 0.0)
             decision.thread_id = getattr(result, "thread_id", None)
-            decision.static_fingerprint = new_fp
+            decision.static_fingerprint = static
             decision.session_resumed = bool(resume)
             decision.prompt_block_stats = prompt_block_stats
             return decision

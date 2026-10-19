@@ -34,7 +34,7 @@ from argus.proof_ledger import (
     assess_citation,
     assess_claim,
     assess_route,
-    content_digest,
+    canonical_content,
     load_state,
     normalize_text,
     save_state,
@@ -722,22 +722,22 @@ def test_the_project_wide_question_lists_only_what_still_owes_a_lookup() -> None
     } == {"c2": ("kkl",)}
 
 
-def test_an_assumption_that_never_had_a_citation_hashes_as_it_always_did() -> None:
+def test_an_assumption_that_never_had_a_citation_keeps_its_digest() -> None:
     """Adding the fields must not restate every assumption already recorded.
 
     The digest is what evidence binds to, so a schema change that moved it would
     orphan every discharge in every live project on upgrade — the failure
-    ``content_digest`` refuses to cause by hashing a schema version. Absent
+    ``canonical_content`` refuses to cause by binding a schema version. Absent
     fields are absent from the payload rather than present and empty.
     """
-    assert RIEMANN.content_hash == content_digest(
+    assert RIEMANN.content_hash == canonical_content(
         {
             "assumption_id": "rh",
             "statement": normalize_text(RIEMANN.statement),
             "source": normalize_text(RIEMANN.source),
         }
     )
-    assert CITED.content_hash != content_digest(
+    assert CITED.content_hash != canonical_content(
         {
             "assumption_id": "rh",
             "statement": normalize_text(CITED.statement),

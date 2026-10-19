@@ -8,7 +8,6 @@ by the boot-phase mixin in ``_life_worker_boot.py``.
 """
 from __future__ import annotations
 
-import hashlib
 import json
 import logging
 import os
@@ -39,10 +38,6 @@ def _manager_handoff_identity_path(runtime_root: Path) -> Path:
     return runtime_root / _MANAGER_HANDOFF_IDENTITY_FILE
 
 
-def _objective_sha256(objective: str) -> str:
-    return hashlib.sha256(str(objective).strip().encode("utf-8")).hexdigest()
-
-
 def _write_manager_handoff_identity(
     runtime_root: Path,
     *,
@@ -57,8 +52,8 @@ def _write_manager_handoff_identity(
     path = _manager_handoff_identity_path(runtime_root)
     tmp = path.with_name(f"{path.name}.tmp-{os.getpid()}-{time.time_ns()}")
     payload = {
-        "version": 3,
-        "objective_sha256": _objective_sha256(objective),
+        "version": 4,
+        "objective": str(objective).strip(),
         "vertical": str(vertical).strip(),
         "domain": str(domain).strip(),
         "continuous_generation": max(0, int(continuous_generation)),
@@ -70,7 +65,7 @@ def _write_manager_handoff_identity(
         payload["source_objective_path"] = str(
             Path(source_path).expanduser().resolve()
         )
-        payload["source_objective_sha256"] = _objective_sha256(source_objective)
+        payload["source_objective"] = str(source_objective).strip()
     try:
         tmp.write_text(
             json.dumps(payload, ensure_ascii=False, indent=2) + "\n",
@@ -95,7 +90,8 @@ def _read_manager_handoff_identity(runtime_root: Path) -> dict[str, Any] | None:
         )
     except (FileNotFoundError, OSError, json.JSONDecodeError, TypeError):
         return None
-    if not isinstance(payload, dict) or payload.get("version") not in {1, 2, 3}:
+    # Earlier versions named the objective only by a digest, which reads as no identity.
+    if not isinstance(payload, dict) or payload.get("version") != 4:
         return None
     return payload
 
@@ -130,10 +126,8 @@ def _refresh_file_backed_objective_for_resume(
     ):
         return False
     source_path = str((identity or {}).get("source_objective_path") or "").strip()
-    expected_sha = str(
-        (identity or {}).get("source_objective_sha256") or ""
-    ).strip()
-    if not source_path or len(expected_sha) != 64:
+    recorded = str((identity or {}).get("source_objective") or "").strip()
+    if not source_path or not recorded:
         return False
     path = Path(source_path).expanduser()
     try:
@@ -145,7 +139,7 @@ def _refresh_file_backed_objective_for_resume(
             path,
         )
         return False
-    if not objective or _objective_sha256(objective) == expected_sha:
+    if not objective or objective == recorded:
         return False
     cfg.continuous = True
     cfg.continuous_objective = objective
@@ -218,8 +212,8 @@ def _legacy_manager_handoff_identity(
                 if str(event.get("domain") or "").strip() != domain.strip():
                     continue
                 return {
-                    "version": 2,
-                    "objective_sha256": _objective_sha256(objective),
+                    "version": 4,
+                    "objective": objective.strip(),
                     "vertical": vertical,
                     "domain": domain,
                     "continuous_generation": max(
@@ -246,7 +240,7 @@ def _manager_handoff_identity_matches(
     if identity is None:
         return False
     return (
-        identity.get("objective_sha256") == _objective_sha256(objective)
+        identity.get("objective") == str(objective).strip()
         and str(identity.get("vertical") or "") == vertical
         and str(identity.get("domain") or "") == domain
         and int(identity.get("continuous_generation") or 0) <= generation
@@ -288,10 +282,7 @@ def _daemon_objective_requires_stage_reset(
         except Exception:  # noqa: BLE001 - fall through to identity comparison
             pass
     if prior_handoff is not None:
-        objective_changed = (
-            prior_handoff.get("objective_sha256")
-            != _objective_sha256(execution_task)
-        )
+        objective_changed = prior_handoff.get("objective") != str(execution_task).strip()
         return bool(
             (
                 prior_vertical

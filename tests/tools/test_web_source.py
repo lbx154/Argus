@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-import hashlib
 import json
 import threading
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
@@ -51,7 +50,6 @@ def test_fetched_text_and_provenance_are_available_at_the_returned_project_path(
     assert metadata["url"] == base + "/redirect"
     assert metadata["resolved_url"] == base + "/paper"
     assert metadata["accessed_at"] and metadata["response_bytes"] == len(body)
-    assert metadata["response_sha256"] == hashlib.sha256(body).hexdigest()
     assert "Accuracy is 42% on test A." in text
     assert "secret_noise" not in text
     assert result["excerpt"] in text and len(result["excerpt"]) <= 2000

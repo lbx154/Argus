@@ -2164,8 +2164,8 @@ def test_resume_continuous_adopts_persisted_manager_handoff_without_backend(
     (tmp_path / "manager-handoff.json").write_text(
         json.dumps(
             {
-                "version": 1,
-                "objective_sha256": "stale",
+                "version": 4,
+                "objective": "stale",
                 "vertical": "research",
                 "continuous_generation": 0,
                 "intent_id": "intent-stale",
@@ -2312,11 +2312,9 @@ def test_resume_with_explicit_new_objective_runs_manager_handoff(
     assert seen["vertical_resolved"] is True
     assert read_continuous_state(tmp_path).objective == "new manager-clean objective"
     identity = json.loads((tmp_path / "manager-handoff.json").read_text())
-    assert identity["version"] == 3
+    assert identity["version"] == 4
     assert identity["source_objective_path"] == str(objective_file.resolve())
-    assert identity["source_objective_sha256"] == life_worker_mod._objective_sha256(
-        "new raw objective"
-    )
+    assert identity["source_objective"] == "new raw objective"
     events = [
         json.loads(line)
         for line in (tmp_path / "events.jsonl").read_text().splitlines()
@@ -2443,7 +2441,7 @@ def test_terminal_workspace_without_prior_handoff_reopens_for_new_daemon_intent(
             project_root=tmp_path,
             prior_vertical="software",
             next_vertical="software",
-            prior_handoff={"objective_sha256": life_worker_mod._objective_sha256("new objective")},
+            prior_handoff={"objective": "new objective"},
             expected_objective="new objective",
             source_objective="new objective",
             execution_task="new objective",
@@ -2454,8 +2452,8 @@ def test_terminal_workspace_without_prior_handoff_reopens_for_new_daemon_intent(
 
 def test_manager_handoff_identity_distinguishes_domain() -> None:
     identity = {
-        "version": 2,
-        "objective_sha256": life_worker_mod._objective_sha256("write a chemistry paper"),
+        "version": 4,
+        "objective": "write a chemistry paper",
         "vertical": "research",
         "domain": "chemistry",
         "continuous_generation": 3,

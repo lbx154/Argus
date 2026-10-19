@@ -2,7 +2,6 @@
 from __future__ import annotations
 
 import getpass
-import hashlib
 import json
 import os
 import socket
@@ -26,19 +25,6 @@ from .probe import ResourceProbe
 DEFAULT_ROOT = Path("/var/tmp/argus-resource-ledger")
 # Heartbeat renewal keeps live grants valid; this TTL only reaps crashed owners.
 DEFAULT_TTL_SECONDS = 120.0
-
-
-def _canonical(value: object) -> bytes:
-    return json.dumps(
-        value,
-        ensure_ascii=False,
-        sort_keys=True,
-        separators=(",", ":"),
-    ).encode("utf-8")
-
-
-def demand_hash(demand: Mapping[str, Any]) -> str:
-    return hashlib.sha256(_canonical(normalize_demand(demand))).hexdigest()
 
 
 def normalize_demand(demand: Mapping[str, Any]) -> dict[str, Any]:
@@ -444,7 +430,7 @@ class ResourceLedger:
                 granted = self._read(self._record_path(self.grants_dir, request_id))
                 if granted is not None:
                     if (
-                        granted.get("demand_hash") != demand_hash(normalized)
+                        granted.get("demand") != normalized
                         or granted.get("owner") != actual_owner
                     ):
                         raise ValueError("grant identity or demand does not match")
@@ -452,7 +438,7 @@ class ResourceLedger:
                 queued = self._read(self._record_path(self.queue_dir, request_id))
                 if queued is not None:
                     if (
-                        queued.get("demand_hash") != demand_hash(normalized)
+                        queued.get("demand") != normalized
                         or queued.get("owner") != actual_owner
                     ):
                         raise ValueError("queued request identity or demand does not match")
@@ -478,7 +464,6 @@ class ResourceLedger:
                 "state": "queued",
                 "owner": actual_owner,
                 "demand": normalized,
-                "demand_hash": demand_hash(normalized),
                 "host_epoch": self.host_epoch,
                 "created_at": now,
                 "created_order": time.time_ns(),
@@ -527,7 +512,7 @@ class ResourceLedger:
             if record is None:
                 return None
             matches = (
-                record.get("demand_hash") == demand_hash(demand)
+                record.get("demand") == normalize_demand(demand)
                 and record.get("host_epoch") == self.host_epoch
                 and record.get("owner") == dict(owner)
                 and record.get("state") == "granted"
@@ -662,7 +647,6 @@ class ResourceLedger:
 __all__ = [
     "DEFAULT_TTL_SECONDS",
     "ResourceLedger",
-    "demand_hash",
     "normalize_demand",
     "owner_identity",
 ]

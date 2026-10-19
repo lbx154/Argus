@@ -81,7 +81,6 @@ from ._life_worker_identity import (  # noqa: F401 — re-exported, see __all__
     _legacy_manager_handoff_identity,
     _manager_handoff_identity_matches,
     _manager_handoff_identity_path,
-    _objective_sha256,
     _preflight_route_on_codex,
     _read_manager_handoff_identity,
     _rearm_operator_drain_for_resume,

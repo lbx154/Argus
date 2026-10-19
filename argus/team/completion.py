@@ -1,7 +1,6 @@
 """Publish one durable Manager-facing summary per completed Team generation."""
 from __future__ import annotations
 
-import hashlib
 import json
 import logging
 import re
@@ -59,26 +58,16 @@ def _payload(root: Path, marker: dict[str, Any]) -> dict[str, Any] | None:
     }
 
 
-def _generation_fingerprint(payload: dict[str, Any]) -> str:
-    raw = json.dumps(
-        {
-            "team_id": payload["team_id"],
-            "generation": payload["generation"],
-            "tasks": [
-                {
-                    "task_id": row["task_id"],
-                    "state": row["state"],
-                    "pending_question": row["pending_question"],
-                    "result_shard": row["result_shard"],
-                }
-                for row in payload["tasks"]
-            ],
+def _outcome(payload: dict[str, Any]) -> dict[str, Any]:
+    """Which generation ended, and how: a changed outcome is published again."""
+    return {
+        "team_id": payload["team_id"],
+        "generation": payload["generation"],
+        **{
+            state: sum(row["state"] == state for row in payload["tasks"])
+            for state in ("done", "failed", "blocked")
         },
-        ensure_ascii=False,
-        sort_keys=True,
-        separators=(",", ":"),
-    )
-    return hashlib.sha256(raw.encode("utf-8")).hexdigest()
+    }
 
 
 def _prompt(payload: dict[str, Any]) -> str:
@@ -161,10 +150,14 @@ def publish_if_complete(
     payload = _payload(root, marker)
     if payload is None:
         return False
-    fingerprint = _generation_fingerprint(payload)
+    outcome = _outcome(payload)
     state_path = root / _STATE_FILE
     prior = _store.read_json(state_path, default={})
-    if isinstance(prior, dict) and prior.get("fingerprint") == fingerprint and prior.get("delivered"):
+    if (
+        isinstance(prior, dict)
+        and prior.get("delivered")
+        and all(prior.get(key) == value for key, value in outcome.items())
+    ):
         return False
     summary = ""
     if summarize is not None:
@@ -174,7 +167,8 @@ def publish_if_complete(
             log.exception("team completion Manager summary failed for %s", root)
     if not summary:
         summary = _fallback(payload)
-    message_id = f"team-summary-{fingerprint[:16]}"
+    # The same outcome keeps its id, so a retry after a crash is not a second message.
+    message_id = "team-summary-" + "-".join(str(value) for value in outcome.values())
     publish_operator_message(
         conversation_root,
         text=summary,
@@ -184,17 +178,5 @@ def publish_if_complete(
         "team_completion": True,
         },
     )
-    done = sum(row["state"] == "done" for row in payload["tasks"])
-    failed = sum(row["state"] == "failed" for row in payload["tasks"])
-    blocked = sum(row["state"] == "blocked" for row in payload["tasks"])
-    _store.atomic_write_json(state_path, {
-        "fingerprint": fingerprint,
-        "generation": payload["generation"],
-        "team_id": payload["team_id"],
-        "done": done,
-        "failed": failed,
-        "blocked": blocked,
-        "summary": summary,
-        "delivered": True,
-    })
+    _store.atomic_write_json(state_path, {**outcome, "summary": summary, "delivered": True})
     return True

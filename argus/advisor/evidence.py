@@ -1,7 +1,6 @@
 """Read a bounded set of explicit local evidence references."""
 from __future__ import annotations
 
-import hashlib
 import os
 import stat
 from pathlib import Path
@@ -58,9 +57,7 @@ def collect_evidence(
         text = redact(raw.decode("utf-8", errors="replace"))
         evidence.append({
             "ref": f"{scope}:{path.as_posix()}", "text": text,
-            "sha256": hashlib.sha256(text.encode("utf-8")).hexdigest(),
-            "source_sha256": hashlib.sha256(raw).hexdigest(),
             "bytes_read": len(raw), "file_size": metadata.st_size,
-            "truncated": truncated,
+            "mtime_ns": metadata.st_mtime_ns, "truncated": truncated,
         })
     return evidence

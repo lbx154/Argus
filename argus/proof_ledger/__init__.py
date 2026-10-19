@@ -90,7 +90,7 @@ from .models import (
     SubjectKind,
     SubjectRef,
     Verdict,
-    content_digest,
+    canonical_content,
     normalize_text,
 )
 from .store import (
@@ -138,7 +138,7 @@ __all__ = [
     "assess_claim",
     "assess_route",
     "assess_routes",
-    "content_digest",
+    "canonical_content",
     "load_state",
     "normalize_text",
     "route_cycles",

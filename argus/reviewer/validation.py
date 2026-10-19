@@ -5,6 +5,7 @@ import json
 import math
 import os
 import shutil
+import string
 import subprocess
 import sys
 import threading
@@ -264,7 +265,9 @@ class ReviewValidation:
                 docker_prefix, ["image", "inspect", "--format", "{{.Id}}", self.image],
                 env=docker_env, cancelled=cancelled,
             )
-            if not image.startswith("sha256:"):
+            # An image id is content-addressed: ``<algorithm>:<hex digest>``.
+            algorithm, _, digest = image.partition(":")
+            if not algorithm or len(digest) < 32 or digest.strip(string.hexdigits):
                 raise ReviewEnvironmentError("Docker did not return an immutable local image identity")
             receipt["image_id"] = image
             scratch = Path(receipt["scratch"])

@@ -473,7 +473,7 @@ def test_command_has_readonly_inputs_no_network_and_no_bridge_credentials(tmp_pa
         if "context" in argv:
             return subprocess.CompletedProcess(argv, 0, "unix:///var/run/docker.sock\n", "")
         if "inspect" in argv:
-            return subprocess.CompletedProcess(argv, 0, "sha256:" + "a" * 64 + "\n", "")
+            return subprocess.CompletedProcess(argv, 0, "image:" + "a" * 64 + "\n", "")
         if "start" in argv:
             kwargs["stdout"].write(b"check output\n")
             return subprocess.CompletedProcess(argv, 0)
@@ -657,7 +657,7 @@ def test_preflight_deadlines_are_environment_results_with_receipts(tmp_path, mon
         calls.append(argv)
         if stage in argv:
             raise subprocess.TimeoutExpired(argv, kwargs["timeout"])
-        output = "unix:///synthetic/docker.sock\n" if "context" in argv else "sha256:" + "a" * 64
+        output = "unix:///synthetic/docker.sock\n" if "context" in argv else "image:" + "a" * 64
         return subprocess.CompletedProcess(argv, 0, output, "")
 
     monkeypatch.setattr("argus.reviewer.validation.run_process", run)
@@ -691,7 +691,7 @@ def test_delayed_create_finishes_within_creation_budget(tmp_path, monkeypatch):
         "if 'context' in args:\n"
         "    print('unix:///synthetic/docker.sock')\n"
         "elif 'image' in args:\n"
-        "    print('sha256:' + 'a' * 64)\n"
+        "    print('image:' + 'a' * 64)\n"
         "elif 'create' in args:\n"
         "    time.sleep(0.6)\n"
         "    print('owned-container')\n"
@@ -729,7 +729,7 @@ def test_creation_budget_preserves_other_deadlines(tmp_path, monkeypatch):
     def run(argv, **kwargs):
         stage = next(name for name in ("context", "image", "create", "start", "rm") if name in argv)
         deadlines[stage] = kwargs["timeout"]
-        output = "unix:///synthetic/docker.sock\n" if stage == "context" else "sha256:" + "a" * 64
+        output = "unix:///synthetic/docker.sock\n" if stage == "context" else "image:" + "a" * 64
         return subprocess.CompletedProcess(argv, 0, output, "")
 
     monkeypatch.setattr(validation, "run_process", run)
@@ -775,7 +775,7 @@ def test_closure_during_preflight_cannot_start_a_late_command(tmp_path, monkeypa
             else:
                 assert kwargs["cancelled"].wait(3)
                 raise ExecutionCancelled
-        output = "unix:///synthetic/docker.sock\n" if "context" in argv else "sha256:" + "a" * 64
+        output = "unix:///synthetic/docker.sock\n" if "context" in argv else "image:" + "a" * 64
         return subprocess.CompletedProcess(argv, 0, output, "")
 
     monkeypatch.setattr("argus.reviewer.validation.run_process", run)
@@ -809,7 +809,7 @@ def test_cleanup_failures_are_bounded_persistent_and_do_not_erase_timeout(tmp_pa
         "import os, sys, time\n"
         "args = sys.argv[1:]\n"
         "if 'image' in args:\n"
-        "    print('sha256:' + 'a' * 64)\n"
+        "    print('image:' + 'a' * 64)\n"
         "elif 'create' in args:\n"
         "    print('synthetic-container')\n"
         "elif 'start' in args:\n"
@@ -1184,7 +1184,7 @@ def test_cleanup_failure_invalidates_an_ended_turn_not_the_proof(
     def run(argv, **_kwargs):
         if "rm" in argv and cleanup_fails:
             return subprocess.CompletedProcess(argv, 1, "", "synthetic daemon cleanup failure")
-        return subprocess.CompletedProcess(argv, 0, "sha256:" + "a" * 64, "")
+        return subprocess.CompletedProcess(argv, 0, "image:" + "a" * 64, "")
 
     monkeypatch.setattr("argus.reviewer.validation.run_process", run)
     observed = {}
@@ -1283,7 +1283,7 @@ def test_terminal_receipt_failure_invalidates_an_earlier_approval(
                 raise subprocess.TimeoutExpired(argv, kwargs["timeout"])
         if "rm" in argv and cleanup_fails:
             return subprocess.CompletedProcess(argv, 1, "", "synthetic daemon cleanup failure")
-        return subprocess.CompletedProcess(argv, 0, "sha256:" + "a" * 64, "")
+        return subprocess.CompletedProcess(argv, 0, "image:" + "a" * 64, "")
 
     replace = Path.replace
 
@@ -1366,7 +1366,7 @@ def test_receipt_write_failure_before_execution_invalidates_approval(
 
     def run(argv, **_kwargs):
         calls.append(argv)
-        return subprocess.CompletedProcess(argv, 0, "sha256:" + "a" * 64, "")
+        return subprocess.CompletedProcess(argv, 0, "image:" + "a" * 64, "")
 
     write_text = Path.write_text
 

@@ -5,11 +5,10 @@ Four record types, and one rule that shapes all four.
 **The rule: evidence binds to content, never to a version number and never to a
 timestamp.** A verifier answers a question about a specific statement. If the
 statement later changes, the answer is about something that no longer exists,
-and the only way to know that mechanically is to carry the digest of what was
-asked. ``verticals/math/lean_evidence.py`` already learned this for one Lean
-file (``source_sha256``, and the cache key that had to stop trusting mtime
-because ``os.utime`` could forge it). Here the same binding is the schema's
-spine rather than one field on one checker.
+and the only way to know that mechanically is to carry what was asked. A
+record's *digest* is exactly that: its canonical content (``canonical_content``),
+compared whole. Here that binding is the schema's spine rather than one field
+on one checker.
 
 Three consequences follow, and each is a deliberate design choice rather than
 an accident of implementation:
@@ -27,7 +26,7 @@ compile. Freshness is a question about meaning, not about bookkeeping.
 *External assumptions are outside the digest.* Discovering that a proof leans
 on an uncited theorem, or discharging that dependency later, changes what is
 known *about* the claim, not what the claim asserts. If assumptions were
-hashed, discharging one would invalidate the very Lean run it is supposed to
+in the digest, discharging one would invalidate the very Lean run it is supposed to
 upgrade — the ``conditional_kernel`` to ``closed_kernel`` transition would be
 unreachable by construction. Discharge is therefore evidence about the
 assumption, addressed by the assumption's own digest, and it never edits the
@@ -45,7 +44,6 @@ be liftable into its own repository unchanged.
 """
 from __future__ import annotations
 
-import hashlib
 import json
 from collections.abc import Mapping
 from dataclasses import dataclass, field
@@ -63,7 +61,7 @@ __all__ = [
     "SubjectKind",
     "SubjectRef",
     "Verdict",
-    "content_digest",
+    "canonical_content",
     "normalize_text",
 ]
 
@@ -130,19 +128,16 @@ def normalize_text(text: object) -> str:
     return "\n".join(line.rstrip() for line in str(text or "").strip().splitlines())
 
 
-def content_digest(payload: Mapping[str, Any]) -> str:
-    """A digest over canonical JSON — stable across processes and orderings.
+def canonical_content(payload: Mapping[str, Any]) -> str:
+    """A record's digest: its canonical JSON, the same across processes and orderings.
 
     Deliberately excludes any schema or release version. A digest that moved
     when this file changed would invalidate every recorded proof on every
     upgrade, which would make the binding worthless exactly when a long-running
-    project needs it. What is hashed is the mathematics; how it is stored is
+    project needs it. What is bound is the mathematics; how it is stored is
     versioned separately, in the state file.
     """
-    canonical = json.dumps(
-        payload, sort_keys=True, separators=(",", ":"), ensure_ascii=False
-    )
-    return hashlib.sha256(canonical.encode("utf-8")).hexdigest()
+    return json.dumps(payload, sort_keys=True, separators=(",", ":"), ensure_ascii=False)
 
 
 def _require_kind(ref: SubjectRef, kind: SubjectKind, role: str) -> None:
@@ -181,7 +176,7 @@ class ContextVersion:
 
     @property
     def content_hash(self) -> str:
-        return content_digest(
+        return canonical_content(
             {
                 "context_id": self.context_id,
                 "statement": normalize_text(self.statement),
@@ -318,7 +313,7 @@ class ExternalAssumption:
             payload["source_id"] = normalize_text(self.source_id)
         if normalize_text(self.locator):
             payload["locator"] = normalize_text(self.locator)
-        return content_digest(payload)
+        return canonical_content(payload)
 
     @property
     def cited_proposition(self) -> str:
@@ -470,10 +465,10 @@ class ClaimVersion:
         including them would mean that discharging one invalidated the proof it
         was meant to complete. Retirements are excluded for the same reason and
         one more: they do not accumulate in the digest, so a version that
-        retires nothing would hash identically to one before the retirement,
+        retires nothing would have the same digest as one before the retirement,
         and evidence would come back from the dead.
         """
-        return content_digest(
+        return canonical_content(
             {
                 "claim_id": self.claim_id,
                 "natural_statement": normalize_text(self.natural_statement),

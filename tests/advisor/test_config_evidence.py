@@ -42,7 +42,7 @@ def test_evidence_is_bounded_redacted_and_has_real_source_refs(tmp_path):
     assert rows[0]["ref"] == "workspace:result.txt"
     assert rows[0]["truncated"] and rows[0]["bytes_read"] == 1024
     assert "test-secret" not in rows[0]["text"]
-    assert len(rows[0]["sha256"]) == 64
+    assert rows[0]["file_size"] == 2012
 
 
 @pytest.mark.parametrize("ref", ["../outside.txt", "/outside.txt", "state:../outside.txt", ".env", "escape.txt"])
