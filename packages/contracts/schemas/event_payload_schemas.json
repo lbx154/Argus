@@ -2598,8 +2598,7 @@
           "minLength": 1
         },
         "continuation_item_id": {
-          "type": "string",
-          "minLength": 1
+          "type": "string"
         },
         "question": {
           "type": "string",
@@ -2628,6 +2627,16 @@
         },
         "stopped": {
           "type": "boolean"
+        },
+        "dropped": {
+          "type": "boolean"
+        },
+        "decided_by": {
+          "type": "string",
+          "enum": [
+            "operator",
+            "manager"
+          ]
         }
       }
     },

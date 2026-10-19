@@ -582,10 +582,9 @@ class MissionExecutionSettlementMixin:
             )
             from ...core.autonomy import (
                 NO_OPERATOR_NEED,
+                OPERATOR_ACTION_NEEDS,
                 assess_operator_intervention,
-                autonomous_operator_resolution,
                 normalize_operator_need,
-                operator_available,
                 resolve_autonomy_mode,
                 technical_continuation,
             )
@@ -664,17 +663,17 @@ class MissionExecutionSettlementMixin:
                         status = "replan_requested"
                 elif (
                     operator_question_policy == "forbid"
-                    and not operator_available()
                     and status in {"blocked", "replan_requested"}
-                    and autonomous_operator_resolution(intervention.operator_need)
-                    == "assume"
+                    and intervention.operator_need not in OPERATOR_ACTION_NEEDS
                 ):
-                    # Nobody will answer, and the raising role did not name an
-                    # action only the operator can enable: the question is a
-                    # scope or interpretation decision. Hand it to the Manager
-                    # as an operator-owned challenge without a question; the
-                    # Manager settles it on the most defensible reading and the
-                    # Planner records that assumption.
+                    # The operator cannot be asked, and the raising role named
+                    # no action only they could approve: the question is one
+                    # of scope or interpretation. Hand it to the Manager as an
+                    # operator-owned challenge without a question; the Manager
+                    # settles it on the most defensible reading and the
+                    # Planner records that assumption. An action stays a
+                    # question, which the Manager decides in the operator's
+                    # place once it is parked.
                     planner_report.update({
                         "forward_progress": False,
                         "plan_signal": "reconsider",
@@ -828,36 +827,6 @@ class MissionExecutionSettlementMixin:
         ):
             self._share_reviewed_wiki_pages(state, manager_decision)
 
-        if status == "blocked" and not success:
-            from ...core.autonomy import (
-                OPERATOR_ACTION_NEEDS,
-                operator_available,
-                record_operator_block,
-            )
-
-            blocked_need = _operator_classification(outcome).get("operator_need", "")
-            if blocked_need in OPERATOR_ACTION_NEEDS and not operator_available():
-                record_operator_block(
-                    self._project_state_root(),
-                    item_id=item.id,
-                    reason=str(
-                        getattr(outcome, "final_review_reason", "")
-                        or state.stop_reason
-                        or operator_question
-                        or ""
-                    ),
-                    operator_need=blocked_need,
-                )
-        forbid_operator_parking = False
-        if status == "blocked" and operator_question:
-            forbid_operator_parking = (
-                operator_question_policy == "forbid"
-            )
-            if forbid_operator_parking:
-                operator_question = ""
-                setattr(outcome, "operator_question", "")
-                setattr(outcome, "operator_options", [])
-
         maintenance_reviewed = bool(
             "framework_maintenance" in state.item_tags
             and success
@@ -889,17 +858,6 @@ class MissionExecutionSettlementMixin:
                     stop_kind=state.stop_kind,
                     resumable=False,
                 )
-        # Publishing a framework change is outward-facing, so only the operator
-        # may adopt it. A run whose operator cannot be asked (none declared, or
-        # questions forbidden) has nobody to answer; the card would park the
-        # item forever, so it ends unpublished instead.
-        deployment_unanswerable = False
-        if maintenance_reviewed:
-            from ...core.autonomy import operator_questions_can_be_asked
-
-            deployment_unanswerable = not operator_questions_can_be_asked(
-                self._project_state_root()
-            )
 
         def capture_state() -> None:
             state.success = success
@@ -966,34 +924,6 @@ class MissionExecutionSettlementMixin:
             # ``requeue_for_iteration`` already performed the only backlog
             # transition allowed here: running -> pending on the same item.
             commit(outcome=outcome_dimensions)
-        elif maintenance_reviewed and deployment_unanswerable:
-            from ...core.autonomy import record_operator_block
-
-            success = False
-            status = "failed"
-            resumable = False
-            err = (
-                f"The Reviewer accepted the change for “{item.title}”, but publishing "
-                "it needs the operator's approval and no operator is available in "
-                "this run, so it was not published and the runtime is unchanged. "
-                f"Reviewed commit: {maintenance_candidate}."
-            )
-            state.stop_reason = err
-            outcome_dimensions = mission_outcome_dimensions(
-                status=status,
-                success=False,
-                review_status=final_review_status,
-                stage_transition=stage_transition,
-                stop_kind=state.stop_kind,
-                resumable=False,
-            )
-            record_operator_block(
-                self._project_state_root(),
-                item_id=item.id,
-                reason=err,
-                operator_need="irreversible_or_external",
-            )
-            fail(error=err, outcome=outcome_dimensions)
         elif maintenance_reviewed:
             from ...core.operator_decision import build_operator_decision
 
@@ -1195,20 +1125,7 @@ class MissionExecutionSettlementMixin:
                 outcome=outcome_dimensions,
             )
         else:
-            if forbid_operator_parking:
-                commit(
-                    status="failed",
-                    finished_ts=time.time(),
-                    last_error=err,
-                    outcome=outcome_dimensions,
-                    pending_question="",
-                    operator_decision={},
-                )
-            else:
-                fail(
-                    error=err,
-                    outcome=outcome_dimensions,
-                )
+            fail(error=err, outcome=outcome_dimensions)
 
         # A "blocked" verdict means the REVIEWER stopped progress because it
         # needs the OPERATOR to make a call — not a bug/crash. This includes a

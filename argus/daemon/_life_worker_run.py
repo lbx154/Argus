@@ -496,41 +496,35 @@ class LifeWorkerRunMixin:
     ) -> bool:
         """End a bounded run that has nothing left but an unanswered question.
 
-        Applies only where nobody is watching: a run that declared no operator
-        (no grace at all: nobody can answer) or a foreground CLI/harness
-        bounded run (``operator_wait_exit``; grace from
-        ``ARGUS_SKILL_BOUNDED_OPERATOR_WAIT_EXIT_MIN``). Workers the web
-        cockpit starts keep waiting for the answer in the UI. On exit the run
-        records ``blocked: needs operator``; the question and the parked work
-        stay on disk, and ``argus --answer`` restarts the worker. This is about
-        not hanging; it never caps work that is still running.
+        Applies only to a foreground CLI/harness bounded run
+        (``operator_wait_exit``; grace from
+        ``ARGUS_SKILL_BOUNDED_OPERATOR_WAIT_EXIT_MIN``) whose operator can be
+        asked. Workers the web cockpit starts keep waiting for the answer in
+        the UI, and while the operator cannot be asked the Manager answers in
+        their place, so nothing waits on them. On exit the run records
+        ``blocked: needs operator``; the question and the parked work stay on
+        disk, and ``argus --answer`` restarts the worker. This is about not
+        hanging; it never caps work that is still running.
         """
         from ..core.autonomy import (
             OPERATOR_WAIT_EXIT_FILENAME,
             bounded_operator_wait_exit_seconds,
-            operator_available,
+            operator_questions_can_be_asked,
         )
 
-        if not enabled and operator_available():
-            self._operator_wait_since = None
-            return False
         supervisor = next(iter(supervisors or ()), None)
+        state_root = getattr(supervisor, "_project_state_root", None)
+        root = (
+            state_root()
+            if callable(state_root)
+            else getattr(getattr(supervisor, "memory", None), "root", None)
+        )
         probe = getattr(supervisor, "_pending_operator_questions", None)
-        questions = probe() if callable(probe) else None
-        if questions is None:
-            # Work that ended blocked on an operator-only need with nothing
-            # else runnable is the same situation. The Planner gets one more
-            # pass to route around it before the run ends.
-            blocks_probe = getattr(supervisor, "_operator_only_blocks", None)
-            blocks = blocks_probe() if callable(blocks_probe) else None
-            if blocks:
-                self._operator_block_passes = (
-                    int(getattr(self, "_operator_block_passes", 0) or 0) + 1
-                )
-                if self._operator_block_passes >= 2:
-                    questions = blocks
-            else:
-                self._operator_block_passes = 0
+        questions = (
+            probe()
+            if enabled and callable(probe) and operator_questions_can_be_asked(root)
+            else None
+        )
         if questions is None:
             self._operator_wait_since = None
             return False
@@ -546,12 +540,6 @@ class LifeWorkerRunMixin:
         log.warning("daemon: bounded run %s; exiting (answer to continue)", text)
         emit = getattr(supervisor, "_emit", None)
         status = getattr(supervisor, "_emit_status", None)
-        state_root = getattr(supervisor, "_project_state_root", None)
-        root = (
-            state_root()
-            if callable(state_root)
-            else getattr(getattr(supervisor, "memory", None), "root", None)
-        )
         try:
             if root is not None:
                 import json as _json
@@ -744,7 +732,7 @@ class LifeWorkerRunMixin:
 
     def _deployment_handoff_gate(self) -> str:
         from ..core.runtime_identity import source_root
-        from .handoff import _consume_deployment_handoff
+        from .handoff import _consume_deployment_handoff, _record_handoff_alert
         from .life_worker import _spawn_handoff_candidate
 
         candidate = _consume_deployment_handoff(Path(self.config.life_dir))
@@ -757,15 +745,21 @@ class LifeWorkerRunMixin:
             rollback_source_root=source_root(),
         )
         if not successor:
-            log.error("deployed runtime did not reach handoff standby")
+            _record_handoff_alert(
+                self.config,
+                f"The adopted framework deployment ({candidate}) was dropped: its "
+                "runtime did not reach handoff standby, so the daemon keeps "
+                "running the current runtime. The new runtime's boot log says why.",
+                reason="daemon_handoff_standby_failed",
+            )
             return ""
         # Shutdown checks this pid is still waiting before releasing the lock.
         self._handoff_successor_pid = successor if type(successor) is int else 0
         # Drain for real. Helper missions run on ``_mission_stop`` and the
         # lead's harness waits watch only the process-wide stop flag; with just
-        # ``_stop`` set they kept this process (and the daemon lock) busy long
-        # after the successor's lock wait had run out. Interrupted missions
-        # settle as ``paused_daemon_shutdown``, which the successor resumes.
+        # ``_stop`` set they kept this process (and the daemon lock) busy for
+        # as long as those missions ran. Interrupted missions settle as
+        # ``paused_daemon_shutdown``, which the successor resumes.
         # Not ``request_process_stop``: a handoff is not an operator clock-out.
         process_stop.request_stop()
         self._mission_stop.set()
@@ -775,10 +769,12 @@ class LifeWorkerRunMixin:
     def _replace_lost_handoff_successor(self) -> None:
         """Never leave the project without a daemon after a handoff.
 
-        A successor that exited before taking the lock (it crashed, or its
-        bounded wait ran out behind a slow drain) would otherwise leave nobody
-        once this process exits. Restart this runtime in its place; the
-        deployment it carried is dropped, as when it never reached standby.
+        The successor waits for the lock for as long as this process lives, so
+        it is gone here only if it crashed or was killed; it would otherwise
+        leave nobody once this process exits. Restart this runtime in its
+        place; the deployment it carried is dropped, and the operator is told.
+        A replacement that cannot reach standby either runs this same code, so
+        it is not retried blindly: the operator is told no daemon is left.
         """
         successor = int(getattr(self, "_handoff_successor_pid", 0) or 0)
         if successor <= 0 or self._operator_stop_requested:
@@ -786,20 +782,31 @@ class LifeWorkerRunMixin:
         if is_pid_running(successor):
             return
         from ..core.runtime_identity import source_root
+        from .handoff import _record_handoff_alert
         from .life_worker import _spawn_handoff_candidate
 
-        log.error(
-            "daemon handoff: successor pid=%s exited before taking over; "
-            "restarting the current runtime instead",
-            successor,
-        )
         self._handoff_successor_pid = 0
-        if not _spawn_handoff_candidate(
+        dropped = (
+            f"The adopted framework deployment was dropped: its runtime (pid "
+            f"{successor}) exited before taking over. "
+        )
+        if _spawn_handoff_candidate(
             self.config,
             reason="handoff successor exited before takeover; keep current runtime",
             candidate_source_root=source_root(),
         ):
-            log.error("daemon handoff: replacement runtime did not reach standby")
+            _record_handoff_alert(
+                self.config,
+                dropped + "The current runtime is taking over in its place.",
+                reason="daemon_handoff_successor_lost",
+            )
+            return
+        _record_handoff_alert(
+            self.config,
+            dropped + "The current runtime did not restart either: no daemon is "
+            "running for this project. Start it again with `argus --daemon`.",
+            reason="daemon_handoff_replacement_failed",
+        )
 
     def _deployment_handoff_after_mission(self, _outcome: object) -> str:
         return self._deployment_handoff_gate()

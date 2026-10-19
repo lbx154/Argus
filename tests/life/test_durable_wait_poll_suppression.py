@@ -667,8 +667,8 @@ def test_repersisted_operator_event_wait_keeps_idle_turn_throttle(
     wait_path = next(life.glob("planner-waiting-contract-*.json"))
     wait_state = json.loads(wait_path.read_text(encoding="utf-8"))
     assert wait_state["idle_capacity_turn_used"] is True
-    assert wait_state["idle_capacity_input_signature"]
     assert "idle_capacity_backlog_revision" in wait_state
+    assert supervisor._planner_last_turn_signature
 
     assert supervisor._plan_next_work() == PLAN_AWAITING
     assert calls == 2
@@ -685,6 +685,12 @@ def test_repersisted_operator_event_wait_keeps_idle_turn_throttle(
     now = time.time()
     monkeypatch.setattr(time, "time", lambda: now + 7 * 86400)
     assert supervisor._plan_next_work() == PLAN_AWAITING
+    assert calls == 2
+
+    # A restart reads what the Planner last saw back from disk, so a daemon
+    # that keeps restarting does not buy a call on unchanged inputs.
+    restarted = _supervisor(project, life)
+    assert restarted._plan_next_work() == PLAN_AWAITING
     assert calls == 2
 
     monkeypatch.setattr(
@@ -965,9 +971,11 @@ def test_team_wait_id_is_a_host_observed_event_source(tmp_path: Path) -> None:
     team_id = "research-idea-pipeline-v8-g1"
     root = project / ".argus" / "teams" / team_id
     task_board.form(root, [{"task_id": f"{team_id}-route-01", "title": "r", "objective": "o", "acceptance_check": "c"}])
-    task_board._mutate(root, f"{team_id}-route-01", state="running", owner="w1", claim_ts=1.0, heartbeat_ts=2.0)
+    # A running task's own heartbeat is what shows its teammate is alive.
+    now = time.time()
+    task_board._mutate(root, f"{team_id}-route-01", state="running", owner="w1", claim_ts=now, heartbeat_ts=now)
     pool.update(root, width=1, state="running")
-    registry.write_marker(project, team_id=team_id, team_root=root, cwd=project, now=1.0, owner="runtime")
+    registry.write_marker(project, team_id=team_id, team_root=root, cwd=project, now=now, owner="runtime")
 
     contract = WaitingContract(
         blocker_fingerprint=team_id,
@@ -1099,9 +1107,7 @@ def test_open_operator_question_with_unchanged_inputs_never_regrants_on_age(
     assert calls == 1
     assert supervisor._plan_next_work() == PLAN_AWAITING
     assert calls == 2
-    wait_path = next(life.glob("planner-waiting-contract-*.json"))
-    wait_state = json.loads(wait_path.read_text(encoding="utf-8"))
-    assert wait_state["idle_capacity_input_signature"]
+    assert supervisor._planner_last_turn_signature
 
     now = time.time()
     for days in (1, 2, 3):

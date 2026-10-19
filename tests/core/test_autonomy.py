@@ -4,7 +4,6 @@ import pytest
 
 from argus.core.autonomy import (
     assess_operator_intervention,
-    autonomous_operator_resolution,
     bounded_operator_wait_exit_seconds,
     normalize_autonomy_mode,
     normalize_operator_need,
@@ -141,14 +140,6 @@ def test_operator_need_normalization(value, expected) -> None:
     assert normalize_operator_need(value) == expected
 
 
-def test_autonomous_resolution_blocks_only_on_operator_only_actions() -> None:
-    assert autonomous_operator_resolution("credentials") == "blocked"
-    assert autonomous_operator_resolution("spending") == "blocked"
-    assert autonomous_operator_resolution("irreversible_or_external") == "blocked"
-    assert autonomous_operator_resolution("scope_or_authority") == "assume"
-    assert autonomous_operator_resolution("") == "assume"
-
-
 @pytest.mark.parametrize("value", ["false", "0", "off", "no"])
 def test_operator_availability_knob(value: str) -> None:
     assert operator_available(env={"ARGUS_SKILL_OPERATOR_AVAILABLE": value}) is False
@@ -160,9 +151,6 @@ def test_operator_is_available_by_default() -> None:
 
 
 def test_bounded_operator_wait_grace() -> None:
-    assert bounded_operator_wait_exit_seconds(
-        env={"ARGUS_SKILL_OPERATOR_AVAILABLE": "false"}
-    ) == 0.0
     assert bounded_operator_wait_exit_seconds(
         env={
             "ARGUS_SKILL_OPERATOR_AVAILABLE": "true",

@@ -1,9 +1,9 @@
 """Liveness regressions for Manager/Operator handoffs.
 
 Each test pins one confirmed defect: a question may park only its own task,
-never the operator's control channel; a host "drop" ends one task; a decision
-nobody can make does not park forever; and an answer is applied only to the
-question it was written for.
+never the operator's control channel; a host "drop" ends one task; while the
+operator cannot be asked the Manager decides in their place, so nothing parks
+forever; and an answer is applied only to the question it was written for.
 """
 from __future__ import annotations
 
@@ -18,10 +18,11 @@ from typing import Any
 
 import pytest
 
-from argus.core.autonomy import OPERATOR_WAIT_EXIT_FILENAME, read_operator_blocks
+from argus.core.autonomy import OPERATOR_WAIT_EXIT_FILENAME, read_autonomous_assumptions
 from argus.core.operator_decision import build_operator_decision
 from argus.daemon.state import read_continuous_state, write_continuous_config
 from argus.life.memory import Backlog, BacklogItem, LifeMemory
+from argus.life.supervisor import LifeSupervisor, LifeSupervisorConfig
 from argus.manager import config_intent, front_door
 from argus.manager.directive import set_active_manager_directive
 from argus.webapi import manager_bridge, manager_pending_question, manager_state
@@ -258,32 +259,99 @@ def test_agent_option_named_drop_keeps_its_ordinary_meaning(tmp_path: Path) -> N
     assert "Remove the 3 outlier rows." in continuation.objective
 
 
-def test_drop_on_provider_card_rearms_a_disabled_campaign(tmp_path: Path) -> None:
+@pytest.mark.parametrize(
+    "done_reason",
+    [
+        "operator pause",
+        "planner declared project done",
+        "operator chose to stop the campaign",
+    ],
+)
+def test_drop_leaves_a_stopped_campaign_stopped(
+    tmp_path: Path, done_reason: str,
+) -> None:
     sid = "s-liveness"
     life = _make_project(tmp_path, sid)
-    write_continuous_config(life, enabled=False, objective="keep optimizing")
+    write_continuous_config(
+        life, enabled=False, objective="keep optimizing", done_reason=done_reason,
+    )
     item = _provider_card_item(life)
 
     result = manager_pending_question.manager_resolve_operator_decision(
         sid, item.operator_decision["id"], "drop", global_root=tmp_path,
     )
 
-    assert result["dropped"] is True and "projection_error" not in result
-    # Dropping one task is not stopping the campaign.
+    assert result["dropped"] is True
+    # Dropping one task is not a resume: the resolve route starts no worker.
+    assert result["resume_requested"] is False and "continuous" not in result
+    assert "stays stopped" in result["reply"]
+    campaign = read_continuous_state(life)
+    assert campaign.enabled is False
+    assert campaign.done_reason == done_reason
+    assert campaign.objective == "keep optimizing"
+
+
+def test_drop_after_a_wait_exit_continues_the_armed_campaign(tmp_path: Path) -> None:
+    sid = "s-liveness"
+    life = _make_project(tmp_path, sid)
+    # A worker that ended waiting for the answer leaves the campaign armed.
+    write_continuous_config(life, enabled=True, objective="keep optimizing")
+    (life / OPERATOR_WAIT_EXIT_FILENAME).write_text("{}", encoding="utf-8")
+    item = _provider_card_item(life)
+
+    result = manager_pending_question.manager_resolve_operator_decision(
+        sid, item.operator_decision["id"], "drop", global_root=tmp_path,
+    )
+
+    assert result["dropped"] is True and result["resume_requested"] is True
+    assert "continues" in result["reply"]
     campaign = read_continuous_state(life)
     assert campaign.enabled is True
     assert campaign.objective == "keep optimizing"
 
 
-def test_cli_drop_restarts_a_worker_that_ended_on_the_question(
-    tmp_path: Path, monkeypatch,
+@pytest.mark.parametrize("explicit_resume", [False, True])
+def test_wait_marker_does_not_rearm_a_campaign_paused_after_the_exit(
+    tmp_path: Path, monkeypatch, explicit_resume: bool,
 ) -> None:
-    from argus.apps.cli import _core
+    from argus.webapi import daemon_lifecycle
 
     sid = "s-liveness"
     life = _make_project(tmp_path, sid)
-    item = _provider_card_item(life)
     (life / OPERATOR_WAIT_EXIT_FILENAME).write_text("{}", encoding="utf-8")
+    write_continuous_config(
+        life, enabled=False, objective="keep optimizing", done_reason="operator pause",
+    )
+    config = SimpleNamespace(
+        continuous_open_ended=True, continuous_objective="", resume_continuous=False,
+    )
+    monkeypatch.setattr(daemon_lifecycle, "project_life_dir", lambda _sid, **_k: life)
+    monkeypatch.setattr(
+        daemon_lifecycle.daemon_worker,
+        "read_daemon_status",
+        lambda _d: SimpleNamespace(alive=False),
+    )
+    monkeypatch.setattr(daemon_lifecycle, "_worker_config_from_env", lambda _d, _r: config)
+
+    def stop_here(*_a, **_k):
+        raise RuntimeError("stop")
+
+    monkeypatch.setattr(daemon_lifecycle, "_max_active_daemons", stop_here)
+    with pytest.raises(RuntimeError):
+        daemon_lifecycle.start_project_daemon(
+            sid, global_root=tmp_path, resume_continuous=explicit_resume,
+        )
+
+    # Only the operator's own Resume re-arms a pause; the marker alone does not.
+    assert read_continuous_state(life).enabled is explicit_resume
+    assert config.resume_continuous is explicit_resume
+
+
+def _cli_answer(
+    tmp_path: Path, monkeypatch, life: Path, sid: str, answer: str = "drop",
+) -> tuple[int, list[str]]:
+    from argus.apps.cli import _core
+
     started: list[str] = []
     monkeypatch.setattr(
         "argus.webapi.daemon_lifecycle.start_project_daemon",
@@ -293,14 +361,169 @@ def test_cli_drop_restarts_a_worker_that_ended_on_the_question(
         project=SimpleNamespace(root=life, fingerprint=sid), global_root=tmp_path,
     )
     monkeypatch.setattr(_core, "_resolve_project_bundle", lambda _args: bundle)
+    code = _core._cmd_answer(argparse.Namespace(answer=answer, answer_item=""))
+    return code, started
 
-    code = _core._cmd_answer(argparse.Namespace(answer="drop", answer_item=""))
+
+def test_cli_drop_restarts_a_worker_that_ended_on_the_question(
+    tmp_path: Path, monkeypatch,
+) -> None:
+    sid = "s-liveness"
+    life = _make_project(tmp_path, sid)
+    item = _provider_card_item(life)
+    (life / OPERATOR_WAIT_EXIT_FILENAME).write_text("{}", encoding="utf-8")
+
+    code, started = _cli_answer(tmp_path, monkeypatch, life, sid)
 
     assert code == 0
     assert started == [sid]
     assert not (life / OPERATOR_WAIT_EXIT_FILENAME).exists()
     rows = LifeMemory.open(life).backlog.history()
     assert [(row.id, row.status) for row in rows] == [(item.id, "aborted")]
+
+
+def test_cli_drop_after_a_pause_starts_nothing(tmp_path: Path, monkeypatch) -> None:
+    sid = "s-liveness"
+    life = _make_project(tmp_path, sid)
+    item = _provider_card_item(life)
+    # The worker ended on the question; the operator paused afterwards.
+    (life / OPERATOR_WAIT_EXIT_FILENAME).write_text("{}", encoding="utf-8")
+    write_continuous_config(
+        life, enabled=False, objective="keep optimizing", done_reason="operator pause",
+    )
+
+    code, started = _cli_answer(tmp_path, monkeypatch, life, sid)
+
+    assert code == 0
+    assert started == []
+    campaign = read_continuous_state(life)
+    assert campaign.enabled is False and campaign.done_reason == "operator pause"
+    rows = LifeMemory.open(life).backlog.history()
+    assert [(row.id, row.status) for row in rows] == [(item.id, "aborted")]
+
+
+# An ordinary answer follows the same rule: answering one card answers that
+# question. It reaches its task, but a recorded stop stands until Resume.
+
+
+def _campaign_left_by(life: Path, how: str) -> None:
+    (life / OPERATOR_WAIT_EXIT_FILENAME).write_text("{}", encoding="utf-8")
+    if how == "pause":
+        # The worker ended on the question; the operator paused afterwards.
+        write_continuous_config(
+            life, enabled=False, objective="keep optimizing", done_reason="operator pause",
+        )
+    else:
+        # The worker ended waiting for this answer; the campaign stayed armed.
+        write_continuous_config(life, enabled=True, objective="keep optimizing")
+
+
+def _continuation(life: Path, answered: BacklogItem) -> BacklogItem:
+    return next(
+        row for row in LifeMemory.open(life).backlog.history() if row.id != answered.id
+    )
+
+
+@pytest.mark.parametrize("answer_via", ["card", "text"])
+def test_web_answer_after_a_pause_reaches_its_task_and_restarts_nothing(
+    tmp_path: Path, answer_via: str,
+) -> None:
+    sid = "s-liveness"
+    life = _make_project(tmp_path, sid)
+    _campaign_left_by(life, "pause")
+    item = _park(life, "route", "Which route?")
+
+    def answer() -> dict[str, Any]:
+        if answer_via == "card":
+            return manager_pending_question.manager_resolve_operator_decision(
+                sid, item.operator_decision["id"], "custom", "Take the short route.",
+                global_root=tmp_path,
+            )
+        return manager_pending_question.manager_answer_pending_question(
+            sid, item.id, "Take the short route.", global_root=tmp_path,
+        )
+
+    result = answer()
+
+    assert result["resolved"] is True
+    # The routes start a worker only on resume_requested.
+    assert result["resume_requested"] is False and "continuous" not in result
+    assert "stays stopped" in result["reply"]
+    assert "Take the short route." in _continuation(life, item).objective
+    campaign = read_continuous_state(life)
+    assert campaign.enabled is False and campaign.done_reason == "operator pause"
+    if answer_via == "card":
+        replay = answer()
+        assert replay["application_status"] == "already_applied"
+        assert replay["resume_requested"] is False
+        assert read_continuous_state(life).enabled is False
+
+
+def test_web_answer_after_a_wait_exit_continues_the_campaign(tmp_path: Path) -> None:
+    sid = "s-liveness"
+    life = _make_project(tmp_path, sid)
+    _campaign_left_by(life, "wait_exit")
+    item = _park(life, "route", "Which route?")
+
+    result = manager_pending_question.manager_answer_pending_question(
+        sid, item.id, "Take the short route.", global_root=tmp_path,
+    )
+
+    assert result["resolved"] is True and result["resume_requested"] is True
+    assert "stays stopped" not in result["reply"]
+    assert read_continuous_state(life).enabled is True
+
+
+def test_chat_answer_after_a_pause_reaches_its_task_and_restarts_nothing(
+    tmp_path: Path, monkeypatch,
+) -> None:
+    sid = "s-liveness"
+    life = _make_project(tmp_path, sid)
+    _campaign_left_by(life, "pause")
+    item = _park(life, "route", "Which route?")
+    monkeypatch.setattr(
+        front_door,
+        "manager_triage",
+        lambda *_args, **_kwargs: json.dumps({
+            "is_answer": True, "resolved": True,
+            "decision": "Take the short route.", "reply": "Delivered.",
+        }),
+    )
+
+    result = manager_bridge.manager_message(
+        sid, "take the short one", global_root=tmp_path,
+    )
+
+    assert result["kind"] == "pending_question" and result["resolved"] is True
+    assert result["resume_requested"] is False
+    assert "stays stopped" in result["reply"]
+    assert "Take the short route." in _continuation(life, item).objective
+    assert read_continuous_state(life).enabled is False
+
+
+@pytest.mark.parametrize("how", ["pause", "wait_exit"])
+def test_cli_answer_restarts_only_a_campaign_nothing_stopped(
+    tmp_path: Path, monkeypatch, capsys, how: str,
+) -> None:
+    sid = "s-liveness"
+    life = _make_project(tmp_path, sid)
+    _campaign_left_by(life, how)
+    item = _park(life, "route", "Which route?")
+
+    code, started = _cli_answer(
+        tmp_path, monkeypatch, life, sid, answer="Take the short route.",
+    )
+
+    assert code == 0
+    assert "Take the short route." in _continuation(life, item).objective
+    if how == "pause":
+        assert started == []
+        assert "still stopped" in capsys.readouterr().out
+        campaign = read_continuous_state(life)
+        assert campaign.enabled is False and campaign.done_reason == "operator pause"
+    else:
+        assert started == [sid]
+        assert not (life / OPERATOR_WAIT_EXIT_FILENAME).exists()
 
 
 def test_drop_does_not_overwrite_an_answer_that_resolved_the_card_first(
@@ -338,7 +561,7 @@ def test_drop_does_not_overwrite_an_answer_that_resolved_the_card_first(
 
 
 # ---------------------------------------------------------------------------
-# 3. Host questions nobody can answer end the item instead of parking it.
+# 3. While the operator cannot be asked, the Manager decides in their place.
 # ---------------------------------------------------------------------------
 
 
@@ -371,15 +594,16 @@ def _nobody_to_ask(monkeypatch, state_root: Path, mode: str) -> None:
     )
 
 
-@pytest.mark.parametrize("mode", ["no_operator", "forbid"])
-def test_provider_configuration_failure_without_operator_ends_the_item(
+@pytest.mark.parametrize("mode", ["no_operator", "forbid", "operator"])
+def test_provider_configuration_failure_parks_for_whoever_decides(
     tmp_path: Path, monkeypatch, mode: str,
 ) -> None:
     from argus.life.supervisor._mission_execution_runtime import (
         MissionExecutionRuntimeMixin,
     )
 
-    _nobody_to_ask(monkeypatch, tmp_path, mode)
+    if mode != "operator":
+        _nobody_to_ask(monkeypatch, tmp_path, mode)
 
     class _Harness(MissionExecutionRuntimeMixin):
         def __init__(self, memory: LifeMemory) -> None:
@@ -406,17 +630,144 @@ def test_provider_configuration_failure_without_operator_ends_the_item(
     ]
 
     assert results[:2] == [None, None]
-    assert results[2]["status"] == "failed"
-    ended = fresh()
-    assert ended.status == "failed"
-    assert ended.pending_question == "" and ended.operator_decision == {}
-    assert "No operator is available" in ended.last_error
-    blocks = read_operator_blocks(tmp_path)
-    assert [row["item_id"] for row in blocks] == [item.id]
-    assert not [
-        event for event in harness.events
-        if event["type"] == "life.operator_question.pending"
+    assert results[2]["status"] == "paused_operator"
+    card = fresh().operator_decision
+    assert card["decision_kind"] == "provider_configuration"
+    assert card["status"] == "pending"
+
+
+class _ProxyManager:
+    """A Manager that answers every card it is asked to decide with ``fields``."""
+
+    def __init__(self, **fields: str) -> None:
+        self.fields = fields
+        self.prompts: list[str] = []
+
+    def run_turn(self, prompt: str, **_kwargs: Any) -> str:
+        self.prompts.append(prompt)
+        return "\n".join(f"{key}: {value}" for key, value in self.fields.items())
+
+
+def _supervise(life: Path, manager: _ProxyManager) -> LifeSupervisor:
+    from argus.apps._runtime_construction import _pending_question_resolver_for
+
+    supervisor = LifeSupervisor(
+        memory=LifeMemory.open(life),
+        runner=object(),
+        sink=_Sink(),
+        config=LifeSupervisorConfig(
+            pending_question_resolver=_pending_question_resolver_for(life),
+        ),
+    )
+    supervisor._bound_manager = lambda: manager
+    return supervisor
+
+
+@pytest.mark.parametrize("mode", ["no_operator", "forbid"])
+def test_manager_drops_a_provider_card_in_the_operators_place(
+    tmp_path: Path, monkeypatch, mode: str,
+) -> None:
+    from argus.core.transcript import read_turns
+
+    life = _make_project(tmp_path)
+    _nobody_to_ask(monkeypatch, life, mode)
+    item = _provider_card_item(life)
+    manager = _ProxyManager(
+        DECISION_ID=item.operator_decision["id"],
+        OPTION="drop",
+        REASON="Nobody can fix the model name in this run.",
+        EVIDENCE_REFS="events.jsonl",
+    )
+    supervisor = _supervise(life, manager)
+
+    assert supervisor._decide_parked_questions() is True
+
+    dropped = next(row for row in LifeMemory.open(life).backlog.history() if row.id == item.id)
+    assert dropped.status == "aborted"
+    assert dropped.operator_decision["selected_option"] == "drop"
+    assert dropped.operator_decision["decided_by"] == "manager"
+    # The choice is the Manager's, never written as the operator's.
+    assert [turn["role"] for turn in read_turns(life)] == ["argus"]
+    answered = [
+        json.loads(line)
+        for line in (life / "events.jsonl").read_text(encoding="utf-8").splitlines()
+        if '"life.operator_question.answered"' in line
     ]
+    assert answered[-1]["decided_by"] == "manager" and answered[-1]["dropped"] is True
+    row = read_autonomous_assumptions(life)[-1]
+    assert row["source"] == "manager_decision"
+    assert row["evidence_refs"] == ["events.jsonl"]
+    # Nothing is parked any more, so the Manager is not asked again.
+    assert supervisor._decide_parked_questions() is False
+    assert len(manager.prompts) == 1
+
+
+def test_manager_answer_continues_an_agent_card_in_its_own_name(
+    tmp_path: Path, monkeypatch,
+) -> None:
+    from argus.core.operator_context import OperatorContextStore
+
+    life = _make_project(tmp_path)
+    _nobody_to_ask(monkeypatch, life, "forbid")
+    item = _park(life, "route", "Which route?")
+    revision = OperatorContextStore(life).revision
+    supervisor = _supervise(life, _ProxyManager(
+        DECISION_ID=item.operator_decision["id"],
+        OPTION="custom",
+        NOTE="Take the shorter route.",
+        REASON="It meets the deadline.",
+    ))
+
+    assert supervisor._decide_parked_questions() is True
+
+    rows = LifeMemory.open(life).backlog.history()
+    continuation = next(row for row in rows if row.id != item.id)
+    assert (
+        "Manager decision in the operator's place:\nTake the shorter route."
+        in continuation.objective
+    )
+    # Nothing was recorded as the operator's own input.
+    assert OperatorContextStore(life).revision == revision
+
+
+def test_a_choice_outside_the_card_is_asked_again_only_after_a_backoff(
+    tmp_path: Path, monkeypatch,
+) -> None:
+    life = _make_project(tmp_path)
+    _nobody_to_ask(monkeypatch, life, "no_operator")
+    item = _provider_card_item(life)
+    manager = _ProxyManager(
+        DECISION_ID=item.operator_decision["id"], OPTION="custom", NOTE="x", REASON="y",
+    )
+    supervisor = _supervise(life, manager)
+
+    assert supervisor._decide_parked_questions() is False
+    assert supervisor._decide_parked_questions() is False
+    assert len(manager.prompts) == 1
+    parked = next(row for row in LifeMemory.open(life).backlog.history() if row.id == item.id)
+    assert parked.status == "paused_operator"
+
+
+def test_the_manager_cannot_answer_a_card_the_operator_can_be_asked(
+    tmp_path: Path, monkeypatch,
+) -> None:
+    monkeypatch.setenv("ARGUS_SKILL_OPERATOR_AVAILABLE", "true")
+    life = _make_project(tmp_path)
+    item = _provider_card_item(life)
+    manager = _ProxyManager(
+        DECISION_ID=item.operator_decision["id"], OPTION="drop", REASON="r",
+    )
+    supervisor = _supervise(life, manager)
+
+    assert supervisor._decide_parked_questions() is False
+    assert manager.prompts == []
+    result = manager_pending_question.manager_resolve_operator_decision(
+        "s-liveness", item.operator_decision["id"], "drop",
+        global_root=tmp_path, decided_by="manager",
+    )
+    assert "theirs" in result["error"]
+    parked = next(row for row in LifeMemory.open(life).backlog.history() if row.id == item.id)
+    assert parked.status == "paused_operator"
 
 
 @dataclass
@@ -459,11 +810,9 @@ class _Sink:
 
 
 @pytest.mark.parametrize("mode", ["no_operator", "forbid"])
-def test_reviewed_framework_change_without_operator_is_not_parked(
+def test_reviewed_framework_change_parks_for_the_manager(
     tmp_path: Path, monkeypatch, mode: str,
 ) -> None:
-    from argus.life.supervisor import LifeSupervisor, LifeSupervisorConfig
-
     source = tmp_path / "framework"
     origin = tmp_path / "origin.git"
     subprocess.run(["git", "init", "--bare", "-q", str(origin)], check=True)
@@ -505,15 +854,11 @@ def test_reviewed_framework_change_without_operator_is_not_parked(
 
     result = supervisor.tick()
 
-    assert result is not None and result["status"] == "failed"
+    assert result is not None and result["status"] == "paused_operator"
     settled = next(row for row in memory.backlog.history() if row.id == item.id)
-    assert settled.status == "failed"
-    assert settled.pending_question == "" and settled.operator_decision == {}
-    assert "no operator is available" in settled.last_error
-    assert "Reviewed commit:" in settled.last_error
-    blocks = read_operator_blocks(memory.root)
-    assert [row["operator_need"] for row in blocks] == ["irreversible_or_external"]
-    # Nothing was published: origin still holds only the baseline commit.
+    assert settled.operator_decision["decision_kind"] == "framework_deployment"
+    assert settled.operator_decision["status"] == "pending"
+    # Nothing is published until someone decides: origin holds only the baseline.
     published = subprocess.run(
         ["git", "rev-list", "--count", "main"], cwd=origin,
         check=True, capture_output=True, text=True,

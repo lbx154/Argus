@@ -461,11 +461,27 @@ class PlanningCycleVerdictMixin:
             # then armed on the "wait". Dropping the wait first lets the
             # live-job normalization below fold status-only probes back into a
             # real wait while keeping every task that is actual work.
+            # Two facts a wait can carry are not about this cycle lacking
+            # work: that only the operator can end part of it, and that the
+            # Planner asks the Manager to reconcile the stage. Those stay
+            # beside the tasks; the waiting phase records them. While the
+            # operator cannot be asked the Manager decides the next bare wait
+            # for them instead (_settle_operator_wait_without_operator), so it
+            # is not kept.
+            from ...core.autonomy import operator_questions_can_be_asked
+
+            contract = verdict.waiting_contract
+            if bool(getattr(contract, "stage_reconciliation_required", False)) or (
+                bool(getattr(contract, "operator_action_required", False))
+                and operator_questions_can_be_asked(self._project_state_root())
+            ):
+                state.carried_wait = verdict
             self._emit({
                 "type": "life.planner.normalized",
                 "cycle": self._planning_cycles,
                 "diagnostic": (
-                    "waiting declared with tasks; tasks kept and the wait dropped"
+                    "waiting declared with tasks; tasks kept and the wait "
+                    + ("kept beside them" if state.carried_wait is not None else "dropped")
                 ),
             })
             verdict = replace(
@@ -477,6 +493,11 @@ class PlanningCycleVerdictMixin:
 
         if revision_request is None:
             verdict = self._normalize_live_subagent_wait(verdict)
+            if state.carried_wait is not None and verdict.waiting:
+                # Every task was a status probe of live work, so the wait the
+                # Planner declared is the real one, tasks dropped as before.
+                verdict = replace(state.carried_wait, new_tasks=[])
+                state.carried_wait = None
         verdict = self._defer_project_done_for_operator_external_blocker(verdict)
 
         overlap_task = self._independent_overlap_task(verdict)

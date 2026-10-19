@@ -320,7 +320,11 @@ def register_manager_routes(app, ctx: ServerContext) -> None:
             result.get("kind") == "task"
             and (result.get("dispatch_state") != "already_queued"
                  or str((result.get("item") or {}).get("status") or "") == "pending")
-        ) or (result.get("kind") == "pending_question" and bool(result.get("resolved")))
+        ) or (
+            result.get("kind") == "pending_question"
+            and bool(result.get("resolved"))
+            and result.get("resume_requested", True)
+        )
         daemon_view = _visible_daemon(sid)
         result["daemon_alive"] = daemon_view["alive"]
         result["daemon_control_available"] = daemon_view["control_available"]

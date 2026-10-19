@@ -89,12 +89,12 @@ def _engineer_decision_message(payload: dict) -> str:
     result = str(
         payload.get("result", payload.get("summary", "")) or ""
     ).strip()
-    # The owner the round loop acts on (``round_self_review._round_handoff``
-    # resolves the same payload), so the rendered footer the Reviewer and the
-    # journal read never names a different next owner than control used.
+    # The status and owner the round loop acts on (``round_self_review`` reads
+    # the same payload), so the rendered footer the Reviewer and the journal
+    # read never states a different verdict or next owner than control used.
     lines = [
         result,
-        f"MILESTONE_STATUS={'done' if status == 'done' else 'continue'}",
+        f"MILESTONE_STATUS={status if status in {'done', 'blocked'} else 'continue'}",
         f"NEXT_OWNER={decision_engineer_handoff(payload).next_owner}",
     ]
     question = str(payload.get("operator_question", "") or "").strip()

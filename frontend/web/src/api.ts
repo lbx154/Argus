@@ -1436,7 +1436,7 @@ export const api = {
     const attachments = isAbortSignal(signalOrOptions) ? undefined : signalOrOptions?.attachments;
     const routeOverride = isAbortSignal(signalOrOptions) ? undefined : signalOrOptions?.routeOverride;
     const requestId = isAbortSignal(signalOrOptions) ? undefined : signalOrOptions?.requestId;
-    return postJson<{ kind: 'chat' | 'task' | 'pending_question' | 'pending_question_choice' | 'error' | 'cancelled'; reply: string | null; resolved?: boolean; item?: BacklogItem | null; daemon_alive?: boolean }>(
+    return postJson<{ kind: 'chat' | 'task' | 'pending_question' | 'error' | 'cancelled'; reply: string | null; resolved?: boolean; item?: BacklogItem | null; daemon_alive?: boolean }>(
       P(sid, '/message'),
       messageBody(text, attachments, routeOverride, requestId),
       signal,

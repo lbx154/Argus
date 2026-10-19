@@ -285,10 +285,11 @@ invariants, and together they are the whole state machine:
    snapshot and the event log. It is counted on the mission's lineage, so
    resuming, replanning, or rewording does not reset it.
 4. **Authority never vanishes.** Every decision type has an owner. When the
-   owner cannot be asked, a reversible decision falls to the next permitted rung
+   owner cannot be asked, the decision falls to the next permitted rung
    instead of disappearing. Only irreversible decisions may wait on the operator
-   without a deadline. A reversible question carries the asker's default
-   ("without an answer by T, continue with X").
+   without a deadline, and only while the operator can be asked. A reversible
+   question carries the asker's default ("without an answer by T, continue
+   with X").
 
 | Decision | Owner | When the owner cannot be asked |
 | --- | --- | --- |
@@ -297,7 +298,13 @@ invariants, and together they are the whole state machine:
 | Change the stage | Manager | — |
 | Accept a residual risk | operator | Manager |
 | Stop a mission | Manager or operator | — |
-| Credentials, payment, publication, destructive actions | operator | the item stays parked; nothing else waits |
+| Payment, publication, destructive actions, releases | operator | Manager |
+| Credentials | operator | Manager decides how to proceed without them |
+
+"Cannot be asked" means the operator said not to be asked, or the run has no
+operator (principle 8). The operator's whole authority then passes to the
+Manager. Each decision the Manager takes in the operator's place is recorded as
+its own, with the evidence it cited, and the delivery report lists it.
 
 **Why every item ends.** Each handoff does one of three things:
 
@@ -306,8 +313,8 @@ invariants, and together they are the whole state machine:
 - It ends the item.
 
 A wait becomes a climb when its deadline passes. Within a bounded number of
-handoffs, every item is therefore done, dropped, or held by the operator on an
-irreversible decision that blocks nothing else. Deadlock is impossible, and
+handoffs, every item is therefore done, dropped, or held by an operator who
+can be asked on an irreversible decision that blocks nothing else. Deadlock is impossible, and
 the ladder's height bounds the number of model calls made without a change.
 
 **What this replaces.**

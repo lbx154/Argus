@@ -156,6 +156,14 @@ class LifeSupervisor(
         # The facts the last spare-slot Planner call saw: the backlog's running
         # and pending sets and the Planner-visible input digest.
         self._parallel_plan_facts: tuple[Any, ...] | None = None
+        # The Planner-visible input digest at its last model call, read back
+        # from disk so a restart does not re-ask an operator hold on unchanged
+        # inputs. See _record_planner_last_turn.
+        self._planner_last_turn_signature: str = ""
+        self._load_planner_last_turn()
+        # Parked cards the Manager could not yet decide in the operator's
+        # place: attempts and when to ask again (_decide_parked_questions).
+        self._proxy_retry: dict[str, tuple[int, float]] = {}
         # Wall-clock (monotonic) of the first idle pass in the current idle
         # streak — set by `_enter_idle_backoff`, cleared by `_reset_idle_backoff`
         # — so `_maybe_idle_timeout` can auto-exit a long-idle continuous daemon.
@@ -560,7 +568,6 @@ class LifeSupervisor(
                     AUTONOMOUS_ASSUMPTION_INSTRUCTION,
                     OPERATOR_ACTION_NEEDS,
                     normalize_operator_need,
-                    operator_available,
                     record_autonomous_assumption,
                 )
                 from ...manager.plan_boundary import assess_plan_boundary
@@ -582,47 +589,22 @@ class LifeSupervisor(
                     planner_report={},
                     mode="autonomous",
                 )
-                nobody_to_ask = not operator_available()
                 need = normalize_operator_need(
                     challenge.get("operator_need")
                     or (report.get("operator_need") if isinstance(report, dict) else "")
                 )
-                # Without an operator, a need the raising role classified as an
-                # operator-only action blocks too: nobody can enable it.
-                blocked = boundary.required or (
-                    nobody_to_ask and need in OPERATOR_ACTION_NEEDS
-                )
-                action = "blocked" if blocked else "revise"
-                if blocked:
+                # The operator cannot be asked, so the Manager holds their
+                # authority. Crossing an operator-owned boundary, or an action
+                # only they could approve, stays a question that the Manager
+                # decides in their place once it is parked. Anything else the
+                # Manager settles here, on the most defensible reading.
+                if not (boundary.required or need in OPERATOR_ACTION_NEEDS):
+                    action = "revise"
                     challenge["manager_reason"] = (
-                        (
-                            "No operator is available in this run"
-                            + (
-                                f" and the work needs an operator-only action ({need})"
-                                if need in OPERATOR_ACTION_NEEDS
-                                else ""
-                            )
-                            + "; no in-scope revision can cross this "
-                            "operator-owned boundary, so the mission is blocked "
-                            "without a question."
-                        )
-                        if nobody_to_ask
-                        else "Operator questions are forbidden and do not grant "
-                        "authority; no in-scope revision can cross this "
-                        "operator-owned boundary, so the mission is blocked "
-                        "without a question."
-                    )
-                    if need in OPERATOR_ACTION_NEEDS:
-                        challenge["operator_need"] = need
-                elif nobody_to_ask:
-                    # Only a run that declared no operator settles the open
-                    # decision on an assumption; a directive that merely
-                    # forbids questions keeps dev's stricter revision.
-                    challenge["manager_reason"] = (
-                        "No operator is available in this run, so the Manager "
-                        "settles the open decision itself: the Planner revises "
-                        "within existing authority on the most defensible "
-                        "interpretation and records that assumption."
+                        "The operator cannot be asked, so the Manager settles the "
+                        "open decision itself: the Planner revises within existing "
+                        "authority on the most defensible interpretation and "
+                        "records that assumption."
                     )
                     challenge["manager_instruction"] = AUTONOMOUS_ASSUMPTION_INSTRUCTION
                     challenge["autonomous_assumption"] = True
@@ -638,32 +620,26 @@ class LifeSupervisor(
                         source="mission_challenge",
                     )
                     self._emit_status(
-                        "Decided without an operator (assumption recorded for the "
-                        f"report): {conflict[:240]}"
+                        "Decided without asking the operator (assumption recorded "
+                        f"for the report): {conflict[:240]}"
                     )
-                else:
-                    challenge["manager_reason"] = (
-                        "Operator questions are forbidden and do not grant authority; "
-                        "the Planner must revise strictly within existing "
-                        "authority without using the Reviewer alternative."
-                    )
-                challenge["authority_impact"] = "operator"
-                challenge["alternative"] = ""
-                challenge["operator_question"] = ""
-                challenge["operator_options"] = []
-                challenge.pop("pending_question", None)
-                challenge.pop("operator_decision", None)
-                outcome["operator_question"] = ""
-                outcome["operator_options"] = []
-                outcome.pop("pending_question", None)
-                outcome.pop("operator_decision", None)
-                if isinstance(report, dict):
-                    report = dict(report)
-                    report["authority_impact"] = "operator"
-                    report.pop("alternative", None)
-                    report.pop("operator_question", None)
-                    report.pop("operator_options", None)
-                    outcome["planner_report"] = report
+                    challenge["authority_impact"] = "operator"
+                    challenge["alternative"] = ""
+                    challenge["operator_question"] = ""
+                    challenge["operator_options"] = []
+                    challenge.pop("pending_question", None)
+                    challenge.pop("operator_decision", None)
+                    outcome["operator_question"] = ""
+                    outcome["operator_options"] = []
+                    outcome.pop("pending_question", None)
+                    outcome.pop("operator_decision", None)
+                    if isinstance(report, dict):
+                        report = dict(report)
+                        report["authority_impact"] = "operator"
+                        report.pop("alternative", None)
+                        report.pop("operator_question", None)
+                        report.pop("operator_options", None)
+                        outcome["planner_report"] = report
         challenge["manager_action"] = action
         outcome["plan_challenge"] = challenge
         item_id = str(outcome.get("item_id") or "")
@@ -713,24 +689,29 @@ class LifeSupervisor(
                     # the run still stopped for it. Park it on a holder row the
                     # operator answer path resolves.
                     source = next(
-                        row
-                        for row in reversed(self.memory.backlog.history())
-                        if row.id == item_id
+                        (
+                            row
+                            for row in reversed(self.memory.backlog.history())
+                            if row.id == item_id
+                        ),
+                        None,
                     )
-                    holder_id = BacklogItem.new_id()
-                    card = build_operator_decision(
-                        item_id=holder_id,
-                        title=source.title,
-                        reason=str(challenge.get("manager_reason") or ""),
-                        question=question,
-                        project_id=project_id,
-                    )
-                    item = self.memory.backlog.park_terminal_operator_question(
-                        item_id,
-                        holder_id=holder_id,
-                        question=question,
-                        operator_decision=card,
-                    )
+                    item = None
+                    if source is not None:
+                        holder_id = BacklogItem.new_id()
+                        card = build_operator_decision(
+                            item_id=holder_id,
+                            title=source.title,
+                            reason=str(challenge.get("manager_reason") or ""),
+                            question=question,
+                            project_id=project_id,
+                        )
+                        item = self.memory.backlog.park_terminal_operator_question(
+                            item_id,
+                            holder_id=holder_id,
+                            question=question,
+                            operator_decision=card,
+                        )
                     if item is None:
                         raise LookupError(
                             f"no ended backlog item {item_id} to hold the question"
@@ -744,26 +725,6 @@ class LifeSupervisor(
                 })
             except Exception:  # noqa: BLE001 - stop path still fails closed
                 log.exception("failed to persist operator-owned plan challenge")
-        elif action == "blocked" and item_id:
-            reason = str(challenge.get("manager_reason") or "").strip()
-            outcome["status"] = "blocked"
-            outcome["review_status"] = "blocked"
-            from ...core.autonomy import record_operator_block
-
-            record_operator_block(
-                self._project_state_root(),
-                item_id=item_id,
-                reason=reason,
-                operator_need=str(challenge.get("operator_need") or ""),
-            )
-            self.memory.backlog.update(
-                item_id,
-                status="failed",
-                finished_ts=now,
-                last_error=reason,
-                pending_question="",
-                operator_decision={},
-            )
         return action
 
     def run(self) -> dict[str, Any]:
@@ -847,6 +808,8 @@ class LifeSupervisor(
                 stopped_by = "supervisor_error"
                 break
             if outcome is None:
+                if self._decide_parked_questions():
+                    continue
                 active_items = self.memory.backlog.active()
                 running_items = [
                     item
@@ -887,8 +850,13 @@ class LifeSupervisor(
                         # independent work available. The paused item stays
                         # unclaimable and its dependents stay unready on their
                         # own; the Planner is told what is waiting and picks
-                        # work that does not need the answer.
-                        if should_report_pending_wait(
+                        # work that does not need the answer. While the
+                        # operator cannot be asked, the Manager answers instead.
+                        from ...core.autonomy import operator_questions_can_be_asked
+
+                        if operator_questions_can_be_asked(
+                            self._project_state_root()
+                        ) and should_report_pending_wait(
                             self.memory.root,
                             pending_questions,
                         ):

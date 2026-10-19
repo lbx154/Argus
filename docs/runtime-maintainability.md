@@ -207,7 +207,9 @@ Bounded campaigns also route a Planner wait to the Manager when its contract
 explicitly sets `stage_reconciliation_required=true`. Ordinary bounded waits
 remain unchanged. This grants a stage-authority decision, not permission to
 expand operator scope, skip required stages, certify a project, or replay work.
-Operator-gated waits still require the operator; existing Manager reconciliation
+Operator-gated waits are not stage questions: the operator decides them while
+they can be asked, and otherwise the Manager decides them in the operator's
+place outside stage reconciliation. Existing Manager reconciliation
 deduplication, retry cadence and stage validators remain authoritative.
 Bounded reconciliation cannot advance or complete without Reviewer evidence,
 including direct workflows. Native subagent reports remain host evidence, not

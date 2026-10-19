@@ -756,9 +756,9 @@ class PlanningCycleMixin(
         else:
             uncontracted = False
 
-        # Manager is the sole stage authority, but it is not the operator and
-        # cannot expand the operator's scope.  Never invoke wait reconciliation
-        # when fresh operator input is the declared (or parser-inferred) gate.
+        # A wait gated on operator input is not a stage question: the operator
+        # decides it while they can be asked, and otherwise the Manager decides
+        # it in their place (_settle_operator_wait_without_operator), not here.
         if bool(getattr(contract, "operator_action_required", False)):
             self._planner_waits_since_reconciliation = 0
             return ""
@@ -1158,17 +1158,8 @@ class PlanningCycleMixin(
                 log.exception("failed to checkpoint handled Planner input")
                 self._enter_pause_backoff()
                 return PLAN_ERROR
-        if state.supervision_wait_turn and state.planner_invoked:
-            # Fingerprint after the turn, so the Planner's own writes during it
-            # are not mistaken for new input and do not buy a second call.
-            from ._planning_cycle_intake import _UNREADABLE_WAIT_INPUT
-
-            self._supervision_wait_signature = (
-                self._planner_visible_input_signature(
-                    operator_context_revision=state.operator_context_revision,
-                )
-                or _UNREADABLE_WAIT_INPUT
-            )
+        if state.planner_invoked:
+            self._record_planner_last_turn()
         self._arm_unchanged_planner_skip(state, result)
         self._record_planner_turn_outcome(
             state,

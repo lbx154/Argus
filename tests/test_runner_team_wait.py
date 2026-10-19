@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import json
+import time
 from pathlib import Path
 
 import argus.team  # noqa: F401 — registers the team projection with the external-work scan
@@ -21,11 +22,13 @@ def _portfolio(project: Path, *states: str) -> Path:
         {"task_id": f"{TEAM}-route-{i:02d}", "title": "r", "objective": "o", "acceptance_check": "c"}
         for i in range(1, len(states) + 1)
     ])
+    # A running task's own heartbeat is what shows its teammate is alive.
+    now = time.time()
     for i, state in enumerate(states, 1):
-        extra = {"owner": f"w{i}", "claim_ts": 1.0, "heartbeat_ts": 2.0} if state == "running" else {}
+        extra = {"owner": f"w{i}", "claim_ts": now, "heartbeat_ts": now} if state == "running" else {}
         task_board._mutate(root, f"{TEAM}-route-{i:02d}", state=state, **extra)
     pool.update(root, width=1, state="running")
-    registry.write_marker(project, team_id=TEAM, team_root=root, cwd=project, now=1.0, owner="runtime")
+    registry.write_marker(project, team_id=TEAM, team_root=root, cwd=project, now=now, owner="runtime")
     return root
 
 

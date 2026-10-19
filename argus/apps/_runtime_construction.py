@@ -551,19 +551,38 @@ def _inbox_drainer_for(
 
 
 def _pending_question_resolver_for(project_root: Path):
-    """Bind daemon inbox replies to the authoritative Manager answer path."""
+    """Bind daemon answers to the authoritative answer paths.
+
+    An operator's inbox reply goes through the Manager's reading of it; a
+    choice the Manager made in the operator's place goes through the card path
+    an operator's choice takes.
+    """
     state_root = Path(project_root)
     if state_root.parent.name != "projects":
         return None
     sid = state_root.name
     global_root = state_root.parent.parent
 
-    def _resolve(_item: Any, text: str) -> dict[str, Any] | None:
+    def _resolve(_item: Any, answer: Any) -> dict[str, Any] | None:
+        from ..manager.proxy_decision import ProxyChoice
+
+        if isinstance(answer, ProxyChoice):
+            from ..webapi.manager_pending_question import manager_resolve_operator_decision
+
+            return manager_resolve_operator_decision(
+                sid,
+                answer.decision_id,
+                answer.option,
+                answer.note,
+                global_root=global_root,
+                decided_by="manager",
+                reason=answer.reason,
+            )
         from ..webapi.manager_bridge import manager_message
 
         return manager_message(
             sid,
-            text,
+            answer,
             global_root=global_root,
         )
 

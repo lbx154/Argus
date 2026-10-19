@@ -145,6 +145,17 @@ judgment receives the access that judgment needs. An obstacle such as a missing
 permission or a conflicting contract goes to the actor that can remove it,
 never back to a role that cannot.
 
+Human-owned authority is the operator's, and the operator may hand it over.
+When the operator says not to be asked, the Manager holds every authority the
+operator holds, including the human-owned kinds above; a run with no operator
+at all is the same case. Only the operator's own words set that policy, and the
+operator can withdraw it at any time. The Manager decides what the operator
+would have decided, records each such decision as its own with the evidence it
+cited, and the delivery report lists them so the operator can review or reverse
+them. A decision therefore never waits on someone who will not be asked. What
+no policy can hand over, such as credentials the Manager does not hold, stays
+out of reach; the Manager decides how the work proceeds without it.
+
 ## 9. Evolution is proven only by end-to-end outcomes
 
 Changes to Argus are evaluated like product experiments on real user tasks with

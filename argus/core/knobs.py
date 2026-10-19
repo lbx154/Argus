@@ -176,14 +176,20 @@ KNOBS: tuple[Knob, ...] = (
     Knob(
         "ARGUS_SKILL_OPERATOR_AVAILABLE",
         "true",
-        "false declares that nobody can answer questions: the Manager settles questions of meaning itself and records each assumption; operator-only needs end as blocked. Prefer --no-operator, which lasts for one run; a saved off value applies to every run until switched back on",
+        "false declares that nobody can answer questions: the Manager holds the operator's authority, settles questions of meaning itself and decides every parked operator question in their place, recording each decision for the run report. Prefer --no-operator, which lasts for one run; a saved off value applies to every run until switched back on",
         "mission",
         cockpit=True,
     ),
     Knob(
         "ARGUS_SKILL_BOUNDED_OPERATOR_WAIT_EXIT_MIN",
         "30",
-        "minutes a bounded run whose only remaining work is an unanswered operator question waits before it ends as blocked: needs operator; 0 waits indefinitely; ignored (no wait) when no operator is available",
+        "minutes a bounded run whose only remaining work is an unanswered operator question waits before it ends as blocked: needs operator; 0 waits indefinitely; ignored while the operator cannot be asked, since the Manager then answers in their place",
+        "mission",
+    ),
+    Knob(
+        "ARGUS_SKILL_RUNTIME_CANARY_COOLDOWN_MIN",
+        "30",
+        "minutes after a runtime-failure circuit opens before the first timed canary window; each window that does not close the circuit doubles the wait; 0 opens windows only when a fact changes (backend, model, operator input)",
         "mission",
     ),
     Knob("ARGUS_SKILL_MAX_ROUNDS", "0", "optional engineer-round cap per mission; disabled by default", "mission"),

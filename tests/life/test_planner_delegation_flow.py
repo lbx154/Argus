@@ -937,7 +937,7 @@ def test_forbidden_questions_request_revision_within_existing_authority(
     ],
     ids=["credentials", "spending", "irreversible"],
 )
-def test_forbidden_questions_block_out_of_scope_operator_alternative(
+def test_forbidden_questions_park_an_out_of_scope_alternative_for_the_manager(
     tmp_path: Path,
     alternative: str,
 ) -> None:
@@ -980,30 +980,14 @@ def test_forbidden_questions_block_out_of_scope_operator_alternative(
 
     action = supervisor._adjudicate_mission_challenge(outcome)
 
-    assert action == "blocked"
-    assert outcome["status"] == "blocked"
-    assert outcome["operator_question"] == ""
-    assert outcome["operator_options"] == []
-    assert outcome["planner_report"]["authority_impact"] == "operator"
-    assert "alternative" not in outcome["planner_report"]
-    challenge = outcome["plan_challenge"]
-    assert challenge["manager_action"] == "blocked"
-    assert challenge["authority_impact"] == "operator"
-    assert challenge["alternative"] == ""
-    assert challenge["operator_question"] == ""
+    # Questions are forbidden, so the Manager holds the operator's authority:
+    # the alternative parks as a question it decides in their place.
+    assert action == "ask_operator"
     persisted = next(
         row for row in supervisor.memory.backlog.all() if row.id == item.id
     )
-    assert persisted.status == "failed"
-    assert persisted.pending_question == ""
-    assert persisted.operator_decision == {}
-    events = [
-        json.loads(line)
-        for line in (supervisor.memory.root / "events.jsonl").read_text().splitlines()
-    ]
-    assert not any(
-        event["type"] == "life.operator_question.pending" for event in events
-    )
+    assert persisted.status == "paused_operator"
+    assert persisted.operator_decision["status"] == "pending"
 
 
 def test_new_continuous_generation_interrupts_obsolete_planner(tmp_path: Path) -> None:

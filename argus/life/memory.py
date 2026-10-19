@@ -2483,12 +2483,14 @@ class Backlog:
         decision_note: str = "",
         manager_reply: str = "",
         operator_context_persisted: bool = False,
+        decided_by: str = "operator",
     ) -> tuple[BacklogItem | None, BacklogItem | None]:
         """Atomically consume one pending question and enqueue its continuation.
 
         A decision id binds typed-card requests to the pending card. The backlog
         lock and resolved card provide idempotency without a separate revision
-        or campaign-generation gate.
+        or campaign-generation gate. An answer the Manager gave in the
+        operator's place (``decided_by="manager"``) is never recorded as theirs.
         """
         from ..core.operator_context import import_deterministic_credential
 
@@ -2501,7 +2503,7 @@ class Backlog:
                 else None
             ),
         )
-        if not operator_context_persisted:
+        if decided_by == "operator" and not operator_context_persisted:
             from ..core.operator_context import persist_once_answer
 
             persist_once_answer(
@@ -2536,6 +2538,11 @@ class Backlog:
                 return blocked, None
             answer = answer.strip()
             decision = manager_decision.strip()
+            response = (
+                "Operator response"
+                if decided_by == "operator"
+                else "Manager decision in the operator's place"
+            )
             if decision:
                 objective = (
                     "Authoritative Manager operator-answer decision:\n"
@@ -2545,13 +2552,10 @@ class Backlog:
                     "Inherited blocked mission objective (retain only non-conflicting "
                     "context):\n"
                     f"{blocked.objective.strip()}\n\n"
-                    f"Operator response:\n{answer}"
+                    f"{response}:\n{answer}"
                 )
             else:
-                objective = (
-                    f"{blocked.objective.strip()}\n\n"
-                    f"Operator response:\n{answer}"
-                )
+                objective = f"{blocked.objective.strip()}\n\n{response}:\n{answer}"
             acceptance_check = blocked.acceptance_check
             non_goals = list(blocked.non_goals)
             if decision:
@@ -2627,6 +2631,7 @@ class Backlog:
                     "continuation_item_id": continuation.id,
                     "manager_decision": decision,
                     "reply": manager_reply.strip(),
+                    "decided_by": decided_by,
                     "resume_requested": True,
                     "resolution_id": (
                         f"{blocked.operator_decision.get('id', decision_id)}:"
@@ -2669,6 +2674,7 @@ class Backlog:
         manager_decision: str = "stop campaign",
         reply: str = "Campaign stopped. Current work was preserved.",
         last_error: str = "",
+        decided_by: str = "operator",
     ) -> BacklogItem | None:
         """Resolve one pending decision by ending its item.
 
@@ -2706,6 +2712,7 @@ class Backlog:
                     "continuation_item_id": "",
                     "manager_decision": manager_decision,
                     "reply": reply,
+                    "decided_by": decided_by,
                     "resume_requested": False,
                     "resolution_id": (
                         f"{item.operator_decision.get('id', decision_id)}:"
@@ -2731,8 +2738,10 @@ class Backlog:
         or answer. The holder is a new ``paused_operator`` row with the ended
         mission's contract, so the ordinary answer path
         (:meth:`continue_with_operator_reply` / :meth:`stop_for_operator_decision`)
-        resolves it, and live dependents of the ended row wait on the holder
-        instead of being cascade-skipped while the operator decides.
+        resolves it, and live dependents of an ended row that did not succeed
+        wait on the holder instead of being cascade-skipped while the operator
+        decides. A row that finished ``done`` already released its dependents;
+        a later question about it must not hold them, nor skip them on "stop".
         """
         question = str(question or "").strip()
         if not question:
@@ -2784,7 +2793,7 @@ class Backlog:
             holder.operator_decision = dict(operator_decision)
             # Same as Backlog.add(): a brand-new row has no journal history.
             holder.replan_streak_tracked = True
-            for row in items:
+            for row in items if source.status != "done" else ():
                 if row.status in _TERMINAL_STATUSES or source.id not in row.deps:
                     continue
                 row.deps = list(dict.fromkeys(

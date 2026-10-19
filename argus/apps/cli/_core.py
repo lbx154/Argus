@@ -1435,7 +1435,12 @@ def _cmd_answer(args: argparse.Namespace) -> int:
             sys.stderr.write(f"argus: {message}\n")
             return 1
         sys.stdout.write(f"argus: dropped {item.id} ({item.title})\n")
-        _restart_worker_after_operator_wait_exit(bundle)
+        reply = str(result.get("reply") or "").strip()
+        if reply:
+            sys.stdout.write(f"  result: {reply}\n")
+        # A pause, stop or completion recorded on the campaign stands.
+        if result.get("resume_requested", True):
+            _restart_worker_after_operator_wait_exit(bundle)
         return 0
     if card.get("decision_kind") == "framework_deployment":
         option_id = answer.casefold()
@@ -1490,9 +1495,15 @@ def _restart_worker_after_operator_wait_exit(bundle: Any) -> None:
     A bounded run that nobody watched ends as "blocked: needs operator" and
     leaves a marker. Answering is what it was waiting for, so the answer
     resumes it instead of leaving the continuation queued with no worker.
+    Answering is not a resume, though: a pause, stop, completion or Planner
+    hold recorded on the campaign stands until an explicit resume.
     """
     from ...core.autonomy import OPERATOR_WAIT_EXIT_FILENAME
+    from ...webapi.manager_pending_question import campaign_stop_reason
 
+    if campaign_stop_reason(bundle.project.root):
+        sys.stdout.write("  campaign: still stopped; resume it to continue\n")
+        return
     marker = Path(bundle.project.root) / OPERATOR_WAIT_EXIT_FILENAME
     if not marker.is_file():
         return

@@ -93,8 +93,9 @@ def test_a_decorated_done_finishes_a_self_reviewed_mission(tmp_path: Path) -> No
 def test_unfinished_self_reviewed_turns_reach_the_reviewer_after_the_limit(
     tmp_path: Path, footer: str,
 ) -> None:
-    """Without independent review, a turn that never wrote ``done`` used to
-    continue forever: no Reviewer, no settlement, so no round guard ran."""
+    """Without independent review or a round cap, a turn that never wrote
+    ``done`` used to continue forever: no Reviewer, no settlement, so no round
+    guard ran."""
     backend = MemoryBackend()
     for index in (1, 2, 3):
         backend.queue(f"engineer-r{index}", CannedResponse(message=f"Step {index} written.\n{footer}"))
@@ -103,13 +104,34 @@ def test_unfinished_self_reviewed_turns_reach_the_reviewer_after_the_limit(
     status, rounds, _final, _reason, _tid = _engineer(backend).run(
         objective="low-risk repair",
         engineer_prompt_builder=lambda _na, _include_static=True: "Do the task.",
-        supervised_config=SupervisedConfig(max_rounds=8, require_independent_review=False),
+        supervised_config=SupervisedConfig(max_rounds=0, require_independent_review=False),
         workdir=tmp_path,
     )
 
     assert _labels(backend) == ["engineer-r1", "engineer-r2", "engineer-r3", "reviewer"]
     assert status == "done"
     assert [record.review.review_source for record in rounds] == ["reviewer"]
+
+
+@pytest.mark.parametrize("footer", ["MILESTONE_STATUS=continue", "NEXT_OWNER=engineer"])
+def test_a_round_capped_self_reviewed_mission_adds_no_reviewer_call(
+    tmp_path: Path, footer: str,
+) -> None:
+    """``max_rounds`` already ends a self-reviewed mission, so the self-handoff
+    limit must not buy a Reviewer call every third turn there."""
+    backend = MemoryBackend()
+    for index in (1, 2, 3, 4):
+        backend.queue(f"engineer-r{index}", CannedResponse(message=f"Step {index} written.\n{footer}"))
+
+    status, _rounds, _final, _reason, _tid = _engineer(backend).run(
+        objective="low-risk repair",
+        engineer_prompt_builder=lambda _na, _include_static=True: "Do the task.",
+        supervised_config=SupervisedConfig(max_rounds=4, require_independent_review=False),
+        workdir=tmp_path,
+    )
+
+    assert _labels(backend) == ["engineer-r1", "engineer-r2", "engineer-r3", "engineer-r4"]
+    assert status == "max_rounds"
 
 
 class _CappedEngineer:
@@ -187,6 +209,16 @@ def test_a_continue_decision_without_an_owner_renders_the_reviewer() -> None:
     message = _engineer_decision_message({"status": "continue", "result": "Partial fix."})
     assert "NEXT_OWNER=reviewer" in message
     assert "NEXT_OWNER=engineer" not in message
+
+
+@pytest.mark.parametrize("status", ["done", "continue", "blocked"])
+def test_a_rendered_decision_states_the_status_the_round_loop_uses(status: str) -> None:
+    """A blocked decision rendered ``MILESTONE_STATUS=continue``, so the
+    Reviewer read a stuck Engineer as one still working."""
+    decision = {"status": status, "result": "Credentials are missing."}
+    rendered = _outcome(_engineer_decision_message(decision))
+    assert _milestone_is_done(rendered) is _milestone_is_done(_outcome("", decision))
+    assert _milestone_is_blocked(rendered) is _milestone_is_blocked(_outcome("", decision))
 
 
 # --- 4. Only this mission's healthy work excuses its stall -----------------

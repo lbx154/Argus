@@ -63,9 +63,9 @@ To be honest: Argus can already do a lot, but it is still a good distance from t
 
 | Version | Theme | Done means | Tasks included |
 | --- | --- | --- | --- |
-| **0.2** | Stop making mistakes first | We have a baseline to measure everything; the most wasteful reviews and the most dangerous hole are closed first; CI no longer lets type and frontend problems through | HO-1–6, SE-1–2, CI-1–2, CO-1, CO-3, CE-1–2, EV-4, LE-5, RL-4, SC-14 |
+| **0.2** | Stop making mistakes first | We have a baseline to measure everything; the most wasteful reviews and the most dangerous hole are closed first; CI no longer lets type and frontend problems through | HO-1–6, HO-15, SE-1–2, CI-1–2, CO-1, CO-3, CE-1–2, EV-4, LE-5, RL-4, SC-14 |
 | **0.3** | Results you can trust | The Reviewer looks at the real change and judges against acceptance criteria; who said what is on record; research numbers are checked by the host; we can measure how many errors the Reviewer lets through | HO-7–11, SC-1–5, SC-7–9, SC-11, EV-3 |
-| **0.4** | Fast, cheap, and provably so | A public comparison table against using an Agent directly; cost is visible and budgets can be set; review happens only when work is handed in | HO-12–13, CE-3–8, EV-1–2, EV-5–6, CI-8 |
+| **0.4** | Fast, cheap, and provably so | A public comparison table against using an Agent directly; cost is visible and budgets can be set; review happens only when work is handed in | HO-12–13, HO-16, CE-3–8, EV-1–2, EV-5–6, CI-8 |
 | **0.5** | Anyone can get started | A new machine on any of the three platforms gets a result in 10 minutes; Windows works natively; interrupted uploads resume | UX-1–4, UX-6, CI-4–7, CI-10 |
 | **0.6** | Safe for many users | Accounts, project isolation, a fixed address, data that can be exported and deleted; nothing is lost when you switch devices; passes the security review | SE-3–6, SE-8, UX-5, UX-7–9, UX-11, UX-13 |
 | **0.7** | An ecosystem you can rely on | The code structure makes sense; the domain SDK has a public version; old data upgrades | CO-4–13, EC-1–2, EC-4–6, EC-10–11, RA-10–11, RL-1–2, HO-14 |
@@ -147,12 +147,22 @@ not guess on the model's behalf whether there is progress. The full design is in
 - Do: in `engineer/round_settlement.py`, settle the passing verdict first, or resume from it.
 - Done when: in tests, "pass, then wait right away, then resume" does not redo work that already passed.
 
-#### HO-6 One answer to "can we ask the operator"
-`0.2` · `S` · Depends on: none · good first issue
+#### HO-6 One answer to "can we ask the operator", and the Manager decides when we can't
+`0.2` · `M` · Depends on: none · in progress
 - Today: the Reviewer's tool description reads an environment variable, while settlement reads the project policy; when
-  they disagree, the Reviewer is steered into asking a question that settlement will reject.
-- Do: have both places read the same effective policy.
-- Done when: when the policy is "no questions", the Reviewer's tool description no longer says "ask the operator".
+  they disagree, the Reviewer is steered into asking a question that settlement will reject. After the operator says
+  "don't ask me", decisions about credentials, spending, irreversible actions, releases, and broken model configuration
+  still wait for the operator or end as "needs operator".
+- Do: have every place read the same effective policy. Per principle 8, when the operator cannot be asked (they said
+  "don't ask me", or the run has no operator), the Manager holds the operator's whole authority: it answers in a typed
+  field, the answer is applied through the same path as an operator's, and every decision it takes in the operator's
+  place is recorded and listed in the delivery report. Credentials are the exception: the Manager cannot supply ones it
+  does not hold, so it decides whether to route around them or end the item.
+- Done when: when the policy is "no questions", the Reviewer's tool description no longer says "ask the operator"; no
+  code path waits for the operator or ends as "needs operator"; the Manager can answer only the cards handed to it;
+  the delivery report lists each decision it took.
+- Status: the single policy is done on `fix/liveness-adopt`; the Manager taking over the operator's authority is being
+  implemented on the same branch. Neither is in `dev` yet.
 
 #### HO-7 Show the Reviewer a real diff
 `0.3` · `L` · Depends on: none
@@ -209,9 +219,10 @@ not guess on the model's behalf whether there is progress. The full design is in
 
 #### HO-11 Don't show the Engineer's decision wrong
 `0.3` · `S` · Depends on: none · good first issue
-- Today: `_engineer_decision_message` shows "stuck" as "continue"; when the default hands off to the Reviewer it shows
-  "hand to Engineer"; `latest_role_decision` takes the first entry instead of the last.
-- Do: fix the display and add tests.
+- Today: the display is fixed (fix/liveness-adopt): "stuck" no longer shows as "continue", and the default hand-off to
+  the Reviewer shows as such. What remains is a misleading name: by contract the first valid decision wins and later
+  prose is not parsed (5d912d70), yet the function is called `latest_role_decision`.
+- Do: rename it to say first valid decision; behaviour unchanged.
 
 #### HO-12 Budgets instead of "guessing whether there is progress"
 `0.4` · `M` · Depends on: HO-1, HO-2, HO-7, CE-6
@@ -242,6 +253,33 @@ not guess on the model's behalf whether there is progress. The full design is in
   [architecture-simplification-plan.md](architecture-simplification-plan.md).
 - Done when: in tests, deleting these files and rebuilding them gives identical content.
 
+
+#### HO-15 Every item ends: close the places where work stops forever
+`0.2` · `M` · Depends on: none · in progress
+- Today: in several places work stops forever because nobody picks it up: a daemon hot handoff can leave the project
+  with no daemon; an open failure circuit has no one to close it; the descendants of a parked item wait forever; one
+  operator question blocks the whole conversation; a Manager "wait" freezes planning for the whole project; a subagent
+  whose process is alive but whose heartbeat stopped still counts as running; answering a question after a pause
+  reopens the campaign.
+- Do: close each one according to the four invariants in the "baton" section of the
+  [handoff design](role-handoff-design.md): one holder per item; every wait has a deadline and a fallback; an unchanged
+  return climbs; authority never vanishes.
+- Done when: each case above has a test (`tests/test_liveness_*.py`) that reaches done, dropped, or an explicit climb.
+- Status: fully implemented and tested on `fix/liveness-adopt`, not in `dev` yet. The first upgrade of a daemon from an
+  old release should still stop the service before starting the new one.
+
+#### HO-16 The baton: one handoff line instead of footers and many pause states
+`0.4` · `L` · Depends on: HO-2, HO-12, HO-15
+- Today: the Engineer hands off with seven footer keys, a Planner wait needs a fingerprint, a token, and a recheck
+  condition, and there are eleven `paused_*` statuses, each with its own resume logic.
+- Do: per the handoff design, a handoff is a prose note plus one line
+  `→ engineer|reviewer|planner|manager|operator: <question>|wait: <what>|done`; the host enforces only the four
+  invariants; the eleven pauses become one park whose reason is data; the host supplies wait deadlines and
+  fingerprints; an unchanged return climbs instead of calling the same model again.
+- Done when: an architecture test confirms only this handoff format and one park status remain; HO-1 shows the number
+  of model calls made without a change never exceeds the height of the ladder.
+- Can be split into: HO-16a read the line leniently (an unreadable line never means done); HO-16b merge the pause
+  states; HO-16c host-supplied wait deadlines; HO-16d unchanged return climbs; HO-16e delete the old footers and states.
 ---
 
 ### Theme CO: Reliability and the core — failures you can see, a structure you can follow

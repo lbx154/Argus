@@ -516,10 +516,17 @@ class Curator:
                 if not _pid_is_teammate(int(pid), mid, root):
                     continue
                 proc = _AdoptedProc(int(pid), mid, root)
-            self._children[child_key] = TrackedTeammate(
-                proc, member_id=mid,
-                task_id=m.get("task_id", ""), root=root, started_at=now,
-                timeout_s=self.teammate_timeout_s, hard_grace_s=self.hard_grace_s)
+            # Adoption registers a child just as a spawn does, so it takes the
+            # same step against stop(): once stop() has torn ``_children``
+            # down, a teammate added here would be owned by nobody. Leave it
+            # for the next daemon's Curator to adopt.
+            with self._spawn_lock:
+                if self._stop.is_set():
+                    break
+                self._children[child_key] = TrackedTeammate(
+                    proc, member_id=mid,
+                    task_id=m.get("task_id", ""), root=root, started_at=now,
+                    timeout_s=self.teammate_timeout_s, hard_grace_s=self.hard_grace_s)
             adopted.append(mid)
         if adopted:
             log.info("curator: adopted %d orphaned teammate(s) for %s: %s",

@@ -41,17 +41,38 @@ _HANDOFF_LOG_ENV = "ARGUS_SKILL_DAEMON_HANDOFF_LOG"
 _HANDOFF_ROLLBACK_SOURCE_ENV = "ARGUS_SKILL_DAEMON_HANDOFF_ROLLBACK_SOURCE"
 _HANDOFF_INCUMBENT_PID_ENV = "ARGUS_SKILL_DAEMON_HANDOFF_INCUMBENT_PID"
 _DEPLOYMENT_ROLL_FILE = "daemon-roll.json"
-# One lock attempt's patience once the lock should be free.
+# One lock attempt's patience once the lock should be free. Between attempts
+# the candidate checks the incumbent is still alive; there is no overall cap.
 _HANDOFF_LOCK_ATTEMPT_SECONDS = 60.0
-# The incumbent interrupts its missions and waits as soon as the candidate is
-# in standby, so its drain is short; this only bounds a candidate queued behind
-# an incumbent that never finishes. Shutdown replaces a successor that gave up.
-_HANDOFF_INCUMBENT_DRAIN_MAX_SECONDS = 900.0
 
 
 # ---------------------------------------------------------------------------
 # Blue/green self-handoff
 # ---------------------------------------------------------------------------
+
+
+def _record_handoff_alert(config: LifeWorkerConfig, text: str, *, reason: str) -> None:
+    """Leave the operator a durable, visible note that a handoff went wrong.
+
+    A dropped deployment, or a project left without a daemon, must not live
+    only in a daemon log nobody reads; ``events.jsonl`` is the timeline the
+    operator sees.
+    """
+    from ..core.event_catalog import EventType
+    from ..life.event_log import JsonlEventSink
+
+    # The project's state root: where its daemon's own sink writes, and where
+    # the deployment request this handoff carried was read.
+    try:
+        JsonlEventSink(None, life_dir=Path(config.life_dir)).append({
+            "type": EventType.OPERATOR_ALERT,
+            "operator_alert": True,
+            "reason": reason,
+            "text": text,
+        })
+    except Exception:  # noqa: BLE001 - the log line below still records it
+        log.exception("daemon handoff: could not record the operator alert")
+    log.error("daemon handoff: %s", text)
 
 def _truthy_env(name: str, default: str = "1") -> bool:
     return os.environ.get(name, default).strip().lower() in {
@@ -310,26 +331,37 @@ def run_handoff_child_process(
         incumbent_pid = int(os.environ.get(_HANDOFF_INCUMBENT_PID_ENV, "") or 0)
     except ValueError:
         incumbent_pid = 0
-    drain_deadline = time.monotonic() + _HANDOFF_INCUMBENT_DRAIN_MAX_SECONDS
     while True:
         try:
             lock = acquire_lock(pid_path, _HANDOFF_LOCK_ATTEMPT_SECONDS)
             break
         except DaemonAlreadyRunning as exc:
-            # The incumbent holds the lock until it has drained. Giving up
-            # while it still lives used to strand the project: the incumbent
-            # exited moments later with no successor left to take over.
+            # An incumbent from a release before the variable above names
+            # itself only as the lock holder, so the first holder seen is it.
+            if incumbent_pid <= 0 and exc.pid:
+                incumbent_pid = int(exc.pid)
+            # The incumbent holds the lock until it has drained, however long
+            # that takes. Giving up while it still lived stranded the project:
+            # the incumbent exited moments later with no successor left. Only
+            # a lock now held by some other process ends the wait.
             if (
                 incumbent_pid > 0
+                and exc.pid in (None, incumbent_pid)
                 and is_pid_running(incumbent_pid)
-                and time.monotonic() < drain_deadline
             ):
                 log.info(
                     "handoff candidate: incumbent pid=%s is still draining; waiting",
                     incumbent_pid,
                 )
                 continue
-            log.error("handoff candidate could not acquire daemon lock (pid=%s)", exc.pid)
+            _record_handoff_alert(
+                config,
+                f"A runtime handoff ({payload.get('reason') or 'unspecified'}) was "
+                f"dropped: the daemon lock is held by pid {exc.pid or 'unknown'}, "
+                "not the daemon that started the handoff. That daemon keeps "
+                "running; the handed-off runtime was not adopted.",
+                reason="daemon_handoff_lock_taken",
+            )
             return 2
 
     started_iso = datetime.now(timezone.utc).isoformat()
@@ -368,7 +400,13 @@ def run_handoff_child_process(
             reason="handoff candidate failed; restore prior runtime",
             candidate_source_root=root,
         ):
-            log.error("handoff rollback candidate did not start")
+            _record_handoff_alert(
+                config,
+                "The handed-off runtime failed after taking over and the prior "
+                "runtime did not restart in its place: no daemon is running for "
+                "this project. Start it again with `argus --daemon`.",
+                reason="daemon_handoff_rollback_failed",
+            )
     return rc
 
 
@@ -385,6 +423,7 @@ __all__ = [
     "_HANDOFF_TOKEN_ENV",
     "_consume_deployment_handoff",
     "_acquire_daemon_lock_with_timeout",
+    "_record_handoff_alert",
     "_spawn_handoff_candidate",
     "_strip_git_config_injection",
     "_truthy_env",

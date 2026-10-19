@@ -1316,16 +1316,11 @@ class MissionExecutionRuntimeMixin:
             )
             return None
 
-        from ...core.autonomy import operator_questions_can_be_asked
         from ...core.operator_decision import build_operator_decision
         from .pending_notify import notify_pending_question
 
         usage_summary = state.usage_summary
         assert usage_summary is not None, "provider parking requires metered outcome"
-        if not operator_questions_can_be_asked(self._project_state_root()):
-            return self._end_unanswerable_provider_failure(
-                state, streak=streak, signature=signature,
-            )
         question = (
             "The model configuration for this task has failed the same way "
             f"{streak} times in a row: {state.stop_reason} "
@@ -1426,90 +1421,6 @@ class MissionExecutionRuntimeMixin:
             "success": False,
             "stop_kind": state.stop_kind,
             "recoverable": True,
-            "cost_usd": state.usd,
-            "known_cost_usd": state.known_usd,
-            "pricing_status": usage_summary.pricing_status,
-        }
-
-    def _end_unanswerable_provider_failure(
-        self, state: _MissionRunState, *, streak: int, signature: str,
-    ) -> dict[str, Any]:
-        """End, rather than park, a repeating model-configuration failure.
-
-        Parking puts the fix to the operator. A run whose operator cannot be
-        asked (none declared, or questions forbidden) has nobody to fix the
-        model name or provider access, so the question would hold the task
-        forever. The task ends failed with the cause
-        recorded as an operator-only block for this run, the same outcome
-        settlement gives other operator-only needs when no operator exists.
-        """
-        from ...core.autonomy import record_operator_block
-
-        item = state.item
-        usage_summary = state.usage_summary
-        assert usage_summary is not None, "provider failure requires metered outcome"
-        reason = (
-            "The model configuration for this task failed the same way "
-            f"{streak} times in a row: {state.stop_reason} "
-            "No operator is available in this run to fix the model name or "
-            "provider access, so the task ended instead of waiting for an answer."
-        )
-        failed_outcome = mission_outcome_dimensions(
-            status="failed",
-            success=False,
-            review_status=str(
-                getattr(state.outcome, "final_review_status", "") or ""
-            ),
-            stop_kind=state.stop_kind,
-            resumable=False,
-        )
-        self.memory.backlog.update(
-            item.id,
-            status="failed",
-            finished_ts=time.time(),
-            last_error=reason,
-            outcome=failed_outcome,
-            provider_cooldown_streak=streak,
-            provider_cooldown_signature=signature,
-        )
-        record_operator_block(
-            self._project_state_root(),
-            item_id=item.id,
-            reason=reason,
-            operator_need="",
-        )
-        self._emit({
-            "type": "life.mission.provider_configuration_disabled",
-            "item_id": item.id,
-            "title": item.title,
-            "streak": streak,
-            "signature": signature,
-            "error": state.stop_reason,
-            "operator_alert": True,
-            "operator_available": False,
-            "text": reason,
-        })
-        self._emit({
-            "type": EventType.LIFE_MISSION_COMPLETED,
-            "item_id": item.id,
-            "success": False,
-            "status": "failed",
-            "outcome_class": mission_outcome_class(status="failed", success=False),
-            "outcome": failed_outcome,
-            "stop_kind": state.stop_kind,
-            "failure_reason": reason,
-            "recoverable": False,
-            "cost_usd": state.usd,
-            "known_cost_usd": state.known_usd,
-            "pricing_status": usage_summary.pricing_status,
-            "spent_usd": state.known_usd,
-        })
-        return {
-            "status": "failed",
-            "item_id": item.id,
-            "success": False,
-            "stop_kind": state.stop_kind,
-            "recoverable": False,
             "cost_usd": state.usd,
             "known_cost_usd": state.known_usd,
             "pricing_status": usage_summary.pricing_status,

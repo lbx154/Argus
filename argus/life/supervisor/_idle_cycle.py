@@ -82,12 +82,15 @@ class IdleCycleMixin:
             return None
         if circuit is None:
             return None
-        # A tagged canary passes unless this circuit already admitted a
-        # different one; a tag left over from an earlier window is not a pass.
+        # Only the canary this circuit admitted passes. A tag it never handed
+        # out (an earlier circuit's, or one copied onto another row) waits for
+        # a half-open window like any other work.
         admitted = str(circuit.get("canary_item_id") or "")
-        if "runtime_failure_canary" in item_tags and admitted in {
-            "", str(getattr(item, "id", "") or ""),
-        }:
+        if (
+            "runtime_failure_canary" in item_tags
+            and admitted
+            and admitted == str(getattr(item, "id", "") or "")
+        ):
             return None
         if self._admit_runtime_failure_half_open(circuit_root, circuit, item=item):
             return None
@@ -121,7 +124,7 @@ class IdleCycleMixin:
     def _admit_runtime_failure_half_open(
         self, circuit_root: Path, circuit: dict[str, Any], *, item: Any | None,
     ) -> bool:
-        """Let one canary through an open circuit once its cooldown has passed.
+        """Let one canary through an open circuit once a window opens.
 
         With an item, that item becomes the window's canary mission (tagged so
         its reviewed pass clears the circuit). Without one, the Planner gets
@@ -158,6 +161,7 @@ class IdleCycleMixin:
                 slot="mission" if item is not None else "planner",
                 item_id=item_id,
                 expected_canary_item_id=previous,
+                facts=self._runtime_failure_canary_facts(),
             ):
                 return False
             if item is not None:
@@ -176,6 +180,29 @@ class IdleCycleMixin:
             else "runtime failure circuit half-open: one Planner turn to queue a canary"
         )
         return True
+
+    def _runtime_failure_canary_facts(self) -> dict[str, Any]:
+        """Facts whose change is worth one canary of an open circuit.
+
+        A backend or model switch saved from the cockpit, and new operator
+        input, are new evidence about a failure no code change has fixed yet.
+        Empty when unreadable: then only the timed window applies.
+        """
+        try:
+            from ...core.knob_store import read_persisted_knobs
+            from ...core.operator_context import (
+                OperatorContextStore,
+                operator_context_state_root,
+            )
+
+            return {
+                "persisted_knobs": read_persisted_knobs(),
+                "operator_context_revision": OperatorContextStore(
+                    operator_context_state_root(self.memory)
+                ).revision,
+            }
+        except Exception:  # noqa: BLE001 - unreadable facts open no window
+            return {}
 
     def _execution_host_failure_block(
         self, *, item: Any | None = None,
@@ -413,6 +440,82 @@ class IdleCycleMixin:
             self._release_operator_inbox()
         return False
 
+    def _decide_parked_questions(self) -> bool:
+        """While the operator cannot be asked, the Manager answers parked cards.
+
+        Each choice goes through the resolver an operator's answer takes and is
+        recorded for the run report in the Manager's name. A card the Manager
+        names no valid choice for, or whose choice cannot be applied, is asked
+        again after an idle backoff; it never falls back to the operator.
+        Returns whether any card was resolved.
+        """
+        from ...core.autonomy import (
+            operator_available,
+            operator_questions_can_be_asked,
+            record_autonomous_assumption,
+        )
+        from ...core.operator_decision import selected_decision_text
+        from ...manager.proxy_decision import decide_for_operator
+
+        resolver = getattr(self.config, "pending_question_resolver", None)
+        root = self._project_state_root()
+        if not callable(resolver) or operator_questions_can_be_asked(root):
+            return False
+        why = (
+            "The operator asked not to be asked"
+            if operator_available()
+            else "This run has no operator"
+        )
+        resolved = False
+        for item in self.memory.backlog.active():
+            card = item.operator_decision
+            if item.status != "paused_operator" or card.get("status") != "pending":
+                continue
+            key = f"{card.get('id')}:r{card.get('revision', 1)}"
+            attempts, retry_at = self._proxy_retry.get(key, (0, 0.0))
+            if time.monotonic() < retry_at:
+                continue
+            choice = result = None
+            try:
+                choice = decide_for_operator(
+                    self._bound_manager(),
+                    card,
+                    why=why,
+                    context=f"Task: {item.title}\n{item.objective[:2000]}",
+                    on_event=getattr(self.sink, "handle_event", None),
+                )
+                if choice is not None:
+                    result = resolver(item, choice)
+            except Exception:  # noqa: BLE001 - the card stays parked and is asked again
+                log.exception("Manager could not decide parked card %s", key)
+            if choice is None or not (isinstance(result, dict) and result.get("resolved")):
+                self._proxy_retry[key] = (
+                    attempts + 1,
+                    time.monotonic()
+                    + min(IDLE_BACKOFF_CAP_SECONDS, IDLE_BACKOFF_BASE_SECONDS * 2**attempts),
+                )
+                self._emit_status(
+                    f"The Manager has not yet decided “{item.title}” in the "
+                    "operator's place; it will be asked again"
+                )
+                continue
+            record_autonomous_assumption(
+                root,
+                item_id=item.id,
+                conflict=str(card.get("question") or ""),
+                reading=(
+                    selected_decision_text(card, choice.option, choice.note)
+                    + f" (why: {choice.reason})"
+                ),
+                source="manager_decision",
+                key=key,
+                evidence_refs=choice.evidence_refs,
+            )
+            resolved = True
+        if resolved:
+            self._reset_idle_backoff()
+        return resolved
+
     def _take_operator_guidance_carryover(self) -> list[str]:
         """Operator guidance consumed elsewhere, handed to the Planner once."""
         carryover = getattr(self, "_operator_guidance_carryover", None) or []
@@ -532,37 +635,6 @@ class IdleCycleMixin:
         ):
             return [str(contract.get("recheck_condition") or "").strip()]
         return None
-
-    def _operator_only_blocks(self) -> list[str] | None:
-        """This run's operator-only blocks, when nothing else can run.
-
-        Work that ended blocked on real credentials, spending, or an
-        irreversible step (recorded by the Manager or the round settlement)
-        leaves the backlog with nothing the team can do. Returns those reasons
-        when no item is runnable, running, or waiting on a background job;
-        otherwise ``None``.
-        """
-        from ...core.autonomy import read_operator_blocks
-
-        state_root = getattr(self, "_project_state_root", None)
-        if not callable(state_root):
-            return None
-        blocks = read_operator_blocks(state_root())
-        if not blocks:
-            return None
-        try:
-            active = list(self.memory.backlog.active())
-        except Exception:  # noqa: BLE001 - an unreadable backlog is not a block
-            return None
-        if any(item.status != "paused_operator" for item in active):
-            return None
-        return [
-            "blocked on an operator-only need ("
-            + str(row.get("operator_need") or "operator")
-            + "): "
-            + str(row.get("reason") or "")[:300]
-            for row in blocks
-        ]
 
     def _maybe_idle_timeout(self) -> str:
         """``"idle_timeout"`` once a continuous daemon has been idle too long.

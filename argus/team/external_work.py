@@ -112,6 +112,17 @@ def team_work_status(
             for field in ("heartbeat_ts", "claim_ts", "finished_ts")
         ]
     )
+    # Only a claimed or running task's own stamps show its owner is alive; a
+    # sibling that is parked or just finished must not vouch for it.
+    in_flight_heartbeat = max(
+        [float(marker.get("created_ts") or 0.0)]
+        + [
+            float(task.get(field) or 0.0)
+            for task in tasks
+            if str(task.get("state") or "") in _IN_FLIGHT_STATES
+            for field in ("heartbeat_ts", "claim_ts")
+        ]
+    )
     description = (
         f"team {team_id}: {in_flight} running, {pending} pending, {done} done"
         + (f", {waiting} waiting on external work" if waiting else "")
@@ -138,20 +149,16 @@ def team_work_status(
             f"{attention} task(s) failed or wait for an operator answer and no "
             "worker is running; settle them before anything else"
         )
-    elif (
-        in_flight
-        and not waiting
-        and observed_at - heartbeat > _TEAM_STALE_AFTER_SECONDS
-    ):
+    elif in_flight and observed_at - in_flight_heartbeat > _TEAM_STALE_AFTER_SECONDS:
         # Only claimed or running work can be wedged. Pending work queues for
         # the Curator (behind its in-flight cap, or a daemon restart), and a
         # parked task's liveness belongs to the work it waits on, which has
-        # its own staleness.
+        # its own staleness; neither is judged here, nor hides a wedged one.
         state = ExternalWorkState.STALLED
         reason = (
-            f"team board has not changed for {int((observed_at - heartbeat) // 60)}m "
-            "while work is outstanding; no teammate heartbeat or Curator claim "
-            "reached it"
+            "claimed or running work has not changed for "
+            f"{int((observed_at - in_flight_heartbeat) // 60)}m; no teammate "
+            "heartbeat or Curator claim reached it"
         )
     elif in_flight or waiting or (pending and staffed):
         state = ExternalWorkState.RUNNING_HEALTHY

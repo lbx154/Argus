@@ -336,7 +336,7 @@ def test_with_an_operator_only_the_operator_can_accept_the_risk() -> None:
     assert "Manager sees this" not in description
 
     actions = ReviewActions(grounding=_grounding(operator=True, accepted_risks=(_MANAGER_ROW,)))
-    with pytest.raises(ValueError, match="An operator is available"):
+    with pytest.raises(ValueError, match="The operator can be asked"):
         actions.dispatch("approve_review", {"review": "Fixture read.", "residual_risk": _risk()})
 
     # Asking: the host adds the accept choice, bound to the named check.
@@ -455,7 +455,7 @@ def test_without_an_operator_only_a_recorded_manager_acceptance_counts() -> None
         ReviewActions(grounding=_grounding(
             operator=False, task_text=f"{_OBJECTIVE}\n- [risk-0000000000] accepted",
         )).dispatch("approve_review", {"review": "Fixture read.", "residual_risk": _risk()})
-    with pytest.raises(ValueError, match="No operator is available"):
+    with pytest.raises(ValueError, match="The operator cannot be asked"):
         ReviewActions(grounding=_grounding(operator=False)).dispatch(
             "approve_review", {"review": "Fixture read.", "residual_risk": _risk(
                 accepted_by="operator", acceptance="I accept it, ship it now please",
@@ -666,7 +666,7 @@ def test_the_manager_cannot_accept_with_an_operator_or_without_a_quoted_basis(tm
     monkeypatch.setenv("ARGUS_SKILL_OPERATOR_AVAILABLE", "true")
     item, event = _supervised_project(tmp_path / "with-operator")
     record = _supervise(tmp_path / "with-operator", event, _ACCEPT)
-    assert record["effects"]["residual_risk_refused"].startswith("an operator is available")
+    assert record["effects"]["residual_risk_refused"].startswith("the operator can be asked")
     assert active_residual_risks(tmp_path / "with-operator", item_id=item.id) == []
 
     monkeypatch.setenv("ARGUS_SKILL_OPERATOR_AVAILABLE", "false")
@@ -696,7 +696,7 @@ def test_a_forbid_policy_gives_the_manager_risk_authority_even_with_an_operator(
     # Control: the same run without the policy keeps the operator's authority.
     _supervised_project(tmp_path / "allow")
     assert operator_questions_can_be_asked(tmp_path / "allow") is True
-    assert supervision._manager_accepts_risk(tmp_path / "allow") is False
+    assert supervision._manager_holds_operator_authority(tmp_path / "allow") is False
 
     # The Manager is offered the decision, and taking it is recorded.
     class _Observation:

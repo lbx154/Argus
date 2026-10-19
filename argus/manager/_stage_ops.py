@@ -384,6 +384,25 @@ class _StageDecisionMixin:
         )
         return _run_exec, None
 
+    def run_turn(
+        self,
+        prompt: str,
+        *,
+        on_event: Any = None,
+        run_label: str = "manager-prose",
+        root_task_id: str | None = None,
+    ) -> str:
+        """Run one read-only Manager turn and return its whole reply.
+
+        The turn runs read-only in the project directory so the model can open
+        files, is metered like any other Manager call, and returns an empty
+        string when no backend is available or the model returned nothing twice.
+        """
+        run_exec, hold = self._build_stage_run_exec(None, on_event, run_label=run_label)
+        if hold is not None or run_exec is None:
+            return ""
+        return self._run_stage_model(run_exec, prompt, root_task_id)
+
     def write_prose(
         self,
         prompt: str,
@@ -392,18 +411,14 @@ class _StageDecisionMixin:
         run_label: str = "manager-prose",
         root_task_id: str | None = None,
     ) -> str:
-        """Run one read-only Manager turn and return the prose it wrote.
+        """The prose of one Manager turn (:meth:`run_turn`), footer removed.
 
         This is how the Manager writes for a person: a letter to the operator,
-        or a second reading of the evidence. The turn runs read-only in the
-        project directory so the model can open files, is metered like any
-        other Manager call, and returns an empty string when no backend is
-        available or the model returned nothing twice.
+        or a second reading of the evidence.
         """
-        run_exec, hold = self._build_stage_run_exec(None, on_event, run_label=run_label)
-        if hold is not None or run_exec is None:
-            return ""
-        raw = self._run_stage_model(run_exec, prompt, root_task_id)
+        raw = self.run_turn(
+            prompt, on_event=on_event, run_label=run_label, root_task_id=root_task_id,
+        )
         if not str(raw or "").strip():
             return ""
         from ..core.role_reply import strip_control_footer

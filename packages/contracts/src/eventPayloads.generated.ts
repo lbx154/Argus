@@ -750,6 +750,8 @@ export interface LifeOperatorQuestionAnsweredEvent extends EventMsg {
   "decision_revision"?: number | null;
   "campaign_generation"?: number | null;
   "stopped"?: boolean;
+  "dropped"?: boolean;
+  "decided_by"?: "operator" | "manager";
 }
 
 export interface RoleSessionTurnEvent extends EventMsg {

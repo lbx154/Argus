@@ -395,12 +395,12 @@ def _validated_decision(value: dict[str, Any]) -> dict[str, Any]:
             "risk_decision": _risk_decision(value)}
 
 
-def _manager_accepts_risk(root: Path | str | None = None) -> bool:
-    """The Manager accepts a residual risk whenever no operator question can be asked.
+def _manager_holds_operator_authority(root: Path | str | None = None) -> bool:
+    """The Manager decides in the operator's place whenever they cannot be asked.
 
     That is a run with no operator, and equally a run whose question policy
-    forbids asking: the operator decides only while they can be asked, so the
-    acceptance never has no decider. ``reviewer.tools`` reads the same rule.
+    forbids asking: the operator decides only while they can be asked, so a
+    decision never has no decider. ``reviewer.tools`` reads the same rule.
     """
     from ..core.autonomy import operator_questions_can_be_asked
 
@@ -410,7 +410,7 @@ def _manager_accepts_risk(root: Path | str | None = None) -> bool:
 def _risk_authority_rule(root: Path | str | None = None) -> str:
     from ..core.model_visible_text import FIXTURE_EVIDENCE_RULE
 
-    if not _manager_accepts_risk(root):
+    if not _manager_holds_operator_authority(root):
         return (
             "Leaving such a check unverified changes the acceptance standard, so it is "
             "the operator's decision, not yours: the Reviewer asks them. Meanwhile steer "
@@ -418,7 +418,8 @@ def _risk_authority_rule(root: Path | str | None = None) -> str:
             + FIXTURE_EVIDENCE_RULE + "\n"
         )
     return (
-        "No operator is available, so for such a check you decide whether to leave it "
+        "The operator cannot be asked, so you hold their authority: for such a check "
+        "you decide whether to leave it "
         "unverified: when the Reviewer has read the best evidence reachable here, "
         "accept that one check's residual risk with ACCEPT_RISK: yes; when that "
         "evidence is still missing, steer the Engineer to build it. "
@@ -430,7 +431,7 @@ def _risk_authority_rule(root: Path | str | None = None) -> str:
 
 
 def _standard_rule(root: Path | str | None = None) -> str:
-    if _manager_accepts_risk(root):
+    if _manager_holds_operator_authority(root):
         return (
             "Apart from accepting or revoking one grounded check's residual risk as "
             "above, you do not change the objective, acceptance standard, or pipeline "
@@ -440,7 +441,7 @@ def _standard_rule(root: Path | str | None = None) -> str:
 
 
 def _risk_fields(root: Path | str | None = None) -> str:
-    if not _manager_accepts_risk(root):
+    if not _manager_holds_operator_authority(root):
         return ""
     return (
         "ACCEPT_RISK: yes, no, or revoke <risk id>\n"
@@ -451,8 +452,9 @@ def _risk_fields(root: Path | str | None = None) -> str:
 
 def _prompt(observation: ManagerObservation, consult_reason: str = "") -> str:
     asked = f"You are consulted now because of: {consult_reason}.\n" if consult_reason else ""
-    # Who may accept a residual risk depends on this project's question policy.
+    # Who decides in the operator's place depends on this project's question policy.
     root = getattr(observation, "root", None)
+    holds = _manager_holds_operator_authority(root)
     return (
         "You are the persistent project Manager, supervising the team's progress toward the "
         "operator's actual objective. Assess the concrete evidence below. A successful tool "
@@ -473,14 +475,20 @@ def _prompt(observation: ManagerObservation, consult_reason: str = "") -> str:
         "steer toward it. "
         + _risk_authority_rule(root)
         + "Choose CONTINUE if the current course is justified; STEER to give a concrete corrected "
-        "instruction through the persistent Manager direction read at the team's next boundary; WAIT only when a persisted operator "
-        "question prevents further work. WAIT pauses automatic planning and preserves the "
-        "task and question. Do not use WAIT for ordinary implementation failures; steer a fix. "
+        "instruction through the persistent Manager direction read at the team's next boundary"
+        + (
+            ". There is no WAIT: nobody waits on the operator, and a parked operator "
+            "question is yours to decide. "
+            if holds
+            else "; WAIT only when a persisted operator question prevents further work. "
+            "WAIT pauses automatic planning and preserves the task and question. Do not "
+            "use WAIT for ordinary implementation failures; steer a fix. "
+        )
         + _standard_rule(root)
         + "Scheduling belongs to Argus and its operator: never direct a role to pause, "
         "stop or reschedule work by editing Argus's own state.\n"
         "End your reply with these fields, each on its own line in the form KEY: value:\n"
-        "ACTION: continue, steer or wait (the single word)\n"
+        + f"ACTION: {'continue or steer' if holds else 'continue, steer or wait'} (the single word)\n"
         "REASON: the decisive observed condition and what should happen next\n"
         "EVIDENCE_REFS: semicolon-separated paths from evidence_refs\n"
         "DIRECTIVE: the corrected team instruction (only for STEER)\n"
@@ -548,8 +556,8 @@ def _apply_risk_decision(
         return
     if risk.get("action") != "accept":
         return
-    if not _manager_accepts_risk(root):
-        effects["residual_risk_refused"] = "an operator is available; accepting a residual risk is theirs"
+    if not _manager_holds_operator_authority(root):
+        effects["residual_risk_refused"] = "the operator can be asked; accepting a residual risk is theirs"
         return
     item_id = str((record.get("trigger") or {}).get("item_id") or "")
     if not item_id:
@@ -880,6 +888,10 @@ def supervise(
                     raise RuntimeError("Manager supervision was interrupted or failed")
                 failure_stage = "decision"
                 decision = _decision(extract_answer(result))
+                if decision["action"] == "wait" and _manager_holds_operator_authority(root):
+                    raise SupervisionDecisionError(
+                        "wait_unavailable", "the operator cannot be asked, so nothing waits on them",
+                    )
                 if decision["action"] == "wait":
                     waiting = [task for task in observation.facts["tasks"] if task.get("pending_question")]
                     record["waiting_task_ids"] = [task["id"] for task in waiting]

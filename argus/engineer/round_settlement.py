@@ -45,31 +45,32 @@ def _operator_questions_allowed(supervised_config: "SupervisedConfig") -> bool:
     )
 
 
+def _operator_only_action(review: ReviewDecision) -> bool:
+    """Whether the question asks for an action only the operator could approve.
+
+    Such a question is never settled on an assumption: it stays a question, and
+    while the operator cannot be asked the Manager decides it in their place
+    once the mission parks on it.
+    """
+    from ..core.autonomy import OPERATOR_ACTION_NEEDS, normalize_operator_need
+
+    report = review.planner_report if isinstance(review.planner_report, dict) else {}
+    return normalize_operator_need(report.get("operator_need")) in OPERATOR_ACTION_NEEDS
+
+
 def _record_forbidden_question(
     review: ReviewDecision,
     supervised_config: "SupervisedConfig",
-    action_need: str,
 ) -> None:
-    """Without an operator, keep the record the run report is built from.
+    """Keep the record the run report is built from.
 
-    An operator-only need is a block, not an assumption; anything else the
-    team now settles itself is logged as a conflict whose chosen reading the
-    Engineer states (``ASSUMPTION=``) and CHECKPOINT.md keeps.
+    The team now settles the question itself; it is logged as a conflict whose
+    chosen reading the Engineer states (``ASSUMPTION=``) and CHECKPOINT.md keeps.
     """
-    from ..core.autonomy import (
-        OPERATOR_ACTION_NEEDS,
-        operator_available,
-        record_autonomous_assumption,
-        record_operator_block,
-    )
+    from ..core.autonomy import record_autonomous_assumption
 
     root = getattr(supervised_config, "operator_question_policy_root", None)
-    if root is None or operator_available():
-        return
-    if action_need in OPERATOR_ACTION_NEEDS:
-        record_operator_block(
-            root, item_id="", reason=review.operator_question, operator_need=action_need
-        )
+    if root is None:
         return
     record_autonomous_assumption(
         root,
@@ -85,7 +86,11 @@ def _enforce_operator_question_policy(
     supervised_config: "SupervisedConfig",
     state: RoundLoopState,
 ) -> ReviewDecision:
-    if _operator_questions_allowed(supervised_config) or not review.operator_question:
+    if (
+        _operator_questions_allowed(supervised_config)
+        or not review.operator_question
+        or _operator_only_action(review)
+    ):
         return review
     # A turn nobody judged (a turn-limit restart, a dropped session) between
     # two forbidden questions does not make the second one new.
@@ -98,16 +103,7 @@ def _enforce_operator_question_policy(
         and judged[-1].review.review_source
         in OPERATOR_QUESTION_POLICY_REVIEW_SOURCES
     )
-    from ..core.autonomy import OPERATOR_ACTION_NEEDS, normalize_operator_need
-
-    raw_report = review.planner_report if isinstance(review.planner_report, dict) else {}
-    action_need = normalize_operator_need(raw_report.get("operator_need"))
-    if action_need in OPERATOR_ACTION_NEEDS:
-        # The raising role said this needs an action only the operator can
-        # enable. Continuing "autonomously" could only mean faking it, so the
-        # mission ends blocked at once and says what was missing.
-        repeated = True
-    _record_forbidden_question(review, supervised_config, action_need)
+    _record_forbidden_question(review, supervised_config)
     # ReviewDecision is a plain dataclass, so nothing enforces this field's
     # type at runtime, and it carries model-derived data into a completion
     # decision. ``core.models.ReviewDecision.to_event_payload`` guards the same
@@ -122,10 +118,7 @@ def _enforce_operator_question_policy(
             "authority_impact": "technical",
         }
     )
-    if action_need in OPERATOR_ACTION_NEEDS:
-        planner_report["operator_need"] = action_need
-    else:
-        planner_report.pop("operator_need", None)
+    planner_report.pop("operator_need", None)
     source = (
         "engineer_operator_question_policy"
         if review.review_source == "engineer_operator_question"
@@ -133,10 +126,7 @@ def _enforce_operator_question_policy(
     )
     status = "blocked" if repeated else "continue"
     reason = (
-        f"Blocked: this needs an operator-only action ({action_need}) and no "
-        f"operator can be asked: {review.operator_question}"[:1200]
-        if action_need in OPERATOR_ACTION_NEEDS
-        else "Operator questions are forbidden and the autonomous continuation did "
+        "Operator questions are forbidden and the autonomous continuation did "
         "not clear the obstacle; state is preserved."
         if repeated
         else "Operator questions are forbidden; the obstacle remains owned by "
@@ -208,7 +198,7 @@ def enforce_terminal_question_policy(
                     operator_options=[],
                 ),
             )
-            if record.review.operator_question
+            if record.review.operator_question and not _operator_only_action(record.review)
             else record
         )
         for record in rounds

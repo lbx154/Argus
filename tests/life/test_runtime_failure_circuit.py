@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import time
 from pathlib import Path
 from types import SimpleNamespace
 
@@ -264,19 +265,22 @@ def test_supervisor_run_stops_cleanly_instead_of_spinning_on_open_circuit(
     assert summary["suggested_sleep"] > 0
 
 
-def test_reviewed_canary_item_bypasses_and_closes_open_circuit(
+def test_reviewed_admitted_canary_closes_open_circuit(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     monkeypatch.setattr(circuit_module, "runtime_failure_identity", _identity)
-    record_runtime_failure_circuit(tmp_path, _checkpoint_error("aaaaaaaaaaaa"))
+    state = record_runtime_failure_circuit(tmp_path, _checkpoint_error("aaaaaaaaaaaa"))
+    # A half-open window is due: the next dispatched item is its canary. A tag
+    # the circuit did not hand out is no longer a pass of its own.
+    state["canary_due_at"] = time.time() - 1
+    (tmp_path / CIRCUIT_FILENAME).write_text(json.dumps(state), encoding="utf-8")
     memory = LifeMemory.open(tmp_path)
     memory.init()
     item = memory.backlog.add(
         BacklogItem.new(
             title="runtime canary",
             objective="prove the repaired settlement path",
-            tags=["runtime_failure_canary"],
         )
     )
 
@@ -311,6 +315,7 @@ def test_reviewed_canary_item_bypasses_and_closes_open_circuit(
     assert result is not None and result["success"] is True
     row = next(row for row in memory.backlog.all() if row.id == item.id)
     assert row.status == "done"
+    assert "runtime_failure_canary" in row.tags
     assert active_runtime_failure_circuit(tmp_path) is None
 
 

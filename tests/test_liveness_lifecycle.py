@@ -5,6 +5,7 @@ from __future__ import annotations
 import json
 import time
 from pathlib import Path
+from types import SimpleNamespace
 
 from argus.core.event_catalog import EventType
 from argus.core.models import RunnerResult
@@ -20,7 +21,7 @@ from argus.life.runtime_failure_circuit import (
     runtime_failure_canary_cooldown_seconds,
 )
 from argus.life.supervisor import LifeBudget, LifeSupervisor, LifeSupervisorConfig
-from argus.life.supervisor._constants import PLAN_AWAITING
+from argus.life.supervisor._constants import PLAN_AWAITING, PLAN_RETRY
 from argus.planner import PlannerConfig, parse_planner_text
 from argus.skills.vertical_select import persist_vertical
 
@@ -351,6 +352,92 @@ def test_a_canary_tag_on_a_row_the_circuit_did_not_admit_neither_passes_nor_clea
     )
 
 
+def test_a_canary_tag_before_any_admission_waits_for_a_window_and_cannot_clear(
+    tmp_path: Path, monkeypatch,
+) -> None:
+    project = _project(tmp_path, monkeypatch)
+    supervisor = _supervisor(project, tmp_path / "life")
+    root = supervisor.memory.root
+    _open_circuit(root)
+    stale = BacklogItem.new(title="stale", objective="a", tags=[CANARY_TAG])
+    supervisor.memory.backlog.add(stale)
+
+    held = supervisor._runtime_failure_circuit_block(item=stale)
+    assert held is not None and held["status"] == "infra_blocked"
+    assert not clear_runtime_failure_circuit(
+        root, reason="stale tag passed", canary_item_id=stale.id
+    )
+    assert active_runtime_failure_circuit(root) is not None
+
+
+def test_a_changed_fact_opens_a_half_open_window_without_waiting(
+    tmp_path: Path,
+) -> None:
+    root = tmp_path / "life"
+    opened = float(_open_circuit(root)["first_observed_at"])
+
+    # The first claim records what it saw; the same facts are not news.
+    assert not claim_runtime_failure_half_open(
+        root, slot="mission", item_id="a", facts={"backend": "a"}, now=opened + 1
+    )
+    assert not claim_runtime_failure_half_open(
+        root, slot="mission", item_id="a", facts={"backend": "a"}, now=opened + 2
+    )
+    assert claim_runtime_failure_half_open(
+        root, slot="mission", item_id="a", facts={"backend": "b"}, now=opened + 3
+    )
+    # One canary per window, and the window has now seen these facts.
+    assert not claim_runtime_failure_half_open(
+        root, slot="mission", item_id="b", expected_canary_item_id="a",
+        facts={"backend": "b"}, now=opened + 4,
+    )
+    assert json.loads((root / CIRCUIT_FILENAME).read_text())["canary_facts"] == {
+        "backend": "b"
+    }
+
+
+def test_the_timed_canary_window_is_a_knob_that_can_leave_windows_to_facts(
+    tmp_path: Path, monkeypatch,
+) -> None:
+    assert runtime_failure_canary_cooldown_seconds(1) == 1800.0
+    # Each failed window doubles the wait; there is no fixed ceiling, since a
+    # changed fact opens the next window at once.
+    assert runtime_failure_canary_cooldown_seconds(8) == 1800.0 * 2**7
+    monkeypatch.setenv("ARGUS_SKILL_RUNTIME_CANARY_COOLDOWN_MIN", "10")
+    assert runtime_failure_canary_cooldown_seconds(2) == 1200.0
+
+    monkeypatch.setenv("ARGUS_SKILL_RUNTIME_CANARY_COOLDOWN_MIN", "0")
+    root = tmp_path / "life"
+    opened = float(_open_circuit(root)["first_observed_at"])
+    assert not claim_runtime_failure_half_open(
+        root, slot="mission", item_id="a", facts={"model": "m1"}, now=opened + 30 * 86400
+    )
+    assert claim_runtime_failure_half_open(
+        root, slot="mission", item_id="a", facts={"model": "m2"}, now=opened + 30 * 86400
+    )
+    # No timed window is configured, so none is scheduled.
+    assert json.loads((root / CIRCUIT_FILENAME).read_text())["canary_due_at"] == 0.0
+
+
+def test_supervisor_admits_a_canary_when_its_watched_facts_change(
+    tmp_path: Path, monkeypatch,
+) -> None:
+    project = _project(tmp_path, monkeypatch)
+    supervisor = _supervisor(project, tmp_path / "life")
+    root = supervisor.memory.root
+    _open_circuit(root)
+    assert supervisor._runtime_failure_canary_facts()
+    item = supervisor.memory.backlog.add(BacklogItem.new(title="work", objective="a"))
+
+    assert supervisor._runtime_failure_circuit_block(item=item) is not None
+    monkeypatch.setattr(
+        supervisor, "_runtime_failure_canary_facts", lambda: {"operator_context_revision": 99}
+    )
+    assert supervisor._runtime_failure_circuit_block(item=item) is None
+    stored = next(row for row in supervisor.memory.backlog.active() if row.id == item.id)
+    assert CANARY_TAG in stored.tags
+
+
 def test_rows_derived_from_a_canary_do_not_inherit_its_tag(tmp_path: Path) -> None:
     backlog = LifeMemory.open(tmp_path / "life").backlog
     asked = BacklogItem.new(title="asked", objective="a", tags=["planner", CANARY_TAG])
@@ -396,6 +483,131 @@ def test_waiting_verdict_with_concrete_tasks_enqueues_the_tasks(
     assert [item.title for item in supervisor.memory.backlog.pending()] == [
         "Write the analysis harness"
     ]
+
+
+def _wait_with_task(*fields: str) -> str:
+    return "\n".join([
+        "PROJECT_DONE=false",
+        "REASON=The release waits; write the changelog meanwhile.",
+        "WAITING=true",
+        "WAITING_REASON=The release is held.",
+        "BLOCKER_FINGERPRINT=release-held",
+        "RECHECK_CONDITION=The release hold is lifted",
+        "RECHECK_TOKEN=release-v1",
+        *fields,
+        "TASK_KEY=changelog",
+        "TASK_TITLE=Write the changelog",
+        "TASK_OBJECTIVE=Write the changelog for the held release.",
+    ])
+
+
+def _active_wait(life: Path) -> dict:
+    paths = list(life.glob("planner-waiting-contract-*.json"))
+    if not paths:
+        return {}
+    state = json.loads(paths[0].read_text(encoding="utf-8"))
+    return state if state.get("active") else {}
+
+
+def test_operator_wait_declared_with_tasks_is_kept_beside_them(
+    tmp_path: Path, monkeypatch,
+) -> None:
+    monkeypatch.setenv("ARGUS_SKILL_OPERATOR_AVAILABLE", "true")
+    project = _project(tmp_path, monkeypatch)
+    life = tmp_path / "life"
+    planner = _PlannerBackend([_wait_with_task("OPERATOR_ACTION_REQUIRED=true")])
+    supervisor = _supervisor(project, life, planner)
+
+    assert supervisor._plan_next_work() is True
+
+    assert [item.title for item in supervisor.memory.backlog.pending()] == [
+        "Write the changelog"
+    ]
+    wait = _active_wait(life)
+    assert wait["operator_action_required"] is True
+    assert wait["blocker_fingerprint"] == "release-held"
+
+
+def test_operator_wait_with_tasks_and_no_operator_is_left_to_the_next_bare_wait(
+    tmp_path: Path, monkeypatch,
+) -> None:
+    monkeypatch.setenv("ARGUS_SKILL_OPERATOR_AVAILABLE", "false")
+    project = _project(tmp_path, monkeypatch)
+    life = tmp_path / "life"
+    planner = _PlannerBackend([_wait_with_task("OPERATOR_ACTION_REQUIRED=true")])
+    supervisor = _supervisor(project, life, planner)
+
+    assert supervisor._plan_next_work() is True
+
+    assert [item.title for item in supervisor.memory.backlog.pending()] == [
+        "Write the changelog"
+    ]
+    assert _active_wait(life) == {}
+
+
+class _StageManager:
+    def __init__(self, decision: SimpleNamespace) -> None:
+        self.decision = decision
+        self.calls: list[dict] = []
+
+    def decide_stage_transition(self, **kwargs):  # noqa: ANN003
+        self.calls.append(kwargs)
+        return self.decision
+
+
+def _stage_decision(**overrides) -> SimpleNamespace:  # noqa: ANN003
+    fields = {
+        "action": "hold",
+        "target_stage": "",
+        "reason": "The stage still owes its review.",
+        "current_stage": "",
+        "source": "manager_llm",
+        "diagnostic": "",
+        "resolves_wait": False,
+    }
+    fields.update(overrides)
+    return SimpleNamespace(**fields)
+
+
+def test_stage_reconciliation_request_with_tasks_reaches_the_manager_and_replans(
+    tmp_path: Path, monkeypatch,
+) -> None:
+    """85235d97: a bounded campaign reconciles an explicit stage request. Tasks
+    beside it do not swallow the request; the Manager's repair is planned."""
+    project = _project(tmp_path, monkeypatch)
+    life = tmp_path / "life"
+    planner = _PlannerBackend([_wait_with_task("STAGE_RECONCILIATION_REQUIRED=true")])
+    supervisor = _supervisor(project, life, planner)
+    manager = _StageManager(_stage_decision())
+    supervisor._bound_manager = lambda: manager  # type: ignore[method-assign]
+
+    assert supervisor._plan_next_work() == PLAN_RETRY
+
+    assert len(manager.calls) == 1
+    assert manager.calls[0]["open_ended"] is False
+    assert manager.calls[0]["planner_verdict"].new_tasks == []
+    assert supervisor.memory.backlog.pending() == []
+    feedback = supervisor._load_manager_planner_feedback()
+    assert feedback["diagnostic"] == "manager_hold_requires_stage_repair"
+
+
+def test_stage_reconciliation_request_held_by_the_manager_keeps_tasks_and_wait(
+    tmp_path: Path, monkeypatch,
+) -> None:
+    project = _project(tmp_path, monkeypatch)
+    life = tmp_path / "life"
+    planner = _PlannerBackend([_wait_with_task("STAGE_RECONCILIATION_REQUIRED=true")])
+    supervisor = _supervisor(project, life, planner)
+    manager = _StageManager(_stage_decision(source="no_review_hold"))
+    supervisor._bound_manager = lambda: manager  # type: ignore[method-assign]
+
+    assert supervisor._plan_next_work() is True
+
+    assert len(manager.calls) == 1
+    assert [item.title for item in supervisor.memory.backlog.pending()] == [
+        "Write the changelog"
+    ]
+    assert _active_wait(life)["stage_reconciliation_required"] is True
 
 
 def test_child_of_a_filtered_in_batch_parent_is_held_not_run_without_it(
@@ -481,6 +693,50 @@ def test_operator_question_on_an_ended_node_is_held_and_answerable(
     assert continuation is not None and continuation.status == "pending"
 
 
+def test_a_question_about_finished_work_neither_holds_nor_skips_its_dependents(
+    tmp_path: Path,
+) -> None:
+    backlog = LifeMemory.open(tmp_path / "life").backlog
+    source = backlog.add(BacklogItem.new(title="Build", objective="build"))
+    dependent = backlog.add(
+        BacklogItem.new(title="Ship", objective="ship", deps=[source.id])
+    )
+    backlog.update(source.id, status="done", finished_ts=time.time())
+
+    holder = backlog.park_terminal_operator_question(
+        source.id,
+        holder_id=BacklogItem.new_id(),
+        question="May the gate change?",
+        operator_decision={},
+    )
+
+    assert holder is not None and holder.status == "paused_operator"
+    row = next(item for item in backlog.active() if item.id == dependent.id)
+    assert row.deps == [source.id]
+    assert backlog.stop_for_operator_decision(holder.id) is not None
+    assert backlog.next_pending().id == dependent.id
+
+
+def test_a_question_whose_mission_left_no_row_does_not_raise(
+    tmp_path: Path, monkeypatch,
+) -> None:
+    monkeypatch.setenv("ARGUS_SKILL_OPERATOR_AVAILABLE", "true")
+    project = _project(tmp_path, monkeypatch)
+    supervisor = _supervisor(project, tmp_path / "life")
+
+    action = supervisor._adjudicate_mission_challenge({
+        "item_id": "never-existed",
+        "status": "replan_requested",
+        "plan_challenge": {
+            "manager_action": "ask_operator",
+            "challenge": "The work order is held by an unreleased gate.",
+        },
+    })
+
+    assert action == "ask_operator"
+    assert supervisor.memory.backlog.active() == []
+
+
 def test_structured_planner_decision_carries_retirements() -> None:
     verdict = parse_planner_text(json.dumps({
         "project_done": False,
@@ -530,3 +786,41 @@ def test_manager_wait_grants_the_planner_one_turn_per_input_state(
     # Nothing the Planner reads has moved: the WAIT holds without a call.
     assert supervisor._plan_next_work() == PLAN_AWAITING
     assert len(planner.calls) == 1
+
+    # A restart (a crash-looping daemon, say) reads what the Planner last saw
+    # back from disk: unchanged inputs still hold without a call.
+    restarted = _supervisor(project, tmp_path / "life", planner)
+    assert restarted._plan_next_work() == PLAN_AWAITING
+    assert len(planner.calls) == 1
+
+
+def test_an_unreadable_last_turn_record_allows_one_planner_call(
+    tmp_path: Path, monkeypatch,
+) -> None:
+    project = _project(tmp_path, monkeypatch)
+    monkeypatch.setattr(
+        "argus.manager.supervision.waiting_for_evidence", lambda *_a, **_k: True
+    )
+    wait = "\n".join([
+        "PROJECT_DONE=false",
+        "REASON=Nothing to do until the operator picks the venue.",
+        "WAITING=true",
+        "WAITING_REASON=The venue is undecided.",
+    ])
+    planner = _PlannerBackend([wait, wait])
+    life = tmp_path / "life"
+    supervisor = _supervisor(project, life, planner)
+    assert supervisor._plan_next_work() == PLAN_AWAITING
+    assert len(planner.calls) == 1
+    record = life / "planner-last-turn.json"
+    assert json.loads(record.read_text(encoding="utf-8"))["signature"]
+
+    record.write_text("{not json", encoding="utf-8")
+    restarted = _supervisor(project, life, planner)
+    assert restarted._planner_last_turn_signature == ""
+    assert restarted._plan_next_work() == PLAN_AWAITING
+    assert len(planner.calls) == 2
+    # That call is recorded again, so the next restart holds.
+    assert _supervisor(project, life, planner)._plan_next_work() == PLAN_AWAITING
+    assert len(planner.calls) == 2
+

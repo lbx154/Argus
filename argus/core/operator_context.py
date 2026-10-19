@@ -1303,8 +1303,8 @@ def build_operator_context_block(
     if not operator_available():
         lines.append(
             "- operator availability: no operator is available during this run, "
-            "so no question will be answered. Do not ask one or wait for one. "
-            "Where a decision would normally go to the operator, the team takes "
+            "so the Manager decides in their place. Do not wait for one. Where "
+            "a question of meaning would normally go to the operator, the team takes "
             "the most defensible interpretation of what a requirement means and "
             "records that assumption, with the conflict behind it, in "
             "CHECKPOINT.md and the run report, never inside a machine-graded "
@@ -1314,9 +1314,9 @@ def build_operator_context_block(
             "results, and never substitute placeholder credentials or mocked "
             "services in what is delivered. "
             + LABELLED_FIXTURE_CARVE_OUT
-            + " Still never "
-            "spend money, use real credentials, or take irreversible or "
-            "outward-facing actions without authority."
+            + " Never spend money, use real credentials, or take an irreversible "
+            "or outward-facing action on an assumption: ask for it, naming its "
+            "operator need, and the Manager decides it."
         )
     if role == "reviewer":
         lines.append(

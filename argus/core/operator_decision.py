@@ -208,7 +208,7 @@ def selected_decision_text(card: Mapping[str, Any], option_id: str, note: str) -
     if requires_note and not description:
         return note
     selected_text = description or str(option.get("label") or "").strip()
-    return f"{selected_text}\n\nOperator note: {note}" if note else selected_text
+    return f"{selected_text}\n\nNote: {note}" if note else selected_text
 
 
 __all__ = [

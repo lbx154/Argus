@@ -79,44 +79,81 @@ def _handoff_child_env(
     monkeypatch.setattr(LifeWorker, "run_forever", lambda _self: 0)
 
 
-def test_handoff_candidate_keeps_waiting_while_incumbent_drains(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch,
+class _FakeLock:
+    def release(self) -> None:
+        return
+
+
+def _operator_alerts(life_dir: Path) -> list[dict[str, Any]]:
+    path = life_dir / "events.jsonl"
+    if not path.is_file():
+        return []
+    events = [json.loads(line) for line in path.read_text(encoding="utf-8").splitlines()]
+    return [event for event in events if event.get("type") == "operator_alert"]
+
+
+@pytest.mark.parametrize("incumbent_env", [True, False])
+def test_handoff_candidate_waits_as_long_as_the_incumbent_lives(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, incumbent_env: bool,
 ) -> None:
     _handoff_child_env(tmp_path, monkeypatch, incumbent_pid=4321)
+    if not incumbent_env:
+        # An incumbent from an earlier release names itself only as the
+        # daemon lock's holder; the first holder seen is that incumbent.
+        monkeypatch.delenv(handoff_mod._HANDOFF_INCUMBENT_PID_ENV)
     attempts: list[float] = []
+    # Each check sees ten more minutes pass: a fixed drain cap would have
+    # given up long before this incumbent finished.
+    clock = iter(range(0, 10**9, 600))
+    monkeypatch.setattr(
+        handoff_mod,
+        "time",
+        SimpleNamespace(monotonic=lambda: float(next(clock)), time=time.time, sleep=time.sleep),
+    )
 
-    class FakeLock:
-        def release(self) -> None:
-            return
-
-    def fake_acquire(pid_path: Path, timeout: float) -> FakeLock:
+    def fake_acquire(pid_path: Path, timeout: float) -> _FakeLock:
         attempts.append(timeout)
-        if len(attempts) < 3:  # the incumbent is still draining
+        if len(attempts) < 25:  # the incumbent is still draining
             raise life_worker_mod.DaemonAlreadyRunning(4321, pid_path)
-        return FakeLock()
+        return _FakeLock()
 
     monkeypatch.setattr(life_worker_mod, "_acquire_daemon_lock_with_timeout", fake_acquire)
     monkeypatch.setattr(handoff_mod, "is_pid_running", lambda pid: pid == 4321)
 
     assert life_worker_mod.run_handoff_child() == 0
-    assert attempts == [60.0, 60.0, 60.0]
+    assert attempts == [60.0] * 25
+    assert _operator_alerts(tmp_path / "life") == []
 
 
-def test_handoff_candidate_gives_up_only_once_incumbent_is_gone(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch,
+@pytest.mark.parametrize(
+    ("holder", "incumbent_alive"),
+    # Another process took the lock (the incumbent died, or never held it),
+    # or the incumbent itself is gone: either way this handoff is over.
+    [(999, True), (999, False), (4321, False)],
+)
+def test_handoff_candidate_gives_up_only_when_the_lock_is_not_the_incumbents(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    holder: int,
+    incumbent_alive: bool,
 ) -> None:
     _handoff_child_env(tmp_path, monkeypatch, incumbent_pid=4321)
     attempts: list[float] = []
 
     def fake_acquire(pid_path: Path, timeout: float) -> Any:
         attempts.append(timeout)
-        raise life_worker_mod.DaemonAlreadyRunning(999, pid_path)
+        raise life_worker_mod.DaemonAlreadyRunning(holder, pid_path)
 
     monkeypatch.setattr(life_worker_mod, "_acquire_daemon_lock_with_timeout", fake_acquire)
-    monkeypatch.setattr(handoff_mod, "is_pid_running", lambda _pid: False)
+    monkeypatch.setattr(handoff_mod, "is_pid_running", lambda _pid: incumbent_alive)
 
     assert life_worker_mod.run_handoff_child() == 2
     assert attempts == [60.0]
+    # The dropped handoff reaches the operator's timeline, not only a log.
+    alerts = _operator_alerts(tmp_path / "life")
+    assert [alert["reason"] for alert in alerts] == ["daemon_handoff_lock_taken"]
+    assert alerts[0]["operator_alert"] is True
+    assert f"pid {holder}" in alerts[0]["text"]
 
 
 @pytest.mark.parametrize(
@@ -153,8 +190,70 @@ def test_shutdown_replaces_a_successor_that_never_took_over(
         assert len(spawned) == 1
         assert spawned[0]["candidate_source_root"] == prior
         assert "rollback_source_root" not in spawned[0]
+        # The deployment it carried is dropped, and the operator is told.
+        alerts = _operator_alerts(tmp_path)
+        assert [alert["reason"] for alert in alerts] == ["daemon_handoff_successor_lost"]
+        assert "pid 4242" in alerts[0]["text"]
     else:
         assert spawned == []
+        assert _operator_alerts(tmp_path) == []
+
+
+def test_shutdown_tells_the_operator_when_no_daemon_is_left(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setattr(run_mod, "is_pid_running", lambda _pid: False)
+    monkeypatch.setattr(life_worker_mod, "_spawn_handoff_candidate", lambda *_a, **_k: 0)
+    monkeypatch.setattr("argus.core.runtime_identity.source_root", lambda: tmp_path)
+    worker = LifeWorker(LifeWorkerConfig(life_dir=tmp_path, backend="memory"))
+    worker._handoff_successor_pid = 4242
+
+    assert worker._rf_shutdown(SimpleNamespace(runtime_root=tmp_path)) == 0
+
+    alerts = _operator_alerts(tmp_path)
+    assert [alert["reason"] for alert in alerts] == ["daemon_handoff_replacement_failed"]
+    assert "no daemon is running" in alerts[0]["text"]
+
+
+def test_handoff_gate_tells_the_operator_when_the_deployment_never_starts(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    cfg = LifeWorkerConfig(life_dir=tmp_path / "life", backend="memory")
+    cfg.life_dir.mkdir(parents=True)
+    deployed = tmp_path / "deployed"
+    deployed.mkdir()
+    handoff_mod.request_deployment_handoff(
+        cfg.life_dir / "maintenance" / "receipts", deployed,
+    )
+    monkeypatch.setattr(life_worker_mod, "_spawn_handoff_candidate", lambda *_a, **_k: 0)
+    monkeypatch.setattr(
+        "argus.core.runtime_identity.source_root", lambda: tmp_path / "prior",
+    )
+    worker = LifeWorker(cfg)
+
+    assert worker._deployment_handoff_gate() == ""
+
+    assert not worker._stop.is_set()
+    alerts = _operator_alerts(cfg.life_dir)
+    assert [alert["reason"] for alert in alerts] == ["daemon_handoff_standby_failed"]
+    assert str(deployed.resolve()) in alerts[0]["text"]
+
+
+def test_rollback_that_cannot_start_tells_the_operator(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    _handoff_child_env(tmp_path, monkeypatch, incumbent_pid=4321)
+    monkeypatch.setenv(handoff_mod._HANDOFF_ROLLBACK_SOURCE_ENV, str(tmp_path))
+    monkeypatch.setattr(LifeWorker, "run_forever", lambda _self: 1)
+    monkeypatch.setattr(
+        life_worker_mod, "_acquire_daemon_lock_with_timeout", lambda *_a: _FakeLock(),
+    )
+    monkeypatch.setattr(handoff_mod, "_spawn_handoff_candidate", lambda *_a, **_k: 0)
+
+    assert life_worker_mod.run_handoff_child() == 1
+
+    alerts = _operator_alerts(tmp_path / "life")
+    assert [alert["reason"] for alert in alerts] == ["daemon_handoff_rollback_failed"]
 
 
 # ---------------------------------------------------------------------------
@@ -247,9 +346,16 @@ def test_team_board_stale_past_its_limit_is_stalled(tmp_path: Path) -> None:
     assert status is not None and status.state is ExternalWorkState.STALLED
     assert "has not changed" in status.reason
     # A parked task's own work has its own staleness; the board does not judge it.
-    _team(tmp_path, "running", "waiting_external", team_id="w")
-    waiting = inspect_external_work(tmp_path, "team:w", now=later)
-    assert waiting is not None and waiting.state is ExternalWorkState.RUNNING_HEALTHY
+    _team(tmp_path, "waiting_external", "done", team_id="p")
+    parked = inspect_external_work(tmp_path, "team:p", now=later)
+    assert parked is not None and parked.state is ExternalWorkState.RUNNING_HEALTHY
+    # Nor does a parked or finished sibling vouch for a wedged running task,
+    # however fresh its own stamps are.
+    root = _team(tmp_path, "running", "waiting_external", "done", team_id="w")
+    task_board._mutate(root, "w-2", heartbeat_ts=later, finished_ts=later)
+    task_board._mutate(root, "w-3", finished_ts=later)
+    masked = inspect_external_work(tmp_path, "team:w", now=later)
+    assert masked is not None and masked.state is ExternalWorkState.STALLED
     # Pending work queues for the Curator (its in-flight cap, a daemon
     # restart); nothing claimed it, so nothing is wedged.
     _team(tmp_path, "pending", "pending", team_id="q")
@@ -367,6 +473,22 @@ def test_curator_spawns_nothing_after_stop_is_requested(tmp_path: Path) -> None:
 
     assert curator._spawn_tracked(tmp_path, member_id="w1", task_id="a", cwd=tmp_path) == 0
     assert made == [] and curator._children == {}
+
+
+def test_curator_adopts_nothing_after_stop_is_requested(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    root = tmp_path / "team"
+    cur.roster.add_member(root, {"id": "w1", "pid": 4242, "cwd": str(tmp_path),
+                                 "task_id": "a", "status": "running"})
+    monkeypatch.setattr(cur, "_pid_is_teammate", lambda pid, _mid, _root=None: pid == 4242)
+    curator = cur.Curator(project_root=tmp_path, make_proc=lambda *_a: _FakeProc())
+    # stop() already tore ``_children`` down; an adoption now would leave the
+    # teammate owned by nobody, so the next daemon's Curator adopts it instead.
+    curator._stop.set()
+
+    assert curator._adopt_orphans(root, now=100.0) == []
+    assert curator._children == {}
 
 
 def test_claim_raced_by_stop_is_handed_back(

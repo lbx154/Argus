@@ -28,6 +28,21 @@ if TYPE_CHECKING:
 _ENGINEER_SELF_HANDOFF_LIMIT = 2
 
 
+def _unjudged_turns_capped(supervised_config: "SupervisedConfig") -> bool:
+    """Whether consecutive unjudged Engineer turns stop at the limit.
+
+    Where independent review is required they always do. Where it is not, a
+    positive ``max_rounds`` already ends the loop, so only an uncapped run
+    needs the count: its only other exit is a ``done`` the Engineer might
+    never write. That case is a stopgap until HO-12 hands an unchanged return
+    upward on what changed rather than on a count.
+    """
+    return (
+        supervised_config.require_independent_review
+        or supervised_config.max_rounds <= 0
+    )
+
+
 def _round_handoff(outcome: EngineerTurnOutcome) -> EngineerHandoff:
     """Who owns the work next, read from the decision the Engineer recorded.
 
@@ -97,11 +112,11 @@ def _record_stated_assumption(
     The run report lists the reading in the Engineer's own words, from its
     decision (``assumption``) or footer (``ASSUMPTION=``).
     """
-    from ..core.autonomy import operator_available, record_autonomous_assumption
+    from ..core.autonomy import operator_questions_can_be_asked, record_autonomous_assumption
     from ..core.role_reply import decision_footer_text
 
     root = getattr(supervised_config, "operator_question_policy_root", None)
-    if root is None or operator_available():
+    if root is None or operator_questions_can_be_asked(root):
         return
     reading = ""
     if isinstance(outcome.decision, dict):
@@ -221,11 +236,13 @@ class RoundSelfReviewMixin:
             )
         if handoff.next_owner == "engineer" and not state.pending_external_wait_review:
             # A self-handoff skips the Reviewer and, with it, every round guard
-            # (those are evaluated at settlement). Two in a row continue and the
-            # third goes to the Reviewer, so the Engineer cannot run unjudged --
-            # also where independent review is not required, which otherwise
-            # had no exit but a ``done`` the Engineer might never write.
-            if state.engineer_self_handoffs < _ENGINEER_SELF_HANDOFF_LIMIT:
+            # (those are evaluated at settlement). Where the run is capped (see
+            # _unjudged_turns_capped), two in a row continue and the third goes
+            # to the Reviewer, so the Engineer cannot run unjudged.
+            if (
+                not _unjudged_turns_capped(supervised_config)
+                or state.engineer_self_handoffs < _ENGINEER_SELF_HANDOFF_LIMIT
+            ):
                 state.engineer_self_handoffs += 1
                 return control_continue_loop()
             return control_proceed()
@@ -251,9 +268,12 @@ class RoundSelfReviewMixin:
                     on_event=on_event,
                 )
             # An unfinished self-reviewed milestone is the same unjudged
-            # continuation as a self-handoff and shares its limit; past it the
+            # continuation as a self-handoff and shares its cap; past it the
             # Reviewer judges the turn and settlement's round guards apply.
-            if state.engineer_self_handoffs < _ENGINEER_SELF_HANDOFF_LIMIT:
+            if (
+                not _unjudged_turns_capped(supervised_config)
+                or state.engineer_self_handoffs < _ENGINEER_SELF_HANDOFF_LIMIT
+            ):
                 state.engineer_self_handoffs += 1
                 return control_continue_loop()
         return control_proceed()

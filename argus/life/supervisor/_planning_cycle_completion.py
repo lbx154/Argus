@@ -582,6 +582,21 @@ class PlanningCycleCompletionMixin:
                 return True
             return record
 
+        carried = state.carried_wait
+        if carried is not None:
+            # The tasks run, and the wait declared with them stays recorded.
+            # An explicit stage-reconciliation request reaches the Manager now,
+            # as it would for a bare wait; a stage it moves leaves these tasks
+            # planned against the old one, so plan again under the new stage.
+            wait_only = replace(carried, new_tasks=[])
+            if revision_request is None and self._reconcile_open_ended_planner_waiting(
+                wait_only
+            ):
+                return PLAN_RETRY
+            if self._persist_planner_waiting_contract(carried.waiting_contract) is None:
+                self._emit_status("failed to persist the wait declared with tasks")
+            return None
+
         # The Planner has explicitly moved on from waiting. Preserve the
         # historical probed-token set for deduplication, but stop injecting the
         # old blocker into subsequent planning context.

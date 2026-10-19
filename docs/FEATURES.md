@@ -67,7 +67,7 @@ flowchart TD
     F -->|pause| P[Abort current mission and stop daemon]
     P --> PAUSED
     PAUSED -->|Explicit resume with work| M
-    OP -->|Manager-approved operator answer| Q
+    OP -->|Manager-approved operator answer, or Manager choice when the operator cannot be asked| Q
 ```
 
 ### Manager
@@ -143,7 +143,7 @@ The main Reviewer is read-only.
 | `done` | Settle mission successfully |
 | `continue` | Return `next_action` to Engineer |
 | `replan_requested` | Return to Planner |
-| `blocked` with operator question | Persist `paused_operator` and wait |
+| `blocked` with operator question | Persist `paused_operator` and wait; while the operator cannot be asked the Manager answers in their place |
 | `research_incomplete` | Preserve evidence and pause recoverably |
 | `paused_no_breakthrough` | Pause until a new route or evidence exists |
 | `exhausted_current_methods` | Pause without pretending project completion |
@@ -169,7 +169,11 @@ contract does not require one.
   circuit keyed by exception type, Argus call site, and normalized runtime path.
   Pending work and Planner calls are held under that same loaded release instead
   of repeatedly spending Agent turns. A release/source/checkpoint-contract change
-  or a reviewed canary closes the circuit.
+  or a reviewed canary closes the circuit. A canary window opens when a fact
+  the failure may depend on changes (backend or model switch, new operator
+  input); a timed window is only the fallback
+  (`ARGUS_SKILL_RUNTIME_CANARY_COOLDOWN_MIN`, doubling per window; 0 disables
+  it).
 
 Explicit pause stops the current mission and daemon while preserving the goal
 and backlog. An explicit resume that runs commands or changes artifacts is TEAM

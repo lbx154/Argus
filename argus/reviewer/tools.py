@@ -302,8 +302,8 @@ class ReviewActions:
                             "with request_review_decision (operator_need "
                             "scope_or_authority, accept_risk)."
                             if self.grounding.operator_available else
-                            "No operator is available, so the Manager sees this and "
-                            "decides whether to accept that risk."
+                            "The operator cannot be asked, so the Manager sees this "
+                            "and decides whether to accept that risk."
                         )
                     ),
                 }
@@ -539,7 +539,7 @@ class ReviewActions:
         if risk["accepted_by"] == "manager":
             if grounding.operator_available:
                 raise ValueError(
-                    "An operator is available, so accepting this risk is theirs to decide: "
+                    "The operator can be asked, so accepting this risk is theirs to decide: "
                     "ask with request_review_decision (operator_need scope_or_authority, accept_risk)."
                 )
             wanted = str(risk["acceptance"]).strip().strip("[]")
@@ -560,8 +560,8 @@ class ReviewActions:
             return f"{wanted}: accepted by the Manager"
         if not grounding.operator_available:
             raise ValueError(
-                "No operator is available in this run; only the Manager can accept this "
-                "risk. Name it in unverifiable on a revise_review instead."
+                "The operator cannot be asked in this run; only the Manager can accept "
+                "this risk. Name it in unverifiable on a revise_review instead."
             )
         card = next((
             card for card in reversed(grounding.operator_decisions) if operator_accepted(card, risk["check"])

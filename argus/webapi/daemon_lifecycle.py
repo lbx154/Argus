@@ -256,15 +256,19 @@ def start_project_daemon(
     config.continuous_open_ended = False
     from ..core.autonomy import operator_wait_marker_present
 
+    rearm_requested = resume_continuous
     if operator_wait_marker_present(life_dir):
         # The last worker ended waiting for an answer; whoever starts this one
         # (a web answer, a decision card, argus --answer) resumes that
-        # campaign. The new worker clears the marker when it starts.
+        # campaign. The new worker clears the marker when it starts. The exit
+        # left the campaign armed, so a disarmed one was paused, stopped or
+        # finished after it; only an explicit resume re-arms that.
         resume_continuous = True
     if resume_continuous:
         continuous = daemon_worker.read_continuous_state(life_dir)
         if (
-            not continuous.enabled
+            rearm_requested
+            and not continuous.enabled
             and continuous.objective.strip()
             and continuous.done_reason.strip().lower().startswith("operator ")
         ):
