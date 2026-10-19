@@ -302,7 +302,11 @@ def cmd_worker(args: argparse.Namespace) -> int:
 def cmd_submit(args: argparse.Namespace) -> int:
     """Submit a task. Returns immediately."""
     task_id = args.task_id
-    existing = _read_task(task_id)
+    try:
+        existing = _read_task(task_id)  # an id with no record path is refused here
+    except ValueError as exc:
+        print(json.dumps({"error": f"invalid task id: {exc}", "task_id": task_id}))
+        return 1
     busy_pid = _busy_owner_pid(existing) if existing else 0
     if existing and busy_pid:
         print(json.dumps({

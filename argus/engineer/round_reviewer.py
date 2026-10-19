@@ -13,6 +13,7 @@ to the round-settlement phase via ``RoundControl.payload``.
 """
 from __future__ import annotations
 
+import json
 import logging
 import time
 from dataclasses import replace
@@ -236,15 +237,24 @@ def operator_risk_decisions(root: Path | None, item_id: str) -> list[dict[str, A
     return [card for card in cards if card.get("status") == "resolved"]
 
 
+def _recorded_facts(value: object) -> list[int] | None:
+    """The ``file_facts`` the Planner recorded as JSON; an older digest records none."""
+    try:
+        facts = json.loads(str(value))
+    except ValueError:
+        return None
+    return facts if isinstance(facts, list) else None
+
+
 def mission_grounding(
-    supervised_config: Any, *, item_id: str, mission_ref: str, baseline: dict[str, str] | None,
+    supervised_config: Any, *, item_id: str, mission_ref: str, baseline: dict[str, list[int]] | None,
 ) -> dict[str, Any]:
     """What this mission's Reviewer quotes and acceptances are checked against.
 
     ``baseline``: the workspace's files as recorded when the first mission on
     this objective began; a file that no longer matches (or was not there) is
     never a source. ``packet_refs``: files the task packet names, each with the
-    file state the Planner recorded, which are sources while they still match it.
+    ``file_facts`` the Planner recorded, which are sources while they still match.
     ``accepted_risks``: the Manager's acceptances in force for this item;
     ``operator_decisions``: the operator's resolved decision cards for it.
     ``operator_questions_allowed``: whether a question reaches the operator in
@@ -256,7 +266,10 @@ def mission_grounding(
 
     contract = mission_contract(supervised_config)
     refs = tuple(
-        {"ref": str(ref.get("ref") or "").strip(), "content_hash": str(ref.get("content_hash") or "")}
+        {
+            "ref": str(ref.get("ref") or "").strip(),
+            "content_hash": _recorded_facts(ref.get("content_hash")),
+        }
         for ref in contract.get("context_refs") or []
         if isinstance(ref, dict) and str(ref.get("ref") or "").strip()
     )

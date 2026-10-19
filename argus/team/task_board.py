@@ -13,7 +13,7 @@ from pathlib import Path
 from typing import Any
 
 from ..core.portable_filename import (
-    legacy_hashed_filename_components,
+    legacy_filename_components,
     normalized_logical_identifier,
     portable_filename_component,
 )
@@ -46,7 +46,7 @@ def _legacy_paths(root: Path, task_id: str) -> tuple[Path, ...]:
     directory = _tasks_dir(root)
     return tuple(
         directory / f"{component}.json"
-        for component in legacy_hashed_filename_components(task_id)
+        for component in legacy_filename_components(task_id)
     )
 
 
@@ -184,8 +184,6 @@ def _task_from_spec(spec: dict[str, Any]) -> dict[str, Any]:
     _task_filename(tid)
     if not normalized_logical_identifier(tid):
         raise ValueError(f"invalid task_id for task board path: {tid!r}")
-    if len(tid.encode("utf-8")) > 120:
-        raise ValueError("task_id exceeds 120 UTF-8 bytes")
     return {
         "task_id": tid,
         "title": spec.get("title", ""),

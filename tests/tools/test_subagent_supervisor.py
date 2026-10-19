@@ -101,39 +101,14 @@ def _install_fake_codex(monkeypatch: pytest.MonkeyPatch, fake_run: Callable[...,
     monkeypatch.setattr(_sub._llm, "_run_backend_turn", fake_turn)
 
 
-def test_legacy_hashed_registry_record_is_read_and_migrated(
+def test_legacy_encoded_registry_records_are_cleaned_but_never_aliased(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    from argus.core.portable_filename import legacy_hashed_filename_components
     from argus.tools.subagent import _registry
 
     monkeypatch.chdir(tmp_path)
-    task_id = "team::task"
-    legacy_component = legacy_hashed_filename_components(task_id)[0]
-    legacy = _registry.REGISTRY_DIR / f"{legacy_component}.json"
-    legacy.parent.mkdir(parents=True)
-    legacy.write_text(
-        json.dumps({"task_id": task_id, "status": "running"}) + "\n",
-        encoding="utf-8",
-    )
-    legacy_exit = _registry.REGISTRY_DIR / f"{legacy_component}_logs" / "exit_code.run-1"
-    legacy_exit.parent.mkdir()
-    legacy_exit.write_text("7\n", encoding="utf-8")
-
-    assert _registry._read_task(task_id)["status"] == "running"
-    assert _registry._read_exit_code(task_id, "run-1") == 7
-    _registry._write_task(task_id, {"task_id": task_id, "status": "done"})
-
-    assert _registry._registry_path(task_id).exists()
-    assert not legacy.exists()
-    assert _registry._list_tasks() == [{
-        "task_id": task_id,
-        "status": "done",
-        "owner_team_task_id": "",
-        "owner_mission_id": "",
-    }]
-
+    _registry.REGISTRY_DIR.mkdir(parents=True)
     legacy_only_id = "~legacy"
     legacy_only = _registry.REGISTRY_DIR / f"{legacy_only_id}.json"
     legacy_only.write_text(
@@ -144,17 +119,14 @@ def test_legacy_hashed_registry_record_is_read_and_migrated(
     assert _sub.cmd_clean(argparse.Namespace()) == 0
     assert not legacy_only.exists()
 
-    other_id = "other::task"
-    aliased = _registry.REGISTRY_DIR / (
-        f"{legacy_hashed_filename_components(other_id)[0]}.json"
-    )
+    # A file an older release named for another id is that id's record.
+    aliased = _registry.REGISTRY_DIR / f"argus-id-{'0' * 64}.json"
     aliased.write_text(
-        json.dumps({"task_id": other_id, "state": "done"}) + "\n",
+        json.dumps({"task_id": "other::task", "state": "done"}) + "\n",
         encoding="utf-8",
     )
-    alias_id = aliased.stem
 
-    _registry._unlink_task_records(alias_id)
+    _registry._unlink_task_records(aliased.stem)
 
     assert aliased.exists()
 

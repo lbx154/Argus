@@ -86,9 +86,9 @@ class ReviewGrounding:
     ``task_text`` is the task as the Reviewer was given it (objective, scope,
     packet context). ``roots`` are the directories a quoted file may come from,
     and a file there counts only if it is still as the Planner recorded it when
-    the task packet named it (``packet_refs``: path and file state), or as it
-    was when the first mission on this objective began (``baseline``: resolved
-    path to recorded value); with no baseline, no unnamed file counts. So
+    the task packet named it (``packet_refs``: path and ``file_facts``), or as
+    it was when the first mission on this objective began (``baseline``:
+    resolved path to ``file_facts``); with no baseline, no unnamed file counts. So
     nothing an Engineer wrote or edited, in this mission or an earlier one on
     the objective, is a source: a statement that a check is impossible must
     come from the task, its packet or the environment.
@@ -101,8 +101,8 @@ class ReviewGrounding:
     task_text: str = ""
     roots: tuple[str, ...] = ()
     operator_available: bool = True
-    baseline: Mapping[str, str] | None = None
-    packet_refs: tuple[tuple[str, str], ...] = ()
+    baseline: Mapping[str, list[int]] | None = None
+    packet_refs: tuple[tuple[str, list[int]], ...] = ()
     accepted_risks: tuple[dict[str, Any], ...] = ()
     operator_decisions: tuple[dict[str, Any], ...] = ()
 
@@ -116,36 +116,35 @@ def _folded(text: str) -> str:
     return " ".join(str(text or "").translate(_QUOTE_FOLD).casefold().split())
 
 
-def _packet_state(candidate: Path, grounding: ReviewGrounding, base: Path) -> str:
-    """The file state the Planner recorded when the task packet named ``candidate``, or ""."""
-    for ref, state in grounding.packet_refs:
+def _packet_facts(candidate: Path, grounding: ReviewGrounding, base: Path) -> list[int]:
+    """The ``file_facts`` the Planner recorded when the task packet named ``candidate``, or []."""
+    for ref, facts in grounding.packet_refs:
         try:
             named = Path(ref).expanduser()
             named = (named if named.is_absolute() else base / named).resolve()
         except (OSError, RuntimeError, ValueError):
             continue
-        if named == candidate and state:
-            return state
-    return ""
+        if named == candidate and facts:
+            return facts
+    return []
 
 
 def _not_original(candidate: Path, source: str, grounding: ReviewGrounding, base: Path) -> str:
     """Why ``candidate`` is not the task's or environment's own file, or "" when it is."""
-    from ..core.grounding_baseline import file_sha256
-    from ..planner.planner import file_state
+    from ..core.file_facts import file_facts
 
     try:
-        recorded = _packet_state(candidate, grounding, base)
-        if recorded:
-            return "" if file_state(candidate) == recorded else (
-                f"{source} has changed since the task packet named it, so the words there "
-                "are this objective's own work, not the packet's"
-            )
-        baseline = grounding.baseline
-        if baseline is not None and baseline.get(str(candidate)) == file_sha256(candidate):
-            return ""
+        current = file_facts(candidate)
     except OSError:
         return f"{source} cannot be read"
+    recorded = _packet_facts(candidate, grounding, base)
+    if recorded:
+        return "" if current == recorded else (
+            f"{source} has changed since the task packet named it, so the words there "
+            "are this objective's own work, not the packet's"
+        )
+    if grounding.baseline is not None and grounding.baseline.get(str(candidate)) == current:
+        return ""
     return (
         f"{source} is not as it was when work on this objective began and the task "
         "packet does not name it, so it is this objective's own work, not the environment"

@@ -11,6 +11,7 @@ from pathlib import Path
 from typing import Any
 
 from ..core.event_catalog import EventType
+from ..core.file_facts import file_facts
 from ..core.knobs import env_int
 from ..core.models import RunnerOptions
 from ..core.ports import RunnerBackend
@@ -811,19 +812,13 @@ def _with_planner_diagnostic(
     return replace(verdict, diagnostics=(*verdict.diagnostics, diagnostic))
 
 
-def file_state(path: Path | str) -> str:
-    """``<size>:<mtime_ns>`` of a file: what the Planner saw when it named it."""
-    stat = Path(path).stat()
-    return f"{stat.st_size}:{stat.st_mtime_ns}"
-
-
 def hydrate_task_context_refs(
     context_refs: list[dict[str, str]],
     project_root: Path | str,
     *,
     discard_external: bool = False,
 ) -> list[dict[str, str]]:
-    """Validate project-local refs and record the state of existing files."""
+    """Validate project-local refs and record the ``file_facts`` of existing files as JSON."""
     root = Path(project_root).expanduser().resolve()
     hydrated: list[dict[str, str]] = []
     for raw_ref in context_refs:
@@ -853,7 +848,7 @@ def hydrate_task_context_refs(
         if not resolved.is_file():
             continue
         try:
-            ref["content_hash"] = file_state(resolved)
+            ref["content_hash"] = json.dumps(file_facts(resolved))
         except OSError as exc:
             raise ValueError(f"Planner context ref cannot be read: {target}") from exc
         hydrated.append(ref)

@@ -399,11 +399,11 @@ def test_failed_assessments_are_not_reused(paper_review):
     assert len(runner.shared.calls) == 4
 
 
-def test_unreadable_pdf_state_runs_fresh_isolated_passes(paper_review, monkeypatch):
+def test_unreadable_pdf_facts_run_fresh_isolated_passes(paper_review, monkeypatch):
     _, config = paper_review
     from argus.reviewer import _paper_pass_cache
 
-    monkeypatch.setattr(_paper_pass_cache, "pdf_state", lambda _: "")
+    monkeypatch.setattr(_paper_pass_cache, "pdf_facts", lambda _: [])
     runner = PaperRunner()
     _parallel_final_review_passes(runner, config)
     _parallel_final_review_passes(runner, config)

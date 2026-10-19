@@ -305,7 +305,6 @@ class RoundExecutionMixin:
             round_index=round_index,
             round_max=supervised_config.max_rounds,
             on_event=on_event,
-            cache=state.secret_scan_cache,
         )
         if (
             secret_guard_reviewer_note
