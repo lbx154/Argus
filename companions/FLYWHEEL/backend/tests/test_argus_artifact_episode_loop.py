@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-import hashlib
 import json
 import sqlite3
 import threading
@@ -21,7 +20,8 @@ from foundry.services.argus_artifact_ingest import (
     MAX_ARTIFACT_BYTES,
     normalize_artifact_entry,
 )
-from foundry.services.flywheel_data import canonical_json, sha256_text
+from foundry.db import new_key
+from foundry.services.flywheel_data import canonical_json
 
 
 class FakeArgusArtifacts:
@@ -37,7 +37,6 @@ class FakeArgusArtifacts:
                 "exists": True,
                 "kind": kind,
                 "size": len(content),
-                "sha256": hashlib.sha256(content).hexdigest(),
                 "content_type": media_type,
             }
             for path, (content, media_type, kind) in self._artifacts.items()
@@ -55,7 +54,6 @@ class FakeArgusArtifacts:
         return ArtifactDownload(
             path=path,
             size=len(content),
-            sha256=hashlib.sha256(content).hexdigest(),
             content_type=media_type,
             content=content,
         )
@@ -183,7 +181,7 @@ def _stage(
         json={
             "artifact_path": path,
             "role": role,
-            "expected_entry_sha256": item["entry_sha256"],
+            "expected_entry_key": item["entry_key"],
             "idempotency_key": key or str(uuid.uuid4()),
         },
     )
@@ -204,7 +202,7 @@ def _confirm(
         f"/api/argus-artifact-imports/{staged['id']}/confirm",
         json={
             "actor": "artifact-owner",
-            "expected_source_sha256": staged["source_sha256"],
+            "expected_source_key": staged["source_key"],
             "redaction_confirmed": True,
             "manual_redaction_confirmed": manual,
             "training_consent": training_consent,
@@ -239,7 +237,7 @@ def test_argus_artifact_stage_confirm_seal_and_dataset_gate(
     assert confirmed.status_code == 200, confirmed.text
     assert confirmed.json()["state"] == "confirmed"
     assert confirmed.json()["sealed_in_head"] is False
-    assert len(confirmed.json()["content_object_sha256"]) == 64
+    assert len(confirmed.json()["content_object_key"]) == 64
 
     sealed = client.post(
         f"/api/episodes/{episode['id']}/seal",
@@ -256,7 +254,7 @@ def test_argus_artifact_stage_confirm_seal_and_dataset_gate(
     assert manifest["objects"] == [
         {
             "role": "argus_artifact:paper",
-            "sha256": confirmed.json()["content_object_sha256"],
+            "object_key": confirmed.json()["content_object_key"],
         }
     ]
     detail = client.get(
@@ -297,7 +295,7 @@ def test_stage_rejects_local_absolute_url_and_traversal_paths(
         json={
             "artifact_path": path,
             "role": "paper",
-            "expected_entry_sha256": "0" * 64,
+            "expected_entry_key": "0" * 64,
             "idempotency_key": str(uuid.uuid4()),
         },
     )
@@ -317,7 +315,7 @@ def test_fresh_index_digest_idempotency_and_declared_size_limit(
         json={
             "artifact_path": item["path"],
             "role": "paper",
-            "expected_entry_sha256": "0" * 64,
+            "expected_entry_key": "0" * 64,
             "idempotency_key": key,
         },
     )
@@ -328,7 +326,7 @@ def test_fresh_index_digest_idempotency_and_declared_size_limit(
         json={
             "artifact_path": item["path"],
             "role": "paper",
-            "expected_entry_sha256": item["entry_sha256"],
+            "expected_entry_key": item["entry_key"],
             "idempotency_key": key,
         },
     )
@@ -338,7 +336,7 @@ def test_fresh_index_digest_idempotency_and_declared_size_limit(
         json={
             "artifact_path": item["path"],
             "role": "paper",
-            "expected_entry_sha256": item["entry_sha256"],
+            "expected_entry_key": item["entry_key"],
             "idempotency_key": key,
         },
     )
@@ -369,7 +367,7 @@ def test_fresh_index_digest_idempotency_and_declared_size_limit(
         json={
             "artifact_path": "huge.bin",
             "role": "experiment_result",
-            "expected_entry_sha256": huge["entry_sha256"],
+            "expected_entry_key": huge["entry_key"],
             "idempotency_key": str(uuid.uuid4()),
         },
     )
@@ -397,7 +395,7 @@ def test_secret_like_remote_metadata_is_rejected_before_staging(
         json={
             "artifact_path": "paper/DRAFT.md",
             "role": "paper",
-            "expected_entry_sha256": "0" * 64,
+            "expected_entry_key": "0" * 64,
             "idempotency_key": str(uuid.uuid4()),
         },
     )
@@ -436,7 +434,7 @@ def test_concurrent_stage_enforces_episode_draft_limit_atomically(
             json={
                 "artifact_path": path,
                 "role": "paper",
-                "expected_entry_sha256": by_path[path]["entry_sha256"],
+                "expected_entry_key": by_path[path]["entry_key"],
                 "idempotency_key": str(uuid.uuid4()),
             },
         )
@@ -478,7 +476,7 @@ def test_secret_requires_text_replacement_and_binary_requires_manual_review(
         replacement_text="result=ok\ncredential removed\n",
     )
     assert replaced.status_code == 200, replaced.text
-    assert replaced.json()["content_object_sha256"] != secret["source_sha256"]
+    assert replaced.json()["content_object_key"] != secret["source_key"]
 
     binary = _stage(client, episode["id"], path="paper/final.pdf", role="paper")
     assert binary["manual_redaction_required"] is True
@@ -487,8 +485,8 @@ def test_secret_requires_text_replacement_and_binary_requires_manual_review(
     manual_ok = _confirm(client, binary, manual=True)
     assert manual_ok.status_code == 200, manual_ok.text
     row = client.app.state.db.fetch_one(
-        "SELECT secret_scan_state,manual_redaction_required FROM content_objects WHERE sha256=?",
-        (manual_ok.json()["content_object_sha256"],),
+        "SELECT secret_scan_state,manual_redaction_required FROM content_objects WHERE object_key=?",
+        (manual_ok.json()["content_object_key"],),
     )
     assert row == {
         "secret_scan_state": "not_scannable_binary",
@@ -507,7 +505,7 @@ def test_training_consent_rejects_coerced_truthy_values(
         f"/api/argus-artifact-imports/{staged['id']}/confirm",
         json={
             "actor": "artifact-owner",
-            "expected_source_sha256": staged["source_sha256"],
+            "expected_source_key": staged["source_key"],
             "redaction_confirmed": True,
             "manual_redaction_confirmed": False,
             "training_consent": consent,
@@ -547,8 +545,8 @@ def test_confirm_cas_terminal_immutability_and_training_rights(
         "SELECT * FROM argus_artifact_imports WHERE id=?", (staged["id"],)
     )
     assert row is not None and row["state"] == "confirmed"
-    objects = client.app.state.db.fetch_all("SELECT sha256 FROM content_objects")
-    assert objects == [{"sha256": row["content_object_sha256"]}]
+    objects = client.app.state.db.fetch_all("SELECT object_key FROM content_objects")
+    assert objects == [{"object_key": row["content_object_key"]}]
     with pytest.raises(sqlite3.IntegrityError, match="immutable"):
         client.app.state.db.execute(
             "UPDATE argus_artifact_imports SET license_basis='rewritten' WHERE id=?",
@@ -609,8 +607,8 @@ def test_v6_to_v7_migration_and_v1_revision_compatibility(
         row["name"] for row in database.fetch_all("PRAGMA table_info(argus_artifact_imports)")
     }
     assert {
-        "source_entry_sha256",
-        "content_object_sha256",
+        "source_entry_key",
+        "content_object_key",
         "manual_redaction_confirmed",
     } <= columns
     monkeypatch.setattr(db_module, "MIGRATIONS", MIGRATIONS)
@@ -639,7 +637,7 @@ def test_v6_to_v7_migration_and_v1_revision_compatibility(
             "objects": [],
             "provenance": {
                 "parent_revision_id": None,
-                "parent_chain_sha256": None,
+                "parent_chain_key": None,
                 "revision_number": 1,
                 "reason": "legacy v1",
                 "sealed_by": "legacy",
@@ -647,23 +645,17 @@ def test_v6_to_v7_migration_and_v1_revision_compatibility(
             },
         }
         manifest_json = canonical_json(manifest)
-        manifest_sha = sha256_text(manifest_json)
-        chain_sha = sha256_text(
-            canonical_json(
-                {"manifest_sha256": manifest_sha, "parent_chain_sha256": None}
-            )
-        )
         with client.app.state.db.transaction() as connection:
             connection.execute(
                 "INSERT INTO episode_revisions(id,episode_id,revision_number,parent_revision_id,"
-                "manifest_json,manifest_sha256,chain_sha256,object_count,reason,sealed_by,sealed_at) "
+                "manifest_json,manifest_key,chain_key,object_count,reason,sealed_by,sealed_at) "
                 "VALUES(?,?,1,NULL,?,?,?,?,?,?,?)",
                 (
                     revision_id,
                     episode["id"],
                     manifest_json,
-                    manifest_sha,
-                    chain_sha,
+                    new_key(),
+                    new_key(),
                     0,
                     "legacy v1",
                     "legacy",

@@ -39,8 +39,8 @@ access is authorized.
       "source_intake_id": "{{team.origin.source_intake_id_or_empty}}",
       "operator_statement_bound": {{team.origin.operator_statement_bound}},
       "operator_statement": "{{team.origin.operator_statement}}",
-      "operator_statement_sha256": "{{team.origin.operator_statement_sha256}}",
-      "structured_profile_sha256": "{{team.origin.structured_profile_sha256}}",
+      "operator_statement_key": "{{team.origin.operator_statement_key}}",
+      "structured_profile_key": "{{team.origin.structured_profile_key}}",
       "extraction": {{team.origin.extraction_json}},
       "uncertainties": {{team.origin.uncertainties_json}}
     }
@@ -50,8 +50,8 @@ access is authorized.
   "resource": {{resource_snapshot_json_or_null}},
   "source_context": {
     "operator_snapshot_bound": {{source_snapshot_bound_boolean}},
-    "reference_sha256": "{{source_reference_sha256_or_empty}}",
-    "content_sha256": "{{source_content_sha256_or_empty}}",
+    "reference_key": "{{source_reference_sha256_or_empty}}",
+    "content_key": "{{source_content_sha256_or_empty}}",
     "fresh_discovery_required": {{fresh_discovery_required_boolean}}
   },
   "preflight_attestations": {{preflight_attestations_json}},
@@ -66,7 +66,7 @@ access is authorized.
 }
 ```
 
-Condition SHA-256: `{{condition_sha256}}`
+Condition SHA-256: `{{condition_key}}`
 
 If a required condition is unknown, return `NEEDS_HUMAN_DECISION`; do not fill it
 with an optimistic assumption.
@@ -75,7 +75,7 @@ with an optimistic assumption.
 
 If `source_context.operator_snapshot_bound=true`, resolve the JSON-encoded
 operator reference `{{source_snapshot_ref_json}}` and verify its bytes against
-`source_context.content_sha256` before use. A mismatch terminates as `BLOCKED`.
+`source_context.content_key` before use. A mismatch terminates as `BLOCKED`.
 Keep the bound packet immutable and record new retrievals as a separately
 versioned freshness delta. If no packet is bound, first freeze
 `SOURCE_SNAPSHOT.json` with retrieval time, exact URL/identifier, version/commit,

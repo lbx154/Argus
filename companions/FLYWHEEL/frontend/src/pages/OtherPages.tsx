@@ -218,7 +218,7 @@ export function IdeaRadarPage() {
     loadIdeationRuns()
       .then(async (runs) => {
         const boundRuns = runs.filter(
-          (run) => Boolean(run.candidate_artifact_sha256) || run.state === "awaiting_labels",
+          (run) => Boolean(run.candidate_artifact_key) || run.state === "awaiting_labels",
         );
         const settled = await Promise.allSettled(
           boundRuns.map((run) => loadIdeationRun(run.id)),
@@ -321,14 +321,14 @@ export function IdeaRadarPage() {
         !receipt.id ||
         receipt.execution_state !== "idle" ||
         receipt.launch_triggered !== false ||
-        !/^[0-9a-f]{64}$/i.test(receipt.candidate_prompt_sha256)
+        !/^[0-9a-f]{64}$/i.test(receipt.candidate_prompt_key)
       ) {
         throw new Error(t("ideas.campaign.invalidReceipt"));
       }
       toast(
         t("ideas.campaign.created", {
           id: receipt.id.slice(0, 8),
-          sha: receipt.candidate_prompt_sha256.slice(0, 12),
+          key: receipt.candidate_prompt_key.slice(0, 12),
         }),
       );
       await refresh();
@@ -503,8 +503,8 @@ export function IdeaRadarPage() {
                 <div><dt>{t("ideas.identity.team")}</dt><dd>{selectedDirection.run.team_name ?? selectedDirection.run.team_profile_id}</dd></div>
                 <div><dt>{t("ideas.identity.venue")}</dt><dd>{selectedDirection.run.venue_name ?? selectedDirection.run.venue_key ?? "—"}</dd></div>
                 <div><dt>{t("ideas.identity.run")}</dt><dd title={selectedDirection.run.id}>{selectedDirection.run.id.slice(0, 12)}</dd></div>
-                <div><dt>{t("ideas.identity.condition")}</dt><dd title={selectedDirection.run.condition_sha256}>{selectedDirection.run.condition_sha256?.slice(0, 16) ?? "—"}</dd></div>
-                <div><dt>{t("ideas.identity.objective")}</dt><dd title={selectedDirection.run.objective_sha256}>{selectedDirection.run.objective_sha256.slice(0, 16)}</dd></div>
+                <div><dt>{t("ideas.identity.condition")}</dt><dd title={selectedDirection.run.condition_key}>{selectedDirection.run.condition_key?.slice(0, 16) ?? "—"}</dd></div>
+                <div><dt>{t("ideas.identity.objective")}</dt><dd title={selectedDirection.run.objective_key}>{selectedDirection.run.objective_key.slice(0, 16)}</dd></div>
               </dl>
             )}
             {selectedBaseline && (
@@ -1158,7 +1158,7 @@ export function OutcomesPage() {
                 required
                 value={submissionVersion}
                 onChange={(event) => setSubmissionVersion(event.target.value)}
-                placeholder="e.g. OpenReview submission v3 / artifact SHA"
+                placeholder="e.g. OpenReview submission v3 / artifact commit"
               />
             </label>
             <label>

@@ -6,7 +6,7 @@ from .argus_webapi import (
     ArgusDaemonCommandReceipt,
     ArgusWebApiClient,
     ArgusWebApiError,
-    ArtifactDigest,
+    ArtifactReceipt,
     ArtifactDownload,
     EventBatch,
     EventCursor,
@@ -30,7 +30,7 @@ ArgusWebClient = ArgusWebApiClient
 LocalCliAdapter = ArgusCliAdapter
 
 __all__ = [
-    "ArtifactDigest", "ArtifactDownload", "ArgusBackend", "ArgusCliAdapter", "ArgusConnectionError", "ArgusHttpClient",
+    "ArtifactReceipt", "ArtifactDownload", "ArgusBackend", "ArgusCliAdapter", "ArgusConnectionError", "ArgusHttpClient",
     "ArgusConnectionAssessment", "ArgusDaemonCommandError", "ArgusDaemonCommandReceipt", "ArgusWebApiClient", "ArgusWebApiError", "ArgusWebClient",
     "ArxivAdapter", "argus_connection_metadata", "assess_argus_connection",
     "CliLaunchPlan", "EventBatch", "EventCursor", "GitHubAdapter", "GpuDevice", "GpuProbeResult",

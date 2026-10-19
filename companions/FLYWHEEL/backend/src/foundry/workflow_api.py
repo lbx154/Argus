@@ -6,7 +6,6 @@ training-data collection cannot bypass the normal campaign Start gate.
 
 from __future__ import annotations
 
-import hashlib
 import json
 import os
 import re
@@ -17,13 +16,13 @@ from pathlib import Path
 from typing import Any, Literal, Mapping
 
 from fastapi import APIRouter, HTTPException, Query, Request, Response
-from pydantic import BaseModel, Field, StrictBool, field_validator, model_validator
+from pydantic import BaseModel, Field, StrictBool, field_validator
 
 from .api import (
     verify_conditioned_ideation_candidate_provenance,
     verify_training_campaign_provenance,
 )
-from .db import Database, decode_row, decode_rows, utc_now
+from .db import Database, decode_row, decode_rows, new_key, utc_now
 from .services.campaign_binding import build_campaign_binding
 from .services.candidate_import import (
     CandidateImportError,
@@ -116,26 +115,13 @@ class IdeationRunIn(BaseModel):
     finalist_count: int = Field(default=5, ge=1, le=20)
     completion_target: str = Field(default="", max_length=4_000)
     source_snapshot_ref: str = Field(default="", max_length=2_048)
-    source_snapshot_sha256: str = Field(default="", max_length=64)
     create_campaign: StrictBool = True
     preflight_attestations: dict[str, StrictBool] = Field(default_factory=dict)
 
-    @field_validator("completion_target", "source_snapshot_ref", "source_snapshot_sha256")
+    @field_validator("completion_target", "source_snapshot_ref")
     @classmethod
     def strip_text(cls, value: str) -> str:
         return value.strip()
-
-    @model_validator(mode="after")
-    def validate_source_snapshot_binding(self) -> "IdeationRunIn":
-        has_ref = bool(self.source_snapshot_ref)
-        has_digest = bool(self.source_snapshot_sha256)
-        if has_ref != has_digest:
-            raise ValueError(
-                "source_snapshot_ref and source_snapshot_sha256 must be supplied together"
-            )
-        if has_digest and not re.fullmatch(r"[0-9a-fA-F]{64}", self.source_snapshot_sha256):
-            raise ValueError("source_snapshot_sha256 must be exactly 64 hexadecimal characters")
-        return self
 
 
 class CandidateImportIn(BaseModel):
@@ -143,7 +129,6 @@ class CandidateImportIn(BaseModel):
     # This is the public/operator route.  Only the coordinator's verified
     # allowlist/download path may assign ``argus_artifact`` provenance.
     imported_from: Literal["human_entered"] = "human_entered"
-    artifact_sha256: str = Field(pattern=r"^[0-9a-fA-F]{64}$")
     manifest: dict[str, Any]
 
 
@@ -416,7 +401,6 @@ def create_workflow_router() -> APIRouter:
                     "completion_target": body.completion_target
                     or "Produce a falsifiable, evidence-backed portfolio for human selection; NO_WINNER is valid.",
                     "source_snapshot_ref": body.source_snapshot_ref,
-                    "source_snapshot_sha256": body.source_snapshot_sha256,
                     "preflight_attestations": body.preflight_attestations,
                 },
             )
@@ -432,8 +416,9 @@ def create_workflow_router() -> APIRouter:
         license_basis = str(profile["license_basis"] or "")
         with db.transaction() as transaction:
             duplicate = transaction.execute(
-                "SELECT id FROM ideation_runs WHERE objective_sha256=?",
-                (compiled.objective_sha256,),
+                "SELECT id FROM ideation_runs WHERE condition_snapshot_json=? "
+                "AND source_snapshot_ref=?",
+                (_json(compiled.condition_snapshot), body.source_snapshot_ref),
             ).fetchone()
             if duplicate:
                 raise HTTPException(
@@ -448,8 +433,8 @@ def create_workflow_router() -> APIRouter:
                     "campaign_kind": "conditioned_ideation",
                     "ideation_run_id": run_id,
                     "team_profile_id": profile["id"],
-                    "condition_sha256": compiled.condition_sha256,
-                    "objective_sha256": compiled.objective_sha256,
+                    "condition_key": compiled.condition_key,
+                    "objective_key": compiled.objective_key,
                     "preflight_attestations": body.preflight_attestations,
                     "backend": "connection-default",
                     "oral_is_aspiration_only": True,
@@ -488,9 +473,9 @@ def create_workflow_router() -> APIRouter:
             transaction.execute(
                 "INSERT INTO ideation_runs(id,team_profile_id,venue_id,deadline_id,resource_id,"
                 "connection_id,campaign_id,state,condition_schema_version,condition_snapshot_json,"
-                "condition_sha256,objective_sha256,objective_path,source_snapshot_ref,source_snapshot_sha256,"
+                "condition_key,objective_key,objective_path,source_snapshot_ref,"
                 "training_consent,license_basis,created_at,updated_at) "
-                "VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
+                "VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
                 (
                     run_id,
                     profile["id"],
@@ -502,11 +487,10 @@ def create_workflow_router() -> APIRouter:
                     "campaign_created" if campaign_id else "objective_ready",
                     compiled.condition_snapshot["schema_version"],
                     _json(compiled.condition_snapshot),
-                    compiled.condition_sha256,
-                    compiled.objective_sha256,
+                    compiled.condition_key,
+                    compiled.objective_key,
                     str(objective_path),
                     body.source_snapshot_ref,
-                    body.source_snapshot_sha256.lower(),
                     int(training_consent),
                     license_basis,
                     now,
@@ -526,8 +510,8 @@ def create_workflow_router() -> APIRouter:
                         {
                             "team_profile_id": profile["id"],
                             "venue_key": venue["venue_key"],
-                            "condition_sha256": compiled.condition_sha256,
-                            "objective_sha256": compiled.objective_sha256,
+                            "condition_key": compiled.condition_key,
+                            "objective_key": compiled.objective_key,
                             "campaign_id": campaign_id,
                             "launch_triggered": False,
                         }
@@ -537,7 +521,7 @@ def create_workflow_router() -> APIRouter:
             )
         result = _run_detail(db, run_id)
         result["objective"] = compiled.objective
-        result["condition_sha256"] = compiled.condition_sha256
+        result["condition_key"] = compiled.condition_key
         result["launch_triggered"] = False
         return result
 
@@ -550,11 +534,6 @@ def create_workflow_router() -> APIRouter:
         run_id: str, body: CandidateImportIn, request: Request
     ) -> dict[str, Any]:
         db = _db(request)
-        if body.artifact_sha256.lower() != str(body.manifest.get("candidates_sha256") or "").lower():
-            raise HTTPException(
-                409,
-                "artifact_sha256 must match manifest.candidates_sha256",
-            )
         try:
             receipt = import_human_candidate_payload(
                 db,
@@ -592,31 +571,47 @@ def create_workflow_router() -> APIRouter:
         if not isinstance(manifest, Mapping) or not manifest:
             raise HTTPException(409, "Candidate artifact manifest is not frozen")
         expected_bindings = {
-            "condition_sha256": run["condition_sha256"],
-            "objective_sha256": run["objective_sha256"],
-            "candidates_sha256": run["candidate_artifact_sha256"],
+            "condition_key": run["condition_key"],
+            "objective_key": run["objective_key"],
         }
         mismatches = [
             key
             for key, expected in expected_bindings.items()
             if str(manifest.get(key) or "").lower() != str(expected or "").lower()
         ]
-        if mismatches or candidate_row.get("artifact_sha256") != run.get(
-            "candidate_artifact_sha256"
+        if mismatches or candidate_row.get("artifact_key") != run.get(
+            "candidate_artifact_key"
         ):
             raise HTTPException(
                 409,
                 "Candidate provenance binding failed: "
-                + ", ".join(mismatches or ["candidate_artifact_sha256"]),
+                + ", ".join(mismatches or ["candidate_artifact_key"]),
             )
+        # A repeat of the same request returns the campaign it already froze.
+        candidate_request = {
+            "completion_target": body.completion_target,
+            "stop_criteria": body.stop_criteria,
+        }
+        for row in db.fetch_all(
+            "SELECT * FROM campaigns WHERE json_extract(config_json,'$.candidate_id')=?",
+            (candidate_id,),
+        ):
+            existing = decode_row(row) or {}
+            if existing["config"].get("candidate_request") == candidate_request:
+                return {
+                    **existing,
+                    "candidate_prompt_key": existing["config"].get("candidate_prompt_key"),
+                    "launch_triggered": False,
+                    "idempotent": True,
+                }
         try:
             compiled = compile_candidate_research_objective(
                 ideation_run_id=run["id"],
                 condition_snapshot=run["condition_snapshot"],
-                condition_sha256=run["condition_sha256"],
-                parent_objective_sha256=run["objective_sha256"],
+                condition_key=run["condition_key"],
+                parent_objective_key=run["objective_key"],
                 candidate_id=candidate_id,
-                candidate_artifact_sha256=run["candidate_artifact_sha256"],
+                candidate_artifact_key=run["candidate_artifact_key"],
                 candidate=candidate_row["candidate"],
                 completion_target=body.completion_target or None,
                 stop_criteria=body.stop_criteria,
@@ -626,11 +621,7 @@ def create_workflow_router() -> APIRouter:
             )
         except (ValueError, OSError, RuntimeError) as exc:
             raise HTTPException(422, str(exc)) from exc
-        try:
-            namespace = uuid.UUID(candidate_id)
-        except ValueError as exc:  # candidate importer owns this invariant
-            raise HTTPException(409, "Conditioned candidate identity is invalid") from exc
-        campaign_id = str(uuid.uuid5(namespace, compiled.prompt_sha256))
+        campaign_id = str(uuid.uuid4())
         now = utc_now()
         condition_snapshot = run["condition_snapshot"]
         resource_snapshot = condition_snapshot.get("resource")
@@ -645,13 +636,14 @@ def create_workflow_router() -> APIRouter:
             "ideation_run_id": run["id"],
             "candidate_id": candidate_id,
             "team_profile_id": run["team_profile_id"],
-            "condition_sha256": run["condition_sha256"],
-            "parent_objective_sha256": run["objective_sha256"],
-            "candidate_artifact_sha256": run["candidate_artifact_sha256"],
-            "candidate_record_sha256": compiled.candidate_sha256,
-            "candidate_input_sha256": compiled.input_sha256,
-            "candidate_prompt_sha256": compiled.prompt_sha256,
+            "condition_key": run["condition_key"],
+            "parent_objective_key": run["objective_key"],
+            "candidate_artifact_key": run["candidate_artifact_key"],
+            "candidate_record_key": compiled.candidate_record_key,
+            "candidate_input_key": compiled.input_key,
+            "candidate_prompt_key": compiled.prompt_key,
             "candidate_objective_path": str(objective_path),
+            "candidate_request": candidate_request,
             "condition_snapshot_bound": True,
             "conditioned_candidate_binding": True,
             "seed_catalog_source": False,
@@ -670,156 +662,94 @@ def create_workflow_router() -> APIRouter:
             campaign_id=campaign_id,
             ideation_run_id=run["id"],
             candidate_id=candidate_id,
-            condition_sha256=run["condition_sha256"],
-            parent_objective_sha256=run["objective_sha256"],
-            candidate_artifact_sha256=run["candidate_artifact_sha256"],
-            candidate_record_sha256=compiled.candidate_sha256,
-            candidate_input_sha256=compiled.input_sha256,
-            candidate_prompt_sha256=compiled.prompt_sha256,
+            condition_key=run["condition_key"],
+            parent_objective_key=run["objective_key"],
+            candidate_artifact_key=run["candidate_artifact_key"],
+            candidate_record_key=compiled.candidate_record_key,
+            candidate_input_key=compiled.input_key,
+            candidate_prompt_key=compiled.prompt_key,
             objective_path=str(objective_path),
         )
-        config["binding_receipt_sha256"] = binding["receipt_sha256"]
+        config["binding_receipt_key"] = binding["receipt_key"]
         title = body.title or f"{candidate_row['title']} · conditioned research"
-        idempotent = False
         with db.transaction() as transaction:
-            raced = transaction.execute(
-                "SELECT * FROM campaigns WHERE id=?", (campaign_id,)
-            ).fetchone()
-            if raced:
-                raced_config = json.loads(raced["config_json"] or "{}")
-                immutable_config = {
-                    key: value
-                    for key, value in config.items()
-                    if key
-                    in {
-                        "campaign_kind",
-                        "ideation_run_id",
-                        "candidate_id",
-                        "team_profile_id",
-                        "condition_sha256",
-                        "parent_objective_sha256",
-                        "candidate_artifact_sha256",
-                        "candidate_record_sha256",
-                        "candidate_input_sha256",
-                        "candidate_prompt_sha256",
-                        "candidate_objective_path",
-                        "binding_receipt_sha256",
-                    }
-                }
-                mismatched = [
-                    key
-                    for key, value in immutable_config.items()
-                    if raced_config.get(key) not in (value, None)
-                    or (key != "binding_receipt_sha256" and raced_config.get(key) != value)
-                ]
-                if (
-                    raced["objective"] != compiled.objective
-                    or raced["venue_id"] != run["venue_id"]
-                    or raced["deadline_id"] != run.get("deadline_id")
-                    or raced["connection_id"] != run.get("connection_id")
-                    or raced["resource_id"] != run.get("resource_id")
-                    or mismatched
-                ):
-                    raise HTTPException(
-                        409,
-                        "Existing conditioned campaign no longer matches its frozen source",
-                    )
-                if raced_config.get("binding_receipt_sha256") is None:
-                    raced_config["binding_receipt_sha256"] = binding["receipt_sha256"]
-                    transaction.execute(
-                        "UPDATE campaigns SET config_json=?,updated_at=? WHERE id=?",
-                        (_json(raced_config), now, campaign_id),
-                    )
-                idempotent = True
-            else:
-                transaction.execute(
-                    "INSERT INTO campaigns(id,venue_id,idea_id,deadline_id,connection_id,resource_id,"
-                    "title,objective,schedule_state,execution_state,science_state,review_state,"
-                    "integrity_state,deadline_state,progress,last_summary,viewer_score,"
-                    "reviewer_scores_json,config_json,created_at,updated_at) "
-                    "VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
-                    (
-                        campaign_id,
-                        run["venue_id"],
-                        None,
-                        run.get("deadline_id"),
-                        run.get("connection_id"),
-                        run.get("resource_id"),
-                        title,
-                        compiled.objective,
-                        "manual",
-                        "idle",
-                        "candidate",
-                        "not_requested",
-                        "unchecked",
-                        "on_track",
-                        0,
-                        "Candidate-specific objective frozen; explicit Start approval is required.",
-                        None,
-                        "[]",
-                        _json(config),
-                        now,
-                        now,
+            transaction.execute(
+                "INSERT INTO campaigns(id,venue_id,idea_id,deadline_id,connection_id,resource_id,"
+                "title,objective,schedule_state,execution_state,science_state,review_state,"
+                "integrity_state,deadline_state,progress,last_summary,viewer_score,"
+                "reviewer_scores_json,config_json,created_at,updated_at) "
+                "VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
+                (
+                    campaign_id,
+                    run["venue_id"],
+                    None,
+                    run.get("deadline_id"),
+                    run.get("connection_id"),
+                    run.get("resource_id"),
+                    title,
+                    compiled.objective,
+                    "manual",
+                    "idle",
+                    "candidate",
+                    "not_requested",
+                    "unchecked",
+                    "on_track",
+                    0,
+                    "Candidate-specific objective frozen; explicit Start approval is required.",
+                    None,
+                    "[]",
+                    _json(config),
+                    now,
+                    now,
+                ),
+            )
+            transaction.execute(
+                "INSERT INTO conditioned_campaign_bindings("
+                "campaign_id,schema_version,ideation_run_id,candidate_id,condition_key,"
+                "parent_objective_key,candidate_artifact_key,candidate_record_key,"
+                "candidate_input_key,candidate_prompt_key,objective_path,receipt_key,created_at"
+                ") VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?)",
+                (
+                    binding["campaign_id"],
+                    binding["schema_version"],
+                    binding["ideation_run_id"],
+                    binding["candidate_id"],
+                    binding["condition_key"],
+                    binding["parent_objective_key"],
+                    binding["candidate_artifact_key"],
+                    binding["candidate_record_key"],
+                    binding["candidate_input_key"],
+                    binding["candidate_prompt_key"],
+                    binding["objective_path"],
+                    binding["receipt_key"],
+                    now,
+                ),
+            )
+            transaction.execute(
+                "INSERT INTO events(topic,event_type,severity,entity_type,entity_id,payload_json,created_at) "
+                "VALUES(?,?,?,?,?,?,?)",
+                (
+                    "ideation",
+                    "ideation.candidate_campaign_created",
+                    "info",
+                    "campaign",
+                    campaign_id,
+                    _json(
+                        {
+                            "ideation_run_id": run["id"],
+                            "candidate_id": candidate_id,
+                            "condition_key": run["condition_key"],
+                            "candidate_prompt_key": compiled.prompt_key,
+                            "launch_triggered": False,
+                        }
                     ),
-                )
-            receipt = transaction.execute(
-                "SELECT * FROM conditioned_campaign_bindings WHERE campaign_id=?",
-                (campaign_id,),
-            ).fetchone()
-            if receipt:
-                if any(receipt[key] != value for key, value in binding.items()):
-                    raise HTTPException(
-                        409, "Conditioned campaign binding receipt does not match frozen source"
-                    )
-            else:
-                transaction.execute(
-                    "INSERT INTO conditioned_campaign_bindings("
-                    "campaign_id,schema_version,ideation_run_id,candidate_id,condition_sha256,"
-                    "parent_objective_sha256,candidate_artifact_sha256,candidate_record_sha256,"
-                    "candidate_input_sha256,candidate_prompt_sha256,objective_path,receipt_sha256,created_at"
-                    ") VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?)",
-                    (
-                        binding["campaign_id"],
-                        binding["schema_version"],
-                        binding["ideation_run_id"],
-                        binding["candidate_id"],
-                        binding["condition_sha256"],
-                        binding["parent_objective_sha256"],
-                        binding["candidate_artifact_sha256"],
-                        binding["candidate_record_sha256"],
-                        binding["candidate_input_sha256"],
-                        binding["candidate_prompt_sha256"],
-                        binding["objective_path"],
-                        binding["receipt_sha256"],
-                        now,
-                    ),
-                )
-            if not raced:
-                transaction.execute(
-                    "INSERT INTO events(topic,event_type,severity,entity_type,entity_id,payload_json,created_at) "
-                    "VALUES(?,?,?,?,?,?,?)",
-                    (
-                        "ideation",
-                        "ideation.candidate_campaign_created",
-                        "info",
-                        "campaign",
-                        campaign_id,
-                        _json(
-                            {
-                                "ideation_run_id": run["id"],
-                                "candidate_id": candidate_id,
-                                "condition_sha256": run["condition_sha256"],
-                                "candidate_prompt_sha256": compiled.prompt_sha256,
-                                "launch_triggered": False,
-                            }
-                        ),
-                        now,
-                    ),
-                )
+                    now,
+                ),
+            )
         created = decode_row(db.fetch_one("SELECT * FROM campaigns WHERE id=?", (campaign_id,))) or {}
-        created["candidate_prompt_sha256"] = compiled.prompt_sha256
+        created["candidate_prompt_key"] = compiled.prompt_key
         created["launch_triggered"] = False
-        created["idempotent"] = idempotent
+        created["idempotent"] = False
         return created
 
     @router.post("/ideation/candidates/{candidate_id}/labels", status_code=201)
@@ -1004,7 +934,7 @@ def create_workflow_router() -> APIRouter:
             if row["rebuttals"]:
                 latest = row["rebuttals"][0]
                 row["follow_up_campaign_id"] = latest.get("campaign_id")
-                row["rebuttal_objective_sha256"] = latest.get("objective_sha256")
+                row["rebuttal_objective_key"] = latest.get("objective_key")
         return {"items": rows, "total": len(rows)}
 
     @router.post("/outcomes/submissions", status_code=201)
@@ -1152,11 +1082,11 @@ def create_workflow_router() -> APIRouter:
             raise HTTPException(409, "Source campaign no longer exists")
         reviews = submission["reviewer_feedback"]
         objective = _rebuttal_objective(submission, campaign, reviews, body)
-        objective_sha = hashlib.sha256(objective.encode("utf-8")).hexdigest()
         existing = decode_row(
             db.fetch_one(
-                "SELECT * FROM rebuttal_versions WHERE submission_id=? AND objective_sha256=?",
-                (submission_id, objective_sha),
+                "SELECT rv.* FROM rebuttal_versions rv JOIN campaigns c ON c.id=rv.campaign_id "
+                "WHERE rv.submission_id=? AND c.objective=?",
+                (submission_id, objective),
             )
         )
         if existing:
@@ -1169,9 +1099,10 @@ def create_workflow_router() -> APIRouter:
                 "launch_triggered": False,
                 "submission_triggered": False,
             }
+        objective_key = new_key()
         path = _write_rebuttal_objective(
             request.app.state.settings.data_dir / "rebuttal-objectives",
-            objective_sha,
+            objective_key,
             objective,
         )
         version_row = db.fetch_one(
@@ -1179,21 +1110,15 @@ def create_workflow_router() -> APIRouter:
             (submission_id,),
         )
         version = int(version_row["next_version"])
-        # Keep the historical UUID-v5 namespace stable so migrated records retain
-        # idempotent identifiers even though public export schemas use FLYWHEEL.
-        followup_campaign_id = str(
-            uuid.uuid5(uuid.NAMESPACE_URL, f"argus-foundry:rebuttal:{submission_id}:{objective_sha}")
-        )
-        rebuttal_id = str(
-            uuid.uuid5(uuid.NAMESPACE_URL, f"argus-foundry:rebuttal-version:{submission_id}:{objective_sha}")
-        )
+        followup_campaign_id = str(uuid.uuid4())
+        rebuttal_id = str(uuid.uuid4())
         now = utc_now()
         source_config = json.loads(campaign.get("config_json") or "{}")
         config = {
             "campaign_kind": "rebuttal_follow_up",
             "source_campaign_id": campaign["id"],
             "submission_id": submission_id,
-            "rebuttal_objective_sha256": objective_sha,
+            "rebuttal_objective_key": objective_key,
             "preflight_attestations": source_config.get("preflight_attestations", {}),
             "backend": "connection-default",
             "automatic_submission_allowed": False,
@@ -1228,14 +1153,14 @@ def create_workflow_router() -> APIRouter:
                 ),
             )
             transaction.execute(
-                "INSERT INTO rebuttal_versions(id,submission_id,version,state,objective_sha256,"
+                "INSERT INTO rebuttal_versions(id,submission_id,version,state,objective_key,"
                 "objective_path,campaign_id,human_notes,created_at,updated_at) VALUES(?,?,?,?,?,?,?,?,?,?)",
                 (
                     rebuttal_id,
                     submission_id,
                     version,
                     "campaign_created",
-                    objective_sha,
+                    objective_key,
                     str(path),
                     followup_campaign_id,
                     f"Created by {body.actor}: {body.approval_reason}",
@@ -1256,7 +1181,7 @@ def create_workflow_router() -> APIRouter:
                         {
                             "submission_id": submission_id,
                             "source_campaign_id": campaign["id"],
-                            "objective_sha256": objective_sha,
+                            "objective_key": objective_key,
                             "actor": body.actor,
                             "approval_reason": body.approval_reason,
                             "launch_triggered": False,
@@ -1396,28 +1321,12 @@ def _run_detail(db: Database, run_id: str) -> dict[str, Any]:
         raise HTTPException(
             409, f"Frozen objective is unavailable for ideation run {run_id}: {exc}"
         ) from exc
-    objective_sha256 = hashlib.sha256(objective_bytes).hexdigest()
-    if objective_sha256 != run["objective_sha256"]:
-        raise HTTPException(
-            409,
-            "Frozen objective integrity check failed for ideation run "
-            f"{run_id}: expected {run['objective_sha256']}, got {objective_sha256}",
-        )
     try:
         run["objective"] = objective_bytes.decode("utf-8")
     except UnicodeDecodeError as exc:
         raise HTTPException(
             409, f"Frozen objective is not valid UTF-8 for ideation run {run_id}"
         ) from exc
-    computed_condition_sha256 = hashlib.sha256(
-        _canonical_json(run["condition_snapshot"])
-    ).hexdigest()
-    if computed_condition_sha256 != run.get("condition_sha256"):
-        raise HTTPException(
-            409,
-            "Frozen condition integrity check failed for ideation run "
-            f"{run_id}: expected {run.get('condition_sha256')}, got {computed_condition_sha256}",
-        )
     candidates = decode_rows(
         db.fetch_all(
             "SELECT * FROM generated_idea_candidates WHERE ideation_run_id=? ORDER BY created_at",
@@ -1668,13 +1577,13 @@ def _training_records(
                 }
             )
     label_rows = [] if submission_id else db.fetch_all(
-        "SELECT l.*,c.candidate_json,c.artifact_sha256,c.ideation_run_id,"
+        "SELECT l.*,c.candidate_json,c.artifact_key,c.ideation_run_id,"
         "r.condition_snapshot_json,r.license_basis AS run_license "
         "FROM idea_labels l JOIN generated_idea_candidates c ON c.id=l.candidate_id "
         "JOIN ideation_runs r ON r.id=c.ideation_run_id "
         "WHERE l.training_consent=1 AND l.redaction_confirmed=1 "
         "AND LENGTH(TRIM(l.license_basis))>0 AND r.training_consent=1 "
-        "AND LENGTH(TRIM(r.license_basis))>0 AND length(c.artifact_sha256)=64"
+        "AND LENGTH(TRIM(r.license_basis))>0 AND length(c.artifact_key)=64"
     )
     for row in label_rows:
         training_provenance = _candidate_ideation_provenance(
@@ -1691,7 +1600,7 @@ def _training_records(
                 "split": _group_split(group),
                 "condition_snapshot": json.loads(row["condition_snapshot_json"]),
                 "candidate": json.loads(row["candidate_json"]),
-                "artifact_sha256": row["artifact_sha256"],
+                "artifact_key": row["artifact_key"],
                 "labeler_alias": row["labeler_alias"],
                 "decision": row["decision"],
                 "dimensions": json.loads(row["dimensions_json"]),
@@ -1703,8 +1612,8 @@ def _training_records(
         )
     pair_rows = [] if submission_id else db.fetch_all(
         "SELECT p.*,l.candidate_json AS left_json,rr.candidate_json AS right_json,"
-        "l.artifact_sha256 AS left_artifact_sha256,"
-        "rr.artifact_sha256 AS right_artifact_sha256,"
+        "l.artifact_key AS left_artifact_key,"
+        "rr.artifact_key AS right_artifact_key,"
         "r.condition_snapshot_json,r.license_basis AS run_license "
         "FROM idea_pairwise_preferences p "
         "JOIN generated_idea_candidates l ON l.id=p.left_candidate_id "
@@ -1713,7 +1622,7 @@ def _training_records(
         "WHERE p.training_consent=1 AND p.redaction_confirmed=1 "
         "AND LENGTH(TRIM(p.license_basis))>0 AND r.training_consent=1 "
         "AND LENGTH(TRIM(r.license_basis))>0 "
-        "AND length(l.artifact_sha256)=64 AND l.artifact_sha256=rr.artifact_sha256"
+        "AND length(l.artifact_key)=64 AND l.artifact_key=rr.artifact_key"
     )
     for row in pair_rows:
         left_provenance = _candidate_ideation_provenance(
@@ -1734,9 +1643,9 @@ def _training_records(
                 "condition_snapshot": json.loads(row["condition_snapshot_json"]),
                 "left": json.loads(row["left_json"]),
                 "right": json.loads(row["right_json"]),
-                "artifact_sha256": row["left_artifact_sha256"],
-                "left_artifact_sha256": row["left_artifact_sha256"],
-                "right_artifact_sha256": row["right_artifact_sha256"],
+                "artifact_key": row["left_artifact_key"],
+                "left_artifact_key": row["left_artifact_key"],
+                "right_artifact_key": row["right_artifact_key"],
                 "winner": row["winner"],
                 "labeler_alias": row["labeler_alias"],
                 "rationale_redacted": row["rationale_redacted"],
@@ -1804,17 +1713,18 @@ def _optional_datetime(value: str | None, field: str) -> str | None:
 
 
 def _group_split(group_id: str) -> str:
-    bucket = int(hashlib.sha256(group_id.encode("utf-8")).hexdigest()[:8], 16) % 100
+    """A group is ``<kind>:<random UUID>``; the UUID's own bits give a stable, even split."""
+    bucket = uuid.UUID(group_id.split(":", 1)[1]).int % 100
     return "train" if bucket < 80 else "validation" if bucket < 90 else "test"
 
 
-def _write_rebuttal_objective(root: Path, digest: str, objective: str) -> Path:
-    target = root.resolve() / digest / "REBUTTAL_OBJECTIVE.md"
+def _write_rebuttal_objective(root: Path, key: str, objective: str) -> Path:
+    target = root.resolve() / key / "REBUTTAL_OBJECTIVE.md"
     content = objective.encode("utf-8")
     target.parent.mkdir(parents=True, exist_ok=True)
     if target.exists():
         if target.read_bytes() != content:
-            raise HTTPException(500, "content-addressed rebuttal collision")
+            raise HTTPException(500, "rebuttal objective key already holds different content")
         return target
     temporary = target.parent / f".tmp-{uuid.uuid4().hex[:8]}"
     try:

@@ -3,12 +3,11 @@
 The Argus artifact index is the only remote file authority used here.  A
 candidate portfolio is never inferred from a stopped daemon and never imported
 from an unbound JSON array: ``CANDIDATES.json`` and its manifest must both be
-allowlisted, byte-verified, and bound to the frozen condition/objective hashes.
+allowlisted, size-checked, and bound to the frozen condition/objective keys.
 """
 
 from __future__ import annotations
 
-import hashlib
 import json
 import math
 import uuid
@@ -16,7 +15,7 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Iterable, Literal, Mapping
 
-from ..db import Database, utc_now
+from ..db import Database, new_key, utc_now
 from ..integrations.argus_webapi import ArgusWebApiClient
 from .argus_artifact_ingest import MAX_INDEX_FIELD_CHARS, MAX_INDEX_ITEMS, normalize_artifact_entry
 from .flywheel_data import FlywheelDataError, assert_no_secrets
@@ -60,12 +59,13 @@ _CANDIDATE_FIELDS = (
 _MANIFEST_FIELDS = frozenset(
     {
         "schema_version",
-        "condition_sha256",
-        "objective_sha256",
-        "candidates_sha256",
+        "condition_key",
+        "objective_key",
         "candidate_count",
     }
 )
+# Manifests written before keys were random also named the candidates' digest.
+_LEGACY_MANIFEST_FIELDS = frozenset({"candidates_key"})
 _REQUIRED_TEXT_FIELDS = {
     "problem_gap": MAX_CANDIDATE_TEXT_CHARS,
     "core_hypothesis": MAX_CANDIDATE_TEXT_CHARS,
@@ -122,8 +122,7 @@ class CandidateImportError(ValueError):
 class CandidateImportResult:
     imported: bool
     candidate_count: int
-    candidates_sha256: str
-    manifest_sha256: str
+    candidates_key: str
 
 
 @dataclass(frozen=True, slots=True)
@@ -131,9 +130,7 @@ class _DownloadedJson:
     value: Any
     path: str
     size: int
-    sha256: str
     index_size: int
-    index_sha256: str
 
 
 def canonical_bytes(value: Any) -> bytes:
@@ -142,11 +139,7 @@ def canonical_bytes(value: Any) -> bytes:
     ).encode("utf-8")
 
 
-def sha256_bytes(value: bytes) -> str:
-    return hashlib.sha256(value).hexdigest()
-
-
-def _is_sha256(value: Any) -> bool:
+def _is_key(value: Any) -> bool:
     return isinstance(value, str) and len(value) == 64 and all(
         character in _HEX for character in value.lower()
     )
@@ -159,47 +152,32 @@ def _run_row(db: Database, run_id: str) -> dict[str, Any]:
     return dict(row)
 
 
-def _expected_condition_sha256(run: Mapping[str, Any]) -> str:
-    persisted = run.get("condition_sha256")
-    if _is_sha256(persisted):
-        return str(persisted).lower()
-    try:
-        snapshot = json.loads(str(run["condition_snapshot_json"]))
-    except (KeyError, TypeError, json.JSONDecodeError) as exc:
+def _require_frozen_objective(run: Mapping[str, Any]) -> None:
+    if not _is_key(run.get("condition_key")):
         raise CandidateImportError(
-            "condition_snapshot_invalid", "frozen condition snapshot is not valid JSON", status_code=409
-        ) from exc
-    return sha256_bytes(canonical_bytes(snapshot))
-
-
-def _verify_objective_file(run: Mapping[str, Any]) -> None:
-    expected = str(run.get("objective_sha256") or "").lower()
-    if not _is_sha256(expected):
-        raise CandidateImportError(
-            "objective_binding_invalid", "frozen objective SHA-256 is missing or invalid", status_code=409
+            "condition_binding_invalid", "frozen condition key is missing or invalid", status_code=409
         )
-    path = Path(str(run.get("objective_path") or ""))
-    try:
-        actual = sha256_bytes(path.read_bytes())
-    except OSError as exc:
+    if not _is_key(run.get("objective_key")):
         raise CandidateImportError(
-            "objective_unavailable", "frozen objective file cannot be verified", status_code=409
-        ) from exc
-    if actual != expected:
+            "objective_binding_invalid", "frozen objective key is missing or invalid", status_code=409
+        )
+    if not Path(str(run.get("objective_path") or "")).is_file():
         raise CandidateImportError(
-            "objective_tampered", "frozen objective bytes no longer match objective_sha256", status_code=409
+            "objective_unavailable", "frozen objective file is missing", status_code=409
         )
 
 
 def _validated_manifest(
     run: Mapping[str, Any], candidates: list[dict[str, Any]], manifest: Mapping[str, Any]
-) -> tuple[dict[str, Any], str, str]:
+) -> dict[str, Any]:
     try:
         assert_no_secrets(manifest, path="candidate_manifest")
         assert_no_secrets(candidates, path="candidates")
     except FlywheelDataError as exc:
         raise CandidateImportError("secret_detected", str(exc)) from exc
-    normalized = dict(manifest)
+    normalized = {
+        key: value for key, value in manifest.items() if key not in _LEGACY_MANIFEST_FIELDS
+    }
     if set(normalized) != _MANIFEST_FIELDS:
         missing = sorted(_MANIFEST_FIELDS - set(normalized))
         unexpected = sorted(set(normalized) - _MANIFEST_FIELDS)
@@ -210,7 +188,7 @@ def _validated_manifest(
             detail.append("unexpected=" + ",".join(unexpected))
         raise CandidateImportError(
             "manifest_fields_invalid",
-            "candidate manifest must contain exactly the five binding fields"
+            "candidate manifest must contain exactly the four binding fields"
             + (": " + "; ".join(detail) if detail else ""),
         )
     if normalized.get("schema_version") != CANDIDATES_MANIFEST_SCHEMA:
@@ -218,29 +196,20 @@ def _validated_manifest(
             "manifest_schema_mismatch",
             f"candidate manifest schema must be {CANDIDATES_MANIFEST_SCHEMA}",
         )
-    expected_condition = _expected_condition_sha256(run)
-    received_condition = str(normalized.get("condition_sha256") or "").lower()
+    expected_condition = str(run.get("condition_key") or "").lower()
+    received_condition = str(normalized.get("condition_key") or "").lower()
     if received_condition != expected_condition:
         raise CandidateImportError(
             "condition_binding_mismatch",
-            "candidate manifest condition_sha256 does not match the frozen run",
+            "candidate manifest condition_key does not match the frozen run",
             status_code=409,
         )
-    expected_objective = str(run.get("objective_sha256") or "").lower()
-    received_objective = str(normalized.get("objective_sha256") or "").lower()
+    expected_objective = str(run.get("objective_key") or "").lower()
+    received_objective = str(normalized.get("objective_key") or "").lower()
     if received_objective != expected_objective:
         raise CandidateImportError(
             "objective_binding_mismatch",
-            "candidate manifest objective_sha256 does not match the frozen run",
-            status_code=409,
-        )
-    candidate_bytes = canonical_bytes(candidates)
-    candidates_sha256 = sha256_bytes(candidate_bytes)
-    received_candidates_sha256 = str(normalized.get("candidates_sha256") or "").lower()
-    if received_candidates_sha256 != candidates_sha256:
-        raise CandidateImportError(
-            "candidate_digest_mismatch",
-            "candidate manifest candidates_sha256 does not match canonical CANDIDATES.json",
+            "candidate manifest objective_key does not match the frozen run",
             status_code=409,
         )
     count = normalized.get("candidate_count")
@@ -248,8 +217,7 @@ def _validated_manifest(
         raise CandidateImportError(
             "candidate_count_mismatch", "candidate manifest candidate_count is inconsistent"
         )
-    manifest_sha256 = sha256_bytes(canonical_bytes(normalized))
-    return normalized, candidates_sha256, manifest_sha256
+    return normalized
 
 
 def _required_text(
@@ -394,10 +362,6 @@ def _normalized_candidates(candidates: list[dict[str, Any]], run_id: str) -> lis
         raise CandidateImportError(
             "candidate_count_out_of_range", f"candidate count must be between 1 and {MAX_CANDIDATES}"
         )
-    try:
-        namespace = uuid.UUID(run_id)
-    except ValueError as exc:
-        raise CandidateImportError("run_id_invalid", "ideation run id is not a UUID", status_code=409) from exc
     output: list[dict[str, Any]] = []
     keys: set[str] = set()
     for position, candidate in enumerate(candidates):
@@ -511,7 +475,7 @@ def _normalized_candidates(candidates: list[dict[str, Any]], run_id: str) -> lis
             )
         output.append(
             {
-                "id": str(uuid.uuid5(namespace, key)),
+                "id": str(uuid.uuid4()),
                 "key": key,
                 "title": title,
                 "candidate": candidate,
@@ -550,10 +514,8 @@ def _freeze_candidate_payload(
         except FlywheelDataError as exc:
             raise CandidateImportError("secret_detected", str(exc)) from exc
     run = _run_row(db, run_id)
-    _verify_objective_file(run)
-    normalized_manifest, candidates_sha256, manifest_sha256 = _validated_manifest(
-        run, candidates, manifest
-    )
+    _require_frozen_objective(run)
+    normalized_manifest = _validated_manifest(run, candidates, manifest)
     normalized = _normalized_candidates(candidates, run_id)
     now = utc_now()
     manifest_json = canonical_bytes(normalized_manifest).decode("utf-8").rstrip("\n")
@@ -567,38 +529,34 @@ def _freeze_candidate_payload(
         ).fetchone()
         existing_count = int(existing["count"] if existing is not None else 0)
         if existing_count:
-            existing_digest = str(locked["candidate_artifact_sha256"] or "").lower()
+            frozen = transaction.execute(
+                "SELECT candidate_json FROM generated_idea_candidates "
+                "WHERE ideation_run_id=? ORDER BY rowid",
+                (run_id,),
+            ).fetchall()
             existing_manifest = (
                 str(locked["candidate_manifest_json"] or "")
                 if "candidate_manifest_json" in locked.keys()
                 else ""
             )
-            existing_manifest_sha256 = ""
-            if existing_manifest:
-                try:
-                    existing_manifest_sha256 = sha256_bytes(
-                        canonical_bytes(json.loads(existing_manifest))
-                    )
-                except (TypeError, json.JSONDecodeError):
-                    existing_manifest_sha256 = "invalid"
-            if existing_digest == candidates_sha256 and (
-                not existing_manifest or existing_manifest_sha256 == manifest_sha256
-            ):
+            if [json.loads(row["candidate_json"]) for row in frozen] == [
+                item["candidate"] for item in normalized
+            ] and (not existing_manifest or existing_manifest == manifest_json):
                 return CandidateImportResult(
                     imported=False,
                     candidate_count=existing_count,
-                    candidates_sha256=candidates_sha256,
-                    manifest_sha256=manifest_sha256,
+                    candidates_key=str(locked["candidate_artifact_key"] or ""),
                 )
             raise CandidateImportError(
                 "immutable_candidates_conflict",
                 "candidates are already frozen with a different artifact binding",
                 status_code=409,
             )
+        candidates_key = new_key()
         for item in normalized:
             transaction.execute(
                 "INSERT INTO generated_idea_candidates(id,ideation_run_id,candidate_key,title,"
-                "candidate_json,evidence_refs_json,imported_from,artifact_sha256,created_at,updated_at) "
+                "candidate_json,evidence_refs_json,imported_from,artifact_key,created_at,updated_at) "
                 "VALUES(?,?,?,?,?,?,?,?,?,?)",
                 (
                     item["id"],
@@ -608,22 +566,22 @@ def _freeze_candidate_payload(
                     json.dumps(item["candidate"], ensure_ascii=False),
                     json.dumps(item["evidence_refs"], ensure_ascii=False),
                     imported_from,
-                    candidates_sha256,
+                    candidates_key,
                     now,
                     now,
                 ),
             )
         if "candidate_manifest_json" in locked.keys():
             transaction.execute(
-                "UPDATE ideation_runs SET state='awaiting_labels',candidate_artifact_sha256=?,"
+                "UPDATE ideation_runs SET state='awaiting_labels',candidate_artifact_key=?,"
                 "candidate_manifest_json=?,updated_at=? WHERE id=?",
-                (candidates_sha256, manifest_json, now, run_id),
+                (candidates_key, manifest_json, now, run_id),
             )
         else:  # Compatibility for a database migrating concurrently from v7.
             transaction.execute(
-                "UPDATE ideation_runs SET state='awaiting_labels',candidate_artifact_sha256=?,"
+                "UPDATE ideation_runs SET state='awaiting_labels',candidate_artifact_key=?,"
                 "updated_at=? WHERE id=?",
-                (candidates_sha256, now, run_id),
+                (candidates_key, now, run_id),
             )
         transaction.execute(
             "INSERT INTO events(topic,event_type,severity,entity_type,entity_id,payload_json,created_at) "
@@ -634,8 +592,7 @@ def _freeze_candidate_payload(
                     {
                         "count": len(normalized),
                         "imported_from": imported_from,
-                        "artifact_sha256": candidates_sha256,
-                        "manifest_sha256": manifest_sha256,
+                        "artifact_key": candidates_key,
                         "provenance_receipt": dict(provenance_receipt or {}),
                     },
                     ensure_ascii=False,
@@ -646,8 +603,7 @@ def _freeze_candidate_payload(
     return CandidateImportResult(
         imported=True,
         candidate_count=len(normalized),
-        candidates_sha256=candidates_sha256,
-        manifest_sha256=manifest_sha256,
+        candidates_key=candidates_key,
     )
 
 
@@ -715,13 +671,10 @@ def _download_json(
     if entry.get("exists") is not True:
         raise CandidateImportError("artifact_missing", f"Argus artifact is unavailable: {path}")
     declared_size = entry.get("size")
-    reported_sha = entry.get("sha256")
-    if not isinstance(declared_size, int) or isinstance(declared_size, bool) or not _is_sha256(
-        reported_sha
-    ):
+    if not isinstance(declared_size, int) or isinstance(declared_size, bool):
         raise CandidateImportError(
             "artifact_receipt_missing",
-            f"Argus artifact index must provide valid size and SHA-256 for {path}",
+            f"Argus artifact index must provide a valid size for {path}",
         )
     if declared_size > max_bytes:
         raise CandidateImportError("artifact_too_large", f"{path} exceeds the {max_bytes}-byte limit")
@@ -729,12 +682,6 @@ def _download_json(
     if download.size != declared_size:
         raise CandidateImportError(
             "artifact_length_mismatch", f"downloaded {path} length differs from its fresh index"
-        )
-    if download.sha256 != str(reported_sha).lower():
-        raise CandidateImportError(
-            "artifact_transport_digest_mismatch",
-            f"downloaded {path} SHA-256 differs from its fresh index",
-            status_code=409,
         )
     try:
         value = json.loads(download.content.decode("utf-8"))
@@ -744,9 +691,7 @@ def _download_json(
         value=value,
         path=path,
         size=download.size,
-        sha256=download.sha256,
         index_size=declared_size,
-        index_sha256=str(reported_sha).lower(),
     )
 
 
@@ -806,33 +751,14 @@ def import_argus_candidate_artifacts(
         raise CandidateImportError(
             "manifest_shape_invalid", "CANDIDATES_MANIFEST.json must be an object"
         )
-    # The manifest binds the canonical CANDIDATES bytes.  Requiring the raw
-    # streamed digest to match as well proves Argus emitted that canonical file
-    # rather than a logically equivalent but unbound serialization.
-    if str(raw_manifest.get("candidates_sha256") or "").lower() != candidates_download.sha256:
-        raise CandidateImportError(
-            "candidate_transport_binding_mismatch",
-            "downloaded CANDIDATES.json bytes do not match manifest.candidates_sha256",
-            status_code=409,
-        )
     receipt = {
         "transport": "argus_allowlisted_artifact_download",
         "argus_project_id": project_id,
-        "artifact_index_sha256": sha256_bytes(
-            canonical_bytes(
-                {
-                    CANDIDATES_PATH: entries[CANDIDATES_PATH],
-                    CANDIDATES_MANIFEST_PATH: entries[CANDIDATES_MANIFEST_PATH],
-                }
-            )
-        ),
         "artifacts": [
             {
                 "path": item.path,
                 "size": item.size,
-                "sha256": item.sha256,
                 "index_size": item.index_size,
-                "index_sha256": item.index_sha256,
             }
             for item in (candidates_download, manifest_download)
         ],

@@ -76,17 +76,6 @@ const splitList = (value: string) =>
     .map((item) => item.trim())
     .filter(Boolean);
 const pretty = (value: unknown) => JSON.stringify(value ?? {}, null, 2);
-const canonicalJson = (value: unknown): string => {
-  if (value === null || typeof value !== "object") return JSON.stringify(value);
-  if (Array.isArray(value)) return `[${value.map(canonicalJson).join(",")}]`;
-  const record = value as Record<string, unknown>;
-  return `{${Object.keys(record).sort().map((key) => `${JSON.stringify(key)}:${canonicalJson(record[key])}`).join(",")}}`;
-};
-const candidateArtifactSha256 = async (candidates: unknown[]): Promise<string> => {
-  const bytes = new TextEncoder().encode(`${canonicalJson(candidates)}\n`);
-  const digest = await window.crypto.subtle.digest("SHA-256", bytes);
-  return [...new Uint8Array(digest)].map((value) => value.toString(16).padStart(2, "0")).join("");
-};
 const parseObject = (value: string, label: string) => {
   const parsed = JSON.parse(value || "{}");
   if (!parsed || Array.isArray(parsed) || typeof parsed !== "object")
@@ -228,8 +217,7 @@ export function ContextStudioPage() {
       />
       <Notice tone="info" title="Seed catalog ≠ personalized generation">
         290 个会议候选只是默认种子。个性化 run 会冻结完整条件快照并生成新的
-        SHA-256 objective；候选只有在 Argus 或人工以带哈希 artifact
-        导入后才存在。
+        objective；候选只有在 Argus 或人工导入 artifact 后才存在。
       </Notice>
       {error && (
         <Notice tone="warn" title="Context Studio needs attention">
@@ -666,7 +654,6 @@ function RunsStudio({
     completionTarget:
       "Produce two resource-feasible survivors or a documented NO_WINNER.",
     sourceRef: "",
-    sourceSha: "",
     dataRights: false,
     resourceChecked: false,
     nonComputeChecked: false,
@@ -698,13 +685,6 @@ function RunsStudio({
     if (!target) return setError("请选择会议与 deadline");
     if (!form.profileId) return setError("请先创建并选择团队画像");
     const sourceRef = form.sourceRef.trim();
-    const sourceSha = form.sourceSha.trim().toLowerCase();
-    if (Boolean(sourceRef) !== Boolean(sourceSha))
-      return setError(
-        "Source snapshot reference 与 SHA-256 必须同时填写或同时留空",
-      );
-    if (sourceSha && !/^[0-9a-f]{64}$/.test(sourceSha))
-      return setError("Source SHA-256 必须是恰好 64 位十六进制摘要");
     if (
       !form.dataRights ||
       !form.resourceChecked ||
@@ -725,7 +705,6 @@ function RunsStudio({
         finalist_count: form.finalistCount,
         completion_target: form.completionTarget,
         source_snapshot_ref: sourceRef,
-        source_snapshot_sha256: sourceSha,
         create_campaign: true,
         preflight_attestations: {
           compute_inventory_and_capacity_verified: form.resourceChecked,
@@ -794,7 +773,7 @@ function RunsStudio({
                 <span>FREEZE A CONDITION SNAPSHOT</span>
                 <h2>Compile a personalized ideation objective</h2>
                 <p>
-                  不同画像与资源会生成不同 objective SHA。点击创建不会启动
+                  不同画像与资源会生成不同 objective。点击创建不会启动
                   Argus。
                 </p>
               </div>
@@ -922,27 +901,13 @@ function RunsStudio({
                 />
               </label>
               <label>
-                <span>Source snapshot reference · optional pair</span>
+                <span>Source snapshot reference · optional</span>
                 <input
                   value={form.sourceRef}
                   onChange={(event) =>
                     setForm({ ...form, sourceRef: event.target.value })
                   }
                   placeholder="s3://… or artifact URI"
-                />
-              </label>
-              <label>
-                <span>Source SHA-256 · optional pair</span>
-                <input
-                  className="mono-input"
-                  minLength={64}
-                  maxLength={64}
-                  pattern="[0-9a-fA-F]{64}"
-                  value={form.sourceSha}
-                  onChange={(event) =>
-                    setForm({ ...form, sourceSha: event.target.value.trim() })
-                  }
-                  placeholder="64 hex characters"
                 />
               </label>
             </div>
@@ -1015,7 +980,7 @@ function RunsStudio({
         ) : (
           <EmptyState
             title="选择一个 ideation run"
-            detail="查看条件快照、内容哈希、idle Campaign 与候选评审。"
+            detail="查看条件快照、idle Campaign 与候选评审。"
           />
         )}
       </section>
@@ -1062,7 +1027,6 @@ function RunDetail({
   >("snapshot");
   const [importOpen, setImportOpen] = useState(false);
   const [importJson, setImportJson] = useState("[]");
-  const [artifactSha, setArtifactSha] = useState("");
   const [episodeId, setEpisodeId] = useState("");
   const [creatingEpisode, setCreatingEpisode] = useState(false);
   const [episodeCandidate, setEpisodeCandidate] =
@@ -1162,16 +1126,16 @@ function RunDetail({
       <div className="objective-spine">
         <div>
           <Fingerprint size={16} />
-          <span>CONDITION SHA</span>
+          <span>CONDITION KEY</span>
           <strong>
-            {run.condition_sha256 ?? "Not returned by detail endpoint"}
+            {run.condition_key ?? "Not returned by detail endpoint"}
           </strong>
         </div>
         <i />
         <div>
           <GitCommitHorizontal size={16} />
-          <span>OBJECTIVE SHA-256</span>
-          <strong>{run.objective_sha256}</strong>
+          <span>OBJECTIVE KEY</span>
+          <strong>{run.objective_key}</strong>
         </div>
         <i />
         <div>
@@ -1201,7 +1165,7 @@ function RunDetail({
           {candidates.length === 0 ? (
             <EmptyState
               title="还没有生成候选"
-              detail="这是诚实的空状态：Flywheel 已冻结 objective，但不会伪装 Argus 已完成 ideation。先在 Campaign cockpit 人工 Start；完成后从 Argus artifact 导入带 SHA-256 的候选，或手工录入完整候选 JSON。"
+              detail="这是诚实的空状态：Flywheel 已冻结 objective，但不会伪装 Argus 已完成 ideation。先在 Campaign cockpit 人工 Start；完成后从 Argus artifact 导入候选，或手工录入完整候选 JSON。"
               action={
                 <Button
                   icon={<Import size={14} />}
@@ -1299,32 +1263,25 @@ function RunDetail({
                 const parsed = JSON.parse(importJson);
                 if (!Array.isArray(parsed) || parsed.length === 0)
                   throw new Error("Candidates 必须是非空 JSON array");
-                const computedSha = await candidateArtifactSha256(parsed);
-                if (artifactSha && artifactSha.toLowerCase() !== computedSha) {
-                  throw new Error(`输入 SHA 与 canonical candidate array 不匹配；应为 ${computedSha}`);
+                if (!run.condition_key || !/^[0-9a-f]{64}$/i.test(run.condition_key)) {
+                  throw new Error("Ideation run 缺少 condition key");
                 }
-                setArtifactSha(computedSha);
-                if (!run.condition_sha256 || !/^[0-9a-f]{64}$/i.test(run.condition_sha256)) {
-                  throw new Error("Ideation run 缺少可验证的 condition SHA-256");
-                }
-                if (!/^[0-9a-f]{64}$/i.test(run.objective_sha256)) {
-                  throw new Error("Ideation run 缺少可验证的 objective SHA-256");
+                if (!/^[0-9a-f]{64}$/i.test(run.objective_key)) {
+                  throw new Error("Ideation run 缺少 objective key");
                 }
                 await importIdeationCandidates(run.id, {
                   candidates: parsed,
                   imported_from: "human_entered",
-                  artifact_sha256: computedSha,
                   manifest: {
                     schema_version: "flywheel.ideation-candidates/1",
-                    condition_sha256: run.condition_sha256,
-                    objective_sha256: run.objective_sha256,
-                    candidates_sha256: computedSha,
+                    condition_key: run.condition_key,
+                    objective_key: run.objective_key,
                     candidate_count: parsed.length,
                   },
                 });
                 setImportOpen(false);
                 await onRefresh();
-                toast("候选 artifact 已按哈希导入，后续不可覆盖。");
+                toast("候选 artifact 已导入，后续不可覆盖。");
               } catch (cause) {
                 toast(
                   `导入失败：${cause instanceof Error ? cause.message : "invalid artifact"}`,
@@ -1348,15 +1305,6 @@ function RunDetail({
             <Notice tone="warn" title="Import once">
               候选导入后不可覆盖。需要另一个版本时请创建新的 ideation run。
             </Notice>
-            <label className="modal-field">
-              <span>Canonical candidate array SHA-256 · 留空则由浏览器计算，服务端会独立复算</span>
-              <input
-                maxLength={64}
-                value={artifactSha}
-                onChange={(event) => setArtifactSha(event.target.value.trim())}
-                placeholder="optional 64-hex assertion"
-              />
-            </label>
             <label className="modal-field">
               <span>Complete candidates JSON</span>
               <textarea
@@ -1402,7 +1350,7 @@ function ConditionSnapshot({ run }: { run: IdeationRun }) {
         <Fingerprint size={21} />
         <div>
           <span>FROZEN INPUT</span>
-          <strong>{run.objective_sha256.slice(0, 16)}…</strong>
+          <strong>{run.objective_key.slice(0, 16)}…</strong>
         </div>
       </div>
       <div className="condition-branches">
@@ -1431,7 +1379,6 @@ function ConditionSnapshot({ run }: { run: IdeationRun }) {
         <strong>
           {run.source_snapshot_ref || "No external source snapshot bound"}
         </strong>
-        <code>{run.source_snapshot_sha256 || "No source SHA reported"}</code>
       </div>
     </div>
   );

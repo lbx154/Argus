@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 import asyncio
-import hashlib
 import json
 import math
 import os
@@ -24,7 +23,7 @@ from fastapi import (
     WebSocketDisconnect,
 )
 
-from .db import Database, decode_row, decode_rows, utc_now
+from .db import Database, decode_row, decode_rows, new_key, utc_now
 from .integrations.argus_webapi import (
     ArgusDaemonCommandError,
     ArgusWebApiClient,
@@ -349,7 +348,7 @@ def _enqueue_independent_review(
             "evaluator_configured": bool(
                 request.app.state.settings.viewer_evaluator_command
             ),
-            "evidence_snapshot_sha256": evidence.sha256,
+            "evidence_snapshot_key": evidence.key,
             "evidence_snapshot_state": evidence.state,
             "evidence_artifact_count": evidence.artifact_count,
             "human_review_approval": approval,
@@ -362,7 +361,7 @@ def _enqueue_independent_review(
         "evaluator_configured": bool(
             request.app.state.settings.viewer_evaluator_command
         ),
-        "evidence_snapshot_sha256": evidence.sha256,
+        "evidence_snapshot_key": evidence.key,
         "evidence_snapshot_state": evidence.state,
         "evidence_artifact_count": evidence.artifact_count,
         **viewer_response,
@@ -372,10 +371,10 @@ def _enqueue_independent_review(
 def _atomic_write(path: Path, content: str) -> None:
     path.parent.mkdir(parents=True, exist_ok=True)
     temporary = path.with_name(f".{path.name}.{os.getpid()}.tmp")
-    # Write the exact bytes whose SHA-256 is recorded in our manifests.  On
+    # Write the exact bytes later compared with the frozen objective.  On
     # Windows, Path.write_text/newline=None translates LF to CRLF, which makes
-    # the on-disk objective differ from prompt_sha256 even though read_text()
-    # later hides the difference through universal-newline decoding.
+    # the on-disk objective differ even though read_text() later hides the
+    # difference through universal-newline decoding.
     temporary.write_bytes(content.encode("utf-8"))
     temporary.replace(path)
 
@@ -461,19 +460,15 @@ def _with_campaign_release_state(
     pinned = False
 
     manifest_path = Path(data_dir) / "campaigns" / str(result.get("id", "")) / "manifest.json"
-    objective_path = manifest_path.with_name("OBJECTIVE.md")
     if result.get("launch_command_id") and manifest_path.is_file():
         try:
             manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
-            objective_sha = hashlib.sha256(objective_path.read_bytes()).hexdigest()
         except (OSError, UnicodeError, json.JSONDecodeError):
             manifest = None
-            objective_sha = None
         if (
             isinstance(manifest, dict)
             and manifest.get("campaign_id") == result.get("id")
             and manifest.get("launch_command_id") == result.get("launch_command_id")
-            and manifest.get("prompt_sha256") == objective_sha
         ):
             manifest_sha = str(manifest.get("argus_release_sha") or "").strip()
             manifest_pinned = manifest.get("release_pinned") is True
@@ -521,9 +516,6 @@ def _load_frozen_launch_packet(
         raise HTTPException(409, "Frozen launch manifest belongs to a different campaign")
     if manifest.get("launch_command_id") != command_id:
         raise HTTPException(409, "Frozen launch command does not match the campaign receipt")
-    actual_prompt_hash = hashlib.sha256(objective_bytes).hexdigest()
-    if manifest.get("prompt_sha256") != actual_prompt_hash:
-        raise HTTPException(409, "Frozen objective hash does not match the launch manifest")
     frozen_connection = manifest.get("connection")
     if not isinstance(frozen_connection, dict):
         raise HTTPException(409, "Frozen launch manifest has no connection identity")
@@ -843,14 +835,8 @@ def _compile_idea_packet(
     return compiled, resources, missing
 
 
-def _canonical_sha256(value: Any) -> str:
-    encoded = json.dumps(
-        value,
-        ensure_ascii=False,
-        sort_keys=True,
-        separators=(",", ":"),
-    ).encode("utf-8")
-    return hashlib.sha256(encoded).hexdigest()
+def _canonical_text(value: Any) -> str:
+    return json.dumps(value, ensure_ascii=False, sort_keys=True, separators=(",", ":"))
 
 
 def _load_locked_contract_packet(
@@ -888,10 +874,7 @@ def _load_locked_contract_packet(
         bindings.get(key) != value for key, value in expected_bindings.items()
     ):
         raise HTTPException(409, "Locked contract bindings no longer match the campaign")
-    prompt_sha256 = hashlib.sha256(objective_bytes).hexdigest()
-    if manifest.get("prompt_sha256") != prompt_sha256:
-        raise HTTPException(409, "Locked objective hash does not match its manifest")
-    for key in ("version", "contract_sha256", "request_sha256", "prompt_sha256"):
+    for key in ("version", "contract_key", "request_key", "prompt_key"):
         if summary.get(key) != manifest.get(key):
             raise HTTPException(409, f"Locked contract registry mismatch: {key}")
     return objective, manifest
@@ -902,56 +885,6 @@ def _locked_contract_history(config: dict[str, Any]) -> list[dict[str, Any]]:
     if not isinstance(value, list):
         return []
     return [item for item in value if isinstance(item, dict)]
-
-
-def _existing_locked_packet(
-    campaign_dir: Path,
-    campaign: dict[str, Any],
-    summary: dict[str, Any],
-    expected_manifest: dict[str, Any],
-    expected_objective: str,
-) -> tuple[str, dict[str, Any]]:
-    """Authenticate and adopt a complete packet left before a DB commit.
-
-    Files are renamed into their content-addressed final directory before the
-    SQLite transaction commits.  A process crash in that narrow interval must
-    be recoverable, but an unrelated or partial directory must never be
-    overwritten or silently adopted.
-    """
-
-    objective, manifest = _load_locked_contract_packet(campaign_dir, campaign, summary)
-    if objective != expected_objective:
-        raise HTTPException(409, "Existing locked packet objective does not match this request")
-    for key, expected in expected_manifest.items():
-        if key == "created_at":
-            continue
-        actual = manifest.get(key)
-        if key == "prompt_manifest" and isinstance(actual, dict) and isinstance(expected, dict):
-            actual = {item: value for item, value in actual.items() if item != "generated_at"}
-            expected = {
-                item: value for item, value in expected.items() if item != "generated_at"
-            }
-        if key == "human_science_gate" and isinstance(actual, dict) and isinstance(expected, dict):
-            # ``recorded_at`` is frozen by the writer that won the filesystem
-            # race.  A retry after a database rollback necessarily compiles a
-            # new wall-clock value, so authenticate every semantic gate field
-            # here and validate the frozen timestamp against top-level
-            # ``created_at`` below instead of comparing it to retry time.
-            actual = {item: value for item, value in actual.items() if item != "recorded_at"}
-            expected = {
-                item: value for item, value in expected.items() if item != "recorded_at"
-            }
-        if actual != expected:
-            raise HTTPException(
-                409,
-                f"Existing locked packet cannot be reconciled: manifest field {key}",
-            )
-    if not isinstance(manifest.get("created_at"), str) or not manifest["created_at"]:
-        raise HTTPException(409, "Existing locked packet has no creation timestamp")
-    human_gate = manifest.get("human_science_gate")
-    if not isinstance(human_gate, dict) or human_gate.get("recorded_at") != manifest["created_at"]:
-        raise HTTPException(409, "Existing locked packet has an inconsistent human gate timestamp")
-    return objective, manifest
 
 
 def _reject_reserved_connection_metadata(metadata: dict[str, Any]) -> None:
@@ -1074,14 +1007,14 @@ def verify_conditioned_campaign_integrity(
     critical_config = {
         "ideation_run_id": binding["ideation_run_id"],
         "candidate_id": binding["candidate_id"],
-        "condition_sha256": binding["condition_sha256"],
-        "parent_objective_sha256": binding["parent_objective_sha256"],
-        "candidate_artifact_sha256": binding["candidate_artifact_sha256"],
-        "candidate_record_sha256": binding["candidate_record_sha256"],
-        "candidate_input_sha256": binding["candidate_input_sha256"],
-        "candidate_prompt_sha256": binding["candidate_prompt_sha256"],
+        "condition_key": binding["condition_key"],
+        "parent_objective_key": binding["parent_objective_key"],
+        "candidate_artifact_key": binding["candidate_artifact_key"],
+        "candidate_record_key": binding["candidate_record_key"],
+        "candidate_input_key": binding["candidate_input_key"],
+        "candidate_prompt_key": binding["candidate_prompt_key"],
         "candidate_objective_path": binding["objective_path"],
-        "binding_receipt_sha256": binding["receipt_sha256"],
+        "binding_receipt_key": binding["receipt_key"],
     }
     config_mismatches = [
         key for key, expected in critical_config.items() if config.get(key) != expected
@@ -1128,27 +1061,18 @@ def verify_conditioned_campaign_integrity(
         raise HTTPException(
             409, "Conditioned campaign integrity check failed: frozen source JSON is invalid"
         )
-    computed_condition_sha = hashlib.sha256(canonical_bytes(condition_snapshot)).hexdigest()
-    computed_candidate_sha = hashlib.sha256(canonical_bytes(candidate_payload)).hexdigest()
     source_mismatches: list[str] = []
     checks = (
-        (run.get("condition_sha256"), binding["condition_sha256"], "condition_sha256"),
-        (computed_condition_sha, binding["condition_sha256"], "condition_snapshot"),
-        (run.get("objective_sha256"), binding["parent_objective_sha256"], "parent_objective"),
+        (run.get("condition_key"), binding["condition_key"], "condition_key"),
+        (run.get("objective_key"), binding["parent_objective_key"], "parent_objective"),
         (candidate.get("ideation_run_id"), binding["ideation_run_id"], "candidate_run"),
-        (candidate.get("artifact_sha256"), binding["candidate_artifact_sha256"], "candidate_artifact"),
-        (computed_candidate_sha, binding["candidate_record_sha256"], "candidate_record"),
-        (run.get("candidate_artifact_sha256"), binding["candidate_artifact_sha256"], "run_artifact"),
-        (candidate_manifest.get("condition_sha256"), binding["condition_sha256"], "manifest_condition"),
+        (candidate.get("artifact_key"), binding["candidate_artifact_key"], "candidate_artifact"),
+        (run.get("candidate_artifact_key"), binding["candidate_artifact_key"], "run_artifact"),
+        (candidate_manifest.get("condition_key"), binding["condition_key"], "manifest_condition"),
         (
-            candidate_manifest.get("objective_sha256"),
-            binding["parent_objective_sha256"],
+            candidate_manifest.get("objective_key"),
+            binding["parent_objective_key"],
             "manifest_objective",
-        ),
-        (
-            candidate_manifest.get("candidates_sha256"),
-            binding["candidate_artifact_sha256"],
-            "manifest_candidates",
         ),
         (candidate_manifest.get("schema_version"), CANDIDATE_MANIFEST_SCHEMA, "manifest_schema"),
         (config.get("team_profile_id"), run.get("team_profile_id"), "team_profile_id"),
@@ -1174,22 +1098,6 @@ def verify_conditioned_campaign_integrity(
         or candidate_manifest.get("candidate_count") != int((candidate_count or {}).get("count", 0))
     ):
         source_mismatches.append("candidate_count")
-    candidate_rows = db.fetch_all(
-        "SELECT candidate_json FROM generated_idea_candidates "
-        "WHERE ideation_run_id=? ORDER BY rowid",
-        (binding["ideation_run_id"],),
-    )
-    try:
-        candidate_portfolio = [json.loads(row["candidate_json"]) for row in candidate_rows]
-    except (TypeError, json.JSONDecodeError) as exc:
-        raise HTTPException(
-            409,
-            "Conditioned campaign integrity check failed: frozen candidate portfolio is invalid",
-        ) from exc
-    if hashlib.sha256(canonical_bytes(candidate_portfolio)).hexdigest() != binding[
-        "candidate_artifact_sha256"
-    ]:
-        source_mismatches.append("candidate_portfolio")
     if source_mismatches:
         raise HTTPException(
             409,
@@ -1209,50 +1117,33 @@ def verify_conditioned_campaign_integrity(
         )
         resolved_parent_path = Path(run["objective_path"]).resolve(strict=True)
         resolved_parent_path.relative_to(allowed_parent_root)
-        parent_bytes = resolved_parent_path.read_bytes()
     except (OSError, ValueError, TypeError, json.JSONDecodeError) as exc:
         raise HTTPException(
             409,
             "Conditioned campaign integrity check failed: immutable objective file is unavailable",
         ) from exc
-    objective_sha = hashlib.sha256(objective_bytes).hexdigest()
-    parent_sha = hashlib.sha256(parent_bytes).hexdigest()
     if (
-        objective_sha != binding["candidate_prompt_sha256"]
-        or parent_sha != binding["parent_objective_sha256"]
+        resolved_objective_path.parent.name != binding["candidate_prompt_key"]
+        or resolved_parent_path.parent.name != binding["parent_objective_key"]
         or objective_bytes != str(campaign.get("objective") or "").encode("utf-8")
     ):
         raise HTTPException(
             409,
-            "Conditioned campaign integrity check failed: objective bytes or SHA changed",
+            "Conditioned campaign integrity check failed: objective bytes or path changed",
         )
     expected_contract_binding = {
         "schema_version": CANDIDATE_RESEARCH_SCHEMA,
         "ideation_run_id": binding["ideation_run_id"],
-        "condition_sha256": binding["condition_sha256"],
-        "parent_objective_sha256": binding["parent_objective_sha256"],
+        "condition_key": binding["condition_key"],
+        "parent_objective_key": binding["parent_objective_key"],
         "candidate_id": binding["candidate_id"],
-        "candidate_artifact_sha256": binding["candidate_artifact_sha256"],
-        "candidate_sha256": binding["candidate_record_sha256"],
+        "candidate_artifact_key": binding["candidate_artifact_key"],
+        "candidate_record_key": binding["candidate_record_key"],
     }
     if not isinstance(contract, dict) or contract.get("binding") != expected_contract_binding:
         raise HTTPException(
             409,
             "Conditioned campaign integrity check failed: candidate contract binding changed",
-        )
-    input_document = {
-        "schema_version": CANDIDATE_RESEARCH_SCHEMA,
-        "binding": expected_contract_binding,
-        "condition_snapshot": condition_snapshot,
-        "candidate": candidate_payload,
-        "goal_contract": contract,
-    }
-    if hashlib.sha256(canonical_bytes(input_document)).hexdigest() != binding[
-        "candidate_input_sha256"
-    ]:
-        raise HTTPException(
-            409,
-            "Conditioned campaign integrity check failed: candidate input SHA changed",
         )
     return binding
 
@@ -1281,10 +1172,7 @@ def _verify_conditioned_ideation_integrity(
         raise HTTPException(
             409, "Conditioned ideation integrity check failed: condition snapshot is invalid"
         )
-    condition_bytes = canonical_bytes(condition_snapshot)
-    condition_sha = hashlib.sha256(condition_bytes).hexdigest()
     objective_bytes = str(campaign.get("objective") or "").encode("utf-8")
-    objective_sha = hashlib.sha256(objective_bytes).hexdigest()
     source_checks = (
         (run.get("campaign_id"), campaign["id"], "run_campaign_id"),
         (run.get("team_profile_id"), config.get("team_profile_id"), "team_profile_id"),
@@ -1293,10 +1181,8 @@ def _verify_conditioned_ideation_integrity(
         (run.get("connection_id"), campaign.get("connection_id"), "connection_id"),
         (run.get("resource_id"), campaign.get("resource_id"), "resource_id"),
         (campaign.get("idea_id"), None, "idea_id"),
-        (run.get("condition_sha256"), condition_sha, "condition_sha256"),
-        (config.get("condition_sha256"), condition_sha, "config_condition_sha256"),
-        (run.get("objective_sha256"), objective_sha, "objective_sha256"),
-        (config.get("objective_sha256"), objective_sha, "config_objective_sha256"),
+        (config.get("condition_key"), run.get("condition_key"), "config_condition_key"),
+        (config.get("objective_key"), run.get("objective_key"), "config_objective_key"),
         (
             run.get("condition_schema_version"),
             condition_snapshot.get("schema_version"),
@@ -1331,19 +1217,18 @@ def _verify_conditioned_ideation_integrity(
         ) from exc
     if (
         frozen_objective != objective_bytes
-        or hashlib.sha256(frozen_objective).hexdigest() != objective_sha
-        or frozen_condition != condition_bytes
-        or objective_path.parent.name != objective_sha
+        or frozen_condition != canonical_bytes(condition_snapshot)
+        or objective_path.parent.name != run["objective_key"]
     ):
         raise HTTPException(
             409,
-            "Conditioned ideation integrity check failed: objective, condition, hash, or path changed",
+            "Conditioned ideation integrity check failed: objective, condition, or path changed",
         )
     return {
         "campaign_kind": "conditioned_ideation",
         "ideation_run_id": run_id,
-        "condition_sha256": condition_sha,
-        "objective_sha256": objective_sha,
+        "condition_key": run["condition_key"],
+        "objective_key": run["objective_key"],
         "objective_path": str(objective_path),
     }
 
@@ -1356,7 +1241,7 @@ def _verify_rebuttal_follow_up_integrity(
     config = campaign.get("config") if isinstance(campaign.get("config"), dict) else {}
     submission_id = str(config.get("submission_id") or "")
     source_campaign_id = str(config.get("source_campaign_id") or "")
-    objective_sha = str(config.get("rebuttal_objective_sha256") or "").lower()
+    objective_key = str(config.get("rebuttal_objective_key") or "").lower()
     submission = db.fetch_one("SELECT * FROM submission_records WHERE id=?", (submission_id,))
     source_raw = db.fetch_one("SELECT * FROM campaigns WHERE id=?", (source_campaign_id,))
     rebuttal = db.fetch_one(
@@ -1376,12 +1261,10 @@ def _verify_rebuttal_follow_up_integrity(
             409, "Rebuttal integrity check failed: source campaign is not conditioned"
         )
     objective_bytes = str(campaign.get("objective") or "").encode("utf-8")
-    computed_sha = hashlib.sha256(objective_bytes).hexdigest()
     checks = (
         (submission.get("campaign_id"), source_campaign_id, "submission_campaign_id"),
         (rebuttal.get("submission_id"), submission_id, "rebuttal_submission_id"),
-        (str(rebuttal.get("objective_sha256") or "").lower(), objective_sha, "rebuttal_sha"),
-        (objective_sha, computed_sha, "objective_sha"),
+        (str(rebuttal.get("objective_key") or "").lower(), objective_key, "rebuttal_key"),
         (campaign.get("idea_id"), source.get("idea_id"), "idea_id"),
         (campaign.get("venue_id"), source.get("venue_id"), "venue_id"),
         (campaign.get("deadline_id"), source.get("deadline_id"), "deadline_id"),
@@ -1414,18 +1297,17 @@ def _verify_rebuttal_follow_up_integrity(
         ) from exc
     if (
         frozen_objective != objective_bytes
-        or hashlib.sha256(frozen_objective).hexdigest() != objective_sha
-        or objective_path.parent.name != objective_sha
+        or objective_path.parent.name != objective_key
         or objective_path.name != "REBUTTAL_OBJECTIVE.md"
     ):
         raise HTTPException(
-            409, "Rebuttal integrity check failed: objective bytes, hash, or path changed"
+            409, "Rebuttal integrity check failed: objective bytes or path changed"
         )
     return {
         "campaign_kind": "rebuttal_follow_up",
         "source_campaign_id": source_campaign_id,
         "submission_id": submission_id,
-        "objective_sha256": objective_sha,
+        "objective_key": objective_key,
         "objective_path": str(objective_path),
     }
 
@@ -1473,7 +1355,7 @@ def verify_conditioned_ideation_candidate_provenance(
         raise HTTPException(
             409, "Conditioned ideation lineage failed: run campaign is unavailable"
         )
-    ideation = _verify_conditioned_ideation_integrity(db, campaign, data_dir)
+    _verify_conditioned_ideation_integrity(db, campaign, data_dir)
     try:
         condition_snapshot = json.loads(run["condition_snapshot_json"])
         candidate_payload = json.loads(candidate["candidate_json"])
@@ -1495,25 +1377,16 @@ def verify_conditioned_ideation_candidate_provenance(
         raise HTTPException(
             409, "Conditioned ideation lineage failed: frozen JSON shape is invalid"
         )
-    condition_sha = hashlib.sha256(canonical_bytes(condition_snapshot)).hexdigest()
-    record_sha = hashlib.sha256(canonical_bytes(candidate_payload)).hexdigest()
-    portfolio_sha = hashlib.sha256(canonical_bytes(portfolio)).hexdigest()
-    manifest_sha = hashlib.sha256(canonical_bytes(manifest)).hexdigest()
     checks = (
         (candidate.get("ideation_run_id"), run["id"], "candidate_run"),
-        (run.get("condition_sha256"), condition_sha, "condition_sha256"),
-        (ideation.get("condition_sha256"), condition_sha, "ideation_condition"),
-        (ideation.get("objective_sha256"), run.get("objective_sha256"), "objective_sha256"),
-        (candidate.get("artifact_sha256"), portfolio_sha, "candidate_artifact"),
-        (run.get("candidate_artifact_sha256"), portfolio_sha, "run_candidate_artifact"),
+        (candidate.get("artifact_key"), run.get("candidate_artifact_key"), "candidate_artifact"),
         (manifest.get("schema_version"), CANDIDATE_MANIFEST_SCHEMA, "manifest_schema"),
-        (manifest.get("condition_sha256"), condition_sha, "manifest_condition"),
+        (manifest.get("condition_key"), run.get("condition_key"), "manifest_condition"),
         (
-            manifest.get("objective_sha256"),
-            run.get("objective_sha256"),
+            manifest.get("objective_key"),
+            run.get("objective_key"),
             "manifest_objective",
         ),
-        (manifest.get("candidates_sha256"), portfolio_sha, "manifest_candidates"),
         (manifest.get("candidate_count"), len(portfolio), "manifest_candidate_count"),
     )
     mismatches = [label for actual, expected, label in checks if actual != expected]
@@ -1530,11 +1403,9 @@ def verify_conditioned_ideation_candidate_provenance(
         "ideation_campaign_id": campaign["id"],
         "ideation_run_id": run["id"],
         "candidate_id": candidate["id"],
-        "condition_sha256": condition_sha,
-        "objective_sha256": str(run["objective_sha256"]),
-        "candidate_artifact_sha256": portfolio_sha,
-        "candidate_record_sha256": record_sha,
-        "candidate_manifest_sha256": manifest_sha,
+        "condition_key": str(run["condition_key"]),
+        "objective_key": str(run["objective_key"]),
+        "candidate_artifact_key": str(run["candidate_artifact_key"]),
         "candidate_import_provenance": str(candidate.get("imported_from") or ""),
     }
 
@@ -1567,13 +1438,13 @@ def verify_training_campaign_provenance(
             "source_candidate_campaign_id": decoded["id"],
             "ideation_run_id": binding["ideation_run_id"],
             "candidate_id": binding["candidate_id"],
-            "condition_sha256": binding["condition_sha256"],
-            "parent_objective_sha256": binding["parent_objective_sha256"],
-            "candidate_artifact_sha256": binding["candidate_artifact_sha256"],
-            "candidate_record_sha256": binding["candidate_record_sha256"],
-            "candidate_input_sha256": binding["candidate_input_sha256"],
-            "candidate_prompt_sha256": binding["candidate_prompt_sha256"],
-            "binding_receipt_sha256": binding["receipt_sha256"],
+            "condition_key": binding["condition_key"],
+            "parent_objective_key": binding["parent_objective_key"],
+            "candidate_artifact_key": binding["candidate_artifact_key"],
+            "candidate_record_key": binding["candidate_record_key"],
+            "candidate_input_key": binding["candidate_input_key"],
+            "candidate_prompt_key": binding["candidate_prompt_key"],
+            "binding_receipt_key": binding["receipt_key"],
             "binding_receipt": binding,
         }
     if kind == "rebuttal_follow_up":
@@ -1598,16 +1469,16 @@ def verify_training_campaign_provenance(
             "campaign_id": decoded["id"],
             "source_candidate_campaign_id": source_campaign_id,
             "submission_id": rebuttal["submission_id"],
-            "rebuttal_objective_sha256": rebuttal["objective_sha256"],
+            "rebuttal_objective_key": rebuttal["objective_key"],
             "ideation_run_id": binding["ideation_run_id"],
             "candidate_id": binding["candidate_id"],
-            "condition_sha256": binding["condition_sha256"],
-            "parent_objective_sha256": binding["parent_objective_sha256"],
-            "candidate_artifact_sha256": binding["candidate_artifact_sha256"],
-            "candidate_record_sha256": binding["candidate_record_sha256"],
-            "candidate_input_sha256": binding["candidate_input_sha256"],
-            "candidate_prompt_sha256": binding["candidate_prompt_sha256"],
-            "binding_receipt_sha256": binding["receipt_sha256"],
+            "condition_key": binding["condition_key"],
+            "parent_objective_key": binding["parent_objective_key"],
+            "candidate_artifact_key": binding["candidate_artifact_key"],
+            "candidate_record_key": binding["candidate_record_key"],
+            "candidate_input_key": binding["candidate_input_key"],
+            "candidate_prompt_key": binding["candidate_prompt_key"],
+            "binding_receipt_key": binding["receipt_key"],
             "binding_receipt": binding,
         }
     if kind == "conditioned_ideation":
@@ -1943,7 +1814,7 @@ def create_router() -> APIRouter:
             "idea_id": idea_id,
             "venue_key": venue["venue_key"],
             "prompt": compiled.prompt,
-            "prompt_sha256": compiled.prompt_sha256,
+            "prompt_key": compiled.prompt_key,
             "manifest": compiled.manifest,
             "resource_contract": resources,
             "execution_ready": False,
@@ -2195,7 +2066,8 @@ def create_router() -> APIRouter:
             else None
         )
         frozen_fields = body.model_dump(mode="json")
-        request_sha256 = _canonical_sha256(
+        # The request itself, as canonical JSON, identifies a retry of it.
+        request_key = _canonical_text(
             {"schema_version": 1, "locked_contract_request": frozen_fields}
         )
         config = campaign.get("config") if isinstance(campaign.get("config"), dict) else {}
@@ -2207,7 +2079,7 @@ def create_router() -> APIRouter:
             request.app.state.settings.data_dir / "campaigns" / campaign_id
         )
         for summary in _locked_contract_history(config):
-            if summary.get("request_sha256") != request_sha256:
+            if summary.get("request_key") != request_key:
                 continue
             objective, manifest = _load_locked_contract_packet(
                 source_campaign_dir, campaign, summary
@@ -2238,7 +2110,7 @@ def create_router() -> APIRouter:
                     payload = json.loads(event["payload_json"] or "{}")
                 except json.JSONDecodeError:
                     continue
-                if payload.get("request_sha256") != request_sha256:
+                if payload.get("request_key") != request_key:
                     continue
                 target_id = payload.get("target_campaign_id")
                 if not isinstance(target_id, str):
@@ -2249,7 +2121,7 @@ def create_router() -> APIRouter:
                     (
                         item
                         for item in _locked_contract_history(target_config)
-                        if item.get("request_sha256") == request_sha256
+                        if item.get("request_key") == request_key
                     ),
                     None,
                 )
@@ -2312,19 +2184,10 @@ def create_router() -> APIRouter:
         if compiled_resources != resource_contract:
             raise HTTPException(409, "Resource contract changed while compiling; retry")
 
-        # A promotion child is deterministic for the source/request pair.  This
-        # lets a retry find and authenticate a complete packet even if the
-        # process died after the filesystem rename but before SQLite committed.
-        target_campaign_id = (
-            str(
-                uuid.uuid5(
-                    uuid.UUID(campaign_id),
-                    f"locked-contract-promotion:{request_sha256}",
-                )
-            )
-            if promoted_from_campaign_id
-            else campaign_id
-        )
+        # A committed promotion is found again by its request receipt.  A retry
+        # after a crash before the commit creates a fresh child; the packet the
+        # crash left behind belongs to no campaign and is never read.
+        target_campaign_id = str(uuid.uuid4()) if promoted_from_campaign_id else campaign_id
         if promoted_from_campaign_id:
             config = {
                 key: value
@@ -2332,13 +2195,13 @@ def create_router() -> APIRouter:
                 if key
                 not in {
                     "locked_contract",
-                    "locked_contract_sha256",
+                    "locked_contract_key",
                     "locked_contract_version",
                     "locked_contract_history",
                 }
             }
             config["promoted_from_campaign_id"] = promoted_from_campaign_id
-            config["promotion_request_sha256"] = request_sha256
+            config["promotion_request_key"] = request_key
             campaign = {
                 **source_campaign,
                 "id": target_campaign_id,
@@ -2362,18 +2225,7 @@ def create_router() -> APIRouter:
             "deadline_id": campaign["deadline_id"],
             "resource_id": campaign["resource_id"],
         }
-        contract_sha256 = _canonical_sha256(
-            {
-                "schema_version": 1,
-                "campaign_id": target_campaign_id,
-                "bindings": bindings,
-                "request_sha256": request_sha256,
-                "prompt_sha256": compiled.prompt_sha256,
-                "prompt_input_sha256": compiled.manifest.get("input_sha256"),
-                "resource_contract": resource_contract,
-                "preflight_attestations": preflight,
-            }
-        )
+        contract_key = new_key()
         created_at = utc_now()
         created_summary: dict[str, Any] | None = None
         idempotent_summary: dict[str, Any] | None = None
@@ -2447,7 +2299,7 @@ def create_router() -> APIRouter:
                         promotion_payload = json.loads(promotion_row["payload_json"] or "{}")
                     except json.JSONDecodeError:
                         continue
-                    if promotion_payload.get("request_sha256") == request_sha256:
+                    if promotion_payload.get("request_key") == request_key:
                         candidate = promotion_payload.get("target_campaign_id")
                         if isinstance(candidate, str):
                             raced_child_id = candidate
@@ -2497,7 +2349,7 @@ def create_router() -> APIRouter:
                     current_config = config
             history = _locked_contract_history(current_config)
             for summary in history:
-                if summary.get("request_sha256") == request_sha256:
+                if summary.get("request_key") == request_key:
                     idempotent_objective, idempotent_manifest = _load_locked_contract_packet(
                         campaign_dir, campaign, summary
                     )
@@ -2510,13 +2362,13 @@ def create_router() -> APIRouter:
                     if isinstance(item.get("version"), int) and item["version"] > 0
                 ]
                 version = max(versions, default=0) + 1
-                directory_name = f"locked-v{version}-{contract_sha256}"
+                directory_name = f"locked-v{version}-{contract_key}"
                 relative_directory = (Path("contracts") / directory_name).as_posix()
                 created_summary = {
                     "version": version,
-                    "contract_sha256": contract_sha256,
-                    "request_sha256": request_sha256,
-                    "prompt_sha256": compiled.prompt_sha256,
+                    "contract_key": contract_key,
+                    "request_key": request_key,
+                    "prompt_key": compiled.prompt_key,
                     "directory": relative_directory,
                     "created_at": created_at,
                 }
@@ -2528,9 +2380,9 @@ def create_router() -> APIRouter:
                     "venue_key": campaign["venue_key"],
                     "promoted_from_campaign_id": lineage_source_campaign_id,
                     "version": version,
-                    "contract_sha256": contract_sha256,
-                    "request_sha256": request_sha256,
-                    "prompt_sha256": compiled.prompt_sha256,
+                    "contract_key": contract_key,
+                    "request_key": request_key,
+                    "prompt_key": compiled.prompt_key,
                     "prompt_manifest": dict(compiled.manifest),
                     "bindings": bindings,
                     "frozen_contract": frozen_fields,
@@ -2551,52 +2403,24 @@ def create_router() -> APIRouter:
                 contracts_root = campaign_dir / "contracts"
                 contracts_root.mkdir(parents=True, exist_ok=True)
                 staging = contracts_root / f".locked-staging-{uuid.uuid4()}"
-                final_directory = contracts_root / directory_name
-                if final_directory.exists():
-                    _, recovered_manifest = _existing_locked_packet(
-                        campaign_dir,
-                        campaign,
-                        created_summary,
-                        manifest,
-                        compiled.prompt,
+                # A packet left by a rolled-back transaction keeps its own key and
+                # stays unreferenced; a retry freezes a fresh one.
+                try:
+                    staging.mkdir(parents=False, exist_ok=False)
+                    _atomic_write(staging / "OBJECTIVE.md", compiled.prompt)
+                    _atomic_write(
+                        staging / "MANIFEST.json",
+                        json.dumps(manifest, ensure_ascii=False, indent=2),
                     )
-                    # Preserve the timestamp already frozen on disk.  Every
-                    # other field was authenticated above before DB adoption.
-                    created_at = recovered_manifest["created_at"]
-                    created_summary["created_at"] = created_at
-                    manifest = recovered_manifest
-                else:
-                    try:
-                        staging.mkdir(parents=False, exist_ok=False)
-                        _atomic_write(staging / "OBJECTIVE.md", compiled.prompt)
-                        _atomic_write(
-                            staging / "MANIFEST.json",
-                            json.dumps(manifest, ensure_ascii=False, indent=2),
-                        )
-                        staging.replace(final_directory)
-                    except OSError as exc:
-                        # A concurrent writer may have won the content-addressed
-                        # rename. Authenticate its complete packet on retry;
-                        # never overwrite a final directory.
-                        if final_directory.exists():
-                            _, recovered_manifest = _existing_locked_packet(
-                                campaign_dir,
-                                campaign,
-                                created_summary,
-                                manifest,
-                                compiled.prompt,
-                            )
-                            created_at = recovered_manifest["created_at"]
-                            created_summary["created_at"] = created_at
-                            manifest = recovered_manifest
-                        else:
-                            raise HTTPException(
-                                500, "Failed to freeze immutable locked contract"
-                            ) from exc
+                    staging.replace(contracts_root / directory_name)
+                except OSError as exc:
+                    raise HTTPException(
+                        500, "Failed to freeze immutable locked contract"
+                    ) from exc
 
                 next_config = dict(current_config)
                 next_config["locked_contract"] = created_summary
-                next_config["locked_contract_sha256"] = contract_sha256
+                next_config["locked_contract_key"] = contract_key
                 next_config["locked_contract_version"] = version
                 next_config["locked_contract_history"] = [*history, created_summary]
                 transaction.execute(
@@ -2646,8 +2470,8 @@ def create_router() -> APIRouter:
                                 {
                                     "source_campaign_id": promoted_from_campaign_id,
                                     "target_campaign_id": target_campaign_id,
-                                    "request_sha256": request_sha256,
-                                    "contract_sha256": contract_sha256,
+                                    "request_key": request_key,
+                                    "contract_key": contract_key,
                                     "human_approved": True,
                                     "approval_reason": frozen_fields["approval_reason"],
                                     "launch_triggered": False,
@@ -2770,7 +2594,7 @@ def create_router() -> APIRouter:
                 replacement = changes["config"]
                 immutable_keys = (
                     "locked_contract",
-                    "locked_contract_sha256",
+                    "locked_contract_key",
                     "locked_contract_version",
                     "locked_contract_history",
                 )
@@ -2919,7 +2743,7 @@ def create_router() -> APIRouter:
                         json.dumps(
                             {
                                 "launch_command_id": command_id,
-                                "prompt_sha256": manifest["prompt_sha256"],
+                                "prompt_key": manifest["prompt_key"],
                                 "frozen_packet_reused": True,
                                 "human_launch_approval": frozen_approval,
                             },
@@ -3043,7 +2867,7 @@ def create_router() -> APIRouter:
             manifest = {
                 "schema_version": 1,
                 "campaign_id": campaign_id,
-                "prompt_sha256": hashlib.sha256(objective.encode("utf-8")).hexdigest(),
+                "prompt_key": new_key(),
                 "prompt_manifest": prompt_manifest,
                 "launch_command_id": command_id,
                 "created_at": utc_now(),
@@ -3057,8 +2881,8 @@ def create_router() -> APIRouter:
                 "locked_contract": (
                     {
                         "version": locked_packet_manifest["version"],
-                        "contract_sha256": locked_packet_manifest["contract_sha256"],
-                        "request_sha256": locked_packet_manifest["request_sha256"],
+                        "contract_key": locked_packet_manifest["contract_key"],
+                        "request_key": locked_packet_manifest["request_key"],
                         "directory": locked_summary["directory"],
                     }
                     if locked_packet_manifest is not None
@@ -3146,7 +2970,7 @@ def create_router() -> APIRouter:
                         json.dumps(
                             {
                                 "launch_command_id": command_id,
-                                "prompt_sha256": manifest["prompt_sha256"],
+                                "prompt_key": manifest["prompt_key"],
                                 "human_launch_approval": human_launch_approval,
                             },
                             ensure_ascii=False,
@@ -3431,7 +3255,7 @@ def create_router() -> APIRouter:
             "state": "queued",
             "panel_size": len(receipts),
             "reviewers": receipts,
-            "evidence_snapshot_sha256": evidence.sha256,
+            "evidence_snapshot_key": evidence.key,
             "evidence_snapshot_state": evidence.state,
             "aggregation_policy": "preserve_dimension_scores_vetoes_and_disagreement",
             "acceptance_probability": None,

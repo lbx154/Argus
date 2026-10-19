@@ -52,7 +52,7 @@ never data-eligible.
   `{ "actor": "...", "reason": "...", "terminal_state": "submitted" }`.
   Objective and confirmed team profile are mandatory. Any draft review blocks sealing.
 - `GET|POST /api/episodes/{id}/verify` returns
-  `{ "valid", "checks", "head_revision", "manifest_sha256" }`.
+  `{ "valid", "checks", "head_revision", "manifest_key" }`.
 
 `gates` contains `objective_present`, `team_confirmed`, `reviews_confirmed`,
 `revision_sealed`, and `integrity_verified`. `data_eligibility` additionally reports
@@ -98,9 +98,9 @@ truth until the human submits the confirm request.
 
 - `POST /api/dataset-snapshots/preview` accepts
   `{ "episode_ids":[], "require_training_consent":true }` and returns
-  `eligible`, `excluded`, counts, and `selection_sha256`.
+  `eligible`, `excluded`, counts, and `selection_key`.
 - `POST /api/dataset-snapshots` accepts the same selection plus `name`, `actor`,
-  `license_basis`, and `expected_selection_sha256`. It fails if the selection changed
+  `license_basis`, and `expected_selection_key`. It fails if the selection changed
   or is empty. It never starts training.
 - `GET /api/dataset-snapshots` -> `{ "items": [...] }`
 - `GET /api/dataset-snapshots/{id}` returns manifest and members.

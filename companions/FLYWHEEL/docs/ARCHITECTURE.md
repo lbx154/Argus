@@ -118,7 +118,7 @@ Condition schema v3 preserves the operator's original team-condition statement a
 binds `preflight_attestations` and `source_context`. A supplied
 source ref/content digest must be an all-or-neither pair with exactly 64 hex characters
 for the content SHA-256. The condition contains `operator_snapshot_bound`,
-`reference_sha256`, `content_sha256` and `fresh_discovery_required`, never the raw ref.
+`reference_key`, `content_key` and `fresh_discovery_required`, never the raw ref.
 The Objective carries a JSON-encoded raw reference for runtime location, so secrets are
 forbidden there; Argus must hash the located bytes and enter `BLOCKED` on mismatch. If
 no packet is bound, source discovery and a frozen `SOURCE_SNAPSHOT.json` precede

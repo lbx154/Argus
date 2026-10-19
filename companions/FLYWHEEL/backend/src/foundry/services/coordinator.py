@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 import asyncio
-import hashlib
 import json
 import sqlite3
 from contextlib import suppress
@@ -18,6 +17,7 @@ from ..integrations.argus_webapi import (
     EventCursor,
     argus_connection_metadata,
     assess_argus_connection,
+    event_identity,
 )
 from ..secrets import SecretVault
 from .candidate_import import CandidateImportError, import_argus_candidate_artifacts
@@ -59,11 +59,7 @@ def _terminal_evidence(
         if event_type == "project.completed":
             return {
                 "source": "event.project.completed",
-                "event_sha256": hashlib.sha256(
-                    json.dumps(
-                        event, ensure_ascii=False, sort_keys=True, separators=(",", ":"), default=str
-                    ).encode("utf-8")
-                ).hexdigest(),
+                "event_key": event_identity(event),
                 "ts": event.get("ts") or event.get("created_at"),
             }
         if (
@@ -73,15 +69,7 @@ def _terminal_evidence(
         ):
             return {
                 "source": "event.life.planner.verdict",
-                "event_sha256": hashlib.sha256(
-                    json.dumps(
-                        event,
-                        ensure_ascii=False,
-                        sort_keys=True,
-                        separators=(",", ":"),
-                        default=str,
-                    ).encode("utf-8")
-                ).hexdigest(),
+                "event_key": event_identity(event),
                 "ts": event.get("ts") or event.get("created_at"),
             }
     return None
@@ -204,7 +192,7 @@ class BackgroundCoordinator:
             new_events = 0
             events = tuple(dict(event) for event in event_batch.events)
             for event in events:
-                key = hashlib.sha256(json.dumps(event, sort_keys=True, ensure_ascii=False, default=str).encode()).hexdigest()
+                key = event_identity(event)
                 with self.db.transaction() as transaction:
                     inserted = transaction.execute(
                         "INSERT OR IGNORE INTO campaign_event_ingest VALUES(?,?,?)",
@@ -275,8 +263,7 @@ class BackgroundCoordinator:
                         config["ideation_artifact_import"] = {
                             "status": "imported" if result.imported else "already_imported",
                             "candidate_count": result.candidate_count,
-                            "candidates_sha256": result.candidates_sha256,
-                            "manifest_sha256": result.manifest_sha256,
+                            "candidates_key": result.candidates_key,
                             "verified_at": utc_now(),
                         }
                     except (CandidateImportError, ArgusWebApiError, sqlite3.Error) as exc:
@@ -286,7 +273,6 @@ class BackgroundCoordinator:
                             run_id=run_id,
                             config=config,
                             error=exc,
-                            artifact_index=snapshot.get("foundry_artifacts") or [],
                         )
             execution = str(campaign["execution_state"])
             if terminal:
@@ -353,7 +339,7 @@ class BackgroundCoordinator:
             raw_cursor.get("project_id") == project_id
             and raw_cursor.get("view") == "full"
             and isinstance(fingerprints, list)
-            and all(isinstance(value, str) and len(value) == 64 for value in fingerprints)
+            and all(isinstance(value, str) and value for value in fingerprints)
         ):
             cursor = EventCursor(project_id, "full", tuple(fingerprints[-_EVENT_WINDOW:]))
         poll = getattr(client, "poll_events", None)
@@ -365,7 +351,7 @@ class BackgroundCoordinator:
             rows = client.events(project_id, limit=_EVENT_WINDOW, view="full")
         except TypeError:
             rows = client.events(project_id, limit=_EVENT_WINDOW)
-        current = tuple(ArgusWebApiClient._event_fingerprint(event) for event in rows)
+        current = tuple(event_identity(event) for event in rows)
         previous = cursor.fingerprints if cursor is not None else ()
         overlap = ArgusWebApiClient._tail_overlap(previous, current)
         return EventBatch(
@@ -382,27 +368,9 @@ class BackgroundCoordinator:
         run_id: str,
         config: dict[str, Any],
         error: CandidateImportError | ArgusWebApiError | sqlite3.Error,
-        artifact_index: list[dict[str, Any]],
     ) -> None:
         code = error.code if isinstance(error, CandidateImportError) else "candidate_import_error"
-        safe_index = [
-            {
-                "path": str(item.get("path") or "")[:4_096],
-                "size": item.get("size") if isinstance(item.get("size"), int) else None,
-                "sha256": str(item.get("sha256") or "")[:64],
-                "exists": item.get("exists") is True,
-            }
-            for item in artifact_index[:2_048]
-            if isinstance(item, dict)
-        ]
-        signature = hashlib.sha256(
-            json.dumps(
-                {"code": code, "message": str(error), "index": safe_index},
-                ensure_ascii=False,
-                sort_keys=True,
-                separators=(",", ":"),
-            ).encode("utf-8")
-        ).hexdigest()
+        signature = {"code": code, "message": str(error)[:4_000]}
         prior = _json_object(config.get("ideation_artifact_import"))
         config["ideation_artifact_import"] = {
             "status": "quarantined",

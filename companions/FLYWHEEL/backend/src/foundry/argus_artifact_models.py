@@ -21,7 +21,8 @@ ArgusArtifactRole = Literal[
 class ArgusArtifactStageRequest(BaseModel):
     artifact_path: str = Field(min_length=1, max_length=4096)
     role: ArgusArtifactRole
-    expected_entry_sha256: str = Field(pattern=r"^[0-9a-f]{64}$")
+    # The index entry the caller saw, as canonical JSON (``entry_key`` in the index).
+    expected_entry_key: str = Field(min_length=2, max_length=64_000)
     idempotency_key: str = Field(min_length=1, max_length=200)
 
     @field_validator("artifact_path")
@@ -52,7 +53,7 @@ class ArgusArtifactStageRequest(BaseModel):
 
 class ArgusArtifactConfirmRequest(BaseModel):
     actor: str = Field(min_length=1, max_length=500)
-    expected_source_sha256: str = Field(pattern=r"^[0-9a-f]{64}$")
+    expected_source_key: str = Field(pattern=r"^[0-9a-f]{64}$")
     redaction_confirmed: StrictBool
     manual_redaction_confirmed: StrictBool = False
     training_consent: StrictBool = False
