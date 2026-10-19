@@ -6,7 +6,6 @@ overrides, and prompt rendering.
 """
 from __future__ import annotations
 
-import hashlib
 import json
 import re
 from dataclasses import dataclass
@@ -84,10 +83,10 @@ def completion_contract_fingerprint(
     stage: str,
     *,
     version: int,
-) -> str:
-    """Hash the active final-stage checklist contract deterministically."""
+) -> dict[str, Any]:
+    """The active final-stage checklist contract as plain, comparable data."""
     contract = resolve_stage_checklist_contract(stage, project_root=project_root)
-    payload = {
+    return {
         "version": int(version),
         "stage": contract.stage,
         "state": contract.state.value,
@@ -101,13 +100,6 @@ def completion_contract_fingerprint(
             for item in contract.items
         ],
     }
-    rendered = json.dumps(
-        payload,
-        ensure_ascii=False,
-        sort_keys=True,
-        separators=(",", ":"),
-    ).encode("utf-8")
-    return hashlib.sha256(rendered).hexdigest()
 
 
 def _current_manager_intent_binding(project_root: Path) -> dict[str, Any]:
@@ -120,12 +112,12 @@ def _current_manager_intent_binding(project_root: Path) -> dict[str, Any]:
     if not isinstance(payload, dict):
         return {}
     intent_id = str(payload.get("intent_id") or "").strip()
-    objective_sha256 = str(payload.get("objective_sha256") or "").strip()
-    if not intent_id or not objective_sha256:
+    objective = str(payload.get("objective") or "").strip()
+    if not intent_id or not objective:
         return {}
     return {
         "completion_intent_id": intent_id,
-        "completion_objective_sha256": objective_sha256,
+        "completion_objective": objective,
     }
 
 
@@ -328,7 +320,7 @@ def _set_stage(
     direction: str,
     mark_current_done: bool = False,
     completion_contract_version: int = 0,
-    completion_contract_sha256: str = "",
+    completion_contract: dict[str, Any] | None = None,
     downgrade_downstream: bool = False,
     legacy_rollback_history: bool = False,
     evidence_root: Path | str | None = None,
@@ -425,22 +417,21 @@ def _set_stage(
             prev_record = {}
             stages[previous] = prev_record
         prev_record["status"] = "done"
-        if completion_contract_version > 0 and completion_contract_sha256:
+        if completion_contract_version > 0 and completion_contract:
             prev_record["completion_contract_version"] = completion_contract_version
-            prev_record["completion_contract_sha256"] = completion_contract_sha256
-            # Which framework computed that hash. When a reader cannot reproduce
-            # it, the first question is always "was this written by the same
-            # code I am running?" — record the answer instead of making the next
-            # operator reconstruct it from process archaeology.
+            prev_record["completion_contract"] = completion_contract
+            # Which framework recorded that contract. When a reader cannot
+            # reproduce it, the first question is always "was this written by
+            # the same code I am running?" — record the answer instead of making
+            # the next operator reconstruct it from process archaeology.
             prev_record["completion_contract_source"] = str(framework_source_root())
         prev_record.update(_current_manager_intent_binding(root))
         snapshot_root = Path(evidence_root) if evidence_root is not None else root
         try:
             from ..core.manuscript_snapshot import manuscript_snapshot
 
-            snapshot = manuscript_snapshot(snapshot_root)
-            if snapshot["sha256"]:
-                prev_record["manuscript_snapshot"] = snapshot
+            if (snapshot_root / "paper/main.tex").is_file():
+                prev_record["manuscript_snapshot"] = manuscript_snapshot(snapshot_root)
                 prev_record["manuscript_project_root"] = str(snapshot_root.resolve())
         except Exception:  # noqa: BLE001 - non-paper stages have no manuscript
             pass
@@ -759,10 +750,10 @@ def complete_final_stage(
         completion_contract_version = contract.completion_contract_version
     except Exception as exc:  # noqa: BLE001 — completion authority fails closed
         raise ValueError("completion contract unavailable") from exc
-    completion_contract_sha256 = ""
+    completion_contract = None
     if completion_contract_version > 0:
         try:
-            completion_contract_sha256 = completion_contract_fingerprint(
+            completion_contract = completion_contract_fingerprint(
                 project_root,
                 cur,
                 version=completion_contract_version,
@@ -777,7 +768,7 @@ def complete_final_stage(
         direction="complete",
         mark_current_done=True,
         completion_contract_version=completion_contract_version,
-        completion_contract_sha256=completion_contract_sha256,
+        completion_contract=completion_contract,
         evidence_root=evidence_root,
     )
 

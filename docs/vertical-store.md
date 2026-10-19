@@ -118,19 +118,19 @@ root, lives the per-user overlay:
 
 ```json
 {"schema": 1,
- "verticals": {"chip_design": {"version": "0.1.0", "sha256": "…", "module": "argus_verticals.chip_design.stages",
+ "verticals": {"chip_design": {"version": "0.1.0", "module": "argus_verticals.chip_design.stages",
                                "source": {"repo": "Argus-AiTeam/argus-verticals", "tag": "v0.1.0", "url": "https://…/chip_design-0.1.0.zip"},
                                "installed_at": 1789400000.0,
                                "requires": ["digital_circuit"], "shared": [], "paths": ["argus_verticals/chip_design"]}},
- "shared": {"argus_verticals/literary/shared": {"owners": ["prose", "modern_poetry"], "sha256s": {"prose": "…", "modern_poetry": "…"}}}}
+ "shared": {"argus_verticals/literary/shared": {"owners": ["prose", "modern_poetry"]}}}
 ```
 
 **Enabled is per user.** A vertical is enabled when it is installed and not in the user's
 `disabled` list. `enable`/`disable` write only `state.json`, so they work on a read-only
 host root and one tenant's choice never changes what another tenant sees. When the overlay
-directory cannot be written, the rows simply do not offer `enable`/`disable`. The
-`sha256s` per owner are compared when a second owner installs the same shared tree; a
-differing copy is installed (the newer archive wins) and logged as a warning.
+directory cannot be written, the rows simply do not offer `enable`/`disable`. When a
+second owner installs the same shared tree, the newer archive's copy is installed.
+An installed vertical is current when its version and archive URL match the catalog.
 
 There is no `argus_verticals/__init__.py` on disk. Discovery registers `argus_verticals`
 as a namespace package pointing at the store directory; when a pip-installed
@@ -144,7 +144,7 @@ discovers store verticals too.
 The catalog is the `catalog.json` attached to the latest release of the community
 repository (`https://github.com/Argus-AiTeam/argus-verticals/releases/latest/download/catalog.json`).
 Per vertical it names the version, module, `paths`, `requires`, `shared`,
-`python_requirements`, tags, and the archive's `url`, `sha256` and `size` (see the
+`python_requirements`, tags, and the archive's `url` and `size` (see the
 repository's README, "Store metadata"). The store validates `schema == 1` and every
 field it uses and caches the result for six hours. A failed fetch is recorded in the
 same cache file (`failed_at`, `error`): the stale catalog is served with `catalog.error`
@@ -187,8 +187,9 @@ read-only for the host and stays available. The invitation portal whitelists exa
   `github.com`, `objects.githubusercontent.com` or `release-assets.githubusercontent.com`;
   redirects are followed manually and every hop is checked against the same list.
   `file://`/local archives are accepted only when the catalog itself is a local file.
-- **Size caps and digests.** Catalog 8 MiB, archive 256 MiB, expanded 512 MiB. The
-  downloaded archive must match the catalog's `size` and `sha256` before it is opened.
+- **Size caps.** Catalog 8 MiB, archive 256 MiB, expanded 512 MiB. The downloaded
+  archive must have exactly the catalog's `size` before it is opened; its content is
+  not otherwise checked, so the https allow-list above is what keeps a download honest.
 - **Extraction guards.** Every member is checked before anything is written: no
   absolute paths, no `..`, no symlinks, and every member must lie under one of the
   trees the catalog declares for *that* vertical (`paths` + `shared`) — an archive
@@ -260,8 +261,8 @@ accepts in its current state.
 - *`catalog … could not be downloaded`* — no network or GitHub is unreachable. The
   last good catalog is served with `catalog.error` set; `argus verticals refresh`
   retries. Point `ARGUS_VERTICAL_CATALOG` at an offline mirror if needed.
-- *`archive sha256 … does not match`* — the download was tampered with or the release
-  was rebuilt; nothing was installed. Refresh the catalog and retry.
+- *`archive is N bytes, the catalog says M`* — the download was truncated, tampered
+  with, or the release was rebuilt; nothing was installed. Refresh the catalog and retry.
 - *`X is required by installed vertical(s) Y`* — remove `Y` first; the store never
   cascades a removal.
 - *`X is the vertical of session(s) s-…`* — a local project still names it; disable

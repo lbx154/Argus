@@ -25,15 +25,11 @@ from argus.tools.image_api import (
     _require_route,
 )
 
-from ...core.manuscript_snapshot import bind_manuscript_snapshot, manuscript_sha256
+from ...core.file_facts import file_facts
+from ...core.manuscript_snapshot import MANUSCRIPT_SNAPSHOT_FIELD, manuscript_snapshot
 from ._review_contract_constants import (
     LAYOUT_REVIEW_GENERATED_BY,
     LAYOUT_REVIEW_HISTORY_PATH,
-    REVIEW_INPUT_SHA256_FIELD,
-    REVIEW_PROMPT_SHA256_FIELD,
-    review_sha256_file,
-    review_sha256_json,
-    review_sha256_text,
 )
 from .venue_profiles import VenueProfile, resolve_venue_profile
 
@@ -104,7 +100,7 @@ def generate_layout_review(
     """Review the compiled paper layout and optionally persist review artifacts."""
 
     root = Path(project_root)
-    reviewed_manuscript_sha = manuscript_sha256(root)
+    reviewed_manuscript = manuscript_snapshot(root)
     profile = venue or resolve_venue_profile(root)
     iteration = iteration or _next_iteration(root)
     issues: list[dict[str, Any]] = []
@@ -113,7 +109,7 @@ def generate_layout_review(
     log_path = root / PAPER_MAIN_LOG_PATH
     page_snapshots: list[dict[str, Any]] = []
     layout_text = ""
-    pdf_sha256 = ""
+    pdf_facts: list[int] = []
     render_error = ""
 
     if not pdf_path.is_file():
@@ -126,7 +122,7 @@ def generate_layout_review(
             )
         )
     else:
-        pdf_sha256 = review_sha256_file(pdf_path)
+        pdf_facts = file_facts(pdf_path)
         try:
             page_snapshots = _render_pdf_pages(
                 root,
@@ -226,7 +222,7 @@ def generate_layout_review(
         "no_harness_quality_verdict": True,
         "structural_status": structural_status,
         "pdf_path": str(PAPER_MAIN_PDF_PATH),
-        "pdf_sha256": pdf_sha256,
+        "pdf_facts": pdf_facts,
         "page_snapshots": page_snapshots,
         "render_error": render_error,
         "facts": facts,
@@ -241,12 +237,7 @@ def generate_layout_review(
     }
     if vision_review is not None:
         result["vision_review"] = vision_review
-    bind_manuscript_snapshot(
-        result,
-        root,
-        recorded_at=result["created_at"],
-        sha256=reviewed_manuscript_sha,
-    )
+    result[MANUSCRIPT_SNAPSHOT_FIELD] = reviewed_manuscript
 
     if write:
         _write_json(root / LAYOUT_REVIEW_JSON_PATH, result)
@@ -396,7 +387,7 @@ def _collect_page_snapshots(root: Path, output_dir: Path, *, renderer: str) -> l
             {
                 "page": index,
                 "path": path.relative_to(root).as_posix(),
-                "sha256": review_sha256_file(path),
+                "facts": file_facts(path),
                 "renderer": renderer,
             }
         )
@@ -981,15 +972,6 @@ def _run_vision_review(
     parsed["model"] = route.model
     parsed["endpoint"] = endpoint
     parsed["reviewed_pages"] = [snapshot["page"] for snapshot in selected]
-    prompt_sha256 = review_sha256_text(prompt)
-    parsed[REVIEW_PROMPT_SHA256_FIELD] = prompt_sha256
-    parsed[REVIEW_INPUT_SHA256_FIELD] = review_sha256_json(
-        {
-            "prompt_sha256": prompt_sha256,
-            "page_snapshots": selected,
-            "threshold": threshold,
-        }
-    )
     return parsed
 
 
@@ -1269,7 +1251,7 @@ def _append_history(root: Path, path: Path, result: dict[str, Any]) -> None:
         "iteration": result.get("iteration"),
         "review_method": result.get("review_method"),
         "structural_status": result.get("structural_status"),
-        "pdf_sha256": result.get("pdf_sha256"),
+        "pdf_facts": result.get("pdf_facts"),
         "vision_model": (result.get("vision_review") or {}).get("model")
         if isinstance(result.get("vision_review"), dict)
         else None,

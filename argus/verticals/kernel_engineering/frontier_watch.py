@@ -7,12 +7,9 @@ fresh, stage-scoped record instead of an unverifiable sentence in a summary.
 from __future__ import annotations
 
 import argparse
-import gzip
-import hashlib
 import json
-import os
 import sys
-import tempfile
+import uuid
 from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
@@ -20,7 +17,6 @@ from typing import Any
 from ...core.file_lock import exclusive_file_lock
 
 SCHEMA_VERSION = 1
-LEDGER_SCHEMA_VERSION = 1
 STAGES = ("scope", "discover", "environment", "baseline", "optimize", "validate", "report")
 REQUIRED_SURFACES = frozenset({"target_repository", "official_toolchains", "research_frontier"})
 PRIMARY_SOURCE_TYPES = frozenset(
@@ -166,98 +162,9 @@ def canonicalize(record: dict[str, Any], *, stage: str) -> dict[str, Any]:
     searched_at = _parse_time(payload.get("searched_at"))
     if searched_at is not None and not payload.get("frontier_as_of"):
         payload["frontier_as_of"] = searched_at.date().isoformat()
-    digest_input = json.dumps(payload, sort_keys=True, separators=(",", ":")).encode()
-    payload["record_id"] = hashlib.sha256(digest_input).hexdigest()[:16]
+    payload["record_id"] = uuid.uuid4().hex[:16]
     payload["recorded_at"] = datetime.now(UTC).isoformat()
     return payload
-
-
-def record_digest(record: dict[str, Any]) -> str:
-    payload = json.dumps(record, sort_keys=True, separators=(",", ":")).encode()
-    return hashlib.sha256(payload).hexdigest()
-
-
-def ledger_binding(record: dict[str, Any]) -> dict[str, Any]:
-    return {
-        "schema_version": LEDGER_SCHEMA_VERSION,
-        "kind": "frontier_snapshot_binding",
-        "stage": str(record.get("stage") or ""),
-        "record_id": str(record.get("record_id") or ""),
-        "recorded_at": str(record.get("recorded_at") or ""),
-        "frontier_as_of": str(record.get("frontier_as_of") or ""),
-        "snapshot_sha256": record_digest(record),
-    }
-
-
-def _is_ledger_binding(record: dict[str, Any]) -> bool:
-    return (
-        record.get("kind") == "frontier_snapshot_binding"
-        and _nonempty_text(record.get("snapshot_sha256"))
-    )
-
-
-def _atomic_write(path: Path, payload: bytes) -> None:
-    path.parent.mkdir(parents=True, exist_ok=True)
-    fd, tmp_name = tempfile.mkstemp(dir=str(path.parent), suffix=".tmp")
-    try:
-        with os.fdopen(fd, "wb") as handle:
-            handle.write(payload)
-            handle.flush()
-            os.fsync(handle.fileno())
-        os.replace(tmp_name, path)
-    finally:
-        try:
-            os.unlink(tmp_name)
-        except OSError:
-            pass
-
-
-def _compact_legacy_ledger_unlocked(project_root: Path) -> Path | None:
-    path = ledger_path(project_root)
-    try:
-        original = path.read_bytes()
-    except OSError:
-        return None
-    compact_rows: list[dict[str, Any]] = []
-    has_legacy = False
-    for raw in original.decode("utf-8", errors="replace").splitlines():
-        try:
-            row = json.loads(raw)
-        except json.JSONDecodeError:
-            has_legacy = True
-            continue
-        if not isinstance(row, dict):
-            has_legacy = True
-            continue
-        if _is_ledger_binding(row):
-            compact_rows.append(row)
-        else:
-            has_legacy = True
-            compact_rows.append(ledger_binding(row))
-    if not has_legacy:
-        return None
-
-    digest = hashlib.sha256(original).hexdigest()
-    archive = (
-        Path(project_root)
-        / "research"
-        / "raw"
-        / f"frontier_watch_legacy_full-{digest[:16]}.jsonl.gz"
-    )
-    archive.parent.mkdir(parents=True, exist_ok=True)
-    archive_valid = False
-    try:
-        archive_valid = gzip.decompress(archive.read_bytes()) == original
-    except (OSError, EOFError):
-        pass
-    if not archive_valid:
-        _atomic_write(archive, gzip.compress(original, mtime=0))
-
-    compact = "".join(
-        json.dumps(row, sort_keys=True) + "\n" for row in compact_rows
-    ).encode()
-    _atomic_write(path, compact)
-    return archive
 
 
 def write_record(project_root: Path, stage: str, record: dict[str, Any]) -> Path:
@@ -266,7 +173,6 @@ def write_record(project_root: Path, stage: str, record: dict[str, Any]) -> Path
     lock_path.parent.mkdir(parents=True, exist_ok=True)
     with lock_path.open("a+", encoding="utf-8") as lock:
         with exclusive_file_lock(lock):
-            _compact_legacy_ledger_unlocked(project_root)
             target = snapshot_path(project_root, stage)
             target.parent.mkdir(parents=True, exist_ok=True)
             target.write_text(
@@ -275,9 +181,7 @@ def write_record(project_root: Path, stage: str, record: dict[str, Any]) -> Path
             )
             ledger.parent.mkdir(parents=True, exist_ok=True)
             with ledger.open("a", encoding="utf-8") as handle:
-                handle.write(
-                    json.dumps(ledger_binding(record), sort_keys=True) + "\n"
-                )
+                handle.write(json.dumps(record, sort_keys=True) + "\n")
     return target
 
 
@@ -308,10 +212,8 @@ def validate_ledger_binding(
     latest = latest_ledger_record(project_root, stage)
     if latest is None:
         return [f"no {stage!r} record exists in FRONTIER_WATCH.jsonl"]
-    if _is_ledger_binding(latest):
-        if latest.get("snapshot_sha256") == record_digest(snapshot):
-            return []
-    elif latest == snapshot:
+    # An older ledger kept only a digest of the record, which cannot be checked.
+    if latest.get("kind") == "frontier_snapshot_binding":
         return []
     if latest != snapshot:
         return [

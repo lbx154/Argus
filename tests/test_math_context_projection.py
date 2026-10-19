@@ -19,8 +19,8 @@ output into an Engineer's prompt:
 * **Boundedness.** What appears is a function of the claim, not of the
   project. A project that grew by forty claims renders the same bytes.
 * **Determinism.** Same store, same mission, same bytes — no timestamps, no
-  host paths, no dict-order dependence — so an unchanged digest really does
-  mean nothing moved.
+  host paths, no dict-order dependence — so an unchanged fragment really
+  does mean nothing moved.
 * **Degrading honestly.** No recorded mathematics means no fragment. A store
   that cannot be read means a fragment that *says so*, because silence there
   would tell the Engineer that a project holding a hundred proofs believes
@@ -33,7 +33,6 @@ evidence left over from a previous version of the statement.
 from __future__ import annotations
 
 import json
-import re
 from pathlib import Path
 
 import pytest
@@ -285,11 +284,6 @@ def _mission(**fields: object) -> BacklogItem:
 
 def _project(tmp_path: Path, **fields: object) -> str:
     return project_mission_context(project_root=tmp_path, mission=_mission(**fields))
-
-
-def _digest_of(fragment: str) -> str:
-    match = re.search(r"fragment digest `([0-9a-f]+)`", fragment)
-    return match.group(1) if match else ""
 
 
 # -- targeting --------------------------------------------------------------
@@ -545,8 +539,8 @@ def test_a_checked_citation_changes_what_the_mission_is_handed(
     """The regression this section exists for: it used to change nothing.
 
     A reader opened the source, quoted the proposition, archived the excerpt
-    and recorded ``confirmed`` -- and the fragment came out byte-identical,
-    digest included. So every worker sent at this claim re-retrieved the same
+    and recorded ``confirmed`` -- and the fragment came out byte-identical.
+    So every worker sent at this claim re-retrieved the same
     paper to learn what one of them had already written down, and the fragment
     said the same "taken on faith" line each time, which is true and is not the
     whole truth.
@@ -569,10 +563,6 @@ def test_a_checked_citation_changes_what_the_mission_is_handed(
     assert "research/literature/rh-error-term.json" in after
     assert "citation_check reader" in after
     assert "doi:10.1090/coll/053 Theorem 5.15" in after
-    # The digest is what a reader consults to decide whether anything moved.
-    # If it were stable across this change it would say "nothing moved" about
-    # the round in which the literature actually got read.
-    assert _digest_of(after) != _digest_of(before)
     # And it arrives as citation state, not as support for the theorem. A
     # literature record binds to the assumption, so the claim is still unchecked
     # as a statement -- the section that says so must keep saying so, or a
@@ -788,37 +778,16 @@ def test_one_overloaded_claim_cannot_flood_the_prelude(tmp_path: Path) -> None:
     assert "### Taken on faith (120 open)" in fragment
 
 
-def test_the_digest_is_computed_from_the_fragments_own_content(
-    tmp_path: Path,
-) -> None:
-    """The digest is advertised as load-bearing, so it needs its own test.
-
-    The module docstring tells the reader that seeing the same digest twice
-    means nothing moved. That promise is only worth something if the digest is
-    a function of the content -- a constant, or a hash of something adjacent,
-    would read exactly the same in a prompt and be silently meaningless. The
-    byte-identity tests elsewhere pass happily against a constant digest.
-    """
-    _seed(tmp_path)
-
-    unit = _digest_of(_project(tmp_path, acceptance_check="Prove udist-main."))
-    sums = _digest_of(_project(tmp_path, acceptance_check="Prove erdos-sum."))
-
-    assert unit and sums
-    assert unit != sums
-    assert unit == _digest_of(_project(tmp_path, acceptance_check="Prove udist-main."))
-
-
 def test_work_on_an_unrelated_claim_leaves_this_mission_byte_identical(
     tmp_path: Path,
 ) -> None:
     """Anti-leak, stated as a diff rather than as an absence.
 
     Asserting only that ``erdos-sum`` does not appear would still pass if some
-    aggregate over the whole store -- a count, a status tally, a digest of
-    everything -- crept into the text. Byte equality across a real change
-    elsewhere in the file is the stronger claim, and it is the one that makes
-    the fragment's own digest mean "nothing about this claim moved".
+    aggregate over the whole store -- a count, a status tally -- crept into
+    the text. Byte equality across a real change elsewhere in the file is the
+    stronger claim, and it is the one that makes an unchanged fragment mean
+    "nothing about this claim moved".
     """
     state = _seed(tmp_path)
     before = _project(tmp_path, acceptance_check="Record a verdict for udist-main.")
@@ -840,8 +809,8 @@ def test_a_change_to_the_target_claim_changes_what_the_mission_sees(
     """The other side of the byte-identity claim.
 
     A fragment that were stable under changes to its *own* claim would be
-    stable for the wrong reason -- and the digest it carries would say "nothing
-    moved" while the claim moved. Discharging the assumption is the change with
+    stable for the wrong reason -- it would say "nothing moved" while the
+    claim moved. Discharging the assumption is the change with
     the largest consequence in the kernel: it takes the claim from conditional
     to closed.
     """
@@ -876,7 +845,7 @@ def test_a_change_to_the_target_claim_changes_what_the_mission_sees(
 def test_the_same_mission_on_an_unchanged_store_renders_the_same_bytes(
     tmp_path: Path,
 ) -> None:
-    """Byte-identical, or the digest it prints is worth nothing.
+    """Byte-identical, or comparing two fragments is worth nothing.
 
     Two runs of the same mission that differ by a timestamp, an iteration
     order, or a host path would make every comparison between fragments read
@@ -893,7 +862,6 @@ def test_the_same_mission_on_an_unchanged_store_renders_the_same_bytes(
     second = _project(tmp_path, acceptance_check=check)
 
     assert first == second
-    assert first.count("fragment digest") == 1
     # A host path would differ between machines and between worktrees, and
     # would put the operator's directory layout into a model's prompt.
     assert str(tmp_path) not in first

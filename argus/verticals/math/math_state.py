@@ -82,6 +82,7 @@ import argparse
 import json
 import os
 import re
+import uuid
 from collections.abc import Iterator, Sequence
 from contextlib import contextmanager
 from dataclasses import dataclass, replace
@@ -103,7 +104,6 @@ from ...proof_ledger import (
     SubjectRef,
     Verdict,
     assess_citation,
-    content_digest,
     load_state,
     normalize_text,
     save_state,
@@ -171,19 +171,18 @@ _CERTIFICATE_DIRNAME = "certificates"
 _CERTIFICATE_SCHEMA = 1
 
 #: A claim id is free text and part of a filename here, so anything outside this
-#: set is folded away. Uniqueness comes from the digest beside it, never from
+#: set is folded away. Uniqueness comes from the number beside it, never from
 #: the name, which is why folding is safe and traversal is not possible.
 _UNSAFE_IN_FILENAME = re.compile(r"[^A-Za-z0-9._-]+")
 
-#: Where retrieved literature is kept, relative to the project root. Flat and
-#: content-addressed: a directory whose filenames carry no meaning is a
-#: directory two processes cannot disagree about.
+#: Where retrieved literature is kept, relative to the project root. Flat, and
+#: one file per distinct retrieval: a directory whose filenames carry no
+#: meaning is a directory two processes cannot disagree about.
 LITERATURE_RELPATH = ("research", "literature")
 
 #: The shape of one archived retrieval. Same reasoning as
 #: ``_CERTIFICATE_SCHEMA``: nothing here reads it, the reader the record points
-#: at does. It is stamped in rather than hashed into the name by the caller, so
-#: every archive says which shape it is even though the digest ignores nothing.
+#: at does. It is stamped into every archive, so each says which shape it is.
 _RETRIEVAL_SCHEMA = 1
 
 #: Said on every kernel-status claim that carries Lean evidence. Not a defect,
@@ -255,7 +254,7 @@ def _agent_evidence(
         )
     record = EvidenceRecord(
         evidence_id=_evidence_id(
-            tier.value, subject, tier, verdict, produced_by, artifact
+            state, tier.value, subject, tier, verdict, produced_by, artifact
         ),
         subject=subject,
         tier=tier,
@@ -273,6 +272,7 @@ def _agent_evidence(
 
 
 def _evidence_id(
+    state: MathState,
     prefix: str,
     subject: SubjectRef,
     tier: EvidenceTier,
@@ -280,23 +280,18 @@ def _evidence_id(
     produced_by: str,
     artifact: str,
 ) -> str:
-    """Derived from everything the record says, so re-recording is idempotent.
+    """The id of the record that already says exactly this, else a fresh one.
 
     An agent that repeats a command — and it will, since retrying is how an
     autonomous loop recovers — must not turn one opinion into two producers of
-    the same opinion. Two ids differ exactly when the two answers differ, which
-    is the reading ``assessment`` already puts on ``produced_by``.
+    the same opinion. A record that says what an existing one says takes its
+    id, so recording it again changes nothing.
     """
-    digest = content_digest(
-        {
-            "subject": subject.as_dict(),
-            "tier": tier.value,
-            "verdict": verdict.value,
-            "produced_by": normalize_text(produced_by),
-            "artifact": normalize_text(artifact),
-        }
-    )
-    return f"{prefix}-{subject.subject_id}-{digest[:12]}"
+    said = (subject, tier, verdict, produced_by, artifact)
+    for item in state.evidence:
+        if (item.subject, item.tier, item.verdict, item.produced_by, item.artifact) == said:
+            return item.evidence_id
+    return f"{prefix}-{subject.subject_id}-{uuid.uuid4().hex[:12]}"
 
 
 def _append_evidence(
@@ -307,13 +302,7 @@ def _append_evidence(
         None,
     )
     if existing is not None:
-        if existing == record:
-            return existing, False
-        raise MathStateError(
-            f"evidence {record.evidence_id!r} already names a different answer; "
-            "the id is derived from the answer, so this is a digest collision "
-            "and not a repeat"
-        )
+        return existing, False
     state.add_evidence(record)
     return record, True
 
@@ -373,7 +362,7 @@ def record_lean_evidence(
 
     *The result has to be admissible.* Every check ``lean_evidence`` already
     performs is re-run against the filesystem — proof holes, the recorded
-    result's schema, the source digest, and the fidelity document — and any
+    result's schema, the compiled source text, and the fidelity document — and any
     finding in ``_INADMISSIBLE_LEAN_CODES`` records nothing at all. A
     ``lean_check.json`` that says ``success`` and does not agree with itself is
     the cheapest forgery available, and it must not become the most expensive
@@ -388,7 +377,7 @@ def record_lean_evidence(
 
     *The fidelity document has to exist, say something, name the declaration it
     describes, and be the one that was in force when the compiler ran.* The
-    first three are ``lean_evidence``'s own checks; the fourth is the digest
+    first three are ``lean_evidence``'s own checks; the fourth is the text
     recorded by ``verify_lean_source``. None of them establishes that the
     document is *true* — nothing in this tree does, and the honest consequence
     is that no field anywhere says fidelity was verified. What they establish is
@@ -418,9 +407,9 @@ def record_lean_evidence(
     claim's certificate in place. The status stayed honest, because the record
     binds to the claim's own ``content_hash`` and a real compile of that text
     did happen; the *pointer* did not, because ``EvidenceRecord.artifact`` is a
-    bare path with no digest, and a reviewer sent to it now reads a different
-    theorem with nothing anywhere saying so. So the certificate is archived to a
-    path derived from the record it belongs to before the record is written, and
+    bare path, and a reviewer sent to it now reads a different theorem with
+    nothing anywhere saying so. So the certificate is archived to a path of its
+    own before the record is written, and
     that archive is what ``artifact`` names. Failing to archive records nothing:
     an unarchived record is exactly the dangling citation this exists to
     prevent, and a silent one is worse than a refusal.
@@ -457,11 +446,9 @@ def record_lean_evidence(
             "the recorded compiler result changed between the compile and this "
             "record, so it describes a run this command did not perform"
         )
-    if not isinstance(result.get("statement_fidelity_sha256"), str) or not result[
-        "statement_fidelity_sha256"
-    ].strip():
+    if not str(result.get("statement_fidelity_text") or "").strip():
         refusals.append(
-            "the recorded result does not carry the digest of the statement "
+            "the recorded result does not carry the text of the statement "
             "fidelity document it was compiled against, so the unchecked half "
             "of this proof is not pinned to anything; re-run "
             "`lean_evidence verify`"
@@ -512,16 +499,18 @@ def record_lean_evidence(
         subject = claim.ref()
         artifact_dir = source_path.parent
         name = _certificate_name(
+            artifact_dir,
             subject,
             EvidenceTier.MECHANICAL,
             verdict,
             produced_by,
-            str(result.get("statement_fidelity_sha256") or ""),
+            str(result.get("statement_fidelity_text") or ""),
         )
         artifact = _project_relative(
             artifact_dir / _CERTIFICATE_DIRNAME / name, root
         )
         evidence_id = _evidence_id(
+            state,
             "lean",
             subject,
             EvidenceTier.MECHANICAL,
@@ -582,30 +571,20 @@ def record_lean_evidence(
 
 
 def _certificate_name(
+    artifact_dir: Path,
     subject: SubjectRef,
     tier: EvidenceTier,
     verdict: Verdict,
     produced_by: str,
-    fidelity_sha256: str,
+    fidelity_text: str,
 ) -> str:
-    """The archive's filename, derived from the record that will cite it.
+    """The archive's filename: the one already holding this certificate, else the next free one.
 
-    ``_evidence_id`` hashes (kind, subject, tier, verdict, produced_by,
-    artifact), and the artifact is about to be this path, which reads as a
-    circle. It is not one, because this digest is taken over *the same
-    arguments minus the artifact*, plus the fidelity note's digest::
-
-        artifact    = g(subject, tier, verdict, produced_by, fidelity)
-        evidence_id = f(subject, tier, verdict, produced_by, g(...))
-
-    Both are functions of the same free variables, evaluated in that order, so
-    nothing waits on itself. What that buys is the property the archive exists
-    for: two records with different ids differ in at least one of them, since
-    the artifact cannot be the tie-breaker when it is derived from them — so
-    ``g`` is injective over records, two of them can never overwrite each
-    other, and one record recorded twice lands on the same path. That last part
-    is what makes re-verifying idempotent rather than littering the directory
-    with a copy per run.
+    A certificate is the same one when it says the same claim, tier, verdict,
+    checker and fidelity note, so recording one result twice lands on the same
+    path. That is what makes re-verifying idempotent rather than littering the
+    directory with a copy per run, and two different certificates never share a
+    path, so neither can overwrite the other.
 
     ``.json``, and deliberately never ``.lean``: ``discover_lean_sources`` finds
     project sources by extension, so an archived copy of the compiled source
@@ -616,47 +595,62 @@ def _certificate_name(
     sweep can mistake it for work in progress.
 
     ``subject_id`` is free text, so it is folded to one safe path component
-    before it becomes a filename; the digest, never the name, is what makes the
+    before it becomes a filename; the number, never the name, is what makes the
     path unique, so folding two ids together costs readability and nothing else.
 
-    **Why the fidelity note is in the key.** ``fidelity_sha256`` is not part of
-    the record — the record says which claim, tier, verdict, and checker — so
-    including it here splits one record into two whenever only the note was
-    rewritten. That is deliberate, and it costs something real: rewording a note
-    for clarity mints a fresh certificate, and a reviewer who approved the old
-    wording has to be asked again. The alternative was tried first and fails
-    quietly. With the note left out, rewriting it and re-verifying the same
-    proof landed on this same path and replaced the archived note in place;
-    because the record itself was unchanged the command reported
-    ``changed: false``, so a reviewer's "the formal statement says what the
-    natural statement says" was re-pointed at a reading nobody had read.
+    **Why the fidelity note is part of what makes a certificate the same one.**
+    It is not part of the record — the record says which claim, tier, verdict,
+    and checker — so including it here splits one record into two whenever only
+    the note was rewritten. That is deliberate, and it costs something real:
+    rewording a note for clarity mints a fresh certificate, and a reviewer who
+    approved the old wording has to be asked again. The alternative was tried
+    first and fails quietly. With the note left out, rewriting it and
+    re-verifying the same proof landed on this same path and replaced the
+    archived note in place; because the record itself was unchanged the command
+    reported ``changed: false``, so a reviewer's "the formal statement says what
+    the natural statement says" was re-pointed at a reading nobody had read.
     Statement fidelity is the one question no compiler answers, which makes it
     the one verdict that must not be allowed to drift onto text it was never
     given. A note that was right does not need rewriting; when it does get
     rewritten, something about the reading of the theorem changed, and that is
     exactly when a prior approval must stop counting.
     """
-    digest = content_digest(
-        {
-            "subject": subject.as_dict(),
-            "tier": tier.value,
-            "verdict": verdict.value,
-            "produced_by": normalize_text(produced_by),
-            "statement_fidelity_sha256": normalize_text(fidelity_sha256),
-        }
+    said = (
+        subject.as_dict(),
+        tier.value,
+        verdict.value,
+        normalize_text(produced_by),
+        fidelity_text,
     )
-    stem = _UNSAFE_IN_FILENAME.sub("_", subject.subject_id).strip("._-")
-    return f"{stem[:48] or 'claim'}-{digest[:16]}.json"
+    stem = _UNSAFE_IN_FILENAME.sub("_", subject.subject_id).strip("._-")[:48] or "claim"
+    directory = artifact_dir / _CERTIFICATE_DIRNAME
+    for path in sorted(directory.glob(f"{stem}-*.json")):
+        try:
+            archived = json.loads(path.read_text(encoding="utf-8"))
+            if (
+                archived["subject"],
+                archived["tier"],
+                archived["verdict"],
+                normalize_text(archived["produced_by"]),
+                archived["statement_fidelity"]["text"],
+            ) == said:
+                return path.name
+        except (OSError, ValueError, KeyError, TypeError):
+            continue
+    number = 1
+    while (directory / f"{stem}-{number}.json").exists():
+        number += 1
+    return f"{stem}-{number}.json"
 
 
 def _fidelity_text(fidelity: Path | None) -> str:
-    """The document that was in force, read the way its digest was taken.
+    """The document that was in force, read the way it was recorded.
 
-    ``verify_lean_source`` hashes the fidelity note through ``read_text``, and
+    ``verify_lean_source`` records the fidelity note through ``read_text``, and
     ``_fidelity_issues`` has already refused this record if what is on disk no
-    longer matches that digest — so the text read here is the text the compile
+    longer matches that text — so the text read here is the text the compile
     was paired with, and a reviewer can check it against
-    ``statement_fidelity_sha256`` without trusting the archive. ``None`` cannot
+    ``statement_fidelity_text`` without trusting the archive. ``None`` cannot
     reach here (a missing note is inadmissible), but a read that fails between
     the check and now must refuse rather than archive a blank.
     """
@@ -874,8 +868,7 @@ def record_citation_evidence(
         envelope["schema_version"] = _RETRIEVAL_SCHEMA
         envelope["source_id"] = normalize_text(assumption.source_id)
         envelope["locator"] = normalize_text(assumption.locator)
-        name = _retrieval_name(envelope)
-        target = root.joinpath(*LITERATURE_RELPATH, name)
+        target = _retrieval_target(root, envelope)
         artifact = _project_relative(target, root)
         try:
             _archive_retrieval(target, envelope)
@@ -891,6 +884,7 @@ def record_citation_evidence(
         subject = assumption.ref()
         record = EvidenceRecord(
             evidence_id=_evidence_id(
+                state,
                 "citation",
                 subject,
                 EvidenceTier.LITERATURE,
@@ -922,15 +916,21 @@ def record_citation_evidence(
     )
 
 
-def _retrieval_name(envelope: dict[str, Any]) -> str:
-    """The archive's filename, derived from everything the archive holds.
+def _retrieval_target(root: Path, envelope: dict[str, Any]) -> Path:
+    """The archive already holding exactly this retrieval, else a fresh one.
 
-    Content-addressed rather than named after the citation, so that two workers
-    who retrieve the same passage produce one file and two who retrieve
-    different passages never produce one. The citation is inside the content, so
-    a path collision implies the same proposition *and* the same text.
+    Two workers who retrieve the same passage produce one file, and two who
+    retrieve different passages never produce one. The citation is inside the
+    content, so sharing a file implies the same proposition *and* the same text.
     """
-    return f"{content_digest(envelope)[:32]}.json"
+    directory = root.joinpath(*LITERATURE_RELPATH)
+    for path in sorted(directory.glob("*.json")):
+        try:
+            if json.loads(path.read_text(encoding="utf-8")) == envelope:
+                return path
+        except (OSError, ValueError):
+            continue
+    return directory / f"{uuid.uuid4().hex}.json"
 
 
 def _archive_retrieval(target: Path, envelope: dict[str, Any]) -> None:

@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import hashlib
 import json
 import time
 from pathlib import Path
@@ -778,8 +777,8 @@ def test_direct_research_can_complete_its_bounded_deliverable(
     )
     objective = "Complete the reviewed direct research deliverable."
     handoff = {
-        "version": 3,
-        "objective_sha256": hashlib.sha256(objective.encode("utf-8")).hexdigest(),
+        "version": 4,
+        "objective": objective,
         "vertical": "research",
         "domain": "",
         "continuous_generation": 1,
@@ -805,10 +804,7 @@ def test_direct_research_can_complete_its_bounded_deliverable(
     )
     assert state["stages"]["idea"]["status"] == "done"
     assert state["stages"]["idea"]["completion_intent_id"] == "intent-current"
-    assert (
-        state["stages"]["idea"]["completion_objective_sha256"]
-        == handoff["objective_sha256"]
-    )
+    assert state["stages"]["idea"]["completion_objective"] == objective
     from argus.skills.vertical_select import vertical_completion_certificate_status
 
     assert vertical_completion_certificate_status(project, "research")["ok"] is True

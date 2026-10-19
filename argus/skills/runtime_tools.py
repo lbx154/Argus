@@ -1,7 +1,6 @@
 """Project-owned tool revisions, validated and reused inside ordinary role turns."""
 from __future__ import annotations
 
-import hashlib
 import json
 import os
 import re
@@ -66,11 +65,7 @@ class RuntimeToolService:
             return None
         if path.stat().st_size > 512 * 1024:
             raise ValueError('runtime tool state exceeds its size limit')
-        record = json.loads(path.read_text(encoding='utf-8'))
-        spec = record.get('spec')
-        if spec and hashlib.sha256(spec['source'].encode()).hexdigest() != record['source_sha256']:
-            raise ValueError('runtime source changed outside its revision; restore the stored record before reuse')
-        return record
+        return json.loads(path.read_text(encoding='utf-8'))
 
     def _documents(self, name: str) -> tuple[Path, Path]:
         skill = self.skills_root / self.role / f'runtime-{name}.md'
@@ -264,7 +259,6 @@ class RuntimeToolService:
             destinations = [skill_path, wiki_path, index, self._path(name)]
             previous = {path: path.read_bytes() if path.exists() else None for path in destinations}
             record = {'revision': expected_revision + 1, 'owner': self.role, 'call_id': self.call_id,
-                      'source_sha256': hashlib.sha256(spec['source'].encode()).hexdigest() if spec else None,
                       'spec': spec, 'history': [*(current['history'] if current else []),
                                               *([current['spec']] if current else [])][-3:]}
             try:

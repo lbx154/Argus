@@ -105,7 +105,8 @@ def stage_completion_issues(stage: str, project_root: Path) -> tuple[str, ...]:
     # Formalization stays optional: a project with no `.lean` file gets an
     # empty tuple here and never loads the checker. Once one is present it is a
     # claim, and every claim must be redeemable — so the source must show a
-    # current, hash-bound compiler result that says the proof went through.
+    # current compiler result, carrying the text it compiled, that says the
+    # proof went through.
     # A failure the environment caused (no toolchain, no Mathlib) is worded
     # differently from a broken proof, because the reviewer needs to tell them
     # apart, but it does not pass: an unverified formalization is not evidence

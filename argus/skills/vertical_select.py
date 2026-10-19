@@ -953,8 +953,8 @@ def vertical_completion_certificate_status(
     Fails closed on every error, as the predicate always has.
 
     Two things this deliberately does NOT prove, stated here because four
-    docstrings in this tree once implied otherwise. The fingerprint is a hash of
-    the live checklist contract — framework source, no project evidence, no
+    docstrings in this tree once implied otherwise. The fingerprint is the live
+    checklist contract itself — framework source, no project evidence, no
     goal, no actor, no secret — so anyone able to import
     ``completion_contract_fingerprint`` can compute the expected value. It
     detects a checklist that *moved* since certification; it does not
@@ -1025,9 +1025,7 @@ def vertical_completion_certificate_status(
         completion_intent_id = str(
             record.get("completion_intent_id") or ""
         ).strip()
-        completion_objective = str(
-            record.get("completion_objective_sha256") or ""
-        ).strip()
+        completion_objective = str(record.get("completion_objective") or "").strip()
         try:
             handoff = json.loads(handoff_path.read_text(encoding="utf-8"))
         except (OSError, json.JSONDecodeError):
@@ -1035,8 +1033,8 @@ def vertical_completion_certificate_status(
         if not isinstance(handoff, dict):
             return {**detail, "reason": "current Manager intent identity is invalid"}
         current_intent_id = str(handoff.get("intent_id") or "").strip()
-        current_objective = str(handoff.get("objective_sha256") or "").strip()
-        if not completion_intent_id or not completion_objective:
+        current_objective = str(handoff.get("objective") or "").strip()
+        if not completion_intent_id:
             try:
                 state = read_pipeline_state(Path(str(project_root)))
                 history = state.get("stage_history")
@@ -1063,11 +1061,14 @@ def vertical_completion_certificate_status(
                     **detail,
                     "reason": "completion is not bound to the current Manager intent",
                 }
-        if (
-            completion_intent_id
-            and (
-                completion_intent_id != current_intent_id
-                or completion_objective != current_objective
+        # The objective is compared only where both sides recorded its text:
+        # older records and handoffs carried a digest of it instead.
+        if completion_intent_id and (
+            completion_intent_id != current_intent_id
+            or (
+                completion_objective
+                and current_objective
+                and completion_objective != current_objective
             )
         ):
             return {
@@ -1092,12 +1093,14 @@ def vertical_completion_certificate_status(
         persisted_version = int(record.get("completion_contract_version") or 0)
     except (TypeError, ValueError):
         return {**detail, "reason": "persisted contract version is not a number"}
-    persisted = str(record.get("completion_contract_sha256") or "")
+    persisted = record.get("completion_contract")
     detail["persisted"] = persisted
     detail["persisted_version"] = persisted_version
     if persisted_version != completion_contract_version:
         return {**detail, "reason": "contract version moved since certification"}
-    if persisted != expected:
+    # A completion certified before the contract was kept as data recorded only
+    # a digest of it, which cannot be compared; its version check still applies.
+    if persisted is not None and persisted != expected:
         return {**detail, "reason": "certified checklist differs from the live one"}
     if isinstance(manuscript_binding, dict) and manuscript_root:
         try:

@@ -26,7 +26,6 @@ test is chosen rather than raced for.
 """
 from __future__ import annotations
 
-import hashlib
 import json
 import os
 import signal
@@ -396,7 +395,7 @@ def test_the_cli_gives_an_unfinished_run_an_exit_code_of_its_own(
 def test_reclaim_records_exactly_what_the_synchronous_path_records(
     tmp_path: Path,
 ) -> None:
-    """Same artifacts, same verdict, same digests — and the gate accepts both."""
+    """Same artifacts, same verdict, same recorded texts — and the gate accepts both."""
     lean_bin = _instant_lean(tmp_path)
 
     synchronous = _project(tmp_path / "sync")
@@ -426,8 +425,8 @@ def test_reclaim_records_exactly_what_the_synchronous_path_records(
         "stderr",
         "proof_holes",
         "audit_exit_code",
-        "source_sha256",
-        "statement_fidelity_sha256",
+        "source_text",
+        "statement_fidelity_text",
         "lake_workspace",
         "environment_failure",
     ):
@@ -440,12 +439,8 @@ def test_reclaim_records_exactly_what_the_synchronous_path_records(
     recorded = json.loads(
         (_lean_dir(asynchronous) / "lean_check.json").read_text(encoding="utf-8")
     )
-    assert recorded["source_sha256"] == hashlib.sha256(
-        async_source.read_bytes()
-    ).hexdigest()
-    assert recorded["statement_fidelity_sha256"] == hashlib.sha256(
-        async_fidelity.read_text(encoding="utf-8").encode("utf-8")
-    ).hexdigest()
+    assert recorded["source_text"] == async_source.read_text(encoding="utf-8")
+    assert recorded["statement_fidelity_text"] == async_fidelity.read_text(encoding="utf-8")
     assert validate_lean_evidence(asynchronous).issues == ()
     assert stage_completion_issues("solve", asynchronous) == ()
     # The run directory is gone; a reclaimed handle is spent.
@@ -549,18 +544,17 @@ def test_the_compiler_reads_the_snapshot_not_the_file_being_edited(
     """
     root = _project(tmp_path / "p")
     source, fidelity = _formalized(root)
-    submitted_digest = hashlib.sha256(source.read_bytes()).hexdigest()
+    submitted = source.read_text(encoding="utf-8")
     gate = tmp_path / "gate"
     lean_bin = _stub_lean(
         tmp_path,
         "echoing-lean",
-        "import hashlib\n"
         f"gate = pathlib.Path({str(gate)!r})\n"
         "deadline = time.time() + 120\n"
         "while not gate.exists() and time.time() < deadline:\n"
         "    time.sleep(0.02)\n"
         "target = [a for a in sys.argv[1:] if a.endswith('.lean')][-1]\n"
-        "print('READ:' + hashlib.sha256(open(target, 'rb').read()).hexdigest())\n"
+        "sys.stdout.write('READ:' + open(target, encoding='utf-8').read())\n"
         "raise SystemExit(0)\n",
     )
     handle = submit_lean_run(
@@ -572,7 +566,6 @@ def test_the_compiler_reads_the_snapshot_not_the_file_being_edited(
     )["handle"]
 
     source.write_text(SWAPPED_THEOREM, encoding="utf-8")
-    edited_digest = hashlib.sha256(source.read_bytes()).hexdigest()
     gate.write_text("go", encoding="utf-8")
     _settle(handle)
 
@@ -580,8 +573,8 @@ def test_the_compiler_reads_the_snapshot_not_the_file_being_edited(
         (_run_dir(handle) / "outcome.json").read_text(encoding="utf-8")
     )
     assert outcome["ok"] is True
-    assert f"READ:{submitted_digest}" in outcome["result"]["stdout"]
-    assert edited_digest not in outcome["result"]["stdout"]
+    assert f"READ:{submitted}" in outcome["result"]["stdout"]
+    assert SWAPPED_THEOREM not in outcome["result"]["stdout"]
 
     # An honest answer about text the project no longer carries is still not
     # publishable, which is the other half of the pair.

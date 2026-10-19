@@ -15,7 +15,7 @@ statement fidelity document into a per-run staging directory and compiles the
 copy. This is not a convenience. A compiler launched against a live file reads
 that file when it gets to it, not when it was launched — measured, not
 assumed — so an in-place background compile answers about whatever text the
-Engineer last saved, while the digest stamped at submit names the text that was
+Engineer last saved, while the text recorded at submit is the text that was
 there before. That pair is a forgery of precisely the kind
 ``_refuse_if_moved_under_the_compiler`` exists to prevent, and stretching the
 window from "one compile" to "however long the agent was away" makes it the
@@ -58,9 +58,8 @@ from ...core.file_lock import exclusive_file_lock
 from .lean_evidence import (
     _STATEMENT_FIDELITY_NAME,
     CompiledArtifactChangedError,
-    _digest_fidelity,
-    _digest_file,
-    _sha256,
+    _read_fidelity,
+    _read_source,
     classify_environment_failure,
 )
 
@@ -223,12 +222,18 @@ def _state(run_dir: Path, record: dict[str, Any]) -> str:
 
 # -- drift -------------------------------------------------------------------
 
-def _moved(label: str, path: Path, before: str, after: str | None) -> str | None:
+def _moved(
+    label: str, path: Path, before: bytes | str, after: bytes | str | None
+) -> str | None:
     if after == before:
         return None
     if after is None:
         return f"{label} ({path}) could no longer be read"
     return f"{label} ({path}) changed while the compile was outstanding"
+
+
+def _submitted_source(record: dict[str, Any]) -> bytes:
+    return str(record.get("source_text") or "").encode("utf-8")
 
 
 def _refuse_if_moved_since_submit(record: dict[str, Any]) -> None:
@@ -247,14 +252,14 @@ def _refuse_if_moved_since_submit(record: dict[str, Any]) -> None:
             _moved(
                 "the Lean source",
                 source,
-                str(record.get("source_sha256") or ""),
-                _digest_file(source),
+                _submitted_source(record),
+                _read_source(source),
             ),
             _moved(
                 f"the {_STATEMENT_FIDELITY_NAME}",
                 fidelity,
-                str(record.get("statement_fidelity_sha256") or ""),
-                _digest_fidelity(fidelity),
+                str(record.get("statement_fidelity_text") or ""),
+                _read_fidelity(fidelity),
             ),
         )
         if reason
@@ -278,14 +283,14 @@ def _staged_drift(record: dict[str, Any]) -> str | None:
         (
             "the staged Lean source",
             staged_source,
-            str(record.get("source_sha256") or ""),
-            _digest_file(staged_source),
+            _submitted_source(record),
+            _read_source(staged_source),
         ),
         (
             f"the staged {_STATEMENT_FIDELITY_NAME}",
             staged_fidelity,
-            str(record.get("statement_fidelity_sha256") or ""),
-            _digest_fidelity(staged_fidelity),
+            str(record.get("statement_fidelity_text") or ""),
+            _read_fidelity(staged_fidelity),
         ),
     ):
         if after != before:
@@ -315,7 +320,7 @@ def submit_lean_run(
     Everything ``verify_lean_source`` settles before calling the compiler is
     settled here, in the same order and under the same artifact lock: the
     canonical artifacts are materialized, the Lake decision is made from the
-    host, and both digests are taken from the bytes that are about to be
+    host, and both texts are read from the bytes that are about to be
     compiled. What differs is where the compiler reads: a copy in a run
     directory, so the text it sees cannot move.
 
@@ -354,8 +359,6 @@ def submit_lean_run(
         through_lake = workspace is not None if use_lake is None else use_lake
         compiled_bytes = canonical_source.read_bytes()
         compiled_fidelity = canonical_fidelity.read_text(encoding="utf-8")
-        source_digest = _sha256(compiled_bytes)
-        fidelity_digest = _sha256(compiled_fidelity.encode("utf-8"))
 
         run_dir.parent.mkdir(parents=True, exist_ok=True)
         run_dir.mkdir()
@@ -390,8 +393,8 @@ def submit_lean_run(
                 "canonical_fidelity": str(canonical_fidelity),
                 "staged_source": str(staged_source),
                 "staged_fidelity": str(staged_fidelity),
-                "source_sha256": source_digest,
-                "statement_fidelity_sha256": fidelity_digest,
+                "source_text": compiled_bytes.decode("utf-8", errors="replace"),
+                "statement_fidelity_text": compiled_fidelity,
                 "use_lake": bool(through_lake),
                 "lake_workspace": str(workspace) if through_lake and workspace else "",
                 "timeout_seconds": (
@@ -627,7 +630,7 @@ def reclaim_lean_run(handle: str) -> dict[str, Any]:
 
         published = dict(result)
         # The compiler read the copy; the copy is byte-identical to the file
-        # named here, which is what the two digest checks above just
+        # named here, which is what the two text checks above just
         # established. So the result is about `canonical_source`, and saying so
         # is what lets the certificate, the gate, and the claim ledger cite an
         # artifact a reader of the repository can open. `command` and `cwd` are
@@ -636,11 +639,9 @@ def reclaim_lean_run(handle: str) -> dict[str, Any]:
         # `compiled_copy` says where it did run.
         published["source"] = str(canonical_source)
         published["compiled_copy"] = str(record["staged_source"])
-        published["source_sha256"] = str(record["source_sha256"])
+        published["source_text"] = str(record["source_text"])
         published["statement_fidelity"] = str(canonical_fidelity)
-        published["statement_fidelity_sha256"] = str(
-            record["statement_fidelity_sha256"]
-        )
+        published["statement_fidelity_text"] = str(record["statement_fidelity_text"])
         published["lake_workspace"] = str(record.get("lake_workspace") or "")
         published["environment_failure"] = classify_environment_failure(published)
         _atomic_artifact_write(
