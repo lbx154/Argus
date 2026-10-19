@@ -193,10 +193,9 @@ def test_structured_role_fields_are_explicitly_operator_facing(tmp_path) -> None
         assert "Do not emit" in planner_prompt
         assert "field names or status tokens in their values" in planner_prompt
     for engineer_prompt in (engineer, continuation):
-        assert "one or two operator-facing sentences in the operator's language" in engineer_prompt
-        assert 'output file paths' in engineer_prompt
-        assert 'decisive checks' in engineer_prompt
-        assert 'omit decision or status fields' in engineer_prompt
+        assert "short handoff in the operator's language" in engineer_prompt
+        assert "output paths" in engineer_prompt
+        assert "the decisive check" in engineer_prompt
     assert "Express the complete review naturally in the operator's language" in reviewer
     assert "No JSON, fixed fields, named closing lines, or text template" in reviewer
 

@@ -18,7 +18,7 @@ from typing import Any, Mapping
 
 from ...life.mission_outcome import mission_outcome_class, mission_outcome_dimensions
 from ..event_catalog import EventType
-from ..role_reply import strip_named_lines
+from ..role_handoff import strip_handoff
 from ..stop_kinds import (
     NON_FAILURE_STOP_KINDS,
     is_pause_status,
@@ -722,16 +722,7 @@ def reduce_round_event(
             and ts >= mission["started_at"]
             and (not event.get("item_id") or event["item_id"] == mission.get("id"))
         ):
-            candidate = strip_named_lines(
-                str(event.get("text") or ""),
-                (
-                    "MILESTONE_STATUS",
-                    "NEXT_OWNER",
-                    "OPERATOR_QUESTION",
-                    "OPERATOR_OPTIONS",
-                    "ROLE_DECISION",
-                ),
-            ).strip()
+            candidate = strip_handoff(str(event.get("text") or "")).strip()
             mission["final_output"] = candidate
         detail = (
             _text(event, "action_summary", 4000)

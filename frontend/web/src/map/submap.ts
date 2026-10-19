@@ -13,6 +13,7 @@ import {
 import { layoutGraph } from "./graphLayout";
 import { completionScope } from "./status";
 import { humanizeHarnessNote, TECHNICAL_MARKER_PREFIX } from "../lib/harnessNotes";
+import { visibleAgentText } from "../../../core/src/events";
 import { isPauseStatus, parkReason } from "../../../core/src/missionOutcome";
 export { humanizeHarnessNote, TECHNICAL_MARKER } from "../lib/harnessNotes";
 
@@ -180,13 +181,10 @@ function titleClause(prose: string): string {
 
 /** Keep scientific prose visible while hiding the runner's control footer. */
 export function readableRecord(value: string | undefined | null): string {
-  return String(value || "")
+  return visibleAgentText(value)
     .split(/\r?\n/)
     .filter(
       (line) =>
-        !/^(?:Decision\s*:|(?:MILESTONE_STATUS|NEXT_OWNER|OPERATOR_QUESTION|OPERATOR_OPTIONS)\s*=)/i.test(
-          line.trim(),
-        ) &&
         // A line that is one JSON object is an instruction to the harness
         // ({"wait_for": "subagent", ...}), not something said to a reader.
         !/^\{\s*"[\w-]+"\s*:.*\}$/.test(line.trim()),

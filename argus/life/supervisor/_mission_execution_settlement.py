@@ -1243,18 +1243,9 @@ class MissionExecutionSettlementMixin:
             or planner_report.get("summary")
             or ""
         )
-        from ...core.role_reply import strip_control_footer
+        from ...core.role_handoff import strip_handoff
 
-        raw_mission_summary = strip_control_footer(
-            raw_mission_summary,
-            (
-                "MILESTONE_STATUS",
-                "RESULT",
-                "NEXT_OWNER",
-                "OPERATOR_QUESTION",
-                "OPERATOR_OPTIONS",
-            ),
-        )
+        raw_mission_summary = strip_handoff(raw_mission_summary)
         mission_summary = " ".join(raw_mission_summary.split())[:1200]
         residual_risk = (
             " ".join(str(getattr(outcome, "final_residual_risk", "") or "").split())[:600]

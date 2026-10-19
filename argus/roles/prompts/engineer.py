@@ -9,7 +9,6 @@ from ...core.model_visible_text import (
     MASKED_DISPLAY_ENGINEER_RULE,
     sanitize_model_visible_text,
 )
-from ...core.role_decision import decision_footer_instruction
 from ..task_contract import (
     EFFECTIVE_TASK_CONTRACT,
     experiment_evidence_contract,
@@ -35,6 +34,20 @@ _POSIX_LONG_EXPERIMENT_RULE = (
     "`check_with` response; on `state=discussing` answer with `reply_with` "
     "and do not poll in the foreground."
 )
+# The baton line of docs/role-handoff-design.md: prose for the next holder,
+# then one line naming it. The host routes the work by that line alone.
+_HANDOFF_RULE = (
+    "## Handing off\n"
+    "End with a short handoff in the operator's language: changes with output "
+    "paths, the decisive check, what is open, why the next holder. Then one line "
+    "naming that holder:\n"
+    "→ reviewer\n"
+    "Or `→ done` (milestone complete), `→ engineer` (keep working), `→ planner` "
+    "(task mis-scoped), `→ manager` (obstacle only it can remove), "
+    "`→ operator: <one question>`, or `→ wait: <task-id>` (submitted job)."
+)
+
+
 # The Engineer, not a word list, decides whether its question needs a person.
 def engineer_operator_handoff_rule() -> str:
     """How the Engineer hands a decision to the operator in this run."""
@@ -46,17 +59,17 @@ def engineer_operator_handoff_rule() -> str:
             "place. Settle what a requirement means yourself, on the most "
             "defensible reading; record it in CHECKPOINT.md and state it as "
             "ASSUMPTION=<the reading you chose>. Never assume facts or results, or "
-            "fake credentials or services; if a required input is missing, report "
-            "blocked and say what. Use next_owner=operator only for an action only "
-            "the operator could approve: one operator_question, at most five "
-            "operator_options, and OPERATOR_NEED=credentials (or spending, "
-            "irreversible_or_external); the Manager decides it."
+            "fake credentials or services; if a required input is missing, say what "
+            "and hand off with `→ manager`. Use `→ operator: <question>` only for an "
+            "action only the operator could approve, with OPERATOR_NEED=credentials "
+            "(or spending, irreversible_or_external) and at most five "
+            "OPERATOR_OPTIONS on the lines below; the Manager decides it."
         )
     return (
-        "Use next_owner=operator only for a real operator decision; include one "
-        "operator_question, at most five operator_options, and one "
+        "Use `→ operator: <question>` only for a real operator decision, with "
         "OPERATOR_NEED=credentials (or spending, irreversible_or_external, "
-        "scope_or_authority, none); that parks the task."
+        "scope_or_authority, none) and at most five OPERATOR_OPTIONS on the lines "
+        "below; that parks the task."
     )
 
 
@@ -80,10 +93,9 @@ _ACCELERATOR_ADMISSION_RULE = (
 )
 _DURABLE_WAIT_RULE = (
     "After submit, do independent work. If only a healthy running or resource-queued "
-    "job remains, save the checkpoint; end the update with "
-    '`{"wait_for":"subagent","wait_id":"<task-id>"}`. '
-    "Use its existing ID, including jobs submitted during this same turn. "
-    "Do not append the normal decision footer, foreground-poll or relaunch. "
+    "job remains, save the checkpoint and hand off with `→ wait: <task-id>`, using "
+    "its existing ID, including jobs submitted during this same turn. "
+    "Do not foreground-poll or relaunch. "
     "Argus resumes this task on state change; validate outputs. Waiting is not "
     "milestone completion or paper review."
 )
@@ -306,12 +318,8 @@ def build_mission_prompt(
         sections.append(
             RESEARCHER_VOICE + "\n\n"
             "## Engineer summary\n"
-            "Return the material result and decisive check; Reviewer judges whether the work holds.\n"
-            + decision_footer_instruction(
-                "MILESTONE_STATUS=done\n"
-                "RESULT=material result and decisive check\n"
-                "NEXT_OWNER=reviewer"
-            )
+            "Return the material result and decisive check; Reviewer judges whether the work holds.\n\n"
+            + _HANDOFF_RULE
         )
         if skill_text:
             sections.append(skill_text)
@@ -355,19 +363,13 @@ def build_mission_prompt(
         "## Carrying context between rounds\n"
         "CHECKPOINT.md is the only file you maintain to carry context between rounds; do not create "
         "separate summaries or collections of evidence. Host invokes Reviewer only when required; do not "
-        "spawn a Reviewer subagent. Normally set next_owner=reviewer. "
+        "spawn a Reviewer subagent. "
         + engineer_operator_handoff_rule()
         + " Options use "
         "`id::label::description`, or `id::true::label::description` when a note "
         "is required.\n\n"
         + RESEARCHER_VOICE + "\n\n"
-        + decision_footer_instruction(
-            "MILESTONE_STATUS=done\n"
-            "RESULT=one or two operator-facing sentences in the operator's language: "
-            "changes, output file paths, decisive checks, and blockers; omit "
-            "decision or status fields\n"
-            "NEXT_OWNER=reviewer"
-        )
+        + _HANDOFF_RULE
     )
     if skill_text:
         sections.append(skill_text)
@@ -439,13 +441,7 @@ def build_mission_prompt(
         + engineer_operator_handoff_rule()
         + "\n\n"
         + RESEARCHER_VOICE + "\n\n"
-        + decision_footer_instruction(
-            "MILESTONE_STATUS=done\n"
-            "RESULT=one or two operator-facing sentences in the operator's language: "
-            "changes, output file paths, decisive checks, and blockers; omit "
-            "decision or status fields\n"
-            "NEXT_OWNER=reviewer"
-        )
+        + _HANDOFF_RULE
     )
     if shell_contract:
         compact = shell_contract + "\n\n" + compact

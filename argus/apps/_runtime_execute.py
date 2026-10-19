@@ -18,7 +18,7 @@ from typing import Callable
 
 from ..core.knobs import resolve_role_reasoning_effort
 from ..core.ports import EventSink
-from ..core.role_reply import strip_named_lines
+from ..core.role_handoff import strip_handoff
 from ..core.runner_errors import is_execution_host_startup_error
 from ..engineer.round_config import HOST_PLACEHOLDER_REVIEW_SOURCES
 from ..engineer.runner import should_clear_thread_id_after_outcome
@@ -1613,16 +1613,7 @@ class SkillLoopExecuteMixin:
         rounds = getattr(outcome, "rounds", None) or ex_state.rounds_list
         engineer_message = str(getattr(outcome, "final_message", "") or "")
         summary_lines = []
-        visible_engineer_message = strip_named_lines(
-            engineer_message,
-            (
-                "MILESTONE_STATUS",
-                "NEXT_OWNER",
-                "OPERATOR_QUESTION",
-                "OPERATOR_OPTIONS",
-                "ROLE_DECISION",
-            ),
-        )
+        visible_engineer_message = strip_handoff(engineer_message)
         from ..engineer.external_work import strip_external_wait_footer
 
         visible_engineer_message = strip_external_wait_footer(

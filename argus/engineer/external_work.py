@@ -8,6 +8,7 @@ from __future__ import annotations
 
 import json
 import os
+import re
 import time
 from dataclasses import dataclass
 from enum import Enum
@@ -525,9 +526,21 @@ def inspect_external_work(
 
 
 def parse_external_wait_request(message: str | None) -> tuple[str, str] | None:
-    """Parse an exact structured wait request from the final response line."""
+    """The wait the Engineer asked for: ``→ wait: <task-id>``, or the older JSON line.
+
+    The baton line names a submitted job by its id, the whole argument or the
+    first backticked token in it, exactly as the JSON line's ``wait_id`` did.
+    """
     if not message:
         return None
+    from ..core.role_handoff import read_baton_line
+
+    baton = read_baton_line(message)
+    if baton is not None and baton.next_owner == "wait":
+        quoted = re.findall(r"`([^`\s]+)`", baton.waits_on)
+        words = baton.waits_on.split()
+        wait_id = quoted[0] if quoted else (words[0] if len(words) == 1 else "")
+        return ("subagent", wait_id) if wait_id else None
     non_empty = [line.strip() for line in message.splitlines() if line.strip()]
     if not non_empty:
         return None

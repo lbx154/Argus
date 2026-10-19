@@ -1,5 +1,6 @@
 import { parkReason } from "../../../core/src/missionOutcome";
 import type { BacklogItem } from "../../../core/src/types";
+import { visibleAgentText } from "../../../core/src/events";
 
 export interface MapTask
   extends Pick<
@@ -477,16 +478,10 @@ export function teamOutcomeKey(outcome: TeamOutcome | undefined): string {
 
 /** Short readable excerpt: scientific prose without the runner's control footer. */
 function branchExcerpt(text: string | undefined): string {
-  const joined = String(text || "")
+  const joined = visibleAgentText(text)
     .split(/\r?\n/)
     .map((line) => line.replace(/^\s*(?:RESULT|SUMMARY|NEXT_ACTION)\s*=\s*/i, "").trim())
-    .filter(
-      (line) =>
-        line &&
-        !/^(?:Decision\s*:|(?:MILESTONE_STATUS|NEXT_OWNER|OPERATOR_QUESTION|OPERATOR_OPTIONS)\s*=)/i.test(
-          line,
-        ),
-    )
+    .filter(Boolean)
     .join(" ");
   return joined.length > 160 ? `${joined.slice(0, 159)}…` : joined;
 }
