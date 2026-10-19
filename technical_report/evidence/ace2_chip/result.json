@@ -4,8 +4,7 @@
     "certificate_id": "ace2-qwen2p5-0p5b-w4a8-final-product-certificate-v1",
     "certified_at_utc": "2026-08-04T07:55:21.118678Z",
     "decision": "FORMAL_PRODUCT_CERTIFIED",
-    "issued_by": "fresh Reviewer that did not perform the work",
-    "accepted_rtl_tree_sha256": "bf12e2c83b4d569b27bbbc14835ed8d36c39ec4e8820725cc7ad054fd7ffb4f6"
+    "issued_by": "fresh Reviewer that did not perform the work"
   },
   "certified_scope": {
     "functional": "24_layer_two_token_qwen2p5_0p5b_w4a8_command_integration",

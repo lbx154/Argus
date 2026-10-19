@@ -9,8 +9,6 @@ from __future__ import annotations
 import argparse
 import asyncio
 import base64
-import hashlib
-import hmac
 import json
 import math
 import re
@@ -142,7 +140,7 @@ def model_app(config: dict, ledger: Ledger) -> FastAPI:
 
     def identify(request: Request) -> str | None:
         supplied = request.headers.get("authorization", "").removeprefix("Bearer ")
-        return next((name for token, name in tokens.items() if hmac.compare_digest(supplied, token)), None)
+        return next((name for token, name in tokens.items() if secrets.compare_digest(supplied, token)), None)
 
     @app.get("/healthz")
     async def health():
@@ -279,24 +277,22 @@ RECOVERING = """<!doctype html><html lang="zh-CN"><meta charset="utf-8">
 
 def portal_app(config: dict, ledger: Ledger) -> FastAPI:
     app = FastAPI(docs_url=None, redoc_url=None, openapi_url=None)
-    sessions = config["session_secret"].encode()
     invites = {row["invite"]: name for name, row in config["tenants"].items()}
+    # A session is a random token the portal holds, not a signed claim; a
+    # restart ends every session and the invite code signs in again.
+    sessions: dict[str, tuple[str, float]] = {}
 
     def session(tenant: str) -> str:
-        value = f"{tenant}:{int(time.time()) + 7 * 86400}"
-        return value + ":" + hmac.new(sessions, value.encode(), hashlib.sha256).hexdigest()
+        now = time.time()
+        for token in [t for t, (_, expiry) in sessions.items() if expiry <= now]:
+            del sessions[token]
+        token = secrets.token_urlsafe(32)
+        sessions[token] = (tenant, now + 7 * 86400)
+        return token
 
     def identify(cookie: str) -> str | None:
-        parts = cookie.split(":")
-        if len(parts) != 3 or parts[0] not in config["tenants"]:
-            return None
-        value = ":".join(parts[:2])
-        if not hmac.compare_digest(parts[2], hmac.new(sessions, value.encode(), hashlib.sha256).hexdigest()):
-            return None
-        try:
-            return parts[0] if int(parts[1]) > time.time() else None
-        except ValueError:
-            return None
+        tenant, expiry = sessions.get(cookie, (None, 0.0))
+        return tenant if tenant in config["tenants"] and expiry > time.time() else None
 
     def origin_ok(request: Request) -> bool:
         origin = request.headers.get("origin")
@@ -320,7 +316,7 @@ def portal_app(config: dict, ledger: Ledger) -> FastAPI:
             token = form.get("invite", [""])[0].strip()
         except (ValueError, UnicodeError):
             return JSONResponse({"detail": "邀请码格式不正确。"}, 400)
-        tenant = next((name for invite, name in invites.items() if hmac.compare_digest(token, invite)), None)
+        tenant = next((name for invite, name in invites.items() if secrets.compare_digest(token, invite)), None)
         if tenant is None:
             return HTMLResponse(LOGIN.replace("<h1>", "<p>邀请码不正确，请检查后重试。</p><h1>"), 401)
         response = RedirectResponse("/", 303)
@@ -351,7 +347,7 @@ def portal_app(config: dict, ledger: Ledger) -> FastAPI:
     async def relay(socket: WebSocket):
         browser = socket.url.path == "/trial/stream"
         public_host = socket.headers.get("host", "")
-        if hmac.compare_digest(socket.headers.get("authorization", ""), "Bearer " + config["relay_secret"]):
+        if secrets.compare_digest(socket.headers.get("authorization", ""), "Bearer " + config["relay_secret"]):
             public_host = socket.headers.get("x-argus-public-host", public_host)
         if browser:
             if identify(socket.cookies.get(COOKIE, "")) is None:
@@ -360,7 +356,7 @@ def portal_app(config: dict, ledger: Ledger) -> FastAPI:
             if socket.headers.get("origin") != "https://" + public_host:
                 await socket.close(code=4403)
                 return
-        elif not hmac.compare_digest(socket.headers.get("authorization", ""), "Bearer " + config["relay_secret"]):
+        elif not secrets.compare_digest(socket.headers.get("authorization", ""), "Bearer " + config["relay_secret"]):
             await socket.close(code=4401)
             return
         await socket.accept()
@@ -418,7 +414,7 @@ def portal_app(config: dict, ledger: Ledger) -> FastAPI:
             return
         origin = socket.headers.get("origin")
         public_host = socket.headers.get("host", "")
-        if hmac.compare_digest(socket.headers.get("authorization", ""), "Bearer " + config["relay_secret"]):
+        if secrets.compare_digest(socket.headers.get("authorization", ""), "Bearer " + config["relay_secret"]):
             public_host = socket.headers.get("x-argus-public-host", public_host)
         expected = "https://" + public_host
         if origin and origin != expected:

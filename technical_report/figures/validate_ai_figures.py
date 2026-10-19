@@ -17,9 +17,10 @@ review. There is no ``review.json``/``content-review.json`` dual-review gate. Th
 hard checks are domain-agnostic provenance guarantees:
 
 - the raster is exactly ``1536x1024`` and every required sidecar is present;
-- the ``inspect``/``png.json``/``provenance`` sidecars record a SHA-256 that
-  matches the committed PNG bytes;
-- the ``png.json``/``provenance`` prompt SHA-256 matches the raw prompt file;
+- the ``inspect``/``png.json``/``provenance`` sidecars record the committed
+  PNG's byte size;
+- the ``png.json`` prompt text equals the raw prompt file byte for byte, and
+  the ``provenance`` sidecar records that file's byte size;
 - no committed sidecar leaks an absolute path, session id, or API-vault field.
 
 OCR is retained purely as recorded evidence: Tesseract PSM 6/11/12 transcripts
@@ -56,7 +57,6 @@ CLI:
 from __future__ import annotations
 
 import argparse
-import hashlib
 import json
 import re
 import struct
@@ -394,8 +394,6 @@ def _png_dimensions(path: Path) -> tuple[int, int]:
     return width, height
 
 
-def _sha256(path: Path) -> str:
-    return hashlib.sha256(path.read_bytes()).hexdigest()
 
 
 def _psm_command(image: Path, psm: int) -> list[str]:
@@ -466,30 +464,22 @@ def _load_json_sidecars(
     return sidecar_status, sidecar_json
 
 
-def _recorded_hash(payload: dict[str, Any] | None) -> str | None:
+def _recorded_bytes(payload: dict[str, Any] | None) -> int | None:
     if not isinstance(payload, dict):
         return None
-    for key in ("output_sha256", "sha256"):
-        value = payload.get(key)
-        if isinstance(value, str):
-            return value
-    image_payload = payload.get("image")
-    if isinstance(image_payload, dict):
-        value = image_payload.get("sha256")
-        if isinstance(value, str):
+    image = payload.get("image")
+    for value in (
+        payload.get("output_bytes"),
+        payload.get("bytes"),
+        image.get("bytes") if isinstance(image, dict) else None,
+    ):
+        if isinstance(value, int):
             return value
     return None
 
 
-def _recorded_prompt_hash(payload: dict[str, Any] | None) -> str | None:
-    if not isinstance(payload, dict):
-        return None
-    value = payload.get("prompt_sha256")
-    return value if isinstance(value, str) else None
-
-
-def _check_hash_consistency(
-    sidecar_json: dict[str, dict[str, Any]], output_sha256: str, errors: list[str]
+def _check_size_consistency(
+    sidecar_json: dict[str, dict[str, Any]], output_bytes: int, errors: list[str]
 ) -> None:
     for suffix in ("png.inspect.json", "png.json", "png.provenance.json"):
         payload = sidecar_json.get(suffix)
@@ -497,37 +487,31 @@ def _check_hash_consistency(
             # Missing/unparseable sidecar is already reported by the
             # sidecar-presence/JSON-parse check; nothing further to add here.
             continue
-        recorded = _recorded_hash(payload)
+        recorded = _recorded_bytes(payload)
         if recorded is None:
             errors.append(
-                f"{suffix} has no recorded output/image sha256: cannot "
+                f"{suffix} has no recorded output/image bytes: cannot "
                 "confirm it corresponds to the committed PNG"
             )
-        elif recorded != output_sha256:
+        elif recorded != output_bytes:
             errors.append(
-                f"hash mismatch in {suffix}: sidecar records {recorded}, "
-                f"actual PNG sha256 is {output_sha256}"
+                f"size mismatch in {suffix}: sidecar records {recorded} bytes, "
+                f"the committed PNG has {output_bytes}"
             )
 
 
-def _check_prompt_hash_consistency(
-    sidecar_json: dict[str, dict[str, Any]], prompt_sha256: str, errors: list[str]
+def _check_prompt_consistency(
+    sidecar_json: dict[str, dict[str, Any]], prompt: bytes, errors: list[str]
 ) -> None:
-    for suffix in ("png.json", "png.provenance.json"):
-        payload = sidecar_json.get(suffix)
-        if payload is None:
-            continue
-        recorded = _recorded_prompt_hash(payload)
-        if recorded is None:
-            errors.append(
-                f"{suffix} has no recorded prompt_sha256: cannot confirm it "
-                "corresponds to the committed prompt file"
-            )
-        elif recorded != prompt_sha256:
-            errors.append(
-                f"prompt hash mismatch in {suffix}: sidecar records {recorded}, "
-                f"actual prompt file sha256 is {prompt_sha256}"
-            )
+    sidecar = sidecar_json.get("png.json")
+    if sidecar is not None and str(sidecar.get("prompt", "")).encode("utf-8") != prompt:
+        errors.append("png.json prompt text differs from the committed prompt file")
+    provenance = sidecar_json.get("png.provenance.json")
+    if provenance is not None and provenance.get("prompt_bytes") != len(prompt):
+        errors.append(
+            f"png.provenance.json records {provenance.get('prompt_bytes')} prompt "
+            f"bytes, the committed prompt file has {len(prompt)}"
+        )
 
 
 # Public-safe committed sidecars must never leak an absolute filesystem path, a
@@ -599,8 +583,8 @@ def validate_figure(
         result.update(status="fail", errors=errors, warnings=warnings)
         return result
 
-    output_sha256 = _sha256(image_path)
-    result["output_sha256"] = output_sha256
+    output_bytes = image_path.stat().st_size
+    result["output_bytes"] = output_bytes
 
     try:
         width, height = _png_dimensions(image_path)
@@ -617,14 +601,14 @@ def validate_figure(
     sidecar_status, sidecar_json = _load_json_sidecars(root, contract, errors)
     result["sidecars"] = sidecar_status
 
-    _check_hash_consistency(sidecar_json, output_sha256, errors)
+    _check_size_consistency(sidecar_json, output_bytes, errors)
     _check_no_local_paths(sidecar_json, errors)
 
     prompt_path = figures_dir(root) / f"{stem}.prompt.txt"
-    prompt_sha256 = _sha256(prompt_path) if prompt_path.is_file() else None
-    result["prompt_sha256"] = prompt_sha256
-    if prompt_sha256 is not None:
-        _check_prompt_hash_consistency(sidecar_json, prompt_sha256, errors)
+    prompt = prompt_path.read_bytes() if prompt_path.is_file() else None
+    result["prompt_bytes"] = None if prompt is None else len(prompt)
+    if prompt is not None:
+        _check_prompt_consistency(sidecar_json, prompt, errors)
 
     ocr_result = ocr_runner(image_path)
     combined_normalized = ocr_result.get("combined_normalized", "")

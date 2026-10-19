@@ -34,10 +34,10 @@
     "paper_case_study.svg",
     "paper_case_study.png"
   ],
-  "output_sha256": {
-    "pptx": "3864bd175cbacda3bc96bd8c485064abd5a42a7e02614943e3c405e68bee3a01",
-    "pdf": "3c53c19cb28d1b51cc479d9cb8fbe1cddd45909d53a52abb385cc3eded991112",
-    "png": "f7fc711b942f6ae26f62c4198f9a5c4afc6c7caea895a0d2e55e95bce96cfa2e",
-    "svg": "1bfbbedd8267d5d3ff6dee9e62501e13854ce7d55b7d1030813013acfbc3f22f"
+  "output_bytes": {
+    "pptx": 1754811,
+    "pdf": 591901,
+    "png": 865100,
+    "svg": 953874
   }
 }

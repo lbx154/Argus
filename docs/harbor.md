@@ -85,7 +85,7 @@ checkout, point `argus_package` at an immutable wheel or Git revision:
 ```
 
 The package reference is shell-quoted before it is passed to pip. Prefer an
-immutable version, wheel digest, or commit instead of a moving branch.
+immutable version or commit instead of a moving branch.
 
 ## Trial artifacts
 

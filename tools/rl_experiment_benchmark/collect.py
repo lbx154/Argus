@@ -2,10 +2,10 @@
 from __future__ import annotations
 
 import argparse
-import hashlib
 import json
 import re
 import time
+import uuid
 from collections import Counter
 from datetime import datetime, timezone
 from pathlib import Path
@@ -108,13 +108,13 @@ def collect(root):
     now = time.time()
 
     def append(kind, source, payload, observed_time=None):
-        key_text = json.dumps([kind, str(source), payload], sort_keys=True, ensure_ascii=False)
-        key = hashlib.sha256(key_text.encode()).hexdigest()
+        # The observation itself is its identity: seen records it verbatim.
+        key = json.dumps([kind, str(source), payload], sort_keys=True, ensure_ascii=False)
         if key in seen:
             return
         seen.add(key)
         timestamp = now if observed_time is None else observed_time
-        new.append({"id": key, "observed_at": now, "source_time": timestamp,
+        new.append({"id": uuid.uuid4().hex, "observed_at": now, "source_time": timestamp,
                     "period": "benchmark" if timestamp >= start else "historical",
                     "kind": kind, "source": str(source), "data": payload})
 
@@ -180,12 +180,10 @@ def collect(root):
         if stamps.get(str(path)) == stamp:
             continue
         stamps[str(path)] = stamp
-        content = path.read_bytes()
-        digest = hashlib.sha256(content).hexdigest()
-        target = artifacts / (digest + path.suffix)
+        target = artifacts / f"{path.stem}-{stat.st_mtime_ns}-{stat.st_size}{path.suffix}"
         if not target.exists():
-            target.write_bytes(content)
-        append("source_revision", path, {"sha256": digest, "snapshot": str(target), "bytes": len(content)}, stat.st_mtime)
+            target.write_bytes(path.read_bytes())
+        append("source_revision", path, {"snapshot": str(target), "bytes": stat.st_size, "mtime_ns": stat.st_mtime_ns}, stat.st_mtime)
 
     with (root / "observations.jsonl").open("a") as stream:
         for entry in new:

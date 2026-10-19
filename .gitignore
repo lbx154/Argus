@@ -142,3 +142,6 @@ docs/Argus_BP*
 /HANDOFF-*.md
 # First-party adapters are rebuilt from desktop-tauri/scripts/*.rs.
 /argus/_native/
+
+# Dependencies resolve from pyproject.toml; no lock file is kept.
+uv.lock

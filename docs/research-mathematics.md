@@ -108,7 +108,7 @@ nothing outside the standard library, which is enforced by an AST sweep in
 its own repository without edits.
 
 Host-neutral is not domain-neutral, and it is worth being precise about which
-half is which. The record layer below — the digest binding, the append-only
+half is which. The record layer below — the text binding, the append-only
 store, the derived-never-stored status — has nothing mathematical in it. The
 decision layer does: the kernel and discharging tiers are both `{MECHANICAL}`,
 and a claim is granted kernel status only if it carries a formal statement. A
@@ -126,8 +126,8 @@ domain that discharges claims against a mechanical checker.
 | `ProofRoute` | A plan: a set of obligations which, if all discharged, would establish a claim. |
 
 **Evidence binds to content, never to a version number and never to a
-timestamp.** An evidence record names the digest of the exact statement text
-it was produced against. Edit the statement and the old evidence no longer
+timestamp.** An evidence record carries the exact statement text it was
+produced against. Edit the statement and the old evidence no longer
 binds — not because a rule fired, but because the thing it was about is no
 longer there. This is the single property that prevents the most damaging
 failure mode in a system like this: a proof that was checked, a statement that
@@ -226,7 +226,7 @@ what the informal claim says.
 Compilation runs asynchronously through `submit_lean_run` / `reclaim_lean_run`.
 **The compile reads a snapshot**: `submit` copies the canonical source and the
 fidelity document into a per-run staging directory and compiles that copy, so
-the digest recorded in the evidence names the exact text that was compiled.
+the text recorded in the evidence is exactly the text that was compiled.
 The project stays editable while a compile is in flight, and a certificate can
 never end up describing bytes that no longer exist.
 

@@ -103,7 +103,7 @@ cd ~/argus-trial-gateway-20260909
 
 The command preserves the ten stable keys and balances. It prints only
 the export path: `~/.local/share/argus-trial-gateway/trial-keys.json` (0600),
-**outside the served directory**. The database stores credential hashes and retains historical claim records.
+**outside the served directory**. The database stores credentials as issued, compares them in constant time, and retains historical claim records.
 Do not publish the operator export. The former browser recovery/claim endpoints
 are absent from the gateway even if an old static page remains on disk.
 
@@ -262,5 +262,5 @@ Source: `/data/yijia/argus-trial-20260909`, branch
 `feat/trial-gateway-20260909`, based on fetched/pulled `origin/main@af3b5a995`.
 Source changes remain uncommitted and unpushed.
 
-Private-distribution wheel SHA-256:
-`b66fda3160b4f561c5b21a6d39e64a004b81eca8882952a97204d8ff2876e50c`.
+The private-distribution wheel was built from `origin/main@af3b5a995`; Argus
+no longer records wheel digests (removed 2026-10).

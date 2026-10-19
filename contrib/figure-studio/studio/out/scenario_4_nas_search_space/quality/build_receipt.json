@@ -6,24 +6,19 @@
   "validation": "/data/v-boxiuli/argus_figure_test/studio/figure_contract.schema.json",
   "artifacts": {
     "contract": {
-      "path": "/data/v-boxiuli/argus_figure_test/studio/out/scenario_4_nas_search_space/contract.json",
-      "sha256": "dfd3b994cc0d529efbcd762ef8bcd0b1104df4b73bd2856a7d144e38638879a0"
+      "path": "/data/v-boxiuli/argus_figure_test/studio/out/scenario_4_nas_search_space/contract.json"
     },
     "svg": {
-      "path": "/data/v-boxiuli/argus_figure_test/studio/out/scenario_4_nas_search_space/scenario_4_nas_search_space.svg",
-      "sha256": "43368a0cc83389568360d19aa8073e6c8ca3c95de0139eeb6c203b7c4e72ff9f"
+      "path": "/data/v-boxiuli/argus_figure_test/studio/out/scenario_4_nas_search_space/scenario_4_nas_search_space.svg"
     },
     "png": {
-      "path": "/data/v-boxiuli/argus_figure_test/studio/out/scenario_4_nas_search_space/scenario_4_nas_search_space.png",
-      "sha256": "c7b37678f7a9044294deae363743a35a7eee010e82f9a785d94f3e988112a885"
+      "path": "/data/v-boxiuli/argus_figure_test/studio/out/scenario_4_nas_search_space/scenario_4_nas_search_space.png"
     },
     "pdf": {
-      "path": "/data/v-boxiuli/argus_figure_test/studio/out/scenario_4_nas_search_space/scenario_4_nas_search_space.pdf",
-      "sha256": "8e57225e66bfcdee34b2ee0fc11309afc2b0f1d62886851fb28940db8dd8a636"
+      "path": "/data/v-boxiuli/argus_figure_test/studio/out/scenario_4_nas_search_space/scenario_4_nas_search_space.pdf"
     },
     "pptx": {
-      "path": "/data/v-boxiuli/argus_figure_test/studio/out/scenario_4_nas_search_space/scenario_4_nas_search_space.pptx",
-      "sha256": "2929e20c29fe7527329cbc9f83eac5758b00e2ef946f35aeb95873e053d9762c"
+      "path": "/data/v-boxiuli/argus_figure_test/studio/out/scenario_4_nas_search_space/scenario_4_nas_search_space.pptx"
     }
   },
   "steps": [

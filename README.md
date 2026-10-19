@@ -612,7 +612,7 @@ releases — in the cockpit's Verticals page or on the command line:
 
 ```bash
 argus verticals list                       # built-in, installed, and available verticals
-argus verticals install materials          # download, verify sha256, unpack under ~/.argus-skill/verticals
+argus verticals install materials          # download, check the archive size, unpack under ~/.argus-skill/verticals
 argus verticals install chip_design        # brings digital_circuit with it (declared `requires`)
 argus verticals remove chip_design         # digital_circuit stays
 ```

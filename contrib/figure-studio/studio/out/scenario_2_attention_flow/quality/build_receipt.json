@@ -6,24 +6,19 @@
   "validation": "/data/v-boxiuli/argus_figure_test/studio/figure_contract.schema.json",
   "artifacts": {
     "contract": {
-      "path": "/data/v-boxiuli/argus_figure_test/studio/out/scenario_2_attention_flow/contract.json",
-      "sha256": "463ac173817382c5f23e028cb078b5746c0307c1046fae718d0584740b08f9aa"
+      "path": "/data/v-boxiuli/argus_figure_test/studio/out/scenario_2_attention_flow/contract.json"
     },
     "svg": {
-      "path": "/data/v-boxiuli/argus_figure_test/studio/out/scenario_2_attention_flow/scenario_2_attention_flow.svg",
-      "sha256": "7dbb0dfdde1be6487722738685dca55959f56bbdaab7ef1298608baadcd42936"
+      "path": "/data/v-boxiuli/argus_figure_test/studio/out/scenario_2_attention_flow/scenario_2_attention_flow.svg"
     },
     "png": {
-      "path": "/data/v-boxiuli/argus_figure_test/studio/out/scenario_2_attention_flow/scenario_2_attention_flow.png",
-      "sha256": "1d8965ff78c93782a0ed378c4c0441ad8beed2baa4fd83f45f5ceb2230bab2c9"
+      "path": "/data/v-boxiuli/argus_figure_test/studio/out/scenario_2_attention_flow/scenario_2_attention_flow.png"
     },
     "pdf": {
-      "path": "/data/v-boxiuli/argus_figure_test/studio/out/scenario_2_attention_flow/scenario_2_attention_flow.pdf",
-      "sha256": "454196fce82a7795e48374681bf63724dcda9b28dd4dd91a80c458ebcc32318e"
+      "path": "/data/v-boxiuli/argus_figure_test/studio/out/scenario_2_attention_flow/scenario_2_attention_flow.pdf"
     },
     "pptx": {
-      "path": "/data/v-boxiuli/argus_figure_test/studio/out/scenario_2_attention_flow/scenario_2_attention_flow.pptx",
-      "sha256": "fba2fc3e8a0186f652442cd99b141f69f56bccca93b6192ed5055e8f7dd94730"
+      "path": "/data/v-boxiuli/argus_figure_test/studio/out/scenario_2_attention_flow/scenario_2_attention_flow.pptx"
     }
   },
   "steps": [

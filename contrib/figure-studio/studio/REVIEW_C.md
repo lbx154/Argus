@@ -1,6 +1,8 @@
 # Independent Review C — Argus Figure Studio v2
 
 Date: 2026-09-03  
+
+> Note (2026-10): Argus no longer records SHA-256 digests. The hash comparisons below are the historical record of this review; build receipts now record artifact paths and byte sizes.
 Reviewer role: independent; no production files modified
 
 ## Overall verdict

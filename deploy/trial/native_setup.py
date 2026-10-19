@@ -24,7 +24,7 @@ def initialize(args) -> dict:
               'node_runtime': str(args.node_runtime.resolve()), 'copilot_package': str(args.copilot_package.resolve()),
               'copilot_home': str(Path.home() / '.copilot'), 'ledger': str(root / 'usage.sqlite3'),
               'meter_runtime': str(root / 'meter'), 'total_usd': 50, 'user_usd': 10,
-              'session_secret': secrets.token_hex(32), 'relay_secret': secrets.token_hex(32), 'tenants': {}}
+              'relay_secret': secrets.token_hex(32), 'tenants': {}}
     (root / 'meter').mkdir(mode=0o700)
     for n in range(1, 6):
         name = f'trial{n}'

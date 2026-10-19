@@ -404,7 +404,7 @@ later item can report its effect against the same baseline.
 - Default deadlines per kind of park and per vertical, given that research runs
   legitimately take days.
 - Until the snapshot store exists, the unchanged-return rule needs a cheaper
-  change signal. A manifest digest (path, size, mtime) of the workdir is
-  enough to decide "unchanged", and the snapshot id replaces it later.
+  change signal. A manifest (path, size, mtime) of the workdir, compared
+  directly, is enough to decide "unchanged", and the snapshot id replaces it later.
 - Whether the holder is only derived from handoff events in `events.jsonl`, or
   is also kept on the Backlog item for cheap reads.
