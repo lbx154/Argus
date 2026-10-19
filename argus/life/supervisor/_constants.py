@@ -7,12 +7,6 @@ PLANNER_SCOPE_FINAL_SUBMISSION = "final_submission"
 IDLE_BACKOFF_BASE_SECONDS = 15.0
 # This caps event-poll latency while idle; it never limits mission work.
 IDLE_BACKOFF_CAP_SECONDS = 300.0
-# How often the Planner is re-granted a turn while an operator-only wait
-# holds. Each grant is a full Planner LLM call, so this is an LLM-call-rate
-# policy, not a poll-latency bound: it is deliberately decoupled from
-# IDLE_BACKOFF_CAP_SECONDS so retuning idle sleep never retunes token spend
-# (magic-hyperparameters audit 2026-09-05).
-OPERATOR_WAIT_TURN_REGRANT_SECONDS = 300.0
 # These are fact-emission cadences so indefinite waits remain observable.
 PLANNER_IDLE_JOURNAL_HEARTBEAT_SECONDS = 1800.0
 LIFECYCLE_BLOCK_HEARTBEAT_SECONDS = 1800.0
@@ -23,10 +17,6 @@ LIFECYCLE_BLOCK_HEARTBEAT_SECONDS = 1800.0
 # escalation or a probe), so unchanged files must not silence it forever. The
 # cadence matches the idle journal heartbeat above.
 PLANNER_UNCHANGED_SKIP_MAX_SECONDS = 1800.0
-# Spare-slot planning beside running missions starts at the idle cap and
-# doubles while the backlog stays the same, up to this. Each ask is a full
-# Planner LLM call; at a flat 300 s a six-hour job bought 72 of them.
-PARALLEL_PLAN_INTERVAL_CAP_SECONDS = 7200.0
 PLAN_TERMINAL_IDLE = "planner_terminal_idle"
 PLAN_AWAITING = "awaiting_external"
 PLAN_ERROR = "planner_error"
@@ -181,7 +171,6 @@ def planner_quarantine_release_successes() -> int:
 __all__ = [
     "IDLE_BACKOFF_BASE_SECONDS",
     "IDLE_BACKOFF_CAP_SECONDS",
-    "OPERATOR_WAIT_TURN_REGRANT_SECONDS",
     "PLANNER_IDLE_JOURNAL_HEARTBEAT_SECONDS",
     "PLANNER_UNCHANGED_SKIP_MAX_SECONDS",
     "LIFECYCLE_BLOCK_HEARTBEAT_SECONDS",

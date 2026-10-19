@@ -37,12 +37,6 @@ from ._config import (
     _MissionRunner,
 )
 from ._constants import (
-    IDLE_BACKOFF_CAP_SECONDS as _IDLE_BACKOFF_CAP_SECONDS,
-)
-from ._constants import (
-    PARALLEL_PLAN_INTERVAL_CAP_SECONDS as _PARALLEL_PLAN_INTERVAL_CAP_SECONDS,
-)
-from ._constants import (
     PLAN_AWAITING as _PLAN_AWAITING,
 )
 from ._constants import (
@@ -159,9 +153,9 @@ class LifeSupervisor(
         # invalid owns_paths, or stage-closing). Same one-shot contract as
         # the dropped-dependency note above.
         self._planner_dropped_parallel_marks: list[tuple[str, str]] = []
-        self._parallel_plan_fingerprint: tuple[tuple[str, ...], ...] | None = None
-        self._parallel_plan_after = 0.0
-        self._parallel_plan_interval = 0.0
+        # The facts the last spare-slot Planner call saw: the backlog's running
+        # and pending sets and the Planner-visible input digest.
+        self._parallel_plan_facts: tuple[Any, ...] | None = None
         # Wall-clock (monotonic) of the first idle pass in the current idle
         # streak — set by `_enter_idle_backoff`, cleared by `_reset_idle_backoff`
         # — so `_maybe_idle_timeout` can auto-exit a long-idle continuous daemon.
@@ -2250,13 +2244,14 @@ class LifeSupervisor(
         a pending item the parallel worker cannot claim -- not parallel_safe, or
         owning a path the running mission owns -- leaves the slot idle forever
         while looking like queued work. Only claimable work should suppress
-        planning; the fingerprint carries the pending set so a task queued and
-        not claimed does not immediately ask again.
+        planning.
 
-        The retry interval starts at the idle backoff and doubles each time the
-        backlog is found unchanged, up to PARALLEL_PLAN_INTERVAL_CAP_SECONDS. A
-        flat idle-cap retry asked the Planner every five minutes for the whole
-        of a long job, and nearly every answer was "still waiting".
+        The Planner is asked again only when a fact it reads has changed: the
+        running or pending set, or anything in its input digest (settled
+        missions, background-job states, operator context, Manager feedback).
+        A timer re-asked it every few minutes for the whole of a long job and
+        nearly every answer was "still waiting"; in recorded campaigns, every
+        re-ask that did schedule work came right after one of those facts moved.
         """
         try:
             from ...daemon.state import read_continuous_state
@@ -2277,29 +2272,18 @@ class LifeSupervisor(
             if self.memory.backlog.next_pending(parallel_only=True) is not None:
                 return
 
-            fingerprint = self._backlog_fingerprint(items, running_items)
-            now = time.monotonic()
-            if fingerprint == self._parallel_plan_fingerprint:
-                if now < self._parallel_plan_after:
-                    return
-                self._parallel_plan_interval = min(
-                    self._parallel_plan_interval * 2,
-                    _PARALLEL_PLAN_INTERVAL_CAP_SECONDS,
-                )
-            else:
-                self._parallel_plan_interval = max(
-                    float(self.config.poll_interval_seconds),
-                    # Spare-slot planning throttles on idle-poll semantics, so it
-                    # deliberately starts at this cap rather than the
-                    # operator-wait turn re-grant constant split out of it.
-                    _IDLE_BACKOFF_CAP_SECONDS,
-                )
-            self._parallel_plan_after = now + self._parallel_plan_interval
+            facts = (
+                self._backlog_fingerprint(items, running_items),
+                self._current_planner_input_signature(),
+            )
+            if facts == self._parallel_plan_facts:
+                return
             self._plan_next_work()
-            # Re-read after planning so a task that was queued but cannot be
-            # claimed counts as a change, and the next tick does not spin.
-            self._parallel_plan_fingerprint = self._backlog_fingerprint(
-                self.memory.backlog.active()
+            # Re-read after planning so the call's own writes (a task queued but
+            # not claimable) are what the next tick compares against.
+            self._parallel_plan_facts = (
+                self._backlog_fingerprint(self.memory.backlog.active(), running_items),
+                self._current_planner_input_signature(),
             )
         except Exception:  # noqa: BLE001 - filling a spare slot is best effort
             log.exception("life supervisor: parallel planning attempt failed")

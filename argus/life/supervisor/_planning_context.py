@@ -17,7 +17,6 @@ from ...core.planner_verdict import PlannerVerdictStatus
 from ...core.wake_sources import normalize_wake_sources
 from ..memory import BacklogItem
 from ._constants import (
-    OPERATOR_WAIT_TURN_REGRANT_SECONDS,
     PLAN_AWAITING,
     PLAN_ERROR,
     PLAN_RETRY,
@@ -1184,7 +1183,7 @@ class PlanningContextMixin:
             return
         if not isinstance(contract, dict) or not contract.get("idle_capacity_turn_used"):
             return
-        current = self._operator_wait_input_signature()
+        current = self._current_planner_input_signature()
         if current and current != contract.get("idle_capacity_input_signature"):
             contract["idle_capacity_input_signature"] = current
             contract["updated_at"] = time.time()
@@ -1486,10 +1485,6 @@ class PlanningContextMixin:
                 )
                 if same_blocker and previous.get("idle_capacity_turn_used"):
                     payload["idle_capacity_turn_used"] = True
-                    if "idle_capacity_turn_ts" in previous:
-                        payload["idle_capacity_turn_ts"] = previous[
-                            "idle_capacity_turn_ts"
-                        ]
                     for carried in (
                         "idle_capacity_backlog_revision",
                         "idle_capacity_input_signature",
@@ -1740,26 +1735,20 @@ class PlanningContextMixin:
         # not one per cycle: waking it repeatedly is the token-burning poll this
         # short circuit exists to prevent.
         # One turn is the right budget for a wait that ends by itself. A wait
-        # that ends only when the operator acts does not end at all overnight:
-        # run-04 spent fifteen hours on wake_on ["authorization"] with
-        # expires_at 0, having used its single turn in the first minute, while
-        # its paper sat finished-looking at 8,107 words with four of its
-        # thirty-one figures used. run-05 parked the same way on an
-        # authentication decision. So for those, and only those, the turn is
-        # re-granted on OPERATOR_WAIT_TURN_REGRANT_SECONDS. That timer is only
-        # the backstop behind the three wake paths that already exist -- the
-        # first per-contract grant, a backlog revision change, and the
-        # authorization event itself -- and each re-grant is a full Planner LLM
-        # call, so its cadence is an LLM-call-rate policy, deliberately not
-        # tied to the idle sleep cap.
+        # that ends only when the operator acts can last overnight: run-04
+        # spent fifteen hours on wake_on ["authorization"] having used its
+        # single turn in the first minute. For those waits the turn is
+        # re-granted whenever anything the Planner reads has changed since the
+        # last one, beside the backlog-revision and authorization-event wakes.
+        # It is not re-granted on elapsed time: the operator already sees the
+        # wait, and a call on the same inputs can only repeat its answer.
         if self._planner_turn_available_during_wait(state):
             state["idle_capacity_turn_used"] = True
-            state["idle_capacity_turn_ts"] = time.time()
             state["idle_capacity_backlog_revision"] = (
                 self._waiting_backlog_revision()
             )
             state["idle_capacity_input_signature"] = (
-                self._operator_wait_input_signature()
+                self._current_planner_input_signature()
             )
             state["updated_at"] = time.time()
             self._write_planner_waiting_contract_state(state)
@@ -1842,8 +1831,9 @@ class PlanningContextMixin:
 
         Never while other work is queued behind the wait -- the campaign is
         already busy and waking the Planner would only burn tokens. Otherwise
-        once per contract, except for a wait that only the operator can end,
-        where "once" means never again and the campaign is simply over.
+        once per contract, again when the backlog's scheduling facts change,
+        and, for a wait only the operator can end, again whenever anything the
+        Planner reads has changed. Elapsed time alone never earns a turn.
         """
         if not self._nothing_queued_behind_the_wait():
             return False
@@ -1860,45 +1850,20 @@ class PlanningContextMixin:
             return True
         if not state.get("operator_action_required"):
             return False
-        granted = float(state.get("idle_capacity_turn_ts") or 0.0)
-        if time.time() - granted < OPERATOR_WAIT_TURN_REGRANT_SECONDS:
-            return False
-        # When the only thing pending is an answer to a question already put
-        # to the operator, time passing is not news: a Planner call on the
-        # same inputs can only repeat its wait, and every call is billed. A
-        # change in anything the Planner reads (the answer itself moves the
-        # backlog, which re-grants above) still earns the turn.
-        recorded = str(state.get("idle_capacity_input_signature") or "")
-        if recorded and self._only_operator_answer_pending():
-            return self._operator_wait_input_signature() != recorded
-        return True
+        # An unreadable input state ("") is not news either; the backlog and
+        # authorization wakes still apply.
+        current = self._current_planner_input_signature()
+        return bool(current) and current != str(
+            state.get("idle_capacity_input_signature") or ""
+        )
 
-    def _operator_wait_input_signature(self) -> str:
-        """The Planner-visible input digest, as the operator-wait regrant sees it."""
+    def _current_planner_input_signature(self) -> str:
+        """The Planner-visible input digest now, for deciding whether to ask again."""
         return self._planner_visible_input_signature(
             operator_context_revision=int(
                 getattr(self, "_planning_operator_context_revision", 0) or 0
             )
         )
-
-    def _only_operator_answer_pending(self) -> bool:
-        """Is an open operator question the only thing this campaign waits on?"""
-        probe = getattr(self, "_pending_operator_questions", None)
-        if not callable(probe):
-            return False
-        try:
-            questions = probe()
-        except Exception:  # noqa: BLE001 - unknown is not "only the operator"
-            return False
-        if not questions:
-            return False
-        try:
-            return any(
-                item.status == "paused_operator"
-                for item in self.memory.backlog.active()
-            )
-        except Exception:  # noqa: BLE001
-            return False
 
     def _confined_planner_wait_paths(self, values: list[str]) -> list[str]:
         """Validate watched paths before they can influence revision reads."""
@@ -2219,7 +2184,6 @@ class PlanningContextMixin:
                     key: previous[key]
                     for key in (
                         "idle_capacity_turn_used",
-                        "idle_capacity_turn_ts",
                         "idle_capacity_backlog_revision",
                         "idle_capacity_input_signature",
                     )

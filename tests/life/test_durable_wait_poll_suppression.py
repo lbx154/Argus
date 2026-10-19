@@ -12,8 +12,6 @@ from argus.life.event_log import JsonlEventSink
 from argus.life.memory import BacklogItem, LifeMemory
 from argus.life.supervisor import LifeBudget, LifeSupervisor, LifeSupervisorConfig
 from argus.life.supervisor._constants import (
-    IDLE_BACKOFF_CAP_SECONDS,
-    OPERATOR_WAIT_TURN_REGRANT_SECONDS,
     PLAN_AWAITING,
 )
 from argus.life.supervisor._planner_orchestration import PlannerOrchestrationMixin
@@ -669,7 +667,7 @@ def test_repersisted_operator_event_wait_keeps_idle_turn_throttle(
     wait_path = next(life.glob("planner-waiting-contract-*.json"))
     wait_state = json.loads(wait_path.read_text(encoding="utf-8"))
     assert wait_state["idle_capacity_turn_used"] is True
-    assert "idle_capacity_turn_ts" in wait_state
+    assert wait_state["idle_capacity_input_signature"]
     assert "idle_capacity_backlog_revision" in wait_state
 
     assert supervisor._plan_next_work() == PLAN_AWAITING
@@ -683,79 +681,23 @@ def test_repersisted_operator_event_wait_keeps_idle_turn_throttle(
     ]
     assert planner_waiting[-1]["model_call_skipped"] is True
 
-    wait_state = json.loads(wait_path.read_text(encoding="utf-8"))
-    wait_state["idle_capacity_turn_ts"] = (
-        time.time() - OPERATOR_WAIT_TURN_REGRANT_SECONDS - 1
+    # A week of silence on the same inputs is not news.
+    now = time.time()
+    monkeypatch.setattr(time, "time", lambda: now + 7 * 86400)
+    assert supervisor._plan_next_work() == PLAN_AWAITING
+    assert calls == 2
+
+    monkeypatch.setattr(
+        supervisor, "_current_planner_input_signature", lambda: "something-moved"
     )
-    supervisor._write_planner_waiting_contract_state(wait_state)
     assert supervisor._plan_next_work() == PLAN_AWAITING
     assert calls == 3
+    assert supervisor._plan_next_work() == PLAN_AWAITING
+    assert calls == 3, "the same changed state earns one turn, not one per cycle"
 
     monkeypatch.setattr(supervisor, "_waiting_backlog_revision", lambda: "changed")
     assert supervisor._plan_next_work() == PLAN_AWAITING
     assert calls == 4
-
-
-def test_operator_wait_regrant_cadence_is_decoupled_from_idle_backoff_cap(
-    tmp_path: Path,
-    monkeypatch,
-) -> None:
-    project = tmp_path / "project"
-    project.mkdir()
-    life = tmp_path / "life"
-    calls = 0
-
-    def _plan_next(_planner, **_kwargs):
-        nonlocal calls
-        calls += 1
-        return PlannerVerdict(
-            project_done=False,
-            reason="venue submission needs operator authorization",
-            waiting=True,
-            waiting_reason="venue submission needs operator authorization",
-            waiting_contract=WaitingContract(
-                blocker_fingerprint=(
-                    "submission_gate_closed_no_external_submission_authorized_8d2b840c"
-                ),
-                recheck_condition="operator authorizes venue submission",
-                recheck_token="token-v1",
-                wait_mode="event",
-                wake_on=("authorization",),
-                operator_action_required=True,
-            ),
-        )
-
-    monkeypatch.setattr("argus.planner.Planner.plan_next", _plan_next)
-    # The regrant check reads the module-level name in _planning_context (a
-    # from-import), so the consuming module is what must be patched.
-    monkeypatch.setattr(
-        "argus.life.supervisor._planning_context."
-        "OPERATOR_WAIT_TURN_REGRANT_SECONDS",
-        4 * IDLE_BACKOFF_CAP_SECONDS,
-    )
-    supervisor = _supervisor(project, life)
-
-    assert supervisor._plan_next_work() == PLAN_AWAITING
-    assert calls == 1
-    assert supervisor._plan_next_work() == PLAN_AWAITING
-    assert calls == 2
-
-    # Aged just past the idle backoff cap but short of the regrant cadence:
-    # if the two were still coupled this would grant a turn.
-    wait_path = next(life.glob("planner-waiting-contract-*.json"))
-    wait_state = json.loads(wait_path.read_text(encoding="utf-8"))
-    wait_state["idle_capacity_turn_ts"] = time.time() - IDLE_BACKOFF_CAP_SECONDS - 1
-    supervisor._write_planner_waiting_contract_state(wait_state)
-    assert supervisor._plan_next_work() == PLAN_AWAITING
-    assert calls == 2
-
-    wait_state = json.loads(wait_path.read_text(encoding="utf-8"))
-    wait_state["idle_capacity_turn_ts"] = (
-        time.time() - 4 * IDLE_BACKOFF_CAP_SECONDS - 1
-    )
-    supervisor._write_planner_waiting_contract_state(wait_state)
-    assert supervisor._plan_next_work() == PLAN_AWAITING
-    assert calls == 3
 
 
 def test_non_operator_event_wait_never_regrants_on_turn_age(
@@ -793,14 +735,9 @@ def test_non_operator_event_wait_never_regrants_on_turn_age(
     assert supervisor._plan_next_work() == PLAN_AWAITING
     assert calls == 2
 
-    # Without operator_action_required the timed regrant path never applies:
-    # a turn timestamp aged far past the cadence still grants nothing.
-    wait_path = next(life.glob("planner-waiting-contract-*.json"))
-    wait_state = json.loads(wait_path.read_text(encoding="utf-8"))
-    wait_state["idle_capacity_turn_ts"] = (
-        time.time() - 100 * OPERATOR_WAIT_TURN_REGRANT_SECONDS
-    )
-    supervisor._write_planner_waiting_contract_state(wait_state)
+    # Elapsed time never grants a turn, however long the wait.
+    now = time.time()
+    monkeypatch.setattr(time, "time", lambda: now + 7 * 86400)
     assert supervisor._plan_next_work() == PLAN_AWAITING
     assert calls == 2
 
@@ -1121,9 +1058,9 @@ def test_open_operator_question_with_unchanged_inputs_never_regrants_on_age(
     tmp_path: Path,
     monkeypatch,
 ) -> None:
-    """While the only pending thing is an answer to a question already put to
-    the operator, a timed regrant on unchanged inputs bought the same wait at
-    model price every five minutes. Changed inputs still earn the turn."""
+    """While the operator owes an answer, a timed regrant on unchanged inputs
+    bought the same wait at model price every five minutes. Changed inputs
+    still earn the turn."""
     project = tmp_path / "project"
     project.mkdir()
     life = tmp_path / "life"
@@ -1166,17 +1103,14 @@ def test_open_operator_question_with_unchanged_inputs_never_regrants_on_age(
     wait_state = json.loads(wait_path.read_text(encoding="utf-8"))
     assert wait_state["idle_capacity_input_signature"]
 
-    for _ in range(3):
-        wait_state = json.loads(wait_path.read_text(encoding="utf-8"))
-        wait_state["idle_capacity_turn_ts"] = (
-            time.time() - 10 * OPERATOR_WAIT_TURN_REGRANT_SECONDS
-        )
-        supervisor._write_planner_waiting_contract_state(wait_state)
+    now = time.time()
+    for days in (1, 2, 3):
+        monkeypatch.setattr(time, "time", lambda days=days: now + days * 86400)
         assert supervisor._plan_next_work() == PLAN_AWAITING
     assert calls == 2, "an aged wait on unchanged inputs is not news"
 
     monkeypatch.setattr(
-        supervisor, "_operator_wait_input_signature", lambda: "something-moved"
+        supervisor, "_current_planner_input_signature", lambda: "something-moved"
     )
     assert supervisor._plan_next_work() == PLAN_AWAITING
     assert calls == 3

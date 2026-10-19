@@ -212,6 +212,7 @@
   后果:While operator-blocked, the planner gets a fresh turn at most every 5 minutes — but only because that happens to be the idle backoff cap.  
   建议:Constant reuse across unrelated policies: retuning idle poll latency would silently change operator-wait re-grant cadence (an LLM-call-frequency policy). Give this its own named constant even if the value stays 300.  
   状态:**已完成(done, 2026-09-05)** — 同上提交:拆出独立常量 `OPERATOR_WAIT_TURN_REGRANT_SECONDS = 300.0`(`_constants.py`,值未变);空闲退避封顶不再兼任操作者等待再授权节奏,后续调 1800 可单独议。
+  后续(2026-10-19):常量已删除。操作者门控等待不再按时间再授予 Planner 调用,只在 Planner 可见输入变化时再授予;旧生产与试用记录中,所有产出新任务的重问之前都有输入变化。
 - `argus_skill/life/supervisor/_planning_cycle_enqueue.py:90` · forward-progress lookback = memory.journal.tail(32)  
   后果:Progress older than 32 entries is invisible to the check; on chatty journals genuine recent progress can be missed and on quiet ones stale progress can look fresh.  
   建议:Another entry-count window standing in for a time/semantic horizon; same fix as the other tail() windows — filter to the relevant typed events or use a time bound.  

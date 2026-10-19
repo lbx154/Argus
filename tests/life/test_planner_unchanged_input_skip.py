@@ -22,7 +22,6 @@ from argus.life.event_log import JsonlEventSink
 from argus.life.memory import BacklogItem, LifeMemory
 from argus.life.supervisor import LifeBudget, LifeSupervisor, LifeSupervisorConfig
 from argus.life.supervisor._constants import (
-    OPERATOR_WAIT_TURN_REGRANT_SECONDS,
     PLAN_AWAITING,
     PLAN_ERROR,
     PLANNER_UNCHANGED_SKIP_MAX_SECONDS,
@@ -246,10 +245,10 @@ def test_operator_wait_turn_regrant_beats_the_skip(
 ) -> None:
     """A turn the wait machinery grants is never answered from memory.
 
-    The event-wait path deliberately re-grants one Planner call per
-    ``OPERATOR_WAIT_TURN_REGRANT_SECONDS`` on an operator-only wait. That grant
-    IS the decision to spend a model call; the unchanged-input skip must stand
-    aside even though nothing it fingerprints has moved.
+    The event-wait path re-grants one Planner call on an operator-only wait
+    when the Planner's inputs have changed since its last turn. That grant IS
+    the decision to spend a model call; the unchanged-input skip, armed on the
+    previous answer, must stand aside.
     """
     project = tmp_path / "project"
     project.mkdir()
@@ -281,17 +280,13 @@ def test_operator_wait_turn_regrant_beats_the_skip(
     # The contract's one idle-capacity turn.
     assert supervisor._plan_next_work() == PLAN_AWAITING
     assert calls["count"] == 2
-    # Turn spent, cadence not reached: the wait machinery itself declines.
+    # Turn spent, nothing new: the wait machinery itself declines.
     assert supervisor._plan_next_work() == PLAN_AWAITING
     assert calls["count"] == 2
 
-    wait_path = next(life.glob("planner-waiting-contract-*.json"))
-    wait_state = json.loads(wait_path.read_text(encoding="utf-8"))
-    wait_state["idle_capacity_turn_ts"] = (
-        time.time() - OPERATOR_WAIT_TURN_REGRANT_SECONDS - 1
+    monkeypatch.setattr(
+        supervisor, "_current_planner_input_signature", lambda: "something-moved"
     )
-    supervisor._write_planner_waiting_contract_state(wait_state)
-
     assert supervisor._plan_next_work() == PLAN_AWAITING
     assert calls["count"] == 3, "the re-granted turn must reach the model"
 
