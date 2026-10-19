@@ -10,7 +10,7 @@ from collections.abc import Callable, Mapping
 from jsonschema import Draft202012Validator, ValidationError
 
 from ..core.secret_guard import redact_secrets_text
-from .map_view import digest
+from .map_view import facts
 
 TEACHING_REVIEW_VERSION = 13
 CONCEPT_LIMITS = {"name": 80, "explanation": 600, "example": 400, "connection": 400}
@@ -361,7 +361,7 @@ def review_concepts(
             unavailable(key, str(exc))
             continue
         selected_context = teaching_context(context.get(key))
-        fingerprint = digest([TEACHING_REVIEW_VERSION, model_revision, locale, candidate, candidate_reading, selected_context])
+        fingerprint = facts([TEACHING_REVIEW_VERSION, model_revision, locale, candidate, candidate_reading, selected_context])
         identities[key] = fingerprint
         row = {"reading": candidate_reading} if candidate_reading is not None else {}
         row.update(concept=candidate, context=selected_context)

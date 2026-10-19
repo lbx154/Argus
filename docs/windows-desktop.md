@@ -269,7 +269,7 @@ Python 后端，以 Tauri `--no-bundle --no-sign --features preview` 编译宿�
 若生成器或并发修改造成变化，会拒绝 ZIP，不手改摘要。`ARGUS_PREVIEW_BASE` 可指定完整冻结 base SHA，
 省略时取本地 `HEAD` 与 `origin/dev` 的 merge-base，不查询或追逐远端 HEAD。
 可用 `ARGUS_PREVIEW_REVIEW` 指向不含凭据的 JSON 回归记录；其 `candidate_sha`、`base_sha`、
-`release_id`、`source_digest` 必须匹配本构建，并包含 `tasks`、`checks`、`pending`。
+`release_id`、`git_commit` 必须匹配本构建，并包含 `tasks`、`checks`、`pending`。
 它随包保存为 `PREVIEW-VALIDATION.json`；`SOURCE-IDENTITY.json` 总是记录实际构建身份。
 没有此回归记录时不宣称源码回归全部通过。
 
@@ -326,7 +326,7 @@ AI IDE 的编辑区、文件树、Git 区域、终端和状态栏统一跟随全
 一致构建、复制校验、冻结模块及原生后端启动/短时健康检查后生成 ZIP，不等待 CDP 或长稳。
 包内必须标明这是最低限度检查，未做真实 Windows Toast、成品像素动效、完整界面、故障注入和长稳验收；不代表 PR-ready。
 手测预览的最低启动检查使用随机测试实例标识和隔离 profile，保留真实单实例保护；
-认证后端的 release ID 与 source digest 都须匹配冻结清单。该检查不等于托盘/再次唤醒/明确退出已验收。
+认证后端的 release ID 须匹配冻结清单。该检查不等于托盘/再次唤醒/明确退出已验收。
 
 不带该参数的 `build:preview` 默认仍要求 1800 秒连续运行及故障注入检查通过，再生成 ZIP。开发者可通过
 `ARGUS_PREVIEW_SOAK_SECONDS` 缩短本地诊断，但交付验收不得把短检查当成长稳测试。

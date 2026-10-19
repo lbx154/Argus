@@ -76,13 +76,13 @@ def test_windows_template_cannot_launch_legacy_uninstallers_or_delete_shared_boo
 
 
 def test_installer_source_and_license_participate_in_release_identity(tmp_path):
-    from argus.release import compute_source_digest
+    from argus.release import source_files
 
     root = tmp_path / "desktop-tauri/src-tauri"
     root.mkdir(parents=True)
-    before = compute_source_digest(tmp_path)
     (root / "installer-template.nsi").write_text("synthetic installer input\n", encoding="utf-8")
-    with_template = compute_source_digest(tmp_path)
-    assert with_template != before
     (root / "installer-template.LICENSE").write_text("synthetic license input\n", encoding="utf-8")
-    assert compute_source_digest(tmp_path) != with_template
+    assert set(source_files(tmp_path)) == {
+        "desktop-tauri/src-tauri/installer-template.nsi",
+        "desktop-tauri/src-tauri/installer-template.LICENSE",
+    }

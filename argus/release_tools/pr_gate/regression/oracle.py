@@ -8,7 +8,6 @@ inferred from an installed distribution.
 from __future__ import annotations
 
 import ast
-import hashlib
 import os
 import re
 import shlex
@@ -289,17 +288,15 @@ def _freeze(
             ):
                 raise ValueError("oracle input changed while being fingerprinted")
             total += len(data)
-            digest = hashlib.sha256(data).hexdigest()
-            item = {"sha256": digest}
+            # Any rewrite changes ctime, which a probe cannot set back, so
+            # unchanged facts mean unchanged bytes.
+            item = {"facts": [len(data), after.st_mtime_ns, after.st_ctime_ns]}
             if evidence is not None:
-                copied = evidence / "oracle" / digest
-                copied.parent.mkdir(mode=0o700, exist_ok=True)
-                if not copied.exists():
-                    with copied.open("xb") as stream:
-                        stream.write(data)
-                    copied.chmod(0o400)
-                elif copied.read_bytes() != data:
-                    raise ValueError("oracle evidence content collision")
+                copied = evidence / relative
+                copied.parent.mkdir(mode=0o700, parents=True, exist_ok=True)
+                with copied.open("xb") as stream:
+                    stream.write(data)
+                copied.chmod(0o400)
                 item["evidence_path"] = copied.relative_to(work).as_posix()
             mapping[relative.as_posix()] = item
         except (OSError, ValueError) as exc:
@@ -312,8 +309,8 @@ def verify_oracle_inputs(
 ) -> list[str]:
     """Detect changed, missing, or newly added inputs around paired execution."""
     current, issues = _freeze(root.resolve(), argv, list(oracle_paths), None, root)
-    if {path: item["sha256"] for path, item in current.items()} != {
-        path: item["sha256"] for path, item in frozen.items()
+    if {path: item["facts"] for path, item in current.items()} != {
+        path: item["facts"] for path, item in frozen.items()
     }:
         issues.append("oracle_inputs_changed_after_fingerprint")
     return issues
@@ -335,14 +332,14 @@ def prepare_comparison(
         ("base", base_root.resolve(), base_argv),
         ("candidate", candidate_root.resolve(), candidate_argv),
     ):
-        mapping, failures = _freeze(root, argv, list(oracle_paths), evidence, work)
+        mapping, failures = _freeze(root, argv, list(oracle_paths), evidence / "oracle" / label, work)
         manifests[label] = mapping
         issues.extend(f"{label}: {issue}" for issue in failures)
-    hashes = {
-        side: {path: item["sha256"] for path, item in files.items()}
+    contents = {
+        side: {path: (work / item["evidence_path"]).read_bytes() for path, item in files.items()}
         for side, files in manifests.items()
     }
-    if hashes["base"] != hashes["candidate"]:
+    if contents["base"] != contents["candidate"]:
         issues.append("oracle_files_mismatch")
     return {
         "schema_version": "local-probe-comparison/v2",

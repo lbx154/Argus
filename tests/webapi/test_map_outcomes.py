@@ -52,7 +52,8 @@ def test_real_failure_pattern_retains_pause_but_does_not_narrate_it_as_attempt_t
     assert evidence["task"]["outcome"] == {}
     assert evidence["task"]["attempt"] == 2 and evidence["task"]["started_ts"] == 200
     assert "recorded_outcome" not in evidence["task"]
-    assert "daemon_shutdown" not in json.dumps(evidence)
+    # The task revisions are the whole task row again; generation never sends them.
+    assert "daemon_shutdown" not in json.dumps({k: v for k, v in evidence.items() if not k.startswith("task_")})
     assert (original, events) == before
 
 

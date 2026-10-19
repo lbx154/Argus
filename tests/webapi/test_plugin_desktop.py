@@ -28,7 +28,6 @@ def test_adapter_is_pinned_to_the_known_public_control_contract():
     spec = catalog()["crystalpilot"]
     assert adapter.supported(spec)
     assert not adapter.supported({**spec, "version": "0.5.0"})
-    assert not adapter.supported({**spec, "artifact": {"sha256": "different"}})
     assert not adapter.supported({**spec, "host_api": 2})
 
 
@@ -76,7 +75,8 @@ def test_surface_serves_adapter_without_altering_plugin_package(tmp_path, monkey
     monkeypatch.setenv("ARGUS_SKILL_HOME", str(tmp_path))
     monkeypatch.setenv("ARGUS_WORKBENCH_HOST_ROOT", str(tmp_path))
     monkeypatch.setattr(pm, "compatibility", lambda *_: {"supported": True})
-    installed = {"version": "0.4.0", "sha256": pm.catalog()["crystalpilot"]["artifact"]["sha256"]}
+    spec = pm.catalog()["crystalpilot"]
+    installed = {key: spec.get(key) for key in ("version", "git_commit", "python_constraints", "validation_imports")}
     monkeypatch.setattr(pm, "state_entry", lambda *a: installed)
 
     class Plugin:

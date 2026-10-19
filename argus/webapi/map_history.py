@@ -4,14 +4,15 @@ from __future__ import annotations
 
 import json
 import sqlite3
-import time
+import uuid
 from dataclasses import dataclass
 from pathlib import Path
+from urllib.parse import quote
 
 from ..core.json_codec import loads_finite_json
 from ..core.jsonl_reader import event_log_read_lock, read_jsonl_batch
 from ..life.memory import _jsonl_history_paths
-from .map_view import digest, normalize_events, progress_workspace, turn_records, with_revisions
+from .map_view import normalize_events, progress_workspace, turn_records, with_revisions
 
 PAGE_BYTES = 1024 * 1024
 PAGE_EVENTS = 500
@@ -30,7 +31,7 @@ def _finite_record(value: str | bytes) -> dict | None:
 
 
 def history_path(root: Path, life_dir: Path) -> Path:
-    return root / "map-history-cache" / (digest(str(life_dir.resolve())) + ".sqlite")
+    return root / "map-history-cache" / (quote(str(life_dir.resolve()), safe="") + ".sqlite")
 
 
 def history_info(value: dict, life_dir: Path) -> dict:
@@ -94,13 +95,13 @@ def _read_history_batches(life_dir: Path, state: dict, task_ids: list[str]) -> _
             if offset:
                 with path.open("rb") as stream:
                     stream.seek(max(0, offset - 128))
-                    if digest(stream.read(min(offset, 128)).hex()) != saved.get("anchor"):
+                    if stream.read(min(offset, 128)).hex() != saved.get("anchor"):
                         reset = True
                         break
         if not state or reset:
             state = {"files": [], "task_ids": task_ids, "active": [], "omitted_owners": [],
                      "version": HISTORY_VERSION,
-                     "epoch": digest([str(life_dir), time.time_ns()])}
+                     "epoch": uuid.uuid4().hex}
         remaining = PAGE_BYTES
         batches: list[list[dict]] = []
         more = waiting = False
@@ -126,7 +127,7 @@ def _read_history_batches(life_dir: Path, state: dict, task_ids: list[str]) -> _
                                          discarding=bool(saved.get("discarding")),
                                          sealed=path != event_path)
                 stream.seek(max(0, batch.offset - 128))
-                anchor = digest(stream.read(min(batch.offset, 128)).hex())
+                anchor = stream.read(min(batch.offset, 128)).hex()
             remaining -= batch.bytes_read
             saved.update(offset=batch.offset, anchor=anchor, discarding=batch.discarding,
                          observed_size=stat.st_size, mtime_ns=stat.st_mtime_ns,

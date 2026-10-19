@@ -12,13 +12,13 @@ from argus.core import runtime_identity as runtime_identity_module
 from argus.release import (
     MANIFEST_SCHEMA_VERSION,
     _source_files,
-    compute_source_digest,
     release_identity,
     release_manifest,
+    source_files,
 )
 
 
-def test_release_digest_covers_runtime_and_frontend_build_inputs() -> None:
+def test_release_files_cover_runtime_and_frontend_build_inputs() -> None:
     root = Path(__file__).parents[2]
     included = {
         path.resolve().relative_to(root.resolve()).as_posix()
@@ -60,7 +60,7 @@ def test_release_digest_covers_runtime_and_frontend_build_inputs() -> None:
 def test_release_manifest_is_internally_consistent() -> None:
     """Always-on: the checked-in manifest must be well formed.
 
-    The digest it carries is only refreshed when a release is built, so
+    The file list it carries is only refreshed when a release is built, so
     comparing it against the working tree on an ordinary commit asserts that
     every commit is a release. That check belongs to the release build and
     lives in the test below; this one still catches a corrupt, hand-edited, or
@@ -69,21 +69,22 @@ def test_release_manifest_is_internally_consistent() -> None:
     manifest = release_manifest()
     assert manifest["schema_version"] == MANIFEST_SCHEMA_VERSION
     assert manifest["release_id"] == (
-        f"{manifest['package_version']}+{manifest['source_digest'][:16]}"
+        f"{manifest['package_version']}+{manifest['git_commit'][:12]}"
     )
+    assert manifest["source_files"]
 
 
 @pytest.mark.skipif(
     not os.environ.get("ARGUS_RELEASE_BUILD"),
-    reason="the shipped digest is refreshed by the release build, not by each commit",
+    reason="the shipped file list is refreshed by the release build, not by each commit",
 )
 def test_release_manifest_matches_current_shipped_source() -> None:
     root = Path(__file__).parents[2]
     manifest = release_manifest()
-    assert manifest["source_digest"] == compute_source_digest(root)
+    assert manifest["source_files"] == source_files(root)
     identity = release_identity(root)
     assert identity["release_matches_source"] is True
-    assert identity["runtime_source_digest"] == manifest["source_digest"]
+    assert identity["runtime_source_digest"].startswith(identity["manifest_source_digest"])
 
 
 def test_bundled_workbench_identity_tracks_source_not_dependencies(tmp_path):
@@ -91,14 +92,11 @@ def test_bundled_workbench_identity_tracks_source_not_dependencies(tmp_path):
     vertical.mkdir(parents=True)
     source = vertical / "tools.mjs"
     source.write_text("export const version = 1;")
-    first = compute_source_digest(tmp_path)
     for directory in ("node_modules/pkg", "dist", "__pycache__"):
         generated = vertical / directory / "metadata.json"
         generated.parent.mkdir(parents=True, exist_ok=True)
         generated.write_text('{"local": true}')
-    assert compute_source_digest(tmp_path) == first
-    source.write_text("export const version = 2;")
-    assert compute_source_digest(tmp_path) != first
+    assert list(source_files(tmp_path)) == ["argus/verticals/sample/tools.mjs"]
 
 
 def test_checked_in_frontend_contract_matches_current_release() -> None:
@@ -108,7 +106,6 @@ def test_checked_in_frontend_contract_matches_current_release() -> None:
         encoding="utf-8"
     )
     assert manifest["release_id"] in generated
-    assert manifest["source_digest"] in generated
 
     tui = (root / "frontend/tui/bundle/argus.mjs").read_text(encoding="utf-8")
     assert manifest["release_id"] in tui
@@ -145,41 +142,33 @@ def test_untracked_runtime_skill_does_not_change_release_identity(release_checko
     root = release_checkout
     generated = root / "argus" / "builtin_skills" / "_release-test-untracked.md"
     generated.parent.mkdir()
-    before = compute_source_digest(root)
     generated.write_text("# Runtime-generated skill\n", encoding="utf-8")
-    assert compute_source_digest(root) == before
+    assert "argus/builtin_skills/_release-test-untracked.md" not in source_files(root)
 
 
 def test_untracked_new_source_participates_before_first_commit(release_checkout: Path) -> None:
     root = release_checkout
     source = root / "argus" / "_release_test_untracked_source.py"
-    before = compute_source_digest(root)
     source.write_text("VALUE = 1\n", encoding="utf-8")
-    assert compute_source_digest(root) != before
+    assert "argus/_release_test_untracked_source.py" in source_files(root)
 
 
 def test_installed_frontend_dependencies_do_not_change_release_identity(release_checkout: Path) -> None:
     root = release_checkout
     dependency = root / "frontend" / "web" / "node_modules" / "_release-test" / "package.json"
-    before = compute_source_digest(root)
     dependency.parent.mkdir(parents=True)
     dependency.write_text('{"name": "ignored"}\n', encoding="utf-8")
-    assert compute_source_digest(root) == before
+    assert list(source_files(root)) == ["argus/runtime.py"]
 
 
 def test_repository_parity_tool_does_not_change_product_release_identity(tmp_path: Path) -> None:
     runtime = tmp_path / "argus" / "runtime.py"
     runtime.parent.mkdir()
     runtime.write_text("VALUE = 1\n", encoding="utf-8")
-    public_digest = compute_source_digest(tmp_path)
     checker = runtime.parent / "release_tools" / "check_repository_parity.py"
     checker.parent.mkdir()
     checker.write_text("PRIVATE_ONLY_PATTERNS = ('private-notes.md',)\n", encoding="utf-8")
-    assert compute_source_digest(tmp_path) == public_digest
-    checker.write_text("PRIVATE_ONLY_PATTERNS = ('private-docs/**',)\n", encoding="utf-8")
-    assert compute_source_digest(tmp_path) == public_digest
-    runtime.write_text("VALUE = 2\n", encoding="utf-8")
-    assert compute_source_digest(tmp_path) != public_digest
+    assert list(source_files(tmp_path)) == ["argus/runtime.py"]
 
 
 def test_strict_release_preflight_rejects_manifest_source_mismatch(

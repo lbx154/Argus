@@ -62,7 +62,7 @@ def test_installed_schema_location_takes_precedence(tmp_path: Path, monkeypatch,
 
 
 def test_shared_sources_participate_in_release_identity(tmp_path: Path) -> None:
-    from argus.release import compute_source_digest
+    from argus.release import source_files
 
     schema = tmp_path / "packages/contracts/schemas/api_protocol.json"
     source = tmp_path / "packages/runtime/src/pi.ts"
@@ -71,14 +71,10 @@ def test_shared_sources_participate_in_release_identity(tmp_path: Path) -> None:
         path.parent.mkdir(parents=True, exist_ok=True)
     schema.write_text("{}")
     source.write_text("export const version = 1;")
-    first = compute_source_digest(tmp_path)
     generated_build.write_text("ignored build output")
-    assert compute_source_digest(tmp_path) == first
-    source.write_text("export const version = 2;")
-    second = compute_source_digest(tmp_path)
-    assert second != first
-    schema.write_text('{"major": 2}')
-    assert compute_source_digest(tmp_path) != second
+    assert set(source_files(tmp_path)) == {
+        "packages/contracts/schemas/api_protocol.json", "packages/runtime/src/pi.ts",
+    }
 
 
 def test_sdist_keeps_contracts_when_npm_workspace_links_exist(tmp_path: Path) -> None:

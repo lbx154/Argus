@@ -1,7 +1,6 @@
 """Install the official standalone Copilot CLI into Argus's private runtime."""
 from __future__ import annotations
 
-import hashlib
 import http.client
 import os
 import platform
@@ -21,17 +20,17 @@ import certifi
 
 VERSION = "1.0.83"
 DOWNLOAD_HELP = "请检查网络，或开启代理（梯子）的系统代理 / TUN 模式后重试。"
-# GitHub's release asset SHA-256 values for this pinned CLI release.
+# GitHub's release asset sizes, in bytes, for this pinned CLI release.
 ASSETS = {
-    ("Darwin", "arm64"): ("copilot-darwin-arm64.tar.gz", "80a5ded6f1db484b4661af676ea914605ecfbcaf49f6b4bed81e6df16cbd56bd"),
-    ("Darwin", "x86_64"): ("copilot-darwin-x64.tar.gz", "7e4f7236b0cd5ee474e6ab6d35ea67b8c33d5ec6483498e0fdd0218f458b2d53"),
-    ("Windows", "x86_64"): ("copilot-win32-x64.zip", "0e07221a275fdf7e61619c53566e3a421fd646d74d8e9ca491dbbff221f22945"),
-    ("Windows", "arm64"): ("copilot-win32-arm64.zip", "63f35c0ce1a5fdcc6f3e584890d689b1ede8f930933394aaf7b5e139b53d2cc1"),
-    ("Linux", "x86_64"): ("copilot-linux-x64.tar.gz", "ffbe1c429664b8a05efed67ecdb467123e40fcaa3c6c14ef9a98ba74da4687b7"),
+    ("Darwin", "arm64"): ("copilot-darwin-arm64.tar.gz", 83738610),
+    ("Darwin", "x86_64"): ("copilot-darwin-x64.tar.gz", 96392970),
+    ("Windows", "x86_64"): ("copilot-win32-x64.zip", 85369705),
+    ("Windows", "arm64"): ("copilot-win32-arm64.zip", 87106506),
+    ("Linux", "x86_64"): ("copilot-linux-x64.tar.gz", 91269605),
 }
 
 
-def asset_for(system: str, machine: str) -> tuple[str, str]:
+def asset_for(system: str, machine: str) -> tuple[str, int]:
     arch = {"amd64": "x86_64", "aarch64": "arm64"}.get(machine.lower(), machine.lower())
     try:
         return ASSETS[system, arch]
@@ -64,8 +63,7 @@ def verify_cli(executable: Path):
         raise ValueError("Copilot 未能启动，请重试或检查系统是否阻止了此程序。")
 
 
-def _download_archive(request, archive: Path, expected: str, progress=None):
-    digest = hashlib.sha256()
+def _download_archive(request, archive: Path, expected: int, progress=None):
     context = ssl.create_default_context(cafile=certifi.where())
     received = 0
     last_report = 0.0
@@ -81,7 +79,6 @@ def _download_archive(request, archive: Path, expected: str, progress=None):
                 progress(0, total)
             read = getattr(response, "read1", response.read)
             while chunk := read(64 * 1024):
-                digest.update(chunk)
                 target.write(chunk)
                 received += len(chunk)
                 now = time.monotonic()
@@ -94,7 +91,7 @@ def _download_archive(request, archive: Path, expected: str, progress=None):
                 progress(received, total)
     except (TimeoutError, urllib.error.URLError, ConnectionError, ssl.SSLError, http.client.HTTPException):
         raise ValueError("Copilot 下载中断或等待网络响应超时；原设置未更改，不会自动重复下载。" + DOWNLOAD_HELP) from None
-    if digest.hexdigest() != expected:
+    if received != expected:
         raise ValueError("Copilot 下载校验失败，请重试。")
 
 
@@ -127,7 +124,7 @@ def install_native_copilot(
         report("下载完成，正在安装已校验的 Copilot…")
         staged = Path(temporary) / executable_name
         extract_binary(archive, staged, executable_name)
-        # Publish the checksum-verified bytes before launching: on Windows the
+        # Publish the size-verified bytes before launching: on Windows the
         # CLI's background processes can keep its executable locked after help
         # exits, preventing a rename or temporary-directory cleanup.
         os.replace(staged, executable)

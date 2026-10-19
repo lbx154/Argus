@@ -8,7 +8,7 @@ from itertools import islice
 from pathlib import Path
 
 from ..core.session import read_session_meta, resolve_session_workdir
-from .map_view import digest, text
+from .map_view import text
 
 FORMATION_BYTES = 8 * 1024 * 1024
 MAX_TEAM_BINDINGS = 32
@@ -295,14 +295,14 @@ def team_outcome(
 
 
 def event_id(owner: str, team_id: str, task_id: str) -> str:
-    return "team:" + digest([owner, team_id, task_id])
+    return f"team:{owner}:{team_id}:{task_id}"
 
 
 def formation_event_id(owner: str, team_id: str, ts: float) -> str:
     # Formation is journal history, not a replaceable Team observation, so the
     # id stays outside the removable "team:" namespace (map_feed only ever
     # broadcasts removals for "team:"-prefixed ids).
-    return "formation:" + digest([owner, team_id, ts])
+    return f"formation:{owner}:{team_id}:{ts}"
 
 
 def formation_events(formations: list) -> list[dict]:

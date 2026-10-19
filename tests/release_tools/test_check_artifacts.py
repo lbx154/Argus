@@ -5,7 +5,7 @@ from pathlib import Path
 
 import pytest
 
-from argus.release import compute_source_digest
+from argus.release import source_files
 from argus.release_tools import check_artifacts
 
 
@@ -18,10 +18,9 @@ def release_tree(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Path:
     (web / "assets").mkdir(parents=True)
     tui = tmp_path / "frontend" / "tui" / "bundle" / "argus.mjs"
     tui.parent.mkdir(parents=True)
-    digest = compute_source_digest(tmp_path)
-    release_id = f"0.1.8+{digest[:16]}"
+    release_id = "0.1.8+0123456789ab"
     manifest = source.parent / "release_manifest.json"
-    manifest.write_text(json.dumps({"release_id": release_id, "source_digest": digest}))
+    manifest.write_text(json.dumps({"release_id": release_id, "source_files": source_files(tmp_path)}))
     (web / "index.html").write_text('<script type="module" src="./assets/entry.js"></script>')
     (web / "assets" / "entry.js").write_text(f'export const release = "{release_id}";')
     tui.write_text(f'export const release = "{release_id}";')
@@ -39,7 +38,7 @@ def test_current_source_and_frontends_pass(release_tree: Path) -> None:
 def test_source_update_rejects_old_frontends_even_when_their_release_ids_match(
     release_tree: Path,
 ) -> None:
-    (release_tree / "argus" / "app.py").write_text("VERSION = 2\n")
+    (release_tree / "argus" / "app.py").write_text("VERSION = 20\n")
 
     failures = check_artifacts.check()
     assert len(failures) == 1

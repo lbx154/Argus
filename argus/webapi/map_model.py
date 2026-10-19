@@ -22,7 +22,7 @@ from ..core.knobs import normalize_cockpit_knob_value, resolve_knob, resolve_run
 from ..core.models import RunnerOptions, RunnerResult
 from ..core.role_config import RoleConfig, resolve_role_config
 from ..core.run_gateway import run_exec
-from .map_view import digest
+from .map_view import facts
 
 MapCopyPhase = Literal["waiting_for_source", "planning", "writing", "reviewing"]
 MapProgress = Callable[[MapCopyPhase], None]
@@ -63,7 +63,7 @@ class MapModel:
 
     @property
     def revision(self) -> str:
-        return digest([self.backend, self.model, self.effort, self.runner_bin, self.extra_args,
+        return facts([self.backend, self.model, self.effort, self.runner_bin, self.extra_args,
                        self.review_effort or self.effort])
 
     def for_review(self) -> MapModel:
