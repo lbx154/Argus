@@ -11,6 +11,7 @@ on:
     branches: [main]
     paths:
       - desktop-tauri/src-tauri/Cargo.toml
+      - desktop-tauri/src-tauri/Cargo.lock
       - .github/workflows/desktop-cache.yml
   schedule:
     - cron: "0 3 * * 1,4"

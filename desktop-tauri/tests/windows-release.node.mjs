@@ -2,7 +2,7 @@ import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
-import { generateKeyPairSync, randomBytes, sign } from 'node:crypto';
+import { createHash, generateKeyPairSync, randomBytes, sign } from 'node:crypto';
 import test from 'node:test';
 import { stageWindowsRelease, windowsBundleDirectory, main } from '../scripts/stage-windows-release.mjs';
 import { verifyTauriSignature } from '../scripts/verify-updater-signature.mjs';
@@ -10,8 +10,7 @@ import { verifyTauriSignature } from '../scripts/verify-updater-signature.mjs';
 const wrapped = text => Buffer.from(text, 'utf8').toString('base64');
 
 // Synthetic test-only keys stay in memory; no private material is written to a
-// file, environment, output or release fixture. Staging checks the signing key
-// and the trusted comment; the package signature itself is the updater's to check.
+// file, environment, output or release fixture. Production staging only verifies.
 function signingFixture() {
   const pair = generateKeyPairSync('ed25519');
   const keyId = randomBytes(8);
@@ -20,8 +19,8 @@ function signingFixture() {
     + Buffer.concat([Buffer.from('Ed'), keyId, publicBytes]).toString('base64') + '\n');
   return {
     pubkey,
-    signature() {
-      const packet = randomBytes(64);
+    signature(bytes) {
+      const packet = sign(null, createHash('blake2b512').update(bytes).digest(), pair.privateKey);
       const comment = 'timestamp:1700000000\tfile:test-only.exe\tprehashed';
       return wrapped([
         'untrusted comment: generated test signature',
@@ -51,7 +50,7 @@ function fixture(t, { signed = true, filename = 'Argus_0.1.7_x64-setup.exe', val
   }
   const installer = path.join(bundleDir, filename);
   fs.writeFileSync(installer, bytes);
-  if (signed) fs.writeFileSync(installer + '.sig', signer.signature() + '\n');
+  if (signed) fs.writeFileSync(installer + '.sig', signer.signature(bytes) + '\n');
   return { desktopRoot, bundleDir, outputDir: path.join(root, 'new release'), root, installer, signer, config };
 }
 
@@ -73,7 +72,7 @@ test('verifier accepts the upstream minisign prehashed interoperability vector',
   assert.deepEqual(verifyTauriSignature(filename, signature, pubkey), { bytes: 4 });
 });
 
-test('staging copies the installer byte for byte and emits Windows-only metadata', t => {
+test('staging verifies copied fixture bytes and emits Windows-only metadata', t => {
   const f = fixture(t);
   const result = stageWindowsRelease({ ...f, now: new Date('2026-09-14T00:00:00Z') });
   assert.equal(result.signature_verified, true);
@@ -107,6 +106,12 @@ test('a package signed by another key cannot issue an update manifest', t => {
   const f = fixture(t); f.config.plugins.updater.pubkey = signingFixture().pubkey;
   updateConfig(f, f.config);
   assert.throws(() => stageWindowsRelease(f), /embedded public key/);
+  assert.equal(fs.existsSync(f.outputDir), false);
+});
+
+test('tampered installer bytes fail before output creation', t => {
+  const f = fixture(t); fs.appendFileSync(f.installer, 'tampered');
+  assert.throws(() => stageWindowsRelease(f), /package signature verification failed/);
   assert.equal(fs.existsSync(f.outputDir), false);
 });
 
@@ -165,6 +170,38 @@ test('Cargo target locations are respected, including an explicit MSVC target tr
   assert.equal(windowsBundleDirectory(root, { CARGO_TARGET_DIR: target, CARGO_BUILD_TARGET: 'x86_64-pc-windows-msvc' }),
     path.join(target, 'x86_64-pc-windows-msvc/release/bundle/nsis'));
   assert.throws(() => windowsBundleDirectory(root, { CARGO_BUILD_TARGET: 'aarch64-pc-windows-msvc' }), /x64 MSVC/);
+});
+
+test('signature verification does not compare different filesystem identity APIs', t => {
+  const f = fixture(t);
+  const original = fs.lstatSync;
+  t.mock.method(fs, 'lstatSync', (...args) => {
+    const stat = original(...args);
+    if (!stat.isFile() || typeof stat.dev !== 'bigint') return stat;
+    return new Proxy(stat, { get(target, name) {
+      if (name === 'dev' || name === 'ino') return target[name] + 1n;
+      return Reflect.get(target, name);
+    } });
+  });
+  assert.equal(stageWindowsRelease(f).signature_verified, true);
+});
+
+test('replacing a pathname still invalidates signature verification', t => {
+  const f = fixture(t);
+  const original = fs.lstatSync;
+  let calls = 0;
+  t.mock.method(fs, 'lstatSync', (...args) => {
+    const stat = original(...args);
+    if (typeof stat.dev !== 'bigint') return stat;
+    calls += 1;
+    if (calls < 2) return stat;
+    return new Proxy(stat, { get(target, name) {
+      if (name === 'ino') return target.ino + 1n;
+      return Reflect.get(target, name);
+    } });
+  });
+  const signature = fs.readFileSync(f.installer + '.sig', 'utf8').trim();
+  assert.throws(() => verifyTauriSignature(f.installer, signature, f.signer.pubkey), /changed during verification/);
 });
 
 test('ambiguous CLI arguments fail before touching a build directory', () => {

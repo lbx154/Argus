@@ -35,7 +35,7 @@ def test_version_matrix_rejects_divergent_host_or_plugin_metadata(tmp_path, meta
         "pyproject.toml", "argus/__init__.py",
         "frontend/core/package.json", "frontend/web/package.json", "frontend/web/package-lock.json",
         "frontend/tui/package.json", "frontend/tui/package-lock.json", "desktop-tauri/package.json",
-        "desktop-tauri/package-lock.json", "desktop-tauri/src-tauri/Cargo.toml",
+        "desktop-tauri/package-lock.json", "desktop-tauri/src-tauri/Cargo.toml", "desktop-tauri/src-tauri/Cargo.lock",
         "desktop-tauri/src-tauri/tauri.conf.json", ".claude-plugin/marketplace.json",
         "plugins/argus/.claude-plugin/plugin.json", "plugins/argus/.codex-plugin/plugin.json",
     )

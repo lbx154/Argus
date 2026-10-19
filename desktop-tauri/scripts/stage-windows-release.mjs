@@ -64,7 +64,8 @@ export function windowsBundleDirectory(root = desktop, env = process.env) {
 
 /** Publish locally into a NEW directory only. Missing/invalid signatures never
  * clear a previous release, and latest.json is written only after the staged
- * copy matches its input byte for byte and its signature passed the key check.
+ * copy matches its input byte for byte and has independently passed
+ * public-key verification.
  */
 export function stageWindowsRelease({
   desktopRoot = desktop, bundleDir, outputDir, notes, now = new Date(),

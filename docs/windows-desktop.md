@@ -252,8 +252,7 @@ Cloudflare Worker 模板：它仅代理 `lbx154/Argus` 的允许 release 资产�
 操作脚本。它下载 GitHub Release、重写镜像 manifest URL、上传安装器和 `.sig`。
 在配置 OSS/Worker 前，主 GitHub endpoint 仍是可用且安全的默认通道。部署镜像后，
 将 HTTPS mirror endpoint 放到下一次 Tauri release 的 updater endpoint 列表首位，
-并保留 GitHub 作为回退。每次发布都应比对 OSS 与 GitHub 上各安装器的字节数；安装包内容由
-更新器在安装前按签名校验。
+并保留 GitHub 作为回退。每次发布都应比对 OSS 与 GitHub 上各安装器的字节数。
 
 这些脚本不会在本地 build、测试或应用启动时写入任何远程服务。
 
@@ -448,10 +447,9 @@ npm --prefix desktop-tauri run dist
 `dist` 的 Windows 路径先一致构建、冻结、签名；正式发行只产生 NSIS installer、detached `.exe.sig`
 和 updater `latest.json`。发布暂存尊重实际 `CARGO_TARGET_DIR`；也可通过
 `stage-release.ps1 -BundleDirectory <NSIS目录> -OutputDirectory <新目录>` 指定路径。
-目标发行目录已存在时直接拒绝，不会清空它。只有复制后的安装器与输入逐字节一致、签名来自
-应用内置公钥且 trusted comment 通过验证，才写 `latest.json`；缺失、空白、错版本、错架构、
-错误公钥或 trusted comment 被改的签名不能生成发布元数据。安装包内容与签名是否匹配，由用户
-机器上的更新器在安装前校验。发布说明列出版本号、git 提交号和各文件的字节数。
+目标发行目录已存在时直接拒绝，不会清空它。只有复制后的安装器与输入逐字节一致，且安装器和
+trusted comment 均通过应用内置公钥验证，才写 `latest.json`；缺失、空白、错版本、错架构、
+错误公钥或被篡改的签名不能生成发布元数据。发布说明列出版本号、git 提交号和各文件的字节数。
 JSON 是更新元数据，不是账户凭据。
 
 只有诊断候选才使用 `build:backend` 后接 `build:unsigned`；此路径没有可发布的 SIG/JSON，
