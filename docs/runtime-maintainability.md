@@ -203,14 +203,24 @@ Planner 在未解决的 Manager 反馈下返回等待，并不代表反馈已处
 输入的终态空闲，不修改科研任务终态。因所有新任务都重复已有工作而产生的
 filtered-task 反馈仍可由合法等待解除；普通等待和新证据唤醒不受此拒绝计数影响。
 
-Bounded campaigns also route a Planner wait to the Manager when its contract
-explicitly sets `stage_reconciliation_required=true`. Ordinary bounded waits
-remain unchanged. This grants a stage-authority decision, not permission to
+A Planner wait is one sentence, `WAIT=<what must happen>`, plus two authority
+flags (`OPERATOR_ACTION_REQUIRED`, `STAGE_RECONCILIATION_REQUIRED`). The host
+binds it to what it can watch, first match wins: authorization events for an
+operator wait, a live job or team the sentence names by id, existing project
+paths it names (which climb to the Manager after `FILE_WAIT_CLIMB_SECONDS`
+without a change), and otherwise the Planner's own inputs. Identity, wake
+sources and deadline are the host's; wait fields an older prompt taught are
+ignored. There are no timed re-asks and no verification probes.
+
+Bounded campaigns route a Planner wait to the Manager when it sets
+`stage_reconciliation_required=true` or when the host cannot observe what it
+waits for. This grants a stage-authority decision, not permission to
 expand operator scope, skip required stages, certify a project, or replay work.
 Operator-gated waits are not stage questions: the operator decides them while
 they can be asked, and otherwise the Manager decides them in the operator's
-place outside stage reconciliation. Existing Manager reconciliation
-deduplication, retry cadence and stage validators remain authoritative.
+place outside stage reconciliation. Each wait is reconciled once; returning the
+same wait is recorded, not re-adjudicated, and wakes when what it depends on
+changes. Stage validators remain authoritative.
 Bounded reconciliation cannot advance or complete without Reviewer evidence,
 including direct workflows. Native subagent reports remain host evidence, not
 new operator requests that could repeatedly defer bounded completion. Once a

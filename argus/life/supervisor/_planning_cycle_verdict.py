@@ -452,6 +452,12 @@ class PlanningCycleVerdictMixin:
                 "diagnostic": str(diagnostic),
             })
 
+        if verdict.waiting_contract is not None:
+            # The Planner names what it waits for; the host binds that to what
+            # it can watch once, here, so every later step sees one binding.
+            verdict = replace(
+                verdict, waiting_contract=self._bind_planner_wait(verdict.waiting_contract),
+            )
         if getattr(verdict, "waiting", False) and list(
             getattr(verdict, "new_tasks", []) or []
         ):
@@ -499,28 +505,6 @@ class PlanningCycleVerdictMixin:
                 verdict = replace(state.carried_wait, new_tasks=[])
                 state.carried_wait = None
         verdict = self._defer_project_done_for_operator_external_blocker(verdict)
-
-        overlap_task = self._independent_overlap_task(verdict)
-        if overlap_task is not None:
-            verdict = replace(
-                verdict,
-                waiting=False,
-                waiting_reason="",
-                waiting_contract=None,
-                reason=(
-                    "healthy background job continues; scheduling independent "
-                    "overlap work instead of idling"
-                ),
-                new_tasks=[overlap_task],
-            )
-            self._emit(
-                {
-                    "type": "life.planner.wait_overridden",
-                    "cycle": self._planning_cycles,
-                    "task_title": overlap_task.title,
-                    "reason": verdict.reason,
-                }
-            )
         state.verdict = verdict
         return None
 

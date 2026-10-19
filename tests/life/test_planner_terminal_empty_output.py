@@ -1524,21 +1524,18 @@ def test_bounded_continuous_campaign_replays_deferred_stage_review(
     if wait_kind != "none":
         from argus.planner import WaitingContract
 
-        wake_on = ("authorization",) if wait_kind == "authorization" else ("subagent_state",)
+        wake_on = ("subagent_state",) if wait_kind == "subagent" else ("authorization",)
         supervisor._persist_planner_waiting_contract(WaitingContract(
             blocker_fingerprint="completed-verification-job",
             recheck_condition="Wait for the independent verification review.",
             recheck_token=item.id,
-            wait_mode="event",
             wake_on=wake_on,
             observed_revision=supervisor._planner_waiting_observed_revision(
-                wake_on=("authorization",) if wait_kind == "operator" else wake_on,
-                watched_paths=(),
+                wake_on=wake_on, watched_paths=(),
             ),
             operator_action_required=wait_kind == "operator",
         ))
         waiting = supervisor._load_planner_waiting_contract_state()
-        assert waiting["wait_mode"] == "event"
         assert waiting["wake_on"] == (
             ["subagent_state"] if wait_kind == "subagent" else ["authorization"]
         )
@@ -1655,7 +1652,6 @@ def test_deterministic_stage_gate_hold_is_not_re_adjudicated_next_cycle(
         blocker_fingerprint="verification-job",
         recheck_condition="Wait for independently accepted verification.",
         recheck_token=item.id,
-        wait_mode="event",
         wake_on=("subagent_state",),
         observed_revision=supervisor._planner_waiting_observed_revision(
             wake_on=("subagent_state",), watched_paths=(),

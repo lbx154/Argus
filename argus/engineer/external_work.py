@@ -31,6 +31,10 @@ _SUBAGENT_DEGRADED_HEALTH = frozenset({"degrading", "stuck", "diverging"})
 _CADENCE_FLOOR_SECONDS = 30.0
 # This caps time between observable facts, never the duration of external work.
 _CADENCE_CAP_SECONDS = 900.0
+# A direct subagent launched without a timeout whose command has written no
+# output for this long is reported stalled: a hung command otherwise looks
+# healthy for as long as its process lives, and a wait on it never ends.
+_DIRECT_SILENCE_STALE_SECONDS = 6 * 3600.0
 
 
 class ExternalWorkState(str, Enum):
@@ -299,6 +303,24 @@ def _canonical_status(
     )
 
 
+def _direct_silence(record: dict[str, Any], now: float) -> float:
+    """How long a direct subagent's command has written nothing; 0 without logs.
+
+    Silence is judged only from the output logs the worker records, starting
+    no earlier than the launch.
+    """
+    logs = [record.get(key) for key in ("stdout_log", "stderr_log") if record.get(key)]
+    if not logs:
+        return 0.0
+    stamps = [_coerce_float(record.get("started_at"), 0.0)]
+    for log_path in logs:
+        try:
+            stamps.append(Path(str(log_path)).stat().st_mtime)
+        except OSError:
+            pass
+    return max(0.0, now - max(stamps))
+
+
 def _subagent_status(
     record: dict[str, Any], *, path: Path, now: float
 ) -> ExternalWorkStatus | None:
@@ -415,6 +437,16 @@ def _subagent_status(
     elif mode != "direct" and not worker_alive:
         state = ExternalWorkState.STALLED
         reason = "subagent worker process is not alive"
+    elif (
+        mode == "direct"
+        and record.get("timeout_seconds") is None
+        and _direct_silence(record, now) > _DIRECT_SILENCE_STALE_SECONDS
+    ):
+        state = ExternalWorkState.STALLED
+        reason = (
+            "direct subagent has no timeout and its command has written no "
+            f"output for {int(_direct_silence(record, now))}s; it may be hung"
+        )
     elif heartbeat_stale:
         state = ExternalWorkState.STALLED
         reason = (
@@ -509,6 +541,18 @@ def scan_external_work(
             if status.work_id not in statuses:
                 statuses[status.work_id] = status
     return [statuses[key] for key in sorted(statuses)]
+
+
+def names_external_work(text: str, work_id: str) -> bool:
+    """Whether ``text`` names this registered work: its id as a word of its own.
+
+    A team is also named by its bare id; ``team:`` is the protocol's spelling.
+    The text is only compared with ids the registry already holds.
+    """
+    words = {word.strip("`'\"()[]{}<>,;:!?。，；：").rstrip(".") for word in str(text or "").split()}
+    return bool(work_id) and (
+        work_id in words or (work_id.startswith("team:") and work_id[5:] in words)
+    )
 
 
 def inspect_external_work(

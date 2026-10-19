@@ -517,10 +517,8 @@ def _run_direct(
     log_dir = _prepare_run_logs(task_id, run_id)
     stdout_path = log_dir / "stdout.log"
     stderr_path = log_dir / "stderr.log"
-    timeout_defaulted = bool(submitted_task.get("timeout_defaulted", False))
     run_fields = {
         "timeout_seconds": timeout,
-        "timeout_defaulted": timeout_defaulted,
         **{key: submitted_task[key] for key in (
             "prerequisites", "previous_run_id", "rerun_reason",
         ) if key in submitted_task},

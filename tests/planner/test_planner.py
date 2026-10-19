@@ -9,6 +9,7 @@ from argus.planner.planner import (
     PLANNER_SUPERSEDED_ERROR,
     Planner,
     PlannerConfig,
+    WaitingContract,
     parse_planner_payload,
     parse_planner_text,
     parse_task_scope,
@@ -129,13 +130,15 @@ def test_structured_planner_payload_preserves_list_item_text() -> None:
     assert verdict.new_tasks[0].decision_rule.startswith("Revise the parser")
 
 
-def test_structured_planner_wait_preserves_framed_lists() -> None:
+def test_a_structured_planner_wait_is_its_sentence_and_two_flags() -> None:
+    """Everything else about a wait is the host's; older fields are ignored."""
     verdict = parse_planner_payload({
         "project_done": False,
         "reason": "the external job is still running",
         "waiting": {
+            "wait": "job-42 reaches a terminal state",
+            "stage_reconciliation_required": True,
             "blocker_fingerprint": "job-running",
-            "recheck_condition": "the durable job reaches terminal state",
             "recheck_token": "job-42",
             "wait_mode": "event",
             "wake_on": ["subagent_state"],
@@ -146,10 +149,10 @@ def test_structured_planner_wait_preserves_framed_lists() -> None:
     })
 
     assert verdict.error == ""
-    assert verdict.waiting_contract is not None
-    assert verdict.waiting_contract.wake_on == ("subagent_state",)
-    assert verdict.waiting_contract.watched_paths == ("results/a,b.json",)
-    assert verdict.waiting_contract.wait_id == "job-42"
+    assert verdict.waiting_contract == WaitingContract(
+        recheck_condition="job-42 reaches a terminal state",
+        stage_reconciliation_required=True,
+    )
 
 
 def test_structured_planner_payload_rejects_wrong_field_types() -> None:
@@ -292,22 +295,22 @@ def test_incomplete_key_value_result_is_retryable() -> None:
     assert verdict.error == "planner said not done but produced no concrete tasks"
 
 
-def test_operator_wait_defaults_to_event_driven_authorization() -> None:
+def test_an_operator_wait_is_its_sentence_and_the_operator_flag() -> None:
     verdict = parse_planner_text(
         "PROJECT_DONE=false\n"
         "REASON=An operator must approve the external action.\n"
         "WAITING=true\n"
+        "WAIT=Operator approval arrives.\n"
         "BLOCKER_FINGERPRINT=external-approval\n"
-        "RECHECK_CONDITION=Operator approval arrives.\n"
-        "RECHECK_TOKEN=approval-pending\n"
+        "WAKE_ON=subagent_state\n"
         "OPERATOR_ACTION_REQUIRED=true"
     )
 
     assert verdict.error == ""
-    assert verdict.waiting_contract is not None
-    assert verdict.waiting_contract.operator_action_required is True
-    assert verdict.waiting_contract.wait_mode == "event"
-    assert verdict.waiting_contract.wake_on == ("authorization",)
+    assert verdict.waiting_contract == WaitingContract(
+        recheck_condition="Operator approval arrives.",
+        operator_action_required=True,
+    )
 
 
 def test_wait_with_independent_task_preserves_both_and_marks_diagnostic() -> None:
@@ -375,13 +378,12 @@ def test_planner_prompt_requires_read_only_delegation_and_minimal_footer() -> No
     assert "TASK_KEY=k1" in _PLANNER_CORE_CONTRACT
     assert "RETIRE_TASK=<item id> | <one-sentence reason>" in _PLANNER_CORE_CONTRACT
     assert 'never retire running or done work' in _PLANNER_CORE_CONTRACT
-    assert "`wake_on`" in _PLANNER_CORE_CONTRACT
-    assert '`wake_on` (synonyms/combined sources)' in _PLANNER_CORE_CONTRACT
-    assert "synonyms/combined sources" in _PLANNER_CORE_CONTRACT
-    assert 'timed rechecks' in _PLANNER_CORE_CONTRACT
-    assert 'When only Argus running/paused_external_work dependencies remain' in _PLANNER_CORE_CONTRACT
     assert "`WAITING=true`" in _PLANNER_CORE_CONTRACT
-    assert "`WAIT_ID=<live subagent or\n  team work id from live_subagent_work_ids>`" in _PLANNER_CORE_CONTRACT
+    assert "`WAIT=<one sentence: what must happen>`" in _PLANNER_CORE_CONTRACT
+    assert "a work id from live_subagent_work_ids" in _PLANNER_CORE_CONTRACT
+    assert "a wait it cannot observe goes\n  to the Manager" in _PLANNER_CORE_CONTRACT
+    for field in ("wake_on", "WAIT_ID", "BLOCKER_FINGERPRINT", "RECHECK_TOKEN"):
+        assert field not in _PLANNER_CORE_CONTRACT
     assert "no `TASK_*` blocks" in _PLANNER_CORE_CONTRACT
     for field in ("`TASK_TITLE`", "`TASK_OBJECTIVE`", "`TASK_ACCEPTANCE_CHECK`"):
         assert field in _PLANNER_CORE_CONTRACT
@@ -896,14 +898,9 @@ def test_repair_missing_waiting_marker_preserves_in_flight_wait(monkeypatch) -> 
     fields = (
         "PROJECT_DONE=false\n"
         "REASON=Wait for the existing blind test to finish.\n"
-        "BLOCKER_FINGERPRINT=blind-test\n"
-        "RECHECK_CONDITION=blind-test finishes\n"
-        "RECHECK_TOKEN=blind-test-run-1\n"
+        "WAIT=blind-test finishes\n"
     )
-    runner = _SequenceRunner([
-        fields,
-        fields + "WAITING=true\nWAIT_MODE=event\nWAKE_ON=subagent_state\nWAIT_ID=blind-test",
-    ])
+    runner = _SequenceRunner([fields, fields + "WAITING=true"])
     monkeypatch.setattr(
         Planner, "_build_planner_prompt", staticmethod(lambda **kwargs: "planner prompt")
     )
@@ -915,16 +912,14 @@ def test_repair_missing_waiting_marker_preserves_in_flight_wait(monkeypatch) -> 
 
     assert len(runner.calls) == 2
     repair = runner.calls[1]["prompt"]
-    assert "Blocker fields alone do not declare waiting" in repair
-    assert "`WAITING=true` and no `TASK_*` blocks" in repair
+    assert "a WAIT sentence alone does not declare waiting" in repair
+    assert "`WAITING=true`, no `TASK_*` blocks and `WAIT=<what must happen>`" in repair
     assert "background work launched by Argus" in repair
     assert verdict.error == ""
     assert verdict.waiting is True
     assert verdict.project_done is False
     assert verdict.new_tasks == []
-    assert verdict.waiting_contract is not None
-    assert verdict.waiting_contract.wait_id == "blind-test"
-    assert verdict.waiting_contract.wake_on == ("subagent_state",)
+    assert verdict.waiting_contract == WaitingContract(recheck_condition="blind-test finishes")
 
 
 @pytest.mark.parametrize("project_done", ["false", "true"])
@@ -939,14 +934,8 @@ def test_repair_preserves_certified_increment_operator_handoff(
         "PROJECT_DONE=false\n"
         f"REASON={reason}\n"
         "WAITING=true\n"
-        "BLOCKER_FINGERPRINT=new-operator-direction\n"
-        "RECHECK_CONDITION=New explicit operator instruction arrives\n"
-        "RECHECK_TOKEN=accepted-increment\n"
+        "WAIT=New explicit operator instruction arrives\n"
         "OPERATOR_ACTION_REQUIRED=true\n"
-        "WAIT_MODE=event\n"
-        "WAKE_ON=operator_input\n"
-        "ALLOW_VERIFICATION_PROBE=false\n"
-        "STAGE_RECONCILIATION_REQUIRED=false\n"
     )
     runner = _SequenceRunner([
         f"PROJECT_DONE={project_done}\nREASON={reason}",
@@ -979,28 +968,20 @@ def test_repair_preserves_certified_increment_operator_handoff(
     assert "`waiting` only for a real external blocker" not in repair
     assert "Re-inspect current project reality" not in repair
     assert "PROJECT_DONE=false\nWAITING=true\n" in repair
-    for field in (
-        "OPERATOR_ACTION_REQUIRED=true", "WAIT_MODE=event",
-        "WAKE_ON=operator_input", "ALLOW_VERIFICATION_PROBE=false",
-        "STAGE_RECONCILIATION_REQUIRED=false",
-        "BLOCKER_FINGERPRINT=new-operator-direction",
-        "RECHECK_CONDITION=New explicit operator instruction arrives",
-        "RECHECK_TOKEN=<current certified increment reference>",
-    ):
-        assert field in repair
+    assert (
+        "WAIT=New explicit operator instruction arrives\nOPERATOR_ACTION_REQUIRED=true\n"
+        in repair
+    )
     assert runner.calls[1]["resume_thread_id"] == "planner-thread"
     assert verdict.error == ""
     assert verdict.project_done is False
     assert verdict.waiting is True
     assert verdict.reason == reason
     assert verdict.new_tasks == []
-    assert verdict.waiting_contract is not None
-    assert verdict.waiting_contract.operator_action_required is True
-    assert verdict.waiting_contract.blocker_fingerprint == "new-operator-direction"
-    assert verdict.waiting_contract.recheck_token == "accepted-increment"
-    assert verdict.waiting_contract.wake_on == ("operator_input",)
-    assert verdict.waiting_contract.allow_verification_probe is False
-    assert verdict.waiting_contract.stage_reconciliation_required is False
+    assert verdict.waiting_contract == WaitingContract(
+        recheck_condition="New explicit operator instruction arrives",
+        operator_action_required=True,
+    )
 
 
 def test_plan_next_accepts_structured_decision_with_redundant_brace(monkeypatch) -> None:

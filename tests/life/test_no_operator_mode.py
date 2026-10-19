@@ -264,16 +264,30 @@ def test_bounded_daemon_ends_an_operator_only_wait_with_a_clear_outcome(
     assert statuses and statuses[-1].startswith("blocked: needs operator")
 
 
-def test_bounded_daemon_never_ends_on_a_question_the_manager_answers(monkeypatch) -> None:
+def test_bounded_daemon_ends_on_a_question_the_manager_never_settles(monkeypatch) -> None:
+    """Nobody can be asked and the Manager, the top of the ladder, has not
+    decided: the run ends blocked instead of hanging. A question it settles
+    leaves the backlog, and the run goes on."""
     from argus.daemon._life_worker_run import LifeWorkerRunMixin
 
-    supervisor = SimpleNamespace(_pending_operator_questions=lambda: ["Which rule wins?"])
+    questions: list[str] = ["Which rule wins?"]
+    supervisor = SimpleNamespace(
+        _pending_operator_questions=lambda: list(questions) or None,
+        _emit=lambda event: None,
+        _emit_status=lambda text: None,
+    )
     worker = LifeWorkerRunMixin()
     monkeypatch.setenv("ARGUS_SKILL_OPERATOR_AVAILABLE", "false")
     monkeypatch.setenv("ARGUS_SKILL_BOUNDED_OPERATOR_WAIT_EXIT_MIN", "1")
-    worker._operator_wait_since = 0.0
+    assert worker._bounded_operator_wait_expired([supervisor]) is False
+    questions.clear()
     assert worker._bounded_operator_wait_expired([supervisor]) is False
     assert worker._operator_wait_since is None
+
+    questions.append("Which rule wins?")
+    assert worker._bounded_operator_wait_expired([supervisor]) is False
+    worker._operator_wait_since -= 61
+    assert worker._bounded_operator_wait_expired([supervisor]) is True
 
 
 def test_bounded_daemon_keeps_working_while_other_work_remains(monkeypatch) -> None:
@@ -500,7 +514,6 @@ def _operator_wait():
             blocker_fingerprint="release-rule-conflict",
             recheck_condition="the operator decides which release rule wins",
             recheck_token="release-rule-conflict",
-            wait_mode="event",
             wake_on=("authorization",),
             operator_action_required=True,
         ),
@@ -561,6 +574,41 @@ def test_a_planner_wait_the_manager_names_no_decision_for_stays_a_wait(
 
     assert supervisor._record_planner_waiting(_operator_wait()) != PLAN_RETRY
     assert read_autonomous_assumptions(supervisor._project_state_root()) == []
+
+
+def test_an_operator_only_external_blocker_is_decided_by_the_manager_without_an_operator(
+    tmp_path, monkeypatch
+) -> None:
+    """The host's own wait for operator-supplied artifacts has a decider too:
+    with nobody to ask, the Manager answers it like a Planner's operator wait."""
+    import json
+
+    from argus.life.supervisor._constants import PLAN_RETRY
+
+    monkeypatch.setenv("ARGUS_SKILL_OPERATOR_AVAILABLE", "false")
+    supervisor, _sink = _supervisor(tmp_path, runner=object())
+    project = tmp_path / "project"
+    (project / "diagnosis").mkdir(parents=True)
+    (project / "diagnosis" / "operator_only_external_blocker.json").write_text(
+        json.dumps({
+            "local_engineer_action_required_before_mount": False,
+            "required_external_targets": ["data/heldout.tar"],
+        }),
+        encoding="utf-8",
+    )
+    manager = _ProxyManager(
+        DECISION_ID="decision-planner-wait",
+        OPTION="custom",
+        NOTE="Evaluate on the public split and say so in the report.",
+        REASON="The held-out set will not arrive in this run.",
+    )
+    supervisor._bound_manager = lambda: manager
+
+    wait = supervisor._operator_external_blocker_short_circuit_decision(project_root=project)
+
+    assert wait.waiting_contract.operator_action_required
+    assert supervisor._record_planner_waiting(wait) == PLAN_RETRY
+    assert len(manager.prompts) == 1
 
 
 def test_engineer_prompt_hands_only_actions_to_the_manager_without_an_operator(

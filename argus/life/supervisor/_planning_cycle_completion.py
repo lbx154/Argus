@@ -104,18 +104,18 @@ class PlanningCycleCompletionMixin:
             or verdict.advance_to_stage
         ):
             return False
+        # A wait the host watches something specific for -- files, live work,
+        # the stage -- is not a handoff to new direction.
         contract = verdict.waiting_contract
         if contract is not None and (
-            not contract.operator_action_required
-            or contract.stage_reconciliation_required
-            or contract.allow_verification_probe
+            contract.stage_reconciliation_required
             or contract.watched_paths
-            or set(contract.wake_on) - {"authorization", "operator_input"}
+            or set(contract.wake_on) - {"authorization", "planner_input"}
         ):
             return False
         # A generic wait (including credentials or an experiment result) is not
         # acceptance of the certified increment. Require an explicit handoff to
-        # *new* direction, including legacy uncontracted Planner responses.
+        # *new* direction.
         reason = str(verdict.waiting_reason or verdict.reason or "").strip()
         if not re.search(
             r"(?:\b(?:wait(?:ing)?|await(?:ing)?)\s+(?:only\s+)?(?:for\s+)?"
@@ -573,14 +573,7 @@ class PlanningCycleCompletionMixin:
                 )
             if revision_request is None and self._reconcile_open_ended_planner_waiting(verdict):
                 return PLAN_RETRY
-            record = self._record_planner_waiting(verdict)
-            # Stall-breaker: if the planner has idled K+ cycles on the same
-            # blocker, force a verification probe so reality (not a memory of
-            # the blocker) drives the next decision. Running it next tick resets
-            # the idle backoff via _reset_idle_backoff().
-            if self._maybe_dispatch_verification_probe(verdict):
-                return True
-            return record
+            return self._record_planner_waiting(verdict)
 
         carried = state.carried_wait
         if carried is not None:
@@ -597,12 +590,10 @@ class PlanningCycleCompletionMixin:
                 self._emit_status("failed to persist the wait declared with tasks")
             return None
 
-        # The Planner has explicitly moved on from waiting. Preserve the
-        # historical probed-token set for deduplication, but stop injecting the
+        # The Planner has explicitly moved on from waiting: stop injecting the
         # old blocker into subsequent planning context.
         self._deactivate_planner_waiting_contract()
         self._last_planner_wait_reconciliation_key = None
-        self._planner_waits_since_reconciliation = 0
         return None
 
     def _pc_normalize_project_done(self, state: _PlanCycleState) -> Any | None:
@@ -782,7 +773,6 @@ class PlanningCycleCompletionMixin:
                 if state.certified_operator_wait:
                     self._deactivate_planner_waiting_contract()
                     self._last_planner_wait_reconciliation_key = None
-                    self._planner_waits_since_reconciliation = 0
                 reason = (
                     "Independent final certification is current: this increment "
                     "is complete, not the standing campaign. The objective remains "

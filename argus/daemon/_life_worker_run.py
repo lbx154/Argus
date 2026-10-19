@@ -498,19 +498,16 @@ class LifeWorkerRunMixin:
 
         Applies only to a foreground CLI/harness bounded run
         (``operator_wait_exit``; grace from
-        ``ARGUS_SKILL_BOUNDED_OPERATOR_WAIT_EXIT_MIN``) whose operator can be
-        asked. Workers the web cockpit starts keep waiting for the answer in
-        the UI, and while the operator cannot be asked the Manager answers in
-        their place, so nothing waits on them. On exit the run records
+        ``ARGUS_SKILL_BOUNDED_OPERATOR_WAIT_EXIT_MIN``). Workers the web
+        cockpit starts keep waiting for the answer in the UI. While the
+        operator cannot be asked the Manager answers in their place; it is the
+        top of the ladder, so a question it has not settled within the same
+        grace ends the run the same way. On exit the run records
         ``blocked: needs operator``; the question and the parked work stay on
         disk, and ``argus --answer`` restarts the worker. This is about not
         hanging; it never caps work that is still running.
         """
-        from ..core.autonomy import (
-            OPERATOR_WAIT_EXIT_FILENAME,
-            bounded_operator_wait_exit_seconds,
-            operator_questions_can_be_asked,
-        )
+        from ..core.autonomy import OPERATOR_WAIT_EXIT_FILENAME, bounded_operator_wait_exit_seconds
 
         supervisor = next(iter(supervisors or ()), None)
         state_root = getattr(supervisor, "_project_state_root", None)
@@ -520,11 +517,7 @@ class LifeWorkerRunMixin:
             else getattr(getattr(supervisor, "memory", None), "root", None)
         )
         probe = getattr(supervisor, "_pending_operator_questions", None)
-        questions = (
-            probe()
-            if enabled and callable(probe) and operator_questions_can_be_asked(root)
-            else None
-        )
+        questions = probe() if enabled and callable(probe) else None
         if questions is None:
             self._operator_wait_since = None
             return False

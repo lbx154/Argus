@@ -257,7 +257,6 @@ def cmd_worker(args: argparse.Namespace) -> int:
     worker_task.setdefault("pid", os.getpid())
     worker_task["worker_process_identity"] = _process_identity(os.getpid())
     worker_task.setdefault("timeout_seconds", args.timeout)
-    worker_task.setdefault("timeout_defaulted", False)
     _write_task(task_id, worker_task)
     try:
         _cpu_admission.apply_current_process_affinity(
@@ -338,7 +337,6 @@ def cmd_submit(args: argparse.Namespace) -> int:
         rp = Path(run_dir).expanduser()
         run_dir = str((rp if rp.is_absolute() else Path(cwd) / rp).resolve())
     timeout_seconds = int(args.timeout) if args.timeout is not None else None
-    timeout_defaulted = False
 
     # Forced-discussion gate: while a supervisor is parked on an OPEN discussion
     # (it stopped a run and is waiting on the engineer), block launching new runs
@@ -450,7 +448,6 @@ def cmd_submit(args: argparse.Namespace) -> int:
                 "submitter_pid": os.getpid(),
                 "submitter_process_identity": _process_identity(os.getpid()),
                 "timeout_seconds": timeout_seconds,
-                "timeout_defaulted": timeout_defaulted,
             }
             if prerequisites:
                 initial_task["prerequisites"] = prerequisites
@@ -529,7 +526,6 @@ def cmd_submit(args: argparse.Namespace) -> int:
             "description": args.description,
             "cpu_ids": list(selected_cpu_ids),
             "timeout_seconds": timeout_seconds,
-            "timeout_defaulted": timeout_defaulted,
             "check_with": shlex.join([
                 sys.executable,
                 "-m",
@@ -565,7 +561,6 @@ def cmd_submit(args: argparse.Namespace) -> int:
             "description": args.description, "command": args.command,
             "mode": mode, "run_dir": run_dir, "submitted_at": time.time(),
             "timeout_seconds": timeout_seconds,
-            "timeout_defaulted": timeout_defaulted,
         }
         rec["worker_pid"] = pid
         rec.setdefault("pid", pid)
@@ -581,7 +576,6 @@ def cmd_submit(args: argparse.Namespace) -> int:
             "description": args.description,
             "cpu_ids": list(selected_cpu_ids),
             "timeout_seconds": timeout_seconds,
-            "timeout_defaulted": timeout_defaulted,
             "check_with": shlex.join([
                 sys.executable,
                 "-m",

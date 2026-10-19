@@ -7,6 +7,8 @@ import time
 from pathlib import Path
 from types import SimpleNamespace
 
+import pytest
+
 from argus.core.event_catalog import EventType
 from argus.core.models import RunnerResult
 from argus.life.event_log import JsonlEventSink
@@ -491,9 +493,7 @@ def _wait_with_task(*fields: str) -> str:
         "REASON=The release waits; write the changelog meanwhile.",
         "WAITING=true",
         "WAITING_REASON=The release is held.",
-        "BLOCKER_FINGERPRINT=release-held",
-        "RECHECK_CONDITION=The release hold is lifted",
-        "RECHECK_TOKEN=release-v1",
+        "WAIT=The release hold is lifted",
         *fields,
         "TASK_KEY=changelog",
         "TASK_TITLE=Write the changelog",
@@ -502,7 +502,7 @@ def _wait_with_task(*fields: str) -> str:
 
 
 def _active_wait(life: Path) -> dict:
-    paths = list(life.glob("planner-waiting-contract-*.json"))
+    paths = list(life.glob("planner-waiting-contract*.json"))
     if not paths:
         return {}
     state = json.loads(paths[0].read_text(encoding="utf-8"))
@@ -525,7 +525,7 @@ def test_operator_wait_declared_with_tasks_is_kept_beside_them(
     ]
     wait = _active_wait(life)
     assert wait["operator_action_required"] is True
-    assert wait["blocker_fingerprint"] == "release-held"
+    assert wait["recheck_condition"] == "The release hold is lifted"
 
 
 def test_operator_wait_with_tasks_and_no_operator_is_left_to_the_next_bare_wait(
@@ -824,3 +824,106 @@ def test_an_unreadable_last_turn_record_allows_one_planner_call(
     assert _supervisor(project, life, planner)._plan_next_work() == PLAN_AWAITING
     assert len(planner.calls) == 2
 
+
+
+# I2/I3: a Planner wait is bound by the host and climbs instead of being re-asked.
+
+_UNOBSERVED_WAIT = "\n".join([
+    "PROJECT_DONE=false",
+    "REASON=The vendor has not published the dataset.",
+    "WAITING=true",
+    "WAIT=the vendor publishes the new dataset",
+])
+
+
+@pytest.mark.parametrize("open_ended", [False, True])
+def test_an_unchanged_wait_costs_no_more_calls_than_the_ladder_is_high(
+    tmp_path: Path, monkeypatch, open_ended: bool,
+) -> None:
+    """Planner waits, the Manager confirms the wait stands, the Planner sees
+    that ruling once -- and then nothing is called while nothing changes."""
+    project = _project(tmp_path, monkeypatch)
+    planner = _PlannerBackend([_UNOBSERVED_WAIT] * 10)
+    supervisor = _supervisor(project, tmp_path / "life", planner)
+    supervisor.config.open_ended = open_ended
+    manager = _StageManager(_stage_decision(resolves_wait=True))
+    supervisor._bound_manager = lambda: manager  # type: ignore[method-assign]
+
+    for _ in range(10):
+        supervisor._plan_next_work()
+
+    assert len(manager.calls) == 1
+    assert len(planner.calls) == 2
+
+
+def test_a_file_wait_that_outlives_its_deadline_climbs_to_the_manager(
+    tmp_path: Path, monkeypatch,
+) -> None:
+    from argus.life.supervisor._constants import FILE_WAIT_CLIMB_SECONDS
+    from argus.planner import WaitingContract
+
+    project = _project(tmp_path, monkeypatch)
+    (project / "results").mkdir()
+    (project / "results" / "sweep.json").write_text("{}", encoding="utf-8")
+    supervisor = _supervisor(project, tmp_path / "life")
+    manager = _StageManager(_stage_decision())
+    supervisor._bound_manager = lambda: manager  # type: ignore[method-assign]
+    assert supervisor._persist_planner_waiting_contract(
+        WaitingContract(recheck_condition="results/sweep.json gets the final row")
+    ) is not None
+
+    supervisor._planner_event_wait_outcome()  # the one idle-capacity turn
+    assert supervisor._planner_event_wait_outcome() == PLAN_AWAITING
+    assert manager.calls == []
+
+    later = time.time() + FILE_WAIT_CLIMB_SECONDS + 1
+    monkeypatch.setattr(time, "time", lambda: later)
+    supervisor._planner_event_wait_outcome()
+
+    assert len(manager.calls) == 1
+    assert manager.calls[0]["planner_verdict"].waiting_contract.blocker_fingerprint == (
+        "unobserved"
+    )
+    assert any(
+        event.get("wake_reason") == "expired" for event in _events(supervisor)
+    )
+
+
+def test_a_wait_persisted_again_keeps_the_authorization_bound_to_it(
+    tmp_path: Path, monkeypatch,
+) -> None:
+    """The operator reads the wait, the Planner declares it again, and the
+    authorization issued against what the operator read still lands."""
+    from argus.manager.control_state import CampaignControlStore
+    from argus.planner import WaitingContract
+
+    project = _project(tmp_path, monkeypatch)
+    supervisor = _supervisor(project, tmp_path / "life")
+    wait = WaitingContract(
+        recheck_condition="the operator approves the extra GPU budget",
+        operator_action_required=True,
+    )
+    first = supervisor._persist_planner_waiting_contract(wait)
+    store = CampaignControlStore(supervisor.memory.root, project_root=project)
+    head = store.read_head()
+    read_by_operator = store.read_snapshot(head)["active_wait"]
+
+    second = supervisor._persist_planner_waiting_contract(wait)
+
+    assert first is not None and second is not None
+    for key in ("blocker_fingerprint", "recheck_token", "wait_id", "state_revision"):
+        assert second[key] == first[key]
+    assert read_by_operator["wait_id"] == second["wait_id"]
+    assert supervisor._load_planner_waiting_contract_state() is not None
+    authorization = store.issue_authorization(
+        identity=store.campaign_identity(objective=supervisor.config.continuous_objective),
+        blocker_fingerprint=read_by_operator["blocker_fingerprint"],
+        allowed_actions=["resume_blocked_work"],
+        scope="active_blocker",
+        evidence_paths=[],
+        source_channel="web",
+        source_message_id="turn-1",
+        expected_state_revision=head.state_revision,
+        expected_wait_id=read_by_operator["wait_id"],
+    )
+    assert authorization.blocker_fingerprint == "operator"

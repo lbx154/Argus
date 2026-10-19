@@ -46,7 +46,7 @@ def test_no_runtime_team_means_the_round_proceeds(tmp_path: Path, monkeypatch) -
 
 def test_running_team_is_waited_on_without_an_engineer_turn(tmp_path: Path, monkeypatch) -> None:
     monkeypatch.delenv("ARGUS_SKILL_TEAM_TASK_ID", raising=False)
-    monkeypatch.setenv("ARGUS_TEAM_LEAD_WAIT_MAX_SECONDS", "0")
+    monkeypatch.setenv("ARGUS_EXTERNAL_WAIT_HOLD_MAX_SECONDS", "0")
     _portfolio(tmp_path, "running", "pending")
     calls: list[str] = []
     monkeypatch.setattr(runner, "_run_external_work_wait", lambda **kw: (calls.append(kw["work_id"]) or ("cadence_elapsed", 300.0)))
@@ -64,7 +64,7 @@ def test_running_team_is_waited_on_without_an_engineer_turn(tmp_path: Path, monk
 
 def test_lead_keeps_waiting_in_process_within_its_budget(tmp_path: Path, monkeypatch) -> None:
     monkeypatch.delenv("ARGUS_SKILL_TEAM_TASK_ID", raising=False)
-    monkeypatch.setenv("ARGUS_TEAM_LEAD_WAIT_MAX_SECONDS", "3600")
+    monkeypatch.setenv("ARGUS_EXTERNAL_WAIT_HOLD_MAX_SECONDS", "3600")
     root = _portfolio(tmp_path, "running")
     cadences: list[float] = []
 

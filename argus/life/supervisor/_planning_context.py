@@ -14,26 +14,22 @@ from typing import Any
 from ...core.event_catalog import EventType
 from ...core.operator_context import operator_context_state_root
 from ...core.planner_verdict import PlannerVerdictStatus
-from ...core.wake_sources import normalize_wake_sources
 from ..memory import BacklogItem
 from ._constants import (
+    FILE_WAIT_CLIMB_SECONDS,
     PLAN_AWAITING,
     PLAN_ERROR,
     PLAN_RETRY,
     PLANNER_SCOPE_BOUNDED,
     PLANNER_SCOPE_FINAL_SUBMISSION,
     PLANNER_TASKS_FILTERED_DIAGNOSTIC,
-    PLANNER_UNCHANGED_SKIP_MAX_SECONDS,
     STALL_ESCALATION_AFTER_NO_PROGRESS_MISSIONS,
-    VERIFICATION_PROBE_AFTER_IDLE_CYCLES,
-    VERIFICATION_PROBE_COOLDOWN_SECONDS,
+    UNOBSERVED_WAIT,
 )
 from ._helpers import _operator_only_external_blocker_wait_reason_for_project
 from ._planning_cycle import HOST_OBSERVED_WAIT_SOURCES
 
 log = logging.getLogger(__name__)
-
-_DEGRADED_WAIT_POLL_SECONDS = 300
 # What the Planner had seen at its last model call; see _record_planner_last_turn.
 PLANNER_LAST_TURN_FILENAME = "planner-last-turn.json"
 
@@ -556,14 +552,16 @@ class PlanningContextMixin:
         reason = _operator_only_external_blocker_wait_reason_for_project(project_root)
         if not reason:
             return None
-        from ...planner.planner import PlannerVerdict
+        from ...planner.planner import PlannerVerdict, WaitingContract
 
+        reason = f"{reason}; skipping planner cycle to avoid impossible repair-task loop"
         return PlannerVerdict(
             project_done=False,
-            reason=(f"{reason}; skipping planner cycle to avoid impossible repair-task loop"),
+            reason=reason,
             waiting=True,
-            waiting_reason=(
-                f"{reason}; skipping planner cycle to avoid impossible repair-task loop"
+            waiting_reason=reason,
+            waiting_contract=WaitingContract(
+                recheck_condition=reason, operator_action_required=True,
             ),
             new_tasks=[],
         )
@@ -578,12 +576,19 @@ class PlanningContextMixin:
         wait_reason = self._operator_only_external_blocker_wait_reason()
         if not wait_reason:
             return verdict
+        from ...planner.planner import WaitingContract
+
+        # Only the operator can supply these artifacts; while they cannot be
+        # asked the Manager decides this wait in their place.
         return replace(
             verdict,
             project_done=False,
             waiting=True,
             waiting_reason=wait_reason,
             reason=wait_reason,
+            waiting_contract=self._bind_planner_wait(WaitingContract(
+                recheck_condition=wait_reason, operator_action_required=True,
+            )),
             new_tasks=[],
         )
 
@@ -754,7 +759,7 @@ class PlanningContextMixin:
     # ------------------------------------------------------------------
 
     def _record_planner_waiting(self, verdict: Any) -> str:
-        contract = getattr(verdict, "waiting_contract", None)
+        contract = self._bind_planner_wait(getattr(verdict, "waiting_contract", None))
         settled = self._settle_operator_wait_without_operator(verdict, contract)
         if settled:
             return settled
@@ -806,14 +811,14 @@ class PlanningContextMixin:
         root = self._project_state_root()
         if operator_questions_can_be_asked(root):
             return ""
-        key = str(getattr(contract, "blocker_fingerprint", "") or "").strip()
+        key = "|".join(self._waiting_contract_key(contract))
         condition = str(
             getattr(contract, "recheck_condition", "")
             or getattr(verdict, "waiting_reason", "")
             or getattr(verdict, "reason", "")
             or ""
         ).strip()
-        if not key or any(
+        if not condition or any(
             row.get("key") == key and row.get("source") == "manager_decision"
             for row in read_autonomous_assumptions(root)
         ):
@@ -881,8 +886,7 @@ class PlanningContextMixin:
             or getattr(self.memory, "root", None)
             or "."
         )
-        objective_fingerprint = self._planner_waiting_objective_fingerprint()
-        return root / f"planner-waiting-contract-{objective_fingerprint[:16]}.json"
+        return root / "planner-waiting-contract.json"
 
     def _planner_waiting_objective_fingerprint(self) -> str:
         objective = str(getattr(self.config, "continuous_objective", "") or "")
@@ -1020,8 +1024,7 @@ class PlanningContextMixin:
         so a second model call can only repeat the first answer. Wall-clock
         facts (operator presence, log churn from healthy live jobs, git status
         noise) are deliberately not part of the digest: live jobs rewrite their
-        own files continuously, and ``PLANNER_UNCHANGED_SKIP_MAX_SECONDS``
-        bounds how long an unchanged digest may keep the Planner silent.
+        own files continuously.
 
         Fail-soft: an empty string disables the unchanged-input skip for this
         cycle rather than guessing.
@@ -1088,9 +1091,8 @@ class PlanningContextMixin:
         The previous Planner call already answered exactly this input state
         with an intentional wait; asking again buys the same answer at model
         price. This gate runs only after every earlier intake short circuit
-        (operator drain, event waits, in-flight dependency waits) has declined,
-        and only while the previous call is recent enough that elapsed time is
-        not itself news. Returns the plan-cycle outcome when skipping, else
+        (operator drain, event waits, in-flight dependency waits) has declined;
+        elapsed time alone is not news. Returns the plan-cycle outcome when skipping, else
         ``None`` — and always leaves the freshly computed signature on
         ``state`` so the cycle's real outcome can arm the next skip.
 
@@ -1118,17 +1120,7 @@ class PlanningContextMixin:
         if not current:
             return None
         armed = str(getattr(self, "_planner_unchanged_skip_signature", "") or "")
-        armed_at = getattr(self, "_planner_unchanged_skip_armed_at", None)
-        if not armed or armed_at is None or current != armed:
-            return None
-        if (
-            time.monotonic() - float(armed_at)
-            >= PLANNER_UNCHANGED_SKIP_MAX_SECONDS
-        ):
-            # A long silence is itself worth a real look; disarm so the next
-            # cycles call the Planner until it waits again on fresh evidence.
-            self._planner_unchanged_skip_signature = ""
-            self._planner_unchanged_skip_armed_at = None
+        if not armed or current != armed:
             return None
         # Preserve whichever backoff family the campaign is already in: an
         # armed idle-exit clock keeps running, a recoverable pause stays one.
@@ -1229,7 +1221,7 @@ class PlanningContextMixin:
         tasks enqueued, retirements, completion, errors (which may be
         transient) — clears the record. Cycles that never reached the model,
         including the skip itself, leave the record untouched so consecutive
-        unchanged cycles keep skipping until the time ceiling forces a call.
+        unchanged cycles keep skipping until an input changes.
         """
         if not bool(getattr(state, "planner_invoked", False)):
             return
@@ -1242,10 +1234,8 @@ class PlanningContextMixin:
             and bool(getattr(verdict, "waiting", False))
         ):
             self._planner_unchanged_skip_signature = state.planner_input_signature
-            self._planner_unchanged_skip_armed_at = time.monotonic()
         else:
             self._planner_unchanged_skip_signature = ""
-            self._planner_unchanged_skip_armed_at = None
 
     def _backlog_planning_signature(self) -> str:
         """Digest of live backlog item ids and statuses.
@@ -1459,11 +1449,8 @@ class PlanningContextMixin:
             return None
         if not isinstance(payload, dict):
             return None
-        if payload.get("version") != 1:
-            return None
-        if (
-            str(payload.get("objective_fingerprint") or "")
-            != self._planner_waiting_objective_fingerprint()
+        if payload.get("version") != 2 or payload.get("objective") != str(
+            getattr(self.config, "continuous_objective", "") or ""
         ):
             return None
         runtime_revision = self._planner_waiting_runtime_revision()
@@ -1572,18 +1559,12 @@ class PlanningContextMixin:
             stat = path.stat()
         except OSError:
             return {"path": str(path), "exists": False}
-        entry: dict[str, Any] = {
+        return {
             "path": str(path),
             "exists": True,
             "size": int(stat.st_size),
             "mtime_ns": int(stat.st_mtime_ns),
         }
-        if path.is_file() and stat.st_size <= 1_048_576:
-            try:
-                entry["sha256"] = hashlib.sha256(path.read_bytes()).hexdigest()
-            except OSError:
-                entry["read_error"] = True
-        return entry
 
     def _nothing_queued_behind_the_wait(self) -> bool:
         """True when no mission is waiting its turn behind the blocked one.
@@ -1638,24 +1619,21 @@ class PlanningContextMixin:
         wake_on: list[str] | tuple[str, ...],
         watched_paths: list[str] | tuple[str, ...],
     ) -> str:
-        wake_sources = {str(value).strip().lower() for value in wake_on}
+        """The facts behind a wait's wake sources, as readable JSON compared whole."""
+        wake_sources = set(wake_on)
         project_root = self._project_workdir()
-        revision: dict[str, Any] = {
-            "campaign_epoch": self._planner_waiting_objective_fingerprint(),
-            "wake_on": sorted(wake_sources),
-        }
+        revision: dict[str, Any] = {"wake_on": sorted(wake_sources)}
         if "authorization" not in wake_sources:
             # Accepted review can move the stage after the watched job stops changing.
             revision["planning_stage"] = str(self._current_pipeline_stage() or "")
-        if "authorization" in wake_sources:
+        else:
             # An authorization wait watched only the Manager control-state log,
             # which nothing writes unless the operator drives that API -- in
             # three live campaigns the file did not exist at all. Answering the
             # documented way, `argus --notify` into inbox.jsonl, changed
             # nothing, so run-04 sat on wake_on ["authorization"] for fifteen
-            # hours after being answered. Four campaigns then spent eleven
-            # missions trying to canonicalize wake sources by hand.
-            # The operator acted either way; both records count.
+            # hours after being answered. The operator acted either way; both
+            # records count.
             root = Path(self.memory.root)
             from ...apps._inbox import latest_durable_inbox_timestamp
 
@@ -1671,85 +1649,34 @@ class PlanningContextMixin:
                 pipeline_state_path(project_root)
             )
         if "artifact_revision" in wake_sources:
-            artifacts: list[dict[str, Any]] = []
-            registry_paths = False
-            for relative in watched_paths:
-                rel = str(relative).strip().lstrip("/")
-                parts = Path(rel).parts
-                if parts and parts[0] == ".argus_subagents":
-                    # A watched path inside the external-work registry points
-                    # at a job's own bookkeeping (logs, heartbeats), which is
-                    # rewritten for as long as the job runs. Stat-digesting it
-                    # woke the planner every cycle of a live job; what the
-                    # contract actually waits for is the job's registered
-                    # state, which moves exactly at real transitions.
-                    registry_paths = True
-                    continue
-                artifacts.append(self._waiting_revision_file(project_root / rel))
-            revision["artifacts"] = artifacts
-            if registry_paths and "subagent_state" not in wake_sources:
-                revision["registry_jobs"] = self._external_work_state_rows(
-                    project_root
-                )
-        if "subagent_terminal" in wake_sources:
-            terminal_rows: list[dict[str, str]] = []
-            registry = project_root / ".argus_subagents"
-            for path in sorted(registry.glob("*.json")) if registry.is_dir() else []:
-                try:
-                    payload = json.loads(path.read_text(encoding="utf-8"))
-                except (OSError, TypeError, ValueError):
-                    continue
-                if not isinstance(payload, dict):
-                    continue
-                state = str(payload.get("status") or payload.get("state") or "").strip().lower()
-                if state not in {
-                    "completed",
-                    "complete",
-                    "done",
-                    "failed",
-                    "error",
-                    "cancelled",
-                    "canceled",
-                    "stopped",
-                    "early_stop",
-                }:
-                    continue
-                terminal_rows.append(
-                    {
-                        "task_id": str(payload.get("task_id") or path.stem),
-                        "state": state,
-                        "decision": str(payload.get("decision") or ""),
-                    }
-                )
-            revision["subagent_terminal"] = terminal_rows
+            revision["artifacts"] = [
+                self._waiting_revision_file(project_root / path)
+                for path in watched_paths
+            ]
         if "subagent_state" in wake_sources:
             revision["subagent_state"] = self._external_work_state_rows(
                 project_root
             )
-        blob = json.dumps(revision, sort_keys=True, separators=(",", ":"))
-        return hashlib.sha256(blob.encode("utf-8")).hexdigest()
+        if "planner_input" in wake_sources:
+            revision["planner_input"] = self._current_planner_input_signature()
+        return json.dumps(revision, sort_keys=True, separators=(",", ":"))
 
     def _planner_event_wait_outcome(self) -> str:
         state = self._load_planner_waiting_contract_state()
-        if state is None or not bool(state.get("active")) or state.get("wait_mode") != "event":
-            return ""
-        if isinstance(state.get("manager_resolution"), dict):
+        if state is None or not bool(state.get("active")):
             return ""
         expires_at = float(state.get("expires_at") or 0.0)
+        if expires_at and time.time() >= expires_at:
+            return self._climb_expired_planner_wait(state)
         current_revision = self._planner_waiting_observed_revision(
             wake_on=list(state.get("wake_on") or []),
             watched_paths=list(state.get("watched_paths") or []),
         )
         observed_revision = str(state.get("observed_revision") or "")
-        wake_reason = ""
-        if expires_at > 0 and time.time() >= expires_at:
-            wake_reason = "expired"
-        elif observed_revision and current_revision != observed_revision:
-            wake_reason = "revision_changed"
-        if wake_reason:
+        if observed_revision and current_revision != observed_revision:
             state["active"] = False
             state["superseded_by_revision"] = current_revision
-            state["wake_reason"] = wake_reason
+            state["wake_reason"] = "revision_changed"
             state["updated_at"] = time.time()
             if not self._write_planner_waiting_contract_state(state):
                 self._emit({
@@ -1765,7 +1692,7 @@ class PlanningContextMixin:
                     "type": EventType.LIFE_PLANNER_WAITING_WOKEN,
                     "blocker_fingerprint": state.get("blocker_fingerprint"),
                     "recheck_token": state.get("recheck_token"),
-                    "wake_reason": wake_reason,
+                    "wake_reason": "revision_changed",
                     "observed_revision": observed_revision,
                     "current_revision": current_revision,
                 }
@@ -1807,37 +1734,7 @@ class PlanningContextMixin:
             # This grant IS the decision to spend one Planner call — the
             # unchanged-input gate downstream must not answer it from memory.
             self._planner_unchanged_skip_signature = ""
-            self._planner_unchanged_skip_armed_at = None
             return ""
-
-        # Event waits otherwise bypass the Planner entirely. Still feed each
-        # unchanged idle cycle through the open-ended Manager reconciliation
-        # cadence; otherwise this short circuit prevents the counter from ever
-        # reaching its liveness threshold and a stale wait can persist forever.
-        from ...planner import PlannerVerdict, WaitingContract
-
-        contract = WaitingContract(
-            blocker_fingerprint=str(state.get("blocker_fingerprint") or ""),
-            recheck_condition=str(state.get("recheck_condition") or ""),
-            recheck_token=str(state.get("recheck_token") or ""),
-            allow_verification_probe=bool(state.get("allow_verification_probe", False)),
-            recheck_after_seconds=int(state.get("recheck_after_seconds") or 0),
-            stage_reconciliation_required=bool(state.get("stage_reconciliation_required", False)),
-            wait_mode="event",
-            wake_on=tuple(str(value) for value in state.get("wake_on") or []),
-            watched_paths=tuple(str(value) for value in state.get("watched_paths") or []),
-            expires_at=expires_at,
-            operator_action_required=bool(state.get("operator_action_required", False)),
-        )
-        verdict = PlannerVerdict(
-            project_done=False,
-            reason=contract.recheck_condition,
-            waiting=True,
-            waiting_reason=contract.recheck_condition,
-            waiting_contract=contract,
-        )
-        if self._reconcile_open_ended_planner_waiting(verdict):
-            return PLAN_RETRY
 
         sleep_s = self._enter_pause_backoff()
         self._emit(
@@ -1847,13 +1744,49 @@ class PlanningContextMixin:
                 "reason": state.get("recheck_condition") or "awaiting event",
                 "suggested_sleep_s": sleep_s,
                 "model_call_skipped": True,
-                "wait_mode": "event",
                 "observed_revision": current_revision,
                 "waiting_contract": self._waiting_contract_event_payload(state, None),
             }
         )
         self._emit_status("awaiting declared event; Planner call skipped")
         return PLAN_AWAITING
+
+    def _climb_expired_planner_wait(self, state: dict[str, Any]) -> str:
+        """A watched source that stayed still past its deadline goes to the Manager.
+
+        The wait is not handed back to the Planner that declared it -- asking
+        again on the same files buys the same answer. It becomes a wait the
+        host cannot observe, which the Manager reconciles and which wakes when
+        anything the Planner reads changes.
+        """
+        from ...planner import PlannerVerdict, WaitingContract
+
+        condition = str(state.get("recheck_condition") or "")
+        contract = WaitingContract(
+            recheck_condition=condition,
+            stage_reconciliation_required=bool(state.get("stage_reconciliation_required")),
+            blocker_fingerprint=UNOBSERVED_WAIT,
+            recheck_token=condition,
+            wake_on=("planner_input",),
+        )
+        self._emit(
+            {
+                "type": EventType.LIFE_PLANNER_WAITING_WOKEN,
+                "blocker_fingerprint": state.get("blocker_fingerprint"),
+                "recheck_token": state.get("recheck_token"),
+                "wake_reason": "expired",
+            }
+        )
+        verdict = PlannerVerdict(
+            project_done=False,
+            reason=condition,
+            waiting=True,
+            waiting_reason=condition,
+            waiting_contract=contract,
+        )
+        if self._reconcile_open_ended_planner_waiting(verdict):
+            return PLAN_RETRY
+        return self._record_planner_waiting(verdict)
 
     def _waiting_backlog_revision(self) -> str:
         """A stable revision of the facts that can change scheduling.
@@ -1876,7 +1809,7 @@ class PlanningContextMixin:
             )
         except Exception:  # noqa: BLE001 - an unreadable backlog is not new evidence
             return ""
-        return hashlib.sha256(repr(rows).encode("utf-8")).hexdigest()[:24]
+        return repr(rows)
 
     def _planner_turn_available_during_wait(self, state: dict) -> bool:
         """Is the Planner owed a turn while this wait contract holds?
@@ -1949,42 +1882,93 @@ class PlanningContextMixin:
                 confined.append(normalized)
         return confined
 
+    def _bind_planner_wait(self, contract: Any) -> Any:
+        """Bind a Planner wait to what the host can watch, read from its own words.
+
+        The Planner names what it waits for; the host decides how to observe it,
+        first match wins: only operator input (authorization events), live work
+        the sentence names, project paths it names, and otherwise the Planner's
+        own inputs -- a wait the host cannot observe, which climbs to the
+        Manager. A contract the host already bound is returned unchanged.
+        """
+        if contract is None or getattr(contract, "blocker_fingerprint", ""):
+            return contract
+        what = " ".join(str(contract.recheck_condition or "").split())
+        stage = ("manager_stage",) if contract.stage_reconciliation_required else ()
+        if contract.operator_action_required:
+            return replace(
+                contract,
+                recheck_condition=what,
+                blocker_fingerprint="operator",
+                recheck_token=what,
+                wake_on=("authorization",),
+            )
+        from ...engineer.external_work import names_external_work
+
+        named_jobs = [
+            job
+            for job in self._waitable_subagent_jobs()
+            if names_external_work(what, job.work_id)
+        ]
+        live = self._live_subagent_event_wait_contract(named_jobs) if named_jobs else None
+        if live is not None:
+            return replace(
+                live,
+                recheck_condition=what or live.recheck_condition,
+                stage_reconciliation_required=contract.stage_reconciliation_required,
+                wake_on=(*live.wake_on, *stage),
+            )
+        paths = self._project_paths_named_in(what)
+        if paths:
+            return replace(
+                contract,
+                recheck_condition=what,
+                blocker_fingerprint="artifacts:" + ",".join(paths),
+                recheck_token=what,
+                wake_on=("artifact_revision", *stage),
+                watched_paths=tuple(paths),
+                expires_at=time.time() + FILE_WAIT_CLIMB_SECONDS,
+            )
+        return replace(
+            contract,
+            recheck_condition=what,
+            blocker_fingerprint=UNOBSERVED_WAIT,
+            recheck_token=what,
+            wake_on=("planner_input", *stage),
+        )
+
+    def _project_paths_named_in(self, text: str) -> list[str]:
+        """Existing project files or directories a sentence names verbatim.
+
+        The external-work registry is left out: a job rewrites its own logs and
+        heartbeats for as long as it runs, so a path there would wake the wait
+        every cycle; its registered state is the fact to wait on.
+        """
+        root = self._project_workdir()
+        paths: list[str] = []
+        for word in str(text or "").split():
+            word = word.strip("`'\"()[]{}<>,;:!?。，；：").rstrip(".")
+            if not ("/" in word or "." in word) or word.startswith(".argus_subagents"):
+                continue
+            try:
+                (path,) = self._confined_planner_wait_paths([word])
+            except ValueError:
+                continue
+            if path not in paths and (root / path).exists():
+                paths.append(path)
+        return paths
+
     def _persist_planner_waiting_contract(
         self,
         contract: Any,
     ) -> dict[str, Any] | None:
+        contract = self._bind_planner_wait(contract)
         blocker_fingerprint, recheck_token = self._waiting_contract_key(contract)
         recheck_condition = str(getattr(contract, "recheck_condition", "") or "").strip()
         if not blocker_fingerprint or not recheck_token or not recheck_condition:
             return None
-        previous = self._load_planner_waiting_contract_state() or {}
-        same_condition = (
-            previous.get("blocker_fingerprint") == blocker_fingerprint
-            and previous.get("recheck_token") == recheck_token
-        )
-        now = time.time()
-        raw_wait_mode = str(
-            getattr(contract, "wait_mode", "poll") or "poll"
-        ).strip().casefold()
-        normalized_wake_on, unknown_wake_on, wake_changed = normalize_wake_sources(
-            getattr(contract, "wake_on", ())
-        )
-        wake_on = list(normalized_wake_on)
-        normalization_reasons: list[str] = []
-        if raw_wait_mode not in {"event", "poll"}:
-            normalization_reasons.append(
-                f"unknown wait_mode {raw_wait_mode!r} normalized from context"
-            )
-        if wake_changed:
-            normalization_reasons.append("wake sources normalized")
-        if unknown_wake_on:
-            normalization_reasons.append(
-                "unsupported wake hints ignored: " + ", ".join(unknown_wake_on)
-            )
         try:
-            watched_paths = self._confined_planner_wait_paths(
-                [str(value) for value in getattr(contract, "watched_paths", ())]
-            )
+            watched_paths = self._confined_planner_wait_paths(list(contract.watched_paths))
         except ValueError as exc:
             self._emit({
                 "type": EventType.LIFE_PLANNER_ERROR,
@@ -1994,153 +1978,33 @@ class PlanningContextMixin:
                 "recheck_token": recheck_token,
             })
             return None
-        # operator_action_required means only fresh operator input can change
-        # this blocker, so the source it wakes on is not the Planner's to pick.
-        # run-05 declared operator waits against subagent_state and had
-        # nineteen contracts rejected for lacking a revision only the host can
-        # compute, then invented operator_answer and operator_message and lost
-        # sixteen more. Reading the authority it already declared costs nothing
-        # and cannot be got wrong.
-        operator_action_required = bool(
-            getattr(contract, "operator_action_required", False)
+        previous = self._load_planner_waiting_contract_state() or {}
+        same_condition = (
+            previous.get("blocker_fingerprint") == blocker_fingerprint
+            and previous.get("recheck_token") == recheck_token
         )
-        context_requires_event = False
-        if operator_action_required:
-            wake_on = ["authorization"]
-            context_requires_event = True
-            if normalized_wake_on != ("authorization",) or raw_wait_mode != "event":
-                normalization_reasons.append(
-                    "operator wait bound to authorization events"
+        wake_on = list(contract.wake_on)
+        observed_revision = str(contract.observed_revision or "")
+        # The Planner's own inputs include this contract, so a wait on them is
+        # observed on the first check after it is written, not before.
+        if "planner_input" not in wake_on:
+            current = self._planner_waiting_observed_revision(
+                wake_on=wake_on, watched_paths=watched_paths,
+            )
+            if observed_revision and current != observed_revision:
+                self._emit(
+                    {
+                        "type": EventType.LIFE_PLANNER_WAITING_WOKEN,
+                        "blocker_fingerprint": blocker_fingerprint,
+                        "recheck_token": recheck_token,
+                        "wake_reason": "revision_changed_before_persist",
+                        "observed_revision": observed_revision,
+                        "current_revision": current,
+                    }
                 )
-        elif watched_paths:
-            if "artifact_revision" not in wake_on:
-                wake_on.append("artifact_revision")
-                normalization_reasons.append(
-                    "artifact_revision derived from watched paths"
-                )
-            context_requires_event = True
-
-        source_wait_id = str(getattr(contract, "wait_id", "") or "").strip()
-        resolved_wait = None
-        wait_id_source_unknown = False
-        if source_wait_id:
-            try:
-                from ...engineer.external_work import inspect_external_work
-
-                resolved_wait = inspect_external_work(
-                    self._project_workdir(), source_wait_id
-                )
-            except Exception:  # noqa: BLE001 - registry discovery is fail-soft
-                log.warning("failed to resolve planner wait registry id", exc_info=True)
-            if resolved_wait is not None and resolved_wait.source in HOST_OBSERVED_WAIT_SOURCES:
-                if "subagent_state" not in wake_on:
-                    wake_on.append("subagent_state")
-                context_requires_event = True
-                normalization_reasons.append(
-                    "subagent_state derived from resolved wait_id"
-                )
-            else:
-                wait_id_source_unknown = True
-                normalization_reasons.append(
-                    "wait_id did not resolve to a Host-observed subagent or team"
-                )
-
-        contract_observed_revision = str(
-            getattr(contract, "observed_revision", "") or ""
-        )
-
-        if "artifact_revision" in wake_on and not watched_paths:
-            wake_on = [source for source in wake_on if source != "artifact_revision"]
-            normalization_reasons.append(
-                "artifact_revision hint ignored without confined watched paths"
-            )
-        if (
-            {"subagent_state", "subagent_terminal"}.intersection(wake_on)
-            and not contract_observed_revision
-            and not (
-                resolved_wait is not None
-                and resolved_wait.source in HOST_OBSERVED_WAIT_SOURCES
-            )
-        ):
-            wake_on = [
-                source
-                for source in wake_on
-                if source not in {"subagent_state", "subagent_terminal"}
-            ]
-            normalization_reasons.append(
-                "subagent wake hint ignored without a Host-observed revision"
-            )
-
-        if context_requires_event:
-            wait_mode = "event"
-        elif raw_wait_mode in {"event", "poll"}:
-            wait_mode = raw_wait_mode
-        else:
-            wait_mode = "event" if wake_on else "poll"
-            normalization_reasons.append(f"wait_mode selected as {wait_mode}")
-
-        degraded = False
-        if wait_mode == "event" and not wake_on:
-            wait_mode = "poll"
-            degraded = True
-            normalization_reasons.append(
-                "event wait degraded to bounded poll without an observable source"
-            )
-        elif (
-            wait_mode == "poll"
-            and (unknown_wake_on or wait_id_source_unknown)
-            and not wake_on
-        ):
-            degraded = True
-            normalization_reasons.append(
-                "unobservable source degraded to bounded poll"
-            )
-        current_observed_revision = self._planner_waiting_observed_revision(
-            wake_on=wake_on,
-            watched_paths=watched_paths,
-        )
-        if (
-            wait_mode == "event"
-            and {"subagent_state", "subagent_terminal"}.intersection(wake_on)
-            and resolved_wait is not None
-            and resolved_wait.source in HOST_OBSERVED_WAIT_SOURCES
-        ):
-            contract_observed_revision = current_observed_revision
-        if (
-            contract_observed_revision
-            and current_observed_revision != contract_observed_revision
-        ):
-            self._emit(
-                {
-                    "type": EventType.LIFE_PLANNER_WAITING_WOKEN,
-                    "blocker_fingerprint": blocker_fingerprint,
-                    "recheck_token": recheck_token,
-                    "wake_reason": "revision_changed_before_persist",
-                    "observed_revision": contract_observed_revision,
-                    "current_revision": current_observed_revision,
-                }
-            )
-            return None
-        if normalization_reasons:
-            self._emit({
-                "type": "life.planner.waiting_contract.normalized",
-                "blocker_fingerprint": blocker_fingerprint,
-                "recheck_token": recheck_token,
-                "reasons": normalization_reasons,
-                "degraded": degraded,
-                "wait_mode": wait_mode,
-                "wake_on": wake_on,
-            })
-
-        durable_wait_id = hashlib.sha256(
-            (
-                self._planner_waiting_objective_fingerprint()
-                + "\0"
-                + blocker_fingerprint
-                + "\0"
-                + recheck_token
-            ).encode("utf-8")
-        ).hexdigest()[:24]
+                return None
+            observed_revision = current
+        wait_id = f"{blocker_fingerprint}|{recheck_token}"
         control_binding: dict[str, Any] = {}
         try:
             from ...manager.control_state import CampaignControlStore
@@ -2154,7 +2018,7 @@ class PlanningContextMixin:
             )
             control_head = control.activate_wait(
                 identity=identity,
-                wait_id=durable_wait_id,
+                wait_id=wait_id,
                 blocker_fingerprint=blocker_fingerprint,
                 recheck_token=recheck_token,
                 watched_paths=watched_paths,
@@ -2169,65 +2033,34 @@ class PlanningContextMixin:
                 "failed to bind planner wait to Manager control revision",
                 exc_info=True,
             )
+        now = time.time()
         payload = {
-            "version": 1,
-            "objective_fingerprint": self._planner_waiting_objective_fingerprint(),
+            "version": 2,
+            "objective": str(getattr(self.config, "continuous_objective", "") or ""),
             "runtime_revision": self._planner_waiting_runtime_revision(),
             "blocker_fingerprint": blocker_fingerprint,
             "recheck_condition": recheck_condition,
             "recheck_token": recheck_token,
-            "stage_reconciliation_required": bool(
-                getattr(contract, "stage_reconciliation_required", False)
-            ),
-            "operator_action_required": operator_action_required,
-            "allow_verification_probe": bool(getattr(contract, "allow_verification_probe", False)),
-            "recheck_after_seconds": max(
-                0,
-                min(
-                    604800,
-                    max(
-                        _DEGRADED_WAIT_POLL_SECONDS if degraded else 0,
-                        int(getattr(contract, "recheck_after_seconds", 0) or 0),
-                    ),
-                ),
-            ),
-            "wait_mode": wait_mode,
+            "stage_reconciliation_required": bool(contract.stage_reconciliation_required),
+            "operator_action_required": bool(contract.operator_action_required),
             "wake_on": wake_on,
             "watched_paths": watched_paths,
-            "expires_at": max(
-                0.0,
-                float(getattr(contract, "expires_at", 0.0) or 0.0),
+            "expires_at": (
+                float(previous.get("expires_at") or 0.0)
+                if same_condition
+                else float(contract.expires_at or 0.0)
             ),
             **control_binding,
-            "wait_id": durable_wait_id,
-            "source_wait_id": source_wait_id,
-            "observed_revision": (
-                contract_observed_revision or current_observed_revision
-            ),
+            "wait_id": wait_id,
+            "observed_revision": observed_revision,
             "first_observed_at": (
                 float(previous.get("first_observed_at") or now) if same_condition else now
             ),
             "updated_at": now,
-            "last_probe_fingerprint": str(previous.get("last_probe_fingerprint") or ""),
-            "last_probe_token": str(previous.get("last_probe_token") or ""),
-            "last_probe_at": float(previous.get("last_probe_at") or 0.0),
-            "probed_conditions": [
-                entry
-                for entry in (previous.get("probed_conditions") or [])
-                if isinstance(entry, dict)
-            ],
-            "pending_probe": (
-                previous.get("pending_probe")
-                if isinstance(previous.get("pending_probe"), dict)
-                else None
-            ),
             "manager_resolution": (
                 previous.get("manager_resolution")
                 if same_condition and isinstance(previous.get("manager_resolution"), dict)
                 else None
-            ),
-            "resolution_retry_count": (
-                int(previous.get("resolution_retry_count") or 0) if same_condition else 0
             ),
             # The one Planner turn granted during this wait is spent when the
             # same wait is persisted again after it; handing it out afresh on
@@ -2244,121 +2077,21 @@ class PlanningContextMixin:
                 if same_condition
                 else {}
             ),
+            # Declared again after the Manager ruled on it: the turn that read
+            # the ruling is the turn the grant would give.
+            **(
+                {
+                    "idle_capacity_turn_used": True,
+                    "idle_capacity_backlog_revision": self._waiting_backlog_revision(),
+                }
+                if same_condition and isinstance(previous.get("manager_resolution"), dict)
+                else {}
+            ),
             "active": True,
         }
         if not self._write_planner_waiting_contract_state(payload):
             return None
         return payload
-
-    def _reserve_planner_waiting_contract_probe(
-        self,
-        contract: Any,
-        *,
-        item_id: str,
-    ) -> bool:
-        state = self._load_planner_waiting_contract_state()
-        if state is None:
-            return False
-        blocker_fingerprint, recheck_token = self._waiting_contract_key(contract)
-        if (
-            state.get("blocker_fingerprint") != blocker_fingerprint
-            or state.get("recheck_token") != recheck_token
-        ):
-            return False
-        state["pending_probe"] = {
-            "item_id": item_id,
-            "blocker_fingerprint": blocker_fingerprint,
-            "recheck_token": recheck_token,
-            "reserved_at": time.time(),
-        }
-        state["updated_at"] = state["pending_probe"]["reserved_at"]
-        return self._write_planner_waiting_contract_state(state)
-
-    @staticmethod
-    def _append_probed_condition(
-        state: dict[str, Any],
-        *,
-        blocker_fingerprint: str,
-        recheck_token: str,
-        probed_at: float,
-    ) -> None:
-        state["last_probe_fingerprint"] = blocker_fingerprint
-        state["last_probe_token"] = recheck_token
-        state["last_probe_at"] = probed_at
-        state["updated_at"] = state["last_probe_at"]
-        probed_conditions = [
-            entry for entry in (state.get("probed_conditions") or []) if isinstance(entry, dict)
-        ]
-        if not any(
-            entry.get("blocker_fingerprint") == blocker_fingerprint
-            and entry.get("recheck_token") == recheck_token
-            for entry in probed_conditions
-        ):
-            probed_conditions.append(
-                {
-                    "blocker_fingerprint": blocker_fingerprint,
-                    "recheck_token": recheck_token,
-                    "probed_at": probed_at,
-                }
-            )
-        state["probed_conditions"] = probed_conditions
-
-    def _finalize_planner_waiting_contract_probe(
-        self,
-        contract: Any,
-        *,
-        item_id: str,
-    ) -> bool:
-        state = self._load_planner_waiting_contract_state()
-        if state is None:
-            return False
-        blocker_fingerprint, recheck_token = self._waiting_contract_key(contract)
-        pending = state.get("pending_probe")
-        if not isinstance(pending, dict) or pending.get("item_id") != item_id:
-            return False
-        if (
-            pending.get("blocker_fingerprint") != blocker_fingerprint
-            or pending.get("recheck_token") != recheck_token
-        ):
-            return False
-        self._append_probed_condition(
-            state,
-            blocker_fingerprint=blocker_fingerprint,
-            recheck_token=recheck_token,
-            probed_at=time.time(),
-        )
-        state["pending_probe"] = None
-        return self._write_planner_waiting_contract_state(state)
-
-    def _reconcile_planner_waiting_contract_probe(
-        self,
-        state: dict[str, Any],
-    ) -> dict[str, Any] | None:
-        pending = state.get("pending_probe")
-        if not isinstance(pending, dict):
-            return state
-        item_id = str(pending.get("item_id") or "")
-        blocker_fingerprint = str(pending.get("blocker_fingerprint") or "")
-        recheck_token = str(pending.get("recheck_token") or "")
-        try:
-            item_exists = any(
-                getattr(item, "id", "") == item_id for item in self.memory.backlog.history()
-            )
-        except Exception:  # noqa: BLE001
-            log.exception("failed to reconcile pending planner verification probe")
-            return None
-        if item_exists:
-            self._append_probed_condition(
-                state,
-                blocker_fingerprint=blocker_fingerprint,
-                recheck_token=recheck_token,
-                probed_at=float(pending.get("reserved_at") or time.time()),
-            )
-        state["pending_probe"] = None
-        state["updated_at"] = time.time()
-        if not self._write_planner_waiting_contract_state(state):
-            return None
-        return state
 
     def _deactivate_planner_waiting_contract(self) -> None:
         state = self._load_planner_waiting_contract_state()
@@ -2434,49 +2167,33 @@ class PlanningContextMixin:
         state: dict[str, Any] | None,
         contract: Any,
     ) -> dict[str, Any] | None:
-        if contract is None:
+        source = state if state is not None else (
+            None if contract is None else {
+                key: getattr(contract, key)
+                for key in (
+                    "blocker_fingerprint",
+                    "recheck_condition",
+                    "recheck_token",
+                    "stage_reconciliation_required",
+                    "operator_action_required",
+                    "wake_on",
+                    "watched_paths",
+                    "expires_at",
+                )
+            }
+        )
+        if source is None:
             return None
-        source = state or {
-            "blocker_fingerprint": getattr(contract, "blocker_fingerprint", ""),
-            "recheck_condition": getattr(contract, "recheck_condition", ""),
-            "recheck_token": getattr(contract, "recheck_token", ""),
-            "stage_reconciliation_required": getattr(
-                contract,
-                "stage_reconciliation_required",
-                False,
-            ),
-            "operator_action_required": getattr(
-                contract,
-                "operator_action_required",
-                False,
-            ),
-            "allow_verification_probe": getattr(
-                contract,
-                "allow_verification_probe",
-                False,
-            ),
-            "recheck_after_seconds": getattr(
-                contract,
-                "recheck_after_seconds",
-                0,
-            ),
-            "wait_mode": getattr(contract, "wait_mode", "poll"),
-            "wake_on": list(getattr(contract, "wake_on", ()) or ()),
-            "watched_paths": list(getattr(contract, "watched_paths", ()) or ()),
-            "expires_at": getattr(contract, "expires_at", 0.0),
-        }
         return {
-            key: source.get(key)
-            for key in (
+            key: list(value) if isinstance(value, tuple) else value
+            for key, value in source.items()
+            if key in {
                 "blocker_fingerprint",
                 "recheck_condition",
                 "recheck_token",
                 "runtime_revision",
                 "stage_reconciliation_required",
                 "operator_action_required",
-                "allow_verification_probe",
-                "recheck_after_seconds",
-                "wait_mode",
                 "wake_on",
                 "watched_paths",
                 "expires_at",
@@ -2489,9 +2206,7 @@ class PlanningContextMixin:
                 "superseded_by_runtime_revision",
                 "wake_reason",
                 "first_observed_at",
-                "last_probe_at",
-            )
-            if key in source
+            }
         }
 
     def _planner_waiting_contract_runtime_note(self) -> str:
@@ -2499,155 +2214,20 @@ class PlanningContextMixin:
         if state is None or not bool(state.get("active")):
             return ""
         return (
-            "PERSISTED PLANNER WAITING CONTRACT (authored by your prior verdict):\n"
-            f"- recheck_token: {state['recheck_token']}\n"
-            f"- recheck_condition: {state.get('recheck_condition') or ''}\n"
-            f"- wait_mode: {state.get('wait_mode') or 'poll'}\n"
-            f"- wake_on: {state.get('wake_on') or []}\n"
+            "PERSISTED PLANNER WAIT (your prior verdict):\n"
+            f"- WAIT: {state.get('recheck_condition') or ''}\n"
+            f"- the Host watches: {', '.join(state.get('wake_on') or []) or 'nothing'}\n"
             "- stage_reconciliation_required: "
             f"{bool(state.get('stage_reconciliation_required'))}\n"
             "- operator_action_required: "
             f"{bool(state.get('operator_action_required'))}\n"
-            f"- last_probe_at: {state.get('last_probe_at') or 0}\n"
-            "If current evidence does not satisfy the declared recheck condition, "
-            "reuse the same blocker semantics and token with waiting=true and do not "
-            "queue an equivalent polling task. Change the token only when concrete "
-            "current evidence changes; the harness does not infer that change. "
-            "While the named wait is in progress, is there a concrete uncertainty "
-            "whose answer could change the route and can be resolved without the "
-            "awaited result? If yes, schedule that information-gaining work; otherwise "
-            "wait."
+            "If current evidence does not satisfy it, wait again with the same WAIT "
+            "sentence and do not queue an equivalent polling task; change the "
+            "sentence only when concrete current evidence changes. While the named "
+            "wait is in progress, is there a concrete uncertainty whose answer could "
+            "change the route and can be resolved without the awaited result? If "
+            "yes, schedule that information-gaining work; otherwise wait."
         )
-
-    def _maybe_dispatch_verification_probe(self, verdict: Any) -> bool:
-        """Stall-breaker: after K consecutive idle cycles on the same external
-        dependency, enqueue ONE domain-agnostic verification-probe mission so the
-        agent TESTS its (possibly stale) belief against CURRENT reality.
-
-        Returns True iff a probe was enqueued (caller runs it on the next tick).
-        This does NOT judge the environment or override the planner's research
-        judgment — it forces the agent to gather first-hand evidence so reality,
-        not a memory of the blocker, drives the next decision.
-        """
-        n = int(getattr(self, "_consecutive_idle_planner_cycles", 0))
-        if n < VERIFICATION_PROBE_AFTER_IDLE_CYCLES:
-            return False
-        contract = getattr(verdict, "waiting_contract", None)
-        contract_state = None
-        if contract is not None:
-            contract_state = self._load_planner_waiting_contract_state()
-            if contract_state is None:
-                return False
-            contract_state = self._reconcile_planner_waiting_contract_probe(contract_state)
-            if contract_state is None:
-                return False
-            blocker_fingerprint, recheck_token = self._waiting_contract_key(contract)
-            if (
-                contract_state.get("blocker_fingerprint") != blocker_fingerprint
-                or contract_state.get("recheck_token") != recheck_token
-                or not bool(contract_state.get("allow_verification_probe"))
-            ):
-                return False
-            if time.time() < float(contract_state.get("first_observed_at") or 0.0) + float(
-                contract_state.get("recheck_after_seconds") or 0.0
-            ):
-                return False
-            if any(
-                isinstance(entry, dict)
-                and entry.get("blocker_fingerprint") == blocker_fingerprint
-                and entry.get("recheck_token") == recheck_token
-                for entry in (contract_state.get("probed_conditions") or [])
-            ):
-                return False
-        now = time.monotonic()
-        if (now - getattr(self, "_last_verification_probe_at", 0.0)) < (
-            VERIFICATION_PROBE_COOLDOWN_SECONDS
-        ):
-            return False
-        # Never stack a second probe while one is still pending/running.
-        try:
-            for it in self.memory.backlog.active():
-                if "verification_probe" in (getattr(it, "tags", []) or []) and getattr(
-                    it, "status", ""
-                ) in ("pending", "running"):
-                    return False
-        except Exception:  # noqa: BLE001
-            log.exception("verification-probe dedup scan failed; skipping probe")
-            return False
-        reason = (
-            getattr(verdict, "waiting_reason", "")
-            or getattr(verdict, "reason", "")
-            or "an external dependency"
-        )
-        item = BacklogItem.new(
-            title="verification probe: re-test the recorded external blocker",
-            objective=(
-                "Verification-probe mission, dispatched by the harness after the "
-                f"planner idled {n} consecutive cycles concluding it was blocked. "
-                "Do NOT trust the journal's record of the blocker as still current. "
-                f'The recorded blocker was: "{reason}". RIGHT NOW, actually attempt '
-                "the blocked action — or run the single cheapest decisive probe of "
-                "it — and report the REAL present outcome with concrete first-hand "
-                "evidence (command output, file existence, an actual score/metric). "
-                "State plainly whether it is STILL blocked or has CLEARED. If it has "
-                "cleared, perform or unblock the smallest concrete next step. This is "
-                "a perception check, not make-work: completion is judged solely by "
-                "whether you produced fresh first-hand evidence of the blocker's "
-                "current state."
-            ),
-            priority=50,
-            tags=["planner", "scope:bounded", "life", "verification_probe"],
-            iterate=True,
-            iteration_max_cycles=1,
-        )
-        try:
-            contract_state_before_probe = None
-            if contract is not None:
-                contract_state_before_probe = json.loads(json.dumps(contract_state))
-                if not self._reserve_planner_waiting_contract_probe(
-                    contract,
-                    item_id=item.id,
-                ):
-                    log.error(
-                        "verification probe was not enqueued because its waiting "
-                        "contract could not be reserved"
-                    )
-                    return False
-            self.memory.backlog.add(item)
-        except Exception:  # noqa: BLE001
-            if contract_state_before_probe is not None:
-                self._write_planner_waiting_contract_state(contract_state_before_probe)
-            log.exception("failed to enqueue verification probe; continuing")
-            return False
-        self._last_verification_probe_at = now
-        if contract is not None:
-            if not self._finalize_planner_waiting_contract_probe(
-                contract,
-                item_id=item.id,
-            ):
-                log.warning(
-                    "verification probe is durable but its contract reservation "
-                    "will require restart reconciliation"
-                )
-            contract_state = self._load_planner_waiting_contract_state()
-        # Reset the idle counter so we don't immediately re-escalate before the
-        # probe's real result lands in the event timeline (a real mission run
-        # also resets it via _reset_idle_backoff()).
-        self._consecutive_idle_planner_cycles = 0
-        self._suggested_sleep_s = 0.0
-        self._emit(
-            {
-                "type": EventType.LIFE_PLANNER_VERIFICATION_PROBE,
-                "cycle": self._planning_cycles,
-                "reason": reason,
-                "idle_cycles": n,
-                "waiting_contract": self._waiting_contract_event_payload(
-                    contract_state,
-                    contract,
-                ),
-            }
-        )
-        return True
 
     def _update_no_progress_streak(self, *, kind: str, report: Any) -> None:
         """Track consecutive 'completed but no forward progress' missions and,

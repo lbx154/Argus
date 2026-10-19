@@ -473,7 +473,7 @@ PREVIOUS_ANSWER:
 - 对外部算法或系统，检查一手来源依据。Wiki 和 Skills 是起始上下文，不是边界；只要新的论文、源码、issue 或硬件调查可能改变决策，就允许进行。相关尝试反复失败时，重新检查一手论文和官方实现。性能诊断需要代码路径证据以及 timing/profiling 或受控比较。
 - `project_done=true` 表示操作员目标确实完成，不是某次尝试结束。
 - 工作决策包含 `project_done`、`reason` 和 `tasks`。任务使用 `key`、`deps`、`title`、`objective`，验收、并行、路径和 `vertical` 按需添加。省略 `vertical` 表示继承 Manager 首次选择的 campaign vertical；只有另一现有角色明显更适合该节点时才设置。
-- 真实外部 blocker 使用 `waiting`、`blocker_fingerprint`、`recheck_condition` 和 `recheck_token`。绝不能轮询被监视的持久任务。
+- 真实外部 blocker 用 `WAITING=true` 加一句 `WAIT=<要发生什么>`，写出宿主能看到的在跑任务 id 或项目路径；宿主据此绑定唤醒源，看不到的等待交给 Manager。绝不能轮询被监视的持久任务。
 - Host 负责 workdir、scope、review、阶段转换、上下文和 Skill。
 - REASON 和 PLAN_REASON 面向操作员；使用操作员的语言，用一句清晰的话说明做了什么决定及其下一步影响，值中不要输出字段名或状态 token。决定明确后立即发送：
   `ARGUS_ROLE_DECISION={"role":"planner","payload":{"project_done":false,"reason":"原因","tasks":[{"key":"task-key","deps":[],"title":"标题","objective":"工作和决定性检查"}]}}`

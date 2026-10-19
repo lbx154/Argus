@@ -147,27 +147,27 @@ class TaskSpec:
 
 @dataclass(frozen=True)
 class WaitingContract:
-    """Planner-authored durable identity and recheck policy for one blocker."""
+    """What the Planner waits for, and the source the host watches for it.
 
-    blocker_fingerprint: str
+    The Planner writes only ``recheck_condition`` -- its ``WAIT`` sentence --
+    and the two authority flags. Everything below them is the host's binding,
+    read from facts it observes (see ``_bind_planner_wait``).
+    """
+
     recheck_condition: str
-    recheck_token: str
-    allow_verification_probe: bool = False
-    recheck_after_seconds: int = 0
     stage_reconciliation_required: bool = False
-    wait_mode: str = "poll"
-    wake_on: tuple[str, ...] = ()
-    watched_paths: tuple[str, ...] = ()
-    expires_at: float = 0.0
-    observed_revision: str = ""
-    # Optional registry identity named by the Planner. The Host resolves it
-    # against observed external-work records before selecting a subagent wake
-    # source; it is never trusted as a filesystem path.
-    wait_id: str = ""
     # True when only fresh operator input can change the blocker (for example,
     # new credentials, a scope choice, or authorization for an additional
     # mission/thesis).  Manager owns stage transitions, not operator scope.
     operator_action_required: bool = False
+    blocker_fingerprint: str = ""
+    recheck_token: str = ""
+    wake_on: tuple[str, ...] = ()
+    watched_paths: tuple[str, ...] = ()
+    expires_at: float = 0.0
+    observed_revision: str = ""
+    # A registered external-work id the binding resolved, if any.
+    wait_id: str = ""
 
 
 @dataclass(frozen=True)
@@ -615,18 +615,9 @@ _GLOBAL_KEY_VALUE_KEYS = (
     "RETIRE_TASK",
     "WAITING",
     "WAITING_REASON",
-    "BLOCKER_FINGERPRINT",
-    "RECHECK_CONDITION",
-    "RECHECK_TOKEN",
-    "ALLOW_VERIFICATION_PROBE",
-    "RECHECK_AFTER_SECONDS",
+    "WAIT",
     "STAGE_RECONCILIATION_REQUIRED",
     "OPERATOR_ACTION_REQUIRED",
-    "WAIT_MODE",
-    "WAKE_ON",
-    "WATCHED_PATHS",
-    "EXPIRES_AT",
-    "WAIT_ID",
     "PLAN_UPDATE",
 )
 _TASK_KEY_VALUE_FIELDS = (
@@ -762,13 +753,6 @@ def _key_value_int(raw: str, default: int = 0) -> int:
         return default
 
 
-def _key_value_float(raw: str, default: float = 0.0) -> float:
-    try:
-        return float(str(raw or "").strip())
-    except ValueError:
-        return default
-
-
 def _normalize_task_scope(raw: object) -> tuple[str, bool]:
     """Return a safe scope plus whether a supplied value was normalized."""
     value = str(raw or "").strip()
@@ -896,17 +880,14 @@ def _build_no_task_repair_prompt(
         "for this handoff; otherwise delegate justified, authorized work or declare "
         "a real external blocker.\n"
         "- For the certified handoff, emit the structured waiting footer below, "
-        "with no TASK_*, RETIRE_TASK or ADVANCE_TO_STAGE fields and no watched paths. "
+        "with no TASK_*, RETIRE_TASK or ADVANCE_TO_STAGE fields. "
         "State acceptance of the current certification and explicitly end REASON "
         "with waiting for new operator direction (in the operator's language):\n"
         "PROJECT_DONE=false\nWAITING=true\n"
         "REASON=Current final certification is accepted; waiting for new explicit "
         "operator direction.\n"
-        "BLOCKER_FINGERPRINT=new-operator-direction\n"
-        "RECHECK_CONDITION=New explicit operator instruction arrives\n"
-        "RECHECK_TOKEN=<current certified increment reference>\n"
-        "OPERATOR_ACTION_REQUIRED=true\nWAIT_MODE=event\nWAKE_ON=operator_input\n"
-        "ALLOW_VERIFICATION_PROBE=false\nSTAGE_RECONCILIATION_REQUIRED=false\n"
+        "WAIT=New explicit operator instruction arrives\n"
+        "OPERATOR_ACTION_REQUIRED=true\n"
         if open_ended
         else "- Set `project_done=true` only when the operator objective is complete.\n"
     )
@@ -925,11 +906,10 @@ def _build_no_task_repair_prompt(
         "Parallel tasks require disjoint owns_paths.\n"
         "- If the project is intentionally blocked on a live external condition, "
         "including background work launched by Argus, return `PROJECT_DONE=false`, "
-        "`WAITING=true` and no `TASK_*` blocks. Blocker fields alone do not declare "
-        "waiting. Keep the durable blocker fingerprint, recheck condition and run "
-        "token; use `WAIT_MODE=event`, `WAKE_ON=subagent_state` and "
-        "`WAIT_ID=<live subagent id>` for in-flight subagent work. Do not invent "
-        "dependent tasks while waiting for that work.\n"
+        "`WAITING=true`, no `TASK_*` blocks and `WAIT=<what must happen>`, naming "
+        "the live work id for in-flight subagent work; a WAIT sentence alone does "
+        "not declare waiting. Do not invent dependent tasks while waiting for "
+        "that work.\n"
         "- Do not repeat the rejected launch slogan. Say what failed, why, and what "
         "should happen next.\n\n"
         "For authorized work, use a task footer instead of the waiting footer:\n"
@@ -1031,49 +1011,19 @@ def parse_planner_payload(payload: Mapping[str, Any]) -> PlannerVerdict:
         waiting_reason = text(waiting_fields, "waiting_reason")
         waiting_contract = None
         if waiting:
-            fingerprint = text(waiting_fields, "blocker_fingerprint").strip()
-            condition = text(waiting_fields, "recheck_condition").strip()
-            token = text(waiting_fields, "recheck_token").strip()
-            operator_action_required = boolean(
-                waiting_fields, "operator_action_required"
+            # Only the sentence and the two authority flags are the Planner's;
+            # any other wait field an older prompt taught it is ignored.
+            waiting_contract = WaitingContract(
+                recheck_condition=(
+                    text(waiting_fields, "wait") or waiting_reason or reason
+                ).strip(),
+                stage_reconciliation_required=boolean(
+                    waiting_fields, "stage_reconciliation_required"
+                ),
+                operator_action_required=boolean(
+                    waiting_fields, "operator_action_required"
+                ),
             )
-            wait_mode = text(waiting_fields, "wait_mode").strip().lower() or "poll"
-            wake_on = tuple(items(waiting_fields.get("wake_on", []), "wake_on"))
-            if operator_action_required and wait_mode == "poll":
-                wait_mode = "event"
-                wake_on = wake_on or ("authorization",)
-            recheck_after = waiting_fields.get("recheck_after_seconds", 0)
-            if isinstance(recheck_after, bool) or not isinstance(recheck_after, int):
-                raise TypeError("recheck_after_seconds must be an integer")
-            expires_at = waiting_fields.get("expires_at", 0.0)
-            if isinstance(expires_at, bool) or not isinstance(
-                expires_at, (int, float)
-            ):
-                raise TypeError("expires_at must be a number")
-            if fingerprint and condition and token:
-                waiting_contract = WaitingContract(
-                    blocker_fingerprint=fingerprint,
-                    recheck_condition=condition,
-                    recheck_token=token,
-                    allow_verification_probe=boolean(
-                        waiting_fields, "allow_verification_probe"
-                    ),
-                    recheck_after_seconds=max(0, recheck_after),
-                    stage_reconciliation_required=boolean(
-                        waiting_fields, "stage_reconciliation_required"
-                    ),
-                    operator_action_required=operator_action_required,
-                    wait_mode=wait_mode,
-                    wake_on=wake_on,
-                    watched_paths=tuple(
-                        items(
-                            waiting_fields.get("watched_paths", []),
-                            "watched_paths",
-                        )
-                    ),
-                    expires_at=max(0.0, float(expires_at)),
-                    wait_id=text(waiting_fields, "wait_id").strip(),
-                )
 
         raw_tasks = payload.get("tasks", payload.get("new_tasks", []))
         if not isinstance(raw_tasks, list):
@@ -1273,52 +1223,19 @@ def _planner_verdict_from_fields(
     waiting = _key_value_bool(values.get("WAITING", ""))
     waiting_contract = None
     if waiting:
-        fingerprint = values.get("BLOCKER_FINGERPRINT", "").strip()
-        condition = values.get("RECHECK_CONDITION", "").strip()
-        token = values.get("RECHECK_TOKEN", "").strip()
-        if fingerprint and condition and token:
-            operator_action_required = _key_value_bool(
+        waiting_contract = WaitingContract(
+            recheck_condition=(
+                values.get("WAIT")
+                or values.get("WAITING_REASON")
+                or reason
+            ).strip(),
+            stage_reconciliation_required=_key_value_bool(
+                values.get("STAGE_RECONCILIATION_REQUIRED", "")
+            ),
+            operator_action_required=_key_value_bool(
                 values.get("OPERATOR_ACTION_REQUIRED", "")
-            )
-            wait_mode = (
-                values.get("WAIT_MODE", "poll") or "poll"
-            ).strip().lower()
-            wake_on = tuple(
-                item.strip()
-                for item in values.get("WAKE_ON", "").split(",")
-                if item.strip()
-            )
-            if operator_action_required and wait_mode == "poll":
-                wait_mode = "event"
-                wake_on = wake_on or ("authorization",)
-            waiting_contract = WaitingContract(
-                blocker_fingerprint=fingerprint,
-                recheck_condition=condition,
-                recheck_token=token,
-                allow_verification_probe=_key_value_bool(
-                    values.get("ALLOW_VERIFICATION_PROBE", "")
-                ),
-                recheck_after_seconds=max(
-                    0,
-                    _key_value_int(values.get("RECHECK_AFTER_SECONDS", "")),
-                ),
-                stage_reconciliation_required=_key_value_bool(
-                    values.get("STAGE_RECONCILIATION_REQUIRED", "")
-                ),
-                operator_action_required=operator_action_required,
-                wait_mode=wait_mode,
-                wake_on=wake_on,
-                watched_paths=tuple(
-                    item.strip()
-                    for item in values.get("WATCHED_PATHS", "").split(",")
-                    if item.strip()
-                ),
-                expires_at=max(
-                    0.0,
-                    _key_value_float(values.get("EXPIRES_AT", "")),
-                ),
-                wait_id=values.get("WAIT_ID", "").strip(),
-            )
+            ),
+        )
 
     new_tasks: list[TaskSpec] = []
     for task_index, row in enumerate(task_rows):
