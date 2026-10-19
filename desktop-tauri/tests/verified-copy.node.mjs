@@ -2,9 +2,8 @@ import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
-import { createHash } from 'node:crypto';
 import test from 'node:test';
-import { copyVerified } from '../scripts/verified-copy.mjs';
+import { copyVerified, sameBytes } from '../scripts/verified-copy.mjs';
 
 function fixture(t) {
   const root = fs.mkdtempSync(path.join(os.tmpdir(), 'argus-copy-test-'));
@@ -23,17 +22,24 @@ test('staging copies binary, empty and Unicode-named nested files without losing
   assert.equal(fs.statSync(path.join(target, 'empty')).size, 0);
   assert.equal(result.files, 2);
   assert.equal(result.bytes, bytes.length);
-  assert.equal(result.sha256.length, 64);
   assert.deepEqual(copyVerified(source, path.join(root, 'another')), result);
 });
 
-test('single-file digest describes actual destination bytes', t => {
+test('a single staged file holds exactly its input bytes', t => {
   const root = fixture(t), source = path.join(root, 'input'), target = path.join(root, 'output');
   const bytes = Buffer.from([0, 80, 75, 255, 0, 17]);
   fs.writeFileSync(source, bytes);
-  const result = copyVerified(source, target);
-  assert.equal(result.sha256, createHash('sha256').update(bytes).digest('hex'));
-  assert.equal(result.bytes, bytes.length);
+  assert.deepEqual(copyVerified(source, target), { files: 1, bytes: bytes.length });
+  assert.deepEqual(fs.readFileSync(target), bytes);
+});
+
+test('byte comparison tells equal files from same-size and different-size ones', t => {
+  const root = fixture(t), [a, b, c, d] = ['a', 'b', 'c', 'd'].map(name => path.join(root, name));
+  fs.writeFileSync(a, 'same bytes'); fs.writeFileSync(b, 'same bytes');
+  fs.writeFileSync(c, 'same bytez'); fs.writeFileSync(d, 'same bytes!');
+  assert.equal(sameBytes(a, b), true);
+  assert.equal(sameBytes(a, c), false);
+  assert.equal(sameBytes(a, d), false);
 });
 
 test('staging refuses to overwrite an existing destination', t => {

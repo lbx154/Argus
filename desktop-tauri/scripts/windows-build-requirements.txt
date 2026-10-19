@@ -1,7 +1,7 @@
-# Windows build tools only; application/test dependencies remain in uv.lock.
-# Freezer pins match the accepted Windows preview tooling. Support pins match
-# uv.lock; editables pins Hatchling's dynamic editable-build dependency from
-# the accepted public tooling cache, without upgrading application packages.
+# Windows build tools only; application/test dependencies come from pyproject.toml.
+# Freezer and support pins match the accepted Windows preview tooling; editables
+# pins Hatchling's dynamic editable-build dependency from the accepted public
+# tooling cache, without upgrading application packages.
 # Install with --no-deps, then check the complete environment before building.
 altgraph==0.17.5
 editables==0.6

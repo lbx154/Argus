@@ -148,7 +148,6 @@ let piConfiguration: PiConfiguration = { configDir: '' };
 let releaseIdentity: DesktopReleaseIdentity = {
   packageVersion: 'unknown',
   releaseId: 'unknown',
-  sourceDigest: '',
   distribution: 'development',
 };
 let runtimeIdentity: DesktopRuntimeIdentity = { state: 'idle' };

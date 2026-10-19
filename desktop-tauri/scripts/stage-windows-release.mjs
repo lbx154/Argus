@@ -1,6 +1,5 @@
 import fs from 'node:fs';
 import path from 'node:path';
-import { createHash } from 'node:crypto';
 import { fileURLToPath } from 'node:url';
 import { copyVerified } from './verified-copy.mjs';
 import { verifyTauriSignature } from './verify-updater-signature.mjs';
@@ -64,8 +63,9 @@ export function windowsBundleDirectory(root = desktop, env = process.env) {
 }
 
 /** Publish locally into a NEW directory only. Missing/invalid signatures never
- * clear a previous release, and latest.json is written only after copied bytes
- * have independently passed public-key verification.
+ * clear a previous release, and latest.json is written only after the staged
+ * copy matches its input byte for byte and has independently passed
+ * public-key verification.
  */
 export function stageWindowsRelease({
   desktopRoot = desktop, bundleDir, outputDir, notes, now = new Date(),
@@ -114,21 +114,14 @@ export function stageWindowsRelease({
   noLinkedParents(output);
   fs.mkdirSync(output);
   const copied = copyVerified(input, path.join(output, installerName));
-  const copiedSignature = copyVerified(input + '.sig', path.join(output, signatureName));
+  copyVerified(input + '.sig', path.join(output, signatureName));
   const stagedSignature = smallText(path.join(output, signatureName), 8192);
-  const staged = verifyTauriSignature(path.join(output, installerName), stagedSignature, config.plugins.updater.pubkey);
-  if (copied.sha256 !== verified.sha256 || staged.sha256 !== verified.sha256 || stagedSignature !== signature) {
+  verifyTauriSignature(path.join(output, installerName), stagedSignature, config.plugins.updater.pubkey);
+  if (copied.bytes !== verified.bytes || stagedSignature !== signature) {
     throw new Error('Release inputs changed during staging; no update manifest was produced.');
   }
-  const manifestText = JSON.stringify(manifest, null, 2) + '\n';
-  const manifestDigest = createHash('sha256').update(manifestText).digest('hex');
-  writeNew(path.join(output, 'SHA256SUMS'), [
-    `${staged.sha256}  ${installerName}`,
-    `${copiedSignature.sha256}  ${signatureName}`,
-    `${manifestDigest}  latest.json`,
-  ].join('\n') + '\n');
-  writeNew(path.join(output, 'latest.json'), manifestText);
-  return { version, output, installer: installerName, bytes: staged.bytes, sha256: staged.sha256, signature_verified: true };
+  writeNew(path.join(output, 'latest.json'), JSON.stringify(manifest, null, 2) + '\n');
+  return { version, output, installer: installerName, bytes: copied.bytes, signature_verified: true };
 }
 
 export function main(args = process.argv.slice(2)) {

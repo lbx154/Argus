@@ -2,7 +2,6 @@
 from __future__ import annotations
 
 import argparse
-import hashlib
 import json
 import zipfile
 from pathlib import Path
@@ -41,6 +40,7 @@ def main():
             for line in wheel.read(metadata).decode("utf-8").splitlines()
             if line.startswith("Version:")
         )
+        commit = json.loads(wheel.read("argus/release_manifest.json")).get("git_commit") or "unknown"
     assert wheel_version == version
     installers = [assets / f"Argus-{version}-setup.exe",
                   assets / f"Argus-{version}-macos-aarch64.dmg",
@@ -50,11 +50,9 @@ def main():
     assert all(path.is_file() for path in installers)
     manifest["notes"] = "更清晰的日夜图标、自适应任务标题、试用 Key 更换入口，以及输入框下方的后端和模型显示。"
     (assets / "latest.json").write_text(json.dumps(manifest, indent=2) + "\n")
-    hashes = []
-    for path in sorted(assets.iterdir()):
-        if path.is_file() and path.name != "SHA256SUMS":
-            hashes.append(f"{hashlib.file_digest(path.open('rb'), 'sha256').hexdigest()}  {path.name}")
-    (assets / "SHA256SUMS").write_text("\n".join(hashes) + "\n")
+    sizes = "\n".join(
+        f"| `{path.name}` | {path.stat().st_size} |" for path in sorted(assets.iterdir()) if path.is_file()
+    )
     args.notes.write_text(f"""## Argus {version} · Windows, Mac & Linux
 
 - 日夜切换改用清晰的线条太阳 / 月亮图标，便于与设置齿轮区分。
@@ -83,9 +81,12 @@ Keys are distributed privately; none are embedded in these packages.
 The Mac build is for internal testing and is not Apple Developer ID notarized.
 If macOS blocks first launch, use **System Settings → Privacy & Security → Open Anyway**.
 Desktop updater packages for all four architecture targets carry the existing Argus updater signature.
-`SHA256SUMS` lists the downloadable artifact checksums.
 
-Package version: `{wheel_version}`.
+Package version: `{wheel_version}`, built from commit `{commit}`.
+
+| File | Bytes |
+|---|---|
+{sizes}
 """, encoding="utf-8")
     print(f"Prepared {version} with Windows, both Mac architectures and Linux updater targets")
 

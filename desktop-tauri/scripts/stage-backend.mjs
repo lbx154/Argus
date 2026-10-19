@@ -1,8 +1,7 @@
 import fs from 'node:fs';
 import path from 'node:path';
-import { createHash } from 'node:crypto';
 import { fileURLToPath } from 'node:url';
-import { copyVerified } from './verified-copy.mjs';
+import { copyVerified, sameBytes } from './verified-copy.mjs';
 
 const desktop = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 
@@ -17,7 +16,7 @@ function noLinks(filename) {
   }
 }
 
-function inventory(root, { placeholder = false } = {}) {
+function inventory(root, { placeholder = false, stamps = false } = {}) {
   const files = [];
   function visit(directory, relative = '') {
     for (const name of fs.readdirSync(directory).sort()) {
@@ -28,36 +27,18 @@ function inventory(root, { placeholder = false } = {}) {
       if (stat.isSymbolicLink()) throw new Error('Backend staging refuses linked payloads.');
       if (stat.isDirectory()) { files.push([entry + '/', 'directory']); visit(filename, entry); continue; }
       if (!stat.isFile()) throw new Error('Backend payload must contain only regular files.');
-      const input = fs.openSync(filename, 'r');
-      const hash = createHash('sha256');
-      let bytes = 0;
-      try {
-        // Windows path-stat and handle-stat APIs can expose different file-ID
-        // representations. Compare each API with itself across the read, not
-        // an lstat inode with an fstat inode; still reject replacements/links.
-        const before = fs.fstatSync(input, { bigint: true });
-        if (!before.isFile() || before.size !== stat.size) throw new Error('Backend input changed before verification.');
-        const buffer = Buffer.allocUnsafe(1024 * 1024);
-        let count;
-        while ((count = fs.readSync(input, buffer, 0, buffer.length, null)) > 0) {
-          bytes += count; hash.update(buffer.subarray(0, count));
-        }
-        const after = fs.fstatSync(input, { bigint: true });
-        const currentPath = fs.lstatSync(filename, { bigint: true });
-        const same = (a, b) => ['dev', 'ino', 'size', 'mtimeNs', 'ctimeNs'].every(name => a[name] === b[name]);
-        if (!same(before, after) || BigInt(bytes) !== before.size) {
-          throw new Error('Backend input changed during verification (handle metadata).');
-        }
-        if (!currentPath.isFile() || currentPath.isSymbolicLink() || !same(stat, currentPath)) {
-          throw new Error('Backend input changed during verification (path metadata).');
-        }
-      } finally { fs.closeSync(input); }
-      files.push([entry, bytes, hash.digest('hex')]);
+      // Stamps show a source file rewritten mid-stage; a copy has its own.
+      files.push(stamps ? [entry, String(stat.size), String(stat.mtimeNs), String(stat.ctimeNs)] : [entry, String(stat.size)]);
     }
   }
   noLinks(root);
   visit(root);
   return files;
+}
+
+function sameFiles(source, destination, entries) {
+  return entries.every(([entry, size]) => size === 'directory'
+    || sameBytes(path.join(source, entry), path.join(destination, entry)));
 }
 
 /** Never erase a previous payload. A byte-identical prepared backend can be
@@ -73,9 +54,12 @@ export function stageBackend({ source = path.join(desktop, 'build/argus-backend'
   if (!fs.statSync(path.join(source, 'argus-backend.exe')).isFile()) throw new Error('Frozen Windows backend is missing.');
   const expected = inventory(source);
   const encoded = JSON.stringify(expected);
+  const stamped = JSON.stringify(inventory(source, { stamps: true }));
   if (fs.existsSync(destination)) {
     const current = inventory(destination, { placeholder: true });
-    if (JSON.stringify(current) === encoded) return { reused: true, entries: expected.length };
+    if (JSON.stringify(current) === encoded && sameFiles(source, destination, expected)) {
+      return { reused: true, entries: expected.length };
+    }
     if (current.length) throw new Error('Prepared backend differs; use a fresh output directory. Existing files were preserved.');
   } else {
     fs.mkdirSync(path.dirname(destination), { recursive: true });
@@ -83,11 +67,11 @@ export function stageBackend({ source = path.join(desktop, 'build/argus-backend'
     fs.mkdirSync(destination);
   }
   for (const name of fs.readdirSync(source).sort()) copyVerified(path.join(source, name), path.join(destination, name));
-  if (JSON.stringify(inventory(source)) !== encoded
+  if (JSON.stringify(inventory(source, { stamps: true })) !== stamped
       || JSON.stringify(inventory(destination, { placeholder: true })) !== encoded) {
     throw new Error('Backend payload changed or its staged bytes do not match.');
   }
-  return { reused: false, entries: expected.length, sha256: createHash('sha256').update(encoded).digest('hex') };
+  return { reused: false, entries: expected.length };
 }
 
 if (process.argv[1] && path.resolve(process.argv[1]) === fileURLToPath(import.meta.url)) {

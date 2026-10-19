@@ -3,7 +3,6 @@ from __future__ import annotations
 
 import json
 import re
-import tomllib
 from pathlib import Path
 
 import yaml
@@ -60,12 +59,12 @@ def test_windows_toolchain_pins_leave_other_platform_inputs_unchanged():
     assert 'python -m pip install -e ".[trial]" "pyinstaller>=6.11,<7" tzdata' == other["run"]
 
 
-def test_windows_dependencies_are_frozen_and_build_isolation_cannot_resolve_new_tools():
-    step = _step("Install frozen Windows build dependencies")
+def test_windows_build_isolation_cannot_resolve_new_tools():
+    step = _step("Install Windows build dependencies")
     assert step["if"] == "runner.os == 'Windows'"
     assert step["env"]["UV_PYTHON_DOWNLOADS"] == "never"
     script = step["run"]
-    assert "uv sync --frozen --extra dev --extra trial --no-install-project --python 3.11.9" in script
+    assert "uv sync --extra dev --extra trial --no-install-project --python 3.11.9" in script
     assert "--no-deps -r desktop-tauri/scripts/windows-build-requirements.txt" in script
     assert "--no-deps --no-build-isolation --editable ." in script
     assert "uv pip check --python .venv/Scripts/python.exe" in script
@@ -78,7 +77,7 @@ def test_windows_dependencies_are_frozen_and_build_isolation_cannot_resolve_new_
         assert f"npm --prefix {package} ci" in frontend
 
 
-def test_windows_build_tool_pins_match_existing_locked_support_packages():
+def test_windows_build_tool_pins_are_exact():
     path = ROOT / "desktop-tauri/scripts/windows-build-requirements.txt"
     pins = {}
     for line in path.read_text(encoding="utf-8").splitlines():
@@ -92,9 +91,6 @@ def test_windows_build_tool_pins_match_existing_locked_support_packages():
     assert pins["pyinstaller-hooks-contrib"] == "2026.7"
     # --no-build-isolation also needs Hatchling's dynamic editable hook input.
     assert pins["editables"] == "0.6"
-    locked = tomllib.loads((ROOT / "uv.lock").read_text(encoding="utf-8"))["package"]
-    for name in ("hatchling", "packaging", "pathspec", "pluggy", "tomlkit", "trove-classifiers"):
-        assert pins[name] == next(package["version"] for package in locked if package["name"] == name)
 
 
 def test_windows_tauri_build_passes_locked_to_cargo_after_tauri_options():

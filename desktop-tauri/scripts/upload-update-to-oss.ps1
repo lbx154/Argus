@@ -62,7 +62,7 @@ try {
     & $OssUtil cp -f $manifestPath "$remote/latest.json" --headers "Cache-Control:no-cache, no-store, must-revalidate"
     if ($LASTEXITCODE -ne 0) { throw "ossutil failed to upload latest.json" }
 
-    Write-Host "Uploaded signed update mirror for $ReleaseTag. Verify SHA-256 of each .exe against GitHub before adding the OSS endpoint to a release build."
+    Write-Host "Uploaded signed update mirror for $ReleaseTag. Check that each .exe on OSS has the same byte size as on GitHub before adding the OSS endpoint to a release build."
 }
 finally {
     Remove-Item -LiteralPath $stage -Recurse -Force -ErrorAction SilentlyContinue
