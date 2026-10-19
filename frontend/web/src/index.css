@@ -863,3 +863,8 @@ button {
 .app-brand-image .app-brand-dark { display: none; }
 [data-theme="dark"] .app-brand-image .app-brand-light { display: none; }
 [data-theme="dark"] .app-brand-image .app-brand-dark { display: block; }
+
+/* A project that is working breathes in the list; a stopped one is still. */
+[data-live='true'] { animation: status-dot-breathe 1.8s ease-in-out infinite; }
+@keyframes status-dot-breathe { 0%, 100% { box-shadow: 0 0 0 0 rgb(var(--ok) / .55); } 50% { box-shadow: 0 0 0 4px rgb(var(--ok) / 0); } }
+@media (prefers-reduced-motion: reduce) { [data-live='true'] { animation: none; } }

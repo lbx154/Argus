@@ -7,6 +7,7 @@ import logging
 import time
 from typing import Any
 
+from ...core.autonomy import AUTOMATIC_RETRY_WINDOW_SECONDS
 from ...core.event_catalog import EventType
 from ...core.planner_verdict import PlannerVerdictStatus
 from ._constants import (
@@ -813,6 +814,7 @@ class PlanningCycleMixin(
             if same_contract and contract_state is not None
             else None
         )
+        readjudicating = False
         if isinstance(existing_resolution, dict):
             resolution_retries = int(
                 contract_state.get("resolution_retry_count") or 0
@@ -831,6 +833,7 @@ class PlanningCycleMixin(
             contract_state["updated_at"] = time.time()
             self._write_planner_waiting_contract_state(contract_state)
             self._planner_waits_since_reconciliation = 0
+            readjudicating = True
             self._emit_status(
                 "Planner repeatedly ignored a Manager wait resolution; "
                 "re-adjudicating"
@@ -839,6 +842,32 @@ class PlanningCycleMixin(
             key_changed
             or waits_since_reconciliation >= MANAGER_RECONCILE_AFTER_IDLE_CYCLES
         ):
+            return ""
+        # The Manager rules once on a wait: the same wait on the same inputs can
+        # only get the same ruling, and asking again every few idle cycles was a
+        # Manager call every twenty minutes for as long as the wait lasted. A
+        # Planner that ignored the ruling gets the Manager once more. A backend
+        # that could not rule is retried within the automatic-retry window.
+        rulings = getattr(self, "_planner_wait_rulings", None)
+        if rulings is None:
+            rulings = self._planner_wait_rulings = {}
+        failed_at = getattr(self, "_planner_wait_ruling_failed_at", None)
+        if failed_at is None:
+            failed_at = self._planner_wait_ruling_failed_at = {}
+        if rulings.get(key, 0) >= (2 if readjudicating else 1):
+            return ""
+        if time.time() - failed_at.get(key, time.time()) >= AUTOMATIC_RETRY_WINDOW_SECONDS:
+            rulings[key] = 2
+            condition = str(getattr(contract, "recheck_condition", "") or "")[:200]
+            self._tell_operator(
+                f"wait-review-stopped-{blocker_fingerprint}-{recheck_token}"[:120],
+                "For three hours the Manager could not review the Planner's wait "
+                f"({condition or 'no condition given'}), so Argus stopped retrying. "
+                "The wait stands until its inputs change or you reply here.",
+                "Manager 连续三小时无法复核 Planner 的等待"
+                f"（{condition or '未说明条件'}），Argus 已停止重试。"
+                "这个等待会保持，直到它依赖的输入变化或你在这里回复。",
+            )
             return ""
 
         # Immediate reconciliation happens before the ordinary waiting-record
@@ -884,11 +913,15 @@ class PlanningCycleMixin(
 
         if decision.source == "manager_llm" or decision.action == "rollback":
             self._planner_waits_since_reconciliation = 0
+            rulings[key] = rulings.get(key, 0) + 1
+            failed_at.pop(key, None)
         else:
-            # Backend/failsafe HOLDs are not authoritative. Retry next wait.
+            # Backend/failsafe HOLDs are not authoritative. Retry next wait,
+            # until the automatic-retry window runs out.
             self._planner_waits_since_reconciliation = (
                 MANAGER_RECONCILE_AFTER_IDLE_CYCLES
             )
+            failed_at.setdefault(key, time.time())
 
         if decision.diagnostic == "planner_wait_advance_rejected":
             persisted = self._persist_manager_planner_feedback(

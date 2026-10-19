@@ -22,6 +22,7 @@ import { PanelHeader, EmptyHint, RawDisclosure } from './primitives';
 import { MarkdownContent } from './MarkdownContent';
 import { ArgusMark } from './Wordmark';
 import { useI18n } from '../i18n';
+import { deliveryHeadingKey, isStagePackage } from '../lib/deliveryKind';
 import { CopyButton } from './CopyButton';
 import { roleLabel } from '../lib/enumLabels';
 import { AGENT_ROLES as ROLE_ORDER } from '../lib/agentRoles';
@@ -31,6 +32,10 @@ import { plainDetail, plainTaskReport } from '../lib/plainStatus';
 import { activeProviderRequest, currentWorkStatus, eventTaskId } from '../lib/workStatus';
 import { readableRecord } from '../map/submap';
 import { WorkStatusBar } from './WorkStatusBar';
+import { StepProcessContext, StepProcessDisclosure } from './LiveWorkCard';
+import { liveLines, type LiveLine } from '../lib/liveActivity';
+import { ProjectOverviewStrip, type NotificationControl } from './ProjectOverviewStrip';
+import type { ResourceStatus } from '../../../core/src/resourceStatus.generated';
 export { activeProviderRequest } from '../lib/workStatus';
 import { splitDraft } from '../map/presentation';
 import type { ConversationHistoryStatus } from '../useConversationHistory';
@@ -343,6 +348,7 @@ function ConversationRow({
             {reportText ? <div data-task-receipt-prose={taskReceipt || undefined}><MarkdownContent artifacts={artifacts} onOpenArtifact={onOpenArtifact}>{report?.text ?? reportText}</MarkdownContent></div> : null}
             {steps.length || ev.live === true ? <TurnSteps steps={steps} live={ev.live === true} startedTs={Number(ev.ts)}
               status={ev.success === false ? 'failed' : String(ev.status ?? '')} /> : null}
+            {taskReceipt && typeof ev.item_id === 'string' && ev.item_id ? <StepProcessDisclosure taskId={ev.item_id} /> : null}
             {report ? <RawDisclosure className="task-receipt-original" label={locale === 'zh-CN' ? '查看原始回报（含技术记录）' : 'View original report (including technical records)'}>
               <pre data-task-receipt-original className="mt-2 max-h-80 overflow-auto whitespace-pre-wrap break-words rounded-lg bg-bg p-3 font-mono text-xs text-ink-dim">{reportText}</pre>
             </RawDisclosure> : null}
@@ -566,13 +572,16 @@ function DeliveryCard({
   onOpen?: (delivery: DeliveryReceipt) => void;
 }) {
   const { t } = useI18n();
-  const certified = delivery.kind === 'submission_certified';
+  const stage = isStagePackage(delivery);
   return (
-    <aside className="mx-auto my-3 flex w-full max-w-full gap-3 rounded-lg border border-ok/35 bg-ok/5 px-4 py-3 lg:max-w-[61.8vw]">
-      <span className="flex h-7 w-7 shrink-0 items-center justify-center rounded-full bg-ok/15 font-semibold text-ok">✓</span>
+    <aside
+      data-delivery-kind={delivery.kind}
+      className={`mx-auto my-3 flex w-full max-w-full gap-3 rounded-lg border px-4 py-3 lg:max-w-[61.8vw] ${stage ? 'border-blue/35 bg-blue/5' : 'border-ok/35 bg-ok/5'}`}
+    >
+      <span className={`flex h-7 w-7 shrink-0 items-center justify-center rounded-full font-semibold ${stage ? 'bg-blue/15 text-blue' : 'bg-ok/15 text-ok'}`}>{stage ? '◐' : '✓'}</span>
       <div className="min-w-0 flex-1">
-        <div className="text-[10px] font-semibold uppercase tracking-[0.14em] text-ok">
-          {t(certified ? 'mission.deliveryCertified' : 'mission.taskCompleted')}
+        <div className={`text-[10px] font-semibold uppercase tracking-[0.14em] ${stage ? 'text-blue' : 'text-ok'}`}>
+          {t(deliveryHeadingKey(delivery))}
         </div>
         <div className="mt-1 truncate text-sm font-semibold text-ink" title={delivery.title}>{delivery.title}</div>
         {onOpen ? (
@@ -587,6 +596,29 @@ function DeliveryCard({
       </div>
     </aside>
   );
+}
+
+/** A run of three or more "step done, campaign continues" receipts keeps only
+ * its newest message open; the earlier ones fold behind one control. */
+export function foldedContinuationRuns(rows: Array<{ key: string; ev: EventMsg }>): Map<string, { id: string; keys: string[] }> {
+  const folded = new Map<string, { id: string; keys: string[] }>();
+  let run: string[] = [];
+  const close = () => {
+    if (run.length >= 3) {
+      const keys = run.slice(0, -1);
+      const entry = { id: keys[0], keys };
+      keys.forEach((key) => folded.set(key, entry));
+    }
+    run = [];
+  };
+  for (const row of rows) {
+    // Older transcripts did not keep the flag; their message id still names the kind.
+    const continued = row.ev.campaign_continues === true || /^mission-result-.+-continued$/.test(String(row.ev.message_id ?? ''));
+    if (row.ev.mission_result === true && continued) run.push(row.key);
+    else close();
+  }
+  close();
+  return folded;
 }
 
 function ConversationThread({
@@ -617,6 +649,9 @@ function ConversationThread({
       };
     });
   const replies = replyParts.flatMap((part) => part.reply ? [part.reply] : []);
+  const folded = foldedContinuationRuns(replies);
+  const [openRuns, setOpenRuns] = useState<Set<string>>(() => new Set());
+  const { locale } = useI18n();
   const systemMessages = replyParts.flatMap((part) => part.messages);
   const deliveries = (() => {
     const seen = new Set<string>();
@@ -636,15 +671,27 @@ function ConversationThread({
         artifacts={artifacts}
         onOpenArtifact={onOpenArtifact}
       />
-      {replies.map((row) => (
-        <ConversationRow
-          key={row.key}
-          ev={row.ev}
-          r={row.r}
-          artifacts={artifacts}
-          onOpenArtifact={onOpenArtifact}
-        />
-      ))}
+      {replies.map((row) => {
+        const run = folded.get(row.key);
+        if (run && !openRuns.has(run.id)) {
+          return run.keys[0] === row.key ? (
+            <button key={`fold-${run.id}`} type="button" data-folded-steps={run.keys.length}
+              onClick={() => setOpenRuns((current) => new Set(current).add(run.id))}
+              className="mx-auto my-1 block w-full max-w-full rounded-md border border-dashed border-line px-4 py-1.5 text-center text-xs text-ink-faint hover:border-ink-faint hover:text-ink-dim lg:max-w-[61.8vw]">
+              {locale === 'zh-CN' ? `较早的 ${run.keys.length} 步进展已折叠 · 展开` : `${run.keys.length} earlier step updates folded · Show`}
+            </button>
+          ) : null;
+        }
+        return (
+          <ConversationRow
+            key={row.key}
+            ev={row.ev}
+            r={row.r}
+            artifacts={artifacts}
+            onOpenArtifact={onOpenArtifact}
+          />
+        );
+      })}
       {systemMessages.map((message, index) => (
         <div key={`${group.key}-system-${index}`} className="mx-auto w-full max-w-full px-6 py-1.5 text-center text-xs text-ink-faint lg:max-w-[61.8vw]">
           {message}
@@ -683,6 +730,9 @@ export function EventStream({
   historyRefreshing = false,
   onRetryHistory,
   onCompose,
+  notifications,
+  resources,
+  latestDelivery,
   rememberPosition = false,
 }: {
   events: EventMsg[];
@@ -704,6 +754,9 @@ export function EventStream({
   onRetryHistory?: () => void;
   onCompose?: (text: string) => void;
   rememberPosition?: boolean;
+  notifications?: NotificationControl;
+  resources?: ResourceStatus | null;
+  latestDelivery?: DeliveryReceipt | null;
 }) {
   const { locale, t } = useI18n();
   const [following, setFollowing] = useState(true);
@@ -716,6 +769,21 @@ export function EventStream({
   // Rendering a long Markdown/event history is interruptible, so incoming
   // provider fragments never take priority over typing or scrolling.
   const deferredEvents = useDeferredValue(events);
+  // A finished step keeps its process: the actions between its task's start
+  // and end, computed only when a report asks for them.
+  const stepProcess = useMemo(() => {
+    const cache = new Map<string, LiveLine[]>();
+    const tasks = new Map((snapshot?.backlog ?? []).map((item) => [item.id, item]));
+    return (taskId: string) => {
+      const cached = cache.get(taskId);
+      if (cached) return cached;
+      const task = tasks.get(taskId);
+      const since = Number(task?.started_ts || 0);
+      const lines = since > 0 ? liveLines(deferredEvents, taskId, since, locale, Number(task?.finished_ts || 0) || Infinity) : [];
+      cache.set(taskId, lines);
+      return lines;
+    };
+  }, [deferredEvents, locale, snapshot?.backlog]);
   const work = useMemo(
     () => snapshot ? currentWorkStatus(snapshot, missionView, deferredEvents) : null,
     [deferredEvents, missionView, snapshot],
@@ -870,6 +938,7 @@ export function EventStream({
   };
 
   return (
+    <StepProcessContext.Provider value={stepProcess}>
     <section className={`relative flex min-h-0 flex-1 flex-col overflow-hidden bg-panel ${
       embedded ? '' : 'rounded-lg border border-line/80'
     }`}>
@@ -895,6 +964,7 @@ export function EventStream({
           </div>
         }
       />}
+      {snapshot ? <ProjectOverviewStrip snapshot={snapshot} view={missionView} onOpenDelivery={onOpenDelivery} notifications={notifications} resources={resources} latestDelivery={latestDelivery} /> : null}
       {snapshot ? <WorkStatusBar snapshot={snapshot} view={missionView} events={deferredEvents} connected={connected} compact /> : activeProvider ? (
         <div className="flex h-9 shrink-0 items-center gap-2 border-b border-line/60 bg-blue-deep/5 px-4 text-xs text-ink-dim">
           <span className="h-2 w-2 animate-pulse rounded-full bg-blue-sky" />
@@ -961,5 +1031,6 @@ export function EventStream({
         </button>
       )}
     </section>
+    </StepProcessContext.Provider>
   );
 }

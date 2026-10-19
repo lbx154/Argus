@@ -224,6 +224,16 @@ def _streak(supervisor: LifeSupervisor) -> int:
 
 
 CAP = backoff.PLANNER_FAILURE_BACKOFF_CAP_SECONDS
+WINDOW = backoff.AUTOMATIC_RETRY_WINDOW_SECONDS
+
+
+def _stop_notices(supervisor: LifeSupervisor) -> list[dict[str, Any]]:
+    from argus.core.transcript import read_turns
+
+    return [
+        turn for turn in read_turns(supervisor._manager_project_report_root())
+        if str(turn.get("message_id") or "").startswith("argus-notice-planner-retries-stopped")
+    ]
 
 
 def test_backoff_starts_after_the_free_attempts_and_doubles_to_a_cap() -> None:
@@ -403,20 +413,27 @@ def test_backend_outage_backs_off_but_recovers_within_the_cap(tmp_path, monkeypa
     assert _streak(supervisor) == 0
 
 
-def test_sustained_backend_failure_alerts_once_and_keeps_probing(tmp_path, monkeypatch) -> None:
+def test_sustained_backend_failure_alerts_once_and_stops_after_three_hours(
+    tmp_path, monkeypatch,
+) -> None:
     import itertools
 
     supervisor, planner, sink, clock = _supervisor(tmp_path, monkeypatch, _ONE_TASK)
     ids = itertools.count()
     planner.fatal = lambda: f"upstream 500 request_id=req_{next(ids):012x}"
 
+    _drive(supervisor, clock, WINDOW + CAP)
+    window_calls = planner.planner_calls
     _drive(supervisor, clock, DAY_SECONDS)
 
     alerts = _alerts(sink)
     assert len(alerts) == 1
     assert alerts[0]["failure_kind"] == backoff.FAILURE_KIND_BACKEND
-    # It never stops probing: about one call per cap, never a storm.
-    assert DAY_SECONDS // CAP <= planner.planner_calls <= DAY_SECONDS // (CAP / 2) + 10
+    # About one call per cap while the window lasts, then none at all.
+    assert WINDOW // CAP <= window_calls <= WINDOW // (CAP / 2) + 10
+    assert planner.planner_calls == window_calls
+    assert len(_stop_notices(supervisor)) == 1
+    assert "stopped retrying" in _stop_notices(supervisor)[0]["text"]
 
 
 def test_a_superseded_turn_is_not_a_failure(tmp_path, monkeypatch) -> None:
@@ -718,7 +735,50 @@ def test_an_argus_bug_is_reported_as_an_argus_fault(tmp_path, monkeypatch) -> No
     assert alerts[0]["failure_kind"] == backoff.FAILURE_KIND_INTERNAL
     text = sink.of(EventType.LIFE_DAEMON_DEGRADED)[0]["text"]
     assert "fault in Argus" in text and "backend has been failing" not in text
-    # It keeps probing at the cap rather than holding for a change.
-    assert DAY_SECONDS // CAP <= planner.planner_calls <= DAY_SECONDS // (CAP / 2) + 10
+    # It probes at the cap for the retry window, then stops and says so.
+    assert WINDOW // CAP <= planner.planner_calls <= WINDOW // (CAP / 2) + 10
+    assert len(_stop_notices(supervisor)) == 1
     # A planning error raised inside Argus itself is the same class.
     assert backoff.planner_failure_kind(None) == backoff.FAILURE_KIND_INTERNAL
+
+
+def test_unusable_answers_stop_after_three_hours_until_something_changes(
+    tmp_path, monkeypatch,
+) -> None:
+    supervisor, planner, sink, clock = _supervisor(tmp_path, monkeypatch, _UNREADABLE)
+    _drive(supervisor, clock, WINDOW + CAP)
+    window_calls = planner.planner_calls
+
+    _drive(supervisor, clock, 7 * DAY_SECONDS)
+
+    assert planner.planner_calls == window_calls
+    assert len(_stop_notices(supervisor)) == 1
+    turns = len(sink.of(EventType.LIFE_PLANNER_START))
+    results = tmp_path / "project" / "results"
+    results.mkdir()
+    (results / "metrics.json").write_text('{"acc": 0.93}', encoding="utf-8")
+    _drive(supervisor, clock, DAY_SECONDS)
+    # One new piece of evidence buys one more turn, not a new round of retries.
+    assert len(sink.of(EventType.LIFE_PLANNER_START)) == turns + 1
+    assert len(_stop_notices(supervisor)) == 1
+
+
+@pytest.mark.parametrize("wake", ["operator", "model"])
+def test_a_stopped_backend_retry_comes_back_for_the_operator_or_a_new_model(
+    tmp_path, monkeypatch, wake,
+) -> None:
+    supervisor, planner, sink, clock = _supervisor(tmp_path, monkeypatch, _ONE_TASK)
+    planner.fatal = "stream error: HTTP 503 Service Unavailable"
+    _drive(supervisor, clock, WINDOW + CAP)
+    _assert_held(supervisor, planner, clock)
+    stopped_calls = planner.planner_calls
+    planner.fatal = None
+
+    if wake == "operator":
+        supervisor.test_inbox.append("the backend is back, carry on")
+    else:
+        monkeypatch.setenv("ARGUS_SKILL_PLANNER_MODEL", "another-model")
+    _pass(supervisor)
+
+    assert planner.planner_calls == stopped_calls + 1
+    assert _streak(supervisor) == 0

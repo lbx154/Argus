@@ -949,33 +949,14 @@ def _seed_board(
     leaderboard.fold(root)
 
 
-def test_distill_writes_strategy_from_leaderboard(tmp_path: Path) -> None:
-    root = tmp_path / "team"
-    _seed_board(root)
-    prompts: list[str] = []
-    curator = _fake_curator(tmp_path)
+def test_tick_keeps_a_settled_campaign_without_any_model_work(tmp_path: Path) -> None:
+    """A finished leaderboard is not new input: a day of ticks writes nothing.
 
-    assert curator._distill_root(
-        root,
-        lambda prompt: prompts.append(prompt) or "## Strategy\nDeepen kA.",
-    )
-    assert "Deepen kA" in (root / "strategy.md").read_text(encoding="utf-8")
-    assert "kA" in prompts[0] and "fuse" in prompts[0]
-
-
-def test_distill_failure_preserves_prior_strategy(tmp_path: Path) -> None:
-    root = tmp_path / "team"
-    _seed_board(root)
-    (root / "strategy.md").write_text("PRIOR", encoding="utf-8")
-
-    def fail(_prompt: str) -> str:
-        raise RuntimeError("backend unavailable")
-
-    assert _fake_curator(tmp_path)._distill_root(root, fail) is False
-    assert (root / "strategy.md").read_text(encoding="utf-8") == "PRIOR"
-
-
-def test_tick_distills_at_bounded_interval(tmp_path: Path) -> None:
+    The Curator once re-asked a model for a "strategy" every 21 minutes per
+    campaign whatever the leaderboard held, and nothing read the answer. Its
+    upkeep is deterministic now, so an unchanged campaign costs no model call
+    and leaves no strategy file behind.
+    """
     root = tmp_path / "team"
     registry.write_marker(
         tmp_path,
@@ -986,18 +967,14 @@ def test_tick_distills_at_bounded_interval(tmp_path: Path) -> None:
     )
     pool.update(root, width=0, state="running")
     _seed_board(root)
-    calls: list[str] = []
-    curator = _fake_curator(
-        tmp_path,
-        distill_fn=lambda prompt: calls.append(prompt) or "strategy",
-        distill_interval_s=100.0,
-    )
+    board_before = (root / "leaderboard.json").read_text(encoding="utf-8")
+    curator = _fake_curator(tmp_path)
 
-    curator._tick(now=1000.0)
-    curator._tick(now=1050.0)
-    curator._tick(now=1200.0)
+    for now in range(1000, 1000 + 24 * 3600, 600):
+        curator._tick(now=float(now))
 
-    assert len(calls) == 2
+    assert not (root / "strategy.md").exists()
+    assert (root / "leaderboard.json").read_text(encoding="utf-8") == board_before
 
 
 def test_twelve_candidate_tasks_do_not_spawn_twelve_workers_by_default(tmp_path, monkeypatch):

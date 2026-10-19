@@ -14,6 +14,8 @@ import { MarkdownContent } from './MarkdownContent';
 import { Modal } from './Modal';
 import { Spinner } from './primitives';
 import { useI18n } from '../i18n';
+import { errorText } from '../lib/format';
+import { deliveryHeadingKey, isStagePackage } from '../lib/deliveryKind';
 import { PdfPreview } from './PdfPreview';
 import { setDesktopLargePreview } from '../lib/desktopBridge';
 import { isMarkdownArtifact, readerFoundationTitle } from '../lib/artifactPresentation';
@@ -55,6 +57,7 @@ export function ArtifactModal({
   const [previewError, setPreviewError] = useState('');
   const [previewAttempt, setPreviewAttempt] = useState(0);
   const [downloading, setDownloading] = useState(false);
+  const [bundling, setBundling] = useState(false);
   const [expanded, setExpanded] = useState(false);
   const [pdfOrientation, setPdfOrientation] = useState<'portrait' | 'landscape'>('portrait');
   const pdfPreview = info?.kind === 'pdf' || path?.toLowerCase().endsWith('.pdf') === true;
@@ -107,6 +110,20 @@ export function ArtifactModal({
     }
   };
 
+  const downloadAll = async () => {
+    if (!sid || !delivery || !files.length) return;
+    setBundling(true);
+    setPreviewError('');
+    try {
+      const summary = delivery.summary ? `# ${delivery.title}\n\n${delivery.summary}` : '';
+      downloadBlob(await api.artifactsBundle(sid, files.map((file) => file.path), delivery.title, summary), `${delivery.title || 'argus-results'}.zip`);
+    } catch (error) {
+      setPreviewError(errorText(error));
+    } finally {
+      setBundling(false);
+    }
+  };
+
   return (
     <Modal
       open={Boolean(path || delivery)}
@@ -121,14 +138,14 @@ export function ArtifactModal({
     >
       {delivery && !expanded && <header className="delivery-header">
         <div className="delivery-heading"><span className="delivery-mark"><PackageCheck size={22} /></span><div>
-          <p>DELIVERY · {zh ? '交付成果' : 'Your results'}</p>
-          <h2>{zh ? '成果文件' : 'Result files'}</h2>
+          <p>{isStagePackage(delivery) ? (zh ? '阶段成果 · 整体目标仍在进行' : 'Stage result · goal still open') : (zh ? '交付成果' : 'Your results')}</p>
+          <h2>{t(deliveryHeadingKey(delivery))}</h2>
         </div><button type="button" onClick={onClose} className="delivery-return" aria-label={zh ? '关闭交付弹窗' : 'Close delivery'}>{zh ? '返回工作' : 'Back to work'} ×</button></div>
         {deliveries.length > 1 ? <select aria-label={zh ? '选择交付任务' : 'Choose delivery'} className="delivery-task-select" value={delivery.delivery_id} onChange={(e) => { const receipt = deliveries.find((item) => item.delivery_id === e.target.value); if (receipt) onSelectDelivery?.(receipt); }}>
           {deliveries.map((receipt) => <option key={receipt.delivery_id} value={receipt.delivery_id}>{receipt.title}</option>)}
         </select> : <p className="delivery-task-title" title={delivery.title}>{delivery.title}</p>}
-        <div className="delivery-facts">{(() => { const review = deliveryReviewLabel(delivery, zh); return <span className={review.independent ? 'delivery-review-independent' : 'delivery-review-self'} title={review.title}>{review.independent ? <CheckCircle2 size={13} /> : null}{review.text}</span>; })()}<span>{files.length} {zh ? '个文件' : 'files'}</span></div>
-        {delivery.summary && <details className="delivery-summary"><summary>{zh ? '查看成果说明' : 'Result summary'}</summary><p><MarkdownExcerpt>{delivery.summary}</MarkdownExcerpt></p></details>}
+        <div className="delivery-facts">{(() => { const review = deliveryReviewLabel(delivery, zh); return <span className={review.independent ? 'delivery-review-independent' : 'delivery-review-self'} title={review.title}>{review.independent ? <CheckCircle2 size={13} /> : null}{review.text}</span>; })()}<span>{files.length} {zh ? '个文件' : 'files'}</span>{files.length > 0 && sid ? <button type="button" className="delivery-download-all" disabled={bundling} onClick={() => void downloadAll()}>{bundling ? (zh ? '正在打包…' : 'Packing…') : files.length > 1 ? (zh ? '下载全部（zip）' : 'Download all (zip)') : (zh ? '打包下载' : 'Download as zip')}</button> : null}</div>
+        {delivery.summary && <details className="delivery-summary" open><summary>{zh ? '查看成果说明' : 'Result summary'}</summary><p><MarkdownExcerpt>{delivery.summary}</MarkdownExcerpt></p></details>}
       </header>}
       {!expanded && !!files.length && <nav className="delivery-files" aria-label={zh ? '交付文件' : 'Delivery files'}>{files.map((file) => <button type="button" key={file.path} aria-pressed={path === file.path} onClick={() => onSelectPath?.(file.path)} title={file.path}><span>{file.path.split('/').at(-1)}</span>{delivery?.primary_target?.path === file.path && <small>{zh ? '主要成果' : 'Main result'}</small>}</button>)}</nav>}
       <div className={`flex shrink-0 items-start gap-2 border-b border-line px-4 py-3 sm:px-5 ${!path ? "hidden" : ""}`}>

@@ -440,6 +440,22 @@ it('refreshes completion immediately after an active-task coalescing response', 
   expect(latest.readingNeedsUpdate).toBe(false);
 });
 
+it('stops retrying a failed explanation once the server leaves the next try to the reader', async () => {
+  const failure = { code: 'provider_error', message: 'Map summary unavailable; existing evidence and cached text are retained.' };
+  const generate = vi.spyOn(api, 'generateMapCopy')
+    .mockResolvedValueOnce({ ...empty, generation_error: failure, retry_after: 300 })
+    .mockResolvedValueOnce({ ...empty, generation_error: failure, retry_after: 300 })
+    .mockResolvedValue({ ...empty, generation_error: { ...failure, manual_retry: true }, retry_after: 0 });
+  act(() => { renderer = create(tree()); });
+  await act(async () => { await vi.advanceTimersByTimeAsync(24 * 3600 * 1000); });
+  expect(generate).toHaveBeenCalledTimes(3);
+  expect(generate.mock.calls.every(call => !call[2].manual_retry)).toBe(true);
+  expect(latest.generationError).not.toBeNull();
+  await act(async () => { await latest.retry(); await vi.advanceTimersByTimeAsync(25); });
+  expect(generate).toHaveBeenCalledTimes(4);
+  expect(generate.mock.calls[3][2].manual_retry).toBe(true);
+});
+
 it('does not loop when a response has no complete result or server-directed retry', async () => {
   const generate = vi.spyOn(api, 'generateMapCopy').mockResolvedValue(empty);
   act(() => { renderer = create(tree()); });

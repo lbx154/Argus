@@ -1270,3 +1270,57 @@ def test_failed_project_report_publish_cannot_use_global_dedup(campaign, monkeyp
     assert len(_reports(project_root)) == 1
     assert supervisor._manager_publish_project_report("accepted") == "reported"
     assert len(campaign.reports) == 2
+
+
+@pytest.mark.parametrize("failure", ["raises", "empty"])
+def test_failing_project_report_backs_off_then_sends_the_stage_summary(
+    campaign, monkeypatch, failure,
+):
+    from argus.life.supervisor._constants import PROJECT_REPORT_MODEL_ATTEMPTS
+
+    supervisor = campaign.supervisor
+    calls = []
+
+    def broken(**kwargs):
+        calls.append(kwargs)
+        if failure == "raises":
+            raise RuntimeError("backend down")
+        return ""
+
+    monkeypatch.setattr(campaign.manager, "report_project_completion", broken)
+    sleeps = []
+    for _ in range(PROJECT_REPORT_MODEL_ATTEMPTS):
+        assert supervisor._manager_publish_project_report("accepted") == PLAN_ERROR
+        sleeps.append(supervisor._suggested_sleep_s)
+    # Each failure waits longer than the last instead of the 5 s poll interval.
+    assert sleeps == sorted(sleeps) and sleeps[0] >= 15.0 and len(set(sleeps)) == len(sleeps)
+    assert not _reports(campaign.life)
+
+    for _ in range(20):
+        assert supervisor._manager_publish_project_report("accepted") == "reported"
+    assert len(calls) == PROJECT_REPORT_MODEL_ATTEMPTS
+    reports = _reports(campaign.life)
+    assert len(reports) == 1
+    assert "not inspected" in reports[0]["text"]
+
+
+def test_project_report_attempts_are_counted_per_completion(campaign, monkeypatch):
+    from argus.life.supervisor._constants import PROJECT_REPORT_MODEL_ATTEMPTS
+
+    supervisor = campaign.supervisor
+    context = {"stages": {"delivery": {}}, "stage_history": [], "rollback_history": []}
+    monkeypatch.setattr(supervisor, "_manager_project_completion_context", lambda: dict(context))
+    calls = []
+
+    def broken(**kwargs):
+        calls.append(kwargs)
+        raise RuntimeError("backend down")
+
+    monkeypatch.setattr(campaign.manager, "report_project_completion", broken)
+    for _ in range(PROJECT_REPORT_MODEL_ATTEMPTS + 5):
+        supervisor._manager_publish_project_report("accepted")
+    assert len(calls) == PROJECT_REPORT_MODEL_ATTEMPTS
+    # A different completion is new evidence: it earns its own attempts.
+    context["stages"] = {"delivery": {}, "follow-up": {}}
+    supervisor._manager_publish_project_report("accepted")
+    assert len(calls) == PROJECT_REPORT_MODEL_ATTEMPTS + 1

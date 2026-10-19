@@ -91,7 +91,7 @@ Plan from the mission workspace only; never read sibling projects or parent dire
   `TASK_ACCEPTANCE_CHECK`, `TASK_PARALLEL_SAFE`, `TASK_OWNS_PATHS`, `TASK_VERTICAL`,
   `TASK_GPUS`/`TASK_CPUS` (GPUs/cores held; JSON `gpu_count`/`cpu_count`).
 - Tasks co-run only when each sets `TASK_PARALLEL_SAFE=true` with disjoint,
-  literal, relative `TASK_OWNS_PATHS` (no wildcards); stage-closing and
+  literal, relative `TASK_OWNS_PATHS=a|b` (no wildcards); stage-closing and
   framework-maintenance work runs alone. The digest shows slots and ownership.
 - Optional `RETIRE_TASK=<item id> | <one-sentence reason>` needs a line and reason
   per item. Use RETIRE_TASK for pending refuted/closed work to prevent renamed

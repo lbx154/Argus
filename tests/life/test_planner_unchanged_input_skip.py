@@ -25,6 +25,7 @@ from argus.life.supervisor._constants import (
     OPERATOR_WAIT_TURN_REGRANT_SECONDS,
     PLAN_AWAITING,
     PLAN_ERROR,
+    PLANNER_UNCHANGED_RELOOK_LIMIT,
     PLANNER_UNCHANGED_SKIP_MAX_SECONDS,
 )
 from argus.messaging.inbox import PeerAwareInbox
@@ -187,6 +188,65 @@ def test_unchanged_skip_expires_after_the_time_ceiling(
     assert calls["count"] == 2
 
 
+def test_time_alone_buys_only_a_few_looks_at_unchanged_inputs(
+    tmp_path: Path, monkeypatch
+) -> None:
+    """Each look waits four times longer; after the last only new input calls."""
+    project = tmp_path / "project"
+    project.mkdir()
+    life = tmp_path / "life"
+    calls = _install_planner(monkeypatch)
+    supervisor = _supervisor(project, life)
+    # The stall-breaker probe has its own bound (next test); keep it out of this count.
+    monkeypatch.setattr(supervisor, "_maybe_dispatch_verification_probe", lambda _verdict: False)
+
+    assert supervisor._plan_next_work() == PLAN_AWAITING
+    for look in range(PLANNER_UNCHANGED_RELOOK_LIMIT):
+        supervisor._planner_unchanged_skip_armed_at = (
+            time.monotonic() - PLANNER_UNCHANGED_SKIP_MAX_SECONDS * 4**look + 60.0
+        )
+        assert supervisor._plan_next_work() == PLAN_AWAITING
+        assert calls["count"] == 1 + look, "too early for the next look"
+        supervisor._planner_unchanged_skip_armed_at -= 61.0
+        assert supervisor._plan_next_work() == PLAN_AWAITING
+        assert calls["count"] == 2 + look
+    for days in (1, 7, 30):
+        supervisor._planner_unchanged_skip_armed_at = time.monotonic() - days * 86400.0
+        assert supervisor._plan_next_work() == PLAN_AWAITING
+    assert calls["count"] == 1 + PLANNER_UNCHANGED_RELOOK_LIMIT
+
+    supervisor.memory.backlog.add(
+        BacklogItem.new(title="New evidence", objective="Record the new result."),
+    )
+    supervisor._plan_next_work()
+    assert calls["count"] == 2 + PLANNER_UNCHANGED_RELOOK_LIMIT
+
+
+def test_an_uncontracted_wait_gets_one_verification_probe_per_streak(
+    tmp_path: Path, monkeypatch
+) -> None:
+    """A probe that found the blocker in place must not buy the next probe."""
+    project = tmp_path / "project"
+    project.mkdir()
+    life = tmp_path / "life"
+    supervisor = _supervisor(project, life)
+    probes = 0
+    for _ in range(10):
+        supervisor._consecutive_idle_planner_cycles = 10
+        supervisor._last_verification_probe_at = -1e9
+        for item in supervisor.memory.backlog.active():
+            supervisor.memory.backlog.update(item.id, status="done")
+        probes += supervisor._maybe_dispatch_verification_probe(_waiting_verdict())
+    assert probes == 1
+
+    _install_planner(monkeypatch, verdicts=[PlannerVerdict(
+        project_done=False, reason="the blocker cleared", new_tasks=[],
+        waiting=False,
+    )])
+    supervisor._plan_next_work()
+    assert supervisor._uncontracted_wait_probed is False
+
+
 def test_operator_message_bypasses_the_skip(tmp_path: Path, monkeypatch) -> None:
     project = tmp_path / "project"
     project.mkdir()
@@ -246,10 +306,11 @@ def test_operator_wait_turn_regrant_beats_the_skip(
 ) -> None:
     """A turn the wait machinery grants is never answered from memory.
 
-    The event-wait path deliberately re-grants one Planner call per
-    ``OPERATOR_WAIT_TURN_REGRANT_SECONDS`` on an operator-only wait. That grant
-    IS the decision to spend a model call; the unchanged-input skip must stand
-    aside even though nothing it fingerprints has moved.
+    On an operator-only wait the event-wait path grants a further Planner
+    call, at most once per ``OPERATOR_WAIT_TURN_REGRANT_SECONDS``, when what
+    the Planner reads has moved. That grant IS the decision to spend a model
+    call; the unchanged-input skip must stand aside rather than answer it
+    from its own record. Age alone grants nothing.
     """
     project = tmp_path / "project"
     project.mkdir()
@@ -292,6 +353,12 @@ def test_operator_wait_turn_regrant_beats_the_skip(
     )
     supervisor._write_planner_waiting_contract_state(wait_state)
 
+    assert supervisor._plan_next_work() == PLAN_AWAITING
+    assert calls["count"] == 2, "age alone earns no turn"
+
+    monkeypatch.setattr(
+        supervisor, "_operator_wait_input_signature", lambda: "something-moved"
+    )
     assert supervisor._plan_next_work() == PLAN_AWAITING
     assert calls["count"] == 3, "the re-granted turn must reach the model"
 

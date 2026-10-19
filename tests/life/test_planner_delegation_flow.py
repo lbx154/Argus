@@ -1091,3 +1091,48 @@ def test_split_memory_planner_resolves_vertical_from_project_state(
     assert config.role_session_path == project_memory.root / "role-sessions" / "planner.json"
     assert str(global_root) not in config.add_dirs
     assert "fill spare mission slots" in prompt
+
+
+def test_research_planner_is_granted_the_playbook_its_prompt_names(
+    tmp_path: Path,
+) -> None:
+    import re
+
+    project = tmp_path / "project"
+    project.mkdir()
+    life = tmp_path / "life"
+    memory = LifeMemory.open(life)
+    write_continuous_config(life, enabled=True, objective="find a general method")
+    persist_vertical(project, "research")
+    state = project / ".argus" / "PIPELINE_STATE.json"
+    payload = json.loads(state.read_text(encoding="utf-8"))
+    payload["current_stage"] = "experiment"
+    state.write_text(json.dumps(payload), encoding="utf-8")
+    supervisor = LifeSupervisor(
+        memory=memory,
+        runner=_MissionRunner(),
+        sink=JsonlEventSink(None, life_dir=memory.root, verbosity="full"),
+        config=LifeSupervisorConfig(
+            continuous=True,
+            continuous_objective="find a general method",
+            open_ended=True,
+            project_worktree=project,
+            artifact_root=project,
+        ),
+        planner_runner=object(),
+    )
+
+    config = supervisor._planner_config()
+    prompt = Planner._build_planner_prompt(
+        continuous_objective="find a general method",
+        journal_tail="(empty)",
+        planning_cycle=0,
+        open_ended=True,
+        project_root=project,
+        state_root=config.state_root,
+    )
+
+    named = Path(re.search(r"Open `([^`]+research-experiment-playbook\.md)`", prompt).group(1))
+    assert named.is_file()
+    assert str(named.parent) in config.add_dirs
+    assert str(named.parents[3]) not in config.add_dirs

@@ -6,13 +6,6 @@
     "source": "argus/builtin_skills/agent-team-lead.md",
     "sourceSha256": "b490cc96572941fa4a2fe4937bd3e86c9802c132439ae779fcf8e88241ba9521"
   },
-  "global/curator/argus-curator-role.md": {
-    "title": "团队成果整理",
-    "summary": "维护团队候选成果池和比较记录，归纳后续策略；整理者不代替执行者完成工程任务。",
-    "originalName": "Team Curator",
-    "source": "argus/builtin_skills/curator/argus-curator-role.md",
-    "sourceSha256": "3dfd743254a91f88feef76e85683225dc5b510b7f417f6430ef7b975b8eb0f5b"
-  },
   "global/engineer/minimal-coding-agent.md": {
     "title": "最小且严谨的软件修改",
     "summary": "用足够小的改动实现、修复或重构软件与界面，保留既有行为，避免无依据的抽象和新增依赖。",
@@ -662,7 +655,7 @@
     "summary": "在 METHOD.md 中写清方法、组件、协议和证伪条件；以钉版参考实现为底把方法写成 diff；先写 tests/spec 再跑承载论断的实验；用代码锚点让不在场的审阅者找到机制；规划者据此写实现简报。",
     "originalName": "Method card (METHOD.md), executable spec and review anchors",
     "source": "argus/verticals/research/skills/engineer/method-card.md",
-    "sourceSha256": "2e756a2fd09bca2abe4175fea4042af6905a6166b629c940909b10090cfe6855"
+    "sourceSha256": "28ab5953b75b12264f405837941cb7f0e6e92d3029a60fb9acc09f49006fd7f3"
   },
   "vertical/research/engineer/novelty-check.md": {
     "title": "检验研究想法的新意",
@@ -701,10 +694,10 @@
   },
   "vertical/research/engineer/research-grind.md": {
     "title": "沿诊断阶梯打磨研究结果",
-    "summary": "把首次实现当作草稿，在固定声明下沿诊断阶梯逐级排查；结果异常先怀疑设置；从原始逐种子行算数；依据证据而非尝试次数判断何时足够。",
+    "summary": "把首次实现当作草稿，在当前声明下沿诊断阶梯逐级排查；结果异常先怀疑设置；从原始逐种子行算数；依据证据而非尝试次数判断何时足够。",
     "originalName": "Working a research result into shape",
     "source": "argus/verticals/research/skills/engineer/research-grind.md",
-    "sourceSha256": "e955fe1ac7aa975a9172394bdca4e8b2ed6a504355ab00573a26badf442f038a"
+    "sourceSha256": "d461558d3c8303207afc5563b16833f580a4dbe27b74998d8249db8d7a27daf2"
   },
   "vertical/research/engineer/rl-training-collapse-diagnosis.md": {
     "title": "强化学习训练健康诊断",
@@ -722,10 +715,10 @@
   },
   "vertical/research/engineer/training-infrastructure.md": {
     "title": "训练基础设施的选择、搭建与调参",
-    "summary": "训练或大规模推理需要框架时，用实时来源调查候选、在隔离环境中试装并剖析一步真实更新、以官方配方为锚每次只改一个因素，并把结论写成带日期的项目决策记录；不按记忆推荐技术栈。",
+    "summary": "训练或大规模推理需要框架时，用实时来源调查候选、在隔离环境中试装并剖析一步真实更新、以官方配方为锚每次只改一个因素，并把结论写成带日期的项目决策记录；评测证据完整保留，训练流按种子/索引、标量和抽样输入保存并验证可再生，开跑前估算磁盘占用。",
     "originalName": "Training infrastructure: choosing, standing up and tuning it",
     "source": "argus/verticals/research/skills/engineer/training-infrastructure.md",
-    "sourceSha256": "4c495369ffba7ff2b9954a2fafd72b874e63abc6065a5afab7c61ce10afb9087"
+    "sourceSha256": "fa67c625f5bbfb1500acdeeea34d2a762635af220e0fa73909222e5566fe3d58"
   },
   "vertical/research/engineer/venue-format-preflight.md": {
     "title": "投稿前的编译与泄露检查",
@@ -750,17 +743,17 @@
   },
   "vertical/research/research-experiment-playbook.md": {
     "title": "通过实验发展研究想法",
-    "summary": "忠实实现已选想法，通过适应性实验形成足以支撑论文的证据，而不是只完成首次运行。",
+    "summary": "忠实实现已选想法，先跑通一个小而完整、记录了耗时与算力的闭环，再通过适应性实验形成足以支撑论文的证据；经独立审核的阶段成果可以先作为阶段包交付。",
     "originalName": "Developing an idea through experiments",
     "source": "argus/verticals/research/skills/research-experiment-playbook.md",
-    "sourceSha256": "df8f6a724b93f063a6e0dd2e36af1838fca72eea689f062b096d3ad0c4ad2c85"
+    "sourceSha256": "2bcb0dbb4fd50f4b11b8fe86e5cc04274fec043df9a2eaef57c79e4fd99d8b81"
   },
   "vertical/research/research-idea-playbook.md": {
     "title": "寻找并选择研究想法",
-    "summary": "从来源中发现候选可能性，经独立审查后作最终选择，不把构思直接当作实验结果。",
+    "summary": "从来源中发现候选可能性，估算每条路线拿到决定性证据所需的时间与算力，经独立审查后作最终选择，不把构思直接当作实验结果。",
     "originalName": "Finding a research idea",
     "source": "argus/verticals/research/skills/research-idea-playbook.md",
-    "sourceSha256": "91104461d9115ee280db1f5e89d3c35bc8301422bfd7d9a70c66fa559c09eed6"
+    "sourceSha256": "a271d507f137659eb88b9a0edc2884e058eaa4bffb195e67dcd0f0ba5734b7d3"
   },
   "vertical/research/research-paper-playbook.md": {
     "title": "撰写完整研究论文",
@@ -792,10 +785,10 @@
   },
   "vertical/research/reviewer/experiment-results-review.md": {
     "title": "判断实验真正说明了什么",
-    "summary": "亲自读代码、配置、评测器和原始行，判断证据对固定声明的支持与缺口；低于基线的结果在阶梯未走完前是修复请求；训练类实验另核对基础设施决策记录。",
+    "summary": "亲自读代码、配置、评测器和原始行，判断证据对当前声明的支持与缺口；低于基线的结果在阶梯未走完前是修复请求；训练类实验另核对基础设施决策记录。",
     "originalName": "What the experiments establish",
     "source": "argus/verticals/research/skills/reviewer/experiment-results-review.md",
-    "sourceSha256": "bc158d8b51107b697d290eb6ed461f2a596aa601bc78cce7e88089743411533e"
+    "sourceSha256": "7620aba239c9106bea6c99ce8f13d622d9038bcf4e73902406f2fb39fbd33239"
   },
   "vertical/research/reviewer/strongest-argument-against.md": {
     "title": "寻找最有力的科学反对意见",

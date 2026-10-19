@@ -42,6 +42,8 @@ _TYPED_PAUSE_STATUSES = frozenset({
     "paused_provider_fence",
     "paused_daemon_shutdown",
 })
+# How a task ends when the model service, not the work, failed it.
+_OUTAGE_STOP_KINDS = frozenset({"backend_unavailable", "transient_error"})
 
 def _run_hidden(*args: Any, **kwargs: Any) -> subprocess.CompletedProcess[Any]:
     """Run a non-interactive maintenance command without a Windows console."""
@@ -1180,12 +1182,20 @@ class MissionExecutionRuntimeMixin:
         if state.status == "budget_exhausted":
             state.status = "paused_budget"
             pause_status = "paused_budget"
+        if not pause_status and self._outage_retries_spent(state):
+            from ...core.autonomy import RETRY_WINDOW_SPENT_REASON
+
+            state.stop_kind = "provider_fence"
+            state.stop_reason = f"{RETRY_WINDOW_SPENT_REASON} ({state.stop_reason})."
+            pause_status = "paused_provider_fence"
         if not pause_status:
             return None
         if pause_status == "paused_provider_cooldown":
             parked = self._maybe_park_permanent_provider_failure(state)
             if parked is not None:
                 return parked
+            if state.stop_kind == "provider_fence":
+                pause_status = "paused_provider_fence"
         usage_summary = state.usage_summary
         assert usage_summary is not None, "pause settlement requires metered outcome"
         pause_outcome = mission_outcome_dimensions(
@@ -1270,6 +1280,35 @@ class MissionExecutionRuntimeMixin:
             ),
         }
 
+    def _outage_retries_spent(self, state: _MissionRunState) -> bool:
+        """Whether tasks kept failing on the model service for the whole window.
+
+        A task the model service failed goes back to the Planner, which can
+        dispatch the next task into the same outage. Counting back over the
+        tasks that ended that way with nothing else in between, once the first
+        is older than the automatic-retry window the next one waits for the
+        operator instead of failing into another plan.
+        """
+        from ...core.autonomy import AUTOMATIC_RETRY_WINDOW_SECONDS
+
+        if state.status not in {"error", "failed"} or state.stop_kind not in _OUTAGE_STOP_KINDS:
+            return False
+        now = time.time()
+        since = now
+        ended = sorted(
+            (row for row in self.memory.backlog.history() if row.finished_ts),
+            key=lambda row: float(row.finished_ts or 0.0),
+            reverse=True,
+        )
+        for row in ended:
+            if row.id == state.item.id:
+                continue
+            outcome = row.outcome if isinstance(row.outcome, dict) else {}
+            if row.status != "failed" or outcome.get("interruption_kind") not in _OUTAGE_STOP_KINDS:
+                break
+            since = float(row.finished_ts or now)
+        return now - since >= AUTOMATIC_RETRY_WINDOW_SECONDS
+
     def _maybe_park_permanent_provider_failure(
         self, state: _MissionRunState,
     ) -> dict[str, Any] | None:
@@ -1286,8 +1325,12 @@ class MissionExecutionRuntimeMixin:
         and put the question to the operator instead of paying for another
         retry. Genuine outages clear within a retry or two and never reach the
         limit; non-model cooldowns (provider capacity, cost control) keep the
-        ordinary auto-resume forever.
+        ordinary auto-resume for the automatic-retry window. A pause that
+        follows another cooldown pause with no completed round between them
+        continues the run; once the run has lasted the window the task waits
+        for an explicit Run (``state.stop_kind`` becomes ``provider_fence``).
         """
+        from ...core.autonomy import AUTOMATIC_RETRY_WINDOW_SECONDS, RETRY_WINDOW_SPENT_REASON
         from ...engineer.round_stop_signals import (
             backend_failure_signature,
             fatal_error_looks_like_model_configuration,
@@ -1309,11 +1352,25 @@ class MissionExecutionRuntimeMixin:
             or fatal_error_looks_like_model_configuration(state.stop_reason)
         )
         if streak < PROVIDER_COOLDOWN_SAME_CAUSE_LIMIT or not model_configuration:
+            now = time.time()
+            previous = item.outcome if isinstance(item.outcome, dict) else {}
+            continuing = (
+                previous.get("interruption_kind") == "provider_cooldown"
+                and int(state.rounds or 0) <= 1
+            )
+            since = (
+                float(getattr(item, "provider_cooldown_since", 0.0) or 0.0)
+                if continuing else 0.0
+            ) or now
             self.memory.backlog.update(
                 item.id,
                 provider_cooldown_streak=streak,
                 provider_cooldown_signature=signature,
+                provider_cooldown_since=since,
             )
+            if now - since >= AUTOMATIC_RETRY_WINDOW_SECONDS:
+                state.stop_kind = "provider_fence"
+                state.stop_reason = f"{RETRY_WINDOW_SPENT_REASON} ({state.stop_reason})."
             return None
 
         from ...core.operator_decision import build_operator_decision

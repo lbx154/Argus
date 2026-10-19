@@ -83,6 +83,9 @@ class RoundLoopState:
     # hour) instead of failing the mission into a paid replanning cycle.
     backend_failure_signature: str = ""
     backend_failure_same_cause_streak: int = 0
+    # When the current same-cause run began; the hold ends after the
+    # automatic-retry window.
+    backend_failure_since: float = 0.0
     # Consecutive Engineer calls that each used their whole per-call
     # provider-turn allowance without a completed turn. One or two in a row are
     # routine on a long task; a run of them means the fresh sessions are not

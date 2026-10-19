@@ -177,19 +177,38 @@ STAGE_CHECKLISTS: dict[str, tuple[ChecklistItem, ...]] = {
             statement=(
                 "Treat method, experiment, evaluator, and evidence defects as repair work "
                 "inside Experiment. Keep the selected idea and current stage; never request "
-                "a rollback. The claim in METHOD.md is fixed at Idea selection and only "
-                "the operator changes it: a negative or weak result is an optimization "
+                "a rollback or reopen Idea selection. A negative or weak result is first an optimization "
                 "signal, worked down the diagnosis ladder in "
                 "research-experiment-playbook.md in order (implementation fidelity, setup "
                 "and evaluator, hyperparameters and recipe, scale and data, baseline "
                 "fairness, method variants that still satisfy the claim), one diagnosed "
-                "rung per attempt with its evidence recorded. At least three distinct, "
-                "diagnosed attempts precede escalation, and escalation is an operator "
-                "question with the evidence, never a narrowed claim, a restricted-case "
-                "paper, or a negative-result paper. Unfinished development is not a "
-                "negative result."
+                "rung per attempt with its evidence recorded. Continue only while a named "
+                "rung could still change the conclusion; the number of attempts is not the "
+                "test. When none could, the claim's owner decides: an operator-locked idea "
+                "(research_direction_mode=locked, or none recorded) keeps its METHOD.md "
+                "claim and escalates as an operator question with the evidence, or as a "
+                "stage package when no operator is available; an Argus-selected idea "
+                "(broad) is a working hypothesis the Planner may revise in one reviewed "
+                "task that records the refuting evidence, keeps earlier results, and fixes "
+                "the new falsifier before its test. Never present a narrowed claim, a "
+                "restricted-case paper, or a negative-result paper as meeting the "
+                "operator's target. Unfinished development is not a negative result."
             ),
             evidence_hint="repaired work products, each attempt's rung and evidence, and the next decisive comparison",
+        ),
+        ChecklistItem(
+            id="experiment.stage_package",
+            statement=(
+                "Once a real comparison on the operator's data has been reviewed, deliver "
+                "one stage package (TASK_STAGE_PACKAGE=true) before further diagnosis: "
+                "results with their source files, the current method, the command behind "
+                "each number, failures and their explanation, the operator requirements "
+                "still unmet, and the next round's purpose. It is labelled 'stage package, "
+                "overall goal not complete', earns a non-terminal delivery, and changes "
+                "neither the publication target nor the stage. Another package follows "
+                "only a material change in the evidence."
+            ),
+            evidence_hint="the reviewed package files and the result files each number cites",
         ),
         ChecklistItem(
             id="experiment.notes",
@@ -658,8 +677,8 @@ _PLANNER_RESEARCH_ORCHESTRATION = (
     "schedule any upstream method, experiment, or paper repair in the current stage "
     "and never request rollback. The project-root research notes, RESEARCH_NOTES.md, "
     "are the sole normal cross-stage context until Review, with one named exception: "
-    "the method card, METHOD.md, is a work product every role reads and its claim is "
-    "fixed until the operator changes it. Review uses "
+    "the method card, METHOD.md, is a work product every role reads and its claim "
+    "changes only as the experiment.repair item allows. Review uses "
     "paper/main.tex, its rendered output and direct dependencies, and paper/REVIEW.md."
 )
 
@@ -670,8 +689,9 @@ _ENGINEER_RESEARCH_METHOD = (
     + " Verify current models, benchmark versions, and APIs from live sources instead "
     "of memory. Preserve reproducibility through code, explicit configuration, and raw output, "
     "not extra reporting files; the method card, METHOD.md, is a work product, not a "
-    "report. The claim in METHOD.md is fixed: make the code satisfy it, never the "
-    "card fit the code. Repair defects in the current stage and never move the "
+    "report. Make the code satisfy the claim in METHOD.md, never the card fit the "
+    "code; revising a working hypothesis is a Planner task, not an edit made "
+    "while implementing. Repair defects in the current stage and never move the "
     "work backward. Keep experiments adaptive"
 )
 
@@ -710,7 +730,8 @@ _MANAGER_RESEARCH_STEWARDSHIP = (
     "backward. Advance when the stage's scientific work is done and independently "
     "reviewed; Review is terminal. A Reviewer acceptance resting on a claim narrower "
     "than METHOD.md states is not stage completion: hold and schedule the next rung "
-    "of the diagnosis ladder. Judge the science, not the bookkeeping: a missing "
+    "of the diagnosis ladder, or, when no rung remains, the revision or stage package "
+    "the experiment.repair item allows. Judge the science, not the bookkeeping: a missing "
     "or outdated research notes, review note, template detail, or file marker is "
     "repair work for the next round, never by itself a reason to hold a stage. A "
     "Reviewer judgment reached on the current mission is the current review of the "

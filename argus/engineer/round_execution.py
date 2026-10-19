@@ -21,6 +21,7 @@ from pathlib import Path
 from typing import TYPE_CHECKING, Callable
 
 from ..core import command_record
+from ..core.autonomy import AUTOMATIC_RETRY_WINDOW_SECONDS, RETRY_WINDOW_SPENT_REASON
 from ..core.event_catalog import EventType
 from ..core.models import LoopStatus, ReviewDecision, RoundRecord
 from ..core.role_decision import latest_role_decision
@@ -741,6 +742,7 @@ class RoundExecutionMixin:
             else:
                 state.backend_failure_signature = signature
                 state.backend_failure_same_cause_streak = 1
+                state.backend_failure_since = time.time()
             state.no_progress_streak = 0
             configured_threshold = max(
                 1, int(supervised_config.backend_failure_threshold or 1)
@@ -764,6 +766,11 @@ class RoundExecutionMixin:
             same_cause_hold = (
                 not watchdog_failure
                 and state.backend_failure_same_cause_streak >= 2
+            )
+            # The hold retries for the automatic-retry window, then the task
+            # waits for the operator's explicit Run.
+            retry_window_spent = same_cause_hold and (
+                time.time() - state.backend_failure_since >= AUTOMATIC_RETRY_WINDOW_SECONDS
             )
             decide = (
                 idle_termination_review_decision
@@ -794,7 +801,12 @@ class RoundExecutionMixin:
                 engineer_exit_code=engineer_result.exit_code,
                 review=review,
                 fatal_error=engineer_result.fatal_error,
-                stop_kind=stop_kind,
+                # A hung command is the work's problem; any other failure here
+                # is the model service's, which the host bounds as an outage.
+                stop_kind=(
+                    "provider_fence" if retry_window_spent
+                    else stop_kind or (None if watchdog_failure else "backend_unavailable")
+                ),
             ))
             if watchdog_failure:
                 # Hand the stop's guidance (which command, and how to bound or
@@ -859,6 +871,15 @@ class RoundExecutionMixin:
                     state.rounds,
                     state.last_engineer_message,
                     review.reason,
+                    None,
+                ))
+            if retry_window_spent:
+                named = cause.line or str(fatal_error or "").strip()
+                return control_return((
+                    "paused_provider_fence",
+                    state.rounds,
+                    state.last_engineer_message,
+                    f"{RETRY_WINDOW_SPENT_REASON} ({named}).",
                     None,
                 ))
             base_backoff_seconds = max(

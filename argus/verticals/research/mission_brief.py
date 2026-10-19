@@ -6,7 +6,7 @@ was defined in passing inside the notes, the environment was not described,
 and after a provider failure the benchmark was quietly narrowed. Benchmarks
 with crisp prompts and prepared environments get strong implementations from
 the same models. This module gives an Argus Experiment mission the same shape
-at zero model cost: what the claim is (fixed, verbatim), where each component
+at zero model cost: what the claim is (verbatim; fixed unless Argus chose it), where each component
 stands and where its code is, what the environment actually contains, what
 this task must achieve, and what changed since the last round.
 
@@ -45,6 +45,16 @@ FIXED_CLAIM_SENTENCE = (
     "Only the operator changes this claim. The code is made to agree with it, "
     "never the claim with the code; when the implementation falls short, "
     "iterate on the implementation."
+)
+# s-a43d1018 asked for "a general method"; Argus chose CPC itself and then
+# treated its own choice as operator-owned, so 40 hours of repairs could only
+# patch inside it. A broad run's selection is a hypothesis Argus may revise.
+WORKING_HYPOTHESIS_SENTENCE = (
+    "Argus selected this hypothesis; the operator did not lock it. Implement it "
+    "faithfully and never reword it to fit the code. When no remaining diagnostic "
+    "could change the conclusion and the evidence still contradicts it, the Planner "
+    "may revise it inside Experiment: record the refuting evidence, keep the "
+    "earlier results, and fix the new falsifier before running its test."
 )
 DEFINITION_OF_DONE = (
     "Definition of done: the checks above pass and the host-run tests/spec are "
@@ -237,14 +247,29 @@ def _route_statement(
     return "", "", ""
 
 
+def _direction_mode(project_root: Path, state_root: Path | None) -> str:
+    from ...core.research_contract import resolve_research_direction_mode
+
+    for root in (project_root, state_root):
+        if root is not None:
+            mode = resolve_research_direction_mode(root)
+            if mode:
+                return mode
+    return ""
+
+
 def _claim_section(
     card: dict[str, Any], project_root: Path, state_root: Path | None
 ) -> list[str]:
     statement = _one_line(card.get("statement"))
     title = _one_line(card.get("title"), 200)
+    # Only a ``broad`` run let Argus choose the idea; an operator-locked idea,
+    # and a run that never recorded its mode, keep the fixed claim.
+    working = _direction_mode(project_root, state_root) == "broad"
+    heading = "### Claim (working hypothesis selected by Argus)" if working else "### Claim (fixed)"
     lines: list[str] = []
     if statement:
-        lines.append("### Claim (fixed)" + (f" — {title}" if title else ""))
+        lines.append(heading + (f" — {title}" if title else ""))
         lines.append(statement + " (METHOD.md, verbatim)")
     else:
         selected = _selected_idea(project_root, state_root)
@@ -255,7 +280,7 @@ def _claim_section(
         )
         if route_statement:
             lines.append(
-                "### Claim (fixed)"
+                heading
                 + (f" — {route_title}" if route_title else f" — {route_id}")
             )
             lines.append(
@@ -263,7 +288,7 @@ def _claim_section(
                 "write METHOD.md from it before method code)"
             )
         elif route_id:
-            lines.append("### Claim (fixed)")
+            lines.append(heading)
             lines.append(
                 f"Selected idea {route_id}" + (f": {rationale}" if rationale else "")
                 + " (from the Idea selection; write METHOD.md from the route before method code)"
@@ -271,10 +296,10 @@ def _claim_section(
         else:
             from_notes = _claim_from_notes(project_root)
             if from_notes:
-                lines.append("### Claim (fixed)")
+                lines.append(heading)
                 lines.append(from_notes + " (RESEARCH_NOTES.md; write METHOD.md from the route)")
     if lines:
-        lines.append(FIXED_CLAIM_SENTENCE)
+        lines.append(WORKING_HYPOTHESIS_SENTENCE if working else FIXED_CLAIM_SENTENCE)
     return lines
 
 
@@ -840,6 +865,7 @@ def prepare_mission(
 __all__ = [
     "DEFINITION_OF_DONE",
     "FIXED_CLAIM_SENTENCE",
+    "WORKING_HYPOTHESIS_SENTENCE",
     "HEADER",
     "MAX_BRIEF_LINES",
     "prepare_mission",

@@ -1,4 +1,5 @@
 import { translate, type Locale } from '../i18n';
+import { ApiError } from '../../../core/src/http';
 
 /** Small formatting helpers shared across the web views. */
 
@@ -33,7 +34,7 @@ export function money(n: number | null | undefined, digits = 2): string {
 
 export function formatBytes(bytes: number): string {
   if (!Number.isFinite(bytes) || bytes <= 0) return '0 B';
-  const units = ['B', 'KB', 'MB', 'GB'];
+  const units = ['B', 'KB', 'MB', 'GB', 'TB'];
   const index = Math.min(Math.floor(Math.log(bytes) / Math.log(1024)), units.length - 1);
   const value = bytes / 1024 ** index;
   return `${value >= 10 || index === 0 ? value.toFixed(0) : value.toFixed(1)} ${units[index]}`;
@@ -105,9 +106,24 @@ export function clockOf(ev: Record<string, unknown>): string {
   return `${p(d.getHours())}:${p(d.getMinutes())}:${p(d.getSeconds())}`;
 }
 
-/** Best-effort human-readable message for a thrown value of unknown shape. */
+/** Best-effort human-readable message for a thrown value of unknown shape.
+ * HTTP failures read as what happened, not as a request line and status code. */
 export function errorText(error: unknown): string {
+  if (error instanceof ApiError) return apiErrorText(error);
   return error instanceof Error ? error.message : String(error || 'Unknown error');
+}
+
+function apiErrorText(error: ApiError): string {
+  const detail = error.detail.trim();
+  const status = error.status;
+  if (!status) return translate('error.network');
+  if (status === 401) return translate('error.unauthorized');
+  if (status === 403) return detail || translate('error.forbidden');
+  if (status === 404) return translate('error.notFound');
+  if (status === 413) return translate('error.tooLarge');
+  if (status === 429 || status === 503) return detail ? `${translate('error.busy')}（${detail}）` : translate('error.busy');
+  if (status >= 500) return detail ? `${translate('error.server')}（${detail}）` : translate('error.server');
+  return detail || translate('error.rejected');
 }
 
 export function managerStreamFailureMessage(error: unknown, gotDelta: boolean): string {

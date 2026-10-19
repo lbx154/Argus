@@ -334,3 +334,83 @@ def test_the_existing_preconditions_still_hold(field: str, open_ended: bool) -> 
 
     assert probe._reconcile(_verdict(waiting_contract=contract, **overrides)) == ""
     assert probe.manager_calls == 0
+
+
+def _file_wait():
+    from argus.planner import WaitingContract
+
+    return WaitingContract(
+        blocker_fingerprint="results-file",
+        recheck_condition="results/metrics.json is written",
+        recheck_token="tok-1",
+        wait_mode="event",
+        wake_on=("artifact_revision",),
+        watched_paths=("results/metrics.json",),
+    )
+
+
+def test_an_unchanged_wait_gets_one_manager_ruling() -> None:
+    """Re-asking every few idle cycles was a Manager call every twenty minutes."""
+    probe = _Probe()
+    verdict = _verdict(waiting_contract=_file_wait())
+
+    for _ in range(200):
+        probe._reconcile(verdict)
+
+    assert probe.manager_calls == 1
+
+
+def test_a_backend_that_cannot_rule_is_retried_for_three_hours_then_left(monkeypatch) -> None:
+    from argus.core.autonomy import AUTOMATIC_RETRY_WINDOW_SECONDS
+    from argus.life.supervisor import _planning_cycle
+
+    clock = SimpleNamespace(now=1_800_000_000.0)
+    monkeypatch.setattr(_planning_cycle, "time", SimpleNamespace(time=lambda: clock.now))
+    probe = _Probe()
+    notices: list[str] = []
+    probe._tell_operator = lambda notice_id, english, chinese: notices.append(notice_id)
+
+    class _Down:
+        def decide_stage_transition(self, **_kwargs):
+            probe.manager_calls += 1
+            return SimpleNamespace(
+                action="hold", target_stage="scope", reason="backend unavailable",
+                current_stage="scope", source="manager_unavailable", diagnostic="",
+                resolves_wait=False,
+            )
+
+    probe._bound_manager = lambda: _Down()
+    verdict = _verdict(waiting_contract=_file_wait())
+    for _ in range(int(2 * AUTOMATIC_RETRY_WINDOW_SECONDS / 300)):
+        probe._reconcile(verdict)
+        clock.now += 300.0
+
+    assert probe.manager_calls == AUTOMATIC_RETRY_WINDOW_SECONDS / 300
+    assert len(notices) == 1
+
+
+def test_a_planner_that_ignores_the_ruling_gets_the_manager_once_more() -> None:
+    probe = _Probe()
+    contract = _file_wait()
+    store: dict = {}
+    probe._load_planner_waiting_contract_state = lambda: dict(store) if store else None
+    probe._write_planner_waiting_contract_state = lambda state: store.update(state)
+    probe._persist_planner_waiting_contract = lambda c: store.update(
+        blocker_fingerprint=c.blocker_fingerprint, recheck_token=c.recheck_token,
+    ) or dict(store)
+    probe._resolve_planner_waiting_contract = lambda **kw: store.update(manager_resolution=kw)
+
+    class _Resolves:
+        def decide_stage_transition(self, **_kwargs):
+            probe.manager_calls += 1
+            return SimpleNamespace(
+                action="hold", target_stage="scope", reason="work is runnable now",
+                current_stage="scope", source="manager_llm", diagnostic="",
+                resolves_wait=True,
+            )
+
+    probe._bound_manager = lambda: _Resolves()
+    for _ in range(60):
+        probe._reconcile(_verdict(waiting_contract=contract))
+
+    assert probe.manager_calls == 2

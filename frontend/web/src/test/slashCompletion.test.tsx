@@ -1,4 +1,5 @@
 import { renderToStaticMarkup } from 'react-dom/server';
+import { MESSAGE_ATTACHMENT_ACCEPT } from '../lib/attachments';
 import { describe, expect, it } from 'vitest';
 import { applyCompletion, slashCompletions } from '../../../core/src/commands';
 import { ChatBox } from '../components/ChatBox';
@@ -60,7 +61,8 @@ describe('slash completion menu', () => {
     expect(html).toContain(`id="${SLASH_COMPLETION_LISTBOX_ID}"`);
     expect(html).toContain('aria-keyshortcuts="Control+R Meta+R"');
     expect(html).toContain('type="file"');
-    expect(html).toContain('accept=".png,.jpg,.jpeg,.webp,.pdf,.md,.markdown,.txt,.json,.csv"');
+    expect(html).toContain(`accept="${MESSAGE_ATTACHMENT_ACCEPT}"`);
+    expect(MESSAGE_ATTACHMENT_ACCEPT).toContain('.zip');
   });
 
   it('shows the operator-owned Task/Auto/Chat category selector', () => {

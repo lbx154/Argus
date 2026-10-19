@@ -620,18 +620,26 @@ def main(argv: list[str] | None = None) -> int:
         # refusal (stable web trial, 2026-09-16: twelve workers in one minute,
         # eleven "failed" on a two-slot provider).
         kind = mission.external_pause_kind
-        retry_after = time.time() + _pause_retry_seconds(kind)
-        task_board.release_paused(
+        now = time.time()
+        retry_after = task_board.release_paused(
             root,
             task_id,
             reason=mission.reason or f"paused by {kind}; will retry",
-            retry_after=retry_after,
+            retry_after=now + _pause_retry_seconds(kind),
+            kind=kind,
+            now=now,
         )
-        pool.update(root, cooldown_until=retry_after)
-        sys.stderr.write(
-            f"teammate_entry: task {task_id} paused ({kind}); "
-            f"re-queued for retry after {retry_after:.0f}\n"
-        )
+        if retry_after is None:
+            sys.stderr.write(
+                f"teammate_entry: task {task_id} paused ({kind}) for the whole "
+                "automatic-retry window; waiting for the operator\n"
+            )
+        else:
+            pool.update(root, cooldown_until=retry_after)
+            sys.stderr.write(
+                f"teammate_entry: task {task_id} paused ({kind}); "
+                f"re-queued for retry after {retry_after:.0f}\n"
+            )
     else:
         task_board.fail(
             root,

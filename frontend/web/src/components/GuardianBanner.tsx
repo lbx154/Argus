@@ -1,4 +1,5 @@
 import type { GuardianAlert } from '../lib/guardian';
+import { useI18n } from '../i18n';
 
 /**
  * The proactive guardian banner (监视守护) — a can't-miss strip the web cockpit
@@ -8,7 +9,9 @@ import type { GuardianAlert } from '../lib/guardian';
  * mission moves on. Derived from the event stream — no polling, no LLM.
  */
 export function GuardianBanner({ alert }: { alert: GuardianAlert | null }) {
+  const { locale } = useI18n();
   if (!alert) return null;
+  const zh = locale === 'zh-CN';
   const block = alert.tone === 'block';
   const budget = alert.kind === 'budget';
   const tone = block
@@ -21,7 +24,7 @@ export function GuardianBanner({ alert }: { alert: GuardianAlert | null }) {
     >
       <span className="shrink-0 font-mono text-xs font-bold leading-none">{budget ? '$' : block ? '!' : 'i'}</span>
       <span className="shrink-0 text-[10px] font-semibold uppercase tracking-wide">
-        {budget ? 'budget alarm' : block ? 'action required' : 'notice'}
+        {budget ? (zh ? '预算提醒' : 'Budget alarm') : block ? (zh ? '需要你处理' : 'Action required') : (zh ? '提示' : 'Notice')}
       </span>
       <span className="min-w-0 flex-1 truncate" title={alert.text}>
         {alert.text}

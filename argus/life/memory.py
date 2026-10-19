@@ -1132,6 +1132,9 @@ class BacklogItem:
     # auto-resumed and re-billed forever.
     provider_cooldown_streak: int = 0
     provider_cooldown_signature: str = ""
+    # When the current run of provider-cooldown pauses without progress began;
+    # auto-resume stops after the automatic-retry window.
+    provider_cooldown_since: float = 0.0
     # Persisted so a configurable convergence threshold is not bounded by the
     # finite journal tail used only to migrate older backlog rows.
     consecutive_replans: int = 0
@@ -1329,6 +1332,10 @@ class BacklogItem:
             ),
             provider_cooldown_signature=str(
                 row.get("provider_cooldown_signature", "")
+            ),
+            provider_cooldown_since=max(
+                0.0,
+                float(row.get("provider_cooldown_since", 0.0) or 0.0),
             ),
             consecutive_replans=max(
                 0,

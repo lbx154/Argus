@@ -1,5 +1,6 @@
 import { isAuthenticationError, LocalArgusUnavailableError } from '../api';
 import { useI18n } from '../i18n';
+import { canOpenDesktopSettings } from '../lib/desktopBridge';
 import { useState, type FormEvent } from 'react';
 
 export function pairingTokenFromInput(input: string): string {
@@ -35,7 +36,6 @@ export function ConnectionProblemBanner({
   const { t } = useI18n();
   const pairing = isAuthenticationError(error);
   const unavailable = error instanceof LocalArgusUnavailableError;
-  const [repairOpen, setRepairOpen] = useState(false);
   const [pairingInput, setPairingInput] = useState('');
   const [pairingError, setPairingError] = useState('');
   if (!pairing && !unavailable) return null;
@@ -57,6 +57,43 @@ export function ConnectionProblemBanner({
     window.location.replace(target.toString());
   };
 
+  if (pairing) {
+    // Nothing works until this browser has its access link: one centered card
+    // with the paste box already open, instead of a banner over an empty page.
+    return (
+      <div role="alert" className="fixed inset-0 z-[100] flex items-center justify-center bg-bg/95 px-4 backdrop-blur">
+        <div className="w-full max-w-md rounded-2xl border border-line bg-panel p-6 text-left shadow-2xl">
+          <h1 className="text-base font-semibold text-ink">{t('connection.pairingTitle')}</h1>
+          <p className="mt-2 text-sm leading-relaxed text-ink-dim">{t('connection.pairingDetail')}</p>
+          <form onSubmit={repairPairing} className="mt-4 flex flex-col gap-2">
+            <label className="text-xs font-medium text-ink-dim" htmlFor="pairing-link">{t('connection.pairingInput')}</label>
+            <div className="flex gap-2">
+              <input
+                id="pairing-link"
+                data-autofocus
+                autoFocus
+                type="password"
+                autoComplete="off"
+                value={pairingInput}
+                onChange={(event) => {
+                  setPairingInput(event.target.value);
+                  setPairingError('');
+                }}
+                placeholder={t('connection.pairingPlaceholder')}
+                className="h-10 min-w-0 flex-1 rounded-md border border-line bg-bg px-3 text-sm text-ink outline-none focus:border-blue"
+              />
+              <button type="submit" className="h-10 shrink-0 rounded-md border border-blue/45 bg-blue px-4 text-sm font-medium text-white hover:bg-blue-deep">
+                {t('connection.connect')}
+              </button>
+            </div>
+            {pairingError ? <span role="alert" className="text-xs text-err">{pairingError}</span> : null}
+          </form>
+          <p className="mt-4 text-xs leading-relaxed text-ink-faint">{t('connection.pairingHelp')}</p>
+        </div>
+      </div>
+    );
+  }
+
   return (
     <div
       role="alert"
@@ -64,52 +101,18 @@ export function ConnectionProblemBanner({
     >
       <span aria-hidden="true" className="mt-0.5 font-mono font-bold text-err">!</span>
       <div className="min-w-0 flex-1">
-        <strong className="block text-err">
-          {t(pairing ? 'connection.pairingTitle' : 'connection.unreachableTitle')}
-        </strong>
+        <strong className="block text-err">{t('connection.unreachableTitle')}</strong>
         <span className="mt-0.5 block text-xs leading-relaxed text-ink-dim">
-          {t(pairing ? 'connection.pairingDetail' : 'connection.unreachableDetail')}
+          {t(canOpenDesktopSettings() ? 'connection.unreachableDetail' : 'connection.unreachableDetailWeb')}
         </span>
       </div>
-      {pairing && !repairOpen ? (
-        <button
-          type="button"
-          onClick={() => setRepairOpen(true)}
-          className="shrink-0 rounded-md border border-blue/45 bg-blue/10 px-2.5 py-1 text-xs font-medium text-blue hover:bg-blue/15"
-        >
-          {t('connection.pairAgain')}
-        </button>
-      ) : !pairing ? (
-        <button
-          type="button"
-          onClick={onRetry}
-          className="shrink-0 rounded-md border border-err/40 px-2.5 py-1 text-xs text-err hover:bg-err/10"
-        >
-          {t('common.retry')}
-        </button>
-      ) : null}
-      {pairing && repairOpen ? (
-        <form onSubmit={repairPairing} className="flex w-full basis-full flex-wrap gap-2 pl-7">
-          <label className="sr-only" htmlFor="pairing-link">{t('connection.pairingInput')}</label>
-          <input
-            id="pairing-link"
-            data-autofocus
-            type="password"
-            autoComplete="off"
-            value={pairingInput}
-            onChange={(event) => {
-              setPairingInput(event.target.value);
-              setPairingError('');
-            }}
-            placeholder={t('connection.pairingPlaceholder')}
-            className="h-9 min-w-0 flex-1 rounded-md border border-line bg-bg px-3 text-xs text-ink outline-none focus:border-blue"
-          />
-          <button type="submit" className="h-9 rounded-md border border-blue/35 bg-blue/8 px-3 text-xs font-medium text-blue hover:border-blue-deep hover:bg-blue-deep hover:text-white">
-            {t('connection.connect')}
-          </button>
-          {pairingError ? <span role="alert" className="w-full text-xs text-err">{pairingError}</span> : null}
-        </form>
-      ) : null}
+      <button
+        type="button"
+        onClick={onRetry}
+        className="shrink-0 rounded-md border border-err/40 px-2.5 py-1 text-xs text-err hover:bg-err/10"
+      >
+        {t('common.retry')}
+      </button>
     </div>
   );
 }

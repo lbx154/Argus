@@ -73,6 +73,21 @@ log = logging.getLogger(__name__)
 _PLAN_TASKS_ADDED = "tasks_added"
 _PLAN_PROJECT_DONE = "project_done"
 
+_REVIEW_PHRASES = {
+    "done": ("审核：已通过", "review: passed"),
+    "passed": ("审核：已通过", "review: passed"),
+    "approved": ("审核：已通过", "review: passed"),
+    "continue": ("审核：要求继续完善", "review: needs more work"),
+    "blocked": ("审核：发现阻塞问题", "review: blocked"),
+    "stale": ("审核：已过期（稿件之后有改动）", "review: stale (manuscript changed since)"),
+}
+
+
+def _review_phrase(review: str, chinese: bool) -> str:
+    """A review outcome in words, for operator-facing completion lines."""
+    zh, en = _REVIEW_PHRASES.get(str(review), (f"审核：{review}", f"review: {review}"))
+    return zh if chinese else en
+
 
 class LifeSupervisor(
     EvolutionMixin,
@@ -168,6 +183,9 @@ class LifeSupervisor(
         # Spans the daemon outer-loop sleeps because the supervisor is reused.
         self._idle_since: float | None = None
         self._last_open_ended_project_done_signature = ""
+        # Failed Manager attempts per project completion report message id;
+        # see PROJECT_REPORT_MODEL_ATTEMPTS.
+        self._project_report_failures: dict[str, int] = {}
         # Lifecycle-block log-hygiene state: suppress identical held-state
         # emits except on change or a slow heartbeat.
         self._last_lifecycle_block_sig: tuple[str, str] | None = None
@@ -183,6 +201,10 @@ class LifeSupervisor(
             tuple[str, str, str, bool] | None
         ) = None
         self._planner_waits_since_reconciliation = 0
+        # Authoritative Manager rulings per wait key, and when the Manager
+        # backend first failed to rule on one (_reconcile_open_ended_planner_waiting).
+        self._planner_wait_rulings: dict[tuple[str, str, str, bool], int] = {}
+        self._planner_wait_ruling_failed_at: dict[tuple[str, str, str, bool], float] = {}
         # Consecutive missions that COMPLETED with the reviewer judging
         # forward_progress=false; when it crosses the threshold the harness
         # escalates to the operator (surface, don't loop invisibly).
@@ -403,6 +425,13 @@ class LifeSupervisor(
             and str(pipeline.get("vertical") or "").strip()
             else ""
         )
+        from ...skills.builtins import vertical_skill_read_dirs
+
+        # The stage prompt tells the read-only Planner to open the vertical's
+        # packaged playbook; grant that directory, not the whole release.
+        playbook_dirs = vertical_skill_read_dirs(
+            str(pipeline.get("vertical") or "").strip() if isinstance(pipeline, dict) else ""
+        )
         return PlannerConfig(
             model=resolve_role_model("planner", role_env="ARGUS_SKILL_PLAN_MODEL")
             or self.reviewer_model,
@@ -411,7 +440,7 @@ class LifeSupervisor(
             ).value,
             working_dir=str(workdir),
             state_root=str(state_root),
-            add_dirs=([str(state_root)] if state_root != workdir else []),
+            add_dirs=([str(state_root)] if state_root != workdir else []) + playbook_dirs,
             skip_git_repo_check=True,
             dangerous_yolo=False,
             open_ended=bool(self.config.continuous and self.config.open_ended),
@@ -759,6 +788,8 @@ class LifeSupervisor(
                 stopped_by = "mission_delivery_pending"
                 self._suggested_sleep_s = 1.0
                 break
+            if self._decide_overdue_venue_stalls():
+                continue
             yield_provider = getattr(
                 self.config,
                 "manager_pipeline_yield_provider",
@@ -1237,6 +1268,9 @@ class LifeSupervisor(
         runtime_block = self._runtime_failure_circuit_block(item=item)
         if runtime_block is not None:
             return runtime_block
+        fence_block = self._retry_window_fence_block(item=item)
+        if fence_block is not None:
+            return fence_block
 
         obsolete_final_submission = (
             self._maybe_skip_inapplicable_final_submission_item(item)
@@ -1829,9 +1863,11 @@ class LifeSupervisor(
             "下一项" if chinese else "the next item"
         )
         more = len(pending) - 1
+        done = self._done_task_count()
         if chinese:
             tail = f"，之后还有 {more} 项" if more > 0 else ""
-            return f"接下来做：{next_title}{tail}。"
+            progress = f"（目前已完成 {done} 项）" if done else ""
+            return f"接下来做：{next_title}{tail}。{progress}"
         tail = (
             f", with {more} more queued after it"
             if more > 1
@@ -1839,7 +1875,14 @@ class LifeSupervisor(
             if more == 1
             else ""
         )
-        return f"Next up: {next_title}{tail}."
+        progress = f" ({done} done so far)" if done else ""
+        return f"Next up: {next_title}{tail}.{progress}"
+
+    def _done_task_count(self) -> int:
+        try:
+            return sum(1 for row in self.memory.backlog.history() if str(row.status) == "done")
+        except Exception:  # noqa: BLE001 - a status line must not break settlement
+            return 0
 
     def _publish_mission_completion_message(self, event: dict[str, Any]) -> None:
         """Tell the operator a Team mission ended without another model call."""
@@ -2005,10 +2048,13 @@ class LifeSupervisor(
                 if isinstance(primary_target, dict)
                 else ""
             )
+            # A reviewed interim package is delivered while the campaign goes
+            # on; it must never read as the finished goal.
+            stage_package = bool(delivery_ready and delivery.get("kind") == "stage_package")
             delivery_line = (
-                f"交付文件: {delivery_path}"
+                f"{'阶段成果（整体目标未完成）' if stage_package else '交付文件'}: {delivery_path}"
                 if chinese and delivery_path
-                else f"Deliverable: {delivery_path}"
+                else f"{'Stage package (overall goal not complete)' if stage_package else 'Deliverable'}: {delivery_path}"
                 if delivery_path
                 else ""
             )
@@ -2033,7 +2079,7 @@ class LifeSupervisor(
             summary_line = f"{summary_label}: {summary}" if summary else ""
             if success:
                 if campaign_continues:
-                    completion_label = "任务已继续" if chinese else "Task continued"
+                    completion_label = "已完成一步" if chinese else "Step done"
                 elif overall_complete:
                     completion_label = (
                         "交付已认证"
@@ -2056,7 +2102,7 @@ class LifeSupervisor(
                     and review not in {"none", "not_assessed"}
                     and not (overall_complete and independent_review_required)
                 ):
-                    result += f" · review={review}"
+                    result += f" · {_review_phrase(review, chinese)}"
             else:
                 reason = str(
                     event.get("stop_reason")
@@ -2200,10 +2246,14 @@ class LifeSupervisor(
                     "summary": summary,
                     "campaign_continues": campaign_continues,
                     "overall_complete": overall_complete,
-                    "delivery": delivery if overall_complete and delivery_ready else None,
+                    "delivery": (
+                        delivery
+                        if delivery_ready and (overall_complete or stage_package)
+                        else None
+                    ),
                     "delivery_id": (
                         str(delivery.get("delivery_id") or "")
-                        if overall_complete and delivery_ready and delivery
+                        if delivery_ready and (overall_complete or stage_package) and delivery
                         else ""
                     ),
                 },
@@ -2326,3 +2376,19 @@ class LifeSupervisor(
 
     def _emit_status(self, text: str) -> None:
         self._emit({"type": "life.status", "text": text})
+
+    def _tell_operator(self, notice_id: str, english: str, chinese: str) -> None:
+        """Post one message to the operator's conversation, once per ``notice_id``."""
+        from ...core.operator_messages import publish_operator_message, uses_cjk
+
+        cjk = uses_cjk(str(getattr(self.config, "continuous_objective", "") or ""))
+        try:
+            publish_operator_message(
+                self._manager_project_report_root(),
+                text=chinese if cjk else english,
+                message_id=f"argus-notice-{notice_id}",
+                event_fields={"operator_notice": notice_id},
+            )
+        except Exception:  # noqa: BLE001 - the status line below still records it
+            log.warning("could not post operator notice %s", notice_id, exc_info=True)
+        self._emit_status(english)

@@ -36,7 +36,25 @@ _BINARY_UPLOAD_SPECS: dict[str, tuple[str, tuple[str, ...]]] = {
     ".jpeg": ("image/jpeg", ("image/jpeg", "image/jpg", "application/octet-stream")),
     ".webp": ("image/webp", ("image/webp", "application/octet-stream")),
     ".pdf": ("application/pdf", ("application/pdf", "application/octet-stream")),
+    # Archives and Office documents are stored as given; the team unpacks or
+    # parses them with its own tools.
+    ".zip": ("application/zip", ("application/zip", "application/x-zip-compressed", "application/octet-stream")),
+    ".xlsx": (
+        "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+        ("application/vnd.openxmlformats-officedocument.spreadsheetml.sheet", "application/octet-stream"),
+    ),
+    ".docx": (
+        "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+        ("application/vnd.openxmlformats-officedocument.wordprocessingml.document", "application/octet-stream"),
+    ),
+    ".pptx": (
+        "application/vnd.openxmlformats-officedocument.presentationml.presentation",
+        ("application/vnd.openxmlformats-officedocument.presentationml.presentation", "application/octet-stream"),
+    ),
+    ".gz": ("application/gzip", ("application/gzip", "application/x-gzip", "application/octet-stream")),
+    ".tgz": ("application/gzip", ("application/gzip", "application/x-gzip", "application/x-compressed-tar", "application/octet-stream")),
 }
+_ZIP_MAGIC = (b"PK\x03\x04", b"PK\x05\x06", b"PK\x07\x08")
 _TEXT_UPLOAD_SPECS: dict[str, tuple[str, tuple[str, ...]]] = {
     ".md": ("text/markdown", ("text/markdown", "text/plain", "application/octet-stream")),
     ".markdown": ("text/markdown", ("text/markdown", "text/plain", "application/octet-stream")),
@@ -46,7 +64,19 @@ _TEXT_UPLOAD_SPECS: dict[str, tuple[str, tuple[str, ...]]] = {
         "text/csv",
         ("text/csv", "text/plain", "application/vnd.ms-excel", "application/octet-stream"),
     ),
+    ".ipynb": (
+        "application/x-ipynb+json",
+        ("application/x-ipynb+json", "application/json", "text/plain", "application/octet-stream"),
+    ),
 }
+# Source code, LaTeX and configuration: UTF-8 text the team reads in place.
+_CODE_TEXT_SUFFIXES = (
+    ".py", ".tex", ".bib", ".sty", ".cls", ".yaml", ".yml", ".toml", ".ini", ".cfg", ".sh",
+    ".js", ".mjs", ".ts", ".tsx", ".jsx", ".java", ".c", ".h", ".cpp", ".hpp", ".cc", ".cu",
+    ".go", ".rs", ".rb", ".r", ".m", ".jl", ".sql", ".html", ".css", ".xml", ".tsv", ".log", ".rst",
+)
+for _suffix in _CODE_TEXT_SUFFIXES:
+    _TEXT_UPLOAD_SPECS[_suffix] = ("text/plain", ("text/plain", "application/octet-stream"))
 _SUPPORTED_SUFFIXES = frozenset({*_BINARY_UPLOAD_SPECS, *_TEXT_UPLOAD_SPECS})
 _ATTACHMENT_ID_RE = re.compile(r"^att-[a-f0-9]{12}$")
 _CLIENT_FILENAME_RE = re.compile(r"[^\w .()\-]+", re.UNICODE)
@@ -261,8 +291,9 @@ def _prepare_attachment_upload(
     suffix = Path(original_name).suffix.lower()
     if suffix not in _SUPPORTED_SUFFIXES:
         raise ValueError(
-            f"unsupported attachment type for {original_name}; supported suffixes are "
-            "PNG, JPEG, WebP, PDF, Markdown/text, JSON, and CSV"
+            f"unsupported attachment type for {original_name}; supported are images "
+            "(PNG, JPEG, WebP), PDF, text, Markdown, JSON, CSV, notebooks, source code and LaTeX, "
+            "ZIP/gzip archives, and Word/Excel/PowerPoint (.docx/.xlsx/.pptx)"
         )
     size_bytes = len(content)
     if size_bytes > MESSAGE_ATTACHMENT_MAX_BYTES:
@@ -343,6 +374,10 @@ def _validate_attachment_payload(
             raise ValueError(f"{original_name} is not a valid WebP file")
         if suffix == ".pdf" and not content.startswith(b"%PDF-"):
             raise ValueError(f"{original_name} is not a valid PDF file")
+        if suffix in {".zip", ".xlsx", ".docx", ".pptx"} and not content.startswith(_ZIP_MAGIC):
+            raise ValueError(f"{original_name} is not a valid {suffix[1:].upper()} file")
+        if suffix in {".gz", ".tgz"} and not content.startswith(b"\x1f\x8b"):
+            raise ValueError(f"{original_name} is not a valid gzip file")
         return canonical_mime
 
     canonical_mime, allowed_declared = _TEXT_UPLOAD_SPECS[suffix]
@@ -351,7 +386,7 @@ def _validate_attachment_payload(
             f"{original_name} declared unsupported MIME {declared}; expected {canonical_mime}"
         )
     text = _decode_text_attachment(content, original_name)
-    if suffix == ".json":
+    if suffix in {".json", ".ipynb"}:
         try:
             json.loads(text)
         except ValueError as exc:

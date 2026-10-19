@@ -18,6 +18,11 @@ from typing import Any, Iterator
 _PROJECT_ID = re.compile(r"[A-Za-z0-9][A-Za-z0-9_-]{0,127}\Z")
 MAX_TEXT_BYTES = 16384
 MAX_EVIDENCE_REFS = 16
+# Manager attempts at one peer message. Each failure waits longer than the
+# last; once they are spent the handler closes the message with a reply that
+# says it went unanswered, instead of asking the Manager again at every drain.
+PEER_MESSAGE_MAX_ATTEMPTS = 3
+PEER_RETRY_BASE_SECONDS = 300.0
 
 
 def _text(value: Any) -> str:
@@ -194,8 +199,13 @@ class PeerMailbox:
 
     def retry_later(self, message_id: str, error: str) -> None:
         with self._database(write=True) as db:
+            row = db.execute("SELECT attempts FROM messages WHERE id=? AND recipient=? AND acknowledged_at=0",
+                             (message_id, self.project_id)).fetchone()
+            if row is None:
+                return
+            delay = PEER_RETRY_BASE_SECONDS * 2 ** min(int(row[0]), 4)
             db.execute("UPDATE messages SET attempts=attempts+1,next_attempt_at=?,last_error=? WHERE id=? AND recipient=? AND acknowledged_at=0",
-                       (time.time() + 1, str(error)[:1000], message_id, self.project_id))
+                       (time.time() + delay, str(error)[:1000], message_id, self.project_id))
 
 
 def mailbox_for_project(project_root: Path | str) -> PeerMailbox:

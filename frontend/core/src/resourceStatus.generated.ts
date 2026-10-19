@@ -42,6 +42,7 @@ export interface ResourceQueueStatus {
   readonly "task_id": string;
   readonly "intent": string;
   readonly "ttl_seconds": number;
+  readonly "waited_seconds"?: number;
 }
 
 export interface ResourceStatus {

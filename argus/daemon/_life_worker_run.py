@@ -920,6 +920,11 @@ class LifeWorkerRunMixin:
                     clear_operator_wait_marker(state_root())
                 except Exception:  # noqa: BLE001 - a stale marker is harmless
                     pass
+        from ..core import call_guard
+
+        call_guard.enable(
+            on_trip=lambda labels: self._background_calls_paused(rf_state, labels)
+        )
         try:
             while not self._stop.is_set():
                 if self._deployment_handoff_gate():
@@ -1064,6 +1069,7 @@ class LifeWorkerRunMixin:
         finally:
             from ..manager.supervision import shutdown_supervision
 
+            call_guard.disable()
             shutdown_supervision(rf_state.runtime_root)
             self._stop_running_stall_watcher()
             if self._curator is not None:
@@ -1078,6 +1084,42 @@ class LifeWorkerRunMixin:
                 self.config.life_dir,
                 pid=os.getpid(),
             )
+
+    @staticmethod
+    def _background_calls_paused(rf_state: _RunForeverState, labels: list[str]) -> None:
+        """Tell the operator, once per trip, that background calls stopped."""
+        import re
+
+        from ..core.call_guard import BACKGROUND_CALL_BUDGET
+        from ..core.operator_messages import publish_operator_message, uses_cjk
+
+        supervisor = rf_state.sup
+        kinds = ", ".join(sorted({re.sub(r"\d+", "N", label) for label in labels}))[:300]
+        if uses_cjk(str(getattr(supervisor.config, "continuous_objective", "") or "")):
+            text = (
+                f"Argus 连续发起了 {BACKGROUND_CALL_BUDGET} 次后台模型调用（{kinds}），"
+                "期间没有任何进展：没有新任务、没有完成的工作，也没有你的新消息。"
+                "为了不再空耗费用，Argus 已暂停后台调用，正在执行的任务不受影响。"
+                "一旦有新进展，或你在这里回复，后台调用就会恢复。"
+            )
+        else:
+            text = (
+                f"Argus made {BACKGROUND_CALL_BUDGET} background model calls in a row "
+                f"({kinds}) without any progress: no new task, no finished work, and no "
+                "message from you. It has stopped background calls so they stop costing "
+                "money; running tasks are not affected. Background calls resume as soon "
+                "as something changes or you reply here."
+            )
+        publish_operator_message(
+            supervisor._manager_project_report_root(),
+            text=text,
+            message_id=f"background-calls-paused-{int(time.time())}",
+            event_fields={"background_calls_paused": True},
+        )
+        supervisor._emit_status(
+            f"background model calls paused after {BACKGROUND_CALL_BUDGET} calls "
+            "without progress"
+        )
 
     def _rf_shutdown(self, rf_state: _RunForeverState) -> int:
         """Quiesce continuous mode on an operator stop and log the final

@@ -126,12 +126,24 @@ class LettersMixin:
             started = now
         last_letter = float(state.get("last_at") or 0.0)
         last = last_letter or started
-        if not force and (now - last) < interval:
+        attempted = float(state.get("attempted_at") or 0.0)
+        if not force and (now - max(last, attempted)) < interval:
             return False
         # The first letter looks back over about one interval, so the missions
         # that finished just before the clock started are not lost.
         since = last_letter or max(0.0, started - max(interval, 3600.0))
-        facts = self._letter_facts(since=since, now=now)
+        # Only news earns a letter: a campaign where nothing settled and
+        # nothing was decided has nothing to tell, and a letter the Manager
+        # failed to write on the same facts would fail again. Every try is
+        # recorded, so neither case is retried before the next interval.
+        news_since = max(since, attempted)
+        facts = self._letter_facts(since=news_since, now=now)
+        state["attempted_at"] = now
+        self._write_letter_state(state)
+        if not force and not (facts.get("missions") or facts.get("decisions")):
+            return False
+        if news_since != since:
+            facts = self._letter_facts(since=since, now=now)
         from ...roles.prompts.letter import build_letter_prompt
 
         prompt = build_letter_prompt(facts=facts)

@@ -1,7 +1,9 @@
 import React, { lazy, Suspense } from 'react';
 import ReactDOM from 'react-dom/client';
 import { QueryClient, QueryClientProvider, useQuery } from '@tanstack/react-query';
-import { adoptTokenFromUrl, api } from './api';
+import { adoptTokenFromUrl, api, isAuthenticationError } from './api';
+import { ConnectionProblemBanner } from './components/ConnectionProblemBanner';
+import { errorText } from './lib/format';
 import { APPLICATION_WORKFLOWS } from '../../core/src/applicationWorkflows';
 import { I18nProvider, useI18n } from './i18n';
 import { WorkspaceErrorBoundary } from './components/WorkspaceErrorBoundary';
@@ -43,8 +45,12 @@ const queryClient = new QueryClient({
 function WorkbenchEntry() {
   const meta = useQuery({ queryKey: ['api-meta'], queryFn: api.meta });
   const { locale } = useI18n();
+  // Without an access link nothing else can load: show the pairing card itself.
+  if (meta.error && isAuthenticationError(meta.error)) {
+    return <ConnectionProblemBanner error={meta.error} onRetry={() => void meta.refetch()} />;
+  }
   if (meta.error) return <div role="alert" className="p-8">
-    {meta.error.message}<button className="ml-4 underline" onClick={() => void meta.refetch()}>
+    {errorText(meta.error)}<button className="ml-4 underline" onClick={() => void meta.refetch()}>
       {locale === 'zh-CN' ? '重新连接' : 'Reconnect'}
     </button>
   </div>;

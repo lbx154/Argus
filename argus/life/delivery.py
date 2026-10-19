@@ -498,9 +498,20 @@ def build_delivery_receipt(
     stage: str = "",
     reviewer_artifacts: Iterable[object] = (),
     artifact_source: str = "reviewer_evidence",
+    stage_package: bool = False,
 ) -> dict[str, Any] | None:
-    """Build a terminal receipt only for a real, openable deliverable."""
-    if not success or not overall_complete:
+    """Build a receipt only for a real, openable deliverable.
+
+    A terminal receipt needs the whole goal complete. A ``stage_package`` task
+    (a reviewed interim research package) gets a non-terminal receipt once its
+    own Reviewer accepted it; the campaign and ``overall_complete`` stay as they
+    are, so it cannot stand in for the final result.
+    """
+    interim = (
+        stage_package and not overall_complete
+        and review_status == "done" and review_source == "reviewer"
+    )
+    if not success or not (overall_complete or interim):
         return None
     normalized_item_id = str(item_id or "").strip()
     if not normalized_item_id:
@@ -544,7 +555,11 @@ def build_delivery_receipt(
     if not targets:
         return None
 
-    kind = "submission_certified" if final_submission_certified else "task_completed"
+    kind = (
+        "submission_certified" if final_submission_certified
+        else "stage_package" if interim
+        else "task_completed"
+    )
     delivered_at = time.time()
     snapshots = (
         snapshot_delivery_targets(root, manifest_root, targets, item_id=normalized_item_id)

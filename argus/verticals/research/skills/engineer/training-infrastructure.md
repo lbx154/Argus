@@ -165,10 +165,26 @@ reserved for tuning is spent, and record which. Before the first full run,
 write an escalation note in `RESEARCH_NOTES.md` stating the reward contrast
 seen in N of M groups over K pilot steps, seconds per step times planned steps
 against the budget with a stated margin, peak memory at the maximum allowance,
-that checkpoint save and resume were exercised on the pilot, the evaluation
+bytes written per step times planned steps against the free disk, that
+checkpoint save and resume were exercised on the pilot, the evaluation
 cadence, and that held-out data was untouched by every pilot. The Planner and
 Reviewer read this note as evidence of whether the full run is worth its cost;
 it is not a form to fill in.
+
+## What a training run keeps
+
+Keep in full what the final evaluation rests on: configuration, code revision,
+checkpoints at the protocol's save points, the evaluation inputs and
+predictions. For the training stream, keep what reproduces it rather than every
+batch: the generator version and configuration, per-step seed or task index and
+the scalar record of each step, plus a sample of actual inputs (the first steps,
+a regular stride, the last steps, and every step that failed a check). Show on
+that sample that regenerating from the seed reproduces the saved arrays before
+relying on regeneration; when a stream cannot be regenerated exactly, keep the
+raw inputs it needs and say so. One project saved every step's full support and
+query arrays, about 90 GiB per arm and 640 GiB in a day, until the shared disk
+was nearly full; a validator that replays every step needs that design changed,
+not more disk.
 
 ## While the run is live
 

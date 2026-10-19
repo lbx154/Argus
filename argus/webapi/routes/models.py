@@ -31,6 +31,16 @@ class DomainAnswerIn(BaseModel):
     note: str = Field(default="", max_length=2000)
 
 
+class LaunchIn(BaseModel):
+    """Optional settings chosen before a project's first task (see ``launch_hold``)."""
+
+    first_result_hours: float | None = Field(default=None, ge=0.5, le=720)
+    target_level: Literal["auto", "exploratory", "publishable"] = "auto"
+    deliverable: Literal["any", "report", "code", "paper", "data"] = "any"
+    # Queue and plan the task, but wait for the operator before starting work.
+    hold: bool = False
+
+
 class MessageIn(BaseModel):
     text: str = Field(max_length=MESSAGE_MAX_CHARS)
     request_id: str = Field(default="", max_length=128, pattern=r"^[A-Za-z0-9_-]*$")
@@ -39,6 +49,7 @@ class MessageIn(BaseModel):
     # classifier. Task still follows Manager -> Planner -> Engineer -> Reviewer.
     route_override: Literal["auto", "chat", "task"] = "auto"
     domain_answer: DomainAnswerIn | None = None
+    launch: LaunchIn | None = None
 
 
 class CancelMessageIn(BaseModel):
@@ -81,6 +92,9 @@ class WorkdirIn(BaseModel):
 class StopIn(CommandIn):
     drain: bool = False
     force: bool = False
+    # Pause after the current task: request a drain and return at once; the
+    # daemon exits on its own at the task's reviewed boundary.
+    after_current: bool = False
 
 
 class ReplaceDaemonIn(CommandIn):

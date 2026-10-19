@@ -6,7 +6,11 @@ import { referenceText, type CardReference } from "../map/presentation";
 
 let renderer: ReactTestRenderer | undefined;
 let listeners: Map<string, (event: unknown) => void>;
-let inputNode: { style: Record<string, string>; scrollHeight: number; focus: ReturnType<typeof vi.fn>; blur: ReturnType<typeof vi.fn> };
+let inputNode: {
+  style: Record<string, string>; scrollHeight: number; clientHeight: number; clientWidth: number;
+  getClientRects: () => unknown[]; addEventListener: ReturnType<typeof vi.fn>; removeEventListener: ReturnType<typeof vi.fn>;
+  focus: ReturnType<typeof vi.fn>; blur: ReturnType<typeof vi.fn>;
+};
 const defaults: MapComposerProps = {
   value: "", onChange: () => {}, onSend: async () => false,
   attachments: [], onAttachmentsChange: () => {}, pending: false,
@@ -41,7 +45,8 @@ beforeEach(() => {
     removeEventListener: (type: string) => listeners.delete(type),
   };
   inputNode = {
-    style: {}, scrollHeight: 44,
+    style: {}, scrollHeight: 44, clientHeight: 44, clientWidth: 300,
+    getClientRects: () => [{}], addEventListener: vi.fn(), removeEventListener: vi.fn(),
     focus: vi.fn(() => { doc.activeElement = inputNode; }),
     blur: vi.fn(() => { doc.activeElement = null; listeners.get("focusout")?.({ type: "focusout", relatedTarget: null }); }),
   };

@@ -1,4 +1,4 @@
-"""The claim is fixed at Idea selection; a weak result optimizes the code.
+"""A weak result optimizes the code; only the claim's owner changes the claim.
 
 Two failure shapes motivated this policy. The task handed to the implementer
 was a few sentences that defined the method inside the notes and shrank the
@@ -6,9 +6,16 @@ dataset list on re-issue, so the code implemented something other than the
 claimed method. Then the first negative result was treated as a finding and
 written up as a restricted-case paper instead of being iterated on. These
 tests pin the playbooks, the prompt fragments, the checklist and the two
-handoff skills that make the claim immovable by any role but the operator,
+handoff skills that keep the claim out of reach of whoever implements it,
 turn a negative result into a diagnosis ladder, and give the Engineer a
 complete brief and the Reviewer a packet built from code anchors.
+
+Ownership follows who chose the idea. Project s-a43d1018 asked for "a general
+method"; Argus chose the route itself and then treated its pick as
+operator-owned, so 40 hours of repairs could only patch inside it. An
+operator-locked claim still changes only through the operator; an
+Argus-selected working hypothesis may be revised in one reviewed task that
+keeps earlier results and never reuses selection data as confirmation.
 """
 from __future__ import annotations
 
@@ -46,10 +53,14 @@ def test_experiment_playbook_replaces_thesis_rederivation_with_a_diagnosis_ladde
     text = _text(SKILLS / STAGE_PLAYBOOK_PATHS["experiment"])
     lowered = text.lower()
 
-    assert "### Fixed claim: iterate until it works" in text
+    assert "### The claim: iterate, then revise or report" in text
     for phrase in LADDER:
         assert phrase in lowered, phrase
-    assert "only the operator may change it" in lowered
+    assert "only the operator changes the claim" in lowered
+    assert "working hypothesis" in lowered
+    assert "development data, never as independent confirmation" in lowered
+    assert "idea selection is not reopened" in lowered
+    assert "not when a count of tries is reached" in lowered
     assert "operator_options" in text
     assert "never a narrowed claim" in lowered
     assert '"restricted case"' in text and '"negative result"' in text
@@ -79,9 +90,9 @@ def test_no_research_skill_re_derives_the_thesis_or_scopes_the_claim_to_the_code
         assert "write the paper about *that*" not in lowered, path.name
     grind = _text(ENGINEER / "research-grind.md").lower()
     assert "the claim does not" in grind
-    assert "only the operator edits the claim" in grind
+    assert "the engineer never edits the claim on its own" in grind
     assert "named the rung it was testing" in grind
-    assert "fixed at idea selection" in grind
+    assert "the claim's owner" in grind
     assert "restate the claim to match what the code did" in grind
     assert "rewording the claim to match the number" in grind
     card = _text(ENGINEER / "method-card.md").lower()
@@ -102,10 +113,12 @@ def test_reviewer_skill_treats_claim_drift_and_early_negatives_as_repairs() -> N
 def test_planner_fragment_never_rewrites_the_claim_and_hands_over_a_brief() -> None:
     text = _fragment("planner", "experiment", operation="plan")
 
-    assert "never rewrites the claim" in text
-    assert "never schedules a negative-result or restricted-case paper" in text
+    assert "Never reword the METHOD.md claim to fit results" in text
+    assert "never schedule a negative-result or restricted-case paper" in text
     assert "next undiagnosed rung" in text
-    assert "operator question with the evidence" in text
+    assert "an operator question (locked)" in text
+    assert "working-hypothesis revision (broad)" in text
+    assert "three diagnosed attempts" not in text
     assert "engineer/method-card.md" in text
     assert "acceptance is executable checks, not adjectives" in text
     assert "one task is one brief" in text
@@ -137,7 +150,8 @@ def test_reviewer_fragment_reads_the_packet_first_and_refuses_claim_drift() -> N
     assert text.index("review packet") < text.index("METHOD.md")
     assert "claim drift" in text
     assert "without a '# @component' anchor" in text
-    assert "fewer than three diagnosed attempts, is a repair request" in text
+    assert "is a repair request, whatever the attempt count" in text
+    assert "fewer than three" not in text
 
 
 def test_engineer_fragment_points_to_write_for_review_anchors() -> None:
@@ -173,17 +187,19 @@ def test_checklist_and_banners_fix_the_claim_and_hold_narrowed_acceptances() -> 
     experiment = " ".join(item.statement for item in STAGE_CHECKLISTS["experiment"])
     lowered = experiment.lower()
 
-    assert "fixed at idea selection" in lowered
+    assert "operator-locked idea" in lowered and "working hypothesis" in lowered
     assert "diagnosis ladder" in lowered
-    for phrase in ("implementation fidelity", "baseline fairness", "three distinct"):
+    for phrase in ("implementation fidelity", "baseline fairness", "the number of attempts is not the test"):
         assert phrase in lowered, phrase
-    assert "never a narrowed claim" in lowered
+    assert "three distinct" not in lowered
+    assert "never present a narrowed claim" in lowered
+    assert "keep the selected idea and current stage" in lowered
     assert "re-derive" not in lowered
     assert "negative or boundary thesis" not in lowered
     assert "narrower than METHOD.md states is not stage completion" in role_banner("manager")
     assert "next rung of the diagnosis ladder" in role_banner("manager")
-    assert "make the code satisfy it, never the card fit the code" in role_banner("engineer")
-    assert "fixed until the operator changes it" in role_banner("planner")
+    assert "never the card fit the code" in role_banner("engineer")
+    assert "changes only as the experiment.repair item allows" in role_banner("planner")
 
 
 def test_method_card_keeps_the_brief_headings_and_review_anchors() -> None:

@@ -17,6 +17,12 @@ RECOMMENDATIONS = (
 )
 ACCEPTED_RECOMMENDATIONS = frozenset({"weak_accept", "accept", "strong_accept", "best_paper"})
 FINAL_REVIEW_FEEDBACK_CHARS = 12_000
+# A venue revision has no round ceiling, but rounds the Reviewer judges to make
+# no progress do not go on without end: after this many in a row the mission
+# stops and asks the operator how to continue, and a question left unanswered
+# this long is decided by the Manager. Operator decision, 2026-10-19.
+VENUE_STALL_ROUNDS = 5
+VENUE_STALL_DECISION_SECONDS = 12 * 3600.0
 
 
 def requires_venue_review(*, vertical: str, stage: str, scope: str = "", operation: str = "evaluate") -> bool:
@@ -54,13 +60,18 @@ def selected_acceptance_minimum(state_root: Path | str) -> str:
 
 
 def configure_venue_revisions(config: Any) -> None:
-    """Remove quality-convergence ceilings while preserving operational stops."""
+    """Remove quality-convergence ceilings while preserving operational stops.
+
+    The one kept is the stall: rounds the Reviewer judges to make no progress
+    end the mission with a question to the operator (VENUE_STALL_ROUNDS).
+    """
     config.max_rounds = 0
     # Reaching a per-call context allowance is housekeeping, not a failed
     # scientific revision. A long figure/experiment repair can need more than
     # three fresh sessions before it is ready for independent review.
     config.provider_turn_cap_streak_limit = 0
-    config.stall_threshold = 0
+    config.stall_threshold = VENUE_STALL_ROUNDS
+    config.stall_asks_operator = True
     config.soft_round_limit = 0
     config.hard_escalate_rounds = 0
     config.decision_progress_timeout_seconds = 0

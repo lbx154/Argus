@@ -55,7 +55,8 @@ def test_limits_auth_and_precise_admission_boundary(client):
     assert limits["chunk_bytes"] == 4 * MIB
     assert client.post(BASE + "/uploads", json={"name": "a.txt", "size_bytes": 100 * MIB + 1}).status_code == 413
     assert client.post(BASE + "/uploads", json={"name": "../a.txt", "size_bytes": 1}).status_code == 400
-    assert client.post(BASE + "/uploads", json={"name": "a.zip", "size_bytes": 1}).status_code == 400
+    assert client.post(BASE + "/uploads", json={"name": "a.exe", "size_bytes": 1}).status_code == 400
+    assert client.post(BASE + "/uploads", json={"name": "a.zip", "size_bytes": 4}).status_code == 200
     client.headers.pop("Authorization")
     assert client.get(BASE + "/limits").status_code == 401
     assert client.post(BASE + "/uploads", json={"name": "a.txt", "size_bytes": 1}).status_code == 401

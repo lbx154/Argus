@@ -12,6 +12,7 @@ import { JsonPreview, TablePreview } from './DataPreview';
 import { MarkdownContent } from './MarkdownContent';
 import { displayObjective, formatMissionElapsed } from '../../../core/src/missionView';
 import { translate, useI18n, type Locale } from '../i18n';
+import { deliveryHeadingKey } from '../lib/deliveryKind';
 import { agentRoleName, isAgentRole } from '../lib/agentRoles';
 import { PdfPreview } from './PdfPreview';
 import { isMarkdownArtifact } from '../lib/artifactPresentation';
@@ -279,6 +280,8 @@ export function ResearchCanvas({
   onRevise,
   onRetry,
   loading = false,
+  latestDelivery,
+  onOpenDelivery,
 }: {
   sid: string | null;
   artifacts?: ArtifactInfo[];
@@ -300,6 +303,9 @@ export function ResearchCanvas({
   onRevise?: (path: string) => void;
   onRetry?: () => void;
   loading?: boolean;
+  /** Newest delivered result, pinned above the file list so phones see it first. */
+  latestDelivery?: DeliveryReceipt | null;
+  onOpenDelivery?: (delivery: DeliveryReceipt) => void;
 }) {
   const { t, locale } = useI18n();
   const previewArtifacts = useMemo(
@@ -402,9 +408,7 @@ export function ResearchCanvas({
     && selected
     && (selected.source === 'delivery' || selected.path === deliveryTargetPath),
   );
-  const deliveryLabel = locale === 'zh-CN'
-    ? (delivery?.kind === 'submission_certified' ? '交付已认证' : '已完成')
-    : (delivery?.kind === 'submission_certified' ? 'Certified delivery' : 'Delivered result');
+  const deliveryLabel = t(deliveryHeadingKey(delivery));
   const title = filesFirst ? (locale === 'zh-CN' ? '文件与成果' : 'Files and results') : showingDelivery
     ? deliveryLabel
     : showLiveProgress
@@ -488,6 +492,16 @@ export function ResearchCanvas({
         ) : null}
       </header>
 
+      {filesFirst && latestDelivery ? (
+        <button type="button" data-latest-result onClick={() => onOpenDelivery?.(latestDelivery)} disabled={!onOpenDelivery}
+          className="mx-3 mt-3 flex shrink-0 items-center gap-3 rounded-lg border border-ok/35 bg-ok/5 px-3 py-2.5 text-left hover:border-ok/60 disabled:cursor-default">
+          <span className="min-w-0 flex-1">
+            <span className="block text-[10px] font-semibold uppercase tracking-[0.12em] text-ok">{locale === 'zh-CN' ? '最新成果' : 'Latest result'} · {t(deliveryHeadingKey(latestDelivery))}</span>
+            <span className="mt-0.5 block truncate text-sm font-medium text-ink" title={latestDelivery.title}>{latestDelivery.title}</span>
+          </span>
+          {onOpenDelivery ? <span className="shrink-0 text-xs font-medium text-ok">{locale === 'zh-CN' ? '打开' : 'Open'}</span> : null}
+        </button>
+      ) : null}
       {!filesFirst && snapshot ? <WorkStatusBar snapshot={snapshot} view={missionView} events={activityEvents} connected={connected} compact /> : !filesFirst && liveStatus ? (
         <div className="shrink-0 border-b border-line/50 bg-blue-deep/10 px-4 py-3">
           <div className="flex items-center gap-2 text-xs">

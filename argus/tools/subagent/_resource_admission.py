@@ -15,6 +15,9 @@ log = logging.getLogger(__name__)
 # Renewed leases bound crash cleanup; they never bound a live job's duration.
 _DIRECT_TTL_SECONDS = 120.0
 _SUPERVISED_TTL_SECONDS = 1800.0
+# A queue wait longer than this, or four times the job's own estimate, is told
+# to the operator once. Only the job's --timeout ends the wait.
+_LONG_QUEUE_WAIT_SECONDS = 3600.0
 
 
 @dataclass
@@ -79,13 +82,67 @@ class UnsatisfiableResourceDemand(RuntimeError):
     """The demanded hardware does not exist on this host; waiting cannot help."""
 
 
+class ResourceQueueTimeout(RuntimeError):
+    """The job's --timeout ran out while it waited for hardware."""
+
+
+def _tell_long_queue_wait(
+    task_id: str, task: Mapping[str, Any], holders: list[dict[str, Any]], waited: float,
+) -> None:
+    """Tell the operator once that a job has waited long, naming overrun holders."""
+    life_dir = str(task.get("owner_session_root") or "").strip()
+    if not life_dir:
+        return
+    from ...core.operator_messages import publish_operator_message, uses_cjk
+
+    now = time.time()
+    overrun = []
+    for holder in holders:
+        expected = float((holder.get("demand") or {}).get("expected_duration_seconds") or 0.0)
+        held = now - float(holder.get("granted_at") or now)
+        if expected > 0 and held > 2 * expected:
+            overrun.append((
+                str(holder.get("task_id") or holder.get("grant_id") or "?"),
+                held / 3600, expected / 3600,
+            ))
+    hours = waited / 3600
+    if uses_cjk(str(task.get("description") or "")):
+        text = f"后台任务 {task_id} 已排队等待 GPU {hours:.1f} 小时，仍在队列中。" + (
+            "超过预计时长两倍的占用者：" + "；".join(
+                f"{name}（已占用 {held:.1f} 小时，预计 {expected:.1f} 小时）"
+                for name, held, expected in overrun
+            ) + "。"
+            if overrun else "当前占用者都还在预计时长内。"
+        )
+    else:
+        text = f"Background job {task_id} has waited {hours:.1f} h for a GPU and stays queued. " + (
+            "Holders past twice their estimate: " + "; ".join(
+                f"{name} (held {held:.1f} h, estimate {expected:.1f} h)"
+                for name, held, expected in overrun
+            ) + "."
+            if overrun else "The current holders are within their estimates."
+        )
+    try:
+        publish_operator_message(
+            life_dir, text=text, message_id=f"gpu-queue-wait-{task_id}",
+            event_fields={"user_action_required": False},
+        )
+    except Exception:  # noqa: BLE001 - the notice must never end the wait
+        log.warning("subagent %s: could not report its long queue wait", task_id, exc_info=True)
+
+
 def acquire_for_task(
     task_id: str,
     *,
     mode: str,
     project_root: Path | str | None = None,
+    timeout: float | None = None,
 ) -> ResourceLease | None:
-    """Wait for and validate this worker's declared grant, or no-op if undeclared."""
+    """Wait for and validate this worker's declared grant, or no-op if undeclared.
+
+    The job's ``timeout`` also bounds the wait; a wait past the long-wait mark
+    is told to the operator once.
+    """
     from ._registry import _process_identity, _read_task, _write_task  # noqa: PLC0415
 
     task = _read_task(task_id) or {}
@@ -97,6 +154,11 @@ def acquire_for_task(
     ttl = _SUPERVISED_TTL_SECONDS if mode == "supervised" else _DIRECT_TTL_SECONDS
     ledger = ResourceLedger()
     request_id: str | None = None
+    started = time.monotonic()
+    long_wait = max(
+        _LONG_QUEUE_WAIT_SECONDS, 4.0 * float(demand.get("expected_duration_seconds") or 0.0),
+    )
+    told = False
     while True:
         result = ledger.acquire(
             demand,
@@ -146,9 +208,20 @@ def acquire_for_task(
                 "intent": item.get("intent", ""),
                 "demand": item.get("demand", {}),
                 "expires_at": item.get("expires_at"),
+                "granted_at": item.get("granted_at"),
             }
             for item in result.get("holders", [])
         ]
+        waited = time.monotonic() - started
+        if timeout is not None and waited >= timeout:
+            ledger.release(request_id)
+            raise ResourceQueueTimeout(
+                f"Waited {waited:.0f} seconds for hardware without a grant; "
+                "this was the configured --timeout limit."
+            )
+        if not told and waited >= long_wait:
+            told = True
+            _tell_long_queue_wait(task_id, task, holders, waited)
         task = _read_task(task_id) or task
         task.update({
             "state": "waiting_resource",
@@ -169,7 +242,7 @@ def acquire_for_task(
         })
         task.setdefault("pid", os.getpid())
         _write_task(task_id, task)
-        time.sleep(poll_after)
+        time.sleep(poll_after if timeout is None else min(poll_after, max(0.0, timeout - waited)))
 
 
 def command_env(lease: ResourceLease | None) -> dict[str, str] | None:
@@ -241,6 +314,7 @@ def yield_facts_for_task(task_id: str) -> list[dict[str, Any]]:
 
 __all__ = [
     "ResourceLease",
+    "ResourceQueueTimeout",
     "acquire_for_task",
     "command_env",
     "record_renewal_failure",

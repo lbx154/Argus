@@ -20,9 +20,17 @@ LIFECYCLE_BLOCK_HEARTBEAT_SECONDS = 1800.0
 # Planner call keeps that call's waiting decision without a new model call.
 # After this much wall clock the Planner is called anyway: elapsed time is
 # itself an input a standing campaign may act on (a long silence can justify
-# escalation or a probe), so unchanged files must not silence it forever. The
-# cadence matches the idle journal heartbeat above.
+# escalation or a probe). The cadence matches the idle journal heartbeat
+# above. Each further look at the same inputs waits four times longer, and
+# after PLANNER_UNCHANGED_RELOOK_LIMIT looks only a change in the inputs earns
+# a call: time alone must not keep buying model calls.
 PLANNER_UNCHANGED_SKIP_MAX_SECONDS = 1800.0
+PLANNER_UNCHANGED_RELOOK_LIMIT = 3
+# Model attempts at one project completion report (one completion fingerprint).
+# Each failure backs off; after the last the operator gets the stage summary
+# Argus can state without the model, so a broken backend cannot keep the
+# report loop calling it.
+PROJECT_REPORT_MODEL_ATTEMPTS = 3
 # Spare-slot planning beside running missions starts at the idle cap and
 # doubles while the backlog stays the same, up to this. Each ask is a full
 # Planner LLM call; at a flat 300 s a six-hour job bought 72 of them.
@@ -184,6 +192,7 @@ __all__ = [
     "OPERATOR_WAIT_TURN_REGRANT_SECONDS",
     "PLANNER_IDLE_JOURNAL_HEARTBEAT_SECONDS",
     "PLANNER_UNCHANGED_SKIP_MAX_SECONDS",
+    "PLANNER_UNCHANGED_RELOOK_LIMIT",
     "LIFECYCLE_BLOCK_HEARTBEAT_SECONDS",
     "PLANNER_SCOPE_BOUNDED",
     "PLANNER_SCOPE_FINAL_SUBMISSION",

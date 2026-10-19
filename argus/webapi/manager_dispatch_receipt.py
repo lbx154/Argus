@@ -27,6 +27,13 @@ def _dispatch_ack_text(
     zh = uses_cjk(operator_text or title)
     named = (f"：{title}" if zh else f": {title}") if title else ""
     dispatch_state = result.get("dispatch_state")
+    if result.get("launch_hold"):
+        return (
+            f"计划已排好，还没有开始{named}。请在上方卡片里核对 Argus 的理解和计划，点“开始执行”后才会开始。"
+            if zh else
+            f"The plan is ready and nothing has started yet{named}. Check what Argus understood "
+            "in the card above; work starts only when you press Start."
+        )
     saved = "目标已更新" if dispatch_state == "planner_pending" else "任务已保存"
     saved_en = "The objective is saved" if dispatch_state == "planner_pending" else "The task is saved"
 

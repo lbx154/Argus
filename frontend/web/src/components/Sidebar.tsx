@@ -23,8 +23,10 @@ import {
   faPlay,
 } from '@fortawesome/free-solid-svg-icons';
 import { useI18n } from '../i18n';
-import { Archive, Pin, Flag } from 'lucide-react';
-import { writeLocalStorage } from '../lib/storage';
+import { Archive, ChevronRight, PackageCheck, Pin, Flag } from 'lucide-react';
+import { readLocalStorage, writeLocalStorage } from '../lib/storage';
+
+const ADVANCED_KEY = 'argus.sidebar.advanced.v1';
 
 type Scope = 'local' | 'all';
 type ProjectPreference = { pinned: boolean; archived: boolean; followup: boolean };
@@ -80,6 +82,8 @@ export function Sidebar({
   onOpenPanel,
   onOpenLearning,
   onOpenVerticals,
+  onOpenResults,
+  resultsCount = 0,
   onNew,
   loading,
   creating = false,
@@ -103,6 +107,9 @@ export function Sidebar({
   onOpenPanel: (p: 'doctor' | 'config' | 'identity') => void;
   onOpenLearning?: (scope: LearningScope) => void;
   onOpenVerticals?: () => void;
+  /** Opens the current project's delivered results. */
+  onOpenResults?: () => void;
+  resultsCount?: number;
   onNew: () => void;
   loading: boolean;
   creating?: boolean;
@@ -124,6 +131,14 @@ export function Sidebar({
   const [organizing, setOrganizing] = useState<string | null>(null);
   const [organizationNotice, setOrganizationNotice] = useState('');
   const zh = locale === 'zh-CN';
+  // Plugins, the knowledge library and the domain store are for experienced users.
+  const [advancedOpen, setAdvancedOpen] = useState(() => readLocalStorage(ADVANCED_KEY) === 'open');
+  const toggleAdvanced = () => setAdvancedOpen((open) => { writeLocalStorage(ADVANCED_KEY, open ? 'closed' : 'open'); return !open; });
+  const openKnowledge = onOpenLearning ? () => onOpenLearning(activeId ? 'project' : 'global') : undefined;
+  const resultsLabel = zh ? '成果' : 'Results';
+  const resultsTitle = !activeId ? (zh ? '先选择一个项目' : 'Select a project first')
+    : resultsCount ? (zh ? `查看这个项目的 ${resultsCount} 份成果` : `Open this project's ${resultsCount} result(s)`)
+      : (zh ? '这个项目还没有交付成果' : 'No results delivered in this project yet');
   const preference = (id: string) => organization.values[id] ?? DEFAULT_PREFERENCE;
   const organize = (id: string, field: keyof ProjectPreference) => {
     const next = { ...organization.values, [id]: { ...preference(id), [field]: !preference(id)[field] } };
@@ -190,17 +205,32 @@ export function Sidebar({
         </div>
       ) : null}
 
-      {slim ? <PluginLauncher compact /> : null}
-      {slim && onOpenLearning ? <LearningLibraryEntry onOpen={onOpenLearning} compact /> : null}
+      {slim && onOpenResults ? <button type="button" onClick={onOpenResults} disabled={!resultsCount} aria-label={resultsLabel} title={resultsTitle} data-sidebar-results
+        className="relative mx-auto my-1 flex h-9 w-9 shrink-0 items-center justify-center rounded-md text-ink-dim hover:bg-bg hover:text-ink disabled:opacity-40">
+        <PackageCheck size={17} strokeWidth={1.5} />{resultsCount ? <span className="absolute right-0.5 top-0.5 rounded-full bg-ok px-1 text-[9px] leading-4 text-white">{resultsCount}</span> : null}
+      </button> : null}
+      {slim && openKnowledge ? <LearningLibraryEntry onOpen={openKnowledge} compact /> : null}
       {slim && onOpenVerticals ? <VerticalStoreEntry compact onOpen={onOpenVerticals} /> : null}
       {!slim ? (
         <>
-          <nav aria-label={locale === 'zh-CN' ? '工具与知识' : 'Tools and knowledge'} data-sidebar-resources
+          <nav aria-label={locale === 'zh-CN' ? '成果与工具' : 'Results and tools'} data-sidebar-resources
             className="shrink-0 overflow-y-auto overscroll-contain border-b border-line/50 px-2 py-2 scroll-thin [&>section]:mx-2 [&>section]:border-0 [&>section]:py-0 [&>section>div>button:first-child]:px-3"
             style={{ maxHeight: 'min(40dvh, 360px)' }}>
-            <PluginLauncher />
-            {onOpenLearning && <LearningLibraryEntry onOpen={onOpenLearning} />}
-            {onOpenVerticals ? <VerticalStoreEntry onOpen={onOpenVerticals} /> : null}
+            {onOpenResults ? <button type="button" onClick={onOpenResults} disabled={!resultsCount} title={resultsTitle} data-sidebar-results
+              className="mx-2 my-1 flex h-9 w-[calc(100%-1rem)] shrink-0 items-center gap-2 rounded-md px-3 text-sm text-ink-dim transition-colors hover:bg-bg hover:text-ink disabled:opacity-50 disabled:hover:bg-transparent">
+              <PackageCheck size={17} strokeWidth={1.5} /><span>{resultsLabel}</span>
+              {resultsCount ? <span className="ml-auto rounded-full bg-ok/15 px-1.5 text-[11px] font-medium text-ok">{resultsCount}</span> : null}
+            </button> : null}
+            <button type="button" onClick={toggleAdvanced} aria-expanded={advancedOpen} data-sidebar-advanced
+              className="mx-2 my-1 flex h-8 w-[calc(100%-1rem)] shrink-0 items-center gap-2 rounded-md px-3 text-xs text-ink-faint hover:bg-bg hover:text-ink-dim">
+              <ChevronRight size={13} className={`transition-transform ${advancedOpen ? 'rotate-90' : ''}`} />
+              <span>{zh ? '高级：知识库、领域商店、插件' : 'Advanced: knowledge, domain store, plugins'}</span>
+            </button>
+            {advancedOpen ? <>
+              {openKnowledge && <LearningLibraryEntry onOpen={openKnowledge} />}
+              {onOpenVerticals ? <VerticalStoreEntry onOpen={onOpenVerticals} /> : null}
+              <PluginLauncher />
+            </> : null}
           </nav>
           <div className="flex shrink-0 items-center gap-2 px-4 pb-1 pt-3">
             <span className="text-xs font-medium text-ink-faint">{locale === 'zh-CN' ? '项目' : 'Projects'}</span>
@@ -328,6 +358,7 @@ export function Sidebar({
                         <div className="flex min-w-0 items-center gap-2">
                           <StatusDot
                             ok={project.daemon_alive && !updateRequired}
+                            pulse={work ? ['running', 'waiting'].includes(work.status.state) : project.daemon_alive}
                             title={updateRequired ? t('sidebar.updateRequired') : project.daemon_alive ? t('sidebar.daemonAlive') : t('sidebar.stopped')}
                           />
                           <span className="min-w-0 flex-1 truncate text-sm font-medium">{name}</span>

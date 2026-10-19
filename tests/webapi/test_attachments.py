@@ -456,3 +456,31 @@ def test_upload_rejects_junctioned_session_attachment_root(tmp_path: Path) -> No
         assert list(outside.iterdir()) == []
     finally:
         junction.rmdir()
+
+
+def test_upload_accepts_archives_office_files_notebooks_and_code(client: TestClient) -> None:
+    files = [
+        ("files", ("data.zip", b"PK\x03\x04rest", "application/zip")),
+        ("files", ("train.py", b"print('hi')\n", "text/plain")),
+        ("files", ("analysis.ipynb", b'{"cells": []}', "application/x-ipynb+json")),
+        ("files", ("table.xlsx", b"PK\x03\x04xl", "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet")),
+        ("files", ("paper.tex", b"\\documentclass{article}", "text/plain")),
+    ]
+    response = client.post("/api/projects/s-upload0/attachments", files=files)
+    assert response.status_code == 200, response.text
+    mimes = {row["original_name"]: row["mime"] for row in response.json()["attachments"]}
+    assert mimes["data.zip"] == "application/zip"
+    assert mimes["train.py"] == "text/plain"
+    assert mimes["analysis.ipynb"] == "application/x-ipynb+json"
+
+
+def test_upload_rejects_disguised_archives_broken_notebooks_and_executables(client: TestClient) -> None:
+    for name, payload, mime in [
+        ("data.zip", b"not a zip", "application/zip"),
+        ("analysis.ipynb", b"{broken", "application/x-ipynb+json"),
+        ("tool.exe", b"MZ", "application/octet-stream"),
+        ("archive.gz", b"plain", "application/gzip"),
+    ]:
+        response = client.post("/api/projects/s-upload0/attachments", files=[("files", (name, payload, mime))])
+        assert response.status_code == 400, name
+

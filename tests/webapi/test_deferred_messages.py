@@ -148,3 +148,86 @@ def test_web_startup_recovers_waiting_message_without_duplicate_operator_turn(tm
     with TestClient(server.create_app(global_root=tmp_path)):
         wait_for(lambda: any(t["text"] == "Recovered reply" for t in read_turns(life)))
     assert len([t for t in read_turns(life) if t["role"] == "operator"]) == 1
+
+
+class _FakeStop:
+    """A stop event whose waits move a fake clock instead of sleeping."""
+
+    def __init__(self, clock):
+        self.clock = clock
+        self.waits: list[float] = []
+
+    def is_set(self):
+        # A queue that never gives up fails here instead of hanging the run.
+        return len(self.waits) >= 1000
+
+    def wait(self, seconds):
+        self.waits.append(seconds)
+        self.clock[0] += seconds
+        return False
+
+
+def test_busy_retries_back_off_and_stop_after_three_hours(tmp_path, monkeypatch):
+    from types import SimpleNamespace
+
+    from argus.webapi import deferred_messages
+
+    life = tmp_path / "project"
+    life.mkdir()
+    saved = DeferredMessages(lambda request, cancelled: {"kind": "provider_busy"})
+    saved.stop.set()
+    saved.enqueue(life, {"turn_id": "web-busy", "text": "Explain the results"})
+    clock = [1_000.0]
+    monkeypatch.setattr(deferred_messages, "time",
+                        SimpleNamespace(time=lambda: clock[0], monotonic=time.monotonic))
+    calls = []
+    queue = DeferredMessages(lambda request, cancelled: calls.append(clock[0]) or {"kind": "provider_busy"})
+    queue.stop = _FakeStop(clock)
+    queue._drain(life.resolve())
+    assert queue.stop.waits[:5] == [2, 4, 8, 16, 32] and max(queue.stop.waits) == 300
+    assert len(calls) == 44 and calls[-1] - calls[0] >= 3 * 3600
+    path = next((life / "manager-deferred").glob("*.json"))
+    assert read_json(path)["status"] == "needs_attention"
+    assert "three hours" in read_turns(life)[-1]["text"]
+
+
+def test_a_saved_message_is_checked_against_the_same_question_once(tmp_path, monkeypatch):
+    from argus.life.memory import BacklogItem, LifeMemory
+    from argus.webapi import manager_bridge
+
+    sid = "s-busy-pending-question"
+    life = tmp_path / "projects" / sid
+    life.mkdir(parents=True)
+    (life / "backlog.jsonl").write_text("", encoding="utf-8")
+    blocked = BacklogItem.new(title="blocked", objective="choose")
+    blocked.pending_question = "Which route?"
+    LifeMemory.open(life).backlog.add(blocked)
+    manager_state._STATES.pop(sid, None)
+    monkeypatch.setenv("ARGUS_SKILL_ANSWER_LEARNING", "0")
+    checks = []
+
+    def triage(mem, body, state, **kwargs):
+        checks.append(body)
+        return "IS_ANSWER=false\nRESOLVED=false\nDECISION=\nREPLY=\n"
+
+    def classify(mem, text, state, **kwargs):
+        state["_frontdoor_failure"] = "provider concurrency limit reached (2 active calls); retry shortly"
+        return None, None, "simple"
+
+    monkeypatch.setattr(front_door, "manager_triage", triage)
+    monkeypatch.setattr(config_intent, "_front_door_classify", classify)
+
+    def send(**retry):
+        result = manager_bridge.manager_message(sid, "Explain the results",
+                                                global_root=tmp_path, **retry)
+        assert result["kind"] == "provider_busy"
+        return {k: v for k, v in result["retry_request"].items()
+                if k not in {"sid", "text", "global_root"}}
+
+    retry = send()
+    for _ in range(5):
+        send(**retry)
+    assert len(checks) == 1
+    LifeMemory.open(life).backlog.update(blocked.id, pending_question="Which dataset?")
+    send(**retry)
+    assert len(checks) == 2

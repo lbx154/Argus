@@ -1,0 +1,89 @@
+import type { DeliveryReceipt, MissionView, Snapshot } from '../../../core/src/types';
+import type { ResourceStatus } from '../../../core/src/resourceStatus.generated';
+import { stripLaunchNote } from './launch';
+
+const ACTIVE = new Set(['pending', 'running', 'in_progress', 'claimed']);
+const COUNTED_OUT = new Set(['skipped', 'cancelled', 'superseded']);
+
+export interface ProjectOverview {
+  goal: string;
+  /** Whether `goal` is the committed objective or only the current task's title. */
+  goalIsTask: boolean;
+  done: number;
+  total: number;
+  active: number;
+  /** Seconds since the project's first task was queued, up to now or its last finished task. */
+  elapsedSeconds: number | null;
+  spendUsd: number | null;
+  spendStatus: Snapshot['spend_status'];
+  latestDelivery: DeliveryReceipt | null;
+}
+
+/** What a returning operator needs first: the goal, how far it got, what it cost, the newest result. */
+export function projectOverview(snapshot: Snapshot, view: MissionView | null | undefined, now: number, latest?: DeliveryReceipt | null): ProjectOverview | null {
+  const items = snapshot.backlog.filter((item) => !COUNTED_OUT.has(item.status));
+  if (!items.length) return null;
+  const done = items.filter((item) => item.status === 'done').length;
+  const active = items.filter((item) => ACTIVE.has(item.status)).length;
+  const started = Math.min(...items.map((item) => Number(item.ts) || Number(item.started_ts) || Infinity));
+  const finished = Math.max(0, ...items.map((item) => Number(item.finished_ts) || 0));
+  const end = active || snapshot.daemon.alive ? now : finished || now;
+  const committed = stripLaunchNote(String(snapshot.goal || snapshot.continuous?.objective || snapshot.session.objective || ''));
+  const goal = committed || String(view?.mission.title || items[0].title || '').trim();
+  return {
+    goal,
+    goalIsTask: !committed,
+    done,
+    total: items.length,
+    active,
+    elapsedSeconds: Number.isFinite(started) && end > started ? end - started : null,
+    spendUsd: typeof snapshot.spend_usd === 'number' ? snapshot.spend_usd : null,
+    spendStatus: snapshot.spend_status,
+    latestDelivery: latest ?? view?.delivery ?? null,
+  };
+}
+
+export function durationLabel(seconds: number | null, zh: boolean): string {
+  if (seconds == null) return '';
+  if (seconds < 3600) return zh ? `${Math.max(1, Math.round(seconds / 60))} 分钟` : `${Math.max(1, Math.round(seconds / 60))} min`;
+  if (seconds < 86400) return zh ? `${(seconds / 3600).toFixed(1).replace(/\.0$/, '')} 小时` : `${(seconds / 3600).toFixed(1).replace(/\.0$/, '')} h`;
+  const days = Math.floor(seconds / 86400);
+  const hours = Math.round((seconds % 86400) / 3600);
+  return zh ? `${days} 天 ${hours} 小时` : `${days} d ${hours} h`;
+}
+
+export function spendLabel(overview: Pick<ProjectOverview, 'spendUsd' | 'spendStatus'>, zh: boolean): string {
+  if (overview.spendStatus === 'not_billed') return zh ? '不计费' : 'not billed';
+  if (overview.spendUsd == null || overview.spendStatus === 'empty') return '';
+  const amount = `$${overview.spendUsd.toFixed(overview.spendUsd < 10 ? 2 : 1)}`;
+  if (overview.spendStatus === 'partial') return zh ? `至少 ${amount}` : `at least ${amount}`;
+  if (overview.spendStatus === 'unpriced') return zh ? '未定价' : 'unpriced';
+  return amount;
+}
+
+export const DISK_WARN_FRACTION = 0.8;
+
+export function diskView(storage: Snapshot['storage'], zh: boolean, format: (bytes: number) => string): { text: string; warn: boolean } | null {
+  if (!storage || storage.used_fraction == null) return null;
+  const used = Math.round(storage.used_fraction * 100);
+  const free = format(storage.free_bytes);
+  const warn = storage.used_fraction >= DISK_WARN_FRACTION;
+  return {
+    warn,
+    text: warn
+      ? (zh ? `磁盘已用 ${used}%，只剩 ${free}，大文件可能写不下` : `Disk ${used}% full, ${free} left; large outputs may not fit`)
+      : (zh ? `磁盘剩余 ${free}` : `${free} disk free`),
+  };
+}
+
+/** This project's place in the shared GPU queue, how long it has waited, and when the earliest lease ends. */
+export function gpuWait(resources: ResourceStatus | null | undefined, projectNames: string[]): { position: number; waitedSeconds: number | null; etaSeconds: number | null } | null {
+  const entry = resources?.queue.find((row) => projectNames.includes(row.project));
+  if (!entry) return null;
+  const leases = (resources?.holders ?? []).map((holder) => holder.ttl_seconds).filter((value) => value > 0);
+  return {
+    position: entry.position,
+    waitedSeconds: typeof entry.waited_seconds === 'number' ? entry.waited_seconds : null,
+    etaSeconds: leases.length ? Math.min(...leases) : null,
+  };
+}

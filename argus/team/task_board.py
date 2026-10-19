@@ -576,30 +576,66 @@ def release_paused(
     *,
     reason: str,
     retry_after: float,
-) -> None:
+    kind: str = "",
+    now: float | None = None,
+) -> float | None:
     """Hand a task back to the queue after an external pause, with a backoff.
 
     Provider cooldowns and exhausted budgets are not verdicts on the work: the
     task is unfinished, not failed. It returns to ``pending`` so the Curator
     re-dispatches it, but ``claim_top`` skips it until ``retry_after`` so a
     saturated provider is not hammered by a herd of instant re-spawns.
+
+    Each further pause by the same ``kind`` doubles the wait (up to an hour).
+    Once that cause has held the task for the whole automatic-retry window it
+    stops being retried and waits for the operator; ``None`` is returned then.
     """
+    from ..core.autonomy import AUTOMATIC_RETRY_WINDOW_SECONDS
+
+    now = time.time() if now is None else float(now)
     with _store.locked(_lock(root)):
         task = _read_task(root, task_id)
         if not isinstance(task, dict):
-            return
-        task.update(
-            state="pending",
+            return None
+        same = bool(kind) and task.get("pause_kind") == kind
+        since = float(task.get("paused_since") or 0.0) if same else 0.0
+        since = since or now
+        streak = int(task.get("pause_streak") or 0) + 1 if same else 1
+        common = dict(
             owner="",
-            reason="",
-            pause_reason=str(reason or "")[:2000],
-            retry_after_ts=float(retry_after),
+            pause_kind=kind,
+            paused_since=since,
+            pause_streak=streak,
             claim_ts=0.0,
             heartbeat_ts=0.0,
-            finished_ts=0.0,
             attempts=int(task.get("attempts", 0) or 0) + 1,
         )
+        if kind and now - since >= AUTOMATIC_RETRY_WINDOW_SECONDS:
+            task.update(
+                state="blocked",
+                reason=str(reason or "")[:2000],
+                pending_question=(
+                    f"The model service kept turning this task away for three hours ({kind}), "
+                    "so Argus stopped retrying it. Reply here to retry it."
+                ),
+                operator_options=[],
+                finished_ts=now,
+                **common,
+            )
+            _write_task(root, task_id, task)
+            return None
+        wait = min(3600.0, max(0.0, float(retry_after) - now) * 2 ** (streak - 1))
+        retry_at = float(retry_after) if streak == 1 else now + wait
+        task.update(
+            state="pending",
+            reason="",
+            pause_reason=str(reason or "")[:2000],
+            retry_after_ts=retry_at,
+            finished_ts=0.0,
+            **common,
+        )
         _write_task(root, task_id, task)
+        return retry_at
 
 
 def retry_terminal(root: Path, task_id: str, *, reason: str = "") -> bool:
@@ -674,6 +710,9 @@ def resume(root: Path, task_id: str, *, answer: str) -> None:
             pending_question="",
             operator_options=[],
             operator_answer=answer,
+            pause_kind="",
+            paused_since=0.0,
+            pause_streak=0,
         )
         _store.atomic_write_json(_path(root, task_id), task)
 

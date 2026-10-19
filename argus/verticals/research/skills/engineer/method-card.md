@@ -262,8 +262,9 @@ and says whether the code tests the selected mechanism under the intended
 comparison, tests a different mechanism or comparison, or does not reach the
 mechanism at all. Fix a contradiction or a missing mechanism in the code
 before claim-bearing runs; never resolve either by rewording the card to
-describe what the code does. The claim is fixed at Idea selection and only the
-operator changes it; a component row changes in the same round only for a
+describe what the code does. The claim changes only as experiment.repair
+allows (the operator for an operator-locked idea, a reviewed revision task for
+a working hypothesis Argus selected); a component row changes in the same round only for a
 deliberate, named simplification the operator can see, marked `# @simplified`
 at the entry point. Do not reopen Idea selection. The alignment result lives
 in the host-derived component status and in the Reviewer's returned
@@ -282,8 +283,9 @@ headings:
 
 ### Claim
 
-The statement from `METHOD.md`, quoted verbatim. Not paraphrased, not scoped
-down.
+Name the `METHOD.md` statement; do not copy it. The host already shows it
+verbatim in the Engineer's task brief, and a copy in every objective crowds
+out the parts that differ per task. Never paraphrase or scope it down.
 
 ### Components to implement this task
 

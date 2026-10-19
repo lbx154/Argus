@@ -43,6 +43,21 @@ _TEXT_SUFFIXES = {
     ".toml", ".ts", ".tsx", ".txt", ".xml", ".yaml", ".yml",
 }
 _PRIORITY_NAMES = {"research", "paper", "technical_report", "review", "reviews", "src", "code", "scripts", "tests"}
+_MAX_DOWNLOAD_BYTES = 2 * 1024 ** 3
+# Files that conventionally hold credentials are not offered for download.
+_SECRET_NAMES = {".env", ".netrc", ".npmrc", ".pypirc", ".git-credentials", "id_rsa", "id_ed25519", "id_ecdsa"}
+_SECRET_SUFFIXES = {".pem", ".key", ".p12", ".pfx"}
+
+
+def _download_blocked(path: str) -> bool:
+    name = PurePosixPath(path).name.lower()
+    return (
+        name in _SECRET_NAMES
+        or name.startswith(".env.")
+        or PurePosixPath(name).suffix in _SECRET_SUFFIXES
+        or name.startswith(("id_rsa", "id_ed25519", "id_ecdsa"))
+        or name.startswith("credentials")
+    )
 _CACHE_LOCK = threading.Lock()
 _TREE_CACHE: dict[str, tuple[float, dict[str, Any]]] = {}
 _LITERATURE_CACHE: dict[str, tuple[float, dict[str, Any]]] = {}
@@ -827,6 +842,30 @@ def register_workspace_v2_routes(app, ctx: ServerContext) -> None:
             _stream_fd(fd, info.st_size),
             media_type=mime,
             headers={"Cache-Control": "private, no-store", "X-Content-Type-Options": "nosniff", "Content-Length": str(info.st_size)},
+        )
+
+    @app.get("/api/v2/workspace/download", dependencies=dependencies)
+    def workspace_download(sid: str = Query(...), workspace_id: str = Query(...), path: str = Query(...)):
+        """Download one regular file from the approved workspace, whatever its type."""
+        workspace = approved(sid, workspace_id)
+        if _download_blocked(path):
+            raise HTTPException(status_code=403, detail="This file may contain credentials and is not offered for download.")
+        fd, info = _open_confined_file(workspace, path)
+        if info.st_size > _MAX_DOWNLOAD_BYTES:
+            os.close(fd)
+            raise HTTPException(status_code=413, detail="This file is too large to download through the browser.")
+        from urllib.parse import quote
+
+        name = PurePosixPath(path).name or "download"
+        return StreamingResponse(
+            _stream_fd(fd, info.st_size),
+            media_type="application/octet-stream",
+            headers={
+                "Cache-Control": "private, no-store",
+                "X-Content-Type-Options": "nosniff",
+                "Content-Length": str(info.st_size),
+                "Content-Disposition": f"attachment; filename*=UTF-8''{quote(name)}",
+            },
         )
 
     @app.get("/api/v2/workspace/git", dependencies=dependencies)

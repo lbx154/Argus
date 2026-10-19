@@ -123,6 +123,24 @@ def register_daemon_routes(app, ctx: ServerContext) -> None:
         b = body or StopIn()
         life_dir = ctx.resolve_or_404(sid)
         project_root = ctx.project_root_or_404(sid)
+        if b.after_current and not b.force:
+            def pause_after_current() -> dict[str, Any]:
+                result = ctx.not_found_if_none(
+                    daemon_lifecycle.stop_project_daemon(
+                        sid, drain=True, global_root=project_root, drain_timeout=2.0,
+                    ),
+                    sid,
+                )
+                # rc 2 here means the drain is recorded and the current task is
+                # still finishing; that is the requested outcome, not a failure.
+                if result.get("rc") == 2:
+                    result = {**result, "rc": 0, "draining": True}
+                return result
+
+            return await _execute_command(
+                life_dir, b, operation="drain", args={"drain": True, "after_current": True},
+                handler=pause_after_current,
+            )
         operation = "kill" if b.force else "drain" if b.drain else "stop"
         return await _execute_command(
             life_dir, b,
