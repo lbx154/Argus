@@ -405,9 +405,9 @@
     },
     "tui": {
       "counts": {
-        "handled": 101,
+        "handled": 102,
         "hidden": 92,
-        "missing": 1
+        "missing": 0
       },
       "fallback": "hide",
       "handled": [
@@ -497,6 +497,7 @@
         "round.provider_turn_cap.reviewer_restart",
         "round.review.completed",
         "round.review.deferred",
+        "round.review.skipped_unchanged",
         "round.review.started",
         "round.reviewer_backend_failure",
         "round.reviewer_backend_failure.backoff",
@@ -607,15 +608,13 @@
         "wiki.retired.compressed",
         "wiki.updated"
       ],
-      "missing": [
-        "round.review.skipped_unchanged"
-      ]
+      "missing": []
     },
     "web": {
       "counts": {
-        "handled": 101,
+        "handled": 102,
         "hidden": 92,
-        "missing": 1
+        "missing": 0
       },
       "fallback": "hide",
       "handled": [
@@ -705,6 +704,7 @@
         "round.provider_turn_cap.reviewer_restart",
         "round.review.completed",
         "round.review.deferred",
+        "round.review.skipped_unchanged",
         "round.review.started",
         "round.reviewer_backend_failure",
         "round.reviewer_backend_failure.backoff",
@@ -815,9 +815,7 @@
         "wiki.retired.compressed",
         "wiki.updated"
       ],
-      "missing": [
-        "round.review.skipped_unchanged"
-      ]
+      "missing": []
     }
   },
   "schema_version": 1

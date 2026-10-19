@@ -6,6 +6,7 @@ import math
 import os
 import time
 
+from ..core.file_facts import file_facts
 from .client import profile_path, trial_home
 from .storage import write_private
 
@@ -31,9 +32,13 @@ def _path():
     return trial_home() / "trial-attention.json"
 
 
-def _profile_key():
-    """The configured trial key; a pause belongs to the key it was recorded under."""
-    return str(json.loads(profile_path().read_text(encoding="utf-8"))["api_key"])
+def _fingerprint():
+    """The trial profile as it was when the pause was recorded.
+
+    A pause belongs to that profile: saving another key (or the same one again)
+    is the user's review. The key itself never reaches the pause file.
+    """
+    return file_facts(profile_path())
 
 
 def state() -> dict:
@@ -41,11 +46,11 @@ def state() -> dict:
         return {}  # Explicit onboarding has already checked the server balance.
     try:
         row = json.loads(_path().read_text(encoding="utf-8"))
-        profile = str(row.get("profile") or "")
-        # A pause recorded before keys were stored names its key by a digest;
-        # it stays until the user reviews it, whichever key is configured now.
-        legacy = len(profile) == 64 and all(c in "0123456789abcdef" for c in profile)
-        return row if legacy or profile == _profile_key() else {}
+        profile = row.get("profile")
+        # A pause recorded by an older release names its key by a digest; it
+        # stays until the user reviews it, whichever key is configured now.
+        legacy = isinstance(profile, str) and len(profile) == 64
+        return row if legacy or profile == _fingerprint() else {}
     except FileNotFoundError:
         return {}
     except (OSError, ValueError, KeyError):
@@ -72,7 +77,7 @@ def record_failure(diagnostic: str) -> str:
     if os.environ.get("ARGUS_DESKTOP_TRIAL_PROFILE"):
         return message + " 本次验证失败，原设置和正在使用的试用状态未更改。"
     try:
-        write_private(_path(), json.dumps({"profile": _profile_key(), "code": code,
+        write_private(_path(), json.dumps({"profile": _fingerprint(), "code": code,
             "message": message, "resume_after": time.time() + delay}).encode())
     except (OSError, ValueError, KeyError):
         pass
