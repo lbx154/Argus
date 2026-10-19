@@ -851,6 +851,25 @@ _RECOVERABLE_PAUSE_STATUSES = {
     "exhausted_current_methods",
     "infra_blocked",
 }
+# Parks no automatic path resumes and no operator question owns. Their pending
+# dependents wait on them forever, so the Planner may retire one (RETIRE_TASK);
+# the dead-dependency cascade then releases the dependents. A row that holds a
+# ``pending_question`` stays the operator's whatever its status.
+PLANNER_RETIRABLE_PARK_STATUSES = frozenset({
+    "paused",
+    "research_incomplete",
+    "paused_no_breakthrough",
+    "exhausted_current_methods",
+    "infra_blocked",
+})
+
+
+def planner_may_retire_park(item: Any) -> bool:
+    """Whether a parked row is the Planner's to retire rather than the operator's."""
+    return bool(
+        getattr(item, "status", "") in PLANNER_RETIRABLE_PARK_STATUSES
+        and not str(getattr(item, "pending_question", "") or "").strip()
+    )
 
 
 def _expire_unanswered_operator_question(item: BacklogItem) -> None:
@@ -1713,7 +1732,15 @@ class Backlog:
                 if self._parallel_worker_can_claim(item, items)
             ]
         admission["claimable"] = len(ready)
-        ready.sort(key=lambda it: (it.priority, it.ts))
+        # A runtime-failure canary heads the queue: while that circuit is open
+        # it is the one mission allowed through, and the supervisor only ever
+        # tries the head, so a row ahead of it (an operator-priority item, say)
+        # would be held forever with the canary waiting behind it.
+        ready.sort(
+            key=lambda it: (
+                "runtime_failure_canary" not in it.tags, it.priority, it.ts,
+            )
+        )
         self.last_admission = admission
         return ready, changed
 
@@ -2050,15 +2077,25 @@ class Backlog:
         item_ids: Iterable[str],
         reason: str,
         superseded_by_plan_id: str,
+        include_parked: bool = False,
     ) -> tuple[str, ...]:
-        """Retire named pending items, preserving paused and running work."""
+        """Retire named pending items, preserving paused and running work.
+
+        ``include_parked`` also retires parks only an agent can release
+        (:func:`planner_may_retire_park`); running work, recoverable pauses
+        the host resumes itself, and operator questions are never touched.
+        """
         selected = set(item_ids)
         superseded: list[str] = []
         with self._locked():
             items = self._load()
             now = time.time()
             for item in items:
-                if item.id not in selected or item.status != "pending":
+                if item.id not in selected:
+                    continue
+                if item.status != "pending" and not (
+                    include_parked and planner_may_retire_park(item)
+                ):
                     continue
                 item.status = "superseded"
                 item.finished_ts = now
@@ -2540,8 +2577,9 @@ class Backlog:
                 title=blocked.title,
                 objective=objective,
                 priority=blocked.priority,
+                # A canary admission belongs to the admitted item only.
                 tags=list(dict.fromkeys([
-                    *blocked.tags,
+                    *(tag for tag in blocked.tags if tag != "runtime_failure_canary"),
                     "operator-reply",
                     "manager-approved",
                     "review:required",
@@ -2627,8 +2665,16 @@ class Backlog:
         *,
         note: str = "",
         decision_id: str = "",
+        selected_option: str = "stop",
+        manager_decision: str = "stop campaign",
+        reply: str = "Campaign stopped. Current work was preserved.",
+        last_error: str = "",
     ) -> BacklogItem | None:
-        """Resolve one pending decision by stopping its campaign item."""
+        """Resolve one pending decision by ending its item.
+
+        The card is re-checked under the backlog lock, so a concurrent answer
+        that already resolved it wins and this returns ``None``.
+        """
         with self._locked():
             items = self._load()
             item = next((row for row in items if row.id == item_id), None)
@@ -2645,19 +2691,21 @@ class Backlog:
             item.status = "aborted"
             item.finished_ts = time.time()
             item.pending_question = ""
+            if last_error:
+                item.last_error = last_error
             if item.operator_decision:
                 resolved_from_revision = int(
                     item.operator_decision.get("revision", 1) or 1
                 )
                 item.operator_decision.update({
                     "status": "resolved",
-                    "selected_option": "stop",
+                    "selected_option": selected_option,
                     "note": note.strip(),
                     "resolved_from_revision": resolved_from_revision,
                     "revision": resolved_from_revision + 1,
                     "continuation_item_id": "",
-                    "manager_decision": "stop campaign",
-                    "reply": "Campaign stopped. Current work was preserved.",
+                    "manager_decision": manager_decision,
+                    "reply": reply,
                     "resume_requested": False,
                     "resolution_id": (
                         f"{item.operator_decision.get('id', decision_id)}:"
@@ -2666,6 +2714,86 @@ class Backlog:
                 })
             self._save(items)
             return item
+
+    def park_terminal_operator_question(
+        self,
+        item_id: str,
+        *,
+        holder_id: str,
+        question: str,
+        operator_decision: dict[str, Any],
+    ) -> BacklogItem | None:
+        """Hold an operator question raised after its mission already ended.
+
+        A terminal row cannot carry a live question (it expires with the
+        mission), and it cannot be reopened. Without a holder the question was
+        simply lost: the run stopped for an operator decision nobody could see
+        or answer. The holder is a new ``paused_operator`` row with the ended
+        mission's contract, so the ordinary answer path
+        (:meth:`continue_with_operator_reply` / :meth:`stop_for_operator_decision`)
+        resolves it, and live dependents of the ended row wait on the holder
+        instead of being cascade-skipped while the operator decides.
+        """
+        question = str(question or "").strip()
+        if not question:
+            raise ValueError("an operator question holder needs a question")
+        with self._locked():
+            items = self._load()
+            source = next((row for row in items if row.id == item_id), None)
+            if source is None:
+                source = next(
+                    (
+                        row
+                        for row in reversed(self._load_archive())
+                        if row.id == item_id
+                    ),
+                    None,
+                )
+            if source is None or source.status not in _TERMINAL_STATUSES:
+                return None
+            holder = BacklogItem.new(
+                item_id=holder_id,
+                title=source.title,
+                objective=source.objective,
+                priority=source.priority,
+                tags=[tag for tag in source.tags if tag != "runtime_failure_canary"],
+                notes=f"Holds the operator question raised after item {source.id} ended.",
+                iterate=source.iterate,
+                iteration_max_cycles=source.iteration_max_cycles,
+                deps=list(source.deps),
+                plan_id=source.plan_id,
+                plan_version=source.plan_version,
+                node_key=source.node_key,
+                context_refs=list(source.context_refs),
+                authorization_id=source.authorization_id,
+                authorization_action=source.authorization_action,
+                execution_workdir=source.execution_workdir,
+                acceptance_check=source.acceptance_check,
+                plan_hypothesis=source.plan_hypothesis,
+                goal_contribution=source.goal_contribution,
+                expected_regressions=source.expected_regressions,
+                decision_rule=source.decision_rule,
+                non_goals=list(source.non_goals),
+                original_objective=source.original_objective,
+                manager_decision=dict(source.manager_decision),
+            )
+            holder.status = "paused_operator"
+            holder.finished_ts = time.time()
+            holder.last_error = source.last_error
+            holder.pending_question = question
+            holder.operator_decision = dict(operator_decision)
+            # Same as Backlog.add(): a brand-new row has no journal history.
+            holder.replan_streak_tracked = True
+            for row in items:
+                if row.status in _TERMINAL_STATUSES or source.id not in row.deps:
+                    continue
+                row.deps = list(dict.fromkeys(
+                    holder.id if dep == source.id else dep for dep in row.deps
+                ))
+            items.append(holder)
+            self._validate_no_dependency_cycles(items)
+            self._save(items)
+            return holder
 
     def claim_next(
         self,

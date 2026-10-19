@@ -150,18 +150,38 @@ def build_operator_decision(
     }
     if project_id.strip():
         card["project_id"] = project_id.strip()
+    same_item = previous_decision is not None and previous_decision.get("item_id") == item_id
+    previous_id = str(previous_decision.get("id") or "") if same_item else ""
     if (
-        previous_decision is not None
+        same_item
+        and previous_decision is not None
         and previous_decision.get("status") == "pending"
-        and previous_decision.get("item_id") == item_id
         and str(previous_decision.get("question") or "").strip() == card["question"]
+        and list(previous_decision.get("options") or []) == agent_options
     ):
         # Rebuilding an unanswered card must not make an old question look new.
         # Older cards have no recorded time; keep that absence truthful too.
-        if "asked_at" in previous_decision:
-            card["asked_at"] = previous_decision["asked_at"]
+        if previous_id:
+            card["id"] = previous_id
+        for key in ("asked_at", "question_revision", "superseded_decision_ids"):
+            if key in previous_decision:
+                card[key] = previous_decision[key]
     else:
         card["asked_at"] = time.time()
+        if previous_id and previous_decision is not None:
+            # A different question on the same item gets a new id, and the old
+            # one is remembered as superseded: an answer written for the old
+            # question (whose option ids may now mean something else) is then
+            # rejected as stale instead of applied to the new one.
+            question_revision = int(previous_decision.get("question_revision", 1) or 1) + 1
+            superseded = [
+                str(value)
+                for value in previous_decision.get("superseded_decision_ids", ())
+                if str(value)
+            ]
+            card["id"] = f"decision-{item_id}-q{question_revision}"
+            card["question_revision"] = question_revision
+            card["superseded_decision_ids"] = [*superseded, previous_id][-16:]
     return card
 
 

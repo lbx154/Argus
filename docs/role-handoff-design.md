@@ -1,7 +1,12 @@
 # Role handoff: from principles to design
 
+Chinese version: [role-handoff-design.zh-CN.md](role-handoff-design.zh-CN.md)
+
 Status: proposal (2026-10-16). Implementation is tracked in
-[the roadmap](ROADMAP.md); this document explains why each item exists.
+[the roadmap](ROADMAP.md); this document explains why each item exists. The
+liveness part ([The baton](#the-baton)) starts with fixes for the defects
+listed under [Handoffs that do not end](#handoffs-that-do-not-end), each an
+instance of one invariant.
 
 ## Why this document exists
 
@@ -34,6 +39,13 @@ principles:
 | Each record has one author; runtime interventions are the runtime's own records | 1 | Nobody can tell what the Reviewer actually said; guards count host placeholders as verdicts |
 | The standard is fixed by its owner before the candidate exists | 5 | Review moves the goalposts; correctness and scope concerns are indistinguishable |
 | Access and obstacles go to the actor who can act on them | 8 | A Reviewer that cannot read or run something returns the work to an Engineer who cannot fix it |
+
+These properties make a judgment trustworthy; they do not make it happen. A
+handoff must also **end**. A wait that nobody is obliged to end, a return that
+sends unchanged work back to the same actor, or a decision that nobody is
+allowed to make stops a programme as surely as a crash, and on long tasks it is
+the more common failure. Four invariants guarantee that every handoff ends;
+they are described under [The baton](#the-baton).
 
 ## What the current implementation does
 
@@ -115,6 +127,41 @@ contract clauses, and stage guidance. The verdict is free-form prose: nothing
 ties `approve_review` to the criteria. The fix that ties completion to an
 explicit objective status (`fix/completion-objective-status`) was never merged
 into `dev`.
+
+### Handoffs that do not end
+
+Measured by reading the code on `origin/dev` at `8c188e69`; every item below
+was traced to a line.
+
+There are about thirty distinct handoffs. By where the work goes next, they
+reduce to six moves:
+
+| Move | Direction | Today |
+| --- | --- | --- |
+| Delegate | down: new work | Manager dispatch; Planner enqueue and claim; teammate and subagent launch; advisor consult |
+| Submit / return | sideways: to an independent judge, or back to the producer | Engineer to Reviewer; Reviewer `continue` |
+| Escalate | up: to whoever holds the authority or can remove the obstacle | operator questions; `replan_requested`; `blocked`; "the Planner needs direction" |
+| Park | out: to the world or the clock | background-run waits; Planner `WAKE_ON`; eleven `paused_*` statuses; Manager WAIT |
+| Resume | the same role, later | Engineer self-handoff; role-session rotation; resume after a pause; blue/green daemon handoff |
+| Preempt | in: from above, into a running holder | operator STEER; Manager steer and wait; pause and abort |
+
+A Reviewer verdict is not a seventh move: `continue` is a return,
+`replan_requested` and `blocked` are escalations, and `done` is acceptance. A
+seventh kind exists only implicitly, as the host rewriting a move a model made:
+verdict rewrites, a question turned into a replan, a Planner batch discarded by
+`PLAN_RETRY`, a Planner stage advance applied without the Manager.
+
+Each of the thirty handoffs carries its own wait, timeout, and counter, and
+more than a dozen thresholds (2, 3, 4, 12, 24, 60, 120, 300 s, 1,800 s,
+3,600 s, a 0.6 word overlap) each patch one loop. Without one rule for how a
+handoff ends, four classes of defect appear:
+
+| Class | What happens | Examples |
+| --- | --- | --- |
+| Orphan wait | The holder waits for an event that nobody is obliged to produce, with no deadline | Dependents of a `research_incomplete` or `infra_blocked` item stay pending forever: the cascade fires only on terminal states, and the Planner can retire only pending items. The runtime-failure circuit clears only after a `runtime_failure_canary` mission that nothing creates. A subagent whose process is alive but wedged is healthy forever, because `stale_after` is computed and never compared. A blue/green candidate that cannot take the lock within 60 s exits after the roll request was consumed, leaving no daemon. A Manager WAIT without a mission freezes all planning. |
+| Unbounded return | Work goes back and forth with no mechanical measure of change | Missions with `require_independent_review=False` self-continue without settlement while `max_rounds` defaults to 0. `forward_progress=true` disables the stall guards, and round counters restart on every resume. Each replan creates rows with a fresh counter, and quarantine is keyed on title text. Team tasks retry without a budget. |
+| Authority vacuum | A decision has no entitled decider | With an operator available and questions forbidden, nobody may accept a residual risk. The Manager's supervision channel cannot stop a mission. |
+| Lossy handoff | The move is lost or misrouted in translation | A Planner verdict that both waits and proposes tasks drops the tasks. A question raised on an archived item is swallowed. `early_stopped` and `crashed` are not terminal to the daemon. A stale decision card answers a newer question. |
 
 ## Target design
 
@@ -200,6 +247,87 @@ Manager decides what happens next. The host does not estimate progress from
 message length, word overlap, or missing fields, and the Reviewer prompt does
 not explain host mechanics it cannot influence.
 
+### The baton
+
+Every open item (a mission, or the project's planning slot when no mission is
+runnable) has exactly one **holder**: Engineer, Reviewer, Planner, Manager, the
+operator, or the world, meaning a parked wait. A handoff is a prose note and
+one line naming the next holder:
+
+```text
+<what was done, what was found, what is open, why the next holder>
+→ reviewer
+```
+
+The line takes one of seven values: `engineer`, `reviewer`, `planner`,
+`manager`, `operator: <one-sentence question>`, `wait: <what>`, or `done`.
+Routing is free. Any holder may pass to any role: a Reviewer straight to the
+Manager when the criteria conflict, an Engineer straight to the Planner when a
+task is mis-scoped. The host never decides where work goes. It enforces four
+invariants, and together they are the whole state machine:
+
+1. **One holder.** An item has one holder at a time, and items wait on each
+   other only through the dependency graph, which is acyclic. No circular wait
+   can form. A question parks only its own item and that item's descendants,
+   never the project and never the operator's control channel.
+2. **Every wait has a deadline and a fallback.** A park records what it waits
+   for, until when, and who receives the item when the deadline passes; by
+   default that is the next rung up. The model may say what it waits for, and
+   the host always supplies the deadline. A stale heartbeat is an event: it
+   wakes the holder with that fact. This one rule covers background runs,
+   teammates, Planner waits, operator questions, pauses, and the failure
+   circuit.
+3. **An unchanged return climbs.** Suppose the item would return to a holder
+   that already held it at the same candidate, with no new external result and
+   no new operator input since. Then the host does not call that model again.
+   Instead the item moves one rung up the ladder Engineer → Reviewer → Planner →
+   Manager → operator. "Changed" is a mechanical fact read from the candidate
+   snapshot and the event log. It is counted on the mission's lineage, so
+   resuming, replanning, or rewording does not reset it.
+4. **Authority never vanishes.** Every decision type has an owner. When the
+   owner cannot be asked, a reversible decision falls to the next permitted rung
+   instead of disappearing. Only irreversible decisions may wait on the operator
+   without a deadline. A reversible question carries the asker's default
+   ("without an answer by T, continue with X").
+
+| Decision | Owner | When the owner cannot be asked |
+| --- | --- | --- |
+| Accept a candidate | Reviewer (the Engineer where review is not required) | — |
+| Create, retire, or replace work | Planner | Manager |
+| Change the stage | Manager | — |
+| Accept a residual risk | operator | Manager |
+| Stop a mission | Manager or operator | — |
+| Credentials, payment, publication, destructive actions | operator | the item stays parked; nothing else waits |
+
+**Why every item ends.** Each handoff does one of three things:
+
+- It changes the candidate or brings a new fact, which spends budget.
+- It climbs one rung, which can happen at most four times.
+- It ends the item.
+
+A wait becomes a climb when its deadline passes. Within a bounded number of
+handoffs, every item is therefore done, dropped, or held by the operator on an
+irreversible decision that blocks nothing else. Deadlock is impossible, and
+the ladder's height bounds the number of model calls made without a change.
+
+**What this replaces.**
+
+- `continue` is `→ engineer`, `replan_requested` is `→ planner`, `blocked` is
+  `→` whoever can remove the obstacle, and `done` is acceptance of a named
+  candidate.
+- The eleven `paused_*` statuses become one park whose reason is data.
+- A Planner wait needs only `wait: <what>`. The fingerprint, token, recheck
+  condition, and deadline belong to the host.
+- The Engineer's seven footer keys and its wait line become the single line
+  above.
+
+Structured payloads remain only where a side effect needs them: a Planner
+task's title and objective (plus dependencies and owned paths where they
+exist), a question, and an authorization. The line is read leniently: case,
+role names in the operator's language, and Markdown decoration do not matter. A
+missing or unreadable line never ends a mission and never means `done`. A
+changed candidate goes to the Reviewer, and an unchanged one climbs.
+
 ## What is deleted
 
 Removed once the replacement is in place, each in its own roadmap item:
@@ -218,7 +346,15 @@ Removed once the replacement is in place, each in its own roadmap item:
 - `review_objective` concatenation, replaced by the mission contract by
   reference;
 - the prose-parsing paths in `reviewer/_parsing.py` that have no production
-  callers.
+  callers;
+- the remaining per-loop counters that stand in for the unchanged-return rule:
+  the empty-turn and stall streaks, `consecutive_replans`,
+  `replan_rejections`, title-keyed quarantine, the Planner's probe missions,
+  and its fixed re-grant cadence;
+- the eleven `paused_*` statuses as separate states, replaced by one park
+  record;
+- the Planner's wait-contract fields and the Engineer's footer keys, replaced
+  by the single handoff line.
 
 ## Compatibility
 
@@ -229,6 +365,8 @@ Removed once the replacement is in place, each in its own roadmap item:
 - Each roadmap item is a separate, reviewable change. API, storage format,
   stage semantics, and deployment do not change in the same patch, following
   [runtime-maintainability.md](runtime-maintainability.md).
+- The current footers stay readable. A `NEXT_OWNER=` line or a native Reviewer
+  action maps onto the handoff line, so prompts can move one role at a time.
 
 ## How success is measured
 
@@ -239,7 +377,11 @@ controls, not by gate counts. Per accepted mission, track:
 - the reason classes of `continue` verdicts, as above;
 - accepted missions later found incomplete (false `done`);
 - wall time, tokens, model calls, and cost;
-- operator questions and escalations, and who resolved them.
+- operator questions and escalations, and who resolved them;
+- items that no holder could act on, and how long they stayed that way
+  (target: none);
+- model calls made by any role on an unchanged candidate (target: zero);
+- climbs per rung, and how each item that reached the operator was resolved.
 
 The roadmap's metrics item produces these numbers from `events.jsonl`, so every
 later item can report its effect against the same baseline.
@@ -252,3 +394,10 @@ later item can report its effect against the same baseline.
 - Whether per-criterion status should be mandatory for exploratory missions,
   which by principle 5 make no claims.
 - How follow-ups are prioritized against the Planner's existing frontier.
+- Default deadlines per kind of park and per vertical, given that research runs
+  legitimately take days.
+- Until the snapshot store exists, the unchanged-return rule needs a cheaper
+  change signal. A manifest digest (path, size, mtime) of the workdir is
+  enough to decide "unchanged", and the snapshot id replaces it later.
+- Whether the holder is only derived from handoff events in `events.jsonl`, or
+  is also kept on the Backlog item for cheap reads.

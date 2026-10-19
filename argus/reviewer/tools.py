@@ -210,12 +210,14 @@ class ReviewActions:
         validation: ReviewValidation | None = None,
         grounding: ReviewGrounding | None = None,
     ) -> None:
-        from ..core.autonomy import operator_available
+        from ..core.autonomy import operator_questions_can_be_asked
 
         self.venue = venue
         self.venue_required = venue_required
         self.validation = validation
-        self.grounding = grounding or ReviewGrounding(operator_available=operator_available())
+        self.grounding = grounding or ReviewGrounding(
+            operator_available=operator_questions_can_be_asked()
+        )
         self.decision: ReviewDecision | None = None
         self.tools = self._tools()
 

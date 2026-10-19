@@ -1157,6 +1157,32 @@ def parse_planner_payload(payload: Mapping[str, Any]) -> PlannerVerdict:
                     vertical=text(raw_task, "vertical").strip(),
                 )
             )
+        # Same contract as the footer's ``RETIRE_TASK=<item id> | <reason>``:
+        # an id and a reason per entry. The structured path used to drop the
+        # field, so a JSON-speaking Planner could never retire anything. A
+        # malformed entry is skipped with a diagnostic, never the whole turn.
+        raw_retire = payload.get("retire_tasks", [])
+        if isinstance(raw_retire, (str, Mapping)):
+            raw_retire = [raw_retire]
+        if not isinstance(raw_retire, list):
+            diagnostics.append("retire_tasks ignored: expected an array")
+            raw_retire = []
+        retire_tasks: list[tuple[str, str]] = []
+        for retire_index, entry in enumerate(raw_retire):
+            item_id = retire_reason = separator = ""
+            if isinstance(entry, str):
+                item_id, separator, retire_reason = entry.partition("|")
+            elif isinstance(entry, Mapping):
+                item_id = str(entry.get("id") or entry.get("item_id") or "")
+                retire_reason = str(entry.get("reason") or "")
+                separator = "|"
+            if separator and item_id.strip() and retire_reason.strip():
+                retire_tasks.append((item_id.strip(), retire_reason.strip()))
+            else:
+                diagnostics.append(
+                    f"retirement {retire_index + 1} skipped: "
+                    "item id and reason are required"
+                )
     except (TypeError, ValueError) as exc:
         detail = str(exc)
         message = f"invalid structured planner decision: {detail}"
@@ -1176,6 +1202,7 @@ def parse_planner_payload(payload: Mapping[str, Any]) -> PlannerVerdict:
         waiting_contract=waiting_contract,
         new_tasks=new_tasks,
         diagnostics=tuple(diagnostics),
+        retire_tasks=tuple(retire_tasks),
     )
 
 

@@ -2004,8 +2004,11 @@ def test_unclassified_message_stays_in_conversation_without_research_directive(
     monkeypatch.setattr(front_door, "manager_triage", interpret)
     result = manager_bridge.manager_message("s-msgtest0", question, global_root=tmp_path)
 
-    assert result["kind"] == "pending_question"
-    assert result.get("error") and result["answer_preserved"] is False
+    # A failed interpretation no longer consumes the turn: it continues to the
+    # ordinary front door (which here fails the same way) instead of holding
+    # the control channel, and nothing is promoted to an answer.
+    assert result["kind"] != "pending_question"
+    assert "answered_item_id" not in result
     assert not (life / "operator_context.jsonl").exists()
     assert not (life / "inbox.jsonl").exists()
     rows = LifeMemory.open(life).backlog.all()

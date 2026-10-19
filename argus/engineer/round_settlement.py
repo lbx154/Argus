@@ -34,14 +34,15 @@ log = logging.getLogger(__name__)
 
 
 def _operator_questions_allowed(supervised_config: "SupervisedConfig") -> bool:
-    root = supervised_config.operator_question_policy_root
+    from ..core.autonomy import operator_questions_can_be_asked
+
+    root = getattr(supervised_config, "operator_question_policy_root", None)
     if root is not None:
-        from ..manager.directive import effective_operator_question_policy
-
-        return effective_operator_question_policy(root) != "forbid"
-    from ..core.autonomy import operator_available
-
-    return bool(supervised_config.operator_questions_allowed) and operator_available()
+        return operator_questions_can_be_asked(root)
+    return (
+        bool(getattr(supervised_config, "operator_questions_allowed", True))
+        and operator_questions_can_be_asked()
+    )
 
 
 def _record_forbidden_question(
@@ -236,12 +237,46 @@ def _review_forward_progress(review: ReviewDecision) -> bool | None:
     return value if isinstance(value, bool) else None
 
 
-def _blocked_on_healthy_work(workdir: Path) -> bool:
-    """True while a job this mission launched is still running and healthy."""
+def _other_missions_subagents(workdir: Path, mission_id: str) -> set[str]:
+    """Subagent work ids that another mission's Engineer submitted.
+
+    The subagent registry records ``owner_mission_id`` from the submitting
+    Engineer's environment, where the round loop puts its session id. A record
+    that names no mission cannot be attributed and stays countable, the rule
+    ``scan_external_work`` applies inside a mission process.
+    """
+    if not mission_id:
+        return set()
+    from .external_work import _read_record, _registry_files
+
+    foreign: set[str] = set()
+    for path in _registry_files(workdir, ".argus_subagents"):
+        record = _read_record(path)
+        if record is None:
+            continue
+        owner = str(record.get("owner_mission_id") or "").strip()
+        if owner and owner != mission_id:
+            foreign.add(str(record.get("task_id") or path.stem).strip())
+    return foreign
+
+
+def _blocked_on_healthy_work(workdir: Path, mission_id: str = "") -> bool:
+    """True while a job this mission launched is still running and healthy.
+
+    A healthy subagent another mission submitted is that mission's wait, not
+    this one's: counting it let any busy neighbour excuse this mission's
+    stall indefinitely. External-work registrations and teams record no
+    mission, so they still count, as before.
+    """
     from .external_work import scan_external_work
 
     try:
-        return any(status.waitable for status in scan_external_work(workdir))
+        foreign = _other_missions_subagents(workdir, mission_id)
+        return any(
+            status.waitable
+            and not (status.source == "subagent" and status.work_id in foreign)
+            for status in scan_external_work(workdir)
+        )
     except Exception:  # noqa: BLE001 — an unreadable registry is not a stall claim
         return False
 
@@ -495,7 +530,9 @@ class RoundSettlementMixin:
             and review.review_source in OPERATOR_QUESTION_POLICY_REVIEW_SOURCES
         )
         explicit_forward_progress = _review_forward_progress(review)
-        healthy_work = _blocked_on_healthy_work(workdir)
+        healthy_work = _blocked_on_healthy_work(
+            workdir, str(getattr(supervised_config, "session_id", "") or "")
+        )
         if policy_retry and explicit_forward_progress is None:
             next_semantic_stall_streak = state.semantic_stall_streak
             forward_progress = None

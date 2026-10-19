@@ -634,13 +634,23 @@ def _open_discussion_blockers(lane: str | None = None) -> list[dict[str, Any]]:
 
     When ``lane`` is given, only tasks in that lane are considered, so an agent
     team's parked teammate blocks only its own lane. ``lane=None`` scans every
-    task (legacy global behaviour, preserved for non-team submits).
+    task owned by the caller's team task (``ARGUS_SKILL_TEAM_TASK_ID``; none
+    for the lead), recorded on each task as ``owner_team_task_id``. A lane was
+    only a task-id prefix the model had to remember, so a teammate's un-laned
+    parked discussion used to block the lead — and every sibling — with no one
+    but that teammate able to answer it.
     """
+    owner_team_task = os.environ.get(_TEAM_TASK_ENV, "").strip()
     blockers: list[dict[str, Any]] = []
     for t in _list_tasks():
         if t.get("state") != "discussing":
             continue
         if lane is not None and _lane_of(t.get("task_id")) != lane:
+            continue
+        if (
+            lane is None
+            and str(t.get("owner_team_task_id") or "").strip() != owner_team_task
+        ):
             continue
         # The liveness pid for a parked discussion is the WORKER (the forked
         # process running the discussion loop), never the killed experiment pid —

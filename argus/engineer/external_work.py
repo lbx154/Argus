@@ -319,13 +319,29 @@ def _subagent_status(
         else monitor_interval
     )
     stale_after = max(monitor_interval, _CADENCE_CAP_SECONDS) * 2.0
-    heartbeat_at = _coerce_float(record.get("heartbeat_at"), 0.0)
+    explicit_heartbeat = max(
+        _coerce_float(record.get("heartbeat_at"), 0.0),
+        _coerce_float(record.get("last_heartbeat"), 0.0),
+    )
+    heartbeat_at = explicit_heartbeat
     if heartbeat_at <= 0:
         try:
             heartbeat_at = path.stat().st_mtime
         except OSError:
             heartbeat_at = 0.0
     mode = str(record.get("mode") or "direct").strip().lower()
+    # Only an owner that renews its record has a heartbeat that can go stale:
+    # the supervised worker rewrites it at every check (and stamps it while
+    # discussing), and any worker queued for a resource stamps it every poll,
+    # while a direct worker writes once and then waits on a command for as long
+    # as that command legitimately runs. A live pid with a stale heartbeat is a
+    # wedged owner, and the Engineer must hear that fact instead of waiting on
+    # it forever.
+    heartbeat_stale = (
+        (mode == "supervised" or state_value == "waiting_resource")
+        and heartbeat_at > 0
+        and now - heartbeat_at > stale_after
+    )
     health = str(record.get("last_supervisor_health") or "").strip().lower()
     decision = str(record.get("last_supervisor_decision") or "").strip().lower()
     concern = " ".join(str(
@@ -386,7 +402,7 @@ def _subagent_status(
         reason = str(record.get("timeout_message") or "").strip() or (
             f"subagent state={state_value or 'unknown'}"
         )
-    elif state_value == "waiting_resource" and worker_alive:
+    elif state_value == "waiting_resource" and worker_alive and not heartbeat_stale:
         state = ExternalWorkState.RUNNING_HEALTHY
         reason = resource_facts[0] if resource_facts else "waiting for a resource grant"
     elif mode == "direct" and exit_status_exists:
@@ -398,6 +414,13 @@ def _subagent_status(
     elif mode != "direct" and not worker_alive:
         state = ExternalWorkState.STALLED
         reason = "subagent worker process is not alive"
+    elif heartbeat_stale:
+        state = ExternalWorkState.STALLED
+        reason = (
+            "subagent heartbeat is stale: its worker is alive but has not "
+            f"updated the record for {int(now - heartbeat_at)}s "
+            f"(limit {int(stale_after)}s)"
+        )
     elif (
         mode not in {"direct", "supervised"}
         or state_value == "discussing"

@@ -321,6 +321,31 @@ class PlannerOrchestrationMixin:
                 f"cpus={int(getattr(item, 'cpu_count', 0) or 0)}"
             )
 
+        # Parks that nothing resumes automatically and no operator question
+        # owns. The digest used to show them only as a count while their
+        # pending dependents waited on them forever; the Planner may retire
+        # one, which releases those dependents through the cascade.
+        from ..memory import planner_may_retire_park
+
+        pending_rows = [row for row in backlog_rows if row.status == "pending"]
+        parked_lines: list[str] = []
+        for park in [row for row in backlog_rows if planner_may_retire_park(row)][:8]:
+            blocked = {park.id}
+            grew = True
+            while grew:
+                grew = False
+                for row in pending_rows:
+                    if row.id not in blocked and blocked.intersection(row.deps or ()):
+                        blocked.add(row.id)
+                        grew = True
+            blocked.discard(park.id)
+            parked_lines.append(
+                f"- parked task {park.id} ({park.status}): {park.title}; "
+                f"blocks pending: [{', '.join(sorted(blocked))}]; nothing resumes "
+                f"it automatically. `RETIRE_TASK={park.id} | <reason>` retires it, "
+                "releases those dependents and frees the work to be re-planned."
+            )
+
         # A subagent event wait is bound by matching the Planner's own words
         # against a live work_id, exactly. The ids were never shown to it, so
         # it wrote what it knew: run-03 named the parent mission, run-01
@@ -410,6 +435,7 @@ class PlannerOrchestrationMixin:
                     for item in backlog_rows
                     if item.status in {"pending", "running", "paused_external_work"}
                 ),
+                *parked_lines,
                 *([live_subagent_line] if live_subagent_line else []),
                 (
                     "- awaiting_operator_answer: "

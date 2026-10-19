@@ -401,7 +401,7 @@ def test_reply_followup_and_restarted_inspect_share_identity_and_refresh_evidenc
     assert record["status"] == "applied" and second.calls[-1][1] == "persistent-manager"
 
 
-def test_applied_wait_prevents_planner_calls_until_new_operator_facts(tmp_path, monkeypatch):
+def test_applied_wait_holds_unchanged_planning_until_new_operator_facts(tmp_path, monkeypatch):
     from argus.life.memory import LifeMemory
     from argus.life.supervisor import LifeSupervisor, LifeSupervisorConfig
     from argus.life.supervisor._constants import PLAN_AWAITING, PLAN_ERROR
@@ -414,7 +414,11 @@ def test_applied_wait_prevents_planner_calls_until_new_operator_facts(tmp_path, 
 
     def plan_next(_planner, **kwargs):
         calls.append(kwargs)
-        return PlannerVerdict(project_done=False, error="The independent checker is temporarily unavailable")
+        return PlannerVerdict(
+            project_done=False,
+            reason="The independent checker is temporarily unavailable",
+            error="The independent checker is temporarily unavailable",
+        )
 
     monkeypatch.setattr("argus.planner.Planner.plan_next", plan_next)
     supervisor = LifeSupervisor(
@@ -427,13 +431,18 @@ def test_applied_wait_prevents_planner_calls_until_new_operator_facts(tmp_path, 
         ),
     )
     supervisor._vertical_resolved = True
-    for _ in range(5):
+    # The WAIT parks the questioned task, never the project: the Planner gets
+    # one turn to plan work that does not need the answer, and only an
+    # unchanged state is then held without another call.
+    assert supervisor._plan_next_work() == PLAN_ERROR
+    assert len(calls) == 1
+    for _ in range(4):
         assert supervisor._plan_next_work() == PLAN_AWAITING
-    assert calls == []
+    assert len(calls) == 1
     backlog.update(item.id, pending_question="")
     assert backlog.resume_paused(item.id)
     assert supervisor._plan_next_work() == PLAN_ERROR
-    assert len(calls) == 1
+    assert len(calls) == 2
 
 
 def test_saturated_scheduler_retains_latest_evidence_for_the_waiting_project(tmp_path):

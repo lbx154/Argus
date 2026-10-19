@@ -47,7 +47,8 @@ class RoundLoopState:
     # last. The next Reviewer reads them beside the final turn's account; a
     # completed review clears them.
     unreviewed_engineer_accounts: list[str] = field(default_factory=list)
-    # Consecutive NEXT_OWNER=engineer handoffs since the last review.
+    # Consecutive unjudged Engineer turns since the last review: NEXT_OWNER=
+    # engineer handoffs and unfinished self-reviewed milestones.
     engineer_self_handoffs: int = 0
     last_engineer_message: str = ""
     no_progress_streak: int = 0

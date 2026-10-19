@@ -395,17 +395,22 @@ def _validated_decision(value: dict[str, Any]) -> dict[str, Any]:
             "risk_decision": _risk_decision(value)}
 
 
-def _manager_accepts_risk() -> bool:
-    """Only in a run with no operator does the Manager accept a residual risk."""
-    from ..core.autonomy import operator_available
+def _manager_accepts_risk(root: Path | str | None = None) -> bool:
+    """The Manager accepts a residual risk whenever no operator question can be asked.
 
-    return not operator_available()
+    That is a run with no operator, and equally a run whose question policy
+    forbids asking: the operator decides only while they can be asked, so the
+    acceptance never has no decider. ``reviewer.tools`` reads the same rule.
+    """
+    from ..core.autonomy import operator_questions_can_be_asked
+
+    return not operator_questions_can_be_asked(root)
 
 
-def _risk_authority_rule() -> str:
+def _risk_authority_rule(root: Path | str | None = None) -> str:
     from ..core.model_visible_text import FIXTURE_EVIDENCE_RULE
 
-    if not _manager_accepts_risk():
+    if not _manager_accepts_risk(root):
         return (
             "Leaving such a check unverified changes the acceptance standard, so it is "
             "the operator's decision, not yours: the Reviewer asks them. Meanwhile steer "
@@ -424,8 +429,8 @@ def _risk_authority_rule() -> str:
     )
 
 
-def _standard_rule() -> str:
-    if _manager_accepts_risk():
+def _standard_rule(root: Path | str | None = None) -> str:
+    if _manager_accepts_risk(root):
         return (
             "Apart from accepting or revoking one grounded check's residual risk as "
             "above, you do not change the objective, acceptance standard, or pipeline "
@@ -434,8 +439,8 @@ def _standard_rule() -> str:
     return "You do not change the objective, acceptance standard, or pipeline stage here. "
 
 
-def _risk_fields() -> str:
-    if not _manager_accepts_risk():
+def _risk_fields(root: Path | str | None = None) -> str:
+    if not _manager_accepts_risk(root):
         return ""
     return (
         "ACCEPT_RISK: yes, no, or revoke <risk id>\n"
@@ -446,6 +451,8 @@ def _risk_fields() -> str:
 
 def _prompt(observation: ManagerObservation, consult_reason: str = "") -> str:
     asked = f"You are consulted now because of: {consult_reason}.\n" if consult_reason else ""
+    # Who may accept a residual risk depends on this project's question policy.
+    root = getattr(observation, "root", None)
     return (
         "You are the persistent project Manager, supervising the team's progress toward the "
         "operator's actual objective. Assess the concrete evidence below. A successful tool "
@@ -464,12 +471,12 @@ def _prompt(observation: ManagerObservation, consult_reason: str = "") -> str:
         "time (verification_obstacle_basis, quoted from verification_obstacle_basis_source); "
         "without that quote it is missing, so "
         "steer toward it. "
-        + _risk_authority_rule()
+        + _risk_authority_rule(root)
         + "Choose CONTINUE if the current course is justified; STEER to give a concrete corrected "
         "instruction through the persistent Manager direction read at the team's next boundary; WAIT only when a persisted operator "
         "question prevents further work. WAIT pauses automatic planning and preserves the "
         "task and question. Do not use WAIT for ordinary implementation failures; steer a fix. "
-        + _standard_rule()
+        + _standard_rule(root)
         + "Scheduling belongs to Argus and its operator: never direct a role to pause, "
         "stop or reschedule work by editing Argus's own state.\n"
         "End your reply with these fields, each on its own line in the form KEY: value:\n"
@@ -477,7 +484,7 @@ def _prompt(observation: ManagerObservation, consult_reason: str = "") -> str:
         "REASON: the decisive observed condition and what should happen next\n"
         "EVIDENCE_REFS: semicolon-separated paths from evidence_refs\n"
         "DIRECTIVE: the corrected team instruction (only for STEER)\n"
-        + _risk_fields()
+        + _risk_fields(root)
         + "\n"
         + asked
         + observation.render()
@@ -541,7 +548,7 @@ def _apply_risk_decision(
         return
     if risk.get("action") != "accept":
         return
-    if not _manager_accepts_risk():
+    if not _manager_accepts_risk(root):
         effects["residual_risk_refused"] = "an operator is available; accepting a residual risk is theirs"
         return
     item_id = str((record.get("trigger") or {}).get("item_id") or "")

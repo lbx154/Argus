@@ -315,6 +315,7 @@ class Curator:
         self._fold_mtime: dict[str, float] = {}  # per-root shards mtime at last fold
         self._distill_at: dict[str, float] = {}
         self._stop = threading.Event()
+        self._spawn_lock = threading.Lock()
         self._thread: threading.Thread | None = None
 
     def _incident_store(self):
@@ -437,27 +438,35 @@ class Curator:
     ) -> int:
         root = Path(root)
         key = _child_key(root, member_id)
-        prior = self._children.get(key)
-        if prior is not None and prior.alive():
-            raise RuntimeError(f"teammate {member_id!r} is already running for {root}")
-        proc = self._make_proc(root, member_id, task_id, Path(cwd))
-        self._children[key] = TrackedTeammate(
-            proc, member_id=member_id, task_id=task_id, root=root,
-            started_at=(self._now() if now is None else now),
-            timeout_s=(
-                float(timeout_s)
-                if timeout_s is not None and timeout_s > 0
-                else (
-                    self.teammate_timeout_s
-                    if self.teammate_timeout_s > 0
-                    else None
-                )
-            ),
-            hard_grace_s=self.hard_grace_s)
-        roster.add_member(root, {
-            "id": member_id, "pid": proc.pid, "cwd": str(cwd),
-            "task_id": task_id, "status": "running",
-        })
+        # Spawn and registration are one step against stop(): either the child
+        # is in ``_children`` before stop() tears them down, or stop() already
+        # ran and nothing is spawned (0). A tick that outlived stop()'s join —
+        # e.g. inside a distill or summary model call — cannot leave an unowned
+        # teammate behind.
+        with self._spawn_lock:
+            if self._stop.is_set():
+                return 0
+            prior = self._children.get(key)
+            if prior is not None and prior.alive():
+                raise RuntimeError(f"teammate {member_id!r} is already running for {root}")
+            proc = self._make_proc(root, member_id, task_id, Path(cwd))
+            self._children[key] = TrackedTeammate(
+                proc, member_id=member_id, task_id=task_id, root=root,
+                started_at=(self._now() if now is None else now),
+                timeout_s=(
+                    float(timeout_s)
+                    if timeout_s is not None and timeout_s > 0
+                    else (
+                        self.teammate_timeout_s
+                        if self.teammate_timeout_s > 0
+                        else None
+                    )
+                ),
+                hard_grace_s=self.hard_grace_s)
+            roster.add_member(root, {
+                "id": member_id, "pid": proc.pid, "cwd": str(cwd),
+                "task_id": task_id, "status": "running",
+            })
         return int(proc.pid)
 
     def live_owner_ids(self, root: Path) -> set[str]:
@@ -548,6 +557,7 @@ class Curator:
             }
             for task_id in reassigned:
                 task = snapshot.get(task_id, {})
+                exhausted = task.get("state") == "failed"
                 self._record_recovery(
                     invariant="team_task_requires_live_owner",
                     subject_id=task_id,
@@ -556,11 +566,22 @@ class Curator:
                         "prior_state": "claimed_or_running",
                         "owner_alive": False,
                     },
-                    action="reassign_stale_team_task",
-                    expected_postcondition="team task is pending without an owner",
+                    action=(
+                        "fail_team_task_after_orphan_budget"
+                        if exhausted
+                        else "reassign_stale_team_task"
+                    ),
+                    expected_postcondition=(
+                        "team task is failed with its orphan reason"
+                        if exhausted
+                        else "team task is pending without an owner"
+                    ),
                     recovered=bool(
-                        task.get("state") == "pending"
-                        and not str(task.get("owner") or "")
+                        exhausted
+                        or (
+                            task.get("state") == "pending"
+                            and not str(task.get("owner") or "")
+                        )
                     ),
                     verification={
                         "state": task.get("state"),
@@ -579,6 +600,8 @@ class Curator:
         spawned: list[dict[str, Any]] = []
         failed_dead_cwd: list[str] = []
         for _ in range(free):
+            if self._stop.is_set():
+                break  # stopping: nobody would own a fresh teammate
             mid = roster.next_member_id(root)
             task = task_board.claim_top(root, mid, now=now)
             if task is None:
@@ -604,9 +627,18 @@ class Curator:
                           task["task_id"], task_cwd)
                 failed_dead_cwd.append(task["task_id"])
                 continue
-            self._spawn_tracked(root, member_id=mid, task_id=task["task_id"],
-                                cwd=task_cwd, now=now,
-                                timeout_s=float(task.get("timeout_s", 0) or 0))
+            if not self._spawn_tracked(root, member_id=mid, task_id=task["task_id"],
+                                       cwd=task_cwd, now=now,
+                                       timeout_s=float(task.get("timeout_s", 0) or 0)):
+                # stop() won the race after the claim: hand the claim straight
+                # back so the next daemon's Curator can staff it at once.
+                task_board.release_paused(
+                    root,
+                    task["task_id"],
+                    reason="stop_kind=daemon_shutdown; Curator stopped before spawn",
+                    retry_after=now,
+                )
+                break
             spawned.append({"member_id": mid, "task_id": task["task_id"]})
         return {"spawned": spawned, "in_flight": in_flight, "live": len(live),
                 "occupied": occupied, "free": free, "reassigned": reassigned,
@@ -926,7 +958,10 @@ class Curator:
             self._thread.join(timeout=self.tick_s + 5.0)
             self._thread = None
         stopped_roots: set[Path] = set()
-        for tt in list(self._children.values()):
+        with self._spawn_lock:
+            children = list(self._children.values())
+            self._children.clear()
+        for tt in children:
             status = "stopped" if tt.alive() else "exited"
             if not self._terminate(tt):
                 log.error(
@@ -937,7 +972,6 @@ class Curator:
             stopped_roots.add(tt.root)
             with contextlib.suppress(Exception):
                 roster.set_member_status(tt.root, tt.member_id, status)
-        self._children.clear()
         # A clean daemon stop has killed every owned process, so leave its tasks
         # immediately claimable on restart instead of waiting for the stale TTL.
         for root in stopped_roots:
@@ -947,4 +981,6 @@ class Curator:
                     ttl=-1.0,
                     now=self._now(),
                     live_owners=set(),
+                    # We killed these owners ourselves; not a crash.
+                    orphan_budget=None,
                 )

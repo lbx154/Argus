@@ -676,6 +676,69 @@ def test_the_manager_cannot_accept_with_an_operator_or_without_a_quoted_basis(tm
     assert active_residual_risks(tmp_path / "ungrounded", item_id=item.id) == []
 
 
+def test_a_forbid_policy_gives_the_manager_risk_authority_even_with_an_operator(tmp_path, with_operator) -> None:
+    """Questions forbidden, operator nominally available: someone must still decide.
+
+    The Manager accepted only when ``operator_available()`` was false, and the
+    Reviewer was told to ask the operator, whose questions the policy then
+    dropped. Neither could accept, so a check impossible here ended every
+    mission blocked. Both now read one rule: the operator decides only while a
+    question can reach them.
+    """
+    from argus.core.autonomy import operator_questions_can_be_asked
+    from argus.engineer.round_reviewer import mission_grounding
+    from argus.manager.directive import set_active_manager_directive
+
+    root = tmp_path / "forbid"
+    item, event = _supervised_project(root)
+    set_active_manager_directive(root, "Work without asking the operator.", operator_question_policy="forbid")
+    assert operator_questions_can_be_asked(root) is False
+    # Control: the same run without the policy keeps the operator's authority.
+    _supervised_project(tmp_path / "allow")
+    assert operator_questions_can_be_asked(tmp_path / "allow") is True
+    assert supervision._manager_accepts_risk(tmp_path / "allow") is False
+
+    # The Manager is offered the decision, and taking it is recorded.
+    class _Observation:
+        def __init__(self, observed: Path) -> None:
+            self.root = observed
+
+        def render(self) -> str:
+            return "{}"
+
+    assert "ACCEPT_RISK: yes, no, or revoke <risk id>" in supervision._prompt(_Observation(root))
+    assert "ACCEPT_RISK" not in supervision._prompt(_Observation(tmp_path / "allow"))
+    record = _supervise(root, event, _ACCEPT)
+    assert record["status"] == "applied", record
+    assert "residual_risk_refused" not in record["effects"]
+    (row,) = active_residual_risks(root, item_id=item.id)
+
+    # The Reviewer's grounding follows the same rule: it may cite the
+    # Manager's acceptance, and is not sent to an operator nobody may ask.
+    class _Config:
+        context_packet_path = ""
+        operator_question_policy_root = str(root)
+
+    from argus.reviewer._core import _review_grounding
+
+    mission = mission_grounding(_Config(), item_id=item.id, mission_ref="s", baseline=None)
+    assert mission["operator_questions_allowed"] is False
+    grounding = _review_grounding(
+        ReviewerConfig(model="m", working_dir=str(tmp_path), mission_grounding=mission),
+        task_parts=(_OBJECTIVE,),
+    )
+    assert grounding.operator_available is False
+    actions = ReviewActions(grounding=grounding)
+    actions.dispatch("approve_review", {"review": "Fixture read.", "residual_risk": _risk(
+        check=row["check"], acceptance=row["id"],
+    )})
+    assert actions.decision.status == "done"
+    with pytest.raises(ValueError, match="only the Manager can accept"):
+        actions.dispatch("approve_review", {"review": "Fixture read.", "residual_risk": _risk(
+            accepted_by="operator", acceptance="decision-feed-task",
+        )})
+
+
 def test_acceptances_are_per_check_idempotent_and_survive_revocation_as_a_record(tmp_path) -> None:
     first = accept_residual_risk(tmp_path, check="Live feed", risk="unverified", accepted_by="manager",
                                  source_ref="manager.supervision:a", item_id="item-1")

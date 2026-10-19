@@ -24,6 +24,7 @@ from ..core import command_record
 from ..core.event_catalog import EventType
 from ..core.models import LoopStatus, ReviewDecision, RoundRecord
 from ..core.role_decision import latest_role_decision
+from ..core.role_handoff import decision_engineer_handoff
 from ..core.runner_errors import is_execution_host_startup_error
 from ..core.runner_receipts import is_provider_background_wait_receipt
 from ..core.secret_guard import known_secret_values, redact_secrets_text
@@ -88,11 +89,13 @@ def _engineer_decision_message(payload: dict) -> str:
     result = str(
         payload.get("result", payload.get("summary", "")) or ""
     ).strip()
-    default_owner = "reviewer" if status == "done" else "engineer"
+    # The owner the round loop acts on (``round_self_review._round_handoff``
+    # resolves the same payload), so the rendered footer the Reviewer and the
+    # journal read never names a different next owner than control used.
     lines = [
         result,
         f"MILESTONE_STATUS={'done' if status == 'done' else 'continue'}",
-        f"NEXT_OWNER={str(payload.get('next_owner', default_owner) or default_owner)}",
+        f"NEXT_OWNER={decision_engineer_handoff(payload).next_owner}",
     ]
     question = str(payload.get("operator_question", "") or "").strip()
     if question:

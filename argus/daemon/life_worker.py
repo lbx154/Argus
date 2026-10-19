@@ -203,6 +203,8 @@ class LifeWorker(LifeWorkerBootMixin, LifeWorkerRunMixin):
         self._running_stall_thread: threading.Thread | None = None
         self._supervisor_execution_active = threading.Event()
         self._supervisor_execution_threads: dict[str, threading.Thread] = {}
+        # Blue/green successor waiting for this process's daemon lock, if any.
+        self._handoff_successor_pid = 0
 
     # -- signal handling ------------------------------------------------
 

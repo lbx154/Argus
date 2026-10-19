@@ -452,6 +452,29 @@ class PlanningCycleVerdictMixin:
                 "diagnostic": str(diagnostic),
             })
 
+        if getattr(verdict, "waiting", False) and list(
+            getattr(verdict, "new_tasks", []) or []
+        ):
+            # A wait that comes with concrete work is not a wait. The waiting
+            # phase records the wait and returns before the build phase, so
+            # these tasks were silently dropped and the unchanged-input skip
+            # then armed on the "wait". Dropping the wait first lets the
+            # live-job normalization below fold status-only probes back into a
+            # real wait while keeping every task that is actual work.
+            self._emit({
+                "type": "life.planner.normalized",
+                "cycle": self._planning_cycles,
+                "diagnostic": (
+                    "waiting declared with tasks; tasks kept and the wait dropped"
+                ),
+            })
+            verdict = replace(
+                verdict,
+                waiting=False,
+                waiting_reason="",
+                waiting_contract=None,
+            )
+
         if revision_request is None:
             verdict = self._normalize_live_subagent_wait(verdict)
         verdict = self._defer_project_done_for_operator_external_blocker(verdict)

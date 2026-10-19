@@ -17,6 +17,8 @@ from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
 from typing import Any
 
+from ..core import process_stop
+from ..core.daemon_lock import is_pid_running
 from ._life_worker_boot import _RunForeverState
 from ._life_worker_identity import _effective_runner_backend, _worker_vault_preflight_routes
 from .state import (
@@ -79,11 +81,18 @@ _SUBAGENT_INFLIGHT_STATES = frozenset({
     "starting",
     "waiting_resource",
 })
+# Every state a subagent writer settles on. ``early_stopped`` (the parked
+# discussion's exit, tools/subagent/_discuss_run.py) and ``crashed`` (the
+# exit-sidecar reconciler, tools/subagent/_registry.py) were missing, so a
+# parent whose job ended that way failed as "unknown state" instead of being
+# requeued; ``early_stop`` stays for records an older release wrote.
 _SUBAGENT_TERMINAL_STATES = frozenset({
     "cancelled",
     "canceled",
+    "crashed",
     "done",
     "early_stop",
+    "early_stopped",
     "error",
     "failed",
     "stopped",
@@ -741,16 +750,56 @@ class LifeWorkerRunMixin:
         candidate = _consume_deployment_handoff(Path(self.config.life_dir))
         if candidate is None or candidate == source_root().resolve():
             return ""
-        if not _spawn_handoff_candidate(
+        successor = _spawn_handoff_candidate(
             self.config,
             reason="operator adopted a reviewed framework deployment",
             candidate_source_root=candidate,
             rollback_source_root=source_root(),
-        ):
+        )
+        if not successor:
             log.error("deployed runtime did not reach handoff standby")
             return ""
+        # Shutdown checks this pid is still waiting before releasing the lock.
+        self._handoff_successor_pid = successor if type(successor) is int else 0
+        # Drain for real. Helper missions run on ``_mission_stop`` and the
+        # lead's harness waits watch only the process-wide stop flag; with just
+        # ``_stop`` set they kept this process (and the daemon lock) busy long
+        # after the successor's lock wait had run out. Interrupted missions
+        # settle as ``paused_daemon_shutdown``, which the successor resumes.
+        # Not ``request_process_stop``: a handoff is not an operator clock-out.
+        process_stop.request_stop()
+        self._mission_stop.set()
         self._stop.set()
         return "daemon_handoff"
+
+    def _replace_lost_handoff_successor(self) -> None:
+        """Never leave the project without a daemon after a handoff.
+
+        A successor that exited before taking the lock (it crashed, or its
+        bounded wait ran out behind a slow drain) would otherwise leave nobody
+        once this process exits. Restart this runtime in its place; the
+        deployment it carried is dropped, as when it never reached standby.
+        """
+        successor = int(getattr(self, "_handoff_successor_pid", 0) or 0)
+        if successor <= 0 or self._operator_stop_requested:
+            return
+        if is_pid_running(successor):
+            return
+        from ..core.runtime_identity import source_root
+        from .life_worker import _spawn_handoff_candidate
+
+        log.error(
+            "daemon handoff: successor pid=%s exited before taking over; "
+            "restarting the current runtime instead",
+            successor,
+        )
+        self._handoff_successor_pid = 0
+        if not _spawn_handoff_candidate(
+            self.config,
+            reason="handoff successor exited before takeover; keep current runtime",
+            candidate_source_root=source_root(),
+        ):
+            log.error("daemon handoff: replacement runtime did not reach standby")
 
     def _deployment_handoff_after_mission(self, _outcome: object) -> str:
         return self._deployment_handoff_gate()
@@ -1094,6 +1143,7 @@ class LifeWorkerRunMixin:
                 rf_state.runtime_root,
                 self._adopted_continuous_generation,
             )
+        self._replace_lost_handoff_successor()
 
         log.info(
             "daemon: stopping cleanly (uptime=%.1fs missions=%d)",

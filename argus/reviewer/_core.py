@@ -703,7 +703,7 @@ def _review_grounding(config: Any, *, task_parts: tuple[str, ...]) -> Any:
     operator's choices on decision cards. Nothing the Reviewer was merely shown
     as text (OperatorContext included) is read as an acceptance.
     """
-    from ..core.autonomy import operator_available
+    from ..core.autonomy import operator_questions_can_be_asked
     from .tools import ReviewGrounding
 
     roots = tuple(dict.fromkeys(
@@ -719,7 +719,12 @@ def _review_grounding(config: Any, *, task_parts: tuple[str, ...]) -> Any:
     return ReviewGrounding(
         task_text="\n".join(str(part or "") for part in task_parts),
         roots=roots,
-        operator_available=operator_available(),
+        # The operator accepts a risk only while a question can reach them;
+        # otherwise the Manager does (``core.autonomy``). The mission's own
+        # answer wins: it knows the project's question policy.
+        operator_available=bool(mission.get(
+            "operator_questions_allowed", operator_questions_can_be_asked(),
+        )),
         baseline=(
             {str(path): str(digest) for path, digest in baseline.items()}
             if isinstance(baseline, dict) else None

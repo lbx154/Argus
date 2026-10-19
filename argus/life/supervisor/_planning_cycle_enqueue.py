@@ -19,7 +19,7 @@ from typing import Any
 
 from ...core.event_catalog import EventType
 from ...core.planner_verdict import PlannerVerdictStatus
-from ..memory import BacklogItem
+from ..memory import BacklogItem, planner_may_retire_park
 from ._constants import (
     PLAN_ERROR,
     PLAN_RETRY,
@@ -33,6 +33,7 @@ from ._constants import (
 from ._helpers import (
     _entry_task_signature,
     _normalize_blocker_fingerprint,
+    _normalize_task_dep_key,
     _planner_task_signature,
     _resolve_task_dep_ids,
     _sanitize_planner_task_text,
@@ -220,8 +221,41 @@ class PlanningCycleEnqueueMixin:
         active_node_keys: dict[str, BacklogItem] = {}
         terminal_blocker_fingerprints: dict[str, BacklogItem] = {}
         revision_active_ids = {item.id for item in state.revision_active_items}
+        # Retirement is applied after the commit. A row this same verdict
+        # retires is not a live duplicate of its replacement; counting it
+        # filtered the replacement and then retired the original, so both
+        # were lost (and in-batch dependents were wired to the retired row).
+        retiring_ids = {
+            str(item_id)
+            for item_id, _reason in (getattr(state.verdict, "retire_tasks", ()) or ())
+        }
+        # The retirement cascade skips the pending rows that depend on a
+        # retired one, so they are not live duplicates of their re-proposals
+        # either.
+        released_ids: set[str] = set()
+        frontier = {
+            existing.id
+            for existing in state.existing_items
+            if existing.id in retiring_ids
+            and (existing.status == "pending" or planner_may_retire_park(existing))
+        }
+        while frontier:
+            frontier = {
+                existing.id
+                for existing in state.existing_items
+                if existing.status == "pending"
+                and existing.id not in released_ids
+                and frontier.intersection(existing.deps)
+            }
+            released_ids |= frontier
         for existing in state.existing_items:
+            if existing.id in released_ids:
+                continue
             if existing.id in revision_active_ids:
+                continue
+            if existing.id in retiring_ids and (
+                existing.status == "pending" or planner_may_retire_park(existing)
+            ):
                 continue
             terminal_blocker = self._terminal_blocker_is_dedupable(existing)
             if (
@@ -1158,16 +1192,87 @@ class PlanningCycleEnqueueMixin:
                 external.append((key, "already settled"))
         return unknown, external
 
+    def _pc_hold_children_of_filtered_siblings(self, state: _PlanCycleState) -> None:
+        """Hold back tasks whose in-batch parent was filtered out of this batch.
+
+        A dependency key that names a sibling task of the same verdict is real,
+        required work. When a filter (policy, quarantine, certification guard,
+        authorization) removed that sibling, its key never reached ``key_map``
+        and pass 2 dropped it like a hallucinated key, so the child ran without
+        its parent. Hold the child (and, transitively, whatever needs it) with
+        a reason instead; the Planner sees it in the filtered-task feedback.
+        A duplicate sibling is not lost: its key maps to the existing item.
+        """
+        batch_keys = {
+            str(getattr(task, "key", "") or "").strip()
+            for task in (getattr(state.verdict, "new_tasks", None) or [])
+        } - {""}
+        lost = {key for key in batch_keys if key not in state.key_map}
+        if not lost:
+            return
+        persisted = {str(item.id) for item in state.existing_items} | {
+            str(item.node_key)
+            for item in state.existing_items
+            if str(item.node_key or "").strip()
+        }
+        lost_normalized = {_normalize_task_dep_key(key) for key in lost}
+        changed = True
+        while changed:
+            changed = False
+            for task, item in list(state.pending_items):
+                missing = [
+                    dep
+                    for dep in (getattr(task, "deps", []) or [])
+                    if dep not in state.key_map
+                    and dep not in persisted
+                    and (dep in lost or _normalize_task_dep_key(dep) in lost_normalized)
+                ]
+                if not missing:
+                    continue
+                state.pending_items.remove((task, item))
+                key = str(getattr(task, "key", "") or "").strip()
+                if key:
+                    state.key_map.pop(key, None)
+                    lost.add(key)
+                    lost_normalized.add(_normalize_task_dep_key(key))
+                changed = True
+                reason = (
+                    "depends on task(s) of this plan that were not enqueued: "
+                    + ", ".join(missing)
+                )
+                _record_filtered_task(
+                    state,
+                    title=task.title,
+                    category="filtered_dependency",
+                    reason=reason,
+                )
+                self._emit(
+                    {
+                        "type": EventType.LIFE_PLANNER_TASK_SKIPPED,
+                        "cycle": self._planning_cycles,
+                        "title": task.title,
+                        "objective": task.objective,
+                        "impact_score": task.impact_score,
+                        "impact_area": task.impact_area,
+                        "dependency_keys": list(missing),
+                        "skip_category": "filtered_dependency",
+                        "reason": reason,
+                    }
+                )
+
     def _pc_commit_pending_items(self, state: _PlanCycleState) -> Any | None:
         revision_request = state.revision_request
         expected_plan_id = state.expected_plan_id
         expected_plan_version = state.expected_plan_version
         manager_intent = state.manager_intent
 
+        self._pc_hold_children_of_filtered_siblings(state)
+
         # Pass 2: resolve dep keys to real item ids, then enqueue. A later
         # planning cycle may naturally depend on a prior node, so include stable
-        # node keys already persisted in the backlog. Unknown keys still reject
-        # the whole batch; executing a child without its required parent is unsafe.
+        # node keys already persisted in the backlog. A key that names nothing
+        # at all is dropped below; a key naming a filtered sibling of this
+        # batch was already handled above by holding its dependents back.
         known_key_map = {
             str(item.id): str(item.id) for item in state.existing_items
         }
@@ -1419,10 +1524,13 @@ class PlanningCycleEnqueueMixin:
             state.new_plan_id = state.expected_plan_id or f"plan-{BacklogItem.new_id()}"
         skipped: list[str] = []
         for item_id, reason in state.verdict.retire_tasks:
+            # A park nothing resumes automatically is retirable too: otherwise
+            # its dependents wait on it forever and only the operator can act.
             superseded = self.memory.backlog.supersede_items(
                 item_ids=(item_id,),
                 reason=reason,
                 superseded_by_plan_id=state.new_plan_id,
+                include_parked=True,
             )
             for retired_id in superseded:
                 self._emit({
@@ -1436,7 +1544,7 @@ class PlanningCycleEnqueueMixin:
                 skipped.append(item_id)
         if skipped:
             log.info(
-                "planner retirement skipped unknown or non-pending items: %s",
+                "planner retirement skipped unknown, active, or operator-owned items: %s",
                 ", ".join(skipped),
             )
 

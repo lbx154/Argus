@@ -121,6 +121,7 @@ _LIVE_OWNERSHIP_FIELDS = (
     "claim_seq",
     "finish_seq",
     "attempts",
+    "orphan_retries",
     "reason",
     "pending_question",
     "operator_options",
@@ -213,6 +214,7 @@ def _task_from_spec(spec: dict[str, Any]) -> dict[str, Any]:
         "finish_seq": 0,
         "finished_ts": 0.0,
         "attempts": 0,
+        "orphan_retries": 0,
         "priority": int(spec.get("priority", 100)),
     }
 
@@ -628,6 +630,8 @@ def retry_terminal(root: Path, task_id: str, *, reason: str = "") -> bool:
             finish_seq=0,
             finished_ts=0.0,
             attempts=int(task.get("attempts", 0) or 0) + 1,
+            # A deliberate retry is a fresh lease on the crash budget.
+            orphan_retries=0,
         )
         _write_task(root, task_id, task)
         return True
@@ -678,19 +682,32 @@ def resume(root: Path, task_id: str, *, answer: str) -> None:
         _store.atomic_write_json(_path(root, task_id), task)
 
 
+# Same bound the mission backlog puts on confirmed owner deaths
+# (``Backlog.reap_orphans``): a teammate that keeps dying before it settles its
+# task is a poison pill, not patience.
+ORPHAN_RETRY_BUDGET = 3
+
+
 def reassign_stale(
     root: Path,
     *,
     ttl: float,
     now: float,
     live_owners: set[str] | None = None,
+    orphan_budget: int | None = ORPHAN_RETRY_BUDGET,
 ) -> list[str]:
-    """Return stale claimed/running tasks to pending.
+    """Return stale claimed/running tasks to pending, or fail poison pills.
 
     ``live_owners`` lets the resident Curator distinguish a stale heartbeat
     from a still-running teammate process whose heartbeat thread is delayed. A
     task with a live owner must not be reset to pending, or the same logical task
     can be claimed again while the old teammate is still running.
+
+    Each reassignment here is an owner that exited without settling its task.
+    After ``orphan_budget`` of them the task is failed with that reason instead
+    of respawned forever; ``None`` (a clean stop that killed the owners itself)
+    requeues without spending the budget. Returns every task id touched, failed
+    or requeued.
     """
     live_owners = live_owners or set()
     reassigned: list[str] = []
@@ -699,9 +716,26 @@ def reassign_stale(
             if task["state"] in ("claimed", "running") and now - task["heartbeat_ts"] > ttl:
                 if task.get("owner") in live_owners:
                     continue
+                task["attempts"] = int(task.get("attempts", 0)) + 1
+                if orphan_budget is not None:
+                    orphans = int(task.get("orphan_retries", 0) or 0) + 1
+                    task["orphan_retries"] = orphans
+                    if orphans > orphan_budget:
+                        task.update(
+                            state="failed",
+                            reason=(
+                                f"teammate exited without settling this task {orphans} "
+                                f"times (orphan budget {orphan_budget}); failed instead "
+                                "of respawning it again"
+                            ),
+                            external_wait={},
+                            finished_ts=now,
+                        )
+                        _write_task(root, task["task_id"], task)
+                        reassigned.append(task["task_id"])
+                        continue
                 task["state"] = "pending"
                 task["owner"] = ""
-                task["attempts"] = int(task.get("attempts", 0)) + 1
                 _write_task(root, task["task_id"], task)
                 reassigned.append(task["task_id"])
     return reassigned

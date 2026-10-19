@@ -599,6 +599,9 @@ class _RuntimeHarness(MissionExecutionRuntimeMixin):
     def _emit(self, event) -> None:
         self.events.append(dict(event))
 
+    def _project_state_root(self) -> Path:
+        return Path(self.memory.root)
+
 
 def _cooldown_state(item: BacklogItem, stop_reason: str) -> _MissionRunState:
     state = _MissionRunState(item)

@@ -1414,6 +1414,29 @@ def _cmd_answer(args: argparse.Namespace) -> int:
     item = waiting[0]
     question = str(getattr(item, "pending_question", "") or "").strip()
     card = dict(getattr(item, "operator_decision", {}) or {})
+    if (
+        card.get("decision_kind") == "provider_configuration"
+        and answer.casefold() == "drop"
+    ):
+        # "drop" on the host's provider card ends that task; as free text it
+        # would become a continuation and start another run.
+        from ...webapi.manager_pending_question import (
+            manager_resolve_operator_decision,
+        )
+
+        result = manager_resolve_operator_decision(
+            bundle.project.fingerprint,
+            str(card.get("id") or ""),
+            "drop",
+            global_root=bundle.global_root,
+        )
+        if result is None or result.get("error"):
+            message = str((result or {}).get("error") or "decision is unavailable")
+            sys.stderr.write(f"argus: {message}\n")
+            return 1
+        sys.stdout.write(f"argus: dropped {item.id} ({item.title})\n")
+        _restart_worker_after_operator_wait_exit(bundle)
+        return 0
     if card.get("decision_kind") == "framework_deployment":
         option_id = answer.casefold()
         if option_id not in {"adopt", "decline"}:

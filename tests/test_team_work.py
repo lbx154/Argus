@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import json
+import time
 from pathlib import Path
 
 from argus.engineer.external_work import (
@@ -28,7 +29,9 @@ def _team(project: Path, team_id: str = TEAM, *states: str, owner: str = "runtim
     for index, state in enumerate(states, 1):
         changes = {"state": state}
         if state in {"claimed", "running"}:
-            changes.update(owner=f"w{index}", claim_ts=1_000.0, heartbeat_ts=1_500.0)
+            # A live teammate stamps its heartbeat every 30s; a board whose
+            # newest stamp is hours old is reported STALLED, not waited on.
+            changes.update(owner=f"w{index}", claim_ts=1_000.0, heartbeat_ts=time.time())
         if state == "failed":
             changes["reason"] = "provider refused"
         task_board._mutate(root, f"{team_id}-route-{index:02d}", **changes)

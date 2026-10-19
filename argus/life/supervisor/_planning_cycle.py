@@ -1158,6 +1158,17 @@ class PlanningCycleMixin(
                 log.exception("failed to checkpoint handled Planner input")
                 self._enter_pause_backoff()
                 return PLAN_ERROR
+        if state.supervision_wait_turn and state.planner_invoked:
+            # Fingerprint after the turn, so the Planner's own writes during it
+            # are not mistaken for new input and do not buy a second call.
+            from ._planning_cycle_intake import _UNREADABLE_WAIT_INPUT
+
+            self._supervision_wait_signature = (
+                self._planner_visible_input_signature(
+                    operator_context_revision=state.operator_context_revision,
+                )
+                or _UNREADABLE_WAIT_INPUT
+            )
         self._arm_unchanged_planner_skip(state, result)
         self._record_planner_turn_outcome(
             state,

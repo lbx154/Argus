@@ -23,15 +23,9 @@ from .round_stop_signals import _runner_result_has_successful_work_signal
 if TYPE_CHECKING:
     from .runner import SupervisedConfig
 
-# Consecutive NEXT_OWNER=engineer turns allowed before the Reviewer judges.
+# Consecutive unjudged Engineer turns (NEXT_OWNER=engineer, or an unfinished
+# self-reviewed milestone) allowed before the Reviewer judges.
 _ENGINEER_SELF_HANDOFF_LIMIT = 2
-
-
-def _control_line(line: str) -> str:
-    text = str(line or "").strip()
-    if len(text) >= 2 and text.startswith("`") and text.endswith("`"):
-        text = text[1:-1].strip()
-    return text
 
 
 def _round_handoff(outcome: EngineerTurnOutcome) -> EngineerHandoff:
@@ -46,26 +40,29 @@ def _round_handoff(outcome: EngineerTurnOutcome) -> EngineerHandoff:
     return parse_engineer_handoff(outcome.engineer_message)
 
 
-def _milestone_is_done(outcome: EngineerTurnOutcome) -> bool:
-    if isinstance(outcome.decision, dict):
-        return str(outcome.decision.get("status") or "").strip().lower() == "done"
-    from ..core.role_reply import decision_footer_text
+def _milestone_status(outcome: EngineerTurnOutcome) -> str:
+    """The milestone status the Engineer stated: its decision, else its footer.
 
-    return any(
-        _control_line(line).casefold() == "milestone_status=done"
-        for line in decision_footer_text(outcome.engineer_message).splitlines()
+    The footer is read with the reader every other role decision uses, so
+    ``MILESTONE_STATUS: done``, a bullet, bold or backticks all say ``done``;
+    an exact-line match read them as an unfinished milestone and continued.
+    """
+    if isinstance(outcome.decision, dict):
+        return str(outcome.decision.get("status") or "").strip().lower()
+    from ..core.role_reply import decision_footer_text, read_key_values
+
+    found = read_key_values(
+        decision_footer_text(outcome.engineer_message), ("MILESTONE_STATUS",)
     )
+    return str(found.get("MILESTONE_STATUS") or "").strip("`*_. ").casefold()
+
+
+def _milestone_is_done(outcome: EngineerTurnOutcome) -> bool:
+    return _milestone_status(outcome) == "done"
 
 
 def _milestone_is_blocked(outcome: EngineerTurnOutcome) -> bool:
-    if isinstance(outcome.decision, dict):
-        return str(outcome.decision.get("status") or "").strip().lower() == "blocked"
-    from ..core.role_reply import decision_footer_text
-
-    return any(
-        _control_line(line).casefold() == "milestone_status=blocked"
-        for line in decision_footer_text(outcome.engineer_message).splitlines()
-    )
+    return _milestone_status(outcome) == "blocked"
 
 
 def _footer_block(footer: str, name: str, *, limit: int = 2400) -> str:
@@ -224,13 +221,11 @@ class RoundSelfReviewMixin:
             )
         if handoff.next_owner == "engineer" and not state.pending_external_wait_review:
             # A self-handoff skips the Reviewer and, with it, every round guard
-            # (those are evaluated at settlement). Where independent review is
-            # required, two in a row continue and the third goes to the
-            # Reviewer, so the Engineer cannot run unjudged.
-            if (
-                not supervised_config.require_independent_review
-                or state.engineer_self_handoffs < _ENGINEER_SELF_HANDOFF_LIMIT
-            ):
+            # (those are evaluated at settlement). Two in a row continue and the
+            # third goes to the Reviewer, so the Engineer cannot run unjudged --
+            # also where independent review is not required, which otherwise
+            # had no exit but a ``done`` the Engineer might never write.
+            if state.engineer_self_handoffs < _ENGINEER_SELF_HANDOFF_LIMIT:
                 state.engineer_self_handoffs += 1
                 return control_continue_loop()
             return control_proceed()
@@ -255,7 +250,12 @@ class RoundSelfReviewMixin:
                     continue_adaptor=continue_adaptor,
                     on_event=on_event,
                 )
-            return control_continue_loop()
+            # An unfinished self-reviewed milestone is the same unjudged
+            # continuation as a self-handoff and shares its limit; past it the
+            # Reviewer judges the turn and settlement's round guards apply.
+            if state.engineer_self_handoffs < _ENGINEER_SELF_HANDOFF_LIMIT:
+                state.engineer_self_handoffs += 1
+                return control_continue_loop()
         return control_proceed()
 
 

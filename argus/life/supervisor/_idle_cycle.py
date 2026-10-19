@@ -23,6 +23,17 @@ if TYPE_CHECKING:
     from ._config import LifeSupervisorConfig
 
 log = logging.getLogger(__name__)
+# A canary in one of these states will still run (or resume by itself), so a
+# new half-open window waits for it; any other state ended the attempt.
+_CANARY_IN_FLIGHT_STATUSES = frozenset({
+    "pending",
+    "running",
+    "paused_external_work",
+    "paused_provider_cooldown",
+    "paused_daemon_shutdown",
+    "paused_budget",
+    "paused_cost",
+})
 _DAEMON_IDLE_EXIT_DEFAULT_MINUTES = 0.0
 def _idle_exit_seconds() -> float:
     """Idle wall-clock (s) before a continuous daemon auto-exits; 0 = never."""
@@ -59,16 +70,26 @@ class IdleCycleMixin:
             for tag in (getattr(item, "tags", None) or [])
             if str(tag).strip()
         }
-        if item_tags & {"framework_maintenance", "runtime_failure_canary"}:
+        if "framework_maintenance" in item_tags:
             return None
         try:
             from ..runtime_failure_circuit import active_runtime_failure_circuit
 
-            circuit = active_runtime_failure_circuit(self.memory.root)
+            circuit_root = self.memory.root
+            circuit = active_runtime_failure_circuit(circuit_root)
         except Exception:  # noqa: BLE001 - a corrupt advisory file must not crash host
             log.exception("failed to inspect runtime failure circuit")
             return None
         if circuit is None:
+            return None
+        # A tagged canary passes unless this circuit already admitted a
+        # different one; a tag left over from an earlier window is not a pass.
+        admitted = str(circuit.get("canary_item_id") or "")
+        if "runtime_failure_canary" in item_tags and admitted in {
+            "", str(getattr(item, "id", "") or ""),
+        }:
+            return None
+        if self._admit_runtime_failure_half_open(circuit_root, circuit, item=item):
             return None
         fingerprint = str(circuit.get("fingerprint") or "")
         reason = (
@@ -96,6 +117,65 @@ class IdleCycleMixin:
             "fingerprint": fingerprint,
             "recoverable": True,
         }
+
+    def _admit_runtime_failure_half_open(
+        self, circuit_root: Path, circuit: dict[str, Any], *, item: Any | None,
+    ) -> bool:
+        """Let one canary through an open circuit once its cooldown has passed.
+
+        With an item, that item becomes the window's canary mission (tagged so
+        its reviewed pass clears the circuit). Without one, the Planner gets
+        the window's single turn, so an empty backlog can still produce the
+        work a canary needs. Only one canary is in flight at a time.
+        """
+        from ..runtime_failure_circuit import (
+            CANARY_TAG,
+            claim_runtime_failure_half_open,
+        )
+
+        previous = str(circuit.get("canary_item_id") or "")
+        try:
+            if previous:
+                row = next(
+                    (
+                        row
+                        for row in reversed(self.memory.backlog.history())
+                        if row.id == previous
+                    ),
+                    None,
+                )
+                # The claim is recorded before the item is tagged. An untagged
+                # row means tagging never happened, so it is not in flight.
+                if (
+                    row is not None
+                    and row.status in _CANARY_IN_FLIGHT_STATUSES
+                    and CANARY_TAG in (row.tags or [])
+                ):
+                    return False
+            item_id = str(getattr(item, "id", "") or "")
+            if not claim_runtime_failure_half_open(
+                circuit_root,
+                slot="mission" if item is not None else "planner",
+                item_id=item_id,
+                expected_canary_item_id=previous,
+            ):
+                return False
+            if item is not None:
+                tags = list(dict.fromkeys([*(item.tags or []), CANARY_TAG]))
+                self.memory.backlog.update(item_id, tags=tags)
+                item.tags = tags
+        except Exception:  # noqa: BLE001 - a failed admission leaves the circuit open
+            log.exception("runtime failure circuit half-open admission failed")
+            return False
+        # The circuit file records the admission (window, canary id); the
+        # status line is the operator-visible trace.
+        self._emit_status(
+            f"runtime failure circuit half-open: mission {item_id} runs as the "
+            f"canary ({circuit.get('fingerprint') or ''})"
+            if item is not None
+            else "runtime failure circuit half-open: one Planner turn to queue a canary"
+        )
+        return True
 
     def _execution_host_failure_block(
         self, *, item: Any | None = None,

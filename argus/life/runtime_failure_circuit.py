@@ -23,6 +23,22 @@ from ..core.secret_guard import known_secret_values, redact_secrets_text
 from .context_packet import CHECKPOINT_CONTRACT_VERSION
 
 CIRCUIT_FILENAME = "runtime-failure-circuit.json"
+# Half-open recovery. Once an open circuit has cooled down a window opens that
+# admits one canary mission (and, while nothing is queued, one Planner turn to
+# produce work for it). A reviewed canary pass clears the circuit; any other
+# ending leaves it open and the next window waits a doubled cooldown. Nothing
+# used to produce a canary, so only a changed runtime could close a circuit.
+CANARY_COOLDOWN_BASE_SECONDS = 1800.0
+CANARY_COOLDOWN_CAP_SECONDS = 6 * 3600.0
+CANARY_TAG = "runtime_failure_canary"
+_CANARY_FIELDS = (
+    "canary_window",
+    "canary_due_at",
+    "canary_item_id",
+    "canary_admitted_at",
+    "canary_mission_window",
+    "canary_planner_window",
+)
 _CIRCUIT_LOCK_FILENAME = "runtime-failure-circuit.lock"
 _SCHEMA_VERSION = 1
 _HANDOFF_CHECKPOINT_RE = re.compile(
@@ -245,8 +261,74 @@ def record_runtime_failure_circuit(
             "cleared_reason": "",
             "newly_opened": not same,
         }
+        if previous.get("active"):
+            # A failure while the circuit is already open (a canary that
+            # raised, or a new fingerprint) keeps the recovery schedule, so
+            # the next half-open window still waits its doubled cooldown.
+            state.update({
+                key: previous[key] for key in _CANARY_FIELDS if key in previous
+            })
         _atomic_json(path, state)
     return state
+
+
+def runtime_failure_canary_cooldown_seconds(window: int) -> float:
+    """Cooldown before half-open window ``window`` (1-based) opens."""
+    return min(
+        CANARY_COOLDOWN_CAP_SECONDS,
+        CANARY_COOLDOWN_BASE_SECONDS * 2 ** max(0, int(window) - 1),
+    )
+
+
+def claim_runtime_failure_half_open(
+    root: Path | str,
+    *,
+    slot: str,
+    item_id: str = "",
+    expected_canary_item_id: str = "",
+    now: float | None = None,
+) -> bool:
+    """Take the current half-open window's single ``mission`` or ``planner`` slot.
+
+    The caller has already established that the previous canary (named by
+    ``expected_canary_item_id``) is no longer in flight; a different value on
+    disk means another worker raced ahead, and nothing is granted. Mechanical
+    only: time, a window counter, and one slot of each kind per window.
+    """
+    if slot not in {"mission", "planner"}:
+        raise ValueError(f"unknown half-open slot: {slot!r}")
+    state_root = Path(root)
+    path = state_root / CIRCUIT_FILENAME
+    now = time.time() if now is None else float(now)
+    with _locked(state_root):
+        state = _read_unlocked(path)
+        if not state.get("active"):
+            return False
+        if str(state.get("canary_item_id") or "") != str(expected_canary_item_id or ""):
+            return False
+        window = int(state.get("canary_window") or 0)
+        due = float(state.get("canary_due_at") or 0.0) or (
+            float(state.get("first_observed_at") or now)
+            + runtime_failure_canary_cooldown_seconds(window + 1)
+        )
+        opened = now >= due
+        if opened:
+            window += 1
+            state["canary_window"] = window
+            state["canary_due_at"] = now + runtime_failure_canary_cooldown_seconds(
+                window + 1
+            )
+        slot_key = f"canary_{slot}_window"
+        if window <= 0 or int(state.get(slot_key) or 0) >= window:
+            if opened:
+                _atomic_json(path, state)
+            return False
+        state[slot_key] = window
+        if slot == "mission":
+            state["canary_item_id"] = str(item_id)
+            state["canary_admitted_at"] = now
+        _atomic_json(path, state)
+    return True
 
 
 def active_runtime_failure_circuit(root: Path | str) -> dict[str, Any] | None:
@@ -277,8 +359,12 @@ def clear_runtime_failure_circuit(
     *,
     reason: str,
     fingerprint: str = "",
+    canary_item_id: str = "",
 ) -> bool:
-    """Close a circuit after a reviewed canary or another explicit fact change."""
+    """Close a circuit after a reviewed canary or another explicit fact change.
+
+    With ``canary_item_id``, only the canary this circuit admitted closes it.
+    """
     state_root = Path(root)
     path = state_root / CIRCUIT_FILENAME
     with _locked(state_root):
@@ -286,6 +372,9 @@ def clear_runtime_failure_circuit(
         if not state.get("active"):
             return False
         if fingerprint and str(state.get("fingerprint") or "") != fingerprint:
+            return False
+        admitted = str(state.get("canary_item_id") or "")
+        if canary_item_id and admitted and admitted != str(canary_item_id):
             return False
         state.update(
             active=False,
@@ -298,11 +387,14 @@ def clear_runtime_failure_circuit(
 
 
 __all__ = [
+    "CANARY_TAG",
     "CIRCUIT_FILENAME",
     "active_runtime_failure_circuit",
+    "claim_runtime_failure_half_open",
     "clear_runtime_failure_circuit",
     "normalize_runtime_failure_message",
     "record_runtime_failure_circuit",
+    "runtime_failure_canary_cooldown_seconds",
     "runtime_failure_fingerprint",
     "runtime_failure_identity",
 ]

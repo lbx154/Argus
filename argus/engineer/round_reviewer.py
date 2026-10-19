@@ -247,9 +247,12 @@ def mission_grounding(
     the Planner recorded, which are sources while they still match it.
     ``accepted_risks``: the Manager's acceptances in force for this item;
     ``operator_decisions``: the operator's resolved decision cards for it.
+    ``operator_questions_allowed``: whether a question reaches the operator in
+    this mission; when it cannot, accepting a risk is the Manager's.
     """
     from ..core.residual_risk import active_residual_risks
     from .obstacle_stall import mission_contract, stall_root
+    from .round_settlement import _operator_questions_allowed
 
     contract = mission_contract(supervised_config)
     refs = tuple(
@@ -265,6 +268,9 @@ def mission_grounding(
     return {
         "baseline": baseline, "packet_refs": refs, "accepted_risks": tuple(accepted),
         "operator_decisions": tuple(operator_risk_decisions(root, item_id)),
+        # The same rule settlement applies to this Reviewer's questions, so
+        # the acceptance it is told to seek is one that can actually be given.
+        "operator_questions_allowed": _operator_questions_allowed(supervised_config),
     }
 
 

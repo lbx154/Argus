@@ -36,6 +36,9 @@ if TYPE_CHECKING:
     from ._config import _MemoryView
 
 _TERMINAL_TASK_STATUSES = {"done", "failed", "aborted", "skipped", "superseded"}
+# Stands in for a Planner input digest that could not be computed, so a
+# Manager WAIT still holds after its granted turn instead of re-granting one.
+_UNREADABLE_WAIT_INPUT = "planner-input:unreadable"
 
 
 class PlanningCycleIntakeMixin:
@@ -274,9 +277,20 @@ class PlanningCycleIntakeMixin:
             from ...manager.supervision import waiting_for_evidence
 
             if waiting_for_evidence(operator_context_state_root(self.memory)):
-                self._enter_idle_backoff()
-                self._emit_status("Waiting for the requested operator facts; unchanged work is not being reviewed again")
-                return PLAN_AWAITING
+                # The WAIT parks the tasks whose answers it awaits: they are
+                # unclaimable and their dependents unready on their own. It
+                # must not freeze the project, so the Planner gets one turn per
+                # state of its inputs to plan work that does not need the
+                # answer; only an unchanged state is held without a call.
+                current = self._planner_visible_input_signature(
+                    operator_context_revision=state.operator_context_revision,
+                )
+                held = str(getattr(self, "_supervision_wait_signature", "") or "")
+                if held and (current or _UNREADABLE_WAIT_INPUT) == held:
+                    self._enter_idle_backoff()
+                    self._emit_status("Waiting for the requested operator facts; unchanged work is not being reviewed again")
+                    return PLAN_AWAITING
+                state.supervision_wait_turn = True
         if operator_messages:
             self._clear_manager_planner_feedback()
             self._reset_idle_backoff()

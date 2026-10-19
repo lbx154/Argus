@@ -211,6 +211,105 @@ def _decision_stale(reason: str) -> dict[str, Any]:
     }
 
 
+_DROPPED_REPLY = "Dropped this task. The rest of the campaign continues."
+
+
+def _is_host_drop_option(item: Any, card: dict[str, Any], option_id: str) -> bool:
+    """Whether ``option_id`` is the host's "drop this task" choice on ``card``.
+
+    The provider-configuration card offers resume/drop. "Drop" must end that
+    one item; delivering its text as an authoritative decision used to enqueue
+    a continuation and start another run under the broken configuration. An
+    agent-authored option that happens to be called "drop" keeps its ordinary
+    meaning, so only the host's card qualifies.
+    """
+    if option_id != "drop":
+        return False
+    if card.get("decision_kind") == "provider_configuration":
+        return True
+    # Cards parked before ``decision_kind`` was recorded: only the host's
+    # provider card offers exactly resume/drop on a provider-cooldown item.
+    option_ids = [
+        str(row.get("id") or "")
+        for row in card.get("options", ())
+        if isinstance(row, dict)
+    ]
+    return option_ids == ["resume", "drop"] and bool(
+        str(getattr(item, "provider_cooldown_signature", "") or "").strip()
+    )
+
+
+def _drop_decision_item(
+    mem: Any,
+    item: Any,
+    *,
+    decision_id: str,
+    note: str,
+) -> dict[str, Any]:
+    """Resolve a host "drop" choice by ending only its item; no continuation."""
+    from ..core.event_catalog import EventType
+    from ..core.operator_decision import selected_decision_text
+    from ..core.transcript import append_turn
+    from ..life.event_log import JsonlEventSink
+
+    operator_text = selected_decision_text(item.operator_decision, "drop", note)
+    revision = int(item.operator_decision.get("revision", 1) or 1)
+    dropped = mem.backlog.stop_for_operator_decision(
+        item.id,
+        note=note,
+        decision_id=decision_id,
+        selected_option="drop",
+        manager_decision="drop task",
+        reply=_DROPPED_REPLY,
+        last_error="operator dropped this task",
+    )
+    if dropped is None:
+        # Another answer resolved this card first; report that, never overwrite it.
+        current = next(
+            (row for row in mem.backlog.history() if row.id == item.id), item,
+        )
+        replay = _resolved_decision_replay(
+            mem, current, decision_id=decision_id, option_id="drop", note=note,
+        )
+        return replay or _decision_stale("decision changed while applying")
+    card = dropped.operator_decision
+    # Dropping one task leaves the campaign running, like any other answer: a
+    # campaign that ended waiting for it is re-armed and its worker started.
+    resumed, projection_error = _reconcile_campaign_after_decision(
+        mem, stopped=False,
+    )
+    turn_id = f"decision-{decision_id}"
+    for role, text in (("operator", operator_text), ("argus", _DROPPED_REPLY)):
+        append_turn(mem.project_root, role, text, message_id=f"{turn_id}-{role}")
+        _emit_ui_turn(mem.project_root, role, text, message_id=f"{turn_id}-{role}")
+    JsonlEventSink(None, life_dir=Path(mem.project_root)).append({
+        "type": EventType.LIFE_OPERATOR_QUESTION_ANSWERED,
+        "item_id": item.id,
+        "continuation_item_id": "",
+        "question": str(item.pending_question or ""),
+        "manager_decision": "drop task",
+        "decision_id": decision_id,
+        "decision_revision": revision,
+        "dropped": True,
+    })
+    result = {
+        "answered_item_id": item.id,
+        "decision_id": decision_id,
+        "resolved": True,
+        "dropped": True,
+        "application_status": "accepted",
+        "resolution_id": str(card.get("resolution_id") or ""),
+        # The dropped item does not resume; the rest of the campaign does.
+        "resume_requested": True,
+        "reply": _DROPPED_REPLY,
+    }
+    if resumed:
+        result["continuous"] = True
+    if projection_error:
+        result["projection_error"] = projection_error
+    return result
+
+
 def _resolved_decision_replay(
     mem: Any,
     item: Any,
@@ -223,7 +322,10 @@ def _resolved_decision_replay(
     card = item.operator_decision
     if str(card.get("id") or "") != decision_id:
         if decision_id in card.get("superseded_decision_ids", ()):
-            return _decision_stale("decision was replaced by a newer question")
+            return _decision_stale(
+                "the question changed after this answer was written; read the "
+                "current question and answer it again"
+            )
         return None
     if str(card.get("status") or "") != "resolved":
         return None
@@ -234,6 +336,17 @@ def _resolved_decision_replay(
     )
     if not same_request:
         return _decision_stale("another choice was already applied")
+    if _is_host_drop_option(item, card, option_id):
+        return {
+            "answered_item_id": item.id,
+            "decision_id": decision_id,
+            "resolved": True,
+            "dropped": True,
+            "application_status": "already_applied",
+            "resolution_id": str(card.get("resolution_id") or ""),
+            "resume_requested": False,
+            "reply": str(card.get("reply") or _DROPPED_REPLY),
+        }
     if card.get("decision_kind") == "framework_deployment":
         return {
             "answered_item_id": item.id,
@@ -847,6 +960,8 @@ def manager_resolve_operator_decision(
             and option_id not in {"adopt", "decline"}
         ):
             return {"error": "choose Adopt reviewed change or Decline deployment"}
+        if _is_host_drop_option(item, card, option_id):
+            return _drop_decision_item(mem, item, decision_id=decision_id, note=note)
         if option_id == "stop":
             try:
                 operator_text = selected_decision_text(card, option_id, note)

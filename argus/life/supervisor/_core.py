@@ -680,27 +680,61 @@ class LifeSupervisor(
             try:
                 from ...core.operator_decision import build_operator_decision
 
-                item = next(
-                    row for row in self.memory.backlog.active() if row.id == item_id
-                )
                 question = (
                     "Please decide whether this operator-owned constraint may change: "
                     + str(challenge.get("challenge") or outcome.get("review_reason") or "")
                 ).strip()
-                card = build_operator_decision(
-                    item_id=item.id,
-                    title=item.title,
-                    reason=str(challenge.get("manager_reason") or ""),
-                    question=question,
-                    project_id=self.memory.root.name,
-                    previous_decision=item.operator_decision,
+                project_id = self.memory.root.name
+                item = next(
+                    (row for row in self.memory.backlog.active() if row.id == item_id),
+                    None,
                 )
-                self.memory.backlog.update(
-                    item.id,
-                    status="paused_operator",
-                    pending_question=question,
-                    operator_decision=card,
-                )
+                if item is not None and item.status not in {
+                    "done", "failed", "aborted", "skipped", "superseded",
+                }:
+                    card = build_operator_decision(
+                        item_id=item.id,
+                        title=item.title,
+                        reason=str(challenge.get("manager_reason") or ""),
+                        question=question,
+                        project_id=project_id,
+                        previous_decision=item.operator_decision,
+                    )
+                    self.memory.backlog.update(
+                        item.id,
+                        status="paused_operator",
+                        pending_question=question,
+                        operator_decision=card,
+                    )
+                else:
+                    # A replan that made forward progress (or a stage-reconciled
+                    # one) has already failed and archived its row, so the
+                    # lookup above used to raise and the question was lost while
+                    # the run still stopped for it. Park it on a holder row the
+                    # operator answer path resolves.
+                    source = next(
+                        row
+                        for row in reversed(self.memory.backlog.history())
+                        if row.id == item_id
+                    )
+                    holder_id = BacklogItem.new_id()
+                    card = build_operator_decision(
+                        item_id=holder_id,
+                        title=source.title,
+                        reason=str(challenge.get("manager_reason") or ""),
+                        question=question,
+                        project_id=project_id,
+                    )
+                    item = self.memory.backlog.park_terminal_operator_question(
+                        item_id,
+                        holder_id=holder_id,
+                        question=question,
+                        operator_decision=card,
+                    )
+                    if item is None:
+                        raise LookupError(
+                            f"no ended backlog item {item_id} to hold the question"
+                        )
                 self._emit({
                     "type": EventType.LIFE_OPERATOR_QUESTION_PENDING,
                     "item_id": item.id,

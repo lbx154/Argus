@@ -568,16 +568,21 @@ def _handle_pending_question_turn(
 ) -> dict[str, Any] | None:
     """Resolve the operator turn against outstanding pending questions.
 
-    Returns a terminal result dict when the turn was consumed by a pending
-    question (exactly one open question, or more than one), or ``None`` when
-    there is no pending question and ``manager_message`` should continue its
-    normal classify/triage/dispatch flow.
+    Returns a terminal result dict only when the Manager read the turn as an
+    answer to the one open question. Otherwise it returns ``None`` and
+    ``manager_message`` continues its normal classify/triage/dispatch flow.
+
+    A question parks its own task, never the operator's control channel. With
+    several open questions, or when the Manager could not interpret the turn
+    at all, consuming it here used to swallow PAUSE, ABORT, configuration
+    changes and new work until every question was answered. Those turns now
+    reach their handlers; nothing is promoted to an answer without a positive
+    classification, and the open questions stay exactly as they were.
     """
+    from ..core.operator_messages import uses_cjk
     from ..life.memory import BacklogItem
 
     if len(pending_questions) == 1:
-        from ..core.operator_messages import uses_cjk
-
         emitter.phase(
             "正在核对你的回答与已暂停的任务…"
             if uses_cjk(body)
@@ -594,6 +599,17 @@ def _handle_pending_question_turn(
             # Preserve the first observed signal even for a consumptive
             # callback; never fall through to classification or emit a reply.
             return _cancelled_result()
+        if result.get("error") and result.get("answer_preserved") is False:
+            # Interpretation failed before any classification: the turn is
+            # not an answer and the question is unchanged. Treat it like any
+            # other turn rather than hold the control channel on the failure.
+            emitter.phase(
+                "未能判断这是否是对已暂停任务的回答；问题仍保留，本条消息按普通消息处理。"
+                if uses_cjk(body)
+                else "Could not tell whether this answers the paused task; the "
+                "question stays open and this message is handled normally."
+            )
+            return None
         if result.get("answer_intent") is not False:
             reply = str(
                 result.get("reply")
@@ -603,11 +619,15 @@ def _handle_pending_question_turn(
             return emitter.respond(reply, {"kind": "pending_question", **result})
         return None
     if len(pending_questions) > 1:
-        reply = (
-            "More than one task needs your input. Open the Needs you prompt "
-            "for the specific task you want to answer."
+        # No single question this turn could answer. Each one is answered
+        # from its own Needs you prompt; this turn is an ordinary message.
+        emitter.phase(
+            f"{len(pending_questions)} 个任务在等你的回答，请在各自的“需要你”提示中回答；"
+            "本条消息按普通消息处理。"
+            if uses_cjk(body)
+            else f"{len(pending_questions)} tasks are waiting for your answer; "
+            "answer each from its Needs you prompt. This message is handled normally."
         )
-        return emitter.respond(reply, {"kind": "pending_question_choice"})
     return None
 
 

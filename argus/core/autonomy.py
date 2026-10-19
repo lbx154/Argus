@@ -157,6 +157,25 @@ def operator_available(*, env: Mapping[str, str] | None = None) -> bool:
     return str(raw or "").strip().lower() not in _FALSE_VALUES
 
 
+def operator_questions_can_be_asked(state_root: Path | str | None = None) -> bool:
+    """Whether an operator question raised now reaches someone who answers.
+
+    With a project state root, the Manager's effective question policy
+    decides; it already forbids questions in a run with no operator. Without
+    one, only the run's declared operator availability does.
+
+    A decision this run would hand the operator (accepting a check that
+    cannot happen here, say) falls to the Manager whenever this is false, so
+    it always has a decider: a ``forbid`` policy in a run whose operator is
+    nominally available must not leave it with none.
+    """
+    if state_root is None:
+        return operator_available()
+    from ..manager.directive import effective_operator_question_policy
+
+    return effective_operator_question_policy(state_root) != "forbid"
+
+
 def bounded_operator_wait_exit_seconds(
     *, env: Mapping[str, str] | None = None
 ) -> float:
@@ -445,6 +464,7 @@ __all__ = [
     "normalize_autonomy_mode",
     "normalize_operator_need",
     "operator_available",
+    "operator_questions_can_be_asked",
     "operator_wait_marker_present",
     "read_autonomous_assumptions",
     "read_operator_blocks",

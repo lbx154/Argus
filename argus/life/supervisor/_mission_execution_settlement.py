@@ -889,6 +889,17 @@ class MissionExecutionSettlementMixin:
                     stop_kind=state.stop_kind,
                     resumable=False,
                 )
+        # Publishing a framework change is outward-facing, so only the operator
+        # may adopt it. A run whose operator cannot be asked (none declared, or
+        # questions forbidden) has nobody to answer; the card would park the
+        # item forever, so it ends unpublished instead.
+        deployment_unanswerable = False
+        if maintenance_reviewed:
+            from ...core.autonomy import operator_questions_can_be_asked
+
+            deployment_unanswerable = not operator_questions_can_be_asked(
+                self._project_state_root()
+            )
 
         def capture_state() -> None:
             state.success = success
@@ -955,6 +966,34 @@ class MissionExecutionSettlementMixin:
             # ``requeue_for_iteration`` already performed the only backlog
             # transition allowed here: running -> pending on the same item.
             commit(outcome=outcome_dimensions)
+        elif maintenance_reviewed and deployment_unanswerable:
+            from ...core.autonomy import record_operator_block
+
+            success = False
+            status = "failed"
+            resumable = False
+            err = (
+                f"The Reviewer accepted the change for “{item.title}”, but publishing "
+                "it needs the operator's approval and no operator is available in "
+                "this run, so it was not published and the runtime is unchanged. "
+                f"Reviewed commit: {maintenance_candidate}."
+            )
+            state.stop_reason = err
+            outcome_dimensions = mission_outcome_dimensions(
+                status=status,
+                success=False,
+                review_status=final_review_status,
+                stage_transition=stage_transition,
+                stop_kind=state.stop_kind,
+                resumable=False,
+            )
+            record_operator_block(
+                self._project_state_root(),
+                item_id=item.id,
+                reason=err,
+                operator_need="irreversible_or_external",
+            )
+            fail(error=err, outcome=outcome_dimensions)
         elif maintenance_reviewed:
             from ...core.operator_decision import build_operator_decision
 
@@ -1030,6 +1069,7 @@ class MissionExecutionSettlementMixin:
                     circuit_cleared = clear_runtime_failure_circuit(
                         self.memory.root,
                         reason=f"reviewed runtime canary passed in mission {item.id}",
+                        canary_item_id=item.id,
                     )
                     self._emit({
                         "type": EventType.LIFE_RUNTIME_FAILURE_CANARY_PASSED,
