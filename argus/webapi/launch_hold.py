@@ -23,7 +23,11 @@ import time
 from pathlib import Path
 from typing import Any
 
-from ..core.launch_settings import launch_note, launch_target_level_stated, normalize_launch_settings
+from ..core.launch_settings import (
+    launch_note,
+    launch_target_level_stated,
+    normalize_launch_settings,
+)
 
 LAUNCH_HOLD_FILENAME = "launch_hold.json"
 _ACTIVE_STATUSES = {"pending", "running", "in_progress", "claimed", "paused_operator"}

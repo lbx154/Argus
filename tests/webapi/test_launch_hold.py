@@ -5,7 +5,11 @@ import json
 import pytest
 from fastapi.testclient import TestClient
 
-from argus.core.launch_settings import launch_note, launch_target_level_stated, normalize_launch_settings
+from argus.core.launch_settings import (
+    launch_note,
+    launch_target_level_stated,
+    normalize_launch_settings,
+)
 from argus.core.project_contract import AUTHORITY_MANAGER, AUTHORITY_OPERATOR, load_contract
 from argus.core.session import SessionMeta, write_session_meta
 from argus.daemon import life_worker as daemon_worker

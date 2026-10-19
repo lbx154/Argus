@@ -356,12 +356,12 @@ def _manager_message(
     boilerplate (streaming/journaling a reply) is now shared via
     ``_TurnEmitter``.
     """
+    from ..core.launch_settings import launch_note, normalize_launch_settings
     from ..core.operator_messages import uses_cjk
     from ..core.transcript import append_turn
     from ..life.memory import MemoryBundle
     from ..manager.front_door import mission_is_running
     from .attachments import attachment_context_refs, compose_message_body
-    from ..core.launch_settings import launch_note, normalize_launch_settings
 
     resolved_attachments = list(attachments or [])
     # Structured answers are validated under the project lock below. Never
