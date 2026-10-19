@@ -387,6 +387,15 @@ layers with dependencies pointing only downward, so a newcomer can find things f
   hours), counting completion rate, recoveries, and human interventions.
 - Done when: the completion-rate target of standard 1 is met.
 
+#### CO-20 Delete the sha1 migration of project state directories
+`0.2` · `S` · Depends on: none · good first issue
+- Today: project state directories are named by percent-encoding the project path (or remote URL) instead of
+  `sha1(path)[:12]`. `migrate_legacy_project_state` in `core/project.py` renames an old directory atomically when one is
+  looked up; it is the last use of a hash in the repository.
+- Do: once a release carrying the migration has been deployed for one release cycle, delete the function, its call in
+  `core/paths.py` and its tests.
+- Done when: `hashlib` no longer appears under `argus/`.
+
 ---
 
 ### Theme CI: Continuous integration and cross-platform — it runs on your computer too

@@ -1,11 +1,14 @@
 """Tests for ``core.project`` — fingerprinting a working directory."""
 from __future__ import annotations
 
+import logging
 import subprocess
 from pathlib import Path
+from urllib.parse import unquote
 
 import pytest
 
+from argus.core import paths as core_paths
 from argus.core import project
 
 
@@ -60,7 +63,7 @@ def test_git_remote_drives_fingerprint(tmp_path: Path) -> None:
     identity = project.project_fingerprint(repo)
     assert identity.source == "git-remote"
     assert identity.label == "github.com/foo/bar"
-    assert len(identity.fingerprint) == 12
+    assert unquote(identity.fingerprint) == identity.label
     assert identity.cwd == str(repo.resolve())
 
 
@@ -130,7 +133,7 @@ def test_non_git_dir_falls_back_to_cwd(tmp_path: Path) -> None:
     identity = project.project_fingerprint(plain)
     assert identity.source == "cwd-path"
     assert identity.label == str(plain.resolve())
-    assert len(identity.fingerprint) == 12
+    assert unquote(identity.fingerprint) == identity.label
 
 
 def test_git_repo_without_remote_falls_back_to_cwd(tmp_path: Path) -> None:
@@ -145,3 +148,82 @@ def test_fallback_stable_across_calls(tmp_path: Path) -> None:
     a = project.project_fingerprint(tmp_path).fingerprint
     b = project.project_fingerprint(tmp_path).fingerprint
     assert a == b
+
+
+def test_distinct_paths_never_share_a_directory_name() -> None:
+    labels = [
+        "/a/b-c", "/a/b/c", "/a_b", "/a/b", "/a%2Fb", "/a.b", "/a%2Eb",
+        "github.com/foo/bar", "/github.com/foo/bar", "../shared", "C:\\论文 进度",
+    ]
+    names = [project._directory_name(label) for label in labels]
+
+    assert len(set(names)) == len(labels)
+    assert [unquote(name) for name in names] == labels
+    assert not any(name.startswith(".") or name.endswith(".") or "/" in name for name in names)
+
+
+def test_overlong_project_path_is_refused() -> None:
+    with pytest.raises(ValueError, match="too long"):
+        project._directory_name("/" + "x" * 255)
+
+
+# The name releases before this one gave the project labelled "/srv/papers/demo".
+_LEGACY = "a38d4ed5e477"
+_NAME = project._directory_name("/srv/papers/demo")
+
+
+def test_legacy_project_state_is_migrated_once(
+    tmp_path: Path, caplog: pytest.LogCaptureFixture,
+) -> None:
+    states = core_paths.session_states_root(tmp_path)
+    (states / _LEGACY).mkdir(parents=True)
+    (states / _LEGACY / "backlog.jsonl").write_text("kept\n", encoding="utf-8")
+    caplog.set_level(logging.INFO, logger=project.__name__)
+
+    state = core_paths.session_state_root(_NAME, root=tmp_path)
+
+    assert state == states / _NAME
+    assert (state / "backlog.jsonl").read_text(encoding="utf-8") == "kept\n"
+    assert not (states / _LEGACY).exists()
+    assert "migrated project state" in caplog.text
+
+    caplog.clear()
+    (states / _LEGACY).mkdir()
+    assert core_paths.session_state_root(_NAME, root=tmp_path) == state
+    assert (states / _LEGACY).is_dir()
+    assert (state / "backlog.jsonl").read_text(encoding="utf-8") == "kept\n"
+    assert caplog.records == []
+
+
+def test_both_project_state_directories_keep_the_new_one(
+    tmp_path: Path, caplog: pytest.LogCaptureFixture,
+) -> None:
+    states = core_paths.session_states_root(tmp_path)
+    for name, text in ((_LEGACY, "old\n"), (_NAME, "new\n")):
+        (states / name).mkdir(parents=True)
+        (states / name / "backlog.jsonl").write_text(text, encoding="utf-8")
+
+    state = core_paths.session_state_root(_NAME, root=tmp_path)
+
+    assert state == states / _NAME
+    assert (state / "backlog.jsonl").read_text(encoding="utf-8") == "new\n"
+    assert (states / _LEGACY / "backlog.jsonl").read_text(encoding="utf-8") == "old\n"
+    assert [record.levelno for record in caplog.records] == [logging.WARNING]
+
+
+def test_legacy_project_state_with_a_running_daemon_waits(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from argus.core import project_gc
+
+    states = core_paths.session_states_root(tmp_path)
+    (states / _LEGACY).mkdir(parents=True)
+    monkeypatch.setattr(project_gc, "_project_is_live", lambda _path: True)
+
+    assert core_paths.session_state_root(_NAME, root=tmp_path) == states / _LEGACY
+    assert not (states / _NAME).exists()
+
+    monkeypatch.setattr(project_gc, "_project_is_live", lambda _path: False)
+    assert core_paths.session_state_root(_NAME, root=tmp_path) == states / _NAME
+    assert (states / _NAME).is_dir()
+    assert not (states / _LEGACY).exists()
