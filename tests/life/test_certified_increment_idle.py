@@ -533,7 +533,8 @@ def test_report_and_verdict_failures_retry_durably(campaign, monkeypatch, failur
     assert restarted._plan_next_work() == PLAN_TERMINAL_IDLE
     assert restarted._plan_next_work() == PLAN_TERMINAL_IDLE
     assert len(_reports(campaign.life)) == 1
-    assert len(campaign.reports) == (2 if failure == "publish" else 1)
+    # A failed publish keeps the Manager's text; the retry does not ask again.
+    assert len(campaign.reports) == 1
     verdicts = [
         json.loads(line) for line in (campaign.life / "events.jsonl").read_text().splitlines()
         if json.loads(line).get("type") == "life.planner.verdict"
@@ -1139,7 +1140,8 @@ def test_project_report_routes_and_deduplicates_in_project_conversation(
     assert supervisor._manager_publish_project_report("accepted") == "reported"
     assert len(_reports(project_memory.root)) == 1
     assert supervisor._manager_publish_project_report("accepted") == "reported"
-    assert len(campaign.reports) == 2
+    # Republishing reuses the recorded report text: no second Manager call.
+    assert len(campaign.reports) == 1
 
     other = ProjectMemory.open("project-b", global_root=global_root)
     other.init()
@@ -1150,7 +1152,7 @@ def test_project_report_routes_and_deduplicates_in_project_conversation(
     assert supervisor._manager_publish_project_report("accepted") == "reported"
     assert len(_reports(other.root)) == 1
     assert _reports(other.root)[0]["message_id"] != message["message_id"]
-    assert len(campaign.reports) == 3
+    assert len(campaign.reports) == 2
 
 
 def test_completion_context_separates_current_artifacts_from_historical_reviews(
@@ -1267,4 +1269,4 @@ def test_failed_project_report_publish_cannot_use_global_dedup(campaign, monkeyp
     assert supervisor._manager_publish_project_report("accepted") == "reported"
     assert len(_reports(project_root)) == 1
     assert supervisor._manager_publish_project_report("accepted") == "reported"
-    assert len(campaign.reports) == 2
+    assert len(campaign.reports) == 1
