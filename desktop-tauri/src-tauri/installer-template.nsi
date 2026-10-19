@@ -1,7 +1,6 @@
 ; Argus Windows installer customization.
 ; Derived from Tauri CLI 2.11.4, commit 59585e1aac2d2e3503aa1caececf3568dce51a47.
 ; Upstream: crates/tauri-bundler/src/bundle/windows/nsis/installer.nsi
-; Upstream SHA-256: 20f4ecc730defb71f1342eaeaec4021df13be3d843abba0effe88ea5835fa079
 ; MIT license: installer-template.LICENSE.
 ; Differences: in-place upgrades (no legacy uninstaller), fail-closed version
 ; and process checks, private WebView bootstrap staging, preserve unknown files.

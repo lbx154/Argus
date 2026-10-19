@@ -99,6 +99,7 @@ def test_release_notes_require_all_desktop_platforms(tmp_path, monkeypatch):
             "argus-0.1.5.dist-info/METADATA",
             "Metadata-Version: 2.1\nName: argus\nVersion: 0.1.5\n",
         )
+        wheel.writestr("argus/release_manifest.json", json.dumps({"git_commit": "c0ffee"}))
     notes = tmp_path.parent / "trial-release-notes.txt"
     monkeypatch.setattr(sys, "argv", [str(script), str(tmp_path), "--notes", str(notes)])
 
@@ -106,5 +107,8 @@ def test_release_notes_require_all_desktop_platforms(tmp_path, monkeypatch):
 
     combined = json.loads((tmp_path / "latest.json").read_text())
     assert set(combined["platforms"]) == set(targets)
-    assert "Linux x86_64" in notes.read_text(encoding="utf-8")
-    assert (tmp_path / "SHA256SUMS").is_file()
+    text = notes.read_text(encoding="utf-8")
+    assert "Linux x86_64" in text
+    assert "built from commit `c0ffee`" in text
+    assert "| `Argus-0.1.5-setup.exe` | 1000001 |" in text
+    assert not (tmp_path / "SHA256SUMS").exists()

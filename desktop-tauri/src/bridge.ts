@@ -33,7 +33,6 @@ export interface PiConfiguration {
 export interface DesktopReleaseIdentity {
   packageVersion: string;
   releaseId: string;
-  sourceDigest: string;
   distribution: 'development' | 'packaged' | 'preview';
 }
 

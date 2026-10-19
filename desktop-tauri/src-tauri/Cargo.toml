@@ -39,6 +39,8 @@ rfd = "0.15"
 serde = { version = "1.0", features = ["derive"] }
 serde_json = "1.0"
 semver = "1.0"
+# Migration only: identity::legacy_token_matches reads schema-3 ownership
+# records. Delete next release with it.
 sha2 = "0.10"
 tauri = { version = "2.11", features = ["tray-icon"] }
 tauri-plugin-notification = "2.3"

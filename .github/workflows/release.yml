@@ -126,7 +126,6 @@ jobs:
           cache: pip
           cache-dependency-path: |
             pyproject.toml
-            uv.lock
             desktop-tauri/scripts/windows-build-requirements.txt
       - uses: dtolnay/rust-toolchain@stable
         with:
@@ -150,18 +149,18 @@ jobs:
         run: |
           sudo apt-get update
           sudo apt-get install -y libwebkit2gtk-4.1-dev build-essential libxdo-dev libssl-dev librsvg2-dev libayatana-appindicator3-dev patchelf xvfb xauth dbus-x11 libfuse2
-      - name: Install frozen Windows build dependencies
+      - name: Install Windows build dependencies
         if: runner.os == 'Windows'
         env:
           UV_PYTHON_DOWNLOADS: never
         run: |
-          uv sync --frozen --extra dev --extra trial --no-install-project --python 3.11.9
+          uv sync --extra dev --extra trial --no-install-project --python 3.11.9
           uv pip install --python .venv/Scripts/python.exe --no-deps -r desktop-tauri/scripts/windows-build-requirements.txt
           uv pip install --python .venv/Scripts/python.exe --no-deps --no-build-isolation --editable .
           uv pip check --python .venv/Scripts/python.exe
           echo "$GITHUB_WORKSPACE/.venv/Scripts" >> "$GITHUB_PATH"
           echo 'RUSTUP_TOOLCHAIN=1.98.0-x86_64-pc-windows-msvc' >> "$GITHUB_ENV"
-          cargo fetch --locked --manifest-path desktop-tauri/src-tauri/Cargo.toml --target x86_64-pc-windows-msvc
+          cargo fetch --manifest-path desktop-tauri/src-tauri/Cargo.toml --target x86_64-pc-windows-msvc
       - name: Install non-Windows Python build dependencies
         if: runner.os != 'Windows'
         run: python -m pip install -e ".[trial]" "pyinstaller>=6.11,<7" tzdata

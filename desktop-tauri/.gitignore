@@ -3,6 +3,8 @@ dist/
 build/
 .keys/
 src-tauri/target/
+# Crates resolve from Cargo.toml; no lock file is kept.
+src-tauri/Cargo.lock
 src-tauri/.tauri-unsigned.conf.json
 release/
 *.log

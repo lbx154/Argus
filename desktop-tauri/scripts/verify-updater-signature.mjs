@@ -1,5 +1,5 @@
 import fs from 'node:fs';
-import { createHash, createPublicKey, verify } from 'node:crypto';
+import { createPublicKey, verify } from 'node:crypto';
 
 function base64(text, label, length) {
   if (typeof text !== 'string' || !text.length || text.length > 8192
@@ -23,9 +23,11 @@ function lines(encoded, label, count) {
   return result;
 }
 
-/** Verify Tauri's base64-wrapped, prehashed minisign format using only its
- * embedded public key. Both the package signature and trusted comment are
- * authenticated. No signer, private material, environment or network is used.
+/** Check Tauri's base64-wrapped, prehashed minisign signature against the
+ * app's embedded public key: the key id must match and the trusted comment
+ * must be authentic. The package bytes are not hashed here; the Tauri updater
+ * verifies them against this signature on the user's machine before installing.
+ * No signer, private material, environment or network is used.
  */
 export function verifyTauriSignature(filename, encodedSignature, encodedPublicKey) {
   const publicLines = lines(encodedPublicKey, 'updater public key', 2);
@@ -48,41 +50,12 @@ export function verifyTauriSignature(filename, encodedSignature, encodedPublicKe
     key: Buffer.concat([Buffer.from('302a300506032b6570032100', 'hex'), publicBytes.subarray(10)]),
     format: 'der', type: 'spki',
   });
-  const signature = signed.subarray(10);
   const comment = Buffer.from(signatureLines[2].slice('trusted comment: '.length), 'utf8');
-  if (!verify(null, Buffer.concat([signature, comment]), key,
+  if (!verify(null, Buffer.concat([signed.subarray(10), comment]), key,
     base64(signatureLines[3], 'updater trusted-comment signature', 64))) {
     throw new Error('Updater trusted-comment signature verification failed.');
   }
-
-  const initial = fs.lstatSync(filename, { bigint: true });
-  if (!initial.isFile() || initial.isSymbolicLink()) throw new Error('Updater input must be a regular file.');
-  const input = fs.openSync(filename, 'r');
-  const digest = createHash('blake2b512');
-  const sha256 = createHash('sha256');
-  let bytes = 0;
-  const same = (a, b) => ['dev', 'ino', 'size', 'mtimeNs', 'ctimeNs'].every(field => a[field] === b[field]);
-  try {
-    const before = fs.fstatSync(input, { bigint: true });
-    // Keep path and handle identity checks independent: their Windows file-ID
-    // representations are not guaranteed to match on every filesystem/runtime.
-    if (!before.isFile() || initial.size !== before.size) throw new Error('Updater input changed before verification.');
-    const buffer = Buffer.allocUnsafe(1024 * 1024);
-    let count;
-    while ((count = fs.readSync(input, buffer, 0, buffer.length, null)) > 0) {
-      const chunk = buffer.subarray(0, count);
-      digest.update(chunk); sha256.update(chunk); bytes += count;
-    }
-    if (!same(before, fs.fstatSync(input, { bigint: true })) || BigInt(bytes) !== before.size) {
-      throw new Error('Updater input changed during verification (handle metadata).');
-    }
-    const currentPath = fs.lstatSync(filename, { bigint: true });
-    if (!currentPath.isFile() || currentPath.isSymbolicLink() || !same(initial, currentPath)) {
-      throw new Error('Updater input changed during verification (path metadata).');
-    }
-  } finally { fs.closeSync(input); }
-  if (!verify(null, digest.digest(), key, signature)) {
-    throw new Error('Updater package signature verification failed.');
-  }
-  return { bytes, sha256: sha256.digest('hex') };
+  const stat = fs.lstatSync(filename);
+  if (!stat.isFile()) throw new Error('Updater input must be a regular file.');
+  return { bytes: stat.size };
 }

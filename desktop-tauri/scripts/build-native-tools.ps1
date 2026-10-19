@@ -38,12 +38,14 @@ $candidate = Join-Path $tests "platon-headless-$id.exe"
 & $compiler @flags -O -C panic=abort $source -o $candidate
 if ($LASTEXITCODE -ne 0) { throw "PLATON adapter build failed." }
 $target = Join-Path $output "platon-headless.exe"
-$expected = (Get-FileHash -LiteralPath $candidate -Algorithm SHA256).Hash
+function Test-SameBytes([string]$Left, [string]$Right) {
+    [System.Linq.Enumerable]::SequenceEqual([byte[]][System.IO.File]::ReadAllBytes($Left), [byte[]][System.IO.File]::ReadAllBytes($Right))
+}
 if (Test-Path -LiteralPath $target) {
     if (((Get-Item -LiteralPath $target).Attributes -band [System.IO.FileAttributes]::ReparsePoint) -ne 0) {
         throw "Native build output must not be a link."
     }
-    if ((Get-FileHash -LiteralPath $target -Algorithm SHA256).Hash -ne $expected) {
+    if (-not (Test-SameBytes $candidate $target)) {
         throw "Native adapter output already exists and differs. Use a fresh workspace; previous output was preserved."
     }
 } else {
@@ -52,7 +54,7 @@ if (Test-Path -LiteralPath $target) {
         $destination = [System.IO.File]::Open($target, [System.IO.FileMode]::CreateNew, [System.IO.FileAccess]::Write, [System.IO.FileShare]::None)
         try { $input.CopyTo($destination); $destination.Flush($true) } finally { $destination.Dispose() }
     } finally { $input.Dispose() }
-    if ((Get-FileHash -LiteralPath $target -Algorithm SHA256).Hash -ne $expected) {
+    if (-not (Test-SameBytes $candidate $target)) {
         throw "Native adapter copy verification failed."
     }
 }

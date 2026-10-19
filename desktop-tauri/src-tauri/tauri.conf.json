@@ -57,7 +57,6 @@
     "windows": {
       "allowDowngrades": false,
       "certificateThumbprint": null,
-      "digestAlgorithm": "sha256",
       "nsis": {
         "installMode": "currentUser",
         "displayLanguageSelector": false,

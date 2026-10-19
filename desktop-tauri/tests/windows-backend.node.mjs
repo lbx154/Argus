@@ -33,7 +33,7 @@ test('backend staging preserves a source placeholder and verifies exact nested b
   assert.equal(result.reused, false);
   assert.equal(fs.existsSync(path.join(f.destination, '.gitkeep')), true);
   assert.deepEqual(fs.readFileSync(path.join(f.destination, '_internal/data/binary.bin')), Buffer.from([0, 80, 255, 0, 17]));
-  assert.equal(result.sha256.length, 64);
+  assert.equal(result.entries, 4);
 });
 
 test('preparing the same frozen payload is idempotent without replacing files', t => {
@@ -42,6 +42,13 @@ test('preparing the same frozen payload is idempotent without replacing files', 
   assert.equal(stageBackend(f).reused, true);
   const after = fs.statSync(image, { bigint: true });
   assert.equal(after.ino, before.ino); assert.equal(after.mtimeNs, before.mtimeNs);
+});
+
+test('a prepared payload with the same names and sizes but other bytes is not reused', t => {
+  const f = fixture(t); stageBackend(f);
+  const image = path.join(f.destination, 'argus-backend.exe');
+  fs.writeFileSync(image, Buffer.alloc(fs.statSync(image).size, 120));
+  assert.throws(() => stageBackend(f), /Existing files were preserved/);
 });
 
 test('an older or unrelated prepared payload is preserved rather than erased', t => {
@@ -73,7 +80,7 @@ test('path and handle file IDs may differ without implying a changed backend', t
   assert.equal(stageBackend(f).reused, true);
 });
 
-test('a changed handle is still rejected before backend copying', t => {
+test('an input that changes while it is copied is never reported as staged', t => {
   const f = fixture(t);
   const original = fs.fstatSync;
   let calls = 0;
@@ -86,8 +93,9 @@ test('a changed handle is still rejected before backend copying', t => {
       return Reflect.get(target, name);
     } });
   });
-  assert.throws(() => stageBackend(f), /changed during verification/);
-  assert.equal(fs.existsSync(f.destination), false);
+  assert.throws(() => stageBackend(f), /changed during staging/);
+  t.mock.restoreAll();
+  assert.throws(() => stageBackend(f), /Existing files were preserved/);
 });
 
 test('staging rejects input/output overlap', t => {

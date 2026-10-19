@@ -168,20 +168,21 @@ cockpit，并在存在目标时定位到对应成果。没有可展示文件时�
 ## 后端身份与恢复
 
 首次启动会生成 32-byte URL-safe Web token，保存在当前用户的
-`%APPDATA%\argus-desktop\settings.json`。原 token 从不会写进 ownership record、
-日志或诊断包。每次启动或健康检查均需认证 `/api/meta`，并验证：
+`%APPDATA%\argus-desktop\settings.json`。ownership record 也原样记下这个 token，
+用来证明旧后端归属；它和 settings.json 一样只对当前用户可读，token 从不写进日志或
+诊断包。每次启动或健康检查均需认证 `/api/meta`，并验证：
 
 1. listener PID 与启动时间；
 2. 精确后端 executable path；
 3. loopback host/port；
-4. Web token 的 SHA-256；
+4. Web token（逐字节比较，耗时与内容无关）；
 5. 本次 spawn 的随机 `ARGUS_DESKTOP_LAUNCH_NONCE`。
 
 新版本只能替换两类旧 listener：完整旧 ownership record 精确匹配的后端，或经过
 当前 token 认证且路径精确等于 bundled backend 的兼容旧版 listener。其他端口占用、
-远程地址、身份缺字段或 digest 不一致均 fail closed。
+远程地址、身份缺字段或发布标识不一致均 fail closed。
 
-健康检测每 5 秒一次。当前宿主的预期版本指纹编译进 EXE，已认证的 PID、启动时间、路径和
+健康检测每 5 秒一次。当前宿主的预期发布标识（版本号 + git 提交号）编译进 EXE，已认证的 PID、启动时间、路径和
 启动证明保存在当前会话中；不再因磁盘清单／ownership 记录暂时不可读而变成“陌生后端”。
 ownership 记录使用同目录临时文件与原子替换写入，写入失败会明确拒绝完成启动。
 
@@ -251,7 +252,8 @@ Cloudflare Worker 模板：它仅代理 `lbx154/Argus` 的允许 release 资产�
 操作脚本。它下载 GitHub Release、重写镜像 manifest URL、上传安装器和 `.sig`。
 在配置 OSS/Worker 前，主 GitHub endpoint 仍是可用且安全的默认通道。部署镜像后，
 将 HTTPS mirror endpoint 放到下一次 Tauri release 的 updater endpoint 列表首位，
-并保留 GitHub 作为回退。每次发布都应比对 OSS 与 GitHub 的 SHA-256。
+并保留 GitHub 作为回退。每次发布都应比对 OSS 与 GitHub 上各安装器的字节数；安装包内容由
+更新器在安装前按签名校验。
 
 这些脚本不会在本地 build、测试或应用启动时写入任何远程服务。
 
@@ -266,7 +268,7 @@ Python 后端，以 Tauri `--no-bundle --no-sign --features preview` 编译宿�
 
 构建前需提交手写源码，再按现有生成器一致生成并独立提交 Web/TUI/manifest。
 预览构建前后要求跟踪输入干净、没有未跟踪的产品输入或资产，并绑定同一候选 commit/tree；
-若生成器或并发修改造成变化，会拒绝 ZIP，不手改摘要。`ARGUS_PREVIEW_BASE` 可指定完整冻结 base SHA，
+若生成器或并发修改造成变化，会拒绝 ZIP，不手改清单。`ARGUS_PREVIEW_BASE` 可指定完整冻结 base 提交号，
 省略时取本地 `HEAD` 与 `origin/dev` 的 merge-base，不查询或追逐远端 HEAD。
 可用 `ARGUS_PREVIEW_REVIEW` 指向不含凭据的 JSON 回归记录；其 `candidate_sha`、`base_sha`、
 `release_id`、`git_commit` 必须匹配本构建，并包含 `tasks`、`checks`、`pending`。
@@ -444,11 +446,13 @@ npm --prefix desktop-tauri run dist
 ```
 
 `dist` 的 Windows 路径先一致构建、冻结、签名；正式发行只产生 NSIS installer、detached `.exe.sig`
-和 updater `latest.json`，以及校验和文件。发布暂存尊重实际 `CARGO_TARGET_DIR`；也可通过
+和 updater `latest.json`。发布暂存尊重实际 `CARGO_TARGET_DIR`；也可通过
 `stage-release.ps1 -BundleDirectory <NSIS目录> -OutputDirectory <新目录>` 指定路径。
-目标发行目录已存在时直接拒绝，不会清空它。只有复制后的安装器和 trusted comment 均通过
-应用内置公钥验证，才写 `latest.json` 与 `SHA256SUMS`；缺失、空白、错版本、错架构、错误公钥
-或被篡改的签名不能生成发布元数据。JSON 是更新元数据，不是账户凭据。
+目标发行目录已存在时直接拒绝，不会清空它。只有复制后的安装器与输入逐字节一致、签名来自
+应用内置公钥且 trusted comment 通过验证，才写 `latest.json`；缺失、空白、错版本、错架构、
+错误公钥或 trusted comment 被改的签名不能生成发布元数据。安装包内容与签名是否匹配，由用户
+机器上的更新器在安装前校验。发布说明列出版本号、git 提交号和各文件的字节数。
+JSON 是更新元数据，不是账户凭据。
 
 只有诊断候选才使用 `build:backend` 后接 `build:unsigned`；此路径没有可发布的 SIG/JSON，
 不能把文件改名后称为正式版。新的发行还必须使用高于已发布版本的统一版本号。
