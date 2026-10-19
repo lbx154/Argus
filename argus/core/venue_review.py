@@ -53,9 +53,30 @@ def selected_acceptance_minimum(state_root: Path | str) -> str:
     return re.sub(r"[\s-]+", "_", str(value).strip().lower())
 
 
+VENUE_REVIEW_ROUNDS_KNOB = "ARGUS_SKILL_VENUE_REVIEW_MAX_ROUNDS"
+VENUE_REVIEW_ROUNDS_DEFAULT = 6
+
+
+def venue_review_round_budget() -> int:
+    """Reviewed rounds one final Review may buy before the Manager decides; 0 is no cap."""
+    from .knobs import resolve_knob
+
+    try:
+        return max(0, int(resolve_knob(VENUE_REVIEW_ROUNDS_KNOB, str(VENUE_REVIEW_ROUNDS_DEFAULT)).value))
+    except (TypeError, ValueError):
+        return VENUE_REVIEW_ROUNDS_DEFAULT
+
+
 def configure_venue_revisions(config: Any) -> None:
-    """Remove quality-convergence ceilings while preserving operational stops."""
-    config.max_rounds = 0
+    """Replace progress guesses with a round budget; keep the operational stops.
+
+    Each round of a final Review pays for a venue-scale review, so revision runs
+    to a budget (the smaller of the mission cap and
+    ``ARGUS_SKILL_VENUE_REVIEW_MAX_ROUNDS``) rather than until convergence is
+    guessed; spending it hands the paper to the Manager.
+    """
+    caps = [cap for cap in (int(config.max_rounds or 0), venue_review_round_budget()) if cap > 0]
+    config.max_rounds = min(caps, default=0)
     # Reaching a per-call context allowance is housekeeping, not a failed
     # scientific revision. A long figure/experiment repair can need more than
     # three fresh sessions before it is ready for independent review.

@@ -83,6 +83,7 @@ HOST_PLACEHOLDER_REVIEW_SOURCES = frozenset(
         "provider_turn_cap",
         "reviewer_unavailable",
         "silent_command",
+        "unchanged_paper",
     }
 )
 

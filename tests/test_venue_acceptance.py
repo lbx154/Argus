@@ -281,13 +281,13 @@ def test_gate_applies_to_final_papers_only():
     assert not requires_venue_review(vertical="software", stage="review", scope="final_submission")
 
 
-def test_quality_revision_continues_beyond_round_limits_without_disabling_stops():
+def test_quality_revision_runs_to_a_round_budget_without_disabling_stops():
     from argus.engineer.round_config import SupervisedConfig
     from argus.engineer.round_settlement import RoundSettlementMixin
 
     config = SupervisedConfig(max_rounds=50, stall_threshold=4, soft_round_limit=12, hard_escalate_rounds=24)
     configure_venue_revisions(config)
-    assert config.max_rounds == 0
+    assert config.max_rounds == 6  # the venue-review budget, smaller than the mission cap
     assert config.provider_turn_cap_streak_limit == 0
     assert config.require_independent_review
     kwargs = {
@@ -362,3 +362,63 @@ def test_reviewer_verdict_counts_when_no_venue_was_selected(paper, recommendatio
     if not accepted:
         assert "selected venue" not in issue
         assert "selected venue" not in review.next_action
+
+
+class _PaperEngineer:
+    def __init__(self, paper: Path, *, revise: bool) -> None:
+        self.paper, self.revise, self.calls = paper, revise, 0
+
+    def run_exec(self, *, prompt, options, run_label, resume_thread_id=None):  # noqa: ARG002
+        self.calls += 1
+        if self.revise:
+            with (self.paper / "paper/main.tex").open("a", encoding="utf-8") as handle:
+                handle.write(f"\n% revision {self.calls}\n")
+        return RunnerResult(exit_code=0, agent_messages=["Revised the paper; ready for review."])
+
+
+class _BelowBarReviewer:
+    """A paid venue verdict below the bar, bound to the paper it read."""
+
+    def __init__(self, paper: Path) -> None:
+        self.paper, self.calls = paper, 0
+
+    def evaluate(self, **_kwargs):
+        self.calls += 1
+        return ReviewDecision(
+            status="continue", reason="Still below weak accept.", next_action="Add the matched control.",
+            venue_review_required=True, venue_review_snapshot=paper_review_snapshot(self.paper),
+        )
+
+
+def _final_review(paper: Path, *, revise: bool):
+    from typing import Any, cast
+
+    from argus.engineer.runner import EngineerConfig, SupervisedConfig, SupervisedEngineer
+
+    engineer, reviewer = _PaperEngineer(paper, revise=revise), _BelowBarReviewer(paper)
+    supervised = cast(Any, SupervisedEngineer.__new__(SupervisedEngineer))
+    supervised.engineer_runner, supervised.engineer_config = engineer, EngineerConfig(model="stub")
+    supervised.reviewer, supervised.reviewer_config = reviewer, ReviewerConfig(model="stub")
+    config = SupervisedConfig(checkpoint_path=paper / "CHECKPOINT.md", background_subagent_advisory=False)
+    configure_venue_revisions(config)
+    status, _rounds, _final, reason, _thread = supervised.run(
+        objective="Bring the paper to the venue bar in final Review",
+        engineer_prompt_builder=lambda next_action, include_static=True: "Revise. " + (next_action or ""),
+        supervised_config=config, workdir=paper,
+    )
+    return status, reason, engineer.calls, reviewer.calls
+
+
+def test_an_unchanged_paper_is_not_reviewed_again(paper):
+    status, reason, engineer_calls, reviewer_calls = _final_review(paper, revise=False)
+    assert (engineer_calls, reviewer_calls) == (2, 1)
+    assert status == "replan_requested"
+    assert "unchanged since the last venue review" in reason
+
+
+def test_a_final_review_stops_at_its_budget_and_hands_the_paper_to_the_manager(paper, monkeypatch):
+    monkeypatch.setenv("ARGUS_SKILL_VENUE_REVIEW_MAX_ROUNDS", "3")
+    status, reason, engineer_calls, reviewer_calls = _final_review(paper, revise=True)
+    assert (engineer_calls, reviewer_calls) == (3, 3)
+    assert status == "blocked"
+    assert "the Manager decides" in reason
