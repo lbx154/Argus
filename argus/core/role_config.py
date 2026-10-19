@@ -62,7 +62,7 @@ _ROLE_DESC = {
     "planner": "queues new work when backlog is empty, final-gate routing",
     "engineer": "L1 execution · writes code / runs commands",
     "reviewer": "L2 acceptance · done / continue / blocked",
-    "curator": "skill-pool upkeep · distill / write-back",
+    "curator": "skill-pool upkeep · write-back",
 }
 
 
