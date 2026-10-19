@@ -275,15 +275,12 @@ class LifeWorkerBootMixin:
         )
         self._rf_record_role_backends(rf_state)
 
-    #: Roles whose backend the daemon resolves independently. Kept next to the
-    #: emit below rather than imported from core.role_config: that tuple is the
-    #: /roles DISPLAY set and omits the Curator, which the daemon does run.
+    #: Roles whose backend the daemon resolves independently.
     _BACKEND_PROVENANCE_ROLES: tuple[str, ...] = (
         "manager",
         "planner",
         "engineer",
         "reviewer",
-        "curator",
     )
 
     def _rf_record_role_backends(self, rf_state: _RunForeverState) -> None:

@@ -393,7 +393,7 @@ def _preflight_route_on_codex(route: str) -> bool:
     )
     from ..core.knobs import resolve_role_backend
 
-    role = route if route in ("engineer", "reviewer", "planner", "manager", "curator") else ""
+    role = route if route in ("engineer", "reviewer", "planner", "manager") else ""
     # default=BACKEND_CODEX: this is a SAFETY gate — answering "yes, codex" only
     # keeps the vault probe armed, while answering "no" would skip it. When
     # nothing is configured the run will itself land on codex, so keeping the

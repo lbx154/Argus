@@ -104,8 +104,6 @@ def test_registry_covers_the_active_team_knobs() -> None:
     """Expose the pool and result controls."""
     names = {k.name for k in KNOBS}
     for must in (
-        "ARGUS_SKILL_CURATOR_BACKEND",
-        "ARGUS_SKILL_CURATOR_MODEL",
         "ARGUS_TEAMMATE_PAPER_MISSION",
         "ARGUS_TEAMMATE_TIMEOUT_S",
         "ARGUS_TEAMMATE_MAX_ROUNDS",

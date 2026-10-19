@@ -33,28 +33,24 @@ _ROLE_ROUTE = {
     "planner": "planner",
     "engineer": "engineer",
     "reviewer": "reviewer",
-    "curator": "curator",
 }
 _ROLE_MODEL_ENV = {
     "manager": "ARGUS_SKILL_MANAGER_MODEL",
     "planner": "ARGUS_SKILL_PLAN_MODEL",
     "engineer": "ARGUS_SKILL_ENGINEER_MODEL",
     "reviewer": "ARGUS_SKILL_REVIEWER_MODEL",
-    "curator": "ARGUS_SKILL_CURATOR_MODEL",
 }
 _ROLE_EFFORT_ENV = {
     "manager": "ARGUS_SKILL_MANAGER_REASONING_EFFORT",
     "planner": "ARGUS_SKILL_PLANNER_REASONING_EFFORT",
     "engineer": "ARGUS_SKILL_ENGINEER_REASONING_EFFORT",
     "reviewer": "ARGUS_SKILL_REVIEWER_REASONING_EFFORT",
-    "curator": "ARGUS_SKILL_CURATOR_REASONING_EFFORT",
 }
 _ROLE_EFFORT_DEFAULT = {
     "manager": "high",
     "planner": "high",
     "engineer": "xhigh",
     "reviewer": "high",
-    "curator": "high",
 }
 
 _ROLE_DESC = {
@@ -62,7 +58,6 @@ _ROLE_DESC = {
     "planner": "queues new work when backlog is empty, final-gate routing",
     "engineer": "L1 execution · writes code / runs commands",
     "reviewer": "L2 acceptance · done / continue / blocked",
-    "curator": "skill-pool upkeep · write-back",
 }
 
 
