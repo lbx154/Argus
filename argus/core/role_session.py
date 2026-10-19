@@ -8,7 +8,6 @@ copied into it.
 """
 from __future__ import annotations
 
-import hashlib
 import json
 import logging
 import os
@@ -77,7 +76,8 @@ def effective_role_session_policy(
 
 
 def objective_revision(objective: str) -> str:
-    return hashlib.sha256(objective.strip().encode("utf-8")).hexdigest()[:16]
+    """The objective itself identifies its revision: any edit is a new one."""
+    return objective.strip()
 
 
 def _worktree_branch(workdir: Path) -> str:

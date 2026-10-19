@@ -8,7 +8,6 @@ budget plus one complete event, including initial/legacy reconstruction.
 """
 from __future__ import annotations
 
-import hashlib
 import os
 import re
 from contextlib import contextmanager
@@ -141,9 +140,10 @@ def _canonical_append_after_direct_update(root: Path, view: dict[str, Any]) -> b
     return False
 
 
-def _digest(handle, start: int, length: int) -> str:
+def _bytes_at(handle, start: int, length: int) -> str:
+    """The bytes at ``start``, as hex so a cursor stores them in JSON."""
     handle.seek(start)
-    return hashlib.sha256(handle.read(length)).hexdigest()
+    return handle.read(length).hex()
 
 
 def _source(path: Path, offset: int) -> dict[str, Any]:
@@ -152,8 +152,8 @@ def _source(path: Path, offset: int) -> dict[str, Any]:
         return {
             "name": path.name, "device": stat.st_dev, "inode": stat.st_ino,
             "offset": offset, "size": stat.st_size, "mtime_ns": stat.st_mtime_ns,
-            "head": _digest(handle, 0, min(offset, 256)),
-            "tail": _digest(handle, max(0, offset - 128), min(offset, 128)),
+            "head": _bytes_at(handle, 0, min(offset, 256)),
+            "tail": _bytes_at(handle, max(0, offset - 128), min(offset, 128)),
         }
 
 
@@ -164,8 +164,8 @@ def _matches_content(path: Path, source: dict[str, Any]) -> bool:
     offset = source["offset"]
     with path.open("rb") as handle:
         return (
-            _digest(handle, 0, min(offset, 256)) == source["head"]
-            and _digest(handle, max(0, offset - 128), min(offset, 128)) == source["tail"]
+            _bytes_at(handle, 0, min(offset, 256)) == source["head"]
+            and _bytes_at(handle, max(0, offset - 128), min(offset, 128)) == source["tail"]
         )
 
 
@@ -190,9 +190,11 @@ def _cursor(view: dict[str, Any]) -> dict[str, Any] | None:
             if source["offset"] > source["size"]:
                 raise ValueError("cursor exceeds observed file size")
             for name in ("head", "tail"):
-                if not isinstance(source[name], str) or len(source[name]) != 64:
+                # Up to 256 bytes as hex; an older cursor held a 64-hex digest
+                # here, which reads as bytes that no longer match.
+                if not isinstance(source[name], str) or len(source[name]) > 512:
                     raise ValueError("invalid content identity")
-                int(source[name], 16)
+                bytes.fromhex(source[name])
         if not isinstance(value.get("last_event_id"), str):
             raise ValueError("invalid event identity")
         if type(value.get("skipping_oversized_row", False)) is not bool:
@@ -336,7 +338,7 @@ def reconcile_unlocked(root: Path, view: dict[str, Any], *, force_logged: bool =
                     consumed += len(raw)
                     offset = handle.tell()
                     cursor["skipping_oversized_row"] = not raw.endswith(b"\n")
-                    cursor["last_event_id"] = "oversized:" + hashlib.sha256(raw).hexdigest()
+                    cursor["last_event_id"] = f"oversized:{path.name}:{offset}"
                     skipped += 1
                     oversized += 1
                     continue
@@ -345,7 +347,7 @@ def reconcile_unlocked(root: Path, view: dict[str, Any], *, force_logged: bool =
                     break
                 consumed += len(raw)
                 offset = handle.tell()
-                cursor["last_event_id"] = hashlib.sha256(raw).hexdigest()
+                cursor["last_event_id"] = f"line:{path.name}:{offset}"
                 try:
                     event = loads_finite_json(raw)
                 except (UnicodeDecodeError, ValueError):

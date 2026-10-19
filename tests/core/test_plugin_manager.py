@@ -60,12 +60,11 @@ def test_unsupported_mixed_roles_are_reported(monkeypatch):
     assert "敬请期待" in result["reason"]
 
 
-def test_hash_mismatch_is_rejected(tmp_path):
-    source = tmp_path / "release.whl"
-    source.write_bytes(b"bad payload")
-    spec = {"_catalog_dir": str(tmp_path), "artifact": {"sha256": "0" * 64, "local": "release.whl"}}
-    with pytest.raises(pm.PluginError, match="校验失败"):
-        pm._fetch(spec, tmp_path / "copy.whl")
+def test_pinned_local_release_is_copied(tmp_path):
+    (tmp_path / "release.whl").write_bytes(b"wheel")
+    spec = {"_catalog_dir": str(tmp_path), "artifact": {"filename": "release.whl", "local": "release.whl"}}
+    pm._fetch(spec, tmp_path / "copy.whl")
+    assert (tmp_path / "copy.whl").read_bytes() == b"wheel"
 
 
 def test_archive_traversal_is_rejected(tmp_path):

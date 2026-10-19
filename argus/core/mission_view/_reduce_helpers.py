@@ -12,8 +12,6 @@ separate ``technical`` field; the sentence itself never carries one.
 """
 from __future__ import annotations
 
-import hashlib
-import json
 import time
 from typing import Any, Mapping
 
@@ -53,8 +51,8 @@ def _event_id(event: Mapping[str, Any]) -> str:
     explicit = event.get("event_id") or event.get("id")
     if explicit:
         return str(explicit)
-    stable = json.dumps(dict(event), ensure_ascii=False, sort_keys=True, default=str)
-    return hashlib.sha256(stable.encode("utf-8")).hexdigest()[:20]
+    # Legacy rows without an id: its type and timestamp identify a replay of it.
+    return f"{event.get('type') or 'event'}@{event.get('ts') or ''}"
 
 
 def _upsert(rows: list[dict[str, Any]], key: str, value: str, patch: dict[str, Any]) -> None:

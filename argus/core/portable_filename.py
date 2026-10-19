@@ -1,10 +1,11 @@
 from __future__ import annotations
 
-import hashlib
 import os
 import re
 import unicodedata
 
+# Names older releases gave overlong ids; a logical id spelled like one is
+# encoded so it never aliases such a file.
 _LEGACY_HASHED_COMPONENT = re.compile(r"(?:argus-)?id-[0-9a-f]{64}\Z", re.IGNORECASE)
 _WINDOWS_RESERVED = frozenset({
     "con",
@@ -27,12 +28,14 @@ def portable_filename_component(
     windows: bool | None = None,
     max_bytes: int = 120,
 ) -> str:
-    """Encode a logical identifier as one bounded, portable path component."""
+    """Encode a logical identifier as one bounded, portable path component.
+
+    An identifier longer than ``max_bytes`` has no such component and is refused.
+    """
     text = str(value)
     raw = text.encode("utf-8")
     if len(raw) > max_bytes:
-        digest = hashlib.sha256(raw).hexdigest()
-        return f"argus-id-{digest}"
+        raise ValueError(f"identifier is longer than {max_bytes} bytes: {text[:40]!r}...")
     on_windows = os.name == "nt" if windows is None else windows
     stem = text.split(".", 1)[0].casefold()
     unsafe = (
@@ -55,19 +58,19 @@ def portable_filename_component(
     return f"~{encoded}"
 
 
-def legacy_hashed_filename_components(value: str) -> tuple[str, ...]:
+def legacy_filename_components(value: str) -> tuple[str, ...]:
+    """Raw names older releases stored an encoded-looking id under."""
     text = str(value)
-    digest = hashlib.sha256(text.encode("utf-8")).hexdigest()
-    components = [f"argus-id-{digest}", f"id-{digest}"]
     if (
         (text.startswith("~") or _LEGACY_HASHED_COMPONENT.fullmatch(text))
         and not any(char in text for char in "/\\\0")
     ):
-        components.append(text)
-    return tuple(components)
+        return (text,)
+    return ()
+
 
 __all__ = [
-    "legacy_hashed_filename_components",
+    "legacy_filename_components",
     "normalized_logical_identifier",
     "portable_filename_component",
 ]

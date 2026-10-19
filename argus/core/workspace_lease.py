@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import hashlib
 import json
 import os
 import tempfile
@@ -32,19 +31,15 @@ def workspace_lease_path(workdir: str | Path) -> Path:
         root.chmod(0o700)
     except OSError:
         pass
+    parts = canonical.parts[1:]
     if os.name == "nt":
-        # Mirroring an absolute C:\... path below the temp root quickly hits
-        # MAX_PATH in nested CI/user profiles.  Windows paths are also
-        # case-insensitive, so hash their normalized canonical spelling into a
-        # short, stable lock name instead.
-        identity = os.path.normcase(str(canonical))
-        digest = hashlib.sha256(identity.encode("utf-8")).hexdigest()
-        leaf = "".join(
-            character if character.isalnum() or character in "-_" else "-"
-            for character in canonical.name
-        ).strip("-_")[:32] or "workspace"
-        return root / f"{leaf}-{digest[:32]}.lock"
-    lease_dir = root.joinpath(*canonical.parts[1:])
+        # Windows paths are case-insensitive: mirror the normalized spelling,
+        # keep the drive, and use the long-path form so deep mirrors fit.
+        spelled = Path(os.path.normcase(str(canonical)))
+        drive = spelled.drive.strip("\\/:").replace("\\", "-") or "drive"
+        root = Path("\\\\?\\" + str(root.absolute()))
+        parts = (drive, *spelled.parts[1:])
+    lease_dir = root.joinpath(*parts)
     lease_dir.mkdir(mode=0o700, parents=True, exist_ok=True)
     return lease_dir / "lease.lock"
 
