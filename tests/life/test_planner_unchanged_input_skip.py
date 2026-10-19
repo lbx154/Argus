@@ -6,8 +6,8 @@ even when the backlog, journal, research plan, operator context, and persisted
 wait were byte-identical to the previous call — one project asked every 107
 seconds. The intake now fingerprints exactly those inputs after every real
 Planner call that answered with an intentional wait, and an unchanged
-fingerprint keeps that answer instead of buying it again. Time stays an input:
-after ``PLANNER_UNCHANGED_SKIP_MAX_SECONDS`` the Planner is called regardless.
+fingerprint keeps that answer instead of buying it again. Elapsed time alone is
+not an input: a call on the same inputs can only repeat its answer.
 """
 
 from __future__ import annotations
@@ -21,11 +21,7 @@ from argus.apps._inbox_delivery import DurableInboxReceiver
 from argus.life.event_log import JsonlEventSink
 from argus.life.memory import BacklogItem, LifeMemory
 from argus.life.supervisor import LifeBudget, LifeSupervisor, LifeSupervisorConfig
-from argus.life.supervisor._constants import (
-    PLAN_AWAITING,
-    PLAN_ERROR,
-    PLANNER_UNCHANGED_SKIP_MAX_SECONDS,
-)
+from argus.life.supervisor._constants import PLAN_AWAITING, PLAN_ERROR
 from argus.messaging.inbox import PeerAwareInbox
 from argus.planner import PlannerVerdict, WaitingContract
 from argus.skills.vertical_select import persist_vertical
@@ -162,7 +158,7 @@ def test_new_settled_mission_calls_the_planner_again(
     assert calls["count"] == 2, "a settled mission is new evidence for the Planner"
 
 
-def test_unchanged_skip_expires_after_the_time_ceiling(
+def test_elapsed_time_alone_never_buys_a_planner_call(
     tmp_path: Path, monkeypatch
 ) -> None:
     project = tmp_path / "project"
@@ -173,17 +169,12 @@ def test_unchanged_skip_expires_after_the_time_ceiling(
 
     assert supervisor._plan_next_work() == PLAN_AWAITING
     assert calls["count"] == 1
-    supervisor._planner_unchanged_skip_armed_at = (
-        time.monotonic() - PLANNER_UNCHANGED_SKIP_MAX_SECONDS - 1.0
-    )
+    later = time.monotonic() + 7 * 24 * 3600.0
+    monkeypatch.setattr(time, "monotonic", lambda: later)
+    monkeypatch.setattr(time, "time", lambda: later)
 
     assert supervisor._plan_next_work() == PLAN_AWAITING
-    assert calls["count"] == 2, "elapsed time alone must force a real Planner call"
-
-    # The forced call answered with the same wait on the same inputs, so the
-    # window re-arms and the following cycle skips again.
-    assert supervisor._plan_next_work() == PLAN_AWAITING
-    assert calls["count"] == 2
+    assert calls["count"] == 1
 
 
 def test_operator_message_bypasses_the_skip(tmp_path: Path, monkeypatch) -> None:
@@ -266,7 +257,6 @@ def test_operator_wait_turn_regrant_beats_the_skip(
                 blocker_fingerprint="submission_needs_operator_8d2b840c",
                 recheck_condition="operator authorizes venue submission",
                 recheck_token="token-v1",
-                wait_mode="event",
                 wake_on=("authorization",),
                 operator_action_required=True,
             ),

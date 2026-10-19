@@ -433,19 +433,30 @@ class CampaignControlStore:
         recheck_token: str,
         watched_paths: Iterable[str] = (),
     ) -> ControlHead:
-        safe_watched_paths = [_safe_relative_path(path) for path in watched_paths]
-        head, _ = self.commit_revision(
-            identity=identity,
-            updates={
-                "active_wait": {
-                    "wait_id": str(wait_id),
-                    "blocker_fingerprint": str(blocker_fingerprint),
-                    "recheck_token": str(recheck_token),
-                    "watched_paths": safe_watched_paths,
-                },
-            },
-            reason="planner waiting contract activated",
-        )
+        active_wait = {
+            "wait_id": str(wait_id),
+            "blocker_fingerprint": str(blocker_fingerprint),
+            "recheck_token": str(recheck_token),
+            "watched_paths": [_safe_relative_path(path) for path in watched_paths],
+        }
+        with self.locked():
+            current = self.read_head()
+            snapshot = self.read_snapshot(current)
+            # The same wait persisted again is no new revision: moving HEAD
+            # would make an authorization issued against it stale.
+            if (
+                current is not None
+                and snapshot is not None
+                and (current.campaign_id, current.objective_sha256, current.campaign_epoch)
+                == (identity.campaign_id, identity.objective_sha256, identity.campaign_epoch)
+                and snapshot.get("active_wait") == active_wait
+            ):
+                return current
+            head, _ = self._next_revision_unlocked(
+                identity=identity,
+                updates={"active_wait": active_wait},
+                reason="planner waiting contract activated",
+            )
         return head
 
     def clear_wait_for_new_evidence(

@@ -1695,9 +1695,7 @@ def test_experiment_submit_without_timeout_records_no_timeout(
     assert rc == 0
     assert record is not None
     assert record["timeout_seconds"] is None
-    assert record["timeout_defaulted"] is False
     assert output["timeout_seconds"] is None
-    assert output["timeout_defaulted"] is False
     assert "timeout_notice" not in output
     assert record["worker_process_identity"]["pid"] == 4242
 
@@ -1715,7 +1713,6 @@ def test_submit_without_timeout_survives_past_old_default(
         "task_id": "timed",
         "run_id": "timed-run-1",
         "timeout_seconds": None,
-        "timeout_defaulted": False,
     })
 
     class _Proc:
@@ -1770,7 +1767,6 @@ def test_submit_without_timeout_survives_past_old_default(
     record = _sub._read_task("timed")
     running = next(row for row in writes if row.get("state") == "running")
     assert running["timeout_seconds"] is None
-    assert running["timeout_defaulted"] is False
     assert running["process_identity"]["pid"] == proc.pid
     assert record is not None and record["state"] == "done"
     assert record["elapsed_seconds"] == 7201.0

@@ -1,13 +1,12 @@
 """Round-loop phase: agent-driven background/external-work cadence waits.
 
-The Engineer requests a wait through an exact JSON object on the final non-empty
-response line. The harness validates the registry id, then monitors that owner
-until its state changes.
+The Engineer asks for a wait with ``→ wait: <task-id>`` (or the older exact
+JSON line). The registry, not the request's spelling, says what that work is;
+the harness then monitors it until its state changes.
 """
 
 from __future__ import annotations
 
-import hashlib
 import json
 import os
 import tempfile
@@ -37,26 +36,10 @@ if TYPE_CHECKING:
     from .runner import SupervisedConfig
 
 
-# The lead holds its mission for this long waiting on its own team before it
-# hands the wait to the daemon, which resumes the mission when the team settles.
-_LEAD_WAIT_MAX_ENV = "ARGUS_TEAM_LEAD_WAIT_MAX_SECONDS"
-_LEAD_WAIT_MAX_DEFAULT = 3600.0
-
-
-def _lead_wait_max_seconds() -> float:
-    try:
-        return max(0.0, float(os.environ.get(_LEAD_WAIT_MAX_ENV, "") or _LEAD_WAIT_MAX_DEFAULT))
-    except ValueError:
-        return _LEAD_WAIT_MAX_DEFAULT
-
-
-def _team_wait_line(work_id: str) -> str:
-    return json.dumps({"wait_for": "external_work", "wait_id": work_id})
-
-
-# An Engineer-requested wait keeps its mission slot at most this long while
-# the daemon has no other use for the slot; after that the round pauses and
-# the daemon resumes the mission when the work settles.
+# A round waiting on background work -- an Engineer-requested job, or the
+# lead's own team -- keeps its mission slot at most this long while the daemon
+# has no other use for it; after that the round pauses and the daemon resumes
+# the mission when the work settles.
 _EXTERNAL_WAIT_HOLD_MAX_ENV = "ARGUS_EXTERNAL_WAIT_HOLD_MAX_SECONDS"
 _EXTERNAL_WAIT_HOLD_MAX_DEFAULT = 3600.0
 
@@ -68,6 +51,10 @@ def _external_wait_hold_max_seconds() -> float:
         ))
     except ValueError:
         return _EXTERNAL_WAIT_HOLD_MAX_DEFAULT
+
+
+def _team_wait_line(work_id: str) -> str:
+    return json.dumps({"wait_for": "external_work", "wait_id": work_id})
 
 
 def _keep_holding_external_wait(
@@ -152,7 +139,7 @@ class RoundWaitsMixin:
 
         session = state.engineer_session
         thread_id = str(getattr(session, "thread_id", "") or "") or None
-        budget = _lead_wait_max_seconds()
+        budget = _external_wait_hold_max_seconds()
         started = time.monotonic()
         waited_total = 0.0
         current: ExternalWorkStatus | None = target
@@ -231,13 +218,11 @@ class RoundWaitsMixin:
         if receipt is None:
             return False
         request = parse_external_wait_request(raw_engineer_message)
-        if not request:
+        status = inspect_external_work(workdir, request[1]) if request else None
+        if status is None:
             return False
-        kind, work_id = request
-        status = inspect_external_work(workdir, work_id)
-        if status is None or (kind == "subagent") != (status.source == "subagent"):
-            return False
-        if kind == "subagent" and not supervised_config.background_subagent_advisory:
+        work_id = status.work_id
+        if status.source == "subagent" and not supervised_config.background_subagent_advisory:
             return False
         if status.waitable and not supervised_config.review_background_launches:
             return False
@@ -251,7 +236,7 @@ class RoundWaitsMixin:
             "phase": "waiting" if status.waitable else status.state.value,
             "outcome": "" if status.waitable else status.outcome,
         }
-        key = hashlib.sha256(json.dumps(identity, sort_keys=True).encode()).hexdigest()
+        key = json.dumps(identity, sort_keys=True)
         if receipt.exists():
             try:
                 saved = json.loads(receipt.read_text())
@@ -327,24 +312,18 @@ class RoundWaitsMixin:
         state: RoundLoopState,
         on_event: Callable[[dict], None] | None,
     ) -> RoundControl:
+        # What the work is comes from the registry, not from how the request
+        # was spelled; a subagent is waited on only with its advisory enabled.
         wait_request = parse_external_wait_request(raw_engineer_message)
-        wait_kind, external_work_id = wait_request or ("", "")
         external_work = (
-            inspect_external_work(workdir, external_work_id) if external_work_id else None
+            inspect_external_work(workdir, wait_request[1]) if wait_request else None
         )
-        source_matches = (
-            external_work is not None
-            and (
-                (wait_kind == "external_work" and external_work.source != "subagent")
-                or (
-                    wait_kind == "subagent"
-                    and supervised_config.background_subagent_advisory
-                    and external_work.source == "subagent"
-                )
-            )
-        )
-        if external_work is None or not source_matches:
+        if external_work is None or (
+            external_work.source == "subagent"
+            and not supervised_config.background_subagent_advisory
+        ):
             return control_proceed()
+        external_work_id = external_work.work_id
         if not external_work.waitable:
             if process_stop.stop_requested():
                 session = state.engineer_session
@@ -407,7 +386,7 @@ class RoundWaitsMixin:
                     state.rounds,
                     raw_engineer_message,
                     (
-                        f"healthy {wait_kind} {external_work.work_id} is still "
+                        f"healthy {external_work.source} {external_work.work_id} is still "
                         "running; released the mission slot"
                     ),
                     str(getattr(session, "thread_id", "") or "") or None,

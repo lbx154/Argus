@@ -2,18 +2,16 @@
 
 from __future__ import annotations
 
-import hashlib
 import logging
-import time
 from typing import Any
 
 from ...core.event_catalog import EventType
 from ...core.planner_verdict import PlannerVerdictStatus
 from ._constants import (
-    MANAGER_RECONCILE_AFTER_IDLE_CYCLES,
     PLAN_AWAITING,
     PLAN_ERROR,
     PLAN_RETRY,
+    UNOBSERVED_WAIT,
 )
 from ._planner_failure_backoff import PlannerFailureBackoffMixin
 from ._planning_cycle_completion import PlanningCycleCompletionMixin
@@ -172,7 +170,6 @@ class PlanningCycleMixin(
             )
             for job in jobs
         )
-        token = hashlib.sha256(repr(rows).encode("utf-8")).hexdigest()
         job_ids = ", ".join(row[0] for row in rows)
         observed_revision = self._planner_waiting_observed_revision(
             wake_on=["subagent_state"],
@@ -188,91 +185,27 @@ class PlanningCycleMixin(
         if rows != revalidated_rows:
             return None
         return WaitingContract(
-            blocker_fingerprint=f"live-subagents:{token[:24]}",
             recheck_condition=f"durable task state changes: {job_ids}",
-            recheck_token=token,
-            wait_mode="event",
+            blocker_fingerprint=f"live-subagents:{','.join(row[0] for row in rows)}",
+            recheck_token=",".join(f"{work_id}@{run}" for work_id, run in rows),
             wake_on=("subagent_state",),
             observed_revision=observed_revision,
         )
 
     def _normalize_live_subagent_wait(self, verdict: Any) -> Any:
-        jobs = self._waitable_subagent_jobs()
-        if not jobs:
+        """Fold tasks that only probe live work into a wait on that work.
+
+        A Planner wait that names live work is already bound to it
+        (``_bind_planner_wait``); this catches the other spelling of the same
+        intent, status-probe tasks for jobs the host already watches.
+        """
+        if bool(getattr(verdict, "waiting", False)):
             return verdict
-        source = ""
-        waiting = bool(getattr(verdict, "waiting", False))
-        existing_contract = getattr(verdict, "waiting_contract", None)
-        if waiting:
-            waiting_text = " ".join(
-                str(value or "")
-                for value in (
-                    getattr(verdict, "waiting_reason", ""),
-                    getattr(verdict, "reason", ""),
-                    getattr(existing_contract, "blocker_fingerprint", ""),
-                    getattr(existing_contract, "recheck_condition", ""),
-                    getattr(existing_contract, "recheck_token", ""),
-                )
-            ).casefold()
-            references_live_job = self._text_references_live_subagents(
-                waiting_text,
-                jobs,
-            )
-            monitor_only_wait = self._text_is_monitor_only(waiting_text)
-            # Waiting for a team is waiting for background work by definition:
-            # its routes run in worker sessions the Planner cannot advance, so
-            # the wording test written for subagent status probes does not
-            # apply. Without this the trial Planner's "pause until this review
-            # concludes" stayed a poll and re-ran every backoff tick.
-            if references_live_job and not monitor_only_wait and any(
-                job.source == "team" for job in jobs
-            ):
-                monitor_only_wait = self._text_references_live_subagents(
-                    waiting_text, [job for job in jobs if job.source == "team"],
-                )
-            if references_live_job and monitor_only_wait and existing_contract is None:
-                source = "missing_wait_contract"
-            elif existing_contract is not None:
-                wake_on = set(getattr(existing_contract, "wake_on", ()) or ())
-                existing_wait_mode = str(
-                    getattr(existing_contract, "wait_mode", "poll") or "poll"
-                ).strip().lower()
-                subagent_event_contract = (
-                    existing_wait_mode == "event"
-                    and bool(
-                        {"subagent_state", "subagent_terminal"}.intersection(
-                            wake_on
-                        )
-                    )
-                )
-                if (
-                    references_live_job
-                    and (monitor_only_wait or subagent_event_contract)
-                    and not bool(
-                        getattr(existing_contract, "operator_action_required", False)
-                    )
-                    and not bool(
-                        getattr(
-                            existing_contract,
-                            "stage_reconciliation_required",
-                            False,
-                        )
-                    )
-                ):
-                    if existing_wait_mode != "event":
-                        source = "poll_wait_contract"
-                    elif not str(
-                        getattr(existing_contract, "observed_revision", "") or ""
-                    ):
-                        source = "unvalidated_event_wait_contract"
-        else:
-            tasks = list(getattr(verdict, "new_tasks", []) or [])
-            if tasks and all(
-                self._task_only_waits_for_live_subagents(task, jobs)
-                for task in tasks
-            ):
-                source = "status_only_task"
-        if not source:
+        jobs = self._waitable_subagent_jobs()
+        tasks = list(getattr(verdict, "new_tasks", []) or [])
+        if not jobs or not tasks or not all(
+            self._task_only_waits_for_live_subagents(task, jobs) for task in tasks
+        ):
             return verdict
         contract = self._live_subagent_event_wait_contract(jobs)
         if contract is None:
@@ -289,7 +222,7 @@ class PlanningCycleMixin(
             {
                 "type": "life.planner.external_poll_suppressed",
                 "cycle": self._planning_cycles,
-                "source": source,
+                "source": "status_only_task",
                 "work_ids": [job.work_id for job in jobs],
                 "recheck_token": contract.recheck_token,
                 "suppressed_task_titles": [
@@ -308,78 +241,6 @@ class PlanningCycleMixin(
             waiting=True,
             waiting_reason=reason,
             waiting_contract=contract,
-        )
-
-    def _independent_overlap_task(self, verdict: Any) -> Any | None:
-        """Turn a live-job wait into one useful, non-conflicting mission."""
-        if not bool(getattr(verdict, "waiting", False)):
-            return None
-        if bool(getattr(verdict, "project_done", False)):
-            return None
-        if list(getattr(verdict, "new_tasks", []) or []):
-            return None
-        contract = getattr(verdict, "waiting_contract", None)
-        if bool(getattr(contract, "operator_action_required", False)):
-            return None
-        if str(getattr(contract, "wait_mode", "") or "").strip().lower() == "event":
-            return None
-        watched = self._waitable_subagent_jobs()
-        if not watched:
-            return None
-        if any(
-            getattr(job, "source", "") == "team" and getattr(job, "owner", "") == "runtime"
-            for job in watched
-        ):
-            # A runtime-owned team *is* the current stage's work (the idea
-            # portfolio); an overlap mission beside it would be the lead
-            # inventing work while its own routes run.
-            return None
-        root = self._artifact_root()
-        title = "Advance independent work while background job runs"
-        try:
-            if any(
-                item.status in {"pending", "running"} and item.title == title
-                for item in self.memory.backlog.active()
-            ):
-                return None
-        except Exception:  # noqa: BLE001
-            return None
-        from ...planner import TaskSpec
-        from ...skills.stage_machine import current_stage
-
-        stage = current_stage(root)
-        job_ids = ", ".join(job.work_id for job in watched[:4])
-        objective = (
-            f"Bounded overlap mission while current_stage remains `{stage}` and "
-            f"healthy self-watched background job(s) `{job_ids}` continue. Do not "
-            "poll, restart, stop, or duplicate those jobs. Produce one concrete "
-            "current-stage deliverable that does not depend on their terminal "
-            "result: platform/evaluator repair, data or provenance preparation, "
-            "analysis code/scaffolding, claim-evidence organization, or manuscript "
-            "prose with explicit placeholders as applicable. Inspect the current "
-            "stage and existing artifacts first; preserve result-dependent claims "
-            "as placeholders. Do not edit Manager-owned stage state."
-        )
-        return TaskSpec(
-            title=title,
-            objective=objective,
-            impact_area="throughput",
-            evidence=f"live self-watched jobs: {job_ids}",
-            hypothesis=(
-                "A distinct current-stage deliverable can advance without polling "
-                "or changing the supervised background jobs."
-            ),
-            goal_contribution=(
-                "Use otherwise idle wall time on a prerequisite or deliverable that "
-                "shortens the path to the standing objective."
-            ),
-            expected_regressions="None; do not touch the in-flight jobs or their state.",
-            decision_rule=(
-                "Stop or revise if every useful current-stage action depends on the "
-                "background result."
-            ),
-            scope="bounded",
-            stage_closing=False,
         )
 
     def _emit_planner_verdict(
@@ -717,10 +578,11 @@ class PlanningCycleMixin(
         """Let the Manager repair a stage/Planner mutual wait.
 
         Open-ended campaigns review every new non-operator wait; bounded
-        campaigns review only explicit stage-reconciliation requests. If the
-        Manager confirms that the blocker remains external, unchanged waits are
-        reviewed again only at the bounded cadence below. The Manager alone
-        decides HOLD versus ROLLBACK.
+        campaigns review explicit stage-reconciliation requests and waits the
+        host cannot observe, which climb here instead of being asked again.
+        Each wait is reviewed once: the same wait returned again is recorded,
+        not re-adjudicated, and wakes only when something it depends on moves.
+        The Manager alone decides HOLD versus ROLLBACK.
         """
         if not bool(getattr(verdict, "waiting", False)):
             return ""
@@ -729,138 +591,61 @@ class PlanningCycleMixin(
         if list(getattr(verdict, "new_tasks", []) or []):
             return ""
 
-        contract = getattr(verdict, "waiting_contract", None)
-        explicitly_requested = bool(
-            getattr(contract, "stage_reconciliation_required", False)
-        )
-        if not getattr(self.config, "open_ended", False) and not explicitly_requested:
+        contract = self._bind_planner_wait(getattr(verdict, "waiting_contract", None))
+        if contract is None:
             return ""
-        blocker_fingerprint, recheck_token = self._waiting_contract_key(contract)
-        if not blocker_fingerprint or not recheck_token:
-            # Uncontracted waits still require Manager review. Use stage plus a
-            # digest of the Planner's reason as a stable deduplication key.
-            reason = " ".join(
-                str(
-                    getattr(verdict, "waiting_reason", "")
-                    or getattr(verdict, "reason", "")
-                    or ""
-                ).split()
-            )
-            if not reason:
-                return ""
-            blocker_fingerprint = "uncontracted:" + hashlib.sha256(
-                reason.encode("utf-8")
-            ).hexdigest()[:16]
-            recheck_token = "uncontracted"
-            uncontracted = True
-        else:
-            uncontracted = False
-
+        explicitly_requested = bool(contract.stage_reconciliation_required)
+        unobserved = contract.blocker_fingerprint == UNOBSERVED_WAIT
+        if not (
+            getattr(self.config, "open_ended", False)
+            or explicitly_requested
+            or unobserved
+        ):
+            return ""
         # A wait gated on operator input is not a stage question: the operator
         # decides it while they can be asked, and otherwise the Manager decides
         # it in their place (_settle_operator_wait_without_operator), not here.
-        if bool(getattr(contract, "operator_action_required", False)):
-            self._planner_waits_since_reconciliation = 0
+        if contract.operator_action_required:
             return ""
-
-        wake_on = set(getattr(contract, "wake_on", ()) or ())
+        blocker_fingerprint, recheck_token = self._waiting_contract_key(contract)
         if (
-            str(getattr(contract, "wait_mode", "") or "").strip().lower()
-            == "event"
-            and not explicitly_requested
-            and str(getattr(contract, "blocker_fingerprint", "") or "").startswith(
-                "live-subagents:"
-            )
-            and bool(wake_on)
-            and wake_on <= {"subagent_state", "subagent_terminal"}
+            not explicitly_requested
+            and blocker_fingerprint.startswith("live-subagents:")
         ):
-            self._planner_waits_since_reconciliation = 0
             return ""
 
         root = self._artifact_root()
         from ...skills.stage_machine import current_stage
 
         stage = current_stage(root)
-        key = (
-            stage,
-            blocker_fingerprint,
-            recheck_token,
-            explicitly_requested,
-        )
-        last_key = getattr(
-            self,
-            "_last_planner_wait_reconciliation_key",
-            None,
-        )
-        key_changed = key != last_key
-        waits_since_reconciliation = (
-            1
-            if key_changed
-            else int(
-                getattr(self, "_planner_waits_since_reconciliation", 0) or 0
-            ) + 1
-        )
-        self._last_planner_wait_reconciliation_key = key
-        self._planner_waits_since_reconciliation = waits_since_reconciliation
-        contract_state = self._load_planner_waiting_contract_state()
-        same_contract = (
-            contract_state is not None
-            and contract_state.get("blocker_fingerprint") == blocker_fingerprint
-            and contract_state.get("recheck_token") == recheck_token
-        )
-        existing_resolution = (
-            contract_state.get("manager_resolution")
-            if same_contract and contract_state is not None
-            else None
-        )
-        if isinstance(existing_resolution, dict):
-            resolution_retries = int(
-                contract_state.get("resolution_retry_count") or 0
-            ) + 1
-            contract_state["resolution_retry_count"] = resolution_retries
-            contract_state["updated_at"] = time.time()
-            self._write_planner_waiting_contract_state(contract_state)
-            if resolution_retries < MANAGER_RECONCILE_AFTER_IDLE_CYCLES:
-                self._enter_idle_backoff()
-                self._emit_status(
-                    "Planner repeated a resolved wait; backing off before retry"
-                )
-                return ""
-            contract_state["manager_resolution"] = None
-            contract_state["resolution_retry_count"] = 0
-            contract_state["updated_at"] = time.time()
-            self._write_planner_waiting_contract_state(contract_state)
-            self._planner_waits_since_reconciliation = 0
-            self._emit_status(
-                "Planner repeatedly ignored a Manager wait resolution; "
-                "re-adjudicating"
-            )
-        if not (
-            key_changed
-            or waits_since_reconciliation >= MANAGER_RECONCILE_AFTER_IDLE_CYCLES
-        ):
+        key = (stage, blocker_fingerprint, recheck_token, explicitly_requested)
+        if key == getattr(self, "_last_planner_wait_reconciliation_key", None):
             return ""
-
-        # Immediate reconciliation happens before the ordinary waiting-record
-        # path. Persist a freshly returned contract first so an authoritative
-        # Manager resolution has durable state to update and the next Planner
-        # call receives that resolution instead of repeating the same wait.
-        if not same_contract and not uncontracted:
+        contract_state = self._load_planner_waiting_contract_state()
+        if (
+            contract_state is None
+            or contract_state.get("blocker_fingerprint") != blocker_fingerprint
+            or contract_state.get("recheck_token") != recheck_token
+        ):
+            # Persist first so an authoritative Manager resolution has durable
+            # state to update and the next Planner call receives it.
             contract_state = self._persist_planner_waiting_contract(contract)
             if contract_state is None:
                 self._emit_status(
                     "failed to persist Planner wait before Manager reconciliation"
                 )
                 return ""
-        elif uncontracted:
-            # Nothing to persist: there is no contract, so there is also no
-            # durable slot for the Manager's resolution to be handed back
-            # through. Treating that as a failure is what kept the review from
-            # happening at all. In-memory key deduplication above still bounds
-            # how often an unchanged wait is re-adjudicated.
-            contract_state = None
+        elif isinstance(contract_state.get("manager_resolution"), dict):
+            # The Manager already ruled on this wait; returning it unchanged is
+            # not news, so it is recorded rather than adjudicated again.
+            return ""
+        self._last_planner_wait_reconciliation_key = key
 
-        manager = self._bound_manager()
+        try:
+            manager = self._bound_manager()
+        except RuntimeError:
+            # Without a Manager there is nobody above the Planner to climb to.
+            return ""
         on_event = getattr(self.sink, "handle_event", None)
         decision = manager.decide_stage_transition(
             review=None,
@@ -882,13 +667,9 @@ class PlanningCycleMixin(
             "resolves_wait": bool(getattr(decision, "resolves_wait", False)),
         })
 
-        if decision.source == "manager_llm" or decision.action == "rollback":
-            self._planner_waits_since_reconciliation = 0
-        else:
-            # Backend/failsafe HOLDs are not authoritative. Retry next wait.
-            self._planner_waits_since_reconciliation = (
-                MANAGER_RECONCILE_AFTER_IDLE_CYCLES
-            )
+        if decision.source != "manager_llm" and decision.action != "rollback":
+            # Backend/failsafe HOLDs are not authoritative; the next wait asks again.
+            self._last_planner_wait_reconciliation_key = None
 
         if decision.diagnostic == "planner_wait_advance_rejected":
             persisted = self._persist_manager_planner_feedback(
@@ -903,7 +684,6 @@ class PlanningCycleMixin(
                 return False
             self._deactivate_planner_waiting_contract()
             self._last_planner_wait_reconciliation_key = None
-            self._planner_waits_since_reconciliation = 0
             self._last_open_ended_project_done_signature = ""
             self._reset_idle_backoff()
             self._emit({
@@ -921,7 +701,7 @@ class PlanningCycleMixin(
             decision.action == "hold"
             and decision.source == "manager_llm"
             and not bool(getattr(decision, "resolves_wait", False))
-            and (uncontracted or explicitly_requested)
+            and (unobserved or explicitly_requested)
         ):
             persisted = self._persist_manager_planner_feedback(
                 stage=stage,
@@ -936,7 +716,6 @@ class PlanningCycleMixin(
             self._deactivate_planner_waiting_contract()
             self._clear_planner_wait_resolution()
             self._last_planner_wait_reconciliation_key = None
-            self._planner_waits_since_reconciliation = 0
             self._reset_idle_backoff()
             self._emit({
                 "type": "life.manager.feedback.persisted",
@@ -959,7 +738,6 @@ class PlanningCycleMixin(
                 target_stage=decision.target_stage,
             )
             self._last_planner_wait_reconciliation_key = None
-            self._planner_waits_since_reconciliation = 0
             self._reset_idle_backoff()
             self._emit_status(
                 "manager resolved planner wait while holding "
@@ -973,7 +751,6 @@ class PlanningCycleMixin(
         self._deactivate_planner_waiting_contract()
         self._clear_planner_wait_resolution()
         self._last_planner_wait_reconciliation_key = None
-        self._planner_waits_since_reconciliation = 0
         self._last_open_ended_project_done_signature = ""
         self._reset_idle_backoff()
         self._emit_status(

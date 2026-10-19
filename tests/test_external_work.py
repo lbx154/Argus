@@ -292,6 +292,44 @@ def test_direct_subagent_is_waitable_while_its_owner_is_alive(tmp_path: Path) ->
     assert status.started_at == 123.0
 
 
+@pytest.mark.parametrize(
+    ("timeout_seconds", "silent_for", "expected"),
+    [
+        (None, 7 * 3600, ExternalWorkState.STALLED),
+        (None, 60, ExternalWorkState.RUNNING_HEALTHY),
+        (86_400, 7 * 3600, ExternalWorkState.RUNNING_HEALTHY),
+    ],
+)
+def test_a_direct_subagent_without_a_timeout_that_falls_silent_is_stalled(
+    tmp_path: Path, timeout_seconds, silent_for, expected,
+) -> None:
+    """A hung command keeps its process alive; with no timeout to end it, a
+    long silence on its output is what ends the wait on it."""
+    now = 1_000_000.0
+    log = tmp_path / "direct-job.out"
+    log.write_text("epoch 1\n", encoding="utf-8")
+    os.utime(log, (now - silent_for, now - silent_for))
+    registry = tmp_path / ".argus_subagents"
+    registry.mkdir()
+    (registry / "direct-job.json").write_text(
+        json.dumps({
+            "task_id": "direct-job",
+            "mode": "direct",
+            "state": "running",
+            "worker_pid": os.getpid(),
+            "started_at": now - 8 * 3600,
+            "timeout_seconds": timeout_seconds,
+            "stdout_log": str(log),
+        }),
+        encoding="utf-8",
+    )
+
+    status = inspect_external_work(tmp_path, "direct-job", now=now)
+
+    assert status is not None and status.state is expected
+    assert status.waitable is (expected is ExternalWorkState.RUNNING_HEALTHY)
+
+
 def test_direct_subagent_with_dead_owner_is_stalled(tmp_path: Path) -> None:
     registry = tmp_path / ".argus_subagents"
     registry.mkdir()

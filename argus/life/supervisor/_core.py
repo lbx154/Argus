@@ -174,17 +174,14 @@ class LifeSupervisor(
         # emits except on change or a slow heartbeat.
         self._last_lifecycle_block_sig: tuple[str, str] | None = None
         self._last_lifecycle_block_at = 0.0
-        # Planner idle/waiting log-hygiene + stall-escalation state (same family
-        # as the lifecycle-block heartbeat above): suppress repeated identical
-        # planner_waiting/planner_idle events, and rate-limit the
-        # verification-probe stall-breaker.
+        # Planner idle/waiting log-hygiene (same family as the lifecycle-block
+        # heartbeat above): suppress repeated identical planner_waiting /
+        # planner_idle events.
         self._last_planner_idle_sig: str | None = None
         self._last_planner_idle_at = 0.0
-        self._last_verification_probe_at = 0.0
         self._last_planner_wait_reconciliation_key: (
             tuple[str, str, str, bool] | None
         ) = None
-        self._planner_waits_since_reconciliation = 0
         # Consecutive missions that COMPLETED with the reviewer judging
         # forward_progress=false; when it crosses the threshold the harness
         # escalates to the operator (surface, don't loop invisibly).

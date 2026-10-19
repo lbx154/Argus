@@ -52,9 +52,11 @@ PLANNER_QUARANTINE_MAX_AGE_HOURS = 72.0
 # signature from quarantine; 0 disables the success-release path.
 PLANNER_QUARANTINE_RELEASE_SUCCESSES = 3
 CONSECUTIVE_REPLAN_ESCALATION_THRESHOLD = 3
-VERIFICATION_PROBE_AFTER_IDLE_CYCLES = 4
-MANAGER_RECONCILE_AFTER_IDLE_CYCLES = 4
-VERIFICATION_PROBE_COOLDOWN_SECONDS = 1800.0
+# A Planner wait on project files that have not changed for this long climbs
+# to the Manager; a wait on live work or the operator has its own wake.
+FILE_WAIT_CLIMB_SECONDS = 1800.0
+# The binding of a Planner wait the host cannot observe; it climbs to the Manager.
+UNOBSERVED_WAIT = "unobserved"
 STALL_ESCALATION_AFTER_NO_PROGRESS_MISSIONS = 3
 REPLAN_FILTER_REJECTION_LIMIT = 3
 MANAGER_FEEDBACK_REPLAN_LIMIT = 3
@@ -190,9 +192,8 @@ __all__ = [
     "planner_quarantine_release_successes",
     "CONSECUTIVE_REPLAN_ESCALATION_THRESHOLD",
     "consecutive_replan_escalation_threshold",
-    "VERIFICATION_PROBE_AFTER_IDLE_CYCLES",
-    "MANAGER_RECONCILE_AFTER_IDLE_CYCLES",
-    "VERIFICATION_PROBE_COOLDOWN_SECONDS",
+    "FILE_WAIT_CLIMB_SECONDS",
+    "UNOBSERVED_WAIT",
     "STALL_ESCALATION_AFTER_NO_PROGRESS_MISSIONS",
     "REPLAN_FILTER_REJECTION_LIMIT",
     "MANAGER_FEEDBACK_REPLAN_LIMIT",

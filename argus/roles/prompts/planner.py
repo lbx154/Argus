@@ -96,17 +96,14 @@ Plan from the mission workspace only; never read sibling projects or parent dire
 - Optional `RETIRE_TASK=<item id> | <one-sentence reason>` needs a line and reason
   per item. Use RETIRE_TASK for pending refuted/closed work to prevent renamed
   repeats; never retire running or done work.
-- External waits use `blocker_fingerprint`, `recheck_condition`, `recheck_token`,
-  `wake_on` (synonyms/combined sources), and `watched_paths`. `operator_action_required`
-  is operator-only; Host chooses events or timed rechecks.
-- When only Argus running/paused_external_work dependencies remain, keep
-  `PROJECT_DONE` false and return `WAITING=true`, `REASON` and no `TASK_*` blocks.
-  Use `WAIT_MODE=event`, `WAKE_ON=subagent_state`, `WAIT_ID=<live subagent or
-  team work id from live_subagent_work_ids>`, `BLOCKER_FINGERPRINT=<that id>`,
-  `RECHECK_TOKEN=<run id, or the team id>`, and
-  `RECHECK_CONDITION=<which in-flight work must finish>`. Keep the token stable
-  while the run is unchanged. Waiting is valid; invent no dependent work.
-  Schedule only work independent of the awaited results.
+- To wait, return `PROJECT_DONE=false`, `WAITING=true`, `REASON`,
+  no `TASK_*` blocks, and `WAIT=<one sentence: what must happen>`. Name it as the
+  Host can see it: a work id from live_subagent_work_ids, or a project path that
+  will change. The Host watches that and wakes you; a wait it cannot observe goes
+  to the Manager. Add `OPERATOR_ACTION_REQUIRED=true` when only the operator can
+  end it, and `STAGE_RECONCILIATION_REQUIRED=true` when the stage itself blocks
+  you. Waiting is valid; invent no dependent work. Schedule only work independent
+  of the awaited results.
 - REASON and PLAN_REASON are operator-facing: one clear sentence in the operator's
   language stating the decision and next action. Do not emit
   field names or status tokens in their values.

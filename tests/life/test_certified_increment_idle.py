@@ -226,7 +226,7 @@ def test_legacy_certified_wait_reports_once_without_recertification(
                 WaitingContract(
                     blocker_fingerprint="new-direction", recheck_token="certified",
                     recheck_condition="New operator instruction arrives",
-                    operator_action_required=True, wait_mode="event",
+                    operator_action_required=True,
                     wake_on=("authorization",),
                 ) if contracted else None
             ),
@@ -699,7 +699,7 @@ def test_handled_wait_preserves_waiting_and_report_dedup(campaign, monkeypatch, 
                     blocker_fingerprint="new-result",
                     recheck_condition="The new result arrives",
                     recheck_token="new-result-1",
-                    wait_mode="event", wake_on=("filesystem",),
+                    wake_on=("artifact_revision",),
                     watched_paths=("new-result.txt",),
                 ) if event_wait else None
             ),

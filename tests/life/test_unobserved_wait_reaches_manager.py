@@ -1,22 +1,17 @@
-"""A wait with no contract is where the Manager review matters most.
+"""A wait the host cannot observe is where the Manager review matters most.
 
 Measured on 2026-07-26 in a captured project event log: a kernel_engineering
-campaign emitted several consecutive `life.planner.waiting` verdicts, every one with
-`waiting_contract: null`, and produced zero Manager stage reviews. Thirteen
-provider calls, no progress, and the Planner had already said exactly what was
-wrong:
+campaign emitted several consecutive `life.planner.waiting` verdicts with no
+usable contract and produced zero Manager stage reviews. Thirteen provider
+calls, no progress, and the Planner had already said exactly what was wrong:
 
     "Scope checklist is satisfied, but only the Manager may advance
      current_stage from scope to environment."
 
-The one authority that could act was never asked, because
-`_reconcile_open_ended_planner_waiting` returned immediately when the blocker
-fingerprint and recheck token were missing — making the "every new non-operator
-wait gets one immediate liveness review" that its own docstring promises
-unreachable for any wait the Planner did not fully annotate.
-
-Asking the Manager more often is plumbing, not a science judgment: the Manager
-still decides HOLD versus ROLLBACK, and nothing here reads the research.
+The one authority that could act was never asked. Now every Planner wait is
+bound by the host; one it cannot watch climbs to the Manager, once, in bounded
+and open-ended campaigns alike. The Manager still decides HOLD versus ROLLBACK,
+and nothing here reads the research.
 """
 
 from __future__ import annotations
@@ -47,16 +42,21 @@ class _Probe:
     """The real reconciliation, with only its Manager call and stage stubbed."""
 
     def __init__(self, *, stage: str = "scope", open_ended: bool = True) -> None:
+        from argus.life.supervisor._planning_context import PlanningContextMixin
         from argus.life.supervisor._planning_cycle import PlanningCycleMixin
 
         self._reconcile = PlanningCycleMixin._reconcile_open_ended_planner_waiting.__get__(
             self
         )
+        for name in (
+            "_bind_planner_wait", "_project_paths_named_in", "_confined_planner_wait_paths",
+        ):
+            setattr(self, name, getattr(PlanningContextMixin, name).__get__(self))
         self.config = SimpleNamespace(open_ended=open_ended, continuous_objective="obj")
+        self.manager = object()
         self.manager_calls = 0
         self.manager_open_ended = None
         self._stage = stage
-        self._planner_waits_since_reconciliation = 0
         self._last_planner_wait_reconciliation_key = None
         self.planner_runner = None
         self.skill_store = None
@@ -74,6 +74,11 @@ class _Probe:
         from pathlib import Path
 
         return Path("/nonexistent-for-this-test")
+
+    _project_workdir = _artifact_root
+
+    def _waitable_subagent_jobs(self):
+        return []
 
     def _emit(self, event: dict) -> None:
         self.events.append(event)
@@ -142,10 +147,17 @@ def _reconciles(probe: _Probe, verdict) -> bool:
     return probe.manager_calls > 0
 
 
-def test_an_uncontracted_wait_still_reaches_the_manager() -> None:
-    probe = _Probe()
+def _wait(condition: str = "only the Manager may advance current_stage", **kw):
+    from argus.planner import WaitingContract
 
-    assert _reconciles(probe, _verdict()) is True
+    return WaitingContract(recheck_condition=condition, **kw)
+
+
+@pytest.mark.parametrize("open_ended", [False, True])
+def test_an_unobserved_wait_reaches_the_manager(open_ended: bool) -> None:
+    probe = _Probe(open_ended=open_ended)
+
+    assert _reconciles(probe, _verdict(waiting_contract=_wait())) is True
     assert probe.manager_feedback == [
         {
             "stage": "idea",
@@ -155,72 +167,59 @@ def test_an_uncontracted_wait_still_reaches_the_manager() -> None:
     ]
 
 
-def test_a_wait_with_no_reason_at_all_is_left_alone() -> None:
+def test_the_same_wait_is_reconciled_once() -> None:
+    """Returning the same wait is not news: no count re-adjudicates it."""
+    probe = _Probe(open_ended=True)
+    contract = _wait(
+        "results/metrics.json is written",
+        blocker_fingerprint="artifacts:results/metrics.json",
+        recheck_token="results/metrics.json is written",
+        wake_on=("artifact_revision",),
+        watched_paths=("results/metrics.json",),
+    )
+
+    for _ in range(5):
+        probe._reconcile(_verdict(waiting_contract=contract))
+
+    assert probe.manager_calls == 1
+
+
+def test_a_wait_with_no_sentence_at_all_is_left_alone() -> None:
     """Nothing to deduplicate on, and nothing to tell the Manager either."""
     probe = _Probe()
 
-    result = probe._reconcile(_verdict(waiting_reason="", reason=""))
-
-    assert result == ""
+    assert probe._reconcile(_verdict(waiting_contract=_wait(""))) == ""
+    assert probe.manager_calls == 0
 
 
 def test_an_operator_gated_wait_is_never_reconciled() -> None:
-    """The Manager is not the operator and cannot expand operator scope."""
+    """The operator, or the Manager in their place, decides it -- not stage review."""
     probe = _Probe()
-    contract = SimpleNamespace(
-        blocker_fingerprint="",
-        recheck_token="",
-        operator_action_required=True,
-        stage_reconciliation_required=False,
+
+    result = probe._reconcile(
+        _verdict(waiting_contract=_wait(operator_action_required=True))
     )
-
-    result = probe._reconcile(_verdict(waiting_contract=contract))
-
-    assert result == ""
-
-
-def test_deterministic_subagent_event_wait_never_polls_the_manager() -> None:
-    probe = _Probe()
-    contract = SimpleNamespace(
-        blocker_fingerprint="live-subagents:abc",
-        recheck_token="run-1",
-        operator_action_required=False,
-        stage_reconciliation_required=False,
-        wait_mode="event",
-        wake_on=("subagent_state",),
-    )
-
-    result = probe._reconcile(_verdict(waiting_contract=contract))
 
     assert result == ""
     assert probe.manager_calls == 0
 
 
-def test_event_wait_without_wake_source_still_reaches_the_manager() -> None:
+def test_deterministic_subagent_event_wait_never_polls_the_manager() -> None:
     probe = _Probe()
-    contract = SimpleNamespace(
+    contract = _wait(
         blocker_fingerprint="live-subagents:abc",
-        recheck_token="run-1",
-        operator_action_required=False,
-        stage_reconciliation_required=False,
-        wait_mode="event",
-        wake_on=(),
-        recheck_condition="wait for a real event source",
+        recheck_token="abc@run-1",
+        wake_on=("subagent_state",),
     )
 
-    probe._reconcile(_verdict(waiting_contract=contract))
-
-    assert probe.manager_calls == 1
+    assert probe._reconcile(_verdict(waiting_contract=contract)) == ""
+    assert probe.manager_calls == 0
 
 
 def test_bounded_explicit_stage_wait_reaches_the_manager() -> None:
-    from argus.planner import WaitingContract
-
     probe = _Probe(open_ended=False)
-    contract = WaitingContract(
-        blocker_fingerprint="continuation-stage-reset",
-        recheck_token="current-context",
-        recheck_condition="Manager must reconcile the current stage",
+    contract = _wait(
+        "Manager must reconcile the current stage",
         stage_reconciliation_required=True,
     )
 
@@ -234,16 +233,17 @@ def test_bounded_explicit_stage_wait_reaches_the_manager() -> None:
     assert probe.events[0]["action"] == "hold"
 
 
-@pytest.mark.parametrize("contracted", [False, True])
-def test_bounded_ordinary_wait_does_not_reach_the_manager(contracted: bool) -> None:
-    from argus.planner import WaitingContract
-
+@pytest.mark.parametrize("observed", [False, True])
+def test_a_bounded_wait_the_host_watches_does_not_reach_the_manager(observed: bool) -> None:
+    """A wait bound to a file the host watches wakes by itself; no contract, no wait."""
     probe = _Probe(open_ended=False)
-    contract = WaitingContract(
-        blocker_fingerprint="ordinary-blocker",
-        recheck_token="unchanged",
-        recheck_condition="wait for unchanged external evidence",
-    ) if contracted else None
+    contract = _wait(
+        "results/metrics.json is written",
+        blocker_fingerprint="artifacts:results/metrics.json",
+        recheck_token="results/metrics.json is written",
+        wake_on=("artifact_revision",),
+        watched_paths=("results/metrics.json",),
+    ) if observed else None
 
     assert probe._reconcile(_verdict(waiting_contract=contract)) == ""
     assert probe.manager_calls == 0
@@ -275,8 +275,6 @@ def test_real_manager_receives_bounded_wait_without_advancing_without_review(
         }))
 
     verdict = _verdict(waiting_contract=WaitingContract(
-        blocker_fingerprint="stage-reconciliation",
-        recheck_token="current",
         recheck_condition="Manager must decide the remaining stage work",
         stage_reconciliation_required=explicit,
     ))
@@ -300,8 +298,6 @@ def test_explicit_stage_wait_cannot_override_operator_gate(open_ended: bool) -> 
 
     probe = _Probe(open_ended=open_ended)
     contract = WaitingContract(
-        blocker_fingerprint="operator-scope",
-        recheck_token="authorization",
         recheck_condition="operator authorization is required",
         stage_reconciliation_required=True,
         operator_action_required=True,
@@ -326,8 +322,6 @@ def test_the_existing_preconditions_still_hold(field: str, open_ended: bool) -> 
     }[field]
 
     contract = WaitingContract(
-        blocker_fingerprint="stage",
-        recheck_token="current",
         recheck_condition="Manager stage reconciliation",
         stage_reconciliation_required=True,
     )
