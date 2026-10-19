@@ -8,7 +8,6 @@ from __future__ import annotations
 
 import argparse
 import asyncio
-import hashlib
 import json
 import os
 import subprocess
@@ -205,9 +204,9 @@ def main():
         core = None
         before_exec = None
         if args.mode == "launch":
+            # Tenants take cores in name order, so no two share one until all are taken.
             cores = sorted(os.sched_getaffinity(0))
-            index = int(hashlib.sha256(args.tenant.encode()).hexdigest()[:8], 16) % len(cores)
-            core = cores[index]
+            core = cores[sorted(config["tenants"]).index(args.tenant) % len(cores)]
             before_exec = lambda: os.sched_setaffinity(0, {core})
         with subprocess.Popen(sandbox_command(config, args.tenant, command), env={}, preexec_fn=before_exec) as child:
             directory = config["tenants"][args.tenant]["directory"]

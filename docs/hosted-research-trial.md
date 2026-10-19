@@ -164,7 +164,7 @@ arguments and results. Zero-tool, failed and interrupted calls retain their
 observed records. Structured hidden reasoning and signatures are omitted.
 Collection status and quality acceptance are separate; incomplete or sensitive
 observations are not grounds to discard an entire current-policy episode.
-The workbench's observation export does not require per-sample digest approval.
+The workbench's observation export does not require per-sample approval.
 
 The following strict candidate-review and SFT export workflow remains available
 for legacy samples and separately reviewed datasets; it does not gate the
@@ -186,7 +186,7 @@ The observer excludes system instructions, hidden reasoning, private signatures
 and credentials. A complete public tool episode is not the complete model context.
 Tool SFT export additionally requires explicit review that the public episode is
 self-contained. Exports distinguish `human_operator`, `automated_acceptance` and
-`unspecified` review; automated acceptance includes an evidence digest and is not
+`unspecified` review; automated acceptance names its evidence file and is not
 reported as human review. No dataset is uploaded or training job started by export.
 
 Per-event review receipts bind the selected purpose, event, sample content and
@@ -204,14 +204,14 @@ python -m argus.trial.training_validate /path/to/dataset.zip \
   --report /path/to/validation-report.json
 ```
 
-`--evidence` supplies the exact original file whose SHA-256 was recorded during
+`--evidence` supplies the exact original file whose size was recorded during
 automated acceptance. Repeat it for samples reviewed against different reports.
 Every automated export or sample review requires its matching evidence file;
-declaring an evidence digest alone is insufficient. Human reviews without an
-evidence digest do not require this option.
+declaring an evidence size alone is insufficient. Human reviews without an
+evidence file do not require this option.
 
 The command reads the current ten-file export ZIP directly and checks its file
-set, sizes, hashes, JSON/JSONL structure, tool schemas and arguments, captured
+set, sizes, JSON/JSONL structure, tool schemas and arguments, captured
 call/result correspondence, sample splits, counts and review attribution. It
 does not extract files, call tools, contact a model or launch training. Packages
 and their total uncompressed contents are limited to 64 MiB; up to 256 evidence
@@ -219,7 +219,7 @@ files are accepted, each at most 32 MiB.
 
 The JSON report always appears on standard output. `--report` also writes the
 same report atomically to a separate file and cannot overwrite an input package
-or evidence file. Reports contain hashes, counts, fixed error codes and locations;
+or evidence file. Reports contain sizes, counts, fixed error codes and locations;
 they do not repeat sample text or tool arguments.
 
 Exit status `0` means `valid: true` and, when `--require-agentic` is present,

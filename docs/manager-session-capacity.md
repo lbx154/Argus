@@ -24,7 +24,7 @@ Manager 的逻辑身份属于项目；provider thread 是可以维护、更换�
 - 与当前目标作用域匹配、仍有效的 Manager directive。
 - 最新 supervision 回执；`latest.json` 有合法 ID 时，优先采用对应 `{id}.json` 的持久状态。`issued` 表示待交付，交接不会重判、补发或将它描述为已应用。
 - 当前未答问题，独立于普通 observation 的八任务展示范围；已解决的问题和已清除、撤销或失去作用域的指令不会重新成为有效控制。
-- continuous、pipeline、campaign 状态及来源哈希或明确的未观察标记。
+- continuous、pipeline、campaign 状态及其来源事实，或明确的未观察标记。
 
 控制字段要么完整保留，要么整字段标为缺失并给出来源；不会把一段约束的前缀当作完整授权。未展示的未答问题保留数量和来源标记。没有受控、有效的当前监督 evidence 块时，从同一次已恢复的 Backlog/control 快照生成最多 16 KiB 的证据投影，不再次扫描 observation 的其他存储和锁。
 

@@ -3,7 +3,6 @@
 
 from __future__ import annotations
 
-import hashlib
 import json
 import shutil
 import subprocess
@@ -21,14 +20,6 @@ PNG_PATH = HERE / "horizon_mountain.png"
 PROVENANCE_PATH = HERE / "horizon_mountain.provenance.json"
 ANIME_DIR = HERE / "assets" / "anime"
 ROLE_PATHS = [ANIME_DIR / f"{name}.png" for name in ("manager", "planner", "engineer", "reviewer")]
-
-
-def sha256(path: Path) -> str:
-    digest = hashlib.sha256()
-    with path.open("rb") as handle:
-        for chunk in iter(lambda: handle.read(1024 * 1024), b""):
-            digest.update(chunk)
-    return digest.hexdigest()
 
 
 def main() -> int:
@@ -61,7 +52,7 @@ def main() -> int:
         "character_prompt": "One full-body expedition researcher in restrained semi-anime editorial style, standing firmly with one boot on a low rock while holding binoculars and looking toward the upper-right summit; crisp silhouette on a flat magenta chroma-key background, with no scenery, text, logo, shadow, or extra character.",
         "style_reference": "https://github.com/RUC-NLPIR/Awesome-Long-Horizon-Agents/blob/main/assets/horizon.png (style only; composition and objects not copied)",
         "editable_sources": [HTML_PATH.name, *[str(path.relative_to(HERE)) for path in ROLE_PATHS]],
-        "outputs": {str(path.relative_to(HERE)): sha256(path) for path in (GUIDE_PATH, SOURCE_PATH, BASE_PATH, EXPLORER_PATH, *ROLE_PATHS, HTML_PATH, PDF_PATH, SVG_PATH, PNG_PATH)},
+        "output_bytes": {str(path.relative_to(HERE)): path.stat().st_size for path in (GUIDE_PATH, SOURCE_PATH, BASE_PATH, EXPLORER_PATH, *ROLE_PATHS, HTML_PATH, PDF_PATH, SVG_PATH, PNG_PATH)},
     }
     PROVENANCE_PATH.write_text(json.dumps(provenance, indent=2, sort_keys=True) + "\n", encoding="utf-8")
     print(PDF_PATH)

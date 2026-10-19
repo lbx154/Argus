@@ -5,7 +5,6 @@ from __future__ import annotations
 import os
 
 import argparse
-import hashlib
 import json
 import shutil
 import subprocess
@@ -95,16 +94,6 @@ def _load_validate_contract(path: Path) -> tuple[dict[str, Any], str]:
     return contract, schema_mode
 
 
-def _sha256(path: Path) -> str | None:
-    if not path.is_file():
-        return None
-    digest = hashlib.sha256()
-    with path.open("rb") as stream:
-        for chunk in iter(lambda: stream.read(1024 * 1024), b""):
-            digest.update(chunk)
-    return digest.hexdigest()
-
-
 def _pptmaster_revision() -> str:
     completed = subprocess.run(
         ["git", "-C", str(PM), "rev-parse", "HEAD"],
@@ -134,7 +123,7 @@ def _write_receipt(
         "contract_source": str(contract_source.resolve()),
         "validation": schema_mode,
         "artifacts": {
-            name: {"path": str(path), "sha256": _sha256(path)}
+            name: {"path": str(path), "bytes": path.stat().st_size if path.is_file() else None}
             for name, path in artifacts.items()
         },
         "steps": steps,

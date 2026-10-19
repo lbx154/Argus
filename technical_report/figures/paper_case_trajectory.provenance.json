@@ -26,10 +26,10 @@
     "paper_case_trajectory.svg",
     "paper_case_trajectory.png"
   ],
-  "output_sha256": {
-    "pptx": "70f64a023df58d0785e6c5a8dfac87813feffea27db55770c2e39dcf1c915bd7",
-    "pdf": "e796385acc5d860e2a4fcd2cbaa6ba4414d4ce820aaa87b311b3c09f04363555",
-    "png": "73e98591d5a7597f3a25d3d7741ed0e65cb19313c6f6074d7d5c7df0a4106c39",
-    "svg": "41beade0d8df2bb4f4357ad2d2d1a4b892f78cd825d3c1e36ac901ecd1aa757f"
+  "output_bytes": {
+    "pptx": 871424,
+    "pdf": 63671,
+    "png": 159739,
+    "svg": 302834
   }
 }

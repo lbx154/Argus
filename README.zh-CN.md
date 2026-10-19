@@ -550,7 +550,7 @@ Verticals 页面，或者命令行：
 
 ```bash
 argus verticals list                       # 内置、已安装、可安装的 vertical
-argus verticals install materials          # 下载、校验 sha256、解包到 ~/.argus-skill/verticals
+argus verticals install materials          # 下载、核对压缩包大小、解包到 ~/.argus-skill/verticals
 argus verticals install chip_design        # 会连带装上它 requires 的 digital_circuit
 argus verticals remove chip_design         # digital_circuit 保留
 ```
