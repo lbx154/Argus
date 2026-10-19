@@ -288,7 +288,7 @@ impl DeliveryNotificationInput {
         Some(Self {
             delivery_id,
             title: if title.is_empty() {
-                "Argus".to_owned()
+                "Task".to_owned()
             } else {
                 title
             },
@@ -383,6 +383,14 @@ pub enum ProbeFailureKind {
 #[cfg(test)]
 mod tests {
     use super::{DeliveryNotificationInput, DesktopSettings};
+
+    #[test]
+    fn untitled_notification_does_not_invent_a_product_identity() {
+        let input: DeliveryNotificationInput = serde_json::from_value(serde_json::json!({
+            "deliveryId": "fixture", "title": "", "summary": "Completed"
+        })).unwrap();
+        assert_eq!(input.bounded().unwrap().title, "Task");
+    }
 
     #[test]
     fn legacy_notification_json_omits_absent_session_identity() {

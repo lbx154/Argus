@@ -86,12 +86,12 @@ impl ReleaseContext {
         let expected = build_manifest();
         if package_version != Some(expected.package_version.as_str()) {
             return Err(format!(
-                "端口上的 Argus 后端版本为 {}，当前构建要求 {}",
+                "端口上的后端版本为 {}，当前构建要求 {}",
                 package_version.unwrap_or_default(), expected.package_version,
             ));
         }
         if source_digest != Some(expected.source_digest.as_str()) {
-            return Err("端口上的 Argus 后端不是当前桌面构建".to_owned());
+            return Err("端口上的后端不是当前桌面构建".to_owned());
         }
         Ok(())
     }
@@ -105,7 +105,7 @@ impl ReleaseContext {
             "无法读取运行包版本清单 {}：{error}。请保留完整解压目录，不要在运行时移动、删除或覆盖它。", path.display()))?;
         let actual = parse_manifest(&raw).map_err(|error| format!("{error} 路径：{}", path.display()))?;
         if &actual != build_manifest() {
-            return Err(format!("运行包文件与当前 Argus 程序不配套（{}）。请将同一预览包完整解压到新目录后重新启动。", path.display()));
+            return Err(format!("运行包文件与当前程序不配套（{}）。请将同一预览包完整解压到新目录后重新启动。", path.display()));
         }
         if let Some(executable) = self.backend_executable() {
             if !executable.is_file() {

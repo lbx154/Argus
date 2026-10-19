@@ -10,7 +10,9 @@ import os
 import re
 import shlex
 import signal
+import stat
 import subprocess
+import tempfile
 import time
 from pathlib import Path
 from typing import Any
@@ -336,6 +338,44 @@ def _wait_group(proc: "subprocess.Popen[Any]", group: int, timeout: float) -> bo
         time.sleep(0.05)
 
 
+def _timeout_exit_evidence(
+    task_id: str, run_id: str, proc: "subprocess.Popen[Any]",
+) -> dict[str, Any]:
+    """Publish an observed wrapper signal exit, never reconstruct an old run."""
+    code = proc.poll()
+    group = _owned_process_group(proc)
+    if code is None or group != proc.pid or is_process_group_running(group):
+        raise RuntimeError("Timeout exit evidence requires a reaped, settled owned group")
+    path = _exit_status_path(task_id, run_id).absolute()
+    source = "durable_wrapper"
+    if not path.exists() and not path.is_symlink():
+        if code >= 0:
+            raise RuntimeError("Naturally exited durable wrapper has no exit sidecar")
+        with tempfile.NamedTemporaryFile(dir=path.parent, prefix=".timeout-exit-") as stream:
+            stream.write(f"{code}\n".encode("ascii"))
+            stream.flush()
+            os.fsync(stream.fileno())
+            try:
+                os.link(stream.name, path)
+                source = "timeout_waitpid"
+            except FileExistsError:
+                pass  # A published wrapper result must never be overwritten.
+    fd = os.open(path, os.O_RDONLY | os.O_NOFOLLOW | os.O_NONBLOCK)
+    with os.fdopen(fd, "rb") as stream:
+        if not stat.S_ISREG(os.fstat(stream.fileno()).st_mode):
+            raise RuntimeError("Timeout exit sidecar is not a regular file")
+        raw = stream.read(65)
+    if len(raw) > 64 or re.fullmatch(rb"-?[0-9]+\n?", raw) is None:
+        raise RuntimeError("Timeout exit sidecar is not a bounded integer")
+    return {
+        "exit_code": int(raw),
+        "exit_status_path": str(path),
+        "exit_status_source": source,
+        "timeout_wrapper_returncode": code,
+        "timeout_settlement_scope": "owned_posix_process_group",
+    }
+
+
 def _terminate_proc(proc: "subprocess.Popen[Any]", grace: float = 10.0) -> None:
     """Stop a run's whole process group, escalating SIGTERM -> SIGKILL.
 
@@ -590,6 +630,10 @@ def _run_direct(
                 # would otherwise survive the timeout and leak the GPU.
                 _terminate_proc(proc)
                 _settle_direct_process_group(proc, resource_lease)
+                exit_evidence = (
+                    _timeout_exit_evidence(task_id, run_id, proc)
+                    if os.name != "nt" else {}
+                )
                 td = {"state": "timeout", "task_id": task_id,
                     "run_id": run_id,
                     "description": description, "command": command,
@@ -605,6 +649,7 @@ def _run_direct(
                     "completed_at": time.time(), "mode": "direct",
                     "run_dir": run_dir,
                     "stdout_log": str(stdout_path), "stderr_log": str(stderr_path),
+                    **exit_evidence,
                 }
                 _apply_supervisor_usage_fields(td, model="", totals=_ZERO_USAGE_TUPLE)
                 _write_task(task_id, td)

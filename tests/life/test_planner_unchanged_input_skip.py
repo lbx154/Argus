@@ -16,6 +16,8 @@ import json
 import time
 from pathlib import Path
 
+from argus.apps._inbox import queue_inbox_message
+from argus.apps._inbox_delivery import DurableInboxReceiver
 from argus.life.event_log import JsonlEventSink
 from argus.life.memory import BacklogItem, LifeMemory
 from argus.life.supervisor import LifeBudget, LifeSupervisor, LifeSupervisorConfig
@@ -26,7 +28,9 @@ from argus.life.supervisor._constants import (
     PLANNER_UNCHANGED_RELOOK_LIMIT,
     PLANNER_UNCHANGED_SKIP_MAX_SECONDS,
 )
+from argus.messaging.inbox import PeerAwareInbox
 from argus.planner import PlannerVerdict, WaitingContract
+from argus.skills.vertical_select import persist_vertical
 
 
 class _Runner:
@@ -260,6 +264,41 @@ def test_operator_message_bypasses_the_skip(tmp_path: Path, monkeypatch) -> None
 
     assert supervisor._plan_next_work() == PLAN_AWAITING
     assert calls["count"] == 2, "fresh operator words always reach the Planner"
+
+
+def test_subagent_report_does_not_bypass_the_skip(
+    tmp_path: Path, monkeypatch
+) -> None:
+    monkeypatch.setenv("ARGUS_SKILL_HOME", str(tmp_path / "home"))
+    project = tmp_path / "project"
+    project.mkdir()
+    persist_vertical(project, "software", workflow_mode="direct")
+    life = tmp_path / "life"
+    life.mkdir()
+    calls = _install_planner(monkeypatch)
+    supervisor = _supervisor(
+        project,
+        life,
+        user_inbox=PeerAwareInbox(
+            life,
+            operator_receiver=DurableInboxReceiver(
+                life, consumer="supervisor", project_root=project,
+            ),
+        ),
+    )
+
+    assert supervisor._plan_next_work() == PLAN_AWAITING
+    assert calls["count"] == 1
+
+    report = "## Subagent Report: train-01\n**Event**: COMPLETED\n\n- exit_code: 0\n"
+    queue_inbox_message(life, report, source="subagent")
+    assert supervisor._plan_next_work() == PLAN_AWAITING
+    assert calls["count"] == 1, "a host report is not operator input"
+
+    # The report was released, not consumed: the next real Planner turn reads it.
+    receiver = DurableInboxReceiver(life, consumer="supervisor", project_root=project)
+    assert [str(text) for text in receiver.receive(mission_id="")] == [report.strip()]
+    receiver.release_pending()
 
 
 def test_operator_wait_turn_regrant_beats_the_skip(

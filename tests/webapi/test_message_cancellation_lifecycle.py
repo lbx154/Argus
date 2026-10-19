@@ -21,6 +21,7 @@ def endpoints(root):
     starts = []
     context = SimpleNamespace(
         require_auth=lambda: None,
+        roots=[root],
         project_root_or_404=lambda sid: root,
         resolve_or_404=lambda sid: root,
         daemon_services=SimpleNamespace(start=lambda *args, **kwargs: starts.append(True)),

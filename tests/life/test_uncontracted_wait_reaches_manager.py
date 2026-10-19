@@ -46,14 +46,15 @@ def _verdict(**kw):
 class _Probe:
     """The real reconciliation, with only its Manager call and stage stubbed."""
 
-    def __init__(self, *, stage: str = "scope") -> None:
+    def __init__(self, *, stage: str = "scope", open_ended: bool = True) -> None:
         from argus.life.supervisor._planning_cycle import PlanningCycleMixin
 
         self._reconcile = PlanningCycleMixin._reconcile_open_ended_planner_waiting.__get__(
             self
         )
-        self.config = SimpleNamespace(open_ended=True, continuous_objective="obj")
+        self.config = SimpleNamespace(open_ended=open_ended, continuous_objective="obj")
         self.manager_calls = 0
+        self.manager_open_ended = None
         self._stage = stage
         self._planner_waits_since_reconciliation = 0
         self._last_planner_wait_reconciliation_key = None
@@ -121,6 +122,7 @@ class _Probe:
         class _Marker:
             def decide_stage_transition(self, **kwargs):
                 probe.manager_calls += 1
+                probe.manager_open_ended = kwargs["open_ended"]
                 return SimpleNamespace(
                     action="hold",
                     target_stage="scope",
@@ -211,18 +213,127 @@ def test_event_wait_without_wake_source_still_reaches_the_manager() -> None:
     assert probe.manager_calls == 1
 
 
+def test_bounded_explicit_stage_wait_reaches_the_manager() -> None:
+    from argus.planner import WaitingContract
+
+    probe = _Probe(open_ended=False)
+    contract = WaitingContract(
+        blocker_fingerprint="continuation-stage-reset",
+        recheck_token="current-context",
+        recheck_condition="Manager must reconcile the current stage",
+        stage_reconciliation_required=True,
+    )
+
+    result = probe._reconcile(_verdict(waiting_contract=contract))
+
+    assert result == "hold"
+    assert probe.manager_calls == 1
+    assert probe.manager_feedback[0]["diagnostic"] == "manager_hold_requires_stage_repair"
+    assert probe.manager_open_ended is False
+    assert probe.events[0]["trigger"] == "planner_waiting_reconciliation"
+    assert probe.events[0]["action"] == "hold"
+
+
+@pytest.mark.parametrize("contracted", [False, True])
+def test_bounded_ordinary_wait_does_not_reach_the_manager(contracted: bool) -> None:
+    from argus.planner import WaitingContract
+
+    probe = _Probe(open_ended=False)
+    contract = WaitingContract(
+        blocker_fingerprint="ordinary-blocker",
+        recheck_token="unchanged",
+        recheck_condition="wait for unchanged external evidence",
+    ) if contracted else None
+
+    assert probe._reconcile(_verdict(waiting_contract=contract)) == ""
+    assert probe.manager_calls == 0
+
+
+@pytest.mark.parametrize("explicit", [False, True])
+@pytest.mark.parametrize("workflow_mode", ["staged", "direct"])
+def test_real_manager_receives_bounded_wait_without_advancing_without_review(
+    tmp_path, explicit: bool, workflow_mode: str,
+) -> None:
+    import json
+
+    from argus.manager import Manager
+    from argus.planner import WaitingContract
+    from argus.skills.vertical_select import persist_vertical
+
+    state = tmp_path / "state"
+    work = tmp_path / "work"
+    work.mkdir()
+    persist_vertical(state, "math_synth", workflow_mode=workflow_mode)
+    before = (state / ".argus/PIPELINE_STATE.json").read_bytes()
+    prompts = []
+
+    def decide(prompt):
+        prompts.append(prompt)
+        return SimpleNamespace(last_agent_message=json.dumps({
+            "action": "advance", "target_stage": "measure",
+            "reason": "The Planner requested stage reconciliation.",
+        }))
+
+    verdict = _verdict(waiting_contract=WaitingContract(
+        blocker_fingerprint="stage-reconciliation",
+        recheck_token="current",
+        recheck_condition="Manager must decide the remaining stage work",
+        stage_reconciliation_required=explicit,
+    ))
+    result = Manager(state, runner=object(), execution_workdir=work).decide_stage_transition(
+        project_root=state, planner_verdict=verdict, run_exec=decide,
+        open_ended=False,
+    )
+
+    assert bool(prompts) is explicit
+    assert result.action == "hold"
+    if explicit:
+        assert result.diagnostic == "planner_wait_advance_rejected"
+    else:
+        assert result.source == "no_review_hold"
+    assert (state / ".argus/PIPELINE_STATE.json").read_bytes() == before
+
+
+@pytest.mark.parametrize("open_ended", [False, True])
+def test_explicit_stage_wait_cannot_override_operator_gate(open_ended: bool) -> None:
+    from argus.planner import WaitingContract
+
+    probe = _Probe(open_ended=open_ended)
+    contract = WaitingContract(
+        blocker_fingerprint="operator-scope",
+        recheck_token="authorization",
+        recheck_condition="operator authorization is required",
+        stage_reconciliation_required=True,
+        operator_action_required=True,
+    )
+
+    assert probe._reconcile(_verdict(waiting_contract=contract)) == ""
+    assert probe.manager_calls == 0
+
+
 @pytest.mark.parametrize(
     "field", ["waiting", "project_done", "new_tasks"]
 )
-def test_the_existing_preconditions_still_hold(field: str) -> None:
-    probe = _Probe()
+@pytest.mark.parametrize("open_ended", [False, True])
+def test_the_existing_preconditions_still_hold(field: str, open_ended: bool) -> None:
+    from argus.planner import WaitingContract
+
+    probe = _Probe(open_ended=open_ended)
     overrides = {
         "waiting": {"waiting": False},
         "project_done": {"project_done": True},
         "new_tasks": {"new_tasks": [object()]},
     }[field]
 
-    assert probe._reconcile(_verdict(**overrides)) == ""
+    contract = WaitingContract(
+        blocker_fingerprint="stage",
+        recheck_token="current",
+        recheck_condition="Manager stage reconciliation",
+        stage_reconciliation_required=True,
+    )
+
+    assert probe._reconcile(_verdict(waiting_contract=contract, **overrides)) == ""
+    assert probe.manager_calls == 0
 
 
 def _file_wait():

@@ -40,12 +40,19 @@ class OperatorInboxText(str):
 
     delivery_id: str
     ephemeral: bool
+    host_report: bool
 
-    def __new__(cls, text: str, *, delivery_id: str, ephemeral: bool):
+    def __new__(cls, text: str, *, delivery_id: str, ephemeral: bool, host_report: bool = False):
         value = super().__new__(cls, text)
         value.delivery_id = delivery_id
         value.ephemeral = ephemeral
+        value.host_report = host_report
         return value
+
+
+def is_host_report(message: str) -> bool:
+    """True for a report Argus wrote to itself, which carries no operator input."""
+    return bool(getattr(message, "host_report", False))
 
 
 def operator_live_turn(messages: Iterable[str]) -> str:
@@ -273,6 +280,7 @@ class DurableInboxReceiver:
         return OperatorInboxText(
             claim.transient_text if ephemeral else claim.text,
             delivery_id=_identity(claim), ephemeral=ephemeral,
+            host_report=_host_report(claim),
         )
 
     def settle(self, messages: Iterable[str]) -> None:

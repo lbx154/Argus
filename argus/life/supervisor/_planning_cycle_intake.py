@@ -98,6 +98,8 @@ class PlanningCycleIntakeMixin:
         intent = state.manager_intent if isinstance(state.manager_intent, dict) else {}
         if str(intent.get("workflow_mode") or "").strip().lower() != "direct":
             return None
+        if self._manager_final_stage_is_completed():
+            return None
         objective = str(
             intent.get("execution_task")
             or self.config.continuous_objective
@@ -181,6 +183,30 @@ class PlanningCycleIntakeMixin:
             or self._bounded_completion_issue()
         ):
             return ""
+        from ...apps._inbox_delivery import is_host_report, unique_operator_messages
+        from ...core.operator_context import (
+            OperatorContextStore,
+            operator_context_state_root,
+        )
+
+        messages = self._drain_user_inbox()
+        host_reports: list[str] = []
+        while messages and all(is_host_report(message) for message in messages):
+            # The current certificate already covers these system reports.
+            # Settle their native receipts to expose operator work behind them.
+            host_reports.extend(messages)
+            self._settle_operator_inbox(messages)
+            messages = self._drain_user_inbox()
+        self._operator_guidance_carryover = unique_operator_messages(
+            list(getattr(self, "_operator_guidance_carryover", None) or [])
+            + host_reports + messages
+        )
+        context = OperatorContextStore(operator_context_state_root(self.memory))
+        if (
+            any(not is_host_report(message) for message in self._operator_guidance_carryover)
+            or context.revision > context.acknowledged_revision("planner")
+        ):
+            return ""
         from ...skills.vertical_select import resolve_vertical
 
         vertical = resolve_vertical(artifact_root)
@@ -204,10 +230,23 @@ class PlanningCycleIntakeMixin:
             if revision_request is None
             else []
         )
-        from ...apps._inbox_delivery import operator_live_turn, unique_operator_messages
+        from ...apps._inbox_delivery import (
+            is_host_report,
+            operator_live_turn,
+            unique_operator_messages,
+        )
 
         transient_messages = unique_operator_messages(transient_messages)
-        state.had_operator_messages = bool(transient_messages)
+        # A subagent's completion report is the host telling itself a job
+        # settled. The job's state already reaches the waits and the
+        # unchanged-input digest through the external-work registry, so the
+        # report rides along with the next Planner turn instead of forcing one.
+        # Counting it as operator input dropped every wait: on 2026-10-15 it
+        # forced 63 of 131 back-to-back "still waiting" Planner calls.
+        operator_messages = [
+            message for message in transient_messages if not is_host_report(message)
+        ]
+        state.had_operator_messages = bool(operator_messages)
         state.inbox_delivery_messages = list(transient_messages)
         # Draining appends fresh messages to the durable ledger. Re-render after
         # the drain so this same planning turn sees the complete standing block
@@ -238,10 +277,10 @@ class PlanningCycleIntakeMixin:
                 self._enter_idle_backoff()
                 self._emit_status("Waiting for the requested operator facts; unchanged work is not being reviewed again")
                 return PLAN_AWAITING
-        if transient_messages:
+        if operator_messages:
             self._clear_manager_planner_feedback()
             self._reset_idle_backoff()
-        if transient_messages or state.has_unhandled_operator_input:
+        if operator_messages or state.has_unhandled_operator_input:
             self._deactivate_planner_waiting_contract()
             self._last_open_ended_project_done_signature = ""
             self._uncontracted_wait_probed = False
@@ -255,8 +294,18 @@ class PlanningCycleIntakeMixin:
             record = load_planner_verdict_outbox(self.memory.root)
             if (
                 record is not None
-                and record["event"].get("completion_kind") == "certified_increment"
+                and record["event"].get("completion_kind")
+                in {"certified_increment", "project_completed"}
             ):
+                if not self._emit({
+                    "type": "life.planner.verdict.discarded",
+                    "cycle": self._planning_cycles,
+                    "reason": "new operator input superseded the prior completion decision",
+                    "delivery_id": record["delivery_id"],
+                    "prior_verdict": record["event"],
+                    "prior_delivered": record.get("delivered", False),
+                }):
+                    return PLAN_RETRY
                 clear_planner_verdict_outbox(self.memory.root)
         if revision_request is None:
             feedback = self._load_manager_planner_feedback()
@@ -657,9 +706,24 @@ class PlanningCycleIntakeMixin:
         if manager_intent:
             state.manager_intent = manager_intent
 
-        reason = "" if revision_request is not None else self._bounded_completion_reason()
+        reason = (
+            ""
+            if (
+                revision_request is not None
+                or state.had_operator_messages
+                or state.has_unhandled_operator_input
+            )
+            else self._bounded_completion_reason()
+        )
         if reason:
             return self._emit_bounded_project_completion(reason)
+        from ...apps._inbox_delivery import is_host_report
+
+        if any(
+            not is_host_report(message)
+            for message in getattr(self, "_operator_guidance_carryover", None) or []
+        ):
+            return PLAN_RETRY
         direct = self._enqueue_bounded_manager_direct(state)
         if direct is not None:
             return direct

@@ -104,7 +104,7 @@ fn read_shared_configuration(path: &Path) -> anyhow::Result<BTreeMap<String, Str
         Err(error) => return Err(error).with_context(|| format!("Cannot read {}", path.display())),
     };
     let values = serde_json::from_str::<BTreeMap<String, Value>>(&raw)
-        .with_context(|| format!("Invalid shared Argus configuration at {}", path.display()))?;
+        .with_context(|| format!("Invalid shared backend configuration at {}", path.display()))?;
     Ok(values
         .into_iter()
         .filter_map(|(key, value)| value.as_str().map(|value| (key, value.to_owned())))
@@ -446,7 +446,7 @@ mod tests {
         for contents in ["{broken", "[]"] {
             fs::write(&path, contents).unwrap();
             let error = read_shared_configuration(&path).unwrap_err().to_string();
-            assert!(error.contains("Invalid shared Argus configuration"));
+            assert!(error.contains("Invalid shared backend configuration"));
             assert!(error.contains("config.json"));
         }
     }

@@ -162,7 +162,7 @@ _SHA256_HEX = re.compile(r"^[0-9a-f]{64}$")
 
 @dataclass(frozen=True)
 class LeanIssue:
-    """One blocking defect, in the ``literature_ledger`` shape.
+    """One blocking defect, rendered as ``path: message``.
 
     There is no non-blocking sibling on purpose. An earlier version had one,
     and everything routed into it became invisible: the completion hook only

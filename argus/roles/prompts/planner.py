@@ -166,6 +166,26 @@ def _reviewed_facts_block() -> str:
     )
 
 
+def _operator_context_block(
+    state_root: Path | str | None, runtime_change_summary: str
+) -> str:
+    """The Planner's OperatorContext, unless the caller already rendered it.
+
+    The Supervisor puts the projection it will acknowledge, live turn included,
+    into the runtime digest. Reading the store again here sent every continuous
+    Planner prompt two OperatorContext blocks, and the second could be newer
+    than the revision the Supervisor acknowledges.
+    """
+    from ...core.operator_context import build_operator_context_block
+
+    if state_root is None or "## OperatorContext" in runtime_change_summary:
+        return ""
+    operator_context, _revision = build_operator_context_block(
+        "planner", state_root, consume_once=False
+    )
+    return operator_context
+
+
 def continuous_request(
     project_root: Path | str,
     *,
@@ -662,13 +682,7 @@ def build_continuous_prompt(
     # Compile from structured state only: vertical/stage, target contract,
     # open-ended mode and available semantic libraries. Do not keyword-route
     # task prose to decide which policy fragments the Planner receives.
-    from ...core.operator_context import build_operator_context_block
-
-    operator_context = ""
-    if state_root is not None:
-        operator_context, _revision = build_operator_context_block(
-            "planner", state_root, consume_once=False
-        )
+    operator_context = _operator_context_block(state_root, runtime_change_summary)
     # Order: what is the same for every cycle of this vertical and stage,
     # then what is the same for the whole campaign (the brief), then what
     # changes between cycles. The provider caches the prompt prefix, so the
@@ -790,13 +804,7 @@ def build_continuous_resume_prompt(
             skill_block = str(getattr(libraries, "block", "") or "")
         except Exception:  # noqa: BLE001 - a resume delta must remain available
             skill_block = ""
-    from ...core.operator_context import build_operator_context_block
-
-    operator_context = ""
-    if state_root is not None:
-        operator_context, _revision = build_operator_context_block(
-            "planner", state_root, consume_once=False
-        )
+    operator_context = _operator_context_block(state_root, runtime_change_summary)
     return _join_prompt_blocks(
         "## Continued Planner cycle\n"
         "You are resuming your own Planner session. The original role "

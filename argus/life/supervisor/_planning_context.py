@@ -19,6 +19,7 @@ from ..memory import BacklogItem
 from ._constants import (
     OPERATOR_WAIT_TURN_REGRANT_SECONDS,
     PLAN_AWAITING,
+    PLAN_ERROR,
     PLAN_RETRY,
     PLANNER_SCOPE_BOUNDED,
     PLANNER_SCOPE_FINAL_SUBMISSION,
@@ -1099,6 +1100,7 @@ class PlanningContextMixin:
             message.delivery_id
             for message in getattr(state, "inbox_delivery_messages", ())
             if getattr(message, "ephemeral", False)
+            and not getattr(message, "host_report", False)
         ]
         if current and transient_ids:
             current += ":inbox:" + hashlib.sha256(
@@ -1272,6 +1274,26 @@ class PlanningContextMixin:
                 "updated_at": time.time(),
             }
         )
+
+    def _record_manager_feedback_no_progress(self, reason: str) -> bool:
+        feedback = self._load_manager_planner_feedback()
+        if feedback is None:
+            return True
+        payload = dict(feedback)
+        payload.update(
+            attempts=int(feedback.get("attempts", 1) or 0) + 1,
+            updated_at=time.time(),
+            last_rejection=reason,
+        )
+        if not self._write_manager_planner_feedback(payload):
+            self._emit_status("failed to persist unresolved Manager feedback")
+            return False
+        self._emit({
+            "type": "life.manager.feedback.unresolved",
+            "reason": reason,
+            "attempts": payload["attempts"],
+        })
+        return True
 
     def _clear_manager_planner_feedback(self) -> None:
         state = self._load_manager_planner_feedback()
@@ -1581,6 +1603,9 @@ class PlanningContextMixin:
             "campaign_epoch": self._planner_waiting_objective_fingerprint(),
             "wake_on": sorted(wake_sources),
         }
+        if "authorization" not in wake_sources:
+            # Accepted review can move the stage after the watched job stops changing.
+            revision["planning_stage"] = str(self._current_pipeline_stage() or "")
         if "authorization" in wake_sources:
             # An authorization wait watched only the Manager control-state log,
             # which nothing writes unless the operator drives that API -- in
@@ -1685,7 +1710,15 @@ class PlanningContextMixin:
             state["superseded_by_revision"] = current_revision
             state["wake_reason"] = wake_reason
             state["updated_at"] = time.time()
-            self._write_planner_waiting_contract_state(state)
+            if not self._write_planner_waiting_contract_state(state):
+                self._emit({
+                    "type": EventType.LIFE_PLANNER_ERROR,
+                    "error": "failed to persist event-wait wake",
+                    "blocker_fingerprint": state.get("blocker_fingerprint"),
+                    "recheck_token": state.get("recheck_token"),
+                })
+                self._enter_pause_backoff()
+                return PLAN_ERROR
             self._emit(
                 {
                     "type": EventType.LIFE_PLANNER_WAITING_WOKEN,

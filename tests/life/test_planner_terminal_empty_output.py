@@ -31,6 +31,60 @@ from argus.manager import Manager
 from argus.planner import NO_CONCRETE_TASKS_ERROR, PlannerVerdict
 
 
+@pytest.mark.parametrize("report_count", [1, 12])
+def test_operator_behind_native_host_reports_reaches_planner_before_completion(
+    tmp_path: Path, monkeypatch, report_count: int,
+) -> None:
+    from argus.apps._inbox import queue_inbox_message
+    from argus.apps._inbox_delivery import DurableInboxReceiver
+    from argus.core.operator_context import IntakeDecision
+
+    supervisor, backend, sink = _make_supervisor(
+        tmp_path, monkeypatch, terminal_stage_done=True,
+    )
+    supervisor.config.open_ended = False
+    receiver = DurableInboxReceiver(
+        supervisor.memory.root, consumer="planner",
+        project_root=Path(supervisor.config.artifact_root),
+    )
+    callback = lambda: None
+    monkeypatch.setattr(callback, "operator_receiver", receiver, raising=False)
+    supervisor.config.user_inbox = callback
+    monkeypatch.setattr(
+        "argus.apps._inbox_delivery.classify_operator_message",
+        lambda *args, **kwargs: IntakeDecision(kind="ephemeral"),
+    )
+    prompts = []
+    run_exec = backend.run_exec
+
+    def record_prompt(**kwargs):
+        if kwargs["run_label"].startswith("planner.cycle"):
+            assert not any(
+                event.get("completion_kind") == "project_completed" for event in sink.events
+            )
+            prompts.append(kwargs["prompt"])
+        return run_exec(**kwargs)
+
+    monkeypatch.setattr(backend, "run_exec", record_prompt)
+    for index in range(report_count):
+        queue_inbox_message(
+            supervisor.memory.root, f"Retained verification {index} finished.",
+            source="subagent",
+        )
+    instruction = "Inspect the newly requested delivery constraint before closing."
+    queue_inbox_message(supervisor.memory.root, instruction, source="operator")
+    try:
+        assert supervisor._bounded_completion_reason() == ""
+        assert not any(
+            event.get("completion_kind") == "project_completed" for event in sink.events
+        )
+        supervisor._plan_next_work()
+        assert prompts
+        assert instruction in prompts[0]
+    finally:
+        receiver.release_pending()
+
+
 class _RecordingSink:
     def __init__(self) -> None:
         self.events: list[dict[str, Any]] = []
@@ -389,6 +443,50 @@ def test_bounded_completed_campaign_stops_before_planner_cycle(
     )
 
 
+@pytest.mark.parametrize("terminal_stage_done", [False, True])
+def test_native_host_report_does_not_block_bounded_planning_or_completion(
+    tmp_path: Path, monkeypatch, terminal_stage_done: bool,
+) -> None:
+    from argus.apps._inbox import queue_inbox_message
+    from argus.apps._inbox_delivery import DurableInboxReceiver, is_host_report
+    from argus.life.supervisor._planning_cycle_helpers import _PlanCycleState
+
+    supervisor, _backend, sink = _make_supervisor(
+        tmp_path, monkeypatch, terminal_stage_done=terminal_stage_done,
+    )
+    supervisor.config.open_ended = False
+    monkeypatch.setattr(
+        supervisor, "_manager_publish_project_report", lambda _reason: "reported",
+    )
+    receiver = DurableInboxReceiver(
+        supervisor.memory.root, consumer="planner",
+        project_root=Path(supervisor.config.artifact_root),
+    )
+    callback = lambda: None
+    monkeypatch.setattr(callback, "operator_receiver", receiver, raising=False)
+    supervisor.config.user_inbox = callback
+    state = _PlanCycleState(None)
+    assert supervisor._pc_intake_gate(state) is None
+    state.manager_intent = {"vertical": "software", "workflow_mode": "staged"}
+    queue_inbox_message(
+        supervisor.memory.root, "Retained verification job finished.", source="subagent",
+    )
+    try:
+        supervisor._operator_guidance_carryover = receiver.receive()
+        assert is_host_report(supervisor._operator_guidance_carryover[0])
+        result = supervisor._pc_preflight_shortcircuits(state)
+        if terminal_stage_done:
+            assert result is False
+            assert any(
+                event.get("completion_kind") == "project_completed"
+                for event in sink.events
+            )
+        else:
+            assert result is None
+    finally:
+        receiver.release_pending()
+
+
 def test_bounded_completion_waits_for_live_backlog(
     tmp_path: Path,
     monkeypatch,
@@ -448,6 +546,214 @@ def test_bounded_completion_waits_for_live_backlog(
         "bounded_completion_invariant_failed"
     ) != rejected_signature
     assert supervisor._bounded_completion_reason()
+
+
+@pytest.mark.parametrize("input_source", ["inbox", "carryover", "durable"])
+@pytest.mark.parametrize("workflow_mode", ["staged", "direct"])
+def test_bounded_certificate_cannot_skip_unhandled_operator_input(
+    tmp_path: Path, monkeypatch, input_source: str, workflow_mode: str,
+) -> None:
+    from argus.core.operator_context import OperatorContextStore, operator_context_state_root
+    from argus.life.supervisor._planning_cycle_helpers import _PlanCycleState
+    from argus.manager.directive import record_operator_messages
+
+    supervisor, _backend, sink = _make_supervisor(
+        tmp_path, monkeypatch, terminal_stage_done=True,
+    )
+    supervisor.config.open_ended = False
+    message = "Deliver the missing report through independent review; retain accepted engineering."
+    context = OperatorContextStore(operator_context_state_root(supervisor.memory))
+    if input_source == "inbox":
+        messages = [message]
+        supervisor.config.user_inbox = lambda: messages.pop(0) if messages else None
+    elif input_source == "carryover":
+        supervisor._operator_guidance_carryover = [message]
+    else:
+        record_operator_messages(context.root, [message])
+    certificate = Path(supervisor.config.artifact_root) / ".argus" / "PIPELINE_STATE.json"
+    original = certificate.read_bytes()
+    states = []
+
+    def plan():
+        state = _PlanCycleState(None)
+        assert supervisor._pc_intake_gate(state) is None
+        assert message in "\n".join(state.operator_messages + state.fresh_operator_messages)
+        assert state.had_operator_messages or state.has_unhandled_operator_input
+        state.manager_intent = {"vertical": "software", "workflow_mode": workflow_mode}
+        assert supervisor._pc_preflight_shortcircuits(state) is None
+        assert supervisor.memory.backlog.active() == []
+        states.append(state)
+        return PLAN_AWAITING
+
+    monkeypatch.setattr(supervisor, "_plan_next_work", plan)
+    result = supervisor.run()
+    assert result["stopped_by"] == PLAN_AWAITING
+    assert len(states) == 1
+    assert not any(event.get("project_done") is True for event in sink.events)
+    assert certificate.read_bytes() == original
+    assert context.acknowledged_revision("planner") == 0
+    context.acknowledge("planner", context.revision)
+    assert supervisor._bounded_completion_reason()
+
+
+@pytest.mark.parametrize("input_source", ["durable", "native_inbox"])
+@pytest.mark.parametrize("delivery", ["pending_event", "pending_report", "delivered"])
+@pytest.mark.parametrize("verbosity", ["signal", "full"])
+def test_completed_outbox_cannot_replay_over_new_input(
+    tmp_path: Path, monkeypatch, input_source: str, delivery: str, verbosity: str,
+) -> None:
+    from argus.apps._inbox import count_pending_inbox_messages, queue_inbox_message
+    from argus.apps._runtime_construction import _inbox_drainer_for
+    from argus.core.operator_context import OperatorContextStore, append_directive
+    from argus.life.event_log import JsonlEventSink
+    from argus.life.planner_verdict_outbox import load_planner_verdict_outbox
+
+    supervisor, _backend, _sink = _make_supervisor(
+        tmp_path, monkeypatch, terminal_stage_done=True,
+    )
+    supervisor.config.open_ended = False
+    life = supervisor.memory.root
+    project = Path(supervisor.config.artifact_root)
+    supervisor.sink = JsonlEventSink(None, life_dir=life, verbosity=verbosity)
+    append = supervisor.sink._append
+    if delivery == "pending_event":
+        monkeypatch.setattr(
+            supervisor.sink, "_append",
+            lambda event: False if event.get("type") == "life.planner.verdict" else append(event),
+        )
+    delivered = delivery == "delivered"
+    reports = []
+
+    def report(_reason):
+        reports.append(True)
+        return "reported" if delivered else "pending"
+
+    monkeypatch.setattr(supervisor, "_manager_publish_project_report", report)
+    assert supervisor._emit_bounded_project_completion("Original engineering accepted") == (
+        False if delivered else PLAN_RETRY
+    )
+    monkeypatch.setattr(supervisor.sink, "_append", append)
+    prior = load_planner_verdict_outbox(life)
+    assert prior is not None and prior["delivered"] is delivered
+    certificate = project / ".argus" / "PIPELINE_STATE.json"
+    original = certificate.read_bytes()
+    message = "Deliver the missing report without repeating accepted engineering."
+    context = OperatorContextStore(life)
+    classified = []
+    receiver = None
+    if input_source == "durable":
+        append_directive(life, message, lifetime="once", expected_revision=context.revision)
+    else:
+        def classify(text, *, intake_sink, **_kwargs):
+            classified.append(text)
+            intake_sink({"kind": "ephemeral"})
+
+        monkeypatch.setattr(
+            supervisor, "_bound_manager",
+            lambda: SimpleNamespace(classify_front_door=classify),
+        )
+        supervisor.config.user_inbox = _inbox_drainer_for(life, project_root=project)
+        receiver = supervisor.config.user_inbox.operator_receiver
+        queue_inbox_message(life, message, source="operator")
+
+    class PlannerReached(BaseException):
+        pass
+
+    calls = []
+
+    def plan(_planner, **kwargs):
+        assert message in str(kwargs)
+        calls.append(True)
+        raise PlannerReached
+
+    monkeypatch.setattr("argus.planner.Planner.plan_next", plan)
+    try:
+        for _ in range(2):
+            with pytest.raises(PlannerReached):
+                supervisor._plan_next_work()
+        assert len(calls) == 2
+        assert len(reports) == (0 if delivery == "pending_event" else 1)
+        assert load_planner_verdict_outbox(life) is None
+        assert certificate.read_bytes() == original
+        assert supervisor.memory.backlog.active() == []
+        assert context.acknowledged_revision("planner") == 0
+        events = [json.loads(line) for line in (life / "events.jsonl").read_text(
+            encoding="utf-8",
+        ).splitlines()]
+        assert sum(
+            event.get("type") == "life.planner.verdict"
+            and event.get("delivery_id") == prior["delivery_id"]
+            for event in events
+        ) == (0 if delivery == "pending_event" else 1)
+        discarded = [event for event in events
+                     if event.get("type") == "life.planner.verdict.discarded"]
+        assert len(discarded) == 1
+        assert discarded[0]["prior_verdict"] == prior["event"]
+        assert discarded[0]["prior_delivered"] is delivered
+        if receiver is not None:
+            assert classified == [message]
+            assert count_pending_inbox_messages(life) == 1
+    finally:
+        if receiver is not None:
+            receiver.release_pending()
+
+
+def test_completion_outbox_survives_failed_supersession_persistence(
+    tmp_path: Path, monkeypatch,
+) -> None:
+    from argus.core.operator_context import OperatorContextStore, append_directive
+    from argus.life.event_log import JsonlEventSink
+    from argus.life.planner_verdict_outbox import load_planner_verdict_outbox
+    from argus.life.supervisor._planning_cycle_helpers import _PlanCycleState
+
+    supervisor, _backend, _sink = _make_supervisor(
+        tmp_path, monkeypatch, terminal_stage_done=True,
+    )
+    supervisor.config.open_ended = False
+    life = supervisor.memory.root
+    supervisor.sink = JsonlEventSink(None, life_dir=life, verbosity="signal")
+    monkeypatch.setattr(supervisor.sink, "_append", lambda _event: False)
+    assert supervisor._emit_bounded_project_completion("Original engineering accepted") == PLAN_RETRY
+    prior = load_planner_verdict_outbox(life)
+    assert prior is not None and prior["delivered"] is False
+    context = OperatorContextStore(life)
+    append_directive(
+        life, "Deliver the missing report.", lifetime="once", expected_revision=context.revision,
+    )
+    certificate = Path(supervisor.config.artifact_root) / ".argus" / "PIPELINE_STATE.json"
+    original = certificate.read_bytes()
+
+    for _ in range(2):
+        assert supervisor._pc_intake_gate(_PlanCycleState(None)) == PLAN_RETRY
+        assert load_planner_verdict_outbox(life) == prior
+        assert context.acknowledged_revision("planner") == 0
+        assert certificate.read_bytes() == original
+        assert supervisor.memory.backlog.active() == []
+
+
+def test_bounded_completion_keeps_late_received_input_for_fresh_intake(
+    tmp_path: Path, monkeypatch,
+) -> None:
+    from argus.life.supervisor._planning_cycle_helpers import _PlanCycleState
+
+    supervisor, _backend, sink = _make_supervisor(
+        tmp_path, monkeypatch, terminal_stage_done=True,
+    )
+    supervisor.config.open_ended = False
+    message = "A new report requirement arrived after intake."
+    supervisor.config.user_inbox = lambda: None
+    state = _PlanCycleState(None)
+    assert supervisor._pc_intake_gate(state) is None
+    messages = [message]
+    supervisor.config.user_inbox = lambda: messages.pop(0) if messages else None
+    state.manager_intent = {"vertical": "software", "workflow_mode": "staged"}
+    assert supervisor._pc_preflight_shortcircuits(state) == PLAN_RETRY
+    assert supervisor._operator_guidance_carryover == [message]
+    assert not any(event.get("project_done") is True for event in sink.events)
+    next_state = _PlanCycleState(None)
+    assert supervisor._pc_intake_gate(next_state) is None
+    assert message in "\n".join(next_state.operator_messages + next_state.fresh_operator_messages)
+    assert supervisor._operator_guidance_carryover == []
 
 
 def test_direct_research_can_complete_its_bounded_deliverable(
@@ -1146,9 +1452,18 @@ def test_newer_replan_review_blocks_older_stage_replay(
     assert state["current_stage"] == "scope"
 
 
+@pytest.mark.parametrize(("wait_kind", "retirement_failure"), [
+    ("none", False),
+    ("subagent", False),
+    ("subagent", True),
+    ("operator", False),
+    ("authorization", False),
+])
 def test_bounded_continuous_campaign_replays_deferred_stage_review(
     tmp_path: Path,
     monkeypatch,
+    wait_kind: str,
+    retirement_failure: bool,
 ) -> None:
     """A bounded staged campaign still traverses stages.
 
@@ -1206,6 +1521,27 @@ def test_bounded_continuous_campaign_replays_deferred_stage_review(
             "resumable": False,
         },
     )
+    if wait_kind != "none":
+        from argus.planner import WaitingContract
+
+        wake_on = ("authorization",) if wait_kind == "authorization" else ("subagent_state",)
+        supervisor._persist_planner_waiting_contract(WaitingContract(
+            blocker_fingerprint="completed-verification-job",
+            recheck_condition="Wait for the independent verification review.",
+            recheck_token=item.id,
+            wait_mode="event",
+            wake_on=wake_on,
+            observed_revision=supervisor._planner_waiting_observed_revision(
+                wake_on=("authorization",) if wait_kind == "operator" else wake_on,
+                watched_paths=(),
+            ),
+            operator_action_required=wait_kind == "operator",
+        ))
+        waiting = supervisor._load_planner_waiting_contract_state()
+        assert waiting["wait_mode"] == "event"
+        assert waiting["wake_on"] == (
+            ["subagent_state"] if wait_kind == "subagent" else ["authorization"]
+        )
 
     assert supervisor._plan_next_work() == PLAN_RETRY
 
@@ -1220,6 +1556,33 @@ def test_bounded_continuous_campaign_replays_deferred_stage_review(
         and event.get("recovered_item_id") == item.id
         for event in sink.events
     )
+    if wait_kind != "none":
+        waiting = supervisor._load_planner_waiting_contract_state()
+        assert waiting is not None
+        assert waiting["blocker_fingerprint"] == "completed-verification-job"
+        assert waiting["active"] is True
+        assert waiting["idle_capacity_turn_used"] is True
+    if wait_kind == "subagent":
+        assert backend.planner_calls == 0
+        if retirement_failure:
+            with monkeypatch.context() as failed_storage:
+                failed_storage.setattr(
+                    supervisor, "_write_planner_waiting_contract_state", lambda _state: False,
+                )
+                assert supervisor._plan_next_work() == PLAN_ERROR
+            assert supervisor._load_planner_waiting_contract_state()["active"] is True
+            assert backend.planner_calls == 0
+            assert any(
+                event.get("error") == "failed to persist event-wait wake"
+                for event in sink.events
+            )
+        supervisor._plan_next_work()
+        assert backend.planner_calls > 0
+        assert supervisor._load_planner_waiting_contract_state()["active"] is False
+        assert backend.manager_calls == 1
+    elif wait_kind != "none":
+        assert supervisor._plan_next_work() == PLAN_AWAITING
+        assert backend.planner_calls == 0
 
 
 def test_deterministic_stage_gate_hold_is_not_re_adjudicated_next_cycle(
@@ -1278,8 +1641,21 @@ def test_deterministic_stage_gate_hold_is_not_re_adjudicated_next_cycle(
             "resumable": False,
         },
     )
+    from argus.planner import WaitingContract
+
+    supervisor._persist_planner_waiting_contract(WaitingContract(
+        blocker_fingerprint="verification-job",
+        recheck_condition="Wait for independently accepted verification.",
+        recheck_token=item.id,
+        wait_mode="event",
+        wake_on=("subagent_state",),
+        observed_revision=supervisor._planner_waiting_observed_revision(
+            wake_on=("subagent_state",), watched_paths=(),
+        ),
+    ))
 
     assert supervisor._reconcile_reviewed_stage_empty_plan(None) == ""
+    assert supervisor._load_planner_waiting_contract_state()["active"] is True
     stored = next(row for row in supervisor.memory.backlog.all() if row.id == item.id)
     assert stored.outcome["stage_certification"] == "not_certified"
     assert backend.manager_calls == 1
@@ -1352,6 +1728,82 @@ def test_review_only_item_is_never_replayed_into_stage_writer(
         (project / ".argus" / "PIPELINE_STATE.json").read_text(encoding="utf-8")
     )
     assert state["current_stage"] == "scope"
+
+
+@pytest.mark.parametrize("second_run_accepts", [True, False])
+def test_replay_reads_only_the_latest_run_of_a_requeued_mission(
+    tmp_path: Path,
+    monkeypatch,
+    second_run_accepts: bool,
+) -> None:
+    supervisor, _backend, _sink = _make_supervisor(
+        tmp_path,
+        monkeypatch,
+        terminal_stage_done=False,
+        split_memory=True,
+    )
+    project = Path(supervisor.config.project_worktree)
+    _write_reviewed_math_scope_state(project)
+    item = supervisor.memory.backlog.add(
+        BacklogItem.new(
+            title="Define the mathematical scope",
+            objective="State the admissible conjecture class.",
+            tags=["planner", "scope:bounded"],
+        )
+    )
+
+    def run(objective: str, statuses: list[str], marker: str) -> None:
+        mission_path = create_mission_context(
+            life_dir=supervisor.memory.project_root,
+            mission_id=item.id,
+            stage="scope",
+            objective=objective,
+            scope="bounded",
+        )
+        for round_index, status in enumerate(statuses, start=1):
+            record_reviewed_handoff(
+                mission_context_path=mission_path,
+                round_index=round_index,
+                engineer_summary="",
+                review=SimpleNamespace(
+                    status=status,
+                    reason=f"{marker} round {round_index}",
+                    next_action="",
+                    operator_question="",
+                ),
+                checkpoint_path=None,
+            )
+
+    # The first run is accepted at round 3; a requeue then rewrites the
+    # objective and the second run counts its rounds from one again.
+    run(item.objective, ["continue", "continue", "done"], "OLD")
+    run(
+        "State the admissible conjecture class and its completion bar.",
+        ["continue", "done" if second_run_accepts else "continue"],
+        "NEW",
+    )
+    supervisor.memory.backlog.mark_done(
+        item.id,
+        outcome={
+            "execution_status": "completed",
+            "review_status": "done",
+            "stage_certification": "not_assessed",
+            "interruption_kind": "none",
+            "resumable": False,
+        },
+    )
+
+    recovered = supervisor._latest_unassessed_review_for_current_stage()
+
+    if second_run_accepts:
+        assert recovered is not None
+        assert recovered[1].reason == "NEW round 2"
+    else:
+        assert recovered is None
+    handoffs = supervisor.memory.project_root / "handoffs" / item.id
+    assert json.loads((handoffs / "round-0003.json").read_text())["review"]["reason"] == (
+        "OLD round 3"
+    )
 
 
 def test_replan_with_no_planner_tasks_reaches_the_manager(

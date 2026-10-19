@@ -143,10 +143,15 @@ def _unjudged_line(record: RoundRecord) -> str:
     if review.host_placeholder in _UNJUDGED:
         return f"Round {index} was not reviewed: {_UNJUDGED[review.host_placeholder]}."
     if review.host_placeholder == "operator_question_policy":
-        return (
+        line = (
             f"Round {index}: the host replaced the review because operator "
             "questions are not allowed in this mission."
         )
+        if review.reviewer_words:
+            # Only the routing was replaced; the findings were still yours.
+            _, reason, _ = reviewer_words_of(review)
+            line += f" Your findings then: {_one_line(reason, _ITEM_LIMIT)}"
+        return line
     if (review.review_source or "reviewer") == "engineer_self_review":
         return f"Round {index} was checked only by the Engineer's self-review, not by you."
     return f"Round {index} has no judgment of yours; the host recorded it."

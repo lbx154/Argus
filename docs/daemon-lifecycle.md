@@ -116,3 +116,13 @@ boundary. They are distinct from temporary tool descendants; see
 are not a sandbox against children deliberately creating new sessions. A service
 manager's control group also covers simultaneous loss of the execution owner and
 its guard.
+
+On POSIX, a direct-run hard timeout retains its run-specific exit sidecar.
+After reaping the wrapper and settling its owned process group, the worker may
+publish the observed negative signal return code if termination prevented the
+wrapper from publishing. The registry records `exit_status_source=timeout_waitpid`,
+`timeout_wrapper_returncode`, and `timeout_settlement_scope`; an existing wrapper
+sidecar is preserved, including a result racing with the timeout. The task remains
+`timeout`, not successful. Unsettled groups, unprovable ownership, and malformed
+sidecars remain errors. This does not certify escaped sessions, change Windows
+termination, or reconstruct missing evidence from historical runs.

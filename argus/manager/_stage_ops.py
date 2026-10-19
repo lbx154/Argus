@@ -570,7 +570,7 @@ class _StageDecisionMixin:
 
             if (
                 planner_wait_reconciliation
-                and resolve_workflow_mode(root) != "direct"
+                and (not open_ended or resolve_workflow_mode(root) != "direct")
                 and decision.action in {"advance", "complete"}
             ):
                 decision = StageDecision(
@@ -757,7 +757,7 @@ class _StageDecisionMixin:
 
         if (
             planner_wait_reconciliation
-            and resolve_workflow_mode(root) != "direct"
+            and (not open_ended or resolve_workflow_mode(root) != "direct")
             and decision.action in {"advance", "complete"}
         ):
             decision = StageDecision(
@@ -937,7 +937,14 @@ class _StageDecisionMixin:
             and cur == order[-1]
         )
         planner_wait_reconciliation = bool(
-            open_ended
+            (
+                open_ended
+                or bool(getattr(
+                    getattr(planner_verdict, "waiting_contract", None),
+                    "stage_reconciliation_required",
+                    False,
+                ))
+            )
             and review is None
             and planner_verdict is not None
             and bool(getattr(planner_verdict, "waiting", False))

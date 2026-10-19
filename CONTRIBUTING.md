@@ -16,6 +16,14 @@ This policy applies to `lbx154/Argus`.
 Both long-lived branches run the existing CI. Branch organization adds no
 separate release validation workflow.
 
+## Where to start
+
+[The roadmap](docs/ROADMAP.md) ([中文](docs/ROADMAP.zh-CN.md)) lists the work
+between today and 1.0: the release standards, the milestones, and every task
+with its problem, what to do, what done looks like, and its dependencies. Tasks
+marked "good first issue" are a good place to start. Every change names the
+principle in [docs/PRINCIPLES.md](docs/PRINCIPLES.md) that requires it.
+
 ## TypeScript runtime
 
 The root npm workspace contains the shared contracts, experimental runtime and

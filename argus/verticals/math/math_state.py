@@ -63,8 +63,7 @@ its shape. The writer now exists; it is this module; the guess is unnecessary.
 The second is that the tier rule above is *policy about this host's agents*, and
 the kernel is deliberately policy-free about who writes what — it has to be, or
 ``lean_evidence`` could not write ``mechanical`` through the same API. Policy
-belongs on the vertical side, next to ``lean_evidence`` and
-``literature_ledger``, which is also where a reader looking for "how does a math
+belongs on the vertical side, next to ``lean_evidence``, which is also where a reader looking for "how does a math
 agent record a claim" will look.
 
 The kernel loses nothing by having no CLI: a library lifted into another

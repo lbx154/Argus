@@ -31,6 +31,10 @@ PLANNER_UNCHANGED_RELOOK_LIMIT = 3
 # Argus can state without the model, so a broken backend cannot keep the
 # report loop calling it.
 PROJECT_REPORT_MODEL_ATTEMPTS = 3
+# Spare-slot planning beside running missions starts at the idle cap and
+# doubles while the backlog stays the same, up to this. Each ask is a full
+# Planner LLM call; at a flat 300 s a six-hour job bought 72 of them.
+PARALLEL_PLAN_INTERVAL_CAP_SECONDS = 7200.0
 PLAN_TERMINAL_IDLE = "planner_terminal_idle"
 PLAN_AWAITING = "awaiting_external"
 PLAN_ERROR = "planner_error"

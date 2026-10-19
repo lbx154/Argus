@@ -38,13 +38,19 @@ class RoundLoopState:
     """Mutable state that persists across rounds within one ``run()`` call."""
 
     rounds: list[RoundRecord] = field(default_factory=list)
-    # Wall-clock start of the current Engineer turn (for "changed this round").
+    # Wall-clock start of the first Engineer turn since the last completed
+    # review (for "changed this round"). A turn that ended without review --
+    # a self-handoff, a background wait, a provider restart -- stays inside
+    # the window, so the Reviewer sees every file the unjudged work touched.
     round_started_wall: float | None = None
+    # Accounts of Engineer turns that continued without any review, newest
+    # last. The next Reviewer reads them beside the final turn's account; a
+    # completed review clears them.
+    unreviewed_engineer_accounts: list[str] = field(default_factory=list)
+    # Consecutive NEXT_OWNER=engineer handoffs since the last review.
+    engineer_self_handoffs: int = 0
     last_engineer_message: str = ""
     no_progress_streak: int = 0
-    # Consecutive rounds the Engineer handed straight back to itself, past
-    # every stop check the Reviewer's settlement applies.
-    self_handoff_streak: int = 0
     semantic_stall_streak: int = 0
     # A stall an earlier mission on the same objective left: rounds where its
     # Reviewer reported no progress and named a check impossible here
@@ -87,12 +93,13 @@ class RoundLoopState:
     # forever. Reset by any Engineer call that ends any other way.
     provider_turn_cap_streak: int = 0
     pending_secret_guard_notes: list[str] = field(default_factory=list)
-    # Host-gathered round evidence (``round_evidence.py`` registry). The
-    # Reviewer rendering waits here for the next completed review, which
-    # consumes it; the Engineer note rides in the next prompt's follow-up text;
-    # ``round_evidence_state`` is each provider's opaque state from its last
-    # contribution, keyed by provider, handed back on the next round.
-    pending_round_evidence_text: str = ""
+    # Host-gathered round evidence (``round_evidence.py`` registry). Each
+    # Engineer turn's Reviewer rendering waits here, newest last, for the next
+    # completed review, which consumes all of them; the Engineer note rides in
+    # the next prompt's follow-up text; ``round_evidence_state`` is each
+    # provider's opaque state from its last contribution, keyed by provider,
+    # handed back on the next round.
+    pending_round_evidence: list[str] = field(default_factory=list)
     pending_round_evidence_engineer_note: str = ""
     round_evidence_state: dict[str, dict] = field(default_factory=dict)
     # A completed requested job gets one result-consumption turn per run,

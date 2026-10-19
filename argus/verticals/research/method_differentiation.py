@@ -311,8 +311,7 @@ def _select_runs_by_condition(runs_dir: Path) -> tuple[dict[str, ConditionRun], 
 
     The ``status.json`` ``optimizer_steps`` field is unreliable after a resume
     (it can record a stale post-resume counter), so we do NOT rank by step
-    count. Instead we mirror ``rl_training_health``: prefer a live run, then the
-    most-recently-touched one. That selects the *current* generation's run for
+    count. Instead we prefer a live run, then the most-recently-touched one. That selects the *current* generation's run for
     each condition rather than an old pilot.
     """
     warnings: list[str] = []

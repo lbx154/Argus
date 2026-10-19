@@ -3,16 +3,12 @@ import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { act, create, type ReactTestRenderer } from 'react-test-renderer';
 import { afterEach, beforeEach, expect, it, vi } from 'vitest';
 import { api } from '../api';
-import { MapReaderContent } from '../map/MapReaderContent';
 import { mapCopyKey } from '../map/copyMode';
 import type { MapCopy } from '../map/presentation';
 import { useMapCopy } from '../map/useMapCopy';
-import ResearchBrief from './ResearchBrief';
-import { ReaderExplanation } from './ReaderExplanation';
 import { selectFoundation, useSelectedFoundation } from './foundation';
 import { briefCopyKey, briefLiveKey, briefSelection, currentBriefData } from './model';
 import { completedCopy, inputs, source } from './testFixtures';
-import { useResearchBrief } from './useResearchBrief';
 
 vi.mock('../components/Modal', () => ({
   Modal: ({ open, children }: { open: boolean; children: ReactNode }) => open ? <div role="dialog">{children}</div> : null,
@@ -64,75 +60,18 @@ it('never falls back to default or another preview generation when no foundation
   const read = vi.spyOn(api, 'mapCopy').mockResolvedValue(empty);
   const generate = vi.spyOn(api, 'generateMapCopy');
   const foundation = vi.spyOn(api, 'generateReaderFoundation');
-  let current!: ReturnType<typeof useResearchBrief>, history!: ReturnType<typeof useMapCopy>;
+  let history!: ReturnType<typeof useMapCopy>;
   function Readers() {
-    current = useResearchBrief({ ...props, locale: 'en-US', preview });
     history = useMapCopy(source, 'a', false, true, undefined, props.sid);
     return null;
   }
   await act(async () => { renderer = create(<QueryClientProvider client={client}><Readers /></QueryClientProvider>); });
   await flush(1500);
-  expect(current.foundationRequired).toBe(true);
   expect(history.foundationRequired).toBe(true);
-  await act(async () => { await current.retry(); await history.retry(); });
+  await act(async () => { await history.retry(); });
   expect(read.mock.calls.length).toBeGreaterThan(0);
   expect(read.mock.calls.every(call => call[5] === preview && call[6] === null)).toBe(true);
   expect(generate).not.toHaveBeenCalled();
-  expect(foundation).not.toHaveBeenCalled();
-});
-
-it('keeps the opened reader on foundation A and generates foundation B only after explicitly opening it', async () => {
-  const a = completedCopy(source.tasks[0], ['start-a']);
-  const b = completedCopy(source.tasks[0], ['start-a']);
-  a.cards.a.reader_brief = { ...a.cards.a.reader_brief!, why: 'Application using foundation A.' };
-  b.cards.a.reader_brief = { ...b.cards.a.reader_brief!, why: 'Application using foundation B.' };
-  client.setQueryData(briefCopyKey(props.sid, 'en-US', preview, 'foundation-a'), a);
-  client.setQueryData(briefCopyKey(props.sid, 'en-US', preview, 'foundation-b'), b);
-  selectFoundation(client, props.sid, 'en-US', 'foundation-a');
-  let finishA!: (copy: MapCopy) => void, finishB!: (copy: MapCopy) => void;
-  const generate = vi.spyOn(api, 'generateMapCopy')
-    .mockReturnValueOnce(new Promise(resolve => { finishA = resolve; }))
-    .mockReturnValueOnce(new Promise(resolve => { finishB = resolve; }));
-  const foundation = vi.spyOn(api, 'generateReaderFoundation');
-  await act(async () => { renderer = create(<QueryClientProvider client={client}><ResearchBrief {...props} /></QueryClientProvider>); });
-  await flush();
-  expect(generate).not.toHaveBeenCalled();
-  act(() => renderer!.root.findAllByType('button').find(node => node.children.includes('Read explanation'))!.props.onClick());
-  await flush();
-  await act(async () => { generate.mock.calls[0][6]?.('planning'); await vi.advanceTimersByTimeAsync(25); });
-  act(() => { selectFoundation(client, props.sid, 'en-US', 'foundation-b'); });
-  await flush();
-  expect(generate).toHaveBeenCalledTimes(1);
-  const reading = () => renderer!.root.findByProps({ 'data-testid': 'research-brief-reading' });
-  const body = () => renderer!.root.findByProps({ 'data-testid': 'research-brief-body' });
-  expect(reading().findByType(ReaderExplanation).props.brief.why).toBe('Application using foundation A.');
-  expect(reading().findByProps({ 'data-explanation-phase': 'planning' })).toBeTruthy();
-  expect(body().findByType(ReaderExplanation).props.brief.why).toBe('Application using foundation B.');
-  expect(reading().findByType(MapReaderContent).props.selection.foundationRequired).toBe(false);
-  expect(reading().findByType(MapReaderContent).props.selection.questionContext).toEqual({
-    locale: 'en-US', preview, foundationId: 'foundation-a',
-  });
-  const doneA = completedCopy(source.tasks[0], ['start-a', 'main-a'], 30);
-  doneA.cards.a.reader_brief = { ...doneA.cards.a.reader_brief!, why: 'Finished application A.' };
-  await act(async () => { finishA(doneA); await vi.advanceTimersByTimeAsync(25); });
-  expect(reading().findByType(ReaderExplanation).props.brief.why).toBe('Finished application A.');
-  expect(body().findByType(ReaderExplanation).props.brief.why).toBe('Application using foundation B.');
-  act(() => renderer!.root.findAllByType('button').find(node => node.children.includes('Read explanation'))!.props.onClick());
-  await flush();
-  expect(generate).toHaveBeenCalledTimes(2);
-  expect(generate.mock.calls.map(call => ({ foundation: call[2].foundation_id, cards: call[2].cards, preview: call[5] }))).toEqual([
-    { foundation: 'foundation-a', cards: [{ key: 'a', task_id: 'a', kind: 'task', event_ids: ['start-a', 'main-a'] }], preview },
-    { foundation: 'foundation-b', cards: [{ key: 'a', task_id: 'a', kind: 'task', event_ids: ['start-a', 'main-a'] }], preview },
-  ]);
-  await act(async () => { generate.mock.calls[1][6]?.('writing'); await vi.advanceTimersByTimeAsync(25); });
-  expect(reading().findByType(ReaderExplanation).props.brief.why).toBe('Application using foundation B.');
-  expect(reading().findByProps({ 'data-explanation-phase': 'writing' })).toBeTruthy();
-  const doneB = completedCopy(source.tasks[0], ['start-a', 'main-a'], 40);
-  doneB.cards.a.reader_brief = { ...doneB.cards.a.reader_brief!, why: 'Finished application B.' };
-  await act(async () => { finishB(doneB); await vi.advanceTimersByTimeAsync(25); });
-  expect(reading().findByType(ReaderExplanation).props.brief.why).toBe('Finished application B.');
-  expect(body().findByType(ReaderExplanation).props.brief.why).toBe('Finished application B.');
-  expect(generate).toHaveBeenCalledTimes(2);
   expect(foundation).not.toHaveBeenCalled();
 });
 

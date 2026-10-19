@@ -295,6 +295,8 @@ class Planner:
         )
         if session.prompt_block():
             prompt = session.prompt_block() + "\n\n" + prompt
+        full_prompt = prompt
+        prompt = session.resume_prompt(full_prompt)
         planner_options = RunnerOptions(
             model=cfg.model,
             reasoning_effort=cfg.reasoning_effort or "xhigh",
@@ -343,7 +345,9 @@ class Planner:
             if process_decision is not None
             else "\n".join(getattr(result, "agent_messages", None) or [])
         )
-        session_metadata_persisted = session.complete(result, decisive_output=text)
+        session_metadata_persisted = session.complete(
+            result, decisive_output=text, prompt=full_prompt
+        )
         failed = (
             int(getattr(result, "exit_code", 0) or 0) != 0
             or bool(getattr(result, "fatal_error", None))

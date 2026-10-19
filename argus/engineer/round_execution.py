@@ -45,6 +45,7 @@ from .round_state import (
 )
 from .round_stop_signals import (
     BACKEND_FAILURE_SAME_CAUSE_THRESHOLD,
+    PROVIDER_TURN_CAP_NEXT_ACTION,
     authentication_review_decision,
     backend_failure_cause,
     backend_failure_hold_backoff_seconds,
@@ -122,6 +123,8 @@ def _engineer_decision_message(payload: dict) -> str:
 
 # Longest host-evidence note appended to the next Engineer prompt.
 _ROUND_EVIDENCE_ENGINEER_NOTE_CHARS = 2500
+# Most recent unreviewed Engineer turns whose host evidence the next Reviewer reads.
+_PENDING_ROUND_EVIDENCE_TURNS = 4
 
 
 def _round_evidence_life_dir(workdir: Path, supervised_config: "SupervisedConfig") -> Path:
@@ -171,9 +174,16 @@ def _record_round_evidence(
             return
         for item in items:
             state.round_evidence_state[item.provider] = item.state
-        state.pending_round_evidence_text = "\n\n".join(
+        reviewer_text = "\n\n".join(
             item.reviewer_text.strip() for item in items if item.reviewer_text.strip()
         )
+        if reviewer_text:
+            # A turn that continues without review keeps its evidence for the
+            # Reviewer that eventually judges it, beside the later turns'.
+            state.pending_round_evidence.append(
+                f"### After Engineer round {round_index}\n{reviewer_text}"
+            )
+            del state.pending_round_evidence[:-_PENDING_ROUND_EVIDENCE_TURNS]
         engineer_note = "\n\n".join(
             item.engineer_note.strip() for item in items if item.engineer_note.strip()
         )[:_ROUND_EVIDENCE_ENGINEER_NOTE_CHARS]
@@ -1129,7 +1139,16 @@ class RoundExecutionMixin:
                 ),
                 None,
             ))
-        state.reviewer_next_action = review.next_action
+        # The fresh session still owes whatever the Reviewer asked for (and
+        # any host guidance after it), so the restart note is added to that
+        # instruction, not substituted for it. A later restart's note replaces
+        # an earlier one instead of piling up behind it.
+        previous = (state.reviewer_next_action or "").split(
+            PROVIDER_TURN_CAP_NEXT_ACTION, 1
+        )[0].strip()
+        state.reviewer_next_action = "\n\n".join(
+            part for part in (previous, review.next_action) if part
+        )
         # A call that ended at its turn allowance was not a backend failure,
         # so it ends any run of identical failures — the same reset the
         # self-review phase applies after an ordinary completed round, which

@@ -112,6 +112,81 @@ def _reports(life: Path):
     ]
 
 
+@pytest.mark.parametrize("wake", ["evidence", "operator"])
+def test_rejected_wait_consumes_feedback_budget_across_restarts(
+    campaign, monkeypatch, wake,
+):
+    from argus.core.operator_context import append_directive
+
+    calls = []
+
+    def plan(_planner, **_kwargs):
+        calls.append(True)
+        return PlannerVerdict(
+            project_done=False, waiting=True,
+            reason=f"Waiting instead of fixing the rejection, wording {len(calls)}",
+        )
+
+    monkeypatch.setattr("argus.planner.Planner.plan_next", plan)
+    monkeypatch.setattr(LifeSupervisor, "_journal_has_final_certification", lambda _self: False)
+    supervisor = campaign.supervisor
+    assert supervisor._persist_manager_planner_feedback(
+        stage="delivery", reason="Required repair is still missing",
+        diagnostic="stage_completion_gate_failed",
+    )
+    original = supervisor._load_manager_planner_feedback()
+    original["repair"] = {"source": "retained independent rejection"}
+    assert supervisor._write_manager_planner_feedback(original)
+    for expected_attempts in (2, 3):
+        supervisor = campaign.make()
+        assert supervisor._plan_next_work() == PLAN_ERROR
+        current = supervisor._load_manager_planner_feedback()
+        assert current["attempts"] == expected_attempts
+        for key in (
+            "reason", "diagnostic", "evidence_signature", "created_at",
+            "objective_fingerprint", "operator_context_revision", "repair",
+        ):
+            assert current[key] == original[key]
+    for _ in range(3):
+        assert campaign.make()._plan_next_work() == PLAN_TERMINAL_IDLE
+    assert len(calls) == 2
+    assert not supervisor.memory.backlog.active()
+    if wake == "evidence":
+        (campaign.project / "result.txt").write_text("new independently supplied evidence\n")
+    else:
+        append_directive(
+            campaign.life, "New facts are available; reassess the preserved blocker.",
+            lifetime="once", expected_revision=0,
+        )
+    monkeypatch.setattr(
+        "argus.planner.Planner.plan_next",
+        lambda *_args, **_kwargs: (
+            calls.append(True) or PlannerVerdict(project_done=True, reason="New decision")
+        ),
+    )
+    campaign.make()._plan_next_work()
+    assert len(calls) == 3
+
+
+def test_rejected_wait_reports_feedback_write_failure(campaign, monkeypatch):
+    from argus.life.supervisor._planning_cycle_helpers import _PlanCycleState
+
+    supervisor = campaign.supervisor
+    assert supervisor._persist_manager_planner_feedback(
+        stage="delivery", reason="Repair required", diagnostic="stage_completion_gate_failed",
+    )
+    before = supervisor._manager_planner_feedback_path().read_bytes()
+    events = []
+    monkeypatch.setattr(supervisor, "_emit", events.append)
+    monkeypatch.setattr(supervisor, "_emit_status", lambda text: events.append({"status": text}))
+    monkeypatch.setattr(supervisor, "_write_manager_planner_feedback", lambda _value: False)
+    state = _PlanCycleState(None)
+    state.verdict = PlannerVerdict(project_done=False, waiting=True, reason="Wait")
+    assert supervisor._pc_handle_waiting(state) == PLAN_ERROR
+    assert supervisor._manager_planner_feedback_path().read_bytes() == before
+    assert any("failed to persist" in event.get("status", "") for event in events)
+
+
 def _legacy_handoff(campaign):
     from argus.core.operator_context import OperatorContextStore
 

@@ -827,9 +827,9 @@ class Reviewer:
 
         artifact_root = Path(config.artifact_root or config.working_dir or ".")
         state_root = Path(config.vertical_state_root or config.working_dir or ".")
-        review_vertical = config.active_vertical or resolve_vertical_if_decided(state_root) or ""
+        vertical = config.active_vertical or resolve_vertical_if_decided(state_root) or ""
         venue_required = requires_venue_review(
-            vertical=review_vertical,
+            vertical=vertical,
             stage=str(read_pipeline_state(state_root).get("current_stage") or ""),
             scope=scope,
             operation=operation,
@@ -958,6 +958,25 @@ class Reviewer:
             decision.prompt_block_stats = prompt_block_stats
             return decision
 
+        read_dirs: list[str] | None = None
+        if str(getattr(self.runner, "backend", "")).lower() == "copilot":
+            # Copilot denies a read outside its add-dirs, and this prompt names
+            # files outside the workdir by absolute path: the project state
+            # beside the Engineer log (handoffs, round checks, goal contract),
+            # the checkpoint, and the active vertical's packaged playbooks.
+            prompt_dirs = [
+                Path(value).expanduser().resolve().parent
+                for value in (engineer_log_path, checkpoint_path)
+                if value
+            ]
+            if config.vertical_state_root:
+                prompt_dirs.append(Path(config.vertical_state_root).expanduser().resolve())
+            read_dirs = list(dict.fromkeys([
+                *(str(path) for path in review_libraries.library_roots),
+                *(str(path) for path in prompt_dirs if path.is_dir()),
+                *vertical_skill_read_dirs(vertical),
+            ]))
+
         try:
             with ExitStack() as output_cleanup:
                 if review_output_dir is not None:
@@ -976,12 +995,7 @@ class Reviewer:
                         skip_git_repo_check=config.skip_git_repo_check,
                         extra_args=list(config.extra_args) if config.extra_args else None,
                         review_output=review_output,
-                        add_dirs=(
-                            [str(path) for path in review_libraries.library_roots]
-                            + vertical_skill_read_dirs(review_vertical)
-                            if str(getattr(self.runner, "backend", "")).lower() == "copilot"
-                            else None
-                        ),
+                        add_dirs=read_dirs,
                         skill_paths=native_skill_paths,
                         working_dir=config.working_dir,
                         # Search is available for the rare turn that proposes a

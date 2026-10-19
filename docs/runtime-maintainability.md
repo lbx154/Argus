@@ -87,6 +87,16 @@ Reviewer 的语义判断和 Host 的状态提交发生在不同位置；定位�
 的 CLI/Web 普通任务可以正常验收结束，不要求额外传 `--bounded`。显式开放式 campaign、
 有限 campaign、守护进程驻留和已有终态证据的语义保持不变。
 
+有限 campaign 的完成证书也不能跳过尚未处理的操作者输入。外层完成快捷路径
+先沿原收件入口接纳消息，并保留给 Planner intake；持久 ledger 中尚未被 Planner
+确认的 revision 同样阻止快捷结束。已接纳输入的 planning cycle 必须先让 Planner
+处理，不删除或伪造旧阶段证书，也不把工程验收等同于后来要求的报告交付。
+新的输入还会使保留的 `project_completed` / `certified_increment` 调度决定失效，
+先记录包含原 verdict 和交付状态的 superseded 事件，再清除待重放的 outbox；
+否则旧的 bounded `False` outcome 会在 Planner 前再次结束本轮。原完成事件、
+工程证书和任务终态保持不变；尚未被 Planner 处理的原生收件仍可按同一身份重入。
+没有新输入的已验收有限任务仍可直接结束，不强制购买额外 Planner 调用。
+
 有限任务的 Planner 预览也通过角色目录读取会话 state root 中选定的 vertical
 和阶段，并接收该领域的阶段规则；工作目录只作为代码、数据和执行位置，
 不能因为它没有 `PIPELINE_STATE.json` 就回退到 research。
@@ -185,6 +195,26 @@ HTTP 路径、返回结构与直接 Python 调用保留兼容。`daemon_lifecycl
 关闭持续运行走停止池。门户保留经过校验的 `Retry-After`，仍对后端错误正文脱敏。
 
 ### 控制面等待与取消
+
+Planner 在未解决的 Manager 反馈下返回等待，并不代表反馈已处理。该拒绝通过
+`_record_manager_feedback_no_progress` 累计到原有持久重试上限；重启或改写等待理由
+不重置计数。原始原因、证据签名、创建时间和修复关联保持，最近拒绝另记
+`last_rejection`，写入失败显式报告。到上限后由原 intake 进入等待新证据或操作者
+输入的终态空闲，不修改科研任务终态。因所有新任务都重复已有工作而产生的
+filtered-task 反馈仍可由合法等待解除；普通等待和新证据唤醒不受此拒绝计数影响。
+
+Bounded campaigns also route a Planner wait to the Manager when its contract
+explicitly sets `stage_reconciliation_required=true`. Ordinary bounded waits
+remain unchanged. This grants a stage-authority decision, not permission to
+expand operator scope, skip required stages, certify a project, or replay work.
+Operator-gated waits still require the operator; existing Manager reconciliation
+deduplication, retry cadence and stage validators remain authoritative.
+Bounded reconciliation cannot advance or complete without Reviewer evidence,
+including direct workflows. Native subagent reports remain host evidence, not
+new operator requests that could repeatedly defer bounded completion. Once a
+current completion certificate exists, report-only native receipts are settled
+before checking the next inbox item; a retained report must not conceal a queued
+operator instruction. Operator receipts still require actual Planner handling.
 
 bounded 与 continuous handoff 都在提交前请求让出任务边界。当前任务结束后，Supervisor
 会先让 Manager 提交，再继续领取后续任务；这里提供任务边界让出，不承诺严格 FIFO。

@@ -40,6 +40,9 @@ from ._constants import (
     IDLE_BACKOFF_CAP_SECONDS as _IDLE_BACKOFF_CAP_SECONDS,
 )
 from ._constants import (
+    PARALLEL_PLAN_INTERVAL_CAP_SECONDS as _PARALLEL_PLAN_INTERVAL_CAP_SECONDS,
+)
+from ._constants import (
     PLAN_AWAITING as _PLAN_AWAITING,
 )
 from ._constants import (
@@ -173,6 +176,7 @@ class LifeSupervisor(
         self._planner_dropped_parallel_marks: list[tuple[str, str]] = []
         self._parallel_plan_fingerprint: tuple[tuple[str, ...], ...] | None = None
         self._parallel_plan_after = 0.0
+        self._parallel_plan_interval = 0.0
         # Wall-clock (monotonic) of the first idle pass in the current idle
         # streak — set by `_enter_idle_backoff`, cleared by `_reset_idle_backoff`
         # — so `_maybe_idle_timeout` can auto-exit a long-idle continuous daemon.
@@ -2297,8 +2301,12 @@ class LifeSupervisor(
         owning a path the running mission owns -- leaves the slot idle forever
         while looking like queued work. Only claimable work should suppress
         planning; the fingerprint carries the pending set so a task queued and
-        not claimed does not immediately ask again, and the retry interval is
-        the idle backoff the loop already uses.
+        not claimed does not immediately ask again.
+
+        The retry interval starts at the idle backoff and doubles each time the
+        backlog is found unchanged, up to PARALLEL_PLAN_INTERVAL_CAP_SECONDS. A
+        flat idle-cap retry asked the Planner every five minutes for the whole
+        of a long job, and nearly every answer was "still waiting".
         """
         try:
             from ...daemon.state import read_continuous_state
@@ -2321,18 +2329,22 @@ class LifeSupervisor(
 
             fingerprint = self._backlog_fingerprint(items, running_items)
             now = time.monotonic()
-            if (
-                fingerprint == self._parallel_plan_fingerprint
-                and now < self._parallel_plan_after
-            ):
-                return
-            self._parallel_plan_after = now + max(
-                float(self.config.poll_interval_seconds),
-                # Spare-slot planning throttles on idle-poll semantics, so it
-                # deliberately stays on this cap rather than the operator-wait
-                # turn re-grant constant that was split out of it.
-                _IDLE_BACKOFF_CAP_SECONDS,
-            )
+            if fingerprint == self._parallel_plan_fingerprint:
+                if now < self._parallel_plan_after:
+                    return
+                self._parallel_plan_interval = min(
+                    self._parallel_plan_interval * 2,
+                    _PARALLEL_PLAN_INTERVAL_CAP_SECONDS,
+                )
+            else:
+                self._parallel_plan_interval = max(
+                    float(self.config.poll_interval_seconds),
+                    # Spare-slot planning throttles on idle-poll semantics, so it
+                    # deliberately starts at this cap rather than the
+                    # operator-wait turn re-grant constant split out of it.
+                    _IDLE_BACKOFF_CAP_SECONDS,
+                )
+            self._parallel_plan_after = now + self._parallel_plan_interval
             self._plan_next_work()
             # Re-read after planning so a task that was queued but cannot be
             # claimed counts as a change, and the next tick does not spin.

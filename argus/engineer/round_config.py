@@ -73,6 +73,18 @@ OPERATOR_QUESTION_POLICY_REVIEW_SOURCES = frozenset(
         "reviewer_operator_question_policy",
     }
 )
+# Records the host writes for a round nobody judged: the Engineer turn ended
+# before review, or the Reviewer leg rendered no verdict. They sit in the round
+# list beside real verdicts but carry no review judgment of any kind.
+HOST_PLACEHOLDER_REVIEW_SOURCES = frozenset(
+    {
+        "backend_failure",
+        "provider_background_wait",
+        "provider_turn_cap",
+        "reviewer_unavailable",
+        "silent_command",
+    }
+)
 
 
 def _env_bool(name: str, default: bool) -> bool:

@@ -205,8 +205,8 @@ def _math_state_issues(project_root: Path) -> tuple[str, ...]:
     ``closed_kernel`` and ``conditional_kernel`` and nothing consulted the
     answer, so a project could finish a stage with a ledger contradicting
     itself. ``StateIssue.rendered()`` was written for this — it produces the
-    same ``path: message`` shape ``lean_evidence`` and ``literature_ledger``
-    already emit, so all three render alike here.
+    same ``path: message`` shape ``lean_evidence`` already emits, so both
+    render alike here.
 
     What this deliberately does *not* do is let a claim's derived status decide
     whether the mission is complete. That question belongs with the objective

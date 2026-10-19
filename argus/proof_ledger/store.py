@@ -81,9 +81,8 @@ class MathStateError(Exception):
 
 @dataclass(frozen=True)
 class StateIssue:
-    """One structural defect, in the shape ``literature_ledger`` and
-    ``lean_evidence`` already use, so a later gate can render all three the
-    same way."""
+    """One structural defect, in the shape ``lean_evidence`` already uses, so
+    a later gate can render both the same way."""
 
     code: str
     path: str
@@ -987,7 +986,7 @@ def load_state(project_root: Path | str) -> MathState:
 def save_state(project_root: Path | str, state: MathState) -> Path:
     """Write atomically, because a truncated state file is a lost project.
 
-    Same ``mkstemp`` + ``os.replace`` shape as ``literature_ledger``: a crash
+    ``mkstemp`` + ``os.replace``: a crash
     mid-write leaves the previous state intact rather than a half-written file
     that ``load_state`` would refuse to read.
     """

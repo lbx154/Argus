@@ -20,6 +20,10 @@ answers, not a fixed multi-section template; professional questions still need
 precise terminology and detail. Give a next step only when the person needs to
 act. Internal technical records and parsed closing lines remain unchanged.
 
+Role prompts share one compact statement of these rules; the front-door
+classifier uses its brief form. Keep both within the existing composed-prompt
+budgets without weakening readability, uncertainty or protocol separation.
+
 For a requested web page, the default result is self-contained HTML or an
 existing authenticated preview that opens in the user's browser. Commands
 alone are not a usable page. Honor explicit requests for source projects,
