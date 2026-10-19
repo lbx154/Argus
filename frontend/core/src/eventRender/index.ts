@@ -368,6 +368,8 @@ export function renderEvent(event: TypedArgusEvent, context: RenderContext): Ren
       return model('reviewer', 'role.reviewer', '🔄', localized(context, `the Reviewer checks round ${roundNumber(event)}`, `审阅者检查第 ${roundNumber(event)} 轮`), 'info');
     case 'round.review.deferred':
       return model('engineer', 'role.engineer', '↪', localized(context, `carries on into the next round without a review · ${clean(stringField(event, 'next_step'), context.density === 'full' ? 180 : 160)}`, `不经审阅直接进入下一轮 · ${clean(stringField(event, 'next_step'), context.density === 'full' ? 180 : 160)}`), 'info');
+    case 'round.review.skipped_unchanged':
+      return model('reviewer', 'role.reviewer', '⏸', localized(context, 'nothing changed since the last review; waiting on the background work', '上次审阅后没有变化，继续等后台任务'), 'dim');
     case 'round.main.completed':
       return model('engineer', 'role.engineer', '✅', localized(context, `finished round ${roundNumber(event)} of work`, `第 ${roundNumber(event)} 轮工作已完成`), 'info');
     case 'round.review.completed': {
