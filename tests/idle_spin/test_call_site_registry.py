@@ -70,13 +70,6 @@ REGISTRY: tuple[Site, ...] = (
         ("research.academic_language_review", "research.paper_infrastructure_review"),
     ),
     Site(
-        r"venue-research", FOREGROUND,
-        "One live-search round per target venue for a research mission; skipped once a "
-        "profile or a completed attempt is recorded.",
-        ("argus/verticals/research/venue_research.py:206",),
-        ("venue-research",),
-    ),
-    Site(
         r"subagent:[^:]+:(preflight|report|discussion)(:resume-recovery)?", FOREGROUND,
         "A job the Engineer submitted: one preflight before launch, one report when it ends, "
         "one reply per Engineer turn of an early-stop discussion; a resumed thread that "
