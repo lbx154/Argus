@@ -13,7 +13,6 @@ requests and the persisted research-target completion gate; they have no
 
 from __future__ import annotations
 
-import hashlib
 import json
 import logging
 import os
@@ -280,19 +279,19 @@ def goal_gate_task_title(project_root: object) -> str:
 # ---------------------------------------------------------------------------
 
 
-def completion_rejection_circuit_path(root: Path | str, objective: str) -> Path:
-    """State file for the completion-rejection stop-loss of one objective."""
-    fingerprint = hashlib.sha256(
-        str(objective or "").encode("utf-8")
-    ).hexdigest()[:16]
-    return Path(root) / f"completion-rejection-circuit-{fingerprint}.json"
+def completion_rejection_circuit_path(root: Path | str) -> Path:
+    """State file for the completion-rejection stop-loss.
+
+    A new objective arrives with operator input, which lifts a pause, and
+    brings its own rejection reasons, which restart the count.
+    """
+    return Path(root) / "completion-rejection-circuit.json"
 
 
 def completion_rejection_reason_key(diagnostic: str, reason: str) -> str:
-    """Stable key for one rejection cause, insensitive to whitespace churn."""
+    """One rejection cause as text, insensitive to whitespace churn."""
     normalized_reason = " ".join(str(reason or "").split())
-    canonical = f"{str(diagnostic or '').strip()}\n{normalized_reason}"
-    return hashlib.sha256(canonical.encode("utf-8")).hexdigest()[:16]
+    return f"{str(diagnostic or '').strip()}\n{normalized_reason}"
 
 
 def load_completion_rejection_circuit(path: Path) -> dict[str, Any] | None:

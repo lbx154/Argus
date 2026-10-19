@@ -97,7 +97,8 @@ class IdleCycleMixin:
         fingerprint = str(circuit.get("fingerprint") or "")
         reason = (
             "runtime failure circuit is open; install or canary a changed Argus "
-            f"runtime before dispatching more work ({fingerprint})"
+            f"runtime before dispatching more work ({circuit.get('exception_type')} "
+            f"at {circuit.get('callsite')})"
         )
         if self._should_journal_idle_repeat("runtime_failure_circuit"):
             self._emit({

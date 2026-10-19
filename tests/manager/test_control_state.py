@@ -115,7 +115,7 @@ def test_authorization_is_manager_owned_campaign_bound_and_one_shot(tmp_path: Pa
         "acceptance_retry",
     )
     assert authorization.source_channel == "vscode"
-    assert authorization.frozen_evidence[0]["sha256"] not in {"", "missing"}
+    assert authorization.frozen_evidence[0]["facts"] not in ([], "missing")
     public = store.public_authorization(store.get_authorization(authorization.authorization_id))
     assert public["frozen_evidence"] == [{"path": "research/RESULT.json"}]
     assert store.read_snapshot()["authorization_ids"] == [authorization.authorization_id]

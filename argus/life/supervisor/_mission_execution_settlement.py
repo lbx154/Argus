@@ -55,7 +55,7 @@ _REPLAN_STREAK_SETTLEMENT_KINDS = frozenset({
 })
 
 
-def outcome_manuscript_binding(outcome: object) -> dict[str, str] | None:
+def outcome_manuscript_binding(outcome: object) -> dict[str, Any] | None:
     """The manuscript the final Reviewer read, from whichever outcome shape we got.
 
     The daemon's ``_Outcome`` carries it as ``manuscript_snapshot`` (its
@@ -63,13 +63,13 @@ def outcome_manuscript_binding(outcome: object) -> dict[str, str] | None:
     whose last review holds it.
     """
     direct = getattr(outcome, "manuscript_snapshot", None)
-    if isinstance(direct, dict) and str(direct.get("sha256") or "").strip():
+    if isinstance(direct, dict) and direct.get("facts"):
         return dict(direct)
     rounds = getattr(outcome, "rounds", None) or []
     if isinstance(rounds, (list, tuple)) and rounds:
         final_review = getattr(rounds[-1], "review", None)
         candidate = getattr(final_review, "manuscript_snapshot", None)
-        if isinstance(candidate, dict) and str(candidate.get("sha256") or "").strip():
+        if isinstance(candidate, dict) and candidate.get("facts"):
             return dict(candidate)
     return None
 

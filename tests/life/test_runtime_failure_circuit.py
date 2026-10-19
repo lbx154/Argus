@@ -37,7 +37,7 @@ def _identity(release: str = "release-a", source: str = "source-a") -> dict:
     return {
         "package_version": release,
         "source_revision": source,
-        "relevant_source_digest": source,
+        "relevant_source": source,
         "checkpoint_contract_version": 2,
     }
 

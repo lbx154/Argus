@@ -6,16 +6,17 @@ only removes pending delivery; the result remains in the settled backlog row.
 """
 from __future__ import annotations
 
-import hashlib
 import json
 import logging
 import math
+import uuid
 from pathlib import Path
 from typing import Any, Callable
 
 import portalocker
 
 from ..core.event_catalog import EventType
+from .mission_event_index import _is_delivery_id
 
 PENDING_DIRECTORY = "mission-deliveries"
 DELIVERY_LOCK = "mission-deliveries.lock"
@@ -32,8 +33,7 @@ def prepare_mission_delivery(
 ) -> dict[str, Any]:
     from .event_log import JsonlEventSink
 
-    identity = f"{item.id}:{int(item.attempt)}:{int(item.iteration_cycles_done)}:{item.started_ts}"
-    delivery_id = hashlib.sha256(identity.encode()).hexdigest()
+    delivery_id = uuid.uuid4().hex
     event = JsonlEventSink._normalize({
         **event, "event_id": f"mission-{delivery_id}", "mission_delivery_id": delivery_id,
     })
@@ -62,7 +62,7 @@ def validate_mission_delivery(record: Any) -> None:
     ):
         raise ValueError("invalid mission delivery ownership")
     key = record.get("id")
-    if not isinstance(key, str) or len(key) != 64 or any(c not in "0123456789abcdef" for c in key):
+    if not _is_delivery_id(key):
         raise ValueError("invalid mission delivery id")
     event = record.get("event")
     if (
@@ -101,7 +101,7 @@ def _settled_experience(record: dict[str, Any]) -> Any:
         or not sources[0].startswith(f"mission:{record['item_id']}/attempt:")
     ):
         raise ValueError("invalid settled experience ownership")
-    expected = f"exp:{float(birth).hex()}:{hashlib.sha256(sources[0].encode()).hexdigest()[:32]}"
+    expected = f"exp:{float(birth).hex()}:{sources[0]}"
     if identity != expected:
         raise ValueError("settled experience identity does not match its source")
     if row.get("status") in {"done", "success", "completed"} and not (
@@ -133,7 +133,7 @@ def _experience_retention(root: Path) -> dict[str, Any]:
         or not isinstance(floor, list) or len(floor) != 2
         or type(floor[0]) not in {int, float} or not math.isfinite(floor[0]) or floor[0] < 0
         or not isinstance(floor[1], str)
-        or (floor != [0.0, ""] and (len(floor[1]) != 64 or any(c not in "0123456789abcdef" for c in floor[1])))
+        or (floor != [0.0, ""] and not _is_delivery_id(floor[1]))
         or type(value.get("retired_count")) is not int or not 0 <= value["retired_count"] < 2**63
         or value.get("reason") != "pending_experience_capacity"
     ):

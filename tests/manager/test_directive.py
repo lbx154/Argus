@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-import hashlib
 import json
 from pathlib import Path
 
@@ -209,9 +208,7 @@ def test_standing_steer_authorizes_final_continuous_objective(tmp_path: Path) ->
     assert continuous.open_ended is True
     assert directive is not None
     assert directive.operator_question_policy == "forbid"
-    assert directive.objective_sha256 == hashlib.sha256(
-        "old bounded objective".encode("utf-8")
-    ).hexdigest()
+    assert directive.objective == "old bounded objective"
     assert directive.authorized_objective == continuous.objective
     payload = json.loads(
         (tmp_path / ACTIVE_MANAGER_DIRECTIVE_FILENAME).read_text(encoding="utf-8")
@@ -331,9 +328,7 @@ def test_concurrent_replacement_steer_is_stale_and_not_queued(
         (tmp_path / ACTIVE_MANAGER_DIRECTIVE_FILENAME).read_text(encoding="utf-8")
     )
     assert result["continuous"] is False
-    assert payload["objective_sha256"] == hashlib.sha256(
-        b"objective A"
-    ).hexdigest()
+    assert payload["objective"] == "objective A"
     assert payload["authorized_objective"] == "authorized standing objective"
     assert load_active_manager_directive(tmp_path) is None
     assert (tmp_path / "inbox.jsonl").exists()
@@ -404,9 +399,7 @@ def test_unchanged_policy_inheritance_stays_bound_to_captured_objective(
     )
     assert result["control"] == "steer"
     assert payload["operator_question_policy"] == "forbid"
-    assert payload["objective_sha256"] == hashlib.sha256(
-        b"objective A"
-    ).hexdigest()
+    assert payload["objective"] == "objective A"
     assert load_active_manager_directive(tmp_path) is None
     assert (
         active_operator_question_policy(

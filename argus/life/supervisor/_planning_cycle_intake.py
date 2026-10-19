@@ -374,7 +374,6 @@ class PlanningCycleIntakeMixin:
                         or "."
                     )
                 ),
-                str(getattr(self.config, "continuous_objective", "") or ""),
             )
             circuit = load_completion_rejection_circuit(circuit_path)
             if circuit is not None and circuit.get("paused"):

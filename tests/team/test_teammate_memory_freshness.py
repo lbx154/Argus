@@ -1,7 +1,6 @@
 """Exercise teammate entry -> real runtime -> offline multi-round role calls."""
 from __future__ import annotations
 
-import hashlib
 from types import SimpleNamespace
 
 import pytest
@@ -27,7 +26,6 @@ def test_teammate_replaces_revised_and_revoked_context_between_role_calls(tmp_pa
     page.parent.mkdir(parents=True)
     (page.parent.parent / "INDEX.md").write_text("# Project Wiki\n")
     page.write_text("quartz measured under original conditions")
-    first_digest = hashlib.sha256(page.read_bytes()).hexdigest()[:12]
     experiences = FailureExperienceStore(state / "failure_experiences.jsonl")
     experience = experiences.append(FailureExperience.new(
         mission_id="prior-mission", title="quartz", objective="verify quartz", status="done",
@@ -44,7 +42,6 @@ def test_teammate_replaces_revised_and_revoked_context_between_role_calls(tmp_pa
     monkeypatch.setenv("ARGUS_SKILL_REQUIRE_POST_TASK_LEARNING", "0")
     monkeypatch.setenv("ARGUS_SKILL_MAX_ROUNDS", "3")
     backend = MemoryBackend()
-    digests = [first_digest]
 
     def revise(_prompt, _options):
         assert experiences.path.read_bytes() == canonical[-1]
@@ -52,7 +49,6 @@ def test_teammate_replaces_revised_and_revoked_context_between_role_calls(tmp_pa
         append_directive(state, "NEW_TEAM_GUIDANCE", applies_to_roles=("teammate",),
                          expected_revision=4)
         page.write_text("quartz measured under revised conditions")
-        digests.append(hashlib.sha256(page.read_bytes()).hexdigest()[:12])
         experiences.revise(experience.id, expected_revision=1, evidence_refs=["new measurement"],
                            factual_outcome="REVISED_QUARTZ_EXPERIENCE")
         canonical.append(experiences.path.read_bytes())
@@ -95,8 +91,8 @@ def test_teammate_replaces_revised_and_revoked_context_between_role_calls(tmp_pa
     assert "OLD_TEAM_GUIDANCE" not in prompts[1]
     assert "NEW_TEAM_GUIDANCE" in prompts[1]
     assert "OLD_TEAM_GUIDANCE" not in prompts[2] and "NEW_TEAM_GUIDANCE" not in prompts[2]
-    assert str(page) in prompts[0] and digests[0] in prompts[0]
-    assert str(page) in prompts[1] and digests[1] in prompts[1] and digests[0] not in prompts[1]
+    assert str(page) in prompts[0] and "original conditions" in prompts[0]
+    assert str(page) in prompts[1] and "revised conditions" in prompts[1] and "original conditions" not in prompts[1]
     assert str(page) not in prompts[2]
     assert "OLD_QUARTZ_EXPERIENCE" in prompts[0]
     assert "REVISED_QUARTZ_EXPERIENCE" in prompts[1] and "OLD_QUARTZ_EXPERIENCE" not in prompts[1]

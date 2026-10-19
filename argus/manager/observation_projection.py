@@ -53,8 +53,8 @@ def bounded_facts(canonical: dict[str, Any]) -> tuple[dict[str, Any], tuple[str,
                     for index, item in enumerate(value[:MAX_ITEMS])]
         return value
 
-    # Evidence references and their hashes describe the full observed source;
-    # never excerpt a digest or silently discard a reference used for citation.
+    # Evidence references name the full observed source; never silently
+    # discard a reference used for citation.
     facts = {key: compact(value, key) for key, value in canonical.items()
              if key not in {"limitations", "evidence_refs"}}
     facts["evidence_refs"] = canonical["evidence_refs"]
@@ -101,7 +101,6 @@ def bounded_facts(canonical: dict[str, Any]) -> tuple[dict[str, Any], tuple[str,
         incomplete = list(dict.fromkeys([*incomplete, *sorted(required_paths)]))
         facts = {
             "objective": "", "tasks": [], "recent_events": [], "evidence_refs": [],
-            "evidence_revision": canonical["evidence_revision"],
             "limitations": ["Snapshot metadata exceeds its byte budget; required objective and task fields were not fully observed."],
         }
     return facts, tuple(incomplete)

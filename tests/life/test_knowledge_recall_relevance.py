@@ -35,9 +35,9 @@ def test_request_words_provenance_and_page_headers_do_not_recall_unrelated_knowl
 def test_old_cached_terms_are_replaced_without_changing_the_saved_page(tmp_path):
     recall = _recall(tmp_path)
     doc = recall._snapshot()[0]
-    old = RecallDocument(doc.id, int(doc.digest[:15], 16), doc.digest, doc.content, doc.content)
-    recall.index.sync([old], "old projection")
-    assert recall.index.scores("what", source_digest="old projection")[doc.id].direct > 0
+    old = RecallDocument(doc.id, 0, "old projection", doc.content, doc.content)
+    recall.index.sync([old])
+    assert recall.index.scores("what", documents=[old])[doc.id].direct > 0
     assert not recall.recall("What is the weather?").hits
     assert doc.path.read_text() == PAGE
 

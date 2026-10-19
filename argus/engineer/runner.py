@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import itertools
+import json
 import logging
 import time
 from dataclasses import replace
@@ -29,7 +30,9 @@ from ..core.secret_guard import (
     redact_secrets_record,
 )
 from ..reviewer import Reviewer, ReviewerConfig
+from .change_facts import change_facts, held_facts, mission_ledger, record_holder
 from .checkpoint import resolve_shared_checkpoint
+from .external_work import scan_external_work
 
 log = logging.getLogger(__name__)
 # Config dataclasses are re-exported here for historical/test imports.
@@ -59,7 +62,7 @@ from .round_signals import (
     _review_event_payload,  # noqa: F401
     _run_external_work_wait,  # noqa: F401
 )
-from .round_state import RoundLoopState
+from .round_state import RoundControl, RoundLoopState, control_proceed
 from .round_stop_signals import (
     backend_failure_review_decision,
     daemon_stop_review_decision,
@@ -149,6 +152,55 @@ class SupervisedEngineer(
         self.reviewer = reviewer
         self.engineer_config = engineer_config
         self.reviewer_config = reviewer_config
+
+    def _wait_instead_of_unchanged_review(
+        self,
+        *,
+        ledger: Path,
+        round_index: int,
+        supervised_config: SupervisedConfig,
+        workdir: Path,
+        state: RoundLoopState,
+        on_event: Callable[[dict], None] | None,
+    ) -> RoundControl:
+        """Wait for running work rather than review what the Reviewer already judged.
+
+        A Reviewer called on the facts it last held can only repeat its verdict
+        (HO-2). While background work still runs, the round waits on it instead,
+        exactly as if the Engineer had asked to wait; its result is new.
+        """
+        work = scan_external_work(workdir)
+        target = next(
+            (
+                status for status in work
+                if status.waitable
+                and (status.source != "subagent" or supervised_config.background_subagent_advisory)
+            ),
+            None,
+        )
+        if target is None or change_facts(
+            workdir, state_root=supervised_config.operator_question_policy_root, statuses=work,
+        ) != held_facts(ledger, "reviewer"):
+            return control_proceed()
+        if on_event:
+            on_event({
+                "type": "round.review.skipped_unchanged",
+                "round_index": round_index,
+                "work_id": target.work_id,
+                "text": (
+                    f"Nothing changed since the last review; waiting for {target.work_id} "
+                    "instead of reviewing again."
+                ),
+            })
+        kind = "subagent" if target.source == "subagent" else "external_work"
+        return self._handle_agent_driven_wait(
+            round_index=round_index,
+            supervised_config=supervised_config,
+            raw_engineer_message=json.dumps({"wait_for": kind, "wait_id": target.work_id}),
+            workdir=workdir,
+            state=state,
+            on_event=on_event,
+        )
 
     def run(
         self,
@@ -422,6 +474,22 @@ class SupervisedEngineer(
                 _carry_unreviewed_turn(state, round_index, outcome.engineer_message)
                 continue
 
+            ledger = mission_ledger(supervised_config.context_packet_path)
+            if ledger is not None and not review_before_wait:
+                control = self._wait_instead_of_unchanged_review(
+                    ledger=ledger,
+                    round_index=round_index,
+                    supervised_config=supervised_config,
+                    workdir=workdir,
+                    state=state,
+                    on_event=on_event,
+                )
+                if control.action == "return":
+                    return enforce_terminal_question_policy(control.terminal, supervised_config)
+                if control.action == "continue_loop":
+                    _carry_unreviewed_turn(state, round_index, outcome.engineer_message)
+                    continue
+
             control = self._invoke_reviewer_with_retry(
                 objective=objective,
                 original_objective=original_objective,
@@ -444,6 +512,15 @@ class SupervisedEngineer(
             if control.action == "continue_loop":
                 continue
             review = control.payload
+            if ledger is not None and (review.review_source or "reviewer") == "reviewer":
+                # Read after the review, so its own writes are not news next round.
+                record_holder(
+                    ledger, "reviewer",
+                    change_facts(
+                        workdir, state_root=supervised_config.operator_question_policy_root,
+                    ),
+                    round=round_index,
+                )
 
             if review_before_wait:
                 from .external_work import inspect_external_work, parse_external_wait_request

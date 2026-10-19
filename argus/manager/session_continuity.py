@@ -1,7 +1,6 @@
 """Bounded canonical state supplied when the project Manager changes provider thread."""
 from __future__ import annotations
 
-import hashlib
 import json
 import re
 from pathlib import Path
@@ -32,8 +31,7 @@ def _has_current_evidence(prompt: str, run_label: str) -> bool:
         return (
             isinstance(facts, dict) and isinstance(facts.get("objective"), str)
             and isinstance(facts.get("tasks"), list)
-            and isinstance(facts.get("evidence_revision"), str)
-            and re.fullmatch(r"[0-9a-f]{64}", facts["evidence_revision"]) is not None
+            and isinstance(facts.get("evidence_refs"), list)
         )
     except (ValueError, TypeError):
         return False
@@ -59,8 +57,6 @@ def _control_capsule(root: Path, *, cancelled: Callable[[], bool] | None = None)
         sources[reference] = {"status": "unobserved" if str(path) in unobserved else "observed" if path.exists() else "absent"}
         if str(path) in unobserved:
             sources[reference]["unobserved_source_signature"] = unobserved[str(path)]
-        else:
-            sources[reference]["semantic_sha256"] = hashlib.sha256(_json(value).encode()).hexdigest()
         return value
 
     continuous = read(root / "continuous.json")
@@ -68,7 +64,7 @@ def _control_capsule(root: Path, *, cancelled: Callable[[], bool] | None = None)
     latest = read(root / "manager-supervision" / "latest.json")
     receipt = latest
     identity = latest.get("id")
-    if isinstance(identity, str) and re.fullmatch(r"[0-9a-f]{64}", identity):
+    if isinstance(identity, str) and re.fullmatch(r"[0-9a-f]{32}", identity):
         durable = read(root / "manager-supervision" / f"{identity}.json")
         if durable.get("id") == identity:
             receipt = durable
@@ -76,9 +72,7 @@ def _control_capsule(root: Path, *, cancelled: Callable[[], bool] | None = None)
     campaign = read(root / "campaign-control" / "HEAD.json")
 
     objective = str(continuous.get("objective") or "").strip()
-    objective_hash = hashlib.sha256(objective.encode()).hexdigest() if objective else ""
-    recorded = str(directive.get("objective_sha256") or "")
-    authorized = str(directive.get("authorized_objective") or "")
+    scopes = {str(directive.get(key) or "") for key in ("objective", "authorized_objective")} - {""}
     active_directive = None
     if directive:
         if (directive.get("version") != 1 or not isinstance(directive.get("text"), str)
@@ -87,14 +81,12 @@ def _control_capsule(root: Path, *, cancelled: Callable[[], bool] | None = None)
             diagnostics.append("active_manager_directive.json: invalid directive was not projected")
         elif str(root / "continuous.json") in unobserved:
             diagnostics.append("active_manager_directive.json: objective scope could not be verified")
-        elif (recorded or authorized) and not (
-            (recorded and recorded == objective_hash) or (authorized and authorized == objective)
-        ):
+        elif scopes and objective not in scopes:
             # A historical directive for another objective is not active.
             active_directive = None
         else:
             active_directive = {key: directive[key] for key in (
-                "text", "source", "revision", "operator_question_policy", "authorized_objective", "objective_sha256",
+                "text", "source", "revision", "operator_question_policy", "authorized_objective", "objective",
             ) if key in directive}
 
     # Backlog's ordinary reader tolerates a malformed trailing row. A rotation
@@ -114,9 +106,7 @@ def _control_capsule(root: Path, *, cancelled: Callable[[], bool] | None = None)
                  for row in raw_backlog.splitlines() if row.strip()]
     questions = [{"item_id": item.id, "status": item.status, "pending_question": item.pending_question}
                  for item in items if item.pending_question]
-    sources["backlog.jsonl"] = {"pending_questions_sha256": hashlib.sha256(_json(questions).encode()).hexdigest(),
-                                 "pending_question_count": len(questions),
-                                 "sha256": hashlib.sha256(raw_backlog).hexdigest()}
+    sources["backlog.jsonl"] = {"pending_question_count": len(questions)}
     capsule: dict[str, Any] = {"sources": sources, "unobserved": diagnostics, "pending_questions": []}
     secrets = known_secret_values()
 
@@ -153,7 +143,6 @@ def _control_capsule(root: Path, *, cancelled: Callable[[], bool] | None = None)
         )} for item in selected],
         "recent_events": [],
         "evidence_refs": [{"path": path, **identity} for path, identity in sources.items()],
-        "evidence_revision": hashlib.sha256(_json(sources).encode()).hexdigest(),
         "limitations": [*diagnostics, "Only the listed control and backlog sources were refreshed for this continuity handoff."],
     }
     if len(items) > len(selected):

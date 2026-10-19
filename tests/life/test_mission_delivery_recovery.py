@@ -353,7 +353,7 @@ def test_stale_written_receipt_cannot_ack_missing_completion(tmp_path, monkeypat
         replacement.write_bytes(previous)
         replacement.replace(event_path)
     else:
-        event_path.write_bytes(canonical.replace(record["id"].encode(), b"c" * 64))
+        event_path.write_bytes(canonical.replace(record["id"].encode(), b"c" * len(record["id"])))
         assert event_path.stat().st_size == len(canonical)
     assert not [row for row in _rows(tmp_path) if row.get("mission_delivery_id") == record["id"]]
     rebuild = MissionEventIndex._rebuild

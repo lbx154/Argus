@@ -129,13 +129,13 @@ export interface DeliveryReceipt {
   delivered_at: number;
   primary_target: DeliveryTarget | null;
   targets: DeliveryTarget[];
-  /** Content hash of each delivered file; ``stored`` text versions can be diffed. */
+  /** The version of each delivered file; ``stored`` text versions can be diffed. */
   snapshots?: DeliverySnapshot[];
 }
 
 export interface DeliverySnapshot {
   path: string;
-  sha256: string;
+  version: string;
   size: number;
   stored: boolean;
 }

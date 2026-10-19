@@ -560,7 +560,7 @@ def test_agent_task_context_hides_host_content_hash() -> None:
                 "kind": "artifact",
                 "ref": "research/RESULT.json",
                 "why": "current result",
-                "content_hash": "sha256:" + ("a" * 64),
+                "content_hash": "[4096, 1760000000000000000, 1760000000000000000]",
             }
         ],
     )
@@ -570,7 +570,7 @@ def test_agent_task_context_hides_host_content_hash() -> None:
     assert "research/RESULT.json" in rendered
     assert "current result" in rendered
     assert "content_hash" not in rendered
-    assert "sha256" not in rendered
+    assert "1760000000000000000" not in rendered
 
 
 def test_attachment_context_ref_renders_structured_metadata() -> None:

@@ -489,8 +489,6 @@
       "version": 1,
       "required": [
         "supervision_id",
-        "evidence_revision",
-        "control_revision",
         "trigger_type",
         "agent_layer",
         "status",
@@ -501,14 +499,6 @@
       ],
       "properties": {
         "supervision_id": {
-          "type": "string",
-          "minLength": 1
-        },
-        "evidence_revision": {
-          "type": "string",
-          "minLength": 1
-        },
-        "control_revision": {
           "type": "string",
           "minLength": 1
         },
@@ -566,8 +556,6 @@
       "version": 1,
       "required": [
         "supervision_id",
-        "evidence_revision",
-        "control_revision",
         "trigger_type",
         "agent_layer",
         "status",
@@ -578,14 +566,6 @@
       ],
       "properties": {
         "supervision_id": {
-          "type": "string",
-          "minLength": 1
-        },
-        "evidence_revision": {
-          "type": "string",
-          "minLength": 1
-        },
-        "control_revision": {
           "type": "string",
           "minLength": 1
         },
@@ -643,8 +623,6 @@
       "version": 1,
       "required": [
         "supervision_id",
-        "evidence_revision",
-        "control_revision",
         "trigger_type",
         "agent_layer",
         "status",
@@ -655,14 +633,6 @@
       ],
       "properties": {
         "supervision_id": {
-          "type": "string",
-          "minLength": 1
-        },
-        "evidence_revision": {
-          "type": "string",
-          "minLength": 1
-        },
-        "control_revision": {
           "type": "string",
           "minLength": 1
         },
@@ -5771,6 +5741,25 @@
         },
         "review_status": {
           "type": "string"
+        },
+        "text": {
+          "type": "string"
+        }
+      }
+    },
+    "round.review.skipped_unchanged": {
+      "version": 1,
+      "required": [
+        "work_id"
+      ],
+      "properties": {
+        "round_index": {
+          "type": "integer",
+          "minimum": 1
+        },
+        "work_id": {
+          "type": "string",
+          "minLength": 1
         },
         "text": {
           "type": "string"

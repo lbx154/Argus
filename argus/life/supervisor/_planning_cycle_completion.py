@@ -11,13 +11,16 @@ returned a non-error verdict but before any backlog dedupe/enqueue.
 
 from __future__ import annotations
 
+import json
 import re
+import uuid
 from dataclasses import replace
 from pathlib import Path
 from typing import Any
 
 from ...core.event_catalog import EventType
 from ...core.planner_verdict import PlannerVerdictStatus
+from ...core.workspace_facts import fact_text
 from ..memory import BacklogItem
 from ._constants import (
     COMPLETION_REJECTION_CIRCUIT_THRESHOLD,
@@ -146,10 +149,7 @@ class PlanningCycleCompletionMixin:
             or getattr(getattr(self, "memory", None), "root", None)
             or self._artifact_root()
         )
-        return completion_rejection_circuit_path(
-            Path(str(root)),
-            str(getattr(self.config, "continuous_objective", "") or ""),
-        )
+        return completion_rejection_circuit_path(Path(str(root)))
 
     def _completion_rejection_stop_loss(
         self,
@@ -244,8 +244,6 @@ class PlanningCycleCompletionMixin:
 
     def _manager_project_completion_context(self) -> dict[str, Any]:
         """Separate historical stage decisions from current workspace evidence."""
-        import hashlib
-
         from ...core.autonomy import read_autonomous_assumptions
         from ...core.manuscript_snapshot import manuscript_review_status
         from ...core.pipeline_state import read_pipeline_state
@@ -297,13 +295,14 @@ class PlanningCycleCompletionMixin:
                 continue
             path = workdir / safe
             try:
-                row: dict[str, Any] = {"path": safe, "size_bytes": path.stat().st_size}
+                stat = path.stat()
+                row: dict[str, Any] = {
+                    "path": safe, "size_bytes": stat.st_size, "modified_ns": stat.st_mtime_ns,
+                }
                 # Only named deliverables, never a recursive workspace/log scan.
                 with path.open("rb") as handle:
                     raw = handle.read(4 * 1024 * 1024 + 1)
-                if len(raw) <= 4 * 1024 * 1024:
-                    row["sha256"] = hashlib.sha256(raw).hexdigest()
-                else:
+                if len(raw) > 4 * 1024 * 1024:
                     row["content_status"] = "too_large_for_inline_evidence; inspect read-only"
                 if path.suffix.lower() in {".tex", ".md", ".txt", ".json"}:
                     row["excerpt"] = raw[:12000].decode("utf-8", errors="replace")
@@ -360,10 +359,12 @@ class PlanningCycleCompletionMixin:
     def _manager_publish_project_report(
         self, completion_reason: str, *, certified_increment: bool = False,
     ) -> str:
-        """Have Manager summarize the completed full stage ledger to the operator."""
-        import hashlib
-        import json
+        """Have Manager summarize the completed full stage ledger to the operator.
 
+        The same completion, with the same evidence, is reported once: its
+        facts and message id are recorded before publishing, so a retry
+        reuses the id and finds an already published report.
+        """
         stage = str(self._current_pipeline_stage() or "")
         report_root = self._manager_project_report_root()
         context = self._manager_project_completion_context()
@@ -373,20 +374,25 @@ class PlanningCycleCompletionMixin:
                 standing_objective_active=True,
                 final_submission_signature=self._final_submission_signature(),
             )
-        fingerprint = hashlib.sha256(
-            json.dumps(
-                {
-                    "project_conversation": str(report_root.resolve()),
-                    "objective": self.config.continuous_objective,
-                    "reason": completion_reason,
-                    "context": context,
-                },
-                ensure_ascii=False,
-                sort_keys=True,
-                separators=(",", ":"),
-            ).encode("utf-8")
-        ).hexdigest()[:20]
-        message_id = f"manager-project-report-{fingerprint}"
+        facts = fact_text({
+            "project_conversation": str(report_root.resolve()),
+            "objective": self.config.continuous_objective,
+            "reason": completion_reason,
+            "context": context,
+        })
+        record_path = report_root / "manager-project-report.json"
+        try:
+            record = json.loads(record_path.read_text(encoding="utf-8"))
+        except (OSError, ValueError):
+            record = {}
+        if isinstance(record, dict) and record.get("facts") == facts and record.get("message_id"):
+            message_id = str(record["message_id"])
+        else:
+            message_id = f"manager-project-report-{uuid.uuid4().hex}"
+            report_root.mkdir(parents=True, exist_ok=True)
+            record_path.write_text(
+                json.dumps({"facts": facts, "message_id": message_id}) + "\n", encoding="utf-8",
+            )
         from ...core.transcript import read_turns
 
         if any(

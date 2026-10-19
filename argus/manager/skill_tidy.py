@@ -1,13 +1,13 @@
 """Agent-owned post-mission Skill promotion."""
 from __future__ import annotations
 
-import hashlib
 import json
 import logging
 import os
 from pathlib import Path
 from typing import Any, Callable, Iterable
 
+from ..core.file_facts import file_facts
 from ..core.knobs import resolve_manager_classify_model
 from ..core.models import RunnerOptions
 from ..core.run_gateway import run_exec as gateway_run_exec
@@ -133,14 +133,14 @@ def _snapshot(paths: Iterable[Path]) -> dict[Path, tuple[int, int]]:
     return snapshot
 
 
-def _unshared_project_skill_hashes(
+def _unshared_project_skills(
     project_root: Path | None,
     shared_root: Path,
-) -> dict[str, str]:
-    """Content hashes for project-authored Skills absent from the shared layer."""
+) -> dict[str, list[int]]:
+    """``file_facts`` of project-authored Skills absent from the shared layer."""
     if project_root is None or not project_root.is_dir():
         return {}
-    hashes: dict[str, str] = {}
+    skills: dict[str, list[int]] = {}
     for source in _role_skill_paths(project_root):
         try:
             relative = source.relative_to(project_root)
@@ -148,13 +148,13 @@ def _unshared_project_skill_hashes(
             body = source.read_bytes()
             if target.is_file() and body == target.read_bytes():
                 continue
-            hashes[relative.as_posix()] = hashlib.sha256(body).hexdigest()
+            skills[relative.as_posix()] = file_facts(source)
         except (OSError, ValueError):
             continue
-    return hashes
+    return skills
 
 
-def _reviewed_project_skill_hashes(state_root: Path | None) -> dict[str, str]:
+def _reviewed_project_skills(state_root: Path | None) -> dict[str, Any]:
     if state_root is None:
         return {}
     try:
@@ -166,16 +166,12 @@ def _reviewed_project_skill_hashes(state_root: Path | None) -> dict[str, str]:
     candidates = payload.get("candidates") if isinstance(payload, dict) else None
     if not isinstance(candidates, dict):
         return {}
-    return {
-        str(path): str(digest)
-        for path, digest in candidates.items()
-        if str(path).strip() and str(digest).strip()
-    }
+    return {str(path): facts for path, facts in candidates.items() if str(path).strip()}
 
 
 def _record_reviewed_project_skills(
     state_root: Path | None,
-    reviewed: dict[str, str],
+    reviewed: dict[str, Any],
 ) -> None:
     if state_root is None:
         return
@@ -394,15 +390,10 @@ def propagate_after_mission(
         scope = resolve_skill_scope(project_root)
     vertical_root = shared_skill_scope_dir(global_skills, scope)
     shared = vertical_root.resolve() if vertical_root is not None else global_skills
-    candidate_hashes = _unshared_project_skill_hashes(
-        project_skills,
-        shared,
-    )
-    reviewed_hashes = _reviewed_project_skill_hashes(state)
+    candidates = _unshared_project_skills(project_skills, shared)
+    reviewed = _reviewed_project_skills(state)
     pending_paths = frozenset(
-        path
-        for path, digest in candidate_hashes.items()
-        if reviewed_hashes.get(path) != digest
+        path for path, facts in candidates.items() if reviewed.get(path) != facts
     )
     if not mission_success or not pending_paths:
         _emit(on_event, {
@@ -513,12 +504,8 @@ def propagate_after_mission(
         _record_reviewed_project_skills(
             state,
             {
-                **reviewed_hashes,
-                **{
-                    path: candidate_hashes[path]
-                    for path in presented_paths
-                    if path in candidate_hashes
-                },
+                **reviewed,
+                **{path: candidates[path] for path in presented_paths if path in candidates},
             },
         )
     except OSError:

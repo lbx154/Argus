@@ -2383,7 +2383,9 @@ class Backlog:
             return sorted(records, key=lambda row: (float(row["event"].get("ts") or 0), row["id"]))
 
     def acknowledge_mission_delivery(self, delivery_id: str, *, keep_for_experience: bool = False) -> None:
-        if len(delivery_id) != 64 or any(c not in "0123456789abcdef" for c in delivery_id):
+        from .mission_event_index import _is_delivery_id
+
+        if not _is_delivery_id(delivery_id):
             raise ValueError("invalid mission delivery acknowledgement")
         with self._locked():
             path = self._mission_deliveries_path / f"{delivery_id}.json"

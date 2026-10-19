@@ -6,7 +6,6 @@ An explicit embedding adapter can replace them without changing source records.
 
 from __future__ import annotations
 
-import hashlib
 import json
 import math
 import re
@@ -21,7 +20,7 @@ from ..core.file_lock import current_file_lock_wait_budget
 
 _TOKEN_RE = re.compile(r"[\w-]{2,}", re.UNICODE)
 _CJK_RE = re.compile(r"[\u3400-\u9fff]+")
-_SCHEMA_VERSION = "2"
+_SCHEMA_VERSION = "3"
 
 
 class EmbeddingUnavailable(ValueError):
@@ -77,18 +76,19 @@ class EmbeddingAdapter(Protocol):
     def embed(self, text: str) -> Sequence[float]: ...
 
 
-class LexicalHashEmbedding:
-    identifier = "lexical-hash-v1-256"
-    dimensions = 256
+class LexicalEmbedding:
+    """No embedding: recall ranks by shared terms alone (see ``lexical_scores``)."""
+
+    identifier = "lexical-v2"
+    dimensions = 1
 
     def embed(self, text: str) -> Sequence[float]:
-        vector = [0.0] * self.dimensions
-        for token in tokens(text):
-            digest = hashlib.blake2b(token.encode("utf-8"), digest_size=8).digest()
-            vector[int.from_bytes(digest[:4], "big") % self.dimensions] += (
-                1.0 if digest[4] & 1 else -1.0
-            )
-        return vector
+        return [1.0]
+
+
+def is_lexical(embedder: EmbeddingAdapter) -> bool:
+    """Whether ``embedder`` carries no meaning beyond the shared terms."""
+    return embedder.identifier == LexicalEmbedding.identifier
 
 
 def _normalized(vector: Sequence[float], dimensions: int) -> list[float]:
@@ -109,7 +109,8 @@ def _normalized(vector: Sequence[float], dimensions: int) -> list[float]:
 class RecallDocument:
     id: str
     revision: int
-    digest: str
+    # Identifies this version of the indexed text; compared as is, never hashed.
+    version: str
     direct: str
     transfer: str
     ignored_terms: frozenset[str] = frozenset()
@@ -136,8 +137,8 @@ def lexical_scores(documents: Sequence[RecallDocument], query: str) -> dict[str,
 class FailureExperienceIndex:
     def __init__(self, path: Path, *, embedder: EmbeddingAdapter | None = None) -> None:
         self.path = Path(path)
-        self.embedder = embedder or LexicalHashEmbedding()
-        if (not self.embedder.identifier or len(self.embedder.identifier) > 256
+        self.embedder = embedder or LexicalEmbedding()
+        if (not self.embedder.identifier or len(self.embedder.identifier) > 2048
                 or type(self.embedder.dimensions) is not int or not 1 <= self.embedder.dimensions <= 4096):
             raise ValueError(
                 "embedding adapter requires a versioned identity and bounded dimensions"
@@ -163,7 +164,7 @@ class FailureExperienceIndex:
             )
             db.execute(
                 "CREATE TABLE IF NOT EXISTS documents ("
-                "id TEXT PRIMARY KEY, revision INTEGER NOT NULL, digest TEXT NOT NULL, "
+                "id TEXT PRIMARY KEY, revision INTEGER NOT NULL, version TEXT NOT NULL, "
                 "direct_terms TEXT NOT NULL, transfer_terms TEXT NOT NULL, vector TEXT NOT NULL)"
             )
             db.commit()
@@ -187,28 +188,28 @@ class FailureExperienceIndex:
                 raise EmbeddingUnavailable("recall index busy; use current lexical recall") from exc
             raise
 
-    def sync(self, documents: Sequence[RecallDocument], source_digest: str) -> None:
+    def sync(self, documents: Sequence[RecallDocument]) -> None:
         """Replace stale revisions and delete removed identities in one transaction."""
         with self._connection() as db, db:
             db.execute("BEGIN")
             metadata = dict(db.execute("SELECT key, value FROM metadata"))
             existing = {
-                identity: (revision, digest)
-                for identity, revision, digest in db.execute(
-                    "SELECT id, revision, digest FROM documents"
+                identity: (revision, version)
+                for identity, revision, version in db.execute(
+                    "SELECT id, revision, version FROM documents"
                 )
             }
         encoder = f"{self.embedder.identifier}:{self.embedder.dimensions}"
-        current = {item.id: (item.revision, item.digest) for item in documents}
+        current = {item.id: (item.revision, item.version) for item in documents}
         encoder_current = metadata.get("encoder") == encoder and metadata.get("schema_version") == _SCHEMA_VERSION
-        if metadata.get("source_digest") == source_digest and encoder_current and existing == current:
+        if encoder_current and existing == current:
             return
         # No index transaction spans an external request. Successful vectors
         # can be reused by a later bounded batch if this batch is interrupted.
         prepared = []
         with _embedding_batch(self.embedder):
             for item in documents:
-                if existing.get(item.id) == (item.revision, item.digest) and encoder_current:
+                if existing.get(item.id) == (item.revision, item.version) and encoder_current:
                     continue
                 direct = _index_text(self.embedder, item.direct)
                 transfer = _index_text(self.embedder, item.transfer)
@@ -216,14 +217,14 @@ class FailureExperienceIndex:
                     self.embedder.embed(direct + "\n" + transfer),
                     self.embedder.dimensions,
                 )
-                prepared.append((item.id, item.revision, item.digest,
+                prepared.append((item.id, item.revision, item.version,
                                  json.dumps(sorted(tokens(direct) - item.ignored_terms)),
                                  json.dumps(sorted(tokens(transfer) - item.ignored_terms)), json.dumps(vector)))
         with self._connection() as db, db:
             db.execute("BEGIN IMMEDIATE")
             latest = dict(db.execute("SELECT key, value FROM metadata"))
-            latest_rows = {identity: (revision, digest) for identity, revision, digest in db.execute(
-                "SELECT id, revision, digest FROM documents"
+            latest_rows = {identity: (revision, version) for identity, revision, version in db.execute(
+                "SELECT id, revision, version FROM documents"
             )}
             if latest != metadata or latest_rows != existing:
                 raise EmbeddingUnavailable("recall index changed during vector preparation")
@@ -232,20 +233,19 @@ class FailureExperienceIndex:
             db.executemany("DELETE FROM documents WHERE id=?", [(identity,) for identity in existing.keys() - current.keys()])
             db.executemany(
                 "INSERT INTO documents VALUES (?, ?, ?, ?, ?, ?) "
-                "ON CONFLICT(id) DO UPDATE SET revision=excluded.revision, digest=excluded.digest, "
+                "ON CONFLICT(id) DO UPDATE SET revision=excluded.revision, version=excluded.version, "
                 "direct_terms=excluded.direct_terms, transfer_terms=excluded.transfer_terms, vector=excluded.vector",
                 prepared,
             )
             db.executemany(
                 "INSERT OR REPLACE INTO metadata VALUES (?, ?)",
                 [
-                    ("source_digest", source_digest),
                     ("encoder", encoder),
                     ("schema_version", _SCHEMA_VERSION),
                 ],
             )
 
-    def scores(self, query: str, *, source_digest: str) -> dict[str, RecallScore]:
+    def scores(self, query: str, *, documents: Sequence[RecallDocument]) -> dict[str, RecallScore]:
         query = _index_text(self.embedder, query)
         query_terms = tokens(query)
         with _embedding_batch(self.embedder):
@@ -253,15 +253,16 @@ class FailureExperienceIndex:
         with self._connection() as db, db:
             db.execute("BEGIN")
             metadata = dict(db.execute("SELECT key, value FROM metadata"))
-            if (metadata.get("source_digest") != source_digest
+            rows = list(db.execute(
+                "SELECT id, revision, version, direct_terms, transfer_terms, vector FROM documents"
+            ))
+            if ({identity: (revision, version) for identity, revision, version, *_ in rows}
+                    != {item.id: (item.revision, item.version) for item in documents}
                     or metadata.get("encoder") != f"{self.embedder.identifier}:{self.embedder.dimensions}"
                     or metadata.get("schema_version") != _SCHEMA_VERSION):
                 raise ValueError("recall index does not match the current source")
-            rows = list(db.execute(
-                "SELECT id, direct_terms, transfer_terms, vector FROM documents"
-            ))
         scores: dict[str, RecallScore] = {}
-        for identity, direct, transfer, vector in rows:
+        for identity, _revision, _version, direct, transfer, vector in rows:
             values = _normalized(json.loads(vector), self.embedder.dimensions)
             scores[identity] = RecallScore(
                 len(query_terms & set(json.loads(direct))),
@@ -270,13 +271,13 @@ class FailureExperienceIndex:
             )
         return scores
 
-    def rebuild(self, documents: Sequence[RecallDocument], source_digest: str) -> None:
+    def rebuild(self, documents: Sequence[RecallDocument]) -> None:
         """A corrupt/missing cache has no bearing on canonical source state."""
         _guard_recall_database(self.path)
         self.path.unlink(missing_ok=True)
         for suffix in ("-journal", "-wal", "-shm"):
             self.path.with_name(self.path.name + suffix).unlink(missing_ok=True)
-        self.sync(documents, source_digest)
+        self.sync(documents)
 
     def compact(self) -> None:
         if self.path.exists():

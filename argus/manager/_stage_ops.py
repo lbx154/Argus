@@ -81,24 +81,19 @@ class _StageDecisionMixin:
         )
         return context
 
-    def _stage_context_fingerprint(self, root: Path) -> str:
+    def _stage_context_facts(self, root: Path) -> dict[str, Any]:
         """Bind a verdict to the pipeline and campaign that supplied its evidence."""
-        import hashlib
-
         from ..core.pipeline_state import read_pipeline_state
         from .control_state import CampaignControlStore
 
         control = CampaignControlStore(self.manager_session_root, project_root=root)
         head = control.read_head()
-        payload = {
+        return {
             "pipeline": read_pipeline_state(root),
             "campaign": asdict(control.campaign_identity()),
             "control_head": asdict(head) if head is not None else None,
             "operator_context": self._stage_operator_context(),
         }
-        return hashlib.sha256(
-            json.dumps(payload, sort_keys=True, separators=(",", ":")).encode("utf-8")
-        ).hexdigest()
 
     def _commit_stage_decision_if_current(
         self,
@@ -106,7 +101,7 @@ class _StageDecisionMixin:
         cur: str,
         root: Path,
         *,
-        expected_context: str,
+        expected_context: dict[str, Any],
         source: str = "manager_llm",
     ) -> "StageTransition":  # noqa: F821
         """Compare and commit under the same lock used by intent replacements."""
@@ -114,7 +109,7 @@ class _StageDecisionMixin:
         from ._core import StageTransition
 
         with self.pipeline_lock():
-            if self._stage_context_fingerprint(root) != expected_context:
+            if self._stage_context_facts(root) != expected_context:
                 current = str(read_pipeline_state(root).get("current_stage") or cur)
                 return StageTransition(
                     "hold",
@@ -916,7 +911,7 @@ class _StageDecisionMixin:
             ctx = self._gather_stage_context(root)
             if isinstance(ctx, StageTransition):
                 return ctx
-            expected_context = self._stage_context_fingerprint(root)
+            expected_context = self._stage_context_facts(root)
         cur, order, checklist_contract = ctx
 
         if (

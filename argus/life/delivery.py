@@ -9,15 +9,17 @@ become completion receipts.
 from __future__ import annotations
 
 import difflib
-import hashlib
 import html
 import json
 import os
 import re
 import time
+import uuid
 from pathlib import Path
 from typing import Any, Iterable
 from urllib.parse import unquote, urlsplit
+
+from ..core.file_facts import file_facts
 
 DELIVERY_SCHEMA_VERSION = 1
 MAX_DELIVERY_TARGETS = 6
@@ -30,6 +32,7 @@ SNAPSHOT_DIRNAME = "delivery_snapshots"
 # no item still references are deleted so the store cannot grow without bound.
 MAX_SNAPSHOT_DELIVERIES_PER_ITEM = 10
 _SNAPSHOT_INDEX = "index.json"
+_SNAPSHOT_VERSION = re.compile(r"[0-9a-f]{32}")
 
 _MARKDOWN_TARGET_RE = re.compile(
     r"!?\[[^\]\r\n]*\]\(\s*(?:<(?P<angled>[^>\r\n]+)>|(?P<plain>[^\s)\r\n]+))",
@@ -373,91 +376,110 @@ def _snapshot_dir(state_root: Path) -> Path:
     return state_root / SNAPSHOT_DIRNAME
 
 
+def _snapshot_index(root: Path) -> dict[str, list[dict[str, Any]]]:
+    try:
+        raw = json.loads((root / _SNAPSHOT_INDEX).read_text(encoding="utf-8"))
+    except (OSError, ValueError):
+        return {}
+    return {
+        str(item): [
+            row for row in rows
+            if isinstance(row, dict) and isinstance(row.get("n"), int) and isinstance(row.get("files"), dict)
+        ]
+        for item, rows in (raw.items() if isinstance(raw, dict) else [])
+        if isinstance(rows, list)
+    }
+
+
+def _is_text(data: bytes) -> bool:
+    if len(data) > MAX_SNAPSHOT_BYTES or b"\0" in data:
+        return False
+    try:
+        data.decode("utf-8")
+    except UnicodeDecodeError:
+        return False
+    return True
+
+
+def _keep_copy(root: Path, path: Path, data: bytes, last: str) -> tuple[str, bool]:
+    """The version of one delivered file, copying its text unless the last copy matches."""
+    if not _is_text(data):
+        return ":".join(map(str, file_facts(path))), False
+    if _SNAPSHOT_VERSION.fullmatch(last):
+        try:
+            if (root / last).read_bytes() == data:
+                return last, True
+        except OSError:
+            pass
+    version = uuid.uuid4().hex
+    tmp = root / f"{version}.tmp"
+    tmp.write_bytes(data)
+    tmp.replace(root / version)
+    return version, True
+
+
 def snapshot_delivery_targets(
     workspace: Path,
     state_root: Path,
     targets: Iterable[dict[str, str]],
     *,
     item_id: str = "",
-) -> list[dict[str, Any]]:
-    """Content-address each delivered file so later deliveries cannot erase it."""
-    out: list[dict[str, Any]] = []
-    for target in targets:
-        rel = str(target.get("path") or "")
-        try:
-            data = (workspace / rel).read_bytes()
-        except OSError:
-            continue
-        digest = hashlib.sha256(data).hexdigest()
-        entry: dict[str, Any] = {"path": rel, "sha256": digest, "size": len(data), "stored": False}
-        if len(data) <= MAX_SNAPSHOT_BYTES and b"\0" not in data:
-            try:
-                data.decode("utf-8")
-                dest = _snapshot_dir(state_root) / digest
-                if not dest.exists():
-                    dest.parent.mkdir(parents=True, exist_ok=True)
-                    tmp = dest.with_suffix(f".{os.getpid()}.tmp")
-                    tmp.write_bytes(data)
-                    tmp.replace(dest)
-                entry["stored"] = True
-            except (UnicodeDecodeError, OSError):
-                pass
-        out.append(entry)
-    stored = [entry["sha256"] for entry in out if entry["stored"]]
-    if stored:
-        _record_and_prune_snapshots(state_root, item_id or "_", stored)
-    return out
+) -> tuple[list[dict[str, Any]], int]:
+    """Keep a copy of each delivered text file so later deliveries cannot erase it.
 
+    Returns the snapshots and this item's delivery number. A file whose bytes
+    equal the item's last copy keeps that copy's version, and a delivery of
+    the same versions keeps its number, so a replay or rebuild of unchanged
+    files is not a new delivery. Large or binary files are named by their
+    ``size:mtime_ns:ctime_ns`` and not copied.
+    """
+    from argus.core.file_lock import exclusive_file_lock
 
-def _record_and_prune_snapshots(state_root: Path, item_id: str, digests: list[str]) -> None:
-    """Remember which versions each item delivered and drop unreferenced old ones."""
     root = _snapshot_dir(state_root)
-    lock_path = root / ".lock"
+    out: list[dict[str, Any]] = []
     try:
-        from argus.core.file_lock import exclusive_file_lock
-
         root.mkdir(parents=True, exist_ok=True)
-        with open(lock_path, "a+") as lock, exclusive_file_lock(
+        with open(root / ".lock", "a+") as lock, exclusive_file_lock(
             lock, lock_name="delivery snapshot index lock"
         ):
-            index_path = root / _SNAPSHOT_INDEX
-            try:
-                raw = json.loads(index_path.read_text(encoding="utf-8"))
-            except (OSError, ValueError):
-                raw = {}
-            index: dict[str, list[list[str]]] = {
-                str(key): [
-                    [d for d in group if isinstance(d, str)]
-                    for group in value
-                    if isinstance(group, list)
-                ]
-                for key, value in (raw.items() if isinstance(raw, dict) else [])
-                if isinstance(value, list)
-            }
-            history = index.setdefault(item_id, [])
-            # A rebuild or replay of unchanged files is not a new version; only
-            # record it when the content differs, so it cannot push genuinely
-            # older versions out of the kept window.
-            if not history or sorted(history[-1]) != sorted(digests):
-                history.append(digests)
-            del history[:-MAX_SNAPSHOT_DELIVERIES_PER_ITEM]
-            tmp = index_path.with_suffix(f".{os.getpid()}.tmp")
+            index = _snapshot_index(root)
+            deliveries = index.setdefault(item_id or "_", [])
+            last = {path: version for row in deliveries for path, version in row["files"].items()}
+            for target in targets:
+                rel = str(target.get("path") or "")
+                try:
+                    data = (workspace / rel).read_bytes()
+                except OSError:
+                    continue
+                version, stored = _keep_copy(root, workspace / rel, data, str(last.get(rel) or ""))
+                out.append({"path": rel, "version": version, "size": len(data), "stored": stored})
+            files = {entry["path"]: entry["version"] for entry in out}
+            if deliveries and deliveries[-1]["files"] == files:
+                number = deliveries[-1]["n"]
+            else:
+                number = deliveries[-1]["n"] + 1 if deliveries else 1
+                deliveries.append({"n": number, "files": files})
+                del deliveries[:-MAX_SNAPSHOT_DELIVERIES_PER_ITEM]
+            tmp = root / f"{_SNAPSHOT_INDEX}.{os.getpid()}.tmp"
             tmp.write_text(json.dumps(index), encoding="utf-8")
-            tmp.replace(index_path)
-            keep = {d for groups in index.values() for group in groups for d in group}
+            tmp.replace(root / _SNAPSHOT_INDEX)
+            keep = {
+                version for rows in index.values() for row in rows for version in row["files"].values()
+            } | {_SNAPSHOT_INDEX, ".lock"}
             for blob in root.iterdir():
-                if re.fullmatch(r"[0-9a-f]{64}", blob.name) and blob.name not in keep:
+                if blob.is_file() and blob.name not in keep:
                     blob.unlink(missing_ok=True)
     except (OSError, TimeoutError):
-        return
+        return out, 0
+    return out, number
 
 
-def read_delivery_snapshot(state_root: Path | str, sha256: str) -> str | None:
-    """Return the stored text of a delivered file version, if it was snapshotted."""
-    if not re.fullmatch(r"[0-9a-f]{64}", str(sha256 or "")):
+def read_delivery_snapshot(state_root: Path | str, version: str) -> str | None:
+    """Return the stored text of a delivered file version, if it was kept."""
+    if not _SNAPSHOT_VERSION.fullmatch(str(version or "")):
         return None
     try:
-        return (_snapshot_dir(Path(state_root)) / sha256).read_text(encoding="utf-8")
+        return (_snapshot_dir(Path(state_root)) / version).read_text(encoding="utf-8")
     except OSError:
         return None
 
@@ -466,8 +488,8 @@ def delivery_snapshot_diff(
     state_root: Path | str, previous: dict[str, Any], current: dict[str, Any]
 ) -> str | None:
     """Unified diff between two delivered versions of the same file."""
-    before = read_delivery_snapshot(state_root, str(previous.get("sha256") or ""))
-    after = read_delivery_snapshot(state_root, str(current.get("sha256") or ""))
+    before = read_delivery_snapshot(state_root, str(previous.get("version") or ""))
+    after = read_delivery_snapshot(state_root, str(current.get("version") or ""))
     if before is None or after is None:
         return None
     path = str(current.get("path") or previous.get("path") or "file")
@@ -546,20 +568,13 @@ def build_delivery_receipt(
 
     kind = "submission_certified" if final_submission_certified else "task_completed"
     delivered_at = time.time()
-    snapshots = (
-        snapshot_delivery_targets(root, manifest_root, targets, item_id=normalized_item_id)
-        if root is not None and manifest_root is not None
-        else []
-    )
     # The same item can be delivered again after later work changes its files.
-    # The revision is the delivered content: a replay or rebuild of unchanged
+    # Its number is the delivered content: a replay or rebuild of unchanged
     # files keeps this ID (no duplicate notice), while a redelivery with changed
     # files gets a new one (new notice, its own snapshot in history).
-    revision = hashlib.sha256(
-        json.dumps(
-            [[t["path"] for t in targets], [(s["path"], s["sha256"]) for s in snapshots]]
-        ).encode()
-    ).hexdigest()[:12]
+    snapshots, revision = snapshot_delivery_targets(
+        root, manifest_root, targets, item_id=normalized_item_id,
+    )
     return {
         "schema_version": DELIVERY_SCHEMA_VERSION,
         "delivery_id": f"delivery:{normalized_item_id}:{kind}:{revision}",

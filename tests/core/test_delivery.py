@@ -275,15 +275,15 @@ def test_first_delivery_stays_readable_after_a_later_delivery_overwrites_the_fil
 
     first_app = next(s for s in first["snapshots"] if s["path"] == "app.py")
     second_app = next(s for s in second["snapshots"] if s["path"] == "app.py")
-    assert read_delivery_snapshot(state, first_app["sha256"]) == "print('v1')\n"
-    assert read_delivery_snapshot(state, second_app["sha256"]) == "print('v2')\n"
+    assert read_delivery_snapshot(state, first_app["version"]) == "print('v1')\n"
+    assert read_delivery_snapshot(state, second_app["version"]) == "print('v2')\n"
     diff = delivery_snapshot_diff(state, first_app, second_app) or ""
     assert "-print('v1')" in diff and "+print('v2')" in diff
 
-    # Large files are identified by hash only; nothing is copied.
+    # Large files are identified by their file facts only; nothing is copied.
     big = next(s for s in first["snapshots"] if s["path"] == "big.txt")
-    assert big["stored"] is False and len(big["sha256"]) == 64
-    assert read_delivery_snapshot(state, big["sha256"]) is None
+    assert big["stored"] is False and big["version"].startswith(f"{MAX_SNAPSHOT_BYTES + 1}:")
+    assert read_delivery_snapshot(state, big["version"]) is None
 
 
 def test_redelivering_the_same_item_is_a_new_delivery_with_its_own_snapshot(
@@ -312,7 +312,7 @@ def test_redelivering_the_same_item_is_a_new_delivery_with_its_own_snapshot(
 
     # A later round that changes the same item must reach the operator again.
     assert first["delivery_id"] != second["delivery_id"]
-    assert read_delivery_snapshot(state, first["snapshots"][0]["sha256"]) == "<p>v1</p>\n"
+    assert read_delivery_snapshot(state, first["snapshots"][0]["version"]) == "<p>v1</p>\n"
 
 
 def test_snapshot_store_keeps_only_recent_versions_per_item(tmp_path: Path) -> None:
@@ -337,10 +337,10 @@ def test_snapshot_store_keeps_only_recent_versions_per_item(tmp_path: Path) -> N
         assert receipt is not None
         receipts.append(receipt)
 
-    blobs = [p for p in (state / SNAPSHOT_DIRNAME).iterdir() if len(p.name) == 64]
+    blobs = [p for p in (state / SNAPSHOT_DIRNAME).iterdir() if len(p.name) == 32]
     assert len(blobs) == MAX_SNAPSHOT_DELIVERIES_PER_ITEM
-    assert read_delivery_snapshot(state, receipts[0]["snapshots"][0]["sha256"]) is None
-    assert read_delivery_snapshot(state, receipts[-1]["snapshots"][0]["sha256"]) == (
+    assert read_delivery_snapshot(state, receipts[0]["snapshots"][0]["version"]) is None
+    assert read_delivery_snapshot(state, receipts[-1]["snapshots"][0]["version"]) == (
         f"version {MAX_SNAPSHOT_DELIVERIES_PER_ITEM + 4}\n"
     )
 
@@ -371,7 +371,7 @@ def test_rebuilding_an_unchanged_delivery_does_not_evict_older_versions(
         deliver()  # replays and reconnects rebuild the same content
 
     # The earlier version is still the real previous version and stays diffable.
-    assert read_delivery_snapshot(state, first["snapshots"][0]["sha256"]) == "version 1\n"
+    assert read_delivery_snapshot(state, first["snapshots"][0]["version"]) == "version 1\n"
 
 
 @pytest.mark.parametrize(

@@ -96,6 +96,7 @@ class EventType(StrEnum):
     ROUND_EXTERNAL_WORK_WAIT_COMPLETED = "round.external_work_wait.completed"
     ROUND_EXTERNAL_WORK_REVIEW_REQUIRED = "round.external_work_review.required"
     ROUND_EXTERNAL_WORK_REVIEW_COMPLETED = "round.external_work_review.completed"
+    ROUND_REVIEW_SKIPPED_UNCHANGED = "round.review.skipped_unchanged"
     ROLE_SESSION_TURN = "role.session.turn"
     ENGINEER_PROGRESS = "engineer.progress"
     ENGINEER_SKILL_MAINTENANCE_COMPLETED = "engineer.skill_maintenance.completed"
@@ -396,6 +397,7 @@ SIGNAL_EVENT_TYPES: frozenset[str] = frozenset({
     EventType.ROUND_EXTERNAL_WORK_WAIT_COMPLETED,
     EventType.ROUND_EXTERNAL_WORK_REVIEW_REQUIRED,
     EventType.ROUND_EXTERNAL_WORK_REVIEW_COMPLETED,
+    EventType.ROUND_REVIEW_SKIPPED_UNCHANGED,
     EventType.LIFE_DAEMON_DEGRADED,
     EventType.IDEA_PORTFOLIO_FORMED,
     EventType.TEAM_LEARNING_REVIEW_STARTED,
