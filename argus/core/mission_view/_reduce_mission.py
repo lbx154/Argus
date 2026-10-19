@@ -21,8 +21,9 @@ from ..event_catalog import EventType
 from ..role_reply import strip_named_lines
 from ..stop_kinds import (
     NON_FAILURE_STOP_KINDS,
+    is_pause_status,
     normalize_stop_kind,
-    pause_status_clause,
+    park_clause,
     stop_kind_clause,
 )
 from ._reduce_helpers import (
@@ -227,6 +228,7 @@ def _mission_outcome_presentation(
             else mission_outcome_class(
                 status=_text(event, "status"),
                 success=bool(event.get("success")),
+                park_reason=event.get("park_reason"),
             )
         )
     mission_status, role_status, kind, tone = _MISSION_OUTCOME_PRESENTATIONS[
@@ -254,10 +256,10 @@ def _mission_outcome_presentation(
         why = (
             say(f"why_{named_kind}", chinese, cause=named_line)
             if named_kind
-            else pause_status_clause(raw_status, chinese=chinese)
+            else park_clause(raw_status, event.get("park_reason"), chinese=chinese)
             or stop_kind_clause(stop_kind, chinese=chinese)
         )
-        if raw_status.lower().startswith("paused_") or event.get("resumable") is True:
+        if is_pause_status(raw_status) or event.get("resumable") is True:
             kind = "mission_paused"
             return (
                 mission_status,
@@ -378,6 +380,7 @@ def reduce_mission_lifecycle_event(
                 success=bool(event.get("success")),
                 stop_kind=event.get("stop_kind"),
                 resumable=bool(event.get("resumable")),
+                park_reason=event.get("park_reason"),
             )
         if event.get("final_submission_certified") is True:
             view["outcome"]["final_submission_certified"] = True

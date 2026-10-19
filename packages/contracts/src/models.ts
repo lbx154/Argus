@@ -82,6 +82,8 @@ export interface MissionOutcomeDimensions {
   resumable: boolean;
   /** Present while a mission is parked on background work it will resume from. */
   external_wait?: { kind: string; work_id: string; workdir?: string };
+  /** Why a ``parked`` row is parked; older ``paused_*`` rows name it in their status. */
+  park?: { reason: string };
 }
 
 /** One team a mission waits on, with its progress by kind of subtask. */

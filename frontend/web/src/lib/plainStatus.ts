@@ -177,6 +177,7 @@ const STATUSES: Record<string, Pair> = {
   incomplete: ['未完成', 'Not finished'],
   stalled: ['停滞', 'Stalled'],
   paused: ['已暂停', 'Paused'],
+  parked: ['已暂停', 'Paused'],
   stopped: ['已停止', 'Stopped'],
   cancelled: ['已停止', 'Stopped'],
   aborted: ['已停止', 'Stopped'],

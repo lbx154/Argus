@@ -1,5 +1,6 @@
 import type { BacklogItem, EventMsg, MissionView, Snapshot } from '../../../core/src/types';
 import { operatorDecisionCards } from '../../../core/src/decisions';
+import { backlogParkReason, parkReason } from '../../../core/src/missionOutcome';
 import type { Locale } from '../i18n';
 import { roleActionLabel } from './taskLanguage';
 
@@ -82,7 +83,7 @@ export function backgroundWait(
   if (!snapshot || !task || !snapshot.daemon.alive) return null;
   let workId = '';
   let over = false;
-  if (task.status === 'paused_external_work') {
+  if (backlogParkReason(task) === 'external_work') {
     workId = String(task.outcome?.external_wait?.work_id || '');
   } else if (ACTIVE.has(task.status)) {
     // The page keeps a longer journal than the snapshot: what it saw last wins.
@@ -113,7 +114,7 @@ export function currentWorkStatus(
 ): WorkStatus {
   // A mission parked on its background team is still the current one.
   const taskId = view?.mission.id
-    || snapshot?.backlog?.find(item => ACTIVE.has(item.status) || item.status === 'paused_external_work')?.id || '';
+    || snapshot?.backlog?.find(item => ACTIVE.has(item.status) || backlogParkReason(item) === 'external_work')?.id || '';
   const task = snapshot?.backlog?.find(item => item.id === taskId);
   const started = currentWorkStartedAt(snapshot, view, taskId);
   const liveRoles = snapshot?.roles?.filter(role => role.active) || [];
@@ -192,7 +193,7 @@ export function currentWorkStatus(
     };
   }
   const missionState = String(task?.status || view?.mission.status || '').toLowerCase();
-  if (PAUSED.has(missionState) || missionState.startsWith('paused_') || missionState === 'research_incomplete') {
+  if (PAUSED.has(missionState) || parkReason(missionState) !== null) {
     const needsReply = operatorDecisionCards(snapshot.pending_questions ?? [], snapshot.backlog.map(item => ({ ...item })), taskId)
       .some(card => card.item_id === taskId);
     return { ...result, state: 'paused', role: '', reason: needsReply ? 'operator_input' : 'not_running' };

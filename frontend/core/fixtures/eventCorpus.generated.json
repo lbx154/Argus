@@ -1087,6 +1087,7 @@
         },
         "outcome_class": "completed",
         "overall_complete": true,
+        "park_reason": "park reason",
         "payload_schema_version": 1,
         "pricing_status": "priced",
         "recoverable": true,

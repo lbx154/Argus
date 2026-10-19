@@ -1,3 +1,4 @@
+import { parkReason } from "../../../core/src/missionOutcome";
 import type { BacklogItem } from "../../../core/src/types";
 
 export interface MapTask
@@ -91,6 +92,8 @@ export interface MapEvent {
   overflow?: number;
   role?: string;
   status?: string;
+  /** Why a ``parked`` mission paused; older ``paused_*`` statuses name it themselves. */
+  park_reason?: string;
   round_index?: number;
   attempt?: number;
   success?: boolean;
@@ -248,7 +251,7 @@ export function statusKey(task: MapTask): string {
   // waiting on the next step, not broken. The backlog still records it as
   // failed so retry accounting is unchanged; only the reading differs.
   if (task.status === "failed" && isStageHold(task)) return "held";
-  if (task.status.startsWith("paused") || task.status === "blocked")
+  if (parkReason(task.status) !== null || task.status === "blocked")
     return "paused";
   return [
     "done",

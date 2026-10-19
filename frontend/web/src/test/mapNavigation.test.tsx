@@ -268,7 +268,7 @@ it("measures offscreen cards before fitting and after graph growth", () => {
   expect(renderer.root.findByProps({ "data-testid": "flow" }).props["data-culling"]).toBe(true);
 });
 
-it.each(["paused_provider_fence", "paused_external_work", "blocked"])(
+it.each(["paused_provider_fence", "paused_external_work", "parked", "blocked"])(
   "does not call unfinished %s work ready",
   (status) => {
     act(() => renderer.update(

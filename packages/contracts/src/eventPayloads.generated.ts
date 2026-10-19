@@ -382,6 +382,7 @@ export interface LifeMissionCompletedEvent extends EventMsg {
   "objective"?: string;
   "scope"?: string;
   "status": string;
+  "park_reason"?: string;
   "summary"?: string;
   "residual_risk"?: string;
   "final_output"?: string;

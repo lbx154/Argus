@@ -36,6 +36,7 @@ LoopStatus = Literal[
     "paused_daemon_shutdown",
     "paused_external_work",
     "paused_operator",
+    "parked",
     "aborted",
     "infra_blocked",
     "replan_requested",

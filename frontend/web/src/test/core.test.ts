@@ -509,6 +509,23 @@ describe('shared frontend core', () => {
         { outcomeClass: 'ended', kind: 'mission_paused', label: 'The task was paused before it finished because Argus was stopped; its progress is saved and it can be resumed.', tone: 'info', missionStatus: 'ended', technical: 'paused_daemon_shutdown' },
       ],
       [
+        // A `parked` status carries its reason; it reads like the `paused_*` status it replaces.
+        { status: 'parked', park_reason: 'daemon_shutdown', success: false },
+        { outcomeClass: 'ended', kind: 'mission_paused', label: 'The task was paused before it finished because Argus was stopped; its progress is saved and it can be resumed.', tone: 'info', missionStatus: 'ended', technical: 'parked' },
+      ],
+      [
+        { status: 'parked', park_reason: 'external_work', success: false },
+        { kind: 'mission_paused', label: 'The task was paused before it finished because work outside Argus had to finish first; its progress is saved and it can be resumed.' },
+      ],
+      [
+        { status: 'parked', park_reason: 'research_open', success: false },
+        { outcomeClass: 'incomplete', kind: 'mission_incomplete' },
+      ],
+      [
+        { status: 'parked', park_reason: 'infra', success: false },
+        { outcomeClass: 'blocked', kind: 'mission_blocked' },
+      ],
+      [
         { success: false },
         { outcomeClass: 'ended', kind: 'mission_ended', label: 'The task ended without a recorded outcome.', tone: 'info', missionStatus: 'ended', technical: '' },
       ],

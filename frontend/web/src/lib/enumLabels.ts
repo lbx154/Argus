@@ -25,6 +25,7 @@ const STATUS_KEYS: Record<string, string> = {
   continue: 'label.status.needsChanges',
   skipped: 'label.status.skipped',
   paused: 'label.status.paused',
+  parked: 'label.status.paused',
   paused_cost: 'label.outcome.costUnreconciled',
   stopped: 'label.status.paused',
   cancelled: 'label.status.cancelled',

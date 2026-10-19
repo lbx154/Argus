@@ -1305,6 +1305,9 @@
           "type": "string",
           "minLength": 1
         },
+        "park_reason": {
+          "type": "string"
+        },
         "summary": {
           "type": "string"
         },

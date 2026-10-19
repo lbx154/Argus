@@ -48,6 +48,7 @@ import portalocker
 from ..core.event_catalog import EventType, canonical_event_type
 from ..core.json_codec import loads_finite_json
 from ..core.prompt_example_tasks import is_prompt_example_task
+from ..core.stop_kinds import PARK_STATUSES, park_reason_of, park_rule
 
 _BACKLOG_THREAD_LOCKS: weakref.WeakValueDictionary[str, threading.Lock] = (
     weakref.WeakValueDictionary()
@@ -519,16 +520,20 @@ class EventJournal:
             known_statuses = {status.value for status in PlannerVerdictStatus}
             if str(row.get("status") or "") not in known_statuses:
                 row = adapt_legacy_planner_verdict_event(row)
-        # The mid-mission budget breaker emits ``life.mission.completed`` with
-        # ``status="paused_budget"`` (success=False). Derive the documented
-        # ``budget_pause`` kind rather than mislabeling it ``mission_failed`` —
-        # the generic completed→kind map below keys only on ``success``.
-        if (
-            etype == EventType.LIFE_MISSION_COMPLETED
-            and str(row.get("status") or "") in {"budget_pause", "paused_budget"}
+        # A park ended this mission: name the documented pause kind rather than
+        # mislabel it ``mission_failed``; the generic completed→kind map below
+        # keys only on ``success``. The mid-mission budget breaker also wrote
+        # ``status="budget_pause"``.
+        park = (
+            park_reason_of(row.get("status"), row.get("park_reason"))
+            if etype == EventType.LIFE_MISSION_COMPLETED
+            else None
+        )
+        if park == "budget_exhausted" or (
+            etype == EventType.LIFE_MISSION_COMPLETED and row.get("status") == "budget_pause"
         ):
             kind: str | None = "budget_pause"
-        elif etype == EventType.LIFE_MISSION_COMPLETED and row.get("status") == "paused_cost":
+        elif park == "cost_unreconciled":
             kind = "cost_pause"
         elif (
             etype == EventType.LIFE_MISSION_COMPLETED
@@ -541,22 +546,9 @@ class EventJournal:
             and str(row.get("status") or "") == "replan_requested"
         ):
             kind = "mission_replan_requested"
-        elif (
-            etype == EventType.LIFE_MISSION_COMPLETED
-            and str(row.get("status") or "") in {
-                "paused_provider_cooldown",
-            }
-        ):
+        elif park == "provider_cooldown":
             kind = "provider_pause"
-        elif (
-            etype == EventType.LIFE_MISSION_COMPLETED
-            and str(row.get("status") or "") in {
-                "research_incomplete",
-                "paused_no_breakthrough",
-                "exhausted_current_methods",
-                "infra_blocked",
-            }
-        ):
+        elif park in {"research_open", "infra"}:
             kind = "research_pause"
         else:
             kind = {
@@ -815,61 +807,41 @@ class EventJournal:
 # Backlog
 # ---------------------------------------------------------------------------
 
-_BACKLOG_STATUSES = {
-    "pending",
-    "running",
-    "paused",
-    "paused_budget",
-    "paused_cost",
-    "paused_provider_cooldown",
-    "paused_provider_fence",
-    "paused_daemon_shutdown",
-    "paused_external_work",
-    "paused_operator",
-    "research_incomplete",
-    "paused_no_breakthrough",
-    "exhausted_current_methods",
-    "infra_blocked",
-    "done",
-    "failed",
-    "aborted",
-    "skipped",
-    "superseded",
-}
 _TERMINAL_STATUSES = {"done", "failed", "aborted", "skipped", "superseded"}
-_RECOVERABLE_PAUSE_STATUSES = {
-    "paused",
-    "paused_budget",
-    "paused_cost",
-    "paused_provider_cooldown",
-    "paused_provider_fence",
-    "paused_daemon_shutdown",
-    "paused_external_work",
-    "paused_operator",
-    "research_incomplete",
-    "paused_no_breakthrough",
-    "exhausted_current_methods",
-    "infra_blocked",
-}
-# Parks no automatic path resumes and no operator question owns. Their pending
-# dependents wait on them forever, so the Planner may retire one (RETIRE_TASK);
-# the dead-dependency cascade then releases the dependents. A row that holds a
-# ``pending_question`` stays the operator's whatever its status.
-PLANNER_RETIRABLE_PARK_STATUSES = frozenset({
-    "paused",
-    "research_incomplete",
-    "paused_no_breakthrough",
-    "exhausted_current_methods",
-    "infra_blocked",
-})
+_BACKLOG_STATUSES = {"pending", "running", *PARK_STATUSES, *_TERMINAL_STATUSES}
+
+
+def park_reason(item: Any) -> str | None:
+    """Why ``item`` is parked, or ``None`` when it is not; reads older ``paused_*`` rows too."""
+    outcome = getattr(item, "outcome", None)
+    park = outcome.get("park") if isinstance(outcome, dict) else None
+    return park_reason_of(
+        getattr(item, "status", ""),
+        park.get("reason") if isinstance(park, dict) else "",
+    )
+
+
+def _holds_resources(item: Any) -> bool:
+    """Running work, and a park that keeps its reservations, holds GPUs and paths."""
+    if getattr(item, "status", "") == "running":
+        return True
+    reason = park_reason(item)
+    return reason is not None and park_rule(reason).holds_resources
 
 
 def planner_may_retire_park(item: Any) -> bool:
-    """Whether a parked row is the Planner's to retire rather than the operator's."""
-    return bool(
-        getattr(item, "status", "") in PLANNER_RETIRABLE_PARK_STATUSES
-        and not str(getattr(item, "pending_question", "") or "").strip()
-    )
+    """Whether a parked row is the Planner's to retire rather than the operator's.
+
+    Parks no automatic path resumes and no operator owns leave their pending
+    dependents waiting forever, so the Planner may retire one (RETIRE_TASK);
+    the dead-dependency cascade then releases the dependents. A row that holds
+    a ``pending_question`` stays the operator's whatever its reason.
+    """
+    reason = park_reason(item)
+    if reason is None or str(getattr(item, "pending_question", "") or "").strip():
+        return False
+    rule = park_rule(reason)
+    return not rule.auto_resume and rule.holder != "operator"
 
 
 def _expire_unanswered_operator_question(item: BacklogItem) -> None:
@@ -917,7 +889,6 @@ class PlanRevisionResult:
 _GPU_PROBE_TTL_S = 10.0
 _GPU_PROBE_LOCK = threading.Lock()
 _GPU_PROBE_CACHE: tuple[float, tuple[tuple[int, bool], ...] | None] | None = None
-_GPU_ACTIVE_STATUSES = frozenset({"running", "paused_external_work"})
 # ``last_error`` prefix for a task that asks for more GPUs than the machine
 # has; the Planner digest lists these so the task can be re-planned smaller.
 GPU_UNFITTABLE_PREFIX = "gpus: "
@@ -959,7 +930,7 @@ def gpu_reservation(items: Iterable[Any]) -> int:
     return sum(
         max(0, int(getattr(item, "gpu_count", 0) or 0))
         for item in items
-        if getattr(item, "status", "") in _GPU_ACTIVE_STATUSES
+        if _holds_resources(item)
     )
 
 
@@ -976,7 +947,7 @@ def _free_gpu_indices(
     reserved: set[int] = set()
     unassigned = 0
     for item in items:
-        if getattr(item, "status", "") not in _GPU_ACTIVE_STATUSES:
+        if not _holds_resources(item):
             continue
         count = max(0, int(getattr(item, "gpu_count", 0) or 0))
         indices = list(getattr(item, "gpu_indices", None) or [])
@@ -1016,7 +987,7 @@ def cpu_reservation(items: Iterable[Any], usable: int) -> int:
     return sum(
         task_cpu_count(item, usable)
         for item in items
-        if getattr(item, "status", "") in _GPU_ACTIVE_STATUSES
+        if _holds_resources(item)
     )
 
 
@@ -1721,10 +1692,7 @@ class Backlog:
         )
         if parallel_only or (
             respect_running
-            and any(
-                item.status in {"running", "paused_external_work"}
-                for item in items
-            )
+            and any(_holds_resources(item) for item in items)
         ):
             ready = [
                 item
@@ -1760,7 +1728,7 @@ class Backlog:
         aliases = {candidate.id, str(candidate.node_key or "").strip()} - {""}
         return any(
             item.id != candidate.id
-            and item.status in {"running", "paused_external_work"}
+            and _holds_resources(item)
             and aliases & ({item.id, str(item.node_key or "").strip()} - {""})
             for item in items
         )
@@ -1820,16 +1788,16 @@ class Backlog:
         if tags & forbidden:
             return False
         running = [item for item in items if item.status == "running"]
-        paused_external = [
-            item for item in items if item.status == "paused_external_work"
+        parked = [
+            item for item in items if item.status != "running" and _holds_resources(item)
         ]
         if any(not item.parallel_safe or not item.owns_paths for item in running):
             return False
-        if any(not item.owns_paths for item in paused_external):
+        if any(not item.owns_paths for item in parked):
             return False
         return not any(
             cls._paths_overlap(candidate_path, active_path)
-            for item in (*running, *paused_external)
+            for item in (*running, *parked)
             for candidate_path in candidate.owns_paths
             for active_path in item.owns_paths
         )
@@ -2355,7 +2323,7 @@ class Backlog:
                                 f"{new_status!r}. Enqueue a new item instead."
                             )
                         if (
-                            it.status in _RECOVERABLE_PAUSE_STATUSES
+                            it.status in PARK_STATUSES
                             and new_status == "pending"
                         ):
                             raise IllegalStateTransition(
@@ -3053,7 +3021,7 @@ class Backlog:
             for item in items:
                 if item.id != item_id:
                     continue
-                if item.status not in _RECOVERABLE_PAUSE_STATUSES:
+                if item.status not in PARK_STATUSES:
                     return None
                 if str(item.pending_question or "").strip():
                     return None
@@ -3073,7 +3041,7 @@ class Backlog:
             items = self._load()
             resumed: list[BacklogItem] = []
             for item in items:
-                if item.status not in _RECOVERABLE_PAUSE_STATUSES:
+                if item.status not in PARK_STATUSES:
                     continue
                 if str(item.pending_question or "").strip():
                     continue
@@ -3090,19 +3058,19 @@ class Backlog:
         self,
         statuses: Iterable[str],
     ) -> list[BacklogItem]:
-        """Atomically re-arm only explicitly auto-resumable pause classes."""
-        allowed = {
-            str(status)
-            for status in statuses
-            if str(status) in _RECOVERABLE_PAUSE_STATUSES
-        }
-        if not allowed:
+        """Atomically re-arm only explicitly auto-resumable pause classes.
+
+        A class is named by its older status; a ``parked`` row with the same
+        reason resumes with it.
+        """
+        reasons = {park_reason_of(status) for status in statuses} - {None}
+        if not reasons:
             return []
         with self._locked():
             items = self._load()
             resumed: list[BacklogItem] = []
             for item in items:
-                if item.status not in allowed:
+                if park_reason(item) not in reasons:
                     continue
                 if str(item.pending_question or "").strip():
                     continue

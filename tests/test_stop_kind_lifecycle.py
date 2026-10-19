@@ -331,7 +331,7 @@ def test_post_edit_review_stop_kind_reaches_mission_status(
 def test_stop_kinds_have_reader_facing_clauses_in_both_languages() -> None:
     from argus.core.stop_kinds import (
         STOP_KINDS,
-        pause_status_clause,
+        park_clause,
         stop_kind_clause,
     )
 
@@ -348,10 +348,15 @@ def test_stop_kinds_have_reader_facing_clauses_in_both_languages() -> None:
     assert stop_kind_clause("daemon_shutdown") == "Argus was stopped"
     assert stop_kind_clause("daemon_shutdown", chinese=True) == "Argus 被停止"
 
-    assert pause_status_clause("paused_daemon_shutdown") == "Argus was stopped"
-    assert pause_status_clause("paused_budget") == "the project reached its budget limit"
-    assert pause_status_clause("paused_external_work", chinese=True) == (
+    assert park_clause("paused_daemon_shutdown") == "Argus was stopped"
+    assert park_clause("paused_budget") == "the project reached its budget limit"
+    assert park_clause("paused_external_work", chinese=True) == (
         "需要先等 Argus 之外的工作完成"
     )
-    assert pause_status_clause("paused_something_new") == "the work was paused"
-    assert pause_status_clause("failed") == ""
+    assert park_clause("parked", "external_work", chinese=True) == (
+        "需要先等 Argus 之外的工作完成"
+    )
+    assert park_clause("parked", "provider_fence") == stop_kind_clause("provider_fence")
+    assert park_clause("paused_something_new") == "the work was paused"
+    assert park_clause("parked") == "the work was paused"
+    assert park_clause("failed") == ""

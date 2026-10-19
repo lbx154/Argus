@@ -14,6 +14,7 @@ import {
   TriangleAlert,
   X,
 } from "lucide-react";
+import { backlogParkReason, isPauseStatus } from "../../../core/src/missionOutcome";
 import { MarkdownExcerpt } from "../components/MarkdownExcerpt";
 import { Button } from "../components/primitives";
 import { MapReaderContent, type MapReaderSelection } from "./MapReaderContent";
@@ -217,8 +218,8 @@ export const MacroTaskNode = memo(function MacroTaskNode({
     : task.status === "missing"
       ? "missing"
       : data.paused && ACTIVE.has(task.status) ? "paused" : statusKey(task);
-  const displayedState = state === 'paused' && task.status === 'paused_external_work'
-    ? task.status : state;
+  const displayedState = state === 'paused' && backlogParkReason(task) === 'external_work'
+    ? 'paused_external_work' : state;
   const summaryScale = Math.min(
     data.frame.width / 288,
     data.frame.height / 280,
@@ -355,7 +356,7 @@ export const MacroTaskNode = memo(function MacroTaskNode({
   }, [screenWidth, screenHeight]);
   const stateLabel = (s: string) =>
     (STATES[
-      s === 'paused_external_work' ? s : s.startsWith("paused_") ? "paused" : ACTIVE.has(s) ? "running" : s
+      s === 'paused_external_work' ? s : isPauseStatus(s) ? "paused" : ACTIVE.has(s) ? "running" : s
     ] ?? STATES.unknown)[zh ? 0 : 1];
   const taskStateLabel = data.completionScope
     ? zh ? "当次结束 · 当时目标未完成" : "Execution ended · goal incomplete then"
