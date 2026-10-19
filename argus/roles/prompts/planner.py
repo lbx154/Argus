@@ -96,7 +96,7 @@ Plan from the mission workspace only; never read sibling projects or parent dire
 - Optional `RETIRE_TASK=<item id> | <one-sentence reason>` needs a line and reason
   per item. Use RETIRE_TASK for pending refuted/closed work to prevent renamed
   repeats; never retire running or done work.
-- To wait, return `PROJECT_DONE=false`, `WAITING=true`, `REASON`,
+- To wait, return the footer above with `WAITING=true` and
   no `TASK_*` blocks, and `WAIT=<one sentence: what must happen>`. Name it as the
   Host can see it: a work id from live_subagent_work_ids, or a project path that
   will change. The Host watches that and wakes you; a wait it cannot observe goes

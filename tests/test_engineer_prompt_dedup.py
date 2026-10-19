@@ -61,7 +61,7 @@ def test_engineer_prompt_marks_detail_dependent_operator_options() -> None:
         next_action=None,
     )
 
-    assert "operator_options" in prompt
+    assert "OPERATOR_OPTIONS" in prompt
     assert "id::true::label::description" in prompt
     assert "requires_note:true" not in prompt
 
