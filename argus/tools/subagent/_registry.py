@@ -7,7 +7,6 @@ ledger, structured RunWriter signal readers, and usage accounting helpers.
 from __future__ import annotations
 
 import base64
-import hashlib
 import json
 import os
 import subprocess
@@ -925,13 +924,7 @@ def _append_experiment_history(cwd: str, record: dict[str, Any]) -> None:
     path = Path(cwd) / EXPERIMENT_HISTORY_REL
     run_id = str(record.get("run_id") or "").strip()
     if not run_id:
-        encoded = json.dumps(
-            record,
-            ensure_ascii=False,
-            sort_keys=True,
-            separators=(",", ":"),
-        ).encode("utf-8")
-        run_id = f"event-{hashlib.sha256(encoded).hexdigest()[:20]}"
+        raise ValueError("an experiment row needs a run_id")
     EvidenceLedger(path).append_record(
         record_id=run_id,
         record_type="experiment",

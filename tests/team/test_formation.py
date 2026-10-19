@@ -66,7 +66,7 @@ def test_receipt_written_before_roster_crash_recovers_exact_formation(
     monkeypatch.setattr(formation.roster, "create", real_create)
     recovered = _form(project, root)
 
-    assert recovered["formation_id"] == receipt["formation_id"]
+    assert recovered == receipt
     assert roster.load(root)["mission_objective"] == "Ship the exact change"
     assert len(task_board.snapshot(root)) == 2
 

@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-import hashlib
 import json
 import subprocess
 from types import SimpleNamespace
@@ -10,6 +9,7 @@ import pytest
 from argus.core.event_catalog import validate_event_envelope
 from argus.life import BacklogItem, MemoryBundle
 from argus.manager import dispatch, front_door
+from argus.planner.planner import file_state
 
 
 @pytest.fixture()
@@ -303,9 +303,7 @@ def test_bounded_dispatch_uses_nested_node_worktree_as_its_only_contract_root(
     assert "stage:target_scope" in item.tags
     assert "stage:submission" not in item.tags
     assert item.context_refs[0]["ref"] == "research/TARGET.md"
-    assert item.context_refs[0]["content_hash"] == (
-        "sha256:" + hashlib.sha256(artifact.read_bytes()).hexdigest()
-    )
+    assert item.context_refs[0]["content_hash"] == file_state(artifact)
     assert adopt_campaign_workdir(
         state_root=life_dir,
         base_root=base,
@@ -376,7 +374,7 @@ def test_bounded_dispatch_persists_real_dependency_dag(memory, monkeypatch):
     assert items["c"].acceptance_check == "validator exits zero"
     assert items["c"].non_goals == ["do not edit pipeline state"]
     assert items["c"].context_refs[0]["ref"].endswith("/RESULT.md")
-    assert items["c"].context_refs[0]["content_hash"].startswith("sha256:")
+    assert items["c"].context_refs[0]["content_hash"] == file_state(result)
     assert "review:required" in items["c"].tags
     assert "stage_closing" not in items["c"].tags
     assert "stage_transition:skip" in items["c"].tags

@@ -71,7 +71,7 @@ __all__ = [
 STATE_RELPATH = ("research", "MATH_STATE.json")
 
 #: Versions the *file*, never the digests inside it. Bumping this must stay
-#: able to leave every recorded proof valid; see ``models.content_digest``.
+#: able to leave every recorded proof valid; see ``models.canonical_content``.
 SCHEMA_VERSION = 1
 
 
@@ -786,7 +786,7 @@ class MathState:
         # is history: it aimed at the statement as it stood when the attempt
         # was made, and revising the claim afterwards must not make that
         # record invalid. Its goal still has to be a claim this ledger has
-        # actually recorded, hash and all — an unknown id or a wrong digest is
+        # actually recorded, digest and all — an unknown id or a wrong digest is
         # a defect in the file, not a legitimate piece of history.
         recorded = {claim.ref() for claim in self.claims}
         issues: list[StateIssue] = []

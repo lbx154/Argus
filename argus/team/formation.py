@@ -1,8 +1,6 @@
 """Crash-safe durable identity for team formation."""
 from __future__ import annotations
 
-import hashlib
-import json
 import os
 import time
 from pathlib import Path
@@ -50,16 +48,6 @@ def _identity_payload(
     }
 
 
-def _formation_id(identity: dict[str, Any]) -> str:
-    encoded = json.dumps(
-        identity,
-        ensure_ascii=False,
-        sort_keys=True,
-        separators=(",", ":"),
-    ).encode("utf-8")
-    return hashlib.sha256(encoded).hexdigest()
-
-
 def _validate_receipt(receipt: Any, expected: dict[str, Any]) -> None:
     if not isinstance(receipt, dict):
         raise ValueError("team dispatch receipt is corrupt")
@@ -74,10 +62,7 @@ def _validate_receipt(receipt: Any, expected: dict[str, Any]) -> None:
             "tasks",
         )
     }
-    if (
-        identity != expected
-        or receipt.get("formation_id") != _formation_id(expected)
-    ):
+    if identity != expected:
         raise ValueError(
             "team formation identity conflicts with the persisted dispatch receipt"
         )
@@ -218,11 +203,7 @@ def _form_team(
         )
 
         if not receipt_exists:
-            receipt = {
-                **expected,
-                "formation_id": _formation_id(expected),
-                "recorded_at": formed_at,
-            }
+            receipt = {**expected, "recorded_at": formed_at}
             _store.atomic_write_json(receipt_path, receipt)
 
         if not existing_roster:

@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-import hashlib
 import json
 import os
 import subprocess
@@ -17,6 +16,7 @@ from argus.life import MemoryBundle
 from argus.life.supervisor import LifeSupervisor, LifeSupervisorConfig
 from argus.loop import SkillLoopConfig
 from argus.manager import dispatch, front_door
+from argus.planner.planner import file_state
 from argus.skills.stage_machine import completion_contract_fingerprint
 from argus.skills.vertical_select import persist_vertical, resolve_vertical
 from argus.verticals._data_domain import write_data_domain
@@ -391,9 +391,7 @@ def test_enqueue_to_supervisor_uses_nested_node_contract_root(
     assert item is not None
     assert item.execution_workdir == str(target.resolve())
     assert "stage:target_scope" in item.tags
-    assert item.context_refs[0]["content_hash"] == (
-        "sha256:" + hashlib.sha256(artifact.read_bytes()).hexdigest()
-    )
+    assert item.context_refs[0]["content_hash"] == file_state(artifact)
     assert policy_calls == [{
         "vertical_root": target.resolve(),
         "project_root": target.resolve(),

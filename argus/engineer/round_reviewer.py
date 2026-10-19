@@ -241,10 +241,10 @@ def mission_grounding(
 ) -> dict[str, Any]:
     """What this mission's Reviewer quotes and acceptances are checked against.
 
-    ``baseline``: the workspace's content hashes when the first mission on this
-    objective began; a file that no longer matches (or was not there) is never
-    a source. ``packet_refs``: files the task packet names, each with the hash
-    the Planner recorded, which are sources while they still match it.
+    ``baseline``: the workspace's files as recorded when the first mission on
+    this objective began; a file that no longer matches (or was not there) is
+    never a source. ``packet_refs``: files the task packet names, each with the
+    file state the Planner recorded, which are sources while they still match it.
     ``accepted_risks``: the Manager's acceptances in force for this item;
     ``operator_decisions``: the operator's resolved decision cards for it.
     ``operator_questions_allowed``: whether a question reaches the operator in

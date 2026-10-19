@@ -3,11 +3,11 @@
 from __future__ import annotations
 
 import argparse
-import hashlib
 import io
 import json
 import re
 import sys
+import uuid
 from collections.abc import Iterable
 from datetime import datetime, timezone
 from html.parser import HTMLParser
@@ -118,11 +118,10 @@ def fetch_source(url: str, workdir: Path) -> dict:
     metadata = {
         "url": url, "resolved_url": resolved_url,
         "accessed_at": datetime.now(timezone.utc).isoformat(),
-        "content_type": content_type, "response_bytes": len(body),
-        "response_sha256": hashlib.sha256(body).hexdigest(), "extraction": extraction,
+        "content_type": content_type, "response_bytes": len(body), "extraction": extraction,
     }
-    # Content-specific names preserve the cited snapshot if a URL changes later.
-    name = hashlib.sha256((url + metadata["response_sha256"]).encode()).hexdigest()[:24] + ".txt"
+    # A fresh name per fetch keeps every cited snapshot if the URL changes later.
+    name = uuid.uuid4().hex[:24] + ".txt"
     directory = workdir.resolve() / ".argus" / "sources"
     directory.mkdir(parents=True, exist_ok=True)
     target = directory / name

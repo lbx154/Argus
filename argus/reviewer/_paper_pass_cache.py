@@ -5,63 +5,73 @@ they are deliberately not memoized here. Neither are integrated verdicts.
 """
 from __future__ import annotations
 
-import hashlib
+import filecmp
 import json
 from pathlib import Path
 from typing import Any
 
+from ..planner.planner import file_state
 
-def pdf_sha256(workdir: Path) -> str:
-    """Return exact rendered bytes, or disable reuse if they cannot be read."""
+
+def pdf_state(workdir: Path) -> str:
+    """The rendered PDF's file state, or "" (disabling reuse) when it cannot be read."""
     try:
-        with (workdir / "paper" / "main.pdf").open("rb") as stream:
-            digest = hashlib.sha256()
-            for chunk in iter(lambda: stream.read(1024 * 1024), b""):
-                digest.update(chunk)
-            return digest.hexdigest()
+        return file_state(workdir / "paper" / "main.pdf")
     except OSError:
         return ""
 
 
-def paper_pass_key(*, pdf_digest: str, prompt: str, config: Any, runner: Any) -> str:
-    if not pdf_digest or not config.model:
+def same_pdf(workdir: Path, copy_root: Path, state: str) -> bool:
+    """Whether ``copy_root`` holds, byte for byte, the PDF that had ``state``."""
+    source = workdir / "paper" / "main.pdf"
+    try:
+        return pdf_state(workdir) == state and filecmp.cmp(
+            source, copy_root / "paper" / "main.pdf", shallow=False
+        )
+    except OSError:
+        return False
+
+
+def paper_pass_key(*, pdf_state: str, prompt: str, config: Any, runner: Any) -> str:
+    if not pdf_state or not config.model:
         return ""
     workdir = Path(config.artifact_root or config.working_dir or ".").resolve()
     state_root = Path(config.vertical_state_root or workdir).resolve()
-    policy_files: dict[str, str] = {}
+    policy_files: dict[str, str | None] = {}
     for path in (workdir / "research/VENUE_PROFILE.json", state_root / "goal_contract.json"):
         try:
-            policy_files[str(path)] = hashlib.sha256(path.read_bytes()).hexdigest()
+            policy_files[str(path)] = file_state(path)
         except FileNotFoundError:
-            policy_files[str(path)] = "absent"
+            policy_files[str(path)] = None
         except OSError:
             return ""
-    payload = {
-        "pdf": pdf_digest,
-        "prompt": prompt,
-        "model": config.model,
-        "reasoning_effort": config.reasoning_effort,
-        "extra_args": config.extra_args,
-        "policy_context": config.review_policy_context,
-        "policy_files": policy_files,
-        "backend": str(getattr(runner, "backend", type(runner).__qualname__)),
-    }
-    return hashlib.sha256(
-        json.dumps(payload, sort_keys=True, ensure_ascii=False).encode("utf-8")
-    ).hexdigest()
+    return json.dumps(
+        {
+            "pdf": pdf_state,
+            "prompt": prompt,
+            "model": config.model,
+            "reasoning_effort": config.reasoning_effort,
+            "extra_args": config.extra_args,
+            "policy_context": config.review_policy_context,
+            "policy_files": policy_files,
+            "backend": str(getattr(runner, "backend", type(runner).__qualname__)),
+        },
+        sort_keys=True,
+        ensure_ascii=False,
+    )
 
 
 def identical_snapshot_pair(comparison: Any) -> bool:
-    """Check actual immutable trees, not just the saved manifest's claim."""
-    if comparison.before_sha256 != comparison.after_sha256:
-        return False
-    from ..core.manuscript_narrative_runtime import manuscript_closure_sha256
-
+    """Compare the two immutable trees byte for byte, not the saved manifest's claim."""
+    before, after = Path(comparison.before_paper), Path(comparison.after_paper)
     try:
-        return (
-            manuscript_closure_sha256(comparison.before_paper.parent)
-            == manuscript_closure_sha256(comparison.after_paper.parent)
-            == comparison.before_sha256
+        files = _files(before)
+        return bool(files) and files == _files(after) and all(
+            filecmp.cmp(before / name, after / name, shallow=False) for name in files
         )
-    except (OSError, ValueError):
+    except OSError:
         return False
+
+
+def _files(root: Path) -> list[Path]:
+    return sorted(path.relative_to(root) for path in root.rglob("*") if path.is_file())

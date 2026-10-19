@@ -6,7 +6,6 @@ the Manager turn. This store never writes the operator inbox or control ledger.
 """
 from __future__ import annotations
 
-import hashlib
 import json
 import re
 import sqlite3
@@ -32,10 +31,6 @@ def _refs(values: Any) -> list[str]:
     ):
         raise ValueError("peer evidence must contain at most 16 bounded references")
     return list(dict.fromkeys(value.strip() for value in values))
-
-
-def _identity(*parts: str) -> str:
-    return hashlib.sha256(json.dumps(parts, separators=(",", ":")).encode()).hexdigest()
 
 
 class PeerMailbox:
@@ -122,7 +117,8 @@ class PeerMailbox:
         text, refs = _text(text), _refs(evidence_refs or [])
         if not parent_call_id or not request_id or len(parent_call_id) > 256 or len(request_id) > 256:
             raise ValueError("peer messages require host call and request identities")
-        identity = _identity(self.project_id, parent_call_id, request_id)
+        # One request of one host call from this project is one message, however often sent.
+        identity = f"{self.project_id}:{parent_call_id}:{request_id}"
         with self._database(write=True) as db:
             previous = self._message(db.execute("SELECT * FROM messages WHERE id=?", (identity,)).fetchone())
             if previous:
@@ -170,7 +166,7 @@ class PeerMailbox:
             reply_id = ""
             if message["kind"] == "request":
                 self._project(message["sender"])
-                reply_id = _identity("reply", message_id)
+                reply_id = f"reply:{message_id}"
                 db.execute("INSERT OR IGNORE INTO messages (id,sender,recipient,kind,reply_to,text,evidence_refs,parent_call_id,mission_id,created_at) "
                            "VALUES (?,?,?,'reply',?,?,?,?,?,?)",
                            (reply_id, self.project_id, message["sender"], message_id, response, "[]", call_id,

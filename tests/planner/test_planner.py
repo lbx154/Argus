@@ -550,7 +550,7 @@ def test_parse_planner_task_sanitizes_malformed_dependency_controls() -> None:
 
     assert verdict.error == ""
     assert len(verdict.new_tasks) == 1
-    assert verdict.new_tasks[0].deps[0].startswith("No-external-dependency")
+    assert verdict.new_tasks[0].deps[0].startswith("No_20_external_20_dependency._20_")
     assert "task 1 dependency identifiers normalized" in verdict.diagnostics
 
 
@@ -1063,7 +1063,7 @@ def test_plan_next_sanitizes_invalid_dependency_identifier(monkeypatch) -> None:
     )
 
     assert verdict.error == ""
-    assert verdict.new_tasks[0].key.startswith("ri-REDACTED:openai-key-")
+    assert verdict.new_tasks[0].key == "ri_3c_REDACTED:openai-key_3e_"
     assert len(runner.calls) == 1
     assert "task 1 dependency identifiers normalized" in verdict.diagnostics
 

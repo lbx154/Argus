@@ -359,8 +359,6 @@ def _carry_obstacle_stall(
         # The operator's acceptance -- their choice on the decision card, which
         # the host found before recording the verdict -- is kept like the
         # Manager's, scoped to this item or, with none, to this mission.
-        import hashlib
-
         from ..core.residual_risk import accept_residual_risk
 
         try:
@@ -368,9 +366,7 @@ def _carry_obstacle_stall(
                 root, check=detail.get("check", ""), risk=detail.get("risk", ""),
                 accepted_by="operator", item_id=state.mission_item_id, mission_ref=state.mission_ref,
                 basis=detail.get("basis", ""), basis_source=detail.get("basis_source", ""),
-                source_ref="operator:" + hashlib.sha256(
-                    str(detail.get("acceptance", "")).encode("utf-8")
-                ).hexdigest()[:16],
+                source_ref=f"operator:{detail.get('acceptance', '')}",
             )
         except OSError:
             log.warning("operator residual-risk acceptance could not be recorded", exc_info=True)

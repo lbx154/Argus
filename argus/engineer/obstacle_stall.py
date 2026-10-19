@@ -26,7 +26,6 @@ Reviewer keeps reporting.
 
 from __future__ import annotations
 
-import hashlib
 import json
 import os
 import re
@@ -125,11 +124,6 @@ def same_obstacle(first: str, second: str) -> bool:
     return len(a & b) / min(len(a), len(b)) >= SAME_OBSTACLE_OVERLAP
 
 
-def _digest(objective: str) -> str:
-    text = str(objective or "").strip()
-    return hashlib.sha256(text.encode("utf-8")).hexdigest() if text else ""
-
-
 def _read(root: Path) -> dict[str, dict[str, Any]]:
     try:
         payload = json.loads((Path(root) / FILENAME).read_text(encoding="utf-8"))
@@ -148,7 +142,8 @@ def _write(root: Path, rows: dict[str, dict[str, Any]]) -> None:
             return
         path.parent.mkdir(parents=True, exist_ok=True)
         with temporary.open("w", encoding="utf-8") as handle:
-            json.dump({"version": 2, "objectives": rows}, handle, ensure_ascii=False, allow_nan=False)
+            # Keyed by the objective's own text (version 2 keyed by a digest of it).
+            json.dump({"version": 3, "objectives": rows}, handle, ensure_ascii=False, allow_nan=False)
         os.replace(temporary, path)
     except OSError:
         # Losing the carry restores the old per-mission count; never fatal.
@@ -161,10 +156,10 @@ def load_obstacle_stall(
     root: Path | None, objective: str, *, threshold: int = 0, now: float | None = None,
 ) -> tuple[int, str]:
     """The carried streak and obstacle for this objective, or ``(0, "")``."""
-    digest = _digest(objective)
-    if root is None or not digest:
+    key = str(objective or "").strip()
+    if root is None or not key:
         return 0, ""
-    row = _read(root).get(digest) or {}
+    row = _read(root).get(key) or {}
     try:
         streak = max(0, int(row.get("streak") or 0))
         updated_at = float(row.get("updated_at") or 0)
@@ -187,13 +182,13 @@ def load_obstacle_stall(
 def record_obstacle_stall(
     root: Path | None, objective: str, *, streak: int, obstacle: str, now: float | None = None,
 ) -> None:
-    digest = _digest(objective)
+    key = str(objective or "").strip()
     obstacle = sanitize_text(obstacle, MAX_OBSTACLE_CHARS)
-    if root is None or not digest or streak <= 0 or not obstacle:
+    if root is None or not key or streak <= 0 or not obstacle:
         return
     rows = _read(root)
-    rows.pop(digest, None)
-    rows[digest] = {
+    rows.pop(key, None)
+    rows[key] = {
         "streak": int(streak), "obstacle": obstacle,
         "updated_at": time.time() if now is None else now,
     }
@@ -201,11 +196,11 @@ def record_obstacle_stall(
 
 
 def clear_obstacle_stall(root: Path | None, objective: str) -> None:
-    digest = _digest(objective)
-    if root is None or not digest:
+    key = str(objective or "").strip()
+    if root is None or not key:
         return
     rows = _read(root)
-    if rows.pop(digest, None) is not None:
+    if rows.pop(key, None) is not None:
         _write(root, rows)
 
 

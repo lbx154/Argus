@@ -338,10 +338,10 @@ def test_generate_image_records_prompt_and_output_paths(
 
     assert meta["prompt_path"] == str(prompt_file)
     assert meta["output_path"] == str(out)
-    assert meta["output_sha256"] == meta["image"]["sha256"]
+    assert meta["image"]["bytes"] == out.stat().st_size
     assert sidecar["prompt_path"] == str(prompt_file)
     assert sidecar["output_path"] == str(out)
-    assert sidecar["output_sha256"] == sidecar["image"]["sha256"]
+    assert sidecar["image"] == meta["image"]
 
 
 def test_generate_image_normalizes_non_multiple_of_16_size(
