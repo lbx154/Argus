@@ -8,7 +8,6 @@ dimension scores and evidence references, the worker returns
 from __future__ import annotations
 
 import argparse
-import hashlib
 import json
 import os
 import re
@@ -120,7 +119,7 @@ class IndependentEvaluatorProcess:
                 "started_at": started_at,
                 "completed_at": datetime.now(UTC).isoformat(),
                 "exit_code": process.returncode,
-                "stdout_sha256": hashlib.sha256(stdout.encode("utf-8")).hexdigest(),
+                "stdout_bytes": len(stdout.encode("utf-8")),
             },
         }
 
@@ -224,10 +223,10 @@ def process_viewer_request(
         snapshot_state = enriched.get("evidence_snapshot_state")
         if snapshot_state is not None:
             snapshot = enriched.get("evidence_snapshot")
-            digest = enriched.get("evidence_snapshot_sha256")
-            if not isinstance(snapshot, Mapping) or not isinstance(digest, str):
+            key = enriched.get("evidence_snapshot_key")
+            if not isinstance(snapshot, Mapping) or not isinstance(key, str):
                 raise ValueError("verified evidence snapshot is required")
-            verified_state, verified_refs = validate_evidence_snapshot(snapshot, digest)
+            verified_state, verified_refs = validate_evidence_snapshot(snapshot, key)
             if verified_state == "empty":
                 return {
                     "protocol_version": 1,
@@ -235,7 +234,7 @@ def process_viewer_request(
                     "state": "awaiting_evidence",
                     "overall": None,
                     "detail": "Verified evidence snapshot is empty; no score was produced.",
-                    "evidence_snapshot_sha256": digest,
+                    "evidence_snapshot_key": key,
                     "evidence_refs": [],
                 }
             # Evidence references are derived from authenticated snapshot

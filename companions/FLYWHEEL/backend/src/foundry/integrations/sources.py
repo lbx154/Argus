@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import hashlib
 import json
 import threading
 import time
@@ -47,23 +46,26 @@ class JsonCache:
     def __init__(self, root: Path) -> None:
         self.root = root
 
-    def path_for(self, namespace: str, query: str) -> Path:
-        digest = hashlib.sha256(query.encode("utf-8")).hexdigest()
-        return self.root / namespace / f"{digest}.json"
+    """One JSON file per namespace, keyed by the query itself."""
+
+    def _entries(self, namespace: str) -> dict[str, Any]:
+        try:
+            entries = json.loads((self.root / f"{namespace}.json").read_text(encoding="utf-8"))
+        except (OSError, json.JSONDecodeError):
+            return {}
+        return entries if isinstance(entries, dict) else {}
 
     def read(self, namespace: str, query: str) -> dict[str, Any] | None:
-        path = self.path_for(namespace, query)
-        try:
-            value = json.loads(path.read_text(encoding="utf-8"))
-            return value if isinstance(value, dict) else None
-        except (OSError, json.JSONDecodeError):
-            return None
+        value = self._entries(namespace).get(query)
+        return value if isinstance(value, dict) else None
 
     def write(self, namespace: str, query: str, value: Mapping[str, Any]) -> None:
-        path = self.path_for(namespace, query)
+        entries = self._entries(namespace)
+        entries[query] = dict(value)
+        path = self.root / f"{namespace}.json"
         path.parent.mkdir(parents=True, exist_ok=True)
         temporary = path.with_suffix(".tmp")
-        temporary.write_text(json.dumps(value, ensure_ascii=False, indent=2), encoding="utf-8")
+        temporary.write_text(json.dumps(entries, ensure_ascii=False, indent=2), encoding="utf-8")
         temporary.replace(path)
 
 

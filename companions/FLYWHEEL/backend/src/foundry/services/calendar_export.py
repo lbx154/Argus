@@ -7,9 +7,9 @@ constructs the HTTP response.
 
 from __future__ import annotations
 
-import hashlib
 from datetime import UTC, date, datetime
 from typing import Any, Mapping, Sequence
+from urllib.parse import quote
 
 _CONTENT_LINE_LIMIT = 75
 
@@ -72,8 +72,7 @@ def _stable_deadline_uid(row: Mapping[str, Any]) -> str:
     identity = "\x1f".join(str(row.get(key) or "") for key in (
         "venue_key", "conference_year", "deadline_date", "round_note",
     ))
-    digest = hashlib.sha256(identity.encode("utf-8")).hexdigest()[:32]
-    return f"deadline-{digest}@argus-foundry"
+    return f"deadline-{quote(identity, safe='')}@argus-foundry"
 
 
 def _deadline_lines(row: Mapping[str, Any], stamp: str) -> list[str]:

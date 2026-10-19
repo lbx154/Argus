@@ -2,18 +2,19 @@
 
 from __future__ import annotations
 
-import hashlib
 import json
 from dataclasses import dataclass
 from datetime import UTC, datetime
 from typing import Any, Mapping
+
+from .flywheel_data import new_key
 
 
 @dataclass(frozen=True)
 class CompiledPrompt:
     phase: str
     prompt: str
-    prompt_sha256: str
+    prompt_key: str
     generated_at: str
     manifest: Mapping[str, Any]
 
@@ -99,23 +100,19 @@ class PromptCompiler:
             phase=phase,
         )
         normalized["goal_contract"] = goal_contract
-        input_sha = hashlib.sha256(
-            json.dumps(normalized, ensure_ascii=False, sort_keys=True, separators=(",", ":")).encode("utf-8")
-        ).hexdigest()
-        body = self._render(normalized, input_sha)
-        prompt_sha = hashlib.sha256(body.encode("utf-8")).hexdigest()
+        body = self._render(normalized)
+        prompt_key = new_key()
         generated_at = datetime.now(UTC).isoformat()
         return CompiledPrompt(
             phase=phase,
             prompt=body,
-            prompt_sha256=prompt_sha,
+            prompt_key=prompt_key,
             generated_at=generated_at,
             manifest={
                 "compiler_version": self.VERSION,
                 "research_protocol_version": self.PROTOCOL_VERSION,
                 "phase": phase,
-                "input_sha256": input_sha,
-                "prompt_sha256": prompt_sha,
+                "prompt_key": prompt_key,
                 "generated_at": generated_at,
                 "venue": f"{venue['name']} {venue['edition']}",
                 "idea_title": idea["title"],
@@ -142,7 +139,7 @@ class PromptCompiler:
             },
         )
 
-    def _render(self, data: Mapping[str, Any], input_sha: str) -> str:
+    def _render(self, data: Mapping[str, Any]) -> str:
         venue = data["venue"]
         domain = data["domain"]
         idea = data["idea"]
@@ -194,7 +191,7 @@ class PromptCompiler:
 """
         return f"""# ARGUS / FLYWHEEL · RESEARCH PROTOCOL v2 · {phase.upper()}
 
-Protocol `{self.PROTOCOL_VERSION}` · compiler v{self.VERSION} · frozen input sha256 `{input_sha}`
+Protocol `{self.PROTOCOL_VERSION}` · compiler v{self.VERSION}
 
 ## 身份与目标边界
 
@@ -210,7 +207,7 @@ Protocol `{self.PROTOCOL_VERSION}` · compiler v{self.VERSION} · frozen input s
 
 ## 冻结条件与来源边界
 
-团队条件、资源、会议、领域、idea、来源要求与自由目标共同构成本项目的冻结输入；运行中不得静默改变。若需要变化，必须生成新的父子版本与新 SHA，并再次经过人工批准。
+团队条件、资源、会议、领域、idea、来源要求与自由目标共同构成本项目的冻结输入；运行中不得静默改变。若需要变化，必须生成新的父子版本与新 key，并再次经过人工批准。
 
 团队条件快照：
 
@@ -218,15 +215,15 @@ Protocol `{self.PROTOCOL_VERSION}` · compiler v{self.VERSION} · frozen input s
 {team_snapshot}
 ```
 
-{('团队条件已绑定；仍需 HUMAN_GATE_0 对该 input SHA 明确签核。' if team else '团队条件未绑定。本 Prompt 仅可用于冷启动/覆盖浏览；任何付费、GPU、数据或论文执行前必须返回 NEEDS_HUMAN_DECISION 并冻结真实团队条件。')}
+{('团队条件已绑定；仍需 HUMAN_GATE_0 对这份冻结输入明确签核。' if team else '团队条件未绑定。本 Prompt 仅可用于冷启动/覆盖浏览；任何付费、GPU、数据或论文执行前必须返回 NEEDS_HUMAN_DECISION 并冻结真实团队条件。')}
 
 {('候选已绑定到条件化 ideation run：' + json.dumps(condition_binding, ensure_ascii=False, sort_keys=True) if condition_binding else '候选没有 condition/objective/artifact 绑定；这是 seed/unbound preview，不具备执行资格，不得创建或启动真实研究 Campaign。')}
 
-来源只允许使用有版本、获取时间、许可/访问状态和 SHA 的官方会议页面、官方 proceedings/OpenReview、一手论文/arXiv、上游 GitHub 与合同明确允许的数据。区分官方事实、预测、定点观察和推断；来源更新必须形成 freshness delta，不覆盖旧快照。
+来源只允许使用有版本、获取时间和许可/访问状态的官方会议页面、官方 proceedings/OpenReview、一手论文/arXiv、上游 GitHub 与合同明确允许的数据。区分官方事实、预测、定点观察和推断；来源更新必须形成 freshness delta，不覆盖旧快照。
 
 ## 自由目标编译结果
 
-操作者原始目标保持原文，不把“突破性”“Oral”等愿景伪装成可保证结果。以下 gates 只能由具备 artifact/SHA 的证据通过；budget 是硬上限；stop criteria 优先于愿景：
+操作者原始目标保持原文，不把“突破性”“Oral”等愿景伪装成可保证结果。以下 gates 只能由带 artifact 路径与版本的证据通过；budget 是硬上限；stop criteria 优先于愿景：
 
 ```json
 {goal_snapshot}
@@ -275,7 +272,7 @@ Protocol `{self.PROTOCOL_VERSION}` · compiler v{self.VERSION} · frozen input s
 
 ## Builder / Breaker / Arbiter 对冲合同
 
-- `BUILDER_ARGUS` 在不知道 Breaker 结论的上下文中，从冻结条件、来源与团队独特能力出发生成和修复候选，并输出带版本/SHA 的 `BUILDER_OUTPUT`。
+- `BUILDER_ARGUS` 在不知道 Breaker 结论的上下文中，从冻结条件、来源与团队独特能力出发生成和修复候选，并输出带版本的 `BUILDER_OUTPUT`。
 - `BREAKER_ARGUS` 先独立重建可行空间，再审查 Builder artifact；重点攻击最近工作碰撞、伪创新、隐藏数据需求、baseline 真实性、统计功效、资源/时间、伦理许可证与 venue fit，并输出 `BREAKER_OUTPUT`。它可以杀死全部候选。
 - `ARBITER` 只读取两份已经封存的输出及其来源证据，保留分歧和 veto，不以平均分掩盖阻断问题；输出 `ARBITER_DECISION`、至多 {finalist_limit} 个 finalist，或 `NO_WINNER`。
 
@@ -283,7 +280,7 @@ Protocol `{self.PROTOCOL_VERSION}` · compiler v{self.VERSION} · frozen input s
 
 ## 强制研究流水线与人工闸门
 
-0. HUMAN GATE 0：人工签核冻结 input SHA、团队/资源/来源权限、目标解释、预算与启动权。
+0. HUMAN GATE 0：人工签核冻结输入、团队/资源/来源权限、目标解释、预算与启动权。
 1. RESEARCH：来源快照、最近工作矩阵、Builder/Breaker/Arbiter、collision 与 venue fit。
 2. HUMAN GATE 1：人工选择 finalist、要求补证，或接受 `NO_WINNER`/负结果；系统不自动升级为论文任务。
 3. EVIDENCE + WRITE：只执行获批且预算内的实验，只写已有证据能够支持的内容。
@@ -292,13 +289,13 @@ Protocol `{self.PROTOCOL_VERSION}` · compiler v{self.VERSION} · frozen input s
 6. BOUNDED REVISION：逐项关联 reviewer 问题、修改和新证据，最多两轮实质修改；保留每版 diff 和旧 artifact。
 7. INDEPENDENT REVIEW 2：重新实例化五位新的 fresh-context Reviewer；不得继承或复制第一轮评分与结论。
 8. FINAL INTEGRITY CHECK（INTEGRITY CHECK 2）：从 primary/raw artifacts 自零重做最终诚信检查，必须零未解决阻断问题。
-9. HUMAN GATE 2：人工审核主张、署名、AI 披露、venue 合规、最终稿与所有最终 SHA；系统不自动上传或投稿。
+9. HUMAN GATE 2：人工审核主张、署名、AI 披露、venue 合规、最终稿与所有最终 artifact 版本；系统不自动上传或投稿。
 
 ## 必须维护的可审计产物
 
 `CONDITION_SNAPSHOT`、`SOURCE_SNAPSHOT`、`NEAREST_WORK_MATRIX`、`BUILDER_OUTPUT`、`BREAKER_OUTPUT`、`ARBITER_DECISION`、`BASELINE_PROVENANCE`、`RUN_LEDGER`、`EXCLUDED_RUNS`、`CLAIM_EVIDENCE_MATRIX`、`STATISTICAL_AUDIT`、`VENUE_COMPLIANCE`、两轮各五份独立 `REVIEW_CERTIFICATE`、revision diffs、两份 `INTEGRITY_REPORT`、`REPRODUCIBILITY_MANIFEST` 和最终 `PROCESS_SUMMARY`。
 
-每项工件必须记录：协议/编译器版本、父版本、input SHA、Prompt SHA、condition/source SHA、Argus SHA、模型/provider、代码/数据版本、seed、配置、命令、环境、成本、时间、actor 与 artifact SHA。raw 证据和失败/负结果追加保存，不覆盖旧版本。只有 exact input/code/environment/command/seed 能重建同一输出 SHA 时，才可声明可复现。
+每项工件必须记录：协议/编译器版本、父版本、Prompt key、condition key、来源快照、Argus commit、模型/provider、代码/数据版本、seed、配置、命令、环境、成本、时间、actor，以及 artifact 自身的路径与大小。raw 证据和失败/负结果追加保存，不覆盖旧版本。只有 exact input/code/environment/command/seed 能逐字节重建同一输出时，才可声明可复现。
 
 ## 诚信硬约束
 
@@ -325,19 +322,19 @@ Protocol `{self.PROTOCOL_VERSION}` · compiler v{self.VERSION} · frozen input s
         required = (
             "ideation_run_id",
             "candidate_id",
-            "condition_sha256",
-            "parent_objective_sha256",
-            "candidate_artifact_sha256",
+            "condition_key",
+            "parent_objective_key",
+            "candidate_artifact_key",
         )
         missing = [key for key in required if not str(value.get(key) or "").strip()]
         if missing:
             raise ValueError(
                 "idea.condition_binding is missing required fields: " + ", ".join(missing)
             )
-        for key in ("condition_sha256", "parent_objective_sha256", "candidate_artifact_sha256"):
-            digest = str(value[key]).lower()
-            if len(digest) != 64 or any(character not in "0123456789abcdef" for character in digest):
-                raise ValueError(f"idea.condition_binding.{key} must be a SHA-256 digest")
+        for key in ("condition_key", "parent_objective_key", "candidate_artifact_key"):
+            text = str(value[key]).lower()
+            if len(text) != 64 or any(character not in "0123456789abcdef" for character in text):
+                raise ValueError(f"idea.condition_binding.{key} must be a 64-hex key")
         return {key: str(value[key]).strip() for key in required}
 
     @staticmethod
@@ -353,7 +350,7 @@ Protocol `{self.PROTOCOL_VERSION}` · compiler v{self.VERSION} · frozen input s
                 {
                     "gate": "conditions_and_authority",
                     "pass_when": (
-                        "named human approval references the exact frozen input SHA and "
+                        "named human approval references the exact frozen input and "
                         "confirms data/source rights plus launch authority"
                     ),
                 },
@@ -367,7 +364,7 @@ Protocol `{self.PROTOCOL_VERSION}` · compiler v{self.VERSION} · frozen input s
                 {
                     "gate": "reproducibility",
                     "pass_when": (
-                        "exact code/data/environment/command/config/seed inputs and hashes "
+                        "exact code/data/environment/command/config/seed inputs "
                         "reconstruct every reported result or explicitly document variance"
                     ),
                 },
@@ -382,7 +379,7 @@ Protocol `{self.PROTOCOL_VERSION}` · compiler v{self.VERSION} · frozen input s
                     "gate": "final_integrity_and_release",
                     "pass_when": (
                         "from-scratch final integrity has zero blockers and a named human "
-                        "approves exact final artifact hashes"
+                        "approves the exact final artifact versions"
                     ),
                 },
             ],

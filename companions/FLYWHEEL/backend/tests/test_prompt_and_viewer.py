@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-import hashlib
 import json
 import os
 import stat
@@ -51,7 +50,7 @@ def test_portfolio_prompt_contains_scientific_gates() -> None:
     assert "public benchmark@frozen-version" in compiled.prompt
     assert "不得把创建或发布新数据集作为主要贡献" in compiled.prompt
     assert compiled.manifest["oral_is_aspiration_only"] is True
-    assert len(compiled.prompt_sha256) == 64
+    assert len(compiled.prompt_key) == 64
 
 
 def test_locked_prompt_requires_frozen_contract() -> None:
@@ -62,7 +61,7 @@ def test_locked_prompt_requires_frozen_contract() -> None:
         "primary_claim": "selective intervention generalizes",
         "primary_metric": "selectivity gap",
         "minimum_effect": ">= 0.10",
-        "data_split": "public split sha256:abc",
+        "data_split": "public split v1",
         "confirmatory_seeds": [11, 23, 47],
         "strongest_baselines": ["official-baseline@sha"],
     }
@@ -148,7 +147,7 @@ class _ArtifactClient:
         return self.details[path]
 
 
-def test_evidence_snapshot_is_bounded_content_addressed_and_read_only(tmp_path: Path) -> None:
+def test_evidence_snapshot_is_bounded_keyed_and_read_only(tmp_path: Path) -> None:
     client = _ArtifactClient({
         "paper/notes.md": {
             "path": "paper/notes.md", "exists": True, "kind": "markdown",
@@ -178,15 +177,15 @@ def test_evidence_snapshot_is_bounded_content_addressed_and_read_only(tmp_path: 
 
     assert snapshot.state == "evidence"
     assert snapshot.artifact_count == 2
-    assert snapshot.path == again.path
-    assert snapshot.path.parent.name == snapshot.sha256
+    assert snapshot.document == again.document
+    assert snapshot.key != again.key
+    assert snapshot.path.parent.name == snapshot.key
     content = snapshot.path.read_bytes()
-    assert hashlib.sha256(content).hexdigest() == snapshot.sha256
     assert not (snapshot.path.stat().st_mode & stat.S_IWUSR)
     document = json.loads(content)
+    assert document == snapshot.document
     assert document["score"] is None
     assert document["artifacts"][0]["truncated"] is True
-    assert len(document["artifacts"][0]["sha256"]) == 64
     assert client.requested == [
         ("argus-1", "paper/notes.md"), ("argus-1", "results/table.json"),
         ("argus-1", "paper/notes.md"), ("argus-1", "results/table.json"),
@@ -222,7 +221,7 @@ def test_evidence_snapshot_explicitly_records_empty_without_score(tmp_path: Path
     assert result["evidence_refs"] == []
 
 
-def test_viewer_rejects_tampered_evidence_snapshot(tmp_path: Path) -> None:
+def test_viewer_rejects_evidence_snapshot_without_a_valid_key(tmp_path: Path) -> None:
     client = _ArtifactClient({
         "notes.md": {
             "path": "notes.md", "exists": True, "kind": "markdown",
@@ -235,13 +234,13 @@ def test_viewer_rejects_tampered_evidence_snapshot(tmp_path: Path) -> None:
         output_root=tmp_path / "snapshots",
     )
     fields = snapshot.viewer_request_fields()
-    fields["evidence_snapshot"]["artifacts"][0]["preview"] = "tampered"
+    fields["evidence_snapshot_key"] = "not-a-key"
 
-    result = process_viewer_request({"request_id": "tampered-review", **fields})
+    result = process_viewer_request({"request_id": "keyless-review", **fields})
 
     assert result["state"] == "invalid_input"
     assert result["overall"] is None
-    assert "hash mismatch" in result["error"]
+    assert "key is invalid" in result["error"]
 
 
 def test_viewer_runs_independent_evaluator_process_with_provenance(tmp_path: Path) -> None:
@@ -274,7 +273,7 @@ def test_viewer_runs_independent_evaluator_process_with_provenance(tmp_path: Pat
     assert provenance["pid"] != os.getpid()
     assert provenance["process_is_independent"] is True
     assert Path(provenance["fresh_workdir"]).is_dir()
-    assert len(provenance["stdout_sha256"]) == 64
+    assert provenance["stdout_bytes"] > 0
 
 
 def test_idea_delta_reports_heuristic_collision_and_snapshot_change() -> None:

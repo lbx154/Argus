@@ -225,7 +225,7 @@ class DatasetSnapshotCreate(DatasetSelection):
     name: str = Field(min_length=1, max_length=500)
     actor: str = Field(min_length=1, max_length=500)
     license_basis: str = Field(min_length=1, max_length=2_000)
-    expected_selection_sha256: str = Field(pattern=r"^[0-9a-f]{64}$")
+    expected_selection: dict[str, Any]
 
     @field_validator("name", "actor", "license_basis")
     @classmethod

@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 import asyncio
-import hashlib
 import json
 import uuid
 from datetime import UTC, date, datetime, time, timedelta, timezone
@@ -331,9 +330,7 @@ def test_seeded_reminders_use_conservative_forecast_bound_and_explicit_basis(
         (forecast, "forecast_window_start", forecast["forecast_window_start"]),
         (official, "official_deadline_date", official["deadline_date"]),
     ):
-        reminder_id = str(
-            uuid.uuid5(uuid.NAMESPACE_URL, f"foundry:{deadline['id']}:30")
-        )
+        reminder_id = f"foundry-deadline-{deadline['id']}-30"
         reminder = db.fetch_one("SELECT * FROM reminders WHERE id=?", (reminder_id,))
         assert reminder is not None
         payload = json.loads(reminder["payload_json"])
@@ -610,7 +607,7 @@ def test_prompt_and_calendar_feed(client: TestClient) -> None:
     prompt = client.get(f"/api/ideas/{idea['id']}/prompt")
     assert prompt.status_code == 200
     result = prompt.json()
-    assert result["prompt_sha256"]
+    assert result["prompt_key"]
     assert "Oral" in result["prompt"]
     assert "不得以获得正向结果为完成条件" in result["prompt"]
     calendar = client.get("/api/calendar.ics")
@@ -746,10 +743,10 @@ def test_campaign_start_freezes_packet_and_is_idempotent(
     assert (root / "OBJECTIVE.md").is_file()
     assert (root / "SOURCE_SNAPSHOT.json").is_file()
     manifest = json.loads((root / "manifest.json").read_text(encoding="utf-8"))
-    assert manifest["prompt_sha256"]
-    assert hashlib.sha256((root / "OBJECTIVE.md").read_bytes()).hexdigest() == manifest[
-        "prompt_sha256"
-    ]
+    assert manifest["prompt_key"]
+    assert (root / "OBJECTIVE.md").read_bytes() == client.get(
+        f"/api/campaigns/{campaign['id']}"
+    ).json()["objective"].encode("utf-8")
     assert manifest["resource_contract"]["gpu_model"] == "Mock GPU"
     assert manifest["resource_contract"]["planning_cutoff_basis"] == "forecast_window_start"
     assert manifest["resource_contract"]["planning_cutoff_date"] == "2027-07-04"
@@ -1016,11 +1013,9 @@ def test_locked_contract_is_immutable_versioned_and_idempotent(
     first_dir = campaign_root / receipt["directory"]
     first_objective = (first_dir / "OBJECTIVE.md").read_bytes()
     first_manifest = (first_dir / "MANIFEST.json").read_bytes()
-    assert hashlib.sha256(first_objective).hexdigest() == receipt["prompt_sha256"]
-    assert hashlib.sha256(first_objective).hexdigest() == receipt["manifest"][
-        "prompt_sha256"
-    ]
-    assert receipt["contract_sha256"] in first_dir.name
+    assert first_objective == receipt["objective"].encode("utf-8")
+    assert receipt["manifest"]["prompt_key"] == receipt["prompt_key"]
+    assert receipt["contract_key"] in first_dir.name
 
     repeated = client.post(
         f"/api/campaigns/{campaign['id']}/locked-contract", json=payload
@@ -1105,9 +1100,7 @@ def test_rolling_contract_and_launch_freeze_internal_cutoff_without_fake_deadlin
         / receipt["directory"]
         / "OBJECTIVE.md"
     )
-    assert hashlib.sha256(objective_path.read_bytes()).hexdigest() == receipt[
-        "prompt_sha256"
-    ]
+    assert objective_path.read_bytes() == receipt["objective"].encode("utf-8")
     assert internal_cutoff in receipt["objective"]
     assert "rolling/TBA; operator-supplied internal cutoff" in receipt["objective"]
 
@@ -1131,9 +1124,7 @@ def test_rolling_contract_and_launch_freeze_internal_cutoff_without_fake_deadlin
     assert launch_manifest["deadline"] is None
     assert launch_manifest["submission_snapshot"] == snapshot
     assert launch_manifest["resource_contract"]["wall_clock_deadline"] == internal_cutoff
-    assert hashlib.sha256(
-        (campaign_root / "OBJECTIVE.md").read_bytes()
-    ).hexdigest() == launch_manifest["prompt_sha256"]
+    assert (campaign_root / "OBJECTIVE.md").read_bytes() == receipt["objective"].encode("utf-8")
 
 
 def test_rolling_contract_and_start_require_explicit_offset_cutoff(
@@ -1314,9 +1305,9 @@ def test_paused_portfolio_promotes_child_and_child_start_uses_locked_packet(
     launch_manifest = json.loads(
         (child_root / "manifest.json").read_text(encoding="utf-8")
     )
-    assert launch_manifest["locked_contract"]["contract_sha256"] == child[
+    assert launch_manifest["locked_contract"]["contract_key"] == child[
         "locked_contract"
-    ]["contract_sha256"]
+    ]["contract_key"]
 
 
 def test_human_approval_is_atomic_audited_and_idempotent(client: TestClient) -> None:
@@ -1634,7 +1625,7 @@ def test_promotion_receipt_replays_exact_contract_version_not_child_latest(
         f"/api/campaigns/{child_a['id']}/locked-contract", json=payload_b
     ).json()
     assert child_b["locked_contract"]["version"] == 2
-    assert child_b["locked_contract"]["request_sha256"] != receipt_a["request_sha256"]
+    assert child_b["locked_contract"]["request_key"] != receipt_a["request_key"]
 
     replay = client.post(
         f"/api/campaigns/{source['id']}/locked-contract", json=payload_a
@@ -1642,12 +1633,12 @@ def test_promotion_receipt_replays_exact_contract_version_not_child_latest(
     assert replay.status_code == 200
     assert replay.json()["id"] == child_a["id"]
     assert replay.json()["locked_contract"]["directory"] == receipt_a["directory"]
-    assert replay.json()["locked_contract"]["request_sha256"] == receipt_a[
-        "request_sha256"
+    assert replay.json()["locked_contract"]["request_key"] == receipt_a[
+        "request_key"
     ]
 
 
-def test_complete_locked_packet_is_reconciled_after_database_rollback(
+def test_packet_left_by_a_rolled_back_lock_is_never_adopted(
     client: TestClient,
 ) -> None:
     campaign = _create_contract_ready_campaign(client)
@@ -1663,7 +1654,6 @@ def test_complete_locked_packet_is_reconciled_after_database_rollback(
         / campaign["id"]
         / receipt["directory"]
     )
-    objective_before = (packet_root / "OBJECTIVE.md").read_bytes()
     manifest_before = (packet_root / "MANIFEST.json").read_bytes()
     db = client.app.state.db
     db.execute(
@@ -1676,48 +1666,15 @@ def test_complete_locked_packet_is_reconciled_after_database_rollback(
         (campaign["id"],),
     )
 
-    recovered = client.post(
+    retried = client.post(
         f"/api/campaigns/{campaign['id']}/locked-contract", json=payload
     )
-    assert recovered.status_code == 201, recovered.json()
-    recovered_receipt = recovered.json()["locked_contract"]
-    assert recovered_receipt["directory"] == receipt["directory"]
-    assert recovered_receipt["contract_sha256"] == receipt["contract_sha256"]
-    assert (packet_root / "OBJECTIVE.md").read_bytes() == objective_before
+    assert retried.status_code == 201, retried.json()
+    assert retried.json()["locked_contract"]["directory"] != receipt["directory"]
     assert (packet_root / "MANIFEST.json").read_bytes() == manifest_before
 
 
-def test_orphan_locked_packet_with_wrong_binding_is_never_adopted(
-    client: TestClient,
-) -> None:
-    campaign = _create_contract_ready_campaign(client)
-    original_config = dict(campaign["config"])
-    payload = _locked_payload()
-    locked = client.post(
-        f"/api/campaigns/{campaign['id']}/locked-contract", json=payload
-    ).json()["locked_contract"]
-    manifest_path = (
-        client.app.state.settings.data_dir
-        / "campaigns"
-        / campaign["id"]
-        / locked["directory"]
-        / "MANIFEST.json"
-    )
-    manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
-    manifest["bindings"]["resource_id"] = "wrong-resource"
-    manifest_path.write_text(json.dumps(manifest), encoding="utf-8")
-    client.app.state.db.execute(
-        "UPDATE campaigns SET objective='',science_state='candidate',config_json=? WHERE id=?",
-        (json.dumps(original_config), campaign["id"]),
-    )
-    rejected = client.post(
-        f"/api/campaigns/{campaign['id']}/locked-contract", json=payload
-    )
-    assert rejected.status_code == 409
-    assert "bindings" in rejected.json()["detail"]
-
-
-def test_promoted_packet_is_recoverable_after_child_transaction_rollback(
+def test_promotion_retried_after_child_rollback_freezes_a_fresh_child(
     client: TestClient, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     source = _create_contract_ready_campaign(client, with_connection=True)
@@ -1748,7 +1705,7 @@ def test_promoted_packet_is_recoverable_after_child_transaction_rollback(
         / child_id
         / receipt["directory"]
     )
-    packet_hash = hashlib.sha256((packet_root / "MANIFEST.json").read_bytes()).hexdigest()
+    manifest_before = (packet_root / "MANIFEST.json").read_bytes()
     db = client.app.state.db
     db.execute(
         "DELETE FROM events WHERE entity_type='campaign' AND entity_id=? "
@@ -1757,16 +1714,12 @@ def test_promoted_packet_is_recoverable_after_child_transaction_rollback(
     )
     db.execute("DELETE FROM campaigns WHERE id=?", (child_id,))
 
-    # Recovery must adopt the timestamp authenticated from the immutable
-    # packet, not require a retry to land in the same wall-clock second.
-    monkeypatch.setattr("foundry.api.utc_now", lambda: "2099-01-01T00:00:00+00:00")
-    recovered = client.post(
+    retried = client.post(
         f"/api/campaigns/{source['id']}/locked-contract", json=payload
     )
-    assert recovered.status_code == 201, recovered.json()
-    assert recovered.json()["id"] == child_id
-    assert recovered.json()["locked_contract"]["directory"] == receipt["directory"]
-    assert hashlib.sha256((packet_root / "MANIFEST.json").read_bytes()).hexdigest() == packet_hash
+    assert retried.status_code == 201, retried.json()
+    assert retried.json()["id"] != child_id
+    assert (packet_root / "MANIFEST.json").read_bytes() == manifest_before
 
 
 @pytest.mark.parametrize(

@@ -6,7 +6,6 @@ header to a redirected host would be an easy way to leak a bearer token.
 
 from __future__ import annotations
 
-import hashlib
 import json
 import ssl
 import urllib.error
@@ -266,18 +265,25 @@ class ConnectionTest:
         return self.supports(capability)
 
 
+
+def event_identity(event: Mapping[str, Any]) -> str:
+    """An Argus event's own id, or the event itself as canonical JSON when it has none."""
+    return str(event.get("event_id") or "") or json.dumps(
+        event, ensure_ascii=False, sort_keys=True, separators=(",", ":"), default=str
+    )
+
+
 @dataclass(frozen=True)
-class ArtifactDigest:
-    """Integrity receipt produced while streaming one allowlisted artifact."""
+class ArtifactReceipt:
+    """What streaming one allowlisted artifact observed: its path, size and type."""
 
     path: str
     size: int
-    sha256: str
     content_type: str | None
 
 
 @dataclass(frozen=True)
-class ArtifactDownload(ArtifactDigest):
+class ArtifactDownload(ArtifactReceipt):
     content: bytes
 
 
@@ -705,7 +711,7 @@ class ArgusWebApiClient:
         if cursor is not None and (cursor.project_id != sid or cursor.view != view):
             raise ValueError("event cursor belongs to a different project or view")
         current_events = self.events(sid, limit=limit, view=view)
-        current = tuple(self._event_fingerprint(event) for event in current_events)
+        current = tuple(event_identity(event) for event in current_events)
         previous = cursor.fingerprints if cursor is not None else ()
         overlap = self._tail_overlap(previous, current)
         fresh = tuple(current_events[overlap:])
@@ -716,16 +722,6 @@ class ArgusWebApiClient:
             overlap_count=overlap,
             gap_detected=bool(previous and current and overlap == 0),
         )
-
-    @staticmethod
-    def _event_fingerprint(event: Mapping[str, Any]) -> str:
-        canonical = json.dumps(
-            event,
-            ensure_ascii=False,
-            sort_keys=True,
-            separators=(",", ":"),
-        ).encode("utf-8")
-        return hashlib.sha256(canonical).hexdigest()
 
     @staticmethod
     def _tail_overlap(previous: tuple[str, ...], current: tuple[str, ...]) -> int:
@@ -764,7 +760,7 @@ class ArgusWebApiClient:
         *,
         max_bytes: int | None = None,
     ) -> ArtifactDownload:
-        """Download one allowlisted raw artifact and hash it while streaming."""
+        """Download one allowlisted raw artifact within its byte limit."""
 
         receipt = self._read_raw_artifact(
             sid,
@@ -776,14 +772,14 @@ class ArgusWebApiClient:
             raise AssertionError("download must retain artifact bytes")
         return receipt
 
-    def artifact_digest(
+    def artifact_receipt(
         self,
         sid: str,
         path: str,
         *,
         max_bytes: int | None = None,
-    ) -> ArtifactDigest:
-        """Hash one artifact incrementally without retaining its bytes in memory."""
+    ) -> ArtifactReceipt:
+        """Measure one artifact while streaming, without retaining its bytes in memory."""
 
         return self._read_raw_artifact(
             sid,
@@ -844,7 +840,7 @@ class ArgusWebApiClient:
         *,
         max_bytes: int,
         retain_content: bool,
-    ) -> ArtifactDigest:
+    ) -> ArtifactReceipt:
         self._validate_artifact_path(path)
         url = self.base_url + self._project_path(sid, "/artifact/raw")
         url += "?" + urllib.parse.urlencode({"path": path, "download": "true"})
@@ -877,7 +873,7 @@ class ArgusWebApiClient:
         *,
         max_bytes: int,
         retain_content: bool,
-    ) -> ArtifactDigest:
+    ) -> ArtifactReceipt:
         context = None
         if url.startswith("https://") and not self.verify_tls:
             context = ssl._create_unverified_context()  # noqa: SLF001 - explicit opt-out
@@ -919,7 +915,7 @@ class ArgusWebApiClient:
         *,
         max_bytes: int,
         retain_content: bool,
-    ) -> ArtifactDigest:
+    ) -> ArtifactReceipt:
         normalized_headers = {str(key).lower(): str(value) for key, value in headers.items()}
         if not 200 <= status < 300:
             detail_bytes = bytearray()
@@ -948,7 +944,6 @@ class ArgusWebApiClient:
                 raise ArgusWebApiError(
                     f"artifact exceeds byte limit ({max_bytes})", status=status
                 )
-        digest = hashlib.sha256()
         content_parts: list[bytes] = []
         size = 0
         if isinstance(chunks, (bytes, bytearray)):
@@ -961,18 +956,16 @@ class ArgusWebApiClient:
                 raise ArgusWebApiError(
                     f"artifact exceeds byte limit ({max_bytes})", status=status
                 )
-            digest.update(chunk)
             if retain_content:
                 content_parts.append(chunk)
         common = {
             "path": path,
             "size": size,
-            "sha256": digest.hexdigest(),
             "content_type": normalized_headers.get("content-type"),
         }
         if retain_content:
             return ArtifactDownload(content=b"".join(content_parts), **common)
-        return ArtifactDigest(**common)
+        return ArtifactReceipt(**common)
 
     @staticmethod
     def _artifact_limit(requested: int | None, ceiling: int, label: str) -> int:

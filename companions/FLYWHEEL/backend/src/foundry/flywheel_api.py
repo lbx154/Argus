@@ -33,8 +33,8 @@ from .services.flywheel_data import (
     FlywheelDataError,
     assert_no_secrets,
     canonical_json,
+    new_key,
     selection_preview,
-    sha256_text,
 )
 
 OPENREVIEW_API_ORIGIN = "https://api2.openreview.net"
@@ -297,15 +297,7 @@ def _snapshot_verify(db: Database, service: EpisodeService, snapshot_id: str) ->
         "SELECT * FROM dataset_snapshot_members WHERE snapshot_id=? ORDER BY episode_id,revision_id",
         (snapshot_id,),
     )
-    checks = [
-        {
-            "name": "manifest_sha256",
-            "valid": sha256_text(snapshot["manifest_json"]) == snapshot["manifest_sha256"],
-            "detail": snapshot["manifest_sha256"],
-        }
-    ]
     manifest = json.loads(snapshot["manifest_json"])
-    selection = json.loads(snapshot["selection_json"])
     manifest_members = manifest.get("members")
     frozen_members = (
         manifest_members
@@ -313,18 +305,7 @@ def _snapshot_verify(db: Database, service: EpisodeService, snapshot_id: str) ->
         and all(isinstance(member, dict) for member in manifest_members)
         else []
     )
-    selection_material = {
-        "schema_version": "flywheel.dataset-selection/1",
-        "require_training_consent": bool(selection.get("require_training_consent", True)),
-        "members": frozen_members,
-    }
-    checks.append(
-        {
-            "name": "selection_sha256",
-            "valid": sha256_text(canonical_json(selection_material)) == snapshot["selection_sha256"],
-            "detail": snapshot["selection_sha256"],
-        }
-    )
+    checks = []
     checks.append(
         {
             "name": "member_count",
@@ -345,14 +326,14 @@ def _snapshot_verify(db: Database, service: EpisodeService, snapshot_id: str) ->
         }
     )
     db_member_keys = {
-        (member["episode_id"], member["revision_id"], member["manifest_sha256"])
+        (member["episode_id"], member["revision_id"], member["manifest_key"])
         for member in members
     }
     frozen_member_keys = {
         (
             str(member.get("episode_id") or ""),
             str(member.get("revision_id") or ""),
-            str(member.get("manifest_sha256") or ""),
+            str(member.get("manifest_key") or ""),
         )
         for member in frozen_members
     }
@@ -370,8 +351,8 @@ def _snapshot_verify(db: Database, service: EpisodeService, snapshot_id: str) ->
         valid = bool(
             revision
             and revision["episode_id"] == episode_id
-            and revision["manifest_sha256"] == member.get("manifest_sha256")
-            and revision["chain_sha256"] == member.get("chain_sha256")
+            and revision["manifest_key"] == member.get("manifest_key")
+            and revision["chain_key"] == member.get("chain_key")
             and service.verify_revision_prefix(
                 episode_id, revision_id
             )["valid"]
@@ -414,7 +395,7 @@ def _snapshot_verify(db: Database, service: EpisodeService, snapshot_id: str) ->
         "id": snapshot_id,
         "valid": all(check["valid"] for check in checks),
         "checks": checks,
-        "manifest_sha256": snapshot["manifest_sha256"],
+        "manifest_key": snapshot["manifest_key"],
         "member_count": len(members),
     }
 
@@ -464,9 +445,8 @@ def create_flywheel_router() -> APIRouter:
                 raise HTTPException(404, f"candidate not found: {body.candidate_id}")
             if candidate["ideation_run_id"] != body.ideation_run_id:
                 raise HTTPException(409, "selected candidate does not belong to ideation run")
-            run_digest = str(run.get("candidate_artifact_sha256") or "")
-            candidate_digest = str(candidate.get("artifact_sha256") or "")
-            if not run_digest or run_digest != candidate_digest:
+            run_key = str(run.get("candidate_artifact_key") or "")
+            if not run_key or run_key != str(candidate.get("artifact_key") or ""):
                 raise HTTPException(409, "selected candidate artifact binding is missing or inconsistent")
         elif body.candidate_id:
             raise HTTPException(422, "candidate_id requires ideation_run_id")
@@ -548,7 +528,7 @@ def create_flywheel_router() -> APIRouter:
         # A generic/manual Episode remains useful as an archive, but it cannot
         # claim training lineage.  When a real candidate or rebuttal Campaign is
         # supplied, derive team/venue/deadline from its verified root receipt and
-        # freeze the complete digest set.  A caller cannot provide these values.
+        # freeze the complete key set.  A caller cannot provide these values.
         if effective_campaign_id is not None:
             provenance_campaign = decode_row(
                 db.fetch_one("SELECT * FROM campaigns WHERE id=?", (effective_campaign_id,))
@@ -618,22 +598,22 @@ def create_flywheel_router() -> APIRouter:
                 "ideation_run_id": run["id"],
                 "execution_campaign_id": effective_campaign_id,
                 "ideation_campaign_id": ideation_campaign_id,
-                "condition_sha256": conditioned_binding["condition_sha256"],
-                "artifact_sha256": candidate["artifact_sha256"],
-                "candidate_artifact_sha256": conditioned_binding[
-                    "candidate_artifact_sha256"
+                "condition_key": conditioned_binding["condition_key"],
+                "artifact_key": candidate["artifact_key"],
+                "candidate_artifact_key": conditioned_binding[
+                    "candidate_artifact_key"
                 ],
-                "candidate_record_sha256": conditioned_binding[
-                    "candidate_record_sha256"
+                "candidate_record_key": conditioned_binding[
+                    "candidate_record_key"
                 ],
-                "candidate_input_sha256": conditioned_binding[
-                    "candidate_input_sha256"
+                "candidate_input_key": conditioned_binding[
+                    "candidate_input_key"
                 ],
-                "candidate_prompt_sha256": conditioned_binding[
-                    "candidate_prompt_sha256"
+                "candidate_prompt_key": conditioned_binding[
+                    "candidate_prompt_key"
                 ],
                 "candidate_snapshot": candidate["candidate"],
-                "run_objective_sha256": run["objective_sha256"],
+                "run_objective_key": run["objective_key"],
                 "binding_receipt": conditioned_binding,
             }
         _reject_secrets(frozen_metadata)
@@ -647,11 +627,11 @@ def create_flywheel_router() -> APIRouter:
                     body.ideation_run_id,
                     "ideation_source",
                     {
-                        "condition_sha256": conditioned_binding["condition_sha256"],
-                        "objective_sha256": conditioned_binding[
-                            "parent_objective_sha256"
+                        "condition_key": conditioned_binding["condition_key"],
+                        "objective_key": conditioned_binding[
+                            "parent_objective_key"
                         ],
-                        "binding_receipt_sha256": conditioned_binding["receipt_sha256"],
+                        "binding_receipt_key": conditioned_binding["receipt_key"],
                     },
                 )
             )
@@ -662,13 +642,13 @@ def create_flywheel_router() -> APIRouter:
                     body.candidate_id,
                     "selected_candidate",
                     {
-                        "candidate_artifact_sha256": conditioned_binding[
-                            "candidate_artifact_sha256"
+                        "candidate_artifact_key": conditioned_binding[
+                            "candidate_artifact_key"
                         ],
-                        "candidate_record_sha256": conditioned_binding[
-                            "candidate_record_sha256"
+                        "candidate_record_key": conditioned_binding[
+                            "candidate_record_key"
                         ],
-                        "binding_receipt_sha256": conditioned_binding["receipt_sha256"],
+                        "binding_receipt_key": conditioned_binding["receipt_key"],
                     },
                 )
             )
@@ -679,9 +659,9 @@ def create_flywheel_router() -> APIRouter:
                     ideation_campaign_id,
                     "ideation_source",
                     {
-                        "condition_sha256": conditioned_binding["condition_sha256"],
-                        "objective_sha256": conditioned_binding[
-                            "parent_objective_sha256"
+                        "condition_key": conditioned_binding["condition_key"],
+                        "objective_key": conditioned_binding[
+                            "parent_objective_key"
                         ],
                         "execution_campaign_id": effective_campaign_id,
                     },
@@ -694,20 +674,20 @@ def create_flywheel_router() -> APIRouter:
                     effective_campaign_id,
                     "execution" if training_provenance is not None else "associated_campaign",
                     {
-                        "condition_sha256": conditioned_binding[
-                            "condition_sha256"
+                        "condition_key": conditioned_binding[
+                            "condition_key"
                         ] if conditioned_binding else None,
-                        "candidate_artifact_sha256": conditioned_binding[
-                            "candidate_artifact_sha256"
+                        "candidate_artifact_key": conditioned_binding[
+                            "candidate_artifact_key"
                         ] if conditioned_binding else None,
-                        "candidate_record_sha256": conditioned_binding[
-                            "candidate_record_sha256"
+                        "candidate_record_key": conditioned_binding[
+                            "candidate_record_key"
                         ] if conditioned_binding else None,
-                        "candidate_input_sha256": conditioned_binding[
-                            "candidate_input_sha256"
+                        "candidate_input_key": conditioned_binding[
+                            "candidate_input_key"
                         ] if conditioned_binding else None,
-                        "candidate_prompt_sha256": conditioned_binding[
-                            "candidate_prompt_sha256"
+                        "candidate_prompt_key": conditioned_binding[
+                            "candidate_prompt_key"
                         ] if conditioned_binding else None,
                         "binding_receipt": conditioned_binding,
                     }
@@ -804,7 +784,7 @@ def create_flywheel_router() -> APIRouter:
             "episode_revision_sealed",
             entity_type="research_episode",
             entity_id=episode_id,
-            payload={"revision_id": revision["id"], "manifest_sha256": revision["manifest_sha256"]},
+            payload={"revision_id": revision["id"], "manifest_key": revision["manifest_key"]},
         )
         return revision
 
@@ -944,7 +924,7 @@ def create_flywheel_router() -> APIRouter:
             "state": "draft",
             "source_kind": body.source_kind,
             "source_ref": body.source_ref or "",
-            "raw_object_sha256": None,
+            "raw_object_key": None,
             "parsed": parsed,
             "needs_human_confirmation": True,
             "manual_redaction_required": body.source_kind == "pdf",
@@ -992,7 +972,7 @@ def create_flywheel_router() -> APIRouter:
             "state": "draft",
             "source_kind": "openreview",
             "source_ref": source_ref,
-            "raw_object_sha256": None,
+            "raw_object_key": None,
             "parsed": parsed,
             "needs_human_confirmation": True,
             "manual_redaction_required": False,
@@ -1031,11 +1011,11 @@ def create_flywheel_router() -> APIRouter:
         with db.transaction() as connection:
             cursor = connection.execute(
                 "UPDATE review_import_batches SET state='confirmed',parsed_json=?,redaction_confirmed=1,"
-                "raw_object_sha256=?,training_consent=?,license_basis=?,confirmed_by=?,confirmed_at=?,updated_at=? "
+                "raw_object_key=?,training_consent=?,license_basis=?,confirmed_by=?,confirmed_at=?,updated_at=? "
                 "WHERE id=? AND state='draft'",
                 (
                     canonical_json(parsed),
-                    obj.sha256,
+                    obj.object_key,
                     int(body.training_consent),
                     body.license_basis,
                     body.actor,
@@ -1054,7 +1034,7 @@ def create_flywheel_router() -> APIRouter:
                     str(uuid.uuid4()),
                     row["episode_id"],
                     "content_object",
-                    obj.sha256,
+                    obj.object_key,
                     "review_evidence",
                     now,
                 ),
@@ -1064,7 +1044,7 @@ def create_flywheel_router() -> APIRouter:
             "episode_id": row["episode_id"],
             "state": "confirmed",
             "source_kind": row["source_kind"],
-            "raw_object_sha256": obj.sha256,
+            "raw_object_key": obj.object_key,
             "parsed": parsed,
             "redaction_confirmed": True,
             "redaction_scan_state": obj.redaction_scan_state,
@@ -1146,13 +1126,13 @@ def create_flywheel_router() -> APIRouter:
         with db.transaction() as connection:
             # Hold the SQLite writer reservation while eligibility is recomputed
             # and persisted. A review confirmation/reseal cannot interleave
-            # between the digest comparison and immutable member insertion.
+            # between the selection comparison and immutable member insertion.
             preview = selection_preview(
                 service,
                 episode_ids=body.episode_ids,
                 require_training_consent=body.require_training_consent,
             )
-            if preview["selection_sha256"] != body.expected_selection_sha256:
+            if canonical_json(preview["selection"]) != canonical_json(body.expected_selection):
                 raise HTTPException(409, "dataset selection changed; preview again before sealing")
             if not preview["eligible"]:
                 raise HTTPException(409, "dataset snapshot requires at least one eligible revision")
@@ -1166,7 +1146,6 @@ def create_flywheel_router() -> APIRouter:
                 "schema_version": "flywheel.dataset-snapshot/1",
                 "id": snapshot_id,
                 "name": body.name,
-                "selection_sha256": preview["selection_sha256"],
                 "members": preview["eligible"],
                 "license_basis": body.license_basis,
                 "created_by": body.actor,
@@ -1175,18 +1154,19 @@ def create_flywheel_router() -> APIRouter:
             }
             _reject_secrets(manifest)
             manifest_json = canonical_json(manifest)
-            manifest_sha256 = sha256_text(manifest_json)
+            selection_key = new_key()
+            manifest_key = new_key()
             connection.execute(
                 "INSERT INTO dataset_snapshots"
-                "(id,name,selection_json,selection_sha256,manifest_json,manifest_sha256,member_count,"
+                "(id,name,selection_json,selection_key,manifest_json,manifest_key,member_count,"
                 "license_basis,created_by,created_at) VALUES(?,?,?,?,?,?,?,?,?,?)",
                 (
                     snapshot_id,
                     body.name,
                     canonical_json(selection),
-                    preview["selection_sha256"],
+                    selection_key,
                     manifest_json,
-                    manifest_sha256,
+                    manifest_key,
                     len(preview["eligible"]),
                     body.license_basis,
                     body.actor,
@@ -1196,20 +1176,20 @@ def create_flywheel_router() -> APIRouter:
             for member in preview["eligible"]:
                 connection.execute(
                     "INSERT INTO dataset_snapshot_members"
-                    "(snapshot_id,revision_id,episode_id,manifest_sha256,created_at) VALUES(?,?,?,?,?)",
+                    "(snapshot_id,revision_id,episode_id,manifest_key,created_at) VALUES(?,?,?,?,?)",
                     (
                         snapshot_id,
                         member["revision_id"],
                         member["episode_id"],
-                        member["manifest_sha256"],
+                        member["manifest_key"],
                         now,
                     ),
                 )
         return {
             "id": snapshot_id,
             "name": body.name,
-            "selection_sha256": preview["selection_sha256"],
-            "manifest_sha256": manifest_sha256,
+            "selection_key": selection_key,
+            "manifest_key": manifest_key,
             "member_count": len(preview["eligible"]),
             "manifest": manifest,
             "immutable": True,

@@ -165,7 +165,7 @@ export async function verifyEpisode(episodeId: string): Promise<EpisodeVerificat
     valid: raw.valid === true,
     episode_id: episodeId,
     head_revision: number(head.revision_number, 0),
-    manifest_sha256: text(raw.manifest_sha256) || undefined,
+    manifest_key: text(raw.manifest_key) || undefined,
     checks: records(raw.checks).map((check) => ({ name: text(check.name, 'unknown'), passed: check.valid === true, detail: text(check.detail) || undefined })),
   }
 }
@@ -222,7 +222,7 @@ export async function stageArgusArtifactImport(
   payload: {
     artifact_path: string
     role: ArgusArtifactRole
-    expected_entry_sha256: string
+    expected_entry_key: string
     idempotency_key: string
   },
 ): Promise<ArgusArtifactImport> {
@@ -235,7 +235,7 @@ export async function stageArgusArtifactImport(
 export async function confirmArgusArtifactImport(
   importId: string,
   payload: {
-    expected_source_sha256: string
+    expected_source_key: string
     redaction_confirmed: true
     manual_redaction_confirmed: boolean
     training_consent: boolean
@@ -275,7 +275,7 @@ export async function createDatasetSnapshot(preview: Record<string, unknown>, na
       license_basis: licenseBasis,
       episode_ids: [],
       require_training_consent: true,
-      expected_selection_sha256: preview.selection_sha256,
+      expected_selection: preview.selection,
     }),
   })
   return adaptDatasetSnapshot(raw)
@@ -300,7 +300,7 @@ export async function importIdeationCandidates(runId: string, payload: Record<st
 export type CandidateCampaignReceipt = {
   id: string
   execution_state: string
-  candidate_prompt_sha256: string
+  candidate_prompt_key: string
   launch_triggered: false
   idempotent: boolean
 }
@@ -404,8 +404,8 @@ function adaptEpisode(raw: Record<string, unknown>): ResearchEpisode {
     episode_id: text(revision.episode_id, text(raw.id)),
     revision: number(revision.revision_number, 0),
     trigger_type: text(revision.reason, 'human_checkpoint'),
-    manifest_sha256: text(revision.manifest_sha256),
-    parent_manifest_sha256: text(revision.parent_revision_id) || null,
+    manifest_key: text(revision.manifest_key),
+    parent_manifest_key: text(revision.parent_revision_id) || null,
     sealed_by: text(revision.sealed_by, 'unknown'),
     sealed_at: text(revision.sealed_at),
     terminal_state: text(raw.state) || null,
@@ -439,7 +439,7 @@ function adaptEpisode(raw: Record<string, unknown>): ResearchEpisode {
       source_kind: text(item.source_kind),
       source_ref: text(item.source_ref),
       state: text(item.state, 'draft'),
-      raw_object_sha256: text(item.raw_object_sha256) || undefined,
+      raw_object_key: text(item.raw_object_key) || undefined,
       parsed: structuredJson(item.parsed ?? item.parsed_json),
       created_at: text(item.created_at) || undefined,
     })),
@@ -453,9 +453,9 @@ function adaptDatasetSnapshot(raw: Record<string, unknown>): DatasetSnapshot {
     id: text(raw.id),
     schema_version: number(raw.schema_version, 1),
     record_count: number(raw.member_count, number(raw.record_count)),
-    manifest_sha256: text(raw.manifest_sha256) || undefined,
-    manifest_object_sha256: text(raw.manifest_object_sha256) || undefined,
-    policy_object_sha256: text(raw.selection_sha256) || undefined,
+    manifest_key: text(raw.manifest_key) || undefined,
+    manifest_object_key: text(raw.manifest_object_key) || undefined,
+    policy_object_key: text(raw.selection_key) || undefined,
     created_by: text(raw.created_by, 'unknown'),
     sealed_at: text(raw.created_at, text(raw.sealed_at)),
     valid: typeof raw.valid === 'boolean' ? raw.valid : undefined,

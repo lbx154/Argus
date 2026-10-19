@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-import hashlib
 import json
 import os
 import sqlite3
@@ -19,7 +18,7 @@ from .flywheel_data import (
     FlywheelDataError,
     assert_no_secrets,
     canonical_json,
-    sha256_text,
+    new_key,
 )
 
 MAX_INDEX_ITEMS = 2_048
@@ -34,7 +33,6 @@ _SAFE_ENTRY_FIELDS = (
     "kind",
     "exists",
     "size",
-    "sha256",
     "content_type",
     "media_type",
     "name",
@@ -64,14 +62,6 @@ def normalize_artifact_entry(raw: dict[str, Any]) -> dict[str, Any]:
                 if isinstance(value, int) and not isinstance(value, bool) and value >= 0
                 else None
             )
-        elif key == "sha256":
-            normalized = value.lower() if isinstance(value, str) else ""
-            output[key] = (
-                normalized
-                if len(normalized) == 64
-                and all(character in "0123456789abcdef" for character in normalized)
-                else None
-            )
         elif key in _TEXT_ENTRY_FIELDS:
             output[key] = value if isinstance(value, str) else None
         else:
@@ -79,10 +69,6 @@ def normalize_artifact_entry(raw: dict[str, Any]) -> dict[str, Any]:
     output["path"] = str(output.get("path") or "")
     output["kind"] = str(output.get("kind") or "artifact")
     return output
-
-
-def artifact_entry_sha256(entry: dict[str, Any]) -> str:
-    return sha256_text(canonical_json(entry))
 
 
 class ArgusArtifactImportService:
@@ -157,7 +143,8 @@ class ArgusArtifactImportService:
                     f"Argus artifact index entry {ordinal} duplicates an earlier path"
                 )
             seen.add(path)
-            entry["entry_sha256"] = artifact_entry_sha256(entry)
+            # The entry itself, as canonical JSON, is what a caller confirms it saw.
+            entry["entry_key"] = canonical_json(entry)
             normalized.append(entry)
         return sorted(normalized, key=lambda item: item["path"])
 
@@ -167,7 +154,7 @@ class ArgusArtifactImportService:
         *,
         artifact_path: str,
         role: str,
-        expected_entry_sha256: str,
+        expected_entry_key: str,
         idempotency_key: str,
         client: ArgusWebApiClient,
     ) -> tuple[dict[str, Any], bool]:
@@ -180,7 +167,7 @@ class ArgusArtifactImportService:
             if not (
                 existing["artifact_path"] == artifact_path
                 and existing["role"] == role
-                and existing["source_entry_sha256"] == expected_entry_sha256
+                and existing["source_entry_json"] == expected_entry_key
             ):
                 raise FlywheelDataError(
                     "idempotency_key is already bound to a different artifact request"
@@ -194,7 +181,7 @@ class ArgusArtifactImportService:
                 "artifact_path is not a current allowlisted Argus artifact"
             )
         entry = matches[0]
-        if entry["entry_sha256"] != expected_entry_sha256:
+        if entry["entry_key"] != expected_entry_key:
             raise FlywheelDataError(
                 "Argus artifact index entry changed; refresh before staging"
             )
@@ -226,11 +213,6 @@ class ArgusArtifactImportService:
             raise FlywheelDataError(
                 "downloaded artifact length differs from the fresh Argus index"
             )
-        reported_sha = entry.get("sha256")
-        if isinstance(reported_sha, str) and reported_sha and download.sha256 != reported_sha:
-            raise FlywheelDataError(
-                "downloaded artifact SHA-256 differs from the fresh Argus index"
-            )
         if int(draft_usage["bytes"]) + download.size > MAX_DRAFT_BYTES_PER_EPISODE:
             raise FlywheelDataError("Episode staged artifact byte budget would be exceeded")
 
@@ -255,8 +237,8 @@ class ArgusArtifactImportService:
                     if not (
                         concurrent_row["artifact_path"] == artifact_path
                         and concurrent_row["role"] == role
-                        and concurrent_row["source_entry_sha256"]
-                        == expected_entry_sha256
+                        and concurrent_row["source_entry_json"]
+                        == expected_entry_key
                     ):
                         raise FlywheelDataError(
                             "idempotency_key is already bound to a different artifact request"
@@ -283,7 +265,7 @@ class ArgusArtifactImportService:
                     connection.execute(
                         "INSERT INTO argus_artifact_imports("
                         "id,episode_id,campaign_id,connection_id,argus_project_id,artifact_path,role,"
-                        "state,idempotency_key,source_entry_json,source_entry_sha256,source_sha256,"
+                        "state,idempotency_key,source_entry_json,source_entry_key,source_key,"
                         "source_byte_length,media_type,staging_key,scan_state,manual_redaction_required,"
                         "created_at,updated_at) VALUES(?,?,?,?,?,?,?,'draft',?,?,?,?,?,?,?,?,?,?,?)",
                         (
@@ -295,11 +277,9 @@ class ArgusArtifactImportService:
                             artifact_path,
                             role,
                             idempotency_key,
-                            canonical_json(
-                                {key: value for key, value in entry.items() if key != "entry_sha256"}
-                            ),
-                            expected_entry_sha256,
-                            download.sha256,
+                            expected_entry_key,
+                            new_key(),
+                            new_key(),
                             download.size,
                             media_type,
                             staging_key,
@@ -321,7 +301,7 @@ class ArgusArtifactImportService:
             if raced and (
                 raced["artifact_path"] == artifact_path
                 and raced["role"] == role
-                and raced["source_entry_sha256"] == expected_entry_sha256
+                and raced["source_entry_json"] == expected_entry_key
             ):
                 return self.public_import(raced), True
             raise FlywheelDataError("artifact staging race or integrity conflict") from exc
@@ -337,7 +317,6 @@ class ArgusArtifactImportService:
                 "campaign_id": binding.campaign["id"],
                 "artifact_path": artifact_path,
                 "role": role,
-                "source_sha256": download.sha256,
                 "source_byte_length": download.size,
             },
         )
@@ -351,7 +330,7 @@ class ArgusArtifactImportService:
         import_id: str,
         *,
         actor: str,
-        expected_source_sha256: str,
+        expected_source_key: str,
         redaction_confirmed: bool,
         manual_redaction_confirmed: bool,
         training_consent: bool,
@@ -362,8 +341,8 @@ class ArgusArtifactImportService:
         row = self._require_import(import_id)
         if row["state"] != "draft":
             raise FlywheelDataError(f"artifact import is already {row['state']}")
-        if row["source_sha256"] != expected_source_sha256:
-            raise FlywheelDataError("staged artifact SHA-256 changed; refresh before confirming")
+        if row["source_key"] != expected_source_key:
+            raise FlywheelDataError("staged artifact changed; refresh before confirming")
         if redaction_confirmed is not True:
             raise FlywheelDataError("redaction confirmation is required")
         if bool(row["manual_redaction_required"]) and manual_redaction_confirmed is not True:
@@ -402,18 +381,18 @@ class ArgusArtifactImportService:
                     "argus_project_id": row["argus_project_id"],
                     "artifact_path": row["artifact_path"],
                     "role": row["role"],
-                    "source_sha256": row["source_sha256"],
+                    "source_key": row["source_key"],
                     "redaction_mode": disposition,
                 },
                 connection=connection,
             )
             cursor = connection.execute(
-                "UPDATE argus_artifact_imports SET state='confirmed',content_object_sha256=?,"
+                "UPDATE argus_artifact_imports SET state='confirmed',content_object_key=?,"
                 "redaction_mode=?,redaction_confirmed=1,manual_redaction_confirmed=?,"
                 "training_consent=?,license_basis=?,"
                 "confirmed_by=?,confirmed_at=?,updated_at=? WHERE id=? AND state='draft'",
                 (
-                    obj.sha256,
+                    obj.object_key,
                     disposition,
                     int(manual_redaction_confirmed),
                     int(training_consent),
@@ -434,12 +413,12 @@ class ArgusArtifactImportService:
                     str(uuid.uuid4()),
                     row["episode_id"],
                     "content_object",
-                    obj.sha256,
+                    obj.object_key,
                     f"argus_artifact:{row['role']}",
                     canonical_json(
                         {
                             "argus_artifact_import_id": import_id,
-                            "source_sha256": row["source_sha256"],
+                            "source_key": row["source_key"],
                         }
                     ),
                     now,
@@ -454,7 +433,7 @@ class ArgusArtifactImportService:
             payload={
                 "episode_id": row["episode_id"],
                 "role": row["role"],
-                "content_object_sha256": obj.sha256,
+                "content_object_key": obj.object_key,
                 "training_consent": bool(training_consent),
             },
         )
@@ -532,7 +511,7 @@ class ArgusArtifactImportService:
         membership = head_artifact_membership(head)
         sealed = bool(
             row["state"] == "confirmed"
-            and membership.get(row["id"]) == row.get("content_object_sha256")
+            and membership.get(row["id"]) == row.get("content_object_key")
         )
         output["sealed_in_head"] = sealed
         output["sealed_revision_id"] = head["id"] if sealed and head else None
@@ -553,8 +532,6 @@ class ArgusArtifactImportService:
         data = path.read_bytes()
         if len(data) != int(row["source_byte_length"]):
             raise FlywheelDataError("staged artifact byte length mismatch")
-        if hashlib.sha256(data).hexdigest() != row["source_sha256"]:
-            raise FlywheelDataError("staged artifact SHA-256 mismatch")
         return data
 
     def _preview(self, row: dict[str, Any]) -> dict[str, Any]:

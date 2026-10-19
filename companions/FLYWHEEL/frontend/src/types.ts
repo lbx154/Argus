@@ -97,11 +97,10 @@ export interface LockedContractResult {
   id?: string
   promoted_from_campaign_id?: string
   campaign_id?: string
-  contract_hash?: string
   contract_version?: number
   idempotent?: boolean
   locked_contract?: {
-    contract_sha256?: string
+    contract_key?: string
     version?: number
     idempotent?: boolean
     [key: string]: unknown
@@ -186,7 +185,7 @@ export interface IdeationCandidate {
   candidate: Record<string, unknown>
   evidence_refs: unknown[]
   imported_from: string
-  artifact_sha256?: string
+  artifact_key?: string
   labels: Array<{ id: string; decision: string; dimensions: Record<string, number | null>; labeler_alias: string; training_consent: boolean }>
 }
 
@@ -203,14 +202,13 @@ export interface IdeationRun {
   state: string
   condition_schema_version: number
   condition_snapshot: Record<string, unknown>
-  condition_sha256?: string
-  objective_sha256: string
-  candidate_artifact_sha256?: string
+  condition_key?: string
+  objective_key: string
+  candidate_artifact_key?: string
   candidate_manifest?: Record<string, unknown>
   objective_path: string
   objective?: string
   source_snapshot_ref?: string
-  source_snapshot_sha256?: string
   training_consent: boolean
   license_basis: string
   launch_triggered?: boolean
@@ -224,8 +222,8 @@ export interface EpisodeRevision {
   episode_id: string
   revision: number
   trigger_type: string
-  manifest_sha256: string
-  parent_manifest_sha256?: string | null
+  manifest_key: string
+  parent_manifest_key?: string | null
   sealed_by: string
   sealed_at: string
   terminal_state?: string | null
@@ -262,7 +260,7 @@ export interface ResearchEpisode {
     source_kind: string
     source_ref: string
     state: string
-    raw_object_sha256?: string
+    raw_object_key?: string
     parsed?: Record<string, unknown> | unknown[]
     created_at?: string
   }>
@@ -274,7 +272,7 @@ export interface EpisodeVerification {
   valid: boolean
   episode_id: string
   head_revision: number
-  manifest_sha256?: string
+  manifest_key?: string
   checks: Array<{ name: string; passed: boolean; detail?: string }>
   errors?: string[]
 }
@@ -298,12 +296,11 @@ export interface ArgusArtifactIndexItem {
   kind: string
   exists: boolean
   size: number | null
-  sha256?: string | null
   content_type?: string | null
   media_type?: string | null
   name?: string | null
   modified_at?: string | null
-  entry_sha256?: string
+  entry_key?: string
 }
 
 export interface ArgusArtifactIndex {
@@ -331,13 +328,13 @@ export interface ArgusArtifactImport {
   role: ArgusArtifactRole
   state: ArgusArtifactImportState
   source_entry: ArgusArtifactIndexItem
-  source_entry_sha256: string
-  source_sha256: string
+  source_entry_key: string
+  source_key: string
   source_byte_length: number
   media_type?: string
   scan_state?: string
   manual_redaction_required: boolean
-  content_object_sha256?: string | null
+  content_object_key?: string | null
   license_basis?: string
   training_consent?: boolean
   confirmed_by?: string | null
@@ -355,9 +352,9 @@ export interface DatasetSnapshot {
   id: string
   schema_version: number
   record_count: number
-  manifest_sha256?: string
-  manifest_object_sha256?: string
-  policy_object_sha256?: string
+  manifest_key?: string
+  manifest_object_key?: string
+  policy_object_key?: string
   created_by: string
   sealed_at: string
   valid?: boolean

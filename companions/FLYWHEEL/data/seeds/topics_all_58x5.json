@@ -15,7 +15,6 @@
   "source_topic_files": [
     {
       "source_name": "topics_ds_nw_sc.json",
-      "source_sha256": "C2E9193D0C90F1C86DADDF7EBB51CE8E2AEC0171AE2B133A10E126CDC42357C6",
       "source_size_bytes": 121354,
       "bundled_materialization": "All source topics are embedded in this self-contained catalog.",
       "metadata": {
@@ -44,7 +43,6 @@
     },
     {
       "source_name": "topics_se_db_ct.json",
-      "source_sha256": "922D24DCF52B16BB51E2A62C93CC744D660A0EDD324C60ED6557CA2014D649CA",
       "source_size_bytes": 164472,
       "bundled_materialization": "All source topics are embedded in this self-contained catalog.",
       "metadata": {
@@ -104,7 +102,6 @@
     },
     {
       "source_name": "topics_ai_cg_hi_mx.json",
-      "source_sha256": "83C9CBC3DF9E7D7F1945D061E73F63DC223B53AD48DAE4C2EBF3C912205D98FC",
       "source_size_bytes": 126868,
       "bundled_materialization": "All source topics are embedded in this self-contained catalog.",
       "metadata": {
