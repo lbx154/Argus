@@ -11,7 +11,7 @@ def _rows(path):
     return [json.loads(line) for line in path.read_text().splitlines()]
 
 
-def test_correction_preserves_original_and_binds_its_digest(tmp_path) -> None:
+def test_correction_preserves_original_and_names_its_target(tmp_path) -> None:
     path = tmp_path / "evidence.jsonl"
     ledger = EvidenceLedger(path)
     original = ledger.append_record(
@@ -36,7 +36,8 @@ def test_correction_preserves_original_and_binds_its_digest(tmp_path) -> None:
     assert rows[0]["state"] == "error"
     assert rows[0]["exit_code"] == 1
     assert rows[1] == correction
-    assert correction["target_record_sha256"] == original["_ledger"]["payload_sha256"]
+    assert correction["target_record_id"] == "run-1"
+    assert correction["_ledger"]["target_record_id"] == "run-1"
     assert correction["_ledger"]["record_type"] == "correction"
     assert ledger.history("run-1") == rows
 
@@ -133,3 +134,26 @@ def test_corrupt_ledger_fails_before_appending(content, tmp_path) -> None:
         ledger.append_record(record_id="new", payload={"state": "done"})
 
     assert path.read_text() == content
+
+
+def test_a_correction_written_with_a_digest_still_replays(tmp_path) -> None:
+    path = tmp_path / "evidence.jsonl"
+    ledger = EvidenceLedger(path)
+    ledger.append_record(record_id="run-1", payload={"state": "error"})
+    legacy = {
+        "correction_id": "fix-1", "target_record_id": "run-1",
+        "target_record_sha256": "0" * 64, "relation": "reclassifies",
+        "reason": "teardown false positive", "evidence_refs": [],
+        "_ledger": {"record_type": "correction", "record_id": "fix-1",
+                    "payload_sha256": "1" * 64, "target_record_id": "run-1"},
+    }
+    with path.open("a", encoding="utf-8") as handle:
+        handle.write(json.dumps(legacy) + "\n")
+
+    replayed = ledger.append_correction(
+        correction_id="fix-1", target_record_id="run-1",
+        relation="reclassifies", reason="teardown false positive",
+    )
+
+    assert replayed == legacy
+    assert len(_rows(path)) == 2

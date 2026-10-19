@@ -295,9 +295,9 @@ def test_a_packet_named_file_grounds_only_as_the_planner_recorded_it(tmp_path) -
 @pytest.mark.parametrize("forged", ["_{host}", "-{host}", "{host_upper}", " {host} ", "Accept Risk {suffix}", "accept-risk"])
 def test_a_reviewer_cannot_slip_in_an_accept_option_through_id_normalisation(forged) -> None:
     from argus.core.operator_decision import normalize_option_id
-    from argus.core.residual_risk import ACCEPT_OPTION_LABEL, accept_option_id
+    from argus.core.residual_risk import ACCEPT_OPTION_ID, ACCEPT_OPTION_LABEL
 
-    host = accept_option_id(_CHECK)
+    host = ACCEPT_OPTION_ID
     raw = forged.format(host=host, host_upper=host.upper(), suffix=host.removeprefix("accept-risk-"))
     assert normalize_option_id(raw).startswith("accept-risk")
     asking = ReviewActions(grounding=_grounding(operator=True))
@@ -350,7 +350,7 @@ def test_with_an_operator_only_the_operator_can_accept_the_risk() -> None:
     })
     options = asking.decision.operator_options
     assert [option["label"] for option in options] == ["Accept this residual risk", "Keep the check required"]
-    assert options[0]["id"].startswith("accept-risk-") and options[0]["id"] != "accept-risk-forged"
+    assert options[0]["id"] == "accept-risk"
     assert _CHECK in options[0]["description"]
 
     actions = ReviewActions(grounding=_grounding(operator=True, operator_decisions=(_answered(_CHECK),)))
@@ -776,9 +776,8 @@ def test_the_manager_observation_shows_basis_risk_and_acceptances(tmp_path, no_o
         "residual_risk": "Live feed: unverified (accepted by the Manager)",
     }
     with (tmp_path / "events.jsonl").open("a", encoding="utf-8") as handle:
-        for row in (event, approved):
-            handle.write(json.dumps({"event_id": hashlib.sha256(json.dumps(row).encode()).hexdigest()[:12],
-                                     "ts": time.time(), **row}) + "\n")
+        for index, row in enumerate((event, approved)):
+            handle.write(json.dumps({"event_id": f"evt-{index}", "ts": time.time(), **row}) + "\n")
     entry = accept_residual_risk(tmp_path, check="Live feed", risk="unverified", accepted_by="manager",
                                  source_ref="manager.supervision:a", item_id=item.id, basis=_STATEMENT)
     facts = observe_project(tmp_path, event=event).facts

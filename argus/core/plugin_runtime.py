@@ -1,12 +1,12 @@
 """Portable, user-local runtimes for optional plugins; no shell or global setup.
 
 This file is also included in standalone plugin wheels. Keep it independent of
-Argus imports. Downloads always verify TLS and, where published, SHA-256.
+Argus imports. Downloads always verify TLS and come from version-pinned URLs;
+a completed download is cached under its versioned name and reused.
 """
 
 from __future__ import annotations
 
-import hashlib
 import os
 import platform
 import shutil
@@ -19,12 +19,7 @@ from urllib.parse import urlparse
 import httpx
 
 MAMBA_VERSION = "2.9.0"
-MAMBA_HASHES = {
-    "linux-64": "8761c382127e6363bd9e0a2451aa3ef90d071a79133f736e2f759a3bf13040dd",
-    "osx-64": "0426ecdc41636d369f57b8fe6acbf4385a69eca45b56d9ee7d3a840a9965d44f",
-    "osx-arm64": "500f5074feb8d02c4296ef9921c3650ed2874171805a9fbb8fbb53896433646b",
-    "win-64": "97a336f4ab794bd96a6a4da5e6ed63e75a1d31830414a182419b23d3b36f3fe0",
-}
+MAMBA_PLATFORMS = frozenset({"linux-64", "osx-64", "osx-arm64", "win-64"})
 
 
 def platform_key(system=None, machine=None):
@@ -32,24 +27,20 @@ def platform_key(system=None, machine=None):
     machine = (machine or platform.machine()).lower()
     arch = "64" if machine in {"x86_64", "amd64", "x64"} else "arm64"
     key = {"windows": "win", "darwin": "osx", "linux": "linux"}.get(system, system) + "-" + arch
-    if key not in MAMBA_HASHES or machine not in {"x86_64", "amd64", "x64", "arm64", "aarch64"}:
+    if key not in MAMBA_PLATFORMS or machine not in {"x86_64", "amd64", "x64", "arm64", "aarch64"}:
         raise ValueError(f"当前处理器平台 {system}/{machine} 尚无完整科学软件发行包。")
     return key
 
 
-def sha256(path):
-    digest = hashlib.sha256()
-    with Path(path).open("rb") as stream:
-        for part in iter(lambda: stream.read(1024 * 1024), b""):
-            digest.update(part)
-    return digest.hexdigest()
+def download(url, destination, *, auth=None, context=None, limit=512 * 1024**2):
+    """Stream to a temporary file. Never forward licensed credentials elsewhere.
 
-
-def download(url, destination, *, checksum=None, auth=None, context=None, limit=512 * 1024**2):
-    """Stream to a temporary file. Never forward licensed credentials elsewhere."""
+    The file only ever appears complete (it is renamed into place), so an
+    existing ``destination`` is that earlier download and is reused.
+    """
     destination = Path(destination)
     destination.parent.mkdir(parents=True, exist_ok=True)
-    if checksum and destination.is_file() and sha256(destination) == checksum:
+    if destination.is_file():
         return destination
     if not url.startswith("https://") or urlparse(url).username:
         raise ValueError("下载源必须使用 HTTPS，且不能在 URL 中包含凭据。")
@@ -80,8 +71,6 @@ def download(url, destination, *, checksum=None, auth=None, context=None, limit=
                     break
             else:
                 raise ValueError("下载重定向次数过多。")
-        if checksum and sha256(temp) != checksum:
-            raise ValueError("下载文件 SHA-256 校验失败；保留已有安装。")
         os.replace(temp, destination)
         return destination
     finally:
@@ -173,13 +162,12 @@ def micromamba(root):
     root = Path(root)
     key = platform_key()
     binary = root / "bootstrap" / ("micromamba.exe" if os.name == "nt" else "micromamba")
-    marker = binary.with_suffix(".sha256")
-    if binary.is_file() and marker.is_file() and marker.read_text() == sha256(binary):
+    marker = binary.with_suffix(".version")
+    if binary.is_file() and marker.is_file() and marker.read_text() == MAMBA_VERSION:
         return binary
     archive = download(
         f"https://api.anaconda.org/download/conda-forge/micromamba/{MAMBA_VERSION}/{key}/micromamba-{MAMBA_VERSION}-0.tar.bz2",
-        root / "cache" / f"micromamba-{key}.tar.bz2",
-        checksum=MAMBA_HASHES[key],
+        root / "cache" / f"micromamba-{MAMBA_VERSION}-{key}.tar.bz2",
     )
     with tarfile.open(archive) as package:
         name = "Library/bin/micromamba.exe" if os.name == "nt" else "bin/micromamba"
@@ -192,7 +180,7 @@ def micromamba(root):
             shutil.copyfileobj(source, target)
         temp.chmod(0o700)
         os.replace(temp, binary)
-    marker.write_text(sha256(binary))
+    marker.write_text(MAMBA_VERSION)
     return binary
 
 

@@ -15,10 +15,10 @@ from argus.core import plugin_manager as pm
 def test_catalog_keeps_original_wheel_and_adds_scientific_compatibility():
     spec = pm.catalog()["crystalpilot"]
     assert spec["version"] == "0.4.0"
-    assert spec["artifact"]["sha256"] == "030f22e7c18cb411db43f42fc4667cba06da1593a8a2054cc1a8e7e1fd12fed2"
+    assert spec["artifact"]["filename"] == "argus_crystalpilot-0.4.0-py3-none-any.whl"
     assert spec["python_constraints"] == ["numpy<2"]
     assert spec["validation_imports"] == ["numpy", "crystalpilot.refine.project"]
-    row = {"version": spec["version"], "sha256": spec["artifact"]["sha256"]}
+    row = {"version": spec["version"], "git_commit": spec.get("git_commit"), "sha256": "ignored digest"}
     assert not pm.matches_catalog(row, spec, None)
     row.update(python_constraints=spec["python_constraints"], validation_imports=spec["validation_imports"])
     assert pm.matches_catalog(row, spec, None)

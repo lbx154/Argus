@@ -20,7 +20,6 @@ projects (no ``session.json``) are still listable/resumable by their id.
 """
 from __future__ import annotations
 
-import hashlib
 import json
 import os
 import re
@@ -255,17 +254,8 @@ def session_name_is_open(meta: SessionMeta | None) -> bool:
 
 
 def _session_lock_path(root: Path, directory: str, lock_name: str) -> Path:
-    """Return a readable lock path, hashing only when Windows paths need it."""
-    parent = root / directory
-    candidate = parent / f"{lock_name}.lock"
-    if (
-        len(candidate.name) <= 120
-        and len(str(candidate.absolute())) < _LOCK_PATH_BUDGET
-    ):
-        return candidate
-    digest = hashlib.sha256(lock_name.encode("utf-8", errors="surrogatepass")).hexdigest()
-    prefix = lock_name[:24].rstrip(" .") or "session"
-    return parent / f"{prefix}-{digest[:24]}.lock"
+    """Return the readable lock path, in long-path form where Windows needs it."""
+    return _filesystem_path(root / directory / f"{lock_name}.lock")
 
 
 @contextmanager

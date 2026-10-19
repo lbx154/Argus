@@ -6,7 +6,6 @@ helpers deliberately fall back to the existing PID liveness check.
 """
 from __future__ import annotations
 
-import hashlib
 from pathlib import Path
 from typing import Any, Callable, Mapping
 
@@ -43,7 +42,6 @@ def read_process_metadata(
             "executable": None,
             "cwd": None,
             "cmdline": None,
-            "cmdline_sha256": None,
         }
     return {
         "metadata_available": True,
@@ -58,7 +56,6 @@ def read_process_metadata(
             .decode("utf-8", errors="replace")
             .strip()
         ),
-        "cmdline_sha256": hashlib.sha256(cmdline_bytes).hexdigest(),
     }
 
 

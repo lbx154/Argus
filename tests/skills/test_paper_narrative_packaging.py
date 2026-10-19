@@ -264,7 +264,8 @@ def test_internal_snapshot_is_immutable_and_cold_workspace_contains_only_pdf(
 
     assert (pair.before_paper / "main.tex").read_text(encoding="utf-8") == "before"
     assert (pair.after_paper / "main.tex").read_text(encoding="utf-8") == "after"
-    assert pair.before_sha256 != pair.after_sha256
+    assert not pair.identical
+    assert snapshot_after_edit(project, root) == pair
     assert not (pair.before_paper / "REVIEW.md").exists()
     assert not (project / ".narrative-runtime").exists()
     assert rendered_pdf_freshness(project)[0] is False
