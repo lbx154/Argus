@@ -1156,8 +1156,6 @@ def test_project_report_routes_and_deduplicates_in_project_conversation(
 def test_completion_context_separates_current_artifacts_from_historical_reviews(
     campaign, monkeypatch,
 ):
-    import hashlib
-
     from argus.core.pipeline_state import read_pipeline_state, write_pipeline_state
     from argus.roles.prompts.manager import build_project_completion_report_prompt
 
@@ -1205,7 +1203,7 @@ def test_completion_context_separates_current_artifacts_from_historical_reviews(
     assert old_review["manuscript_freshness"]["status"] == "stale"
     artifacts = {row["path"]: row for row in context["current_artifact_evidence"]}
     assert artifacts["paper/main.tex"]["excerpt"] == manuscript
-    assert artifacts["paper/main.tex"]["sha256"] == hashlib.sha256(manuscript.encode()).hexdigest()
+    assert artifacts["paper/main.tex"]["size_bytes"] == len(manuscript.encode())
     assert "10 pages" in artifacts["paper/REVIEW.md"]["excerpt"]
     assert "alone do not prove" in artifacts["paper/REVIEW.md"]["reporting_use"]
     # The fixture's old certificate cannot certify this changed manuscript.

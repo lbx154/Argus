@@ -76,17 +76,12 @@ def _publish_manager_model_capability_mismatch(
 ) -> None:
     """Publish through the established transcript + operator-alert event path."""
     try:
-        import hashlib
-
         from ..core.operator_messages import publish_operator_message
 
-        signature = hashlib.sha256(
-            f"{model_id}\0{clause}\0{consecutive_count}".encode("utf-8")
-        ).hexdigest()[:16]
         publish_operator_message(
             _life_dir_for(mem),
             text=text,
-            message_id=f"manager-model-capability-mismatch-{signature}",
+            message_id=f"manager-model-capability-mismatch:{model_id}:{clause}:{consecutive_count}",
             event_fields={
                 "operator_alert": True,
                 "manager_model_capability_mismatch": True,

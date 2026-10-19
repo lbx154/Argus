@@ -13,8 +13,8 @@ from argus.life.consolidation import (
     Receipt,
     build_prompt,
     consolidate_knowledge,
+    lesson_facts,
     lesson_pages,
-    lessons_digest,
     list_pages,
     read_receipt,
     rebuild_index,
@@ -162,29 +162,29 @@ def test_unreadable_pages_are_skipped_not_raised(tmp_path: Path) -> None:
     assert [page.title for page in list_pages(root)] == ["Good"]
 
 
-# --------------------------------------------------------------------------- digest and receipt
+# --------------------------------------------------------------------------- lesson facts and receipt
 
 
-def test_lessons_digest_changes_only_with_lesson_files(tmp_path: Path) -> None:
+def test_lesson_facts_change_only_with_lesson_files(tmp_path: Path) -> None:
     _home_, root = _home(tmp_path)
     _three_lessons(root)
-    before = lessons_digest(lesson_pages(list_pages(root)))
+    before = lesson_facts(lesson_pages(list_pages(root)))
     (root / "pages" / "facts").mkdir()
     (root / "pages" / "facts" / "f.md").write_text(_page("Fact", "d", "b"), encoding="utf-8")
-    assert lessons_digest(lesson_pages(list_pages(root))) == before
+    assert lesson_facts(lesson_pages(list_pages(root))) == before
     _lesson(root, "20260918-new", "New lesson")
-    assert lessons_digest(lesson_pages(list_pages(root))) != before
+    assert lesson_facts(lesson_pages(list_pages(root))) != before
 
 
 def test_receipt_round_trips_and_tolerates_corruption(tmp_path: Path) -> None:
     _home_, root = _home(tmp_path)
-    receipt = Receipt(vertical=VERTICAL, last_ts=NOW, lessons_digest="abc", lesson_count=3, principle_count=2, outcome="compiled")
+    receipt = Receipt(vertical=VERTICAL, last_ts=NOW, lessons_compiled=[["a.md", [1, 2, 3]]], lesson_count=3, principle_count=2, outcome="compiled")
     path = write_receipt(root, receipt, now=NOW)
     assert path == root / ".consolidated.json"
     data = json.loads(path.read_text(encoding="utf-8"))
-    assert data["last_ts"] == NOW and data["lessons_digest"] == "abc" and data["updated_at"].startswith(TODAY)
+    assert data["last_ts"] == NOW and data["lessons_compiled"] == [["a.md", [1, 2, 3]]] and data["updated_at"].startswith(TODAY)
     loaded = read_receipt(root)
-    assert (loaded.last_ts, loaded.lessons_digest, loaded.lesson_count, loaded.principle_count) == (NOW, "abc", 3, 2)
+    assert (loaded.last_ts, loaded.lessons_compiled, loaded.lesson_count, loaded.principle_count) == (NOW, [["a.md", [1, 2, 3]]], 3, 2)
     path.write_text("{not json", encoding="utf-8")
     assert read_receipt(root) == Receipt()
 
@@ -233,7 +233,7 @@ def test_unchanged_lessons_skip_the_model_until_a_lesson_changes(tmp_path: Path,
     assert _run(home, now=NOW + HOUR + 1)["outcome"] == "skipped_unchanged"
     assert len(calls) == 1
     receipt = read_receipt(root)
-    assert receipt.outcome == "skipped_unchanged" and receipt.lessons_digest, "the compiled digest is kept"
+    assert receipt.outcome == "skipped_unchanged" and receipt.lessons_compiled, "the compiled lessons are kept"
 
     _lesson(root, "20260918-new", "New lesson")
     assert _run(home, now=NOW + 2 * HOUR + 2)["outcome"] == "compiled"
@@ -245,7 +245,7 @@ def test_interval_comes_from_the_knob_when_not_given(tmp_path: Path, monkeypatch
     home, root = _home(tmp_path)
     _three_lessons(root)
     _stub_model(monkeypatch, RuntimeError("must not be called"))
-    write_receipt(root, Receipt(last_ts=NOW - 100, lessons_digest="x", outcome="compiled"), now=NOW - 100)
+    write_receipt(root, Receipt(last_ts=NOW - 100, lessons_compiled=[["x.md", [1, 2, 3]]], outcome="compiled"), now=NOW - 100)
     monkeypatch.setenv("ARGUS_SKILL_CONSOLIDATE_INTERVAL_S", "120")
     result = consolidate_knowledge(runner=object(), global_root=home, life_dir=home, vertical=VERTICAL, emit=None, now=NOW)
     assert result["outcome"] == "skipped_interval"
@@ -349,7 +349,7 @@ def test_stubbed_model_produces_principles_event_and_journal(tmp_path: Path, mon
 
     receipt = read_receipt(root)
     assert receipt.outcome == "compiled" and receipt.principle_count == 2 and receipt.lesson_count == 3
-    assert receipt.lessons_digest == lessons_digest(lesson_pages(list_pages(root)))
+    assert receipt.lessons_compiled == lesson_facts(lesson_pages(list_pages(root)))
     assert receipt.compiled_at.startswith(TODAY)
     index = (root / "INDEX.md").read_text(encoding="utf-8")
     assert "[Principles for research](principles.md)" in index and "## Lessons" in index
@@ -380,7 +380,7 @@ def test_a_bad_reply_restores_the_previous_principles_and_records_the_failure(tm
     assert events == [] and read_knowledge_events(home) == []
     receipt = read_receipt(root)
     assert receipt.outcome == "failed" and "do not exist" in receipt.failure
-    assert receipt.lessons_digest == "", "a failed pass leaves the digest so the next interval retries"
+    assert receipt.lessons_compiled == [], "a failed pass leaves the lessons so the next interval retries"
     assert receipt.last_ts == NOW
     assert (root / "INDEX.md").exists(), "the index is still rebuilt"
 

@@ -70,12 +70,11 @@ def _file_reference(path: Path | None) -> dict[str, Any]:
 
 def _model_visible_context_ref(ref: Mapping[str, Any]) -> dict[str, str]:
     """Drop host-only integrity metadata from agent-readable context packets."""
-    hidden = {"content_hash", "hash", "sha", "sha256", "digest"}
+    hidden = {"content_hash", "hash", "digest"}
     return {
         str(key): str(value)
         for key, value in ref.items()
         if str(key).strip().casefold() not in hidden
-        and not str(key).strip().casefold().endswith("_sha256")
     }
 
 

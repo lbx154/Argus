@@ -1,8 +1,6 @@
 """Bounded, attributable project evidence for Manager conversation and supervision."""
 from __future__ import annotations
 
-import hashlib
-import json
 import os
 import sqlite3
 import time
@@ -13,6 +11,7 @@ from typing import Any
 from ..core.json_codec import loads_finite_json
 from ..core.scoped_file import open_regular_file
 from ..core.secret_guard import known_secret_values, redact_secrets_record
+from ..core.workspace_facts import fact_text
 from ..daemon.state import ContinuousConfigState, read_continuous_state, read_daemon_status
 from .observation_projection import MAX_ITEMS, MAX_OBSERVATION_BYTES, bounded_facts, render_facts
 
@@ -38,15 +37,9 @@ def _semantic(value: Any) -> Any:
     return value
 
 
-def _digest(value: Any) -> str:
-    return hashlib.sha256(json.dumps(value, sort_keys=True, allow_nan=False).encode()).hexdigest()
-
-
 def _read_object(
     path: Path, *, limitations: list[str] | None = None, unobserved: dict[str, str] | None = None,
 ) -> dict[str, Any]:
-    raw = b""
-
     def signature(stat: os.stat_result) -> tuple[int, ...]:
         return (stat.st_dev, stat.st_ino, stat.st_size, stat.st_mtime_ns, stat.st_ctime_ns)
 
@@ -58,10 +51,10 @@ def _read_object(
                 stamp: tuple[int, ...] | None = signature(path.lstat())
             except OSError:
                 stamp = None
-            # A bounded prefix plus filesystem identity detects changes without
-            # scanning an arbitrarily large file. This is explicitly NOT a claim
-            # to have observed its complete canonical contents.
-            unobserved[str(path)] = _digest({"stat": stamp, "prefix_sha256": hashlib.sha256(raw).hexdigest()})
+            # Filesystem identity detects changes without scanning an
+            # arbitrarily large file. This is explicitly NOT a claim to have
+            # observed its complete canonical contents.
+            unobserved[str(path)] = fact_text(stamp)
         return {}
 
     try:
@@ -105,7 +98,7 @@ class ManagerObservation:
     incomplete_requirements: tuple[str, ...] = ()
 
     def current(self) -> bool:
-        return _digest(control_identity(self.root)) == self.control_revision
+        return fact_text(control_identity(self.root)) == self.control_revision
 
     def render(self) -> str:
         return render_facts(self.facts)
@@ -120,23 +113,23 @@ def observe_project(root: Path | str, *, event: dict[str, Any] | None = None) ->
     root = Path(root).expanduser().resolve()
     diagnostics: list[str] = []
     unobserved: dict[str, str] = {}
-    source_semantics: dict[str, str] = {}
+    source_semantics: dict[str, Any] = {}
     authority = control_identity(root, limitations=diagnostics, unobserved=unobserved)
     continuous = read_continuous_state(root)
 
     def read_source(path: Path, *, identity: bool = True) -> dict[str, Any]:
         value = _read_object(path, limitations=diagnostics, unobserved=unobserved)
         if identity:
-            source_semantics[str(path.relative_to(root))] = _digest(_semantic(value))
+            source_semantics[str(path.relative_to(root))] = _semantic(value)
         return value
 
     daemon = read_daemon_status(root)
     active = Backlog(root / "backlog.jsonl").active()
     # Selection limits presentation and per-task artifact reads, not awareness
     # of changes to the already-loaded canonical task inventory.
-    backlog_revision = _digest(_semantic([
+    backlog_revision = _semantic([
         {name: getattr(item, name) for name in _TASK_FIELDS} for item in active
-    ]))
+    ])
     view = load_mission_view(root)
     events = _read_jsonl_tail_history(root / "events.jsonl", 40)
     relevant_types = {
@@ -169,20 +162,18 @@ def observe_project(root: Path | str, *, event: dict[str, Any] | None = None) ->
             row["frontier"] = {key: frontier[key] for key in (
                 "current_hypothesis", "artifacts", "evidence", "remaining_work", "active_regression",
             ) if key in frontier}
-            refs.append({"path": str(packet.relative_to(root)), "observation_sha256": _digest(read_source(packet))})
+            read_source(packet)
+            refs.append({"path": str(packet.relative_to(root))})
             if handoff.is_file():
-                refs.append({"path": str(handoff.relative_to(root)), "observation_sha256": _digest(row["evidence"])})
+                refs.append({"path": str(handoff.relative_to(root))})
             if (packet.parent / "frontier.json").is_file():
-                refs.append({"path": str((packet.parent / "frontier.json").relative_to(root)), "observation_sha256": _digest(row["frontier"])})
+                refs.append({"path": str((packet.parent / "frontier.json").relative_to(root))})
         items.append(row)
-    refs.append({"path": "backlog.jsonl", "observation_sha256": backlog_revision})
-    refs.append({"path": "mission-view.json", "observation_sha256": _digest(_semantic({
-        key: view.get(key) for key in ("review", "stage", "frontier", "delivery")
-    }))})
+    refs.append({"path": "backlog.jsonl"})
+    refs.append({"path": "mission-view.json"})
     for reference in refs:
         missing_signature = unobserved.get(str(root / reference["path"]))
         if missing_signature:
-            reference.pop("observation_sha256", None)
             reference["unobserved_source_signature"] = missing_signature
     if len(active) > len(selected):
         diagnostics.append(f"showing {len(selected)} of {len(active)} active tasks")
@@ -255,9 +246,9 @@ def observe_project(root: Path | str, *, event: dict[str, Any] | None = None) ->
     except (ImportError, OSError, sqlite3.Error):
         facts["advisor_consultations"] = []
     # The observation's identity excludes its collection time and volatile role
-    # ages. Hash complete canonical semantics BEFORE any presentation excerpt,
+    # ages. Take complete canonical semantics BEFORE any presentation excerpt,
     # budget omission, or secret redaction can hide a meaningful source change.
-    revision = _digest({
+    revision = fact_text({
         **_semantic({key: value for key, value in facts.items()
                      if key not in {"roles", "daemon", "recent_events", "evidence_refs", "continuous_enabled",
                                     "manager_supervision", "accepted_residual_risks"}}),
@@ -267,9 +258,8 @@ def observe_project(root: Path | str, *, event: dict[str, Any] | None = None) ->
         "unobserved_source_signatures": unobserved,
     })
     facts["observed_at"] = time.time()
-    facts["evidence_revision"] = revision
     facts, incomplete = bounded_facts(redact_secrets_record(facts, known_values=known_secret_values()))
-    return ManagerObservation(root, continuous, _digest(authority), revision, facts,
+    return ManagerObservation(root, continuous, fact_text(authority), revision, facts,
                               tuple(dict.fromkeys([*incomplete, *unobserved])))
 
 

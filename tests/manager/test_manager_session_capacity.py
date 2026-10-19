@@ -282,7 +282,7 @@ def test_rotations_keep_active_steer_after_a_newer_continue_and_refresh_resolved
 def test_rotation_uses_canonical_receipt_status_when_latest_pointer_lags(tmp_path):
     directory = tmp_path / "manager-supervision"
     directory.mkdir()
-    identity = "c" * 64
+    identity = "c" * 32
     (directory / "latest.json").write_text(json.dumps({"id": identity, "status": "applied", "decision": {"reason": "STALE_APPLIED"}}))
     canonical = {"id": identity, "status": "issued", "decision": {"action": "wait", "reason": "PENDING_DELIVERY"}, "effects": {}}
     path = directory / (identity + ".json")

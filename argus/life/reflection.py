@@ -17,7 +17,6 @@ reply; every failure is logged and swallowed.
 """
 from __future__ import annotations
 
-import hashlib
 import json
 import logging
 import re
@@ -32,6 +31,7 @@ import yaml
 
 from ..core import paths as core_paths
 from ..core.event_catalog import EventType
+from ..core.file_facts import file_facts
 from ..core.file_lock import exclusive_file_lock
 from ..core.knobs import resolve_knob, resolve_manager_classify_model
 from ..core.model_visible_text import sanitize_model_visible_text
@@ -158,19 +158,12 @@ def _markdown_files(root: Path) -> list[Path]:
         return []
 
 
-def _snapshot(paths: Iterable[Path]) -> dict[Path, str]:
-    snapshot: dict[Path, str] = {}
-    for path in paths:
-        try:
-            digest = hashlib.sha256(path.read_bytes()).hexdigest()
-        except OSError:
-            continue
-        snapshot[path] = digest
-    return snapshot
+def _snapshot(paths: Iterable[Path]) -> dict[Path, list[int]]:
+    return {path: file_facts(path) for path in paths if path.is_file()}
 
 
 def _changed(
-    before: dict[Path, str], after: dict[Path, str],
+    before: dict[Path, list[int]], after: dict[Path, list[int]],
 ) -> tuple[list[Path], list[Path]]:
     created = [path for path in after if path not in before]
     updated = [path for path, sig in after.items() if path in before and before[path] != sig]

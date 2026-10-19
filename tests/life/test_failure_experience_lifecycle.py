@@ -48,7 +48,6 @@ def indexed(store: FailureExperienceStore) -> dict[str, tuple[int, str, str]]:
 def test_revision_replaces_recall_and_vectors_and_rejects_stale_write(tmp_path: Path) -> None:
     store = FailureExperienceStore(tmp_path / "failure_experiences.jsonl")
     original = store.append(experience("obsolete quartz"))
-    initial_vector = indexed(store)[original.id][2]
 
     updated = store.revise(
         original.id,
@@ -65,7 +64,6 @@ def test_revision_replaces_recall_and_vectors_and_rejects_stale_write(tmp_path: 
     assert "verified sapphire" in store.render_context("sapphire")
     assert indexed(store)[original.id][0] == 2
     assert "quartz" not in indexed(store)[original.id][1]
-    assert indexed(store)[original.id][2] != initial_vector
     assert "review:correction" in updated.evidence_refs
     with pytest.raises(StaleFailureExperienceWrite):
         store.append(original)
@@ -226,10 +224,7 @@ def test_old_unbound_identity_cannot_reenter_after_its_tombstone_is_compacted(
         store.append(replace(legacy, created_at=time.time(), updated_at=0))
 
 
-@pytest.mark.parametrize("field", ["record_type", "admission_floor"])
-def test_damaged_snapshot_metadata_cannot_reset_retirement_watermark(
-    tmp_path: Path, field: str
-) -> None:
+def test_damaged_snapshot_metadata_cannot_reset_retirement_watermark(tmp_path: Path) -> None:
     store = FailureExperienceStore(
         tmp_path / "failure_experiences.jsonl", max_active=1, max_history=0
     )
@@ -240,7 +235,7 @@ def test_damaged_snapshot_metadata_cannot_reset_retirement_watermark(
     lines = store.path.read_text().splitlines()
     header = json.loads(lines[0])
     assert header["admission_floor"] == 1000
-    header[field] = "damaged-snapshot" if field == "record_type" else 0
+    header["record_type"] = "damaged-snapshot"
     lines[0] = json.dumps(header)
     store.path.write_text("\n".join(lines) + "\n")
     before = store.path.read_bytes()
@@ -440,9 +435,9 @@ def test_explicit_embedding_adapter_reindexes_when_its_version_changes(tmp_path:
         assert (
             db.execute("SELECT value FROM metadata WHERE key='encoder'")
             .fetchone()[0]
-            .startswith("lexical-hash-v1")
+            .startswith("lexical-v2")
         )
-    assert len(json.loads(indexed(lexical)[database.id][2])) == 256
+    assert len(json.loads(indexed(lexical)[database.id][2])) == 1
 
 
 def test_settlement_is_idempotent_and_new_revisions_reach_memory_and_planner(

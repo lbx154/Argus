@@ -610,7 +610,7 @@ def test_unchanged_live_job_skips_planner_across_restart(
     assert restarted._maybe_idle_timeout() == ""
 
     wait_state = json.loads(
-        next(life.glob("planner-waiting-contract-*.json")).read_text(encoding="utf-8")
+        next(life.glob("planner-waiting-contract*.json")).read_text(encoding="utf-8")
     )
     assert wait_state["active"] is True
     assert wait_state["wait_mode"] == "event"
@@ -664,7 +664,7 @@ def test_repersisted_operator_event_wait_keeps_idle_turn_throttle(
     assert supervisor._plan_next_work() == PLAN_AWAITING
     assert calls == 2
 
-    wait_path = next(life.glob("planner-waiting-contract-*.json"))
+    wait_path = next(life.glob("planner-waiting-contract*.json"))
     wait_state = json.loads(wait_path.read_text(encoding="utf-8"))
     assert wait_state["idle_capacity_turn_used"] is True
     assert "idle_capacity_backlog_revision" in wait_state
@@ -771,7 +771,7 @@ def test_wait_persistence_rejects_state_change_after_discovery(
     )
 
     assert supervisor._persist_planner_waiting_contract(contract) is None
-    assert list((tmp_path / "life").glob("planner-waiting-contract-*.json")) == []
+    assert list((tmp_path / "life").glob("planner-waiting-contract*.json")) == []
 
 
 def test_subagent_event_wait_without_host_revision_degrades_to_poll(
@@ -959,7 +959,7 @@ def test_wake_normalization_does_not_relax_watched_path_confinement(
         event.get("error") == "planner wait has unsafe watched path"
         for event in events
     )
-    assert list((tmp_path / "life").glob("planner-waiting-contract-*.json")) == []
+    assert list((tmp_path / "life").glob("planner-waiting-contract*.json")) == []
 
 
 def test_team_wait_id_is_a_host_observed_event_source(tmp_path: Path) -> None:

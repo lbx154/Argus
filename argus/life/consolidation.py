@@ -15,7 +15,6 @@ loop informs and records.
 """
 from __future__ import annotations
 
-import hashlib
 import json
 import logging
 import os
@@ -31,6 +30,7 @@ import yaml
 
 from ..core import paths as core_paths
 from ..core.event_catalog import EventType
+from ..core.file_facts import file_facts
 from ..core.file_lock import FileLockCancelled, exclusive_file_lock
 from ..core.knobs import resolve_knob, resolve_manager_classify_model
 from ..core.model_visible_text import sanitize_model_visible_text
@@ -161,15 +161,12 @@ def lesson_pages(pages: list[KnowledgePage]) -> list[KnowledgePage]:
     return sorted(lessons, key=lambda page: (page.sort_date, page.relative), reverse=True)
 
 
-def lessons_digest(lessons: list[KnowledgePage]) -> str:
-    """A stable digest over the lesson files: their paths and full text."""
-    digest = hashlib.sha256()
-    for page in sorted(lessons, key=lambda page: page.relative):
-        digest.update(page.relative.encode("utf-8"))
-        digest.update(b"\0")
-        digest.update(page.raw.encode("utf-8"))
-        digest.update(b"\0")
-    return digest.hexdigest()
+def lesson_facts(lessons: list[KnowledgePage]) -> list[list[Any]]:
+    """The lesson files as ``[path, file_facts]``, sorted by path."""
+    return [
+        [page.relative, file_facts(page.path)]
+        for page in sorted(lessons, key=lambda page: page.relative)
+    ]
 
 
 # --------------------------------------------------------------------------- index
@@ -247,14 +244,14 @@ def rebuild_index(root: Path, pages: list[KnowledgePage], *, vertical: str) -> b
 class Receipt:
     """What the last pass did, kept as ``.consolidated.json`` in the vertical root.
 
-    ``last_ts`` is the last attempt; ``lessons_digest`` is the digest at the
-    last successful compile and only moves on success, so a failed pass is
-    retried after the next interval.
+    ``last_ts`` is the last attempt; ``lessons_compiled`` is the lesson files
+    at the last successful compile and only moves on success, so a failed pass
+    is retried after the next interval.
     """
 
     vertical: str = ""
     last_ts: float = 0.0
-    lessons_digest: str = ""
+    lessons_compiled: list[Any] = field(default_factory=list)
     lesson_count: int = 0
     principle_count: int = 0
     outcome: str = ""
@@ -277,8 +274,10 @@ def read_receipt(root: Path) -> Receipt:
     if not isinstance(data, dict):
         return Receipt()
     receipt = Receipt()
-    for name in ("vertical", "lessons_digest", "outcome", "failure", "compiled_at", "updated_at"):
+    for name in ("vertical", "outcome", "failure", "compiled_at", "updated_at"):
         setattr(receipt, name, str(data.get(name) or ""))
+    compiled = data.get("lessons_compiled")
+    receipt.lessons_compiled = compiled if isinstance(compiled, list) else []
     try:
         receipt.last_ts = float(data.get("last_ts") or 0.0)
     except (TypeError, ValueError):
@@ -792,7 +791,7 @@ def _consolidate_locked(
     receipt.vertical = vertical
     pages = list_pages(root)
     lessons = lesson_pages(pages)
-    digest = lessons_digest(lessons)
+    seen = lesson_facts(lessons)
     result["lessons"] = len(lessons)
     receipt.lesson_count = len(lessons)
 
@@ -809,7 +808,7 @@ def _consolidate_locked(
 
     if len(lessons) < MIN_LESSONS:
         return _finish("skipped_few_lessons")
-    if digest == receipt.lessons_digest:
+    if seen == receipt.lessons_compiled:
         return _finish("skipped_unchanged")
 
     result["index_rebuilt"] = rebuild_index(root, pages, vertical=vertical)
@@ -853,7 +852,7 @@ def _consolidate_locked(
     result["principles"] = len(check.principles)
     result["changed"] = final != snapshot
     result["title"] = check.title
-    receipt.lessons_digest = digest
+    receipt.lessons_compiled = seen
     receipt.principle_count = len(check.principles)
     receipt.compiled_at = _iso(now)
     rebuild_index(root, pages, vertical=vertical)
@@ -881,7 +880,7 @@ __all__ = [
     "default_heading",
     "history_lines",
     "lesson_pages",
-    "lessons_digest",
+    "lesson_facts",
     "list_pages",
     "page_kind",
     "parse_principles",

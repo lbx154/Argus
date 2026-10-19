@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-import hashlib
 import json
 import math
 import os
@@ -17,7 +16,7 @@ from argus.life.failure_experience import FailureExperience, FailureExperienceSt
 from argus.life.failure_experience_index import (
     EmbeddingUnavailable,
     FailureExperienceIndex,
-    LexicalHashEmbedding,
+    LexicalEmbedding,
     RecallDocument,
     _normalized,
 )
@@ -118,7 +117,7 @@ def configure(root, server, **changes):
 
 
 def document(name, *, revision=1):
-    return RecallDocument(name, revision, hashlib.sha256(f"{name}:{revision}".encode()).hexdigest(), name, "")
+    return RecallDocument(name, revision, f"{name}:{revision}", name, "")
 
 
 def experience(name):
@@ -131,7 +130,7 @@ def test_default_memory_uses_explicit_lexical_hashing_without_network(tmp_path, 
     monkeypatch.setattr(HttpEmbeddingAdapter, "_post", lambda *_args: pytest.fail("Default recall made a network request"))
     memory = MemoryBundle.for_cwd(tmp_path, global_root=tmp_path / "global", fingerprint="project")
     memory.failure_experiences.append(experience("database"))
-    assert isinstance(memory.failure_experiences.index.embedder, LexicalHashEmbedding)
+    assert isinstance(memory.failure_experiences.index.embedder, LexicalEmbedding)
     assert "database" in memory.render_recall_context("database")
     assert "embedding similarity" not in memory.render_recall_context("database")
     assert not (memory.project_root / "embedding" / "cache.sqlite3").exists()
@@ -190,7 +189,7 @@ def test_copilot_never_accepts_an_explicit_conflicting_model(tmp_path, embedding
     with pytest.raises(EmbeddingUnavailable, match="identity"):
         configured_embedder(tmp_path).embed("database")
     with closing(sqlite3.connect(tmp_path / "embedding/cache.sqlite3")) as db:
-        assert db.execute("SELECT COUNT(*) FROM vectors").fetchone()[0] == 0
+        assert db.execute("SELECT COUNT(*) FROM cached_vectors").fetchone()[0] == 0
 
 
 def test_openai_format_still_requires_response_model(tmp_path, embedding_server):
@@ -584,10 +583,10 @@ def test_batch_budget_preserves_successful_work_for_incremental_reindex(tmp_path
     docs = [document("database"), document("filesystem")]
     index = FailureExperienceIndex(tmp_path / "index.sqlite3", embedder=configured_embedder(tmp_path))
     with pytest.raises(EmbeddingUnavailable, match="batch"):
-        index.sync(docs, "source")
+        index.sync(docs)
     assert len(embedding_server.requests) == 1
     index = FailureExperienceIndex(index.path, embedder=configured_embedder(tmp_path))
-    index.sync(docs, "source")
+    index.sync(docs)
     assert len(embedding_server.requests) == 2
     with closing(sqlite3.connect(index.path)) as db:
         assert db.execute("SELECT COUNT(*) FROM documents").fetchone()[0] == 2
@@ -625,7 +624,7 @@ def test_credentials_are_redacted_before_http_and_absent_from_derived_state(reda
     monkeypatch.setenv("ARGUS_TEST_EMBEDDING_SECRET", secret)
     configure(tmp_path, embedding_server, credential_env="ARGUS_TEST_EMBEDDING_SECRET", cache_entries=1)
     index = FailureExperienceIndex(tmp_path / "index.sqlite3", embedder=configured_embedder(tmp_path))
-    index.sync([RecallDocument("safe-id", 1, "source-hash", "database " + secret, "")], "source")
+    index.sync([RecallDocument("safe-id", 1, "v1", "database " + secret, "")])
     assert embedding_server.requests[0][2] == "Bearer " + secret
     assert secret not in embedding_server.requests[0][1]["input"]
     assert secret not in repr(index.embedder) and secret not in caplog.text
@@ -633,7 +632,7 @@ def test_credentials_are_redacted_before_http_and_absent_from_derived_state(reda
     assert secret not in (tmp_path / "embedding" / "config.json").read_text()
     index.embedder.embed("another document")
     with closing(sqlite3.connect(tmp_path / "embedding" / "cache.sqlite3")) as db:
-        assert db.execute("SELECT COUNT(*) FROM vectors").fetchone()[0] == 1
+        assert db.execute("SELECT COUNT(*) FROM cached_vectors").fetchone()[0] == 1
 
 
 @pytest.mark.parametrize("changes", [
@@ -651,10 +650,10 @@ def test_invalid_config_is_rejected_without_saving_credentials(tmp_path, changes
 
 def test_index_refuses_encoder_mismatch_and_normalizes_large_finite_values(tmp_path):
     index = FailureExperienceIndex(tmp_path / "index.sqlite3")
-    index.sync([document("database")], "source")
-    index.embedder = type("Changed", (LexicalHashEmbedding,), {"identifier": "other-encoder"})()
+    index.sync([document("database")])
+    index.embedder = type("Changed", (LexicalEmbedding,), {"identifier": "other-encoder"})()
     with pytest.raises(ValueError, match="current source"):
-        index.scores("database", source_digest="source")
+        index.scores("database", documents=[document("database")])
     vector = _normalized([1e308, 1e308], 2)
     assert all(math.isfinite(value) for value in vector) and sum(value * value for value in vector) == pytest.approx(1)
 
@@ -662,33 +661,33 @@ def test_index_refuses_encoder_mismatch_and_normalizes_large_finite_values(tmp_p
 def test_query_embedding_does_not_hold_a_database_snapshot_across_a_source_change(tmp_path):
     path = tmp_path / "index.sqlite3"
     writer = FailureExperienceIndex(path)
-    writer.sync([document("old")], "old-source")
+    writer.sync([document("old")])
 
-    class ConcurrentEmbedding(LexicalHashEmbedding):
+    class ConcurrentEmbedding(LexicalEmbedding):
         def embed(self, text):
-            writer.sync([document("new")], "new-source")
+            writer.sync([document("new")])
             return super().embed(text)
 
     reader = FailureExperienceIndex(path, embedder=ConcurrentEmbedding())
     with pytest.raises(ValueError, match="current source"):
-        reader.scores("query", source_digest="old-source")
-    assert set(writer.scores("query", source_digest="new-source")) == {"new"}
+        reader.scores("query", documents=[document("old")])
+    assert set(writer.scores("query", documents=[document("new")])) == {"new"}
 
 
 def test_slow_sync_does_not_overwrite_an_index_updated_during_embedding(tmp_path):
     path = tmp_path / "index.sqlite3"
     writer = FailureExperienceIndex(path)
-    writer.sync([document("old")], "old-source")
+    writer.sync([document("old")])
 
-    class ConcurrentEmbedding(LexicalHashEmbedding):
+    class ConcurrentEmbedding(LexicalEmbedding):
         def embed(self, text):
-            writer.sync([document("newer")], "newer-source")
+            writer.sync([document("newer")])
             return super().embed(text)
 
     stale_writer = FailureExperienceIndex(path, embedder=ConcurrentEmbedding())
     with pytest.raises(EmbeddingUnavailable, match="changed"):
-        stale_writer.sync([document("slow")], "slow-source")
-    assert set(writer.scores("query", source_digest="newer-source")) == {"newer"}
+        stale_writer.sync([document("slow")])
+    assert set(writer.scores("query", documents=[document("newer")])) == {"newer"}
 
 
 def test_http_recall_does_not_block_retirement_or_return_its_old_snapshot(tmp_path, embedding_server):
@@ -735,7 +734,7 @@ def test_embedding_paths_cannot_alias_another_project(tmp_path, embedding_server
     alias = owner / "embedding" / name
     alias.unlink(missing_ok=True)
     alias.symlink_to(target)
-    assert isinstance(configured_embedder(owner), LexicalHashEmbedding)
+    assert isinstance(configured_embedder(owner), LexicalEmbedding)
     assert not embedding_server.requests
     assert target.read_text() == ('{"enabled": false}' if name == "config.json" else "peer-private-state")
 
@@ -744,17 +743,17 @@ def test_embedding_paths_cannot_alias_another_project(tmp_path, embedding_server
 def test_index_alias_and_special_files_are_rejected_before_read_or_rebuild(tmp_path):
     peer = tmp_path / "peer.sqlite3"
     writer = FailureExperienceIndex(peer)
-    writer.sync([document("peer-private")], "peer")
+    writer.sync([document("peer-private")])
     original = peer.read_bytes()
     alias = tmp_path / "owner.sqlite3"
     alias.symlink_to(peer)
     index = FailureExperienceIndex(alias)
     with pytest.raises(ValueError, match="aliases"):
-        index.scores("private", source_digest="peer")
+        index.scores("private", documents=[document("peer-private")])
     with pytest.raises(ValueError, match="aliases"):
-        index.rebuild([], "new")
+        index.rebuild([])
     assert peer.read_bytes() == original and alias.is_symlink()
     fifo = tmp_path / "fifo.sqlite3"
     os.mkfifo(fifo)
     with pytest.raises(ValueError, match="regular"):
-        FailureExperienceIndex(fifo).sync([], "empty")
+        FailureExperienceIndex(fifo).sync([])

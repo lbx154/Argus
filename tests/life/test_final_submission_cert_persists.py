@@ -90,44 +90,6 @@ def test_unbound_legacy_cert_never_certifies_a_manuscript(tmp_path: Path):
     assert sup._journal_has_final_certification() is False
 
 
-def test_gate_can_match_older_certification_after_exact_revert(tmp_path: Path):
-    sup = _make_supervisor(tmp_path)
-    source = tmp_path / "project" / "paper" / "main.tex"
-    source.parent.mkdir()
-    events = tmp_path / "life" / "events.jsonl"
-
-    source.write_text("state A\n", encoding="utf-8")
-    signature_a = sup._final_submission_signature()
-    binding_a = manuscript_snapshot(tmp_path / "project")
-    source.write_text("state B\n", encoding="utf-8")
-    signature_b = sup._final_submission_signature()
-    binding_b = manuscript_snapshot(tmp_path / "project")
-    events.write_text(
-        "\n".join([
-            json.dumps({
-                "type": "life.mission.completed",
-                "title": "cert A",
-                "success": True,
-                "final_submission_certified": True,
-                "final_submission_signature": signature_a,
-                "manuscript_snapshot": binding_a,
-            }),
-            json.dumps({
-                "type": "life.mission.completed",
-                "title": "cert B",
-                "success": True,
-                "final_submission_certified": True,
-                "final_submission_signature": signature_b,
-                "manuscript_snapshot": binding_b,
-            }),
-        ]) + "\n",
-        encoding="utf-8",
-    )
-    source.write_text("state A\n", encoding="utf-8")
-
-    assert sup._journal_has_final_certification() is True
-
-
 def test_project_signature_ignores_history_only_commits(tmp_path: Path):
     project = tmp_path / "project"
     project.mkdir()

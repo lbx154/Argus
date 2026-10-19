@@ -1586,7 +1586,7 @@ class LifeSupervisor(
             **self._planner_verdict_metadata(),
             **details,
         )
-        event["delivery_id"] = planner_verdict_delivery_id(event)
+        event["delivery_id"] = planner_verdict_delivery_id()
         try:
             record = write_planner_verdict_outbox(
                 self.memory.root,

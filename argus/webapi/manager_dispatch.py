@@ -966,7 +966,7 @@ def _handle_authorization_control(
         )
         if (
             identity.campaign_id != head.campaign_id
-            or identity.objective_sha256 != head.objective_sha256
+            or identity.objective != head.objective
         ):
             raise ValueError("active campaign identity changed")
         authorization = control_store.issue_authorization(

@@ -502,7 +502,7 @@ def _wait_with_task(*fields: str) -> str:
 
 
 def _active_wait(life: Path) -> dict:
-    paths = list(life.glob("planner-waiting-contract-*.json"))
+    paths = list(life.glob("planner-waiting-contract*.json"))
     if not paths:
         return {}
     state = json.loads(paths[0].read_text(encoding="utf-8"))
@@ -812,8 +812,8 @@ def test_an_unreadable_last_turn_record_allows_one_planner_call(
     supervisor = _supervisor(project, life, planner)
     assert supervisor._plan_next_work() == PLAN_AWAITING
     assert len(planner.calls) == 1
-    record = life / "planner-last-turn.json"
-    assert json.loads(record.read_text(encoding="utf-8"))["signature"]
+    record = life / "handoffs" / "lineage-planning" / "holders.json"
+    assert json.loads(record.read_text(encoding="utf-8"))["planner"]["facts"]
 
     record.write_text("{not json", encoding="utf-8")
     restarted = _supervisor(project, life, planner)

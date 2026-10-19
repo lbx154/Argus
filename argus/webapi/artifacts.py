@@ -628,7 +628,7 @@ def delivery_change(
     after_available = read_delivery_snapshot(state_dir, after) is not None
     diff = (
         delivery_snapshot_diff(
-            state_dir, {"path": path, "sha256": before}, {"path": path, "sha256": after}
+            state_dir, {"path": path, "version": before}, {"path": path, "version": after}
         )
         or ""
         if before_available and after_available

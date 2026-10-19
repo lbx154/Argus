@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import hashlib
 import json
 import time
 import uuid
@@ -166,8 +165,9 @@ def write_intake(root: Path, state: dict) -> None:
 def intake_card(state: dict) -> dict | None:
     """Project-scoped question, using the shared decision UI without a backlog task.
 
-    Legacy pending intakes acquire a stable content ID on read. New questions
-    have unique IDs, so a reply from another tab cannot answer a later question.
+    Legacy pending intakes take a stable ID from when they were asked. New
+    questions have unique IDs, so a reply from another tab cannot answer a
+    later question.
     """
     phase = state.get("phase")
     if phase not in {"offered", "clarifying"}:
@@ -184,9 +184,8 @@ def intake_card(state: dict) -> dict | None:
                             "Define scope, inputs, outputs and checks; research and validate examples for future tasks.",
              "requires_note": False},
         ]
-    legacy_id = hashlib.sha256(json.dumps(state, sort_keys=True, ensure_ascii=False).encode()).hexdigest()[:20]
     return {
-        "id": state.get("question_id") or "intake-" + legacy_id,
+        "id": state.get("question_id") or f"intake-legacy-{state.get('asked_at') or 0}",
         "kind": "domain_intake", "item_id": "", "revision": 1, "status": "pending",
         "title": ("选择处理方式" if chinese else "Choose how to proceed") if phase == "offered" else
                  ("定义可复用的流程" if chinese else "Define a reusable workflow"),

@@ -1,8 +1,8 @@
 """Parse CRLF metadata without changing the raw recall document or its identity."""
-import hashlib
 
 import pytest
 
+from argus.core.file_facts import file_facts
 from argus.life.knowledge_recall import KnowledgeRoot, MarkdownKnowledgeRecall, _front_matter
 
 PAGE = (
@@ -29,7 +29,7 @@ def test_recall_metadata_uses_text_line_endings_but_identity_uses_original_bytes
     assert document.meta.source == "synthetic/project"
     assert document.meta.created == "2026-09-18"
     assert document.content == original.decode("utf-8")
-    assert document.digest == hashlib.sha256(original).hexdigest()
+    assert document.version == ":".join(map(str, file_facts(path)))
     assert remaining == 10000 - len(original)
     assert path.read_bytes() == original
 

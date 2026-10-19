@@ -8,7 +8,6 @@ relevant source, checkpoint contract, or an explicit canary result changes.
 """
 from __future__ import annotations
 
-import hashlib
 import json
 import math
 import os
@@ -19,6 +18,7 @@ from contextlib import contextmanager
 from pathlib import Path
 from typing import Any, Iterator
 
+from ..core.file_facts import file_facts
 from ..core.file_lock import exclusive_file_lock
 from ..core.secret_guard import known_secret_values, redact_secrets_text
 from .context_packet import CHECKPOINT_CONTRACT_VERSION
@@ -90,17 +90,11 @@ def _read_unlocked(path: Path) -> dict[str, Any]:
     return payload if isinstance(payload, dict) else {}
 
 
-def _relevant_source_digest() -> str:
-    """Cheap hash that changes when the checkpoint settlement code changes."""
-    try:
-        from ..core import role_session
+def _relevant_source() -> list[int]:
+    """The checkpoint settlement code's ``file_facts``: they move when that code does."""
+    from ..core import role_session
 
-        path = Path(str(role_session.__file__ or ""))
-        if path.is_file():
-            return hashlib.sha256(path.read_bytes()).hexdigest()
-    except (OSError, ValueError):
-        pass
-    return ""
+    return file_facts(str(role_session.__file__))
 
 
 def runtime_failure_identity() -> dict[str, Any]:
@@ -113,10 +107,8 @@ def runtime_failure_identity() -> dict[str, Any]:
     except Exception:  # noqa: BLE001 - identity failure must fail closed
         identity = {}
     return {
-        "release_id": str(identity.get("release_id") or "unknown"),
-        "manifest_source_digest": str(identity.get("manifest_source_digest") or ""),
-        "runtime_source_digest": str(identity.get("runtime_source_digest") or ""),
-        "relevant_source_digest": _relevant_source_digest(),
+        "release": identity,
+        "relevant_source": _relevant_source(),
         "checkpoint_contract_version": CHECKPOINT_CONTRACT_VERSION,
     }
 
@@ -201,17 +193,8 @@ def runtime_failure_fingerprint(exc: BaseException) -> dict[str, str]:
     exception_type = type(exc).__name__
     callsite = _exception_callsite(exc)
     normalized_error = normalize_runtime_failure_message(exc)
-    canonical = json.dumps(
-        {
-            "exception_type": exception_type,
-            "callsite": callsite,
-            "normalized_error": normalized_error,
-        },
-        sort_keys=True,
-        separators=(",", ":"),
-    )
     return {
-        "fingerprint": hashlib.sha256(canonical.encode("utf-8")).hexdigest()[:24],
+        "fingerprint": f"{exception_type} at {callsite}: {normalized_error}",
         "exception_type": exception_type,
         "callsite": callsite,
         "normalized_error": normalized_error,
@@ -256,9 +239,8 @@ def record_runtime_failure_circuit(
             "last_observed_at": now,
             "item_ids": list(dict.fromkeys(item_ids))[-20:],
             "clear_conditions": [
-                "release_id_changed",
-                "manifest_or_runtime_source_digest_changed",
-                "relevant_source_digest_changed",
+                "release_changed",
+                "relevant_source_changed",
                 "checkpoint_contract_version_changed",
                 "reviewed_canary_passed",
             ],

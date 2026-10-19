@@ -14,7 +14,6 @@ every recall is noted in the knowledge journal and the project event stream.
 from __future__ import annotations
 
 import datetime as _dt
-import hashlib
 import logging
 import os
 import re
@@ -27,6 +26,7 @@ from typing import Any
 import yaml
 
 from ..core.event_catalog import EventType
+from ..core.file_facts import file_facts
 from ..core.scoped_file import open_regular_file
 from .failure_experience_index import (
     EmbeddingAdapter,
@@ -34,6 +34,7 @@ from .failure_experience_index import (
     FailureExperienceIndex,
     RecallDocument,
     _embedding_batch,
+    is_lexical,
     lexical_scores,
 )
 
@@ -107,20 +108,19 @@ class KnowledgeDocument:
     id: str
     path: Path
     kind: str
-    digest: str
+    # The page's ``file_facts`` when read; a rewrite is a new version.
+    version: str
     content: str
     root: KnowledgeRoot | None = None
     meta: PageMeta = PageMeta()
 
     def indexed(self) -> RecallDocument:
-        # Markdown has no monotonic source revision: this is a content token,
-        # while the full digest is checked independently by the derived index.
-        # Rebuild old caches when the searchable projection changes, even if
-        # the canonical page bytes remain identical.
-        revision = hashlib.sha256(f"{_SEARCH_VERSION}:{self.digest}".encode()).hexdigest()
+        # Markdown has no monotonic source revision; the version also names
+        # the searchable projection, so changing it rebuilds old caches even
+        # when the canonical page bytes are unchanged.
         body = searchable_body(self.content)
         return RecallDocument(
-            self.id, int(revision[:15], 16), self.digest,
+            self.id, 0, f"{_SEARCH_VERSION}:{self.version}",
             f"{self.path.stem}\n{self.meta.title}\n{self.meta.description}\n{body[:1600]}",
             body, _GENERIC_TERMS,
         )
@@ -205,7 +205,7 @@ def _clip(text: str, limit: int = _DESCRIPTION_CHARS) -> str:
 
 def _front_matter(content: str) -> tuple[dict[str, Any], str]:
     """The page's front matter mapping and body; an empty mapping when absent."""
-    # Normalize only this parsing copy. The stored content, digest and byte
+    # Normalize only this parsing copy. The stored content, version and byte
     # budget still describe the original file exactly.
     content = content.replace("\r\n", "\n")
     if not content.startswith("---\n"):
@@ -443,6 +443,8 @@ class MarkdownKnowledgeRecall:
         # scope or qualification may occur later.
         if budget <= 0 or size > budget:
             return None, remaining_bytes
+        # Taken before the read: a write in between shows as a newer version next time.
+        version = ":".join(map(str, file_facts(path)))
         raw = _read_current_file(path, budget)
         remaining_bytes -= len(raw)
         if len(raw) > budget or not _contained(path, root):
@@ -450,10 +452,8 @@ class MarkdownKnowledgeRecall:
         content = raw.decode("utf-8")
         if not content.strip():
             return None, remaining_bytes
-        digest = hashlib.sha256(raw).hexdigest()
-        identity = "markdown:" + hashlib.sha256(str(path).encode()).hexdigest()
         document = KnowledgeDocument(
-            identity, path, source.kind, digest, content, root=source,
+            f"markdown:{path}", path, source.kind, version, content, root=source,
             meta=_describe(source, path, content, mtime),
         )
         return document, remaining_bytes
@@ -528,29 +528,26 @@ class MarkdownKnowledgeRecall:
                     continue
         return documents
 
-    def _synchronize(self, documents: list[KnowledgeDocument]) -> tuple[list[RecallDocument], str, bool]:
+    def _synchronize(self, documents: list[KnowledgeDocument]) -> tuple[list[RecallDocument], bool]:
         indexed = [document.indexed() for document in documents]
-        digest = hashlib.sha256("\n".join(
-            f"{document.id}:{document.digest}" for document in sorted(documents, key=lambda row: row.id)
-        ).encode()).hexdigest()
         try:
-            self.index.sync(indexed, digest)
-            return indexed, digest, True
+            self.index.sync(indexed)
+            return indexed, True
         except EmbeddingUnavailable:
             log.warning("knowledge embedding unavailable; using current lexical recall")
-            return indexed, digest, False
+            return indexed, False
         except Exception:
             log.warning("knowledge index sync failed; rebuilding current Markdown", exc_info=True)
         try:
-            self.index.rebuild(indexed, digest)
-            return indexed, digest, True
+            self.index.rebuild(indexed)
+            return indexed, True
         except Exception:
             log.warning("knowledge index unavailable; recalling current Markdown only", exc_info=True)
-            return indexed, digest, False
+            return indexed, False
 
     def sync(self) -> dict[str, int]:
         documents = self._snapshot()
-        _, _, available = self._synchronize(documents)
+        _, available = self._synchronize(documents)
         return {"documents": len(documents), "indexed": int(available)}
 
     def render_context(self, objective: str, *, max_entries: int = 4, max_chars: int = 2000) -> str:
@@ -570,26 +567,23 @@ class MarkdownKnowledgeRecall:
         if meta.corrected:
             # A reader sees that the page was corrected before deciding to open it.
             details.append(f"corrected {meta.corrected}")
-        tokens = [f"content {document.digest[:12]}"]
-        if channel:
-            tokens.append(channel)
         summary = meta.description or meta.title
         return (
-            f"- {document.kind}: `{document.path}` — {summary} "
-            f"({'; '.join(details)}) [{'; '.join(tokens)}]"
+            f"- {document.kind}: `{document.path}` — {summary} ({'; '.join(details)})"
+            + (f" [{channel}]" if channel else "")
         )
 
     def _recall(self, objective: str, *, max_entries: int, max_chars: int) -> RecallResult:
         if max_entries <= 0 or max_chars <= 0:
             return RecallResult("")
         documents = self._snapshot()
-        indexed, digest, available = self._synchronize(documents)
+        indexed, available = self._synchronize(documents)
         if not documents or not objective.strip():
             return RecallResult("")
         scores = lexical_scores(indexed, objective)
         if available:
             try:
-                indexed_scores = self.index.scores(objective, source_digest=digest)
+                indexed_scores = self.index.scores(objective, documents=indexed)
                 if set(indexed_scores) != {document.id for document in documents}:
                     raise ValueError("knowledge index document identities changed during recall")
                 scores = indexed_scores
@@ -616,7 +610,7 @@ class MarkdownKnowledgeRecall:
             score = scores[document.id]
             # A lesson learned from an earlier mission outranks a plain page
             # that matches equally well: it carries a boundary, not only facts.
-            semantic = not self.index.embedder.identifier.startswith("lexical-hash-")
+            semantic = not is_lexical(self.index.embedder)
             return (-score.direct, -score.transfer, document.meta.page_kind != "lesson",
                     -score.vector if semantic else 0, str(document.path))
 
@@ -631,7 +625,7 @@ class MarkdownKnowledgeRecall:
             lesson = next((document for document in matching if document.meta.page_kind == "lesson"), None)
             if lesson is not None:
                 hits = hits[:max(0, limit - 1)] + [lesson]
-        if candidates and not self.index.embedder.identifier.startswith("lexical-hash-"):
+        if candidates and not is_lexical(self.index.embedder):
             semantic = max(candidates, key=lambda document: scores[document.id].vector)
             if scores[semantic.id].vector >= _SEMANTIC_MIN_SIMILARITY and semantic not in hits:
                 hits = hits[:max(0, limit - 1)] + [semantic]

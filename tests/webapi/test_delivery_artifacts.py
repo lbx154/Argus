@@ -264,10 +264,10 @@ def test_delivery_change_shows_what_a_redelivery_changed(tmp_path: Path) -> None
     second = deliver()
 
     change = delivery_change(
-        sid, "report.md", first["snapshots"][0]["sha256"], second["snapshots"][0]["sha256"],
+        sid, "report.md", first["snapshots"][0]["version"], second["snapshots"][0]["version"],
         global_root=tmp_path,
     )
     assert change is not None and change["available"] is True
     assert "-old finding" in change["diff"] and "+new finding" in change["diff"]
-    missing = delivery_change(sid, "report.md", "0" * 64, second["snapshots"][0]["sha256"], global_root=tmp_path)
+    missing = delivery_change(sid, "report.md", "0" * 32, second["snapshots"][0]["version"], global_root=tmp_path)
     assert missing is not None and missing["available"] is False and missing["diff"] == ""

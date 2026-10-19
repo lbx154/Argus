@@ -205,7 +205,7 @@ def _planner_task_signature(
 
     Title/objective-only dedup incorrectly suppresses a legitimate rerun after
     an upstream artifact changes. Stable context refs keep true duplicates
-    filtered while a changed content hash creates a new acceptance unit.
+    filtered while a changed file state creates a new acceptance unit.
     """
     refs = sorted(
         (

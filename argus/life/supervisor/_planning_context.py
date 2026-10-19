@@ -15,6 +15,8 @@ from ...core.event_catalog import EventType
 from ...core.operator_context import operator_context_state_root
 from ...core.planner_verdict import PlannerVerdictStatus
 from ...core.wake_sources import normalize_wake_sources
+from ...core.workspace_facts import fact_text
+from ...engineer.change_facts import held_facts, lineage_ledger, record_holder
 from ..memory import BacklogItem
 from ._constants import (
     PLAN_AWAITING,
@@ -34,8 +36,6 @@ from ._planning_cycle import HOST_OBSERVED_WAIT_SOURCES
 log = logging.getLogger(__name__)
 
 _DEGRADED_WAIT_POLL_SECONDS = 300
-# What the Planner had seen at its last model call; see _record_planner_last_turn.
-PLANNER_LAST_TURN_FILENAME = "planner-last-turn.json"
 
 
 class PlanningContextMixin:
@@ -881,12 +881,11 @@ class PlanningContextMixin:
             or getattr(self.memory, "root", None)
             or "."
         )
-        objective_fingerprint = self._planner_waiting_objective_fingerprint()
-        return root / f"planner-waiting-contract-{objective_fingerprint[:16]}.json"
+        return root / "planner-waiting-contract.json"
 
     def _planner_waiting_objective_fingerprint(self) -> str:
-        objective = str(getattr(self.config, "continuous_objective", "") or "")
-        return hashlib.sha256(objective.encode("utf-8")).hexdigest()
+        """The campaign a durable record belongs to: its objective, compared as text."""
+        return str(getattr(self.config, "continuous_objective", "") or "")
 
     @staticmethod
     def _planner_waiting_runtime_revision() -> str:
@@ -932,8 +931,7 @@ class PlanningContextMixin:
             or getattr(self.memory, "root", None)
             or "."
         )
-        objective_fingerprint = self._planner_waiting_objective_fingerprint()
-        return root / f"manager-planner-feedback-{objective_fingerprint[:16]}.json"
+        return root / "manager-planner-feedback.json"
 
     def _manager_feedback_evidence_signature(self) -> str:
         """Fingerprint project evidence without backlog/process churn."""
@@ -1004,7 +1002,7 @@ class PlanningContextMixin:
             str(record.source or ""),
             str(record.revision or ""),
             str(record.set_at or ""),
-            hashlib.sha256(str(record.text or "").encode("utf-8")).hexdigest()[:16],
+            str(record.text or ""),
         ]
 
     def _planner_visible_input_signature(
@@ -1012,16 +1010,16 @@ class PlanningContextMixin:
         *,
         operator_context_revision: int = 0,
     ) -> str:
-        """Digest of the decision inputs a fresh Planner call would read now.
+        """The decision inputs a fresh Planner call would read now, as comparable text.
 
-        Two cycles with the same digest would hand the Planner the same
+        Two cycles with equal inputs would hand the Planner the same
         objective, backlog, journal window, research plan, standing operator
         context, Manager feedback, persisted wait, and background-job states —
         so a second model call can only repeat the first answer. Wall-clock
         facts (operator presence, log churn from healthy live jobs, git status
-        noise) are deliberately not part of the digest: live jobs rewrite their
-        own files continuously, and ``PLANNER_UNCHANGED_SKIP_MAX_SECONDS``
-        bounds how long an unchanged digest may keep the Planner silent.
+        noise) are deliberately left out: live jobs rewrite their own files
+        continuously, and ``PLANNER_UNCHANGED_SKIP_MAX_SECONDS`` bounds how
+        long unchanged inputs may keep the Planner silent.
 
         Fail-soft: an empty string disables the unchanged-input skip for this
         cycle rather than guessing.
@@ -1039,9 +1037,7 @@ class PlanningContextMixin:
                 "journal": sorted(
                     self._planner_journal_entry_key(entry) for entry in entries
                 ),
-                "research_plan": hashlib.sha256(
-                    self._render_research_plan_for_planner().encode("utf-8")
-                ).hexdigest(),
+                "research_plan": self._render_research_plan_for_planner(),
                 "operator_context_revision": int(operator_context_revision),
                 # The Manager's advisory direction reaches the Planner through
                 # OperatorContext without moving its revision counter.
@@ -1077,10 +1073,9 @@ class PlanningContextMixin:
                 ),
             }
         except Exception:  # noqa: BLE001 - an unreadable input disables the skip
-            log.debug("planner input signature failed; skip disabled", exc_info=True)
+            log.debug("planner inputs unreadable; skip disabled", exc_info=True)
             return ""
-        blob = json.dumps(payload, sort_keys=True, separators=(",", ":"))
-        return "planner-input:" + hashlib.sha256(blob.encode("utf-8")).hexdigest()
+        return fact_text(payload)
 
     def _maybe_skip_unchanged_planner_cycle(self, state: Any) -> str | None:
         """Keep the last waiting decision when nothing the Planner reads moved.
@@ -1111,9 +1106,7 @@ class PlanningContextMixin:
             and not getattr(message, "host_report", False)
         ]
         if current and transient_ids:
-            current += ":inbox:" + hashlib.sha256(
-                json.dumps(transient_ids, sort_keys=True).encode()
-            ).hexdigest()
+            current += ":inbox:" + fact_text(sorted(transient_ids))
         state.planner_input_signature = current
         if not current:
             return None
@@ -1155,13 +1148,16 @@ class PlanningContextMixin:
         )
         return PLAN_AWAITING
 
-    def _planner_last_turn_path(self) -> Path:
+    def _planning_ledger(self) -> Path:
+        """The planning slot's holder ledger: what the Planner last held."""
+        from ..context_packet import HANDOFF_DIRNAME
+
         root = Path(
             getattr(self.config, "project_state_dir", None)
             or getattr(self.memory, "root", None)
             or "."
         )
-        return root / PLANNER_LAST_TURN_FILENAME
+        return lineage_ledger(root / HANDOFF_DIRNAME, "planning")
 
     def _load_planner_last_turn(self) -> None:
         """Read back what the Planner had seen at its last model call.
@@ -1169,16 +1165,8 @@ class PlanningContextMixin:
         A missing, unreadable, or malformed record is an empty one: the next
         operator-held cycle may call the Planner once, as a fresh project does.
         """
-        try:
-            payload = json.loads(
-                self._planner_last_turn_path().read_text(encoding="utf-8")
-            )
-            signature = payload.get("signature") if isinstance(payload, dict) else ""
-        except (OSError, ValueError):
-            signature = ""
-        self._planner_last_turn_signature = (
-            signature if isinstance(signature, str) else ""
-        )
+        held = held_facts(self._planning_ledger(), "planner")
+        self._planner_last_turn_signature = held if isinstance(held, str) else ""
 
     def _record_planner_last_turn(self) -> None:
         """Record what the Planner has now seen, after a real model call.
@@ -1197,28 +1185,12 @@ class PlanningContextMixin:
         self._planner_last_turn_signature = (
             self._current_planner_input_signature() or _UNREADABLE_WAIT_INPUT
         )
-        path = self._planner_last_turn_path()
-        tmp = path.with_name(f"{path.name}.tmp-{os.getpid()}-{time.time_ns()}")
         try:
-            path.parent.mkdir(parents=True, exist_ok=True)
-            tmp.write_text(
-                json.dumps(
-                    {"signature": self._planner_last_turn_signature, "at": time.time()},
-                    sort_keys=True,
-                )
-                + "\n",
-                encoding="utf-8",
-            )
-            os.replace(tmp, path)
+            record_holder(self._planning_ledger(), "planner", self._planner_last_turn_signature)
         except OSError:
             # The in-memory copy still holds for this process; a restart then
             # reads an older record and may call the Planner once more.
-            log.exception("failed to persist the Planner's last turn: %s", path)
-        finally:
-            try:
-                tmp.unlink()
-            except FileNotFoundError:
-                pass
+            log.exception("failed to persist the Planner's last turn")
 
     def _arm_unchanged_planner_skip(self, state: Any, result: Any) -> None:
         """Record or clear the unchanged-input skip after a real Planner call.
@@ -1260,8 +1232,7 @@ class PlanningContextMixin:
         rows = sorted(
             f"{item.id}:{item.status}" for item in self.memory.backlog.active()
         )
-        digest = hashlib.sha256("\n".join(rows).encode("utf-8")).hexdigest()
-        return f"backlog:{digest}"
+        return fact_text(rows)
 
     def _manager_feedback_signature_for(self, diagnostic: str) -> str:
         if diagnostic == PLANNER_TASKS_FILTERED_DIAGNOSTIC:
@@ -1617,17 +1588,12 @@ class PlanningContextMixin:
         a stable empty view rather than churn.
         """
         try:
-            from ...engineer.external_work import scan_external_work
+            from ...engineer.external_work import external_work_rows, scan_external_work
 
-            return [
-                {
-                    "work_id": status.work_id,
-                    "run_id": status.run_id,
-                    "state": status.state.value,
-                }
-                for status in scan_external_work(project_root)
+            return external_work_rows(
+                status for status in scan_external_work(project_root)
                 if status.source in HOST_OBSERVED_WAIT_SOURCES
-            ]
+            )
         except Exception:  # noqa: BLE001 - wait evaluation must stay stable
             log.debug("external-work registry scan failed", exc_info=True)
             return []
@@ -1911,7 +1877,7 @@ class PlanningContextMixin:
         )
 
     def _current_planner_input_signature(self) -> str:
-        """The Planner-visible input digest now, for deciding whether to ask again."""
+        """The Planner-visible inputs now, for deciding whether to ask again."""
         return self._planner_visible_input_signature(
             operator_context_revision=int(
                 getattr(self, "_planning_operator_context_revision", 0) or 0

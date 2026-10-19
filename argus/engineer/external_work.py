@@ -12,7 +12,7 @@ import time
 from dataclasses import dataclass
 from enum import Enum
 from pathlib import Path
-from typing import Any, Callable
+from typing import Any, Callable, Iterable
 
 from ..core import process_stop
 from ..core.daemon_lock import is_pid_running
@@ -508,6 +508,18 @@ def scan_external_work(
             if status.work_id not in statuses:
                 statuses[status.work_id] = status
     return [statuses[key] for key in sorted(statuses)]
+
+
+def external_work_rows(statuses: Iterable[ExternalWorkStatus]) -> list[dict[str, str]]:
+    """Work as ``(work_id, run_id, state)`` rows.
+
+    They move when a job starts, ends or fails, and stay put while a healthy
+    job only appends to its own logs.
+    """
+    return [
+        {"work_id": status.work_id, "run_id": status.run_id, "state": status.state.value}
+        for status in statuses
+    ]
 
 
 def inspect_external_work(

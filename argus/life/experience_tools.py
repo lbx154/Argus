@@ -111,10 +111,9 @@ class ExperienceToolService:
             if any(row["truncated"] or row["bytes_read"] != row["file_size"] for row in evidence):
                 raise ValueError("experience correction requires complete evidence files within 32 KiB total")
             evidence_receipt = [
-                {key: row[key] for key in ("ref", "source_sha256", "sha256", "bytes_read", "file_size")}
-                for row in evidence
+                {key: row[key] for key in ("ref", "bytes_read", "file_size", "mtime_ns")} for row in evidence
             ]
-            refs = [f"{row['ref']}#sha256={row['source_sha256']}" for row in evidence]
+            refs = [f"{row['ref']}#{row['file_size']}:{row['mtime_ns']}" for row in evidence]
             _guard_project_files(self.root)
             if operation == "retract":
                 written = self.store.retract(

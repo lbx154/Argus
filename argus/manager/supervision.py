@@ -1,7 +1,6 @@
 """Evidence-triggered Manager judgments with durable, applied control receipts."""
 from __future__ import annotations
 
-import hashlib
 import json
 import logging
 import os
@@ -19,6 +18,7 @@ import portalocker
 from ..core.event_catalog import EventType
 from ..core.models import RunnerOptions
 from ..core.run_gateway import run_exec, run_interrupt_scope
+from ..core.workspace_facts import fact_text
 from ..daemon.state import _fsync_directory, compare_and_swap_continuous_config
 from ._helpers import _manager_backend_failure
 from ._session_ops import (
@@ -28,7 +28,6 @@ from ._session_ops import (
 )
 from .observation import (
     ManagerObservation,
-    _digest,
     _read_object,
     _semantic,
     control_identity,
@@ -81,7 +80,7 @@ def _read(path: Path) -> dict[str, Any]:
 def _latest_record(root: Path) -> dict[str, Any]:
     latest = _read(root / "manager-supervision" / "latest.json")
     identity = str(latest.get("id") or "")
-    if len(identity) == 64 and all(char in "0123456789abcdef" for char in identity):
+    if re.fullmatch(r"[0-9a-f]{32}", identity):
         durable = _read(root / "manager-supervision" / f"{identity}.json")
         if durable.get("id") == identity:
             return durable
@@ -108,8 +107,7 @@ def _emit(record: dict[str, Any], root: Path, phase: str) -> None:
             "applied": EventType.LIFE_MANAGER_SUPERVISION_APPLIED,
             "failed": EventType.LIFE_MANAGER_SUPERVISION_FAILED,
         }[phase], "agent_layer": "manager",
-        "supervision_id": record["id"], "evidence_revision": record["evidence_revision"],
-        "control_revision": record["control_revision"],
+        "supervision_id": record["id"],
         "trigger_type": record["trigger"].get("type", ""),
         "item_id": record["trigger"].get("item_id", ""),
         "status": record["status"], "action": decision.get("action", ""),
@@ -145,7 +143,7 @@ def waiting_for_evidence(root: Path | str | None, mission_id: str | None = None)
     waiting_ids = set(record.get("waiting_task_ids", []))
     if mission_id is not None:
         task = questions.get(mission_id)
-        return bool(task and mission_id in waiting_ids and _digest(_semantic(task)) == record.get("waiting_task_revisions", {}).get(mission_id))
+        return bool(task and mission_id in waiting_ids and fact_text(_semantic(task)) == record.get("waiting_task_revisions", {}).get(mission_id))
     return bool(
         observation.evidence_revision == record.get("evidence_revision")
         and waiting_ids.intersection(questions)
@@ -809,15 +807,8 @@ def supervise(
                 latest.get("control_revision"), latest.get("applied_control_revision"),
             }):
                 return latest
-            identity = hashlib.sha256(
-                (observation.evidence_revision + ":" + observation.control_revision).encode()
-            ).hexdigest()
+            identity = uuid.uuid4().hex
             path = root / "manager-supervision" / f"{identity}.json"
-            previous = _read(path)
-            if not observation.incomplete_requirements and previous.get("status") == "applied" and observation.control_revision in {
-                previous.get("control_revision"), previous.get("applied_control_revision"),
-            }:
-                return previous
             deadline = time.monotonic() + 30
 
             def cancellation_code() -> str | None:
@@ -895,7 +886,7 @@ def supervise(
                 if decision["action"] == "wait":
                     waiting = [task for task in observation.facts["tasks"] if task.get("pending_question")]
                     record["waiting_task_ids"] = [task["id"] for task in waiting]
-                    record["waiting_task_revisions"] = {task["id"]: _digest(_semantic(task)) for task in waiting}
+                    record["waiting_task_revisions"] = {task["id"]: fact_text(_semantic(task)) for task in waiting}
                     record["waiting_questions"] = {task["id"]: task["pending_question"] for task in waiting}
                 available = {ref["path"]: ref for ref in observation.facts["evidence_refs"]}
                 cited = decision["cited_refs"]

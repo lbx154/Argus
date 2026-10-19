@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-import hashlib
 import json
 import os
 import shutil
@@ -126,13 +125,12 @@ def test_file_evidence_receipts_record_real_scoped_bytes_without_claiming_truth(
     receipt = service.dispatch("revise", correction(item.id))
     row, = receipt["evidence"]
     assert row["ref"] == "workspace:evidence.txt" and row["bytes_read"] == len(raw)
-    assert row["source_sha256"] == hashlib.sha256(raw).hexdigest()
-    assert row["sha256"] == hashlib.sha256(raw.decode().replace("test-secret", "[redacted]").encode()).hexdigest()
+    assert row["file_size"] == len(raw) and row["mtime_ns"] == (workspace / "evidence.txt").stat().st_mtime_ns
     assert "test-secret" not in json.dumps(receipt) and "text" not in row
     assert "interpretation remains advisory" in receipt["evidence_verification"]
     revised = service.store.get(item.id)
-    assert f"workspace:evidence.txt#sha256={row['source_sha256']}" in revised.evidence_refs
-    assert revised.annotations[-1].evidence_refs == [f"workspace:evidence.txt#sha256={row['source_sha256']}"]
+    pinned = f"workspace:evidence.txt#{len(raw)}:{row['mtime_ns']}"
+    assert pinned in revised.evidence_refs and revised.annotations[-1].evidence_refs == [pinned]
 
 
 @pytest.mark.parametrize("reference", ["nonexistent:proof", "missing.txt", "../outside.txt", "state:../outside.txt",

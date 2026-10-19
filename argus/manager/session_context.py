@@ -87,7 +87,6 @@ def _supervision_excerpt(prompt: str) -> str:
     tasks.sort(key=lambda task: task.get("id") != event.get("item_id"))
     summary = {
         "objective_excerpt": excerpt(facts.get("objective"), 400),
-        "evidence_revision": excerpt(facts.get("evidence_revision"), 64),
         "trigger": {"type": excerpt(event.get("type"), 80), "item_id": excerpt(event.get("item_id"), 80),
                     "reason_excerpt": excerpt(event.get("reason") or event.get("summary"), 400)},
         "tasks": [{"id": excerpt(task.get("id"), 80), "status": excerpt(task.get("status"), 30),

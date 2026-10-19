@@ -142,8 +142,6 @@ export interface LifeManagerSupervisionIssuedEvent extends EventMsg {
   type: "life.manager.supervision.issued";
   payload_schema_version?: 1;
   "supervision_id": string;
-  "evidence_revision": string;
-  "control_revision": string;
   "trigger_type": string;
   "status": string;
   "action": string;
@@ -163,8 +161,6 @@ export interface LifeManagerSupervisionAppliedEvent extends EventMsg {
   type: "life.manager.supervision.applied";
   payload_schema_version?: 1;
   "supervision_id": string;
-  "evidence_revision": string;
-  "control_revision": string;
   "trigger_type": string;
   "status": string;
   "action": string;
@@ -184,8 +180,6 @@ export interface LifeManagerSupervisionFailedEvent extends EventMsg {
   type: "life.manager.supervision.failed";
   payload_schema_version?: 1;
   "supervision_id": string;
-  "evidence_revision": string;
-  "control_revision": string;
   "trigger_type": string;
   "status": string;
   "action": string;
@@ -1945,6 +1939,14 @@ export interface RoundExternalWorkReviewCompletedEvent extends EventMsg {
   "text"?: string;
 }
 
+export interface RoundReviewSkippedUnchangedEvent extends EventMsg {
+  type: "round.review.skipped_unchanged";
+  payload_schema_version?: 1;
+  "round_index"?: number;
+  "work_id": string;
+  "text"?: string;
+}
+
 export interface LifeDaemonReadyEvent extends EventMsg {
   type: "life.daemon.ready";
   payload_schema_version?: 1;
@@ -2305,6 +2307,7 @@ export interface EventPayloadByType {
   "round.external_work_wait.completed": RoundExternalWorkWaitCompletedEvent;
   "round.external_work_review.required": RoundExternalWorkReviewRequiredEvent;
   "round.external_work_review.completed": RoundExternalWorkReviewCompletedEvent;
+  "round.review.skipped_unchanged": RoundReviewSkippedUnchangedEvent;
   "life.daemon.ready": LifeDaemonReadyEvent;
   "life.daemon.degraded": LifeDaemonDegradedEvent;
   "idea.portfolio.formed": IdeaPortfolioFormedEvent;

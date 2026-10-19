@@ -17,7 +17,7 @@ from argus.life.supervisor._mission_execution_settlement import (
 
 _BINDING = {
     "path": "paper/main.tex",
-    "sha256": "a" * 64,
+    "facts": [4096, 1788000000000000000, 1788000000000000000],
     "recorded_at": "2026-09-06T10:33:01+00:00",
 }
 
@@ -44,7 +44,7 @@ def test_missing_or_empty_binding_is_none() -> None:
     assert outcome_manuscript_binding(_Outcome(success=True, status="done", rounds=3)) is None
     assert (
         outcome_manuscript_binding(
-            SimpleNamespace(rounds=[SimpleNamespace(review=SimpleNamespace(manuscript_snapshot={"sha256": ""}))])
+            SimpleNamespace(rounds=[SimpleNamespace(review=SimpleNamespace(manuscript_snapshot={"facts": []}))])
         )
         is None
     )

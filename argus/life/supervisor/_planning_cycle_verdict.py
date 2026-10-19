@@ -8,7 +8,6 @@ happens before any waiting/project_done interpretation.
 
 from __future__ import annotations
 
-import hashlib
 import logging
 from dataclasses import replace
 from pathlib import Path
@@ -200,11 +199,8 @@ class PlanningCycleVerdictMixin:
             journal_window
         )
         research_plan = self._render_research_plan_for_planner()
-        research_plan_digest = hashlib.sha256(
-            research_plan.encode("utf-8")
-        ).hexdigest()
-        research_plan_unchanged = research_plan_digest == str(
-            getattr(self, "_planner_session_research_plan_digest", "") or ""
+        research_plan_unchanged = research_plan == str(
+            getattr(self, "_planner_session_research_plan", "") or ""
         )
 
         runtime_note = self._planner_runtime_with_idle_note()
@@ -295,9 +291,7 @@ class PlanningCycleVerdictMixin:
                 if not getattr(state.verdict, "error", ""):
                     if journal_window_keys is not None:
                         self._planner_session_journal_keys = journal_window_keys
-                    self._planner_session_research_plan_digest = (
-                        research_plan_digest
-                    )
+                    self._planner_session_research_plan = research_plan
             finally:
                 if stream_ctx:
                     stream_ctx.__exit__(None, None, None)

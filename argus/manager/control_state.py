@@ -7,7 +7,6 @@ be mistaken for current control-plane state after a restart.
 
 from __future__ import annotations
 
-import hashlib
 import json
 import os
 import secrets
@@ -21,29 +20,13 @@ from typing import Any, Iterable
 
 import portalocker
 
+from ..core.file_facts import file_facts
+from ..core.workspace_facts import workspace_facts
+
 CONTROL_DIRNAME = "campaign-control"
 HEAD_FILENAME = "HEAD.json"
 AUTHORIZATION_LOG = "operator-authorizations.jsonl"
 CONTROL_VERSION = 1
-_TREE_IGNORE_DIRS = frozenset(
-    {
-        ".git",
-        ".mypy_cache",
-        ".pytest_cache",
-        ".ruff_cache",
-        ".tox",
-        ".venv",
-        "__pycache__",
-        "node_modules",
-        "venv",
-    }
-)
-_TREE_IGNORE_ROOTS = frozenset(
-    {
-        ".argus_external_work",
-        ".argus_subagents",
-    }
-)
 _ALLOWED_ACTIONS = frozenset(
     {
         "validator_repair",
@@ -58,14 +41,14 @@ _ALLOWED_ACTIONS = frozenset(
 @dataclass(frozen=True)
 class CampaignIdentity:
     campaign_id: str
-    objective_sha256: str
+    objective: str
     campaign_epoch: int
 
 
 @dataclass(frozen=True)
 class ControlHead:
     campaign_id: str
-    objective_sha256: str
+    objective: str
     campaign_epoch: int
     state_revision: int
     snapshot: str
@@ -76,16 +59,16 @@ class ControlHead:
 class Authorization:
     authorization_id: str
     campaign_id: str
-    objective_sha256: str
+    objective: str
     campaign_epoch: int
     state_revision: int
     blocker_fingerprint: str
     allowed_actions: tuple[str, ...]
     scope: str
     allowed_write_paths: tuple[str, ...]
-    allowed_write_baseline: tuple[dict[str, str], ...]
-    frozen_evidence: tuple[dict[str, str], ...]
-    frozen_tree_sha256: str
+    allowed_write_baseline: tuple[dict[str, Any], ...]
+    frozen_evidence: tuple[dict[str, Any], ...]
+    frozen_tree: dict[str, Any]
     forbidden_mutations: tuple[str, ...]
     nonce: str
     source_channel: str
@@ -103,23 +86,19 @@ class RepairCapability:
     capability_id: str
     authorization_id: str
     campaign_id: str
-    objective_sha256: str
+    objective: str
     campaign_epoch: int
     state_revision: int
     action: str
     validator_id: str
     allowed_write_paths: tuple[str, ...]
-    frozen_evidence: tuple[dict[str, str], ...]
-    frozen_tree_sha256: str
+    frozen_evidence: tuple[dict[str, Any], ...]
+    frozen_tree: dict[str, Any]
     nonce: str
     mission_id: str
     status: str
     acceptance_retries_remaining: int
     claimed_at: float
-
-
-def objective_sha256(objective: str) -> str:
-    return hashlib.sha256(str(objective or "").encode("utf-8")).hexdigest()
 
 
 def _read_json(path: Path) -> dict[str, Any] | None:
@@ -207,20 +186,12 @@ def _validated_write_paths(
     return tuple(dict.fromkeys(validated))
 
 
-def _hash_path(project_root: Path, relative: str) -> dict[str, str]:
+def _freeze_path(project_root: Path, relative: str) -> dict[str, Any]:
     safe, path = _validated_project_path(project_root, relative)
-    if path.is_dir():
-        digest = _tree_sha256(path, excluded_paths=())
-        return {"path": safe, "sha256": f"tree:{digest}"}
-    try:
-        content = path.read_bytes()
-    except FileNotFoundError:
-        digest = "missing"
-    except OSError as exc:
-        raise ValueError(f"cannot freeze evidence path {safe}: {exc}") from exc
-    else:
-        digest = hashlib.sha256(content).hexdigest()
-    return {"path": safe, "sha256": digest}
+    return {
+        "path": safe,
+        "facts": workspace_facts(path) if path.is_dir() else file_facts(path) if path.is_file() else "missing",
+    }
 
 
 def _path_is_within(relative: str, roots: Iterable[str]) -> bool:
@@ -228,56 +199,13 @@ def _path_is_within(relative: str, roots: Iterable[str]) -> bool:
     return any(path == Path(root) or Path(root) in path.parents for root in roots)
 
 
-def _tree_sha256(project_root: Path, *, excluded_paths: Iterable[str]) -> str:
-    """Hash the project tree except explicitly writable and operational paths."""
+def _project_tree(project_root: Path, *, excluded_paths: Iterable[str]) -> dict[str, Any]:
+    """The project tree's facts except explicitly writable and operational paths."""
     project_root = project_root.expanduser().resolve(strict=False)
     excluded = tuple(_validated_project_path(project_root, value)[0] for value in excluded_paths)
-    digest = hashlib.sha256()
-    if not project_root.exists():
-        return digest.hexdigest()
-    for root, dirs, files in os.walk(project_root, topdown=True, followlinks=False):
-        root_path = Path(root)
-        try:
-            root_relative = root_path.relative_to(project_root)
-        except ValueError as exc:
-            raise ValueError("project tree escaped its root") from exc
-        kept_dirs: list[str] = []
-        for name in sorted(dirs):
-            child = root_relative / name
-            relative = child.as_posix()
-            if name in _TREE_IGNORE_DIRS or relative in _TREE_IGNORE_ROOTS:
-                continue
-            if _path_is_within(relative, excluded):
-                continue
-            path = root_path / name
-            if path.is_symlink():
-                digest.update(b"L\0" + relative.encode("utf-8") + b"\0")
-                digest.update(os.readlink(path).encode("utf-8") + b"\0")
-                continue
-            digest.update(b"D\0" + relative.encode("utf-8") + b"\0")
-            kept_dirs.append(name)
-        dirs[:] = kept_dirs
-        for name in sorted(files):
-            path = root_path / name
-            relative = (root_relative / name).as_posix()
-            if _path_is_within(relative, excluded):
-                continue
-            digest.update(b"F\0" + relative.encode("utf-8") + b"\0")
-            if path.is_symlink():
-                digest.update(b"LINK\0" + os.readlink(path).encode("utf-8") + b"\0")
-                continue
-            try:
-                with path.open("rb") as handle:
-                    while chunk := handle.read(1024 * 1024):
-                        digest.update(chunk)
-            except OSError as exc:
-                raise ValueError(f"cannot freeze project path {relative}: {exc}") from exc
-            digest.update(b"\0")
-    return digest.hexdigest()
+    return workspace_facts(project_root, ignore=excluded)
 
 
-def _campaign_id(objective_hash: str, epoch: int) -> str:
-    return f"campaign-{epoch}-{objective_hash[:16]}"
 
 
 class CampaignControlStore:
@@ -317,10 +245,9 @@ class CampaignControlStore:
             if campaign_epoch is not None
             else max(0, int(continuous.get("generation", 0) or 0))
         )
-        digest = objective_sha256(current_objective)
         return CampaignIdentity(
-            campaign_id=_campaign_id(digest, epoch),
-            objective_sha256=digest,
+            campaign_id=f"campaign-{epoch}",
+            objective=current_objective,
             campaign_epoch=epoch,
         )
 
@@ -331,7 +258,7 @@ class CampaignControlStore:
         try:
             return ControlHead(
                 campaign_id=str(value["campaign_id"]),
-                objective_sha256=str(value["objective_sha256"]),
+                objective=str(value["objective"]),
                 campaign_epoch=int(value["campaign_epoch"]),
                 state_revision=int(value["state_revision"]),
                 snapshot=str(value["snapshot"]),
@@ -365,7 +292,7 @@ class CampaignControlStore:
         same_campaign = bool(
             current is not None
             and current.campaign_id == identity.campaign_id
-            and current.objective_sha256 == identity.objective_sha256
+            and current.objective == identity.objective
             and current.campaign_epoch == identity.campaign_epoch
         )
         previous = self.read_snapshot(current) if same_campaign else None
@@ -373,7 +300,7 @@ class CampaignControlStore:
         snapshot: dict[str, Any] = {
             "version": CONTROL_VERSION,
             "campaign_id": identity.campaign_id,
-            "objective_sha256": identity.objective_sha256,
+            "objective": identity.objective,
             "campaign_epoch": identity.campaign_epoch,
             "state_revision": revision,
             "reason": str(reason or "manager control update")[:500],
@@ -394,10 +321,10 @@ class CampaignControlStore:
             ):
                 snapshot[field_name] = previous.get(field_name, snapshot[field_name])
         snapshot.update(updates)
-        relative = f"revisions/{identity.campaign_id}-{revision}.json"
+        relative = f"revisions/{identity.campaign_id}-{revision}-{uuid.uuid4().hex[:8]}.json"
         head = ControlHead(
             campaign_id=identity.campaign_id,
-            objective_sha256=identity.objective_sha256,
+            objective=identity.objective,
             campaign_epoch=identity.campaign_epoch,
             state_revision=revision,
             snapshot=relative,
@@ -511,7 +438,7 @@ class CampaignControlStore:
             if (
                 head is None
                 or head.campaign_id != identity.campaign_id
-                or head.objective_sha256 != identity.objective_sha256
+                or head.objective != identity.objective
                 or head.campaign_epoch != identity.campaign_epoch
                 or head.state_revision != int(expected_state_revision)
                 or not isinstance(active, dict)
@@ -572,12 +499,9 @@ class CampaignControlStore:
         )
         if any(_path_is_within(path, safe_forbidden) for path in safe_allowed):
             raise ValueError("writable path overlaps a forbidden mutation path")
-        frozen = tuple(_hash_path(self.project_root, value) for value in evidence_paths)
-        allowed_baseline = tuple(_hash_path(self.project_root, value) for value in safe_allowed)
-        frozen_tree_sha256 = _tree_sha256(
-            self.project_root,
-            excluded_paths=safe_allowed,
-        )
+        frozen = tuple(_freeze_path(self.project_root, value) for value in evidence_paths)
+        allowed_baseline = tuple(_freeze_path(self.project_root, value) for value in safe_allowed)
+        frozen_tree = _project_tree(self.project_root, excluded_paths=safe_allowed)
         issued_at = time.time()
         if expires_at and float(expires_at) <= issued_at:
             raise ValueError("authorization expiry must be in the future")
@@ -585,7 +509,7 @@ class CampaignControlStore:
             current = self.read_head()
             if current is not None and (
                 current.campaign_id != identity.campaign_id
-                or current.objective_sha256 != identity.objective_sha256
+                or current.objective != identity.objective
                 or current.campaign_epoch != identity.campaign_epoch
             ):
                 current = None
@@ -608,7 +532,7 @@ class CampaignControlStore:
             authorization = Authorization(
                 authorization_id=f"auth-{uuid.uuid4().hex[:16]}",
                 campaign_id=identity.campaign_id,
-                objective_sha256=identity.objective_sha256,
+                objective=identity.objective,
                 campaign_epoch=identity.campaign_epoch,
                 state_revision=next_revision,
                 blocker_fingerprint=blocker,
@@ -617,7 +541,7 @@ class CampaignControlStore:
                 allowed_write_paths=safe_allowed,
                 allowed_write_baseline=allowed_baseline,
                 frozen_evidence=frozen,
-                frozen_tree_sha256=frozen_tree_sha256,
+                frozen_tree=frozen_tree,
                 forbidden_mutations=safe_forbidden,
                 nonce=secrets.token_urlsafe(24),
                 source_channel=str(source_channel or "unknown").strip()[:100],
@@ -702,12 +626,12 @@ class CampaignControlStore:
                 return None
             identity = CampaignIdentity(
                 campaign_id=str(latest.get("campaign_id") or ""),
-                objective_sha256=str(latest.get("objective_sha256") or ""),
+                objective=str(latest.get("objective") or ""),
                 campaign_epoch=int(latest.get("campaign_epoch") or 0),
             )
             if (
                 head.campaign_id != identity.campaign_id
-                or head.objective_sha256 != identity.objective_sha256
+                or head.objective != identity.objective
                 or head.campaign_epoch != identity.campaign_epoch
             ):
                 return None
@@ -821,7 +745,7 @@ class CampaignControlStore:
             raise ValueError("authorization nonce mismatch")
         if (
             issued.get("campaign_id") != identity.campaign_id
-            or issued.get("objective_sha256") != identity.objective_sha256
+            or issued.get("objective") != identity.objective
             or int(issued.get("campaign_epoch", -1)) != identity.campaign_epoch
         ):
             raise ValueError("authorization campaign mismatch")
@@ -831,7 +755,7 @@ class CampaignControlStore:
             head is None
             or snapshot is None
             or head.campaign_id != identity.campaign_id
-            or head.objective_sha256 != identity.objective_sha256
+            or head.objective != identity.objective
             or head.campaign_epoch != identity.campaign_epoch
             or head.state_revision != int(issued.get("state_revision", -1))
             or authorization_id not in set(snapshot.get("authorization_ids") or [])
@@ -845,7 +769,7 @@ class CampaignControlStore:
             raise ValueError("authorization expired")
         expected_frozen = list(issued.get("frozen_evidence") or [])
         current_frozen = [
-            _hash_path(self.project_root, row.get("path"))
+            _freeze_path(self.project_root, row.get("path"))
             for row in expected_frozen
             if isinstance(row, dict)
         ]
@@ -857,17 +781,17 @@ class CampaignControlStore:
             issued.get("allowed_write_paths") or [],
         )
         current_allowed = [
-            _hash_path(self.project_root, row.get("path"))
+            _freeze_path(self.project_root, row.get("path"))
             for row in expected_allowed
             if isinstance(row, dict)
         ]
         if current_allowed != expected_allowed:
             raise ValueError("authorized validator changed before capability claim")
-        frozen_tree = _tree_sha256(
+        frozen_tree = _project_tree(
             self.project_root,
             excluded_paths=issued.get("allowed_write_paths") or [],
         )
-        if frozen_tree != str(issued.get("frozen_tree_sha256") or ""):
+        if frozen_tree != issued.get("frozen_tree"):
             raise ValueError("frozen project tree changed")
         return issued, head, snapshot
 
@@ -901,14 +825,14 @@ class CampaignControlStore:
                 capability_id=f"repair-{uuid.uuid4().hex[:16]}",
                 authorization_id=authorization_id,
                 campaign_id=identity.campaign_id,
-                objective_sha256=identity.objective_sha256,
+                objective=identity.objective,
                 campaign_epoch=identity.campaign_epoch,
                 state_revision=head.state_revision + 1,
                 action=normalized_action,
                 validator_id=validator_id,
                 allowed_write_paths=tuple(issued.get("allowed_write_paths") or []),
                 frozen_evidence=tuple(issued.get("frozen_evidence") or []),
-                frozen_tree_sha256=str(issued.get("frozen_tree_sha256") or ""),
+                frozen_tree=dict(issued.get("frozen_tree") or {}),
                 nonce=str(issued.get("nonce") or ""),
                 mission_id=str(mission_id or ""),
                 status="claimed",
@@ -949,7 +873,7 @@ class CampaignControlStore:
             if (
                 head is None
                 or head.campaign_id != identity.campaign_id
-                or head.objective_sha256 != identity.objective_sha256
+                or head.objective != identity.objective
                 or head.campaign_epoch != identity.campaign_epoch
             ):
                 raise ValueError("repair capability campaign mismatch")
@@ -959,17 +883,17 @@ class CampaignControlStore:
                 raw.get("allowed_write_paths") or [],
             )
             current_frozen = [
-                _hash_path(self.project_root, row.get("path"))
+                _freeze_path(self.project_root, row.get("path"))
                 for row in expected_frozen
                 if isinstance(row, dict)
             ]
             if current_frozen != expected_frozen:
                 raise ValueError("frozen evidence changed")
-            tree_digest = _tree_sha256(
+            tree = _project_tree(
                 self.project_root,
                 excluded_paths=raw.get("allowed_write_paths") or [],
             )
-            if tree_digest != str(raw.get("frozen_tree_sha256") or ""):
+            if tree != raw.get("frozen_tree"):
                 raise ValueError("write occurred outside authorized validator paths")
             remaining = int(raw.get("acceptance_retries_remaining") or 0)
             if remaining != 1:
@@ -1018,7 +942,7 @@ class CampaignControlStore:
             if (
                 head is None
                 or head.campaign_id != identity.campaign_id
-                or head.objective_sha256 != identity.objective_sha256
+                or head.objective != identity.objective
                 or head.campaign_epoch != identity.campaign_epoch
             ):
                 raise ValueError("repair capability campaign mismatch")
@@ -1028,18 +952,18 @@ class CampaignControlStore:
                 raw.get("allowed_write_paths") or [],
             )
             current_frozen = [
-                _hash_path(self.project_root, row.get("path"))
+                _freeze_path(self.project_root, row.get("path"))
                 for row in expected_frozen
                 if isinstance(row, dict)
             ]
-            tree_digest = _tree_sha256(
+            tree = _project_tree(
                 self.project_root,
                 excluded_paths=raw.get("allowed_write_paths") or [],
             )
             guard_errors: list[str] = []
             if current_frozen != expected_frozen:
                 guard_errors.append("frozen evidence changed")
-            if tree_digest != str(raw.get("frozen_tree_sha256") or ""):
+            if tree != raw.get("frozen_tree"):
                 guard_errors.append("write occurred outside authorized validator paths")
             final_accepted = bool(accepted and not guard_errors)
             closed = {
@@ -1085,7 +1009,7 @@ class CampaignControlStore:
                 raise ValueError("authorization nonce mismatch")
             if (
                 issued.get("campaign_id") != identity.campaign_id
-                or issued.get("objective_sha256") != identity.objective_sha256
+                or issued.get("objective") != identity.objective
                 or int(issued.get("campaign_epoch", -1)) != identity.campaign_epoch
             ):
                 raise ValueError("authorization campaign mismatch")
@@ -1095,7 +1019,7 @@ class CampaignControlStore:
                 head is None
                 or snapshot is None
                 or head.campaign_id != identity.campaign_id
-                or head.objective_sha256 != identity.objective_sha256
+                or head.objective != identity.objective
                 or head.campaign_epoch != identity.campaign_epoch
                 or head.state_revision != int(issued.get("state_revision", -1))
                 or authorization_id not in set(snapshot.get("authorization_ids") or [])
@@ -1108,7 +1032,7 @@ class CampaignControlStore:
                 raise ValueError("authorization expired")
             expected_frozen = list(issued.get("frozen_evidence") or [])
             current_frozen = [
-                _hash_path(self.project_root, row.get("path"))
+                _freeze_path(self.project_root, row.get("path"))
                 for row in expected_frozen
                 if isinstance(row, dict)
             ]

@@ -38,7 +38,6 @@ supervisors of one project share one streak and one alert.
 
 from __future__ import annotations
 
-import hashlib
 import json
 import logging
 import os
@@ -46,11 +45,14 @@ import random
 import re
 import time
 import time as _lock_time  # the lock waits in real time, whatever clock paces retries
+import uuid
 from contextlib import contextmanager
 from pathlib import Path
 from typing import Any, Callable, Iterator
 
 from ...core.event_catalog import EventType
+from ...core.file_facts import file_facts
+from ...core.workspace_facts import fact_text
 from ._constants import PLAN_AWAITING, PLANNER_UNCHANGED_SKIP_MAX_SECONDS
 
 log = logging.getLogger(__name__)
@@ -74,6 +76,7 @@ FAILURE_KIND_DECISION = "decision"
 # the model is at fault, and waiting for a change will not fix it.
 FAILURE_KIND_INTERNAL = "internal"
 _FAILURE_KINDS = frozenset({FAILURE_KIND_BACKEND, FAILURE_KIND_DECISION, FAILURE_KIND_INTERNAL})
+_CREDENTIAL_PARTS = ("AUTH", "KEY", "TOKEN", "SECRET", "PASSWORD", "CREDENTIAL")
 
 # A clock that stepped back can leave recorded times in the future; anything
 # further ahead than this is treated as "now" so a hold can never stretch.
@@ -167,8 +170,7 @@ def planner_failure_key(result: Any, verdict: Any) -> str:
     if kind == FAILURE_KIND_BACKEND:
         # Backend errors are one class: their wording is provider noise.
         normalized = ""
-    blob = f"{kind}\0{result}\0{normalized}".encode("utf-8", errors="replace")
-    return hashlib.sha256(blob).hexdigest()[:16]
+    return f"{kind}\n{result}\n{normalized}"
 
 
 def _finite(value: Any) -> float:
@@ -234,11 +236,6 @@ def _clamped_to_now(record: dict[str, Any], now: float) -> bool:
     return changed
 
 
-def _digest(payload: Any) -> str:
-    blob = json.dumps(payload, sort_keys=True, separators=(",", ":"), default=str)
-    return hashlib.sha256(blob.encode("utf-8")).hexdigest()[:24]
-
-
 class PlannerFailureBackoffMixin:
     """Paces repeated failed Planner turns; see the module docstring."""
 
@@ -250,9 +247,7 @@ class PlannerFailureBackoffMixin:
         return Path(base) / _STATE_FILENAME
 
     def _planner_failure_objective(self) -> str:
-        return hashlib.sha256(
-            str(getattr(self.config, "continuous_objective", "") or "").encode("utf-8")
-        ).hexdigest()[:16]
+        return str(getattr(self.config, "continuous_objective", "") or "")
 
     def _load_planner_failure_state(self) -> dict[str, Any]:
         try:
@@ -356,21 +351,23 @@ class PlannerFailureBackoffMixin:
             getattr(runner, "backend", "") or getattr(runner, "_backend_name", "")
             or type(runner).__name__
         )
+        # Credentials are left out: this record is plain text on disk.
         payload["env"] = sorted(
             (key, value)
             for key, value in os.environ.items()
             if key.startswith("ARGUS_SKILL_")
             and any(part in key for part in ("PLAN", "MODEL", "BACKEND", "REASONING"))
+            and not any(part in key for part in _CREDENTIAL_PARTS)
         )
         try:
             from ...core.paths import config_path
 
             global_root = getattr(self, "_budget_global_root", None)
             config_file = config_path(global_root() if callable(global_root) else None)
-            payload["config"] = hashlib.sha256(config_file.read_bytes()).hexdigest()
+            payload["config"] = file_facts(config_file)
         except Exception:  # noqa: BLE001 - a missing config file is a stable state
             payload["config"] = ""
-        return _digest(payload)
+        return fact_text(payload)
 
     def _planner_failure_input_signature(self, state: Any) -> str:
         """Everything a fresh Planner call could act on, except configuration."""
@@ -404,7 +401,7 @@ class PlannerFailureBackoffMixin:
                 parts["evidence"] = str(evidence() or "")
             except Exception:  # noqa: BLE001
                 parts["evidence"] = ""
-        return _digest(parts)
+        return fact_text(parts)
 
     # -- recording ---------------------------------------------------------
 
@@ -496,7 +493,7 @@ class PlannerFailureBackoffMixin:
                     record["alerted_at"] = now
                     record["alert_pending"] = True
                     record["alert"] = {
-                        "id": f"planner-alert-{key}-{int(first_failed_at)}",
+                        "id": f"planner-alert-{uuid.uuid4().hex}",
                         "kind": kind,
                         "same": same,
                         "delay": delay,

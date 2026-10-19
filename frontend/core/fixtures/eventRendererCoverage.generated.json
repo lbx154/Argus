@@ -154,6 +154,7 @@
     "round.provider_turn_cap.reviewer_restart",
     "round.review.completed",
     "round.review.deferred",
+    "round.review.skipped_unchanged",
     "round.review.started",
     "round.reviewer_backend_failure",
     "round.reviewer_backend_failure.backoff",
@@ -199,7 +200,7 @@
       "counts": {
         "handled": 22,
         "hidden": 0,
-        "missing": 171
+        "missing": 172
       },
       "fallback": "greppable",
       "handled": [
@@ -362,6 +363,7 @@
         "round.provider_turn_cap.restart",
         "round.provider_turn_cap.reviewer_restart",
         "round.review.deferred",
+        "round.review.skipped_unchanged",
         "round.reviewer_backend_failure",
         "round.reviewer_backend_failure.backoff",
         "round.secret_redacted",
@@ -405,7 +407,7 @@
       "counts": {
         "handled": 101,
         "hidden": 92,
-        "missing": 0
+        "missing": 1
       },
       "fallback": "hide",
       "handled": [
@@ -605,13 +607,15 @@
         "wiki.retired.compressed",
         "wiki.updated"
       ],
-      "missing": []
+      "missing": [
+        "round.review.skipped_unchanged"
+      ]
     },
     "web": {
       "counts": {
         "handled": 101,
         "hidden": 92,
-        "missing": 0
+        "missing": 1
       },
       "fallback": "hide",
       "handled": [
@@ -811,7 +815,9 @@
         "wiki.retired.compressed",
         "wiki.updated"
       ],
-      "missing": []
+      "missing": [
+        "round.review.skipped_unchanged"
+      ]
     }
   },
   "schema_version": 1
