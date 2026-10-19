@@ -18,7 +18,7 @@ from typing import Any, Mapping
 from ...core.daemon_lock import is_pid_running
 from ...core.evidence_ledger import EvidenceLedger
 from ...core.portable_filename import (
-    legacy_hashed_filename_components,
+    legacy_filename_components,
     portable_filename_component,
 )
 from ...core.process_identity import (
@@ -78,7 +78,7 @@ def _legacy_registry_paths(
     root = _registry_root(registry_root)
     return tuple(
         root / f"{component}.json"
-        for component in legacy_hashed_filename_components(task_id)
+        for component in legacy_filename_components(task_id)
     )
 
 
@@ -216,7 +216,7 @@ def _legacy_exit_status_paths(
     root = _registry_root(registry_root)
     return tuple(
         root / f"{component}_logs" / name
-        for component in legacy_hashed_filename_components(task_id)
+        for component in legacy_filename_components(task_id)
     )
 
 
@@ -367,8 +367,6 @@ def _write_task(
     path = _registry_path(task_id, registry_root=root)
     legacy_paths = _legacy_registry_paths(task_id, registry_root=root)
     existing = _read_task(task_id, registry_root=root)
-    if existing is None and len(str(task_id).encode("utf-8")) > 120:
-        raise ValueError("task_id exceeds 120 UTF-8 bytes")
     if isinstance(existing, dict):
         preserved_keys = [
             "cpu_ids",

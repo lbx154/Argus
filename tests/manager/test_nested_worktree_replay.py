@@ -10,13 +10,13 @@ import pytest
 
 from argus.apps._runtime import _SkillLoopRunner
 from argus.core.campaign_workdir import adopt_campaign_workdir
+from argus.core.file_facts import file_facts
 from argus.core.pipeline_state import read_pipeline_state, write_pipeline_state
 from argus.core.stage_certificate import latest_stage_review
 from argus.life import MemoryBundle
 from argus.life.supervisor import LifeSupervisor, LifeSupervisorConfig
 from argus.loop import SkillLoopConfig
 from argus.manager import dispatch, front_door
-from argus.planner.planner import file_state
 from argus.skills.stage_machine import completion_contract_fingerprint
 from argus.skills.vertical_select import persist_vertical, resolve_vertical
 from argus.verticals._data_domain import write_data_domain
@@ -391,7 +391,7 @@ def test_enqueue_to_supervisor_uses_nested_node_contract_root(
     assert item is not None
     assert item.execution_workdir == str(target.resolve())
     assert "stage:target_scope" in item.tags
-    assert item.context_refs[0]["content_hash"] == file_state(artifact)
+    assert item.context_refs[0]["content_hash"] == json.dumps(file_facts(artifact))
     assert policy_calls == [{
         "vertical_root": target.resolve(),
         "project_root": target.resolve(),

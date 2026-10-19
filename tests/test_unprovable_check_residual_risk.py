@@ -35,6 +35,7 @@ from argus.adapters.memory_backend import CannedResponse, MemoryBackend
 from argus.cli.event_format import format_event_message
 from argus.core.autonomy import AUTONOMOUS_ASSUMPTION_INSTRUCTION
 from argus.core.event_catalog import EventType, validate_event_envelope
+from argus.core.file_facts import file_facts
 from argus.core.grounding_baseline import snapshot
 from argus.core.model_visible_text import (
     REVIEW_EVIDENCE_RULE_EXECUTING,
@@ -59,7 +60,6 @@ from argus.engineer.obstacle_stall import (
 )
 from argus.engineer.runner import EngineerConfig, SupervisedConfig, SupervisedEngineer
 from argus.manager import supervision
-from argus.planner.planner import file_state
 from argus.reviewer import Reviewer, ReviewerConfig
 from argus.reviewer.tools import ReviewActions, ReviewGrounding
 
@@ -236,7 +236,10 @@ def test_mission_grounding_carries_the_planner_record_and_the_objective_baseline
     contract.parent.mkdir(parents=True)
     contract.write_text(json.dumps({
         "kind": "mission_context", "created_at": time.time(),
-        "context_refs": [{"ref": "docs/GRADING.md", "content_hash": file_state(work / "docs" / "GRADING.md")}],
+        "context_refs": [
+            {"ref": "docs/GRADING.md", "content_hash": json.dumps(file_facts(work / "docs" / "GRADING.md"))},
+            {"ref": "docs/LEGACY.md", "content_hash": "a" * 64},  # an older digest records nothing
+        ],
     }), encoding="utf-8")
 
     class _Config:
@@ -247,8 +250,11 @@ def test_mission_grounding_carries_the_planner_record_and_the_objective_baseline
 
     baseline = objective_baseline(state, _OBJECTIVE, (work,))
     mission = mission_grounding(_Config(), item_id="", mission_ref="s", baseline=baseline)
-    recorded = file_state(work / "docs" / "GRADING.md")
-    assert mission["packet_refs"] == ({"ref": "docs/GRADING.md", "content_hash": recorded},)
+    recorded = file_facts(work / "docs" / "GRADING.md")
+    assert mission["packet_refs"] == (
+        {"ref": "docs/GRADING.md", "content_hash": recorded},
+        {"ref": "docs/LEGACY.md", "content_hash": None},
+    )
     grounding = _mission_grounding(work, **mission)
     assert grounding.packet_refs == (("docs/GRADING.md", recorded),)
     actions = ReviewActions(grounding=grounding)
@@ -267,14 +273,14 @@ def test_a_packet_named_file_grounds_only_as_the_planner_recorded_it(tmp_path) -
     # it is still as the Planner recorded it.
     baseline = snapshot((work,))
     grading.write_text("The feed token is issued to the grader only.\n", encoding="utf-8")
-    named = {"ref": "docs/GRADING.md", "content_hash": file_state(grading)}
+    named = {"ref": "docs/GRADING.md", "content_hash": file_facts(grading)}
     actions = ReviewActions(grounding=_mission_grounding(work, baseline=baseline, packet_refs=(named,)))
     actions.dispatch("revise_review", {**_REVISE, "impossible_because": quote})
     assert actions.decision.verification_obstacle_basis_source == "docs/GRADING.md"
     # The Engineer edits the named file: the packet named other words.
     spec = work / "SPEC.md"
     spec.write_text("Build the dispatch CLI.\n", encoding="utf-8")
-    spec_ref = {"ref": "SPEC.md", "content_hash": file_state(spec)}
+    spec_ref = {"ref": "SPEC.md", "content_hash": file_facts(spec)}
     spec.write_text("Build the dispatch CLI.\nEnvironment: the feed token is supplied only at grading time.\n",
                     encoding="utf-8")
     grounding = _mission_grounding(work, baseline=snapshot((work,)), packet_refs=(spec_ref,))

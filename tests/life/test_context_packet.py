@@ -8,6 +8,7 @@ import pytest
 
 from argus import SkillLoop, SkillLoopConfig
 from argus.adapters.memory_backend import CannedResponse, MemoryBackend
+from argus.core.file_facts import file_facts
 from argus.life.context_packet import (
     create_mission_context,
     record_engineer_handoff,
@@ -17,7 +18,7 @@ from argus.life.context_packet import (
 )
 from argus.life.memory import BacklogItem
 from argus.life.supervisor import LifeSupervisor
-from argus.planner.planner import file_state, hydrate_task_context_refs
+from argus.planner.planner import hydrate_task_context_refs
 
 
 def test_context_packet_seals_engineer_and_reviewer_handoffs(tmp_path: Path) -> None:
@@ -618,7 +619,7 @@ def test_planner_context_ref_hash_tracks_project_file_revision(tmp_path: Path) -
     second = hydrate_task_context_refs(refs, tmp_path)
 
     assert first[0]["content_hash"] != second[0]["content_hash"]
-    assert second[0]["content_hash"] == file_state(artifact)
+    assert second[0]["content_hash"] == json.dumps(file_facts(artifact))
     assert refs[0]["content_hash"] == ""
 
 

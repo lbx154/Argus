@@ -94,14 +94,9 @@ def _parallel_final_review_passes(
                 next_action="Compile the current manuscript before the PDF-only cold read.",
             )
 
-    from ._paper_pass_cache import (
-        identical_snapshot_pair,
-        paper_pass_key,
-        pdf_state,
-        same_pdf,
-    )
+    from ._paper_pass_cache import paper_pass_key, pdf_facts, same_pdf
 
-    pdf_seen = pdf_state(workdir)
+    pdf_seen = pdf_facts(workdir)
     pdf_only_visual = (workdir / "paper" / "main.pdf").is_file()
     common = (
         "Read the current paper in read-only mode. Do not edit files. Start from "
@@ -268,7 +263,7 @@ def _parallel_final_review_passes(
         for label, prompt in prompts.items()
     }
     findings: dict[str, str] = {}
-    if comparison is not None and identical_snapshot_pair(comparison):
+    if comparison is not None and comparison.identical:
         prompts.pop("ScientificLoss", None)
         findings["ScientificLoss"] = (
             "No semantic-loss call was needed: the host verified identical before/after "
@@ -277,7 +272,7 @@ def _parallel_final_review_passes(
         )
     pass_keys = {
         label: paper_pass_key(
-            pdf_state=pdf_seen, prompt=prompt, config=config, runner=runner
+            pdf=pdf_seen, prompt=prompt, config=config, runner=runner
         )
         for label, prompt in prompts.items()
         if label in {"Visual", "ColdRead"} and pdf_seen
@@ -526,7 +521,7 @@ def _parallel_final_review_passes(
         )
     # A provider may have run while another process updated the rendered paper.
     # Keep its result for adjudication, but never reuse it under the new bytes.
-    if pdf_seen and pdf_state(workdir) == pdf_seen:
+    if pdf_seen and pdf_facts(workdir) == pdf_seen:
         for label, key in pass_keys.items():
             if key:
                 config.paper_pass_cache[label] = (key, findings[label])
@@ -720,15 +715,15 @@ def _review_grounding(config: Any, *, task_parts: tuple[str, ...]) -> Any:
             "operator_questions_allowed", operator_questions_can_be_asked(),
         )),
         baseline=(
-            {str(path): str(digest) for path, digest in baseline.items()}
+            {str(path): facts for path, facts in baseline.items() if isinstance(facts, list)}
             if isinstance(baseline, dict) else None
         ),
-        # A ref without a recorded file state is not a packet source; it counts
-        # only as an unchanged workspace file.
+        # A ref without recorded ``file_facts`` (one from before them included)
+        # is not a packet source; it counts only as an unchanged workspace file.
         packet_refs=tuple(
-            (str(ref.get("ref") or ""), str(ref.get("content_hash") or "").strip())
+            (str(ref.get("ref") or ""), ref["content_hash"])
             for ref in mission.get("packet_refs") or ()
-            if isinstance(ref, dict) and str(ref.get("content_hash") or "").strip()
+            if isinstance(ref, dict) and isinstance(ref.get("content_hash"), list)
         ),
         accepted_risks=tuple(dict(row) for row in mission.get("accepted_risks") or () if isinstance(row, dict)),
         operator_decisions=tuple(
@@ -838,12 +833,12 @@ class Reviewer:
         reviewed_manuscript_snapshot = None
         snapshot_root = config.artifact_root or config.working_dir
         if snapshot_root is not None:
-            from ..core.manuscript_snapshot import MANUSCRIPT_PATH, manuscript_snapshot
+            from ..core.manuscript_snapshot import manuscript_snapshot
 
-            # An unreadable manuscript binds no review.
-            if (Path(snapshot_root) / MANUSCRIPT_PATH).is_file():
-                with suppress(OSError):
-                    reviewed_manuscript_snapshot = manuscript_snapshot(snapshot_root)
+            with suppress(OSError):  # an unreadable manuscript binds no review
+                candidate_snapshot = manuscript_snapshot(snapshot_root)
+                if candidate_snapshot["facts"]:
+                    reviewed_manuscript_snapshot = candidate_snapshot
         # Split the prompt into a byte-stable STATIC preamble and per-round DELTA.
         # A matching same-role session receives only the new delta.
         static, delta_base = self._render(

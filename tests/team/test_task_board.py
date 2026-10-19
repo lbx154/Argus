@@ -171,47 +171,6 @@ def test_windows_unsafe_logical_id_round_trips_without_unsafe_filename(tmp_path:
         assert all(":" not in path.name for path in (tmp_path / "tasks").iterdir())
 
 
-def test_legacy_hashed_task_record_migrates_without_duplicate_claim(
-    tmp_path: Path,
-    monkeypatch,
-) -> None:
-    encode = tb.portable_filename_component
-    monkeypatch.setattr(
-        tb,
-        "portable_filename_component",
-        lambda value, *, windows=None: encode(value, windows=True),
-    )
-    task_id = "team::task"
-    legacy = tb._legacy_paths(tmp_path, task_id)[0]
-    legacy.parent.mkdir(parents=True)
-    legacy.write_text(
-        '{"task_id":"team::task","state":"claimed","owner":"w1",'
-        '"claim_ts":1,"heartbeat_ts":1,"attempts":0,"deps":[]}\n',
-        encoding="utf-8",
-    )
-
-    tb.form(tmp_path, [{"task_id": task_id, "objective": "portable"}])
-
-    snapshot = tb.snapshot(tmp_path)
-    assert len(snapshot) == 1
-    assert snapshot[0]["state"] == "claimed"
-    assert tb._path(tmp_path, task_id).exists()
-    assert not legacy.exists()
-
-    canonical = tb._path(tmp_path, task_id)
-    legacy.write_text(
-        '{"task_id":"team::task","state":"done","owner":"w1",'
-        '"claim_ts":1,"heartbeat_ts":2,"attempts":0,"deps":[]}\n',
-        encoding="utf-8",
-    )
-    canonical_mtime = canonical.stat().st_mtime_ns
-    # NTFS stores mtimes in 100 ns ticks; a 1 ns bump would tie on Windows.
-    newer = canonical_mtime + 1_000_000
-    __import__("os").utime(legacy, ns=(newer, newer))
-
-    assert tb.snapshot(tmp_path)[0]["state"] == "done"
-
-
 def test_legacy_raw_tilde_record_migrates(tmp_path: Path) -> None:
     task_id = "~legacy"
     legacy = tmp_path / "tasks" / f"{task_id}.json"
