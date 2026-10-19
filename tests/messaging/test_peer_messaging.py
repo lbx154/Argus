@@ -145,6 +145,42 @@ def test_failed_processing_keeps_request_unacknowledged(tmp_path):
     assert result["receipt"] is None and result["reply"] is None
 
 
+def test_a_failing_peer_message_backs_off_then_closes_unanswered(tmp_path):
+    from argus.messaging.store import PEER_MESSAGE_MAX_ATTEMPTS
+
+    root = projects(tmp_path)
+    sender = PeerMailbox(root, "project-a")
+    message = sender.send("project-b", "Question", parent_call_id="p", request_id="r")
+    receiver = PeerMailbox(root, "project-b")
+    calls = []
+
+    def fail(*_args):
+        calls.append(1)
+        raise RuntimeError("temporary Manager outage")
+
+    waits = []
+    for _ in range(20):
+        process_peer_messages(receiver.project_root, None, responder=fail)
+        row = receiver.status(message["message_id"])["message"]
+        if row["acknowledged_at"]:
+            break
+        # Draining again before the wait is over asks the Manager nothing.
+        assert process_peer_messages(receiver.project_root, None, responder=fail) == 0
+        waits.append(row["next_attempt_at"] - time.time())
+        with sqlite3.connect(receiver.path) as db:  # the wait passes
+            db.execute("UPDATE messages SET next_attempt_at=0 WHERE id=?", (message["message_id"],))
+    assert len(calls) == PEER_MESSAGE_MAX_ATTEMPTS
+    assert len(waits) == PEER_MESSAGE_MAX_ATTEMPTS
+    assert waits == sorted(waits) and waits[0] > 60
+    status = sender.status(message["message_id"])
+    assert status["message"]["acknowledged_at"] > 0
+    assert "could not answer" in status["reply"]["text"]
+    assert "RuntimeError" in status["reply"]["text"]
+    # The sender's Manager reads the closing reply once, like any other reply.
+    assert process_peer_messages(sender.project_root, fake_manager(sender.project_root)) == 1
+    assert sender.pending() == receiver.pending() == []
+
+
 def test_wrong_project_manager_cannot_author_a_reply(tmp_path):
     root = projects(tmp_path)
     sender = PeerMailbox(root, "project-a")

@@ -23,6 +23,7 @@ from ._constants import (
     PLANNER_SCOPE_BOUNDED,
     PLANNER_SCOPE_FINAL_SUBMISSION,
     PLANNER_TASKS_FILTERED_DIAGNOSTIC,
+    PLANNER_UNCHANGED_RELOOK_LIMIT,
     PLANNER_UNCHANGED_SKIP_MAX_SECONDS,
     STALL_ESCALATION_AFTER_NO_PROGRESS_MISSIONS,
     VERIFICATION_PROBE_AFTER_IDLE_CYCLES,
@@ -79,6 +80,8 @@ class PlanningContextMixin:
             tags.append("skill_changes:allowed")
         if bool(getattr(task, "parallel_safe", False)):
             tags.append("parallel_safe")
+        if bool(getattr(task, "stage_package", False)):
+            tags.append("stage_package")
         # Bind Planner work to the stage in which it was proposed.  This is
         # host-owned routing metadata, not a model judgement.  It lets the
         # enqueue boundary distinguish "re-run the same certification" from
@@ -1108,12 +1111,18 @@ class PlanningContextMixin:
         armed_at = getattr(self, "_planner_unchanged_skip_armed_at", None)
         if not armed or armed_at is None or current != armed:
             return None
+        relook_signature, relooks = getattr(self, "_planner_unchanged_relooks", ("", 0))
+        if relook_signature != current:
+            relooks = 0
         if (
-            time.monotonic() - float(armed_at)
-            >= PLANNER_UNCHANGED_SKIP_MAX_SECONDS
+            relooks < PLANNER_UNCHANGED_RELOOK_LIMIT
+            and time.monotonic() - float(armed_at)
+            >= PLANNER_UNCHANGED_SKIP_MAX_SECONDS * 4**relooks
         ):
-            # A long silence is itself worth a real look; disarm so the next
-            # cycles call the Planner until it waits again on fresh evidence.
+            # A long silence is itself worth a real look, a few times and each
+            # after a longer silence; disarm so the next cycles call the
+            # Planner until it waits again on fresh evidence.
+            self._planner_unchanged_relooks = (current, relooks + 1)
             self._planner_unchanged_skip_signature = ""
             self._planner_unchanged_skip_armed_at = None
             return None
@@ -1712,13 +1721,13 @@ class PlanningContextMixin:
         # expires_at 0, having used its single turn in the first minute, while
         # its paper sat finished-looking at 8,107 words with four of its
         # thirty-one figures used. run-05 parked the same way on an
-        # authentication decision. So for those, and only those, the turn is
-        # re-granted on OPERATOR_WAIT_TURN_REGRANT_SECONDS. That timer is only
-        # the backstop behind the three wake paths that already exist -- the
-        # first per-contract grant, a backlog revision change, and the
-        # authorization event itself -- and each re-grant is a full Planner LLM
-        # call, so its cadence is an LLM-call-rate policy, deliberately not
-        # tied to the idle sleep cap.
+        # authentication decision. So for those, and only those, a further turn
+        # is granted when anything the Planner reads has changed, at most once
+        # per OPERATOR_WAIT_TURN_REGRANT_SECONDS. Age alone never earns one:
+        # the same inputs can only produce the same wait, and each re-grant is
+        # a full Planner LLM call. The other wake paths are the first
+        # per-contract grant, a backlog revision change, and the authorization
+        # event itself.
         if self._planner_turn_available_during_wait(state):
             state["idle_capacity_turn_used"] = True
             state["idle_capacity_turn_ts"] = time.time()
@@ -1809,8 +1818,9 @@ class PlanningContextMixin:
 
         Never while other work is queued behind the wait -- the campaign is
         already busy and waking the Planner would only burn tokens. Otherwise
-        once per contract, except for a wait that only the operator can end,
-        where "once" means never again and the campaign is simply over.
+        once per contract; after that only new evidence earns a turn: a
+        changed backlog, or, on a wait only the operator can end, a change in
+        anything the Planner reads (no sooner than the regrant cadence).
         """
         if not self._nothing_queued_behind_the_wait():
             return False
@@ -1830,15 +1840,17 @@ class PlanningContextMixin:
         granted = float(state.get("idle_capacity_turn_ts") or 0.0)
         if time.time() - granted < OPERATOR_WAIT_TURN_REGRANT_SECONDS:
             return False
-        # When the only thing pending is an answer to a question already put
-        # to the operator, time passing is not news: a Planner call on the
-        # same inputs can only repeat its wait, and every call is billed. A
-        # change in anything the Planner reads (the answer itself moves the
-        # backlog, which re-grants above) still earns the turn.
+        # While the operator holds the wait, time passing is not news: a
+        # Planner call on the same inputs can only repeat its wait, and every
+        # call is billed. That holds whether the question sits on a parked
+        # item or on the Planner's own operator-only contract with an empty
+        # backlog; the latter once re-granted a full call every five minutes
+        # for as long as nobody answered. Only a change in what the Planner
+        # reads earns another turn (the answer itself moves the backlog,
+        # which re-grants above). Without a recorded input there is nothing
+        # to compare, so the operator's answer stays the wake.
         recorded = str(state.get("idle_capacity_input_signature") or "")
-        if recorded and self._only_operator_answer_pending():
-            return self._operator_wait_input_signature() != recorded
-        return True
+        return bool(recorded) and self._operator_wait_input_signature() != recorded
 
     def _operator_wait_input_signature(self) -> str:
         """The Planner-visible input digest, as the operator-wait regrant sees it."""
@@ -1847,25 +1859,6 @@ class PlanningContextMixin:
                 getattr(self, "_planning_operator_context_revision", 0) or 0
             )
         )
-
-    def _only_operator_answer_pending(self) -> bool:
-        """Is an open operator question the only thing this campaign waits on?"""
-        probe = getattr(self, "_pending_operator_questions", None)
-        if not callable(probe):
-            return False
-        try:
-            questions = probe()
-        except Exception:  # noqa: BLE001 - unknown is not "only the operator"
-            return False
-        if not questions:
-            return False
-        try:
-            return any(
-                item.status == "paused_operator"
-                for item in self.memory.backlog.active()
-            )
-        except Exception:  # noqa: BLE001
-            return False
 
     def _confined_planner_wait_paths(self, values: list[str]) -> list[str]:
         """Validate watched paths before they can influence revision reads."""
@@ -2484,6 +2477,14 @@ class PlanningContextMixin:
         if n < VERIFICATION_PROBE_AFTER_IDLE_CYCLES:
             return False
         contract = getattr(verdict, "waiting_contract", None)
+        # A contracted wait is probed once per blocker (probed_conditions
+        # below). An uncontracted one has no such record, and a probe that
+        # found the blocker still in place settled a mission, which bought the
+        # Planner another look, another wait and, a cooldown later, another
+        # probe mission, for as long as the blocker lasted. One probe per
+        # waiting streak; the Planner moving on or the operator ends a streak.
+        if contract is None and getattr(self, "_uncontracted_wait_probed", False):
+            return False
         contract_state = None
         if contract is not None:
             contract_state = self._load_planner_waiting_contract_state()
@@ -2571,6 +2572,8 @@ class PlanningContextMixin:
             log.exception("failed to enqueue verification probe; continuing")
             return False
         self._last_verification_probe_at = now
+        if contract is None:
+            self._uncontracted_wait_probed = True
         if contract is not None:
             if not self._finalize_planner_waiting_contract_probe(
                 contract,

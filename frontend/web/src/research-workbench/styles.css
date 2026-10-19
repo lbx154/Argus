@@ -957,3 +957,12 @@
 .overview-hero--plain .overview-hero__copy h1 { margin-top: 0; }
 .overview-hero--plain .overview-hero__copy p { display: block; max-width: none; -webkit-line-clamp: unset; font-size: 14px; line-height: 1.7; }
 .overview-hero--plain .overview-hero__copy > code { display: block; overflow: hidden; font-size: 11px; text-overflow: ellipsis; white-space: nowrap; }
+
+/* Workspace explorer: search, internal-file toggle and per-file download. */
+.workspace-search { display: flex; align-items: center; gap: 6px; margin: 6px 8px 4px; padding: 3px 7px; border: 1px solid rgb(var(--line)); border-radius: 6px; background: rgb(var(--bg)); color: rgb(var(--ink-faint)); }
+.workspace-search input { min-width: 0; flex: 1; border: 0; background: transparent; color: rgb(var(--ink)); font-size: 12px; outline: none; }
+.workspace-internal-toggle { display: flex; align-items: center; gap: 6px; margin: 0 8px 6px; font-size: 11px; color: rgb(var(--ink-faint)); }
+.workspace-search-empty { padding: 8px 12px; font-size: 12px; color: rgb(var(--ink-faint)); }
+.vscode-tabs button.workspace-download { min-width: 0; max-width: none; display: inline-flex; align-items: center; gap: 4px; margin-left: auto; border-top: 0; background: transparent; padding: 0 12px; font-size: 11px; color: rgb(var(--vscode-text)); }
+.vscode-tabs button.workspace-download:hover:not(:disabled) { color: rgb(var(--vscode-blue)); }
+.workspace-download-error { align-self: center; padding: 0 8px; font-size: 11px; color: rgb(var(--err)); }

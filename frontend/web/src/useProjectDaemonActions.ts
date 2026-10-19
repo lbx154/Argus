@@ -4,13 +4,12 @@ import { type ProjectRow } from './api';
 import { type NoticeTone } from './components/ActionNotice';
 import { type useProjectActions } from './hooks';
 import { type ProjectHistoryMode } from './useProjectSelection';
+import { translate } from './i18n';
+import { errorText } from './lib/format';
 
-// Manual Stop follows Codex-style immediate interruption. Graceful draining
-// remains available to upgrade/lifecycle flows that explicitly request it.
+// "Stop now" follows Codex-style immediate interruption. The default Pause
+// lets the running task reach its reviewed boundary first.
 export const MANUAL_STOP_FORCE = true;
-
-const errorText = (error: unknown): string =>
-  error instanceof Error ? error.message : String(error || 'Unknown error');
 
 interface RefetchedProjects {
   data?: {
@@ -30,6 +29,7 @@ interface UseProjectDaemonActionsOptions {
   refetchProjects: () => Promise<RefetchedProjects>;
   selectProject: (id: string, mode?: ProjectHistoryMode) => void;
   setDaemonManageOpen: (open: boolean) => void;
+  t?: (key: string, variables?: Record<string, string | number>) => string;
 }
 
 export function useProjectDaemonActions({
@@ -44,10 +44,12 @@ export function useProjectDaemonActions({
   refetchProjects,
   selectProject,
   setDaemonManageOpen,
+  t = (key, variables) => translate(key, variables),
 }: UseProjectDaemonActionsOptions) {
   const daemonBusy = actions.startDaemon.isPending
     || actions.stopDaemon.isPending
     || actions.forceStopDaemon.isPending
+    || Boolean(actions.pauseDaemon?.isPending)
     || manageActions.startDaemon.isPending
     || manageActions.forceStopDaemon.isPending
     || manageActions.updateProject.isPending
@@ -59,50 +61,59 @@ export function useProjectDaemonActions({
   }), [notify]);
 
   const requestStartDaemon = useCallback(() =>
-    actions.startDaemon.mutate(undefined, actionFeedback('Daemon start requested.')),
-  [actionFeedback, actions.startDaemon]);
+    actions.startDaemon.mutate(undefined, actionFeedback(t('daemon.startRequested'))),
+  [actionFeedback, actions.startDaemon, t]);
 
+  /** Immediate interruption; callers confirm with the operator first. */
   const requestStopDaemon = useCallback(() =>
     actions.forceStopDaemon.mutate(
       undefined,
-      actionFeedback('Stop requested; the verified daemon process is being interrupted.'),
+      actionFeedback(t('daemon.stopRequested')),
     ),
-  [actionFeedback, actions.forceStopDaemon]);
+  [actionFeedback, actions.forceStopDaemon, t]);
+
+  /** Let the running task finish and pass review, then stop. */
+  const requestPauseDaemon = useCallback(() =>
+    actions.pauseDaemon.mutate(undefined, {
+      onSuccess: (result) => notify('success', (result as { draining?: boolean } | undefined)?.draining ? t('daemon.pauseRequested') : t('daemon.pausedNow')),
+      onError: (error: Error) => notify('error', errorText(error)),
+    }),
+  [actions.pauseDaemon, notify, t]);
 
   const manageStartDaemon = useCallback(async (): Promise<boolean> => {
     try {
       await manageActions.startDaemon.mutateAsync();
-      notify('success', 'Daemon resumed.');
+      notify('success', t('daemon.resumed'));
       return true;
     } catch (error) {
       notify('error', errorText(error));
       return false;
     }
-  }, [manageActions.startDaemon, notify]);
+  }, [manageActions.startDaemon, notify, t]);
 
   const manageStopDaemon = useCallback(async (): Promise<boolean> => {
     try {
       await manageActions.forceStopDaemon.mutateAsync();
       await refetchProjects();
-      notify('success', 'Daemon stopped. This session can now be deleted.');
+      notify('success', t('daemon.stoppedDeletable'));
       return true;
     } catch (error) {
       notify('error', errorText(error));
       return false;
     }
-  }, [manageActions.forceStopDaemon, notify, refetchProjects]);
+  }, [manageActions.forceStopDaemon, notify, refetchProjects, t]);
 
   const manageRenameProject = useCallback(async (name: string): Promise<boolean> => {
     if (!manageTargetSid) return false;
     try {
       await manageActions.updateProject.mutateAsync({ sid: manageTargetSid, name });
-      notify('success', 'Session name updated.');
+      notify('success', t('project.renamed'));
       return true;
     } catch (error) {
       notify('error', errorText(error));
       return false;
     }
-  }, [manageActions.updateProject, manageTargetSid, notify]);
+  }, [manageActions.updateProject, manageTargetSid, notify, t]);
 
   const manageDeleteProject = useCallback(async (): Promise<boolean> => {
     if (!manageTargetSid) return false;
@@ -120,15 +131,15 @@ export function useProjectDaemonActions({
       notify(
         'success',
         deleted.workdir_preserved
-          ? `Session moved to recoverable trash. Files remain in ${deleted.workdir}.`
-          : 'Session moved to recoverable trash.',
+          ? t('project.trashedKeepFiles', { path: deleted.workdir })
+          : t('project.trashed'),
       );
       return true;
     } catch (error) {
       notify('error', errorText(error));
       return false;
     }
-  }, [activeSid, clearProjectSelection, manageActions.deleteProject, manageTargetSid, notify, refetchProjects, selectProject, setDaemonManageOpen, setManageTargetSid]);
+  }, [activeSid, clearProjectSelection, manageActions.deleteProject, manageTargetSid, notify, refetchProjects, selectProject, setDaemonManageOpen, setManageTargetSid, t]);
 
   const requestManageSession = useCallback((projectId: string) => {
     setManageTargetSid(projectId);
@@ -139,27 +150,27 @@ export function useProjectDaemonActions({
     actions.disposeBacklog.mutate(
       { id, op },
       {
-        onSuccess: () => notify('success', op === 'done' ? 'Work marked done.' : 'Work removed.'),
+        onSuccess: () => notify('success', op === 'done' ? t('work.markedDone') : t('work.removed')),
         onError: (error: Error) => notify('error', errorText(error)),
       },
     ),
-  [actions.disposeBacklog, notify]);
+  [actions.disposeBacklog, notify, t]);
 
   const requestStopIteration = useCallback((id: string) =>
     actions.stopBacklog.mutate(id, {
-      onSuccess: () => notify('success', 'Iteration stopped.'),
+      onSuccess: () => notify('success', t('work.iterationStopped')),
       onError: (error: Error) => notify('error', errorText(error)),
     }),
-  [actions.stopBacklog, notify]);
+  [actions.stopBacklog, notify, t]);
 
   const toggleContinuous = useCallback(() => {
     if (!continuous) return;
     const enabled = !continuous.enabled;
     actions.setContinuous.mutate(
       { enabled, objective: continuous.objective },
-      actionFeedback(enabled ? 'Continuous campaign enabled.' : 'Continuous campaign stopped.'),
+      actionFeedback(enabled ? t('campaign.enabled') : t('campaign.stopped')),
     );
-  }, [actionFeedback, actions.setContinuous, continuous]);
+  }, [actionFeedback, actions.setContinuous, continuous, t]);
 
   return {
     daemonBusy,
@@ -169,6 +180,7 @@ export function useProjectDaemonActions({
     manageStartDaemon,
     requestDispose,
     requestManageSession,
+    requestPauseDaemon,
     requestStartDaemon,
     requestStopDaemon,
     requestStopIteration,

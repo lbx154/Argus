@@ -1053,6 +1053,10 @@ class MissionExecutionSettlementMixin:
                 project_id=decision_root.name,
                 previous_decision=item.operator_decision,
             )
+            if str(getattr(outcome, "final_review_source", "") or "") == "venue_stall":
+                # Left unanswered for VENUE_STALL_DECISION_SECONDS, the Manager
+                # decides it (_decide_overdue_venue_stalls).
+                decision_card["decision_kind"] = "venue_stall"
             # Status and the authority-bearing question must reach disk in one
             # backlog transaction. Keep the row nonterminal so dependency
             # reconciliation cannot cascade-skip its downstream plan while the
@@ -1370,6 +1374,7 @@ class MissionExecutionSettlementMixin:
                 state_root=self._project_state_root(),
                 stage=state.pipeline_stage_at_start,
                 reviewer_artifacts=reviewer_artifacts,
+                stage_package="stage_package" in item.tags,
             )
             if delivery is not None and final_submission_manuscript_snapshot is not None:
                 delivery["manuscript_snapshot"] = final_submission_manuscript_snapshot

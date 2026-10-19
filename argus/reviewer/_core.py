@@ -822,12 +822,14 @@ class Reviewer:
             selected_venue,
             venue_review_instruction,
         )
+        from ..skills.builtins import vertical_skill_read_dirs
         from ..skills.vertical_select import resolve_vertical_if_decided
 
         artifact_root = Path(config.artifact_root or config.working_dir or ".")
         state_root = Path(config.vertical_state_root or config.working_dir or ".")
+        review_vertical = config.active_vertical or resolve_vertical_if_decided(state_root) or ""
         venue_required = requires_venue_review(
-            vertical=config.active_vertical or resolve_vertical_if_decided(state_root) or "",
+            vertical=review_vertical,
             stage=str(read_pipeline_state(state_root).get("current_stage") or ""),
             scope=scope,
             operation=operation,
@@ -976,6 +978,7 @@ class Reviewer:
                         review_output=review_output,
                         add_dirs=(
                             [str(path) for path in review_libraries.library_roots]
+                            + vertical_skill_read_dirs(review_vertical)
                             if str(getattr(self.runner, "backend", "")).lower() == "copilot"
                             else None
                         ),

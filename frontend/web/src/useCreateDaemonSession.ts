@@ -3,9 +3,7 @@ import { useRef, useState } from 'react';
 import { createSessionFast } from './lib/createDaemonFlow';
 import { api, type ProjectRow } from './api';
 import { type NoticeTone } from './components/ActionNotice';
-
-const errorText = (error: unknown): string =>
-  error instanceof Error ? error.message : String(error || 'Unknown error');
+import { errorText } from './lib/format';
 
 interface UseCreateDaemonSessionOptions {
   localCwd: string;
@@ -14,7 +12,7 @@ interface UseCreateDaemonSessionOptions {
   queryClient: QueryClient;
   refetchProjects: () => Promise<unknown>;
   selectProject: (id: string) => void;
-  translate?: (key: string) => string;
+  translate?: (key: string, variables?: Record<string, string | number>) => string;
   onCreated?: (sid: string, draft: string) => void;
 }
 
@@ -84,18 +82,20 @@ export function useCreateDaemonSession({
           .then(() => {
             void queryClient.invalidateQueries({ queryKey: ['snapshot', result.sid] });
             void refetchProjects();
-            notify('success', 'Campaign started.');
+            notify('success', translate ? translate('new.campaignStarted') : 'Work started.');
           })
           .catch((error) => {
             notify(
               'error',
-              `Session was created, but the campaign could not start: ${errorText(error)}`,
+              translate
+                ? translate('new.campaignFailed', { error: errorText(error) })
+                : `The project was created, but its work could not start: ${errorText(error)}`,
             );
           });
       }
       return true;
     } catch (error) {
-      notify('error', `Could not create session: ${errorText(error)}`);
+      notify('error', translate ? translate('new.createFailed', { error: errorText(error) }) : `Could not create the project: ${errorText(error)}`);
       return false;
     } finally {
       creatingDaemonRef.current = false;

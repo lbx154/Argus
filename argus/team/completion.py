@@ -5,6 +5,7 @@ import hashlib
 import json
 import logging
 import re
+import time
 from pathlib import Path
 from typing import Any, Callable
 
@@ -14,6 +15,13 @@ from . import _store, leaderboard, roster, task_board
 log = logging.getLogger(__name__)
 _STATE_FILE = "completion_summary.json"
 _TERMINAL_STATES = frozenset({"done", "failed", "blocked"})
+# A delivery that failed waits 1 minute, doubling to an hour, before the next
+# try; the Curator ticks every few seconds. Both the wait and the summary are
+# kept in this process: a disk that cannot take the message cannot take them.
+_DELIVERY_RETRY_BASE_SECONDS = 60.0
+_DELIVERY_RETRY_CAP_SECONDS = 3600.0
+_DELIVERY_BACKOFF: dict[str, tuple[int, float]] = {}
+_SUMMARIES: dict[str, str] = {}
 
 
 def _payload(root: Path, marker: dict[str, Any]) -> dict[str, Any] | None:
@@ -164,37 +172,61 @@ def publish_if_complete(
     fingerprint = _generation_fingerprint(payload)
     state_path = root / _STATE_FILE
     prior = _store.read_json(state_path, default={})
-    if isinstance(prior, dict) and prior.get("fingerprint") == fingerprint and prior.get("delivered"):
+    same = isinstance(prior, dict) and prior.get("fingerprint") == fingerprint
+    if same and prior.get("delivered"):
         return False
-    summary = ""
-    if summarize is not None:
+    key = f"{state_path}:{fingerprint}"
+    failures, retry_at = _DELIVERY_BACKOFF.get(key, (0, 0.0))
+    if time.time() < retry_at:
+        return False
+    # A summary written for this generation is kept, so a publish that failed
+    # is retried without asking the Manager again.
+    summary = (str(prior.get("summary") or "") if same else "") or _SUMMARIES.get(key, "")
+    if not summary and summarize is not None:
         try:
             summary = str(summarize(_prompt(payload)) or "").strip()
         except Exception:  # noqa: BLE001 - deterministic fallback must still notify
             log.exception("team completion Manager summary failed for %s", root)
     if not summary:
         summary = _fallback(payload)
-    message_id = f"team-summary-{fingerprint[:16]}"
-    publish_operator_message(
-        conversation_root,
-        text=summary,
-        message_id=message_id,
-        event_fields={
-        "team_id": payload["team_id"],
-        "team_completion": True,
-        },
-    )
-    done = sum(row["state"] == "done" for row in payload["tasks"])
-    failed = sum(row["state"] == "failed" for row in payload["tasks"])
-    blocked = sum(row["state"] == "blocked" for row in payload["tasks"])
-    _store.atomic_write_json(state_path, {
-        "fingerprint": fingerprint,
-        "generation": payload["generation"],
-        "team_id": payload["team_id"],
-        "done": done,
-        "failed": failed,
-        "blocked": blocked,
-        "summary": summary,
-        "delivered": True,
-    })
+    _SUMMARIES[key] = summary
+    try:
+        if not same or not prior.get("summary"):
+            _store.atomic_write_json(state_path, {
+                "fingerprint": fingerprint,
+                "generation": payload["generation"],
+                "team_id": payload["team_id"],
+                "summary": summary,
+                "delivered": False,
+            })
+        message_id = f"team-summary-{fingerprint[:16]}"
+        publish_operator_message(
+            conversation_root,
+            text=summary,
+            message_id=message_id,
+            event_fields={
+            "team_id": payload["team_id"],
+            "team_completion": True,
+            },
+        )
+        done = sum(row["state"] == "done" for row in payload["tasks"])
+        failed = sum(row["state"] == "failed" for row in payload["tasks"])
+        blocked = sum(row["state"] == "blocked" for row in payload["tasks"])
+        _store.atomic_write_json(state_path, {
+            "fingerprint": fingerprint,
+            "generation": payload["generation"],
+            "team_id": payload["team_id"],
+            "done": done,
+            "failed": failed,
+            "blocked": blocked,
+            "summary": summary,
+            "delivered": True,
+        })
+    except Exception:
+        _DELIVERY_BACKOFF[key] = (failures + 1, time.time() + min(
+            _DELIVERY_RETRY_CAP_SECONDS, _DELIVERY_RETRY_BASE_SECONDS * 2 ** min(failures, 10),
+        ))
+        raise
+    _DELIVERY_BACKOFF.pop(key, None)
+    _SUMMARIES.pop(key, None)
     return True

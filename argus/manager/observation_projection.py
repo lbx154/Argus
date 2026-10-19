@@ -60,18 +60,27 @@ def bounded_facts(canonical: dict[str, Any]) -> tuple[dict[str, Any], tuple[str,
     facts["evidence_refs"] = canonical["evidence_refs"]
     facts["limitations"] = notes
     incomplete: list[str] = []
+    omitted: list[str] = []
 
     def fits() -> bool:
         return len(render_facts(facts).encode("utf-8")) <= MAX_OBSERVATION_BYTES
 
     def omit(container: dict[str, Any], field: str, path: str, empty: Any) -> None:
         container[field] = empty
-        notes.append(f"{path}: not observed because the snapshot byte budget was exceeded")
+        omitted.append(path)
+        # One line names every omission. A sentence per field cost more bytes
+        # than the small fields it replaced; in s-a43d1018 those notes took up
+        # to 3 KiB and pushed whole task objectives out of the snapshot.
+        facts["limitations"] = [
+            *notes,
+            "not observed because the snapshot byte budget was exceeded: "
+            + ", ".join(omitted),
+        ]
 
     # Remove secondary descriptions before considering any goal, acceptance,
     # or pending question. These are presentation changes, never identity changes.
     for field in ("advisor_consultations", "manager_supervision", "recent_events", "roles",
-                  "delivery", "frontier", "review", "stage"):
+                  "delivery", "frontier", "review", "stage", "accepted_residual_risks"):
         if fits():
             break
         if facts.get(field):

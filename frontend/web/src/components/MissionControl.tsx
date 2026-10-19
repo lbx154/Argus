@@ -18,6 +18,7 @@ import { plainDetail, plainStatus, plainStopSentence } from '../lib/plainStatus'
 import { MarkdownContent } from './MarkdownContent';
 import { currentWorkStatus, workStatusLabel } from '../lib/workStatus';
 import { useI18n } from '../i18n';
+import { deliveryHeadingKey } from '../lib/deliveryKind';
 import { api, type ArtifactInfo, type Snapshot } from '../api';
 import {
   outcomeLabels,
@@ -438,7 +439,7 @@ export function MissionControl({
             <div className="flex flex-wrap items-center gap-3">
               <div className="min-w-0 flex-1 text-sm font-semibold text-ink">
                 {acceptedReview ? (locale === 'zh-CN' ? '验收结果' : 'Review result') : delivery && deliveryRepeatsSummary
-                  ? t(delivery.kind === 'submission_certified' ? 'mission.deliveryCertified' : 'mission.taskCompleted')
+                  ? t(deliveryHeadingKey(delivery))
                   : t(stoppedShort ? 'mission.lastProgress' : 'mission.summary')}
               </div>
               {delivery && deliveryRepeatsSummary && onOpenDelivery ? (
@@ -481,7 +482,7 @@ export function MissionControl({
           <div className="mt-3 flex flex-wrap items-center gap-3 rounded border border-ok/30 bg-ok/5 px-3 py-2">
             <div className="min-w-0 flex-1">
               <div className="text-xs font-medium text-ok">
-                {t(delivery.kind === 'submission_certified' ? 'mission.deliveryCertified' : 'mission.taskCompleted')}
+                {t(deliveryHeadingKey(delivery))}
               </div>
               <div className="mt-1 truncate text-xs text-ink-dim" title={delivery.summary || delivery.title}>
                 {delivery.summary || delivery.title}

@@ -226,6 +226,39 @@ def test_parse_planner_emits_disjoint_parallel_task_batch() -> None:
     ]
 
 
+def _owns_paths_verdict(raw: str):
+    return parse_planner_text(
+        "PROJECT_DONE=false\n"
+        "REASON=two independent runs\n"
+        "TASK_TITLE=CPC evaluation\n"
+        "TASK_OBJECTIVE=Run the assigned arm.\n"
+        "TASK_PARALLEL_SAFE=true\n"
+        "TASK_OWNS_PATHS=" + raw
+    )
+
+
+def test_key_value_owns_paths_accepts_the_json_array_planners_write() -> None:
+    # Project s-a43d1018 wrote this exact line 19 times; it used to become one
+    # path containing ``[`` and the task always ran serially.
+    shapes = {
+        '[".argus/runs/real-transfer01/cpc"]': [".argus/runs/real-transfer01/cpc"],
+        ".argus/runs/real-transfer01/cpc": [".argus/runs/real-transfer01/cpc"],
+        '[".argus/runs/a", ".argus/runs/b"]': [".argus/runs/a", ".argus/runs/b"],
+        ".argus/runs/a|.argus/runs/b": [".argus/runs/a", ".argus/runs/b"],
+    }
+    for raw, expected in shapes.items():
+        verdict = _owns_paths_verdict(raw)
+        assert not verdict.error, raw
+        assert verdict.new_tasks[0].owns_paths == expected, raw
+
+
+def test_key_value_owns_paths_rejects_a_malformed_array() -> None:
+    for raw in ('[".argus/runs/a"', "[1, 2]", '[["nested"]]', '[{"path": "a"}]'):
+        verdict = _owns_paths_verdict(raw)
+        assert verdict.error and "TASK_OWNS_PATHS" in verdict.error, raw
+        assert verdict.new_tasks == []
+
+
 def test_parse_status_summary_aliases() -> None:
     verdict = parse_planner_text(
         "STATUS=completed\nSUMMARY=Implementation and verification finished."

@@ -9,6 +9,7 @@ import { useI18n } from '../i18n';
 import { addComposerFiles, dataTransferHasFiles, extractFilesFromDataTransfer, MESSAGE_ATTACHMENT_MAX_BYTES, MESSAGE_ATTACHMENT_MAX_COUNT, MESSAGE_ATTACHMENT_TOTAL_MAX_BYTES } from '../lib/attachments';
 import { formatBytes } from '../lib/format';
 import { ComposerAttachmentChip } from './ComposerAttachmentChip';
+import { useDraftUploadView } from '../lib/draftUploads';
 import { ComposerSurface } from './ComposerSurface';
 import { RouteSegment } from './RouteSegment';
 
@@ -37,7 +38,7 @@ export function handlePromptRewriteShortcut(event: RewriteShortcutEvent, state: 
 export function ChatBox({
   value, onChange, onSend, onCancel, disabled, pending, focusSignal,
   attachments, onAttachmentsChange, onRewrite, rewriting = false,
-  slashSelection, onSlashSelectionChange, routeOverride = 'auto', onRouteOverrideChange, footer,
+  slashSelection, onSlashSelectionChange, routeOverride = 'auto', onRouteOverrideChange, footer, pendingNote,
 }: {
   value: string;
   onChange: (text: string) => void;
@@ -57,8 +58,14 @@ export function ChatBox({
   onRouteOverrideChange?: (value: MessageRouteOverride) => void;
   /** Shown under the input, like the map composer's runtime line. */
   footer?: ReactNode;
+  /** Replaces the reply hint while the send waits on something else, such as uploads. */
+  pendingNote?: string;
 }) {
-  const { t } = useI18n();
+  const { t, locale } = useI18n();
+  const zh = locale === 'zh-CN';
+  const uploads = useDraftUploadView();
+  const ready = uploads?.ready ?? [];
+  const busyUploads = uploads?.busy ?? 0;
   const taRef = useRef<HTMLTextAreaElement>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
   const submitting = useRef(false);
@@ -140,7 +147,7 @@ export function ChatBox({
   };
 
   return <div className={`conversation-composer flex flex-col ${dragDepth > 0 ? 'rounded-3xl ring-2 ring-manager/60' : ''}`}
-    data-compact={!focused && !value.trim() && !attachments.length && !pending && !rewriting && !attachmentNotice && !dragDepth}
+    data-compact={!focused && !value.trim() && !attachments.length && !ready.length && !pending && !rewriting && !attachmentNotice && !dragDepth}
     onFocusCapture={() => setFocused(true)}
     onBlurCapture={(event) => setFocused(event.currentTarget.contains(event.relatedTarget as Node | null))}
     onDragEnter={(event) => drag(event, 1)} onDragOver={(event) => drag(event, 0)} onDragLeave={(event) => drag(event, -1)}
@@ -148,21 +155,25 @@ export function ChatBox({
       if (!dataTransferHasFiles(event.dataTransfer)) return;
       event.preventDefault(); setDragDepth(0); addFiles(extractFilesFromDataTransfer(event.dataTransfer));
     }}>
-    {pending ? <div className="px-3 py-2 text-xs text-ink-faint" role="status">{queuedNotice ? t('chat.queuedWhileRunning') : t('chat.stopWaitingHint')}</div> : null}
+    {pending ? <div className="px-3 py-2 text-xs text-ink-faint" role="status">{pendingNote || (queuedNotice ? t('chat.queuedWhileRunning') : t('chat.stopWaitingHint'))}</div> : null}
     {completionOpen ? <SlashCompletionMenu query={value} selected={bounded} onSelect={applySelected} /> : null}
-    {(attachments.length || attachmentNotice || dragDepth > 0) ? <div className="px-3 py-2">
+    {(attachments.length || ready.length || attachmentNotice || dragDepth > 0) ? <div className="px-3 py-2">
       {dragDepth > 0 ? <div className="mb-2 text-xs text-manager">{t('chat.attachDrop')}</div> : null}
-      <div className="map-attachment-tray">{attachments.map((file, index) => <ComposerAttachmentChip key={`${file.name}:${file.lastModified}:${index}`}
+      <div className="map-attachment-tray">{ready.map((attachment) => <ComposerAttachmentChip key={attachment.attachment_id}
+        uploaded={attachment} removeLabel={t('chat.attachRemove', { name: attachment.original_name })}
+        disabled={pending} onRemove={() => uploads?.removeReady(attachment.attachment_id)} />)}
+      {attachments.map((file, index) => <ComposerAttachmentChip key={`${file.name}:${file.lastModified}:${index}`}
         file={file} removeLabel={t('chat.attachRemove', { name: file.name })}
         disabled={pending}
         onRemove={() => { onAttachmentsChange(attachments.filter((item) => item !== file)); setAttachmentNotice(''); }} />)}</div>
       <div className={`text-xs ${attachmentNotice ? 'text-err' : 'text-ink-faint'}`}>
-        {attachmentNotice || t('chat.attachHint', { count: MESSAGE_ATTACHMENT_MAX_COUNT, perFile: `${MESSAGE_ATTACHMENT_MAX_BYTES / 1024 ** 2} MiB`, total: `${MESSAGE_ATTACHMENT_TOTAL_MAX_BYTES / 1024 ** 2} MiB` })}
+        {attachmentNotice || (busyUploads ? (zh ? `${busyUploads} 个附件上传中，可以继续输入；现在发送会等它们传完再发出。` : `${busyUploads} file${busyUploads > 1 ? 's' : ''} uploading. Keep typing; sending now waits for them.`) : '') || t('chat.attachHint', { count: MESSAGE_ATTACHMENT_MAX_COUNT, perFile: `${MESSAGE_ATTACHMENT_MAX_BYTES / 1024 ** 2} MiB`, total: `${MESSAGE_ATTACHMENT_TOTAL_MAX_BYTES / 1024 ** 2} MiB` })}
       </div>
     </div> : null}
     <ComposerSurface value={value} onChange={(text) => { onChange(text); onSlashSelectionChange(0); setMenuDismissed(false); }}
       inputRef={taRef} fileInputRef={fileInputRef} onFiles={(event) => { addFiles(Array.from(event.target.files ?? [])); event.target.value = ''; }}
       onSend={() => void submit()} onCancel={onCancel} pending={pending} disabled={disabled}
+      sendLabel={busyUploads ? (zh ? '附件传完后发送' : 'Send when uploads finish') : undefined}
       inputProps={{
         onPaste: (event) => { const files = extractFilesFromDataTransfer(event.clipboardData); if (files.length) { event.preventDefault(); addFiles(files); } },
         onKeyDown: onKey, 'aria-label': t('chat.messageArgus'), 'aria-keyshortcuts': 'Control+R Meta+R',

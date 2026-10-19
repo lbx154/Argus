@@ -334,6 +334,48 @@ def test_a_letter_is_written_published_and_kept_in_the_project(tmp_path: Path, m
     assert state["count"] == 1
 
 
+def test_only_news_earns_a_letter_and_a_failed_one_waits_for_more(
+    tmp_path: Path, monkeypatch
+) -> None:
+    """A held campaign once asked the Manager for a letter on every held cycle."""
+    from types import SimpleNamespace
+
+    from argus.life.supervisor import _letters
+
+    hour = 3600.0
+    clock = SimpleNamespace(now=1_800_000_000.0)
+    monkeypatch.setattr(_letters, "time", SimpleNamespace(
+        time=lambda: clock.now, strftime=time.strftime, localtime=time.localtime,
+    ))
+    monkeypatch.setenv("ARGUS_SKILL_LETTER_INTERVAL_HOURS", "8")
+    manager = _Manager("")
+    stub, _life_dir, _workdir = _supervisor_stub(tmp_path, manager)
+    start = clock.now
+    stub.memory.journal._entries[:] = []
+    assert stub._maybe_write_letter() is False  # starts the clock
+
+    for hours in range(1, 9 * 24):  # nine quiet days, checked hourly
+        clock.now = start + hours * hour
+        stub._maybe_write_letter()
+    assert manager.prompts == [], "nothing settled and nothing was decided"
+
+    entry = _Entry(clock.now, "mission_complete", "cycle6", "It held on Llama too.", 1.0)
+    stub.memory.journal._entries.append(entry)
+    for hours in range(1, 9 * 24):  # the Manager fails to write it
+        clock.now += hour
+        stub._maybe_write_letter()
+    assert len(manager.prompts) == 1, "the same facts are not retried"
+
+    manager.reply = "Dear colleague, two models now agree.\n\nArgus"
+    stub.memory.journal._entries.append(
+        _Entry(clock.now, "mission_complete", "cycle7", "Mistral agrees.", 1.0)
+    )
+    clock.now += 8 * hour
+    assert stub._maybe_write_letter() is True
+    assert len(manager.prompts) == 2
+    assert "cycle6" in manager.prompts[1] and "cycle7" in manager.prompts[1]
+
+
 def test_letters_can_be_switched_off(tmp_path: Path, monkeypatch) -> None:
     monkeypatch.setenv("ARGUS_SKILL_LETTER_INTERVAL_HOURS", "0")
     manager = _Manager("unused")

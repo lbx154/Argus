@@ -46,7 +46,7 @@ def test_continuous_mission_completion_publishes_once(tmp_path) -> None:
     ]
     assert len(transcript) == 1
     assert transcript[0]["role"] == "argus"
-    assert "Task continued · Fix the first issue · review=done" in transcript[0]["text"]
+    assert "Step done · Fix the first issue · review: passed" in transcript[0]["text"]
     assert (
         "Progress: Updated the parser and passed focused regression tests."
         in transcript[0]["text"]
@@ -148,7 +148,7 @@ def test_bounded_increment_does_not_claim_project_or_stage_completion(tmp_path) 
         (tmp_path / "transcript.jsonl").read_text(encoding="utf-8").splitlines()[-1]
     )["text"]
     assert text == (
-        "Task completed · Write the paper draft · review=done\n"
+        "Task completed · Write the paper draft · review: passed\n"
         "The requested work is complete."
     )
 
@@ -251,7 +251,7 @@ def test_final_submission_completion_is_explicitly_certified(tmp_path) -> None:
         (tmp_path / "transcript.jsonl").read_text(encoding="utf-8").splitlines()[-1]
     )["text"]
     assert text == (
-        "Submission certified · Prepare final ICLR submission · review=done\n"
+        "Submission certified · Prepare final ICLR submission · review: passed\n"
         "The final submission passed independent review."
     )
 

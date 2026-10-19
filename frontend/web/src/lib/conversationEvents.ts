@@ -13,6 +13,7 @@ interface TranscriptTurn {
   delivery_id?: string;
   delivery?: unknown;
   steps?: unknown;
+  campaign_continues?: boolean;
 }
 
 const LOCAL_REQUEST_FIELD = 'local_request_id';
@@ -202,6 +203,7 @@ export function mergeConversationEvents(
     ...(typeof turn.delivery_id === 'string' ? { delivery_id: turn.delivery_id } : {}),
     ...(turn.delivery && typeof turn.delivery === 'object' ? { delivery: turn.delivery } : {}),
     ...(hasSteps(turn.steps) ? { steps: turn.steps } : {}),
+    ...(turn.campaign_continues === true ? { campaign_continues: true } : {}),
   }));
   const keepHistory = new Array(history.length).fill(true);
   for (let index = history.length - 1; index >= 0; index -= 1) {

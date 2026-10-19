@@ -14,8 +14,10 @@ import {
 } from "../lib/attachments";
 import { formatBytes } from "../lib/format";
 import { ComposerAttachmentChip } from "../components/ComposerAttachmentChip";
+import { useDraftUploadView } from "../lib/draftUploads";
 import { RouteSegment } from "../components/RouteSegment";
 import { isImeComposing } from "../lib/ime";
+import { useAutosizeTextarea } from "../useAutosizeTextarea";
 import "./composerMotion.css";
 
 export interface MapComposerProps {
@@ -89,7 +91,9 @@ export function MapComposer({
   const { refs, text } = splitDraft(value);
   const tooLong = value.length > MESSAGE_TEXT_MAX_CHARS;
   // Typed text, reference chips, or files: content a collapse must never lose.
-  const hasDraft = Boolean(value.trim() || attachments.length);
+  const uploads = useDraftUploadView();
+  const readyUploads = uploads?.ready ?? [];
+  const hasDraft = Boolean(value.trim() || attachments.length || readyUploads.length);
   const currentDraft = useRef(hasDraft);
   currentDraft.current = hasDraft;
   useEffect(() => {
@@ -167,18 +171,7 @@ export function MapComposer({
     }
     refCount.current = refs.length;
   }, [refs.length]);
-  const resizeInput = () => {
-    if (!input.current) return;
-    input.current.style.height = "0px";
-    const height = Math.min(156, Math.max(44, input.current.scrollHeight));
-    input.current.style.height = `${height}px`;
-    setInputHeight(height);
-  };
-  useEffect(resizeInput, [text]);
-  useEffect(() => {
-    window.addEventListener("resize", resizeInput);
-    return () => window.removeEventListener("resize", resizeInput);
-  }, []);
+  const resizeInput = useAutosizeTextarea(input, text, 44, 156, setInputHeight);
   const open = () => {
     setExpanded(true);
     // Keep focus in the user gesture so iOS opens the software keyboard.
@@ -328,12 +321,21 @@ export function MapComposer({
           ))}
         </div>
       )}
-      {!compact && !!attachments.length && (
+      {!compact && !!(attachments.length || readyUploads.length) && (
         <div
           className="map-attachment-tray nowheel"
           role="group"
           aria-label={zh ? "待发送附件" : "Selected attachments"}
         >
+          {readyUploads.map((attachment) => (
+            <ComposerAttachmentChip
+              key={attachment.attachment_id}
+              uploaded={attachment}
+              disabled={pending}
+              removeLabel={t("chat.attachRemove", { name: attachment.original_name })}
+              onRemove={() => uploads?.removeReady(attachment.attachment_id)}
+            />
+          ))}
           {attachments.map((file, i) => (
             <ComposerAttachmentChip
               key={`${file.name}:${file.lastModified}:${i}`}

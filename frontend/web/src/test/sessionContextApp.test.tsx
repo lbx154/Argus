@@ -21,7 +21,7 @@ const fixture = vi.hoisted(() => {
     idle,
     index: { ...idle, data: { projects: [] as unknown[], local_cwd: '/synthetic' } },
     snapshots: new Map<string, typeof idle & { data?: unknown; error?: Error }>(),
-    actions: Object.fromEntries(['startDaemon', 'stopDaemon', 'forceStopDaemon', 'updateProject', 'deleteProject', 'disposeBacklog', 'stopBacklog', 'setContinuous'].map(key => [key, mutation])),
+    actions: Object.fromEntries(['startDaemon', 'stopDaemon', 'forceStopDaemon', 'pauseDaemon', 'updateProject', 'deleteProject', 'disposeBacklog', 'stopBacklog', 'setContinuous'].map(key => [key, mutation])),
     turns: [] as unknown[],
     events: [],
     artifacts: [],
@@ -152,11 +152,14 @@ describe('App session composer ownership', () => {
     const stream = vi.spyOn(api, 'messageStream').mockResolvedValue();
     const file = new File(['A'], 'report.md');
     type('A upload');
-    act(() => props().onAttachmentsChange([file]));
+    // The file starts uploading as soon as it is chosen, before any send.
+    await act(async () => props().onAttachmentsChange([file]));
+    expect(api.uploadAttachments).toHaveBeenCalledWith('s-A', [file], expect.any(AbortSignal),
+      expect.objectContaining({ onProgress: expect.any(Function) }));
     let sent!: Promise<boolean>;
     act(() => { sent = Promise.resolve(props().onSend('A upload', [file])); });
-    expect(api.uploadAttachments).toHaveBeenCalledWith('s-A', [file], expect.any(AbortSignal),
-      expect.objectContaining({ onUploaded: expect.any(Function), onProgress: expect.any(Function) }));
+    // Sending waits for that upload instead of starting a second one.
+    expect(api.uploadAttachments).toHaveBeenCalledTimes(1);
     select('s-B');
     expect(props().value).toBe('');
     type('B untouched');
@@ -176,13 +179,15 @@ describe('App session composer ownership', () => {
     const file = new File(['old'], 'report.md');
     const replacement = new File(['new'], 'report.md', { lastModified: file.lastModified });
     type('same text');
-    act(() => props().onAttachmentsChange([file]));
+    await act(async () => props().onAttachmentsChange([file]));
     let sent!: Promise<boolean>;
     act(() => { sent = Promise.resolve(props().onSend('same text', [file])); });
     type(''); type('same text');
     act(() => props().onAttachmentsChange([replacement]));
     await act(async () => {
-      upload.resolve({ attachments: [], limits: { max_count: 8, max_bytes_per_file: 1000, max_total_bytes: 8000 } });
+      upload.resolve({ attachments: [{ attachment_id: 'att-000000000001', relative_path: '.argus/attachments/s-A/att-000000000001/report.md',
+        original_name: 'report.md', stored_name: 'report.md', mime: 'text/markdown', size_bytes: file.size }],
+      limits: { max_count: 8, max_bytes_per_file: 1000, max_total_bytes: 8000 } });
       expect(await sent).toBe(true);
     });
     expect(props().value).toBe('same text');

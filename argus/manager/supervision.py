@@ -803,7 +803,9 @@ def supervise(
                 previous.get("control_revision"), previous.get("applied_control_revision"),
             }:
                 return previous
-            deadline = time.monotonic() + 30
+            # 30 s cut 14 of 72 high-effort calls in s-a43d1018 (median 21 s,
+            # every cut at 30.2-31.0 s), losing the decision each time.
+            deadline = time.monotonic() + 60
 
             def cancellation_code() -> str | None:
                 if cancelled and cancelled():

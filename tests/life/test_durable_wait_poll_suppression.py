@@ -689,11 +689,11 @@ def test_repersisted_operator_event_wait_keeps_idle_turn_throttle(
     )
     supervisor._write_planner_waiting_contract_state(wait_state)
     assert supervisor._plan_next_work() == PLAN_AWAITING
-    assert calls == 3
+    assert calls == 2, "an aged operator wait on unchanged inputs is not news"
 
     monkeypatch.setattr(supervisor, "_waiting_backlog_revision", lambda: "changed")
     assert supervisor._plan_next_work() == PLAN_AWAITING
-    assert calls == 4
+    assert calls == 3
 
 
 def test_operator_wait_regrant_cadence_is_decoupled_from_idle_backoff_cap(
@@ -740,6 +740,10 @@ def test_operator_wait_regrant_cadence_is_decoupled_from_idle_backoff_cap(
     assert supervisor._plan_next_work() == PLAN_AWAITING
     assert calls == 2
 
+    # Something the Planner reads has moved, so only the cadence decides.
+    monkeypatch.setattr(
+        supervisor, "_operator_wait_input_signature", lambda: "something-moved"
+    )
     # Aged just past the idle backoff cap but short of the regrant cadence:
     # if the two were still coupled this would grant a turn.
     wait_path = next(life.glob("planner-waiting-contract-*.json"))
@@ -1115,6 +1119,62 @@ def test_backlog_rewrites_without_scheduling_changes_are_not_new_evidence(tmp_pa
     assert after_add != before
     assert supervisor.memory.backlog.resume_paused(item.id) is not None
     assert supervisor._waiting_backlog_revision() not in {before, after_add}
+
+
+def test_planner_operator_wait_with_empty_backlog_never_regrants_on_age(
+    tmp_path: Path,
+    monkeypatch,
+) -> None:
+    """The Planner's own operator-only wait, with nothing parked in the backlog,
+    is the same "only the operator can move this" state as a parked question.
+    It once re-granted a full Planner call every five minutes on unchanged
+    inputs for as long as nobody answered. Changed inputs still earn the turn."""
+    project = tmp_path / "project"
+    project.mkdir()
+    life = tmp_path / "life"
+    calls = 0
+
+    def _plan_next(_planner, **_kwargs):
+        nonlocal calls
+        calls += 1
+        return PlannerVerdict(
+            project_done=False,
+            reason="the operator confirms the dataset licence",
+            waiting=True,
+            waiting_reason="the operator confirms the dataset licence",
+            waiting_contract=WaitingContract(
+                blocker_fingerprint="dataset-licence",
+                recheck_condition="the operator confirms the dataset licence",
+                recheck_token="dataset-licence-v1",
+                wait_mode="event",
+                wake_on=("authorization",),
+                operator_action_required=True,
+            ),
+        )
+
+    monkeypatch.setattr("argus.planner.Planner.plan_next", _plan_next)
+    supervisor = _supervisor(project, life)
+    assert supervisor.memory.backlog.active() == []
+
+    assert supervisor._plan_next_work() == PLAN_AWAITING
+    assert calls == 1
+    assert supervisor._plan_next_work() == PLAN_AWAITING
+    assert calls == 2
+    wait_path = next(life.glob("planner-waiting-contract-*.json"))
+    for _ in range(12):
+        wait_state = json.loads(wait_path.read_text(encoding="utf-8"))
+        wait_state["idle_capacity_turn_ts"] = (
+            time.time() - 10 * OPERATOR_WAIT_TURN_REGRANT_SECONDS
+        )
+        supervisor._write_planner_waiting_contract_state(wait_state)
+        assert supervisor._plan_next_work() == PLAN_AWAITING
+    assert calls == 2, "an aged wait on unchanged inputs is not news"
+
+    monkeypatch.setattr(
+        supervisor, "_operator_wait_input_signature", lambda: "something-moved"
+    )
+    assert supervisor._plan_next_work() == PLAN_AWAITING
+    assert calls == 3
 
 
 def test_open_operator_question_with_unchanged_inputs_never_regrants_on_age(

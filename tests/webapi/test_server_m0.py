@@ -603,6 +603,9 @@ def test_build_snapshot_shape_and_failsoft(
         "observability",
         "mission_view",
         "background_work",
+        "launch_hold",
+        "storage",
+        "goal",
         "partial",
         "diagnostics",
     }

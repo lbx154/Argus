@@ -26,6 +26,8 @@ export interface DaemonHealth {
 export interface Daemon {
   alive: boolean;
   pid: number | null;
+  /** A pause-after-current-task request is still being honoured. */
+  draining?: boolean;
   control_available?: boolean;
   liveness_source?: 'pid_lock' | 'namespace_heartbeat' | 'none' | string;
   heartbeat_age_seconds?: number | null;
@@ -114,7 +116,7 @@ export interface DeliveryTarget {
 export interface DeliveryReceipt {
   schema_version: number;
   delivery_id: string;
-  kind: 'task_completed' | 'submission_certified' | string;
+  kind: 'task_completed' | 'submission_certified' | 'stage_package' | string;
   item_id: string;
   title: string;
   summary: string;
@@ -363,6 +365,31 @@ export interface MissionView {
   updated_at: number;
 }
 
+/** Settings chosen before a project's first task (sent with that message). */
+export interface LaunchSettings {
+  first_result_hours: number | null;
+  target_level: 'auto' | 'exploratory' | 'publishable';
+  deliverable: 'any' | 'report' | 'code' | 'paper' | 'data';
+  /** Queue and plan the task, but start it only after the operator confirms. */
+  hold: boolean;
+}
+
+/** A first task that is planned and queued but waits for the operator's go-ahead. */
+export interface LaunchHold {
+  created_at: number;
+  item_id: string;
+  title: string;
+  request: string;
+  continuous: boolean;
+  settings: Partial<LaunchSettings>;
+  understood?: {
+    objective?: string;
+    requirements?: Array<{ text: string; authority: string }>;
+    exclusions?: string[];
+    ambiguities?: string[];
+  };
+}
+
 export interface Snapshot {
   schema_version?: number;
   session: {
@@ -399,6 +426,12 @@ export interface Snapshot {
   manager_requests?: Array<{ request_id: string; status: 'running' }>;
   /** Teams the open missions wait on, read once so every surface says the same thing. */
   background_work?: BackgroundWorkEntry[];
+  /** A planned first task waiting for the operator to start it. */
+  launch_hold?: LaunchHold | null;
+  /** The committed operator objective, for overview headings. */
+  goal?: string;
+  /** Free space on the disk holding the project's outputs. */
+  storage?: { total_bytes: number; free_bytes: number; used_fraction: number | null } | null;
   partial?: boolean;
   diagnostics?: Array<{
     section: string;

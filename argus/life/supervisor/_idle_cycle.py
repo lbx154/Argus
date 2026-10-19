@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import logging
 import os
+import re
 import time
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
@@ -94,6 +95,45 @@ class IdleCycleMixin:
             "item_id": str(getattr(item, "id", "") or ""),
             "reason": reason,
             "fingerprint": fingerprint,
+            "recoverable": True,
+        }
+
+    def _retry_window_fence_block(self, *, item: Any | None = None) -> dict[str, Any] | None:
+        """Start no task while another waits after its automatic retries ran out.
+
+        The model service that turned that task away for the whole retry
+        window would turn the next one away too; the operator's explicit Run
+        resumes every fenced task at once.
+        """
+        from ...core.autonomy import RETRY_WINDOW_SPENT_REASON
+
+        read_backlog = getattr(self.memory.backlog, "active", None)
+        if not callable(read_backlog):
+            read_backlog = getattr(self.memory.backlog, "all", None)
+        if not callable(read_backlog):
+            return None
+        fenced = next(
+            (
+                row for row in read_backlog()
+                if row.status == "paused_provider_fence"
+                and str(row.last_error or "").startswith(RETRY_WINDOW_SPENT_REASON)
+            ),
+            None,
+        )
+        if fenced is None:
+            return None
+        reason = (
+            f"task {fenced.id} used up its automatic retries; no new task starts "
+            "until the operator clicks Run"
+        )
+        if self._should_journal_idle_repeat("retry_window_fence"):
+            self._emit_status(reason)
+        # Not a provider-fence status: that one wakes the daemon whenever
+        # work is ready, and the work held here is ready.
+        return {
+            "status": "infra_blocked",
+            "item_id": str(getattr(item, "id", "") or ""),
+            "reason": reason,
             "recoverable": True,
         }
 
@@ -332,6 +372,154 @@ class IdleCycleMixin:
                 return True
             self._release_operator_inbox()
         return False
+
+    def _decide_overdue_venue_stalls(self) -> bool:
+        """Decide a venue-stall question the operator left unanswered.
+
+        A venue revision that stalled asked the operator how to continue
+        (``decision_kind == "venue_stall"``). Left unanswered for
+        ``VENUE_STALL_DECISION_SECONDS``, the Manager picks one of the offered
+        options, once per question, records it as an assumption and says so.
+        Operator decision, 2026-10-19. The Manager decides one stall per
+        operator message: when its choice stalled again, the next question
+        waits for the operator. Returns True when a decision was applied.
+        """
+        from ...core.venue_review import VENUE_STALL_DECISION_SECONDS
+
+        now = time.time()
+        try:
+            items = list(self.memory.backlog.active())
+        except Exception:  # noqa: BLE001 - an unreadable backlog decides nothing
+            return False
+        for item in items:
+            card = dict(getattr(item, "operator_decision", None) or {})
+            if (
+                card.get("decision_kind") != "venue_stall"
+                or card.get("status") != "pending"
+                or card.get("auto_decision_attempted_at")
+                or now - float(card.get("asked_at") or now) < VENUE_STALL_DECISION_SECONDS
+            ):
+                continue
+            # One attempt per question, recorded before the call.
+            card["auto_decision_attempted_at"] = now
+            self.memory.backlog.update(item.id, operator_decision=card)
+            if self._manager_decided_a_stall_since_the_operator_spoke():
+                self._tell_operator(
+                    f"venue-stall-waiting-{item.id}",
+                    "The revision stalled again after the Manager's earlier choice, so this "
+                    "question waits for your answer.",
+                    "Manager 之前代为选择后，论文修改再次停滞，这次的问题会等待你回答。",
+                )
+                continue
+            if self._apply_venue_stall_decision(item, card):
+                return True
+        return False
+
+    def _manager_decided_a_stall_since_the_operator_spoke(self) -> bool:
+        from ...core.autonomy import read_autonomous_assumptions
+        from ...core.transcript import read_turns
+
+        spoke = max(
+            (
+                float(turn.get("ts") or 0.0)
+                for turn in read_turns(self._manager_project_report_root())
+                if turn.get("role") == "operator"
+            ),
+            default=0.0,
+        )
+        return any(
+            row.get("source") == "venue_stall_timeout" and float(row.get("ts") or 0.0) > spoke
+            for row in read_autonomous_assumptions(self._project_state_root())
+        )
+
+    def _apply_venue_stall_decision(self, item: Any, card: dict[str, Any]) -> bool:
+        from ...core.autonomy import record_autonomous_assumption
+
+        options = [
+            option for option in card.get("options") or []
+            if isinstance(option, dict) and option.get("id")
+        ]
+        question = str(card.get("question") or getattr(item, "pending_question", "") or "")
+        prompt = (
+            "The operator was asked the question below twelve hours ago and has not "
+            "answered. Decide it on their behalf: choose the option that best serves "
+            "the stated objective given the current paper and its reviews. Do not "
+            "spend money or take outward-facing actions on this decision.\n\n"
+            f"Objective:\n{getattr(self.config, 'continuous_objective', '') or ''}\n\n"
+            f"Question:\n{question}\n\nWhy it was asked:\n{card.get('reason') or ''}\n\n"
+            "Options:\n"
+            + "\n".join(
+                f"- {option['id']}: {option.get('label') or ''}. {option.get('description') or ''}"
+                for option in options
+            )
+            + "\n\nEnd with exactly two lines:\nOPTION=<one option id>\nREASON=<one sentence>"
+        )
+        try:
+            reply = str(self._bound_manager().write_prose(
+                prompt,
+                on_event=getattr(self.sink, "handle_event", None),
+                run_label="manager-venue-stall-decision",
+            ) or "")
+        except Exception:  # noqa: BLE001 - the question stays with the operator
+            log.warning("venue stall decision failed for %s", item.id, exc_info=True)
+            reply = ""
+        chosen = re.search(r"(?im)^\s*OPTION\s*=\s*([A-Za-z0-9_-]+)", reply)
+        option = next(
+            (row for row in options if chosen and row["id"] == chosen.group(1)), None,
+        )
+        if option is None:
+            self._tell_operator(
+                f"venue-stall-undecided-{item.id}",
+                "The paper's revision question has waited twelve hours and the Manager "
+                "could not decide it, so it stays open for you.",
+                "论文修改的问题已等待 12 小时，Manager 未能代为决定，问题仍留给你。",
+            )
+            return False
+        stated = re.search(r"(?im)^\s*REASON\s*=\s*(.+)$", reply)
+        why = stated.group(1).strip() if stated else ""
+        decision = (
+            "The operator did not answer within twelve hours, so the Manager chose: "
+            f"{option.get('label') or option['id']}. {why}"
+        ).strip()
+        _blocked, continuation = self.memory.backlog.continue_with_operator_reply(
+            item.id,
+            decision,
+            manager_decision=decision,
+            decision_option=str(option["id"]),
+            decision_id=str(card.get("id") or ""),
+            decision_note="decided by the Manager after twelve hours without an answer",
+            manager_reply=why,
+            operator_context_persisted=True,
+        )
+        if continuation is None:
+            return False
+        self._emit({
+            "type": EventType.LIFE_OPERATOR_QUESTION_ANSWERED,
+            "item_id": item.id,
+            "continuation_item_id": continuation.id,
+            "question": question,
+            "manager_decision": decision,
+            "decision_id": str(card.get("id") or ""),
+        })
+        record_autonomous_assumption(
+            self._project_state_root(),
+            item_id=item.id,
+            conflict=question,
+            reading=f"{option.get('label') or option['id']}: {why}",
+            source="venue_stall_timeout",
+        )
+        self._tell_operator(
+            f"venue-stall-decided-{item.id}",
+            f"You did not answer the paper's revision question within twelve hours, "
+            f"so the Manager chose \u201c{option.get('label') or option['id']}\u201d"
+            + (f": {why}" if why else ".")
+            + " Reply here to change it.",
+            f"论文修改的问题 12 小时内没有收到你的回复，Manager 已代为选择“{option.get('label') or option['id']}”"
+            + (f"：{why}" if why else "。")
+            + " 如需更改，请直接在这里回复。",
+        )
+        self._reset_idle_backoff()
+        return True
 
     def _take_operator_guidance_carryover(self) -> list[str]:
         """Operator guidance consumed elsewhere, handed to the Planner once."""

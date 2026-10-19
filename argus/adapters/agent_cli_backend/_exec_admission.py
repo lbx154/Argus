@@ -4,6 +4,7 @@
 
 1. Runner CLI option translation.
 2. External-interrupt check.
+3. Background-call budget (only in a daemon; see ``core/call_guard.py``).
 
 Every backend is admitted the same way; the host-wide concurrency slot is
 taken by the caller before this runs.
@@ -23,6 +24,7 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING, Any
 
+from ...core import call_guard
 from ...core.models import RunnerResult
 from ...core.stop_kinds import stop_kind_from_external_interrupt
 from ._exec_finalize import finalize_result
@@ -79,6 +81,23 @@ def admit(ctx: "_ExecContext") -> tuple[Any, RunnerResult | None]:
             ),
             status="denied",
             error=reason,
+        )
+
+    # ------------------------------------------------------------------ #
+    # 3. Background calls without progress (core/call_guard.py)           #
+    # ------------------------------------------------------------------ #
+    paused = call_guard.refusal(ctx.run_label)
+    if paused:
+        return None, finalize_result(
+            ctx,
+            RunnerResult(
+                exit_code=-1,
+                thread_id=ctx.resume_thread_id,
+                fatal_error=paused,
+                stop_kind="operator_pause",
+            ),
+            status="denied",
+            error=paused,
         )
 
     return cli_options, None

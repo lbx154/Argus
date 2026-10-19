@@ -136,6 +136,56 @@ def test_intermediate_success_has_no_delivery_even_with_an_artifact(tmp_path: Pa
     ) is None
 
 
+def _stage_package_receipt(tmp_path: Path, **overrides):
+    workspace = tmp_path / "workspace"
+    state = tmp_path / "state"
+    workspace.mkdir(exist_ok=True)
+    state.mkdir(exist_ok=True)
+    (workspace / "package.md").write_text("# Round 1 results\n", encoding="utf-8")
+    fields = dict(
+        item_id="task-package",
+        title="Package the first real comparison",
+        summary="Real results, failures and unmet requirements.",
+        success=True,
+        overall_complete=False,
+        status="done",
+        review_status="done",
+        review_source="reviewer",
+        final_submission_certified=False,
+        workspace=workspace,
+        state_root=state,
+        reviewer_artifacts=["package.md"],
+        stage_package=True,
+    )
+    fields.update(overrides)
+    return build_delivery_receipt(**fields)
+
+
+def test_reviewed_stage_package_gets_a_non_terminal_receipt(tmp_path: Path) -> None:
+    receipt = _stage_package_receipt(tmp_path)
+
+    assert receipt is not None
+    assert receipt["kind"] == "stage_package"
+    assert receipt["primary_target"]["path"] == "package.md"
+
+
+@pytest.mark.parametrize("overrides", [
+    {"review_source": "engineer_self_review"},
+    {"review_status": "continue"},
+    {"success": False},
+    {"stage_package": False},
+])
+def test_stage_package_needs_an_independent_accepted_review(tmp_path: Path, overrides) -> None:
+    # An unreviewed summary or a status string must never stand in for a delivery.
+    assert _stage_package_receipt(tmp_path, **overrides) is None
+
+
+def test_completed_goal_keeps_its_terminal_kind_even_for_a_package_task(tmp_path: Path) -> None:
+    receipt = _stage_package_receipt(tmp_path, overall_complete=True)
+
+    assert receipt is not None and receipt["kind"] == "task_completed"
+
+
 def test_delivery_receipt_does_not_exist_without_a_renderable_file(tmp_path: Path) -> None:
     workspace = tmp_path / "workspace"
     state = tmp_path / "state"

@@ -5,7 +5,7 @@ import type { MissionView } from '../../../core/src/types';
 import { theme } from '../lib/theme';
 import { roleLabel } from '../lib/enumLabels';
 import { FontAwesomeIcon } from '@fortawesome/react-fontawesome';
-import { faPause, faPlay } from '@fortawesome/free-solid-svg-icons';
+import { faPause, faPlay, faStop } from '@fortawesome/free-solid-svg-icons';
 import { DaemonSpendBadge } from './DaemonSpendBadge';
 import { useI18n } from '../i18n';
 import { currentWorkStartedAt, currentWorkStatus } from '../lib/workStatus';
@@ -20,6 +20,7 @@ export function TopBar({
   streamOk,
   onStart,
   onStop,
+  onPause,
   onManage,
   onOpenSessions,
   mobileView,
@@ -33,7 +34,10 @@ export function TopBar({
   snap: Snapshot;
   streamOk: boolean;
   onStart: () => void;
+  /** Immediate interruption; asks the operator to confirm first. */
   onStop: () => void;
+  /** Pause once the running task finishes; falls back to onStop when absent. */
+  onPause?: () => void;
   onManage: () => void;
   onOpenSessions?: () => void;
   mobileView?: 'activity' | 'preview';
@@ -67,13 +71,19 @@ export function TopBar({
   // the daemon; offering "Run" then reads as if nothing had started.
   const foregroundWork = !snap.daemon.alive && ['running', 'waiting'].includes(currentWorkStatus(snap, missionView, events).state);
   const hasQueuedWork = snap.backlog.some(item => ['pending', 'queued', 'running', 'in_progress', 'claimed', 'paused'].includes(item.status));
+  const draining = snap.daemon.alive && snap.daemon.draining === true;
   const daemonActionLabel = externalDaemon
     ? t('topbar.externallyManaged')
+    : draining
+    ? t('topbar.draining')
     : snap.daemon.alive
-    ? t('topbar.pauseDaemon')
+    ? onPause ? t('topbar.pauseAfterCurrent') : t('topbar.pauseDaemon')
     : foregroundWork
     ? t('topbar.working')
     : t('topbar.runDaemon');
+  const stopNow = () => {
+    if (window.confirm(t('daemon.stopConfirm'))) onStop();
+  };
   const healthTitle = degraded
     ? [
         ...(snap.diagnostics ?? []).map((item) => `${item.section}: ${item.message}`),
@@ -149,15 +159,26 @@ export function TopBar({
         <>
           {(snap.daemon.alive || foregroundWork || hasQueuedWork) && <button
             type="button"
-            disabled={busy || externalDaemon || foregroundWork}
-            onClick={snap.daemon.alive ? onStop : onStart}
+            disabled={busy || externalDaemon || foregroundWork || draining}
+            onClick={snap.daemon.alive ? (onPause ?? stopNow) : onStart}
             aria-label={daemonActionLabel}
-            title={externalDaemon ? t('topbar.externalDaemonHint') : daemonActionLabel}
+            title={externalDaemon ? t('topbar.externalDaemonHint') : snap.daemon.alive && onPause && !draining ? t('topbar.pauseAfterCurrentHint') : daemonActionLabel}
             className="compact-control flex h-8 shrink-0 items-center gap-1 px-2 disabled:opacity-40"
           >
             <FontAwesomeIcon icon={snap.daemon.alive ? faPause : faPlay} className="h-3 w-3" />
-            <span className="hidden sm:inline">{externalDaemon ? t('common.external') : snap.daemon.alive ? t('common.pause') : foregroundWork ? t('common.working') : t('common.run')}</span>
+            <span className="hidden sm:inline">{externalDaemon ? t('common.external') : draining ? t('topbar.draining') : snap.daemon.alive ? t('common.pause') : foregroundWork ? t('common.working') : t('common.run')}</span>
           </button>}
+          {snap.daemon.alive && onPause && !externalDaemon ? <button
+            type="button"
+            disabled={busy}
+            onClick={stopNow}
+            aria-label={t('topbar.stopNow')}
+            title={t('topbar.stopNowHint')}
+            className="compact-control flex h-8 shrink-0 items-center gap-1 px-2 text-err disabled:opacity-40"
+          >
+            <FontAwesomeIcon icon={faStop} className="h-3 w-3" />
+            <span className="hidden md:inline">{t('topbar.stopNow')}</span>
+          </button> : null}
           <button
             type="button"
             aria-label={t('topbar.manageSession')}

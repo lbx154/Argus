@@ -20,7 +20,7 @@ export interface WorkStatus {
   title: string;
   activityAt: number | null;
   activityAgeSeconds: number | null;
-  reason: 'provider_wait' | 'no_recent_progress' | 'awaiting_next_step' | 'not_running' | 'task_failed' | 'operator_input' | 'background_work' | '';
+  reason: 'provider_wait' | 'no_recent_progress' | 'awaiting_next_step' | 'not_running' | 'task_failed' | 'operator_input' | 'background_work' | 'launch_confirm' | '';
   /** Set when the task is waiting on work outside its own rounds. */
   waitingOn?: BackgroundWait;
   /** The Manager is answering a request the operator sent, not tidying up on its own. */
@@ -146,6 +146,8 @@ export function currentWorkStatus(
     activityAt, activityAgeSeconds: activityAt === null ? null : Math.max(0, nowSeconds - activityAt), reason: '',
   };
   if (!snapshot || snapshot.daemon.read_status === 'error') return { ...result, state: 'unknown' };
+  // A first task planned and held: nothing runs until the operator starts it.
+  if (snapshot.launch_hold && !snapshot.daemon.alive) return { ...result, state: 'paused', role: '', reason: 'launch_confirm' };
   const managerRunning = snapshot.manager_requests?.some(request => request.status === 'running') ?? false;
   if (managerRunning) {
     const provider = activeProviderRequest(events);
@@ -264,6 +266,7 @@ export function workStatusLabel(status: WorkStatus, locale: Locale, connected = 
   const zh = locale === 'zh-CN';
   if (!connected) return zh ? '实时连接已断开' : 'Live connection lost';
   if (status.reason === 'operator_input') return zh ? '当前任务等待你的回复' : 'This task is waiting for your reply';
+  if (status.reason === 'launch_confirm') return zh ? '计划已排好，等你确认开始' : 'Plan ready; waiting for your go-ahead';
   if (status.reason === 'task_failed') return zh ? '这一步执行未完成' : 'Execution of this step did not finish';
   if (status.reason === 'background_work') return backgroundWaitLabel(status, locale);
   if (status.state === 'running') {

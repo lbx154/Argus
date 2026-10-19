@@ -120,6 +120,29 @@ def test_provider_fence_explains_explicit_recovery(hint: str, resume: str) -> No
 
 
 @pytest.mark.parametrize(
+    ("title", "hint", "expected"),
+    [
+        ("通信论文", "继续论文", "模型服务连续三小时没有恢复"),
+        ("Research", "Continue the paper", "three hours of automatic retries"),
+    ],
+)
+def test_a_spent_retry_window_is_explained_in_the_operator_language(
+    title: str, hint: str, expected: str,
+) -> None:
+    from argus.core.autonomy import RETRY_WINDOW_SPENT_REASON
+
+    text = render_operator_update(
+        title=title,
+        status="paused_provider_fence",
+        reason=f"{RETRY_WINDOW_SPENT_REASON} (HTTP 503 Service Unavailable).",
+        language_hint=hint,
+    )
+
+    assert expected in text
+    assert RETRY_WINDOW_SPENT_REASON not in text
+
+
+@pytest.mark.parametrize(
     ("title", "hint", "waiting", "continuation"),
     [
         ("通信论文", "继续修订论文", "正在等待后台任务完成", "自动继续"),

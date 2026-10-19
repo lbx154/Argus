@@ -313,6 +313,31 @@ def test_loop_escalates_to_error_on_reviewer_backend_death(tmp_path: Path) -> No
     assert continues == []
 
 
+def test_reviewer_outage_names_the_model_service_as_the_stop(tmp_path: Path) -> None:
+    engine = SupervisedEngineer(
+        engineer_runner=_HealthyEngineerRunner(),
+        reviewer=_DeadBackendReviewer(),
+        engineer_config=EngineerConfig(model="gpt-5.5"),
+        reviewer_config=ReviewerConfig(model="gpt-5.5"),
+    )
+    status, rounds, _final_msg, _reason, _tid = engine.run(
+        objective="minimize val_bpb",
+        engineer_prompt_builder=lambda _next_action, _include_static=True: "do the next increment",
+        supervised_config=SupervisedConfig(
+            max_rounds=10,
+            backend_failure_threshold=2,
+            backend_failure_backoff_seconds=0.0,
+            background_subagent_advisory=False,
+        ),
+        workdir=tmp_path,
+        on_event=lambda _event: None,
+    )
+
+    # The host bounds a run of such tasks as an outage, not as plan failures.
+    assert status == "error"
+    assert rounds[-1].stop_kind == "backend_unavailable"
+
+
 class _DoneReviewer:
     def __init__(self) -> None:
         self.calls = 0

@@ -1003,7 +1003,7 @@ def render_claim_attainment(card: dict[str, Any], *, limit: int = ATTAINMENT_MAX
             host = f"pointer {pointer}: {entry['source']} {entry['field']}".rstrip()
         obtained = f' — Engineer: "{entry["obtained"]}"' if entry.get("obtained") else ""
         note = (
-            " [restated: this clause is not among METHOD.md's falsification conditions; the claim is fixed]"
+            " [restated: this clause is not among METHOD.md's falsification conditions; judge against METHOD.md as written]"
             if position in restated and against["falsifiers"]
             else ""
         )

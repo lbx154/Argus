@@ -1,0 +1,170 @@
+from __future__ import annotations
+
+import json
+
+import pytest
+from fastapi.testclient import TestClient
+
+from argus.core.launch_settings import launch_note, launch_target_level_stated, normalize_launch_settings
+from argus.core.project_contract import AUTHORITY_MANAGER, AUTHORITY_OPERATOR, load_contract
+from argus.core.session import SessionMeta, write_session_meta
+from argus.daemon import life_worker as daemon_worker
+from argus.life.memory import BacklogItem, LifeMemory
+from argus.webapi import launch_hold, manager_bridge, server
+from argus.webapi.daemon_services import DaemonServices
+
+
+def test_default_settings_are_no_settings():
+    assert normalize_launch_settings(None) is None
+    assert normalize_launch_settings({}) is None
+    assert normalize_launch_settings({"target_level": "auto", "deliverable": "any"}) is None
+    assert normalize_launch_settings({"target_level": "doctoral", "first_result_hours": 0.1}) is None
+    assert normalize_launch_settings({"hold": True}) == {
+        "first_result_hours": None, "target_level": "auto", "deliverable": "any", "hold": True,
+    }
+
+
+def test_launch_note_states_each_choice_in_the_request_language():
+    settings = normalize_launch_settings({"first_result_hours": 4, "target_level": "exploratory", "deliverable": "report"})
+    zh = launch_note(settings, language_hint="帮我研究一下这个问题")
+    assert "4 小时内交付" in zh and "研究定位：探索性" in zh and "成果形式：一份书面报告" in zh
+    assert launch_target_level_stated(zh)
+    en = launch_note({**settings, "first_result_hours": 24.0}, language_hint="study this")
+    assert "within 1 day" in en and "Research ambition: exploratory" in en
+    assert launch_note(None) == ""
+    assert not launch_target_level_stated(launch_note({"first_result_hours": 2.0}, language_hint="研究"))
+
+
+def _status(life, item_id):
+    return next(row.status for row in LifeMemory.open(life).backlog.history() if row.id == item_id)
+
+
+def _project(tmp_path, sid):
+    life = tmp_path / "projects" / sid
+    life.mkdir(parents=True)
+    write_session_meta(tmp_path, SessionMeta(id=sid, cwd=str(life), workdir=str(life)))
+    return life
+
+
+def test_hold_view_only_while_held_work_is_waiting(tmp_path):
+    life = _project(tmp_path, "s-hold-view")
+    record = launch_hold.write_launch_hold(
+        life, {"item": {"id": "a", "title": "Survey X"}}, {"hold": True}, operator_text="研究 X",
+    )
+    assert record["item_id"] == "a"
+    pending = [{"id": "a", "status": "pending"}]
+    view = launch_hold.launch_hold_view(life, daemon_alive=False, backlog=pending)
+    assert view is not None and view["title"] == "Survey X" and view["understood"] == {}
+    assert launch_hold.launch_hold_view(life, daemon_alive=True, backlog=pending) is None
+    assert launch_hold.launch_hold_view(life, daemon_alive=False, backlog=[{"id": "a", "status": "skipped"}]) is None
+    assert launch_hold.clear_launch_hold(life) and launch_hold.read_launch_hold(life) is None
+
+
+def test_discard_skips_never_started_work(tmp_path):
+    life = _project(tmp_path, "s-hold-discard")
+    backlog = LifeMemory.open(life).backlog
+    item = backlog.add(BacklogItem.new(title="Survey X", objective="Survey X"))
+    launch_hold.write_launch_hold(life, {"item": {"id": item.id}}, {"hold": True})
+    result = launch_hold.discard_held_work(life)
+    assert result["skipped"] == [item.id]
+    assert _status(life, item.id) == "skipped"
+    assert launch_hold.read_launch_hold(life) is None
+
+
+@pytest.mark.parametrize("streaming", [False, True])
+def test_held_task_is_queued_but_not_started_until_confirmed(tmp_path, monkeypatch, streaming):
+    sid = "s-hold-route"
+    life = _project(tmp_path, sid)
+    item = LifeMemory.open(life).backlog.add(BacklogItem.new(title="Survey X", objective="Survey X"))
+    seen = {}
+
+    def handoff(sid_, text, **kwargs):
+        seen.update(kwargs)
+        return {"kind": "task", "item": {"id": item.id, "title": "Survey X", "status": "pending"}}
+
+    starts = []
+    monkeypatch.setattr(manager_bridge, "manager_message", handoff)
+    services = DaemonServices(read_status=daemon_worker.read_daemon_status,
+                              start=lambda *args, **kwargs: starts.append(kwargs) or {"rc": 0})
+    with TestClient(server.create_app(global_root=tmp_path, daemon_services=services)) as client:
+        response = client.post(
+            f"/api/projects/{sid}/message" + ("/stream" if streaming else ""),
+            json={"text": "研究 X", "launch": {"first_result_hours": 4, "hold": True}},
+        )
+        assert response.status_code == 200
+        if streaming:
+            frames = [json.loads(line[6:]) for line in response.text.splitlines() if line.startswith("data: ")]
+            result = next(frame["result"] for frame in frames if frame["type"] == "done")
+        else:
+            result = response.json()
+        assert seen["launch"]["first_result_hours"] == 4
+        assert starts == []
+        assert result["launch_hold"]["item_id"] == item.id
+        assert "点“开始执行”后才会开始" in result["reply"]
+        snapshot = client.get(f"/api/projects/{sid}/snapshot?compact=true").json()
+        assert snapshot["launch_hold"]["title"] == "Survey X"
+
+        confirmed = client.post(f"/api/projects/{sid}/launch/confirm")
+        assert confirmed.status_code == 200
+        assert len(starts) == 1 and starts[0]["reclaim_idle"] is True
+        assert launch_hold.read_launch_hold(life) is None
+        assert client.post(f"/api/projects/{sid}/launch/confirm").status_code == 409
+
+
+def test_message_without_hold_still_starts_immediately(tmp_path, monkeypatch):
+    sid = "s-hold-none"
+    _project(tmp_path, sid)
+    monkeypatch.setattr(manager_bridge, "manager_message",
+                        lambda *a, **k: {"kind": "task", "item": {"id": "a", "status": "pending"}})
+    starts = []
+    services = DaemonServices(read_status=daemon_worker.read_daemon_status,
+                              start=lambda *args, **kwargs: starts.append(kwargs) or {"rc": 0})
+    with TestClient(server.create_app(global_root=tmp_path, daemon_services=services)) as client:
+        result = client.post(f"/api/projects/{sid}/message", json={"text": "研究 X"}).json()
+    assert len(starts) == 1 and "launch_hold" not in result
+
+
+def test_discard_route_returns_the_request_for_editing(tmp_path):
+    sid = "s-hold-discard-route"
+    life = _project(tmp_path, sid)
+    item = LifeMemory.open(life).backlog.add(BacklogItem.new(title="Survey X", objective="Survey X"))
+    launch_hold.write_launch_hold(life, {"item": {"id": item.id}}, {"hold": True}, operator_text="研究 X")
+    with TestClient(server.create_app(global_root=tmp_path)) as client:
+        response = client.post(f"/api/projects/{sid}/launch/discard")
+    assert response.status_code == 200
+    assert response.json()["request"] == "研究 X"
+    assert _status(life, item.id) == "skipped"
+
+
+def test_inferred_target_level_is_manager_owned_and_chosen_level_operator_owned(tmp_path):
+    from types import SimpleNamespace
+
+    from argus.manager.front_door import _record_goal_contract
+
+    life = _project(tmp_path, "s-target-authority")
+    mem = SimpleNamespace(project_root=life)
+    decision = SimpleNamespace(precise_constraints=(), research_target_level="publishable",
+                               target_venue="", exclusions=(), ambiguities=())
+    _record_goal_contract(mem, "写一篇论文", decision)
+    clause = next(c for c in load_contract(life).clauses if c.text.startswith("research target level"))
+    assert clause.authority == AUTHORITY_MANAGER
+
+    chosen = "写一篇论文" + launch_note({"target_level": "publishable"}, language_hint="写")
+    _record_goal_contract(mem, chosen, decision)
+    clause = next(c for c in load_contract(life).clauses if c.text.startswith("research target level"))
+    assert clause.authority == AUTHORITY_OPERATOR
+
+
+def test_any_daemon_start_supersedes_the_hold(tmp_path, monkeypatch):
+    from types import SimpleNamespace
+
+    from argus.webapi import daemon_lifecycle
+
+    life = _project(tmp_path, "s-hold-superseded")
+    launch_hold.write_launch_hold(life, {"item": {"id": "a"}}, {"hold": True})
+    alive = SimpleNamespace(alive=True, pid=1, started_at_iso="x", uptime_seconds=1.0, life_dir=life)
+    monkeypatch.setattr(daemon_worker, "read_daemon_status", lambda *_: alive)
+    monkeypatch.setattr(daemon_lifecycle, "_daemon_dict", lambda status: {"alive": True})
+    result = daemon_lifecycle.start_project_daemon("s-hold-superseded", global_root=tmp_path)
+    assert result["already_alive"] is True
+    assert launch_hold.read_launch_hold(life) is None

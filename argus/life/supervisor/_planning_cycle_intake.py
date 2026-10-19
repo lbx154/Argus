@@ -244,6 +244,7 @@ class PlanningCycleIntakeMixin:
         if transient_messages or state.has_unhandled_operator_input:
             self._deactivate_planner_waiting_contract()
             self._last_open_ended_project_done_signature = ""
+            self._uncontracted_wait_probed = False
             # The inbox was already drained above. Do not let a durable idle
             # receipt restore the hold before Planner sees this new instruction.
             from ..planner_verdict_outbox import (

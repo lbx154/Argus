@@ -42,6 +42,9 @@ class RoundLoopState:
     round_started_wall: float | None = None
     last_engineer_message: str = ""
     no_progress_streak: int = 0
+    # Consecutive rounds the Engineer handed straight back to itself, past
+    # every stop check the Reviewer's settlement applies.
+    self_handoff_streak: int = 0
     semantic_stall_streak: int = 0
     # A stall an earlier mission on the same objective left: rounds where its
     # Reviewer reported no progress and named a check impossible here
@@ -74,6 +77,9 @@ class RoundLoopState:
     # hour) instead of failing the mission into a paid replanning cycle.
     backend_failure_signature: str = ""
     backend_failure_same_cause_streak: int = 0
+    # When the current same-cause run began; the hold ends after the
+    # automatic-retry window.
+    backend_failure_since: float = 0.0
     # Consecutive Engineer calls that each used their whole per-call
     # provider-turn allowance without a completed turn. One or two in a row are
     # routine on a long task; a run of them means the fresh sessions are not

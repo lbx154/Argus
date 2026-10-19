@@ -220,6 +220,31 @@ def test_overbudget_critical_field_is_named_as_unobserved_and_stops_before_model
     assert controls(tmp_path) == before and load_active_manager_directive(tmp_path) is None
 
 
+def test_budget_omissions_share_one_note_so_notes_do_not_evict_objectives(tmp_path):
+    # s-a43d1018: six parallel arms with long Chinese briefs. A sentence per
+    # omitted field (title, plan_id, deps, ...) cost more than the field and
+    # evicted whole objectives; one note leaves room for one more objective.
+    write_continuous_config(tmp_path, enabled=True, objective="在高维小样本分类中寻找通用方法")
+    backlog = Backlog(tmp_path / "backlog.jsonl")
+    for arm in ("cpc", "general", "dense", "sparse", "count", "centered"):
+        item = BacklogItem.new(item_id=f"arm-{arm}", title=f"完成{arm}臂的稀疏先验训练与同输入几何比较",
+                               objective=f"【{arm}】" + "复用共享实现，保持原生设置并只改变配对几何；" * 34)
+        item.acceptance_check = "分析文件存在且逐对象导出可由独立消费者复算。"
+        item.goal_contribution = "判断配对几何是否改善相同支持与查询上的预测。"
+        item.last_error = "上一轮在训练终点分析时报错，训练产物保持完整。"
+        item.plan_id, item.plan_version = "plan-7", 3
+        backlog.add(item)
+
+    observation = observe_project(tmp_path)
+
+    budget_notes = [note for note in observation.facts["limitations"] if "byte budget" in note]
+    assert len(budget_notes) == 1
+    assert all(path in budget_notes[0] for path in observation.incomplete_requirements)
+    assert "tasks[arm-cpc].title" in budget_notes[0]
+    assert len(observation.incomplete_requirements) == 1
+    assert len(observation.render().encode("utf-8")) <= observation_module.MAX_OBSERVATION_BYTES
+
+
 @pytest.mark.parametrize("field", ["last_error", "engineer_summary"])
 def test_excerpt_tail_edits_change_canonical_revision_even_when_presentation_is_identical(tmp_path, field):
     backlog, item, event = project(tmp_path)

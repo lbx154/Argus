@@ -23,6 +23,10 @@ from .round_stop_signals import _runner_result_has_successful_work_signal
 if TYPE_CHECKING:
     from .runner import SupervisedConfig
 
+# Consecutive rounds the Engineer may hand straight back to itself before the
+# round goes to review.
+ENGINEER_SELF_HANDOFF_LIMIT = 3
+
 
 def _control_line(line: str) -> str:
     text = str(line or "").strip()
@@ -219,8 +223,21 @@ class RoundSelfReviewMixin:
                 continue_adaptor=continue_adaptor,
                 on_event=on_event,
             )
-        if handoff.next_owner == "engineer" and not state.pending_external_wait_review:
+        # Handing the next round straight back to itself skips the Reviewer and
+        # every stop check its settlement applies. A few in a row are a long
+        # piece of work; more, or with nothing produced, go to review.
+        if (
+            handoff.next_owner == "engineer"
+            and not state.pending_external_wait_review
+            and state.self_handoff_streak < ENGINEER_SELF_HANDOFF_LIMIT
+            and not (
+                supervised_config.no_progress_threshold > 0
+                and state.no_progress_streak >= supervised_config.no_progress_threshold
+            )
+        ):
+            state.self_handoff_streak += 1
             return control_continue_loop()
+        state.self_handoff_streak = 0
         if not supervised_config.require_independent_review and successful_work:
             if milestone_done:
                 return self._settle_round(

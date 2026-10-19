@@ -7,10 +7,27 @@ from __future__ import annotations
 from typing import Any
 
 from fastapi import Depends, Header, HTTPException, Query, Response
+from pydantic import BaseModel, Field
 from starlette.responses import FileResponse
 
 from .. import artifacts
 from .context import ServerContext
+
+# One "download everything" archive; larger selections download file by file.
+BUNDLE_MAX_BYTES = 2 * 1024 ** 3
+
+
+class ArtifactBundleIn(BaseModel):
+    paths: list[str] = Field(min_length=1, max_length=200)
+    name: str = Field(default="", max_length=120)
+    summary: str = Field(default="", max_length=20000)
+
+
+def _bundle_filename(name: str) -> str:
+    import re
+
+    cleaned = re.sub(r'[\\/:*?"<>|\x00-\x1f]+', " ", name).strip(" .")
+    return (" ".join(cleaned.split())[:80] or "argus-results") + ".zip"
 
 # The preview page sandboxes itself and denies every network destination, so
 # the delivered site's own inline style and script run while it can neither
@@ -155,6 +172,51 @@ def register_artifact_routes(app, ctx: ServerContext) -> None:
             "Content-Disposition": 'attachment; filename="argus-website.zip"',
             "X-Content-Type-Options": "nosniff", "Cache-Control": "private, no-store",
         })
+
+    @app.post("/api/projects/{sid}/artifacts/bundle", dependencies=[Depends(ctx.require_auth)])
+    def _artifacts_bundle(sid: str, body: ArtifactBundleIn):
+        """Zip listed results in one download; each path passes the artifact allowlist."""
+        import os
+        import tempfile
+        from zipfile import ZIP_DEFLATED, ZipFile
+
+        from starlette.background import BackgroundTask
+
+        root = ctx.project_root_or_404(sid)
+        files: list[tuple[str, Any]] = []
+        missing: list[str] = []
+        total = 0
+        for requested in dict.fromkeys(path.strip() for path in body.paths if path.strip()):
+            resolved = artifacts.resolved_project_artifact(sid, requested, global_root=root)
+            if resolved is None:
+                missing.append(requested)
+                continue
+            info, file_path = resolved
+            total += file_path.stat().st_size
+            if total > BUNDLE_MAX_BYTES:
+                raise HTTPException(status_code=413, detail="These results are too large for one archive; download them one by one.")
+            files.append((str(info["path"]).lstrip("/"), file_path))
+        if not files:
+            raise HTTPException(status_code=404, detail="None of these results are available any more.")
+        fd, archive_path = tempfile.mkstemp(prefix="argus-results-", suffix=".zip")
+        os.close(fd)
+        try:
+            with ZipFile(archive_path, "w", ZIP_DEFLATED) as archive:
+                for name, file_path in files:
+                    archive.write(file_path, arcname=name)
+                notes = body.summary.strip()
+                if missing:
+                    notes += ("\n\n" if notes else "") + "Not included (no longer available):\n" + "\n".join(f"- {path}" for path in missing)
+                if notes:
+                    archive.writestr("README-Argus.md", notes + "\n")
+        except BaseException:
+            os.unlink(archive_path)
+            raise
+        return FileResponse(
+            archive_path, media_type="application/zip", filename=_bundle_filename(body.name),
+            background=BackgroundTask(os.unlink, archive_path),
+            headers={"X-Content-Type-Options": "nosniff", "Cache-Control": "private, no-store"},
+        )
 
     @app.get(
         "/api/projects/{sid}/delivery-diff",

@@ -11,6 +11,7 @@ import { eventDetail, eventRole, eventTitle, formatClock } from '../utils';
 import { useManagerRun } from '../useManagerRun';
 import { useWorkbenchText } from '../useWorkbenchText';
 import type { WorkspacePageProps } from './pageTypes';
+import { useAutosizeTextarea } from '../../useAutosizeTextarea';
 
 const SUGGESTIONS = [
   ['总结当前研究进展、最强证据和最大风险', 'Summarize current progress, strongest evidence, and biggest risk'],
@@ -122,6 +123,9 @@ export function CopilotPage(props: WorkspacePageProps) {
   const [optimizeError, setOptimizeError] = useState('');
   const fileInput = useRef<HTMLInputElement>(null);
   const messagesRef = useRef<HTMLDivElement>(null);
+  const draftRef = useRef<HTMLTextAreaElement>(null);
+  // Grows with what is typed and shrinks back when it is deleted (CSS keeps 36–150px).
+  useAutosizeTextarea(draftRef, draft, 36, 150);
   const manager = useManagerRun(props.sid, props.refresh);
   const pending = props.snapshot.pending_questions ?? props.status?.pending_questions ?? [];
 
@@ -169,7 +173,7 @@ export function CopilotPage(props: WorkspacePageProps) {
             <div className="copilot-composer">
               <input ref={fileInput} type="file" multiple hidden onChange={(event) => setFiles(Array.from(event.target.files ?? []))} />
               <button className="composer-tool" type="button" onClick={() => fileInput.current?.click()} aria-label={text('添加附件', 'Attach files')}><Paperclip size={17} /></button>
-              <textarea rows={1} value={draft} onChange={(event) => setDraft(event.target.value)} onKeyDown={(event) => { if (event.key === 'Enter' && !event.shiftKey) { event.preventDefault(); void submit(); } }} placeholder={text('询问研究问题，或给 Argus 一个需要执行的目标…', 'Ask a research question or give Argus an executable goal…')} />
+              <textarea ref={draftRef} rows={1} value={draft} onChange={(event) => setDraft(event.target.value)} onKeyDown={(event) => { if (event.key === 'Enter' && !event.shiftKey) { event.preventDefault(); void submit(); } }} placeholder={text('询问研究问题，或给 Argus 一个需要执行的目标…', 'Ask a research question or give Argus an executable goal…')} />
               <button className="optimize-button" type="button" disabled={!draft.trim() || manager.busy} onClick={() => { setOptimizerOpen(true); setOptimization(null); }} title="Ctrl/⌘ + R"><WandSparkles size={15} />{text('优化 Prompt', 'Optimize prompt')}</button>
               {manager.busy ? <button className="send-button is-stop" type="button" onClick={manager.cancel} aria-label={text('停止等待', 'Stop waiting')}><Square size={14} /></button> : <button className="send-button" type="button" disabled={!draft.trim()} onClick={() => void submit()} aria-label={text('发送', 'Send')}><ArrowUp size={17} /></button>}
             </div>

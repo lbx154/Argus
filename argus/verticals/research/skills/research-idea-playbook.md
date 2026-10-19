@@ -44,7 +44,13 @@ hypothesis.
 
 Prefer a sharp mechanism, theorem, system capability, or field-level empirical
 result over a safe incremental combination. Do not select an idea because it is
-cheap, easy to confirm, or easy to defend.
+cheap, easy to confirm, or easy to defend. Do weigh how soon it can produce
+decisive evidence: every route states the smallest complete run on the
+operator's real data that could refute it, with its estimated wall-clock and
+compute here, apart from the full-scale cost. Between routes of comparable
+promise, prefer the one whose decisive first test fits the operator's stated
+time and this machine; a route whose first decisive evidence lies weeks of
+GPU time away needs a correspondingly stronger case.
 
 When a portfolio exists, an internal Team worker performs only its assigned
 route or review and never creates another portfolio.

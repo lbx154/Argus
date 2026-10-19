@@ -1,0 +1,101 @@
+import { renderToStaticMarkup } from 'react-dom/server';
+import { describe, expect, it, vi } from 'vitest';
+import type { EventMsg, Snapshot } from '../../../core/src/types';
+import type { ResourceStatus } from '../../../core/src/resourceStatus.generated';
+
+vi.mock('../i18n', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('../i18n')>();
+  return {
+    ...actual,
+    useI18n: () => ({ locale: 'zh-CN', setLocale: vi.fn(), t: (key: string, variables?: Record<string, string | number>) => actual.translate(key, variables, 'zh-CN') }),
+  };
+});
+
+const { progressHealth } = await import('../lib/progressHealth');
+const { diskView, gpuWait } = await import('../lib/projectOverview');
+const { formatBytes } = await import('../lib/format');
+const { foldedContinuationRuns } = await import('../components/EventStream');
+const { searchEntries, visibleEntries } = await import('../research-workbench/workspaceApi');
+const { ProgressHealthBanner } = await import('../components/ProgressHealthBanner');
+
+function snapshot(backlog: Snapshot['backlog'], alive = true): Pick<Snapshot, 'backlog' | 'daemon'> {
+  return { backlog, daemon: { alive, pid: alive ? 1 : null, uptime_seconds: null, backend: null } };
+}
+const task = (id: string, status: string, finished: number, extra: Record<string, unknown> = {}) =>
+  ({ id, title: `任务 ${id}`, objective: '', status, priority: 1, started_ts: finished - 100, finished_ts: finished, ...extra });
+
+describe('progress health', () => {
+  it('flags several failed tasks in a row and names the latest reason', () => {
+    const health = progressHealth(snapshot([
+      task('a', 'done', 100), task('b', 'failed', 200), task('c', 'failed', 300),
+      task('d', 'failed', 400, { last_error: 'CUDA out of memory' }),
+    ]), 500);
+    expect(health).toMatchObject({ problem: 'repeated_failures', failures: 3, key: 'failures:d' });
+    expect(health?.latestFailure?.reason).toBe('CUDA out of memory');
+  });
+
+  it('flags a long active stretch without a reviewed result, and nothing when idle', () => {
+    const quiet = snapshot([task('a', 'done', 1000), task('b', 'running', 0, { started_ts: 2000, finished_ts: null })]);
+    expect(progressHealth(quiet, 1000 + 13 * 3600)).toMatchObject({ problem: 'no_accepted_result', hoursWithoutAccepted: 13 });
+    expect(progressHealth(quiet, 1000 + 3600)).toBeNull();
+    expect(progressHealth(snapshot([task('a', 'done', 1000)], false), 1000 + 30 * 3600)).toBeNull();
+  });
+
+  it('renders a dismissible banner with the two remedies', () => {
+    const html = renderToStaticMarkup(<ProgressHealthBanner sid="s-1" onPause={() => undefined} onAdjust={() => undefined}
+      health={{ problem: 'repeated_failures', key: 'failures:d', failures: 3, hoursWithoutAccepted: 0, latestFailure: { title: '训练', reason: 'OOM' } }} />);
+    expect(html).toContain('最近 3 个任务都没有完成');
+    expect(html).toContain('最近一次：训练——OOM');
+    expect(html).toContain('当前任务完成后暂停');
+    expect(html).toContain('知道了');
+  });
+});
+
+describe('resources', () => {
+  it('warns when the disk is 80% full', () => {
+    expect(diskView({ total_bytes: 1000 * 1024 ** 3, free_bytes: 150 * 1024 ** 3, used_fraction: 0.85 }, true, formatBytes))
+      .toEqual({ warn: true, text: '磁盘已用 85%，只剩 150 GB，大文件可能写不下' });
+    expect(diskView({ total_bytes: 2 * 1024 ** 4, free_bytes: 1.1 * 1024 ** 4, used_fraction: 0.45 }, true, formatBytes))
+      .toEqual({ warn: false, text: '磁盘剩余 1.1 TB' });
+    expect(diskView(null, true, formatBytes)).toBeNull();
+  });
+
+  it('finds this project in the GPU queue with its wait and the earliest free slot', () => {
+    const resources = {
+      schema_version: 1, enforcement: 'strict', accelerators: [],
+      holders: [{ project: 's-x', task_id: 't', intent: 'train', ttl_seconds: 1800, device_count: 1, yield_requests: [] }],
+      queue: [{ position: 2, project: 's-1', task_id: 't', intent: 'train', ttl_seconds: 3600, waited_seconds: 900 }],
+    } as ResourceStatus;
+    expect(gpuWait(resources, ['s-1'])).toEqual({ position: 2, waitedSeconds: 900, etaSeconds: 1800 });
+    expect(gpuWait(resources, ['s-2'])).toBeNull();
+  });
+});
+
+describe('conversation folding', () => {
+  const row = (key: string, continued: boolean) => ({ key, ev: { type: 'ui.argus', mission_result: true, campaign_continues: continued } as EventMsg });
+  it('keeps the newest of three or more continued steps and folds the rest', () => {
+    const folded = foldedContinuationRuns([row('a', true), row('b', true), row('c', true), row('d', false), row('e', true), row('f', true)]);
+    expect([...folded.keys()]).toEqual(['a', 'b']);
+    expect(folded.get('b')).toEqual({ id: 'a', keys: ['a', 'b'] });
+  });
+  it('recognises continued steps from older transcripts by their message id', () => {
+    const old = (key: string) => ({ key, ev: { type: 'ui.argus', mission_result: true, message_id: `mission-result-${key}-continued` } as EventMsg });
+    expect([...foldedContinuationRuns([old('x'), old('y'), old('z')]).keys()]).toEqual(['x', 'y']);
+  });
+});
+
+describe('workspace explorer', () => {
+  const entries = [
+    { path: 'results', name: 'results', type: 'directory' as const, size: 0, mtime: 0, extension: '' },
+    { path: 'results/table.csv', name: 'table.csv', type: 'file' as const, size: 1, mtime: 0, extension: '.csv' },
+    { path: '.argus', name: '.argus', type: 'directory' as const, size: 0, mtime: 0, extension: '' },
+    { path: '.argus/team/log.json', name: 'log.json', type: 'file' as const, size: 1, mtime: 0, extension: '.json' },
+    { path: 'models', name: 'models', type: 'directory' as const, size: 0, mtime: 0, extension: '', skipped: true },
+  ];
+  it('hides internal state until asked and searches file names', () => {
+    expect(visibleEntries(entries, false).map((entry) => entry.path)).toEqual(['results', 'results/table.csv']);
+    expect(visibleEntries(entries, true)).toHaveLength(5);
+    expect(searchEntries(visibleEntries(entries, true), 'LOG').map((entry) => entry.path)).toEqual(['.argus/team/log.json']);
+    expect(searchEntries(entries, '  ')).toEqual([]);
+  });
+});

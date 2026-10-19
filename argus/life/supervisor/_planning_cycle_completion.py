@@ -25,6 +25,7 @@ from ._constants import (
     PLAN_RETRY,
     PLAN_TERMINAL_IDLE,
     PLANNER_TASKS_FILTERED_DIAGNOSTIC,
+    PROJECT_REPORT_MODEL_ATTEMPTS,
 )
 from ._planning_cycle_helpers import (
     _PlanCycleState,
@@ -395,22 +396,39 @@ class PlanningCycleCompletionMixin:
         ):
             return "reported"
 
-        try:
-            report = self._bound_manager().report_project_completion(
-                completion_context=context,
-                continuous_objective=self.config.continuous_objective,
-                completion_reason=completion_reason,
-                on_event=getattr(self.sink, "handle_event", None),
+        # The outbox retries this report on every pass, so a backend that keeps
+        # failing once meant a Manager call every poll interval. Failures back
+        # off, and the model gets PROJECT_REPORT_MODEL_ATTEMPTS tries at one
+        # completion; then the operator gets the stage summary instead.
+        failures = getattr(self, "_project_report_failures", None)
+        if failures is None:
+            failures = self._project_report_failures = {}
+        fallback = failures.get(message_id, 0) >= PROJECT_REPORT_MODEL_ATTEMPTS
+        if fallback:
+            from ...manager import fallback_project_report
+
+            report = fallback_project_report(context, self.config.continuous_objective)
+            self._emit_status(
+                "Manager could not write the project completion report after "
+                f"{PROJECT_REPORT_MODEL_ATTEMPTS} attempts; sending the stage summary instead"
             )
-        except Exception as exc:  # noqa: BLE001 - retain the outbox for retry
-            self._emit({
-                "type": "life.manager.project_report.failed",
-                "error": f"{type(exc).__name__}: {exc}",
-            })
-            return PLAN_ERROR
-        if not str(report or "").strip():
-            self._emit_status("Manager could not produce the project completion report")
-            return PLAN_ERROR
+        else:
+            try:
+                report = self._bound_manager().report_project_completion(
+                    completion_context=context,
+                    continuous_objective=self.config.continuous_objective,
+                    completion_reason=completion_reason,
+                    on_event=getattr(self.sink, "handle_event", None),
+                )
+            except Exception as exc:  # noqa: BLE001 - retain the outbox for retry
+                self._emit({
+                    "type": "life.manager.project_report.failed",
+                    "error": f"{type(exc).__name__}: {exc}",
+                })
+                return self._project_report_failed(message_id)
+            if not str(report or "").strip():
+                self._emit_status("Manager could not produce the project completion report")
+                return self._project_report_failed(message_id)
         try:
             from ...core.operator_messages import publish_operator_message
 
@@ -428,13 +446,13 @@ class PlanningCycleCompletionMixin:
                 for turn in read_turns(report_root)
             ):
                 self._emit_status("Manager project report could not be published")
-                return PLAN_ERROR
+                return self._project_report_failed(message_id)
         except Exception as exc:  # noqa: BLE001 - notification cannot own the verdict
             self._emit({
                 "type": "life.manager.project_report.failed",
                 "error": f"{type(exc).__name__}: {exc}",
             })
-            return PLAN_ERROR
+            return self._project_report_failed(message_id)
         self._emit({
             "type": "life.manager.project_report",
             "stage": stage,
@@ -443,9 +461,18 @@ class PlanningCycleCompletionMixin:
             "transition_count": len(context["stage_history"]),
             "rollback_count": len(context["rollback_history"]),
             "message_id": message_id,
+            **({"fallback": True} if fallback else {}),
         })
+        failures.pop(message_id, None)
         self._clear_manager_planner_feedback()
         return "reported"
+
+    def _project_report_failed(self, message_id: str) -> str:
+        """Count a failed completion report and back off before the next try."""
+        failures = self._project_report_failures
+        failures[message_id] = failures.get(message_id, 0) + 1
+        self._enter_pause_backoff()
+        return PLAN_ERROR
 
     def _manager_final_stage_is_completed(self) -> bool:
         """Whether Manager has already persisted the terminal stage completion."""
@@ -591,6 +618,7 @@ class PlanningCycleCompletionMixin:
         self._deactivate_planner_waiting_contract()
         self._last_planner_wait_reconciliation_key = None
         self._planner_waits_since_reconciliation = 0
+        self._uncontracted_wait_probed = False
         return None
 
     def _pc_normalize_project_done(self, state: _PlanCycleState) -> Any | None:

@@ -31,6 +31,12 @@ def humanize_runtime_reason(reason: str, *, language_hint: str = "", interactive
         return ""
     zh = uses_cjk(language_hint)
     lowered = raw.casefold()
+    from .autonomy import RETRY_WINDOW_SPENT_REASON
+
+    if raw.startswith(RETRY_WINDOW_SPENT_REASON):
+        return ("模型服务连续三小时没有恢复，Argus 已停止自动重试，在你点击“运行”前不会开始新的任务。" if zh else
+                "The model service did not recover during three hours of automatic retries, so Argus "
+                "stopped retrying and starts no new task until you click Run.")
     if "trial_budget_exhausted" in lowered or "试用额度不足" in raw:
         return ("试用额度不足，任务已暂停。已有文件会保留，请联系管理员。" if zh else
                 "The trial allowance is insufficient. Work is paused and existing files are preserved. Contact the trial administrator.")

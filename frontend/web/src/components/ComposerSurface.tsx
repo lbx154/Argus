@@ -1,16 +1,17 @@
-import { useEffect, type ChangeEventHandler, type ReactNode, type RefObject, type TextareaHTMLAttributes } from 'react';
+import { type ChangeEventHandler, type ReactNode, type RefObject, type TextareaHTMLAttributes } from 'react';
 import { ArrowUp, Square, X } from 'lucide-react';
 import { ArgusMark } from './Wordmark';
 import { useI18n } from '../i18n';
 import { MESSAGE_ATTACHMENT_ACCEPT, MESSAGE_TEXT_MAX_CHARS } from '../lib/attachments';
 import { isImeComposing } from '../lib/ime';
 import { referenceText, splitDraft } from '../map/presentation';
+import { useAutosizeTextarea } from '../useAutosizeTextarea';
 import './composer.css';
 
 /** One visual/input surface for the ordinary conversation and research map. */
 export function ComposerSurface({
   value, onChange, inputRef, fileInputRef, onFiles, inputProps, onSend, onCancel,
-  pending, disabled = false, controls,
+  pending, disabled = false, controls, sendLabel,
 }: {
   value: string;
   onChange: (value: string) => void;
@@ -23,29 +24,14 @@ export function ComposerSurface({
   pending: boolean;
   disabled?: boolean;
   controls?: ReactNode;
+  /** Overrides the send button's name, e.g. when it will wait for uploads. */
+  sendLabel?: string;
 }) {
   const { t, locale } = useI18n();
   const zh = locale === 'zh-CN';
   const { refs, text } = splitDraft(value);
   const tooLong = value.length > MESSAGE_TEXT_MAX_CHARS;
-  useEffect(() => {
-    const element = inputRef.current;
-    if (!element) return;
-    const resize = () => {
-      if (!element.getClientRects().length) return;
-      element.style.height = '0px';
-      element.style.height = `${Math.min(132, Math.max(28, element.scrollHeight))}px`;
-    };
-    resize();
-    let width = element.clientWidth;
-    const observer = new ResizeObserver(() => {
-      if (element.clientWidth === width) return;
-      width = element.clientWidth;
-      resize();
-    });
-    observer.observe(element);
-    return () => observer.disconnect();
-  }, [inputRef, text]);
+  useAutosizeTextarea(inputRef, text, 28, 132);
   return (
     <div className="composer-surface" data-pending={pending}>
       {refs.length > 0 && <div className="map-reference-chips">
@@ -69,7 +55,8 @@ export function ComposerSurface({
           }} />
         <button type={pending ? 'button' : 'submit'} onClick={pending ? onCancel : undefined}
           disabled={disabled || (!pending && (!text.trim() || tooLong))}
-          aria-label={pending ? (zh ? '停止回复' : 'Stop reply') : (zh ? '发送消息' : 'Send message')}
+          aria-label={pending ? (zh ? '停止回复' : 'Stop reply') : (sendLabel || (zh ? '发送消息' : 'Send message'))}
+          title={!pending ? sendLabel : undefined}
           className={`map-send ${pending ? 'is-pending' : ''}`}>
           {pending ? <Square size={15} /> : <ArrowUp size={20} />}
         </button>

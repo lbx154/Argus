@@ -286,6 +286,8 @@ def manager_message(
     defer_dispatch_ack: bool = False,
     domain_answer: dict[str, Any] | None = None,
     turn_id: str = "",
+    launch: dict[str, Any] | None = None,
+    pending_question_checked: str = "",
 ) -> dict[str, Any]:
     """Run a Manager turn with request-scoped provider interruption."""
     from ..core.run_gateway import run_interrupt_scope
@@ -306,7 +308,7 @@ def manager_message(
             on_fragment=on_fragment, cancelled=is_cancelled, source_channel=source_channel,
             source_message_id=source_message_id, route_override=route_override,
             defer_dispatch_ack=defer_dispatch_ack, domain_answer=domain_answer,
-            turn_id=turn_id,
+            turn_id=turn_id, launch=launch, pending_question_checked=pending_question_checked,
         )
 
 
@@ -324,6 +326,8 @@ def _manager_message(
     defer_dispatch_ack: bool = False,
     domain_answer: dict[str, Any] | None = None,
     turn_id: str = "",
+    launch: dict[str, Any] | None = None,
+    pending_question_checked: str = "",
 ) -> dict[str, Any]:
     """Route one operator message through the Manager front-door.
 
@@ -357,6 +361,7 @@ def _manager_message(
     from ..life.memory import MemoryBundle
     from ..manager.front_door import mission_is_running
     from .attachments import attachment_context_refs, compose_message_body
+    from ..core.launch_settings import launch_note, normalize_launch_settings
 
     resolved_attachments = list(attachments or [])
     # Structured answers are validated under the project lock below. Never
@@ -624,15 +629,23 @@ def _manager_message(
             }
 
         pending_result = None
+        checked_question = ""
         if not explicit_chat and domain_answer is None:
             pending_questions = [
                 item
                 for item in mem.backlog.active()
                 if item.pending_question.strip()
             ]
-            pending_result = _handle_pending_question_turn(
-                mem, pending_questions, body, chat_state, emitter
-            )
+            if len(pending_questions) == 1:
+                checked_question = (
+                    f"{pending_questions[0].id}\n{pending_questions[0].pending_question.strip()}"
+                )
+            # A message queued for model capacity was already checked against
+            # this same question; each retry once paid for that check again.
+            if not (checked_question and checked_question == pending_question_checked):
+                pending_result = _handle_pending_question_turn(
+                    mem, pending_questions, body, chat_state, emitter
+                )
         if _cancelled():
             return _cancelled_result()
         if pending_result is not None:
@@ -655,6 +668,12 @@ def _manager_message(
         ).strip()
         if reference_context:
             routing_body = f"{routing_body}\n\n{reference_context}"
+        # Launch settings reach the Manager as operator text with the request;
+        # the journaled operator turn above stays exactly what was typed.
+        launch_text = launch_note(normalize_launch_settings(launch), language_hint=operator_text)
+        if launch_text:
+            body = f"{body}{launch_text}"
+            routing_body = f"{routing_body}{launch_text}"
         chat_state["_frontdoor_contextual_text"] = body
         chat_state["_frontdoor_dispatch_body"] = routing_body
 
@@ -710,6 +729,7 @@ def _manager_message(
                     "global_root": str(mem.global_root), "attachments": resolved_attachments,
                     "route_override": route_override, "domain_answer": domain_answer,
                     "source_channel": source_channel, "source_message_id": source_message_id,
+                    "launch": launch, "pending_question_checked": checked_question,
                 },
             }
         frontdoor_intake = chat_state.get("_frontdoor_intake")

@@ -227,6 +227,22 @@ class PlannerOrchestrationMixin:
             project_created_ts=_project_created_ts(self._project_state_root()),
             background_jobs=_finished_background_job_hours(project_root),
         )
+        # Who owns the current idea decides what a refuted claim allows; the
+        # Planner never saw it, so s-a43d1018 treated its own pick as locked.
+        direction_mode = str(pipeline.get("research_direction_mode") or "").strip()
+        direction_lines = (
+            [
+                f"- research_direction_mode: {direction_mode} — "
+                + (
+                    "Argus selected the current idea: a working hypothesis you may "
+                    "revise inside Experiment as the experiment.repair item states"
+                    if direction_mode == "broad"
+                    else "the operator named the idea: only the operator changes its claim"
+                )
+            ]
+            if direction_mode
+            else []
+        )
 
         # Width-2 daemons spent months running serially because the Planner
         # could not see the second slot: admission needs every co-running
@@ -316,7 +332,7 @@ class PlannerOrchestrationMixin:
             safe = "true" if getattr(item, "parallel_safe", False) else "false"
             return (
                 f"{base}; parallel_safe={safe}; "
-                f"owns_paths=[{', '.join(owns)}]; "
+                f"owns_paths={'|'.join(owns) or 'none'}; "
                 f"gpus={int(getattr(item, 'gpu_count', 0) or 0)}; "
                 f"cpus={int(getattr(item, 'cpu_count', 0) or 0)}"
             )
@@ -401,6 +417,7 @@ class PlannerOrchestrationMixin:
                 time_line,
                 f"- vertical: {pipeline.get('vertical') or '(unresolved)'}",
                 f"- workflow_mode: {pipeline.get('workflow_mode') or '(unset)'}",
+                *direction_lines,
                 f"- current_stage: {pipeline.get('current_stage') or self._current_pipeline_stage() or '(unset)'}",
                 f"- stage_statuses: {', '.join(stage_rows) or '(none)'}",
                 f"- backlog_counts: {json.dumps(backlog_counts, sort_keys=True)}",

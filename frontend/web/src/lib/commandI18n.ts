@@ -4,7 +4,7 @@ import type { Locale } from '../i18n';
 const GROUPS: Record<SlashCommand['group'], string> = {
   Everyday: '常用',
   'Task management': '任务管理',
-  'Sessions & diagnostics': '会话与诊断',
+  'Sessions & diagnostics': '项目与诊断',
   Configuration: '配置',
   Other: '其他',
 };
@@ -32,11 +32,11 @@ const DESCRIPTIONS: Record<CommandId, string> = {
   stop: '停止任务的自动迭代',
   item: '查看完整任务契约',
   run: '返回持续更新的任务动态',
-  new: '检查、创建并切换到新会话',
+  new: '检查、创建并切换到新项目',
   daemons: '查找全部会话并切换或创建',
-  resume: '切换到其他项目或会话',
+  resume: '切换到其他项目',
   attach: '跟随其他项目并读取其动态',
-  rename: '重命名当前会话',
+  rename: '重命名当前项目',
   doctor: '诊断为什么没有任务运行',
   backend: '查看或更改共享 Runner 后端',
   config: '查看或更改运行时设置',

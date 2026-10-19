@@ -2,7 +2,7 @@ import type { DispatchObserver, MapSendOptions } from './map/submission';
 import { lazy, Suspense, useCallback, useEffect, useMemo, useReducer, useRef, useState } from 'react';
 import { artifactRefreshEventKey, snapshotRefreshEventKey, useProjects, useProjectCosts, useSnapshot, useEventStream, useProjectActions, useArtifacts, useJournal } from './hooks';
 import { useConversationHistory } from './useConversationHistory';
-import { api, isConnectionError, newRequestId, type AttachmentUploadOptions, type AttachmentUploadProgress, type EventMsg, type MessageRouteOverride, type SkillLibraryItem, type SkillScope, type WikiLibraryItem, PairingRequiredError } from './api';
+import { api, isConnectionError, newRequestId, type AttachmentUploadOptions, type EventMsg, type MessageRouteOverride, type SkillLibraryItem, type SkillScope, type WikiLibraryItem, PairingRequiredError } from './api';
 import { LearningLibrary, type LearningScope, type LearningSelection } from './components/LearningLibrary';
 import { LearningStatus } from './components/LearningStatus';
 import { ComposerRuntime } from './components/ComposerRuntime';
@@ -15,6 +15,8 @@ import { CommandPalette, commandPaletteRows, type PaletteItem } from './componen
 import { KeybindingHelp } from './components/KeybindingHelp';
 import { DoctorModal, ConfigModal, IdentityModal, TranscriptModal } from './components/InfoModals';
 import { PendingBanner } from './components/PendingBanner';
+import { LaunchHoldCard, LaunchSettingsBar } from './components/LaunchPanel';
+import { DEFAULT_LAUNCH_SETTINGS, isFreshProject } from './lib/launch';
 import { PendingReplyDialog } from './components/PendingReplyDialog';
 import { GuardianBanner } from './components/GuardianBanner';
 import { NoOperatorBanner } from './components/NoOperatorBanner';
@@ -41,7 +43,7 @@ import { MobileTabBar } from './components/MobileTabBar';
 import { useVisualViewport } from './useVisualViewport';
 import { activeGuardianAlert } from './lib/guardian';
 import { projectMissionView } from '../../core/src/missionView';
-import { useQueryClient } from '@tanstack/react-query';
+import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { dispatchWebCommand, type WebCommandHandlers } from './lib/webCommands';
 import { buildWebCommandHandlers } from './lib/commandHandlers';
 import { finishManagerMessage } from './lib/messageResult';
@@ -71,7 +73,15 @@ import { addComposerFiles, MESSAGE_TEXT_MAX_CHARS } from './lib/attachments';
 import './components/customerExperience.css';
 import { useDeliveryCenter } from './useDeliveryCenter';
 import { deliveryFiles, defaultDeliverySelection, selectActiveDelivery, hasPendingDeliveryDependents } from './components/deliveryPresentation';
-import type { ArtifactInfo, DeliveryReceipt, MissionView } from '../../core/src/types';
+import { isStagePackage } from './lib/deliveryKind';
+import { projectAttention } from './lib/attention';
+import { progressHealth } from './lib/progressHealth';
+import { ProgressHealthBanner } from './components/ProgressHealthBanner';
+import { LiveWorkCard } from './components/LiveWorkCard';
+import { useAttentionSignals } from './useAttentionSignals';
+import { DraftUploadContext, DraftUploads, type DraftUploadView } from './lib/draftUploads';
+import { canOpenDesktopSettings } from './lib/desktopBridge';
+import type { ArtifactInfo, DeliveryReceipt, LaunchSettings, MissionView } from '../../core/src/types';
 import {
   completionNotificationPayload,
   installDesktopExternalLinkBridge,
@@ -214,8 +224,9 @@ export default function App() {
   const [composerFocus, setComposerFocus] = useState(0);
   const [slashSelection, setSlashSelection] = useState(0);
   const [routeOverride, setRouteOverride] = useState<MessageRouteOverride>('auto');
+  const [launchSettings, setLaunchSettings] = useState<LaunchSettings>(DEFAULT_LAUNCH_SETTINGS);
   const [chatPending, setChatPending] = useState(false);
-  const [uploadProgress, setUploadProgress] = useState<AttachmentUploadProgress | null>(null);
+  const [waitingForUploads, setWaitingForUploads] = useState(false);
   const [localConversationEvents, setLocalConversationEvents] = useState<EventMsg[]>([]);
   const localConversationSid = useRef<string | null>(null);
   const [managerSteps, setManagerSteps] = useState<PhaseStep[]>([]);
@@ -251,7 +262,7 @@ export default function App() {
     messageRequestRef.current?.controller.abort();
     messageRequestRef.current = null;
     setChatPending(false);
-    setUploadProgress(null);
+    setWaitingForUploads(false);
     setManagerSteps([]);
     return cancelled;
   }, []);
@@ -260,7 +271,7 @@ export default function App() {
     const request = messageRequestRef.current;
     if (!request || !cancelActiveMessage()) return;
     if (request.uploading) {
-      notify('info', locale === 'zh-CN' ? '已取消上传；草稿和已完成的附件保留，尚未发送给 Argus。' : 'Upload cancelled. The draft and completed files are preserved; nothing was sent to Argus.');
+      notify('info', locale === 'zh-CN' ? '已取消发送。附件会继续上传，文字和附件都还在输入框里。' : 'Sending cancelled. Uploads continue; your text and files stay in the composer.');
       return;
     }
     const epoch = messageEpochRef.current;
@@ -303,6 +314,45 @@ export default function App() {
     beginRewrite, finishRewrite, drop: dropSessionDraft,
     rememberUploaded, removeUploaded,
   } = useSessionComposer(selectedSid);
+  // Chosen files upload at once, one after another; sending waits only for
+  // what is still on its way. Removing a file cancels or deletes it.
+  const draftUploadCallbacks = useRef({ rememberUploaded, captureDraft });
+  draftUploadCallbacks.current = { rememberUploaded, captureDraft };
+  const draftUploads = useMemo(() => new DraftUploads(
+    (sid, files, signal, options) => api.uploadAttachments(sid, files, signal, options),
+    (sid, attachmentId) => api.discardAttachment(sid, attachmentId),
+    (sid, file, attachment) => {
+      const draft = draftUploadCallbacks.current.captureDraft(sid);
+      if (draft) draftUploadCallbacks.current.rememberUploaded(draft, file, attachment);
+    },
+  ), []);
+  const [uploadsVersion, redrawUploads] = useReducer((value: number) => value + 1, 0);
+  useEffect(() => draftUploads.subscribe(redrawUploads), [draftUploads]);
+  const completedUploads = useMemo(() => new Map(composerUploaded
+    .flatMap(item => item.file ? [[item.file, item.attachment] as const] : [])), [composerUploaded]);
+  const changeComposerAttachments = useCallback((next: File[]) => {
+    if (!selectedSid) return;
+    const removed = composerAttachments.filter(file => !next.includes(file));
+    setComposerAttachments(next);
+    for (const file of removed) {
+      const arrived = completedUploads.get(file);
+      if (!draftUploads.status(file) && arrived) void api.discardAttachment(selectedSid, arrived.attachment_id).catch(() => undefined);
+      draftUploads.cancel(file);
+    }
+    draftUploads.ensure(selectedSid, next, completedUploads);
+  }, [completedUploads, composerAttachments, draftUploads, selectedSid, setComposerAttachments]);
+  const draftUploadView = useMemo<DraftUploadView>(() => ({
+    status: file => draftUploads.status(file),
+    retry: file => draftUploads.retry(file),
+    ready: composerUploaded.filter(item => !item.file).map(item => item.attachment),
+    removeReady: (attachmentId) => {
+      removeUploaded(attachmentId);
+      if (selectedSid) void api.discardAttachment(selectedSid, attachmentId).catch(() => undefined);
+    },
+    busy: draftUploads.busy(composerAttachments),
+    // uploadsVersion: the store changed, so statuses and the busy count did too.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }), [composerAttachments, composerUploaded, draftUploads, removeUploaded, selectedSid, uploadsVersion]);
   const selectProject = useCallback((id: string, mode?: ProjectHistoryMode) => {
     cancelDeliveryNavigationRef.current();
     selectProjectBase(id, mode);
@@ -390,6 +440,34 @@ export default function App() {
   const manageSnapQ = useSnapshot(manageTargetSid);
   const snap = snapQ.data;
   const loadedSid = snap?.session.id === activeSid ? activeSid : null;
+  // Launch settings apply to a project's first task only, and never carry over.
+  const freshProject = Boolean(loadedSid) && isFreshProject(snap);
+  useEffect(() => { setLaunchSettings(DEFAULT_LAUNCH_SETTINGS); }, [activeSid]);
+  const startHeldLaunch = useCallback(async () => {
+    if (!loadedSid) return;
+    try {
+      const result = await api.confirmLaunch(loadedSid);
+      const daemon = result.daemon;
+      if (daemon?.admission_required) notify('error', locale === 'zh-CN' ? '已确认，但执行槽位都在忙，空出后会开始。' : 'Confirmed, but all executor slots are busy; it starts when one frees up.');
+      else if (daemon && Number(daemon.rc ?? 0) !== 0) notify('error', locale === 'zh-CN' ? `后台执行者没能启动：${daemon.error || '未知原因'}` : `The background worker could not start: ${daemon.error || 'unknown error'}`);
+    } catch (error) {
+      notify('error', errorText(error));
+    } finally {
+      void snapQ.refetch();
+    }
+  }, [loadedSid, locale, notify, snapQ]);
+  const rewriteHeldLaunch = useCallback(async () => {
+    if (!loadedSid) return;
+    try {
+      const result = await api.discardLaunch(loadedSid);
+      if (result.request) setComposerDraft(result.request);
+      setComposerFocus((value) => value + 1);
+    } catch (error) {
+      notify('error', errorText(error));
+    } finally {
+      void snapQ.refetch();
+    }
+  }, [loadedSid, notify, snapQ, setComposerDraft]);
   const continuous = snap?.continuous;
   const artifactsQ = useArtifacts(loadedSid, true);
   const { events, connected } = useEventStream(loadedSid, eventView.reconnectKey);
@@ -497,6 +575,36 @@ export default function App() {
   const completionId = loadedSid && operatorTaskComplete && missionView?.mission.id
     ? `completion:${loadedSid}:${missionView.mission.id}`
     : '';
+  const [healthNow, setHealthNow] = useState(() => Date.now() / 1000);
+  useEffect(() => { const timer = setInterval(() => setHealthNow(Date.now() / 1000), 60_000); return () => clearInterval(timer); }, []);
+  const health = useMemo(() => (loadedSid && snap ? progressHealth(snap, healthNow) : null), [loadedSid, snap, healthNow]);
+  const attention = useMemo(() => projectAttention({
+    snapshot: loadedSid ? snap : undefined,
+    view: missionView,
+    events: activityEvents,
+    complete: operatorTaskComplete,
+    delivery,
+    health,
+    zh: locale === 'zh-CN',
+  }), [loadedSid, snap, missionView, activityEvents, operatorTaskComplete, delivery, health, locale]);
+  const projectWorking = Boolean(snap?.daemon.alive) || Boolean(snap?.backlog.some((item) => ['pending', 'running', 'in_progress', 'claimed'].includes(item.status)));
+  const resourcesQ = useQuery({
+    queryKey: ['system-resources'], queryFn: ({ signal }) => api.resources(signal),
+    enabled: Boolean(loadedSid) && projectWorking, refetchInterval: 60_000, staleTime: 30_000, retry: false,
+  });
+  const projectBusy = useMemo(() => {
+    if (!snap?.daemon.alive) return false;
+    const state = currentWorkStatus(snap, missionView, events).state;
+    return state === 'running' || state === 'waiting';
+  }, [events, missionView, snap]);
+  const notifications = useAttentionSignals({
+    sid: loadedSid,
+    projectName: snap?.session.display_name || '',
+    attention,
+    zh: locale === 'zh-CN',
+    embedded: canOpenDesktopSettings(),
+    running: projectBusy,
+  });
   completionContextRef.current = {
     sid: loadedSid || '',
     completionId,
@@ -520,7 +628,14 @@ export default function App() {
     setMobileView('preview');
     setPreviewPathRequest((current) => ({ path: target, token: current.token + 1 }));
   }, [artifactsQ.data, setMobileView, setRightPanelOpen, setWorkspaceView, workspaceView]);
-  const deliveryCenter = useDeliveryCenter(loadedSid, Boolean(snap) && !transcriptQ.isPending, delivery, !artifactPath && !hasPendingDeliveryDependents(snap?.backlog ?? [], delivery?.item_id));
+  const deliveryCenter = useDeliveryCenter(
+    loadedSid,
+    Boolean(snap) && !transcriptQ.isPending,
+    delivery,
+    // Intermediate files stay quiet while downstream work runs; a stage package is
+    // announced precisely because the rest of the goal is still running.
+    !artifactPath && (isStagePackage(delivery) || !hasPendingDeliveryDependents(snap?.backlog ?? [], delivery?.item_id)),
+  );
   const openDelivery = deliveryCenter.open;
   const composeContext = (text: string) => {
     if (!loadedSid || loadedSid !== sidRef.current || kiosk) return;
@@ -546,12 +661,12 @@ export default function App() {
       notify('error', locale === 'zh-CN' ? '资料未加入：请检查附件数量和大小限制，或先移除一个附件。' : 'Material was not added. Check attachment size/count limits or remove an attachment first.');
       return;
     }
-    setComposerAttachments([...composerAttachments, ...accepted]);
+    changeComposerAttachments([...composerAttachments, ...accepted]);
     setOverlay('none');
     setWorkspaceView('activity');
     setMobileView('activity');
     setComposerFocus(value => value + 1);
-    notify('info', locale === 'zh-CN' ? '资料已选择到当前项目的草稿。确认后发送才会上传；尚未交给 Argus 读取。' : 'Material is selected in this project draft. It uploads only when you send; Argus has not read it yet.');
+    notify('info', locale === 'zh-CN' ? '资料已加入草稿并开始上传；发送后 Argus 才会读取。' : 'Material added to the draft and uploading; Argus reads it once you send.');
   };
   const deliveryHistory = useMemo(() => {
     const receipts = new Map<string, DeliveryReceipt>();
@@ -654,6 +769,7 @@ export default function App() {
     manageStartDaemon,
     requestDispose,
     requestManageSession,
+    requestPauseDaemon,
     requestStartDaemon,
     requestStopDaemon,
     requestStopIteration,
@@ -670,11 +786,12 @@ export default function App() {
     refetchProjects: projectsQ.refetch,
     selectProject,
     setDaemonManageOpen,
+    t,
   });
   const renameCurrentProject = useCallback(async (name: string) => {
     if (!activeSid) return;
     const result = await actions.updateProject.mutateAsync({ sid: activeSid, name });
-    notify('success', `Renamed to "${result.name}".`);
+    notify('success', t('project.renamedTo', { name: result.name }));
   }, [actions.updateProject, activeSid, notify]);
   const commandHandlers = useMemo<WebCommandHandlers>(() => buildWebCommandHandlers({
     activeSid,
@@ -772,7 +889,7 @@ export default function App() {
       if (messageRequestRef.current?.id === requestId) {
         messageRequestRef.current = null;
         setChatPending(false);
-        setUploadProgress(null);
+        setWaitingForUploads(false);
         setManagerSteps([]);
       }
     };
@@ -783,24 +900,21 @@ export default function App() {
     if (attachments.length || uploadOptions?.ready?.length) {
       if (messageRequestRef.current) messageRequestRef.current.uploading = true;
       try {
-        const uploaded = await api.uploadAttachments(
-          requestSid,
-          attachments,
-          controller.signal,
-          {
-            ...uploadOptions,
-            onProgress: progress => { if (isCurrent()) setUploadProgress(progress); },
-            onCleanupError: error => notify('error', locale === 'zh-CN'
-              ? `临时上传未能立即清理，将在闲置 24 小时后回收：${errorText(error)}`
-              : `Temporary upload cleanup failed; idle uploads expire after 24 hours: ${errorText(error)}`),
-          },
-        );
+        // Files started uploading when chosen; wait for the ones still on
+        // their way. Cancelling this wait leaves those uploads running.
+        const known = uploadOptions?.completed ?? new Map<File, never>();
+        if (attachments.some(file => !known.has(file))) setWaitingForUploads(true);
+        const completed = await draftUploads.settle(requestSid, attachments, known, controller.signal);
+        if (!isCurrent()) return false;
+        for (const [file, attachment] of completed) if (!known.has(file)) uploadOptions?.onUploaded?.(file, attachment);
+        setWaitingForUploads(false);
+        const uploaded = await api.uploadAttachments(requestSid, attachments, controller.signal, { ready: uploadOptions?.ready, completed });
         if (!isCurrent()) return false;
         attachmentRefs = uploaded.attachments.map((attachment) => ({
           attachment_id: attachment.attachment_id,
         }));
         if (messageRequestRef.current) messageRequestRef.current.uploading = false;
-        setUploadProgress(null);
+        setWaitingForUploads(false);
       } catch (error) {
         if (isCurrent()) {
           notify('error', t('chat.attachmentUploadFailed', { error: errorText(error) }));
@@ -942,6 +1056,7 @@ export default function App() {
             attachments: attachmentRefs,
             routeOverride,
             requestId: serverRequestId,
+            launch: freshProject && routeOverride !== 'chat' ? launchSettings : undefined,
           });
         } catch (error) {
           if (isCurrent()) streamErr = error as Error;
@@ -1020,6 +1135,7 @@ export default function App() {
     });
     if (accepted && !failedBeforeAcceptance && !rewriteCommand) {
       cleared = consumeDraft(draft, files);
+      draftUploads.forget(files);
     }
     return accepted;
   };
@@ -1074,7 +1190,7 @@ export default function App() {
             ? []
             : [
                 snap?.daemon.alive
-                  ? { id: 'stop', label: t('palette.stopDaemon'), group: t('palette.action'), run: requestStopDaemon }
+                  ? { id: 'stop', label: t('palette.stopDaemon'), group: t('palette.action'), run: requestPauseDaemon }
                   : { id: 'start', label: t('palette.startDaemon'), group: t('palette.action'), run: requestStartDaemon },
               ]),
         ];
@@ -1091,6 +1207,7 @@ export default function App() {
   }, [projects, snap?.daemon.alive, kiosk, showReasoning, continuous?.enabled, messagePending, stopWaiting, setComposerDraft, locale, t]);
 
   return (
+    <DraftUploadContext.Provider value={draftUploadView}>
     <ProgressQuestionsProvider sid={activeSid} readOnly={kiosk}>
     <WorkspaceShell
       ref={shellRef}
@@ -1107,7 +1224,7 @@ export default function App() {
         }}
       />
       {deliveryCenter.fresh && !deliveryCenter.selection && <div className="delivery-toast" role="status" aria-live="polite">
-        <span>{locale === 'zh-CN' ? '新交付：' : 'New delivery: '}{deliveryCenter.fresh.title}</span>
+        <span>{t(isStagePackage(deliveryCenter.fresh) ? 'delivery.freshStage' : 'delivery.freshTask')}{deliveryCenter.fresh.title}</span>
         <button type="button" onClick={() => openDelivery(deliveryCenter.fresh!)}>{locale === 'zh-CN' ? '查看' : 'Open'}</button>
         <button type="button" aria-label={locale === 'zh-CN' ? '关闭' : 'Dismiss'} onClick={deliveryCenter.dismissFresh}>×</button>
       </div>}
@@ -1148,6 +1265,11 @@ export default function App() {
           onOpenPanel={(panel) => setOverlay(panel)}
           onOpenLearning={openLearningLibrary}
           onOpenVerticals={() => setOverlay('verticals')}
+          onOpenResults={() => {
+            const selection = defaultDeliverySelection(deliveryHistory, missionView?.routing.vertical || '');
+            if (selection) { openDelivery(selection.receipt, selection.path); setSidebarOpen(false); }
+          }}
+          resultsCount={loadedSid ? deliveryHistory.length : 0}
           onNew={() => startNewSession()}
           loading={projectsQ.isLoading}
           creating={creatingDaemon}
@@ -1183,6 +1305,7 @@ export default function App() {
                 streamOk={connected}
                 onStart={requestStartDaemon}
                 onStop={requestStopDaemon}
+                onPause={requestPauseDaemon}
                 onManage={() => activeSid && requestManageSession(activeSid)}
                 busy={daemonBusy}
                 snapshotStale={snapQ.isError}
@@ -1203,22 +1326,8 @@ export default function App() {
                   {locale === 'zh-CN' ? '文件' : 'Files'}{artifactsQ.data?.length ? ` · ${artifactsQ.data.filter(file => file.exists).length}` : ''}
                 </button>
               </nav>
-              {!kiosk && (uploadProgress || composerUploaded.some(item => !item.file)) && <div className="draft-status flex-wrap" role="status">
-                {uploadProgress && <>
-                  <span>{locale === 'zh-CN' ? '附件' : 'File'} {uploadProgress.index}/{uploadProgress.count} · {uploadProgress.name} · {Math.floor(uploadProgress.loaded / Math.max(1, uploadProgress.total) * 100)}% · {
-                    uploadProgress.phase === 'validating' ? locale === 'zh-CN' ? '正在校验，尚未发送' : 'Validating, not yet sent'
-                      : uploadProgress.phase === 'retrying' ? locale === 'zh-CN' ? '正在确认进度并重试' : 'Checking offset and retrying'
-                        : uploadProgress.phase === 'ready' ? locale === 'zh-CN' ? '文件已就绪，尚未读取' : 'File ready, not yet read'
-                          : locale === 'zh-CN' ? '正在上传，尚未发送' : 'Uploading, not yet sent'}</span>
-                  <button type="button" onClick={stopWaiting}>{locale === 'zh-CN' ? '取消上传' : 'Cancel upload'}</button>
-                </>}
-                {composerUploaded.filter(item => !item.file).map(({ attachment }) => <span key={attachment.attachment_id}>
-                  {attachment.original_name} · {locale === 'zh-CN' ? '已上传，待发送' : 'Uploaded, not sent'}{' '}
-                  <button type="button" disabled={messagePending} onClick={() => removeUploaded(attachment.attachment_id)}>{locale === 'zh-CN' ? '移除' : 'Remove'}</button>
-                </span>)}
-              </div>}
               {!kiosk && workspaceView === 'workbench' && <LearningStatus sid={activeSid} onOpenKnowledge={() => openWiki()} onOpenSkills={() => openSkillLibrary()} />}
-              {workspaceView === 'map' && <Suspense fallback={<div className="m-auto text-sm text-ink-faint">{t('common.loading')}</div>}><MapPanel key={snap.session.id} snapshot={snap} events={mapEvents} managerSteps={managerSteps} draft={composerDraft} onDraftChange={setComposerDraft} onSend={sendComposerMessage} attachments={composerAttachments} onAttachmentsChange={setComposerAttachments} pending={messagePending} onCancel={stopWaiting} focusSignal={composerFocus} readOnly={kiosk} onOpenSettings={() => setOverlay('config')}
+              {workspaceView === 'map' && <Suspense fallback={<div className="m-auto text-sm text-ink-faint">{t('common.loading')}</div>}><MapPanel key={snap.session.id} snapshot={snap} events={mapEvents} managerSteps={managerSteps} draft={composerDraft} onDraftChange={setComposerDraft} onSend={sendComposerMessage} attachments={composerAttachments} onAttachmentsChange={changeComposerAttachments} pending={messagePending} onCancel={stopWaiting} focusSignal={composerFocus} readOnly={kiosk} onOpenSettings={() => setOverlay('config')}
                 currentTaskId={missionView?.mission.id}
                 routeOverride={routeOverride} onRouteOverrideChange={setRouteOverride}
                 conversationEvents={mapConversationEvents} connected={connected} artifacts={artifactsQ.data ?? []}
@@ -1236,6 +1345,17 @@ export default function App() {
               </div>}
               <div className={`${workspaceView === 'activity' ? 'flex' : 'hidden'} workspace-view-surface min-h-0 flex-1 flex-col`}>
                 <GuardianBanner alert={guardianAlert} />
+                <ProgressHealthBanner key={loadedSid || 'none'} sid={snap.session.id} health={health}
+                  onPause={kiosk || !snap.daemon.alive ? undefined : requestPauseDaemon}
+                  onAdjust={kiosk ? undefined : () => setComposerFocus((value) => value + 1)} />
+                {snap.launch_hold ? <LaunchHoldCard
+                  key={snap.launch_hold.created_at}
+                  hold={snap.launch_hold}
+                  backlog={snap.backlog}
+                  readOnly={kiosk}
+                  onStart={startHeldLaunch}
+                  onRewrite={rewriteHeldLaunch}
+                /> : null}
                 {/* The mobile activity minimum includes its header/status and 120px of conversation. */}
                   <div className={`flex flex-1 flex-col ${compactViewport ? 'min-h-0' : 'min-h-[209px] lg:min-h-0'}`}>
                   <EventStream
@@ -1257,6 +1377,9 @@ export default function App() {
                     onOpenArtifact={focusDeliveryPath}
                     onOpenDelivery={openDelivery}
                     onCompose={kiosk ? undefined : composeContext}
+                    notifications={kiosk ? undefined : notifications}
+                    resources={resourcesQ.data ?? null}
+                    latestDelivery={deliveryHistory[0] ?? null}
                     rememberPosition
                   />
                   </div>
@@ -1269,11 +1392,14 @@ export default function App() {
                       currentTaskId={missionView?.mission.id}
                       onAnswer={() => setPendingReplyOpen(true)}
                     />
+                    <LiveWorkCard snapshot={snap} view={missionView} events={events} resources={resourcesQ.data ?? null}
+                      onPause={snap.daemon.alive ? requestPauseDaemon : undefined} />
+                    {freshProject && routeOverride !== 'chat' ? <LaunchSettingsBar value={launchSettings} onChange={setLaunchSettings} disabled={messagePending} /> : null}
                     <ChatBox
                       key={activeSid || 'no-session'}
                       value={composerDraft}
                       attachments={composerAttachments}
-                      onAttachmentsChange={setComposerAttachments}
+                      onAttachmentsChange={changeComposerAttachments}
                       onChange={setComposerDraft}
                       onSend={sendComposerMessage}
                       onCancel={stopWaiting}
@@ -1287,12 +1413,13 @@ export default function App() {
                       onSlashSelectionChange={setSlashSelection}
                       routeOverride={routeOverride}
                       onRouteOverrideChange={setRouteOverride}
+                      pendingNote={waitingForUploads ? (locale === 'zh-CN' ? '附件还在上传，传完后自动发送 · 按 Esc 取消发送' : 'Waiting for uploads; sends automatically when they finish · Esc to cancel') : undefined}
                       footer={activeSid ? <ComposerRuntime sid={snap.session.id} roles={snap.roles} running={snap.daemon.alive || Boolean(snap.manager_requests?.length)} lastCall={snap.last_call} onOpenSettings={() => setOverlay('config')} /> : undefined}
                     />
                     {(composerDraft || composerAttachments.length > 0 || missingAttachments.length > 0 || draftStorageError) && <div className="draft-status" role="status">
                       <span>{draftStorageError
                         ? locale === 'zh-CN' ? '浏览器未能保存草稿，请在离开前复制内容。' : 'This browser could not save the draft. Copy it before leaving.'
-                        : locale === 'zh-CN' ? '文字草稿仅保存在此浏览器 · 附件发送后才会上传' : 'Text draft saved in this browser · Attachments upload when sent'}</span>
+                        : locale === 'zh-CN' ? '文字草稿仅保存在此浏览器 · 附件选中后立即上传，发送后 Argus 才会读取' : 'Text draft saved in this browser · Files upload when chosen; Argus reads them once you send'}</span>
                       {missingAttachments.length > 0 && <><span className="text-warn">{locale === 'zh-CN' ? '刷新前的附件尚未上传，请重新选择：' : 'Unuploaded files must be selected again: '}{missingAttachments.join('、')}</span><button type="button" onClick={dismissMissingAttachments}>{locale === 'zh-CN' ? '不再使用这些附件' : 'Discard missing attachments'}</button></>}
                       {composerDraft && <button type="button" onClick={() => setComposerDraft('')}>{locale === 'zh-CN' ? '清空文字草稿' : 'Clear text draft'}</button>}
                     </div>}
@@ -1332,6 +1459,7 @@ export default function App() {
                   streamOk={connected}
                   onStart={requestStartDaemon}
                   onStop={requestStopDaemon}
+                  onPause={requestPauseDaemon}
                   onManage={() => activeSid && requestManageSession(activeSid)}
                   busy={daemonBusy}
                   snapshotStale={snapQ.isError}
@@ -1355,6 +1483,8 @@ export default function App() {
                 requestedPath={previewPathRequest.path}
                 requestedPathToken={previewPathRequest.token}
                 filesFirst
+                latestDelivery={deliveryHistory[0] ?? null}
+                onOpenDelivery={(receipt) => openDelivery(receipt)}
                 loading={artifactsQ.isLoading}
                 onRevise={kiosk ? undefined : reviseArtifact}
                 onRetry={() => void artifactsQ.refetch()}
@@ -1487,5 +1617,6 @@ export default function App() {
       ) : null}
     </WorkspaceShell>
     </ProgressQuestionsProvider>
+    </DraftUploadContext.Provider>
   );
 }

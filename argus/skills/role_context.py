@@ -18,7 +18,7 @@ def load_builtin_skill_text(filename: str) -> str:
     if "/" not in filename:
         candidates.extend(
             root.joinpath(subdir).joinpath(filename)
-            for subdir in ("engineer", "reviewer", "planner", "manager", "curator")
+            for subdir in ("engineer", "reviewer", "planner", "manager")
         )
     for path in candidates:
         try:

@@ -198,6 +198,10 @@
         "ttl_seconds": {
           "type": "number",
           "minimum": 0
+        },
+        "waited_seconds": {
+          "type": "number",
+          "minimum": 0
         }
       }
     }

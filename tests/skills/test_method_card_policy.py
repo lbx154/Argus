@@ -126,7 +126,9 @@ def test_planner_experiment_fragment_keeps_definition_with_the_implementer() -> 
     assert "## Method card, reference and spec first" in text
     assert "same Engineer who implements" in text
     assert "never a separate 'define the method' task" in text
-    assert "verbatim into acceptance" in text
+    # Cited, not copied: every arm restating the protocol pushed task
+    # objectives out of the Manager snapshot in s-a43d1018.
+    assert "acceptance cites the METHOD.md Protocol" in text
     assert "re-issued after an infrastructure failure" in text
     assert "## Method card, reference and spec first" not in _fragment(
         "planner", "paper", operation="plan"

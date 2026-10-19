@@ -14,9 +14,13 @@ export function DeliveryNotice({
   const { locale } = useI18n();
   const zh = locale === 'zh-CN';
   const certified = delivery.kind === 'submission_certified';
+  // A reviewed interim research package; the overall goal is still open.
+  const stagePackage = delivery.kind === 'stage_package';
   const heading = certified
     ? (zh ? '交付已认证' : 'Delivery certified')
-    : (zh ? '任务已完成' : 'Task completed');
+    : stagePackage
+      ? (zh ? '阶段成果 · 整体目标未完成' : 'Stage result · goal not yet complete')
+      : (zh ? '任务已完成' : 'Task completed');
   const target = delivery.primary_target;
 
   return (

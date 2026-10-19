@@ -13,7 +13,7 @@ import portalocker
 
 from ..core.models import RunnerOptions
 from ..core.run_gateway import run_exec, run_interrupt_scope
-from .store import MAX_TEXT_BYTES, PeerMailbox, mailbox_for_project
+from .store import MAX_TEXT_BYTES, PEER_MESSAGE_MAX_ATTEMPTS, PeerMailbox, mailbox_for_project
 
 log = logging.getLogger(__name__)
 
@@ -91,6 +91,15 @@ def respond_peer(manager: Any, message: dict[str, Any], cancelled: Callable[[], 
     return {"text": answer, "call_id": str(result.call_id or "")}
 
 
+def _unanswered(message: dict[str, Any]) -> str:
+    """The reply that closes a peer message the Manager failed to answer."""
+    return (
+        f"This project's Manager could not answer peer message {message['message_id']} after "
+        f"{PEER_MESSAGE_MAX_ATTEMPTS} attempts (last error: {message.get('last_error') or 'unknown'}). "
+        "It is closed unanswered; send it again if it still matters."
+    )
+
+
 def _publish(mailbox: PeerMailbox, message: dict[str, Any], receipt: dict[str, Any]) -> None:
     from ..life.event_log import JsonlEventSink
 
@@ -123,7 +132,9 @@ def process_peer_messages(
                     break
                 try:
                     receipt = mailbox.processed(message["message_id"])
-                    if receipt is None:
+                    if receipt is None and int(message.get("attempts") or 0) >= PEER_MESSAGE_MAX_ATTEMPTS:
+                        receipt = mailbox.stage_processed(message["message_id"], response=_unanswered(message))
+                    elif receipt is None:
                         result = responder(manager, message, cancelled)
                         if cancelled():
                             break
