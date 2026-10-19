@@ -192,6 +192,8 @@ def test_reply_fork_isolates_streams_and_preserves_parent_interrupt(tmp_path, mo
     manager = fake_manager(receiver)
     manager.runner = Parent()
     assert process_peer_messages(receiver, manager) == (0 if stopped or foreground else 1)
+    # An interrupted answer waits for the next boundary without spending an attempt.
+    assert sender.status(message["message_id"])["message"]["attempts"] == 0
     assert fork_options[0]["event_callback"] is None
     assert usage == [{"project_root": receiver, "global_root": root, "mission_id": f"peer:{message['message_id']}"}]
 
@@ -276,8 +278,10 @@ def test_two_independent_daemon_loops_exchange_and_consume_reply(tmp_path):
 
         wait_until(complete)
         assert sender.status(sent["message_id"])["message"]["acknowledged_at"] > 0
+        # Only the asked project's Manager answers; the reply is filed for the asker.
+        assert len((root / "projects/project-b/calls.jsonl").read_text().splitlines()) == 1
+        assert not (root / "projects/project-a/calls.jsonl").exists()
         for sid in ("project-a", "project-b"):
-            assert len((root / "projects" / sid / "calls.jsonl").read_text().splitlines()) == 1
             assert not (root / "projects" / sid / "inbox.jsonl").exists()
     finally:
         stop_worker(a, root / "projects" / "project-a")
@@ -303,3 +307,45 @@ def test_process_crash_after_staged_reply_before_ack_recovers_without_second_man
             assert db.execute("SELECT COUNT(*) FROM messages WHERE kind='reply'").fetchone()[0] == 1
     finally:
         stop_worker(restarted, root / "projects/project-b")
+
+
+def test_mutual_requests_cost_each_manager_one_answer_and_then_stay_quiet(tmp_path):
+    root = projects(tmp_path)
+    a, b = PeerMailbox(root, "project-a"), PeerMailbox(root, "project-b")
+    asked_b = a.send("project-b", "What did your ablation show?", parent_call_id="pa", request_id="ra")
+    asked_a = b.send("project-a", "Which seed did you use?", parent_call_id="pb", request_id="rb")
+    managers = {sid: fake_manager(root / "projects" / sid) for sid in ("project-a", "project-b")}
+    for _boundary in range(4):
+        for sid, manager in managers.items():
+            process_peer_messages(root / "projects" / sid, manager, max_messages=10)
+    assert [len(manager._session.calls) for manager in managers.values()] == [1, 1]
+    assert a.pending() == [] and b.pending() == []
+    assert a.status(asked_b["message_id"])["reply"]["acknowledged_at"] > 0
+    assert b.status(asked_a["message_id"])["reply"]["acknowledged_at"] > 0
+
+
+def test_a_failing_answer_is_tried_a_bounded_number_of_times_then_settled(tmp_path, monkeypatch):
+    from argus.messaging import store
+
+    clock = [1000.0]
+    monkeypatch.setattr(store, "time", SimpleNamespace(time=lambda: clock[0]))
+    root = projects(tmp_path)
+    sender = PeerMailbox(root, "project-a")
+    message = sender.send("project-b", "Question", parent_call_id="p", request_id="r")
+    calls = []
+
+    def fail(*_args):
+        calls.append(1)
+        raise RuntimeError("Manager backend down")
+
+    for _boundary in range(20):
+        process_peer_messages(root / "projects/project-b", None, responder=fail)
+        clock[0] += 3600
+    assert len(calls) == store.MAX_ATTEMPTS
+    status = sender.status(message["message_id"])
+    assert status["message"]["acknowledged_at"] > 0
+    assert status["reply"]["text"].startswith("Host notice: project-b could not answer")
+    # The notice is filed for the asker without a Manager turn.
+    asker = fake_manager(root / "projects/project-a")
+    process_peer_messages(root / "projects/project-a", asker)
+    assert asker._session.calls == [] and sender.pending() == []

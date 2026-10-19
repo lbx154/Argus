@@ -17,6 +17,8 @@ from typing import Any, Iterator
 _PROJECT_ID = re.compile(r"[A-Za-z0-9][A-Za-z0-9_-]{0,127}\Z")
 MAX_TEXT_BYTES = 16384
 MAX_EVIDENCE_REFS = 16
+# A message that fails this often is settled with a host notice instead of retried.
+MAX_ATTEMPTS = 3
 
 
 def _text(value: Any) -> str:
@@ -188,10 +190,14 @@ class PeerMailbox:
             if not changed and not db.execute("SELECT 1 FROM messages WHERE id=? AND recipient=? AND acknowledged_at>0", (message_id, self.project_id)).fetchone():
                 raise ValueError("peer acknowledgement belongs to another project")
 
-    def retry_later(self, message_id: str, error: str) -> None:
+    def retry_later(self, message_id: str, error: str) -> bool:
+        """Count a failed attempt, waiting longer each time; True once none remain."""
         with self._database(write=True) as db:
-            db.execute("UPDATE messages SET attempts=attempts+1,next_attempt_at=?,last_error=? WHERE id=? AND recipient=? AND acknowledged_at=0",
-                       (time.time() + 1, str(error)[:1000], message_id, self.project_id))
+            db.execute("UPDATE messages SET attempts=attempts+1,next_attempt_at=?+60*(1<<attempts),last_error=? "
+                       "WHERE id=? AND recipient=? AND acknowledged_at=0",
+                       (time.time(), str(error)[:1000], message_id, self.project_id))
+            row = db.execute("SELECT attempts FROM messages WHERE id=?", (message_id,)).fetchone()
+            return row is not None and row[0] >= MAX_ATTEMPTS
 
 
 def mailbox_for_project(project_root: Path | str) -> PeerMailbox:
