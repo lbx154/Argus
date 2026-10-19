@@ -1276,6 +1276,89 @@ def test_run_supervised_persists_supervisor_usage_totals(monkeypatch, tmp_path) 
     assert record["supervisor_reasoning_output_tokens"] == 6
 
 
+def _supervisor_looks(monkeypatch, tmp_path, *, waits: int, inputs_at) -> list[float]:
+    """Run a supervised job for ``waits`` monitor waits on a fake clock.
+
+    ``inputs_at(now)`` stands for what the supervisor reads at that moment;
+    the result is the clock time of every supervisor model call.
+    """
+    monkeypatch.chdir(tmp_path)
+    _skip_supervisor_summary(monkeypatch)
+    clock = [1_000_000.0]
+    monkeypatch.setattr(time, "time", lambda: clock[0])
+
+    class _Proc:
+        pid = 4321
+        returncode = 0
+        calls = 0
+
+        def wait(self, timeout=None):
+            if self.calls < waits:
+                self.calls += 1
+                clock[0] += timeout
+                raise subprocess.TimeoutExpired("cmd", timeout)
+            return 0
+
+    looks: list[float] = []
+
+    def _check(*args, **kwargs):
+        looks.append(clock[0])
+        return _sub._supervised_run.SupervisorCheck(
+            decision="continue", health="healthy", concern="",
+            thread_id="t", usage=(1, 0, 1, 0), error=None,
+        )
+
+    monkeypatch.setattr(_sub._registry.subprocess, "Popen", lambda *a, **k: _Proc())
+    monkeypatch.setattr(_sub._registry, "_child_env", lambda: {})
+    monkeypatch.setattr(_sub._supervised_run, "_tail_file", lambda *a, **k: "")
+    monkeypatch.setattr(_sub._supervised_run, "_alert_engineer", lambda *a, **k: "report")
+    monkeypatch.setattr(_sub._supervised_run, "_persist_experiment_record", lambda *a, **k: None)
+    monkeypatch.setattr(_sub._supervised_run, "_supervisor_check_with_usage", _check)
+    monkeypatch.setattr(_sub._supervised_run, "_supervisor_inputs", lambda paths: inputs_at(clock[0]))
+    start = clock[0]
+    _sub._run_supervised(
+        "train-quiet", "python train.py", "demo", timeout=10**7,
+        monitor_interval=120, model="gpt-5.5", cwd=str(tmp_path), preflight=False,
+    )
+    return [look - start for look in looks]
+
+
+def test_supervisor_is_not_asked_again_while_its_inputs_stand_still(monkeypatch, tmp_path) -> None:
+    # Logs written once, then silent for 20 minutes (six monitor waits): one
+    # look at the first output, none while nothing moves.
+    looks = _supervisor_looks(monkeypatch, tmp_path, waits=6, inputs_at=lambda now: [[10, 1, 1]])
+    assert len(looks) == 1
+
+
+def test_supervisor_looks_once_when_its_inputs_move(monkeypatch, tmp_path) -> None:
+    changed_at = 1_000_000.0 + 1000
+    looks = _supervisor_looks(
+        monkeypatch, tmp_path, waits=8,
+        inputs_at=lambda now: [[20, 2, 2]] if now >= changed_at else [[10, 1, 1]],
+    )
+    assert len(looks) == 2 and looks[1] >= 1000
+
+
+def test_silent_output_earns_one_look_past_the_quiet_deadline(monkeypatch, tmp_path) -> None:
+    # An hour of silence: the first look, one more once the output has been
+    # quiet past 2 * max(interval, 900) s, and nothing after that.
+    looks = _supervisor_looks(monkeypatch, tmp_path, waits=40, inputs_at=lambda now: [[10, 1, 1]])
+    assert len(looks) == 2
+    assert looks[1] - looks[0] >= 1800
+
+
+def test_supervisor_inputs_are_the_file_facts_of_what_it_reads(tmp_path) -> None:
+    log = tmp_path / "out.log"
+    log.write_text("step 1\n")
+    paths = (log, tmp_path / "missing.json")
+    before = _sub._supervised_run._supervisor_inputs(paths)
+    assert before[1] == []
+    assert _sub._supervised_run._supervisor_inputs(paths) == before
+    with log.open("a") as handle:
+        handle.write("step 2\n")
+    assert _sub._supervised_run._supervisor_inputs(paths) != before
+
+
 def test_open_discussion_blockers_use_process_identity_not_heartbeat_age(
     monkeypatch, tmp_path
 ) -> None:
