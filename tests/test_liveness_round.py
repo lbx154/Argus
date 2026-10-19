@@ -189,7 +189,7 @@ def test_an_unbounded_self_reviewed_mission_now_ends_on_the_stall_guard(tmp_path
     assert (engineer.calls, reviewer.calls) == (6, 2)
 
 
-# --- 3. The rendered footer names the owner control acts on ----------------
+# --- 3. The rendered handoff names the owner control acts on --------------
 
 
 @pytest.mark.parametrize("payload", [
@@ -197,8 +197,8 @@ def test_an_unbounded_self_reviewed_mission_now_ends_on_the_stall_guard(tmp_path
     {"status": "continue", "result": "Partial fix.", "next_owner": "engineer"},
     {"status": "continue", "result": "Need a choice.", "next_owner": "engineer",
      "operator_question": "Publish route A or B?"},
-    {"status": "done", "result": "Done."},
-    {"status": "done", "result": "Done.", "next_owner": "reviewer"},
+    {"status": "continue", "result": "Mis-scoped.", "next_owner": "planner"},
+    {"status": "blocked", "result": "Credentials are missing."},
 ])
 def test_a_rendered_decision_names_the_owner_the_round_loop_uses(payload: dict) -> None:
     message = _engineer_decision_message(payload)
@@ -207,18 +207,15 @@ def test_a_rendered_decision_names_the_owner_the_round_loop_uses(payload: dict) 
 
 def test_a_continue_decision_without_an_owner_renders_the_reviewer() -> None:
     message = _engineer_decision_message({"status": "continue", "result": "Partial fix."})
-    assert "NEXT_OWNER=reviewer" in message
-    assert "NEXT_OWNER=engineer" not in message
+    assert message.splitlines()[-1] == "→ reviewer"
 
 
 @pytest.mark.parametrize("status", ["done", "continue", "blocked"])
-def test_a_rendered_decision_states_the_status_the_round_loop_uses(status: str) -> None:
-    """A blocked decision rendered ``MILESTONE_STATUS=continue``, so the
-    Reviewer read a stuck Engineer as one still working."""
+def test_a_rendered_decision_is_done_only_when_the_decision_is(status: str) -> None:
+    """The Reviewer reads ``→ done`` exactly when the round loop settles done."""
     decision = {"status": status, "result": "Credentials are missing."}
     rendered = _outcome(_engineer_decision_message(decision))
     assert _milestone_is_done(rendered) is _milestone_is_done(_outcome("", decision))
-    assert _milestone_is_blocked(rendered) is _milestone_is_blocked(_outcome("", decision))
 
 
 # --- 4. Only this mission's healthy work excuses its stall -----------------

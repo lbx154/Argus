@@ -54,7 +54,9 @@ export function isStructuredAgentPayload(event: EventMsg): boolean {
   return role === 'reviewer' || role === 'planner';
 }
 
-const AGENT_HANDOFF_LINE = /^(?:[-*+]\s*)?[`*_]*(?:ARGUS_)?(?:MILESTONE_STATUS|NEXT_OWNER|OPERATOR_QUESTION|OPERATOR_OPTIONS|ROLE_DECISION)[`*_]*\s*[:=]|^(?:final\s+)?decision\s*:\s*$/i;
+// The older footer's control lines, the Decision: marker, and the baton line
+// that names the next holder (argus/core/role_handoff.py).
+const AGENT_HANDOFF_LINE = /^(?:[-*+]\s*)?[`*_]*(?:ARGUS_)?(?:MILESTONE_STATUS|NEXT_OWNER|OPERATOR_QUESTION|OPERATOR_OPTIONS|OPERATOR_NEED|ASSUMPTION|ROLE_DECISION)[`*_]*\s*[:=]|^(?:final\s+)?decision\s*:\s*$|^[>*\s-]*(?:→|->|=>)\s*[`*]*(?:engineer|reviewer|planner|manager|operator|wait|done|执行|复核|规划|统筹|操作员|等待|完成)[`*]*\s*(?:$|[:：])/i;
 
 export function visibleAgentText(value: unknown): string {
   return String(value ?? '')

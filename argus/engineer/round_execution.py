@@ -84,43 +84,34 @@ _IDLE_TERMINATION_ANY_COMMAND_LIMIT = 4
 
 
 def _engineer_decision_message(payload: dict) -> str:
-    """Render a process decision for existing round-control consumers."""
-    status = str(payload.get("status", "") or "").strip().lower()
-    result = str(
-        payload.get("result", payload.get("summary", "")) or ""
-    ).strip()
-    # The status and owner the round loop acts on (``round_self_review`` reads
-    # the same payload), so the rendered footer the Reviewer and the journal
-    # read never states a different verdict or next owner than control used.
-    lines = [
-        result,
-        f"MILESTONE_STATUS={status if status in {'done', 'blocked'} else 'continue'}",
-        f"NEXT_OWNER={decision_engineer_handoff(payload).next_owner}",
-    ]
-    question = str(payload.get("operator_question", "") or "").strip()
-    if question:
-        lines.append(f"OPERATOR_QUESTION={question}")
-        need = str(payload.get("operator_need", "") or "").strip()
-        if need:
-            lines.append(f"OPERATOR_NEED={need}")
-    options = payload.get("operator_options")
-    if isinstance(options, list) and options:
-        rendered_options = []
-        for option in options:
-            if isinstance(option, dict):
-                rendered_options.append(
-                    " :: ".join(
-                        str(option.get(field, "") or "").strip()
-                        for field in ("id", "label", "description")
-                    )
-                )
-            else:
-                rendered_options.append(str(option))
-        lines.append(
-            "OPERATOR_OPTIONS="
-            + " || ".join(rendered_options)
-        )
-    return "\n".join(line for line in lines if line)
+    """Render a decision event as the baton handoff the round loop acts on.
+
+    The prose, then one line naming the holder control hands the work to
+    (``round_self_review`` reads the same payload), so the Reviewer, the
+    journal and the context packet never read a different holder than the
+    loop used. A question keeps its need and options, which build the card.
+    """
+    result = str(payload.get("result", payload.get("summary", "")) or "").strip()
+    handoff = decision_engineer_handoff(payload)
+    if handoff.waits_for_operator:
+        lines = [result, f"→ operator: {handoff.operator_question}"]
+        if handoff.operator_need:
+            lines.append(f"OPERATOR_NEED={handoff.operator_need}")
+        if handoff.operator_options:
+            # The format the Engineer writes and ``parse_agent_operator_options`` reads.
+            lines.append("OPERATOR_OPTIONS=" + "; ".join(
+                "::".join(str(option.get(field, "") or "").strip()
+                          for field in ("id", "label", "description"))
+                for option in handoff.operator_options
+            ))
+        return "\n".join(line for line in lines if line)
+    done = (
+        str(payload.get("status", "") or "").strip().lower() == "done"
+        and handoff.next_owner == "reviewer"
+    )
+    return "\n".join(
+        line for line in (result, f"→ {'done' if done else handoff.next_owner}") if line
+    )
 
 
 # Longest host-evidence note appended to the next Engineer prompt.

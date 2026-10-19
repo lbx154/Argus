@@ -30,9 +30,9 @@ def test_long_task_rule_requires_argus_durable_receipt(
     assert "state=discussing" in prompt
     assert "reply_with" in prompt
     assert "launch a supervised subagent" not in prompt
-    assert '{"wait_for":"subagent","wait_id":"<task-id>"}' in prompt
+    assert "`→ wait: <task-id>`" in prompt
     assert "submitted during this same turn" in prompt
-    assert "Do not append the normal decision" in prompt
+    assert "Do not foreground-poll or relaunch" in prompt
 
 
 @pytest.mark.parametrize("include_static,compact_team", [(True, False), (False, False), (True, True)])
@@ -53,7 +53,7 @@ def test_native_windows_rule_uses_powershell_durable_runner(
     )
 
     assert "Native Windows preview cannot detach Argus subagents" not in prompt
-    assert '{"wait_for":"subagent","wait_id":"<task-id>"}' in prompt
+    assert "`→ wait: <task-id>`" in prompt
     assert "submitted during this same turn" in prompt
     assert "Windows PowerShell 5.1 syntax" in prompt
     assert (

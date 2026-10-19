@@ -1873,18 +1873,9 @@ class LifeSupervisor(
             ).strip()
             success = bool(event.get("success"))
             summary = str(event.get("summary") or "").strip()
-            from ...core.role_reply import strip_control_footer
+            from ...core.role_handoff import strip_handoff
 
-            summary = strip_control_footer(
-                summary,
-                (
-                    "MILESTONE_STATUS",
-                    "RESULT",
-                    "NEXT_OWNER",
-                    "OPERATOR_QUESTION",
-                    "OPERATOR_OPTIONS",
-                ),
-            )
+            summary = strip_handoff(summary)
             outcome = event.get("outcome")
             outcome = outcome if isinstance(outcome, dict) else {}
             status = str(event.get("status") or event.get("outcome_class") or "ended")

@@ -8,10 +8,10 @@
 > 字段名、枚举、机器协议字面量、命令和路径保持源码原样。
 > 本文件仅供人工审阅，不参与运行，也不会改变运行时 Prompt。
 >
-> 主执行链路中的 Manager 路由/阶段、Planner 计划、Engineer 交接和 Reviewer
-> 验收现在会在决定明确时立即发送
+> 主执行链路中的 Manager 路由/阶段、Planner 计划和 Reviewer 验收会在决定明确时立即发送
 > `ARGUS_ROLE_DECISION={"role":"...","payload":{...}}`。Host 从整个事件流保存它；
-> 后续自然语言只给人看，不再解析“最后一段结构化输出”。
+> 后续自然语言只给人看，不再解析“最后一段结构化输出”。Engineer 用一段话加一行
+> `→ <下一位>` 交接（见 [交接设计](role-handoff-design.zh-CN.md)）。
 
 ## Manager
 
@@ -593,12 +593,12 @@ Current operator > objective > mission > preregistration；memory 仅供参考�
 {{DURABLE_LEARNING_CONTRACT}}
 
 ## Handoff
-CHECKPOINT.md 是唯一由角色维护的跨轮 handoff 文件；不要创建 handoff 包或证据包。Host 只在需要时调用 Reviewer；不要生成 Reviewer subagent。通常使用 next_owner=reviewer。只有真实操作员决策才使用 operator；这时加入一个 operator_question 和最多五个 operator_options，然后 yield。
-RESULT 面向操作员。使用操作员的语言写一到两句话，说明改了什么、决定性检查以及任何剩余 blocker；不要重复 footer 或状态字段。
+CHECKPOINT.md 是唯一由角色维护的跨轮 handoff 文件；不要创建 handoff 包或证据包。Host 只在需要时调用 Reviewer；不要生成 Reviewer subagent。只有真实操作员决策才使用 `→ operator: <问题>`；下面几行可以写 OPERATOR_NEED 和最多五个 OPERATOR_OPTIONS（`id::label::description`），这会挂起任务。
 
-决定明确后立即发送：
-ARGUS_ROLE_DECISION={"role":"engineer","payload":{"status":"done","result":"使用操作员的语言写一到两句面向操作员的话：改了什么、决定性检查以及任何剩余 blocker；不要重复 footer 或状态字段","next_owner":"reviewer"}}
-Host 会保存事件；后续自然语言不解析。
+## 交接
+最后写一段简短交接，用操作员的语言说明：改了什么（附输出文件路径）、决定性检查、还有什么没完成、为什么交给下一位。然后单独一行写下一位持有者：
+→ reviewer
+或者：里程碑完成写 `→ done`，自己继续写 `→ engineer`，任务划分有误写 `→ planner`，只有 Manager 能排除的障碍写 `→ manager`，`→ operator: <一个问题>`，已提交的后台任务写 `→ wait: <task-id>`。
 ~~~~
 
 ### Mission——后续轮
@@ -624,12 +624,12 @@ Host 会保存事件；后续自然语言不解析。
 {{DURABLE_LEARNING_CONTRACT}}
 
 ## Handoff
-只有操作员拥有决定权时才使用 next_owner=operator；问题会暂停任务，并在决策中加入 operator_question 和 operator_options。
-RESULT 面向操作员。使用操作员的语言写一到两句话，说明改了什么、决定性检查以及任何剩余 blocker；不要重复 footer 或状态字段。
+只有操作员拥有决定权时才使用 `→ operator: <问题>`；问题会挂起任务，下面几行可以写 OPERATOR_NEED 和 OPERATOR_OPTIONS。
 
-决定明确后立即发送：
-ARGUS_ROLE_DECISION={"role":"engineer","payload":{"status":"done","result":"使用操作员的语言写一到两句面向操作员的话：改了什么、决定性检查以及任何剩余 blocker；不要重复 footer 或状态字段","next_owner":"reviewer"}}
-Host 会保存事件；后续自然语言不解析。
+## 交接
+最后写一段简短交接，用操作员的语言说明：改了什么（附输出文件路径）、决定性检查、还有什么没完成、为什么交给下一位。然后单独一行写下一位持有者：
+→ reviewer
+或者：里程碑完成写 `→ done`，自己继续写 `→ engineer`，任务划分有误写 `→ planner`，只有 Manager 能排除的障碍写 `→ manager`，`→ operator: <一个问题>`，已提交的后台任务写 `→ wait: <task-id>`。
 
 ## 上一轮 Reviewer 指导
 上一轮被判定为未完成。声明 done 前应处理以下事项：

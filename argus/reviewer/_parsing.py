@@ -506,36 +506,27 @@ def _parse_named_verdict(text: str) -> ReviewDecision | None:
     )
 
 
-_WAIT_KINDS = {"subagent", "external_work"}
-
-
 def decision_from_deferred_wait(messages: list[str]) -> ReviewDecision | None:
     """Read a reply that closes on the Engineer's wait line as a deferral.
 
     Asked to judge a round that had sent a benchmark to the background, the
     Reviewer wrote that every clause depended on the run finishing and closed
-    with the Engineer's own ``{"wait_for": ...}`` line instead of the Decision
-    block — twice in a row, and the mission was stopped as a backend failure
-    while the run kept going (trial project s-fb4716b7, task 4). The reply is a
-    judgment: what was launched stands, and nothing can be settled until the
-    run returns. Read it as ``continue`` against that run. A bare wait line
-    with no prose says nothing and stays unreadable.
+    with the Engineer's own wait line instead of the Decision block — twice in
+    a row, and the mission was stopped as a backend failure while the run kept
+    going (trial project s-fb4716b7, task 4). The reply is a judgment: what was
+    launched stands, and nothing can be settled until the run returns. Read it
+    as ``continue`` against that run. A bare wait line with no prose says
+    nothing and stays unreadable.
     """
+    from ..core.role_handoff import strip_handoff
+    from ..engineer.external_work import parse_external_wait_request, strip_external_wait_footer
+
     text = "\n".join(str(m or "") for m in messages).strip()
-    lines = [line for line in text.splitlines() if line.strip()]
-    if not lines:
+    request = parse_external_wait_request(text)
+    if request is None:
         return None
-    final = lines[-1].strip()
-    marker = final.rfind('{"wait_for"')
-    if marker < 0:
-        return None
-    payload = _load_json(final[marker:])
-    if payload is None:
-        return None
-    work_id = str(payload.get("wait_id") or "").strip()
-    if not work_id or str(payload.get("wait_for") or "") not in _WAIT_KINDS:
-        return None
-    prose = text[: text.rfind(final[marker:])].strip()
+    work_id = request[1]
+    prose = strip_handoff(strip_external_wait_footer(text)).strip()
     if not prose:
         return None
     return decision_from_payload({

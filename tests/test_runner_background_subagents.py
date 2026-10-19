@@ -157,7 +157,7 @@ def test_job_launched_after_prompt_assembly_can_yield_without_a_paper_review(
         def run_exec(self, *, prompt, **_kwargs):
             # No live-job advisory existed when this first prompt was built.
             assert not registry.exists()
-            assert '{"wait_for":"subagent","wait_id":"<task-id>"}' in prompt
+            assert "`→ wait: <task-id>`" in prompt
             assert "## External work status" not in prompt
             registry.mkdir()
             record_path.write_text(json.dumps({
@@ -166,7 +166,7 @@ def test_job_launched_after_prompt_assembly_can_yield_without_a_paper_review(
             }), encoding="utf-8")
             return RunnerResult(exit_code=0, agent_messages=[
                 'The repaired panel is running; its measurements are pending.\n'
-                '{"wait_for":"subagent","wait_id":"new-panel"}'
+                '→ wait: `new-panel`'
             ])
 
     class ReviewerMustNotRun:
