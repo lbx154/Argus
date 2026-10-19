@@ -374,8 +374,8 @@ class CampaignControlStore:
             if (
                 current is not None
                 and snapshot is not None
-                and (current.campaign_id, current.objective_sha256, current.campaign_epoch)
-                == (identity.campaign_id, identity.objective_sha256, identity.campaign_epoch)
+                and (current.campaign_id, current.objective, current.campaign_epoch)
+                == (identity.campaign_id, identity.objective, identity.campaign_epoch)
                 and snapshot.get("active_wait") == active_wait
             ):
                 return current
