@@ -193,11 +193,11 @@ def source_inventory(snapshot: Snapshot) -> dict[str, dict[str, dict[str, str]]]
     result = {}
     for side, tree in (("base", snapshot.base_tree), ("candidate", snapshot.candidate_tree)):
         files = {}
-        for row in git(snapshot.repository, "ls-tree", "-r", "-z", tree).split(b"\0"):
+        for row in git(snapshot.repository, "ls-tree", "-r", "-l", "-z", tree).split(b"\0"):
             if row:
                 header, path = row.split(b"\t", 1)
-                mode, _kind, oid = header.decode().split()
-                files[path.decode()] = {"mode": mode, "oid": oid}
+                mode, _kind, oid, size = header.decode().split()
+                files[path.decode()] = {"mode": mode, "oid": oid, "size": int(size) if size.isdigit() else None}
         result[side] = files
     return result
 

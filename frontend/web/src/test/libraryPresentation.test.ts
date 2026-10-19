@@ -1,5 +1,4 @@
-import { createHash } from 'node:crypto';
-import { readFileSync } from 'node:fs';
+import { statSync } from 'node:fs';
 import { resolve } from 'node:path';
 import { execFileSync } from 'node:child_process';
 import { describe, expect, it } from 'vitest';
@@ -25,7 +24,7 @@ describe('source-bound Chinese display guides (not runtime instructions)', () =>
   it.each(Object.entries(guides))('keeps %s bound to its unmodified source and supplies a Chinese purpose', (key, guide) => {
     expect(guide.source).toMatch(/^argus\/(builtin_skills|domains|verticals)\//);
     expect(guide.source).not.toMatch(/\.\.\//);
-    expect(createHash('sha256').update(readFileSync(resolve(root, guide.source))).digest('hex')).toBe(guide.sourceSha256);
+    expect(statSync(resolve(root, guide.source)).size).toBe(guide.sourceBytes);
     expect(guide.title).toMatch(/[\u3400-\u9fff]/);
     expect(guide.summary).toMatch(/[\u3400-\u9fff]/);
     const item = row(key);

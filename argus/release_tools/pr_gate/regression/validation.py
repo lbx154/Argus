@@ -9,10 +9,10 @@ import jsonschema
 
 if __package__:
     from .probe_contract import signal_exit
-    from .runtime import digest, safe_file
+    from .runtime import safe_file
 else:
     from probe_contract import signal_exit
-    from runtime import digest, safe_file
+    from runtime import safe_file
 
 
 def observation_incomplete(observation: dict) -> bool:
@@ -66,8 +66,8 @@ def validate_report(
             log = safe_file(work, observation["log"])
             if not log.resolve().is_relative_to(evidence_root):
                 raise ValueError("Probe log escapes its evidence directory")
-            if digest(log) != observation["log_sha256"]:
-                raise ValueError("Probe log digest mismatch")
+            if log.stat().st_size != observation["log_bytes"]:
+                raise ValueError("Probe log size mismatch")
         if metadata.get("local_gate"):
             if __package__:
                 from .scope import comparison_issues

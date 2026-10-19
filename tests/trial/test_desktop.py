@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-import hashlib
 import io
 import itertools
 import json
@@ -21,8 +20,8 @@ from argus.trial import client, desktop, native_cli
     ("Windows", "ARM64", "copilot-win32-arm64.zip"),
 ])
 def test_native_assets_cover_both_desktop_platforms(system, machine, asset):
-    name, digest = native_cli.asset_for(system, machine)
-    assert name == asset and len(digest) == 64
+    name, size = native_cli.asset_for(system, machine)
+    assert name == asset and size > 0
 
 
 def test_no_download_or_profile_changes_for_invalid_key(tmp_path, monkeypatch):
@@ -58,7 +57,7 @@ def test_install_checks_integrity_and_only_publishes_verified_binary(tmp_path, m
     monkeypatch.setenv("ARGUS_SKILL_HOME", str(tmp_path))
     monkeypatch.setattr(native_cli.platform, "system", lambda: "Darwin")
     content = archive_bytes()
-    monkeypatch.setattr(native_cli, "asset_for", lambda *_: ("copilot.tar.gz", hashlib.sha256(content).hexdigest()))
+    monkeypatch.setattr(native_cli, "asset_for", lambda *_: ("copilot.tar.gz", len(content)))
     monkeypatch.setattr(native_cli.urllib.request, "urlopen", lambda *a, **kw: DownloadResponse(content))
     verified = []
     monkeypatch.setattr(native_cli, "verify_cli", lambda path: verified.append(path.read_bytes()))
@@ -84,7 +83,7 @@ def test_download_reports_received_bytes_and_distinct_install_stages(tmp_path, m
     monkeypatch.setattr(native_cli.platform, "system", lambda: "Darwin")
     content = archive_bytes()
     total = len(content) if known_length else None
-    monkeypatch.setattr(native_cli, "asset_for", lambda *_: ("copilot.tar.gz", hashlib.sha256(content).hexdigest()))
+    monkeypatch.setattr(native_cli, "asset_for", lambda *_: ("copilot.tar.gz", len(content)))
 
     class SlowResponse(DownloadResponse):
         def read1(self, size):

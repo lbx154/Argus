@@ -13,7 +13,8 @@ import {
   REQUIRED_API_CAPABILITIES,
   SNAPSHOT_SCHEMA_VERSION,
 } from '../../core/src/protocol.js';
-import { RELEASE_ID, RELEASE_SOURCE_DIGEST } from '../../core/src/release.generated.js';
+import { RELEASE_ID } from '../../core/src/release.generated.js';
+
 import { ApiClient } from '../src/api.js';
 import {
   cleanupSpawnedApi,
@@ -27,6 +28,8 @@ import {
 } from '../src/ensureApi.js';
 import { type ApiOwnershipRecord } from '../src/apiOwnership.js';
 
+const SOURCE_SUMMARY = '2 files, 10 bytes';
+
 function meta(overrides: Record<string, unknown> = {}): Record<string, unknown> {
   return {
     service: 'argus-skill-webapi',
@@ -36,8 +39,8 @@ function meta(overrides: Record<string, unknown> = {}): Record<string, unknown> 
     runtime: {
       package_version: RELEASE_ID.split('+')[0],
       release_id: RELEASE_ID,
-      manifest_source_digest: RELEASE_SOURCE_DIGEST,
-      runtime_source_digest: RELEASE_SOURCE_DIGEST,
+      manifest_source_digest: SOURCE_SUMMARY,
+      runtime_source_digest: SOURCE_SUMMARY,
       release_matches_source: true,
       source_root: '/home/dev/current/argus',
       configured_source_root: '/home/dev/current/argus',

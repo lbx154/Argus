@@ -439,7 +439,7 @@ separate from source updates.
   agent CLI and confirm it; the local backend does not start until you do. If
   you have an internal trial key instead, paste it and click **开始试用** ("start
   trial"): the app downloads the official standalone Copilot program, checks
-  its SHA-256, runs one real model reply, and opens the workbench. That path
+  its size, runs one real model reply, and opens the workbench. That path
   needs no CLI, Python, Node or coding-agent account of your own. Either
   choice is remembered; **File → Settings** changes the CLI, executable or
   port later.

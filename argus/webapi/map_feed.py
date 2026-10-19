@@ -3,13 +3,14 @@
 from __future__ import annotations
 
 import threading
+import uuid
 from collections import OrderedDict
 from pathlib import Path
 
 from ..core.session import read_session_meta
 from ..life.memory import Backlog
 from .map_team import source_snapshot
-from .map_view import digest, read_map
+from .map_view import read_map
 
 
 def _stamp(path: Path):
@@ -31,7 +32,7 @@ class MapFeed:
         with self._lock:
             entry = self._sessions.setdefault(key, {
                 "events": {}, "versions": OrderedDict(), "invalidated": OrderedDict(),
-                "lock": threading.Lock(),
+                "lock": threading.Lock(), "epoch": uuid.uuid4().hex, "count": 0,
             })
             self._sessions.move_to_end(key)
             while len(self._sessions) > 16:
@@ -68,7 +69,18 @@ class MapFeed:
                     while len(entry["invalidated"]) > 64:
                         entry["invalidated"].popitem(last=False)
                     versions.clear()
-                revision = digest(value)
+                if value == entry.get("value"):
+                    revision = entry["revision"]  # an unchanged map keeps its cursor
+                else:
+                    # A revision is the item's own canonical JSON; an unchanged
+                    # item shares the string the newest version already holds.
+                    newest = versions[next(reversed(versions))] if versions else ({}, {})
+                    for items, known in zip((value["tasks"], value["events"]), newest):
+                        for item in items:
+                            if known.get(item["id"]) == item["revision"]:
+                                item["revision"] = known[item["id"]]
+                    entry["count"] += 1
+                    revision = f"{entry['epoch']}.{entry['count']}"
                 versions[revision] = (
                     {t["id"]: t["revision"] for t in value["tasks"]},
                     {e["id"]: e["revision"] for e in value["events"]},

@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-import hashlib
 import io
 import urllib.error
 
@@ -21,7 +20,7 @@ def test_download_reports_real_bytes_and_optional_total(tmp_path, monkeypatch, l
     monkeypatch.setattr(native_cli.urllib.request, "urlopen", lambda *a, **k: Response(content, length))
     reports = []
     archive = tmp_path / "fixture.zip"
-    native_cli._download_archive(object(), archive, hashlib.sha256(content).hexdigest(),
+    native_cli._download_archive(object(), archive, len(content),
                                  lambda count, total: reports.append((count, total)))
     assert reports[0][0] == 0 and reports[-1][0] == len(content)
     assert reports[-1][1] == (len(content) if length.isdigit() else None)
@@ -35,11 +34,11 @@ def test_network_failure_is_explained_without_automatic_retry(tmp_path, monkeypa
         raise urllib.error.URLError("synthetic timeout")
     monkeypatch.setattr(native_cli.urllib.request, "urlopen", failed)
     with pytest.raises(ValueError, match="不会自动重复下载"):
-        native_cli._download_archive(object(), tmp_path / "fixture.zip", "unused")
+        native_cli._download_archive(object(), tmp_path / "fixture.zip", 0)
     assert calls == [1]
 
 
-def test_progress_does_not_replace_checksum_validation(tmp_path, monkeypatch):
+def test_progress_does_not_replace_size_validation(tmp_path, monkeypatch):
     monkeypatch.setattr(native_cli.urllib.request, "urlopen", lambda *a, **k: Response(b"bad", "3"))
     with pytest.raises(ValueError, match="校验失败"):
-        native_cli._download_archive(object(), tmp_path / "fixture.zip", "0" * 64, lambda *a: None)
+        native_cli._download_archive(object(), tmp_path / "fixture.zip", 4, lambda *a: None)

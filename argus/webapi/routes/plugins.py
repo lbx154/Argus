@@ -40,10 +40,7 @@ class PluginSurface:
             response = JSONResponse({"detail": "插件正在更新，请稍候再执行操作。"}, status_code=409)
             return await response(scope, receive, send)
         installed = manager.state_entry(name, self.ctx.global_root)
-        adapter = (plugin_desktop.supported(spec)
-                   and installed.get("version") == spec["version"]
-                   and manager.installed_digest(installed, self.ctx.global_root)
-                   == spec["artifact"]["sha256"])
+        adapter = plugin_desktop.supported(spec) and manager.matches_catalog(installed, spec, self.ctx.global_root)
         if adapter and scope.get("path") == f"/plugins/{name}/{plugin_desktop.ADAPTER_NAME}":
             response = Response(plugin_desktop.script_bytes(), media_type="application/javascript",
                                 headers={"Cache-Control": "no-store", "X-Content-Type-Options": "nosniff"})

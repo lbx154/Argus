@@ -81,7 +81,7 @@ writeFileSync(join(stage, 'COPY-VERIFIED.json'), JSON.stringify({ release_id: ma
 run(join(stage, 'argus-backend', 'argus-backend.exe'), ['--verify-frozen-runtime'], stage);
 
 writeFileSync(join(stage, 'SOURCE-IDENTITY.json'), JSON.stringify({ ...identity,
-  release_id: manifest.release_id, source_digest: manifest.source_digest }, null, 2) + '\n', { flag: 'wx' });
+  release_id: manifest.release_id, git_commit: manifest.git_commit }, null, 2) + '\n', { flag: 'wx' });
 if (review) writeFileSync(join(stage, 'PREVIEW-VALIDATION.json'), JSON.stringify(review, null, 2) + '\n', { flag: 'wx' });
 writeFileSync(join(stage, 'README-预览说明.txt'), previewReadme({ version: base.version, manifest, identity,
   manualPreview, review, builtAt: new Date().toISOString() }), { encoding: 'utf8', flag: 'wx' });
@@ -91,7 +91,7 @@ writeFileSync(join(stage, 'README-预览说明.txt'), previewReadme({ version: b
 if (manualPreview) {
   run(python, [join(desktop, 'scripts', 'smoke-host.py'), '--binary', join(stage, 'Argus.exe'),
     '--preview', '--timeout', '90', '--health-window', '8', '--report', join(stage, 'native-startup-check.json')], desktop);
-  writeFileSync(join(stage, 'TEST-RESULTS.txt'), `Argus Windows 手测预览 · 最低原生检查\n${new Date().toISOString()}\nBase: ${identity.base_sha}\nCandidate: ${identity.candidate_sha}\nRelease: ${manifest.release_id}\nSource digest: ${manifest.source_digest}\n\nPASS: 源码与 Web/TUI 发行身份一致构建\nPASS: 每个构建输入复制后校验\nPASS: 成品冻结运行时模块加载\nPASS: 实际 Argus.exe 启动、冻结后端认证及短时健康检查（详见 native-startup-check.json）\n预览检查使用隔离 profile 和随机测试命名空间，保留单实例保护。\n\n源码回归及已知限制见 PREVIEW-VALIDATION.json（如有），不把旧基线成绩标为本包成绩。\n未执行真实 Windows Toast、成品像素、完整界面自动化、故障注入及 30 分钟长稳。\n托盘关闭/唤醒/明确退出仍待手测，测试清理只终止本脚本创建的进程树。\n没有使用真实账户或执行付费模型任务；不代表科研求解/插件安装全流程已通过。\nLinux/macOS 和上游全量 PR CI 未验证。本包不是正式发行或 PR-ready 声明。\n`, { flag: 'wx' });
+  writeFileSync(join(stage, 'TEST-RESULTS.txt'), `Argus Windows 手测预览 · 最低原生检查\n${new Date().toISOString()}\nBase: ${identity.base_sha}\nCandidate: ${identity.candidate_sha}\nRelease: ${manifest.release_id}\nSource commit: ${manifest.git_commit}\n\nPASS: 源码与 Web/TUI 发行身份一致构建\nPASS: 每个构建输入复制后校验\nPASS: 成品冻结运行时模块加载\nPASS: 实际 Argus.exe 启动、冻结后端认证及短时健康检查（详见 native-startup-check.json）\n预览检查使用隔离 profile 和随机测试命名空间，保留单实例保护。\n\n源码回归及已知限制见 PREVIEW-VALIDATION.json（如有），不把旧基线成绩标为本包成绩。\n未执行真实 Windows Toast、成品像素、完整界面自动化、故障注入及 30 分钟长稳。\n托盘关闭/唤醒/明确退出仍待手测，测试清理只终止本脚本创建的进程树。\n没有使用真实账户或执行付费模型任务；不代表科研求解/插件安装全流程已通过。\nLinux/macOS 和上游全量 PR CI 未验证。本包不是正式发行或 PR-ready 声明。\n`, { flag: 'wx' });
 } else {
   const soakSeconds = process.env.ARGUS_PREVIEW_SOAK_SECONDS || '1800';
   run(process.execPath, [join(desktop, 'scripts', 'smoke-preview.mjs'), join(stage, 'Argus.exe'), '--soak-seconds', soakSeconds], desktop);
@@ -100,7 +100,8 @@ if (manualPreview) {
 run(python, ['-m', 'argus.release_tools.generate_manifest', '--check']);
 run(python, ['-m', 'argus.release_tools.check_artifacts']);
 const stagedManifest = JSON.parse(readFileSync(join(stage, 'argus-backend', '_internal', 'argus', 'release_manifest.json'), 'utf8'));
-if (stagedManifest.release_id !== manifest.release_id || stagedManifest.source_digest !== manifest.source_digest) {
+if (stagedManifest.release_id !== manifest.release_id
+    || JSON.stringify(stagedManifest.source_files) !== JSON.stringify(manifest.source_files)) {
   throw new Error('Staged backend identity changed during verification; preview not packaged.');
 }
 const verifiedIdentity = capturePreviewIdentity(repo, identity.base_sha);

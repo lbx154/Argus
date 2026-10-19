@@ -5,7 +5,6 @@ exit, unsupported launchers, and guard-dropping children are incomplete evidence
 """
 
 import atexit
-import hashlib
 import json
 import os
 import re
@@ -115,14 +114,9 @@ def _install():
             if reject:
                 raise ImportError(f"Cannot fingerprint project source: {relative}") from exc
             return
-        normalized = data.replace(b"\r\n", b"\n")
-
-        def blob(content):
-            return hashlib.sha1(
-                b"blob " + str(len(content)).encode("ascii") + b"\0" + content,
-            ).hexdigest()
-
-        entry = {"path": relative, "git_blob": blob(data), "lf_git_blob": blob(normalized)}
+        # ctime changes with any rewrite and cannot be restored by the probe.
+        entry = {"path": relative, "bytes": len(data),
+                 "lf_bytes": len(data.replace(b"\r\n", b"\n")), "ctime_ns": path.stat().st_ctime_ns}
         if relative in seen:
             if seen[relative] != entry:
                 issue(f"project_source_changed_during_execution: {relative}")

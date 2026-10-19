@@ -35,7 +35,7 @@ export async function verifyRuntimeStability({ page, frame, stage, dataDir, nati
     try {
       if (fault === 'missing') renameSync(manifestPath, savedPath);
       else if (fault === 'corrupt') writeFileSync(manifestPath, '{partial manifest');
-      else writeFileSync(manifestPath, JSON.stringify({ ...JSON.parse(manifest), source_digest: '0'.repeat(64) }));
+      else writeFileSync(manifestPath, JSON.stringify({ ...JSON.parse(manifest), source_files: { 'pyproject.toml': -1 } }));
       await expect.poll(async () => Boolean((await native('get_status')).warning), { timeout: 20_000 }).toBe(true);
       await assertLive();
       assert.equal((await request('/api/meta')).status, 200);

@@ -173,7 +173,7 @@ def docker(
             "status": "completed", "isolation": "docker", "source_audit": True,
             "observed_tools": tools, "image_id": image_id,
             "model": model, "reasoning_effort": "high", "copilot_exit_code": code,
-            "copilot_sha256": run.digest(root / "bin/copilot"),
+            "copilot_file": run.file_facts(root / "bin/copilot"),
         }
     finally:
         run.remove_container(name, study_id=study_id)

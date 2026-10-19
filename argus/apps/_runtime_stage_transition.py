@@ -81,20 +81,7 @@ class StageTransitionMixin:
                 st.action != "hold" or final_review_status in {"done", "blocked"}
             ):
                 try:
-                    import hashlib
-                    import json
-
                     control, identity, expected_head = projection_context
-                    from ..core.pipeline_state import pipeline_state_path
-
-                    pipeline_path = pipeline_state_path(
-                        Path(getattr(self, "_artifact_root", workdir))
-                    )
-                    try:
-                        pipeline_bytes = pipeline_path.read_bytes()
-                        pipeline_sha256 = hashlib.sha256(pipeline_bytes).hexdigest()
-                    except OSError:
-                        pipeline_sha256 = "missing"
                     review_projection = {
                         "status": final_review_status,
                         "venue_review": getattr(final_review, "venue_review", None),
@@ -108,13 +95,6 @@ class StageTransitionMixin:
                         ),
                         "reason": str(getattr(final_review, "reason", "") or ""),
                     }
-                    review_sha256 = hashlib.sha256(
-                        json.dumps(
-                            review_projection,
-                            sort_keys=True,
-                            separators=(",", ":"),
-                        ).encode("utf-8")
-                    ).hexdigest()
                     with manager_pipeline_lock(control.state_root):
                         control_head = control.clear_wait_for_new_evidence_if_current(
                             identity=identity,
@@ -123,14 +103,8 @@ class StageTransitionMixin:
                                 "action": st.action,
                                 "current_stage": st.current_stage,
                                 "target_stage": st.target_stage,
-                                "pipeline_state_sha256": pipeline_sha256,
                             },
-                            terminal_evidence=[
-                                {
-                                    **review_projection,
-                                    "sha256": review_sha256,
-                                }
-                            ],
+                            terminal_evidence=[review_projection],
                             reason="Manager committed stage and terminal review state",
                         )
                     if control_head is not None:

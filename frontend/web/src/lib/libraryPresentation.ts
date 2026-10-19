@@ -1,7 +1,7 @@
 import type { SkillLibraryItem, WikiPageKind, WikiScope } from '../api';
 import chinese from './bundledSkillChinese.json';
 
-export interface SkillGuide { title: string; summary: string; originalName: string; source: string; sourceSha256: string }
+export interface SkillGuide { title: string; summary: string; originalName: string; source: string; sourceBytes: number }
 const guides: Record<string, SkillGuide> = chinese;
 
 /** Display aliases only. Never relabel a learned/edited/third-party document as

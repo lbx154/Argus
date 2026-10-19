@@ -63,7 +63,7 @@ def main(argv: list[str] | None = None) -> int:
     _parse_args(argv)
     try:
         # Bundled verticals may ship independent workbench frontends. Build each
-        # before the release digest, keeping domain code out of the host UI.
+        # before the release manifest, keeping domain code out of the host UI.
         for manifest_path in sorted((ROOT / "argus" / "verticals").glob("*/workbench.json")):
             spec = json.loads(manifest_path.read_text(encoding="utf-8"))
             if not spec.get("frontend"):
@@ -75,7 +75,7 @@ def main(argv: list[str] | None = None) -> int:
                 run(NPM_COMMAND, "ci", cwd=frontend)
             run(NPM_COMMAND, "run", "build", cwd=frontend)
         run(sys.executable, "-m", "argus.release_tools.build_plugins")
-        # Generated protocol source participates in the release digest, so it
+        # Generated protocol source is listed in the release manifest, so it
         # must be refreshed before computing the manifest. Reversing these two
         # steps makes a schema change require two builds: the first build updates
         # types and then correctly rejects its now-stale manifest.

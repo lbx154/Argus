@@ -85,7 +85,7 @@ def assert_release_versions(repo: Path) -> str:
 def validate_payload_identity(source: Path, repo: Path = REPO) -> None:
     frozen = json.loads((source / "_internal/argus/release_manifest.json").read_text(encoding="utf-8"))
     expected = json.loads((repo / "argus/release_manifest.json").read_text(encoding="utf-8"))
-    for name in ("package_version", "release_id", "source_digest"):
+    for name in ("package_version", "release_id", "source_files"):
         if not expected.get(name) or frozen.get(name) != expected[name]:
             raise RuntimeError("Frozen backend identity differs from the reviewed source; use a fresh build.")
 

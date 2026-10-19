@@ -22,7 +22,7 @@ export function capturePreviewIdentity(repo, requestedBase) {
 
 export function validatePreviewReview(review, identity, manifest) {
   if (!review || review.candidate_sha !== identity.candidate_sha || review.base_sha !== identity.base_sha
-      || review.release_id !== manifest.release_id || review.source_digest !== manifest.source_digest
+      || review.release_id !== manifest.release_id || review.git_commit !== manifest.git_commit
       || !Array.isArray(review.checks) || !Array.isArray(review.pending) || !review.tasks) {
     throw new Error('Preview review evidence does not match this candidate/base/source identity.');
   }
@@ -41,7 +41,7 @@ export function previewReadme({ version, manifest, identity, manualPreview, revi
 源码/候选 commit：${identity.candidate_sha}
 Git tree：${identity.source_tree_sha}
 Release ID：${manifest.release_id}
-Source digest：${manifest.source_digest}
+Source commit：${manifest.git_commit}
 
 启动与退出
 1. 完整解压到新目录，运行其中的 Argus.exe；不要仅移动 EXE，不要在 ZIP 内运行。

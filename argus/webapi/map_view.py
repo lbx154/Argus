@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import hashlib
 import json
 import re
 from pathlib import Path
@@ -74,10 +73,14 @@ TURN_LIMIT = 200
 _ANSWER_CALL_LABELS = frozenset({"simple-1", "chat-1", "manager-quick-reply"})
 
 
-def digest(value) -> str:
-    return hashlib.sha256(
-        json.dumps(value, ensure_ascii=False, sort_keys=True).encode()
-    ).hexdigest()[:24]
+def facts(value) -> str:
+    """``value`` as canonical JSON: equal exactly when the values are equal."""
+    return json.dumps(value, ensure_ascii=False, sort_keys=True, separators=(",", ":"))
+
+
+def event_id(row: dict) -> str:
+    """The row's own id; older rows without one are named by their type and time."""
+    return str(row.get("event_id") or f"{row.get('type', '')}@{row.get('ts', 0)}")
 
 
 def text(value, limit=6000):
@@ -85,7 +88,7 @@ def text(value, limit=6000):
 
 
 def task_content_revision(task: dict) -> str:
-    return digest({k: task.get(k) for k in (
+    return facts({k: task.get(k) for k in (
         "title", "objective", "acceptance_check", "goal_contribution", "plan_hypothesis", "non_goals",
     )})
 
@@ -94,12 +97,12 @@ def with_revisions(value: dict) -> dict:
     return {
         **value,
         "tasks": [
-            {**t, "revision": t.get("revision") or digest(t),
+            {**t, "revision": t.get("revision") or facts(t),
              "content_revision": task_content_revision(t)}
             for t in value.get("tasks", [])
         ],
         "events": [
-            {**e, "revision": digest({k: v for k, v in e.items() if k != "revision"})}
+            {**e, "revision": facts({k: v for k, v in e.items() if k != "revision"})}
             for e in value.get("events", [])
         ],
     }
@@ -272,7 +275,7 @@ def normalize_events(
                 _close_segment(segments, owner)
         if owner in task_ids and kind.startswith(EVENT_PREFIXES):
             e = {
-                "id": str(row.get("event_id") or digest(row)),
+                "id": event_id(row),
                 "item_id": owner,
                 "type": kind,
                 "ts": row.get("ts", 0),
@@ -566,7 +569,7 @@ def read_map(
                 task[k] = [text(x) if isinstance(x, str) else x for x in v]
         task["summary"] = task.get("last_error") or task.get("notes") or ""
         task["role"] = "engineer"
-        task["revision"] = digest(task)
+        task["revision"] = facts(task)
         tasks.append(task)
     tasks.sort(key=lambda t: (t.get("ts") or 0, t["id"]))
     rows = []
@@ -663,7 +666,7 @@ def read_map(
         state["reset"] = was_present
     for turn in (state.get("turns") or {}).values():
         card = dict(turn["card"])
-        card["revision"] = digest(card)
+        card["revision"] = facts(card)
         tasks.append(card)
     tasks.sort(key=lambda t: (t.get("ts") or 0, t["id"]))
     meta = read_session_meta(root, sid)
@@ -681,7 +684,7 @@ def read_map(
     for task in tasks:
         # An outcome binding can change when a lifecycle event arrives even if
         # the backlog row is unchanged. Its response revision must change too.
-        task["revision"] = digest({key: value for key, value in task.items() if key != "revision"})
+        task["revision"] = facts({key: value for key, value in task.items() if key != "revision"})
     return with_revisions({
         "id": f"live:{sid}",
         "title": meta.display_name if meta else sid,

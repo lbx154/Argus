@@ -80,7 +80,8 @@ Export **only the `platon` entry** from the source installation's
 Copy its complete PLATON directory, including `lib`, relative symlinks and
 third-party license notices, into **each tenant's own**
 `extensions/crystalpilot/resources/software/` directory. Retain the recorded
-executable SHA-256 and original source record. Do not copy account configuration,
+executable path and original source record; provisioning requires that
+executable to be present and byte-identical to the copy. Do not copy account configuration,
 credentials, research data, or a shared writable resource root. A public CA
 certificate is not a client credential, but this offline procedure needs neither
 certificate downloads nor certificate-store changes.

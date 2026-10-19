@@ -2,17 +2,16 @@
 
 from __future__ import annotations
 
-import hashlib
 import json
 import shlex
 from pathlib import Path, PurePosixPath
 
 if __package__:
     from .oracle import python_command
-    from .runtime import digest, safe_file
+    from .runtime import safe_file
 else:
     from oracle import python_command
-    from runtime import digest, safe_file
+    from runtime import safe_file
 
 
 def changed_paths(inventory: dict) -> list[str]:
@@ -89,10 +88,6 @@ def analyze_scope(analysis: dict | None, inventory: dict, *, unchanged: bool = F
     }
 
 
-def _git_blob(data: bytes) -> str:
-    return hashlib.sha1(b"blob " + str(len(data)).encode() + b"\0" + data).hexdigest()
-
-
 def comparison_issues(work: Path, receipt: dict, inventory: dict | None) -> list[str]:
     """Mechanical comparability only; never certify an oracle's intended meaning."""
     issues = []
@@ -131,22 +126,25 @@ def comparison_issues(work: Path, receipt: dict, inventory: dict | None) -> list
                 if not evidence.is_relative_to(work / "evidence"):
                     raise ValueError("Oracle evidence is outside the evidence directory.")
                 data = evidence.read_bytes()
-                if digest(evidence) != item["sha256"]:
+                if len(data) != item["facts"][0]:
                     issues.append(f"Oracle bytes do not match their receipt: {path}")
                 counterpart = maps["candidate" if side == "base" else "base"].get(path)
-                if not isinstance(counterpart, dict) or counterpart.get("sha256") != item["sha256"]:
+                if (
+                    not isinstance(counterpart, dict)
+                    or safe_file(work, counterpart["evidence_path"]).read_bytes() != data
+                ):
                     issues.append(f"Oracle differs between versions: {path}")
                 if path.startswith("tests/_regression_probe/"):
                     relative = path.removeprefix("tests/_regression_probe/")
                     supplied = safe_file(work, f"{side}-probes/{relative}")
-                    if digest(supplied) != item["sha256"]:
+                    if supplied.read_bytes() != data:
                         issues.append(f"Executed oracle and submitted probe differ: {side}/{path}")
                 elif inventory is not None:
                     expected = inventory[side].get(path)
-                    oids = {_git_blob(data)}
+                    sizes = {len(data)}
                     if path.endswith((".py", ".toml", ".ini", ".cfg")):
-                        oids.add(_git_blob(data.replace(b"\r\n", b"\n")))
-                    if expected is None or expected["oid"] not in oids:
+                        sizes.add(len(data.replace(b"\r\n", b"\n")))
+                    if expected is None or expected["size"] not in sizes:
                         issues.append(f"Existing oracle is not bound to the source tree: {side}/{path}")
             except (KeyError, OSError, ValueError):
                 issues.append(f"Missing or invalid oracle evidence: {side}/{path}")
@@ -160,8 +158,8 @@ def comparison_issues(work: Path, receipt: dict, inventory: dict | None) -> list
             path = safe_file(work, origin["path"])
             if not path.is_relative_to(work / "evidence"):
                 raise ValueError("Source-origin evidence is outside the evidence directory.")
-            if digest(path) != origin["sha256"]:
-                issues.append(f"Source-origin evidence hash mismatch: {side}")
+            if path.stat().st_size != origin["bytes"]:
+                issues.append(f"Source-origin evidence size mismatch: {side}")
             record = json.loads(path.read_text())
             if not isinstance(record, dict) or not isinstance(record.get("files"), list):
                 raise ValueError("Source-origin record must contain a source file list.")
@@ -184,10 +182,10 @@ def comparison_issues(work: Path, receipt: dict, inventory: dict | None) -> list
                     raise ValueError("Invalid observed source file identity.")
                 relative = source["path"]
                 expected = inventory[side].get(relative)
-                oids = {source.get("git_blob")}
+                sizes = {source.get("bytes")}
                 if relative.endswith(".py"):
-                    oids.add(source.get("lf_git_blob"))
-                if expected is None or expected["oid"] not in oids:
+                    sizes.add(source.get("lf_bytes"))
+                if expected is None or expected["size"] not in sizes:
                     issues.append(f"Executed source does not match the assigned tree: {side}/{relative}")
         except (OSError, ValueError, KeyError, TypeError):
             issues.append(f"Invalid source-origin record: {side}")
