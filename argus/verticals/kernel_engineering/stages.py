@@ -147,8 +147,9 @@ def role_banner(role: str) -> str:
             common
             + " Treat unattended benchmark and profiler runs as long jobs: start them "
             "detached, use the time they run for independent hot-path reading or "
-            "implementation within the mission's owned paths, then wait for them with "
-            "blocking calls rather than short status checks. When source-first "
+            "implementation within the mission's owned paths, then wait for them as "
+            "the rule for commands over two minutes says, not with short status "
+            "checks. When source-first "
             "research is intended to guide later engineering, inspect current primary "
             "sources rather than "
             "generic summaries, follow surprising leads, compare genuinely different "

@@ -334,6 +334,8 @@ def test_a_plain_copilot_mission_gets_the_argus_home(
 
     assert env is not None
     assert env[COPILOT_HOME_ENV] == str(tmp_path / "argus" / "copilot-home")
+    # Background shells keep the turn alive up to Node's timer ceiling.
+    assert env["COPILOT_TASK_WAIT_TIMEOUT_SECONDS"] == "2147483.647"
 
 
 @pytest.mark.parametrize("backend", ["codex", "claude", "opencode"])

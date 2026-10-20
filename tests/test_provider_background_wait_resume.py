@@ -72,7 +72,7 @@ def test_repeated_waits_preserve_reviewer_feedback_without_failure_backoff(tmp_p
     assert len(engineer.prompts) == 6 and reviewer.calls == 2
     assert sum(r.review.review_source == "provider_background_wait" for r in rounds) == 4
     assert engineer.prompts[-1].count("Repair the remaining baseline.") == 1
-    assert engineer.prompts[-1].count("wait for them in the turn with blocking calls") == 1
+    assert engineer.prompts[-1].count("wait for them as the rule for commands over two minutes says") == 1
     assert not any("backoff" in e.get("type", "") for e in events)
     assert all(not r.engineer_message for r in rounds[1:5])
 

@@ -590,9 +590,9 @@ class RoundExecutionMixin:
                 "what remains; do not assume the command completed or rerun valid evidence. "
                 "Preserve the interrupted attempt. Start remaining long computations "
                 "detached with their own output directory, so they survive a model-call "
-                "boundary, and wait for them in the turn with blocking calls: a native "
-                "shell notification wait ends when the CLI exits. Then complete the "
-                "related changes and validation before returning for review."
+                "boundary, and wait for them as the rule for commands over two "
+                "minutes says. Then complete the related changes and validation "
+                "before returning for review."
             )
             previous = state.reviewer_next_action or ""
             if guidance not in previous:

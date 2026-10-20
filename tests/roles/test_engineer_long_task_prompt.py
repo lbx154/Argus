@@ -24,9 +24,9 @@ def test_long_task_rule_waits_in_turn_with_blocking_calls(
 
     assert "setsid nohup" in prompt
     assert "<run>/exit_code" in prompt
-    assert "`initial_wait` or `read_bash` delay 600" in prompt
-    assert "`yield_time_ms` 300000" in prompt
-    assert "never poll in short loops" in prompt
+    assert "a `yield_time_ms` longer than the job" in prompt
+    assert "`async` mode, then end your turn" in prompt
+    assert "Never poll in short loops" in prompt
     assert "argus.tools.subagent" not in prompt
     assert "→ wait" not in prompt
 
@@ -50,6 +50,7 @@ def test_native_windows_rule_waits_with_wait_process(
 
     assert "Windows PowerShell 5.1 syntax" in prompt
     assert "Start-Process -PassThru" in prompt
-    assert "Wait-Process -Id <pid> -Timeout 590" in prompt
+    assert "`Wait-Process -Id <pid>`" in prompt
+    assert "-Timeout" not in prompt
     assert "setsid" not in prompt
     assert "argus.tools.subagent" not in prompt

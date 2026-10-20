@@ -24,19 +24,23 @@ NARRATIVE_EDIT = "narrative_edit"
 OPERATIONS = frozenset({MISSION, AUTHOR_DRAFT, NARRATIVE_EDIT})
 _MANAGER_GROUNDING_HEADER = "\n\n## Manager project grounding (advisory evidence)\n"
 
-# A long job runs inside the Engineer's own turn: Argus does not wait for it.
-# One blocking call is one model call, so the turn waits in as few as the
-# backend's shell allows (Copilot about ten minutes a call, Codex about five).
+# A long job runs inside the Engineer's own model call: Argus does not wait for
+# it. Every check is a model call, so the Engineer waits on it once where the
+# backend allows: Argus raises Codex's single-wait limit and Copilot's
+# background-task wait to their maximums (_sandbox_commands, _prompt_delivery),
+# and Copilot resumes a turn when its async shell exits.
+_WAIT_BY_BACKEND = (
+    ": on Codex, one `write_stdin` with empty input and a `yield_time_ms` longer "
+    "than the job; on Copilot, the shell tool in `async` mode, then end your turn, "
+    "and Copilot resumes you when it exits; elsewhere, the longest blocking calls "
+    "your shell allows. Never poll in short loops."
+)
 _POSIX_LONG_EXPERIMENT_RULE = (
     "For commands over two minutes, start them detached so they outlive your "
     "shell, keeping the exit code: `setsid nohup sh -c '<command>; echo $? > "
-    "<run>/exit_code' > <run>/log 2>&1 < /dev/null &`. Then wait for them in this "
-    "turn with blocking calls as long as your shell tool allows (Copilot: "
-    "`initial_wait` or `read_bash` delay 600; Codex: `write_stdin` with empty "
-    "input and `yield_time_ms` 300000) on `timeout 590 sh -c 'until [ -e "
-    "<run>/exit_code ]; do sleep 30; done'`, repeated until it exits. Every check "
-    "is a full model call: never poll in short loops, and do not end the turn "
-    "waiting for a notification. Meanwhile do work that does not need the result."
+    "<run>/exit_code' > <run>/log 2>&1 < /dev/null &`. Do the work that does not "
+    "need the result, then wait for it on `until [ -e <run>/exit_code ]; do "
+    "sleep 30; done`" + _WAIT_BY_BACKEND
 )
 # The baton line of docs/role-handoff-design.md: prose for the next holder,
 # then one line naming it. The host routes the work by that line alone.
@@ -97,10 +101,8 @@ _WINDOWS_LONG_EXPERIMENT_RULE = (
     "syntax: start them detached with `Start-Process -PassThru -WindowStyle Hidden "
     "-FilePath <exe> -ArgumentList <args> -RedirectStandardOutput <run>\\log.txt "
     "-RedirectStandardError <run>\\err.txt`, "
-    "keep the process id, then wait for it in this turn with blocking calls of "
-    "`Wait-Process -Id <pid> -Timeout 590`, repeated until it exits. Every check "
-    "is a full model call: never poll in short loops, and do not end the turn "
-    "waiting for a notification. Meanwhile do work that does not need the result."
+    "keep the process id, do the work that does not need the result, then wait "
+    "for it on `Wait-Process -Id <pid>`" + _WAIT_BY_BACKEND
 )
 
 def _long_experiment_rule() -> str:

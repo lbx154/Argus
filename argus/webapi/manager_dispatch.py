@@ -39,6 +39,16 @@ def _authorization_workdir(
     return _operator_workspace(chat_state, life_dir)
 
 
+def _project_paths_overlap(left: object, right: object) -> bool:
+    left_path = Path(str(left or "").strip().replace("\\", "/"))
+    right_path = Path(str(right or "").strip().replace("\\", "/"))
+    return bool(
+        left_path == right_path
+        or left_path in right_path.parents
+        or right_path in left_path.parents
+    )
+
+
 @contextmanager
 def _manager_request_scope(sid: str, generation: int | None = None) -> Iterator[Callable[[], bool]]:
     from ..core.run_gateway import run_interrupt_scope
@@ -939,6 +949,16 @@ def _handle_authorization_control(
             )
         repair_paths = list(diagnosis.get("repair_paths") or [])
         validator_id = str(diagnosis.get("validator_id") or "")
+        # The evidence the finding cites is frozen at its current file facts:
+        # if it changes, the authorization no longer describes what was read.
+        # Files the repair may write are not evidence.
+        evidence_paths = [
+            artifact
+            for row in diagnosis.get("failure_source_evidence") or []
+            if isinstance(row, dict)
+            and (artifact := str(row.get("artifact") or "").strip())
+            and not any(_project_paths_overlap(artifact, path) for path in repair_paths)
+        ]
         identity = control_store.campaign_identity(
             campaign_epoch=head.campaign_epoch,
         )
@@ -955,7 +975,7 @@ def _handle_authorization_control(
             allowed_actions=authorization_actions,
             scope="active_blocker",
             allowed_write_paths=repair_paths,
-            evidence_paths=(),
+            evidence_paths=evidence_paths,
             source_channel=source_channel,
             source_message_id=source_message_id or turn_id,
             validator_id=validator_id,

@@ -588,7 +588,7 @@ Current operator > objective > mission > preregistration；memory 仅供参考�
 端到端负责此任务：自行规划并使用工具，直到检查通过或遇到真实障碍。
 Web UI：用真实 Chromium 和移动端测试。
 外部行为确实重要时使用一手来源。
-对于超过两分钟的命令，分离启动，让它活过 shell 并保留退出码：`setsid nohup sh -c '<command>; echo $? > <run>/exit_code' > <run>/log 2>&1 < /dev/null &`（native Windows 用 `Start-Process -PassThru` 并记下进程号）。然后在本回合里用 shell 工具允许的最长阻塞调用等它（Copilot：`initial_wait` 或 `read_bash` delay 600；Codex：`write_stdin` 空输入、`yield_time_ms` 300000），等待命令是 `timeout 590 sh -c 'until [ -e <run>/exit_code ]; do sleep 30; done'`（Windows：`Wait-Process -Id <pid> -Timeout 590`），重复直到结束。每次检查都是一次完整的模型调用：绝不短间隔轮询，也不要结束回合去等通知。等待期间做不依赖结果的工作。
+对于超过两分钟的命令，分离启动，让它活过 shell 并保留退出码：`setsid nohup sh -c '<command>; echo $? > <run>/exit_code' > <run>/log 2>&1 < /dev/null &`（native Windows 用 `Start-Process -PassThru` 并记下进程号）。先做不依赖结果的工作，再用 `until [ -e <run>/exit_code ]; do sleep 30; done`（Windows：`Wait-Process -Id <pid>`）等它：Codex 用一次空输入的 `write_stdin`，`yield_time_ms` 长于任务；Copilot 用 shell 工具的 `async` 模式运行它，然后结束回合，它退出时 Copilot 会叫醒你；其他后端用 shell 允许的最长阻塞调用。绝不短间隔轮询。
 
 {{DURABLE_LEARNING_CONTRACT}}
 
@@ -619,7 +619,7 @@ CHECKPOINT.md 把你的状态从一轮带到下一轮。Host 只在需要时调�
 
 ## 后续轮
 读取 CHECKPOINT.md，然后执行 Reviewer 的 next action。原始任务仍然有效。
-对于超过两分钟的命令，分离启动，让它活过 shell 并保留退出码：`setsid nohup sh -c '<command>; echo $? > <run>/exit_code' > <run>/log 2>&1 < /dev/null &`（native Windows 用 `Start-Process -PassThru` 并记下进程号）。然后在本回合里用 shell 工具允许的最长阻塞调用等它（Copilot：`initial_wait` 或 `read_bash` delay 600；Codex：`write_stdin` 空输入、`yield_time_ms` 300000），等待命令是 `timeout 590 sh -c 'until [ -e <run>/exit_code ]; do sleep 30; done'`（Windows：`Wait-Process -Id <pid> -Timeout 590`），重复直到结束。每次检查都是一次完整的模型调用：绝不短间隔轮询，也不要结束回合去等通知。等待期间做不依赖结果的工作。
+对于超过两分钟的命令，分离启动，让它活过 shell 并保留退出码：`setsid nohup sh -c '<command>; echo $? > <run>/exit_code' > <run>/log 2>&1 < /dev/null &`（native Windows 用 `Start-Process -PassThru` 并记下进程号）。先做不依赖结果的工作，再用 `until [ -e <run>/exit_code ]; do sleep 30; done`（Windows：`Wait-Process -Id <pid>`）等它：Codex 用一次空输入的 `write_stdin`，`yield_time_ms` 长于任务；Copilot 用 shell 工具的 `async` 模式运行它，然后结束回合，它退出时 Copilot 会叫醒你；其他后端用 shell 允许的最长阻塞调用。绝不短间隔轮询。
 
 {{DURABLE_LEARNING_CONTRACT}}
 
