@@ -1166,6 +1166,71 @@ def test_active_planner_node_key_reuses_item_across_rewording(
     assert skipped["reason"] == "duplicate pending/running task"
 
 
+class _SettlingStructuredPlannerRunner(_StructuredPlannerRunner):
+    """Proposes the typed task plus one new task and settles an instruction."""
+
+    def __init__(self) -> None:
+        super().__init__()
+        self.settle: list[int] = []
+
+    def run_exec(self, *, prompt, options, run_label, resume_thread_id=None):
+        result = super().run_exec(
+            prompt=prompt, options=options, run_label=run_label,
+            resume_thread_id=resume_thread_id,
+        )
+        payload = json.loads(result.agent_messages[0].split("=", 1)[1])["payload"]
+        payload["tasks"].append({
+            "key": "fresh-task",
+            "deps": [],
+            "title": "Profile the loader",
+            "objective": "Profile loader startup.",
+            "scope": "bounded",
+        })
+        payload["settle_instructions"] = list(self.settle)
+        result.agent_messages = [encode_role_decision("planner", payload)]
+        return result
+
+
+def test_structured_settlement_counts_a_duplicate_of_live_work(
+    tmp_path: Path,
+    monkeypatch,
+) -> None:
+    from argus.core.operator_context import (
+        OperatorContextStore,
+        append_directive,
+        operator_context_state_root,
+    )
+
+    backend = _SettlingStructuredPlannerRunner()
+    supervisor, backend, _sink = _make_supervisor(
+        tmp_path, monkeypatch, terminal_stage_done=False, backend=backend,
+    )
+    existing = supervisor.memory.backlog.add(BacklogItem.new(
+        title="Assess publication-scale evidence gaps",
+        objective="Inspect the current evidence boundary.",
+        node_key="typed-task",
+        tags=["planner"],
+    ))
+    root = operator_context_state_root(supervisor.memory)
+    store = OperatorContextStore(root)
+    idle = append_directive(
+        root, "Run the typed work next.", scope="mission",
+        lifetime="bounded_increment", expected_revision=store.revision,
+    )
+    backend.settle = [idle.revision]
+
+    supervisor._plan_next_work()
+
+    active = supervisor.memory.backlog.active()
+    assert existing.id in [item.id for item in active]
+    assert "Profile the loader" in [item.title for item in active]
+    visible = [
+        record.revision
+        for record in store.project("planner", consume_once=False).directives
+    ]
+    assert idle.revision not in visible
+
+
 def test_legacy_backlog_item_ignores_work_kind() -> None:
     item = BacklogItem.from_jsonable({
         "id": "legacy-item",

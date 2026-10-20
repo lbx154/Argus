@@ -273,6 +273,139 @@ def test_bounded_directive_expires_with_its_mission(tmp_path: Path) -> None:
     assert store.project("engineer", mission_id="mission-b").directives == ()
 
 
+def _idle_instruction(text: str) -> DirectiveRecord:
+    return _directive(text, scope="mission", lifetime="bounded_increment")
+
+
+def _visible(root: Path, role: str = "planner") -> list[int]:
+    projection = OperatorContextStore(root).project(role, consume_once=False)
+    return [record.revision for record in projection.directives]
+
+
+def test_idle_bounded_instruction_settles_only_when_planner_declares_it(
+    tmp_path: Path,
+) -> None:
+    store = OperatorContextStore(tmp_path)
+    standing = store.append(_directive("keep this"), expected_revision=0)
+    first = store.append(_idle_instruction("evaluate the parser"), expected_revision=1)
+    second = store.append(_idle_instruction("profile the loader"), expected_revision=2)
+
+    # A checkpoint that names nothing (a wait, or work for something else)
+    # leaves every idle instruction in place.
+    assert store.acknowledge("planner", second.revision) == ()
+    assert _visible(tmp_path) == [second.revision, first.revision, standing.revision]
+
+    assert store.acknowledge("planner", second.revision, settle=[first.revision]) == (
+        first.revision,
+    )
+    for role in ("planner", "manager"):
+        assert _visible(tmp_path, role) == [second.revision, standing.revision]
+
+
+def test_settlement_ignores_instructions_that_are_not_idle_planner_input(
+    tmp_path: Path,
+) -> None:
+    store = OperatorContextStore(tmp_path)
+    standing = store.append(_directive("keep this"), expected_revision=0)
+    bound = store.append(
+        _idle_instruction("only mission-a"), expected_revision=1, mission_id="mission-a"
+    )
+    engineer_only = append_directive(
+        tmp_path, "engineer only", scope="mission", lifetime="bounded_increment",
+        applies_to_roles=("engineer",), expected_revision=2,
+    )
+    later = store.append(_idle_instruction("arrived later"), expected_revision=3)
+
+    settled = store.acknowledge(
+        "planner",
+        engineer_only.revision,
+        settle=[standing.revision, bound.revision, engineer_only.revision, later.revision, 99],
+    )
+
+    assert settled == ()
+    assert _visible(tmp_path) == [later.revision, standing.revision]
+    assert [record.revision for record in store.project("engineer").directives] == [
+        later.revision, engineer_only.revision, standing.revision,
+    ]
+    in_mission = store.project("engineer", mission_id="mission-a")
+    assert bound.revision in [record.revision for record in in_mission.directives]
+
+
+def test_only_planner_settles_idle_bounded_instructions(tmp_path: Path) -> None:
+    store = OperatorContextStore(tmp_path)
+    idle = store.append(_idle_instruction("evaluate the parser"), expected_revision=0)
+
+    with pytest.raises(ValueError, match="only Planner"):
+        store.acknowledge("engineer", idle.revision, settle=[idle.revision])
+    assert _visible(tmp_path) == [idle.revision]
+
+
+def test_compaction_drops_settled_idle_instruction_and_keeps_the_rest(
+    tmp_path: Path,
+) -> None:
+    store = OperatorContextStore(tmp_path)
+    keep = store.append(_directive("keep this"), expected_revision=0)
+    settled = store.append(_idle_instruction("evaluate the parser"), expected_revision=1)
+    pending = store.append(_idle_instruction("profile the loader"), expected_revision=2)
+    store.acknowledge("planner", pending.revision, settle=[settled.revision])
+
+    store.compact()
+    (tmp_path / "operator_context.json").unlink()
+
+    restored = OperatorContextStore(tmp_path)
+    assert {record.revision for record in restored.records()} == {keep.revision, pending.revision}
+    assert _visible(tmp_path) == [pending.revision, keep.revision]
+
+
+def test_corrupt_settlement_state_is_rejected_on_load(tmp_path: Path) -> None:
+    from argus.core.operator_context_storage import read_document, write_checkpoint
+
+    store = OperatorContextStore(tmp_path)
+    idle = store.append(_idle_instruction("evaluate the parser"), expected_revision=0)
+    store.compact()
+    doc = read_document(store.ledger_path, legacy_state={})
+    doc.state["settled_idle_bounded"] = [idle.revision + 5]
+    write_checkpoint(store.ledger_path, doc)
+
+    with pytest.raises(ValueError, match="invalid settled"):
+        read_document(store.ledger_path, legacy_state={})
+
+
+def test_planner_block_offers_only_idle_instructions_for_settlement(tmp_path: Path) -> None:
+    from argus.core.operator_context import build_settleable_planner_context_block
+
+    store = OperatorContextStore(tmp_path)
+    standing = store.append(_directive("keep this"), expected_revision=0)
+    idle = store.append(_idle_instruction("evaluate the parser"), expected_revision=1)
+
+    block, revision, offered = build_settleable_planner_context_block(tmp_path)
+    assert revision == idle.revision
+    assert offered == frozenset({idle.revision})
+    assert f"[mission; revision {idle.revision}]: evaluate the parser" in block
+    assert "[project]: keep this" in block
+    assert f"revision {standing.revision}]" not in block
+    assert "SETTLE_INSTRUCTION=N" in block
+
+    for role in ("planner", "engineer"):
+        plain, _ = build_operator_context_block(role, tmp_path, consume_once=False)
+        assert "SETTLE_INSTRUCTION" not in plain
+        assert f"revision {idle.revision}]" not in plain
+
+    store.acknowledge("planner", idle.revision, settle=[idle.revision])
+    block, _, offered = build_settleable_planner_context_block(tmp_path)
+    assert offered == frozenset()
+    assert "evaluate the parser" not in block
+    assert "SETTLE_INSTRUCTION" not in block
+
+
+def test_repeated_settlement_reports_only_new_revisions(tmp_path: Path) -> None:
+    store = OperatorContextStore(tmp_path)
+    idle = store.append(_idle_instruction("evaluate the parser"), expected_revision=0)
+
+    assert store.acknowledge("planner", idle.revision, settle=[idle.revision]) == (idle.revision,)
+    assert store.acknowledge("planner", idle.revision, settle=[idle.revision]) == ()
+
+
 def test_projection_precedence_and_live_turn(tmp_path: Path) -> None:
     append_preference(
         tmp_path,
