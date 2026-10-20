@@ -36,8 +36,8 @@ class PaperRunner:
             assert "natural-language assessment" in kwargs["prompt"]
             assert "that alone is not broken reading order" in kwargs["prompt"]
             assert "polish, not grounds to fail the paper" in kwargs["prompt"]
-        assert options.sandbox_mode == "read-only"
-        assert options.force_safe_mode
+        # The Engineer's access (here the config defaults), never a read-only mode.
+        assert options.sandbox_mode is None and not options.force_safe_mode
         return SimpleNamespace(
             exit_code=1 if self.shared.fail else 0,
             fatal_error="unavailable" if self.shared.fail else None,
@@ -110,7 +110,7 @@ def test_unchanged_paper_skips_loss_and_reuses_pdf_assessments(paper_review, mon
     assert sorted(runner.shared.calls) == ["reviewer-coldread", "reviewer-visual"]
     assert first.input_tokens == 20
     assert "not scientific correctness" in first.reason
-    assert len(renders) == 1  # Both read-only passes share one immutable render.
+    assert len(renders) == 1  # Both PDF-only passes share one immutable render.
     (project / "paper" / "REVIEW.md").write_text("new integrated verdict")
     second = _parallel_final_review_passes(runner, config)
     assert len(runner.shared.calls) == 2
@@ -235,10 +235,11 @@ def test_source_change_is_reviewed_even_when_rendered_bytes_match(paper_review):
     _parallel_final_review_passes(runner, config)
     (project / "paper" / "main.tex").write_text("a changed scientific claim")
     # Rebuilt output can be byte-identical; the source comparison still matters.
+    # The rebuild is a new file state, so the PDF passes run again too.
     (project / "paper" / "main.pdf").write_bytes(b"%PDF-current")
     result = _parallel_final_review_passes(runner, config)
     assert runner.shared.calls.count("reviewer-scientificloss") == 1
-    assert result.input_tokens == 10
+    assert result.input_tokens == 30
     _parallel_final_review_passes(runner, config)
     assert runner.shared.calls.count("reviewer-scientificloss") == 2
 
@@ -286,11 +287,9 @@ def test_current_science_context_reaches_source_passes_without_reopening_pdf_pas
     assert second.input_tokens == 10 * len(source_labels)
 
 
-def test_round_delivers_current_account_and_live_jobs_to_source_reviewers(
+def test_round_delivers_current_account_to_source_reviewers(
     paper_review, monkeypatch,
 ):
-    import json
-    import os
 
     from argus.core.models import ReviewDecision
     from argus.engineer import round_reviewer
@@ -300,12 +299,6 @@ def test_round_delivers_current_account_and_live_jobs_to_source_reviewers(
     from argus.reviewer import _core
 
     project, config = paper_review
-    registry = project / ".argus_subagents"
-    registry.mkdir()
-    (registry / "replacement-panel.json").write_text(json.dumps({
-        "task_id": "replacement-panel", "state": "running", "mode": "direct",
-        "pid": os.getpid(),
-    }))
     account = "The real counterexample is repaired; the full replacement is pending."
     prompts = {}
     original = _core.gateway_run_exec
@@ -324,10 +317,6 @@ def test_round_delivers_current_account_and_live_jobs_to_source_reviewers(
 
     def finish_passes(*args, **kwargs):
         findings = original_passes(*args, **kwargs)
-        record = registry / "replacement-panel.json"
-        payload = json.loads(record.read_text())
-        payload["state"] = "completed"
-        record.write_text(json.dumps(payload))
         live_directive[:] = ["New observation: distinguish old failed outputs from the replacement."]
         return findings
 
@@ -352,17 +341,14 @@ def test_round_delivers_current_account_and_live_jobs_to_source_reviewers(
         owner, objective="Bring the paper to ICLR strong accept", original_objective=None,
         round_index=1, supervised_config=SupervisedConfig(), workdir=project,
         scope="mission", checkpoint_path=None, reviewer_skill_block=None,
-        escalate_hint="", engineer_result=RunnerResult(exit_code=0),
+        engineer_result=RunnerResult(exit_code=0),
         engineer_message=account, safe_fatal_error=None, process_ownership_note="",
         state=RoundLoopState(), on_event=None,
     )
     for label in ("reviewer-scientific", "reviewer-language"):
         assert account in prompts[label]
-        assert "replacement-panel" in prompts[label]
-        assert "RUNNING_HEALTHY" in prompts[label]
         assert "ICLR strong accept" in prompts[label]
     assert account not in prompts["reviewer-visual"]
-    assert "replacement-panel" not in prompts["reviewer-visual"]
     assert decision.status == "continue"
 
 
@@ -398,11 +384,11 @@ def test_failed_assessments_are_not_reused(paper_review):
     assert len(runner.shared.calls) == 4
 
 
-def test_uncertain_pdf_fingerprint_runs_fresh_isolated_passes(paper_review, monkeypatch):
+def test_unreadable_pdf_facts_run_fresh_isolated_passes(paper_review, monkeypatch):
     _, config = paper_review
     from argus.reviewer import _paper_pass_cache
 
-    monkeypatch.setattr(_paper_pass_cache, "pdf_sha256", lambda _: "")
+    monkeypatch.setattr(_paper_pass_cache, "pdf_facts", lambda _: [])
     runner = PaperRunner()
     _parallel_final_review_passes(runner, config)
     _parallel_final_review_passes(runner, config)

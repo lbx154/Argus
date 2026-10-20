@@ -93,8 +93,8 @@ export function previousDeliveryVersion(receipt: DeliveryReceipt, receipts: Deli
     .sort((a, b) => b.delivered_at - a.delivered_at);
   for (const other of earlier) {
     const snap = other.snapshots?.find((item) => item.path === path);
-    if (!snap || snap.sha256 === current.sha256) continue;
-    return snap.stored ? { path, before: snap.sha256, after: current.sha256 } : null;
+    if (!snap || snap.version === current.version) continue;
+    return snap.stored ? { path, before: snap.version, after: current.version } : null;
   }
   return null;
 }

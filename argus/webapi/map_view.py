@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import hashlib
 import json
 import re
 from pathlib import Path
@@ -74,10 +73,18 @@ TURN_LIMIT = 200
 _ANSWER_CALL_LABELS = frozenset({"simple-1", "chat-1", "manager-quick-reply"})
 
 
-def digest(value) -> str:
-    return hashlib.sha256(
-        json.dumps(value, ensure_ascii=False, sort_keys=True).encode()
-    ).hexdigest()[:24]
+def facts(value) -> str:
+    """``value`` as canonical JSON: equal exactly when the values are equal."""
+    return json.dumps(value, ensure_ascii=False, sort_keys=True, separators=(",", ":"))
+
+
+def event_id(row: dict) -> str:
+    """The row's own id; older rows without one are named by type, time, owner and round."""
+    if row.get("event_id"):
+        return str(row["event_id"])
+    owner = row.get("item_id") or row.get("mission_id") or ""
+    number = row.get("round_index", row.get("round", ""))
+    return f"{row.get('type', '')}@{row.get('ts', 0)}:{owner}:{number}"
 
 
 def text(value, limit=6000):
@@ -85,7 +92,7 @@ def text(value, limit=6000):
 
 
 def task_content_revision(task: dict) -> str:
-    return digest({k: task.get(k) for k in (
+    return facts({k: task.get(k) for k in (
         "title", "objective", "acceptance_check", "goal_contribution", "plan_hypothesis", "non_goals",
     )})
 
@@ -94,12 +101,12 @@ def with_revisions(value: dict) -> dict:
     return {
         **value,
         "tasks": [
-            {**t, "revision": t.get("revision") or digest(t),
+            {**t, "revision": t.get("revision") or facts(t),
              "content_revision": task_content_revision(t)}
             for t in value.get("tasks", [])
         ],
         "events": [
-            {**e, "revision": digest({k: v for k, v in e.items() if k != "revision"})}
+            {**e, "revision": facts({k: v for k, v in e.items() if k != "revision"})}
             for e in value.get("events", [])
         ],
     }
@@ -272,7 +279,7 @@ def normalize_events(
                 _close_segment(segments, owner)
         if owner in task_ids and kind.startswith(EVENT_PREFIXES):
             e = {
-                "id": str(row.get("event_id") or digest(row)),
+                "id": event_id(row),
                 "item_id": owner,
                 "type": kind,
                 "ts": row.get("ts", 0),
@@ -544,10 +551,8 @@ def turn_records(
 
 def read_map(
     sid: str, root: Path, life_dir: Path, *, event_state: dict | None = None,
-    include_events: bool = True, team_sources: tuple | None = None,
+    include_events: bool = True,
 ) -> dict:
-    from .map_team import previous_formations, project_team_events, remember_formations
-
     memory = LifeMemory.open(life_dir)
     tasks = []
     for item in memory.backlog.history():
@@ -566,7 +571,7 @@ def read_map(
                 task[k] = [text(x) if isinstance(x, str) else x for x in v]
         task["summary"] = task.get("last_error") or task.get("notes") or ""
         task["role"] = "engineer"
-        task["revision"] = digest(task)
+        task["revision"] = facts(task)
         tasks.append(task)
     tasks.sort(key=lambda t: (t.get("ts") or 0, t["id"]))
     rows = []
@@ -607,10 +612,6 @@ def read_map(
                 segments = state.get("segments") or {}
                 turns = dict(state.get("turns") or {})
                 asks = dict(state.get("turn_asks") or {})
-            bindings = dict(state.get("team_bindings", {})) if append or retained_previous else {}
-            binding_truncated = bool(state.get("team_bindings_truncated")) if append or retained_previous else False
-            if not append:
-                binding_truncated |= remember_formations(previous_formations(life_dir), task_ids, bindings)
             start = max(0, size - 8 * 1024 * 1024)
             if append:
                 start = max(start, offset)
@@ -642,16 +643,11 @@ def read_map(
                 *normalize_events(rows, task_ids, active, segments, workspace),
                 *(event for turn in turns.values() for event in turn["events"]),
             ]}.values())
-            binding_truncated |= remember_formations(rows, task_ids, bindings)
-            bindings = {path: binding for path, binding in bindings.items()
-                        if binding["item_id"] in task_ids}
             f.seek(max(0, consumed - 128))
             state.update(
                 identity=identity, offset=consumed, anchor=f.read(min(128, consumed)),
                 task_ids=task_ids, events=events[-2000:], active=active,
                 segments=segments, turns=turns, turn_asks=asks,
-                team_bindings=bindings,
-                team_bindings_truncated=binding_truncated,
                 truncated=truncated or len(events) > 2000,
                 reset=bool(state) and not append and not retained_previous
                 and state.get("task_ids") == task_ids,
@@ -663,25 +659,16 @@ def read_map(
         state["reset"] = was_present
     for turn in (state.get("turns") or {}).values():
         card = dict(turn["card"])
-        card["revision"] = digest(card)
+        card["revision"] = facts(card)
         tasks.append(card)
     tasks.sort(key=lambda t: (t.get("ts") or 0, t["id"]))
     meta = read_session_meta(root, sid)
-    bindings = state.get("team_bindings", {})
-    # team_sources is a (bindings, traversal) pair captured by the caller
-    # before this read; it is only reusable while that evidence is unchanged.
-    team_events, team_truncated, team_signature = project_team_events(
-        sid, root, life_dir, bindings,
-        sources=team_sources[1]
-        if team_sources is not None and team_sources[0] == bindings else None,
-    ) if include_events else ([], False, ())
-    state["team_signature"] = team_signature
-    visible_events = [*events[-2000:], *team_events]
+    visible_events = events[-2000:]
     tasks = project_map_outcomes(tasks, visible_events)
     for task in tasks:
         # An outcome binding can change when a lifecycle event arrives even if
         # the backlog row is unchanged. Its response revision must change too.
-        task["revision"] = digest({key: value for key, value in task.items() if key != "revision"})
+        task["revision"] = facts({key: value for key, value in task.items() if key != "revision"})
     return with_revisions({
         "id": f"live:{sid}",
         "title": meta.display_name if meta else sid,
@@ -690,6 +677,5 @@ def read_map(
         "read_only": False,
         "tasks": tasks,
         "events": visible_events,
-        "coverage": {"truncated": truncated or len(events) > 2000 or team_truncated
-                     or bool(state.get("team_bindings_truncated"))},
+        "coverage": {"truncated": truncated or len(events) > 2000},
     })

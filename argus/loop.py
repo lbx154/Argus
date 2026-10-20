@@ -35,10 +35,9 @@ from pathlib import Path
 from typing import Any, Callable
 
 from .core.event_catalog import EventType
-from .core.models import LoopOutcome, LoopStatus, RoundRecord
+from .core.knobs import learning_enabled
+from .core.models import LoopOutcome, LoopStatus
 from .core.ports import RunnerBackend
-from .core.role_session import configured_role_session_policy
-from .core.round_policy import ROUND_POLICY_FIELDS, RoundPolicy, explain_round_policy
 from .engineer.runner import (
     EngineerConfig,
     SupervisedConfig,
@@ -55,20 +54,6 @@ from .skills.store import SkillStore
 
 log = logging.getLogger(__name__)
 
-def _env_int_setting(name: str, default: int) -> int:
-    try:
-        return int(os.environ.get(name, str(default)))
-    except (TypeError, ValueError):
-        return default
-
-
-def _knob_bool_setting(name: str, default: bool) -> bool:
-    from .core.knobs import resolve_knob
-
-    value = resolve_knob(name, "1" if default else "0").value
-    return value.strip().lower() in {"1", "true", "yes", "on"}
-
-
 @dataclass
 class SkillLoopConfig:
     """All knobs for one SkillLoop.run invocation, in one place."""
@@ -82,26 +67,9 @@ class SkillLoopConfig:
     reviewer_reasoning_effort: str = "high"
     require_independent_review: bool = True
     # Completed tasks may retain durable learning when the Agent judges it useful.
-    require_post_task_learning: bool = field(
-        default_factory=lambda: _knob_bool_setting(
-            "ARGUS_SKILL_REQUIRE_POST_TASK_LEARNING",
-            True,
-        )
-    )
-    # Zero means no wall-clock-independent ceiling; semantic stall guards still apply.
+    require_post_task_learning: bool = field(default_factory=learning_enabled)
+    # Zero means no round ceiling.
     max_rounds: int = 0
-    # Round guards threaded into SupervisedConfig (see core/round_policy.py):
-    # after ``soft_round_limit`` two verdicts without forward progress settle
-    # the mission; from ``hard_escalate_rounds`` continuation requires the
-    # Reviewer's explicit progress judgment; ``stall_threshold`` counts the
-    # Reviewer's explicit no-progress verdicts; ``no_progress_threshold``
-    # counts empty Engineer turns. ``None`` lets the active vertical's
-    # ROUND_POLICY (else the framework default) decide; an int set here wins
-    # over the vertical, and 0 disables the guard. Operator knobs win over both.
-    no_progress_threshold: int | None = None
-    soft_round_limit: int | None = None
-    hard_escalate_rounds: int | None = None
-    stall_threshold: int | None = None
     backend_failure_threshold: int = 2
     backend_failure_backoff_seconds: float = 15.0
     # Shared declarative knowledge wiki. Roles edit pages directly.
@@ -109,12 +77,6 @@ class SkillLoopConfig:
     # Bootstrap one project wiki before the first mission.
     # Library callers remain opt-in; the daemon runtime enables this by default.
     auto_init_wiki: bool = True
-    round_checkpoint_enabled: bool = field(
-        default_factory=lambda: _knob_bool_setting(
-            "ARGUS_SKILL_ROUND_CHECKPOINT",
-            False,
-        )
-    )
     full_auto: bool = True
     skip_git_repo_check: bool = True
     dangerous_yolo: bool = False
@@ -122,17 +84,6 @@ class SkillLoopConfig:
     isolate_workdir: bool = False
     extra_args: list[str] | None = None
     session_id: str | None = None
-    role_session_policy: str = field(default_factory=configured_role_session_policy)
-    role_session_max_turns: int = field(
-        default_factory=lambda: _env_int_setting(
-            "ARGUS_SKILL_ROLE_SESSION_MAX_TURNS", 6
-        )
-    )
-    role_session_max_input_tokens: int = field(
-        default_factory=lambda: _env_int_setting(
-            "ARGUS_SKILL_ROLE_SESSION_MAX_INPUT_TOKENS", 120_000
-        )
-    )
     # Manager-selected execution topology. Every mode still uses skill/wiki.
     workflow_mode: str = "staged"
     # Explicit Manager-routed vertical for isolated worktrees that intentionally
@@ -218,9 +169,6 @@ class SkillLoop(
         self.reviewer_runner = reviewer_runner or engineer_runner
         self.on_event = on_event
         self.pre_settlement_guard: Callable[..., tuple[LoopStatus, str, str]] | None = None
-        # Answered by the daemon: may a round keep its mission slot while the
-        # work it started runs? See ``SupervisedConfig.external_wait_hold``.
-        self.external_wait_hold: Callable[[], bool] | None = None
         self.canonical_playground_engineer_skill: Any | None = None
         self.canonical_playground_reviewer_skill: Any | None = None
         # Optional callable consulted at the start of each engineer round.
@@ -385,7 +333,7 @@ class SkillLoop(
         # sources. No Skill is parsed, matched, adapted, or injected.
         state = self._prepare_skill_libraries(mission)
 
-        # Step 3: supervised round-loop. The four small wrappers below adapt
+        # Step 3: supervised round-loop. The three small wrappers below adapt
         # this mixin's ``(self, mission, state, ...)`` phase methods to the
         # exact bare-callable signatures ``SupervisedEngineer.run`` expects.
         def build_prompt(next_action: str | None, include_static: bool = True) -> str:
@@ -394,33 +342,22 @@ class SkillLoop(
         def prepare_review_context() -> None:
             return self._prepare_review_context(mission)
 
-        def capture_reviewed_round(record: RoundRecord) -> None:
-            return self._capture_reviewed_round(mission, record)
-
-        def adapt_after_rejections(rounds: list[RoundRecord]) -> str:
-            return self._adapt_after_rejections(mission, state, rounds)
-
-        from .core.venue_review import configure_venue_revisions, requires_venue_review
+        from .core.venue_review import requires_venue_review
         from .skills.vertical_select import resolve_vertical_if_decided
 
         venue_revisions = requires_venue_review(
             vertical=self.config.active_vertical or resolve_vertical_if_decided(vertical_state_root) or "",
             stage=active_stage, scope=scope,
         )
-        round_policy = self._resolve_round_policy(active_vertical, vertical_state_root)
         round_config = SupervisedConfig(
             max_rounds=self.config.max_rounds,
-            require_independent_review=self.config.require_independent_review,
-            no_progress_threshold=round_policy.no_progress_threshold,
-            stall_threshold=round_policy.stall_threshold,
-            soft_round_limit=round_policy.soft_round_limit,
-            hard_escalate_rounds=round_policy.hard_escalate_rounds,
+            # A final paper review is always judged independently.
+            require_independent_review=(
+                self.config.require_independent_review or venue_revisions
+            ),
             backend_failure_threshold=self.config.backend_failure_threshold,
             backend_failure_backoff_seconds=self.config.backend_failure_backoff_seconds,
             session_id=self.config.session_id,
-            role_session_policy=self.config.role_session_policy,
-            role_session_max_turns=self.config.role_session_max_turns,
-            role_session_max_input_tokens=self.config.role_session_max_input_tokens,
             role_session_dir=(
                 Path(self.config.context_packet_path).expanduser().resolve().parent / "role-sessions"
                 if self.config.context_packet_path else None
@@ -432,13 +369,7 @@ class SkillLoop(
             narrative_mission_id=run_id,
             operator_questions_allowed=self.config.operator_questions_allowed,
             operator_question_policy_root=self.config.operator_question_policy_root,
-            external_wait_hold=self.external_wait_hold,
         )
-        if venue_revisions:
-            # Quality rejection keeps the research review loop open. Transport,
-            # empty-output, resource, and explicit operator-stop handling remain.
-            configure_venue_revisions(round_config)
-
         status, rounds, final_message, reason, last_thread_id = supervised.run(
             objective=reviewer_task,
             original_objective=request_anchor,
@@ -449,8 +380,6 @@ class SkillLoop(
             seed_thread_id=seed_thread_id,
             scope=scope,
             prepare_review_context=prepare_review_context,
-            review_completed_hook=capture_reviewed_round,
-            continue_adaptor=adapt_after_rejections,
             reviewer_skill_block=state.reviewer_skill_block,
         )
         if self.pre_settlement_guard is not None:
@@ -471,39 +400,6 @@ class SkillLoop(
     # ------------------------------------------------------------------
     # Helpers
     # ------------------------------------------------------------------
-
-    def _resolve_round_policy(self, vertical: str, project_root: Path) -> RoundPolicy:
-        """Resolve this mission's round guards from its vertical and knobs.
-
-        Precedence: operator knob, explicit ``SkillLoopConfig`` value, the
-        vertical's ``ROUND_POLICY``, the framework default. Contract errors
-        propagate for the same reason as in ``_resolve_live_search_stages``:
-        the contract already loaded for this mission's prompt.
-        """
-        vertical_policy = None
-        if str(vertical or "").strip():
-            from .verticals._base import load_vertical_contract
-
-            vertical_policy = load_vertical_contract(
-                vertical, project_root=project_root
-            ).round_policy
-        explicit = RoundPolicy(
-            stall_threshold=self.config.stall_threshold,
-            no_progress_threshold=self.config.no_progress_threshold,
-            soft_round_limit=self.config.soft_round_limit,
-            hard_escalate_rounds=self.config.hard_escalate_rounds,
-        )
-        policy, sources = explain_round_policy(
-            vertical_policy, explicit=explicit, vertical=str(vertical or "")
-        )
-        log.info(
-            "round guards (0 = off): %s",
-            ", ".join(
-                f"{name}={getattr(policy, name)} from {sources[name]}"
-                for name in ROUND_POLICY_FIELDS
-            ),
-        )
-        return policy
 
     def _resolve_live_search_stages(
         self,

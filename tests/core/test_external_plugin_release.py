@@ -16,7 +16,6 @@ def test_build_preserves_external_catalog_without_private_source(tmp_path, monke
         "version": "1.2.3",
         "artifact": {
             "filename": "external-1.2.3-py3-none-any.whl",
-            "sha256": "a" * 64,
             "url": "https://downloads.example.org/external.whl",
             "local": "/maintainer/only.whl",
         },
@@ -30,7 +29,7 @@ def test_build_preserves_external_catalog_without_private_source(tmp_path, monke
     )
     build_plugins.main()
     published = json.loads(path.read_text())
-    assert published["plugins"][0]["artifact"]["sha256"] == "a" * 64
+    assert published["plugins"][0]["version"] == "1.2.3"
     assert "local" not in published["plugins"][0]["artifact"]
     assert json.loads((tmp_path / "dist-plugins/catalog.json").read_text()) == published
     build_plugins.main()
@@ -44,5 +43,5 @@ def test_invalid_external_catalog_is_not_published(tmp_path, monkeypatch):
     (directory / "plugin_catalog.json").write_text(
         json.dumps({"plugins": [{"id": "bad", "artifact": {"url": "http://unsafe.example"}}]})
     )
-    with pytest.raises(ValueError, match="HTTPS release URL and SHA-256"):
+    with pytest.raises(ValueError, match="HTTPS release URL"):
         build_plugins.main()

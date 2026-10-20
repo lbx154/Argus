@@ -178,11 +178,14 @@ def test_required_acceptance_survives_secondary_evidence_removal_within_utf8_bud
     write_excerpt(tmp_path, backlog, item, "engineer_summary", LONG_EXCERPT_PREFIX)
     backlog.update(item.id, last_error=LONG_EXCERPT_PREFIX)
     packet_dir = mission_context_dir(tmp_path, item.id)
-    (packet_dir / "frontier.json").write_text(json.dumps({
-        "current_hypothesis": LONG_EXCERPT_PREFIX,
-        "remaining_work": LONG_EXCERPT_PREFIX,
-        "active_regression": LONG_EXCERPT_PREFIX,
-        "evidence": [{"summary": LONG_EXCERPT_PREFIX, "reason": LONG_EXCERPT_PREFIX} for _ in range(8)],
+    (packet_dir / "latest.json").write_text(json.dumps({
+        "kind": "review_handoff",
+        "engineer_summary": LONG_EXCERPT_PREFIX,
+        "review": {
+            "reason": LONG_EXCERPT_PREFIX,
+            "next_action": LONG_EXCERPT_PREFIX,
+            "evidence": [{"summary": LONG_EXCERPT_PREFIX, "reason": LONG_EXCERPT_PREFIX} for _ in range(8)],
+        },
     }))
     observation = observe_project(tmp_path, event=event)
     assert task_row(observation, item.id)["acceptance_check"] == requirement
@@ -260,30 +263,29 @@ def test_excerpt_tail_edits_change_canonical_revision_even_when_presentation_is_
 
 
 @pytest.mark.parametrize("field", ["last_error", "engineer_summary"])
-def test_unseen_excerpt_tail_edit_fences_a_running_manager_result(tmp_path, field):
+def test_unseen_excerpt_tail_edit_while_the_manager_decides_is_recorded_not_voided(tmp_path, field):
+    """Work that moved on while the Manager decided leaves its decision standing.
+
+    Voiding it lost the decision, and nothing asked the Manager again
+    (2026-10-20: a steer for a stuck campaign dropped, the project went silent).
+    """
     backlog, item, event = project(tmp_path)
     original = LONG_EXCERPT_PREFIX + "Hidden tail: the check passed."
     changed = LONG_EXCERPT_PREFIX + "Hidden tail: the check failed."
     write_excerpt(tmp_path, backlog, item, field, original)
     before = observe_project(tmp_path, event=event)
-    expected_control = []
 
-    def edit_while_model_runs():
-        write_excerpt(tmp_path, backlog, item, field, changed)
-        expected_control.append(controls(tmp_path))
-
-    backend = Backend(before_return=edit_while_model_runs)
+    backend = Backend(before_return=lambda: write_excerpt(tmp_path, backlog, item, field, changed))
     record = supervise(Manager(tmp_path, runner=backend, memory_maintenance_enabled=False), tmp_path, event)
     after = observe_project(tmp_path, event=event)
     assert displayed_excerpt(before, item.id, field) == displayed_excerpt(after, item.id, field)
     assert before.evidence_revision != after.evidence_revision
-    assert record["status"] == "superseded" and not record.get("effects")
-    assert controls(tmp_path) == expected_control[0]
-    assert load_active_manager_directive(tmp_path) is None and not (tmp_path / "inbox.jsonl").exists()
+    assert record["status"] == "applied" and record["evidence_moved"] is True
+    assert load_active_manager_directive(tmp_path).text == record["decision"]["directive"]
     assert len(backend.prompts) == 1
 
 
-@pytest.mark.parametrize("filename", ["frontier.json", "latest.json"])
+@pytest.mark.parametrize("filename", ["mission.json", "latest.json"])
 @pytest.mark.parametrize("rewrite", ["same-inode", "new-inode"])
 def test_oversize_sources_with_equal_prefix_size_and_mtime_keep_distinct_unobserved_identity(tmp_path, monkeypatch, filename, rewrite):
     if rewrite == "same-inode" and sys.platform == "win32":
@@ -331,7 +333,7 @@ def test_oversize_sources_with_equal_prefix_size_and_mtime_keep_distinct_unobser
 def test_invalid_source_objects_are_explicitly_unobserved_and_cannot_authorize_a_call(tmp_path, contents):
     backlog, item, event = project(tmp_path)
     write_excerpt(tmp_path, backlog, item, "engineer_summary", "A readable initial handoff")
-    source = mission_context_dir(tmp_path, item.id) / "frontier.json"
+    source = mission_context_dir(tmp_path, item.id) / "mission.json"
     source.write_text(contents)
     observation = observe_project(tmp_path, event=event)
     assert_source_unobserved(observation, source)
@@ -341,7 +343,7 @@ def test_invalid_source_objects_are_explicitly_unobserved_and_cannot_authorize_a
 def test_source_changed_during_read_is_not_treated_as_a_complete_snapshot(tmp_path, monkeypatch):
     backlog, item, event = project(tmp_path)
     write_excerpt(tmp_path, backlog, item, "engineer_summary", "A readable initial handoff")
-    source = mission_context_dir(tmp_path, item.id) / "frontier.json"
+    source = mission_context_dir(tmp_path, item.id) / "mission.json"
     source.write_text(json.dumps({"remaining_work": "Original observation"}))
     writes = []
 
@@ -358,24 +360,26 @@ def test_source_changed_during_read_is_not_treated_as_a_complete_snapshot(tmp_pa
 
 
 @pytest.mark.parametrize("shape", ["ninth-list-item", "deep-field"])
-def test_unpresented_frontier_tail_has_a_canonical_identity_and_specific_limitation(tmp_path, shape):
+def test_unpresented_handoff_tail_has_a_canonical_identity_and_specific_limitation(tmp_path, shape):
     backlog, item, event = project(tmp_path)
     write_excerpt(tmp_path, backlog, item, "engineer_summary", "A readable initial handoff")
-    source = mission_context_dir(tmp_path, item.id) / "frontier.json"
+    source = mission_context_dir(tmp_path, item.id) / "latest.json"
 
     def content(tail):
         if shape == "ninth-list-item":
-            return {"evidence": [{"check": f"visible-{index}"} for index in range(8)] + [{"check": tail}]}
-        return {"evidence": {"layer1": {"layer2": {"layer3": {"check": tail}}}}}
+            review = [{"check": f"visible-{index}"} for index in range(8)] + [{"check": tail}]
+        else:
+            review = {"layer1": {"layer2": {"layer3": {"check": tail}}}}
+        return {"kind": "review_handoff", "engineer_summary": "A readable initial handoff", "review": review}
 
     source.write_text(json.dumps(content("UNPRESENTED_TAIL_A")))
     before = observe_project(tmp_path, event=event)
     source.write_text(json.dumps(content("UNPRESENTED_TAIL_B")))
     after = observe_project(tmp_path, event=event)
-    assert task_row(before, item.id)["frontier"] == task_row(after, item.id)["frontier"]
+    assert task_row(before, item.id)["evidence"] == task_row(after, item.id)["evidence"]
     assert before.evidence_revision != after.evidence_revision
     assert "UNPRESENTED_TAIL_A" not in before.render() and "UNPRESENTED_TAIL_B" not in after.render()
-    path = f"tasks[{item.id}].frontier.evidence"
+    path = f"tasks[{item.id}].evidence.review"
     detail = "entries" if shape == "ninth-list-item" else "deeper"
     assert any(path in note and detail in note for note in after.facts["limitations"])
     assert before.incomplete_requirements == after.incomplete_requirements == ()
@@ -386,7 +390,8 @@ def test_unpresented_frontier_tail_has_a_canonical_identity_and_specific_limitat
 def test_fifo_source_without_a_writer_is_rejected_without_blocking_supervision(tmp_path):
     backlog, item, event = project(tmp_path)
     write_excerpt(tmp_path, backlog, item, "engineer_summary", "A readable initial handoff")
-    source = mission_context_dir(tmp_path, item.id) / "frontier.json"
+    source = mission_context_dir(tmp_path, item.id) / "mission.json"
+    source.unlink()
     os.mkfifo(source)
     context = multiprocessing.get_context("fork")
     reader, writer = context.Pipe(duplex=False)
@@ -427,16 +432,17 @@ def test_symlink_sources_are_named_as_unobserved_without_reading_the_target(tmp_
     backlog, item, event = project(tmp_path)
     write_excerpt(tmp_path, backlog, item, "engineer_summary", "A readable initial handoff")
     packet_dir = mission_context_dir(tmp_path, item.id)
-    source = packet_dir / "frontier.json"
+    source = packet_dir / "mission.json"
     marker = "SYMLINK_TARGET_CONTENT_MUST_NOT_BE_OBSERVED"
     if link == "leaf":
-        target = tmp_path / "untrusted-frontier.json"
+        target = tmp_path / "untrusted-mission.json"
         target.write_text(json.dumps({"remaining_work": marker}))
+        source.unlink()
         source.symlink_to(target)
     else:
         target = tmp_path / "untrusted-packet"
         packet_dir.rename(target)
-        (target / "frontier.json").write_text(json.dumps({"remaining_work": marker}))
+        (target / "mission.json").write_text(json.dumps({"remaining_work": marker}))
         packet_dir.symlink_to(target, target_is_directory=True)
     observation = observe_project(tmp_path, event=event)
     assert_source_unobserved(observation, source)

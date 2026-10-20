@@ -121,7 +121,6 @@ def _done_state() -> _PlanCycleState:
     state = _PlanCycleState(None)
     state.verdict = PlannerVerdict(
         project_done=True,
-        waiting=False,
         new_tasks=[],
         reason="The paper is complete.",
     )
@@ -130,7 +129,7 @@ def _done_state() -> _PlanCycleState:
 
 def _circuit(tmp_path: Path) -> dict | None:
     return load_completion_rejection_circuit(
-        completion_rejection_circuit_path(tmp_path, _OBJECTIVE)
+        completion_rejection_circuit_path(tmp_path)
     )
 
 
@@ -254,8 +253,6 @@ class _IntakeHarness(PlanningContextMixin, PlanningCycleIntakeMixin):
         drained, self.inbox = list(self.inbox), []
         return drained
 
-    def _deactivate_planner_waiting_contract(self) -> None:
-        pass
 
     def _emit(self, event) -> None:
         self.events.append(dict(event))
@@ -276,7 +273,7 @@ class _IntakeHarness(PlanningContextMixin, PlanningCycleIntakeMixin):
 
 
 def _paused_circuit(tmp_path: Path, backlog_signature: str) -> Path:
-    path = completion_rejection_circuit_path(tmp_path, _OBJECTIVE)
+    path = completion_rejection_circuit_path(tmp_path)
     for _ in range(3):
         record_completion_rejection(
             path,
@@ -354,9 +351,9 @@ def test_operator_reply_lifts_the_pause(tmp_path) -> None:
 
 
 def test_circuit_state_survives_a_restart(tmp_path) -> None:
-    """The count lives on disk, not in the process (consecutive_replans
-    precedent): a daemon restart must not grant three fresh paid cycles."""
-    path = completion_rejection_circuit_path(tmp_path, _OBJECTIVE)
+    """The count lives on disk, not in the process: a daemon restart must
+    not grant three fresh paid cycles."""
+    path = completion_rejection_circuit_path(tmp_path)
     record_completion_rejection(
         path, diagnostic="research_target_incomplete", reason="same cause"
     )

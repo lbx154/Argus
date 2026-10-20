@@ -4,8 +4,7 @@
 finder, ``__main__.py`` delegates). These tests pin what "alias" has to mean for
 the processes that still carry the old spelling: identity of module objects
 (so ``monkeypatch`` and ``isinstance`` agree), ``python -m argus_skill…``
-re-entry, the ``argus-skill`` console script, and the argv matchers that
-recognise teammates spawned before the rename.
+re-entry and the ``argus-skill`` console script.
 """
 from __future__ import annotations
 
@@ -13,7 +12,6 @@ import importlib.machinery
 import os
 import subprocess
 import sys
-import time
 from pathlib import Path
 
 import pytest
@@ -65,10 +63,10 @@ def test_patching_through_the_legacy_name_patches_the_runtime(monkeypatch) -> No
 def test_a_legacy_submodule_imported_first_is_still_the_canonical_module() -> None:
     """Order must not matter: importing the old name first cannot create a second copy."""
     code = (
-        "import argus_skill.tools.pdf_chat as legacy, sys; "
-        "import argus.tools.pdf_chat as canonical; "
+        "import argus_skill.core.json_codec as legacy, sys; "
+        "import argus.core.json_codec as canonical; "
         "assert legacy is canonical, (legacy, canonical); "
-        "assert sys.modules['argus_skill.tools.pdf_chat'] is canonical; "
+        "assert sys.modules['argus_skill.core.json_codec'] is canonical; "
         "print(canonical.__spec__.name)"
     )
     probe = subprocess.run(
@@ -77,7 +75,7 @@ def test_a_legacy_submodule_imported_first_is_still_the_canonical_module() -> No
     )
 
     assert probe.returncode == 0, probe.stderr
-    assert probe.stdout.strip() == "argus.tools.pdf_chat"
+    assert probe.stdout.strip() == "argus.core.json_codec"
 
 
 def test_legacy_import_emits_one_deprecation_warning() -> None:
@@ -95,7 +93,7 @@ def test_legacy_import_emits_one_deprecation_warning() -> None:
     ("module", "arguments", "expected"),
     [
         ("argus_skill", ["--version"], f"argus {argus.__version__}"),
-        ("argus_skill.tools.subagent", ["--help"], "usage: subagent"),
+        ("argus_skill.tools.peer", ["--help"], "usage: python -m argus.tools.peer"),
         ("argus", ["--version"], f"argus {argus.__version__}"),
     ],
 )
@@ -145,25 +143,3 @@ def test_the_current_entry_points_do_not_print_the_rename_notice(monkeypatch, ca
 @pytest.mark.parametrize("argv0", ["argus-skill", "argus-skill.exe", "argus-skill-script.py", "/x/ARGUS-SKILL.EXE"])
 def test_legacy_launcher_spellings_are_recognised(argv0: str) -> None:
     assert cli_entry._invoked_as_legacy_command(argv0) is True
-
-
-@pytest.mark.skipif(os.name == "nt", reason="POSIX process groups")
-@pytest.mark.parametrize("entry_module", ["argus.team.teammate_entry", "argus_skill.team.teammate_entry"])
-def test_teammate_process_groups_are_recognised_under_either_spelling(entry_module: str) -> None:
-    """``daemon.state`` terminates teammate process groups it recognises by argv token."""
-    from argus.daemon.state import _teammate_process_group_ids
-
-    process = subprocess.Popen(  # noqa: S603
-        [sys.executable, "-c", "import time; time.sleep(30)", entry_module, "--root", "/tmp/x"],
-        start_new_session=True,
-    )
-    try:
-        for _ in range(100):
-            if _teammate_process_group_ids([process.pid]):
-                break
-            time.sleep(0.05)
-        assert _teammate_process_group_ids([process.pid]) == (os.getpgid(process.pid),)
-    finally:
-        process.kill()
-        process.wait()
-    assert _teammate_process_group_ids([process.pid]) == ()

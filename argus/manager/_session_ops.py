@@ -3,7 +3,8 @@
 Contains every module-level name related to the Manager's persistent codex
 session and its two cross-platform advisory file locks:
 
-* ``manager_session_lock`` — serialises concurrent Manager LLM turns.
+* ``.manager_session.lock`` — held by the one turn continuing the shared
+  thread; other turns never wait for it.
 * ``manager_pipeline_lock`` — serialises Manager commits with daemon mission
   execution (the "pipeline boundary yield" handshake).
 
@@ -89,10 +90,10 @@ def _acquire_session_lock(
     fh: Any, *, timeout: float | None = None,
     cancelled: Callable[[], bool] | None = None,
 ) -> bool:
-    """Acquire ``LOCK_EX``, optionally bounded for explicit diagnostic callers.
+    """Acquire ``LOCK_EX``; ``False`` when it is still held at ``timeout``.
 
-    Production waits for real contention, but cancellation and locking failures
-    propagate. ``False`` is reserved for an explicit diagnostic timeout.
+    ``timeout=None`` waits for real contention. Cancellation and locking
+    failures propagate.
     """
     deadline = (
         time.monotonic() + max(0.0, timeout)
@@ -369,19 +370,6 @@ def manager_pipeline_yield_requested(root: Path | str) -> bool:
 
 
 @contextmanager
-def manager_session_lock(root: Path | str):
-    """Wait until no Manager LLM turn is using this session's workdir."""
-    path = Path(root)
-    path.mkdir(parents=True, exist_ok=True)
-    with (path / _SESSION_LOCK).open("a+b") as handle:
-        _acquire_session_lock(handle)
-        try:
-            yield
-        finally:
-            portalocker.unlock(handle)
-
-
-@contextmanager
 def _restore_files_on_error(paths: list[Path]):
     snapshots: dict[Path, bytes | None] = {}
     for path in paths:
@@ -407,13 +395,14 @@ def _restore_files_on_error(paths: list[Path]):
 
 
 class _ManagerSession:
-    """A file-lock-serialized persistent codex session shared by every Manager LLM
+    """A file-lock-guarded persistent codex session shared by every Manager LLM
     call. The thread_id lives at ``<project_root>/.manager_session.json``; a
-    sibling ``.manager_session.lock`` serializes cross-process use so the cockpit
-    front-end and the daemon never interleave a turn. Fail-open: any lock/IO
-    error degrades to a plain no-session call — the Manager's decision must never
-    be blocked by this. Once a provider call starts, unexpected failures are
-    propagated; repeating an uncertain call could repeat tool effects.
+    sibling ``.manager_session.lock`` is held by the one turn continuing that
+    thread, so the cockpit front-end and the daemon never interleave on it.
+    Fail-open: a turn that finds the thread busy, or any lock/IO error, makes a
+    call on a fresh thread instead — the Manager's decision must never wait on
+    this. Once a provider call starts, unexpected failures are propagated;
+    repeating an uncertain call could repeat tool effects.
 
     This is a "runner-like" wrapper: it exposes ``run_exec(prompt=, options=,
     run_label=)`` so it can be passed anywhere a runner is expected
@@ -470,19 +459,6 @@ class _ManagerSession:
 
     # --- the runner-like surface ---
     def run_exec(
-        self, *, prompt: str, options: Any, run_label: str,
-        resume_thread_id: str | None = None,
-    ) -> Any:
-        from .session_context import manager_interaction_priority
-
-        foreground = run_label in {"manager-quick-reply", "manager-ask", "manager-domain-dialogue", "simple-1"}
-        with manager_interaction_priority(self.project_root) if foreground else nullcontext():
-            return self._run_exec(
-                prompt=prompt, options=options, run_label=run_label,
-                resume_thread_id=resume_thread_id,
-            )
-
-    def _run_exec(
         self,
         *,
         prompt: str,
@@ -492,8 +468,10 @@ class _ManagerSession:
     ) -> Any:
         """Run one turn on the shared persistent session under an advisory lock.
 
-        The session lock serializes the cockpit and daemon's shared Manager
-        thread. It is released by the OS if its owner exits.
+        The session lock is held only by the turn continuing the shared thread
+        and is released by the OS if its owner exits. A turn that finds it held
+        does not wait: it answers at once on a fresh thread that carries the
+        saved recent turns, leaving the shared thread to its holder.
 
         Session setup failures can fall back to one plain call. Unexpected
         errors after provider dispatch are never replayed. A specifically
@@ -544,13 +522,19 @@ class _ManagerSession:
         except Exception:  # noqa: BLE001 — lock setup failed → no-session fail-open
             return _no_session()
 
+        from .session_context import remember_turn, session_handoff, session_identity
+
         provider_attempted = False
         try:
-            _acquire_session_lock(fh, cancelled=_cancelled)
+            if not _acquire_session_lock(fh, timeout=0, cancelled=_cancelled):
+                call_prompt = session_handoff(
+                    self._read_state(), _current_prompt(), "another Manager turn holds the shared thread",
+                )
+                provider_attempted = True
+                return gateway_run_exec(
+                    self.runner, prompt=call_prompt, options=options, run_label=run_label,
+                )
             try:
-                from .session_capacity import capacity_rotation_reason, remember_capacity
-                from .session_context import remember_turn, session_handoff, session_identity
-
                 prior = self._read_state()
                 tid = self._read_tid()
                 prior_tid = tid
@@ -563,13 +547,10 @@ class _ManagerSession:
                         options = replace(options, model=prior_model)
                 identity = session_identity(self.runner, options)
                 call_prompt = prompt
-                rotation_reason = ""
-                if tid and prior.get("identity") not in (None, identity):
-                    rotation_reason = "the configured model or backend changed"
-                elif tid:
-                    rotation_reason = capacity_rotation_reason(
-                        prior, prompt=prompt, runner=self.runner, options=options,
-                    )
+                rotation_reason = (
+                    "the configured model or backend changed"
+                    if tid and prior.get("identity") not in (None, identity) else ""
+                )
                 if rotation_reason:
                     call_prompt = session_handoff(
                         prior, prompt, rotation_reason, project_root=self.project_root, run_label=run_label,
@@ -626,8 +607,6 @@ class _ManagerSession:
                             "version": 3, "identity": identity,
                             "logical_manager_id": logical_id,
                             "provider_generation": generation,
-                            "capacity": remember_capacity(prior, call_prompt, result, continued=continued,
-                                                          runner=self.runner, options=options),
                             "recent_turns": remember_turn(prior, prompt, result, run_label),
                             "rotation_reason": rotation_reason,
                             "last_rotation": last_rotation,

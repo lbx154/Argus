@@ -5,7 +5,6 @@ from __future__ import annotations
 import base64
 import binascii
 import copy
-import hashlib
 import json
 import re
 import tempfile
@@ -45,17 +44,13 @@ _CREDENTIAL = re.compile(
 )
 
 
-def sha256(data: bytes) -> str:
-    return hashlib.sha256(data).hexdigest()
-
-
-def policy_identity() -> dict[str, str]:
-    files = {name: sha256((ASSETS / name).read_bytes()) for name in SOURCE_FILES}
-    files["owned_process.py"] = sha256(Path(owned_process.__file__).read_bytes())
+def policy_identity() -> dict:
+    """The policy version and the size of the Skill and every gate source file."""
+    paths = {name: ASSETS / name for name in SOURCE_FILES}
+    paths |= {"SKILL.md": SKILL_PATH, "owned_process.py": Path(owned_process.__file__)}
     return {
         "version": POLICY_VERSION,
-        "skill_sha256": sha256(SKILL_PATH.read_bytes()),
-        "implementation_sha256": sha256(json.dumps(files, sort_keys=True).encode()),
+        "bytes": {name: paths[name].stat().st_size for name in sorted(paths)},
     }
 
 
@@ -131,7 +126,6 @@ def collect(
             _check_sensitive(data)
             files.append({
                 "path": f"{prefix}/{relative.as_posix()}",
-                "sha256": sha256(data),
                 "base64": base64.b64encode(data).decode("ascii"),
             })
     _check_sensitive((json.dumps(analysis) + explanation).encode())
@@ -165,17 +159,18 @@ def validate_embedded(
             total += len(data)
             if total > MAX_EVIDENCE_BYTES:
                 raise GateError("Embedded evidence exceeds the size limit.")
-            if sha256(data) != item["sha256"]:
-                raise GateError("Embedded evidence digest mismatch.")
             _check_sensitive(data)
             destination = work / path
             destination.parent.mkdir(parents=True, exist_ok=True)
             destination.write_bytes(data)
         incomplete_probes: list[str] = []
-        validate_report(
-            work, _schema(), dict(metadata, local_gate=True),
-            incomplete_probes=incomplete_probes, source_inventory=source_inventory,
-        )
+        try:
+            validate_report(
+                work, _schema(), dict(metadata, local_gate=True),
+                incomplete_probes=incomplete_probes, source_inventory=source_inventory,
+            )
+        except (OSError, KeyError, ValueError) as exc:
+            raise GateError(f"Embedded evidence does not reproduce its report: {exc}") from exc
         return incomplete_probes
 
 

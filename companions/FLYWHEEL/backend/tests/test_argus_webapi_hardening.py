@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-import hashlib
 import json
 import urllib.parse
 
@@ -9,7 +8,7 @@ from foundry.integrations.argus_webapi import (
     ArgusDaemonCommandError,
     ArgusWebApiClient,
     ArgusWebApiError,
-    ArtifactDigest,
+    ArtifactReceipt,
     ArtifactDownload,
     argus_connection_metadata,
     assess_argus_connection,
@@ -283,7 +282,7 @@ def test_typed_decision_and_legacy_backlog_routes_are_distinct() -> None:
         client.resolve_decision("project-1", "../bad", option_id="x")
 
 
-def test_raw_artifact_download_hashes_chunks_and_keeps_token_on_original_request() -> None:
+def test_raw_artifact_download_joins_chunks_and_keeps_token_on_original_request() -> None:
     seen: list[tuple[str, str, dict[str, str]]] = []
 
     def raw_transport(method, url, headers, timeout):
@@ -306,7 +305,6 @@ def test_raw_artifact_download_hashes_chunks_and_keeps_token_on_original_request
     assert downloaded == ArtifactDownload(
         path="paper/main.pdf",
         size=6,
-        sha256=hashlib.sha256(b"abcdef").hexdigest(),
         content_type="application/pdf",
         content=b"abcdef",
     )
@@ -321,7 +319,7 @@ def test_raw_artifact_download_hashes_chunks_and_keeps_token_on_original_request
     }
 
 
-def test_raw_artifact_digest_does_not_retain_content_and_enforces_limits() -> None:
+def test_raw_artifact_receipt_does_not_retain_content_and_enforces_limits() -> None:
     def raw_transport(method, url, headers, timeout):
         return 200, {}, [b"123", b"456"]
 
@@ -331,10 +329,9 @@ def test_raw_artifact_digest_does_not_retain_content_and_enforces_limits() -> No
         max_artifact_bytes=6,
         max_artifact_batch_bytes=10,
     )
-    digest = client.artifact_digest("p1", "results/data.bin")
-    assert type(digest) is ArtifactDigest
-    assert digest.size == 6
-    assert digest.sha256 == hashlib.sha256(b"123456").hexdigest()
+    receipt = client.artifact_receipt("p1", "results/data.bin")
+    assert type(receipt) is ArtifactReceipt
+    assert receipt.size == 6
     with pytest.raises(ArgusWebApiError, match="byte limit"):
         client.download_artifact("p1", "results/data.bin", max_bytes=5)
     with pytest.raises(ArgusWebApiError, match="cumulative byte limit"):

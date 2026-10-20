@@ -12,7 +12,6 @@ live streams and their closed prefixes, without resurrecting retired identities.
 """
 from __future__ import annotations
 
-import hashlib
 import json
 import math
 import os
@@ -27,6 +26,7 @@ from typing import Any, Iterator
 from urllib.parse import quote
 
 from ..core.file_lock import exclusive_file_lock
+from ..core.operator_context_storage import RECEIPT_FORMAT
 
 PROTOCOL_VERSION = 2
 PROTOCOL_DIR = ".inbox-replay"
@@ -35,7 +35,7 @@ MAX_PENDING_MESSAGES = 1024
 MAX_PENDING_BYTES = 16 * 1024 * 1024
 MAX_MESSAGE_BYTES = 128 * 1024
 MAX_DECISION_BYTES = MAX_MESSAGE_BYTES + 16 * 1024
-MAX_RECEIPT_BYTES = 16 * 1024
+MAX_RECEIPT_BYTES = MAX_DECISION_BYTES + 16 * 1024  # a receipt carries its frozen plan
 MAX_LEASE_SECONDS = 300.0
 LOCK_TIMEOUT_SECONDS = 0.2
 
@@ -87,7 +87,7 @@ class InboxClaim:
 
     @property
     def closed_prefix(self) -> dict[str, Any]:
-        return {key: self.identity[key] for key in ("stream", "generation", "sequence")}
+        return dict(self.identity)
 
 
 def _stage(stage: str) -> str:
@@ -168,6 +168,9 @@ def _schema(db: sqlite3.Connection, queue_id: str) -> None:
             binding_digest TEXT, frozen_digest TEXT, receipt_digest TEXT,
             PRIMARY KEY(stage, sequence)
         );
+        -- binding_digest and frozen_digest hold canonical JSON snapshots; a
+        -- database from before keeps 64-hex digests there, which are not
+        -- compared. digest and receipt_digest are no longer written.
         INSERT INTO metadata VALUES ('version', '2');
         INSERT INTO metadata VALUES ('status', 'activating');
         COMMIT;
@@ -287,7 +290,7 @@ def _insert(db: sqlite3.Connection, root: Path, stage: str, raw: bytes, *, start
     end = offset + len(raw)
     db.execute(
         "INSERT INTO messages (stage,sequence,digest,text,raw,start_offset,end_offset,created) VALUES (?,?,?,?,?,?,?,?)",
-        (stage, stream["next_sequence"], hashlib.sha256(raw).hexdigest(), text.strip(), raw, offset, end, time.time()),
+        (stage, stream["next_sequence"], "", text.strip(), raw, offset, end, time.time()),
     )
     db.execute("UPDATE streams SET next_sequence=next_sequence+1,next_offset=?,last_enqueue=MAX(last_enqueue,?) WHERE stage=?", (end, _timestamp(value.get("ts")), stage))
 
@@ -550,19 +553,11 @@ def _duration(seconds: float) -> float:
     return seconds
 
 
-def _payload_digest(value: Any) -> str:
-    # Match canonical OperatorContext effect encoding, including its newline.
-    return hashlib.sha256((json.dumps(
-        value, ensure_ascii=False, sort_keys=True, allow_nan=False,
-    ) + "\n").encode("utf-8")).hexdigest()
-
-
 def _raw_fields(row: Any) -> tuple[str, str]:
     raw = bytes(row["raw"])
     if (not raw.endswith(b"\n") or len(raw) > MAX_MESSAGE_BYTES
-            or hashlib.sha256(raw).hexdigest() != row["digest"]
             or row["end_offset"] - row["start_offset"] != len(raw)):
-        raise InboxProtocolError("inbox complete-line digest or byte range changed")
+        raise InboxProtocolError("inbox complete line or byte range changed")
     try:
         value = json.loads(raw.decode("utf-8"))
     except (ValueError, UnicodeDecodeError) as exc:
@@ -575,18 +570,27 @@ def _raw_fields(row: Any) -> tuple[str, str]:
     return text.strip(), source
 
 
-def _binding_payload(row: Any) -> dict[str, Any]:
+def _identity(row: Any) -> dict[str, Any]:
+    return {"stream": row["stream"], "generation": row["generation"], "sequence": row["sequence"]}
+
+
+def _binding(row: Any) -> str:
+    """The claim's binding as canonical JSON, kept to detect a later rewrite."""
     text, source = _raw_fields(row)
-    return {"identity": {"stream": row["stream"], "generation": row["generation"],
-                         "sequence": row["sequence"], "digest": row["digest"]},
-            "text": text, "source": source, "stage": row["stage"],
-            "mission_id": row["mission_id"], "consumer_stage": row["consumer_stage"],
-            "consumer": row["consumer"]}
+    return _json({"identity": _identity(row), "text": text, "source": source, "stage": row["stage"],
+                  "mission_id": row["mission_id"], "consumer_stage": row["consumer_stage"],
+                  "consumer": row["consumer"]}, 2 * MAX_MESSAGE_BYTES)
 
 
-def _frozen_payload(row: Any) -> dict[str, Any]:
-    return {"binding_digest": row["binding_digest"], "decision": row["decision"],
-            "target_root": row["target_root"], "transient_text": row["transient_text"]}
+def _frozen(row: Any) -> str:
+    return _json({"binding": row["binding_digest"], "decision": row["decision"],
+                  "target_root": row["target_root"], "transient_text": row["transient_text"]},
+                 2 * MAX_DECISION_BYTES)
+
+
+def _unchanged(stored: Any, current: str) -> bool:
+    # A snapshot is JSON; anything else is a pre-snapshot digest nobody can recheck.
+    return not str(stored or "").startswith("{") or stored == current
 
 
 def _decode_object(raw: Any, limit: int, name: str) -> dict[str, Any]:
@@ -613,21 +617,29 @@ def _validate_plan(plan: dict[str, Any], target: str | None) -> None:
         raise InboxProtocolError("frozen canonical plan must bind its exact physical target and effect")
 
 
+# A version-1 receipt bound a digest of its plan, which is read but no longer checked.
+_RECEIPT_FIELDS = {
+    RECEIPT_FORMAT: {"format", "identity", "target_root", "plan", "revision"},
+    "operator-delivery-receipt-v1": {"format", "identity", "target_root", "effect_digest", "revision"},
+}
+
+
 def _validate_receipt(receipt: dict[str, Any], identity: dict[str, Any], target: str, plan: dict[str, Any]) -> None:
-    if (set(receipt) != {"format", "identity", "target_root", "effect_digest", "revision"}
-            or receipt.get("format") != "operator-delivery-receipt-v1"
-            or receipt.get("identity") != identity or receipt.get("target_root") != target):
+    bound = receipt.get("identity")
+    if isinstance(bound, dict):  # version-1 identities also carried a digest
+        bound = {key: value for key, value in bound.items() if key != "digest"}
+    if (_RECEIPT_FIELDS.get(receipt.get("format")) != set(receipt)
+            or bound != identity or receipt.get("target_root") != target):
         raise InboxProtocolError("canonical receipt does not bind this inbox identity and target")
+    if receipt.get("plan", plan) != plan:
+        raise InboxProtocolError("canonical receipt does not bind the frozen effect")
     if type(receipt.get("revision")) is not int or receipt["revision"] < 0:
         raise InboxProtocolError("canonical receipt revision must be a nonnegative integer")
-    if receipt.get("effect_digest") != _payload_digest(plan):
-        raise InboxProtocolError("canonical receipt does not bind the frozen effect")
 
 
 def _claim(row: sqlite3.Row) -> InboxClaim:
     text, source = _raw_fields(row)
-    binding = _binding_payload(row)
-    identity = binding["identity"]
+    identity = _identity(row)
     if row["accepted"] not in (0, 1) or row["acknowledged"] not in (0, 1) or (row["acknowledged"] and not row["accepted"]):
         raise InboxProtocolError("inbox acceptance state is inconsistent")
     if row["consumer"] is None:
@@ -636,7 +648,7 @@ def _claim(row: sqlite3.Row) -> InboxClaim:
     else:
         if (not isinstance(row["consumer"], str) or not row["consumer"]
                 or not isinstance(row["mission_id"], str) or not isinstance(row["consumer_stage"], str)
-                or row["binding_digest"] != _payload_digest(binding)):
+                or not _unchanged(row["binding_digest"], _binding(row))):
             raise InboxProtocolError("inbox original consumer/mission/stage binding changed")
     if (row["acknowledged"] and (row["sequence"] != row["ack_sequence"] or row["end_offset"] != row["ack_offset"])) or (not row["acknowledged"] and row["sequence"] <= row["ack_sequence"]):
         raise InboxProtocolError("inbox envelope and acknowledged source prefix disagree")
@@ -644,11 +656,11 @@ def _claim(row: sqlite3.Row) -> InboxClaim:
     receipt = None
     if row["decision"] is None:
         if (row["consumer"] is None and row["owner"] is not None) or any(
-            row[key] is not None for key in ("target_root", "frozen_digest", "receipt", "receipt_digest")
+            row[key] is not None for key in ("target_root", "frozen_digest", "receipt")
         ) or row["accepted"] or row["acknowledged"] or row["transient_text"]:
             raise InboxProtocolError("unfrozen inbox state contains accepted payload")
     else:
-        if row["consumer"] is None or row["frozen_digest"] != _payload_digest(_frozen_payload(row)):
+        if row["consumer"] is None or not _unchanged(row["frozen_digest"], _frozen(row)):
             raise InboxProtocolError("inbox frozen envelope changed")
         decision = _decode_object(row["decision"], MAX_DECISION_BYTES, "decision")
         target = row["target_root"]
@@ -661,10 +673,10 @@ def _claim(row: sqlite3.Row) -> InboxClaim:
             raise InboxProtocolError("canonical inbox cannot carry transient authority")
         if row["receipt"] is not None:
             receipt = _decode_object(row["receipt"], MAX_RECEIPT_BYTES, "receipt")
-            if row["receipt_digest"] != _payload_digest(receipt) or target is None or not row["accepted"]:
+            if target is None or not row["accepted"]:
                 raise InboxProtocolError("inbox accepted receipt changed or has no canonical target")
             _validate_receipt(receipt, identity, target, decision)
-        elif row["receipt_digest"] is not None or (target is not None and row["accepted"]):
+        elif target is not None and row["accepted"]:
             raise InboxProtocolError("inbox accepted canonical receipt is missing")
     return InboxClaim(
         identity=identity, text=text, source=source, stage=row["stage"], mission_id=row["mission_id"] or "",
@@ -725,7 +737,7 @@ def claim_inbox_message(
             db.execute("UPDATE messages SET owner=?,lease_until=?,consumer=COALESCE(consumer,?),mission_id=COALESCE(mission_id,?),consumer_stage=COALESCE(consumer_stage,?) WHERE stage=? AND sequence=?", (owner, now + duration, consumer, mission_id, stage, row["stage"], row["sequence"]))
             updated = db.execute(_SELECT + " WHERE stage=? AND sequence=?", (row["stage"], row["sequence"])).fetchone()
             if updated["binding_digest"] is None:
-                db.execute("UPDATE messages SET binding_digest=? WHERE stage=? AND sequence=?", (_payload_digest(_binding_payload(updated)), row["stage"], row["sequence"]))
+                db.execute("UPDATE messages SET binding_digest=? WHERE stage=? AND sequence=?", (_binding(updated), row["stage"], row["sequence"]))
                 updated = db.execute(_SELECT + " WHERE stage=? AND sequence=?", (row["stage"], row["sequence"])).fetchone()
             return _claim(updated)
     return None
@@ -766,7 +778,7 @@ def freeze_inbox_decision(
                 raise InboxProtocolError("an inbox decision and its physical target are immutable")
         else:
             frozen = dict(row) | {"decision": encoded, "target_root": target, "transient_text": transient_text}
-            db.execute("UPDATE messages SET decision=?,target_root=?,transient_text=?,frozen_digest=? WHERE stage=? AND sequence=?", (encoded, target, transient_text, _payload_digest(_frozen_payload(frozen)), claim.stage, claim.identity["sequence"]))
+            db.execute("UPDATE messages SET decision=?,target_root=?,transient_text=?,frozen_digest=? WHERE stage=? AND sequence=?", (encoded, target, transient_text, _frozen(frozen), claim.stage, claim.identity["sequence"]))
         return _reload(db, claim)
 
 
@@ -784,7 +796,7 @@ def accept_inbox_claim(life_dir: Path | str, claim: InboxClaim, *, receipt: dict
             raise InboxProtocolError("transient inbox acceptance cannot impersonate canonical receipt")
         if row["accepted"] and row["receipt"] != encoded:
             raise InboxProtocolError("inbox acceptance receipt is immutable")
-        db.execute("UPDATE messages SET accepted=1,receipt=?,receipt_digest=? WHERE stage=? AND sequence=?", (encoded, _payload_digest(receipt) if receipt is not None else None, claim.stage, claim.identity["sequence"]))
+        db.execute("UPDATE messages SET accepted=1,receipt=? WHERE stage=? AND sequence=?", (encoded, claim.stage, claim.identity["sequence"]))
         return _reload(db, claim)
 
 

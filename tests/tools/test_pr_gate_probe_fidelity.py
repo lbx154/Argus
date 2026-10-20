@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import hashlib
 import json
 import os
 import shlex
@@ -49,7 +48,7 @@ def origin(work, receipt, label="base"):
     observation = receipt[label]
     descriptor = observation["source_origin"]
     data = (work / descriptor["path"]).read_bytes()
-    assert hashlib.sha256(data).hexdigest() == descriptor["sha256"]
+    assert len(data) == descriptor["bytes"]
     document = json.loads(data)
     assert document["status"] == descriptor["status"]
     assert document["main_pid"] == observation["process_pid"]
@@ -98,21 +97,19 @@ def test_identical_oracle_accepts_a_real_paired_behavior_difference(work):
         assert observation["execution_error"] is None
         assert not observation["interrupted"]
         assert observation["cleanup_complete"]
-        assert document["files"] == [{
-            "path": "src/snapshot_product/__init__.py",
-            "git_blob": git_blob((work / side / "src/snapshot_product/__init__.py").read_bytes()),
-            "lf_git_blob": git_blob((work / side / "src/snapshot_product/__init__.py").read_bytes()),
+        source = (work / side / "src/snapshot_product/__init__.py").read_bytes()
+        assert [{k: v for k, v in row.items() if k != "ctime_ns"} for row in document["files"]] == [{
+            "path": "src/snapshot_product/__init__.py", "bytes": len(source), "lf_bytes": len(source),
         }]
     mapping = receipt["comparison"]["oracle_files"]
-    assert mapping["base"] == mapping["candidate"]
+    assert {
+        side: {path: (work / item["evidence_path"]).read_bytes() for path, item in mapping[side].items()}
+        for side in ("base", "candidate")
+    } == {side: {"tests/_regression_probe/check.py": DRIVER.encode()} for side in ("base", "candidate")}
     frozen = work / mapping["base"]["tests/_regression_probe/check.py"]["evidence_path"]
     assert frozen.read_text() == DRIVER
     assert frozen.stat().st_mode & 0o222 == 0
     assert not list((work / "evidence/pair").glob(".pr-probe-*"))
-
-
-def git_blob(data):
-    return hashlib.sha1(b"blob " + str(len(data)).encode() + b"\0" + data).hexdigest()
 
 
 def test_same_command_with_different_oracle_never_executes_either_side(work):
@@ -267,7 +264,8 @@ def test_explicit_pytest_target_excludes_large_changed_unselected_tests(work, ar
     } <= files.keys()
     assert not any(path.startswith("tests/unselected/") for path in files)
     assert ("tests/selected/fixture.json" in files) == ("tests/selected" in arguments)
-    assert sum(path.stat().st_size for path in (work / "evidence/selection/oracle").iterdir()) < 4096
+    stored = work / "evidence/selection/oracle"
+    assert sum(path.stat().st_size for path in stored.rglob("*") if path.is_file()) < 4096
     for side in ("base", "candidate"):
         assert oracle.verify_oracle_inputs(
             root=work / side, argv=comparison["command_argv"], oracle_paths=(),
@@ -744,14 +742,12 @@ def test_different_side_commands_are_not_comparative_evidence(work):
     assert receipt["base"]["process_pid"] == 0
 
 
-def test_raw_and_lf_normalized_source_blobs_are_retained(work):
+def test_raw_and_lf_normalized_source_sizes_are_retained(work):
     for side in ("base", "candidate"):
         (work / side / "src/snapshot_product/__init__.py").write_bytes(b"VALUE = 1\r\n")
     receipt = pair(work)
     entry = origin(work, receipt)["files"][0]
-    assert entry["git_blob"] == git_blob(b"VALUE = 1\r\n")
-    assert entry["lf_git_blob"] == git_blob(b"VALUE = 1\n")
-    assert entry["git_blob"] != entry["lf_git_blob"]
+    assert (entry["bytes"], entry["lf_bytes"]) == (len(b"VALUE = 1\r\n"), len(b"VALUE = 1\n"))
 
 
 def test_oracle_change_during_base_execution_skips_candidate_and_preserves_copy(work):

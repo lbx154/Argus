@@ -239,8 +239,10 @@ def test_resumed_direct_task_can_link_verified_unchanged_outputs(tmp_path):
 
 
 def test_delivery_change_shows_what_a_redelivery_changed(tmp_path: Path) -> None:
+    from fastapi.testclient import TestClient
+
     from argus.life.delivery import build_delivery_receipt
-    from argus.webapi.artifacts import delivery_change
+    from argus.webapi import server
 
     sid = "s-redeliver"
     life = tmp_path / "projects" / sid
@@ -263,11 +265,18 @@ def test_delivery_change_shows_what_a_redelivery_changed(tmp_path: Path) -> None
     (workspace / "report.md").write_text("# Report\nnew finding\n", encoding="utf-8")
     second = deliver()
 
-    change = delivery_change(
-        sid, "report.md", first["snapshots"][0]["sha256"], second["snapshots"][0]["sha256"],
-        global_root=tmp_path,
-    )
-    assert change is not None and change["available"] is True
-    assert "-old finding" in change["diff"] and "+new finding" in change["diff"]
-    missing = delivery_change(sid, "report.md", "0" * 64, second["snapshots"][0]["sha256"], global_root=tmp_path)
-    assert missing is not None and missing["available"] is False and missing["diff"] == ""
+    before, after = first["snapshots"][0]["version"], second["snapshots"][0]["version"]
+    with TestClient(server.create_app(global_root=tmp_path, auth_token="test-token")) as client:
+        def change(before: str) -> dict:
+            response = client.get(
+                f"/api/projects/{sid}/delivery-diff",
+                params={"path": "report.md", "before": before, "after": after},
+                headers={"Authorization": "Bearer test-token"},
+            )
+            assert response.status_code == 200
+            return response.json()
+
+        assert change(before)["available"] is True
+        assert "-old finding" in change(before)["diff"] and "+new finding" in change(before)["diff"]
+        missing = change("0" * 32)
+        assert missing["available"] is False and missing["diff"] == ""

@@ -5,7 +5,6 @@ from pathlib import Path
 
 from argus import SkillLoop, SkillLoopConfig
 from argus.adapters.memory_backend import CannedResponse, MemoryBackend
-from argus.engineer.runner import SupervisedConfig
 
 SKILL_MD = (
     "## Title\nDemo skill\n\n"
@@ -36,10 +35,6 @@ def _loop(backend: MemoryBackend, skills: Path, checkpoint: Path | None = None) 
             checkpoint_path=checkpoint,
         ),
     )
-
-
-def test_role_session_policy_defaults_to_backend_aware_auto() -> None:
-    assert SupervisedConfig().role_session_policy == "auto"
 
 
 def test_engineer_and_reviewer_never_resume_across_rounds_or_missions(
@@ -109,10 +104,9 @@ def test_continuation_engineer_round_uses_compact_checkpoint_prompt(tmp_path: Pa
     backend.queue("reviewer", CannedResponse(review_action=_review("done")))
 
     # Compact continuation prompts apply only to resumable provider threads;
-    # a fresh-policy session repeats the static contract every round.
-    loop = _loop(backend, tmp_path / "skills")
-    loop.config.role_session_policy = "rolling"
-    out = loop.run("task", workdir=tmp_path)
+    # a fresh session repeats the static contract every round.
+    backend.backend = "pi"  # type: ignore[misc]
+    out = _loop(backend, tmp_path / "skills").run("task", workdir=tmp_path)
     assert out.successful
 
     prompts = [

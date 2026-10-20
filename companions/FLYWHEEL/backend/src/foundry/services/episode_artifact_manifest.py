@@ -32,11 +32,11 @@ def confirmed_argus_artifact_manifest(
                 "artifact_path": row["artifact_path"],
                 "role": row["role"],
                 "source_entry": source_entry,
-                "source_entry_sha256": row["source_entry_sha256"],
-                "source_sha256": row["source_sha256"],
+                "source_entry_key": row["source_entry_key"],
+                "source_key": row["source_key"],
                 "source_byte_length": int(row["source_byte_length"]),
                 "media_type": row["media_type"],
-                "content_object_sha256": row["content_object_sha256"],
+                "content_object_key": row["content_object_key"],
                 "redaction_mode": row["redaction_mode"],
                 "redaction_confirmed": bool(row["redaction_confirmed"]),
                 "manual_redaction_required": bool(row["manual_redaction_required"]),
@@ -103,7 +103,7 @@ def head_artifact_membership(
         if not isinstance(row, dict):
             continue
         import_id = row.get("id")
-        object_sha = row.get("content_object_sha256")
-        if isinstance(import_id, str) and isinstance(object_sha, str):
-            output[import_id] = object_sha
+        object_key = row.get("content_object_key")
+        if isinstance(import_id, str) and isinstance(object_key, str):
+            output[import_id] = object_key
     return output

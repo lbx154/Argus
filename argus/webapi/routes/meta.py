@@ -3,8 +3,6 @@
 from __future__ import annotations
 
 import shlex
-import time
-from pathlib import Path
 from typing import Any
 
 from fastapi import Depends, Header, HTTPException, Request, Response
@@ -14,67 +12,13 @@ from .. import mission_items, project_state, source_update
 from .context import ServerContext
 from .models import ConfigSetIn, IdentitySetIn, SkillsIn
 
-_RESOURCE_PROSE_LIMIT = 300
 
-
-def _trim_resource_prose(value: str) -> str:
-    text = " ".join(value.split())
-    if len(text) <= _RESOURCE_PROSE_LIMIT:
-        return text
-    return text[: _RESOURCE_PROSE_LIMIT - 1].rstrip() + "…"
-
-
-def _remaining_ttl(record: dict[str, Any], now: float) -> float:
-    return max(0.0, float(record["expires_at"]) - now)
-
-
-def _resource_status_payload(snapshot: dict[str, Any], *, now: float) -> dict[str, Any]:
+def _resource_status_payload(snapshot: dict[str, Any]) -> dict[str, Any]:
     from ...tools.resource_ledger.status_schema_generated import validate_resource_status
 
-    probe = snapshot["probe"]
-    reserved_devices = {
-        device["identity"]
-        for record in snapshot["grants"]
-        for device in record["grant"]["devices"]
-    }
-    holders = []
-    for record in snapshot["grants"]:
-        owner = record["owner"]
-        yield_requests = []
-        for request in record["yield_requests"]:
-            response = request["response"]
-            yield_requests.append({
-                "reason": _trim_resource_prose(request["reason"]),
-                "response": None if response is None else {
-                    "decision": response["decision"],
-                    "reason": _trim_resource_prose(response["reason"]),
-                },
-            })
-        holders.append({
-            "project": Path(owner["project_root"]).name,
-            "task_id": owner["task_id"],
-            "intent": record["demand"]["intent"],
-            "ttl_seconds": _remaining_ttl(record, now),
-            "device_count": len(record["grant"]["devices"]),
-            "yield_requests": yield_requests,
-        })
-    queue = []
-    for position, record in enumerate(snapshot["queue"], start=1):
-        owner = record["owner"]
-        row = {
-            "position": position,
-            "project": Path(owner["project_root"]).name,
-            "task_id": owner["task_id"],
-            "intent": record["demand"]["intent"],
-            "ttl_seconds": _remaining_ttl(record, now),
-        }
-        if record.get("created_at"):
-            # How long this request has waited, so the UI can say so.
-            row["waited_seconds"] = max(0.0, now - float(record["created_at"]))
-        queue.append(row)
     return validate_resource_status({
         "schema_version": 1,
-        "enforcement": probe["enforcement"],
+        "enforcement": snapshot["enforcement"],
         "accelerators": [
             {
                 "kind": accelerator["kind"],
@@ -88,15 +32,12 @@ def _resource_status_payload(snapshot: dict[str, Any], *, now: float) -> dict[st
                         "total_memory_mib": device["total_memory_mib"],
                         "used_memory_mib": device["used_memory_mib"],
                         "utilization_percent": device["utilization_percent"],
-                        "reserved": device["identity"] in reserved_devices,
                     }
                     for device in accelerator["devices"]
                 ],
             }
-            for accelerator in probe["accelerators"]
+            for accelerator in snapshot["accelerators"]
         ],
-        "holders": holders,
-        "queue": queue,
     })
 
 
@@ -234,10 +175,9 @@ def register_meta_routes(app, ctx: ServerContext) -> None:
 
     @app.get("/api/system/resources", dependencies=[Depends(ctx.require_auth)])
     def _system_resources() -> dict[str, Any]:
-        from ...tools.resource_ledger.ledger import ResourceLedger
+        from ...tools.resource_ledger.probe import ResourceProbe
 
-        snapshot = ResourceLedger().status()
-        return _resource_status_payload(snapshot, now=time.time())
+        return _resource_status_payload(ResourceProbe().snapshot())
 
     @app.post("/api/projects/{sid}/config/set", dependencies=[Depends(ctx.require_auth)])
     def _config_set(sid: str, body: ConfigSetIn) -> dict[str, Any]:

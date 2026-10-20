@@ -43,16 +43,6 @@ from .domain_author import (
 _log = logging.getLogger(__name__)
 
 
-def _repository_workflow_mode(mode: str) -> str:
-    require_planner = (
-        os.environ.get("ARGUS_SKILL_SOFTWARE_REQUIRE_PLANNER", "0")
-        .strip()
-        .lower()
-        in {"1", "true", "yes", "on"}
-    )
-    return "staged" if require_planner else mode
-
-
 def _software_grounding_required(workflow_mode: str) -> bool:
     raw = os.environ.get("ARGUS_SKILL_SOFTWARE_REQUIRE_GROUNDING", "").strip().lower()
     if raw:
@@ -669,12 +659,6 @@ class _VerticalDecisionMixin:
                     )
                     decision.workflow_profile = ""
                     decision.workflow_requested_stages = ()
-                if contract.mission_kind == "software":
-                    decision.workflow_mode = _repository_workflow_mode(
-                        decision.workflow_mode
-                    )
-                    if decision.workflow_mode != "direct":
-                        decision.start_stage = ""
                 if (
                     contract.ground_before_handoff
                     and _software_grounding_required(decision.workflow_mode)
@@ -1047,16 +1031,6 @@ class _VerticalDecisionMixin:
         except Exception:  # noqa: BLE001
             log.debug("manager live-view persistence failed", exc_info=True)
 
-    @staticmethod
-    def _kind_for(vertical: str) -> str:
-        """Return the provider-declared coarse mission kind."""
-        from ..verticals._base import load_vertical_contract
-
-        try:
-            return load_vertical_contract(vertical).mission_kind
-        except LookupError:
-            return "custom"  # project-local data domains need a project root
-
     # ---- split into the vertical's Stage template ----
     def plan_stages(self, vertical: str) -> list[str]:
         """Return the selected vertical's own ordered stages.
@@ -1153,7 +1127,7 @@ class _VerticalDecisionMixin:
             proposal = decision.proposal
             if ask_on_new_domain:
                 division = Division(
-                    task=task, vertical=proposal.name, kind="custom",
+                    task=task, vertical=proposal.name,
                     stages=list(proposal.stages),
                     domain="",
                     workflow_mode=decision.workflow_mode,
@@ -1258,7 +1232,6 @@ class _VerticalDecisionMixin:
             task=task,
             vertical=vertical,
             domain=decision.domain,
-            kind=self._kind_for(vertical),
             stages=stages,
             workflow_profile=selected_contract.workflow_profile,
             workflow_summary=selected_contract.workflow_summary(),
@@ -1431,7 +1404,7 @@ class _VerticalDecisionMixin:
                 evidence_root=self.execution_workdir,
             )
         return Division(
-            task=task, vertical=proposal.name, kind="custom",
+            task=task, vertical=proposal.name,
             stages=list(proposal.stages), proposed_domain=proposal,
             execution_task=(
                 execution_task

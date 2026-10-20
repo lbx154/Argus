@@ -62,7 +62,7 @@ def _flat(text: str) -> str:
     return " ".join(text.split())
 
 
-def _review_prompt(tmp_path, evidence_mode: str, *, software: bool) -> str:
+def _review_prompt(tmp_path, *, software: bool) -> str:
     if software:
         from argus.skills.vertical_select import persist_vertical
 
@@ -71,14 +71,13 @@ def _review_prompt(tmp_path, evidence_mode: str, *, software: bool) -> str:
     return reviewer._build_prompt(
         objective=_TASK, operator_messages=[], planner_review_instruction="",
         round_index=1, session_id=None, main_summary=_ACCOUNT, main_error=None,
-        prior_checkpoint={}, evidence_mode=evidence_mode, working_dir=str(tmp_path),
+        prior_checkpoint={}, working_dir=str(tmp_path),
     )
 
 
 @pytest.mark.parametrize("software", [True, False])
-@pytest.mark.parametrize("evidence_mode", ["execute", "recorded", "read"])
-def test_the_reviewer_checks_each_stated_symptom_before_approving(tmp_path, evidence_mode, software):
-    flat = _flat(_review_prompt(tmp_path, evidence_mode, software=software))
+def test_the_reviewer_checks_each_stated_symptom_before_approving(tmp_path, software):
+    flat = _flat(_review_prompt(tmp_path, software=software))
     assert _RULE in flat
     assert "operator's own words" not in flat
     # The rule rides in the role's fixed prose, ahead of the task and the account.
@@ -118,7 +117,7 @@ def _mission(tmp_path: Path, *, objective: str, original_objective: str | None, 
         engineer_prompt_builder=lambda _next, _static=True: build_mission_prompt(
             task=objective, skill_text="", next_action=None, include_static=True,
         ),
-        supervised_config=SupervisedConfig(max_rounds=1, decision_progress_timeout_seconds=0),
+        supervised_config=SupervisedConfig(max_rounds=1),
         workdir=workdir,
     )
     prompts = {label: prompt for label, prompt, _options in backend.history}
@@ -131,7 +130,6 @@ def test_a_round_sends_the_coverage_rule_to_both_roles_and_the_verdict_still_dec
         verdict=("revise_review", {
             "review": "The second symptom is stated, and DESIGN.md does not call the stall "
                       "intended; fix it within the minimum-across-sources rule.",
-            "forward_progress": True,
         }),
     )
     reviewer = _flat(prompts["reviewer"])
@@ -154,7 +152,6 @@ def test_a_sub_task_reviewer_is_held_to_its_increment_not_the_whole_request(tmp_
         tmp_path, objective=increment, original_objective=original,
         verdict=("approve_review", {
             "review": "Read the late-event test and its recorded run; the increment's symptom is fixed.",
-            "forward_progress": True,
         }),
     )
     reviewer = _flat(prompts["reviewer"])

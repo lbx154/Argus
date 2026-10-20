@@ -1,7 +1,7 @@
 import { expect, it } from "vitest";
 import { edgeLanes } from "../map/graphLayout";
 import { livePollInterval } from "../map/incremental";
-import type { Dataset, MapEvent } from "../map/model";
+import type { Dataset } from "../map/model";
 import type { Snapshot } from "../api";
 
 // The quadratic prefix filter edgeLanes replaced; kept as the reference.
@@ -38,8 +38,7 @@ it("assigns identical lanes to the quadratic prefix filter, including shared pai
 
 const snapshot = (alive: boolean) =>
   ({ daemon: { alive }, roles: [] }) as unknown as Snapshot;
-const dataset = (history_loading: boolean, events: Partial<MapEvent>[] = []) =>
-  ({ history_loading, events }) as unknown as Pick<Dataset, "history_loading" | "events">;
+const dataset = (history_loading: boolean): Pick<Dataset, "history_loading"> => ({ history_loading });
 
 it("polls fast only while history pages load, then falls back to a slow SSE safety net", () => {
   expect(livePollInterval(false, dataset(false), snapshot(true))).toBe(false);
@@ -47,10 +46,4 @@ it("polls fast only while history pages load, then falls back to a slow SSE safe
   expect(livePollInterval(true, undefined, snapshot(true))).toBe(15_000);
   expect(livePollInterval(true, dataset(false), snapshot(true))).toBe(15_000);
   expect(livePollInterval(true, dataset(false), snapshot(false))).toBe(false);
-  expect(livePollInterval(true, dataset(false, [
-    { type: "team.task", status: "running" },
-  ]), snapshot(false))).toBe(15_000);
-  expect(livePollInterval(true, dataset(false, [
-    { type: "team.task", status: "done" },
-  ]), snapshot(false))).toBe(false);
 });

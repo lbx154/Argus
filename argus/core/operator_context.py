@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import hashlib
 import json
 import logging
 import os
@@ -20,6 +19,7 @@ from .operator_context_storage import (
     MAX_OPERATOR_DELIVERY_STREAMS,
     MAX_SOURCE_BYTES,
     NO_MISSION as _NO_MISSION,
+    RECEIPT_FORMAT,
     ContextDocument,
     bounded_mission,
     checkpoint_bytes,
@@ -40,7 +40,7 @@ log = logging.getLogger(__name__)
 
 Scope = Literal["mission", "project", "global"]
 Lifetime = Literal["standing", "bounded_increment", "once"]
-Role = Literal["manager", "planner", "engineer", "reviewer", "teammate"]
+Role = Literal["manager", "planner", "engineer", "reviewer"]
 PreferenceKind = Literal["autonomy", "interaction", "workflow"]
 IntakeKind = Literal[
     "ephemeral",
@@ -54,6 +54,7 @@ AppliesToRoles: TypeAlias = tuple[str, ...] | Literal["all"]
 
 _SCOPES = frozenset({"mission", "project", "global"})
 _LIFETIMES = frozenset({"standing", "bounded_increment", "once"})
+# "teammate" is retired but still named by records written before Agent Teams went.
 _ROLES = frozenset({"manager", "planner", "engineer", "reviewer", "teammate"})
 _PREFERENCE_KINDS = frozenset({"autonomy", "interaction", "workflow"})
 _SCOPE_ORDER = {"global": 0, "project": 1, "mission": 2}
@@ -431,11 +432,6 @@ def _frozen_operator_plan(value: Any) -> dict[str, Any]:
     return cast(dict[str, Any], json.loads(encode(value)))
 
 
-def operator_delivery_effect_digest(plan: dict[str, Any]) -> str:
-    """Hash the complete frozen plan using the versioned checkpoint JSON encoding."""
-    return hashlib.sha256(encode(_frozen_operator_plan(plan))).hexdigest()
-
-
 class OperatorContextStore:
     """One physical revision namespace; projection may read explicit shared preferences."""
 
@@ -713,7 +709,6 @@ class OperatorContextStore:
         plan, identity = _frozen_operator_plan(plan), operator_delivery_identity(identity)
         if plan["target_root"] != str(self.root.resolve()):
             raise OperatorDeliveryConflict("frozen operator intake names another target")
-        effect_digest = operator_delivery_effect_digest(plan)
         with self._locked():
             doc = self._load()
             replay = doc.state.setdefault(DELIVERY_STATE_KEY, {"version": 1, "streams": {}})
@@ -734,11 +729,13 @@ class OperatorContextStore:
                 raise OperatorDeliveryClosed("operator delivery sequence is already closed")
             previous = stream["receipts"].get(str(identity["sequence"]))
             if previous is not None:
+                # A version-1 receipt bound a digest of its plan, not the plan.
                 if (
-                    previous["identity"] != identity or previous["effect_digest"] != effect_digest
+                    operator_delivery_identity(previous["identity"]) != identity
+                    or previous.get("plan", plan) != plan
                     or previous["target_root"] != plan["target_root"]
                 ):
-                    raise OperatorDeliveryConflict("operator delivery identity has a different frozen effect or digest")
+                    raise OperatorDeliveryConflict("operator delivery identity has a different frozen effect")
                 return cast(dict[str, Any], json.loads(encode(previous)))
             if sum(len(row["receipts"]) for row in streams.values()) >= MAX_OPERATOR_DELIVERY_RECEIPTS:
                 raise OperatorDeliveryCapacityError("operator delivery receipt capacity is full")
@@ -747,8 +744,8 @@ class OperatorContextStore:
                 written, _appended = self._stage_record(doc, _record_from_dict(plan["effect"]))
                 revision = written.revision
             receipt = {
-                "format": "operator-delivery-receipt-v1", "identity": identity,
-                "target_root": plan["target_root"], "effect_digest": effect_digest, "revision": revision,
+                "format": RECEIPT_FORMAT, "identity": identity,
+                "target_root": plan["target_root"], "plan": plan, "revision": revision,
             }
             stream["receipts"][str(identity["sequence"])] = receipt
             # The v3 checkpoint contains both the authority effect and receipt.
@@ -758,7 +755,7 @@ class OperatorContextStore:
 
     def close_operator_delivery_prefix(self, prefix: dict[str, Any]) -> dict[str, Any]:
         """Close only a source-acknowledged prefix; retain bounded stream tombstones."""
-        prefix = operator_delivery_identity(prefix, prefix=True)
+        prefix = operator_delivery_identity(prefix)
         result = {"format": "operator-delivery-close-v1", "target_root": str(self.root.resolve()), **prefix}
         with self._locked():
             doc = self._load()
@@ -1383,7 +1380,7 @@ def _render_operator_context_block(
             else ""
         )
         lines.append(f"- directive [{directive.scope}{revision}{flag}]: {directive.text}")
-    if role in {"planner", "engineer", "teammate"}:
+    if role in {"planner", "engineer"}:
         from ..manager.directive import load_active_manager_directive
 
         active = load_active_manager_directive(life_dir)
@@ -1401,7 +1398,6 @@ def _render_operator_context_block(
         "manager": {"interaction"},
         "planner": {"autonomy", "workflow"},
         "engineer": {"autonomy", "workflow"},
-        "teammate": {"autonomy", "workflow"},
         "reviewer": {"interaction", "workflow"},
     }[role]
     for index, preference in enumerate(projection.preferences):
@@ -1420,7 +1416,7 @@ def _render_operator_context_block(
                 f"- {preference.kind} preference [{label}]: {preference.value} "
                 f"(revision {preference.revision} in {origin} preference ledger)"
             )
-    if role in {"engineer", "teammate"}:
+    if role == "engineer":
         for capability in projection.capabilities:
             lines.append(
                 f"- capability {capability.kind}: "
@@ -1433,8 +1429,8 @@ def _render_operator_context_block(
     if not operator_available():
         lines.append(
             "- operator availability: no operator is available during this run, "
-            "so no question will be answered. Do not ask one or wait for one. "
-            "Where a decision would normally go to the operator, the team takes "
+            "so the Manager decides in their place. Do not wait for one. Where "
+            "a question of meaning would normally go to the operator, the team takes "
             "the most defensible interpretation of what a requirement means and "
             "records that assumption, with the conflict behind it, in "
             "CHECKPOINT.md and the run report, never inside a machine-graded "
@@ -1444,9 +1440,9 @@ def _render_operator_context_block(
             "results, and never substitute placeholder credentials or mocked "
             "services in what is delivered. "
             + LABELLED_FIXTURE_CARVE_OUT
-            + " Still never "
-            "spend money, use real credentials, or take irreversible or "
-            "outward-facing actions without authority."
+            + " Never spend money, use real credentials, or take an irreversible "
+            "or outward-facing action on an assumption: ask for it, naming its "
+            "operator need, and the Manager decides it."
         )
     if role == "reviewer":
         lines.append(
@@ -1522,7 +1518,6 @@ __all__ = [
     "operator_context_revision_from_text",
     "operator_context_state_root",
     "operator_context_global_root",
-    "operator_delivery_effect_digest",
     "preference_state_root",
     "persist_intake_decision",
     "persist_once_answer",

@@ -2,9 +2,8 @@
 
 The generic ``setup -> optimize -> measure -> report`` shape and its
 metric-agnostic reviewer checklist live here, framework-owned, so that every
-optimization vertical -- the built-in ``math_synth`` and the community ones
-in ``argus-verticals`` (``speedrun``, ``kernelbench``, ``nanochat``,
-``nanogpt_speedrun``) -- specialises one canonical base instead of copying
+optimization vertical in ``argus-verticals`` (``speedrun``, ``kernelbench``,
+``nanochat``, ``nanogpt_speedrun``, ``math_synth``) -- specialises one canonical base instead of copying
 it. Mission-specific nouns (the editable file, the scorer, the metric name,
 the named baseline) come from the operator objective / MISSION.md, never from
 this module.
@@ -32,11 +31,11 @@ OPTIMIZATION_CHECKLIST_ITEMS: dict[str, tuple[ChecklistItem, ...]] = {
                 "UNCHANGED and modifies ONLY that editable file. The reviewer must "
                 "confirm the agent did NOT touch the harness, the evaluation, the metric, "
                 "the held-out data, or the budget — they are byte-identical to the scaffold "
-                "(hash / `git diff` against the pinned scaffold) — and that the candidate is "
+                "(`git diff` or a byte comparison against the pinned scaffold) — and that the candidate is "
                 "scored through the mission's frozen scorer exactly as the mission specifies."
             ),
             evidence_hint=(
-                "the editable file + an unchanged-harness hash vs the pinned scaffold + "
+                "the editable file + an empty harness `git diff` vs the pinned scaffold + "
                 "a run log produced through the mission's frozen scorer"
             ),
         ),

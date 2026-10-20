@@ -5,9 +5,10 @@ The auto-research loop runs ONE of several *verticals*, selected by a single
 
 * ``research`` (the default) — the full paper pipeline. Its checklist output is
   byte-identical to the historical hard-coded behaviour.
-* ``math_synth`` — the lean 4-stage (setup/optimize/measure/report) built-in
-  metric-optimization vertical; it stands in here for every optimize-shaped
-  vertical (the community ``speedrun`` / ``kernelbench`` share its stage order).
+* ``optimize_lab`` — the ``optimize_vertical`` fixture's 4-stage
+  (setup/optimize/measure/report) metric vertical; it stands in here for every
+  optimize-shaped vertical (the community ``speedrun`` / ``kernelbench`` /
+  ``math_synth`` share its stage order).
 
 These tests pin the vertical-native API (the keyword classifier + old
 paper|optimize "pipeline mode" shims are gone — the Manager AGENT now decides
@@ -40,7 +41,6 @@ from argus.skills.vertical_select import (
     persist_vertical,
     require_vertical,
     reset_stage_for_new_intent,
-    resolve_evidence_mode,
     resolve_vertical,
     resolve_workflow_mode,
     vertical_reached_own_terminal_stage,
@@ -96,13 +96,15 @@ def test_research_vertical_review_checklist_is_loaded_and_required(
     assert len(contract.items) > 0
 
 
-def test_research_vertical_defaults_to_proportional_evidence_reuse(
+def test_research_vertical_states_evidence_reuse_in_its_own_guidance(
     tmp_path: Path,
 ) -> None:
+    from argus.verticals._base import load_vertical_contract
+
     persist_vertical(tmp_path, "research")
 
     assert resolve_workflow_mode(tmp_path) == "staged"
-    assert resolve_evidence_mode(tmp_path) == "proportional"
+    assert "reuse reviewed evidence" in load_vertical_contract("research").banner("planner")
 
 
 def test_persist_vertical_records_explicit_target_venue(tmp_path: Path) -> None:
@@ -120,16 +122,14 @@ def test_explicit_staged_mode_overrides_research_vertical_default(
     persist_vertical(tmp_path, "research", workflow_mode="staged")
 
     assert resolve_workflow_mode(tmp_path) == "staged"
-    assert resolve_evidence_mode(tmp_path) == "proportional"
 
 
-def test_direct_orchestration_overrides_proportional_evidence_default(
+def test_direct_orchestration_overrides_the_research_default(
     tmp_path: Path,
 ) -> None:
     persist_vertical(tmp_path, "research", workflow_mode="direct")
 
     assert resolve_workflow_mode(tmp_path) == "direct"
-    assert resolve_evidence_mode(tmp_path) == "direct"
 
 
 # --- resolve_vertical precedence: env > state > research --------------------
@@ -150,15 +150,16 @@ def test_resolve_raises_on_corrupt_state(tmp_path: Path) -> None:
         resolve_vertical(tmp_path)
 
 
-def test_resolve_reads_pipeline_state_vertical(tmp_path: Path) -> None:
-    assert resolve_vertical(_project(tmp_path, "math_synth")) == "math_synth"
+def test_resolve_reads_pipeline_state_vertical(optimize_vertical, tmp_path: Path) -> None:
+    assert resolve_vertical(_project(tmp_path, optimize_vertical)) == optimize_vertical
 
 
 def test_resolve_env_cannot_override_manager_state(
+    optimize_vertical,
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     root = _project(tmp_path, "research")
-    monkeypatch.setenv("ARGUS_SKILL_VERTICAL", "math_synth")
+    monkeypatch.setenv("ARGUS_SKILL_VERTICAL", optimize_vertical)
     assert resolve_vertical(root) == "research"
 
 
@@ -170,26 +171,26 @@ def test_persist_vertical_rejects_unknown_name(tmp_path: Path) -> None:
         persist_vertical(tmp_path, "not_a_real_vertical")
 
 
-def test_require_vertical_validates_or_raises() -> None:
-    assert require_vertical("math_synth") == "math_synth"
+def test_require_vertical_validates_or_raises(optimize_vertical) -> None:
+    assert require_vertical(optimize_vertical) == optimize_vertical
     assert require_vertical("research") == "research"
     with pytest.raises(UnknownVerticalError):
         require_vertical("bogus")
 
 
-def test_persist_vertical_never_resets_existing_stage(tmp_path: Path) -> None:
+def test_persist_vertical_never_resets_existing_stage(optimize_vertical, tmp_path: Path) -> None:
     # Stage authority belongs to the reviewer agent, not the harness. A stage
     # that is NOT in the (mis)persisted vertical's order — here a research
-    # ``run`` stage persisted under the math_synth vertical after a
+    # ``run`` stage persisted under an optimize vertical after a
     # classification false-positive — must be PRESERVED, never clobbered to
     # the vertical's first stage (that would be an unauthorized rollback that
     # destroys real pipeline progress).
     root = _project(tmp_path, "research", current="run")
 
-    persist_vertical(root, "math_synth")
+    persist_vertical(root, optimize_vertical)
 
     payload = json.loads((root / ".argus" / "PIPELINE_STATE.json").read_text())
-    assert payload["vertical"] == "math_synth"
+    assert payload["vertical"] == optimize_vertical
     assert payload["current_stage"] == "experiment"
 
 
@@ -219,10 +220,11 @@ def _finished_custom_domain(
 
 
 def test_reset_stage_for_new_intent_preserves_inprogress_reclassification(
+    optimize_vertical,
     tmp_path: Path,
 ) -> None:
     # Mirror scenario (a): reclassifying the SAME evolving, still-in-progress
-    # project (research -> math_synth mid-project, current_stage="run", not the
+    # project (research -> optimize mid-project, current_stage="run", not the
     # vertical's own terminal/done stage) must be a no-op — stage is real
     # progress and must be PRESERVED, exactly like
     # test_persist_vertical_never_resets_existing_stage above, but exercised
@@ -230,14 +232,14 @@ def test_reset_stage_for_new_intent_preserves_inprogress_reclassification(
     # rather than persist_vertical alone.
     root = _project(tmp_path, "research", current="run")
 
-    persist_vertical(root, "math_synth")
+    persist_vertical(root, optimize_vertical)
     applied = reset_stage_for_new_intent(
-        root, old_vertical="research", new_vertical="math_synth",
+        root, old_vertical="research", new_vertical=optimize_vertical,
     )
 
     assert applied is False
     payload = json.loads((root / ".argus" / "PIPELINE_STATE.json").read_text())
-    assert payload["vertical"] == "math_synth"
+    assert payload["vertical"] == optimize_vertical
     assert payload["current_stage"] == "experiment"
 
 
@@ -437,9 +439,10 @@ def test_full_pipeline_defaults_to_research_four_stages(tmp_path: Path) -> None:
 
 
 def test_full_pipeline_checklist_prefers_persisted_vertical_over_env(
+    optimize_vertical,
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    monkeypatch.setenv("ARGUS_SKILL_VERTICAL", "math_synth")
+    monkeypatch.setenv("ARGUS_SKILL_VERTICAL", optimize_vertical)
     root = _project(tmp_path, "research")
     text = format_full_pipeline_checklist(role="reviewer", project_root=root)
     for stage in RESEARCH_STAGES:

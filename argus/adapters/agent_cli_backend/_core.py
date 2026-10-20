@@ -32,10 +32,8 @@ log = logging.getLogger(__name__)
 
 _RUNNER_SOFT_IDLE_ENV = "ARGUS_SKILL_RUNNER_SOFT_IDLE_SECONDS"
 _RUNNER_STALLED_IDLE_ENV = "ARGUS_SKILL_RUNNER_STALLED_IDLE_SECONDS"
-_RUNNER_HARD_IDLE_ENV = "ARGUS_SKILL_RUNNER_HARD_IDLE_SECONDS"
 _RUNNER_DEFAULT_SOFT_IDLE_SECONDS = 10 * 60
 _RUNNER_DEFAULT_STALLED_IDLE_SECONDS = 30 * 60
-_RUNNER_DEFAULT_HARD_IDLE_SECONDS = 0
 _INHERIT_EVENT_CALLBACK = object()
 class _RepeatedToolCallGuard:
     """Interrupt a factually repeating identical tool-call livelock."""
@@ -138,7 +136,7 @@ class AgentCliBackend:
         default_interrupt_reason_provider=None,
         default_watchdog_soft_idle_seconds: int = _RUNNER_DEFAULT_SOFT_IDLE_SECONDS,
         default_watchdog_stalled_idle_seconds: int = (_RUNNER_DEFAULT_STALLED_IDLE_SECONDS),
-        default_watchdog_hard_idle_seconds: int = _RUNNER_DEFAULT_HARD_IDLE_SECONDS,
+        default_watchdog_hard_idle_seconds: int = 0,
         before_exec=None,
         event_callback=None,
         known_secret_values_override: Iterable[str] | None = None,
@@ -204,41 +202,6 @@ class AgentCliBackend:
     def tool_activity_observation_supported(self) -> bool:
         """DSH has no structured stream from which to observe tool use."""
         return self._backend_name != "dsh"
-
-    def set_acp_scope(self, scope: str) -> None:
-        setter = getattr(self._runner, "set_acp_scope", None)
-        if callable(setter):
-            setter(scope)
-
-    def prewarm_acp_client(
-        self,
-        *,
-        run_label: str,
-        model: str | None,
-        reasoning_effort: str | None,
-        lean: bool,
-        cwd: str,
-        front_door_session: bool = False,
-        read_only: bool = False,
-        add_dirs: list[str] | None = None,
-    ) -> None:
-        prewarm = getattr(self._runner, "prewarm_acp_client", None)
-        if callable(prewarm):
-            prewarm(
-                run_label=run_label,
-                model=model,
-                reasoning_effort=reasoning_effort,
-                lean=lean,
-                cwd=cwd,
-                front_door_session=front_door_session,
-                read_only=read_only,
-                add_dirs=add_dirs,
-            )
-
-    def close_acp_clients(self) -> None:
-        close = getattr(self._runner, "close_acp_clients", None)
-        if callable(close):
-            close()
 
     def set_usage_context(
         self,
@@ -425,7 +388,6 @@ class AgentCliBackend:
         self._io_logger.stream_event_callback(
             stream,
             line,
-            backend_name=getattr(self._runner, "backend", ""),
             known_secret_values=self._known_secret_values,
         )
 
@@ -463,16 +425,16 @@ class AgentCliBackend:
             # dsh's headless runner emits nothing until the final assistant
             # text, so byte-level inactivity is NOT a health signal: a long
             # tool-heavy turn looks identical to a hung one. Several callers
-            # pass streaming-assuming thresholds (the SELF reply path uses
-            # 5s/120s for progress display and stuck-turn killing; subagents
-            # pass their own timeout), any of which would kill healthy dsh
-            # turns. The ONLY knob that re-enables the stages for dsh is the
-            # operator's explicit ARGUS_SKILL_RUNNER_*_IDLE_SECONDS; caller
-            # options are ignored, and hung turns are bounded by dsh's own
-            # internal request/tool timeouts instead.
+            # pass streaming-assuming thresholds (the SELF reply path uses 5s
+            # for progress display), any of which would misreport or stop
+            # healthy dsh turns. The ONLY knobs that re-enable the diagnostic
+            # stages for dsh are the operator's explicit
+            # ARGUS_SKILL_RUNNER_{SOFT,STALLED}_IDLE_SECONDS; caller options
+            # are ignored, and hung turns are bounded by dsh's own internal
+            # request/tool timeouts instead.
             soft_idle = env_int("ARGUS_SKILL_RUNNER_SOFT_IDLE_SECONDS", 0)
             stalled_idle = env_int("ARGUS_SKILL_RUNNER_STALLED_IDLE_SECONDS", 0)
-            hard_idle = env_int("ARGUS_SKILL_RUNNER_HARD_IDLE_SECONDS", 0)
+            hard_idle = 0
         return CliRunnerOptions(
             model=options.model,
             reasoning_effort=options.reasoning_effort,
@@ -500,7 +462,6 @@ class AgentCliBackend:
             sandbox_mode=options.sandbox_mode,
             force_safe_mode=options.force_safe_mode,
             disable_tools=options.disable_tools,
-            review_output=dict(options.review_output) if options.review_output else None,
             isolate_workdir=options.isolate_workdir,
             lean_tool_surface=getattr(options, "lean_tool_surface", False),
             on_agent_message=options.on_agent_message,
@@ -523,7 +484,7 @@ class AgentCliBackend:
 # --- Convenience factory ---------------------------------------------------
 
 
-def build_agent_cli_backend_from_env(*, role: str | None = None) -> AgentCliBackend:
+def build_agent_cli_backend_from_env() -> AgentCliBackend:
     """Build a AgentCliBackend from environment variables.
 
     Honours:
@@ -539,18 +500,13 @@ def build_agent_cli_backend_from_env(*, role: str | None = None) -> AgentCliBack
         default 600 seconds.
       * ``ARGUS_SKILL_RUNNER_STALLED_IDLE_SECONDS`` — likely-stalled warning,
         default 1800 seconds.
-      * ``ARGUS_SKILL_RUNNER_HARD_IDLE_SECONDS`` — terminate only the current
-        model process group when explicitly configured; disabled by default.
     """
     import shlex
 
     backend = os.environ.get("ARGUS_SKILL_RUNNER_BACKEND", "").strip() or "codex"
-    if role:
-        from ...core.role_config import resolve_role_config
-        backend = resolve_role_config(role).backend
     from ...core.knobs import resolve_runner_bin_setting
 
-    runner_bin = resolve_runner_bin_setting(role=role, backend=backend) or None
+    runner_bin = resolve_runner_bin_setting(backend=backend) or None
     raw_extra = os.environ.get("ARGUS_SKILL_RUNNER_EXTRA_ARGS", "").strip()
     extra = _strip_legacy_codex_profile_args(shlex.split(raw_extra) if raw_extra else None)
     return AgentCliBackend(
@@ -564,9 +520,5 @@ def build_agent_cli_backend_from_env(*, role: str | None = None) -> AgentCliBack
         default_watchdog_stalled_idle_seconds=env_int(
             _RUNNER_STALLED_IDLE_ENV,
             _RUNNER_DEFAULT_STALLED_IDLE_SECONDS,
-        ),
-        default_watchdog_hard_idle_seconds=env_int(
-            _RUNNER_HARD_IDLE_ENV,
-            _RUNNER_DEFAULT_HARD_IDLE_SECONDS,
         ),
     )

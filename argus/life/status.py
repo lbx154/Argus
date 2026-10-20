@@ -4,6 +4,8 @@ from __future__ import annotations
 from dataclasses import dataclass
 from typing import Any, Sequence
 
+from ..core.stop_kinds import park_reason_of
+
 
 def _backlog_item_time(item: object, attr: str) -> float:
     value = getattr(item, attr, None)
@@ -23,12 +25,7 @@ def count_backlog_statuses(
             pending += 1
         elif status == "running":
             running += 1
-        elif status in {
-            "paused",
-            "research_incomplete",
-            "exhausted_current_methods",
-            "infra_blocked",
-        } or str(status).startswith("paused_"):
+        elif park_reason_of(status) is not None:
             paused += 1
         elif status == "done":
             done += 1

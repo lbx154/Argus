@@ -208,13 +208,9 @@ def test_execute_config_loads_custom_vertical_from_session_state(
         purpose="physical archive restoration",
         require_independent_review=True,
     )
-    from argus.manager.directive import set_active_manager_directive
+    from argus.core.knob_store import write_persisted_knob
 
-    set_active_manager_directive(
-        state_root,
-        "continue autonomously",
-        operator_question_policy="forbid",
-    )
+    write_persisted_knob("ARGUS_SKILL_OPERATOR_AVAILABLE", "0")
     runner = _make_runner(_FakeBackend())
     runner._artifact_root = state_root
     runner._role_memory_maintenance_enabled = True
@@ -300,8 +296,8 @@ def test_execute_dispatches_to_manager_self_path_on_greeting(monkeypatch) -> Non
     """English greeting → one Manager turn, no team pipeline."""
     monkeypatch.delenv("ARGUS_SKILL_SELF_REASONING_EFFORT", raising=False)
     monkeypatch.setattr(
-        "argus.apps._self_reply.resolve_manager_reply_model",
-        lambda **_kwargs: "best-manager",
+        "argus.apps._self_reply.resolve_role_model",
+        lambda *_args, **_kwargs: "best-manager",
     )
     backend = _FakeBackend(response_message="Hi! How can I help?")
     runner = _make_runner(backend)
@@ -324,8 +320,8 @@ def test_execute_dispatches_to_manager_self_path_on_greeting(monkeypatch) -> Non
 
 def test_message_only_self_reply_uses_manager_model_with_low_effort(monkeypatch) -> None:
     monkeypatch.setattr(
-        "argus.apps._self_reply.resolve_manager_reply_model",
-        lambda **_kwargs: "persistent-manager-model",
+        "argus.apps._self_reply.resolve_role_model",
+        lambda *_args, **_kwargs: "persistent-manager-model",
     )
     backend = _FakeBackend(response_message="exact reply")
     runner = _make_runner(backend)
@@ -411,7 +407,7 @@ def test_web_self_classification_reaches_execution_and_atlas_without_team(tmp_pa
     from argus.webapi import manager_state, server
 
     # This check counts foreground routing calls; background learning has its own suite.
-    monkeypatch.setenv("ARGUS_SKILL_ANSWER_LEARNING", "0")
+    monkeypatch.setenv("ARGUS_SKILL_LEARNING", "0")
 
     class Backend(_FakeBackend):
         def run_exec(self, **kwargs):
@@ -439,7 +435,6 @@ def test_web_self_classification_reaches_execution_and_atlas_without_team(tmp_pa
                             skill_store=LayeredSkillStore(project_dir=state / "skills", global_dir=tmp_path / "skills"))
     monkeypatch.setattr(front_door, "_ensure_manager_runner", lambda *_a: runner)
     monkeypatch.setattr(config_intent, "_ensure_manager_runner", lambda *_a: runner)
-    monkeypatch.setattr(manager_state, "schedule_manager_prewarm", lambda *_a, **_kw: None)
     manager_state._STATES.pop(sid, None)
     with TestClient(server.create_app(global_root=tmp_path)) as client:
         result = client.post(f"/api/projects/{sid}/message", json={"text": "Fix this one function"}).json()
@@ -656,8 +651,9 @@ def test_execute_self_path_one_turn_no_reviewer(tmp_path: Path) -> None:
     assert out.chat_mode is False  # it's a task, not chat
     assert len(backend.calls) == 1
     assert backend.calls[0]["run_label"] == "simple-1"
-    assert backend.classify_calls[0]["options"].watchdog_hard_idle_seconds == 120
-    assert backend.calls[0]["options"].watchdog_hard_idle_seconds == 120
+    # The operator can cancel an interactive turn; no timer stops it.
+    assert not backend.classify_calls[0]["options"].watchdog_hard_idle_seconds
+    assert not backend.calls[0]["options"].watchdog_hard_idle_seconds
     assert backend.calls[0]["options"].watchdog_soft_idle_seconds == 5
     assert callable(backend.calls[0]["options"].inactivity_callback)
     assert backend.calls[0]["options"].sandbox_mode is None
@@ -932,14 +928,14 @@ def test_self_grounds_in_operator_workspace_without_moving_state_root(
 
 
 def test_self_timeout_returns_visible_failure_without_second_long_wait() -> None:
-    class _FlakyAcpBackend(_FakeBackend):
+    class _FlakyBackend(_FakeBackend):
         def run_exec(self, **kwargs: Any) -> RunnerResult:
             self.calls.append(dict(kwargs))
             if len(self.calls) == 1:
                 return RunnerResult(
                     exit_code=1,
                     thread_id="stalled-session",
-                    fatal_error="ACP prompt timed out after 300s",
+                    fatal_error="prompt timed out after 300s",
                     input_tokens=7,
                 )
             return RunnerResult(
@@ -950,7 +946,7 @@ def test_self_timeout_returns_visible_failure_without_second_long_wait() -> None
                 output_tokens=5,
             )
 
-    backend = _FlakyAcpBackend()
+    backend = _FlakyBackend()
     runner = _make_runner(backend)
     sink = _RecordingSink()
 
@@ -1040,7 +1036,7 @@ def test_self_does_not_retry_after_tool_activity() -> None:
 
     result = RunnerResult(
         exit_code=1,
-        fatal_error="ACP prompt timed out after 300s",
+        fatal_error="prompt timed out after 300s",
         tool_activity_observed=True,
     )
     assert _self_retryable_transport_failure(result) is False
@@ -1123,7 +1119,7 @@ def test_stall_predicate_ignores_answered_turns_and_other_errors() -> None:
     assert _self_stalled_model_turn(stalled) is True
     answered = RunnerResult(exit_code=1, fatal_error="Forced restart after hard idle timeout (120s).", agent_messages=["done"])
     assert _self_stalled_model_turn(answered) is False
-    assert _self_stalled_model_turn(RunnerResult(exit_code=1, fatal_error="ACP prompt timed out after 300s")) is False
+    assert _self_stalled_model_turn(RunnerResult(exit_code=1, fatal_error="prompt timed out after 300s")) is False
     assert _self_stalled_model_turn(RunnerResult(exit_code=0)) is False
 
 def test_execute_team_answer_uses_full_pipeline() -> None:
@@ -1247,19 +1243,10 @@ def test_execute_uses_full_pipeline_on_real_task(
 
     assert sentinel_calls == [], "real task wrongly routed into chat fast-path"
     assert out.chat_mode is False
-    assert any(call["run_label"] == "planner-bounded-plan" for call in backend.calls)
-    planner_call = next(
-        call
-        for call in backend.calls
-        if call["run_label"] == "planner-bounded-plan"
-    )
-    assert "Closest analogue: src/ordered_tree.py" in planner_call["prompt"]
-    assert planner_call["options"].dangerous_yolo is True
-    assert planner_call["options"].working_dir == str(Path.cwd())
-    assert planned_tasks and "## Planner execution plan (advisory)" in planned_tasks[0]
-    assert "Check the premise" in planned_tasks[0]
-    assert any(event.get("type") == "life.planner.start" for event in sink.events)
-    assert any(event.get("type") == "life.planner.verdict" for event in sink.events)
+    # The campaign's Planner plans; a mission drafts no outline of its own.
+    assert planned_tasks and "Closest analogue: src/ordered_tree.py" in planned_tasks[0]
+    assert "## Planner execution plan" not in planned_tasks[0]
+    assert not any(event.get("type") == "life.planner.start" for event in sink.events)
     from argus.skills.layered import LayeredSkillStore
 
     layered = loop_kwargs[0]["skill_store"]
@@ -1289,11 +1276,6 @@ def test_execute_uses_full_pipeline_on_real_task(
         objective="write one short poem",
         sink=_RecordingSink(),
     )
-    assert not any(
-        call["run_label"] == "planner-bounded-plan"
-        for call in backend.calls
-    )
-    assert "## Planner execution plan" not in planned_tasks[0]
     assert loop_kwargs[0]["config"].workflow_mode == "direct"
     assert loop_kwargs[0]["config"].paper_mission is False
     assert loop_kwargs[0]["config"].reviewer_reasoning_effort == "high"
@@ -1310,8 +1292,7 @@ def test_execute_uses_full_pipeline_on_real_task(
         max_rounds_override=1,
         workflow_mode_override="direct",
     )
-    assert not any(call["run_label"] == "planner-bounded-plan" for call in backend.calls)
-    assert planned_tasks and "## Planner execution plan" not in planned_tasks[0]
+    assert planned_tasks
     assert loop_kwargs[0]["config"].max_rounds == 1
     assert loop_kwargs[0]["config"].workflow_mode == "direct"
     assert loop_kwargs[0]["config"].auto_init_wiki is True
@@ -1319,19 +1300,18 @@ def test_execute_uses_full_pipeline_on_real_task(
     planned_tasks.clear()
     loop_kwargs.clear()
     runner.execute(
-        objective="run one direct kernel experiment",
+        objective="run one direct maintenance check",
         sink=_RecordingSink(),
         preplanned=True,
-        vertical_override="kernel_engineering",
+        vertical_override="argus_maintenance",
     )
     assert planned_tasks
-    assert loop_kwargs[0]["config"].active_vertical == "kernel_engineering"
+    assert loop_kwargs[0]["config"].active_vertical == "argus_maintenance"
     assert loop_kwargs[0]["config"].workflow_mode == "direct"
 
     planned_tasks.clear()
     loop_kwargs.clear()
-    monkeypatch.setenv("ARGUS_SKILL_WIKI", "0")
-    monkeypatch.setenv("ARGUS_SKILL_AUTO_INIT_WIKI", "0")
+    monkeypatch.setenv("ARGUS_SKILL_LEARNING", "0")
     runner.execute(
         objective="run without project Wiki",
         sink=_RecordingSink(),

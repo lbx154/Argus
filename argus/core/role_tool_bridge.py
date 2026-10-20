@@ -39,7 +39,6 @@ class CallBoundBridge:
         env_prefix: str, timeout_seconds: int = 130,
         on_close: Callable[[], None] | None = None,
         redact: Callable[[str], str] | None = None,
-        cancel_operation: str = "cancel",
     ) -> None:
         if not re.fullmatch(r"ARGUS_PLUGIN_[A-Z_]+", env_prefix):
             raise ValueError("invalid role tool environment prefix")
@@ -122,7 +121,7 @@ class CallBoundBridge:
                     if closed.is_set():
                         raise ToolBridgeBusy("role turn ended")
                     operation = self.path[1:]
-                    reserved = operation != cancel_operation
+                    reserved = operation != "cancel"
                     if reserved and not operation_slots.acquire(blocking=False):
                         raise ToolBridgeBusy("role tool is busy; retry shortly")
                     try:

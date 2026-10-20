@@ -69,7 +69,7 @@ Paper,” “unprecedented,” or “positive result” remain aspirations; they
 evidence, permissions, budget, integrity or human gates. An unknown project-specific
 threshold becomes `NEEDS_HUMAN_DECISION`, never an optimistic default.
 
-Source binding is strict: `source_snapshot_ref` and `source_snapshot_sha256` are an
+Source binding is strict: `source_snapshot_ref` and `source_snapshot_key` are an
 all-or-neither pair, and the digest is exactly 64 hexadecimal characters. Condition
 schema v3 preserves the operator's original team-condition statement and records
 `source_context.operator_snapshot_bound`, a SHA-256 of the reference,

@@ -90,17 +90,14 @@ def test_backend_display_falls_back_when_codex_binary_is_missing(
     assert c.backend_label == "Copilot"
 
 
-def test_per_role_backend_overrides_runner_and_life():
+def test_every_role_runs_on_the_shared_backend():
     env = {
         "ARGUS_SKILL_LIFE_BACKEND": "codex",
         "ARGUS_SKILL_RUNNER_BACKEND": "claude",
-        "ARGUS_SKILL_REVIEWER_BACKEND": "copilot",
+        "ARGUS_SKILL_REVIEWER_BACKEND": "copilot",  # retired, ignored
     }
-    assert resolve_role_config("reviewer", env=env).backend_label == "Copilot"
-    # engineer has no per-role override → falls back to RUNNER_BACKEND (claude)
-    assert resolve_role_config("engineer", env=env).backend_label == "Claude Code"
-    # planner also falls back to RUNNER_BACKEND
-    assert resolve_role_config("planner", env=env).backend == "claude"
+    for role in ("manager", "planner", "engineer", "reviewer"):
+        assert resolve_role_config(role, env=env).backend_label == "Claude Code"
 
 
 def test_life_backend_is_last_resort():
@@ -362,51 +359,20 @@ def test_review_deferral_is_engineer_activity(tmp_path):
     assert acts["reviewer"].active is False
 
 
-def test_team_wait_keeps_engineer_active_between_cadence_ticks(tmp_path):
+def test_old_wait_events_are_ignored(tmp_path):
+    """Rounds no longer write ``round.external_work_wait.*``; old journals still hold them."""
     now = time.time()
     work = {"work_id": "team:research-idea-pipeline-v8-g2", "item_id": "mission-1"}
     _write_events(tmp_path, [
         {"type": "loop.start", "ts": now - 900, **work},
-        {"type": "round.external_work_wait.started", "ts": now - 899, **work},
-        {"type": "round.external_work_wait.completed", "reason": "cadence_elapsed",
-         "ts": now - 600, **work},
-        {"type": "round.external_work_wait.started", "ts": now - 600, **work},
+        {"type": "round.external_work_wait.started", "ts": now - 5, **work},
+        {"type": "round.external_work_wait.completed", "reason": "cadence_elapsed", "ts": now - 1, **work},
     ])
 
     engineer = role_activity(tmp_path, now=now)["engineer"]
 
-    assert engineer.active is True
-    assert engineer.status == "running"
-    assert engineer.label == "teammates working"
-
-
-def test_background_job_wait_names_the_job_and_expires_after_one_cadence(tmp_path):
-    from argus.life.role_activity import EXTERNAL_WORK_WAIT_ACTIVE_WINDOW_S
-
-    now = time.time()
-    _write_events(tmp_path, [{
-        "type": "round.external_work_wait.started",
-        "work_id": "subagent:train-r1",
-        "ts": now - 120,
-    }])
-    engineer = role_activity(tmp_path, now=now)["engineer"]
-    assert engineer.active is True
-    assert engineer.label == "background job running"
-
-    later = now + EXTERNAL_WORK_WAIT_ACTIVE_WINDOW_S
-    assert role_activity(tmp_path, now=later)["engineer"].active is False
-
-
-def test_finished_wait_uses_the_ordinary_activity_window(tmp_path):
-    now = time.time()
-    _write_events(tmp_path, [{
-        "type": "round.external_work_wait.completed",
-        "work_id": "team:research-idea-pipeline-v8-g2",
-        "reason": "completed",
-        "ts": now - 300,
-    }])
-
-    assert role_activity(tmp_path, now=now)["engineer"].active is False
+    assert engineer.active is False
+    assert engineer.label == "idle"
 
 
 def test_activity_reads_only_the_event_log_tail(tmp_path, monkeypatch):
@@ -617,9 +583,9 @@ def test_activity_keeps_action_summary_for_non_engineer_layers(tmp_path):
 
 @pytest.mark.parametrize(
     "event_type",
-    ["life.planner.waiting", "life.team.waiting"],
+    ["life.planner.idle", "life.planner.waiting", "life.team.waiting"],
 )
-def test_planner_waiting_event_projects_waiting_label(tmp_path, event_type):
+def test_planner_idle_event_projects_idle_label(tmp_path, event_type):
     now = time.time()
     _write_events(tmp_path, [{
         "type": event_type,
@@ -628,8 +594,8 @@ def test_planner_waiting_event_projects_waiting_label(tmp_path, event_type):
     }])
 
     planner = role_activity(tmp_path, now=now)["planner"]
-    assert planner.label == "waiting on external work"
-    assert planner.status == "waiting"
+    assert planner.label == "nothing new to start"
+    assert planner.status == "idle"
     assert planner.active is False
 
 
@@ -666,7 +632,7 @@ def test_map_summary_does_not_hide_the_engineers_open_call(tmp_path):
 
 @pytest.mark.parametrize(
     "run_label",
-    ["map-summary", "curator.distill", "reflection", "answer-learning", "team-learning-review"],
+    ["map-summary", "reflection", "answer-learning", "team-learning-review"],
 )
 def test_background_calls_are_not_engineer_work(tmp_path, run_label):
     now = time.time()

@@ -6,10 +6,9 @@ and numpy only: the oracle must run without the method's framework.
 
 Every test carries ``@pytest.mark.component("<component>", kind=...)`` naming
 the METHOD.md component it exercises. The hook below records the markers in
-``<rootdir>/.argus/spec_components.json``; the host joins that file with its
-own run of this suite to derive each component's status (proven, contradicted,
-partial, untested, unchecked) for the Reviewer and the Atlas web UI. Nothing
-here blocks anything and nothing about status is written by hand.
+``<rootdir>/.argus/spec_components.json``; the host joins that file with the
+card to list each component's tests for the Reviewer and the Atlas web UI.
+Nothing here blocks anything and nothing about it is written by hand.
 """
 from __future__ import annotations
 
@@ -50,7 +49,7 @@ def _marker_kind(marker: pytest.Mark, filename: str) -> str:
 
 
 def pytest_collection_modifyitems(config: pytest.Config, items: list[pytest.Item]) -> None:
-    """Record ``{nodeid: {component, kind}}`` for the host to join with its run.
+    """Record ``{nodeid: {component, kind}}`` for the host to join with the card.
 
     Fail-soft: a write error must never fail collection.
     """

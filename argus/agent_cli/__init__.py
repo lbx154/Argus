@@ -4,7 +4,7 @@ Layer: providers
 
 The stable public surface is :mod:`agent_cli_runner`, :mod:`runner_backend`,
 and :mod:`models`. Private modules split command construction, process
-control, event parsing, prompt delivery, ACP routing, and recovery behind
+control, event parsing, prompt delivery, and recovery behind
 that surface.
 
 This package intentionally performs **no** eager submodule imports so that

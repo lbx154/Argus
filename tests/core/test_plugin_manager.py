@@ -10,8 +10,7 @@ from argus.core import plugin_manager as pm
 def empty_host(tmp_path, monkeypatch):
     monkeypatch.setenv("ARGUS_SKILL_HOME", str(tmp_path / "host"))
     monkeypatch.setenv("ARGUS_WORKBENCH_HOST_ROOT", str(tmp_path / "host"))
-    for role in ("MANAGER", "PLANNER", "ENGINEER", "REVIEWER"):
-        monkeypatch.setenv("ARGUS_SKILL_" + role + "_BACKEND", "pi")
+    monkeypatch.setenv("ARGUS_SKILL_RUNNER_BACKEND", "pi")
     return tmp_path / "host"
 
 
@@ -60,12 +59,11 @@ def test_unsupported_mixed_roles_are_reported(monkeypatch):
     assert "敬请期待" in result["reason"]
 
 
-def test_hash_mismatch_is_rejected(tmp_path):
-    source = tmp_path / "release.whl"
-    source.write_bytes(b"bad payload")
-    spec = {"_catalog_dir": str(tmp_path), "artifact": {"sha256": "0" * 64, "local": "release.whl"}}
-    with pytest.raises(pm.PluginError, match="校验失败"):
-        pm._fetch(spec, tmp_path / "copy.whl")
+def test_pinned_local_release_is_copied(tmp_path):
+    (tmp_path / "release.whl").write_bytes(b"wheel")
+    spec = {"_catalog_dir": str(tmp_path), "artifact": {"filename": "release.whl", "local": "release.whl"}}
+    pm._fetch(spec, tmp_path / "copy.whl")
+    assert (tmp_path / "copy.whl").read_bytes() == b"wheel"
 
 
 def test_archive_traversal_is_rejected(tmp_path):
@@ -153,20 +151,6 @@ def test_unsupported_primary_is_blocked_even_with_supported_roles(monkeypatch):
         pm.catalog()["crystalpilot"], env={"ARGUS_SKILL_RUNNER_BACKEND": "claude"}
     )
     assert not result["supported"] and result["unsupported_roles"] == {"default": "claude"}
-
-
-def test_auxiliary_backend_can_follow_role_instead_of_global(monkeypatch, empty_host):
-    from argus.adapters.agent_cli_backend import build_agent_cli_backend_from_env
-    from argus.agent_cli import runner_backend
-
-    monkeypatch.setattr(
-        runner_backend, "resolve_available_runner",
-        lambda backend, configured=None: (backend, configured or f"/test/{backend}"),
-    )
-    monkeypatch.setenv("ARGUS_SKILL_RUNNER_BACKEND", "pi")
-    monkeypatch.setenv("ARGUS_SKILL_ENGINEER_BACKEND", "codex")
-    assert build_agent_cli_backend_from_env(role="engineer").backend == "codex"
-    assert build_agent_cli_backend_from_env().backend == "pi"
 
 
 def test_python_falls_back_when_host_interpreter_is_incompatible(monkeypatch):

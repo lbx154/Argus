@@ -8,7 +8,6 @@ from __future__ import annotations
 
 import argparse
 import asyncio
-import hashlib
 import json
 import os
 import subprocess
@@ -62,11 +61,8 @@ def sandbox_command(config: dict, tenant: str, command: list[str] | None = None)
         "ARGUS_SKILL_MANAGER_WARM_CONTEXT_LIMIT": "2",
         "ARGUS_SKILL_MANAGER_WARM_CONTEXT_IDLE_SECONDS": "180",
     }
-    for knob in ("FRONTDOOR_MODEL", "PLAN_PREVIEW_MODEL", "BOUNDED_DAG_MODEL", "REWRITE_MODEL"):
-        env["ARGUS_SKILL_" + knob] = MODEL
-    for role in ("ENGINEER", "REVIEWER", "PLANNER", "MANAGER"):
+    for role in ("ENGINEER", "REVIEWER", "PLANNER", "MANAGER", "LIGHT"):
         env[f"ARGUS_SKILL_{role}_MODEL"] = MODEL
-        env[f"ARGUS_SKILL_{role}_BACKEND"] = "copilot"
     for key, value in env.items():
         args.extend(("--setenv", key, value))
     args.extend(("--chdir", "/tenant/workspace", "--"))
@@ -205,9 +201,9 @@ def main():
         core = None
         before_exec = None
         if args.mode == "launch":
+            # Tenants take cores in name order, so no two share one until all are taken.
             cores = sorted(os.sched_getaffinity(0))
-            index = int(hashlib.sha256(args.tenant.encode()).hexdigest()[:8], 16) % len(cores)
-            core = cores[index]
+            core = cores[sorted(config["tenants"]).index(args.tenant) % len(cores)]
             before_exec = lambda: os.sched_setaffinity(0, {core})
         with subprocess.Popen(sandbox_command(config, args.tenant, command), env={}, preexec_fn=before_exec) as child:
             directory = config["tenants"][args.tenant]["directory"]

@@ -64,7 +64,6 @@ class RolePromptCatalog:
                 stage_order=(),
                 completion_gate="none",
                 paper_mission=False,
-                workflow_mode="staged",
                 verification_stage_profiles={},
                 requires_independent_review=False,
                 search_altitude="",
@@ -115,7 +114,7 @@ class RolePromptCatalog:
                 for part in (vertical_banner.strip(), vertical_fragment.strip())
                 if part
             )
-        # What changes between turns (research notes, GPU memory in use) is
+        # What changes between turns (the research notes) is
         # rendered by the vertical's context provider, never by its fragment,
         # so the banner above can sit in the provider-cacheable prefix.
         role_context = ""
@@ -214,7 +213,6 @@ class RolePromptCatalog:
             stage_order=stage_order,
             completion_gate=contract.completion_gate,
             paper_mission=contract.paper_mission,
-            workflow_mode=contract.workflow_mode,
             verification_stage_profiles=dict(
                 contract.verification_stage_profiles or {}
             ),

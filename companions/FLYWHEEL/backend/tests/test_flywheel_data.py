@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 import base64
-import hashlib
 import json
 import sqlite3
 from concurrent.futures import ThreadPoolExecutor
@@ -122,22 +121,15 @@ def _episode(client: TestClient, *, consent: bool = True) -> dict:
             },
         }
     ]
-    payload = (
-        json.dumps(candidates, ensure_ascii=False, sort_keys=True, separators=(",", ":"))
-        + "\n"
-    ).encode("utf-8")
-    artifact_sha256 = hashlib.sha256(payload).hexdigest()
     imported = client.post(
         f"/api/ideation/runs/{run['id']}/candidates",
         json={
             "candidates": candidates,
             "imported_from": "human_entered",
-            "artifact_sha256": artifact_sha256,
             "manifest": {
                 "schema_version": "flywheel.ideation-candidates/1",
-                "condition_sha256": run["condition_sha256"],
-                "objective_sha256": run["objective_sha256"],
-                "candidates_sha256": artifact_sha256,
+                "condition_key": run["condition_key"],
+                "objective_key": run["objective_key"],
                 "candidate_count": 1,
             },
         },
@@ -246,7 +238,7 @@ def test_episode_hash_chain_review_gate_and_integrity(flywheel_client: TestClien
         json={"source_kind": "json", "payload": {"score": 5, "comment": "needs ablation"}},
     )
     assert staged.status_code == 201
-    assert staged.json()["raw_object_sha256"] is None
+    assert staged.json()["raw_object_key"] is None
     assert flywheel_client.app.state.db.fetch_all("SELECT * FROM content_objects") == []
     blocked = flywheel_client.post(
         f"/api/episodes/{episode['id']}/seal",
@@ -270,7 +262,7 @@ def test_episode_hash_chain_review_gate_and_integrity(flywheel_client: TestClien
     )
     assert first.status_code == 201, first.text
     assert first.json()["revision_number"] == 1
-    assert len(first.json()["manifest_sha256"]) == 64
+    assert len(first.json()["manifest_key"]) == 64
     second = flywheel_client.post(
         f"/api/episodes/{episode['id']}/seal",
         json={"actor": "lead", "reason": "decision state recorded", "terminal_state": "decided"},
@@ -278,7 +270,7 @@ def test_episode_hash_chain_review_gate_and_integrity(flywheel_client: TestClien
     assert second.status_code == 201, second.text
     assert second.json()["revision_number"] == 2
     assert second.json()["parent_revision_id"] == first.json()["id"]
-    assert second.json()["chain_sha256"] != first.json()["chain_sha256"]
+    assert second.json()["chain_key"] != first.json()["chain_key"]
 
     verification = flywheel_client.get(f"/api/episodes/{episode['id']}/verify")
     assert verification.status_code == 200
@@ -305,7 +297,7 @@ def test_revision_and_snapshot_tables_are_database_immutable(
         db.execute("DELETE FROM episode_revisions WHERE id=?", (sealed["id"],))
     with pytest.raises(sqlite3.IntegrityError, match="object set is sealed"):
         db.execute(
-            "INSERT INTO episode_revision_objects(revision_id,object_sha256,role,created_at) "
+            "INSERT INTO episode_revision_objects(revision_id,object_key,role,created_at) "
             "VALUES(?,?,?,?)",
             (sealed["id"], "0" * 64, "late-injection", "2026-08-23T00:00:00+00:00"),
         )
@@ -322,7 +314,7 @@ def test_revision_and_snapshot_tables_are_database_immutable(
             "license_basis": "internal research training snapshot",
             "episode_ids": [episode["id"]],
             "require_training_consent": True,
-            "expected_selection_sha256": preview["selection_sha256"],
+            "expected_selection": preview["selection"],
         },
     )
     assert snapshot_response.status_code == 201, snapshot_response.text
@@ -339,7 +331,7 @@ def test_revision_and_snapshot_tables_are_database_immutable(
     with pytest.raises(sqlite3.IntegrityError, match="member set is sealed"):
         db.execute(
             "INSERT INTO dataset_snapshot_members"
-            "(snapshot_id,revision_id,episode_id,manifest_sha256,created_at) VALUES(?,?,?,?,?)",
+            "(snapshot_id,revision_id,episode_id,manifest_key,created_at) VALUES(?,?,?,?,?)",
             (
                 snapshot["id"],
                 "late-revision",
@@ -373,7 +365,7 @@ def test_dataset_preview_enforces_consent_and_preview_race_gate(
             "license_basis": "internal",
             "episode_ids": [no_consent["id"]],
             "require_training_consent": True,
-            "expected_selection_sha256": "0" * 64,
+            "expected_selection": {},
         },
     )
     assert create.status_code == 409
@@ -415,7 +407,7 @@ def test_snapshot_creation_holds_write_reservation_through_selection_recheck(
             "license_basis": "team-owned research training",
             "episode_ids": [episode["id"]],
             "require_training_consent": True,
-            "expected_selection_sha256": preview["selection_sha256"],
+            "expected_selection": preview["selection"],
         },
     )
     assert created.status_code == 201, created.text
@@ -443,7 +435,7 @@ def test_frozen_snapshot_remains_valid_after_append_only_episode_activity(
             "license_basis": "team-owned research training",
             "episode_ids": [episode["id"]],
             "require_training_consent": True,
-            "expected_selection_sha256": preview["selection_sha256"],
+            "expected_selection": preview["selection"],
         },
     ).json()
     assert flywheel_client.get(
@@ -468,8 +460,8 @@ def test_frozen_snapshot_remains_valid_after_append_only_episode_activity(
     ).json()["valid"] is True
 
     row = flywheel_client.app.state.db.fetch_one(
-        "SELECT storage_path FROM content_objects WHERE sha256=?",
-        (first_review["raw_object_sha256"],),
+        "SELECT storage_path FROM content_objects WHERE object_key=?",
+        (first_review["raw_object_key"],),
     )
     assert row is not None
     object_path = (
@@ -598,8 +590,8 @@ def test_content_object_tampering_is_detected(flywheel_client: TestClient) -> No
         json={"actor": "lead", "reason": "review incorporated"},
     )
     row = flywheel_client.app.state.db.fetch_one(
-        "SELECT storage_path FROM content_objects WHERE sha256=?",
-        (review["raw_object_sha256"],),
+        "SELECT storage_path FROM content_objects WHERE object_key=?",
+        (review["raw_object_key"],),
     )
     assert row is not None
     object_path = flywheel_client.app.state.settings.data_dir / "data-vault" / "objects" / row["storage_path"]
@@ -741,8 +733,8 @@ def test_binary_review_object_is_not_reported_as_secret_scan_passed(
     )
     assert confirmed.status_code == 200, confirmed.text
     row = flywheel_client.app.state.db.fetch_one(
-        "SELECT * FROM content_objects WHERE sha256=?",
-        (confirmed.json()["raw_object_sha256"],),
+        "SELECT * FROM content_objects WHERE object_key=?",
+        (confirmed.json()["raw_object_key"],),
     )
     assert row is not None
     assert row["secret_scan_state"] == "not_scannable_binary"
@@ -766,12 +758,12 @@ def test_legacy_binary_review_without_manual_confirmation_is_fail_closed(
     now = utc_now()
     db.execute(
         "INSERT INTO review_import_batches("
-        "id,episode_id,source_kind,source_ref,state,raw_payload_json,raw_object_sha256,"
+        "id,episode_id,source_kind,source_ref,state,raw_payload_json,raw_object_key,"
         "parsed_json,redaction_confirmed,training_consent,license_basis,confirmed_by,"
         "confirmed_at,created_at,updated_at) "
         "VALUES('legacy-unreviewed-pdf',?, 'pdf','legacy','confirmed','{}',?,'{}',0,1,"
         "'team owned','legacy-import',?,?,?)",
-        (episode["id"], obj.sha256, now, now, now),
+        (episode["id"], obj.object_key, now, now, now),
     )
 
     blocked_seal = flywheel_client.post(
@@ -803,12 +795,12 @@ def test_v6_migration_upgrades_a_v5_database(tmp_path: Path) -> None:
                 (version, utc_now()),
             )
         now = utc_now()
-        digest = "a" * 64
+        key = "a" * 64
         connection.execute(
             "INSERT INTO content_objects"
-            "(sha256,media_type,byte_length,storage_path,metadata_json,created_at) "
+            "(object_key,media_type,byte_length,storage_path,metadata_json,created_at) "
             "VALUES(?,?,?,?,?,?)",
-            (digest, "application/pdf", 12, "aa/aa/" + digest, "{}", now),
+            (key, "application/pdf", 12, "aa/aa/" + key, "{}", now),
         )
         connection.execute(
             "INSERT INTO research_episodes"
@@ -818,7 +810,7 @@ def test_v6_migration_upgrades_a_v5_database(tmp_path: Path) -> None:
         )
         connection.execute(
             "INSERT INTO episode_revisions"
-            "(id,episode_id,revision_number,manifest_json,manifest_sha256,chain_sha256,"
+            "(id,episode_id,revision_number,manifest_json,manifest_key,chain_key,"
             "object_count,reason,sealed_by,sealed_at) VALUES(?,?,?,?,?,?,?,?,?,?)",
             (
                 "legacy-revision",
@@ -835,8 +827,8 @@ def test_v6_migration_upgrades_a_v5_database(tmp_path: Path) -> None:
         )
         connection.execute(
             "INSERT INTO episode_revision_objects"
-            "(revision_id,object_sha256,role,created_at) VALUES(?,?,?,?)",
-            ("legacy-revision", digest, "review_import:pdf", now),
+            "(revision_id,object_key,role,created_at) VALUES(?,?,?,?)",
+            ("legacy-revision", key, "review_import:pdf", now),
         )
         connection.execute(
             "UPDATE research_episodes SET head_revision_id='legacy-revision' "
@@ -844,11 +836,13 @@ def test_v6_migration_upgrades_a_v5_database(tmp_path: Path) -> None:
         )
         connection.execute(
             "INSERT INTO review_import_batches"
-            "(id,episode_id,source_kind,state,raw_payload_json,raw_object_sha256,"
+            "(id,episode_id,source_kind,state,raw_payload_json,raw_object_key,"
             "parsed_json,redaction_confirmed,created_at,updated_at) "
             "VALUES('legacy-review','legacy-episode','pdf','confirmed','{}',?,'{}',1,?,?)",
-            (digest, now, now),
+            (key, now, now),
         )
+        # Databases of this age named the object key column after its digest.
+        connection.execute("ALTER TABLE content_objects RENAME COLUMN object_key TO sha256")
         connection.commit()
     finally:
         connection.close()
@@ -873,17 +867,17 @@ def test_v6_migration_upgrades_a_v5_database(tmp_path: Path) -> None:
         foreign_key_violations = list(migrated.execute("PRAGMA foreign_key_check"))
         migrated_object = migrated.execute(
             "SELECT secret_scan_state,redaction_scan_state,manual_redaction_required "
-            "FROM content_objects WHERE sha256=?",
+            "FROM content_objects WHERE object_key=?",
             ("a" * 64,),
         ).fetchone()
         migrated_ref = migrated.execute(
-            "SELECT object_sha256 FROM episode_revision_objects "
+            "SELECT object_key FROM episode_revision_objects "
             "WHERE revision_id='legacy-revision'"
         ).fetchone()
-    assert "candidate_artifact_sha256" in run_columns
-    assert "condition_sha256" in run_columns
+    assert "candidate_artifact_key" in run_columns
+    assert "condition_key" in run_columns
     assert "candidate_manifest_json" in run_columns
-    assert "artifact_sha256" in candidate_columns
+    assert "artifact_key" in candidate_columns
     assert {"discarded_by", "discarded_at", "discard_reason"} <= review_columns
     assert {"redaction_scan_state", "manual_redaction_required"} <= content_columns
     assert foreign_key_violations == []
@@ -891,7 +885,7 @@ def test_v6_migration_upgrades_a_v5_database(tmp_path: Path) -> None:
     assert migrated_ref == ("a" * 64,)
 
 
-def test_v8_backfills_legacy_condition_digest_before_freezing_it(
+def test_v8_backfills_legacy_condition_key_before_freezing_it(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     database_path = tmp_path / "condition-backfill.db"
@@ -913,23 +907,21 @@ def test_v8_backfills_legacy_condition_digest_before_freezing_it(
     )
     database.execute(
         "INSERT INTO ideation_runs(id,team_profile_id,venue_id,state,condition_schema_version,"
-        "condition_snapshot_json,objective_sha256,objective_path,created_at,updated_at) "
+        "condition_snapshot_json,objective_key,objective_path,created_at,updated_at) "
         "VALUES('legacy-run','legacy-team',1,'objective_ready',2,?,?,?, ?,?)",
         (json.dumps(snapshot, ensure_ascii=False), "a" * 64, "legacy-objective.md", now, now),
     )
 
     monkeypatch.setattr(db_module, "MIGRATIONS", all_migrations)
     database.migrate()
-    expected = hashlib.sha256(
-        (json.dumps(snapshot, ensure_ascii=False, sort_keys=True, separators=(",", ":")) + "\n").encode()
-    ).hexdigest()
     persisted = database.fetch_one(
-        "SELECT condition_sha256,candidate_manifest_json FROM ideation_runs WHERE id='legacy-run'"
+        "SELECT condition_key,candidate_manifest_json FROM ideation_runs WHERE id='legacy-run'"
     )
-    assert persisted == {"condition_sha256": expected, "candidate_manifest_json": "{}"}
-    with pytest.raises(sqlite3.IntegrityError, match="condition digest is immutable"):
+    assert persisted is not None and len(persisted["condition_key"]) == 64
+    assert persisted["candidate_manifest_json"] == "{}"
+    with pytest.raises(sqlite3.IntegrityError, match="condition key is immutable"):
         database.execute(
-            "UPDATE ideation_runs SET condition_sha256=? WHERE id='legacy-run'", ("f" * 64,)
+            "UPDATE ideation_runs SET condition_key=? WHERE id='legacy-run'", ("f" * 64,)
         )
 
 

@@ -15,12 +15,6 @@ from .front_door import (
     _maybe_name_session,
 )
 
-_ROLE_BACKEND_ENVS: dict[str, str] = {
-    "manager": "ARGUS_SKILL_MANAGER_BACKEND",
-    "planner": "ARGUS_SKILL_PLANNER_BACKEND",
-    "engineer": "ARGUS_SKILL_ENGINEER_BACKEND",
-    "reviewer": "ARGUS_SKILL_REVIEWER_BACKEND",
-}
 _ROLE_EFFORT_ENVS: dict[str, str] = {
     "manager": "ARGUS_SKILL_MANAGER_REASONING_EFFORT",
     "planner": "ARGUS_SKILL_PLANNER_REASONING_EFFORT",
@@ -40,28 +34,33 @@ def _invalidate_manager_runner(
     *,
     backend: str | None = None,
 ) -> None:
-    """Close stale warm clients after a Manager backend/model knob change."""
+    """Drop the Manager runner after a Manager backend/model knob change."""
     runner = chat_state.pop("manager_runner", None)
     chat_state.pop("manager_runner_workdir", None)
-    chat_state.pop("_manager_acp_prewarmed", None)
     chat_state["last_thread_id"] = None
     if backend:
         chat_state["backend"] = backend
     if runner is None:
         return
     try:
-        for candidate in (
-            getattr(runner, "_backend", None),
-            getattr(runner, "manager_backend", None),
-        ):
-            close_acp = getattr(candidate, "close_acp_clients", None)
-            if callable(close_acp):
-                close_acp()
         reset = getattr(runner, "reset_chat_session", None)
         if callable(reset):
             reset()
     except Exception:  # noqa: BLE001 - config is already durable; recover next turn
         pass
+
+
+def _save_operator_available(available: bool) -> None:
+    """Save the one "can Argus ask me now" switch the operator just set.
+
+    Running workers read it from config.json, so it is not pinned into the
+    environment they inherit.
+    """
+    from ..core.autonomy import OPERATOR_AVAILABLE_KNOB
+    from ..core.knob_store import write_persisted_knob
+
+    if write_persisted_knob(OPERATOR_AVAILABLE_KNOB, "1" if available else "0"):
+        os.environ.pop(OPERATOR_AVAILABLE_KNOB, None)
 
 
 def _front_door_classify(
@@ -78,9 +77,8 @@ def _front_door_classify(
     """ONE merged LLM call for the Manager front-door: returns
     ``(ConfigIntent | None, control | None, route)``.
 
-    TEAM lifetime is cached from the same call as ``bounded_increment``,
-    ``bounded``, or ``standing``; final topology also considers Manager's
-    direct/staged workflow decision. Classifier output is never treated as an
+    TEAM lifetime is cached from the same call as ``bounded`` (the campaign
+    stops when done) or ``standing``. Classifier output is never treated as an
     operator-facing reply: every SELF message reaches the real Manager model.
     Fail-soft: no runner, no manager, or any error → ``(None, None, "complex")``
     so the message flows through the normal task path unchanged (never swallow
@@ -105,13 +103,11 @@ def _front_door_classify(
     chat_state.pop("_frontdoor_greeting_reply", None)
     chat_state.pop("_frontdoor_failure", None)
     chat_state.pop("_frontdoor_steering_directive", None)
-    chat_state.pop("_frontdoor_operator_question_policy", None)
     chat_state.pop("_frontdoor_authorization", None)
     chat_state.pop("_frontdoor_intake", None)
     chat_state.pop("_frontdoor_standing_notice", None)
     chat_state.pop("_frontdoor_domain", None)
     chat_state.pop("_frontdoor_skill_vertical", None)
-    chat_state.pop("_frontdoor_lookup_subject", None)
     chat_state.pop("_frontdoor_is_task", None)
     chat_state.pop("_frontdoor_config_unparsed", None)
     try:
@@ -196,8 +192,6 @@ def _front_door_classify(
             chat_state["_frontdoor_domain"] = domain_decisions[-1]
             if "vertical" in domain_decisions[-1]:
                 chat_state["_frontdoor_skill_vertical"] = domain_decisions[-1]["vertical"]
-            if domain_decisions[-1].get("lookup_subject"):
-                chat_state["_frontdoor_lookup_subject"] = domain_decisions[-1]["lookup_subject"]
         if intake_decisions:
             chat_state["_frontdoor_intake"] = intake_decisions[-1]
             chat_state["_frontdoor_is_task"] = intake_decisions[-1].get("kind") == "objective_amendment"
@@ -239,9 +233,7 @@ def _front_door_classify(
             (
                 str(value).strip().lower()
                 for value in lifetime_decisions
-                if str(value).strip().lower() in {
-                    "bounded_increment", "bounded", "standing",
-                }
+                if str(value).strip().lower() in {"bounded", "standing"}
             ),
             "",
         )
@@ -272,16 +264,16 @@ def _front_door_classify(
             )
             if directive:
                 chat_state["_frontdoor_steering_directive"] = directive
-            question_policy = next(
-                (
-                    str(value).strip().lower()
-                    for value in operator_question_policies
-                    if str(value).strip().lower()
-                    in {"allow", "forbid", "unchanged"}
-                ),
-                "unchanged",
-            )
-            chat_state["_frontdoor_operator_question_policy"] = question_policy
+        question_policy = next(
+            (
+                str(value).strip().lower()
+                for value in operator_question_policies
+                if str(value).strip().lower() in {"allow", "forbid"}
+            ),
+            "",
+        )
+        if question_policy:
+            _save_operator_available(question_policy == "allow")
         if authorization_decisions:
             actions = [
                 str(value).strip().lower()
@@ -354,31 +346,25 @@ def _front_door_classify(
 _MODEL_SENTINELS = frozenset({"auto", "inherit", "default"})
 
 
-def _target_backends(entry: Any, entries: list[Any]) -> list[str]:
-    """The backend each role this model change targets will run on.
+def _target_backends(entries: list[Any]) -> list[str]:
+    """The backend this model change will run on (every role shares one).
 
-    A backend change in the same message wins over the role's current backend,
-    so ``SET backend ALL copilot; SET model ALL x`` vets ``x`` against Copilot.
+    A backend change in the same message wins over the current backend, so
+    ``SET backend - copilot; SET model ALL x`` vets ``x`` against Copilot.
     """
-    from ..core.knobs import resolve_role_backend_with_source
+    from ..core.knobs import resolve_role_backend
 
-    pending: dict[str, str] = {}
-    for other in entries:
-        if str(getattr(other, "knob", "")) == "backend":
-            for role in (list(other.roles) or list(_ROLE_BACKEND_ENVS)):
-                pending[role] = str(other.value).strip().lower()
-    backends: list[str] = []
-    for role in list(entry.roles) or list(_ROLE_MODEL_ENVS):
-        backend = pending.get(role)
-        if not backend:
-            try:
-                backend = resolve_role_backend_with_source(role, default="codex")[0]
-            except Exception:  # noqa: BLE001 - an unreadable store never blocks a change
-                backend = ""
-        backend = str(backend or "").strip().lower()
-        if backend and backend not in backends:
-            backends.append(backend)
-    return backends
+    backend = next(
+        (str(other.value) for other in entries if str(getattr(other, "knob", "")) == "backend"),
+        "",
+    )
+    if not backend:
+        try:
+            backend = resolve_role_backend("", default="codex")
+        except Exception:  # noqa: BLE001 - an unreadable store never blocks a change
+            backend = ""
+    backend = backend.strip().lower()
+    return [backend] if backend else []
 
 
 def _vet_model_value(
@@ -505,7 +491,7 @@ def _apply_config_intent(
     for entry in entries:
         if str(getattr(entry, "knob", "")) == "model":
             model_value, refusal = _vet_model_value(
-                entry.value, _target_backends(entry, entries), model_catalog, chat_state
+                entry.value, _target_backends(entries), model_catalog, chat_state
             )
             if refusal is not None:
                 refusals.append(refusal)  # the other settings still apply
@@ -540,21 +526,12 @@ def _apply_config_intent(
                 knob = str(entry.knob)
                 roles = list(entry.roles)
                 if knob == "backend":
-                    names = (
-                        [_ROLE_BACKEND_ENVS[role] for role in roles]
-                        if roles else [
-                            "ARGUS_SKILL_RUNNER_BACKEND",
-                            *_ROLE_BACKEND_ENVS.values(),
-                        ]
+                    value = normalize_cockpit_knob_value(
+                        "ARGUS_SKILL_RUNNER_BACKEND", entry.value
                     )
-                    value = normalize_cockpit_knob_value(names[0], entry.value)
-                    updates.update({name: value for name in names})
-                    if not roles or "manager" in roles:
-                        manager_backend = value
-                    confirmations.append(
-                        f"Set {' / '.join(r.title() for r in roles) if roles else 'all Argus roles'} "
-                        f"CLI backend to {value}."
-                    )
+                    updates["ARGUS_SKILL_RUNNER_BACKEND"] = value
+                    manager_backend = value
+                    confirmations.append(f"Set all Argus roles' CLI backend to {value}.")
                 elif knob == "model":
                     names = (
                         [_ROLE_MODEL_ENVS[role] for role in roles]
@@ -609,27 +586,15 @@ def _apply_config_intent(
     if knob == "backend":
         from ..core.knobs import normalize_cockpit_knob_value
 
-        names = [_ROLE_BACKEND_ENVS[r] for r in roles] if roles else [
-            "ARGUS_SKILL_RUNNER_BACKEND",
-            *_ROLE_BACKEND_ENVS.values(),
-        ]
         try:
-            value = normalize_cockpit_knob_value(names[0], intent.value)
+            value = normalize_cockpit_knob_value("ARGUS_SKILL_RUNNER_BACKEND", intent.value)
         except ValueError as exc:
             _confirm(f"Could not apply backend; nothing changed: {exc}")
             return True
-        if roles:
-            if not _set({_ROLE_BACKEND_ENVS[role]: value for role in roles}):
-                return True
-            _confirm(f"Set {' / '.join(r.title() for r in roles)} CLI backend to {value}.")
-        else:
-            if not _set({name: value for name in names}):
-                return True
-            _confirm(f"Set all Argus roles' CLI backend to {value}.")
-        _invalidate_manager_runner(
-            chat_state,
-            backend=(value if not roles or "manager" in roles else None),
-        )
+        if not _set({"ARGUS_SKILL_RUNNER_BACKEND": value}):
+            return True
+        _confirm(f"Set all Argus roles' CLI backend to {value}.")
+        _invalidate_manager_runner(chat_state, backend=value)
         return True
 
     if knob == "model":

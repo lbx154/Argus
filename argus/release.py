@@ -2,15 +2,15 @@
 
 from __future__ import annotations
 
-import hashlib
 import json
+import os
 import subprocess
 from functools import lru_cache
 from pathlib import Path
 from typing import Any, Iterable
 
 MANIFEST_FILE = "release_manifest.json"
-MANIFEST_SCHEMA_VERSION = 1
+MANIFEST_SCHEMA_VERSION = 2
 
 
 def _git_tracked_files(root: Path) -> set[str] | None:
@@ -125,10 +125,10 @@ def _source_files(root: Path) -> Iterable[Path]:
             if len(relative_parts) > 3 and relative_parts[:2] == ("argus", "verticals"):
                 optional = root / "argus" / "verticals" / relative_parts[2] / "workbench.json"
                 if optional.is_file():
-                    continue  # Optional packages have their own artifact checksum.
+                    continue  # Optional packages ship as their own artifacts.
             # A bundled workbench is source, but its local dependencies and
             # generated assets must not change release identity or differ from
-            # the installed wheel's digest.
+            # the installed wheel's file list.
             if path.is_relative_to(root / "argus" / "verticals") and any(
                 part in {"node_modules", "__pycache__", "dist", ".venv", ".pytest_cache"}
                 or part.endswith(".egg-info")
@@ -157,8 +157,8 @@ def _source_files(root: Path) -> Iterable[Path]:
                 # shipped release identity. Other untracked source files are
                 # release candidates (for example a newly added Python module
                 # before its first commit) and must participate now; excluding
-                # them makes build_release produce a digest that changes as soon
-                # as the exact same files are committed.
+                # them makes build_release produce a file list that changes as
+                # soon as the exact same files are committed.
                 continue
             resolved = path.resolve()
             if resolved in seen:
@@ -167,16 +167,21 @@ def _source_files(root: Path) -> Iterable[Path]:
             yield path
 
 
-def compute_source_digest(root: Path | str) -> str:
-    base = Path(root).resolve()
-    digest = hashlib.sha256()
-    for path in sorted(_source_files(base), key=lambda item: item.as_posix()):
-        relative = path.resolve().relative_to(base).as_posix()
-        digest.update(relative.encode("utf-8"))
-        digest.update(b"\0")
-        digest.update(path.read_bytes())
-        digest.update(b"\0")
-    return digest.hexdigest()
+def _source_stats(root: Path) -> dict[str, os.stat_result]:
+    base = root.resolve()
+    return {
+        path.resolve().relative_to(base).as_posix(): path.stat()
+        for path in sorted(_source_files(base), key=lambda item: item.as_posix())
+    }
+
+
+def source_files(root: Path | str) -> dict[str, int]:
+    """Every shipped source file under ``root``, by relative path, with its size."""
+    return {path: stat.st_size for path, stat in _source_stats(Path(root)).items()}
+
+
+def _summary(files: dict[str, int]) -> str:
+    return f"{len(files)} files, {sum(files.values())} bytes"
 
 
 @lru_cache(maxsize=1)
@@ -188,7 +193,6 @@ def release_manifest() -> dict[str, Any]:
         return {
             "schema_version": MANIFEST_SCHEMA_VERSION,
             "package_version": "unknown",
-            "source_digest": "",
             "release_id": "unknown",
         }
     return payload if isinstance(payload, dict) else {}
@@ -196,25 +200,37 @@ def release_manifest() -> dict[str, Any]:
 
 @lru_cache(maxsize=4)
 def release_identity(source_root: Path | str | None = None) -> dict[str, Any]:
+    """The shipped release, and whether a source checkout still matches it.
+
+    A manifest lists every shipped source file with its size; a checkout whose
+    files or sizes differ no longer matches. The runtime summary adds the newest
+    modification time, so two processes on one machine also see an edit that
+    kept a file's size.
+    """
     manifest = release_manifest()
     root = Path(source_root).resolve() if source_root is not None else None
-    runtime_digest: str | None = None
+    stats: dict[str, os.stat_result] | None = None
     if (
         root is not None
         and (root / "pyproject.toml").is_file()
         and (root / "frontend" / "core" / "src").is_dir()
     ):
         try:
-            runtime_digest = compute_source_digest(root)
+            stats = _source_stats(root)
         except OSError:
-            runtime_digest = None
-    expected = str(manifest.get("source_digest") or "")
+            stats = None
+    expected = manifest.get("source_files")
+    expected = expected if isinstance(expected, dict) and expected else None
+    current = None if stats is None else {path: stat.st_size for path, stat in stats.items()}
+    newest = max((stat.st_mtime_ns for stat in (stats or {}).values()), default=0)
     return {
         "release_id": str(manifest.get("release_id") or "unknown"),
-        "manifest_source_digest": expected or None,
-        "runtime_source_digest": runtime_digest,
+        "manifest_source_digest": _summary(expected) if expected else None,
+        "runtime_source_digest": (
+            None if current is None else f"{_summary(current)}, newest {newest}"
+        ),
         "release_matches_source": (
-            None if runtime_digest is None or not expected else runtime_digest == expected
+            None if current is None or expected is None else current == expected
         ),
     }
 
@@ -222,7 +238,7 @@ def release_identity(source_root: Path | str | None = None) -> dict[str, Any]:
 __all__ = [
     "MANIFEST_FILE",
     "MANIFEST_SCHEMA_VERSION",
-    "compute_source_digest",
     "release_identity",
     "release_manifest",
+    "source_files",
 ]

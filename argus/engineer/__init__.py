@@ -3,10 +3,9 @@
 Layer: roles
 
 Belongs here: ``runner.SupervisedEngineer`` and the ``round_*`` phase modules
-it is split into (config, prompt, execution, waits, reviewer call,
-self-review, settlement, signals, state, stop-signal classification), the
-Markdown ``checkpoint`` shared with fresh Reviewer turns, and the
-``external_work`` liveness protocol for long-running jobs. The Reviewer itself lives in the
+it is split into (config, prompt, execution, reviewer call, self-review,
+settlement, signals, state, stop-signal classification) and the Markdown
+``checkpoint`` shared with fresh Reviewer turns. The Reviewer itself lives in the
 sibling ``reviewer`` package: it is the single source of truth for
 done / continue / blocked and this package only invokes it.
 

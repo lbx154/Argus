@@ -1,11 +1,9 @@
-"""Build optional plugin wheels and their checksum catalog, separately from Argus."""
+"""Build optional plugin wheels and their version-pinned catalog, separately from Argus."""
 
 from __future__ import annotations
 
-import hashlib
 import json
 import os
-import re
 import subprocess
 import sys
 import tomllib
@@ -59,9 +57,12 @@ def main():
             "ARGUS_PLUGIN_RELEASE_BASE_URL",
             f"https://github.com/{repository}/releases/download/{tag}",
         ).rstrip("/")
+        spec["git_commit"] = subprocess.run(
+            ["git", "-C", str(ROOT), "rev-parse", "HEAD"],
+            capture_output=True, text=True, check=True,
+        ).stdout.strip()
         spec["artifact"] = {
             "filename": wheel.name,
-            "sha256": hashlib.sha256(wheel.read_bytes()).hexdigest(),
             "url": f"{release_base}/{wheel.name}" if release_base else "",
         }
         catalog[spec["id"]] = spec
@@ -70,10 +71,8 @@ def main():
     for spec in catalog:
         artifact = spec.get("artifact", {})
         artifact.pop("local", None)
-        if not str(artifact.get("url", "")).startswith("https://") or not re.fullmatch(
-            r"[a-f0-9]{64}", artifact.get("sha256", "")
-        ):
-            raise ValueError(f"Plugin {spec['id']} needs an HTTPS release URL and SHA-256")
+        if not str(artifact.get("url", "")).startswith("https://"):
+            raise ValueError(f"Plugin {spec['id']} needs an HTTPS release URL")
     # The shipped catalog never embeds paths to the maintainer's computer.
     (ROOT / "argus/plugin_catalog.json").write_text(
         json.dumps({"plugins": catalog}, ensure_ascii=False, indent=2) + "\n",

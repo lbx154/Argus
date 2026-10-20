@@ -45,8 +45,7 @@ it does not auto-install Copilot; `argus --setup --trial` triggers configuration
 Its current deployment has not been replaced by the new desktop source.
 
 Only the user's trial key is saved in `~/.argus-skill/copilot-trial.json` (0600).
-One-shot workers and persistent Manager ACP sessions use the gateway and a
-separate `copilot-trial-home`. Their tools run on the user's project locally.
+Copilot workers use the gateway and a separate `copilot-trial-home`. Their tools run on the user's project locally.
 A failed setup restores the previous trial profile. A successful regular
 `argus --setup --backend copilot` switches back to the user's own account.
 Explicit project/role overrides retain precedence; remove them when converting
@@ -103,7 +102,7 @@ cd ~/argus-trial-gateway-20260909
 
 The command preserves the ten stable keys and balances. It prints only
 the export path: `~/.local/share/argus-trial-gateway/trial-keys.json` (0600),
-**outside the served directory**. The database stores credential hashes and retains historical claim records.
+**outside the served directory**. The database stores credentials as issued, compares them in constant time, and retains historical claim records.
 Do not publish the operator export. The former browser recovery/claim endpoints
 are absent from the gateway even if an old static page remains on disk.
 
@@ -176,9 +175,9 @@ top-level `reasoning_effort`; the gateway preserves validated explicit values
 and defaults to `high` when the field is absent. Pi JSON mode can exit zero on a provider error, so
 consumers must inspect `stopReason` / `errorMessage`; Argus already does.
 
-Copilot ACP can similarly report a query error as assistant text followed by
-`end_turn`. Argus verifies that against the current Copilot `session.error`
-receipt rather than counting the error as a completed answer or premium request.
+Copilot can similarly report a query error next to an ordinary end of turn.
+Argus fails the turn on the stream's `session.error` receipt rather than
+counting the error as a completed answer or premium request.
 
 ## Deployment on 111 and Cloudflare
 
@@ -262,5 +261,5 @@ Source: `/data/yijia/argus-trial-20260909`, branch
 `feat/trial-gateway-20260909`, based on fetched/pulled `origin/main@af3b5a995`.
 Source changes remain uncommitted and unpushed.
 
-Private-distribution wheel SHA-256:
-`b66fda3160b4f561c5b21a6d39e64a004b81eca8882952a97204d8ff2876e50c`.
+The private-distribution wheel was built from `origin/main@af3b5a995`; Argus
+no longer records wheel digests (removed 2026-10).

@@ -197,22 +197,11 @@ Confirm the name with `pi --list-models` before setting it — a Pi configured
 through `models.json` often names the proxy something else (`copilot-forward`
 is common), in which case the old hardcoded default was already wrong.
 
-## Related: the cheap control-plane routes
+## Related: the light model
 
-Four routes deliberately use a smaller model than the role's own: Manager
-front-door classification, bounded-DAG decomposition, `/plan` preview, and
-interactive prompt rewrite. Copilot uses an OpenAI catalog default; Codex and
-provider-agnostic backends fall back to the role's configured model. Codex may
-authenticate through a ChatGPT account whose catalog does not include Argus's
-historical cheap model ids.
-
-`pi` and Codex used to select `gpt-5.4-mini` regardless of how the operator had
-configured Argus. Override any route individually if you want a cheaper model
-that your provider supports:
-
-| Route | Knob |
-|---|---|
-| Manager front-door classify | `ARGUS_SKILL_FRONTDOOR_MODEL` |
-| Bounded-DAG decomposition | `ARGUS_SKILL_BOUNDED_DAG_MODEL` |
-| `/plan` preview | `ARGUS_SKILL_PLAN_PREVIEW_MODEL` |
-| Prompt rewrite | `ARGUS_SKILL_REWRITE_MODEL` |
+Light routes — Manager front-door classification, `/plan` preview, prompt
+rewrite, map text and post-mission reflection — share one smaller model,
+`ARGUS_SKILL_LIGHT_MODEL`, at `ARGUS_SKILL_LIGHT_REASONING_EFFORT` (`low`).
+`auto` is `gpt-6.1-sol` on Copilot; Codex and provider-agnostic backends use
+the Manager model, since a ChatGPT-account Codex catalog may not include it.
+Set the knob to a cheaper model your provider supports.

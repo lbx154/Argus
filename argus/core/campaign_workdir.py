@@ -68,13 +68,6 @@ def resolve_task_workdir(base_root: Path | str, value: object) -> Path:
     return target
 
 
-def task_workdir_provenance(base_root: Path | str, value: object) -> str:
-    """Anchor a Planner path to the host-validated root without resolving links."""
-    base = Path(base_root).expanduser().resolve(strict=True)
-    relative = normalize_task_workdir(value, base_root=base)
-    return str(base / relative) if relative else ""
-
-
 def _git_toplevel(path: Path) -> Path | None:
     try:
         result = subprocess.run(
@@ -193,5 +186,4 @@ __all__ = [
     "campaign_workdir_path",
     "normalize_task_workdir",
     "resolve_task_workdir",
-    "task_workdir_provenance",
 ]

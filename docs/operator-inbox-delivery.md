@@ -32,13 +32,13 @@ Source ACK and source settlement are different operations. ACK never deletes the
 
 The advisory event's lock wait is capped at 0.2 seconds after durable enqueue. A busy event log cannot hold the input acknowledgement for its ordinary 30-second lock timeout. Queue pressure returns HTTP 429 and unavailable/busy queue storage returns HTTP 503 on the nudge endpoint; neither response claims acceptance. This does not impose a deadline on an in-progress filesystem write or `fsync`.
 
-Every physical stream has a persistent UUID, generation, monotonically increasing sequence, original byte range and SHA256 of its complete original line. The public identity is:
+Every physical stream has a persistent UUID, generation, monotonically increasing sequence and the original byte range of its complete original line. The public identity is:
 
 ```python
-{"stream": "...", "generation": 1, "sequence": 1, "digest": "..."}
+{"stream": "...", "generation": 1, "sequence": 1}
 ```
 
-The exposed text and producer source come from the validated raw line; the redundant text column must agree. Per-row digests bind the original consumer/mission/stage, frozen plan/target/transient envelope and accepted receipt. Source ACK flags must agree with the durable stream prefix. Equal text at two positions is two messages, even when their raw digests match. Closed source prefixes and the last enqueue timestamp survive envelope deletion. Missing/replaced databases, mismatched markers, changed complete-line digests, generation changes and invalid legacy cursors fail closed; none is treated as permission to start a fresh cursor.
+The exposed text and producer source come from the validated raw line; the redundant text column must agree and the line must span its recorded byte range. Per-row canonical JSON snapshots bind the original consumer/mission/stage and the frozen plan/target/transient envelope; an accepted receipt (`operator-delivery-receipt-v2`) carries the frozen plan itself. Rows and receipts written by older releases carry digests instead; those are read and not checked. Source ACK flags must agree with the durable stream prefix. Equal text at two positions is two messages. Closed source prefixes and the last enqueue timestamp survive envelope deletion. Missing/replaced databases, mismatched markers, changed lines, generation changes and invalid legacy cursors fail closed; none is treated as permission to start a fresh cursor.
 
 Source generation is currently fixed at 1, and source streams are never automatically evicted or rotated. Canonical receipt storage can accept a higher generation only after the previous generation's receipts are closed; it thereafter rejects older-generation application. There is no source rotation or manual database-editing procedure in this implementation.
 
@@ -70,19 +70,10 @@ Unclassified and transient recovery requires the original consumer, mission and 
 The canonical helpers are exposed through `core/operator_context.py`:
 
 1. `freeze_operator_intake(root, text, decision, source="operator.inbox", mission_id="", global_root=None)` returns JSON `{version: 1, target_root: str, effect: dict | None}` without applying authority. It preserves the selected project/global physical namespace and original mission binding.
-2. `apply_operator_delivery(plan, identity)` holds that physical target's existing lock and checkpoints the effect and delivery receipt together. A replay before closure returns the original receipt/revision, including after a once directive was consumed. Reusing the identity with a changed raw digest or effect is rejected.
+2. `apply_operator_delivery(plan, identity)` holds that physical target's existing lock and checkpoints the effect and delivery receipt together. A replay before closure returns the original receipt/revision, including after a once directive was consumed. Reusing the identity with a changed effect is rejected; the stream counters alone identify a delivery, and a `digest` member an older identity carries is read and dropped.
 3. `close_operator_delivery_prefix(target_root, prefix)` closes receipts only after source ACK. Source settlement follows successful closure. A replay of an already closed sequence cannot recreate its instruction.
 
-The receipt has format `operator-delivery-receipt-v1` and contains `identity`, `target_root`, `effect_digest` and the original `revision`. Its effect digest binds the **entire frozen plan**, not only the `effect` member:
-
-```python
-hashlib.sha256(
-    (json.dumps(plan, ensure_ascii=False, sort_keys=True, allow_nan=False) + "\n")
-    .encode("utf-8")
-).hexdigest()
-```
-
-This uses JSON's default separators. The queue checks the receipt's format, identity, resolved target and effect digest before accepting it. Canonical storage locks only the selected target; it cannot replace the source queue's freeze/CAS protection against retargeting between project and global stores.
+The receipt has format `operator-delivery-receipt-v2` and contains `identity`, `target_root`, `plan` and the original `revision`. `plan` is the **entire frozen plan**, not only its `effect` member, so a replay is compared with it directly. A version-1 receipt carried a digest of the plan instead; it still reads and replays. The queue checks the receipt's format, identity, resolved target and plan before accepting it. Canonical storage locks only the selected target; it cannot replace the source queue's freeze/CAS protection against retargeting between project and global stores.
 
 The first successful canonical delivery application, including an explicit no-op application, moves that target checkpoint to `operator-context-v3` with `state.delivery_replay`. Ordinary checkpoints without delivery metadata remain v2. A v2 checkpoint carrying delivery metadata and a v3 checkpoint missing it are invalid. Exact 9d's reader recognizes v2 and must reject the v3 header; this is a specific compatibility boundary, not a claim that every older version is safely fenced.
 

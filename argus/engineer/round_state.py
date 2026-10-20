@@ -22,15 +22,14 @@ state:
 """
 from __future__ import annotations
 
-import time
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
 
 from ..core.models import LoopStatus, RoundRecord
 from ..core.role_session import RoleSessionCapsule
-from ..core.secret_guard import SecretScanCache
 from ..core.stop_kinds import StopKind
+from ..core.workspace_snapshot import WorkspaceSnapshots
 
 
 @dataclass
@@ -38,43 +37,26 @@ class RoundLoopState:
     """Mutable state that persists across rounds within one ``run()`` call."""
 
     rounds: list[RoundRecord] = field(default_factory=list)
-    # Wall-clock start of the first Engineer turn since the last completed
-    # review (for "changed this round"). A turn that ended without review --
-    # a self-handoff, a background wait, a provider restart -- stays inside
-    # the window, so the Reviewer sees every file the unjudged work touched.
-    round_started_wall: float | None = None
+    # The task's workspace snapshots: its baseline, taken before the first
+    # Engineer turn, and the candidate each Reviewer is shown the diff to.
+    snapshots: WorkspaceSnapshots | None = None
     # Accounts of Engineer turns that continued without any review, newest
     # last. The next Reviewer reads them beside the final turn's account; a
     # completed review clears them.
     unreviewed_engineer_accounts: list[str] = field(default_factory=list)
-    # Consecutive NEXT_OWNER=engineer handoffs since the last review.
-    engineer_self_handoffs: int = 0
     last_engineer_message: str = ""
-    no_progress_streak: int = 0
-    semantic_stall_streak: int = 0
-    # A stall an earlier mission on the same objective left: rounds where its
-    # Reviewer reported no progress and named a check impossible here
-    # (``obstacle_stall.py``). Only a verdict naming the same obstacle continues
-    # it, and only in this mission's first obstacle run.
-    obstacle_stall_root: Path | None = None
-    obstacle_stall_objective: str = ""
-    carried_obstacle_streak: int = 0
-    carried_obstacle: str = ""
-    # This mission's current run of consecutive no-progress rounds naming one
-    # obstacle; plain no-progress rounds are counted elsewhere, never here.
-    obstacle_streak: int = 0
-    obstacle_text: str = ""
+    # The project state directory the mission belongs to, if it has one.
+    state_root: Path | None = None
     # The backlog item this mission works on, when its packet names one; an
     # operator's acceptance of a residual risk is recorded against it.
     mission_item_id: str = ""
     # With no item, the mission (its session) an acceptance is scoped to.
     mission_ref: str = ""
-    # Resolved path -> sha256 of the workspace when the first mission on this
-    # objective began. Only a file still matching it grounds a Reviewer's
-    # "impossible here"; None means no workspace file does.
-    grounding_baseline: dict[str, str] | None = None
+    # Resolved path -> each workspace file as recorded when the first mission on
+    # this objective began (``core.grounding_baseline``). Only a file still
+    # matching it grounds a Reviewer's "impossible here"; None means none does.
+    grounding_baseline: dict[str, list[int]] | None = None
     reviewer_next_action: str | None = None
-    last_decision_progress_at: float = field(default_factory=lambda: time.monotonic())
     backend_failure_streak: int = 0
     reviewer_backend_failure_streak: int = 0
     # Normalized signature of the most recent Engineer backend failure and the
@@ -102,18 +84,13 @@ class RoundLoopState:
     pending_round_evidence: list[str] = field(default_factory=list)
     pending_round_evidence_engineer_note: str = ""
     round_evidence_state: dict[str, dict] = field(default_factory=dict)
-    # A completed requested job gets one result-consumption turn per run,
-    # including when it finished before the harness could enter its wait.
-    external_work_resumptions: set[tuple[str, str, str]] = field(default_factory=set)
-    pending_external_work_followup: str = ""
-    secret_scan_cache: SecretScanCache = field(default_factory=SecretScanCache)
+    # Host text for the next Engineer prompt (the round-evidence note).
+    pending_engineer_followup: str = ""
     engineer_session: RoleSessionCapsule | None = None
     # Every Engineer provider thread seen in this run (seed, each turn, each
     # wind-down). The Reviewer must never resume any of them.
     engineer_thread_ids: set[str] = field(default_factory=set)
     reviewer_session: RoleSessionCapsule | None = None
-    reviewed_external_waits: set[str] = field(default_factory=set)
-    pending_external_wait_review: str | None = None
 
 
 @dataclass

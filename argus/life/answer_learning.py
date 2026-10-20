@@ -5,13 +5,13 @@ so their read/modify/write learning passes must not race with one another.
 """
 from __future__ import annotations
 
-import hashlib
 import json
 import logging
 import os
 import sqlite3
 import threading
 import time
+import uuid
 from collections.abc import Callable
 from contextlib import contextmanager
 from pathlib import Path
@@ -85,8 +85,8 @@ def enqueue_answer(
     backend_factory: BackendFactory | None = None,
 ) -> threading.Thread:
     root = root.resolve()
-    identity = turn_id or f"{operator_text}\0{reply}"
-    job_id = hashlib.sha256(f"{sid}\0{identity}".encode()).hexdigest()[:32]
+    # A turn is learned once; an answer without a turn id is its own job.
+    job_id = f"{sid}:{turn_id}" if turn_id else f"{sid}:{uuid.uuid4().hex}"
     payload = {"operator_text": operator_text, "reply": reply,
                "vertical": vertical, "evidence": evidence}
     with _LOCK:
@@ -223,7 +223,7 @@ def _process(root: Path, job: dict) -> None:
 
 def observe_mission(root: Path, sid: str, mission_id: str, run, emit) -> dict:
     """Expose the existing mission reflection through the same status surface."""
-    job_id = "mission-" + hashlib.sha256(f"{sid}\0{mission_id}".encode()).hexdigest()[:32]
+    job_id = f"mission-{sid}:{mission_id}"
     entries = []
 
     def capture(event):

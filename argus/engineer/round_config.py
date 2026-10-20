@@ -16,41 +16,20 @@ from dataclasses import dataclass, field
 from dataclasses import replace as dataclass_replace
 from functools import wraps
 from pathlib import Path
-from typing import Any, Callable
+from typing import Any
 
 from ..core.knobs import env_int
-from ..core.role_session import (
-    ROLE_SESSION_POLICIES,
-    configured_role_session_policy,
-)
 
-_RUNNER_HARD_IDLE_ENV = "ARGUS_SKILL_RUNNER_HARD_IDLE_SECONDS"
-_DECISION_PROGRESS_TIMEOUT_ENV = "ARGUS_SKILL_DECISION_PROGRESS_TIMEOUT_SECONDS"
-# Toggle for the background-subagent advisory + agent-driven cadence wait. When
-# unset/true, each round surfaces in-flight supervised subagents so the engineer
-# does not babysit a self-watched run. Set to 0 to disable (e.g. tests).
-_BG_SUBAGENT_ADVISORY_ENV = "ARGUS_SKILL_BG_SUBAGENT_ADVISORY"
-_COMPACT_CONTINUATION_PROMPTS_ENV = "ARGUS_SKILL_COMPACT_CONTINUATION_PROMPTS"
-_ENGINEER_FULL_ROUND_POLICY_ENV = "ARGUS_SKILL_ENGINEER_FULL_ROUND_POLICY"
-#: ``session`` re-sends the full static task text only to a provider session
-#: that cannot already hold it; ``legacy`` also re-sends it on every round 1
-#: (the historical behavior, kept for rollback).
-ENGINEER_FULL_ROUND_POLICIES = frozenset({"session", "legacy"})
-_ROLE_SESSION_MAX_TURNS_ENV = "ARGUS_SKILL_ROLE_SESSION_MAX_TURNS"
-_ROLE_SESSION_MAX_INPUT_TOKENS_ENV = "ARGUS_SKILL_ROLE_SESSION_MAX_INPUT_TOKENS"
-_ENGINEER_LEAN_TOOLS_ENV = "ARGUS_SKILL_ENGINEER_LEAN_TOOLS"
+_RUNNER_STALLED_IDLE_ENV = "ARGUS_SKILL_RUNNER_STALLED_IDLE_SECONDS"
 _NARRATIVE_REVIEW_ENFORCEMENT_ENV = "ARGUS_SKILL_NARRATIVE_REVIEW_ENFORCEMENT"
 _CONTINUE_WORK_SENTINEL = "CONTINUE_WORK:"
 _CONTINUE_WORK_MAX_CHARS = 500
-_DEFAULT_DECISION_PROGRESS_TIMEOUT_SECONDS = 0
-# A turn in which neither the model nor the command it is running has
-# produced anything for this long is stopped, and the next round is told which
-# command was running. The ACP transport delivers a command's output only when
-# the command ends, so this is in effect the time limit of one foreground
-# command: on 2026-09-23 a `find /` over a 19 TB volume and four network
-# mounts held a project for over half an hour with nothing to show. Long work
-# belongs in a background job, which the Engineer is told to use.
-_RUNNER_DEFAULT_HARD_IDLE_SECONDS = 1800
+# A turn is never stopped by a timer by default: a live process is not proof
+# of work, but silence is not proof of a hang either. A turn that makes no
+# progress (no model stream event, no CPU time in its commands) for the stalled
+# limit is reported to the Manager once, and stopped only if the Manager
+# decides so.
+_RUNNER_DEFAULT_STALLED_IDLE_SECONDS = 30 * 60
 # Framework-owned fallback for ``EngineerConfig.live_search_stages``: the
 # research stage, where idea discovery / literature grounding happens. A
 # vertical that owns a different pipeline (math runs scope/solve/review and has
@@ -67,12 +46,9 @@ OPERATOR_QUESTION_FORBIDDEN_NEXT_ACTION = (
     "If only irreversible authority or unavailable credentials remain, preserve "
     "the current state and report blocked without an operator question."
 )
-OPERATOR_QUESTION_POLICY_REVIEW_SOURCES = frozenset(
-    {
-        "engineer_operator_question_policy",
-        "reviewer_operator_question_policy",
-    }
-)
+#: The intervention recorded beside a verdict whose question the operator may
+#: not be asked (``round_settlement._apply_operator_question_policy``).
+QUESTION_POLICY = "operator_questions_forbidden"
 # Records the host writes for a round nobody judged: the Engineer turn ended
 # before review, or the Reviewer leg rendered no verdict. They sit in the round
 # list beside real verdicts but carry no review judgment of any kind.
@@ -83,37 +59,14 @@ HOST_PLACEHOLDER_REVIEW_SOURCES = frozenset(
         "provider_turn_cap",
         "reviewer_unavailable",
         "silent_command",
+        "unchanged_paper",
     }
 )
-
-
-def _env_bool(name: str, default: bool) -> bool:
-    raw = os.environ.get(name)
-    if raw is None or raw.strip() == "":
-        return default
-    return raw.strip().lower() in {"1", "true", "yes", "y", "on"}
 
 
 def _narrative_review_enforcement() -> str:
     raw = os.environ.get(_NARRATIVE_REVIEW_ENFORCEMENT_ENV, "shadow")
     return "blocking" if raw.strip().lower() == "blocking" else "shadow"
-
-
-def configured_engineer_full_round_policy() -> str:
-    """Which Engineer rounds re-send the full static task text.
-
-    A provider session receives the full text on the round that creates it,
-    so ``session`` (the default) re-sends it only when the session cannot
-    already hold the current terms: a newly created or rotated session, a
-    fresh-only policy, a stage that changed since the last full prompt, or a
-    first round whose resumed session has no sealed prior round for this
-    mission. ``legacy`` additionally re-sends it on every round 1 — the
-    historical behavior, kept for rollback. Anything else falls back to
-    ``session``, same shape as ``_narrative_review_enforcement`` above:
-    prompt-mode selection must never break a round over a typo.
-    """
-    raw = os.environ.get(_ENGINEER_FULL_ROUND_POLICY_ENV, "").strip().lower()
-    return raw if raw in ENGINEER_FULL_ROUND_POLICIES else "session"
 
 
 def parse_continue_work_request(message: str | None) -> str | None:
@@ -151,14 +104,6 @@ class EngineerConfig:
     dangerous_yolo: bool = False
     sandbox_mode: str | None = None
     isolate_workdir: bool = False
-    # Leave out the agent CLI's own tools the Engineer does not use (for
-    # Copilot CLI: the session SQL database and the CLI self-documentation
-    # tool). Their schemas and notes are resent on every tool step; the
-    # Engineer keeps state in CHECKPOINT.md. Built-in MCP servers stay.
-    lean_tool_surface: bool = field(
-        default_factory=lambda: _env_bool(_ENGINEER_LEAN_TOOLS_ENV, True),
-        kw_only=True,
-    )
     # Public, historical caller configuration for pipeline stages in which the
     # engineer runs with codex's native live web_search enabled
     # (``codex exec --search``). The value and type of this default are part of
@@ -255,36 +200,6 @@ def _engineer_live_search(workdir: Any, stages: "frozenset[str]") -> bool:
         return False
 
 
-def _fit_guard(threshold: int, reachable_max: int) -> int:
-    """Clamp one absolute round guard into a budget it can still fire in.
-
-    ``0`` means "explicitly disabled" for every guard that uses this, so it is
-    returned untouched. A guard that already fits is returned unchanged, which
-    keeps the default 32-round budget byte-for-byte identical. Anything larger
-    is pulled down to ``reachable_max`` but never below 1, because a guard at 0
-    would read as "disabled" rather than "fires immediately".
-    """
-    value = int(threshold)
-    if value <= 0:
-        return value
-    if value <= reachable_max:
-        return value
-    return max(1, reachable_max)
-
-
-def _fit_stall_guard(threshold: int, budget: int) -> int:
-    """Fit a sustained-stall guard without inventing a one-strike policy."""
-    value = int(threshold)
-    if value <= 0:
-        return value
-    reachable_max = budget - 1
-    if reachable_max <= 0:
-        return 0
-    if value > reachable_max and reachable_max < 2:
-        return 0
-    return _fit_guard(value, reachable_max)
-
-
 @dataclass
 class SupervisedConfig:
     """Knobs for the round-loop control."""
@@ -298,57 +213,9 @@ class SupervisedConfig:
     # Keep the historical reviewed loop by default. Planner-classified
     # low-risk bounded work may opt into an Engineer self-review completion.
     require_independent_review: bool = True
-    no_progress_threshold: int = 2  # consecutive rounds with no engineer message before bailing
-    # Consecutive ``continue`` rounds for which the Reviewer explicitly reports
-    # ``FORWARD_PROGRESS=false``. Missing signals never count: the harness does
-    # not infer scientific progress from prose, files, or activity.
-    stall_threshold: int = 4
-    # Round 1 receives the full task/skill contract. Continuation rounds use
-    # Reviewer guidance plus the shared CHECKPOINT.md baton.
-    compact_continuation_prompts: bool = field(
-        default_factory=lambda: _env_bool(_COMPACT_CONTINUATION_PROMPTS_ENV, True)
-    )
-    # When a round must re-send that full contract rather than the compact
-    # continuation: see ``configured_engineer_full_round_policy``. ``legacy``
-    # restores the historical round-1-always-full behavior.
-    engineer_full_round_policy: str = field(
-        default_factory=configured_engineer_full_round_policy
-    )
-    # Safe round-boundary budget since the last Reviewer-classified decision or
-    # evidence increment. This never interrupts a live provider call.
-    decision_progress_timeout_seconds: int = field(
-        default_factory=lambda: env_int(
-            _DECISION_PROGRESS_TIMEOUT_ENV,
-            _DEFAULT_DECISION_PROGRESS_TIMEOUT_SECONDS,
-        )
-    )
-    # Anti-livelock escalation — after ``soft_round_limit``, two consecutive
-    # Reviewer verdicts without ``forward_progress=true`` settle through the
-    # existing no-progress path. Any true verdict in that two-round window lets
-    # productive long work continue. At
-    # ``hard_escalate_rounds`` the loop requires an explicit Reviewer progress
-    # judgment: known progress (including a short bounded regression before the
-    # stall threshold) may continue, while a missing signal ends the mission so
-    # the planner can re-plan instead of letting the harness continue blind.
-    # 0 disables either guard.
-    soft_round_limit: int = 12
-    hard_escalate_rounds: int = 24
     backend_failure_threshold: int = 2
     backend_failure_backoff_seconds: float = 15.0
     session_id: str | None = None
-    # Product-wide policy: ``auto`` selects bounded rolling sessions for
-    # resumable native CLIs and fresh turns for others. Explicit fresh/mission/
-    # rolling values remain available for rollback and evaluation.
-    role_session_policy: str = field(default_factory=configured_role_session_policy)
-    role_session_max_turns: int = field(
-        default_factory=lambda: env_int(_ROLE_SESSION_MAX_TURNS_ENV, 6)
-    )
-    role_session_max_input_tokens: int = field(
-        default_factory=lambda: env_int(
-            _ROLE_SESSION_MAX_INPUT_TOKENS_ENV,
-            120_000,
-        )
-    )
     role_session_dir: Path | None = None
     # Absolute path to THIS mission's engineer execution log (the per-project
     # ``<life_dir>/events.jsonl``). The reviewer runs in the project work-tree
@@ -375,80 +242,11 @@ class SupervisedConfig:
     checkpoint_path: Path | None = None
     # Mission-level canonical packet. Round handoffs are written beside it.
     context_packet_path: str = ""
-    runner_hard_idle_seconds: int = field(
+    runner_stalled_idle_seconds: int = field(
         default_factory=lambda: env_int(
-            _RUNNER_HARD_IDLE_ENV,
-            _RUNNER_DEFAULT_HARD_IDLE_SECONDS,
+            _RUNNER_STALLED_IDLE_ENV,
+            _RUNNER_DEFAULT_STALLED_IDLE_SECONDS,
         )
-    )
-    # Surface in-flight SUPERVISED subagents (read from
-    # ``<workdir>/.argus_subagents``) in the engineer prompt each round so the
-    # agent does not burn rounds babysitting a self-watched long job, and can
-    # yield through the exact final-line JSON wait request instead of
-    # busy-polling. Env
-    # override: ARGUS_SKILL_BG_SUBAGENT_ADVISORY (0 disables).
-    background_subagent_advisory: bool = field(
-        default_factory=lambda: _env_bool(_BG_SUBAGENT_ADVISORY_ENV, True)
-    )
-    review_background_launches: bool = field(
-        default_factory=lambda: _env_bool("ARGUS_SKILL_REVIEW_BACKGROUND_LAUNCHES", False)
     )
     operator_questions_allowed: bool = True
     operator_question_policy_root: Path | None = None
-    # A Reviewer stall ends the mission with a question to the operator
-    # instead of a plain no-progress stop (venue revisions; see
-    # ``core.venue_review.configure_venue_revisions``).
-    stall_asks_operator: bool = False
-    # While the Engineer waits on work it started itself, the round keeps the
-    # mission slot for as long as this answers True, instead of pausing after
-    # one cadence and paying a Planner turn and a session restart to be resumed
-    # minutes later. The daemon answers from its backlog and inbox. None keeps
-    # the single-cadence pause for callers that run one mission at a time.
-    external_wait_hold: Callable[[], bool] | None = None
-
-    def __post_init__(self) -> None:
-        """Keep the round-budget guards reachable when ``max_rounds`` shrinks.
-
-        ``stall_threshold`` / ``soft_round_limit`` / ``hard_escalate_rounds``
-        are absolute semantic thresholds. A specialized caller may explicitly
-        set a positive round budget for one mission,
-        and a guard whose threshold is not strictly reachable within that
-        budget can then never fire. Nothing reports this: the value stays in
-        the config, is passed
-        to the classifier, and evaluates to ``False`` on every round.
-
-        Semantic stall is counted only from the Reviewer's structured
-        ``FORWARD_PROGRESS=false`` judgment. The harness never derives it from
-        verdict prose or filesystem activity.
-
-        Rescaling preserves each guard's MEANING ("stop after this much
-        fruitless work") expressed in the budget actually available:
-
-        * ``stall_threshold`` needs ``streak >= threshold`` while
-          ``round_index < max_rounds``; a streak cannot exceed the round
-          index, so it must be ``<= max_rounds - 1``. If a configured
-          multi-round threshold cannot fit at least two observations before the
-          final round, it is disabled rather than silently becoming a one-strike
-          policy. Callers may still request ``stall_threshold=1`` explicitly
-          when a two-round budget should stop after its first negative verdict.
-        * ``soft_round_limit`` enforces a two-verdict progress window after the
-          boundary, so it must land strictly inside the budget.
-        * ``hard_escalate_rounds`` is the point where continuation must be backed
-          by the Reviewer's explicit progress judgment. A missing signal ends
-          with a planner-readable reason; reaching this boundary on the final
-          round is still useful, so ``<= max_rounds`` is enough.
-
-        A guard explicitly disabled with ``0`` stays disabled, and a budget
-        large enough for the configured values is left byte-for-byte
-        unchanged.
-        """
-        if self.role_session_policy not in ROLE_SESSION_POLICIES:
-            raise ValueError("role_session_policy must be auto, fresh, mission, or rolling")
-        if self.engineer_full_round_policy not in ENGINEER_FULL_ROUND_POLICIES:
-            raise ValueError("engineer_full_round_policy must be session or legacy")
-        budget = int(self.max_rounds)
-        if budget <= 0:
-            return
-        self.stall_threshold = _fit_stall_guard(self.stall_threshold, budget)
-        self.soft_round_limit = _fit_guard(self.soft_round_limit, budget - 1)
-        self.hard_escalate_rounds = _fit_guard(self.hard_escalate_rounds, budget)

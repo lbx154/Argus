@@ -86,11 +86,6 @@ describe('what the project is doing right now', () => {
     expect(stalled.note).toMatch(/可能卡住了/);
   });
 
-  it('shows the GPU queue as the reason for waiting', () => {
-    const activity = liveActivity(running(), null, work, NOW, 'zh-CN', { position: 2, waitedSeconds: 840 });
-    expect(activity).toMatchObject({ tone: 'waiting', note: '排队等 GPU：第 2 位，已等 14 分钟' });
-  });
-
   it('counts only work, not conversation turns, as actions', () => {
     const chat = [...work, { type: 'ui.operator', text: '你好', ts: NOW - 5 } as EventMsg, { type: 'daemon.command.completed', ts: NOW - 4 } as EventMsg];
     const activity = liveActivity(running(), null, chat, NOW, 'zh-CN');

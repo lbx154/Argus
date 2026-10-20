@@ -24,7 +24,7 @@ def _wait_for(predicate, timeout=10.0):
 
 def test_message_sent_during_a_running_chat_turn_is_answered_afterwards(tmp_path, monkeypatch):
     monkeypatch.setenv("ARGUS_SKILL_HOME", str(tmp_path))
-    monkeypatch.setenv("ARGUS_SKILL_ANSWER_LEARNING", "0")
+    monkeypatch.setenv("ARGUS_SKILL_LEARNING", "0")
     sid = "s-followup"
     workspace = tmp_path / "workspace"
     workspace.mkdir()

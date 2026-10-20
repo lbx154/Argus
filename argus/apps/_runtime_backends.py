@@ -36,7 +36,7 @@ class _Outcome:
     delivery: dict[str, Any] | None = None
     # Set only when a final-submission mission receives Reviewer ``done``.
     final_submission_certified: bool = False
-    # The manuscript the final Reviewer actually read (path/sha256/recorded_at).
+    # The manuscript snapshot the final Reviewer actually read.
     # ``rounds`` above is only a count, so the supervisor cannot recover this
     # from the outcome otherwise; without it the journal records a certified
     # final submission with no manuscript binding and the research completion
@@ -82,9 +82,6 @@ class _Outcome:
     research_result: dict | None = None
     venue_review: dict | None = None
     venue_review_snapshot: dict | None = None
-    # Reviewer-confirmed artifact paths and evidence from the terminal round.
-    # Settlement turns these into a safe, operator-facing delivery receipt.
-    final_frontier_report: dict = field(default_factory=dict)
     final_planner_report: dict = field(default_factory=dict)
     plan_challenge: dict = field(default_factory=dict)
 

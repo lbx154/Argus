@@ -1,7 +1,6 @@
 """Bounded embeddings with explicit wire formats and a text-free cache."""
 from __future__ import annotations
 
-import hashlib
 import http.client
 import json
 import os
@@ -65,8 +64,7 @@ class HttpEmbeddingAdapter:
         # are explicitly separated, even when the endpoint/model are unchanged.
         if config.api_format != "openai":
             identity_fields["api_format"] = config.api_format
-        identity = json.dumps(identity_fields, sort_keys=True)
-        self.identifier = "http-semantic-v1:" + hashlib.sha256(identity.encode()).hexdigest()
+        self.identifier = "http-semantic-v2:" + json.dumps(identity_fields, sort_keys=True)
         self.path = Path(state_root) / "embedding" / "cache.sqlite3"
         _guard_recall_database(self.path)
         _guard_recall_database(self.path.with_name("usage.sqlite3"))
@@ -92,25 +90,28 @@ class HttpEmbeddingAdapter:
             db.execute("PRAGMA auto_vacuum=FULL")
             db.execute("PRAGMA journal_mode=DELETE")
             db.execute("PRAGMA secure_delete=ON")
-            db.execute("CREATE TABLE IF NOT EXISTS vectors (encoder TEXT NOT NULL, input_digest TEXT NOT NULL, "
-                       "vector TEXT NOT NULL, used_at REAL NOT NULL, PRIMARY KEY (encoder, input_digest))")
+            # Vectors are keyed by their input text; the digest-keyed table of
+            # earlier releases can never match again.
+            db.execute("DROP TABLE IF EXISTS vectors")
+            db.execute("CREATE TABLE IF NOT EXISTS cached_vectors (encoder TEXT NOT NULL, input TEXT NOT NULL, "
+                       "vector TEXT NOT NULL, used_at REAL NOT NULL, PRIMARY KEY (encoder, input))")
             db.commit()
             return db
         except BaseException:
             db.close()
             raise
 
-    def _cached(self, digest: str) -> list[float] | None:
+    def _cached(self, text: str) -> list[float] | None:
         with closing(self._open()) as db, db:
-            row = db.execute("SELECT vector FROM vectors WHERE encoder=? AND input_digest=?", (self.identifier, digest)).fetchone()
+            row = db.execute("SELECT vector FROM cached_vectors WHERE encoder=? AND input=?", (self.identifier, text)).fetchone()
             if row is None:
                 return None
             try:
                 result = _normalized(loads_finite_json(row[0]), self.dimensions)
             except (TypeError, ValueError, OverflowError):
-                db.execute("DELETE FROM vectors WHERE encoder=? AND input_digest=?", (self.identifier, digest))
+                db.execute("DELETE FROM cached_vectors WHERE encoder=? AND input=?", (self.identifier, text))
                 return None
-            db.execute("UPDATE vectors SET used_at=? WHERE encoder=? AND input_digest=?", (time.time(), self.identifier, digest))
+            db.execute("UPDATE cached_vectors SET used_at=? WHERE encoder=? AND input=?", (time.time(), self.identifier, text))
             return result
 
     def _reserve(self, size: int) -> None:
@@ -136,18 +137,20 @@ class HttpEmbeddingAdapter:
             db.execute("DELETE FROM budget WHERE day != ? AND day NOT IN "
                        "(SELECT day FROM budget WHERE day != ? ORDER BY day DESC LIMIT 6)", (day, day))
 
-    def _remember(self, digest: str, vector: list[float]) -> None:
+    def _remember(self, text: str, vector: list[float]) -> None:
         encoded = json.dumps(vector, allow_nan=False, separators=(",", ":"))
         with closing(self._open()) as db, db:
-            db.execute("INSERT OR REPLACE INTO vectors VALUES (?,?,?,?)", (self.identifier, digest, encoded, time.time()))
-            db.execute("DELETE FROM vectors WHERE rowid NOT IN (SELECT rowid FROM vectors ORDER BY used_at DESC LIMIT ?)",
-                       (self.config.cache_entries,))
-            rows = list(db.execute("SELECT rowid,length(vector) FROM vectors ORDER BY used_at DESC"))
+            db.execute("INSERT OR REPLACE INTO cached_vectors VALUES (?,?,?,?)", (self.identifier, text, encoded, time.time()))
+            db.execute("DELETE FROM cached_vectors WHERE rowid NOT IN "
+                       "(SELECT rowid FROM cached_vectors ORDER BY used_at DESC LIMIT ?)", (self.config.cache_entries,))
+            rows = list(db.execute(
+                "SELECT rowid,length(vector)+length(input) FROM cached_vectors ORDER BY used_at DESC"
+            ))
             used = 0
             for rowid, size in rows:
                 used += size
                 if used > self.config.cache_max_bytes:
-                    db.execute("DELETE FROM vectors WHERE rowid=?", (rowid,))
+                    db.execute("DELETE FROM cached_vectors WHERE rowid=?", (rowid,))
 
     def _post(self, body: bytes, credential: str, timeout: float) -> bytes:
         if current_run_interrupt_reason():
@@ -282,8 +285,7 @@ class HttpEmbeddingAdapter:
         size = len(text.encode("utf-8"))
         if not text.strip() or size > self.config.max_input_bytes:
             raise EmbeddingUnavailable("embedding redacted input exceeds its byte limit")
-        digest = hashlib.sha256(text.encode()).hexdigest()
-        cached = self._cached(digest)
+        cached = self._cached(text)
         if cached is not None:
             return cached
         budget = self._local.budget
@@ -323,7 +325,7 @@ class HttpEmbeddingAdapter:
         vector = _normalized(data[0]["embedding"], self.dimensions)
         if not any(vector):
             raise EmbeddingUnavailable("embedding response has a zero vector")
-        self._remember(digest, vector)
+        self._remember(text, vector)
         return vector
 
 

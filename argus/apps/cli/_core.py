@@ -668,7 +668,6 @@ def _build_worker_config(args: argparse.Namespace):
     from ...daemon.life_worker import LifeWorkerConfig
     bundle = _resolve_project_bundle(args)
     from ...core.knobs import resolve_role_backend
-    from .._runtime_construction import _resolve_role_runner_backend_name
 
     # See main(): the typed flag wins, then the chain, then an explicit codex.
     # value becomes LifeWorkerConfig.backend, which the daemon now exports as
@@ -684,8 +683,6 @@ def _build_worker_config(args: argparse.Namespace):
     backend = getattr(args, "backend", None) or resolve_role_backend(
         "", default="codex"
     )
-    engineer_backend = _resolve_role_runner_backend_name("engineer", backend)
-    reviewer_backend = _resolve_role_runner_backend_name("reviewer", backend)
     from ...core.knobs import (
         resolve_role_model,
         resolve_role_reasoning_effort,
@@ -701,12 +698,12 @@ def _build_worker_config(args: argparse.Namespace):
         engineer_model=resolve_role_model(
             "engineer",
             role_env="ARGUS_SKILL_ENGINEER_MODEL",
-            backend=engineer_backend,
+            backend=backend,
         ),
         reviewer_model=resolve_role_model(
             "reviewer",
             role_env="ARGUS_SKILL_REVIEWER_MODEL",
-            backend=reviewer_backend,
+            backend=backend,
         ),
         engineer_reasoning_effort=resolve_role_reasoning_effort(
             "ARGUS_SKILL_ENGINEER_REASONING_EFFORT"
@@ -715,7 +712,6 @@ def _build_worker_config(args: argparse.Namespace):
             "ARGUS_SKILL_REVIEWER_REASONING_EFFORT"
         ),
         mission_width=getattr(args, "mission_width", 2),
-        planner_task_iteration_max_cycles=int(os.environ.get("ARGUS_SKILL_PLANNER_TASK_ITERATION_MAX_CYCLES", "0")),
         poll_interval=float(os.environ.get("ARGUS_SKILL_DAEMON_POLL_S", "5.0")),
         continuous=getattr(args, "continuous", False),
         continuous_objective=getattr(args, "objective", ""),
@@ -726,21 +722,6 @@ def _build_worker_config(args: argparse.Namespace):
         ),
         resume_continuous=getattr(args, "resume_continuous", False),
         continuous_open_ended=not bool(getattr(args, "bounded", False)),
-        operator_wait_exit=_operator_wait_exit_enabled(args),
-    )
-
-
-def _operator_wait_exit_enabled(args: argparse.Namespace) -> bool:
-    """A foreground bounded run is the one launched for nobody to watch.
-
-    Workers the web cockpit starts are detached and answered in the UI, so
-    they never end on an unanswered question.
-    """
-    choice = str(getattr(args, "operator_wait_exit", "auto") or "auto")
-    if choice in {"on", "off"}:
-        return choice == "on"
-    return bool(getattr(args, "bounded", False)) and bool(
-        getattr(args, "daemon_fg", False)
     )
 
 
@@ -1414,6 +1395,31 @@ def _cmd_answer(args: argparse.Namespace) -> int:
     item = waiting[0]
     question = str(getattr(item, "pending_question", "") or "").strip()
     card = dict(getattr(item, "operator_decision", {}) or {})
+    if (
+        card.get("decision_kind") == "provider_configuration"
+        and answer.casefold() == "drop"
+    ):
+        # "drop" on the host's provider card ends that task; as free text it
+        # would become a continuation and start another run.
+        from ...webapi.manager_pending_question import (
+            manager_resolve_operator_decision,
+        )
+
+        result = manager_resolve_operator_decision(
+            bundle.project.fingerprint,
+            str(card.get("id") or ""),
+            "drop",
+            global_root=bundle.global_root,
+        )
+        if result is None or result.get("error"):
+            message = str((result or {}).get("error") or "decision is unavailable")
+            sys.stderr.write(f"argus: {message}\n")
+            return 1
+        sys.stdout.write(f"argus: dropped {item.id} ({item.title})\n")
+        reply = str(result.get("reply") or "").strip()
+        if reply:
+            sys.stdout.write(f"  result: {reply}\n")
+        return 0
     if card.get("decision_kind") == "framework_deployment":
         option_id = answer.casefold()
         if option_id not in {"adopt", "decline"}:
@@ -1439,8 +1445,6 @@ def _cmd_answer(args: argparse.Namespace) -> int:
         reply = str(result.get("reply") or "").strip()
         if reply:
             sys.stdout.write(f"  result: {reply}\n")
-        if result.get("resume_requested", True) and not result.get("stopped"):
-            _restart_worker_after_operator_wait_exit(bundle)
         return 0
 
     blocked, continuation = backlog.continue_with_operator_reply(
@@ -1457,42 +1461,11 @@ def _cmd_answer(args: argparse.Namespace) -> int:
         sys.stdout.write(f"  asked:  {question[:160]}\n")
     sys.stdout.write(f"  answer: {answer[:160]}\n")
     sys.stdout.write(f"  continues as: {continuation.id} ({continuation.status})\n")
-    _restart_worker_after_operator_wait_exit(bundle)
+    from ...webapi.manager_pending_question import campaign_stop_reason
+
+    if campaign_stop_reason(bundle.project.root):
+        sys.stdout.write("  campaign: still stopped; resume it to continue\n")
     return 0
-
-
-def _restart_worker_after_operator_wait_exit(bundle: Any) -> None:
-    """Start the worker again if it ended waiting for this answer.
-
-    A bounded run that nobody watched ends as "blocked: needs operator" and
-    leaves a marker. Answering is what it was waiting for, so the answer
-    resumes it instead of leaving the continuation queued with no worker.
-    """
-    from ...core.autonomy import OPERATOR_WAIT_EXIT_FILENAME
-
-    marker = Path(bundle.project.root) / OPERATOR_WAIT_EXIT_FILENAME
-    if not marker.is_file():
-        return
-    try:
-        from ...webapi.daemon_lifecycle import start_project_daemon
-
-        result = start_project_daemon(
-            bundle.project.fingerprint,
-            global_root=bundle.global_root,
-            resume_continuous=True,
-        )
-    except Exception as exc:  # noqa: BLE001 - the answer itself is recorded
-        sys.stderr.write(f"argus: answered, but the worker did not restart: {exc}\n")
-        return
-    rc = int((result or {}).get("rc", 3))
-    if rc == 0:
-        from ...core.autonomy import clear_operator_wait_marker
-
-        clear_operator_wait_marker(bundle.project.root)
-        sys.stdout.write("  worker: restarted to continue with the answer\n")
-    else:
-        detail = str((result or {}).get("error") or "start refused")
-        sys.stderr.write(f"argus: answered, but the worker did not restart: {detail}\n")
 
 
 def _cmd_notify(args: argparse.Namespace) -> int:

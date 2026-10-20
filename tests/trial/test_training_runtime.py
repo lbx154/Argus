@@ -36,7 +36,7 @@ def training(tmp_path):
                           tmp_path / "trial.sqlite3", tmp_path / "compute.sqlite3")
     store = Store(analytics.trial_db)
     with store.transaction() as db:
-        db.execute("INSERT INTO trial_keys(key_id,credential_hash) VALUES ('tenant-one','test-only')")
+        db.execute("INSERT INTO trial_keys(key_id,credential) VALUES ('tenant-one','test-only')")
     analytics.record_consent("tenant-one", analytics.notice_version)
     root = tmp_path / "tenant/home/.argus-skill/projects/s-project"
     root.mkdir(parents=True)
@@ -109,7 +109,7 @@ def test_runtime_outage_and_unconsented_calls_preserve_original_options(monkeypa
 
 
 @pytest.mark.parametrize("role,no_tools,isolated,resumed", [
-    ("planner-bounded-plan", True, True, None),
+    ("planner-preview", True, True, None),
     ("planner.cycle0", False, False, None),
     ("manager.reviewed_facts", True, True, None),
     ("engineer-r2", False, False, "existing-session"),
@@ -524,7 +524,7 @@ def test_real_pi_cli_actual_provider_payload_and_bash_receipts(training, tmp_pat
                     model="argus/test-model", reasoning_effort="low", working_dir=str(workspace),
                     disable_tools=launch_mode == "planner", isolate_workdir=launch_mode == "planner",
                     extra_args=None if launch_mode == "planner" else ["--tools", "read,write,edit,grep,find,ls,bash"],
-                ), run_label="planner-bounded-plan" if launch_mode == "planner" else "engineer-test")
+                ), run_label="planner-preview" if launch_mode == "planner" else "engineer-test")
                 assert result.exit_code == 0, result.fatal_error
             assert launched["extension_present"] and launched["lease"]
             lease = launched["lease"]
@@ -569,7 +569,7 @@ def test_real_pi_cli_actual_provider_payload_and_bash_receipts(training, tmp_pat
         metadata = json.loads(row["runtime_metadata"])
         assert metadata["mission_id"] == mission and metadata["capture_policy"] == "retain-observed-v2"
         if launch_mode == "planner":
-            assert metadata["run_label"] == "planner-bounded-plan"
+            assert metadata["run_label"] == "planner-preview"
         elif launch_mode == "planner_read_only":
             assert metadata["run_label"] == "planner.cycle0"
         assert "source_sha256" not in metadata

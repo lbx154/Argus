@@ -15,7 +15,11 @@ from pathlib import Path
 from typing import Any, Callable
 
 from ..agent_cli._process_control import windows_hidden_subprocess_kwargs
-from ..core.daemon_lock import DaemonAlreadyRunning, acquire_global_daemon_lock
+from ..core.daemon_lock import (
+    DaemonAlreadyRunning,
+    acquire_global_daemon_lock,
+    is_pid_running,
+)
 from .config import LifeWorkerConfig
 from .config import config_from_payload as _config_from_payload
 from .config import config_payload as _config_payload
@@ -35,12 +39,40 @@ _HANDOFF_READY_ENV = "ARGUS_SKILL_DAEMON_HANDOFF_READY"
 _HANDOFF_TOKEN_ENV = "ARGUS_SKILL_DAEMON_HANDOFF_TOKEN"
 _HANDOFF_LOG_ENV = "ARGUS_SKILL_DAEMON_HANDOFF_LOG"
 _HANDOFF_ROLLBACK_SOURCE_ENV = "ARGUS_SKILL_DAEMON_HANDOFF_ROLLBACK_SOURCE"
+_HANDOFF_INCUMBENT_PID_ENV = "ARGUS_SKILL_DAEMON_HANDOFF_INCUMBENT_PID"
 _DEPLOYMENT_ROLL_FILE = "daemon-roll.json"
+# One lock attempt's patience once the lock should be free. Between attempts
+# the candidate checks the incumbent is still alive; there is no overall cap.
+_HANDOFF_LOCK_ATTEMPT_SECONDS = 60.0
 
 
 # ---------------------------------------------------------------------------
 # Blue/green self-handoff
 # ---------------------------------------------------------------------------
+
+
+def _record_handoff_alert(config: LifeWorkerConfig, text: str, *, reason: str) -> None:
+    """Leave the operator a durable, visible note that a handoff went wrong.
+
+    A dropped deployment, or a project left without a daemon, must not live
+    only in a daemon log nobody reads; ``events.jsonl`` is the timeline the
+    operator sees.
+    """
+    from ..core.event_catalog import EventType
+    from ..life.event_log import JsonlEventSink
+
+    # The project's state root: where its daemon's own sink writes, and where
+    # the deployment request this handoff carried was read.
+    try:
+        JsonlEventSink(None, life_dir=Path(config.life_dir)).append({
+            "type": EventType.OPERATOR_ALERT,
+            "operator_alert": True,
+            "reason": reason,
+            "text": text,
+        })
+    except Exception:  # noqa: BLE001 - the log line below still records it
+        log.exception("daemon handoff: could not record the operator alert")
+    log.error("daemon handoff: %s", text)
 
 def _truthy_env(name: str, default: str = "1") -> bool:
     return os.environ.get(name, default).strip().lower() in {
@@ -119,8 +151,11 @@ def _spawn_handoff_candidate(
     standby_timeout: float = 30.0,
     candidate_source_root: Path | None = None,
     rollback_source_root: Path | None = None,
-) -> bool:
-    """Start a fresh interpreter and wait until it reaches standby."""
+) -> int:
+    """Start a fresh interpreter and wait until it reaches standby.
+
+    Returns the standby candidate's pid, or 0 when it did not get there.
+    """
     token = uuid.uuid4().hex
     config.life_dir.mkdir(parents=True, exist_ok=True)
     ready_path = _handoff_ready_path(config.life_dir)
@@ -135,7 +170,7 @@ def _spawn_handoff_candidate(
         config_path.write_text(json.dumps(payload, ensure_ascii=False), encoding="utf-8")
     except OSError:
         log.exception("daemon handoff: failed to write config")
-        return False
+        return 0
     boot_id = _new_boot_id()
     log_path = _daemon_log_path(config.life_dir, config.log_path, boot_id)
     log_path.parent.mkdir(parents=True, exist_ok=True)
@@ -145,6 +180,8 @@ def _spawn_handoff_candidate(
     env[_HANDOFF_READY_ENV] = str(ready_path)
     env[_HANDOFF_TOKEN_ENV] = token
     env[_HANDOFF_LOG_ENV] = str(log_path)
+    # The candidate keeps waiting for the daemon lock while this process lives.
+    env[_HANDOFF_INCUMBENT_PID_ENV] = str(os.getpid())
     if candidate_source_root is not None:
         candidate_root = Path(candidate_source_root).expanduser().resolve()
         pythonpath = [
@@ -189,21 +226,21 @@ def _spawn_handoff_candidate(
     except OSError:
         log.exception("daemon handoff: failed to spawn candidate")
         config_path.unlink(missing_ok=True)
-        return False
+        return 0
 
     deadline = time.monotonic() + standby_timeout
     while time.monotonic() < deadline:
         if proc.poll() is not None:
             log.warning("daemon handoff: candidate exited early rc=%s", proc.returncode)
             config_path.unlink(missing_ok=True)
-            return False
+            return 0
         try:
             data = json.loads(ready_path.read_text(encoding="utf-8"))
         except (OSError, ValueError, TypeError):
             time.sleep(0.1)
             continue
         if data.get("token") == token and data.get("state") == "standby":
-            return True
+            return int(proc.pid)
         time.sleep(0.1)
     log.warning("daemon handoff: candidate did not reach standby in %.1fs", standby_timeout)
     try:
@@ -212,7 +249,7 @@ def _spawn_handoff_candidate(
         pass
     config_path.unlink(missing_ok=True)
     ready_path.unlink(missing_ok=True)
-    return False
+    return 0
 
 
 def _acquire_daemon_lock_with_timeout(
@@ -291,10 +328,41 @@ def run_handoff_child_process(
     pid_path = _daemon_pid_path(config.life_dir)
     status_path = _daemon_status_path(config.life_dir)
     try:
-        lock = acquire_lock(pid_path, 60.0)
-    except DaemonAlreadyRunning as exc:
-        log.error("handoff candidate could not acquire daemon lock (pid=%s)", exc.pid)
-        return 2
+        incumbent_pid = int(os.environ.get(_HANDOFF_INCUMBENT_PID_ENV, "") or 0)
+    except ValueError:
+        incumbent_pid = 0
+    while True:
+        try:
+            lock = acquire_lock(pid_path, _HANDOFF_LOCK_ATTEMPT_SECONDS)
+            break
+        except DaemonAlreadyRunning as exc:
+            # An incumbent from a release before the variable above names
+            # itself only as the lock holder, so the first holder seen is it.
+            if incumbent_pid <= 0 and exc.pid:
+                incumbent_pid = int(exc.pid)
+            # The incumbent holds the lock until it has drained, however long
+            # that takes. Giving up while it still lived stranded the project:
+            # the incumbent exited moments later with no successor left. Only
+            # a lock now held by some other process ends the wait.
+            if (
+                incumbent_pid > 0
+                and exc.pid in (None, incumbent_pid)
+                and is_pid_running(incumbent_pid)
+            ):
+                log.info(
+                    "handoff candidate: incumbent pid=%s is still draining; waiting",
+                    incumbent_pid,
+                )
+                continue
+            _record_handoff_alert(
+                config,
+                f"A runtime handoff ({payload.get('reason') or 'unspecified'}) was "
+                f"dropped: the daemon lock is held by pid {exc.pid or 'unknown'}, "
+                "not the daemon that started the handoff. That daemon keeps "
+                "running; the handed-off runtime was not adopted.",
+                reason="daemon_handoff_lock_taken",
+            )
+            return 2
 
     started_iso = datetime.now(timezone.utc).isoformat()
     try:
@@ -332,7 +400,13 @@ def run_handoff_child_process(
             reason="handoff candidate failed; restore prior runtime",
             candidate_source_root=root,
         ):
-            log.error("handoff rollback candidate did not start")
+            _record_handoff_alert(
+                config,
+                "The handed-off runtime failed after taking over and the prior "
+                "runtime did not restart in its place: no daemon is running for "
+                "this project. Start it again with `argus --daemon`.",
+                reason="daemon_handoff_rollback_failed",
+            )
     return rc
 
 
@@ -342,12 +416,14 @@ def run_handoff_child_process(
 
 __all__ = [
     "_HANDOFF_CONFIG_ENV",
+    "_HANDOFF_INCUMBENT_PID_ENV",
     "_HANDOFF_LOG_ENV",
     "_HANDOFF_READY_ENV",
     "_HANDOFF_ROLLBACK_SOURCE_ENV",
     "_HANDOFF_TOKEN_ENV",
     "_consume_deployment_handoff",
     "_acquire_daemon_lock_with_timeout",
+    "_record_handoff_alert",
     "_spawn_handoff_candidate",
     "_strip_git_config_injection",
     "_truthy_env",

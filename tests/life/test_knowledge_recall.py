@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-import hashlib
 import os
 import sqlite3
 from contextlib import closing
@@ -26,7 +25,7 @@ def write(path: Path, text: str) -> Path:
 
 def rows(recall):
     with closing(sqlite3.connect(recall.index.path)) as connection:
-        return list(connection.execute("SELECT id,revision,digest,direct_terms,transfer_terms,vector FROM documents"))
+        return list(connection.execute("SELECT id,revision,version,direct_terms,transfer_terms,vector FROM documents"))
 
 
 def wiki(workspace: Path, text: str) -> Path:
@@ -51,7 +50,7 @@ def test_direct_markdown_edit_replaces_index_identity_then_archive_and_delete_re
     assert before.keys() == after.keys()
     changed = [key for key in before if before[key] != after[key]]
     assert len(changed) == 1
-    assert before[changed[0]][5] != after[changed[0]][5]
+    assert before[changed[0]][2] != after[changed[0]][2]
     assert "quartz" not in after[changed[0]][3]
     SkillStore(skill.parents[1]).archive_path(skill)
     page.unlink()
@@ -88,7 +87,7 @@ def test_busy_cancellable_recall_uses_current_markdown_without_rebuilding_held_c
         with bounded_file_lock_wait(timeout_seconds=float("inf"), cancelled=lambda: False):
             context = recall.render_context("sapphire")
             assert str(page) in context
-            assert hashlib.sha256(page.read_bytes()).hexdigest()[:12] in context
+            assert "sapphire corrected boundary" in context
         assert recall.index.path.stat().st_ino == inode
         assert recall.index.path.read_bytes() == before
         holder.rollback()
@@ -139,9 +138,8 @@ def test_memory_planner_and_engineer_use_current_knowledge_with_shared_budget(tm
     for context in (memory.render_prelude(objective="quartz"), host._render_journal_entries_for_planner([]),
                     host._build_mission_prelude(item)):
         assert str(page) in context
-    old_digest = hashlib.sha256(page.read_bytes()).hexdigest()[:12]
     write(page, "quartz revised measured constraint")
-    assert old_digest not in memory.render_prelude(objective="quartz")
+    assert "quartz measured constraint" not in memory.render_prelude(objective="quartz")
     for budget in (1, 20, 600, 6000):
         assert len(memory.render_recall_context("quartz", max_chars=budget)) <= budget
     page.unlink()

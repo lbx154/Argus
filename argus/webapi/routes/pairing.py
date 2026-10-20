@@ -1,7 +1,6 @@
 """Short-lived, one-use links that bootstrap the existing browser pairing."""
 from __future__ import annotations
 
-import hashlib
 import secrets
 import threading
 import time
@@ -23,16 +22,15 @@ _HEADERS = {
 
 
 def register_pairing_routes(app, ctx: ServerContext) -> None:
-    # Only hashes are retained, bounded in count/time and invalidated on restart.
+    # Codes live only in memory, bounded in count/time and invalidated on restart.
     pending: dict[str, float] = {}
     lock = threading.Lock()
 
     def valid(code: str, *, consume: bool = False) -> bool:
-        digest = hashlib.sha256(code.encode()).hexdigest()
         with lock:
-            expiry = pending.get(digest, 0)
+            expiry = pending.get(code, 0)
             if consume or expiry <= time.monotonic():
-                pending.pop(digest, None)
+                pending.pop(code, None)
             return expiry > time.monotonic()
 
     @app.post("/api/pairing-links", dependencies=[Depends(ctx.require_auth)])
@@ -41,13 +39,13 @@ def register_pairing_routes(app, ctx: ServerContext) -> None:
             raise HTTPException(409, "This server does not require browser pairing")
         now = time.monotonic()
         with lock:
-            for digest, expiry in list(pending.items()):
+            for known, expiry in list(pending.items()):
                 if expiry <= now:
-                    del pending[digest]
+                    del pending[known]
             if len(pending) >= _MAX_LINKS:
                 raise HTTPException(429, "Too many unexpired pairing links")
             code = secrets.token_urlsafe(24)
-            pending[hashlib.sha256(code.encode()).hexdigest()] = now + _TTL_SECONDS
+            pending[code] = now + _TTL_SECONDS
         response.headers.update(_HEADERS)
         return {"path": f"/pair/{code}", "expires_in": _TTL_SECONDS}
 

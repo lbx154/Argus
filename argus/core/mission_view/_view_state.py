@@ -94,7 +94,6 @@ def empty_mission_view() -> dict[str, Any]:
         },
         "achievement": None,
         "review": {"status": "", "reason": "", "rejected_attempts": 0},
-        "frontier": {"change": "", "summary": "", "updated_at": 0.0},
         # One structured receipt links completion, chat, and the right-side
         # result surface.  It is null until a successful mission settles.
         "delivery": None,
@@ -159,7 +158,6 @@ def _read_unlocked(root: Path) -> dict[str, Any]:
     payload.setdefault("language", "")
     payload.setdefault("learned_wiki_pages", [])
     payload.setdefault("role_work", [])
-    payload.setdefault("frontier", {"change": "", "summary": "", "updated_at": 0.0})
     payload.setdefault("delivery", None)
     payload.setdefault("outcome", {})
     routing = payload.setdefault("routing", {})
@@ -257,7 +255,7 @@ _PROJECTED_EVENT_TYPES = frozenset({
     EventType.LIFE_PLANNER_START,
     EventType.LIFE_PLANNER_TASK_ADDED,
     EventType.LIFE_PLANNER_VERDICT,
-    EventType.LIFE_PLANNER_WAITING,
+    EventType.LIFE_PLANNER_IDLE,
     EventType.LIFE_PLANNER_TERMINAL_IDLE,
     EventType.LIFE_PLANNER_ERROR,
     EventType.LIFE_MISSION_STARTED,

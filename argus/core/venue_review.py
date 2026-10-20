@@ -6,6 +6,7 @@ recommendation and binds that judgment to the selected venue and rendered work.
 from __future__ import annotations
 
 import re
+import time
 from pathlib import Path
 from typing import Any, Mapping
 
@@ -17,12 +18,8 @@ RECOMMENDATIONS = (
 )
 ACCEPTED_RECOMMENDATIONS = frozenset({"weak_accept", "accept", "strong_accept", "best_paper"})
 FINAL_REVIEW_FEEDBACK_CHARS = 12_000
-# A venue revision has no round ceiling, but rounds the Reviewer judges to make
-# no progress do not go on without end: after this many in a row the mission
-# stops and asks the operator how to continue, and a question left unanswered
-# this long is decided by the Manager. Operator decision, 2026-10-19.
-VENUE_STALL_ROUNDS = 5
-VENUE_STALL_DECISION_SECONDS = 12 * 3600.0
+#: The intervention that keeps a finished verdict open below the operator's bar.
+ACCEPTANCE_BAR_POLICY = "operator_acceptance_bar"
 
 
 def requires_venue_review(*, vertical: str, stage: str, scope: str = "", operation: str = "evaluate") -> bool:
@@ -57,25 +54,6 @@ def selected_acceptance_minimum(state_root: Path | str) -> str:
 
     value = read_pipeline_state(state_root).get("venue_acceptance_minimum", "weak_accept")
     return re.sub(r"[\s-]+", "_", str(value).strip().lower())
-
-
-def configure_venue_revisions(config: Any) -> None:
-    """Remove quality-convergence ceilings while preserving operational stops.
-
-    The one kept is the stall: rounds the Reviewer judges to make no progress
-    end the mission with a question to the operator (VENUE_STALL_ROUNDS).
-    """
-    config.max_rounds = 0
-    # Reaching a per-call context allowance is housekeeping, not a failed
-    # scientific revision. A long figure/experiment repair can need more than
-    # three fresh sessions before it is ready for independent review.
-    config.provider_turn_cap_streak_limit = 0
-    config.stall_threshold = VENUE_STALL_ROUNDS
-    config.stall_asks_operator = True
-    config.soft_round_limit = 0
-    config.hard_escalate_rounds = 0
-    config.decision_progress_timeout_seconds = 0
-    config.require_independent_review = True
 
 
 def _venue_key(value: str) -> str:
@@ -135,15 +113,15 @@ def venue_review_issue(value: Any, *, venue: str, minimum: str = "weak_accept") 
     return ""
 
 
-def paper_review_snapshot(project_root: Path | str) -> dict[str, str] | None:
-    """Bind the actual paper closure, including rendered PDF and figure bytes."""
-    from .manuscript_narrative_runtime import manuscript_closure_sha256
+def paper_review_snapshot(project_root: Path | str) -> dict[str, Any] | None:
+    """Bind the actual paper closure, including rendered PDF and figure files."""
+    from .manuscript_narrative_runtime import manuscript_closure_facts
 
     root = Path(project_root)
     if not (root / "paper/main.tex").is_file() or not (root / "paper/main.pdf").is_file():
         return None
     try:
-        return {"sha256": manuscript_closure_sha256(root)}
+        return {"files": manuscript_closure_facts(root)}
     except (OSError, ValueError):
         return None
 
@@ -160,67 +138,36 @@ def current_venue_acceptance_issue(review: Any, *, state_root: Path | str, artif
         return "final venue recommendation was not supplied by the independent Reviewer"
     recorded = getattr(review, "venue_review_snapshot", None)
     current = paper_review_snapshot(artifact_root)
-    if not recorded or not current:
+    # A binding from before file facts named a digest that can no longer be checked.
+    if not isinstance(recorded, dict) or not recorded.get("files") or not current:
         return "venue recommendation is not bound to a complete source and rendered paper"
     if recorded != current:
         return "the paper or its figures changed after the venue recommendation"
     return ""
 
 
-def _keep_final_repairs_in_place(decision: Any) -> None:
-    """Scientific peer-review repairs are Engineer work in this final mission."""
-    report = dict(decision.planner_report) if isinstance(decision.planner_report, dict) else {}
-    replanning = decision.status == "replan_requested"
-    if replanning:
-        decision.status = "blocked" if decision.operator_question else "continue"
-        _drop_routing_judgments(decision)
-        report = dict(decision.planner_report)
-    if decision.status != "continue":
-        return
-    # Preserve the useful technical proposal, but do not turn a final-review
-    # suggestion into a settled mission and a trip back through planning.
-    if replanning or report.get("plan_signal") == "reconsider" or report.get("challenge") or report.get("alternative"):
-        proposal = "\n\n".join(
-            str(report.get(key) or "").strip() for key in ("challenge", "alternative")
-            if str(report.get(key) or "").strip()
-        )
-        guidance = decision.next_action.strip() or decision.reason.strip()
-        decision.next_action = "\n\n".join(
-            part for part in (
-                "Carry out the scientific repairs and necessary experiments directly in the current final Review. "
-                "Update the current paper and return for independent peer review; do not roll back to an earlier stage.",
-                guidance,
-                proposal if proposal and proposal not in guidance else "",
-            ) if part
-        )
-        decision.planner_report = {
-            key: value for key, value in without_routing_judgments(report).items()
-            if key not in {"plan_signal", "challenge", "alternative", "authority_impact"}
-        }
-
-
-def _drop_routing_judgments(decision: Any) -> None:
-    """The host changed this verdict; the Reviewer's routing judgments no longer hold."""
-    decision.planner_report = without_routing_judgments(decision.planner_report)
-
-
 def enforce_venue_acceptance(
-    decision: Any, *, venue: str, before: dict[str, str] | None, artifact_root: Path | str,
+    decision: Any, *, venue: str, before: dict[str, Any] | None, artifact_root: Path | str,
     minimum: str = "weak_accept",
 ) -> None:
-    """Apply the stated minimum to the Reviewer's own assessment, never re-grade it."""
+    """Hold the operator's minimum against the Reviewer's own assessment.
+
+    The verdict stays as the Reviewer wrote it. A finished verdict whose
+    assessment misses the operator's bar keeps ``venue_review_passed`` False,
+    which keeps the mission open (``ReviewDecision.final_submission_certified``),
+    and the host records why beside the verdict.
+    """
     decision.venue_review_required = True
     decision.venue_review_passed = False
     decision.venue_review_snapshot = before
     assessment = normalize_venue_review(decision.venue_review)
     if decision.venue_review is None and decision.status != "done":
-        _keep_final_repairs_in_place(decision)
         return
     if assessment is None or (venue and _venue_key(assessment["venue"]) != _venue_key(venue)):
         # An incomplete/wrong-venue response is a Reviewer failure. Retry that
         # read-only leg; do not ask Engineer to alter a paper to fix the protocol.
         decision.status = "blocked"
-        _drop_routing_judgments(decision)
+        decision.planner_report = without_routing_judgments(decision.planner_report)
         decision.backend_unavailable = True
         decision.backend_stop_kind = "backend_unavailable"
         decision.reason = f"Final Reviewer omitted a valid assessment for {_venue_phrase(venue)}."
@@ -238,54 +185,18 @@ def enforce_venue_acceptance(
     decision.venue_review = assessment
     if not issue:
         decision.venue_review_passed = True
-        _keep_final_repairs_in_place(decision)
-        return
-    if decision.status == "done" or (decision.status == "blocked" and not decision.operator_question and not decision.backend_unavailable):
-        decision.status = "continue"
-        _drop_routing_judgments(decision)
-    # The review already explains its scientific judgment in the user's
-    # language. Do not prepend an internal protocol explanation to every
-    # rejection, or turn that duplicate text into the Engineer's feedback.
-    if not before or not current or before != current:
-        from .operator_messages import uses_cjk
-
-        message = (
-            "论文和图件需要生成完整的最新 PDF，再按这个版本复审。"
-            if uses_cjk(decision.reason)
-            else "Render the complete current paper and figures, then review that version."
-        )
-        decision.reason = f"{message}\n\n{decision.reason}"
-    elif not decision.reason.strip():
-        decision.reason = assessment["rationale"]
-    if not decision.next_action.strip():
-        repairs = "; ".join(assessment["blocking_issues"]) or assessment["rationale"]
-        standard = "the selected venue's standard" if venue else "the stated standard"
-        decision.next_action = f"Revise the current paper against {standard}: " + repairs
-    if (
-        minimum in ACCEPTED_RECOMMENDATIONS
-        and assessment["recommendation"] in ACCEPTED_RECOMMENDATIONS
-        and RECOMMENDATIONS.index(assessment["recommendation"]) < RECOMMENDATIONS.index(minimum)
-    ):
-        # A sincere weak accept must not silently end a strong-accept mission,
-        # nor be relabelled as strong accept. Preserve the review verbatim and
-        # carry the higher scientific objective to Engineer as separate guidance.
-        from .operator_messages import uses_cjk
-
-        label = minimum.replace("_", " ")
-        instruction = (
-            f"用户要求论文实际达到 {label}。保留 Reviewer 对当前版本的真实评级，"
-            "继续落实意见中最有价值、可行的贡献、方法和实验改进；"
-            "先做能区分科学解释的检验，再更新论文并送正式 Reviewer 复审。"
-            "不能只改措辞、重画合格图或把评级改高来结束。"
-            if uses_cjk(decision.reason)
-            else f"The operator requires actual {label} quality. Preserve this honest rating "
-            "and pursue the review's most valuable feasible contribution, method, and "
-            "experimental improvements. Run the decisive test, update the paper, and return "
-            "to the formal Reviewer. Wording changes, redrawing sound figures, or relabelling "
-            "the rating do not meet that objective."
-        )
-        decision.next_action = instruction + "\n\n" + decision.next_action
-    _keep_final_repairs_in_place(decision)
+    elif decision.status == "done":
+        decision.interventions = [*decision.interventions, {
+            "policy": ACCEPTANCE_BAR_POLICY,
+            "action": "kept_open",
+            "at": time.time(),
+            "note": (
+                f"the operator's bar ({minimum.replace('_', ' ')} or better) is not met, so "
+                f"the paper stays open: {issue}. Revise the current paper against "
+                + ("the selected venue's standard" if venue else "the stated standard")
+                + " and return it for independent review"
+            ),
+        }]
 
 
 def venue_review_instruction(venue: str, *, minimum: str = "weak_accept") -> str:
@@ -369,8 +280,8 @@ def venue_review_instruction(venue: str, *, minimum: str = "weak_accept") -> str
         "current recommendation for the selected venue, its evidence, and whether Engineer "
         "should make further changes before completion in your own words. A best-paper-level "
         "assessment describes your judgment of quality, not an award. The host records "
-        "the actual reviewed manuscript version. You own the current paper/REVIEW.md: "
-        "update that same report each round with current strengths, resolved concerns, "
-        "remaining opportunities and useful next experiments, rather than creating "
-        "another report or repeating an obsolete judgment.\n"
+        "the actual reviewed manuscript version. Your review becomes the current "
+        "paper/REVIEW.md: give the whole current report each round with current strengths, "
+        "resolved concerns, remaining opportunities and useful next experiments, rather "
+        "than repeating an obsolete judgment.\n"
     )

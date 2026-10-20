@@ -1,8 +1,8 @@
-"""Planning-cycle phase: waiting-verdict handling and project_done normalization.
+"""Planning-cycle phase: handoff handling and project_done normalization.
 
-Covers the planner's ``waiting`` branch (Manager-feedback-unresolved check,
-open-ended wait reconciliation, plan-revision rollback, recorded waiting entry,
-and the stall-breaker verification probe), followed by the full-paper-gate
+Covers a Planner turn that adds no work and names who acts next
+(Manager-feedback-unresolved check, the Manager handoff, plan-revision
+rollback, the recorded handoff), followed by the full-paper-gate
 override, the research-target completion gate, revision/project_done
 rejection, open-ended vs. plain ``project_done`` handling, and the
 degenerate no-new-tasks rejection. All of this runs after the planner has
@@ -11,13 +11,16 @@ returned a non-error verdict but before any backlog dedupe/enqueue.
 
 from __future__ import annotations
 
-import re
+import json
+import logging
+import uuid
 from dataclasses import replace
 from pathlib import Path
 from typing import Any
 
 from ...core.event_catalog import EventType
 from ...core.planner_verdict import PlannerVerdictStatus
+from ...core.workspace_facts import fact_text
 from ..memory import BacklogItem
 from ._constants import (
     COMPLETION_REJECTION_CIRCUIT_THRESHOLD,
@@ -27,6 +30,7 @@ from ._constants import (
     PLANNER_TASKS_FILTERED_DIAGNOSTIC,
     PROJECT_REPORT_MODEL_ATTEMPTS,
 )
+from ._planner_failure_backoff import MANAGER_HANDOFF_UNANSWERED
 from ._planning_cycle_helpers import (
     _PlanCycleState,
     _research_project_done_issue,
@@ -38,9 +42,11 @@ from ._planning_cycle_helpers import (
     record_completion_rejection,
 )
 
+log = logging.getLogger(__name__)
+
 
 class PlanningCycleCompletionMixin:
-    """Waiting handling + project_done normalization + no-tasks rejection."""
+    """Handoff handling + project_done normalization + no-tasks rejection."""
 
     def _bounded_completion_issue(
         self,
@@ -91,43 +97,18 @@ class PlanningCycleCompletionMixin:
         return research_issue
 
     def _pc_is_certified_operator_wait(self, state: _PlanCycleState) -> bool:
-        """Recognize an actual Planner handoff, never infer handling from a cert."""
+        """An open-ended Planner hands a certified increment to the operator."""
         verdict = state.verdict
         if (
             not state.planner_invoked
             or state.revision_request is not None
             or not self.config.open_ended
             or verdict.error
-            or not verdict.waiting
+            or verdict.handoff != "operator"
             or verdict.project_done
             or verdict.new_tasks
             or verdict.retire_tasks
             or verdict.advance_to_stage
-        ):
-            return False
-        contract = verdict.waiting_contract
-        if contract is not None and (
-            not contract.operator_action_required
-            or contract.stage_reconciliation_required
-            or contract.allow_verification_probe
-            or contract.watched_paths
-            or set(contract.wake_on) - {"authorization", "operator_input"}
-        ):
-            return False
-        # A generic wait (including credentials or an experiment result) is not
-        # acceptance of the certified increment. Require an explicit handoff to
-        # *new* direction, including legacy uncontracted Planner responses.
-        reason = str(verdict.waiting_reason or verdict.reason or "").strip()
-        if not re.search(
-            r"(?:\b(?:wait(?:ing)?|await(?:ing)?)\s+(?:only\s+)?(?:for\s+)?"
-            r"(?:(?:the|a)\s+)?(?:new|fresh|further|next)\s+"
-            r"(?:explicit\s+)?(?:(?:operator|user|research)\s+)?"
-            r"(?:direction|instruction|request)s?"
-            r"|(?:等待|等候)(?:(?:操作员|用户|操作者)的?)?"
-            r"(?:新的?|进一步的?)(?:明确的?)?(?:研究)?(?:指示|指令|方向))"
-            r"[\s.!。！]*$",
-            reason,
-            re.IGNORECASE,
         ):
             return False
         return bool(
@@ -135,7 +116,6 @@ class PlanningCycleCompletionMixin:
                 item.status not in {"done", "failed", "aborted", "skipped", "superseded"}
                 for item in self.memory.backlog.active()
             )
-            and not self._waitable_subagent_jobs()
             and self._effective_final_certification_gate(self._artifact_root())
             and self._journal_has_final_certification()
             and self._manager_final_stage_is_completed()
@@ -147,10 +127,7 @@ class PlanningCycleCompletionMixin:
             or getattr(getattr(self, "memory", None), "root", None)
             or self._artifact_root()
         )
-        return completion_rejection_circuit_path(
-            Path(str(root)),
-            str(getattr(self.config, "continuous_objective", "") or ""),
-        )
+        return completion_rejection_circuit_path(Path(str(root)))
 
     def _completion_rejection_stop_loss(
         self,
@@ -245,8 +222,6 @@ class PlanningCycleCompletionMixin:
 
     def _manager_project_completion_context(self) -> dict[str, Any]:
         """Separate historical stage decisions from current workspace evidence."""
-        import hashlib
-
         from ...core.autonomy import read_autonomous_assumptions
         from ...core.manuscript_snapshot import manuscript_review_status
         from ...core.pipeline_state import read_pipeline_state
@@ -298,13 +273,14 @@ class PlanningCycleCompletionMixin:
                 continue
             path = workdir / safe
             try:
-                row: dict[str, Any] = {"path": safe, "size_bytes": path.stat().st_size}
+                stat = path.stat()
+                row: dict[str, Any] = {
+                    "path": safe, "size_bytes": stat.st_size, "modified_ns": stat.st_mtime_ns,
+                }
                 # Only named deliverables, never a recursive workspace/log scan.
                 with path.open("rb") as handle:
                     raw = handle.read(4 * 1024 * 1024 + 1)
-                if len(raw) <= 4 * 1024 * 1024:
-                    row["sha256"] = hashlib.sha256(raw).hexdigest()
-                else:
+                if len(raw) > 4 * 1024 * 1024:
                     row["content_status"] = "too_large_for_inline_evidence; inspect read-only"
                 if path.suffix.lower() in {".tex", ".md", ".txt", ".json"}:
                     row["excerpt"] = raw[:12000].decode("utf-8", errors="replace")
@@ -361,10 +337,14 @@ class PlanningCycleCompletionMixin:
     def _manager_publish_project_report(
         self, completion_reason: str, *, certified_increment: bool = False,
     ) -> str:
-        """Have Manager summarize the completed full stage ledger to the operator."""
-        import hashlib
-        import json
+        """Have Manager summarize the completed full stage ledger to the operator.
 
+        The same completion, with the same evidence, is reported once: its
+        facts and message id are recorded before publishing, so a retry
+        reuses the id and finds an already published report. The Manager's
+        text is recorded too, so a failed publish never buys a second report.
+        A failure alerts the operator once and backs off like an idle cycle.
+        """
         stage = str(self._current_pipeline_stage() or "")
         report_root = self._manager_project_report_root()
         context = self._manager_project_completion_context()
@@ -374,20 +354,22 @@ class PlanningCycleCompletionMixin:
                 standing_objective_active=True,
                 final_submission_signature=self._final_submission_signature(),
             )
-        fingerprint = hashlib.sha256(
-            json.dumps(
-                {
-                    "project_conversation": str(report_root.resolve()),
-                    "objective": self.config.continuous_objective,
-                    "reason": completion_reason,
-                    "context": context,
-                },
-                ensure_ascii=False,
-                sort_keys=True,
-                separators=(",", ":"),
-            ).encode("utf-8")
-        ).hexdigest()[:20]
-        message_id = f"manager-project-report-{fingerprint}"
+        facts = fact_text({
+            "project_conversation": str(report_root.resolve()),
+            "objective": self.config.continuous_objective,
+            "reason": completion_reason,
+            "context": context,
+        })
+        record_path = report_root / "manager-project-report.json"
+        try:
+            record = json.loads(record_path.read_text(encoding="utf-8"))
+        except (OSError, ValueError):
+            record = {}
+        if not (isinstance(record, dict) and record.get("facts") == facts and record.get("message_id")):
+            record = {"facts": facts, "message_id": f"manager-project-report-{uuid.uuid4().hex}"}
+            report_root.mkdir(parents=True, exist_ok=True)
+            record_path.write_text(json.dumps(record) + "\n", encoding="utf-8")
+        message_id = str(record["message_id"])
         from ...core.transcript import read_turns
 
         if any(
@@ -396,14 +378,11 @@ class PlanningCycleCompletionMixin:
         ):
             return "reported"
 
-        # The outbox retries this report on every pass, so a backend that keeps
-        # failing once meant a Manager call every poll interval. Failures back
-        # off, and the model gets PROJECT_REPORT_MODEL_ATTEMPTS tries at one
-        # completion; then the operator gets the stage summary instead.
-        failures = getattr(self, "_project_report_failures", None)
-        if failures is None:
-            failures = self._project_report_failures = {}
-        fallback = failures.get(message_id, 0) >= PROJECT_REPORT_MODEL_ATTEMPTS
+        report = str(record.get("report") or "")
+        # A backend that keeps failing gets PROJECT_REPORT_MODEL_ATTEMPTS tries
+        # at one completion; then the operator gets the stage summary Argus can
+        # state without the model.
+        fallback = not report and int(record.get("failures") or 0) >= PROJECT_REPORT_MODEL_ATTEMPTS
         if fallback:
             from ...manager import fallback_project_report
 
@@ -412,23 +391,25 @@ class PlanningCycleCompletionMixin:
                 "Manager could not write the project completion report after "
                 f"{PROJECT_REPORT_MODEL_ATTEMPTS} attempts; sending the stage summary instead"
             )
-        else:
+        elif not report:
             try:
-                report = self._bound_manager().report_project_completion(
+                report = str(self._bound_manager().report_project_completion(
                     completion_context=context,
                     continuous_objective=self.config.continuous_objective,
                     completion_reason=completion_reason,
                     on_event=getattr(self.sink, "handle_event", None),
-                )
+                ) or "").strip()
             except Exception as exc:  # noqa: BLE001 - retain the outbox for retry
-                self._emit({
-                    "type": "life.manager.project_report.failed",
-                    "error": f"{type(exc).__name__}: {exc}",
-                })
-                return self._project_report_failed(message_id)
-            if not str(report or "").strip():
-                self._emit_status("Manager could not produce the project completion report")
-                return self._project_report_failed(message_id)
+                return self._project_report_failed(record_path, record, f"{type(exc).__name__}: {exc}")
+            if not report:
+                return self._project_report_failed(
+                    record_path, record, "Manager could not produce the project completion report",
+                )
+            record["report"] = report
+            try:
+                record_path.write_text(json.dumps(record) + "\n", encoding="utf-8")
+            except OSError:
+                log.warning("project report text not recorded; a retry asks the Manager again")
         try:
             from ...core.operator_messages import publish_operator_message
 
@@ -445,14 +426,11 @@ class PlanningCycleCompletionMixin:
                 turn.get("message_id") == message_id
                 for turn in read_turns(report_root)
             ):
-                self._emit_status("Manager project report could not be published")
-                return self._project_report_failed(message_id)
+                return self._project_report_failed(
+                    record_path, record, "Manager project report could not be published",
+                )
         except Exception as exc:  # noqa: BLE001 - notification cannot own the verdict
-            self._emit({
-                "type": "life.manager.project_report.failed",
-                "error": f"{type(exc).__name__}: {exc}",
-            })
-            return self._project_report_failed(message_id)
+            return self._project_report_failed(record_path, record, f"{type(exc).__name__}: {exc}")
         self._emit({
             "type": "life.manager.project_report",
             "stage": stage,
@@ -463,15 +441,33 @@ class PlanningCycleCompletionMixin:
             "message_id": message_id,
             **({"fallback": True} if fallback else {}),
         })
-        failures.pop(message_id, None)
         self._clear_manager_planner_feedback()
         return "reported"
 
-    def _project_report_failed(self, message_id: str) -> str:
-        """Count a failed completion report and back off before the next try."""
-        failures = self._project_report_failures
-        failures[message_id] = failures.get(message_id, 0) + 1
-        self._enter_pause_backoff()
+    def _project_report_failed(self, record_path: Path, record: dict[str, Any], error: str) -> str:
+        """Record a failed completion report, alert once, and back off.
+
+        The outbox keeps the completion, so the report is retried; but only
+        after an idle backoff (doubling, capped), never at the daemon's poll
+        rate, and the operator hears about it once per report, not per retry.
+        """
+        self._emit({"type": "life.manager.project_report.failed", "error": error})
+        first = not record.get("failures") and getattr(self, "_project_report_alerted", "") != record["message_id"]
+        record["failures"] = int(record.get("failures") or 0) + 1
+        record["error"] = error
+        try:
+            record_path.write_text(json.dumps(record) + "\n", encoding="utf-8")
+        except OSError:
+            log.warning("project report failure not recorded", exc_info=True)
+        if first:
+            self._project_report_alerted = record["message_id"]
+            self._emit({
+                "type": EventType.OPERATOR_ALERT,
+                "operator_alert": True,
+                "reason": "project_report_failed",
+                "text": f"The project is complete, but its completion report failed ({error}); Argus keeps retrying with backoff.",
+            })
+        self._enter_idle_backoff()
         return PLAN_ERROR
 
     def _manager_final_stage_is_completed(self) -> bool:
@@ -512,111 +508,127 @@ class PlanningCycleCompletionMixin:
         self._emit_status("planner: terminal stage certified and Manager held; idling")
         return PLAN_TERMINAL_IDLE
 
-    def _pc_handle_waiting(self, state: _PlanCycleState) -> Any | None:
+    def _pc_handle_handoff(self, state: _PlanCycleState) -> Any | None:
         verdict = state.verdict
         revision_request = state.revision_request
         expected_plan_id = state.expected_plan_id
         expected_plan_version = state.expected_plan_version
 
-        if verdict.waiting:
-            feedback = self._load_manager_planner_feedback()
-            if feedback is not None:
-                diagnostic = str(feedback.get("diagnostic") or "")
-                if diagnostic == PLANNER_TASKS_FILTERED_DIAGNOSTIC:
-                    # Filtered-task feedback says every proposed task
-                    # duplicated live backlog work. A deliberate wait answers
-                    # that feedback instead of dodging it: nothing new is
-                    # schedulable until the live work moves, so hand control
-                    # to the waiting contract rather than another replan.
-                    self._clear_manager_planner_feedback()
-                else:
-                    if self._record_manager_feedback_no_progress(
-                        "planner returned waiting instead of revision tasks"
-                    ):
-                        self._emit_status(
-                            "planner ignored unresolved Manager feedback; retry later"
-                        )
-                    self._enter_idle_backoff()
-                    return PLAN_ERROR
-            if self._pc_is_certified_operator_wait(state):
-                state.certified_operator_wait = True
-                state.verdict = replace(verdict, waiting=False, project_done=True)
-                return self._pc_normalize_project_done(state)
-            if revision_request is not None:
-                reconciliation_result = self._reconcile_open_ended_planner_waiting(verdict)
-                if reconciliation_result == "rollback":
-                    superseding_plan_id = f"manager-rollback-{BacklogItem.new_id()}"
-                    try:
-                        result = self.memory.backlog.supersede_active_plan(
-                            expected_plan_id=expected_plan_id,
-                            expected_version=expected_plan_version,
-                            supersede_item_ids=[item.id for item in state.revision_active_items],
-                            superseded_by_plan_id=superseding_plan_id,
-                            reason=verdict.waiting_reason or verdict.reason,
-                        )
-                    except Exception as exc:  # noqa: BLE001
-                        self._emit(
-                            {
-                                "type": EventType.LIFE_PLAN_REVISION_REJECTED,
-                                "reason": (
-                                    "Manager rolled back stage but active plan could "
-                                    f"not be retired: {type(exc).__name__}: {exc}"
-                                ),
-                                "expected_plan_id": expected_plan_id,
-                                "expected_plan_version": expected_plan_version,
-                            }
-                        )
-                        return PLAN_ERROR
-                    for item_id in result.superseded_ids:
-                        self._emit(
-                            {
-                                "type": EventType.LIFE_PLAN_NODE_SUPERSEDED,
-                                "item_id": item_id,
-                                "plan_id": expected_plan_id,
-                                "plan_version": expected_plan_version,
-                                "superseded_by_plan_id": superseding_plan_id,
-                                "reason": verdict.waiting_reason or verdict.reason,
-                            }
-                        )
+        if not verdict.handoff:
+            return None
+        if verdict.new_tasks:
+            # The tasks run. A stage handed to the Manager is put to it first:
+            # a stage it moves leaves these tasks planned against the old one,
+            # so plan again under the new stage. A question goes on the card.
+            if revision_request is None and self._reconcile_planner_handoff(verdict) in {"hold", "rollback"}:
+                return PLAN_RETRY
+            if verdict.handoff == "operator":
+                self._park_planner_question(
+                    state, verdict.operator_question or verdict.reason, verdict.reason,
+                )
+            return None
+        feedback = self._load_manager_planner_feedback()
+        if feedback is not None:
+            if str(feedback.get("diagnostic") or "") == PLANNER_TASKS_FILTERED_DIAGNOSTIC:
+                # Filtered-task feedback says every proposed task duplicated
+                # live backlog work. Adding nothing answers it: nothing new is
+                # schedulable until the live work moves.
+                self._clear_manager_planner_feedback()
+            else:
+                if self._record_manager_feedback_no_progress(
+                    "planner handed off instead of revision tasks"
+                ):
+                    self._emit_status(
+                        "planner ignored unresolved Manager feedback; retry later"
+                    )
+                self._enter_idle_backoff()
+                return PLAN_ERROR
+        if self._pc_is_certified_operator_wait(state):
+            state.certified_operator_wait = True
+            state.verdict = replace(verdict, handoff="", project_done=True)
+            return self._pc_normalize_project_done(state)
+        if revision_request is not None:
+            reconciliation_result = self._reconcile_planner_handoff(verdict)
+            if reconciliation_result == "rollback":
+                superseding_plan_id = f"manager-rollback-{BacklogItem.new_id()}"
+                try:
+                    result = self.memory.backlog.supersede_active_plan(
+                        expected_plan_id=expected_plan_id,
+                        expected_version=expected_plan_version,
+                        supersede_item_ids=[item.id for item in state.revision_active_items],
+                        superseded_by_plan_id=superseding_plan_id,
+                        reason=verdict.reason,
+                    )
+                except Exception as exc:  # noqa: BLE001
                     self._emit(
                         {
-                            "type": "life.plan.revision.rolled_back",
-                            "old_plan_id": expected_plan_id,
-                            "old_plan_version": expected_plan_version,
-                            "superseded_item_ids": list(result.superseded_ids),
-                            "reason": verdict.waiting_reason or verdict.reason,
+                            "type": EventType.LIFE_PLAN_REVISION_REJECTED,
+                            "reason": (
+                                "Manager rolled back stage but active plan could "
+                                f"not be retired: {type(exc).__name__}: {exc}"
+                            ),
+                            "expected_plan_id": expected_plan_id,
+                            "expected_plan_version": expected_plan_version,
                         }
                     )
-                    return PLAN_RETRY
-                if reconciliation_result:
-                    return PLAN_RETRY
+                    return PLAN_ERROR
+                for item_id in result.superseded_ids:
+                    self._emit(
+                        {
+                            "type": EventType.LIFE_PLAN_NODE_SUPERSEDED,
+                            "item_id": item_id,
+                            "plan_id": expected_plan_id,
+                            "plan_version": expected_plan_version,
+                            "superseded_by_plan_id": superseding_plan_id,
+                            "reason": verdict.reason,
+                        }
+                    )
                 self._emit(
                     {
-                        "type": EventType.LIFE_PLAN_REVISION_REJECTED,
-                        "reason": "replacement planner returned waiting",
-                        "expected_plan_id": expected_plan_id,
-                        "expected_plan_version": expected_plan_version,
+                        "type": "life.plan.revision.rolled_back",
+                        "old_plan_id": expected_plan_id,
+                        "old_plan_version": expected_plan_version,
+                        "superseded_item_ids": list(result.superseded_ids),
+                        "reason": verdict.reason,
                     }
                 )
-            if revision_request is None and self._reconcile_open_ended_planner_waiting(verdict):
                 return PLAN_RETRY
-            record = self._record_planner_waiting(verdict)
-            # Stall-breaker: if the planner has idled K+ cycles on the same
-            # blocker, force a verification probe so reality (not a memory of
-            # the blocker) drives the next decision. Running it next tick resets
-            # the idle backoff via _reset_idle_backoff().
-            if self._maybe_dispatch_verification_probe(verdict):
-                return True
-            return record
+            if reconciliation_result == "unanswered":
+                return self._pc_handoff_unanswered(state)
+            if reconciliation_result:
+                return PLAN_RETRY
+            self._emit(
+                {
+                    "type": EventType.LIFE_PLAN_REVISION_REJECTED,
+                    "reason": "replacement planner handed off instead of planning",
+                    "expected_plan_id": expected_plan_id,
+                    "expected_plan_version": expected_plan_version,
+                }
+            )
+        if revision_request is None:
+            reconciliation_result = self._reconcile_planner_handoff(verdict)
+            if reconciliation_result == "unanswered":
+                return self._pc_handoff_unanswered(state)
+            if reconciliation_result:
+                return PLAN_RETRY
+        return self._record_planner_handoff(verdict, state)
 
-        # The Planner has explicitly moved on from waiting. Preserve the
-        # historical probed-token set for deduplication, but stop injecting the
-        # old blocker into subsequent planning context.
-        self._deactivate_planner_waiting_contract()
-        self._last_planner_wait_reconciliation_key = None
-        self._planner_waits_since_reconciliation = 0
-        self._uncontracted_wait_probed = False
-        return None
+    def _pc_handoff_unanswered(self, state: _PlanCycleState) -> str:
+        """The Manager's backend left the Planner's handoff unanswered.
+
+        Argus launched that backend, so the turn failed: the Planner's failure
+        streak paces the retry, alerts, and stops it with the operator told.
+        """
+        state.verdict = replace(
+            state.verdict, reason=MANAGER_HANDOFF_UNANSWERED, error=MANAGER_HANDOFF_UNANSWERED,
+        )
+        self._emit({
+            "type": EventType.LIFE_PLANNER_ERROR,
+            "cycle": self._planning_cycles,
+            "error": MANAGER_HANDOFF_UNANSWERED,
+        })
+        self._enter_pause_backoff()
+        return PLAN_ERROR
 
     def _pc_normalize_project_done(self, state: _PlanCycleState) -> Any | None:
         verdict = state.verdict
@@ -699,7 +711,7 @@ class PlanningCycleCompletionMixin:
 
         staged_goal_candidate = bool(
             verdict.project_done
-            or (not planner_declared_done and not verdict.waiting and not verdict.new_tasks)
+            or (not planner_declared_done and not verdict.handoff and not verdict.new_tasks)
         )
         if staged_goal_candidate and revision_request is None:
             goal_gate_issue = _staged_goal_completion_issue(self._artifact_root())
@@ -792,15 +804,13 @@ class PlanningCycleCompletionMixin:
                         "bounded_completion_invariant_failed",
                     )
             if certified_increment:
-                if state.certified_operator_wait:
-                    self._deactivate_planner_waiting_contract()
-                    self._last_planner_wait_reconciliation_key = None
-                    self._planner_waits_since_reconciliation = 0
                 reason = (
                     "Independent final certification is current: this increment "
                     "is complete, not the standing campaign. The objective remains "
-                    "active; waiting for new operator input or changed project state."
+                    "active until new operator input or changed project state."
                 )
+                if state.certified_operator_wait and verdict.operator_question:
+                    reason += f" The Planner asks: {verdict.operator_question}"
                 delivered = self._emit_planner_verdict(
                     status=PlannerVerdictStatus.COMPLETED,
                     completion_kind="certified_increment",
@@ -891,7 +901,7 @@ class PlanningCycleCompletionMixin:
             }
         )
         self._emit_status("planner error: produced no tasks; retry later")
-        # No tasks, no waiting flag, not done: a degenerate no-work cycle.
+        # No tasks, no handoff, not done: a degenerate no-work cycle.
         # Back off so repeated empty plans cannot spin the daemon.
         self._enter_idle_backoff()
         return PLAN_ERROR

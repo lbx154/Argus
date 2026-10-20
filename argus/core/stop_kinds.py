@@ -1,6 +1,7 @@
 """Structured reasons a backend call stopped without a usable result."""
 from __future__ import annotations
 
+from dataclasses import dataclass
 from typing import Any, Literal, TypeAlias, cast
 
 StopKind: TypeAlias = Literal[
@@ -127,22 +128,6 @@ _STOP_KIND_CLAUSES: dict[str, tuple[str, str]] = {
     ),
 }
 
-_PAUSE_STATUS_STOP_KINDS: dict[str, str] = {
-    "paused_budget": "budget_exhausted",
-    "paused_cost": "cost_unreconciled",
-    "paused_provider_cooldown": "provider_cooldown",
-    "paused_provider_fence": "provider_fence",
-    "paused_daemon_shutdown": "daemon_shutdown",
-    "paused_operator": "operator_pause",
-}
-
-_PAUSE_STATUS_CLAUSES: dict[str, tuple[str, str]] = {
-    "paused_external_work": (
-        "work outside Argus had to finish first",
-        "需要先等 Argus 之外的工作完成",
-    ),
-}
-
 
 def stop_kind_clause(value: Any, *, chinese: bool = False) -> str:
     """The reason a call stopped, worded for a reader; empty for unknown kinds."""
@@ -153,30 +138,116 @@ def stop_kind_clause(value: Any, *, chinese: bool = False) -> str:
     return zh if chinese else english
 
 
-def pause_status_clause(value: Any, *, chinese: bool = False) -> str:
-    """Why a task carrying a ``paused_*`` status paused, worded for a reader.
+@dataclass(frozen=True)
+class ParkRule:
+    """Who ends a park."""
 
-    Returns an empty string for statuses that do not describe a pause, so the
-    caller can fall back to the stop kind or a generic sentence.
+    holder: Literal["operator", "planner", "runtime", "world"]
+    auto_resume: bool = False  # the runtime rechecks the condition by itself
+
+
+# Why a backlog item is parked: a stop kind, or a park no backend stop
+# explains. A ``parked`` row records its reason in ``outcome["park"]["reason"]``;
+# a row an older release wrote names it in its status (_LEGACY_PARK_REASONS).
+_PARK_RULES: dict[str, ParkRule] = {
+    "budget_exhausted": ParkRule("runtime", auto_resume=True),
+    "cost_unreconciled": ParkRule("runtime", auto_resume=True),
+    "daemon_shutdown": ParkRule("runtime", auto_resume=True),
+    "provider_cooldown": ParkRule("world", auto_resume=True),
+    # An older release parked work on a job it watched; it resumes at once.
+    "external_work": ParkRule("runtime", auto_resume=True),
+    "provider_fence": ParkRule("operator"),
+    "operator_pause": ParkRule("operator"),
+    "operator_question": ParkRule("operator"),
+    "infra": ParkRule("world"),
+    "research_open": ParkRule("planner"),
+}
+# A park whose reason is unknown (an old ``paused`` row, a reason a newer
+# release added) is the Planner's to retire, so nothing waits on it forever.
+_UNKNOWN_PARK = ParkRule("planner")
+
+_LEGACY_PARK_REASONS: dict[str, str] = {
+    "paused": "",
+    "paused_budget": "budget_exhausted",
+    "paused_cost": "cost_unreconciled",
+    "paused_provider_cooldown": "provider_cooldown",
+    "paused_provider_fence": "provider_fence",
+    "paused_daemon_shutdown": "daemon_shutdown",
+    "paused_operator": "operator_pause",
+    "paused_external_work": "external_work",
+    "research_incomplete": "research_open",
+    "paused_no_breakthrough": "research_open",
+    "exhausted_current_methods": "research_open",
+    "infra_blocked": "infra",
+}
+PARK_STATUSES = frozenset({"parked", *_LEGACY_PARK_REASONS})
+
+_PARK_REASON_CLAUSES: dict[str, tuple[str, str]] = {
+    "external_work": (
+        "work outside Argus had to finish first",
+        "需要先等 Argus 之外的工作完成",
+    ),
+    "operator_question": (
+        "a question is waiting for the operator",
+        "有问题在等操作员回答",
+    ),
+}
+
+
+def park_reason_of(status: Any, recorded: Any = "") -> str | None:
+    """Why a row or event with ``status`` is parked; ``None`` when it is not.
+
+    ``recorded`` is the reason a ``parked`` row or event carries. An older
+    status names its own, and a ``paused_*`` status this table does not know
+    is a park whose reason is unknown (``""``).
     """
-    status = str(value or "").strip().lower()
-    if status in _PAUSE_STATUS_STOP_KINDS:
-        return stop_kind_clause(_PAUSE_STATUS_STOP_KINDS[status], chinese=chinese)
-    if status in _PAUSE_STATUS_CLAUSES:
-        english, zh = _PAUSE_STATUS_CLAUSES[status]
+    status = str(status or "").strip().lower()
+    if status == "parked":
+        return str(recorded or "").strip().lower()
+    if status in _LEGACY_PARK_REASONS:
+        return _LEGACY_PARK_REASONS[status]
+    return "" if status.startswith("paused_") else None
+
+
+def park_rule(reason: Any) -> ParkRule:
+    return _PARK_RULES.get(str(reason or ""), _UNKNOWN_PARK)
+
+
+def is_pause_status(status: Any) -> bool:
+    """Whether an event's ``status`` reads as a pause: ``parked`` or ``paused_*``."""
+    status = str(status or "").strip().lower()
+    return status == "parked" or status.startswith("paused_")
+
+
+def park_clause(status: Any, recorded: Any = "", *, chinese: bool = False) -> str:
+    """Why a parked row or event paused, worded for a reader.
+
+    Returns an empty string for a status that is not a park, so the caller can
+    fall back to the stop kind or a generic sentence.
+    """
+    reason = park_reason_of(status, recorded)
+    if reason is None:
+        return ""
+    if reason in _PARK_REASON_CLAUSES:
+        english, zh = _PARK_REASON_CLAUSES[reason]
         return zh if chinese else english
-    if status.startswith("paused_"):
-        return "工作被暂停" if chinese else "the work was paused"
-    return ""
+    return stop_kind_clause(reason, chinese=chinese) or (
+        "工作被暂停" if chinese else "the work was paused"
+    )
 
 
 __all__ = [
     "NON_FAILURE_STOP_KINDS",
+    "PARK_STATUSES",
     "RECOVERABLE_STOP_KINDS",
     "STOP_KINDS",
+    "ParkRule",
     "StopKind",
+    "is_pause_status",
     "normalize_stop_kind",
-    "pause_status_clause",
+    "park_clause",
+    "park_reason_of",
+    "park_rule",
     "pause_status_for_stop_kind",
     "stop_kind_clause",
     "stop_kind_from_external_interrupt",

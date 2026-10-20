@@ -38,7 +38,7 @@ from argus.skills.vertical_select import (
 from argus.verticals._base import load_vertical_contract
 
 CERTIFIED = "research"
-NOT_CERTIFIED = ("math", "math_synth", "kernel_engineering", "software")
+NOT_CERTIFIED = ("software", "argus_maintenance", "learning")
 
 
 class _Harness(PlanningContextMixin):
@@ -70,10 +70,18 @@ def test_an_undecided_project_is_not_at_its_final_gate(tmp_path) -> None:
 def test_a_vertical_without_a_certified_gate_stays_ungated(
     tmp_path, vertical
 ) -> None:
-    """``math_synth`` (a metric vertical) is the shape that, gated, wedges forever."""
     from argus.skills.vertical_select import persist_vertical
 
     persist_vertical(tmp_path, vertical)
+
+    assert _Harness(tmp_path)._effective_final_certification_gate(tmp_path) is False
+
+
+def test_a_metric_vertical_stays_ungated(tmp_path, optimize_vertical) -> None:
+    """A metric vertical is the shape that, gated, wedges forever."""
+    from argus.skills.vertical_select import persist_vertical
+
+    persist_vertical(tmp_path, optimize_vertical)
 
     assert _Harness(tmp_path)._effective_final_certification_gate(tmp_path) is False
 
@@ -111,7 +119,7 @@ def test_a_workdir_that_records_no_decision_does_not_gate(tmp_path) -> None:
     workdir = tmp_path / "argus-testbed-univ24-r16"
     state_root.mkdir()
     workdir.mkdir()
-    persist_vertical(state_root, "math")
+    persist_vertical(state_root, "software")
 
     harness = _Harness(state_root)
 

@@ -69,12 +69,10 @@ test('verifier accepts the upstream minisign prehashed interoperability vector',
     'trusted comment: timestamp:1556193335\tfile:test',
     'y/rUw2y8/hOUYjZU71eHp/Wo1KZ40fGy2VJEDl34XMJM+TX48Ss/17u3IvIfbVR1FkZZSNCisQbuQY+bHwhEBg==',
   ].join('\n'));
-  assert.deepEqual(verifyTauriSignature(filename, signature, pubkey), {
-    bytes: 4, sha256: createHash('sha256').update('test').digest('hex'),
-  });
+  assert.deepEqual(verifyTauriSignature(filename, signature, pubkey), { bytes: 4 });
 });
 
-test('staging verifies copied fixture bytes and emits Windows-only metadata and hashes', t => {
+test('staging verifies copied fixture bytes and emits Windows-only metadata', t => {
   const f = fixture(t);
   const result = stageWindowsRelease({ ...f, now: new Date('2026-09-14T00:00:00Z') });
   assert.equal(result.signature_verified, true);
@@ -84,13 +82,11 @@ test('staging verifies copied fixture bytes and emits Windows-only metadata and 
   assert.equal(manifest.pub_date, '2026-09-14T00:00:00.000Z');
   assert.equal(manifest.platforms['windows-x86_64'].url,
     'https://github.com/lbx154/Argus/releases/download/v0.1.7/Argus-0.1.7-setup.exe');
-  const checked = verifyTauriSignature(path.join(f.outputDir, result.installer),
-    manifest.platforms['windows-x86_64'].signature, f.signer.pubkey);
-  assert.equal(result.sha256, checked.sha256);
-  for (const line of fs.readFileSync(path.join(f.outputDir, 'SHA256SUMS'), 'utf8').trim().split('\n')) {
-    const [expected, name] = line.split('  ');
-    assert.equal(createHash('sha256').update(fs.readFileSync(path.join(f.outputDir, name))).digest('hex'), expected);
-  }
+  assert.deepEqual(fs.readFileSync(path.join(f.outputDir, result.installer)), fs.readFileSync(f.installer));
+  assert.equal(result.bytes, fs.statSync(f.installer).size);
+  assert.deepEqual(verifyTauriSignature(path.join(f.outputDir, result.installer),
+    manifest.platforms['windows-x86_64'].signature, f.signer.pubkey), { bytes: result.bytes });
+  assert.equal(fs.existsSync(path.join(f.outputDir, 'SHA256SUMS')), false);
 });
 
 test('missing signatures do not create an output directory', t => {

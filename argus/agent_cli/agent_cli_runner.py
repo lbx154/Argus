@@ -6,7 +6,7 @@ import from this module (``argus.adapters.agent_cli_backend`` wraps
 argv construction, the sandbox gate, prompt delivery, event parsing, OpenCode
 recovery, process-group termination, and the ``run_exec`` phases — lives in
 the small internal mixin modules imported below; this file only owns
-construction, the small ACP-scope instance state, and the composed class.
+construction and the composed class.
 
 ``import os`` / ``import subprocess`` stay here (even though this module no
 longer calls them directly) because several tests patch
@@ -24,12 +24,9 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Callable, Literal
 
-from ._acp_routing import AcpRoutingMixin
-
-# Re-exported: ``tests/agent_cli/test_incomplete_turn_error.py`` and
-# ``tests/test_run_exec_stream_callback.py`` import these two names directly
-# from ``agent_cli_runner`` rather than from ``_env``.
-from ._env import _incomplete_turn_error, _turn_wall_clock_seconds  # noqa: F401
+# Re-exported: ``tests/agent_cli/test_incomplete_turn_error.py`` imports this
+# name directly from ``agent_cli_runner`` rather than from ``_env``.
+from ._env import _incomplete_turn_error  # noqa: F401
 from ._event_consumers import EventConsumerMixin
 from ._opencode_recovery import OpenCodeRecoveryMixin
 from ._process_control import ProcessControlMixin
@@ -106,7 +103,6 @@ class RunnerOptions:
     # Enable codex's native live web_search tool (``-c web_search="live"``).
     live_search: bool = False
     extra_args: list[str] | None = None
-    review_output: dict[str, str] | None = None
     working_dir: str | None = None
     watchdog_soft_idle_seconds: int | None = None
     watchdog_stalled_idle_seconds: int | None = None
@@ -138,7 +134,6 @@ class RunnerOptions:
 
 
 class AgentCliRunner(
-    AcpRoutingMixin,
     RunExecMixin,
     CommandBuilderMixin,
     PromptDeliveryMixin,
@@ -148,10 +143,9 @@ class AgentCliRunner(
 ):
     """Drives one codex/claude/copilot/cursor/opencode/pi/grok/dsh CLI turn.
 
-    This class itself only owns construction and ACP-scope state; every other
-    behavior comes from the mixins above (each documented in its own module):
+    This class itself only owns construction; every other behavior comes
+    from the mixins above (each documented in its own module):
 
-    - ``_acp_routing.AcpRoutingMixin``: warm ``copilot --acp`` fast path.
     - ``_run_exec.RunExecMixin``: the public ``run_exec`` entry point, split
       into its start-gate / spawn / stream / finalize phases.
     - ``_sandbox_commands.CommandBuilderMixin``: per-backend argv construction
@@ -182,4 +176,3 @@ class AgentCliRunner(
         self.event_callback = event_callback
         self.default_extra_args = list(default_extra_args or [])
         self.before_exec = before_exec
-        self._acp_scope = f"runner:{id(self):x}"

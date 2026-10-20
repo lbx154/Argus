@@ -1,8 +1,10 @@
-"""Host rewrites of a Reviewer verdict drop the Reviewer's routing judgments.
+"""A host intervention sits beside a Reviewer verdict and keeps its judgments.
 
-``manager_attention`` and ``learning`` describe the verdict the Reviewer wrote.
-When the host changes that verdict's status or strips its signals, they no
-longer apply, so they are read as absent: the Manager looks, reflection runs.
+``learning`` describes the verdict the Reviewer wrote.
+The host no longer rewrites that verdict: an intervention records what the
+host did beside it, so the Reviewer's routing judgments still apply. Only a
+review the host must retry, because its venue assessment is missing, drops
+them.
 """
 from __future__ import annotations
 
@@ -13,77 +15,42 @@ import pytest
 from argus.core.models import REVIEW_ROUTING_JUDGMENTS, ReviewDecision
 from argus.core.pipeline_state import read_pipeline_state, write_pipeline_state
 from argus.core.venue_review import (
-    _keep_final_repairs_in_place,
+    ACCEPTANCE_BAR_POLICY,
     enforce_venue_acceptance,
     paper_review_snapshot,
 )
 from argus.skills.vertical_select import persist_vertical
 
-JUDGED = {
-    "manager_attention": "not_needed", "manager_attention_reason": "Clear repair.",
-    "learning": "nothing_new", "learning_reason": "Routine.",
-}
+JUDGED = {"learning": "nothing_new", "learning_reason": "Routine."}
 
 
 def _review(status: str, **report) -> ReviewDecision:
     return ReviewDecision(
         status=status, reason="The table is correct.", next_action="",
-        planner_report={"forward_progress": True, **JUDGED, **report},
+        planner_report={**JUDGED, **report},
     )
 
 
-def _assert_dropped(review: ReviewDecision) -> None:
-    assert not set(REVIEW_ROUTING_JUDGMENTS) & set(review.planner_report)
-    assert "manager_attention" not in review.to_event_payload()
+def _assert_kept(review: ReviewDecision) -> None:
+    assert {key: review.planner_report[key] for key in JUDGED} == JUDGED
+    assert review.to_event_payload()["learning"] == "nothing_new"
 
 
-def test_the_operator_question_policy_drops_the_judgments():
-    from argus.engineer.round_config import SupervisedConfig
-    from argus.engineer.round_settlement import _enforce_operator_question_policy
+def test_the_operator_question_policy_keeps_the_verdict_and_its_judgments():
+    from argus.engineer.round_config import QUESTION_POLICY, SupervisedConfig
+    from argus.engineer.round_settlement import _apply_operator_question_policy
     from argus.engineer.round_state import RoundLoopState
 
     review = _review("blocked")
     review.operator_question = "Which dataset may we use?"
     config = SupervisedConfig(operator_questions_allowed=False)
 
-    rewritten = _enforce_operator_question_policy(review, supervised_config=config, state=RoundLoopState())
+    recorded = _apply_operator_question_policy(review, supervised_config=config, state=RoundLoopState())
 
-    assert rewritten.status == "continue"
-    _assert_dropped(rewritten)
-
-
-def test_a_declared_background_run_override_drops_the_judgments():
-    from argus.engineer.runner import hold_review_for_pending_background_run
-
-    rewritten = hold_review_for_pending_background_run(_review("done"))
-
-    assert rewritten.status == "continue"
-    _assert_dropped(rewritten)
-
-
-def test_a_final_review_replan_kept_in_place_drops_the_judgments():
-    review = _review("replan_requested", plan_signal="reconsider", challenge="Wrong baseline.")
-
-    _keep_final_repairs_in_place(review)
-
-    assert review.status == "continue"
-    _assert_dropped(review)
-
-
-def test_a_final_review_signal_strip_drops_the_judgments():
-    review = _review("continue", plan_signal="reconsider", challenge="Wrong baseline.")
-
-    _keep_final_repairs_in_place(review)
-
-    _assert_dropped(review)
-
-
-def test_the_reviewer_s_own_continue_keeps_its_judgments():
-    review = _review("continue")
-
-    _keep_final_repairs_in_place(review)
-
-    assert review.planner_report["manager_attention"] == "not_needed"
+    assert recorded.status == "blocked"
+    assert recorded.operator_question == "Which dataset may we use?"
+    assert recorded.intervention(QUESTION_POLICY)
+    _assert_kept(recorded)
 
 
 @pytest.fixture
@@ -98,7 +65,18 @@ def paper(tmp_path: Path) -> Path:
     return tmp_path
 
 
-def test_a_venue_done_downgraded_to_continue_drops_the_judgments(paper):
+def test_a_final_review_replan_stays_the_reviewers(paper):
+    review = _review("replan_requested", plan_signal="reconsider", challenge="Wrong baseline.")
+
+    enforce_venue_acceptance(review, venue="ICLR", before=paper_review_snapshot(paper), artifact_root=paper)
+
+    assert review.status == "replan_requested"
+    assert review.planner_report["challenge"] == "Wrong baseline."
+    assert not review.interventions
+    _assert_kept(review)
+
+
+def test_a_venue_done_below_the_bar_stays_done_beside_an_intervention(paper):
     review = _review("done")
     review.venue_review = {
         "venue": "ICLR 2027", "recommendation": "weak_reject", "acceptance_clear": False,
@@ -107,8 +85,11 @@ def test_a_venue_done_downgraded_to_continue_drops_the_judgments(paper):
 
     enforce_venue_acceptance(review, venue="ICLR", before=paper_review_snapshot(paper), artifact_root=paper)
 
-    assert review.status == "continue"
-    _assert_dropped(review)
+    assert review.status == "done"
+    assert review.reason == "The table is correct."
+    assert not review.final_submission_certified
+    assert review.intervention(ACCEPTANCE_BAR_POLICY)["action"] == "kept_open"
+    _assert_kept(review)
 
 
 def test_a_missing_venue_assessment_drops_the_judgments(paper):
@@ -118,4 +99,5 @@ def test_a_missing_venue_assessment_drops_the_judgments(paper):
     enforce_venue_acceptance(review, venue="ICLR", before=paper_review_snapshot(paper), artifact_root=paper)
 
     assert review.status == "blocked"
-    _assert_dropped(review)
+    assert not set(REVIEW_ROUTING_JUDGMENTS) & set(review.planner_report)
+    assert "learning" not in review.to_event_payload()

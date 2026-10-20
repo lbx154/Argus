@@ -7,7 +7,6 @@ import sys
 import pytest
 
 from argus.roles.prompts import engineer as engineer_prompts
-from argus.roles.prompts import planner as planner_prompts
 from argus.roles.task_contract import (
     format_native_shell_command,
     native_shell_contract,
@@ -40,12 +39,11 @@ def test_windows_command_formatter_uses_call_operator_and_powershell_quotes() ->
     )
 
 
-def test_engineer_and_bounded_planner_receive_windows_contract(monkeypatch) -> None:
+def test_engineer_receives_windows_contract(monkeypatch) -> None:
     contract = native_shell_contract(platform_name="nt")
     summary = native_shell_summary(platform_name="nt")
     monkeypatch.setattr(engineer_prompts, "native_shell_contract", lambda: contract)
     monkeypatch.setattr(engineer_prompts, "native_shell_summary", lambda: summary)
-    monkeypatch.setattr(planner_prompts, "native_shell_contract", lambda: contract)
 
     engineer = engineer_prompts.build_mission_prompt(
         task="repair the Windows command path",
@@ -58,12 +56,10 @@ def test_engineer_and_bounded_planner_receive_windows_contract(monkeypatch) -> N
         next_action=None,
         include_static=False,
     )
-    planner = planner_prompts.build_bounded_dag_prompt("repair the command path")
 
     assert summary in engineer
     assert contract not in engineer
     assert contract in continuation
-    assert contract in planner
 
 
 @pytest.mark.skipif(os.name != "nt", reason="native PowerShell integration test")
@@ -135,26 +131,3 @@ def test_npx_cmd_avoids_blocked_powershell_wrapper_without_changing_policy(tmp_p
     assert allowed.returncode == 0, allowed.stderr
     assert allowed.stdout.strip() == "cmd-wrapper-ok"
 
-
-@pytest.mark.skipif(os.name != "nt", reason="native PowerShell expression preflight regression")
-def test_powershell_static_expression_is_not_treated_as_missing_executable(tmp_path) -> None:
-    from argus.tools.subagent._experiment_preflight import experiment_launch_preflight
-
-    marker = tmp_path / "expression-output"
-    path = str(marker).replace("'", "''")
-    command = f"[IO.File]::WriteAllText('{path}','native-expression-ok')"
-    rejected, reason = experiment_launch_preflight(
-        task_id="expression-fixture", command=command, cwd=str(tmp_path), run_dir=None,
-    )
-    assert not rejected, reason
-    result = subprocess.run(
-        ["powershell.exe", "-NoProfile", "-NonInteractive", "-Command", command],
-        capture_output=True, text=True, check=False, timeout=10,
-    )
-    assert result.returncode == 0, result.stderr
-    assert marker.read_text() == "native-expression-ok"
-    rejected, reason = experiment_launch_preflight(
-        task_id="missing-fixture", command="argus-intentionally-missing-executable-9741",
-        cwd=str(tmp_path), run_dir=None,
-    )
-    assert rejected and "not available on PATH" in reason

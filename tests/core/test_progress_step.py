@@ -141,8 +141,6 @@ def test_workspace_from_the_caller_marks_internal_files() -> None:
         ("/data/someone/subject-repo/README.md", "查阅 README.md"),
         ("/srv/state/projects/s-1/handoffs/0f40/CHECKPOINT.md", "查阅 Argus 内部文件"),
         ("/srv/state/skills/_shared_verticals/research/paper-playbook.md", "查阅 Argus 内部文件"),
-        ("/work/proj/.argus/teams/t1/shards/w1.jsonl", "查阅 Argus 内部文件"),
-        ("/work/proj/.argus/teams/t1/artifacts/routes/route-01.md", "查阅 route-01.md"),
     ],
 )
 def test_only_argus_plumbing_is_called_internal(path: str, expected: str) -> None:

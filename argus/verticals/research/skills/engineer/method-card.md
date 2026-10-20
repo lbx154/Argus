@@ -1,6 +1,6 @@
 ---
 name: "Method card (METHOD.md), executable spec and review anchors"
-description: "Write the project-root METHOD.md once: the method as the paper will claim it, component by component in the route's own words, the protocol, and what would falsify it. Then hold the code to it: the reference implementation cloned at a pinned revision under third_party/ with the method built as a diff on it, an executable spec under tests/spec that the host runs without a model, anchors in the code that a Reviewer who was not present can follow, the mapping from thesis to executed path, and the brief a Planner writes before any code exists. Status, tests, reused code, hyperparameters and history are derived by the host, never maintained by hand."
+description: "Write the project-root METHOD.md once: the method as the paper will claim it, component by component in the route's own words, the protocol, and what would falsify it. Then hold the code to it: the reference implementation cloned at a pinned revision under third_party/ with the method built as a diff on it, an executable spec under tests/spec that runs without a model, anchors in the code that a Reviewer who was not present can follow, the mapping from thesis to executed path, and the brief a Planner writes before any code exists. The tests behind each component, reused code, hyperparameters and history are derived by the host, never maintained by hand."
 ---
 
 # Method card (METHOD.md), executable spec and review anchors
@@ -14,13 +14,13 @@ outputs: the one named exception to the rule that the research notes are the
 sole cross-stage context and that no extra reporting files are written.
 
 Everything else in this document exists to hold the code to the card: the
-reference clone the method is a diff on, the spec suite the host runs after
-every round, the anchors in the code the Reviewer reads, the mapping from
-thesis to executed path, and the brief a Planner writes so that an Engineer
-starts from the card rather than from a paraphrase of it. They are joined by
-one convention: a component is spelled the same way in the card's table, in
-the marker on its tests and in the anchor above its code, and the host joins
-the three by name.
+reference clone the method is a diff on, the spec suite that says in code
+what the method must do, the anchors in the code the Reviewer reads, the
+mapping from thesis to executed path, and the brief a Planner writes so that
+an Engineer starts from the card rather than from a paraphrase of it. They are
+joined by one convention: a component is spelled the same way in the card's
+table, in the marker on its tests and in the anchor above its code, and the
+host joins the three by name.
 
 ## Why the card exists
 
@@ -60,9 +60,8 @@ the project.
    above its code will spell it.
 
 That is all you maintain. The host derives, at zero model cost, and shows in
-Atlas and to the Reviewer: each component's status (proven, contradicted,
-partial, untested, unchecked) from the markers on `tests/spec` and its own
-run of the suite; the reused code from an import scan of the project mapped
+Atlas and to the Reviewer: the tests behind each component, from the markers
+on `tests/spec`; the reused code from an import scan of the project mapped
 to `third_party/` clones (pinned revision, remote) and installed packages
 (version); the hyperparameters from the config files with their `# why:`
 reasons and a diff against the previous round; and the change history from
@@ -116,13 +115,11 @@ a separate question; `engineer/training-infrastructure.md` covers it.
 
 ## The executable spec (tests/spec)
 
-`tests/spec` is the part of the project that says, in code the host can run
+`tests/spec` is the part of the project that says, in code that runs
 without a model, what the method must do. It is written before the first
 claim-bearing run and extended whenever `METHOD.md` gains a component or a
-claim. The host runs it after every Engineer round, joins the result with the
-component markers on the tests, and shows the derived status per component to
-the Reviewer, to the Engineer as Raw verification evidence, and to human
-readers in Atlas. Nothing blocks on it; the roles read it and judge.
+claim. Run it when you need its result and put the command and result in your
+evidence. Nothing blocks on it; the roles read it and judge.
 
 Start from the templates beside this document in the research skill library,
 `engineer/spec_test_templates/` (`conftest.py`, `test_differential.py`,
@@ -172,12 +169,9 @@ with the component name spelled exactly as in the `Components` table of
 is `parity`, anything else `invariant`). The template `conftest.py`
 registers the marker and, at collection, writes
 `<rootdir>/.argus/spec_components.json` (`{"generated_at": ..., "items":
-{"<nodeid>": {"component": ..., "kind": ...}}}`); the host joins it with its
-own run to derive each component's status: `contradicted` if any of its
-tests failed, `proven` if all passed and at least one knockout or
-differential passed, otherwise `partial`; `untested` when the card names a
-component no test is tagged with; `unchecked` when tests exist but the host
-has not run yet. Nobody writes status by hand.
+{"<nodeid>": {"component": ..., "kind": ...}}}`); the host joins it with the
+card, so each component lists the tests that carry its marker and a component
+no test is tagged with shows as untested. Nobody writes this by hand.
 
 When a component is added to the card, its tests get the marker and its code
 gets the anchor in the same round; when a component is removed, so are its
@@ -185,9 +179,9 @@ markers and anchor. Nothing else needs to be kept in step.
 
 ## Anchors
 
-The Reviewer has no tools and re-runs nothing. It sees a review packet the
-host assembles from your anchors: each component's code excerpt, the host-run
-test outcomes, the config changes and the files changed this round, beside
+The Reviewer may be unable to run anything. It sees a review packet the
+host assembles from your anchors: each component's code excerpt and marked
+tests, the config changes and the files changed this round, beside
 `METHOD.md`. The Reviewer was not there when the code was written and cannot
 search a repository for the mechanism; the anchor is how it finds the entry
 point, reads the excerpt and compares it with the card. Code the Reviewer
@@ -202,7 +196,7 @@ description of it.
   card's `Components` table and as in the `@pytest.mark.component` marker on
   its tests. One anchor per component entry point; helpers are not anchored.
   The host shows the anchor (file:line, symbol, excerpt) next to the
-  component's status; a component without an anchor is listed as such, and
+  component's tests; a component without an anchor is listed as such, and
   an anchor for a component the card does not name is listed too.
 - `# @simplified <name>: <why>` directly below the component anchor when the
   implementation deliberately departs from what the route prescribes. The
@@ -267,8 +261,8 @@ allows (the operator for an operator-locked idea, a reviewed revision task for
 a working hypothesis Argus selected); a component row changes in the same round only for a
 deliberate, named simplification the operator can see, marked `# @simplified`
 at the entry point. Do not reopen Idea selection. The alignment result lives
-in the host-derived component status and in the Reviewer's returned
-judgement, not in a separate note.
+in the code, the spec run you report and the Reviewer's returned judgement,
+not in a separate note.
 
 ## The implementation brief
 
@@ -377,9 +371,9 @@ Copied from the selected route; every deviation is named on its own line.
 paper's central claim false. Name the knockout or comparison that would
 show it.>
 
-<!-- Nothing below this line is written by hand. Implementation status per
-component, the tests behind it, reused code with pinned revisions,
-hyperparameters with their `# why:` reasons, and the change history are
-derived by the host from the code, the markers on tests/spec, the config
-files and git, and shown beside this card in Atlas and to the Reviewer. -->
+<!-- Nothing below this line is written by hand. The tests behind each
+component, reused code with pinned revisions, hyperparameters with their
+`# why:` reasons, and the change history are derived by the host from the
+code, the markers on tests/spec, the config files and git, and shown beside
+this card in Atlas and to the Reviewer. -->
 ```

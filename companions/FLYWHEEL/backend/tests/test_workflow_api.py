@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-import hashlib
 import json
 import sqlite3
 import stat
@@ -118,32 +117,21 @@ def _dimensions(offset: float = 0) -> dict[str, float]:
     }
 
 
-def _artifact_sha256(candidates: list[dict]) -> str:
-    payload = (
-        json.dumps(candidates, ensure_ascii=False, sort_keys=True, separators=(",", ":"))
-        + "\n"
-    ).encode("utf-8")
-    return hashlib.sha256(payload).hexdigest()
-
-
 def _candidate_manifest(run: dict, candidates: list[dict]) -> dict:
     return {
         "schema_version": "flywheel.ideation-candidates/1",
-        "condition_sha256": run["condition_sha256"],
-        "objective_sha256": run["objective_sha256"],
-        "candidates_sha256": _artifact_sha256(candidates),
+        "condition_key": run["condition_key"],
+        "objective_key": run["objective_key"],
         "candidate_count": len(candidates),
     }
 
 
 def _import_candidates(client: TestClient, run: dict, candidates: list[dict]) -> dict:
-    digest = _artifact_sha256(candidates)
     response = client.post(
         f"/api/ideation/runs/{run['id']}/candidates",
         json={
             "candidates": candidates,
             "imported_from": "human_entered",
-            "artifact_sha256": digest,
             "manifest": _candidate_manifest(run, candidates),
         },
     )
@@ -236,7 +224,7 @@ def test_human_conditioned_template_tracks_compiler_schema_v2() -> None:
     assert '"schema_version": 3' in template
     assert '"source_context"' in template
     assert '"preflight_attestations"' in template
-    assert "source_context.content_sha256" in template
+    assert "source_context.content_key" in template
     assert "DEBATER_A_BUILDER" in template
     assert "DEBATER_B_BREAKER" in template
     assert "ARBITER" in template
@@ -256,7 +244,7 @@ def test_team_conditions_change_the_frozen_prompt_and_create_idle_campaign(
     run_a = _run(client, profile_a["id"])
     run_b = _run(client, profile_b["id"])
 
-    assert run_a["objective_sha256"] != run_b["objective_sha256"]
+    assert run_a["objective_key"] != run_b["objective_key"]
     assert run_a["condition_snapshot"]["team"]["expertise"] == ["compiler runtime"]
     assert run_b["condition_snapshot"]["team"]["expertise"] == [
         "distributed lower bounds"
@@ -309,7 +297,7 @@ def test_conditioned_ideation_start_reauthenticates_condition_hash_and_path(
     campaign_id = run["campaign_id"]
     db = client.app.state.db
     campaign = client.get(f"/api/campaigns/{campaign_id}").json()
-    forged = {**campaign["config"], "condition_sha256": "0" * 64}
+    forged = {**campaign["config"], "condition_key": "0" * 64}
     db.execute(
         "UPDATE campaigns SET config_json=? WHERE id=?",
         (json.dumps(forged), campaign_id),
@@ -318,7 +306,7 @@ def test_conditioned_ideation_start_reauthenticates_condition_hash_and_path(
         f"/api/campaigns/{campaign_id}/start", json=START_APPROVAL
     )
     assert rejected_hash.status_code == 409
-    assert "config_condition_sha256" in rejected_hash.json()["detail"]
+    assert "config_condition_key" in rejected_hash.json()["detail"]
 
     db.execute(
         "UPDATE campaigns SET config_json=? WHERE id=?",
@@ -396,7 +384,6 @@ def test_confirmed_one_sentence_condition_is_preserved_and_immutable(
 
     assert origin["operator_statement"] == raw
     assert origin["operator_statement_bound"] is True
-    assert origin["operator_statement_sha256"] == hashlib.sha256(raw.encode()).hexdigest()
     assert origin["kind"] == "confirmed_operator_intake"
     assert run["condition_snapshot"]["team"]["data_access"] == ["public data only"]
 
@@ -405,7 +392,7 @@ def test_confirmed_one_sentence_condition_is_preserved_and_immutable(
         db.execute("UPDATE team_intakes SET raw_text='rewritten' WHERE id=?", (intake["id"],))
 
 
-def test_frozen_condition_digest_and_snapshot_are_database_immutable(
+def test_frozen_condition_key_and_snapshot_are_database_immutable(
     client: TestClient,
 ) -> None:
     profile = _profile(client, "Frozen condition team", ["verification"])
@@ -413,17 +400,17 @@ def test_frozen_condition_digest_and_snapshot_are_database_immutable(
     db = client.app.state.db
 
     persisted = db.fetch_one(
-        "SELECT condition_sha256 FROM ideation_runs WHERE id=?", (run["id"],)
+        "SELECT condition_key FROM ideation_runs WHERE id=?", (run["id"],)
     )
-    assert persisted == {"condition_sha256": run["condition_sha256"]}
+    assert persisted == {"condition_key": run["condition_key"]}
     with pytest.raises(sqlite3.IntegrityError, match="frozen condition is immutable"):
         db.execute(
             "UPDATE ideation_runs SET condition_snapshot_json='{}' WHERE id=?",
             (run["id"],),
         )
-    with pytest.raises(sqlite3.IntegrityError, match="condition digest is immutable"):
+    with pytest.raises(sqlite3.IntegrityError, match="condition key is immutable"):
         db.execute(
-            "UPDATE ideation_runs SET condition_sha256=? WHERE id=?",
+            "UPDATE ideation_runs SET condition_key=? WHERE id=?",
             ("f" * 64, run["id"]),
         )
 
@@ -437,80 +424,37 @@ def test_training_consent_requires_license_basis(client: TestClient) -> None:
     assert "license" in response.text.lower()
 
 
-def test_source_snapshot_is_pair_bound_hashed_and_changes_the_condition(
+def test_source_snapshot_ref_is_bound_without_entering_the_condition(
     client: TestClient,
 ) -> None:
     profile = _profile(client, "Freshness team", ["measurement"])
     ref = "artifact://reviewed-source-packet/private-locator"
-    ref_only = client.post(
-        "/api/ideation/runs",
-        json={
-            "team_profile_id": profile["id"],
-            "venue_key": "PPOPP",
-            "source_snapshot_ref": ref,
-            "create_campaign": False,
-        },
-    )
-    assert ref_only.status_code == 422
-    short_digest = client.post(
-        "/api/ideation/runs",
-        json={
-            "team_profile_id": profile["id"],
-            "venue_key": "PPOPP",
-            "source_snapshot_ref": ref,
-            "source_snapshot_sha256": "a" * 40,
-            "create_campaign": False,
-        },
-    )
-    assert short_digest.status_code == 422
 
-    first = client.post(
-        "/api/ideation/runs",
-        json={
-            "team_profile_id": profile["id"],
-            "venue_key": "PPOPP",
-            "source_snapshot_ref": ref,
-            "source_snapshot_sha256": "a" * 64,
-            "create_campaign": False,
-        },
-    )
+    def create(source_ref: str):
+        return client.post(
+            "/api/ideation/runs",
+            json={
+                "team_profile_id": profile["id"],
+                "venue_key": "PPOPP",
+                "source_snapshot_ref": source_ref,
+                "create_campaign": False,
+            },
+        )
+
+    first = create(ref)
     assert first.status_code == 201, first.text
     run_a = first.json()
-    source_context = run_a["condition_snapshot"]["source_context"]
-    assert source_context["content_sha256"] == "a" * 64
-    assert source_context["operator_snapshot_bound"] is True
-    assert source_context["fresh_discovery_required"] is False
-    assert source_context["reference_sha256"]
+    assert run_a["condition_snapshot"]["source_context"] == {
+        "operator_snapshot_bound": True,
+        "fresh_discovery_required": False,
+    }
     assert ref not in json.dumps(run_a["condition_snapshot"])
     assert ref in run_a["objective"]
-
-    second = client.post(
-        "/api/ideation/runs",
-        json={
-            "team_profile_id": profile["id"],
-            "venue_key": "PPOPP",
-            "source_snapshot_ref": ref,
-            "source_snapshot_sha256": "b" * 64,
-            "create_campaign": False,
-        },
-    )
-    assert second.status_code == 201, second.text
-    assert second.json()["condition_sha256"] != run_a["condition_sha256"]
-
-    duplicate = client.post(
-        "/api/ideation/runs",
-        json={
-            "team_profile_id": profile["id"],
-            "venue_key": "PPOPP",
-            "source_snapshot_ref": ref,
-            "source_snapshot_sha256": "a" * 64,
-            "create_campaign": False,
-        },
-    )
-    assert duplicate.status_code == 409
+    assert create(f"{ref}-v2").status_code == 201
+    assert create(ref).status_code == 409
 
 
-def test_run_detail_reads_and_verifies_frozen_objective(client: TestClient) -> None:
+def test_run_detail_reads_frozen_objective(client: TestClient) -> None:
     profile = _profile(client, "Objective integrity team", ["measurement"])
     run = _run(client, profile["id"])
 
@@ -518,23 +462,6 @@ def test_run_detail_reads_and_verifies_frozen_objective(client: TestClient) -> N
     assert detail.status_code == 200, detail.text
     payload = detail.json()
     assert payload["objective"] == run["objective"]
-    condition_bytes = (
-        json.dumps(
-            payload["condition_snapshot"],
-            ensure_ascii=False,
-            sort_keys=True,
-            separators=(",", ":"),
-        )
-        + "\n"
-    ).encode("utf-8")
-    assert payload["condition_sha256"] == hashlib.sha256(condition_bytes).hexdigest()
-
-    objective_path = Path(payload["objective_path"])
-    objective_path.chmod(stat.S_IREAD | stat.S_IWRITE)
-    objective_path.write_text("tampered objective", encoding="utf-8")
-    corrupted = client.get(f"/api/ideation/runs/{run['id']}")
-    assert corrupted.status_code == 409
-    assert "integrity check failed" in corrupted.text.lower()
 
 
 def test_candidate_artifact_binding_episode_selection_and_db_immutability(
@@ -543,15 +470,13 @@ def test_candidate_artifact_binding_episode_selection_and_db_immutability(
     profile = _profile(client, "Candidate provenance team", ["systems"])
     run = _run(client, profile["id"])
     candidates = [_candidate("A", "Candidate A"), _candidate("B", "Candidate B")]
-    digest = _artifact_sha256(candidates)
 
     mismatch = client.post(
         f"/api/ideation/runs/{run['id']}/candidates",
         json={
             "candidates": candidates,
             "imported_from": "human_entered",
-            "artifact_sha256": "0" * 64,
-            "manifest": _candidate_manifest(run, candidates),
+            "manifest": {**_candidate_manifest(run, candidates), "condition_key": "0" * 64},
         },
     )
     assert mismatch.status_code == 409
@@ -564,19 +489,18 @@ def test_candidate_artifact_binding_episode_selection_and_db_immutability(
         json={
             "candidates": candidates,
             "imported_from": "human_entered",
-            "artifact_sha256": digest,
             "manifest": _candidate_manifest(run, candidates),
         },
     )
     assert accepted.status_code == 201, accepted.text
     selected = accepted.json()["candidates"][0]
-    assert accepted.json()["candidate_artifact_sha256"] == digest
-    assert selected["artifact_sha256"] == digest
+    artifact_key = accepted.json()["candidate_artifact_key"]
+    assert selected["artifact_key"] == artifact_key
 
     db = client.app.state.db
     with pytest.raises(sqlite3.IntegrityError, match="immutable"):
         db.execute(
-            "UPDATE generated_idea_candidates SET artifact_sha256=? WHERE id=?",
+            "UPDATE generated_idea_candidates SET artifact_key=? WHERE id=?",
             ("f" * 64, selected["id"]),
         )
     with pytest.raises(sqlite3.IntegrityError, match="immutable"):
@@ -588,7 +512,7 @@ def test_candidate_artifact_binding_episode_selection_and_db_immutability(
         db.execute("DELETE FROM generated_idea_candidates WHERE id=?", (selected["id"],))
     with pytest.raises(sqlite3.IntegrityError, match="immutable"):
         db.execute(
-            "UPDATE ideation_runs SET candidate_artifact_sha256=? WHERE id=?",
+            "UPDATE ideation_runs SET candidate_artifact_key=? WHERE id=?",
             ("f" * 64, run["id"]),
         )
 
@@ -630,14 +554,14 @@ def test_candidate_artifact_binding_episode_selection_and_db_immutability(
     assert episode["campaign_id"] != run["campaign_id"]
     frozen = episode["metadata"]["selected_candidate"]
     assert frozen["candidate_id"] == selected["id"]
-    assert frozen["artifact_sha256"] == digest
+    assert frozen["artifact_key"] == artifact_key
     assert frozen["candidate_snapshot"] == candidates[0]
     receipt = frozen["binding_receipt"]
-    assert frozen["condition_sha256"] == run["condition_sha256"]
-    assert frozen["candidate_artifact_sha256"] == digest
-    assert frozen["candidate_record_sha256"] == receipt["candidate_record_sha256"]
-    assert frozen["candidate_input_sha256"] == receipt["candidate_input_sha256"]
-    assert frozen["candidate_prompt_sha256"] == receipt["candidate_prompt_sha256"]
+    assert frozen["condition_key"] == run["condition_key"]
+    assert frozen["candidate_artifact_key"] == artifact_key
+    assert frozen["candidate_record_key"] == receipt["candidate_record_key"]
+    assert frozen["candidate_input_key"] == receipt["candidate_input_key"]
+    assert frozen["candidate_prompt_key"] == receipt["candidate_prompt_key"]
     assert receipt["campaign_id"] == execution_campaign["id"]
     assert any(
         link["entity_id"] == selected["id"]
@@ -670,8 +594,8 @@ def test_candidate_artifact_binding_episode_selection_and_db_immutability(
     assert any(
         link["entity_id"] == execution_campaign["id"]
         and link["relation"] == "execution"
-        and link["metadata"]["binding_receipt"]["receipt_sha256"]
-        == receipt["receipt_sha256"]
+        and link["metadata"]["binding_receipt"]["receipt_key"]
+        == receipt["receipt_key"]
         for link in sealed_manifest["entity_links"]
     )
     preview = client.post(
@@ -688,7 +612,7 @@ def test_candidate_artifact_binding_episode_selection_and_db_immutability(
             "license_basis": "Team-owned research trajectory released for training",
             "episode_ids": [episode["id"]],
             "require_training_consent": True,
-            "expected_selection_sha256": preview.json()["selection_sha256"],
+            "expected_selection": preview.json()["selection"],
         },
     )
     assert snapshot.status_code == 201, snapshot.text
@@ -784,14 +708,12 @@ def test_candidate_manifest_rejects_cross_run_binding(client: TestClient) -> Non
     run_b = _run(client, profile_b["id"])
     candidates = [_candidate("A", "Condition-bound candidate")]
     manifest = _candidate_manifest(run_a, candidates)
-    digest = _artifact_sha256(candidates)
 
     crossed = client.post(
         f"/api/ideation/runs/{run_b['id']}/candidates",
         json={
             "candidates": candidates,
             "imported_from": "human_entered",
-            "artifact_sha256": digest,
             "manifest": manifest,
         },
     )
@@ -844,16 +766,16 @@ def test_each_conditioned_direction_compiles_a_distinct_idle_campaign(
         assert payload["config"]["campaign_kind"] == "conditioned_candidate_research"
         assert payload["config"]["condition_snapshot_bound"] is True
         assert payload["config"]["seed_catalog_source"] is False
-        assert payload["config"]["candidate_prompt_sha256"] == payload[
-            "candidate_prompt_sha256"
+        assert payload["config"]["candidate_prompt_key"] == payload[
+            "candidate_prompt_key"
         ]
-    prompt_shas = {
-        campaign_a1.json()["candidate_prompt_sha256"],
-        campaign_a2.json()["candidate_prompt_sha256"],
-        campaign_b.json()["candidate_prompt_sha256"],
+    prompt_keys = {
+        campaign_a1.json()["candidate_prompt_key"],
+        campaign_a2.json()["candidate_prompt_key"],
+        campaign_b.json()["candidate_prompt_key"],
     }
-    assert len(prompt_shas) == 3
-    assert run_a["condition_sha256"] != run_b["condition_sha256"]
+    assert len(prompt_keys) == 3
+    assert run_a["condition_key"] != run_b["condition_key"]
 
     repeated = client.post(
         f"/api/ideation/candidates/{imported_a['candidates'][0]['id']}/campaign",
@@ -902,10 +824,13 @@ def test_normal_conditioned_candidate_passes_integrity_gate_and_starts(
             / "manifest.json"
         ).read_text(encoding="utf-8")
     )
-    assert manifest["prompt_sha256"] == receipt["candidate_prompt_sha256"]
     assert (
-        manifest["prompt_manifest"]["launch_provenance"]["receipt_sha256"]
-        == receipt["receipt_sha256"]
+        manifest["prompt_manifest"]["launch_provenance"]["candidate_prompt_key"]
+        == receipt["candidate_prompt_key"]
+    )
+    assert (
+        manifest["prompt_manifest"]["launch_provenance"]["receipt_key"]
+        == receipt["receipt_key"]
     )
     assert manifest["prompt_manifest"]["compiler"] == "conditioned-candidate"
 
@@ -947,7 +872,7 @@ def test_conditioned_candidate_patch_and_start_fail_closed_on_tampering(
         f"/api/campaigns/{objective_tamper['id']}/start", json=START_APPROVAL
     )
     assert rejected.status_code == 409
-    assert "objective bytes or SHA changed" in rejected.text
+    assert "objective bytes or path changed" in rejected.text
 
     config_delete = _candidate_campaign(client, candidate["id"], "config-delete")
     db.execute("UPDATE campaigns SET config_json='{}' WHERE id=?", (config_delete["id"],))
@@ -959,7 +884,7 @@ def test_conditioned_candidate_patch_and_start_fail_closed_on_tampering(
 
     config_tamper = _candidate_campaign(client, candidate["id"], "config-tamper")
     changed_config = dict(config_tamper["config"])
-    changed_config["condition_sha256"] = "f" * 64
+    changed_config["condition_key"] = "f" * 64
     db.execute(
         "UPDATE campaigns SET config_json=? WHERE id=?",
         (json.dumps(changed_config), config_tamper["id"]),
@@ -1016,7 +941,7 @@ def test_conditioned_candidate_patch_and_start_fail_closed_on_tampering(
         f"/api/campaigns/{file_tamper['id']}/start", json=START_APPROVAL
     )
     assert rejected.status_code == 409
-    assert "objective bytes or SHA changed" in rejected.text
+    assert "objective bytes or path changed" in rejected.text
 
     contract_tamper = _candidate_campaign(client, candidate["id"], "contract-file-tamper")
     contract_binding = db.fetch_one(
@@ -1036,7 +961,7 @@ def test_conditioned_candidate_patch_and_start_fail_closed_on_tampering(
 
     with pytest.raises(sqlite3.IntegrityError, match="binding is immutable"):
         db.execute(
-            "UPDATE conditioned_campaign_bindings SET condition_sha256=? WHERE campaign_id=?",
+            "UPDATE conditioned_campaign_bindings SET condition_key=? WHERE campaign_id=?",
             ("e" * 64, patch_target["id"]),
         )
 
@@ -1116,7 +1041,7 @@ def test_campaign_reads_project_verified_launch_eligibility(
     assert tampered_detail.status_code == 200, tampered_detail.text
     assert tampered_detail.json()["launch_eligible"] is False
     assert tampered_detail.json()["launch_provenance_valid"] is False
-    assert "objective bytes or SHA changed" in tampered_detail.json()[
+    assert "objective bytes or path changed" in tampered_detail.json()[
         "launch_ineligibility_reason"
     ]
     tampered_list = {
@@ -1184,20 +1109,18 @@ def test_candidate_scalar_and_pairwise_labels_export_with_group_safe_split(
     profile = _profile(client, "Labeling team", ["network systems"])
     run = _run(client, profile["id"])
     candidate_payload = [_candidate("A", "Candidate A"), _candidate("B", "Candidate B")]
-    artifact_sha256 = _artifact_sha256(candidate_payload)
     imported = client.post(
         f"/api/ideation/runs/{run['id']}/candidates",
         json={
             "candidates": candidate_payload,
             "imported_from": "human_entered",
-            "artifact_sha256": artifact_sha256,
             "manifest": _candidate_manifest(run, candidate_payload),
         },
     )
     assert imported.status_code == 201, imported.text
     candidates = imported.json()["candidates"]
-    assert imported.json()["candidate_artifact_sha256"] == artifact_sha256
-    assert all(candidate["artifact_sha256"] == artifact_sha256 for candidate in candidates)
+    artifact_key = imported.json()["candidate_artifact_key"]
+    assert all(candidate["artifact_key"] == artifact_key for candidate in candidates)
     label = client.post(
         f"/api/ideation/candidates/{candidates[0]['id']}/labels",
         json={
@@ -1249,7 +1172,7 @@ def test_candidate_scalar_and_pairwise_labels_export_with_group_safe_split(
         "argus-flywheel/conditioned-idea-label/v2",
         "argus-flywheel/conditioned-idea-preference/v2",
     }
-    assert all(record["artifact_sha256"] == artifact_sha256 for record in records)
+    assert all(record["artifact_key"] == artifact_key for record in records)
     assert len({record["split"] for record in records}) == 1
     assert all(record["group_id"] == f"ideation:{run['id']}" for record in records)
     assert all(
@@ -1339,8 +1262,8 @@ def test_outcome_rebuttal_follow_up_is_idle_and_export_is_consent_gated(
     assert rebuttal_lineage["campaign_kind"] == "rebuttal_follow_up"
     assert rebuttal_lineage["source_candidate_campaign_id"] == research_campaign["id"]
     assert rebuttal_lineage["candidate_id"] == candidate["id"]
-    assert len(rebuttal_lineage["candidate_input_sha256"]) == 64
-    assert len(rebuttal_lineage["candidate_prompt_sha256"]) == 64
+    assert len(rebuttal_lineage["candidate_input_key"]) == 64
+    assert len(rebuttal_lineage["candidate_prompt_key"]) == 64
     sealed_rebuttal = client.post(
         f"/api/episodes/{rebuttal_episode.json()['id']}/seal",
         json={"actor": "paper-owner", "reason": "freeze verified rebuttal lineage"},
@@ -1479,7 +1402,6 @@ def test_public_candidate_import_cannot_claim_argus_provenance(
         json={
             "candidates": candidates,
             "imported_from": "argus_artifact",
-            "artifact_sha256": _artifact_sha256(candidates),
             "manifest": _candidate_manifest(run, candidates),
         },
     )
@@ -1530,7 +1452,6 @@ def test_hash_correct_malformed_candidate_is_rejected_fail_closed(
         json={
             "candidates": candidates,
             "imported_from": "human_entered",
-            "artifact_sha256": _artifact_sha256(candidates),
             "manifest": _candidate_manifest(run, candidates),
         },
     )

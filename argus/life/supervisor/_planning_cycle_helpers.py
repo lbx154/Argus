@@ -13,7 +13,6 @@ requests and the persisted research-target completion gate; they have no
 
 from __future__ import annotations
 
-import hashlib
 import json
 import logging
 import os
@@ -72,11 +71,10 @@ def _render_revision_request(
         "validators are revisable working choices. Compare the proposed alternative "
         "against the user objective instead of preserving stale mission wording. "
         "Do not return project_done. Exception: if "
-        "current_stage itself makes the prerequisite repair illegal, return "
-        "waiting=true with a waiting_contract whose "
-        "stage_reconciliation_required=true; emit no replacement tasks and let the "
-        "Manager decide HOLD versus ROLLBACK. Never use this exception for polling "
-        "or an ordinary implementation blocker."
+        "current_stage itself makes the prerequisite repair illegal, emit no "
+        "replacement tasks and end with `→ manager` so the Manager decides HOLD "
+        "versus ROLLBACK. Never use this exception for an ordinary "
+        "implementation blocker."
     )
     return "\n".join(lines)
 
@@ -280,19 +278,19 @@ def goal_gate_task_title(project_root: object) -> str:
 # ---------------------------------------------------------------------------
 
 
-def completion_rejection_circuit_path(root: Path | str, objective: str) -> Path:
-    """State file for the completion-rejection stop-loss of one objective."""
-    fingerprint = hashlib.sha256(
-        str(objective or "").encode("utf-8")
-    ).hexdigest()[:16]
-    return Path(root) / f"completion-rejection-circuit-{fingerprint}.json"
+def completion_rejection_circuit_path(root: Path | str) -> Path:
+    """State file for the completion-rejection stop-loss.
+
+    A new objective arrives with operator input, which lifts a pause, and
+    brings its own rejection reasons, which restart the count.
+    """
+    return Path(root) / "completion-rejection-circuit.json"
 
 
 def completion_rejection_reason_key(diagnostic: str, reason: str) -> str:
-    """Stable key for one rejection cause, insensitive to whitespace churn."""
+    """One rejection cause as text, insensitive to whitespace churn."""
     normalized_reason = " ".join(str(reason or "").split())
-    canonical = f"{str(diagnostic or '').strip()}\n{normalized_reason}"
-    return hashlib.sha256(canonical.encode("utf-8")).hexdigest()[:16]
+    return f"{str(diagnostic or '').strip()}\n{normalized_reason}"
 
 
 def load_completion_rejection_circuit(path: Path) -> dict[str, Any] | None:
@@ -436,7 +434,6 @@ class _PlanCycleState:
         self.manager_intent: Any = None
 
         # Set by the planner-invocation phase.
-        self.subagent_family_failures: dict[str, Any] = {}
         self.verdict: Any = None
         self.planner_invoked = False
         # The durable generation that authorized this invocation. A late host
@@ -445,23 +442,17 @@ class _PlanCycleState:
         self.completion_accepted = False
         self.certified_operator_wait = False
 
-        # Set by the unchanged-input gate in the intake phase; empty when the
-        # cycle's inputs could not be fingerprinted (skip stays disabled).
-        self.planner_input_signature: str = ""
-        # Set when this cycle turned an unusable Planner answer into an
-        # operator question; the next Planner call then waits for a change.
-        self.planner_asked_operator: bool = False
         # Set when the turn ended in something other than a Planner failure
         # (the Manager reconciled an empty plan), so it does not count.
         self.planner_turn_not_failed: bool = False
+        # Set by the unchanged-input gate in the intake phase; empty when the
+        # cycle's inputs could not be fingerprinted (skip stays disabled).
+        self.planner_input_signature: str = ""
 
         # Set by the dedupe/enqueue phases.
         self.existing_items: list[BacklogItem] = []
         self.seen_signatures: dict[tuple[str, ...], BacklogItem] = {}
-        self.active_base_signatures: dict[tuple[str, ...], BacklogItem] = {}
         self.active_node_keys: dict[str, BacklogItem] = {}
-        self.terminal_blocker_fingerprints: dict[str, BacklogItem] = {}
-        self.recent_failures: dict[Any, Any] = {}
         self.added_titles: list[str] = []
         self.added_impact_scores: list[int] = []
         self.skipped_duplicate_titles: list[str] = []
@@ -472,10 +463,6 @@ class _PlanCycleState:
         # for tasks that actually commit, so dedup-skipped proposals do not
         # spam the journal on replan loops.
         self.dropped_parallel: list[tuple[str, str]] = []
-        self.skipped_certification_reproposal_titles: list[str] = []
-        self.skipped_certification_reproposal_reasons: list[str] = []
-        self.skipped_recent_failure_titles: list[str] = []
-        self.skipped_subagent_family_failure_titles: list[str] = []
         self.skipped_task_feedback: list[dict[str, str]] = []
         self.new_plan_id: str = ""
         self.new_plan_version: int = 1

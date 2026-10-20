@@ -2,7 +2,7 @@
 
 Layer: domain
 
-Seven verticals are built in (one directory each, ``<name>/stages.py``
+Four verticals are built in (one directory each, ``<name>/stages.py``
 implementing ``VerticalContract``); everything else is discovered at runtime
 by ``_registry``: workbench plugins, the **Vertical Store** (``store`` --
 community verticals installed one directory at a time from the

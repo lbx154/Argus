@@ -103,7 +103,7 @@ def _start_manager_build(state_root: Path, workdir: Path):
 @pytest.mark.parametrize("payload", [
     None,
     {},
-    {"vertical": "math", "current_stage": "review"},
+    {"vertical": "argus_maintenance", "current_stage": "verify"},
     {"vertical": "research", "current_stage": "experiment", "stages": {
         "idea": {"status": "done"}, "experiment": {"status": "in_progress"},
     }},
@@ -116,7 +116,7 @@ def test_manager_construction_does_not_wait_for_a_mission_without_migration(
     if payload is not None:
         write_pipeline_state(state, payload)
         # The existing target must also prevent importing a stale workdir copy.
-        write_pipeline_state(workdir, {"vertical": "math", "current_stage": "solve"})
+        write_pipeline_state(workdir, {"vertical": "argus_maintenance", "current_stage": "change"})
     state_path = primary_pipeline_state_path(state)
     before = state_path.read_bytes() if state_path.exists() else None
     with _mission_holds_pipeline(state):
@@ -150,7 +150,7 @@ def test_manager_migration_waits_and_rereads_after_the_peer_commits(
         "research": {"status": "done"},
     }}
     if migration == "import":
-        original = {"vertical": "math", "current_stage": "solve"}
+        original = {"vertical": "argus_maintenance", "current_stage": "change"}
         write_pipeline_state(workdir, original)
     else:
         write_pipeline_state(state, original)
@@ -183,7 +183,7 @@ def test_manager_migration_waits_and_rereads_after_the_peer_commits(
         assert committed["current_verdict"] == "mapped_stage_requires_current_review"
 
 
-def test_prewarm_and_self_question_complete_during_a_peer_mission(
+def test_self_question_completes_during_a_peer_mission(
     tmp_path: Path, monkeypatch,
 ) -> None:
     from argus.adapters.agent_cli_backend import AgentCliBackend
@@ -203,18 +203,13 @@ def test_prewarm_and_self_question_complete_during_a_peer_mission(
     task = memory.backlog.add(BacklogItem.new(title="CTB experiment", objective="Run the CTB experiment"))
     memory.backlog.mark_running(task.id)
     backlog_before = (state / "backlog.jsonl").read_bytes()
-    monkeypatch.setenv("ARGUS_SKILL_MANAGER_BACKEND", "copilot")
+    monkeypatch.setenv("ARGUS_SKILL_RUNNER_BACKEND", "copilot")
     monkeypatch.setattr(manager_state, "_STATES", {})
-    monkeypatch.setattr(manager_state, "_MANAGER_PREWARM_OWNER", sid)
     monkeypatch.setattr(
         "argus.agent_cli.runner_backend.resolve_available_runner",
         lambda backend, runner_bin: (backend, runner_bin or backend),
     )
-    prewarmed = []
     calls = []
-
-    def prewarm(_backend, **kwargs):
-        prewarmed.append(kwargs["run_label"])
 
     def run_exec(_backend, **kwargs):
         calls.append(kwargs)
@@ -225,7 +220,6 @@ def test_prewarm_and_self_question_complete_during_a_peer_mission(
             message = "The CTB experiment is still running; this node records its current attempt."
         return RunnerResult(exit_code=0, agent_messages=[message], thread_id="manager-question")
 
-    monkeypatch.setattr(AgentCliBackend, "prewarm_acp_client", prewarm)
     monkeypatch.setattr(AgentCliBackend, "run_exec", run_exec)
     question = 'I do not understand this.\n[[Argus引用 ' + json.dumps({
         "item_id": task.id, "title": "CTB execution attempt",
@@ -236,10 +230,9 @@ def test_prewarm_and_self_question_complete_during_a_peer_mission(
 
     def ask():
         try:
-            # Use the same locked prewarm + real construction path as Web,
-            # then the complete classifier/SELF/transcript path. Only provider
-            # transport and replies are stubbed; neither Manager is replaced.
-            manager_state._prewarm_manager_context(sid, global_root=tmp_path)
+            # The complete construction/classifier/SELF/transcript path, as
+            # Web runs it. Only provider transport and replies are stubbed;
+            # neither Manager is replaced.
             result["reply"] = manager_bridge.manager_message(sid, question, global_root=tmp_path)
         except BaseException as exc:
             result["error"] = exc
@@ -256,7 +249,6 @@ def test_prewarm_and_self_question_complete_during_a_peer_mission(
             "kind": "chat",
             "reply": "The CTB experiment is still running; this node records its current attempt.",
         }
-        assert len(prewarmed) == 2
         assert [call["run_label"] for call in calls] == ["manager-frontdoor-classify", "simple-1"]
         assert question in calls[-1]["prompt"]
         turns = read_turns(state, limit=4)

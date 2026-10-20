@@ -70,3 +70,26 @@ def test_iter_call_events_stops_after_generation_containing_call_start(
         "complete",
         "usage",
     ]
+
+
+def test_iter_call_events_reads_old_and_new_raw_transcripts_alike(
+    tmp_path: Path,
+) -> None:
+    from argus.life.event_log import iter_call_events
+
+    identity = {"call_id": "c", "run_label": "engineer-r1", "backend": "copilot", "model": "m"}
+    old_stream = {"type": "agent.io.stream", "io_kind": "stream", **identity,
+                  "stream": "stdout", "line": "old", "ts": 1.0,
+                  "event_schema_version": 1, "payload_schema_version": 1}
+    log_path = tmp_path / "agent_io.jsonl"
+    # The start rotated into the previous generation; its frames did not.
+    _write(log_path.with_name("agent_io.jsonl.1"), [
+        {"type": "agent.io.start", "io_kind": "start", **identity, "prompt": "p"},
+        old_stream,
+    ])
+    _write(log_path, [{"call_id": "c", "stream": "stderr", "line": "new", "ts": 2.0}])
+
+    rows = list(iter_call_events(log_path, "c"))
+
+    assert rows[1] == old_stream
+    assert rows[2] == {"type": "agent.io.stream", **identity, "stream": "stderr", "line": "new", "ts": 2.0}

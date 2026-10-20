@@ -1,10 +1,10 @@
 """Durable single-record outbox for planner verdict delivery."""
 from __future__ import annotations
 
-import hashlib
 import json
 import os
 import tempfile
+import uuid
 from pathlib import Path
 from typing import Any, Mapping
 
@@ -12,19 +12,9 @@ OUTBOX_FILE = "planner-verdict-outbox.json"
 OUTBOX_VERSION = 1
 
 
-def planner_verdict_delivery_id(event: Mapping[str, Any]) -> str:
-    payload = {
-        key: value
-        for key, value in event.items()
-        if key not in {"delivery_id", "ts", "event_schema_version", "payload_schema_version"}
-    }
-    encoded = json.dumps(
-        payload,
-        ensure_ascii=False,
-        sort_keys=True,
-        separators=(",", ":"),
-    ).encode("utf-8")
-    return hashlib.sha256(encoded).hexdigest()
+def planner_verdict_delivery_id() -> str:
+    """A fresh id for one verdict; the outbox keeps it across restarts."""
+    return f"verdict-{uuid.uuid4().hex}"
 
 
 def load_planner_verdict_outbox(root: Path | str) -> dict[str, Any] | None:
@@ -54,7 +44,7 @@ def write_planner_verdict_outbox(
 ) -> dict[str, Any]:
     directory = Path(root)
     directory.mkdir(parents=True, exist_ok=True)
-    delivery_id = str(event.get("delivery_id") or planner_verdict_delivery_id(event))
+    delivery_id = str(event.get("delivery_id") or planner_verdict_delivery_id())
     stored_event = dict(event)
     stored_event["delivery_id"] = delivery_id
     payload = {

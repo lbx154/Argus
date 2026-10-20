@@ -2,7 +2,7 @@
 
 The package was renamed ``argus_skill`` -> ``argus`` on 2026-09-14. This shim
 keeps the old spelling importable for one release so that seeded Skill copies
-(``python -m argus_skill.tools.subagent ...``), systemd units, container images
+(``python -m argus_skill.tools.team ...``), systemd units, container images
 and third-party code written against ``argus_skill`` keep working while they
 are migrated.
 
@@ -62,7 +62,7 @@ class _AliasLoader:
         if self._canonical_spec is not None:
             module.__spec__ = self._canonical_spec
 
-    # ``runpy`` (``python -m argus_skill.tools.subagent``) needs a code object.
+    # ``runpy`` (``python -m argus_skill.tools.team``) needs a code object.
     def get_code(self, fullname: str):
         loader = self._target_spec.loader
         get_code = getattr(loader, "get_code", None)

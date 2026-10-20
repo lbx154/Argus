@@ -50,7 +50,7 @@ class EvidenceBackend:
             facts, _ = json.JSONDecoder().raw_decode(prompt[prompt.index('{"objective"'):])
             if any(task["pending_question"] for task in facts["tasks"]):
                 answer = {"action": "wait", "reason": "The author declaration is still missing; resume after the operator supplies it."}
-            elif facts["review"].get("status") == "continue":
+            elif facts["review"].get("status") in {"continue", "blocked"}:
                 answer = {"action": "steer", "reason": "The grouped-mean check fails; repair grouping before another review.",
                           "directive": "Repair the grouped mean while preserving the missing-value acceptance check."}
             else:
@@ -277,8 +277,8 @@ def test_running_review_schedules_supervision_before_the_mission_pipeline_finish
     try:
         with manager_pipeline_lock(tmp_path):
             supervisor.sink.handle_event({
-                "type": EventType.ROUND_REVIEW_COMPLETED, "item_id": item.id,
-                "status": "continue", "reason": "The grouped mean check failed", "round_index": 1,
+                "type": EventType.ROUND_REVIEW_COMPLETED, "item_id": item.id, "review_source": "engineer_handoff",
+                "status": "blocked", "reason": "The grouped mean check failed", "round_index": 1,
             })
             record = wait_for_receipt(tmp_path, "applied")
             assert record["decision"]["action"] == "steer"
@@ -308,13 +308,13 @@ def test_shutdown_bounds_an_uncooperative_backend_and_rejects_its_late_result(tm
 
     manager = Manager(tmp_path, runner=Uncooperative(), memory_maintenance_enabled=False)
     start_supervision(tmp_path)
-    assert schedule_supervision(manager, tmp_path, {"type": EventType.LIFE_MISSION_COMPLETED})
+    assert schedule_supervision(manager, tmp_path, {"type": EventType.LIFE_RUNTIME_INCIDENT_ESCALATED})
     try:
         assert entered.wait(1)
         started = time.monotonic()
         assert shutdown_supervision(tmp_path, timeout=0.02) == 1
         assert time.monotonic() - started < 0.25
-        assert not schedule_supervision(manager, tmp_path, {"type": EventType.LIFE_MISSION_COMPLETED})
+        assert not schedule_supervision(manager, tmp_path, {"type": EventType.LIFE_RUNTIME_INCIDENT_ESCALATED})
         release.set()
         wait_for_receipt(tmp_path, "superseded")
         assert not (tmp_path / "inbox.jsonl").exists()
@@ -325,7 +325,7 @@ def test_shutdown_bounds_an_uncooperative_backend_and_rejects_its_late_result(tm
 
 
 @pytest.mark.parametrize("remaining_work", ["none", "pending", "continuous", "issued"])
-def test_completed_finite_work_does_not_start_a_shutdown_bound_check(tmp_path, monkeypatch, remaining_work):
+def test_completed_work_only_delivers_an_issued_decision(tmp_path, monkeypatch, remaining_work):
     from argus.manager import supervision
 
     backlog, item = project(tmp_path)
@@ -344,7 +344,7 @@ def test_completed_finite_work_does_not_start_a_shutdown_bound_check(tmp_path, m
             "type": EventType.LIFE_MISSION_COMPLETED, "item_id": item.id,
             "success": True, "status": "done",
         })
-        assert admitted is (remaining_work != "none")
+        assert admitted is (remaining_work == "issued")
         assert bool(dispatched) is admitted
         assert manager.runner.calls == []
     finally:
@@ -401,7 +401,7 @@ def test_reply_followup_and_restarted_inspect_share_identity_and_refresh_evidenc
     assert record["status"] == "applied" and second.calls[-1][1] == "persistent-manager"
 
 
-def test_applied_wait_prevents_planner_calls_until_new_operator_facts(tmp_path, monkeypatch):
+def test_applied_wait_holds_unchanged_planning_until_new_operator_facts(tmp_path, monkeypatch):
     from argus.life.memory import LifeMemory
     from argus.life.supervisor import LifeSupervisor, LifeSupervisorConfig
     from argus.life.supervisor._constants import PLAN_AWAITING, PLAN_ERROR
@@ -414,7 +414,11 @@ def test_applied_wait_prevents_planner_calls_until_new_operator_facts(tmp_path, 
 
     def plan_next(_planner, **kwargs):
         calls.append(kwargs)
-        return PlannerVerdict(project_done=False, error="The independent checker is temporarily unavailable")
+        return PlannerVerdict(
+            project_done=False,
+            reason="The independent checker is temporarily unavailable",
+            error="The independent checker is temporarily unavailable",
+        )
 
     monkeypatch.setattr("argus.planner.Planner.plan_next", plan_next)
     supervisor = LifeSupervisor(
@@ -427,13 +431,18 @@ def test_applied_wait_prevents_planner_calls_until_new_operator_facts(tmp_path, 
         ),
     )
     supervisor._vertical_resolved = True
-    for _ in range(5):
+    # The WAIT parks the questioned task, never the project: the Planner gets
+    # one turn to plan work that does not need the answer, and only an
+    # unchanged state is then held without another call.
+    assert supervisor._plan_next_work() == PLAN_ERROR
+    assert len(calls) == 1
+    for _ in range(4):
         assert supervisor._plan_next_work() == PLAN_AWAITING
-    assert calls == []
+    assert len(calls) == 1
     backlog.update(item.id, pending_question="")
     assert backlog.resume_paused(item.id)
     assert supervisor._plan_next_work() == PLAN_ERROR
-    assert len(calls) == 1
+    assert len(calls) == 2
 
 
 def test_saturated_scheduler_retains_latest_evidence_for_the_waiting_project(tmp_path):
@@ -462,10 +471,10 @@ def test_saturated_scheduler_retains_latest_evidence_for_the_waiting_project(tmp
         start_supervision(root)
     try:
         for number in range(2):
-            assert schedule_supervision(managers[number], roots[number], {"type": EventType.LIFE_MISSION_COMPLETED})
+            assert schedule_supervision(managers[number], roots[number], {"type": EventType.LIFE_RUNTIME_INCIDENT_ESCALATED})
         assert all(signal.wait(1) for signal in entered)
-        assert schedule_supervision(managers[2], roots[2], {"type": EventType.LIFE_MISSION_COMPLETED, "event_id": "obsolete"})
-        assert schedule_supervision(managers[2], roots[2], {"type": EventType.LIFE_MISSION_COMPLETED, "event_id": "latest"})
+        assert schedule_supervision(managers[2], roots[2], {"type": EventType.LIFE_RUNTIME_INCIDENT_ESCALATED, "event_id": "obsolete"})
+        assert schedule_supervision(managers[2], roots[2], {"type": EventType.LIFE_RUNTIME_INCIDENT_ESCALATED, "event_id": "latest"})
         assert managers[2].runner.calls == []
         release.set()
         record = wait_for_receipt(roots[2], "applied")
@@ -494,40 +503,42 @@ def test_model_change_rotates_provider_identity_with_a_durable_conversation_hand
     assert state["rotation_reason"] == "the configured model or backend changed"
 
 
-def test_background_yields_the_shared_session_when_an_interactive_ask_arrives(tmp_path, monkeypatch):
+def test_an_interactive_ask_neither_waits_for_nor_interrupts_a_background_turn(tmp_path, monkeypatch):
     from argus.manager import front_door
     from argus.webapi import manager_bridge
 
     project(tmp_path)
-    entered = threading.Event()
+    entered, release = threading.Event(), threading.Event()
 
-    class Cooperative(EvidenceBackend):
+    class Background(EvidenceBackend):
         def run_exec(self, **kwargs):
             if kwargs["run_label"] == "manager-supervision":
                 entered.set()
-                deadline = time.monotonic() + 2
-                while time.monotonic() < deadline:
-                    reason = kwargs["options"].external_interrupt_reason_provider()
-                    if reason:
-                        return RunnerResult(exit_code=1, fatal_error=reason, thread_id="late-background-id")
-                    time.sleep(0.005)
-                raise AssertionError("Foreground conversation did not interrupt background Manager")
+                assert release.wait(5)
+                assert not kwargs["options"].external_interrupt_reason_provider()
             return super().run_exec(**kwargs)
 
-    backend = Cooperative()
+    backend = Background()
     manager = Manager(tmp_path, runner=backend, memory_maintenance_enabled=False)
     monkeypatch.setattr(front_door, "_ensure_manager_runner", lambda *args: SimpleNamespace(manager=manager, _backend=backend))
     assert "grouped-mean" in manager_bridge._answer_inline("priority-sid", tmp_path, "What is the task?")
     with ThreadPoolExecutor(max_workers=1) as pool:
         background = pool.submit(supervise, manager, tmp_path, {"type": EventType.LIFE_MISSION_COMPLETED})
         assert entered.wait(1)
-        started = time.monotonic()
-        assert "grouped-mean" in manager_bridge._answer_inline("priority-sid", tmp_path, "Please answer now")
-        assert time.monotonic() - started < 1
-        assert background.result(timeout=1)["status"] == "superseded"
-    assert backend.calls[-1][1] == "persistent-manager"
+        try:
+            started = time.monotonic()
+            assert "grouped-mean" in manager_bridge._answer_inline("priority-sid", tmp_path, "Please answer now")
+            assert time.monotonic() - started < 1
+        finally:
+            release.set()
+        assert background.result(timeout=5)["status"] == "applied"
+    # The ask answered on a fresh thread; the background turn kept the shared one.
+    resumes = {label: [] for _prompt, _resume, label in backend.calls}
+    for _prompt, resume, label in backend.calls:
+        resumes[label].append(resume)
+    assert resumes["manager-ask"] == [None, None]
+    assert resumes["manager-supervision"] == ["persistent-manager"]
     assert manager._session.thread_id == "persistent-manager"
-    assert not list((tmp_path / ".manager_session_foreground").glob("*.json"))
 
 
 @pytest.mark.parametrize("failure_point", ["directive", "continuous", "final_receipt"])
@@ -626,7 +637,7 @@ def role_loop(root, mission_id, backend):
         skills_dir=root / "skills", engineer_runner=backend, reviewer_runner=backend,
         config=SkillLoopConfig(
             engineer_model="fixture", reviewer_model="fixture", workflow_mode="direct",
-            active_vertical="software", role_session_policy="fresh", max_rounds=1,
+            active_vertical="software", max_rounds=1,
             require_independent_review=True, require_post_task_learning=False,
             wiki_enabled=False, auto_init_wiki=False, session_id=mission_id,
             operator_question_policy_root=root,
@@ -800,7 +811,7 @@ def test_background_delivery_retries_a_temporarily_busy_control_without_new_evid
 
     monkeypatch.setattr(supervision, "_apply", briefly_busy)
     supervision.start_supervision(tmp_path)
-    assert supervision.schedule_supervision(manager, tmp_path, {"type": EventType.LIFE_MISSION_COMPLETED})
+    assert supervision.schedule_supervision(manager, tmp_path, {"type": EventType.LIFE_RUNTIME_INCIDENT_ESCALATED})
     try:
         assert wait_for_receipt(tmp_path, "applied")["status"] == "applied"
         assert len(attempts) == 2 and len(backend.calls) == 1
@@ -824,7 +835,7 @@ def test_busy_control_is_not_reported_as_a_failure_on_every_attempt(tmp_path, mo
 
     monkeypatch.setattr(supervision, "_apply", always_busy)
     supervision.start_supervision(tmp_path)
-    assert supervision.schedule_supervision(manager, tmp_path, {"type": EventType.LIFE_MISSION_COMPLETED})
+    assert supervision.schedule_supervision(manager, tmp_path, {"type": EventType.LIFE_RUNTIME_INCIDENT_ESCALATED})
     try:
         deadline = time.monotonic() + 30
         while time.monotonic() < deadline and len(attempts) < 8:

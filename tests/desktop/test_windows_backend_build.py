@@ -24,7 +24,7 @@ def _builder(tmp_path: Path, monkeypatch):
     monkeypatch.setattr(module, "REPO", tmp_path)
     monkeypatch.setattr(module, "assert_release_versions", lambda repo: "0.1.7")
     monkeypatch.setattr(module.shutil, "which", lambda name: "node.exe")
-    manifest = {"package_version": "0.1.7", "release_id": "0.1.7+fixture", "source_digest": "fixture"}
+    manifest = {"package_version": "0.1.7", "release_id": "0.1.7+fixture", "source_files": {"argus/x.py": 1}}
     (tmp_path / "argus").mkdir()
     (tmp_path / "argus/__init__.py").write_text('__version__ = "0.1.7"\n', encoding="utf-8")
     (tmp_path / "argus/release_manifest.json").write_text(json.dumps(manifest), encoding="utf-8")
@@ -119,7 +119,7 @@ def test_prepare_rechecks_source_and_artifacts_without_refreezing(tmp_path, monk
 
 def test_mixed_frozen_identity_is_rejected_before_staging(tmp_path, monkeypatch):
     builder, desktop, manifest = _builder(tmp_path, monkeypatch)
-    _frozen(desktop, {**manifest, "source_digest": "different"})
+    _frozen(desktop, {**manifest, "source_files": {"argus/x.py": 2}})
     commands = []
     monkeypatch.setattr(builder.subprocess, "run", lambda command, **kwargs: commands.append(command))
     with pytest.raises(RuntimeError, match="identity differs"):

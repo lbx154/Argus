@@ -28,6 +28,11 @@ from .runner_backend import (
 )
 
 _OPENCODE_CONFIG_CONTENT_ENV = "OPENCODE_CONFIG_CONTENT"
+# Copilot keeps a turn alive for background shells it started, and resumes the
+# agent when one finishes, for at most this many seconds (default ten minutes).
+# The largest it accepts is Node's timer ceiling, 2**31 - 1 ms.
+COPILOT_TASK_WAIT_ENV = "COPILOT_TASK_WAIT_TIMEOUT_SECONDS"
+COPILOT_MAX_TASK_WAIT_SECONDS = "2147483.647"
 
 
 def _apply_pi_automation_env(env: dict[str, str]) -> dict[str, str]:
@@ -340,6 +345,8 @@ class PromptDeliveryMixin:
                 home = isolated_copilot_home(options.working_dir)
                 env["COPILOT_HOME"] = str(home)
                 env["GH_CONFIG_DIR"] = str(home / "gh")
+        if self.backend == BACKEND_COPILOT and env is not None:
+            env.setdefault(COPILOT_TASK_WAIT_ENV, COPILOT_MAX_TASK_WAIT_SECONDS)
         plugin_env = getattr(options, "extension_env", None)
         if plugin_env and not options.disable_tools:
             env = dict(os.environ) if env is None else env

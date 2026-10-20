@@ -4,7 +4,9 @@ import {
   REQUIRED_API_CAPABILITIES,
   SNAPSHOT_SCHEMA_VERSION,
 } from '../../../core/src/protocol';
-import { RELEASE_ID, RELEASE_SOURCE_DIGEST } from '../../../core/src/release.generated';
+import { RELEASE_ID } from '../../../core/src/release.generated';
+
+const SOURCE_SUMMARY = '2 files, 10 bytes';
 
 const currentMeta = {
   service: 'argus-skill-webapi',
@@ -14,8 +16,8 @@ const currentMeta = {
   runtime: {
     package_version: RELEASE_ID.split('+')[0],
     release_id: RELEASE_ID,
-    manifest_source_digest: RELEASE_SOURCE_DIGEST,
-    runtime_source_digest: RELEASE_SOURCE_DIGEST,
+    manifest_source_digest: SOURCE_SUMMARY,
+    runtime_source_digest: SOURCE_SUMMARY,
     release_matches_source: true,
     source_root: '/checkout/argus',
     configured_source_root: '/checkout/argus',
@@ -292,25 +294,6 @@ describe('web API protocol handshake', () => {
       partial: false,
     });
     expect(snapshotAttempts).toBe(2);
-  });
-
-  it('prewarms an active project once instead of on every snapshot poll', async () => {
-    const paths: string[] = [];
-    vi.stubGlobal('fetch', vi.fn((path: string): Promise<Response> => {
-      paths.push(path);
-      if (path === '/api/meta') return Promise.resolve(Response.json(currentMeta));
-      return Promise.resolve(Response.json(currentSnapshot));
-    }));
-    const { api } = await import('../api');
-
-    await api.activeSnapshot('s-active');
-    await api.activeSnapshot('s-active');
-
-    expect(paths).toEqual([
-      '/api/meta',
-      '/api/projects/s-active/snapshot?compact=true&events_limit=1&prewarm=true',
-      '/api/projects/s-active/snapshot?compact=true&events_limit=1',
-    ]);
   });
 
   it('times out when response headers arrive but the JSON body stalls', async () => {
@@ -945,7 +928,7 @@ describe('a page left open across a deployment', () => {
     const { getPageUpdateAvailable, observePageRelease, PageUpdateRequiredError } = await import('../lib/pageUpdate');
     await api.listProjects();
     updated = true;
-    const failure = await api.activeSnapshot('s-one').catch(error => error);
+    const failure = await api.snapshot('s-one').catch(error => error);
     expect(failure).toBeInstanceOf(PageUpdateRequiredError);
     expect(failure).not.toBeInstanceOf(LocalArgusUnavailableError);
     expect(getPageUpdateAvailable()).toBe(true);

@@ -25,6 +25,7 @@ const STATUS_KEYS: Record<string, string> = {
   continue: 'label.status.needsChanges',
   skipped: 'label.status.skipped',
   paused: 'label.status.paused',
+  parked: 'label.status.paused',
   paused_cost: 'label.outcome.costUnreconciled',
   stopped: 'label.status.paused',
   cancelled: 'label.status.cancelled',
@@ -203,8 +204,4 @@ export function acceleratorLabel(value: string, t: Translate): string {
 
 export function enforcementLabel(value: string, t: Translate): string {
   return t(value === 'strict' ? 'label.resource.enforced' : 'label.resource.advisory');
-}
-
-export function yieldDecisionLabel(value: string, t: Translate): string {
-  return t(value === 'yield' ? 'label.resource.released' : 'label.resource.kept');
 }

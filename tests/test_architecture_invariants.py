@@ -36,13 +36,11 @@ from argus.core.vertical_contract import (
     VerticalContractError,
     vertical_contract,
 )
-from argus.engineer import external_work
 from argus.life.memory import Backlog, BacklogItem
 from argus.reviewer import parse_decision_text
 from argus.roles.prompts.registry import PROMPT_CATALOG, resolve_role_prompt
 from argus.roles.prompts.types import RoleName, RolePromptRequest
 from argus.skills.stage_machine import ChecklistItem
-from argus.tools.subagent import _registry as subagent_registry
 from argus.verticals import _registry as vertical_registry
 
 ARGUS = Path(argus.__file__).resolve().parent
@@ -362,9 +360,9 @@ def test_no_framework_package_imports_a_named_vertical() -> None:
     """
     offenders = _concrete_vertical_imports(_python_files(
         "core", "life", "engineer", "reviewer", "planner", "manager",
-        "roles", "skills", "daemon", "team", "webapi", "wiki",
+        "roles", "skills", "daemon", "webapi", "wiki",
         "tools", "adapters", "agent_cli", "provider_integrations", "plugin",
-        "maintenance", "trial", "release_tools", "cli", "integrations", "proof_ledger",
+        "maintenance", "trial", "release_tools", "cli", "integrations",
     ))
 
     assert offenders == []
@@ -604,10 +602,8 @@ def test_a_prelude_written_before_the_mission_argument_fails_by_name() -> None:
 def test_a_prelude_may_ignore_the_mission_and_stay_correct() -> None:
     """Per-mission is an *option*, not an obligation.
 
-    ``kernel_engineering`` accepts the item and never reads it, on purpose: its
-    baseline workspace is one shared tree per stage, so varying it per claimed
-    item would hand two concurrent missions two baselines. A vertical with
-    nothing item-specific to say must not be forced to invent something.
+    A vertical with nothing item-specific to say must not be forced to invent
+    something.
     """
     contract = vertical_contract("probe", _provider(
         prepare_mission=lambda **_kwargs: "STAGE BLOCK",
@@ -624,7 +620,7 @@ def test_a_prelude_may_ignore_the_mission_and_stay_correct() -> None:
 def test_a_vertical_without_a_prelude_is_indistinguishable_from_an_empty_one() -> None:
     """The hook is optional, and optional has to mean "contributes nothing".
 
-    Two in-tree verticals implement it. If an absent hook raised, or returned
+    Most verticals do not implement it. If an absent hook raised, or returned
     ``None``, every call site would need its own guard and every vertical would
     be pushed into implementing a no-op just to stay loadable.
     """
@@ -905,90 +901,6 @@ def test_one_dead_route_permanently_disqualifies_a_consumer_of_both(
 
 
 # ---------------------------------------------------------------------------
-# 7. .argus_external_work is an observation protocol
-# ---------------------------------------------------------------------------
-
-def test_the_external_work_protocol_has_no_writer_while_its_supervisor_does() -> None:
-    """Observing external work and launching it are two different mechanisms.
-
-    ``.argus_external_work`` describes work some *other* process already
-    started: the runtime reads liveness records it did not author. Adding a
-    submit path here would make the runtime both producer and consumer of its
-    own heartbeats, and a job that died would be indistinguishable from one the
-    runtime simply forgot to update -- the exact failure the stale-heartbeat
-    check exists to catch. Launching, PIDs, and reconciliation already live in
-    the subagent registry, which is asserted here as the positive control: the
-    probe below really does detect writers.
-    """
-    reader = Path(external_work.__file__).resolve()
-    supervisor = Path(subagent_registry.__file__).resolve()
-
-    assert _write_calls(reader) == []
-    assert _write_calls(supervisor), "the write probe no longer detects a known writer"
-    assert external_work.EXTERNAL_WORK_REGISTRY != str(subagent_registry.REGISTRY_DIR)
-
-
-def test_reading_external_work_leaves_the_project_tree_byte_identical(
-    tmp_path: Path,
-) -> None:
-    """The observer must not touch what it observes, including by accident.
-
-    An external process owns these records. If a read path created the registry
-    directory, rewrote a record to normalize it, or dropped a lock file, it
-    would race the owner and could resurrect a record the owner had just
-    removed. Comparing the whole tree before and after covers the paths a
-    verb-level source scan cannot see -- a write inside a helper, a library
-    call, a tempfile left behind.
-    """
-    registry = tmp_path / external_work.EXTERNAL_WORK_REGISTRY
-    registry.mkdir()
-    (registry / "job-1.json").write_text(json.dumps({
-        "version": external_work.EXTERNAL_WORK_PROTOCOL_VERSION,
-        "work_id": "job-1",
-        "state": "running_healthy",
-        "heartbeat_at": 100.0,
-        "stale_after_seconds": 60.0,
-        "poll_after_seconds": 30.0,
-        "description": "an experiment this runtime did not start",
-        "evidence_paths": ["experiments/result.json"],
-    }), encoding="utf-8")
-
-    def snapshot() -> dict[str, bytes]:
-        return {
-            path.relative_to(tmp_path).as_posix(): path.read_bytes()
-            for path in sorted(tmp_path.rglob("*")) if path.is_file()
-        }
-
-    before = snapshot()
-    assert list(external_work.scan_external_work(tmp_path, now=110))
-    assert external_work.inspect_external_work(tmp_path, "job-1", now=110) is not None
-    assert external_work.render_external_work_advisory(tmp_path, now=110)
-    external_work.wait_for_external_work_cadence(
-        tmp_path, "job-1", sleep=lambda seconds: None, poll_interval=1, now=lambda: 200.0
-    )
-
-    assert snapshot() == before
-
-
-def test_an_absent_registry_is_read_as_no_work_rather_than_created(
-    tmp_path: Path,
-) -> None:
-    """Most projects never have this directory, and observing must not mint one.
-
-    A reader that calls ``mkdir(exist_ok=True)`` to simplify its glob leaves an
-    empty ``.argus_external_work`` in every project it ever looked at. That
-    directory is a protocol marker: its presence tells a reader that someone
-    intends to report external work here, so creating it on read makes the
-    signal meaningless.
-    """
-    assert list(external_work.scan_external_work(tmp_path, now=110)) == []
-    assert external_work.inspect_external_work(tmp_path, "job-1", now=110) is None
-    assert external_work.render_external_work_advisory(tmp_path, now=110) == ""
-
-    assert list(tmp_path.iterdir()) == []
-
-
-# ---------------------------------------------------------------------------
 # 8. Declared layering
 # ---------------------------------------------------------------------------
 #
@@ -1003,13 +915,13 @@ def test_an_absent_registry_is_read_as_no_work_rather_than_created(
 # delivery layer.
 
 LAYERS: dict[str, tuple[str, ...]] = {
-    "kernel": ("core", "proof_ledger"),
+    "kernel": ("core",),
     "providers": ("agent_cli", "provider_integrations", "adapters", "advisor"),
     "capabilities": ("tools", "wiki", "cli", "skills"),
     "domain": ("verticals", "domains", "builtin_skills"),
     "roles": ("roles", "planner", "engineer", "reviewer"),
     "runtime": ("life", "manager", "messaging"),
-    "process": ("daemon", "team"),
+    "process": ("daemon",),
     "delivery": (
         "apps", "webapi", "plugin", "maintenance", "trial", "integrations", "release_tools",
     ),
@@ -1127,14 +1039,10 @@ MODULE_LEVEL_UPWARD_ALLOWLIST: frozenset[str] = frozenset({
     "tools/manager_live_view.py -> life",
     "tools/manager_live_view.py -> manager",
     "tools/peer.py -> messaging",
-    "tools/subagent/_direct_run.py -> daemon",
-    "tools/team.py -> team",
-    "verticals/research/idea_portfolio.py -> team",
-    # The research vertical registers its host-run spec-check evidence
-    # provider with the vertical-blind registry when the package loads,
-    # the same shape as team/external_work.py registering with the
-    # engineer; the engineer itself never names the vertical.
-    "verticals/research/spec_checks.py -> engineer",
+    # The research vertical registers its round-log evidence provider with
+    # the vertical-blind registry when the package loads; the engineer
+    # itself never names the vertical.
+    "verticals/research/round_log.py -> engineer",
 })
 
 # Deferred imports that point at a higher layer, keyed by (file, target
@@ -1149,15 +1057,11 @@ FUNCTION_BODY_UPWARD_ALLOWLIST: frozenset[str] = frozenset({
     "adapters/agent_cli_backend/_core.py -> tools",
     "adapters/agent_cli_backend/_exec.py -> life",
     "adapters/agent_cli_backend/_exec.py -> messaging",
-    "adapters/agent_cli_backend/_exec.py -> skills",
     "adapters/agent_cli_backend/_exec.py -> trial",
     "adapters/agent_cli_backend/_exec_finalize.py -> trial",
     "advisor/service.py -> life",
     "advisor/service.py -> trial",
-    "agent_cli/_sandbox_commands.py -> reviewer",
     "agent_cli/_sandbox_commands.py -> trial",
-    "agent_cli/copilot_acp.py -> daemon",
-    "agent_cli/copilot_acp.py -> trial",
     "agent_cli/copilot_home.py -> trial",
     "core/agent_probe.py -> adapters",
     "core/backend_readiness.py -> agent_cli",
@@ -1188,7 +1092,6 @@ FUNCTION_BODY_UPWARD_ALLOWLIST: frozenset[str] = frozenset({
     "engineer/round_execution.py -> life",
     "engineer/round_manager_wait.py -> manager",
     "engineer/round_settlement.py -> life",
-    "engineer/round_settlement.py -> manager",
     "life/chat/router.py -> apps",
     "life/chat/router.py -> daemon",
     "life/chat/router.py -> webapi",
@@ -1197,8 +1100,6 @@ FUNCTION_BODY_UPWARD_ALLOWLIST: frozenset[str] = frozenset({
     "life/supervisor/_core.py -> daemon",
     "life/supervisor/_idle_cycle.py -> apps",
     "life/supervisor/_idle_cycle.py -> daemon",
-    "life/supervisor/_planning_context.py -> <root>",
-    "life/supervisor/_planning_context.py -> apps",
     "life/supervisor/_planning_cycle_intake.py -> apps",
     "life/supervisor/_planning_cycle_verdict.py -> daemon",
     "manager/_session_ops.py -> daemon",
@@ -1210,7 +1111,6 @@ FUNCTION_BODY_UPWARD_ALLOWLIST: frozenset[str] = frozenset({
     "manager/supervision.py -> daemon",
     "provider_integrations/copilot_usage.py -> trial",
     "reviewer/_core.py -> manager",
-    "reviewer/review_file.py -> manager",
     "roles/prompts/manager.py -> manager",
     "skills/builtins.py -> domains",
     "skills/builtins.py -> verticals",
@@ -1222,11 +1122,8 @@ FUNCTION_BODY_UPWARD_ALLOWLIST: frozenset[str] = frozenset({
     "skills/stage_machine.py -> verticals",
     "skills/vertical_select.py -> domains",
     "skills/vertical_select.py -> verticals",
-    "team/teammate_entry.py -> apps",
     "tools/setup.py -> trial",
-    "tools/subagent/_reporting.py -> apps",
     "verticals/research/idea_portfolio.py -> manager",
-    "verticals/research/second_reading.py -> manager",
 })
 
 # Cross-package imports of an underscore-private module or name. Every entry
@@ -1238,7 +1135,6 @@ PRIVATE_IMPORT_ALLOWLIST: frozenset[str] = frozenset({
     "<root> -> argus.verticals._base",
     "adapters -> argus.agent_cli._env",
     "adapters -> argus.agent_cli._structured_output",
-    "agent_cli -> argus.daemon.state._terminate_windows_process_tree",
     "apps -> argus.adapters.agent_cli_backend._strip_legacy_codex_profile_args",
     "apps -> argus.manager._session_ops",
     "apps -> argus.manager.config_intent._front_door_classify",
@@ -1253,7 +1149,6 @@ PRIVATE_IMPORT_ALLOWLIST: frozenset[str] = frozenset({
     "daemon -> argus.agent_cli._process_control",
     "daemon -> argus.apps._inbox",
     "daemon -> argus.apps._runtime",
-    "daemon -> argus.life.supervisor._config",
     "daemon -> argus.manager._session_ops",
     "daemon -> argus.skills.vertical_select._persisted_domain",
     "daemon -> argus.skills.vertical_select._persisted_vertical",
@@ -1271,7 +1166,6 @@ PRIVATE_IMPORT_ALLOWLIST: frozenset[str] = frozenset({
     "life -> argus.manager.front_door._accepts_parameter",
     "life -> argus.planner.planner._GLOBAL_KEY_VALUE_KEYS",
     "life -> argus.roles.prompts.manager._IDENTITY_GUARD",
-    "life -> argus.tools.subagent._registry",
     "life -> argus.verticals._base",
     "life -> argus.verticals._data_domain",
     "life -> argus.webapi.manager_bridge._answer_inline",
@@ -1279,7 +1173,6 @@ PRIVATE_IMPORT_ALLOWLIST: frozenset[str] = frozenset({
     "manager -> argus.apps._inbox",
     "manager -> argus.apps._life_actions",
     "manager -> argus.apps._runtime",
-    "manager -> argus.apps._runtime_construction",
     "manager -> argus.apps.cli._follow",
     "manager -> argus.daemon.state._fsync_directory",
     "manager -> argus.life.memory._TERMINAL_STATUSES",
@@ -1291,7 +1184,6 @@ PRIVATE_IMPORT_ALLOWLIST: frozenset[str] = frozenset({
     "messaging -> argus.manager._session_ops",
     "reviewer -> argus.core.role_reply._line_pattern",
     "reviewer -> argus.roles.prompts.reviewer._REEVALUATE_HEADER",
-    "reviewer -> argus.roles.prompts.reviewer._engineer_log_audit_block",
     "reviewer -> argus.roles.prompts.reviewer._load_wiki_curator_skill_if_present",
     "reviewer -> argus.roles.prompts.reviewer._verification_directive",
     "roles -> argus.skills.vertical_select._persisted_vertical",
@@ -1299,33 +1191,17 @@ PRIVATE_IMPORT_ALLOWLIST: frozenset[str] = frozenset({
     "skills -> argus.verticals._base",
     "skills -> argus.verticals._data_domain",
     "skills -> argus.verticals._registry",
-    "skills -> argus.wiki.store._atomic_write_text",
-    "team -> argus.apps._runtime",
-    "team -> argus.apps._runtime_supervisor",
-    "team -> argus.daemon.state._terminate_windows_process_tree",
-    "team -> argus.verticals._base",
     "tools -> argus.agent_cli._process_control",
-    "tools -> argus.apps._inbox",
-    "tools -> argus.daemon.state._terminate_windows_process_tree",
     "trial -> argus.agent_cli.copilot_home._read_managed_config",
     "trial -> argus.tools.setup._verify_setup_smoke",
-    "verticals -> argus.adapters.agent_cli_backend._strip_legacy_codex_profile_args",
     "verticals -> argus.skills.rl_training_plots._is_probe",
     "verticals -> argus.skills.rl_training_plots._read_optimizer_steps",
     "verticals -> argus.tools.image_api._DEFAULT_MAX_RETRIES",
     "verticals -> argus.tools.image_api._DEFAULT_TIMEOUT_SECONDS",
     "verticals -> argus.tools.image_api._atomic_write_json",
-    "verticals -> argus.tools.image_api._data_url",
-    "verticals -> argus.tools.image_api._json_request",
     "verticals -> argus.tools.image_api._load_sidecar_prompt",
-    "verticals -> argus.tools.image_api._parse_chat_text",
-    "verticals -> argus.tools.image_api._parse_responses_text",
     "verticals -> argus.tools.image_api._read_prompt",
     "verticals -> argus.tools.image_api._redact",
-    "verticals -> argus.tools.image_api._require_route",
-    "verticals -> argus.tools.lean_check._artifact_directory_lock",
-    "verticals -> argus.tools.lean_check._atomic_artifact_write",
-    "verticals -> argus.tools.lean_check._resolve_lake_workspace",
     "webapi -> argus.agent_cli._env",
     "webapi -> argus.apps._inbox",
     "webapi -> argus.apps._life_actions",
@@ -1591,7 +1467,7 @@ def test_importing_the_kernel_does_not_load_the_engine() -> None:
     evaluation script -- pays for the Engineer, the Reviewer, the skill store
     and every role prompt, and inherits every import-time side effect they
     carry. The assertion is the invariant itself, not a list of suspects:
-    anything outside ``core`` and ``proof_ledger`` -- ``tools``, ``manager``,
+    anything outside ``core`` -- ``tools``, ``manager``,
     ``verticals``, ``daemon`` included -- is a failure. Measured in a fresh
     interpreter because this process already has all of it loaded.
     """
@@ -1688,13 +1564,13 @@ def test_file_name_exemption_keeps_dotted_modules_checked() -> None:
     assert scan("see argus.plugin.service and argus.advisor.service") == [
         "argus.plugin.service", "argus.advisor.service",
     ]
-    assert scan("python -m argus_skill.tools.subagent") == ["argus_skill.tools.subagent"]
+    assert scan("python -m argus_skill.tools.peer") == ["argus_skill.tools.peer"]
 
 
 def test_module_paths_cited_by_prompts_and_skills_resolve() -> None:
     """A path the model is told to run must be a path that exists.
 
-    Skills and role prompts say ``python -m argus.tools.subagent`` and
+    Skills and role prompts say ``python -m argus.tools.capability_vault`` and
     ``argus.verticals.math.citation_check`` in prose the runtime never
     parses. When a module moves, nothing fails at import time -- the Engineer
     fails at mission time, after burning a round on ``No module named``, and
@@ -1719,10 +1595,7 @@ def test_module_paths_cited_by_prompts_and_skills_resolve() -> None:
 # Module paths that appear on a ``python -m`` / argv line somewhere in the tree
 # and are therefore matched back by string in a *different* process.
 SUBPROCESS_REENTRY_MODULES = (
-    "argus.team.teammate_entry",
-    "argus.tools.subagent",
     "argus.daemon.spawn_helper",
-    "argus.reviewer.review_file",
     "argus.tools.manager_live_view",
     "argus.desktop_backend_entry",
     "argus.plugin.mcp_server",
@@ -1731,7 +1604,7 @@ SUBPROCESS_REENTRY_MODULES = (
 
 
 # The same names as processes started before the 2026-09-14 rename spell them
-# (``argus_skill`` was the package): teammates, trial containers and seeded
+# (``argus_skill`` was the package): trial containers and seeded
 # Skill copies still carry these on their command lines. The alias package
 # ``argus_skill/`` must resolve every one for one release.
 LEGACY_SUBPROCESS_REENTRY_MODULES = tuple(
@@ -1742,9 +1615,8 @@ LEGACY_SUBPROCESS_REENTRY_MODULES = tuple(
 def test_subprocess_reentry_module_paths_stay_importable() -> None:
     """These names cross a process boundary as strings, so a move is invisible to Python.
 
-    The daemon spawns ``python -m argus.daemon.spawn_helper``; teammates
-    re-enter through ``team.teammate_entry``; liveness checks match those same
-    strings against ``argv`` of running processes. Rename one and the
+    The daemon spawns ``python -m argus.daemon.spawn_helper``; liveness checks
+    match those same strings against ``argv`` of running processes. Rename one and the
     importer-side tests stay green while the live system either fails to
     spawn or -- worse -- stops recognising its own workers as its own.
     """
@@ -1759,7 +1631,7 @@ def test_subprocess_reentry_module_paths_stay_importable() -> None:
 def test_pre_rename_subprocess_reentry_module_paths_still_resolve() -> None:
     """A daemon or Skill copy from before the rename must still find its modules.
 
-    ``python -m argus_skill.tools.subagent`` is what an operator-edited Skill
+    ``python -m argus_skill.tools.capability_vault`` is what an operator-edited Skill
     copy under ``~/.argus-skill/skills`` says today, and the old daemon's
     handoff spawns ``-c "from argus_skill.daemon.life_worker import ..."``
     into the new tree. Resolving these through ``find_spec`` proves the
@@ -1832,7 +1704,7 @@ _STAGE_WRITERS = frozenset({"advance_stage", "rollback_stage", "complete_final_s
 # as a callback. One statement that imports and calls once is therefore 2.
 STAGE_WRITER_REFERENCES_OUTSIDE_MANAGER: dict[str, int] = {
     "life/supervisor/_mission_execution_settlement.py": 2,
-    "life/supervisor/_planning_cycle_enqueue.py": 6,
+    "life/supervisor/_planning_cycle_enqueue.py": 4,
     "skills/vertical_select.py": 2,
 }
 
@@ -1925,7 +1797,7 @@ def _ratchet_report(name: str, baseline: int, per_file: dict[str, int], constant
 # Retired spellings of "the project state directory" (canonical: ``life_dir``
 # and ``core.paths.project_state_root``). Whole-word occurrence counts, today.
 RETIRED_NAME_OCCURRENCES: dict[str, int] = {
-    "life_root": 13,
+    "life_root": 10,
     "memory_root": 42,
     # 41 on both origin/main and dev on 2026-09-16 with the same four files
     # (apps/_runtime_construction 7, apps/_self_reply 15, manager/front_door 10,
@@ -1940,7 +1812,7 @@ RETIRED_NAME_OCCURRENCES: dict[str, int] = {
     # 20 after the cost-control layer left (its own host-wide ledger walk is
     # gone; core/usage.py now holds the one daily roll-up across projects).
     "session_states_root": 20,
-    "session_state_root": 31,
+    "session_state_root": 25,
 }
 
 # Prose that describes a runtime this tree no longer contains.
@@ -1993,7 +1865,7 @@ def test_retired_names_do_not_spread() -> None:
 # signature (_idle_cycle.py) and the venue acceptance check (_core.py) now
 # take LifeSupervisor._project_state_root(), because handing the host root to
 # a vertical lookup answered "undecided" for a classified project.
-MEMORY_ROOT_READS = 76
+MEMORY_ROOT_READS = 69
 def test_memory_root_reads_do_not_grow() -> None:
     """``MemoryBundle.root`` returns the *host* root; every reader of it is a trap.
 

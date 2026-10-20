@@ -8,7 +8,8 @@ from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any, Mapping
 
-from ...core.manuscript_snapshot import manuscript_sha256
+from ...core.file_facts import file_facts
+from ...core.manuscript_snapshot import MANUSCRIPT_PATH
 
 FREEZE_PATH = Path("research/METHOD_FREEZE.json")
 CONFIRMATION_RESULT_PATH = Path("research/confirmation_result.json")
@@ -26,6 +27,11 @@ def _write_json(path: Path, payload: Mapping[str, Any]) -> None:
         os.replace(temporary, path)
     finally:
         temporary.unlink(missing_ok=True)
+
+
+def _manuscript_facts(root: Path) -> list[int]:
+    path = root / MANUSCRIPT_PATH
+    return file_facts(path) if path.is_file() else []
 
 
 def declare_method_freeze(
@@ -56,7 +62,7 @@ def declare_method_freeze(
             "description": normalized["method_description"],
         },
         "frozen_at": frozen_at or datetime.now(UTC).isoformat(),
-        "manuscript_sha256_at_freeze": manuscript_sha256(root),
+        "manuscript_at_freeze": _manuscript_facts(root),
         "planned_confirmation_run": {
             "command": normalized["confirmation_command"],
             "data_split_identity": normalized["data_split_identity"],
@@ -126,8 +132,10 @@ def research_review_prompt_block(project_root: Path | str) -> str:
         "- The planned confirmation data split is "
         + str(planned.get("data_split_identity") or "<missing>"),
     ]
-    frozen_manuscript = str(freeze.get("manuscript_sha256_at_freeze") or "")
-    if frozen_manuscript != manuscript_sha256(root):
+    if (
+        "manuscript_at_freeze" in freeze
+        and freeze["manuscript_at_freeze"] != _manuscript_facts(root)
+    ):
         lines.append("- The manuscript has changed since the method was fixed")
     try:
         confirmation = json.loads(

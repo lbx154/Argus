@@ -18,7 +18,7 @@ from pathlib import Path
 from .map_lines import RETRY_SECONDS, _told, fit
 from .map_model import MapGenerationError, map_timeout_seconds, resolve_map_model, run_map_model
 from .map_narrative import _source_lock, _write_cache, cache_path, read_cache
-from .map_view import digest, text
+from .map_view import facts, text
 
 CARDS_VERSION = 2
 TASK_LIMIT = 40
@@ -136,7 +136,7 @@ def words(
     revision = config.revision if config else ""
     records = _last_records(dataset)
     about = {task_id: _about(by_id[task_id], records.get(task_id, "")) for task_id in wanted}
-    inputs = {task_id: digest([CARDS_VERSION, revision, locale, about[task_id]]) for task_id in wanted}
+    inputs = {task_id: facts([CARDS_VERSION, revision, locale, about[task_id]]) for task_id in wanted}
     source_name = cards_source(dataset["id"], locale)
     cache = read_cache(root, source_name)
     if not generate or not available or not wanted:

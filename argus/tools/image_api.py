@@ -13,7 +13,6 @@ from __future__ import annotations
 
 import argparse
 import base64
-import hashlib
 import json
 import mimetypes
 import os
@@ -33,7 +32,6 @@ try:
 except ImportError:  # pragma: no cover
     fcntl = None  # type: ignore[assignment]
 
-from ..core.file_digest import sha256_file as _sha256_file
 from .capability_vault import ModelApiGrant, ModelApiRoute, load_model_api_route
 
 _PNG_MAGIC = b"\x89PNG\r\n\x1a\n"
@@ -121,7 +119,7 @@ def _json_request(
     attempts = max(1, int(max_retries))
     for attempt_index in range(attempts):
         if endpoint == "/images/generations":
-            _reserve_image_call(grant, payload, attempt_index=attempt_index)
+            _reserve_image_call(grant, attempt_index=attempt_index)
         req = urllib.request.Request(
             url,
             data=body,
@@ -174,7 +172,6 @@ def _image_usage_path() -> Path:
 
 def _reserve_image_call(
     route: ModelApiGrant | ModelApiRoute,
-    payload: Mapping[str, Any],
     *,
     attempt_index: int,
 ) -> None:
@@ -184,9 +181,6 @@ def _reserve_image_call(
     path = _image_usage_path()
     path.parent.mkdir(parents=True, exist_ok=True)
     today = datetime.now(UTC).date().isoformat()
-    prompt_hash = hashlib.sha256(
-        str(payload.get("prompt") or "").encode("utf-8")
-    ).hexdigest()
     with path.open("a+", encoding="utf-8") as handle:
         if fcntl is not None:
             fcntl.flock(handle.fileno(), fcntl.LOCK_EX)
@@ -197,7 +191,6 @@ def _reserve_image_call(
             "provider": route.provider,
             "model": route.model,
             "attempt_index": int(attempt_index),
-            "prompt_sha256": prompt_hash,
             "project_root": str(Path.cwd().resolve()),
         }
         handle.seek(0, 2)
@@ -219,25 +212,6 @@ def _read_prompt(prompt: str | None, prompt_file: Path | None, *, label: str = "
     if "\x00" in text:
         raise ImageToolError(f"{label} contains NUL byte")
     return text
-
-
-def _sha256_bytes(data: bytes) -> str:
-    return hashlib.sha256(data).hexdigest()
-
-
-def _sha256_text(text: str) -> str:
-    return hashlib.sha256(text.encode("utf-8")).hexdigest()
-
-
-def _sha256_prompt_file(path: Path) -> str:
-    """Canonical prompt hash: always hash the raw file bytes on disk.
-
-    Never use ``_sha256_text(text.strip())`` for prompt hashes stored in
-    manifests, provenance, or sidecars — downstream consumers read the
-    file as raw bytes, so stripped-text hashes will silently mismatch and
-    block the pipeline forever.
-    """
-    return _sha256_file(path)
 
 
 def _infer_mime(data: bytes) -> str:
@@ -292,7 +266,6 @@ def inspect_image(image: Path) -> dict[str, Any]:
         "image": str(image),
         "exists": True,
         "bytes": len(data),
-        "sha256": _sha256_bytes(data),
         "mime": _infer_mime(data),
         "width": width,
         "height": height,
@@ -470,10 +443,8 @@ def generate_image(
         "duration_seconds": round(time.time() - started, 3),
         "model": grant.model,
         "output_path": str(out),
-        "output_sha256": str(info.get("sha256") or ""),
         "requested_size": requested_size or "auto",
         "prompt": prompt,
-        "prompt_sha256": _sha256_prompt_file(prompt_file) if prompt_file is not None else _sha256_text(prompt),
         "image": info,
         "api": {
             "provider": grant.provider,
@@ -656,13 +627,6 @@ def _project_path(project_root: Path, path: Path | str) -> Path:
     except ValueError as exc:
         raise ImageToolError(f"path escapes project root: {path}") from exc
     return resolved
-
-
-def _project_relative(project_root: Path, path: Path) -> str:
-    try:
-        return path.resolve().relative_to(project_root.resolve()).as_posix()
-    except ValueError as exc:
-        raise ImageToolError(f"path escapes project root: {path}") from exc
 
 
 def _read_json_object(path: Path) -> dict[str, Any]:

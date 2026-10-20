@@ -43,7 +43,7 @@ import { MobileTabBar } from './components/MobileTabBar';
 import { useVisualViewport } from './useVisualViewport';
 import { activeGuardianAlert } from './lib/guardian';
 import { projectMissionView } from '../../core/src/missionView';
-import { useQuery, useQueryClient } from '@tanstack/react-query';
+import { useQueryClient } from '@tanstack/react-query';
 import { dispatchWebCommand, type WebCommandHandlers } from './lib/webCommands';
 import { buildWebCommandHandlers } from './lib/commandHandlers';
 import { finishManagerMessage } from './lib/messageResult';
@@ -587,11 +587,6 @@ export default function App() {
     health,
     zh: locale === 'zh-CN',
   }), [loadedSid, snap, missionView, activityEvents, operatorTaskComplete, delivery, health, locale]);
-  const projectWorking = Boolean(snap?.daemon.alive) || Boolean(snap?.backlog.some((item) => ['pending', 'running', 'in_progress', 'claimed'].includes(item.status)));
-  const resourcesQ = useQuery({
-    queryKey: ['system-resources'], queryFn: ({ signal }) => api.resources(signal),
-    enabled: Boolean(loadedSid) && projectWorking, refetchInterval: 60_000, staleTime: 30_000, retry: false,
-  });
   const projectBusy = useMemo(() => {
     if (!snap?.daemon.alive) return false;
     const state = currentWorkStatus(snap, missionView, events).state;
@@ -1378,7 +1373,6 @@ export default function App() {
                     onOpenDelivery={openDelivery}
                     onCompose={kiosk ? undefined : composeContext}
                     notifications={kiosk ? undefined : notifications}
-                    resources={resourcesQ.data ?? null}
                     latestDelivery={deliveryHistory[0] ?? null}
                     rememberPosition
                   />
@@ -1392,7 +1386,7 @@ export default function App() {
                       currentTaskId={missionView?.mission.id}
                       onAnswer={() => setPendingReplyOpen(true)}
                     />
-                    <LiveWorkCard snapshot={snap} view={missionView} events={events} resources={resourcesQ.data ?? null}
+                    <LiveWorkCard snapshot={snap} view={missionView} events={events}
                       onPause={snap.daemon.alive ? requestPauseDaemon : undefined} />
                     {freshProject && routeOverride !== 'chat' ? <LaunchSettingsBar value={launchSettings} onChange={setLaunchSettings} disabled={messagePending} /> : null}
                     <ChatBox

@@ -3,7 +3,6 @@
 
 from __future__ import annotations
 
-import hashlib
 import json
 import shutil
 import subprocess
@@ -45,14 +44,6 @@ PALE_GOLD = RGBColor(252, 246, 229)
 GRAY = RGBColor(122, 131, 142)
 LIGHT_GRAY = RGBColor(217, 224, 231)
 PANEL = RGBColor(255, 253, 248)
-
-
-def sha256(path: Path) -> str:
-    digest = hashlib.sha256()
-    with path.open("rb") as handle:
-        for chunk in iter(lambda: handle.read(1024 * 1024), b""):
-            digest.update(chunk)
-    return digest.hexdigest()
 
 
 def add_text(
@@ -204,8 +195,8 @@ def main() -> int:
         "scope": "Adaptive routing analysis, not randomized ablation.",
         "visual_style": "anime research field note with cream paper, navy linework, mountain-ridge motif, and shared Engineer/Reviewer characters; flow counts remain exact",
         "character_assets": [str(ENGINEER_AVATAR.relative_to(FIGURES)), str(REVIEWER_AVATAR.relative_to(FIGURES))],
-        "inputs": {STATS_PATH.name: sha256(STATS_PATH), TASKS_PATH.name: sha256(TASKS_PATH)},
-        "outputs": {path.name: sha256(path) for path in (PPTX_PATH, PDF_PATH, SVG_PATH, PNG_PATH, MACROS_PATH)},
+        "input_bytes": {path.name: path.stat().st_size for path in (STATS_PATH, TASKS_PATH)},
+        "output_bytes": {path.name: path.stat().st_size for path in (PPTX_PATH, PDF_PATH, SVG_PATH, PNG_PATH, MACROS_PATH)},
         "editable_source": PPTX_PATH.name,
     }
     PROVENANCE_PATH.write_text(json.dumps(provenance, indent=2, sort_keys=True) + "\n", encoding="utf-8")

@@ -133,8 +133,7 @@ def test_explicit_incompatible_trial_model_is_rejected_without_rewriting_persona
 @pytest.mark.e2e
 @pytest.mark.skipif(shutil.which("copilot") is None, reason="Copilot CLI required for real client smoke test")
 @pytest.mark.parametrize("local_tool", ["view", "write"])
-@pytest.mark.parametrize("transport_mode", ["oneshot", "acp"])
-def test_real_argus_setup_and_copilot_tool_round_trip(tmp_path, monkeypatch, local_tool, transport_mode):
+def test_real_argus_setup_and_copilot_tool_round_trip(tmp_path, monkeypatch, local_tool):
     """Real Argus -> real Copilot CLI -> HTTP gateway -> simulated upstream."""
     key = tmp_path / "key"
     state = tmp_path / "server"
@@ -168,10 +167,7 @@ def test_real_argus_setup_and_copilot_tool_round_trip(tmp_path, monkeypatch, loc
         messages = payload["input"]
         if any("TRIAL_REJECT_REQUEST" in str(m.get("content")) for m in messages):
             return httpx.Response(400, json={"error": {"message": "Invalid request fixture"}})
-        if any("TRIAL_FOLLOW_UP" in str(m.get("content")) for m in messages):
-            assert any("TRIAL_TOOL_OK" in str(m.get("content")) for m in messages)
-            delta, finish = {"role": "assistant", "content": "TRIAL_FOLLOW_UP_OK"}, "stop"
-        elif any("ARGUS_SETUP_OK" in str(m.get("content")) for m in messages):
+        if any("ARGUS_SETUP_OK" in str(m.get("content")) for m in messages):
             delta, finish = {"role": "assistant", "content": "ARGUS_SETUP_OK"}, "stop"
         elif any(m.get("type") in {"function_call_output", "custom_tool_call_output"} for m in messages):
             if local_tool == "view":
@@ -229,8 +225,7 @@ def test_real_argus_setup_and_copilot_tool_round_trip(tmp_path, monkeypatch, loc
     while not server.started and time.monotonic() < deadline:
         time.sleep(0.01)
     assert server.started
-    credential = app.state.vault.credential("test-key")
-    app.state.store.issue("test-key", credential)
+    credential = app.state.store.issue("test-key")
     project = Path(__file__).resolve().parents[2]
     # Isolate Copilot/Argus state and remove all inherited provider credentials and
     # role overrides. Preserve HOME itself rather than repurposing it.
@@ -259,7 +254,6 @@ def test_real_argus_setup_and_copilot_tool_round_trip(tmp_path, monkeypatch, loc
         env.pop("ARGUS_TRIAL_KEY")
         # A fresh Python process proves persisted trial routing; this goes
         # through Argus's actual worker launch, not a manually configured CLI.
-        label = "simple-1" if transport_mode == "acp" else "trial-tool-smoke"
         # The readiness probe owns an unrelated temporary sandbox. This file
         # round trip must explicitly grant the fixture's working directory.
         probe = (
@@ -269,44 +263,23 @@ def test_real_argus_setup_and_copilot_tool_round_trip(tmp_path, monkeypatch, loc
             "runner=AgentCliBackend(backend='copilot', runner_bin=shutil.which('copilot')); "
             f"o=RunnerOptions(model='argus-trial', working_dir={str(tmp_path)!r}, "
             "sandbox_mode='read-only', force_safe_mode=True, skip_git_repo_check=True); "
-            f"r=run_exec(runner, resume_thread_id=None, options=o, run_label={label!r}, "
+            "r=run_exec(runner, resume_thread_id=None, options=o, run_label='trial-tool-smoke', "
             f"prompt={'Read ' + str(tmp_path / 'evidence.txt') + ' and report TRIAL_TOOL_OK.'!r}); "
             "assert r.exit_code == 0 and not r.fatal_error and r.tool_activity_observed, r; "
             "assert 'TRIAL_TOOL_OK' in r.last_agent_message, r; "
             if local_tool == "view" else
             "from argus.core.agent_probe import run_agent_repair_prompt; "
             "r=run_agent_repair_prompt(backend='copilot', executable=shutil.which('copilot'), "
-            f"working_dir={str(tmp_path)!r}, model='argus-trial', run_label={label!r}, "
+            f"working_dir={str(tmp_path)!r}, model='argus-trial', run_label='trial-tool-smoke', "
             "prompt='Create result.txt with trial-local-patch-evidence using apply_patch, then report TRIAL_TOOL_OK.'); "
             "assert r.ok and 'TRIAL_TOOL_OK' in r.output, r; "
         )
-        if transport_mode == "acp":
-            prompt = (
-                f"Read {tmp_path / 'evidence.txt'} and report TRIAL_TOOL_OK."
-                if local_tool == "view" else
-                "Create result.txt with trial-local-patch-evidence using apply_patch, then report TRIAL_TOOL_OK."
-            )
-            probe = (
-                "from argus.agent_cli.copilot_acp import CopilotAcpClient; "
-                "from argus.agent_cli.agent_cli_runner import RunnerOptions; "
-                "c=CopilotAcpClient(shutil.which('copilot'),model='argus-trial',reasoning_effort='high'); "
-                f"o=RunnerOptions(working_dir={str(tmp_path)!r}); "
-                f"r=c.run_prompt(prompt={prompt!r},resume_thread_id=None,options=o,run_label='simple-1'); "
-                "assert r.turn_completed and 'TRIAL_TOOL_OK' in r.agent_messages[-1], r; "
-                "r=c.run_prompt(prompt='TRIAL_FOLLOW_UP: what was your previous answer?',resume_thread_id=r.thread_id,options=o,run_label='simple-1'); "
-                "assert r.turn_completed and 'TRIAL_FOLLOW_UP_OK' in r.agent_messages[-1], r; "
-                "r=c.run_prompt(prompt='TRIAL_REJECT_REQUEST',resume_thread_id=r.thread_id,options=o,run_label='simple-1'); "
-                "c.close(); "
-                "assert r.turn_failed and not r.turn_completed and r.exit_code != 0, r; "
-                "print('TRIAL_TOOL_OK: resume and rejection verified'); "
-            )
-        else:
-            probe += (
-                "from argus.core.agent_probe import run_read_only_agent_prompt; "
-                "r=run_read_only_agent_prompt(backend='copilot',executable=shutil.which('copilot'),"
-                "model='argus-trial',run_label='trial-reject-smoke',prompt='TRIAL_REJECT_REQUEST'); "
-                "assert not r.ok and r.error, r; print('TRIAL_TOOL_OK: one-shot rejection verified'); "
-            )
+        probe += (
+            "from argus.core.agent_probe import run_read_only_agent_prompt; "
+            "r=run_read_only_agent_prompt(backend='copilot',executable=shutil.which('copilot'),"
+            "model='argus-trial',run_label='trial-reject-smoke',prompt='TRIAL_REJECT_REQUEST'); "
+            "assert not r.ok and r.error, r; print('TRIAL_TOOL_OK: one-shot rejection verified'); "
+        )
         result = subprocess.run(
             [sys.executable, "-c", "from argus.core.knob_store import read_persisted_knobs; "
              "k=read_persisted_knobs(); assert k['ARGUS_SKILL_MODEL']=='argus-trial'; "

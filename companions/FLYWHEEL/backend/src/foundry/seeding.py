@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 import json
-import uuid
 from datetime import UTC, datetime, time, timedelta, timezone
 from pathlib import Path
 from typing import Any
@@ -181,8 +180,14 @@ def seed_database(db: Database, data_dir: Path) -> dict[str, int]:
                     )
             planning_date = datetime.fromisoformat(planning_cutoff)
             for offset in offsets:
-                reminder_id = str(
-                    uuid.uuid5(uuid.NAMESPACE_URL, f"foundry:{deadline['id']}:{offset}")
+                reminder_id = f"foundry-deadline-{deadline['id']}-{offset}"
+                # Reminders seeded before ids were readable carry a name-based
+                # UUID; adopt that row rather than seeding a twin beside it.
+                connection.execute(
+                    "UPDATE reminders SET id=? WHERE deadline_id=? AND campaign_id IS NULL "
+                    "AND length(id)=36 AND json_extract(payload_json,'$.offset_days')=? "
+                    "AND NOT EXISTS (SELECT 1 FROM reminders WHERE id=?)",
+                    (reminder_id, deadline["id"], offset, reminder_id),
                 )
                 local_day = (planning_date - timedelta(days=offset)).date()
                 trigger_at = datetime.combine(

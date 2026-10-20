@@ -1,13 +1,14 @@
 """Shared backend/auth readiness contract for setup, doctor, and startup."""
 from __future__ import annotations
 
+import json
 import os
 import re
 import subprocess
 import sys
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Iterable, Mapping, Sequence
+from typing import Any, Iterable, Mapping, Sequence
 
 from ..agent_cli._process_control import background_subprocess_kwargs
 from ..agent_cli.runner_backend import (
@@ -205,6 +206,7 @@ def _run_text(
     *,
     timeout_s: float,
     input_text: str | None = None,
+    env: Mapping[str, str] | None = None,
 ) -> subprocess.CompletedProcess[str]:
     executable = str(command[0]) if command else ""
     return subprocess.run(
@@ -220,7 +222,7 @@ def _run_text(
         # AgentCliRunner will use for real turns.  A frozen desktop otherwise
         # reported its Python runtime healthy while every Codex turn died
         # before reaching the provider because the GUI PATH lacked node.exe.
-        env=runner_child_environment(executable),
+        env=runner_child_environment(executable, env=env) or env,
         **background_subprocess_kwargs(),
     )
 
@@ -569,43 +571,69 @@ def _check_pi_model_routing(
             )
 
 
-def _probe_copilot_auth(executable: str, timeout_s: float) -> tuple[bool, str]:
-    """Create an ACP session without sending a prompt or spending model tokens."""
-    from ..agent_cli.copilot_acp import CopilotAcpClient
+def _copilot_new_session(executable: str, timeout_s: float) -> dict[str, Any]:
+    """What Copilot reports for a new session, without a prompt or model tokens.
 
-    last_exc: Exception | None = None
-    for attempt in range(2):
-        client = CopilotAcpClient(executable, lean=True, startup_timeout_s=timeout_s)
+    ``copilot --acp`` answers ``initialize`` and ``session/new`` read from
+    stdin and exits when stdin closes. Raises when no session was created.
+    """
+    from ..agent_cli.copilot_home import apply_copilot_account, apply_copilot_provider
+    from ..agent_cli.copilot_launcher import stable_copilot_command
+
+    env = dict(os.environ)
+    apply_copilot_provider(env)
+    requests = (
+        ("initialize", {"protocolVersion": 1, "clientCapabilities": {}}),
+        ("session/new", {"cwd": str(Path.cwd()), "mcpServers": []}),
+    )
+    result = _run_text(
+        stable_copilot_command([
+            executable, "--acp", "--no-custom-instructions", "--disable-builtin-mcps",
+        ]),
+        timeout_s=timeout_s,
+        input_text="".join(
+            json.dumps({"jsonrpc": "2.0", "id": rid, "method": method, "params": params}) + "\n"
+            for rid, (method, params) in enumerate(requests, 1)
+        ),
+        env=apply_copilot_account(env),
+    )
+    for line in result.stdout.splitlines():
         try:
-            client._ensure_started()
-            client._new_session(str(Path.cwd()))
-            return True, ""
-        except RuntimeError as exc:
-            last_exc = exc
-            if attempt or not str(exc).startswith("acp initialize failed:"):
-                break
-        finally:
-            client.close()
-    assert last_exc is not None
-    return False, f"{type(last_exc).__name__}: {last_exc}"
+            reply = json.loads(line)
+        except ValueError:
+            continue
+        if isinstance(reply, dict) and reply.get("id") == len(requests):
+            session = reply.get("result")
+            if isinstance(session, dict) and session.get("sessionId"):
+                return session
+            raise RuntimeError(f"session/new failed: {reply.get('error')}")
+    detail = (result.stderr or f"exit {result.returncode}").strip()[:300]
+    raise RuntimeError(f"session/new got no reply: {detail}")
+
+
+def _probe_copilot_auth(executable: str, timeout_s: float) -> tuple[bool, str]:
+    """Create a Copilot session without sending a prompt or spending model tokens."""
+    try:
+        _copilot_new_session(executable, timeout_s)
+    except (OSError, RuntimeError, subprocess.SubprocessError) as exc:
+        return False, f"{type(exc).__name__}: {exc}"
+    return True, ""
 
 
 def probe_copilot_models(executable: str, timeout_s: float) -> tuple[list[str], str]:
     """Models this Copilot account can use, and the one it picks with no ``--model``.
 
-    Same no-prompt ACP handshake as :func:`_probe_copilot_auth`: the
-    ``session/new`` reply carries the account's live model list, so no tokens
-    are spent. Raises on any transport failure; callers decide the fallback.
+    The ``session/new`` reply carries the account's live model list, so no
+    tokens are spent. Raises on any transport failure; callers decide the
+    fallback.
     """
-    from ..agent_cli.copilot_acp import CopilotAcpClient
-
-    client = CopilotAcpClient(executable, lean=True, startup_timeout_s=timeout_s)
-    try:
-        client._ensure_started()
-        client._new_session(str(Path.cwd()))
-        return list(client.available_models), client.default_model
-    finally:
-        client.close()
+    models = _copilot_new_session(executable, timeout_s).get("models") or {}
+    offered = [
+        str(row["modelId"])
+        for row in models.get("availableModels") or []
+        if isinstance(row, dict) and row.get("modelId")
+    ]
+    return offered, str(models.get("currentModelId") or "") if offered else ""
 
 
 def _probe_cli_auth(

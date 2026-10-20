@@ -189,8 +189,8 @@ const asStep = (row: FeedRowInput, status: StepStatus): FeedStep => ({
  * Two shapes reach the feed. Copilot reports a call once as `running` and again,
  * with the same text, as `failed` (a success is not echoed); other calls of the
  * same batch can sit between the two, so the outcome goes to the nearest still
- * open call that matches. The ACP path sends the output as a `tool_result` row
- * with a `call_id`; without one it belongs to the oldest open call of that tool.
+ * open call that matches. A `tool.result` stream line arrives as a `tool_result`
+ * row with a `call_id`; without one it belongs to the oldest open call of that tool.
  * A result whose call was never seen stays a row of its own, so no output is lost.
  */
 export function pairCalls(rows: FeedRowInput[]): FeedStep[] {

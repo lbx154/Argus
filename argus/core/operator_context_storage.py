@@ -6,7 +6,6 @@ discarded revoked/consumed history from being reintroduced by a stale tail.
 
 from __future__ import annotations
 
-import hashlib
 import json
 import os
 import re
@@ -24,17 +23,28 @@ MAX_OPERATOR_DELIVERY_COUNTER = (1 << 63) - 1
 MAX_SOURCE_BYTES = 16 * 1024 * 1024
 
 _STREAM_ID = re.compile(r"[A-Za-z0-9][A-Za-z0-9_.:-]{0,127}\Z")
-_SHA256 = re.compile(r"[0-9a-f]{64}\Z")
+
+
+RECEIPT_FORMAT = "operator-delivery-receipt-v2"
+# A receipt binds the delivered plan itself; version 1 bound its digest.
+_RECEIPT_FIELDS = {
+    RECEIPT_FORMAT: {"format", "identity", "target_root", "plan", "revision"},
+    "operator-delivery-receipt-v1": {"format", "identity", "target_root", "effect_digest", "revision"},
+}
 
 
 def encode(value: Any) -> bytes:
     return (json.dumps(value, ensure_ascii=False, sort_keys=True, allow_nan=False) + "\n").encode()
 
 
-def operator_delivery_identity(value: Any, *, prefix: bool = False) -> dict[str, Any]:
-    """Validate a host-issued stream identity without coercing malformed counters."""
-    keys = {"stream", "generation", "sequence"} | (set() if prefix else {"digest"})
-    if not isinstance(value, dict) or set(value) != keys:
+def operator_delivery_identity(value: Any) -> dict[str, Any]:
+    """Validate a host-issued stream identity without coercing malformed counters.
+
+    Identities written by older releases also carried a content digest; it is
+    read and dropped, since the receipt binds the delivered plan itself.
+    """
+    keys = {"stream", "generation", "sequence"}
+    if not isinstance(value, dict) or not keys <= set(value) <= keys | {"digest"}:
         raise ValueError("operator delivery identity has invalid fields")
     stream = value["stream"]
     if not isinstance(stream, str) or not _STREAM_ID.fullmatch(stream):
@@ -43,8 +53,6 @@ def operator_delivery_identity(value: Any, *, prefix: bool = False) -> dict[str,
         number = value[key]
         if type(number) is not int or not 1 <= number <= MAX_OPERATOR_DELIVERY_COUNTER:
             raise ValueError("operator delivery counter is invalid")
-    if not prefix and (not isinstance(value["digest"], str) or not _SHA256.fullmatch(value["digest"])):
-        raise ValueError("operator delivery digest is invalid")
     return {key: value[key] for key in sorted(keys)}
 
 
@@ -77,20 +85,16 @@ def validate_operator_delivery_state(state: dict[str, Any], revision: int) -> No
         if receipt_count > MAX_OPERATOR_DELIVERY_RECEIPTS:
             raise ValueError("operator delivery receipts exceed their bounded capacity")
         for sequence, receipt in row["receipts"].items():
-            if not isinstance(receipt, dict) or set(receipt) != {
-                "format", "identity", "target_root", "effect_digest", "revision",
-            }:
+            if not isinstance(receipt, dict) or set(receipt) not in _RECEIPT_FIELDS.values():
                 raise ValueError("invalid operator delivery receipt")
             identity = operator_delivery_identity(receipt["identity"])
             if (
                 identity["stream"] != stream or identity["generation"] != generation
                 or str(identity["sequence"]) != sequence or identity["sequence"] <= closed
-                or receipt["format"] != "operator-delivery-receipt-v1"
+                or _RECEIPT_FIELDS.get(receipt["format"]) != set(receipt)
                 or not isinstance(receipt["target_root"], str)
                 or not Path(receipt["target_root"]).is_absolute()
                 or len(receipt["target_root"]) > 4096
-                or not isinstance(receipt["effect_digest"], str)
-                or not _SHA256.fullmatch(receipt["effect_digest"])
                 or type(receipt["revision"]) is not int
                 or not 0 <= receipt["revision"] <= revision
             ):
@@ -171,15 +175,11 @@ def read_document(
         source_format = first.get("format")
         is_checkpoint = source_format == FORMAT or source_format == DELIVERY_FORMAT
         if (
-            any(key in first for key in ("format", "base_revision", "checkpoint_digest"))
+            any(key in first for key in ("format", "base_revision"))
             and not is_checkpoint
         ):
             raise ValueError("operator context checkpoint header is corrupt")
         if is_checkpoint:
-            payload = dict(first)
-            signature = payload.pop("checkpoint_digest", None)
-            if hashlib.sha256(encode(payload)).hexdigest() != signature:
-                raise ValueError("operator context checkpoint checksum mismatch")
             base = int(first["base_revision"])
             if (
                 base < 0
@@ -308,7 +308,6 @@ def checkpoint_bytes(doc: ContextDocument) -> bytes:
         "records": doc.records,
         "state": doc.state,
     }
-    payload["checkpoint_digest"] = hashlib.sha256(encode(payload)).hexdigest()
     return encode(payload)
 
 

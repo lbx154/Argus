@@ -6,7 +6,6 @@ import os
 import sys
 from contextlib import contextmanager
 from dataclasses import dataclass, replace
-from functools import lru_cache
 from pathlib import Path
 from tempfile import TemporaryDirectory
 from typing import Any, Iterator, Mapping
@@ -19,14 +18,6 @@ from ..core.operator_decision import normalize_agent_options, normalize_option_i
 from ..core.research_contract import RESULT_FIELD_CHOICES, normalize_research_result
 from ..core.role_tool_bridge import CallBoundBridge, bridge_request
 from ..core.venue_review import ACCEPTED_RECOMMENDATIONS, RECOMMENDATIONS
-from .validation import (
-    CANCEL_TOOL,
-    COMMAND_TOOL,
-    RESULT_TOOL,
-    ReviewValidation,
-    configured_read_dirs,
-    configured_validation,
-)
 
 PREFIX = "ARGUS_PLUGIN_REVIEW"
 SERVER = "argus_review_actions"
@@ -47,36 +38,18 @@ _ACTIONS: dict[str, tuple[ReviewStatus, str]] = {
 }
 
 
-#: Verdicts whose Manager supervision follows the Reviewer's attention
-#: judgment; a blocked or replanning verdict always reaches the Manager.
-_ATTENTION_ACTIONS = frozenset({"approve_review", "revise_review", "defer_review"})
-
-
-def _judgment_fields() -> dict[str, dict[str, Any]]:
-    """Optional routing judgments; a malformed one is ignored, never fatal."""
-    def judgment(description: str, verdicts: list[str]) -> dict[str, Any]:
-        return {
-            "type": "object", "description": description,
-            "properties": {"verdict": {"enum": verdicts}, "reason": {"type": "string"}},
-            "required": ["verdict", "reason"], "additionalProperties": False,
-        }
-
-    return {
-        "manager_attention": judgment(
-            "Does the course need the Manager now: stuck, looping or drifting, plan "
-            "doubt, agreement on something unverified, evidence only the operator "
-            "can supply (credentials, hardware, human judgment), or scope or "
-            "authority? A check you lack is not one: run it if you can, else ask "
-            "the Engineer for it. When unsure, needed.",
-            ["needed", "not_needed"],
-        ),
-        "learning": judgment(
-            "Is anything from this task worth keeping for later work: a failure, a "
-            "correction, a surprise, a new technique, a reusable pattern? When "
-            "unsure, worth_reflecting.",
-            ["worth_reflecting", "nothing_new"],
-        ),
-    }
+#: An optional routing judgment on the accepting verdict; a malformed one is
+#: ignored, never fatal.
+_LEARNING_FIELD: dict[str, Any] = {
+    "type": "object",
+    "description": (
+        "Is anything from this task worth keeping for later work: a failure, a "
+        "correction, a surprise, a new technique, a reusable pattern? When "
+        "unsure, worth_reflecting."
+    ),
+    "properties": {"verdict": {"enum": ["worth_reflecting", "nothing_new"]}, "reason": {"type": "string"}},
+    "required": ["verdict", "reason"], "additionalProperties": False,
+}
 
 
 @dataclass(frozen=True)
@@ -85,14 +58,13 @@ class ReviewGrounding:
 
     ``task_text`` is the task as the Reviewer was given it (objective, scope,
     packet context). ``roots`` are the directories a quoted file may come from,
-    and a file there counts only if its sha256 now is the one the Planner
-    recorded when the task packet named it (``packet_refs``: path and hash),
-    or the one it had when the first mission on this objective began
-    (``baseline``: resolved path to hash); with no baseline, no unnamed file
-    counts. Content, not timestamps, which can be set. So nothing an Engineer
-    wrote or edited, in this mission or an earlier one on the objective, is a
-    source: a statement that a check is impossible must come from the task,
-    its packet or the environment.
+    and a file there counts only if it is still as the Planner recorded it when
+    the task packet named it (``packet_refs``: path and ``file_facts``), or as
+    it was when the first mission on this objective began (``baseline``:
+    resolved path to ``file_facts``); with no baseline, no unnamed file counts. So
+    nothing an Engineer wrote or edited, in this mission or an earlier one on
+    the objective, is a source: a statement that a check is impossible must
+    come from the task, its packet or the environment.
 
     ``accepted_risks`` are the Manager's acceptances in force for this item and
     ``operator_decisions`` the operator's resolved decision cards for it. An
@@ -102,8 +74,8 @@ class ReviewGrounding:
     task_text: str = ""
     roots: tuple[str, ...] = ()
     operator_available: bool = True
-    baseline: Mapping[str, str] | None = None
-    packet_refs: tuple[tuple[str, str], ...] = ()
+    baseline: Mapping[str, list[int]] | None = None
+    packet_refs: tuple[tuple[str, list[int]], ...] = ()
     accepted_risks: tuple[dict[str, Any], ...] = ()
     operator_decisions: tuple[dict[str, Any], ...] = ()
 
@@ -117,28 +89,28 @@ def _folded(text: str) -> str:
     return " ".join(str(text or "").translate(_QUOTE_FOLD).casefold().split())
 
 
-def _packet_hash(candidate: Path, grounding: ReviewGrounding, base: Path) -> str:
-    """The sha256 the Planner recorded when the task packet named ``candidate``, or ""."""
-    for ref, digest in grounding.packet_refs:
+def _packet_facts(candidate: Path, grounding: ReviewGrounding, base: Path) -> list[int]:
+    """The ``file_facts`` the Planner recorded when the task packet named ``candidate``, or []."""
+    for ref, facts in grounding.packet_refs:
         try:
             named = Path(ref).expanduser()
             named = (named if named.is_absolute() else base / named).resolve()
         except (OSError, RuntimeError, ValueError):
             continue
-        if named == candidate and digest:
-            return digest
-    return ""
+        if named == candidate and facts:
+            return facts
+    return []
 
 
 def _not_original(candidate: Path, source: str, grounding: ReviewGrounding, base: Path) -> str:
     """Why ``candidate`` is not the task's or environment's own file, or "" when it is."""
-    from ..core.grounding_baseline import file_sha256
+    from ..core.file_facts import file_facts
 
     try:
-        current = file_sha256(candidate)
+        current = file_facts(candidate)
     except OSError:
         return f"{source} cannot be read"
-    recorded = _packet_hash(candidate, grounding, base)
+    recorded = _packet_facts(candidate, grounding, base)
     if recorded:
         return "" if current == recorded else (
             f"{source} has changed since the task packet named it, so the words there "
@@ -207,15 +179,15 @@ def _basis_field() -> dict[str, Any]:
 class ReviewActions:
     def __init__(
         self, *, venue: str = "", venue_required: bool = False,
-        validation: ReviewValidation | None = None,
         grounding: ReviewGrounding | None = None,
     ) -> None:
-        from ..core.autonomy import operator_available
+        from ..core.autonomy import operator_questions_can_be_asked
 
         self.venue = venue
         self.venue_required = venue_required
-        self.validation = validation
-        self.grounding = grounding or ReviewGrounding(operator_available=operator_available())
+        self.grounding = grounding or ReviewGrounding(
+            operator_available=operator_questions_can_be_asked()
+        )
         self.decision: ReviewDecision | None = None
         self.tools = self._tools()
 
@@ -231,11 +203,9 @@ class ReviewActions:
             "additionalProperties": False,
         }
         tools = []
-        judgments = _judgment_fields()
         for name, (_, description) in _ACTIONS.items():
             fields: dict[str, Any] = {
                 "review": {"type": "string", "minLength": 1, "description": "Your complete natural-language review, including evidence and any next steps. No template or status footer."},
-                "forward_progress": {"type": "boolean", "description": "Whether this round moved toward the operator's goal."},
                 "research_result": research,
                 "session_signal": {
                     "type": "object",
@@ -248,60 +218,22 @@ class ReviewActions:
                     "required": ["kind", "target", "detail"],
                     "additionalProperties": False,
                 },
-                "frontier_report": {
-                    "type": "object",
-                    "description": "Optional evidence of how the remaining work changed this round.",
-                    "properties": {
-                        "change": {"enum": [
-                            "artifact_improved", "risk_reduced", "uncertainty_reduced",
-                            "information_gain", "bounded_regression", "recovered",
-                            "unchanged_failure", "expanding_regression", "unexplained_regression",
-                        ]},
-                        **{key: {"type": "string"} for key in (
-                            "summary", "hypothesis", "uncertainty", "next_decision_point",
-                        )},
-                        **{key: {"type": "array", "items": {"type": "string"}} for key in (
-                            "resolved_obligations", "new_obligations", "regressed_obligations",
-                            "remaining_work", "proxy_changes", "artifacts", "evidence",
-                        )},
-                        "regression": {
-                            "type": "object",
-                            "properties": {key: {"type": "string"} for key in (
-                                "cause", "scope", "budget", "recovery_test", "exit_trigger",
-                            )},
-                            "additionalProperties": False,
-                        },
-                    },
-                    "required": ["change"],
-                    "additionalProperties": False,
-                },
             }
-            # Only where the host uses them: attention on verdicts that do not
-            # already reach the Manager, learning on the accepting verdict.
-            if name in _ATTENTION_ACTIONS:
-                fields["manager_attention"] = judgments["manager_attention"]
             if name == "approve_review":
-                fields["learning"] = judgments["learning"]
+                fields["learning"] = _LEARNING_FIELD
             # A replanning Reviewer can be stopped by the same obstacle; one
             # task replanned four times over a token only its grader receives.
             if _ACTIONS[name][0] in {"continue", "replan_requested"}:
                 fields["unverifiable"] = {
                     "type": "string",
                     "description": (
-                        "Only when a decisive check cannot happen in this environment, "
-                        "so repeating the finding cannot settle it: the fact is hidden "
-                        "from every view you have (e.g. masked or redacted display), or "
-                        "the task, packet or environment says the check needs a resource "
-                        "that exists only at grading or deploy time (quote it in "
-                        "impossible_because). Name the check, the best evidence you can "
-                        "reach instead (a rerunnable check, or a test fixture), and the "
-                        "risk left. " + FIXTURE_EVIDENCE_RULE + " " + (
+                        "A decisive check that cannot happen here, and the risk left. " + (
                             "Leaving it unverified is the operator's decision: ask them "
                             "with request_review_decision (operator_need "
                             "scope_or_authority, accept_risk)."
                             if self.grounding.operator_available else
-                            "No operator is available, so the Manager sees this and "
-                            "decides whether to accept that risk."
+                            "The operator cannot be asked, so the Manager sees this "
+                            "and decides whether to accept that risk."
                         )
                     ),
                 }
@@ -393,8 +325,6 @@ class ReviewActions:
                 "name": name, "description": description,
                 "inputSchema": {"type": "object", "properties": fields, "required": required, "additionalProperties": False},
             })
-        if self.validation is not None:
-            tools.extend(self.validation.tools())
         return tools
 
     def dispatch(self, action: str, payload: dict[str, Any]) -> dict[str, Any]:
@@ -410,23 +340,17 @@ class ReviewActions:
             self.decision = None
         properties = tool["inputSchema"].get("properties", {})
         payload = dict(payload)
-        for key in ("manager_attention", "learning"):
-            if key not in payload:
-                continue
+        if "learning" in payload:
             try:
-                validate(payload[key], properties[key])
+                validate(payload["learning"], properties["learning"])
             except (KeyError, ValidationError):
                 # Absent rather than fatal: the verdict itself stands, and an
-                # absent judgment means the Manager looks and reflection runs.
-                payload.pop(key)
+                # absent judgment means reflection runs.
+                payload.pop("learning")
         try:
             validate(payload, tool["inputSchema"])
         except ValidationError as exc:
             raise ValueError(exc.message) from exc
-        if action == COMMAND_TOOL and self.validation is not None:
-            return self.validation.run(payload)
-        if action in {RESULT_TOOL, CANCEL_TOOL} and self.validation is not None:
-            return self.validation.result(payload["command_id"], cancel=action == CANCEL_TOOL)
         review = payload["review"]
         if not review.strip():
             raise ValueError("The review must explain the judgment.")
@@ -460,17 +384,13 @@ class ReviewActions:
             research_result=research,
             planner_report={"plan_signal": "continue"},
             session_signal=payload.get("session_signal", {}),
-            frontier_report=payload.get("frontier_report", {}),
         )
-        if "forward_progress" in payload:
-            decision.planner_report["forward_progress"] = payload["forward_progress"]
         if action == "request_review_decision" and payload.get("operator_need"):
             decision.planner_report["operator_need"] = payload["operator_need"]
-        for key in ("manager_attention", "learning"):
-            judged = payload.get(key)
-            if isinstance(judged, dict):
-                decision.planner_report[key] = judged["verdict"]
-                decision.planner_report[f"{key}_reason"] = str(judged.get("reason") or "")[:500]
+        judged = payload.get("learning")
+        if isinstance(judged, dict):
+            decision.planner_report["learning"] = judged["verdict"]
+            decision.planner_report["learning_reason"] = str(judged.get("reason") or "")[:500]
         decision.verification_obstacle = str(payload.get("unverifiable") or "").strip()
         basis = payload.get("impossible_because")
         if isinstance(basis, dict):
@@ -537,7 +457,7 @@ class ReviewActions:
         if risk["accepted_by"] == "manager":
             if grounding.operator_available:
                 raise ValueError(
-                    "An operator is available, so accepting this risk is theirs to decide: "
+                    "The operator can be asked, so accepting this risk is theirs to decide: "
                     "ask with request_review_decision (operator_need scope_or_authority, accept_risk)."
                 )
             wanted = str(risk["acceptance"]).strip().strip("[]")
@@ -558,8 +478,8 @@ class ReviewActions:
             return f"{wanted}: accepted by the Manager"
         if not grounding.operator_available:
             raise ValueError(
-                "No operator is available in this run; only the Manager can accept this "
-                "risk. Name it in unverifiable on a revise_review instead."
+                "The operator cannot be asked in this run; only the Manager can accept "
+                "this risk. Name it in unverifiable on a revise_review instead."
             )
         card = next((
             card for card in reversed(grounding.operator_decisions) if operator_accepted(card, risk["check"])
@@ -589,66 +509,6 @@ def _residual_risk_record(risk: dict[str, Any], acceptance: str) -> tuple[str, d
     return f"{check}: {rest} (accepted by {who})", detail
 
 
-def validation_available(image: str) -> bool:
-    """Whether Docker can run the configured validation image on this host."""
-    image = str(image or "").strip()
-    if not image or not sys.platform.startswith("linux"):
-        return False
-    return _docker_image_present(image)
-
-
-@lru_cache(maxsize=8)
-def _docker_image_present(image: str) -> bool:
-    import shutil
-    import subprocess
-
-    docker = shutil.which("docker")
-    if not docker:
-        return False
-    try:
-        result = subprocess.run(
-            [docker, "image", "inspect", "--format", "{{.Id}}", image],
-            capture_output=True, timeout=10, check=False,
-        )
-    except (OSError, subprocess.SubprocessError):
-        return False
-    return result.returncode == 0
-
-
-def reviewer_can_execute(runner: Any) -> bool:
-    """Whether this Reviewer's tools can run commands.
-
-    Every Reviewer call is read-only (``sandbox_mode="read-only"``). Codex keeps
-    its shell inside a read-only sandbox; the other backends reduce the call to
-    file read and search tools. A validation image adds :data:`COMMAND_TOOL`
-    on any backend (:func:`review_action_tools`), but counts only when Docker
-    and the image are actually available here.
-    """
-    if str(getattr(runner, "backend", "")).lower() == "codex":
-        return True
-    from ..core.knobs import resolve_knob
-    from .validation import IMAGE_ENV
-
-    try:
-        image = resolve_knob(IMAGE_ENV, "").value.strip()
-    except Exception:  # noqa: BLE001 - an unreadable knob exposes no tool
-        return False
-    return validation_available(image)
-
-
-def reviewer_evidence_mode(runner: Any, *, engineer_records_commands: bool) -> str:
-    """Which evidence rule fits this Reviewer (see ``review_evidence_rule``).
-
-    A read-only Reviewer is told to rely on host-recorded runs only when the
-    Engineer's backend reports each command's exit code.
-    """
-    from ..core.model_visible_text import EVIDENCE_EXECUTE, EVIDENCE_READ, EVIDENCE_RECORDED
-
-    if reviewer_can_execute(runner):
-        return EVIDENCE_EXECUTE
-    return EVIDENCE_RECORDED if engineer_records_commands else EVIDENCE_READ
-
-
 @contextmanager
 def review_action_tools(
     runner: Any, options: RunnerOptions, *, venue: str, venue_required: bool,
@@ -657,21 +517,11 @@ def review_action_tools(
     backend = str(getattr(runner, "backend", "")).lower()
     if backend not in {"pi", "copilot", "codex", "claude", "qoder", "memory", ""}:
         raise ValueError(f"Reviewer action tools are not supported by backend {backend!r}; no text-parser fallback is available.")
-    approved_dirs = configured_read_dirs()
-    read_dirs = list(options.add_dirs or [])
-    if backend == "copilot":
-        read_dirs = list(dict.fromkeys([*read_dirs, *approved_dirs]))
-    validation = configured_validation(options.working_dir, approved_dirs)
-    if validation is not None and backend == "copilot":
-        read_dirs.append(str(validation.output_root))
-    actions = ReviewActions(
-        venue=venue, venue_required=venue_required, validation=validation, grounding=grounding,
-    )
-    with CallBoundBridge(
-        actions.dispatch, env_prefix=PREFIX,
-        on_close=validation.close if validation is not None else None,
-        cancel_operation=CANCEL_TOOL,
-    ) as bridge, TemporaryDirectory(prefix="argus-review-tools-") as directory:
+    actions = ReviewActions(venue=venue, venue_required=venue_required, grounding=grounding)
+    with (
+        CallBoundBridge(actions.dispatch, env_prefix=PREFIX) as bridge,
+        TemporaryDirectory(prefix="argus-review-tools-") as directory,
+    ):
         names = [tool["name"] for tool in actions.tools]
         environment = {**bridge.environment, "PYTHONPATH": str(Path(__file__).resolve().parents[2])}
         extra = list(options.extra_args or [])
@@ -706,10 +556,8 @@ def review_action_tools(
             ]
         yield actions, replace(
             options, extra_args=extra, trusted_extensions=extensions,
-            add_dirs=read_dirs,
             trusted_tool_names=[*(options.trusted_tool_names or []), *names],
             extension_env={**(options.extension_env or {}), **bridge.environment},
-            force_safe_mode=True,
         )
 
 

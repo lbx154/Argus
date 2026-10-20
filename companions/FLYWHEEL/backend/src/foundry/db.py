@@ -1,7 +1,7 @@
 from __future__ import annotations
 
-import hashlib
 import json
+import secrets
 import sqlite3
 from contextlib import contextmanager
 from datetime import UTC, datetime
@@ -11,6 +11,11 @@ from typing import Any, Iterator, Sequence
 
 def utc_now() -> str:
     return datetime.now(UTC).isoformat(timespec="seconds")
+
+
+def new_key() -> str:
+    """A fresh 64-hex key for a frozen record; assigned once, never derived from content."""
+    return secrets.token_hex(32)
 
 
 MIGRATIONS: tuple[tuple[int, str], ...] = (
@@ -233,14 +238,14 @@ MIGRATIONS: tuple[tuple[int, str], ...] = (
             version INTEGER NOT NULL,
             state TEXT NOT NULL DEFAULT 'objective_ready'
                 CHECK(state IN ('objective_ready','campaign_created','drafting','human_review','finalized','superseded')),
-            objective_sha256 TEXT NOT NULL,
+            objective_key TEXT NOT NULL,
             objective_path TEXT NOT NULL,
             campaign_id TEXT REFERENCES campaigns(id) ON DELETE SET NULL,
             human_notes TEXT NOT NULL DEFAULT '',
             created_at TEXT NOT NULL,
             updated_at TEXT NOT NULL,
             UNIQUE(submission_id, version),
-            UNIQUE(objective_sha256)
+            UNIQUE(objective_key)
         );
         CREATE INDEX IF NOT EXISTS idx_submission_campaign ON submission_records(campaign_id, updated_at);
         CREATE INDEX IF NOT EXISTS idx_external_reviews_submission ON external_reviews(submission_id, created_at);
@@ -278,15 +283,15 @@ MIGRATIONS: tuple[tuple[int, str], ...] = (
                 CHECK(state IN ('objective_ready','campaign_created','running','awaiting_import','awaiting_labels','labeled','closed')),
             condition_schema_version INTEGER NOT NULL DEFAULT 1,
             condition_snapshot_json TEXT NOT NULL,
-            objective_sha256 TEXT NOT NULL,
+            objective_key TEXT NOT NULL,
             objective_path TEXT NOT NULL,
             source_snapshot_ref TEXT NOT NULL DEFAULT '',
-            source_snapshot_sha256 TEXT NOT NULL DEFAULT '',
+            source_snapshot_key TEXT NOT NULL DEFAULT '',
             training_consent INTEGER NOT NULL DEFAULT 0,
             license_basis TEXT NOT NULL DEFAULT '',
             created_at TEXT NOT NULL,
             updated_at TEXT NOT NULL,
-            UNIQUE(objective_sha256)
+            UNIQUE(objective_key)
         );
         CREATE TABLE IF NOT EXISTS generated_idea_candidates (
             id TEXT PRIMARY KEY,
@@ -372,7 +377,7 @@ MIGRATIONS: tuple[tuple[int, str], ...] = (
             UNIQUE(episode_id, entity_type, entity_id, relation)
         );
         CREATE TABLE IF NOT EXISTS content_objects (
-            sha256 TEXT PRIMARY KEY CHECK(length(sha256) = 64),
+            object_key TEXT PRIMARY KEY CHECK(length(object_key) = 64),
             media_type TEXT NOT NULL,
             byte_length INTEGER NOT NULL CHECK(byte_length >= 0),
             storage_path TEXT NOT NULL UNIQUE,
@@ -387,21 +392,21 @@ MIGRATIONS: tuple[tuple[int, str], ...] = (
             revision_number INTEGER NOT NULL CHECK(revision_number > 0),
             parent_revision_id TEXT REFERENCES episode_revisions(id) ON DELETE RESTRICT,
             manifest_json TEXT NOT NULL,
-            manifest_sha256 TEXT NOT NULL CHECK(length(manifest_sha256) = 64),
-            chain_sha256 TEXT NOT NULL CHECK(length(chain_sha256) = 64),
+            manifest_key TEXT NOT NULL CHECK(length(manifest_key) = 64),
+            chain_key TEXT NOT NULL CHECK(length(chain_key) = 64),
             object_count INTEGER NOT NULL CHECK(object_count >= 0),
             reason TEXT NOT NULL,
             sealed_by TEXT NOT NULL,
             sealed_at TEXT NOT NULL,
             UNIQUE(episode_id, revision_number),
-            UNIQUE(episode_id, manifest_sha256)
+            UNIQUE(episode_id, manifest_key)
         );
         CREATE TABLE IF NOT EXISTS episode_revision_objects (
             revision_id TEXT NOT NULL REFERENCES episode_revisions(id) ON DELETE RESTRICT,
-            object_sha256 TEXT NOT NULL REFERENCES content_objects(sha256) ON DELETE RESTRICT,
+            object_key TEXT NOT NULL REFERENCES content_objects(object_key) ON DELETE RESTRICT,
             role TEXT NOT NULL,
             created_at TEXT NOT NULL,
-            PRIMARY KEY(revision_id, object_sha256, role)
+            PRIMARY KEY(revision_id, object_key, role)
         );
         CREATE TABLE IF NOT EXISTS team_intakes (
             id TEXT PRIMARY KEY,
@@ -424,7 +429,7 @@ MIGRATIONS: tuple[tuple[int, str], ...] = (
             source_ref TEXT NOT NULL DEFAULT '',
             state TEXT NOT NULL DEFAULT 'draft' CHECK(state IN ('draft','confirmed')),
             raw_payload_json TEXT NOT NULL,
-            raw_object_sha256 TEXT REFERENCES content_objects(sha256) ON DELETE RESTRICT,
+            raw_object_key TEXT REFERENCES content_objects(object_key) ON DELETE RESTRICT,
             parsed_json TEXT NOT NULL DEFAULT '{}',
             redaction_confirmed INTEGER NOT NULL DEFAULT 0,
             training_consent INTEGER NOT NULL DEFAULT 0,
@@ -438,20 +443,20 @@ MIGRATIONS: tuple[tuple[int, str], ...] = (
             id TEXT PRIMARY KEY,
             name TEXT NOT NULL,
             selection_json TEXT NOT NULL,
-            selection_sha256 TEXT NOT NULL CHECK(length(selection_sha256) = 64),
+            selection_key TEXT NOT NULL CHECK(length(selection_key) = 64),
             manifest_json TEXT NOT NULL,
-            manifest_sha256 TEXT NOT NULL CHECK(length(manifest_sha256) = 64),
+            manifest_key TEXT NOT NULL CHECK(length(manifest_key) = 64),
             member_count INTEGER NOT NULL CHECK(member_count > 0),
             license_basis TEXT NOT NULL,
             created_by TEXT NOT NULL,
             created_at TEXT NOT NULL,
-            UNIQUE(manifest_sha256)
+            UNIQUE(manifest_key)
         );
         CREATE TABLE IF NOT EXISTS dataset_snapshot_members (
             snapshot_id TEXT NOT NULL REFERENCES dataset_snapshots(id) ON DELETE RESTRICT,
             revision_id TEXT NOT NULL REFERENCES episode_revisions(id) ON DELETE RESTRICT,
             episode_id TEXT NOT NULL REFERENCES research_episodes(id) ON DELETE RESTRICT,
-            manifest_sha256 TEXT NOT NULL,
+            manifest_key TEXT NOT NULL,
             created_at TEXT NOT NULL,
             PRIMARY KEY(snapshot_id, revision_id)
         );
@@ -520,23 +525,23 @@ MIGRATIONS: tuple[tuple[int, str], ...] = (
     (
         6,
         """
-        ALTER TABLE ideation_runs ADD COLUMN candidate_artifact_sha256 TEXT NOT NULL DEFAULT ''
-            CHECK(candidate_artifact_sha256 = '' OR length(candidate_artifact_sha256) = 64);
-        ALTER TABLE generated_idea_candidates ADD COLUMN artifact_sha256 TEXT NOT NULL DEFAULT ''
-            CHECK(artifact_sha256 = '' OR length(artifact_sha256) = 64);
+        ALTER TABLE ideation_runs ADD COLUMN candidate_artifact_key TEXT NOT NULL DEFAULT ''
+            CHECK(candidate_artifact_key = '' OR length(candidate_artifact_key) = 64);
+        ALTER TABLE generated_idea_candidates ADD COLUMN artifact_key TEXT NOT NULL DEFAULT ''
+            CHECK(artifact_key = '' OR length(artifact_key) = 64);
 
         CREATE TRIGGER IF NOT EXISTS immutable_ideation_candidate_artifact_update
-        BEFORE UPDATE OF candidate_artifact_sha256 ON ideation_runs
-        WHEN OLD.candidate_artifact_sha256 <> ''
-             AND NEW.candidate_artifact_sha256 <> OLD.candidate_artifact_sha256
+        BEFORE UPDATE OF candidate_artifact_key ON ideation_runs
+        WHEN OLD.candidate_artifact_key <> ''
+             AND NEW.candidate_artifact_key <> OLD.candidate_artifact_key
         BEGIN
-            SELECT RAISE(ABORT, 'ideation candidate artifact digest is immutable');
+            SELECT RAISE(ABORT, 'ideation candidate artifact key is immutable');
         END;
         CREATE TRIGGER IF NOT EXISTS immutable_generated_candidate_artifact_update
-        BEFORE UPDATE OF artifact_sha256 ON generated_idea_candidates
-        WHEN NEW.artifact_sha256 <> OLD.artifact_sha256
+        BEFORE UPDATE OF artifact_key ON generated_idea_candidates
+        WHEN NEW.artifact_key <> OLD.artifact_key
         BEGIN
-            SELECT RAISE(ABORT, 'generated candidate artifact digest is immutable');
+            SELECT RAISE(ABORT, 'generated candidate artifact key is immutable');
         END;
 
         CREATE TRIGGER IF NOT EXISTS immutable_generated_candidates_update
@@ -552,7 +557,7 @@ MIGRATIONS: tuple[tuple[int, str], ...] = (
         DROP TRIGGER IF EXISTS immutable_content_objects_update;
         DROP TRIGGER IF EXISTS immutable_content_objects_delete;
         CREATE TABLE content_objects_v6 (
-            sha256 TEXT PRIMARY KEY CHECK(length(sha256) = 64),
+            object_key TEXT PRIMARY KEY CHECK(length(object_key) = 64),
             media_type TEXT NOT NULL,
             byte_length INTEGER NOT NULL CHECK(byte_length >= 0),
             storage_path TEXT NOT NULL UNIQUE,
@@ -566,10 +571,10 @@ MIGRATIONS: tuple[tuple[int, str], ...] = (
                 CHECK(manual_redaction_required IN (0,1))
         );
         INSERT INTO content_objects_v6(
-            sha256,media_type,byte_length,storage_path,secret_scan_state,metadata_json,
+            object_key,media_type,byte_length,storage_path,secret_scan_state,metadata_json,
             created_at,redaction_scan_state,manual_redaction_required
         )
-        SELECT sha256,media_type,byte_length,storage_path,
+        SELECT object_key,media_type,byte_length,storage_path,
                CASE
                    WHEN lower(media_type) LIKE 'text/%'
                      OR lower(media_type) LIKE 'application/json%'
@@ -612,7 +617,7 @@ MIGRATIONS: tuple[tuple[int, str], ...] = (
             state TEXT NOT NULL DEFAULT 'draft'
                 CHECK(state IN ('draft','confirmed','discarded')),
             raw_payload_json TEXT NOT NULL,
-            raw_object_sha256 TEXT REFERENCES content_objects(sha256) ON DELETE RESTRICT,
+            raw_object_key TEXT REFERENCES content_objects(object_key) ON DELETE RESTRICT,
             parsed_json TEXT NOT NULL DEFAULT '{}',
             redaction_confirmed INTEGER NOT NULL DEFAULT 0,
             training_consent INTEGER NOT NULL DEFAULT 0,
@@ -626,11 +631,11 @@ MIGRATIONS: tuple[tuple[int, str], ...] = (
             updated_at TEXT NOT NULL
         );
         INSERT INTO review_import_batches(
-            id,episode_id,source_kind,source_ref,state,raw_payload_json,raw_object_sha256,
+            id,episode_id,source_kind,source_ref,state,raw_payload_json,raw_object_key,
             parsed_json,redaction_confirmed,training_consent,license_basis,confirmed_by,
             confirmed_at,created_at,updated_at
         )
-        SELECT id,episode_id,source_kind,source_ref,state,raw_payload_json,raw_object_sha256,
+        SELECT id,episode_id,source_kind,source_ref,state,raw_payload_json,raw_object_key,
                parsed_json,redaction_confirmed,training_consent,license_basis,confirmed_by,
                confirmed_at,created_at,updated_at
         FROM review_import_batches_v5;
@@ -670,8 +675,8 @@ MIGRATIONS: tuple[tuple[int, str], ...] = (
                 CHECK(state IN ('draft','confirmed','discarded')),
             idempotency_key TEXT NOT NULL,
             source_entry_json TEXT NOT NULL,
-            source_entry_sha256 TEXT NOT NULL CHECK(length(source_entry_sha256) = 64),
-            source_sha256 TEXT NOT NULL CHECK(length(source_sha256) = 64),
+            source_entry_key TEXT NOT NULL CHECK(length(source_entry_key) = 64),
+            source_key TEXT NOT NULL CHECK(length(source_key) = 64),
             source_byte_length INTEGER NOT NULL CHECK(source_byte_length >= 0),
             media_type TEXT NOT NULL,
             staging_key TEXT NOT NULL UNIQUE,
@@ -681,7 +686,7 @@ MIGRATIONS: tuple[tuple[int, str], ...] = (
                 CHECK(manual_redaction_required IN (0,1)),
             manual_redaction_confirmed INTEGER NOT NULL DEFAULT 0
                 CHECK(manual_redaction_confirmed IN (0,1)),
-            content_object_sha256 TEXT REFERENCES content_objects(sha256) ON DELETE RESTRICT,
+            content_object_key TEXT REFERENCES content_objects(object_key) ON DELETE RESTRICT,
             redaction_mode TEXT NOT NULL DEFAULT ''
                 CHECK(redaction_mode IN ('','as_is','replace_text')),
             redaction_confirmed INTEGER NOT NULL DEFAULT 0
@@ -698,18 +703,18 @@ MIGRATIONS: tuple[tuple[int, str], ...] = (
             updated_at TEXT NOT NULL,
             UNIQUE(episode_id, idempotency_key),
             CHECK(
-                (state = 'draft' AND content_object_sha256 IS NULL
+                (state = 'draft' AND content_object_key IS NULL
                     AND redaction_confirmed = 0 AND confirmed_by IS NULL AND confirmed_at IS NULL
                     AND manual_redaction_confirmed = 0
                     AND discarded_by IS NULL AND discarded_at IS NULL)
                 OR
-                (state = 'confirmed' AND content_object_sha256 IS NOT NULL
+                (state = 'confirmed' AND content_object_key IS NOT NULL
                     AND redaction_confirmed = 1 AND trim(license_basis) <> ''
                     AND (manual_redaction_required = 0 OR manual_redaction_confirmed = 1)
                     AND confirmed_by IS NOT NULL AND confirmed_at IS NOT NULL
                     AND discarded_by IS NULL AND discarded_at IS NULL)
                 OR
-                (state = 'discarded' AND content_object_sha256 IS NULL
+                (state = 'discarded' AND content_object_key IS NULL
                     AND discarded_by IS NOT NULL AND discarded_at IS NOT NULL
                     AND trim(discard_reason) <> '')
             )
@@ -721,8 +726,8 @@ MIGRATIONS: tuple[tuple[int, str], ...] = (
 
         CREATE TRIGGER IF NOT EXISTS immutable_argus_artifact_import_identity
         BEFORE UPDATE OF episode_id,campaign_id,connection_id,argus_project_id,artifact_path,
-                         role,idempotency_key,source_entry_json,source_entry_sha256,
-                         source_sha256,source_byte_length,media_type,staging_key
+                         role,idempotency_key,source_entry_json,source_entry_key,
+                         source_key,source_byte_length,media_type,staging_key
         ON argus_artifact_imports BEGIN
             SELECT RAISE(ABORT, 'Argus artifact import source identity is immutable');
         END;
@@ -741,14 +746,14 @@ MIGRATIONS: tuple[tuple[int, str], ...] = (
     (
         8,
         """
-        ALTER TABLE ideation_runs ADD COLUMN condition_sha256 TEXT NOT NULL DEFAULT ''
-            CHECK(condition_sha256 = '' OR length(condition_sha256) = 64);
+        ALTER TABLE ideation_runs ADD COLUMN condition_key TEXT NOT NULL DEFAULT ''
+            CHECK(condition_key = '' OR length(condition_key) = 64);
         ALTER TABLE ideation_runs ADD COLUMN candidate_manifest_json TEXT NOT NULL DEFAULT '{}';
 
         CREATE TRIGGER IF NOT EXISTS immutable_ideation_run_condition
         BEFORE UPDATE OF team_profile_id,venue_id,deadline_id,resource_id,connection_id,
-                         condition_schema_version,condition_snapshot_json,objective_sha256,
-                         objective_path,source_snapshot_ref,source_snapshot_sha256,
+                         condition_schema_version,condition_snapshot_json,objective_key,
+                         objective_path,source_snapshot_ref,source_snapshot_key,
                          training_consent,license_basis
         ON ideation_runs
         WHEN NEW.team_profile_id IS NOT OLD.team_profile_id
@@ -758,20 +763,20 @@ MIGRATIONS: tuple[tuple[int, str], ...] = (
           OR NEW.connection_id IS NOT OLD.connection_id
           OR NEW.condition_schema_version IS NOT OLD.condition_schema_version
           OR NEW.condition_snapshot_json IS NOT OLD.condition_snapshot_json
-          OR NEW.objective_sha256 IS NOT OLD.objective_sha256
+          OR NEW.objective_key IS NOT OLD.objective_key
           OR NEW.objective_path IS NOT OLD.objective_path
           OR NEW.source_snapshot_ref IS NOT OLD.source_snapshot_ref
-          OR NEW.source_snapshot_sha256 IS NOT OLD.source_snapshot_sha256
+          OR NEW.source_snapshot_key IS NOT OLD.source_snapshot_key
           OR NEW.training_consent IS NOT OLD.training_consent
           OR NEW.license_basis IS NOT OLD.license_basis
         BEGIN
             SELECT RAISE(ABORT, 'ideation run frozen condition is immutable');
         END;
         CREATE TRIGGER IF NOT EXISTS immutable_ideation_run_condition_sha
-        BEFORE UPDATE OF condition_sha256 ON ideation_runs
-        WHEN OLD.condition_sha256 <> '' AND NEW.condition_sha256 <> OLD.condition_sha256
+        BEFORE UPDATE OF condition_key ON ideation_runs
+        WHEN OLD.condition_key <> '' AND NEW.condition_key <> OLD.condition_key
         BEGIN
-            SELECT RAISE(ABORT, 'ideation run condition digest is immutable');
+            SELECT RAISE(ABORT, 'ideation run condition key is immutable');
         END;
         CREATE TRIGGER IF NOT EXISTS immutable_ideation_candidate_manifest
         BEFORE UPDATE OF candidate_manifest_json ON ideation_runs
@@ -803,16 +808,16 @@ MIGRATIONS: tuple[tuple[int, str], ...] = (
             schema_version TEXT NOT NULL,
             ideation_run_id TEXT NOT NULL REFERENCES ideation_runs(id) ON DELETE RESTRICT,
             candidate_id TEXT NOT NULL REFERENCES generated_idea_candidates(id) ON DELETE RESTRICT,
-            condition_sha256 TEXT NOT NULL CHECK(length(condition_sha256) = 64),
-            parent_objective_sha256 TEXT NOT NULL CHECK(length(parent_objective_sha256) = 64),
-            candidate_artifact_sha256 TEXT NOT NULL CHECK(length(candidate_artifact_sha256) = 64),
-            candidate_record_sha256 TEXT NOT NULL CHECK(length(candidate_record_sha256) = 64),
-            candidate_input_sha256 TEXT NOT NULL CHECK(length(candidate_input_sha256) = 64),
-            candidate_prompt_sha256 TEXT NOT NULL CHECK(length(candidate_prompt_sha256) = 64),
+            condition_key TEXT NOT NULL CHECK(length(condition_key) = 64),
+            parent_objective_key TEXT NOT NULL CHECK(length(parent_objective_key) = 64),
+            candidate_artifact_key TEXT NOT NULL CHECK(length(candidate_artifact_key) = 64),
+            candidate_record_key TEXT NOT NULL CHECK(length(candidate_record_key) = 64),
+            candidate_input_key TEXT NOT NULL CHECK(length(candidate_input_key) = 64),
+            candidate_prompt_key TEXT NOT NULL CHECK(length(candidate_prompt_key) = 64),
             objective_path TEXT NOT NULL,
-            receipt_sha256 TEXT NOT NULL UNIQUE CHECK(length(receipt_sha256) = 64),
+            receipt_key TEXT NOT NULL UNIQUE CHECK(length(receipt_key) = 64),
             created_at TEXT NOT NULL,
-            UNIQUE(candidate_id, candidate_prompt_sha256)
+            UNIQUE(candidate_id, candidate_prompt_key)
         );
         CREATE INDEX IF NOT EXISTS idx_conditioned_campaign_run
             ON conditioned_campaign_bindings(ideation_run_id, candidate_id);
@@ -853,34 +858,50 @@ def _iter_sql_statements(script: str) -> Iterator[str]:
         raise RuntimeError("migration SQL ends with an incomplete statement")
 
 
-def _canonical_json_bytes(value: Any) -> bytes:
-    return (
-        json.dumps(value, ensure_ascii=False, sort_keys=True, separators=(",", ":")) + "\n"
-    ).encode("utf-8")
-
-
-def _backfill_ideation_condition_hashes(connection: sqlite3.Connection) -> None:
-    """Bind legacy frozen snapshots to the digest required by schema v8.
+def _backfill_ideation_condition_keys(connection: sqlite3.Connection) -> None:
+    """Give legacy frozen snapshots the key required by schema v8.
 
     This runs inside the migration transaction.  Invalid legacy JSON aborts the
-    migration instead of blessing an unverifiable condition snapshot.
+    migration instead of keying an unreadable condition snapshot.
     """
 
     rows = connection.execute(
-        "SELECT id,condition_snapshot_json FROM ideation_runs WHERE condition_sha256=''"
+        "SELECT id,condition_snapshot_json FROM ideation_runs WHERE condition_key=''"
     ).fetchall()
     for row in rows:
         try:
-            snapshot = json.loads(row["condition_snapshot_json"])
+            json.loads(row["condition_snapshot_json"])
         except (TypeError, json.JSONDecodeError) as exc:
             raise sqlite3.IntegrityError(
                 f"ideation run {row['id']} has invalid condition snapshot JSON"
             ) from exc
-        digest = hashlib.sha256(_canonical_json_bytes(snapshot)).hexdigest()
         connection.execute(
-            "UPDATE ideation_runs SET condition_sha256=? WHERE id=? AND condition_sha256=''",
-            (digest, row["id"]),
+            "UPDATE ideation_runs SET condition_key=? WHERE id=? AND condition_key=''",
+            (new_key(), row["id"]),
         )
+
+
+def _rename_legacy_digest_columns(connection: sqlite3.Connection) -> None:
+    """Rename the columns of databases written when keys were SHA-256 digests.
+
+    Their values stay valid keys; only the names change, so any migration still
+    pending reads the current names. Idempotent: a current schema has nothing
+    to rename.
+    """
+
+    tables = [
+        row[0]
+        for row in connection.execute("SELECT name FROM sqlite_master WHERE type='table'")
+    ]
+    for table in tables:
+        for column in [row[1] for row in connection.execute(f'PRAGMA table_info("{table}")')]:
+            if column == "sha256":
+                renamed = "object_key"
+            elif column.endswith("_sha256"):
+                renamed = column.removesuffix("_sha256") + "_key"
+            else:
+                continue
+            connection.execute(f'ALTER TABLE "{table}" RENAME COLUMN "{column}" TO "{renamed}"')
 
 
 class Database:
@@ -918,6 +939,9 @@ class Database:
                 "(version INTEGER PRIMARY KEY, applied_at TEXT NOT NULL)"
             )
             connection.commit()
+            connection.execute("BEGIN IMMEDIATE")
+            _rename_legacy_digest_columns(connection)
+            connection.commit()
             for version, sql in MIGRATIONS:
                 # v6 rebuilds referenced tables, so FK enforcement must be
                 # disabled before BEGIN. Do this uniformly per migration and
@@ -936,7 +960,7 @@ class Database:
                                 continue
                             connection.execute(statement)
                         if version == 8:
-                            _backfill_ideation_condition_hashes(connection)
+                            _backfill_ideation_condition_keys(connection)
                         violations = list(connection.execute("PRAGMA foreign_key_check"))
                         if violations:
                             raise sqlite3.IntegrityError(

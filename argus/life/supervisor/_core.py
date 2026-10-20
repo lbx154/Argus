@@ -37,12 +37,6 @@ from ._config import (
     _MissionRunner,
 )
 from ._constants import (
-    IDLE_BACKOFF_CAP_SECONDS as _IDLE_BACKOFF_CAP_SECONDS,
-)
-from ._constants import (
-    PARALLEL_PLAN_INTERVAL_CAP_SECONDS as _PARALLEL_PLAN_INTERVAL_CAP_SECONDS,
-)
-from ._constants import (
     PLAN_AWAITING as _PLAN_AWAITING,
 )
 from ._constants import (
@@ -63,7 +57,6 @@ from ._planner_orchestration import PlannerOrchestrationMixin
 from ._planner_rendering import PlannerRenderingMixin
 from ._planning_context import PlanningContextMixin
 from ._planning_cycle import PlanningCycleMixin
-from ._second_reading import SecondReadingMixin
 from .pending_notify import should_report_pending_wait
 
 log = logging.getLogger(__name__)
@@ -92,7 +85,6 @@ def _review_phrase(review: str, chinese: bool) -> str:
 class LifeSupervisor(
     EvolutionMixin,
     LettersMixin,
-    SecondReadingMixin,
     IdleCycleMixin,
     MissionExecutionMixin,
     LifecycleMixin,
@@ -142,7 +134,9 @@ class LifeSupervisor(
 
         # Roles this supervisor starts may not change this project's control state.
         orchestrate_state_root(getattr(self.memory, "project_root", None) or getattr(self.memory, "root", None))
-        self.sink = SupervisionSink(sink, self)
+        from ..observer import ObserverSink
+
+        self.sink = ObserverSink(SupervisionSink(sink, self), self)
         self.config = config or LifeSupervisorConfig()
         self.engineer_model = engineer_model
         self.reviewer_model = reviewer_model
@@ -174,41 +168,32 @@ class LifeSupervisor(
         # invalid owns_paths, or stage-closing). Same one-shot contract as
         # the dropped-dependency note above.
         self._planner_dropped_parallel_marks: list[tuple[str, str]] = []
-        self._parallel_plan_fingerprint: tuple[tuple[str, ...], ...] | None = None
-        self._parallel_plan_after = 0.0
-        self._parallel_plan_interval = 0.0
+        # The facts the last spare-slot Planner call saw: the backlog's running
+        # and pending sets and the Planner-visible input digest.
+        self._parallel_plan_facts: tuple[Any, ...] | None = None
+        # The Planner-visible input digest at its last model call, read back
+        # from disk so a restart does not re-ask an operator hold on unchanged
+        # inputs. See _record_planner_last_turn.
+        self._planner_last_turn_signature: str = ""
+        self._load_planner_last_turn()
+        # Parked cards the Manager could not yet decide in the operator's
+        # place: attempts and when to ask again (_decide_parked_questions).
+        self._proxy_retry: dict[str, tuple[int, float]] = {}
         # Wall-clock (monotonic) of the first idle pass in the current idle
         # streak — set by `_enter_idle_backoff`, cleared by `_reset_idle_backoff`
         # — so `_maybe_idle_timeout` can auto-exit a long-idle continuous daemon.
         # Spans the daemon outer-loop sleeps because the supervisor is reused.
         self._idle_since: float | None = None
         self._last_open_ended_project_done_signature = ""
-        # Failed Manager attempts per project completion report message id;
-        # see PROJECT_REPORT_MODEL_ATTEMPTS.
-        self._project_report_failures: dict[str, int] = {}
         # Lifecycle-block log-hygiene state: suppress identical held-state
         # emits except on change or a slow heartbeat.
         self._last_lifecycle_block_sig: tuple[str, str] | None = None
         self._last_lifecycle_block_at = 0.0
-        # Planner idle/waiting log-hygiene + stall-escalation state (same family
-        # as the lifecycle-block heartbeat above): suppress repeated identical
-        # planner_waiting/planner_idle events, and rate-limit the
-        # verification-probe stall-breaker.
+        # Planner idle log-hygiene (same family as the lifecycle-block
+        # heartbeat above): suppress repeated identical planner_idle events.
         self._last_planner_idle_sig: str | None = None
         self._last_planner_idle_at = 0.0
-        self._last_verification_probe_at = 0.0
-        self._last_planner_wait_reconciliation_key: (
-            tuple[str, str, str, bool] | None
-        ) = None
-        self._planner_waits_since_reconciliation = 0
-        # Authoritative Manager rulings per wait key, and when the Manager
-        # backend first failed to rule on one (_reconcile_open_ended_planner_waiting).
-        self._planner_wait_rulings: dict[tuple[str, str, str, bool], int] = {}
-        self._planner_wait_ruling_failed_at: dict[tuple[str, str, str, bool], float] = {}
-        # Consecutive missions that COMPLETED with the reviewer judging
-        # forward_progress=false; when it crosses the threshold the harness
-        # escalates to the operator (surface, don't loop invisibly).
-        self._consecutive_no_progress_missions = 0
+        self._last_planner_handoff_key: tuple[str, str] | None = None
         self._reap_orphans_on_startup()
         if self.manager is not None:
             from ...manager.supervision import recover_issued_supervision
@@ -389,10 +374,7 @@ class LifeSupervisor(
     def _planner_config(self):
         from ...core.knobs import resolve_knob, resolve_role_model
         from ...daemon.state import read_continuous_state
-        from ...planner import (
-            PlannerConfig,
-            configured_role_session_max_input_tokens,
-        )
+        from ...planner import PlannerConfig
 
         continuous_root = Path(
             getattr(self.memory, "project_root", self.memory.root)
@@ -446,11 +428,6 @@ class LifeSupervisor(
             open_ended=bool(self.config.continuous and self.config.open_ended),
             external_interrupt_reason_provider=_semantic_interrupt,
             role_session_path=state_root / "role-sessions" / "planner.json",
-            # The same environment knob that budgets Engineer sessions budgets
-            # the Planner's rolling session, so one setting moves every role.
-            role_session_max_input_tokens=(
-                configured_role_session_max_input_tokens()
-            ),
             objective_revision=(
                 f"{expected.generation}:"
                 f"{objective_revision(expected.objective)}"
@@ -478,80 +455,16 @@ class LifeSupervisor(
         }
         # Work paused by the retired spending checks resumes like any other
         # paused work: spending is recorded, never a reason to hold a mission.
-        statuses.update({"paused_budget", "paused_cost"})
+        # So does work an older release parked on a background job it watched
+        # for the Engineer, who now waits on its own jobs in its turn.
+        statuses.update({"paused_budget", "paused_cost", "paused_external_work"})
         resumed = self.memory.backlog.resume_paused_statuses(statuses)
-        from ...engineer.external_work import inspect_external_work
-
-        # Subagent records are reconciled only by the interactive CLI listing,
-        # so unattended nobody ever notices a job whose process is gone: run-01
-        # held darc-v9-full915-claim-run-r2 as `running` for eight hours after
-        # its pid died, and a paused mission kept reserving paths on its
-        # behalf. Reconciling here costs a stat per record and is the same
-        # check the CLI already makes.
-        self._reconcile_dead_subagent_records()
-
-        for item in self.memory.backlog.active():
-            if item.status != "paused_external_work":
-                continue
-            wait = (
-                item.outcome.get("external_wait")
-                if isinstance(item.outcome, dict)
-                else None
-            )
-            if not isinstance(wait, dict):
-                ready = True
-            else:
-                work_id = str(wait.get("work_id") or "")
-                workdir = Path(str(wait.get("workdir") or self._project_workdir()))
-                status = inspect_external_work(workdir, work_id) if work_id else None
-                ready = status is None or not status.waitable
-            if ready:
-                resumed_item = self.memory.backlog.resume_paused(item.id)
-                if resumed_item is not None:
-                    resumed.append(resumed_item)
         if resumed:
             self._emit_status(
                 "auto-resumed recoverable mission(s): "
                 + ", ".join(item.id for item in resumed)
             )
         return resumed
-
-    def _reconcile_dead_subagent_records(self) -> None:
-        """Mark subagent records whose process is gone, fail-soft throughout."""
-        try:
-            import json
-
-            from ...tools.subagent._registry import reconcile_terminal_task
-
-            root = (
-                Path(self._project_workdir()).expanduser().resolve(strict=False)
-                / ".argus_subagents"
-            )
-            if not root.is_dir():
-                return
-            for record_path in root.glob("*.json"):
-                try:
-                    record = json.loads(record_path.read_text(encoding="utf-8"))
-                except (OSError, ValueError):
-                    continue
-                if not isinstance(record, dict):
-                    continue
-                if record.get("state") not in {"starting", "preflight", "running"}:
-                    continue
-                before = record.get("state")
-                task_id = str(record.get("task_id") or record_path.stem)
-                updated = reconcile_terminal_task(
-                    task_id,
-                    dict(record),
-                    registry_root=root,
-                )
-                if updated.get("state") != before:
-                    self._emit_status(
-                        f"external job {record_path.stem} is {updated.get('state')}: "
-                        "its process is gone"
-                    )
-        except Exception:  # noqa: BLE001 - reconciliation never blocks work
-            log.exception("life supervisor: subagent reconciliation failed")
 
     def _adjudicate_mission_challenge(self, outcome: dict[str, Any]) -> str:
         """Persist the Manager authority decision before Planner sees a challenge."""
@@ -588,76 +501,32 @@ class LifeSupervisor(
         if action not in {"keep", "revise", "replace", "ask_operator"}:
             action = "revise"
         if action == "ask_operator":
-            from ...manager.directive import effective_operator_question_policy
+            from ...core.autonomy import operator_questions_can_be_asked
 
-            if effective_operator_question_policy(self.memory.root) == "forbid":
+            if not operator_questions_can_be_asked():
                 from ...core.autonomy import (
                     AUTONOMOUS_ASSUMPTION_INSTRUCTION,
                     OPERATOR_ACTION_NEEDS,
                     normalize_operator_need,
-                    operator_available,
                     record_autonomous_assumption,
                 )
-                from ...manager.plan_boundary import assess_plan_boundary
 
-                reviewer_alternative = str(
-                    challenge.get("alternative") or ""
-                ).strip()
-                # dev's own boundary check, unchanged.
-                boundary = assess_plan_boundary(
-                    question=str(
-                        challenge.get("operator_question")
-                        or outcome.get("operator_question")
-                        or challenge.get("challenge")
-                        or outcome.get("review_reason")
-                        or ""
-                    ),
-                    reason=str(challenge.get("challenge") or ""),
-                    next_action=reviewer_alternative,
-                    planner_report={},
-                    mode="autonomous",
-                )
-                nobody_to_ask = not operator_available()
                 need = normalize_operator_need(
                     challenge.get("operator_need")
                     or (report.get("operator_need") if isinstance(report, dict) else "")
                 )
-                # Without an operator, a need the raising role classified as an
-                # operator-only action blocks too: nobody can enable it.
-                blocked = boundary.required or (
-                    nobody_to_ask and need in OPERATOR_ACTION_NEEDS
-                )
-                action = "blocked" if blocked else "revise"
-                if blocked:
+                # The operator cannot be asked, so the Manager holds their
+                # authority. An action only they could approve stays a
+                # question that the Manager decides in their place once it is
+                # parked. Anything else the Manager settles here, on the most
+                # defensible reading.
+                if need not in OPERATOR_ACTION_NEEDS:
+                    action = "revise"
                     challenge["manager_reason"] = (
-                        (
-                            "No operator is available in this run"
-                            + (
-                                f" and the work needs an operator-only action ({need})"
-                                if need in OPERATOR_ACTION_NEEDS
-                                else ""
-                            )
-                            + "; no in-scope revision can cross this "
-                            "operator-owned boundary, so the mission is blocked "
-                            "without a question."
-                        )
-                        if nobody_to_ask
-                        else "Operator questions are forbidden and do not grant "
-                        "authority; no in-scope revision can cross this "
-                        "operator-owned boundary, so the mission is blocked "
-                        "without a question."
-                    )
-                    if need in OPERATOR_ACTION_NEEDS:
-                        challenge["operator_need"] = need
-                elif nobody_to_ask:
-                    # Only a run that declared no operator settles the open
-                    # decision on an assumption; a directive that merely
-                    # forbids questions keeps dev's stricter revision.
-                    challenge["manager_reason"] = (
-                        "No operator is available in this run, so the Manager "
-                        "settles the open decision itself: the Planner revises "
-                        "within existing authority on the most defensible "
-                        "interpretation and records that assumption."
+                        "The operator cannot be asked, so the Manager settles the "
+                        "open decision itself: the Planner revises within existing "
+                        "authority on the most defensible interpretation and "
+                        "records that assumption."
                     )
                     challenge["manager_instruction"] = AUTONOMOUS_ASSUMPTION_INSTRUCTION
                     challenge["autonomous_assumption"] = True
@@ -673,32 +542,26 @@ class LifeSupervisor(
                         source="mission_challenge",
                     )
                     self._emit_status(
-                        "Decided without an operator (assumption recorded for the "
-                        f"report): {conflict[:240]}"
+                        "Decided without asking the operator (assumption recorded "
+                        f"for the report): {conflict[:240]}"
                     )
-                else:
-                    challenge["manager_reason"] = (
-                        "Operator questions are forbidden and do not grant authority; "
-                        "the Planner must revise strictly within existing "
-                        "authority without using the Reviewer alternative."
-                    )
-                challenge["authority_impact"] = "operator"
-                challenge["alternative"] = ""
-                challenge["operator_question"] = ""
-                challenge["operator_options"] = []
-                challenge.pop("pending_question", None)
-                challenge.pop("operator_decision", None)
-                outcome["operator_question"] = ""
-                outcome["operator_options"] = []
-                outcome.pop("pending_question", None)
-                outcome.pop("operator_decision", None)
-                if isinstance(report, dict):
-                    report = dict(report)
-                    report["authority_impact"] = "operator"
-                    report.pop("alternative", None)
-                    report.pop("operator_question", None)
-                    report.pop("operator_options", None)
-                    outcome["planner_report"] = report
+                    challenge["authority_impact"] = "operator"
+                    challenge["alternative"] = ""
+                    challenge["operator_question"] = ""
+                    challenge["operator_options"] = []
+                    challenge.pop("pending_question", None)
+                    challenge.pop("operator_decision", None)
+                    outcome["operator_question"] = ""
+                    outcome["operator_options"] = []
+                    outcome.pop("pending_question", None)
+                    outcome.pop("operator_decision", None)
+                    if isinstance(report, dict):
+                        report = dict(report)
+                        report["authority_impact"] = "operator"
+                        report.pop("alternative", None)
+                        report.pop("operator_question", None)
+                        report.pop("operator_options", None)
+                        outcome["planner_report"] = report
         challenge["manager_action"] = action
         outcome["plan_challenge"] = challenge
         item_id = str(outcome.get("item_id") or "")
@@ -715,27 +578,66 @@ class LifeSupervisor(
             try:
                 from ...core.operator_decision import build_operator_decision
 
-                item = next(
-                    row for row in self.memory.backlog.active() if row.id == item_id
-                )
                 question = (
                     "Please decide whether this operator-owned constraint may change: "
                     + str(challenge.get("challenge") or outcome.get("review_reason") or "")
                 ).strip()
-                card = build_operator_decision(
-                    item_id=item.id,
-                    title=item.title,
-                    reason=str(challenge.get("manager_reason") or ""),
-                    question=question,
-                    project_id=self.memory.root.name,
-                    previous_decision=item.operator_decision,
+                project_id = self.memory.root.name
+                item = next(
+                    (row for row in self.memory.backlog.active() if row.id == item_id),
+                    None,
                 )
-                self.memory.backlog.update(
-                    item.id,
-                    status="paused_operator",
-                    pending_question=question,
-                    operator_decision=card,
-                )
+                if item is not None and item.status not in {
+                    "done", "failed", "aborted", "skipped", "superseded",
+                }:
+                    card = build_operator_decision(
+                        item_id=item.id,
+                        title=item.title,
+                        reason=str(challenge.get("manager_reason") or ""),
+                        question=question,
+                        project_id=project_id,
+                        previous_decision=item.operator_decision,
+                    )
+                    self.memory.backlog.update(
+                        item.id,
+                        status="paused_operator",
+                        pending_question=question,
+                        operator_decision=card,
+                    )
+                else:
+                    # A replan that made forward progress (or a stage-reconciled
+                    # one) has already failed and archived its row, so the
+                    # lookup above used to raise and the question was lost while
+                    # the run still stopped for it. Park it on a holder row the
+                    # operator answer path resolves.
+                    source = next(
+                        (
+                            row
+                            for row in reversed(self.memory.backlog.history())
+                            if row.id == item_id
+                        ),
+                        None,
+                    )
+                    item = None
+                    if source is not None:
+                        holder_id = BacklogItem.new_id()
+                        card = build_operator_decision(
+                            item_id=holder_id,
+                            title=source.title,
+                            reason=str(challenge.get("manager_reason") or ""),
+                            question=question,
+                            project_id=project_id,
+                        )
+                        item = self.memory.backlog.park_terminal_operator_question(
+                            item_id,
+                            holder_id=holder_id,
+                            question=question,
+                            operator_decision=card,
+                        )
+                    if item is None:
+                        raise LookupError(
+                            f"no ended backlog item {item_id} to hold the question"
+                        )
                 self._emit({
                     "type": EventType.LIFE_OPERATOR_QUESTION_PENDING,
                     "item_id": item.id,
@@ -745,26 +647,6 @@ class LifeSupervisor(
                 })
             except Exception:  # noqa: BLE001 - stop path still fails closed
                 log.exception("failed to persist operator-owned plan challenge")
-        elif action == "blocked" and item_id:
-            reason = str(challenge.get("manager_reason") or "").strip()
-            outcome["status"] = "blocked"
-            outcome["review_status"] = "blocked"
-            from ...core.autonomy import record_operator_block
-
-            record_operator_block(
-                self._project_state_root(),
-                item_id=item_id,
-                reason=reason,
-                operator_need=str(challenge.get("operator_need") or ""),
-            )
-            self.memory.backlog.update(
-                item_id,
-                status="failed",
-                finished_ts=now,
-                last_error=reason,
-                pending_question="",
-                operator_decision={},
-            )
         return action
 
     def run(self) -> dict[str, Any]:
@@ -788,8 +670,6 @@ class LifeSupervisor(
                 stopped_by = "mission_delivery_pending"
                 self._suggested_sleep_s = 1.0
                 break
-            if self._decide_overdue_venue_stalls():
-                continue
             yield_provider = getattr(
                 self.config,
                 "manager_pipeline_yield_provider",
@@ -850,6 +730,8 @@ class LifeSupervisor(
                 stopped_by = "supervisor_error"
                 break
             if outcome is None:
+                if self._decide_parked_questions():
+                    continue
                 active_items = self.memory.backlog.active()
                 running_items = [
                     item
@@ -890,8 +772,13 @@ class LifeSupervisor(
                         # independent work available. The paused item stays
                         # unclaimable and its dependents stay unready on their
                         # own; the Planner is told what is waiting and picks
-                        # work that does not need the answer.
-                        if should_report_pending_wait(
+                        # work that does not need the answer. While the
+                        # operator cannot be asked, the Manager answers instead.
+                        from ...core.autonomy import operator_questions_can_be_asked
+
+                        if operator_questions_can_be_asked(
+                            self._project_state_root()
+                        ) and should_report_pending_wait(
                             self.memory.root,
                             pending_questions,
                         ):
@@ -982,20 +869,6 @@ class LifeSupervisor(
                     else self.memory.backlog.next_pending()
                 )
                 if next_item is None:
-                    # A finite queue can be temporarily unclaimable while a
-                    # durable job owns its next step. The daemon exits on
-                    # backlog_empty, so preserve its wake loop until that
-                    # external condition settles, even without continuous mode.
-                    if any(
-                        item.status == "paused_external_work"
-                        for item in self.memory.backlog.active()
-                    ):
-                        self._enter_pause_backoff()
-                        self._emit_status(
-                            "waiting for background results; the task will resume automatically"
-                        )
-                        stopped_by = _PLAN_AWAITING
-                        break
                     self._emit_status("backlog empty; exiting")
                     stopped_by = "backlog_empty"
                     break
@@ -1018,7 +891,6 @@ class LifeSupervisor(
                 "paused_provider_cooldown",
                 "paused_provider_fence",
                 "paused_daemon_shutdown",
-                "paused_external_work",
                 "paused_operator",
                 "iteration_cap",
                 "lifecycle_block",
@@ -1079,38 +951,7 @@ class LifeSupervisor(
                     self._emit_status(gate_reason)
                     stopped_by = gate_reason
                     break
-                revision = self._maybe_second_reading(outcome) or outcome
-                planned = self._plan_next_work(revision_request=revision)
-                if planned is True:
-                    continue
-                if planned == "daemon_handoff":
-                    stopped_by = "daemon_handoff"
-                elif planned == "planner_retry":
-                    stopped_by = "planner_retry"
-                elif planned == _PLAN_AWAITING:
-                    stopped_by = _PLAN_AWAITING
-                elif planned == _PLAN_TERMINAL_IDLE:
-                    stopped_by = _PLAN_TERMINAL_IDLE
-                else:
-                    stopped_by = "planner_error"
-                break
-            # A mission can end well and still leave the Reviewer doubting the
-            # line of work it belongs to. Repeated doubt earns a fresh reading
-            # of the evidence and a re-plan around what it supports, without
-            # waiting for a formal request to replace the plan.
-            reading = self._maybe_second_reading(outcome)
-            if reading is not None:
-                gate_reason = self._planner_cycle_gate_reason()
-                if gate_reason:
-                    self._emit({
-                        "type": "life.planner.deferred",
-                        "reason": gate_reason,
-                        "agent_layer": "planner",
-                    })
-                    self._emit_status(gate_reason)
-                    stopped_by = gate_reason
-                    break
-                planned = self._plan_next_work(revision_request=reading)
+                planned = self._plan_next_work(revision_request=outcome)
                 if planned is True:
                     continue
                 if planned == "daemon_handoff":
@@ -1624,7 +1465,7 @@ class LifeSupervisor(
             **self._planner_verdict_metadata(),
             **details,
         )
-        event["delivery_id"] = planner_verdict_delivery_id(event)
+        event["delivery_id"] = planner_verdict_delivery_id()
         try:
             record = write_planner_verdict_outbox(
                 self.memory.root,
@@ -1925,18 +1766,9 @@ class LifeSupervisor(
             ).strip()
             success = bool(event.get("success"))
             summary = str(event.get("summary") or "").strip()
-            from ...core.role_reply import strip_control_footer
+            from ...core.role_handoff import strip_handoff
 
-            summary = strip_control_footer(
-                summary,
-                (
-                    "MILESTONE_STATUS",
-                    "RESULT",
-                    "NEXT_OWNER",
-                    "OPERATOR_QUESTION",
-                    "OPERATOR_OPTIONS",
-                ),
-            )
+            summary = strip_handoff(summary)
             outcome = event.get("outcome")
             outcome = outcome if isinstance(outcome, dict) else {}
             status = str(event.get("status") or event.get("outcome_class") or "ended")
@@ -1957,27 +1789,6 @@ class LifeSupervisor(
                         "mission_result": True, "item_id": item_id, "status": status,
                         "success": success, "campaign_continues": True,
                         "overall_complete": False, "user_action_required": False,
-                    },
-                )
-                return
-            if status == "paused_external_work" and not success:
-                wait = event.get("external_wait") or outcome.get("external_wait")
-                wait = wait if isinstance(wait, dict) else {}
-                work_id = str(wait.get("work_id") or "background")
-                publish_operator_message(
-                    life_dir,
-                    text=render_operator_update(
-                        title=title,
-                        status=status,
-                        language_hint=language_hint,
-                    ),
-                    message_id=_message_id(f"mission-wait-{item_id}-{work_id}"),
-                    event_fields={
-                        "mission_result": False,
-                        "item_id": item_id,
-                        "status": status,
-                        "external_wait": wait,
-                        "user_action_required": False,
                     },
                 )
                 return
@@ -2305,13 +2116,14 @@ class LifeSupervisor(
         a pending item the parallel worker cannot claim -- not parallel_safe, or
         owning a path the running mission owns -- leaves the slot idle forever
         while looking like queued work. Only claimable work should suppress
-        planning; the fingerprint carries the pending set so a task queued and
-        not claimed does not immediately ask again.
+        planning.
 
-        The retry interval starts at the idle backoff and doubles each time the
-        backlog is found unchanged, up to PARALLEL_PLAN_INTERVAL_CAP_SECONDS. A
-        flat idle-cap retry asked the Planner every five minutes for the whole
-        of a long job, and nearly every answer was "still waiting".
+        The Planner is asked again only when a fact it reads has changed: the
+        running or pending set, or anything in its input digest (settled
+        missions, background-job states, operator context, Manager feedback).
+        A timer re-asked it every few minutes for the whole of a long job and
+        nearly every answer was "still waiting"; in recorded campaigns, every
+        re-ask that did schedule work came right after one of those facts moved.
         """
         try:
             from ...daemon.state import read_continuous_state
@@ -2332,29 +2144,18 @@ class LifeSupervisor(
             if self.memory.backlog.next_pending(parallel_only=True) is not None:
                 return
 
-            fingerprint = self._backlog_fingerprint(items, running_items)
-            now = time.monotonic()
-            if fingerprint == self._parallel_plan_fingerprint:
-                if now < self._parallel_plan_after:
-                    return
-                self._parallel_plan_interval = min(
-                    self._parallel_plan_interval * 2,
-                    _PARALLEL_PLAN_INTERVAL_CAP_SECONDS,
-                )
-            else:
-                self._parallel_plan_interval = max(
-                    float(self.config.poll_interval_seconds),
-                    # Spare-slot planning throttles on idle-poll semantics, so it
-                    # deliberately starts at this cap rather than the
-                    # operator-wait turn re-grant constant split out of it.
-                    _IDLE_BACKOFF_CAP_SECONDS,
-                )
-            self._parallel_plan_after = now + self._parallel_plan_interval
+            facts = (
+                self._backlog_fingerprint(items, running_items),
+                self._current_planner_input_signature(),
+            )
+            if facts == self._parallel_plan_facts:
+                return
             self._plan_next_work()
-            # Re-read after planning so a task that was queued but cannot be
-            # claimed counts as a change, and the next tick does not spin.
-            self._parallel_plan_fingerprint = self._backlog_fingerprint(
-                self.memory.backlog.active()
+            # Re-read after planning so the call's own writes (a task queued but
+            # not claimable) are what the next tick compares against.
+            self._parallel_plan_facts = (
+                self._backlog_fingerprint(self.memory.backlog.active(), running_items),
+                self._current_planner_input_signature(),
             )
         except Exception:  # noqa: BLE001 - filling a spare slot is best effort
             log.exception("life supervisor: parallel planning attempt failed")

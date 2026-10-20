@@ -4,7 +4,6 @@ from pathlib import Path
 
 from argus import SkillLoop, SkillLoopConfig
 from argus.adapters.memory_backend import CannedResponse, MemoryBackend
-from argus.manager._core import Manager
 from argus.skills.builtins import seed_builtin_skills_for_vertical
 from argus.skills.vertical_select import (
     VERTICAL_PURPOSES,
@@ -22,15 +21,8 @@ def test_argus_maintenance_contract_is_built_in(tmp_path: Path) -> None:
 
     contract = load_vertical_contract("argus_maintenance")
     assert contract.stage_order == ("inspect", "change", "verify")
-    assert contract.mission_kind == "software"
     assert contract.ground_before_handoff is True
     assert contract.requires_independent_review is True
-    assert Manager._kind_for("argus_maintenance") == "software"
-    assert Manager._kind_for("software") == "software"
-    assert Manager._kind_for("research") == "research"
-    assert Manager._kind_for("math_synth") == "optimize"
-    # A name that is neither built in nor an installed plugin is a data domain.
-    assert Manager._kind_for("ops_continuity_runbook") == "custom"
 
 
 def test_explicit_vertical_reaches_engineer_and_reviewer_without_pipeline_state(

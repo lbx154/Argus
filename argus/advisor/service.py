@@ -1,7 +1,6 @@
 """One independent, metered advisor turn; advice never owns task state."""
 from __future__ import annotations
 
-import hashlib
 import json
 import threading
 import time
@@ -19,6 +18,8 @@ from .receipts import create_receipt, read_receipt, update_receipt
 
 ROLES = frozenset({"manager", "planner", "engineer", "reviewer"})
 MAX_ANSWER_BYTES = 65536
+# A consultation id is ``<parent call id>:<request id>``, and roles cite it.
+MAX_REQUEST_ID_CHARS = 64
 _EVENT_TYPES = {
     "requested": EventType.ADVISOR_CONSULTATION_REQUESTED,
     "completed": EventType.ADVISOR_CONSULTATION_COMPLETED,
@@ -92,7 +93,7 @@ class AdvisorService:
         self._calls = 0
 
     def cancel(self, request_id: str) -> None:
-        if not isinstance(request_id, str) or not request_id or len(request_id) > 256:
+        if not isinstance(request_id, str) or not request_id or len(request_id) > MAX_REQUEST_ID_CHARS:
             raise ValueError("invalid advisor request id")
         with self._lock:
             event = self._cancelled.get(request_id)
@@ -136,22 +137,19 @@ class AdvisorService:
         if not isinstance(question, str) or not question.strip() or len(question.encode("utf-8")) > 16384:
             raise ValueError("advisor question must be nonempty and at most 16 KiB")
         request_id = request_id or uuid.uuid4().hex
-        if not isinstance(request_id, str) or not request_id or len(request_id) > 256:
+        if not isinstance(request_id, str) or not request_id or len(request_id) > MAX_REQUEST_ID_CHARS:
             raise ValueError("invalid advisor request id")
         if not isinstance(evidence_refs, list) or len(evidence_refs) > 16 or any(not isinstance(ref, str) for ref in evidence_refs):
             raise ValueError("provide at most 16 evidence references")
         question = self._redact(question.strip())
-        fingerprint = hashlib.sha256(json.dumps(
-            {"question": question, "evidence_refs": evidence_refs}, ensure_ascii=False, sort_keys=True,
-        ).encode()).hexdigest()
 
         def replay(receipt: dict[str, Any]) -> dict[str, Any]:
-            if receipt.get("request_fingerprint") != fingerprint:
+            if (receipt.get("question"), receipt.get("requested_refs")) != (question, evidence_refs):
                 raise ValueError("advisor request ID was already used for a different question or evidence selection")
             return receipt
 
         context = self.context
-        identity = hashlib.sha256(f"{context.parent_call_id}:{request_id}".encode()).hexdigest()
+        identity = f"{context.parent_call_id}:{request_id}"
         existing = read_receipt(context.project_root, identity)
         if existing is not None:
             return replay(existing)
@@ -176,7 +174,7 @@ class AdvisorService:
 
         receipt: dict[str, Any] = {
             "schema_version": 1, "consultation_id": identity, "status": "requested",
-            "request_fingerprint": fingerprint,
+            "requested_refs": evidence_refs,
             "caller_role": context.caller_role, "parent_call_id": context.parent_call_id,
             "mission_id": context.mission_id, "question": question, "answer": "",
             "evidence_refs": [{key: value for key, value in row.items() if key != "text"} for row in evidence],

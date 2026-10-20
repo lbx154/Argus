@@ -8,7 +8,7 @@ import re
 import sys
 from pathlib import Path
 
-from argus.release import compute_source_digest
+from argus.release import source_files
 
 ROOT = Path(__file__).resolve().parents[2]
 MANIFEST = ROOT / "argus" / "release_manifest.json"
@@ -34,7 +34,7 @@ def check() -> list[str]:
     if not expected:
         return ["release manifest has no release_id"]
     failures: list[str] = []
-    if manifest.get("source_digest") != compute_source_digest(ROOT):
+    if manifest.get("source_files") != source_files(ROOT):
         failures.append(
             "release manifest does not match current source; "
             "run python -m argus.release_tools.build_release"

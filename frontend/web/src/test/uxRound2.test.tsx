@@ -1,7 +1,6 @@
 import { renderToStaticMarkup } from 'react-dom/server';
 import { describe, expect, it, vi } from 'vitest';
 import type { EventMsg, Snapshot } from '../../../core/src/types';
-import type { ResourceStatus } from '../../../core/src/resourceStatus.generated';
 
 vi.mock('../i18n', async (importOriginal) => {
   const actual = await importOriginal<typeof import('../i18n')>();
@@ -12,7 +11,7 @@ vi.mock('../i18n', async (importOriginal) => {
 });
 
 const { progressHealth } = await import('../lib/progressHealth');
-const { diskView, gpuWait } = await import('../lib/projectOverview');
+const { diskView } = await import('../lib/projectOverview');
 const { formatBytes } = await import('../lib/format');
 const { foldedContinuationRuns } = await import('../components/EventStream');
 const { searchEntries, visibleEntries } = await import('../research-workbench/workspaceApi');
@@ -58,16 +57,6 @@ describe('resources', () => {
     expect(diskView({ total_bytes: 2 * 1024 ** 4, free_bytes: 1.1 * 1024 ** 4, used_fraction: 0.45 }, true, formatBytes))
       .toEqual({ warn: false, text: '磁盘剩余 1.1 TB' });
     expect(diskView(null, true, formatBytes)).toBeNull();
-  });
-
-  it('finds this project in the GPU queue with its wait and the earliest free slot', () => {
-    const resources = {
-      schema_version: 1, enforcement: 'strict', accelerators: [],
-      holders: [{ project: 's-x', task_id: 't', intent: 'train', ttl_seconds: 1800, device_count: 1, yield_requests: [] }],
-      queue: [{ position: 2, project: 's-1', task_id: 't', intent: 'train', ttl_seconds: 3600, waited_seconds: 900 }],
-    } as ResourceStatus;
-    expect(gpuWait(resources, ['s-1'])).toEqual({ position: 2, waitedSeconds: 900, etaSeconds: 1800 });
-    expect(gpuWait(resources, ['s-2'])).toBeNull();
   });
 });
 

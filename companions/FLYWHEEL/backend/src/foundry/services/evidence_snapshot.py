@@ -1,8 +1,7 @@
-"""Immutable, content-addressed evidence packets for independent Viewer runs."""
+"""Immutable evidence packets for independent Viewer runs."""
 
 from __future__ import annotations
 
-import hashlib
 import json
 import os
 import re
@@ -11,6 +10,8 @@ import uuid
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Mapping, Protocol, Sequence
+
+from .flywheel_data import new_key
 
 _PREVIEW_KINDS = frozenset({"text", "markdown", "json", "table"})
 _SAFE_REMOTE_PATH = re.compile(r"^[^\\\x00-\x1f]{1,4096}$")
@@ -24,7 +25,7 @@ class ArtifactPreviewClient(Protocol):
 class EvidenceSnapshot:
     state: str
     path: Path
-    sha256: str
+    key: str
     artifact_count: int
     document: Mapping[str, Any]
 
@@ -32,7 +33,7 @@ class EvidenceSnapshot:
         """Return a self-contained, verified payload suitable for the queue."""
         return {
             "evidence_snapshot_state": self.state,
-            "evidence_snapshot_sha256": self.sha256,
+            "evidence_snapshot_key": self.key,
             "evidence_snapshot_path": str(self.path),
             # Inline evidence prevents an evaluator adapter from having to
             # trust and open a user-supplied filesystem path.
@@ -46,13 +47,11 @@ class EvidenceSnapshot:
 
 
 def validate_evidence_snapshot(
-    document: Mapping[str, Any], expected_sha256: str
+    document: Mapping[str, Any], expected_key: str
 ) -> tuple[str, tuple[str, ...]]:
-    """Authenticate an inline snapshot before an evaluator can rely on it."""
-    encoded = _canonical_json(document)
-    actual = hashlib.sha256(encoded).hexdigest()
-    if not re.fullmatch(r"[0-9a-f]{64}", expected_sha256) or actual != expected_sha256:
-        raise ValueError("evidence snapshot hash mismatch")
+    """Check an inline snapshot's shape before an evaluator relies on it."""
+    if not re.fullmatch(r"[0-9a-f]{64}", expected_key):
+        raise ValueError("evidence snapshot key is invalid")
     state = document.get("state")
     if state not in {"evidence", "empty"}:
         raise ValueError("evidence snapshot state is invalid")
@@ -68,9 +67,6 @@ def validate_evidence_snapshot(
             raise ValueError("evidence snapshot source is invalid")
         if not isinstance(preview, str):
             raise ValueError("evidence snapshot preview is invalid")
-        preview_hash = hashlib.sha256(preview.encode("utf-8")).hexdigest()
-        if row.get("sha256") != preview_hash:
-            raise ValueError("evidence artifact hash mismatch")
         refs.append(f"argus://{project}/{path}")
     if state == "empty" and artifacts:
         raise ValueError("empty evidence snapshot contains artifacts")
@@ -158,7 +154,6 @@ def build_evidence_snapshot(
             "size": normalized_size,
             "truncated": bool(detail.get("truncated")) or locally_truncated,
             "preview": bounded,
-            "sha256": hashlib.sha256(bounded.encode("utf-8")).hexdigest(),
         })
 
     state = "evidence" if artifacts else "empty"
@@ -181,14 +176,13 @@ def build_evidence_snapshot(
         "artifacts": artifacts,
         "skipped": skipped,
     }
-    encoded = _canonical_json(document)
-    digest = hashlib.sha256(encoded).hexdigest()
-    target = output_root.resolve() / digest / "EVIDENCE_SNAPSHOT.json"
-    _write_immutable(target, encoded)
+    key = new_key()
+    target = output_root.resolve() / key / "EVIDENCE_SNAPSHOT.json"
+    _write_immutable(target, _canonical_json(document))
     return EvidenceSnapshot(
         state=state,
         path=target,
-        sha256=digest,
+        key=key,
         artifact_count=len(artifacts),
         document=document,
     )
@@ -216,9 +210,9 @@ def _write_immutable(target: Path, content: bytes) -> None:
     target.parent.mkdir(parents=True, exist_ok=True)
     if target.exists():
         if target.read_bytes() != content:
-            raise RuntimeError("content-addressed evidence snapshot collision")
+            raise RuntimeError("evidence snapshot key already holds different content")
     else:
-        # Keep the temporary basename short: the content-addressed parent path
+        # Keep the temporary basename short: the keyed parent path
         # can already be deep enough to hit Windows' legacy MAX_PATH handling.
         temporary = target.parent / f".tmp-{uuid.uuid4().hex[:8]}"
         try:

@@ -163,7 +163,6 @@ def test_cached_cycle_survives_restart_without_another_assessment(tmp_path: Path
 def test_invalid_interpretation_retries_without_asking_the_operator(
     tmp_path: Path, payload, monkeypatch,
 ):
-    monkeypatch.setenv("ARGUS_SKILL_AUTONOMY_MODE", "autonomous")
     supervisor, runner, item = _supervisor(tmp_path, payload)
 
     result = supervisor.tick()

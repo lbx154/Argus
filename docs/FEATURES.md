@@ -43,9 +43,8 @@ flowchart TD
     SLR --> IDLE
 
     F -->|TEAM| M[Manager initial vertical, workflow, lifetime]
-    M -->|Bounded direct| BP[Planner bounded DAG]
-    M -->|Staged or standing| CP[Continuous Planner cycle]
-    BP --> Q[Durable backlog]
+    M -->|operator item| Q[Durable backlog]
+    M -->|finite stops when done, standing keeps going| CP[Planner-run campaign]
     CP --> PV[Planner selects next mission and optional node vertical]
     PV --> Q
     Q --> E[Engineer mission]
@@ -67,7 +66,7 @@ flowchart TD
     F -->|pause| P[Abort current mission and stop daemon]
     P --> PAUSED
     PAUSED -->|Explicit resume with work| M
-    OP -->|Manager-approved operator answer| Q
+    OP -->|Manager-approved operator answer, or Manager choice when the operator cannot be asked| Q
 ```
 
 ### Manager
@@ -136,14 +135,15 @@ pre-existing files.
 ### Reviewer
 
 Reviewer independently inspects the Engineer result when review is required.
-The main Reviewer is read-only.
+It runs with the Engineer's access; a workspace change during its turn is
+recorded beside the verdict and put to the Manager.
 
 | Reviewer verdict | Transition |
 | --- | --- |
 | `done` | Settle mission successfully |
 | `continue` | Return `next_action` to Engineer |
 | `replan_requested` | Return to Planner |
-| `blocked` with operator question | Persist `paused_operator` and wait |
+| `blocked` with operator question | Persist `paused_operator` and wait; while the operator cannot be asked the Manager answers in their place |
 | `research_incomplete` | Preserve evidence and pause recoverably |
 | `paused_no_breakthrough` | Pause until a new route or evidence exists |
 | `exhausted_current_methods` | Pause without pretending project completion |
@@ -169,13 +169,17 @@ contract does not require one.
   circuit keyed by exception type, Argus call site, and normalized runtime path.
   Pending work and Planner calls are held under that same loaded release instead
   of repeatedly spending Agent turns. A release/source/checkpoint-contract change
-  or a reviewed canary closes the circuit.
+  or a reviewed canary closes the circuit. A canary window opens when a fact
+  the failure may depend on changes (backend or model switch, new operator
+  input); a timed window is only the fallback
+  (`ARGUS_SKILL_RUNTIME_CANARY_COOLDOWN_MIN`, doubling per window; 0 disables
+  it).
 
 Explicit pause stops the current mission and daemon while preserving the goal
 and backlog. An explicit resume that runs commands or changes artifacts is TEAM
 work; it is not executed inline as a SELF reply.
 
-### Manager model boundary and required prewarm
+### Manager model boundary
 
 These are runtime design invariants:
 
@@ -185,68 +189,30 @@ These are runtime design invariants:
   "choose a specific item" guard when several questions are pending retain their
   existing control paths. The Host must not add keyword, regex, or local
   canned-reply routing for otherwise ordinary prose to bypass the Manager model.
-- Selecting an active project starts best-effort background prewarm from both
-  Web and TUI. Prewarm initializes ACP processes without spending a model turn;
-  the lean front door also initializes its logical session. Full SELF creates
-  its logical session on the first prompt. The eventual message still receives
-  a real model decision.
-- The active Manager session has two intentionally distinct warm transports:
-  the lean front-door classifier and the full SELF transport. The classifier
-  uses the compact model/effort and no tools; full SELF uses the configured
-  Manager model, effort, workspace, and tool policy.
-- ACP scope is `manager:<session-id>` and must be propagated to both the default
-  backend and any separate Manager-role backend. When ACP and the corresponding
-  label are enabled, prewarm must target the same backend and exact client key
-  later used by the message. Prewarm honors
-  `ARGUS_SKILL_COPILOT_ACP` and `ARGUS_SKILL_COPILOT_ACP_LABELS`; a disabled or
-  excluded path starts no unused ACP client. Two identical classifier processes
-  for one session indicate a scope/prewarm bug.
-- Prewarm is limited to an active project and must not rotate or close a live
-  Manager state concurrently. It runs asynchronously: a message sent
-  immediately after project selection may race it. Successful completed prewarm
-  removes process startup cost; it does not promise to remove the first full
-  SELF logical-session creation or the model/tool reasoning time of a complex
-  answer.
+- Every Manager call, the front-door classifier and full SELF included, is a
+  one-shot CLI turn; a conversation continues by resuming its provider session.
+  The classifier uses the compact model/effort and no tools; full SELF uses the
+  configured Manager model, effort, workspace, and tool policy. When Copilot no
+  longer offers the configured model, a Manager call runs on the model Copilot
+  selects, and usage records that model.
 - Operator-facing replies identify only as Argus Manager. They never expose the
   backing provider/model/CLI as the product identity and do not narrate Skill
   matching, tool selection, search plans, or intermediate checks unless the
   operator asks for that process.
-- Prewarm logs and status surfaces must not contain prompts, operator messages,
-  credentials, tokens, or tool payloads. If the Manager backend is unavailable,
-  classification fails closed, queues no task, and points the operator to
-  `argus doctor --deep`.
+- If the Manager backend is unavailable, classification fails closed, queues no
+  task, and points the operator to `argus doctor --deep`.
 
-On the local Copilot ACP benchmark used for this contract, fixing scope reuse
-reduced an eight-second-prewarmed `你好` turn from 8.146 seconds to 3.937 seconds
-and reduced duplicate classifier processes from two to one. This measurement is
-diagnostic evidence, not a universal latency promise.
+### Long commands
 
-### Durable long commands and supervisor dialogue
-
-- On POSIX, a command expected to run for more than two minutes is submitted to
-  `argus.tools.subagent`; a provider-native background task or a
-  session-owned background shell is never its durable owner.
-- `direct` is the default mode for deterministic commands such as builds,
-  evaluations, and test suites. It adds no Supervisor model calls.
-- `supervised` is used only when an experiment needs semantic monitoring,
-  early-stop judgment, or a persisted discussion with the Engineer.
-- A successful handoff requires the submit JSON receipt to contain
-  `state=submitted`, `task_id`, `run_id`, and `check_with`. `check_with` uses the
-  active Argus Python executable and is directly executable in a later turn.
-  CHECKPOINT.md records these fields only when another round must observe the
-  run.
-- A supervised concern moves the task to `state=discussing`. Status returns an
-  `ACTION_REQUIRED` message, a durable discussion path, and an executable
-  `reply_with` command. The Engineer reads the concern and replies through that
-  command before relaunching. The only exception is an explicit
-  `--override-discussion "<reason>"` break-glass submit, whose reason is recorded
-  durably. Supervisor and Engineer turns are appended to the same durable
-  transcript, with heartbeat and terminal resolution recorded.
-- Native Windows launches a detached Argus-owned worker for durable `direct`
-  and `supervised` subagents. The worker persists registry/log state outside the
-  provider turn, records its PID, applies CPU admission, and uses identity-checked
-  process-tree cleanup. POSIX retains its process-group implementation; WSL2 is
-  optional rather than required for Windows durability.
+- A command expected to run for more than two minutes is started detached
+  (`setsid nohup` on POSIX, `Start-Process` on native Windows) with its own log
+  and exit-code file, and the Engineer waits for it in one wait: Codex with one
+  `write_stdin` whose `yield_time_ms` outlasts the job, Copilot with an `async`
+  shell that resumes the turn when it exits. Argus launches Codex with
+  `background_terminal_max_timeout` at its largest accepted value (2^63-1 ms)
+  and Copilot with `COPILOT_TASK_WAIT_TIMEOUT_SECONDS=2147483.647` (its ceiling,
+  about 24.8 days; neither has an unlimited setting). Argus keeps no waiting
+  state and watches no job on the Engineer's behalf.
 
 ## 4. Verticals and workflows
 
@@ -434,8 +400,6 @@ Implemented controls:
 
 Token controls:
 
-- The active project prewarms both the lean classifier and full SELF ACP
-  transports without spending a model turn.
 - A context-free first SELF reply may use the lean quick path, but still remains
   model-classified.
 - Follow-up SELF turns and turns with learned Skills use the persistent
@@ -545,13 +509,7 @@ Web UI, Manager model, and daemon:
 | Formal domain plus Git metadata correction | `software` wins because the requested action is history maintenance |
 | Legacy attachment metadata | Removed SHA/integrity fields are stripped during read |
 | Greeting followed by first TEAM task, including after Web restart | Greeting does not claim a title; the substantive task names the session |
-| Web or TUI activates a project | Lean classifier and full SELF ACP transports prewarm under the same `manager:<session-id>` scope |
-| Manager uses an explicit role-specific runner binary | Prewarm and message reuse the same Manager ACP client; no duplicate classifier process |
 | Pure greeting | Still model-classified; reply identifies as Argus Manager and does not expose provider identity |
-| First full SELF inspection after completed prewarm | SELF process is initialized; the logical session and model/tool work may still add latency |
-| Deterministic command longer than two minutes | Durable `direct` receipt returns promptly and the command survives the submitting turn |
-| Supervised experiment raises a concern | Status exposes `reply_with`; Engineer reply and Supervisor response persist in one discussion transcript |
-| Detached subagent requested on native Windows | Argus-owned worker returns a durable submitted receipt and survives the provider turn |
 | Default identity template | Excluded from model prompts until the operator edits it |
 | Operator pause | Not captured or replayed as a failure lesson |
 | Planner acceptance check | No unconditional-success or tautological checks |

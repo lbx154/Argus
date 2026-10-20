@@ -15,7 +15,7 @@ from urllib.parse import urlsplit
 from ..core.file_lock import exclusive_file_lock
 from ..core.json_codec import loads_finite_json
 from ..core.scoped_file import open_regular_file
-from .failure_experience_index import EmbeddingAdapter, LexicalHashEmbedding, _guard_recall_path
+from .failure_experience_index import EmbeddingAdapter, LexicalEmbedding, _guard_recall_path
 
 log = logging.getLogger(__name__)
 
@@ -141,17 +141,17 @@ def configured_embedder(state_root: Path | str) -> EmbeddingAdapter:
     try:
         config = load_embedding_config(state_root)
     except EmbeddingConfigError:
-        log.warning("Embedding configuration unavailable; using local lexical hashing")
-        return LexicalHashEmbedding()
+        log.warning("Embedding configuration unavailable; using lexical recall")
+        return LexicalEmbedding()
     if not config.enabled:
-        return LexicalHashEmbedding()
+        return LexicalEmbedding()
     from .http_embedding import HttpEmbeddingAdapter
 
     try:
         return HttpEmbeddingAdapter(Path(state_root), config)
     except (OSError, ValueError):
-        log.warning("Embedding storage unavailable; using local lexical hashing")
-        return LexicalHashEmbedding()
+        log.warning("Embedding storage unavailable; using lexical recall")
+        return LexicalEmbedding()
 
 
 __all__ = ["RecallEmbeddingConfig", "EmbeddingConfigError", "configured_embedder", "load_embedding_config", "save_embedding_config"]

@@ -8,7 +8,6 @@ compute assumptions.
 from __future__ import annotations
 
 import argparse
-import hashlib
 import json
 import re
 from datetime import datetime
@@ -185,7 +184,6 @@ or Oral presumption.
         objective = seed_header + compiled.prompt
         packet_manifest = {
             **compiled.manifest,
-            "prompt_sha256": hashlib.sha256(objective.encode("utf-8")).hexdigest(),
             "personalization_state": "seed_coverage_baseline",
             "launch_ready": False,
             "requires_team_condition_snapshot": True,

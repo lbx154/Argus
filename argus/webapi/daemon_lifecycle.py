@@ -97,9 +97,6 @@ def _worker_config_from_env(life_dir: Path, global_root: Path) -> LifeWorkerConf
         reviewer_reasoning_effort=resolve_role_reasoning_effort(
             "ARGUS_SKILL_REVIEWER_REASONING_EFFORT",
         ),
-        planner_task_iteration_max_cycles=int(
-            os.environ.get("ARGUS_SKILL_PLANNER_TASK_ITERATION_MAX_CYCLES", "0")
-        ),
     )
 
 
@@ -258,13 +255,6 @@ def start_project_daemon(
     # CLI-oriented 7x24 default would keep a drained task process alive forever,
     # including one started with the cockpit's Resume button.
     config.continuous_open_ended = False
-    from ..core.autonomy import operator_wait_marker_present
-
-    if operator_wait_marker_present(life_dir):
-        # The last worker ended waiting for an answer; whoever starts this one
-        # (a web answer, a decision card, argus --answer) resumes that
-        # campaign. The new worker clears the marker when it starts.
-        resume_continuous = True
     if resume_continuous:
         continuous = daemon_worker.read_continuous_state(life_dir)
         if (
@@ -689,13 +679,9 @@ def set_project_workdir(
         project_workdir=target,
         project_fingerprint=sid,
     )
-    from ..manager._session_ops import manager_pipeline_lock, manager_session_lock
+    from ..manager._session_ops import manager_pipeline_lock
 
-    with (
-        session_lifecycle_lock(root, sid),
-        manager_pipeline_lock(life_dir),
-        manager_session_lock(life_dir),
-    ):
+    with session_lifecycle_lock(root, sid), manager_pipeline_lock(life_dir):
         spawn_lock = _acquire_daemon_spawn_lock(config)
         workspace_lease = None
         try:

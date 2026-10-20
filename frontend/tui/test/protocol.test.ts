@@ -13,7 +13,8 @@ import {
   REQUIRED_API_CAPABILITIES,
   SNAPSHOT_SCHEMA_VERSION,
 } from '../../core/src/protocol.js';
-import { RELEASE_ID, RELEASE_SOURCE_DIGEST } from '../../core/src/release.generated.js';
+import { RELEASE_ID } from '../../core/src/release.generated.js';
+
 import { ApiClient } from '../src/api.js';
 import {
   cleanupSpawnedApi,
@@ -27,6 +28,8 @@ import {
 } from '../src/ensureApi.js';
 import { type ApiOwnershipRecord } from '../src/apiOwnership.js';
 
+const SOURCE_SUMMARY = '2 files, 10 bytes';
+
 function meta(overrides: Record<string, unknown> = {}): Record<string, unknown> {
   return {
     service: 'argus-skill-webapi',
@@ -36,8 +39,8 @@ function meta(overrides: Record<string, unknown> = {}): Record<string, unknown> 
     runtime: {
       package_version: RELEASE_ID.split('+')[0],
       release_id: RELEASE_ID,
-      manifest_source_digest: RELEASE_SOURCE_DIGEST,
-      runtime_source_digest: RELEASE_SOURCE_DIGEST,
+      manifest_source_digest: SOURCE_SUMMARY,
+      runtime_source_digest: SOURCE_SUMMARY,
       release_matches_source: true,
       source_root: '/home/dev/current/argus',
       configured_source_root: '/home/dev/current/argus',
@@ -907,27 +910,6 @@ test('ApiClient validates snapshot schema after the one-time handshake', async (
     const api = new ApiClient({ host: '127.0.0.1', port: 8799, project: 's-test' });
     await assert.rejects(() => api.snapshot(), /daemon fields missing/);
     assert.equal(calls, 2);
-  } finally {
-    globalThis.fetch = originalFetch;
-  }
-});
-
-test('ApiClient requests Manager prewarm only when asked', async () => {
-  const originalFetch = globalThis.fetch;
-  const urls: string[] = [];
-  let calls = 0;
-  globalThis.fetch = (async (input) => {
-    calls += 1;
-    urls.push(String(input));
-    if (calls === 1) return Response.json(meta());
-    return Response.json({ schema_version: SNAPSHOT_SCHEMA_VERSION, daemon: {} });
-  }) as typeof fetch;
-  try {
-    const api = new ApiClient({ host: '127.0.0.1', port: 8799, project: 's-test' });
-    await assert.rejects(() => api.snapshot(1, undefined, true), /daemon fields missing/);
-    await assert.rejects(() => api.snapshot(1), /daemon fields missing/);
-    assert.match(urls[1], /events_limit=1&prewarm=true$/);
-    assert.doesNotMatch(urls[2], /prewarm=true/);
   } finally {
     globalThis.fetch = originalFetch;
   }

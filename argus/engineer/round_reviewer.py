@@ -13,6 +13,7 @@ to the round-settlement phase via ``RoundControl.payload``.
 """
 from __future__ import annotations
 
+import json
 import logging
 import time
 from dataclasses import replace
@@ -32,7 +33,6 @@ from ..core.stop_kinds import (
 )
 from ..life.context_packet import render_mission_brief
 from ..life.memory import Backlog
-from .external_work import parse_external_wait_request, render_external_work_advisory
 from .reviewer_findings import (
     own_reviewer_thread,
     render_previous_findings,
@@ -61,6 +61,65 @@ if TYPE_CHECKING:
 log = logging.getLogger(__name__)
 
 
+def mission_state_root(supervised_config: Any) -> Path | None:
+    """The project state directory the mission belongs to, if it has one."""
+    root = getattr(supervised_config, "operator_question_policy_root", None)
+    if root:
+        return Path(root)
+    packet = str(getattr(supervised_config, "context_packet_path", "") or "").strip()
+    if packet:
+        parents = Path(packet).expanduser().parents
+        if len(parents) >= 3:
+            return parents[2]
+    return None
+
+
+def _mission_packet(supervised_config: Any) -> dict[str, Any]:
+    """This mission's context packet, or {}."""
+    packet = str(getattr(supervised_config, "context_packet_path", "") or "").strip()
+    if not packet:
+        return {}
+    try:
+        payload = json.loads(Path(packet).expanduser().read_text(encoding="utf-8"))
+    except (OSError, ValueError):
+        return {}
+    return payload if isinstance(payload, dict) else {}
+
+
+def mission_item_id(supervised_config: Any) -> str:
+    """The backlog item this mission works on, from its context packet, or ""."""
+    return str(_mission_packet(supervised_config).get("mission_id") or "").strip()
+
+
+def mission_lineage(supervised_config: Any) -> str:
+    """The work this mission continues: its ``node_key``, else its item, or ""."""
+    packet = _mission_packet(supervised_config)
+    return str(packet.get("node_key") or "").strip() or str(packet.get("mission_id") or "").strip()
+
+
+def mission_contract(supervised_config: Any) -> dict[str, Any]:
+    """The mission contract (``mission.json``) the packet belongs to, or {}."""
+    packet = str(getattr(supervised_config, "context_packet_path", "") or "").strip()
+    if not packet:
+        return {}
+    path = Path(packet).expanduser()
+    for _ in range(2):
+        try:
+            payload = json.loads(path.read_text(encoding="utf-8"))
+        except (OSError, ValueError):
+            return {}
+        if not isinstance(payload, dict):
+            return {}
+        if payload.get("kind") == "mission_context":
+            return payload
+        mission = payload.get("mission")
+        reference = str(mission.get("path") or "") if isinstance(mission, dict) else ""
+        if not reference:
+            return {}
+        path = Path(reference).expanduser()
+    return {}
+
+
 def _no_reviewer_judgment(review: ReviewDecision) -> ReviewDecision:
     """The record a round keeps when the Reviewer leg rendered no verdict.
 
@@ -74,32 +133,6 @@ def _no_reviewer_judgment(review: ReviewDecision) -> ReviewDecision:
         review,
         review_source="reviewer_unavailable",
         host_placeholder="reviewer_unavailable",
-    )
-
-
-def _background_launch_block(state: RoundLoopState, engineer_message: str) -> str:
-    """Tell the Reviewer it is judging a launch, not waiting on one.
-
-    The Engineer's account of such a round ends on the wait line it wrote for
-    the host. Shown without comment, the Reviewer took that line as the shape
-    of a reply and closed on it too, so no judgment was read (trial project
-    s-fb4716b7, task 4). Name what is under review and whose line that is.
-    """
-    if not state.pending_external_wait_review:
-        return ""
-    request = parse_external_wait_request(engineer_message)
-    work_id = request[1] if request else "the background run"
-    return (
-        "## This round sent work to the background\n"
-        f"The Engineer's account ends by asking the host to wait for `{work_id}`; "
-        "the host is already waiting. You are judging what was launched: the code "
-        "that will produce the result, its configuration, the launch itself, and "
-        "what the numbers will decide once they arrive. Give that judgment in the "
-        "native review action tool, with your explanation in ordinary prose. "
-        "Use defer_review if the judgment depends on the pending result. "
-        "The closing wait line is the Engineer's request to the host, not a judgment "
-        "or a template for your reply; do not repeat it and do not wait yourself. "
-        "The mission finishes only after the result is read, whatever you decide here."
     )
 
 
@@ -192,7 +225,6 @@ def _active_manager_directive_for_reviewer(
         # Acceptances of an impossible check, scoped to this item or to a
         # named check; never to the whole objective.
         from ..core.residual_risk import reviewer_block
-        from .obstacle_stall import mission_item_id
 
         try:
             accepted = reviewer_block(
@@ -236,28 +268,42 @@ def operator_risk_decisions(root: Path | None, item_id: str) -> list[dict[str, A
     return [card for card in cards if card.get("status") == "resolved"]
 
 
+def _recorded_facts(value: object) -> list[int] | None:
+    """The ``file_facts`` the Planner recorded as JSON; an older digest records none."""
+    try:
+        facts = json.loads(str(value))
+    except ValueError:
+        return None
+    return facts if isinstance(facts, list) else None
+
+
 def mission_grounding(
-    supervised_config: Any, *, item_id: str, mission_ref: str, baseline: dict[str, str] | None,
+    supervised_config: Any, *, item_id: str, mission_ref: str, baseline: dict[str, list[int]] | None,
 ) -> dict[str, Any]:
     """What this mission's Reviewer quotes and acceptances are checked against.
 
-    ``baseline``: the workspace's content hashes when the first mission on this
-    objective began; a file that no longer matches (or was not there) is never
-    a source. ``packet_refs``: files the task packet names, each with the hash
-    the Planner recorded, which are sources while they still match it.
+    ``baseline``: the workspace's files as recorded when the first mission on
+    this objective began; a file that no longer matches (or was not there) is
+    never a source. ``packet_refs``: files the task packet names, each with the
+    ``file_facts`` the Planner recorded, which are sources while they still match.
     ``accepted_risks``: the Manager's acceptances in force for this item;
     ``operator_decisions``: the operator's resolved decision cards for it.
+    ``operator_questions_allowed``: whether a question reaches the operator in
+    this mission; when it cannot, accepting a risk is the Manager's.
     """
     from ..core.residual_risk import active_residual_risks
-    from .obstacle_stall import mission_contract, stall_root
+    from .round_settlement import _operator_questions_allowed
 
     contract = mission_contract(supervised_config)
     refs = tuple(
-        {"ref": str(ref.get("ref") or "").strip(), "content_hash": str(ref.get("content_hash") or "")}
+        {
+            "ref": str(ref.get("ref") or "").strip(),
+            "content_hash": _recorded_facts(ref.get("content_hash")),
+        }
         for ref in contract.get("context_refs") or []
         if isinstance(ref, dict) and str(ref.get("ref") or "").strip()
     )
-    root = stall_root(supervised_config)
+    root = mission_state_root(supervised_config)
     try:
         accepted = active_residual_risks(root, item_id=item_id, mission_ref=mission_ref) if root else []
     except Exception:  # noqa: BLE001 - an unreadable record accepts nothing
@@ -265,6 +311,9 @@ def mission_grounding(
     return {
         "baseline": baseline, "packet_refs": refs, "accepted_risks": tuple(accepted),
         "operator_decisions": tuple(operator_risk_decisions(root, item_id)),
+        # The same rule settlement applies to this Reviewer's questions, so
+        # the acceptance it is told to seek is one that can actually be given.
+        "operator_questions_allowed": _operator_questions_allowed(supervised_config),
     }
 
 
@@ -300,7 +349,6 @@ class RoundReviewerMixin:
         scope: str,
         checkpoint_path: Path | None,
         reviewer_skill_block: str | None,
-        escalate_hint: str,
         engineer_result,
         engineer_message: str,
         safe_fatal_error: str | None,
@@ -314,21 +362,9 @@ class RoundReviewerMixin:
         )
         from ..core.operator_context import operator_context_revision_from_text
 
-        external_work_context = ""
-        if supervised_config.background_subagent_advisory:
-            try:
-                external_work_context = render_external_work_advisory(
-                    workdir,
-                    include_subagents=True,
-                )
-            except Exception:  # noqa: BLE001 — advisory is non-critical context
-                log.debug("reviewer subagent advisory refresh failed", exc_info=True)
         reviewer_session = state.reviewer_session
         reviewer_resume_id = (
-            reviewer_session.prepare(
-                max_turns=supervised_config.role_session_max_turns,
-                max_input_tokens=supervised_config.role_session_max_input_tokens,
-            )
+            reviewer_session.prepare()
             if reviewer_session is not None
             else None
         )
@@ -369,10 +405,8 @@ class RoundReviewerMixin:
         mission_brief = render_mission_brief(
             supervised_config.context_packet_path,
             include_engineer_account=False,
-            # The carry-over is the one copy of this Reviewer's own findings;
-            # the frontier's open items stay unless it already names some.
+            # The carry-over is the one copy of this Reviewer's own findings.
             include_previous_review=not previous_findings.has_reviewer_findings,
-            include_missing_condition=not previous_findings.has_open_items,
         )
         shared_context_parts = (
             mission_brief,
@@ -381,10 +415,9 @@ class RoundReviewerMixin:
             rotation_block,
             *state.pending_secret_guard_notes,
             process_ownership_note,
-            _background_launch_block(state, engineer_message),
         )
         reviewer_background_context = "\n\n".join(
-            part for part in (*shared_context_parts, external_work_context) if part
+            part for part in shared_context_parts if part
         )
         from ..reviewer._core import _parallel_final_review_passes
 
@@ -415,18 +448,8 @@ class RoundReviewerMixin:
             if preliminary_review.backend_unavailable and enforcement == "blocking":
                 return preliminary_review
             # Specialist passes can take minutes. The integrated Reviewer must
-            # receive instructions and job states that changed during that work.
+            # receive instructions that changed during that work.
             operator_messages = _active_manager_directive_for_reviewer(supervised_config)
-            if supervised_config.background_subagent_advisory:
-                try:
-                    external_work_context = render_external_work_advisory(
-                        workdir, include_subagents=True,
-                    )
-                except Exception:  # noqa: BLE001 — retain the prior observation
-                    log.debug("post-pass external-work refresh failed", exc_info=True)
-            reviewer_background_context = "\n\n".join(
-                part for part in (*shared_context_parts, external_work_context) if part
-            )
             authority_note = (
                 "Shadow calibration only: these new semantic-loss and cold-read signals "
                 "cannot be the sole reason to rule that the work does not hold. "
@@ -480,21 +503,23 @@ class RoundReviewerMixin:
                     self.reviewer_config,
                     working_dir=str(workdir),
                     artifact_root=str(workdir),
-                    round_started_ts=state.round_started_wall,
+                    snapshots=(
+                        state.snapshots
+                        if state.snapshots and state.snapshots.take("candidate")
+                        else None
+                    ),
                     engineer_records_commands=backend_records_command_results(
                         getattr(self, "engineer_runner", None)
                     ),
                     mission_grounding=_mission_grounding(supervised_config, state),
                 ),
                 prev_review_summary=_previous_review_summary(state),
-                # Host-gathered round evidence (e.g. a vertical's spec checks):
-                # facts the Reviewer weighs, rendered as raw evidence rather
-                # than as supervised-subagent chatter.
+                # Host-gathered round evidence (e.g. the research round log):
+                # facts the Reviewer weighs, rendered as raw evidence.
                 raw_evidence="\n\n".join(state.pending_round_evidence),
                 scope=scope,
                 checkpoint_path=str(checkpoint_path or ""),
                 background_context=reviewer_background_context,
-                escalate_hint=escalate_hint,
                 engineer_log_path=supervised_config.engineer_log_path,
                 engineer_call_id=(
                     str(engineer_result.call_id or "")
@@ -526,8 +551,6 @@ class RoundReviewerMixin:
             # them for the retry. The next window opens with the next turn.
             state.pending_round_evidence.clear()
             state.unreviewed_engineer_accounts.clear()
-            state.engineer_self_handoffs = 0
-            state.round_started_wall = None
             # Provenance: only this call's own judgment becomes a finding
             # carried forward to later rounds.
             review.reviewer_authored = True
@@ -593,7 +616,7 @@ class RoundReviewerMixin:
                 # not one per mission. It exists only for a resumable policy;
                 # the signal never creates one, so a missing file means there
                 # is no Planner thread to rotate.
-                effective_policy = supervised_config.role_session_policy
+                effective_policy = "rolling"
                 from ..core.role_session import signal_role_session_file
 
                 capsule_path = (
@@ -656,39 +679,6 @@ class RoundReviewerMixin:
                 "round_max": supervised_config.max_rounds,
                 "session_id": supervised_config.session_id,
             })
-        # State the harness rule before it can fire so the Reviewer knows that
-        # an explicit true progress judgment preserves productive long work.
-        escalate_hint = ""
-        if (
-            supervised_config.soft_round_limit
-            and round_index >= supervised_config.soft_round_limit
-        ):
-            escalate_hint = (
-                f"After round {supervised_config.soft_round_limit}, the harness "
-                "settles the mission as stalled when neither of your last two "
-                "judgments carries `forward_progress=true`; genuine progress "
-                "continues normally."
-            )
-            if on_event and round_index == supervised_config.soft_round_limit:
-                on_event({
-                    "type": EventType.ROUND_ESCALATED,
-                    "round_index": round_index,
-                    "soft_round_limit": supervised_config.soft_round_limit,
-                    "hard_escalate_rounds": supervised_config.hard_escalate_rounds,
-                    "text": (
-                        f"round {round_index} reached soft limit "
-                        f"{supervised_config.soft_round_limit}: the Reviewer was "
-                        "told the enforced two-round progress rule"
-                    ),
-                })
-        from .obstacle_stall import carried_obstacle_hint
-
-        carried_hint = carried_obstacle_hint(
-            state.carried_obstacle_streak, state.carried_obstacle,
-            supervised_config.stall_threshold,
-        )
-        if carried_hint:
-            escalate_hint = f"{escalate_hint}\n\n{carried_hint}" if escalate_hint else carried_hint
         # Evaluate the reviewer, retrying ONLY the reviewer on an infra flake.
         # The engineer's output for THIS round is already valid and in hand, so
         # a reviewer subprocess crash / 429 / missing-output-schema must retry
@@ -711,7 +701,6 @@ class RoundReviewerMixin:
                 scope=scope,
                 checkpoint_path=checkpoint_path,
                 reviewer_skill_block=reviewer_skill_block,
-                escalate_hint=escalate_hint,
                 engineer_result=engineer_result,
                 engineer_message=engineer_message,
                 safe_fatal_error=safe_fatal_error,

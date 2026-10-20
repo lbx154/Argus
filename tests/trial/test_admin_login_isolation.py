@@ -46,7 +46,7 @@ def frontend_dist(tmp_path):
 
 
 def test_admin_react_build_and_all_assets_work_without_invitation_cookie(provisioned, frontend_dist):
-    config, vault, _ = provisioned
+    config, vault, store = provisioned
     frontend, files = frontend_dist
     config["frontend_dir"] = str(frontend)
     calls = []
@@ -82,7 +82,7 @@ def test_admin_react_build_and_all_assets_work_without_invitation_cookie(provisi
         assert client.get("/admin/status").headers["content-type"] == "application/json"
         assert client.get("/admin/api/does-not-exist", headers={"Accept": "text/html"}).status_code == 404
         assert not calls
-        login(client, vault)
+        login(client, store)
         ordinary = client.get("/")
         assert 'src="/assets/index-abcdefgh.js"' in ordinary.text
         assert 'href="/favicon.svg"' in ordinary.text
@@ -91,12 +91,12 @@ def test_admin_react_build_and_all_assets_work_without_invitation_cookie(provisi
 
 
 def test_trial_and_anonymous_sessions_cannot_load_admin_build(provisioned, frontend_dist):
-    config, vault, _ = provisioned
+    config, vault, store = provisioned
     config["frontend_dir"] = str(frontend_dist[0])
     with client_for(provisioned) as client:
         for authenticated in (False, True):
             if authenticated:
-                login(client, vault)
+                login(client, store)
             for path in ("/admin/data", "/admin/data/projects/project-one"):
                 response = client.get(path)
                 assert response.status_code == 303
@@ -158,7 +158,7 @@ def test_admin_login_page_has_working_nonce_and_never_discloses_configured_crede
 
 
 def test_trial11_reuses_original_endpoint_and_sessions_do_not_overwrite_each_other(provisioned):
-    config, vault, _ = provisioned
+    config, vault, store = provisioned
     original_backend = config.pop("admin")
     config["tenants"]["trial-11"] = original_backend
     calls = []
@@ -168,7 +168,7 @@ def test_trial11_reuses_original_endpoint_and_sessions_do_not_overwrite_each_oth
         return httpx.Response(200, stream=Chunks([b'{"ok":true}']), headers={"content-type": "application/json"})
 
     with client_for(provisioned, upstream) as client:
-        trial = login(client, vault, "trial-11")
+        trial = login(client, store, "trial-11")
         trial_cookie = trial.cookies[portal.COOKIE]
         assert client.get("/invite/status").json()["key_id"] == "trial-11"
         assert client.get("/admin/status").status_code == 401
@@ -182,7 +182,7 @@ def test_trial11_reuses_original_endpoint_and_sessions_do_not_overwrite_each_oth
         assert calls[-1].headers["authorization"] == "Bearer " + original_backend["token"]
         assert calls[-1].extensions["argus_backend"] == "trial-11"
         assert config["admin_login_token"] not in str(calls[-1].headers)
-        login(client, vault, "trial-01")
+        login(client, store, "trial-01")
         assert client.cookies.get(portal.ADMIN_COOKIE) == administrator_cookie
         assert client.get("/invite/status").json()["key_id"] == "trial-01"
         assert client.get("/admin/status").status_code == 200
@@ -190,7 +190,7 @@ def test_trial11_reuses_original_endpoint_and_sessions_do_not_overwrite_each_oth
         assert client.get("/invite/status").status_code == 401
         assert client.get("/admin/status").status_code == 200
         assert client.get("/api/projects").status_code == 401
-        login(client, vault, "trial-11")
+        login(client, store, "trial-11")
         assert client.post("/admin/logout", headers={"Origin": ORIGIN}).status_code == 200
         assert client.get("/admin/status").status_code == 401
         assert client.get("/invite/status").json()["key_id"] == "trial-11"
@@ -198,20 +198,21 @@ def test_trial11_reuses_original_endpoint_and_sessions_do_not_overwrite_each_oth
 
 
 def test_admin_cookie_and_old_admin_frontend_cookies_cannot_be_used_as_trial11(provisioned):
-    config, vault, _ = provisioned
+    config, vault, store = provisioned
     calls = []
     with client_for(provisioned, lambda request: calls.append(request)) as client:
         response = admin_login(client, config)
         value = response.cookies[portal.ADMIN_COOKIE]
-        assert vault.cipher.decrypt(value.encode()).startswith(portal.ADMIN_COOKIE_DOMAIN)
+        assert store.session(value)["role"] == "admin"
         assert client.get("/api/projects").status_code == 401
         client.cookies.clear()
         client.cookies.set(portal.COOKIE, value)
         assert client.get("/invite/status").status_code == 401
         old_identity = {"tenant": "admin", "role": "admin", "readonly": False,
-                        "exp": int(time.time()) + portal.SESSION_SECONDS,
-                        "admin_binding": client.app.state.admin_binding}
-        old_cookie = vault.cipher.encrypt(portal.COOKIE_DOMAIN + json.dumps(old_identity).encode()).decode()
+                        "exp": int(time.time()) + portal.SESSION_SECONDS}
+        old_cookie = vault.cipher.encrypt(
+            b"argus-web-invitation-session-v1\x00" + json.dumps(old_identity).encode()
+        ).decode()
         client.cookies.set(portal.COOKIE, old_cookie)
         assert client.get("/api/projects").status_code == 401
         assert client.get("/invite/status").status_code == 401
@@ -246,7 +247,7 @@ def test_new_config_can_drop_admin_backend_or_keep_exact_trial11_migration_alias
 def test_admin_data_routes_use_only_admin_cookie_and_ignore_trial_consent_state(provisioned, tmp_path, frontend_dist):
     from argus.trial.analytics import Analytics
 
-    config, vault, _ = provisioned
+    config, vault, store = provisioned
     config["frontend_dir"] = str(frontend_dist[0])
     analytics = Analytics(tmp_path / "research", {
         "trial-11": {"data_dir": tmp_path / "trial-11", "internal_test": True},
@@ -258,7 +259,7 @@ def test_admin_data_routes_use_only_admin_cookie_and_ignore_trial_consent_state(
         stale_trial = {"tenant": "trial-11", "role": "trial", "readonly": False,
                        "exp": int(time.time()) + portal.SESSION_SECONDS}
         client.cookies.set(portal.COOKIE, vault.cipher.encrypt(
-            portal.COOKIE_DOMAIN + json.dumps(stale_trial).encode(),
+            b"argus-web-invitation-session-v1\x00" + json.dumps(stale_trial).encode(),
         ).decode())
         assert client.get("/api/projects").status_code == 401
         assert client.get("/admin/login").status_code == 200

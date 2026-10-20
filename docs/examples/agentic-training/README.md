@@ -14,14 +14,13 @@
    不从旧日志补造工具轨迹。
 2. 等待任务结束，检查实际交付文件。在独立副本中重跑实验或测试，保留原始测量结果，
    将复跑结果另存。证明、实验设计和图表需要内容检查，不能只看退出码。
-3. 写验收记录，包含项目和任务标识、实际执行命令及退出码、产物 SHA-256、
+3. 写验收记录，包含项目和任务标识、实际执行命令及退出码、产物路径与字节数、
    检查结论及局限。自动验收写 `reviewer_kind: automated_acceptance` 和
    `human_reviewed: false`，不能称作人工审查。失败或未核查的样本继续排除。
 4. 管理员打开 `/admin/data`，检查项目授权、工具候选、完整性及隔离原因。
    只批准已核对的候选，选择内部训练用途并导出 ZIP。网页手动审查记为
    `human_operator`；自动验收使用已有管理员身份调用导出接口，并提交
-   `reviewer_kind: automated_acceptance`、准确的 `approved_event_ids` 和验收文件
-   `evidence_sha256`。外部分享需要单独的授权和权利审查。
+   `reviewer_kind: automated_acceptance`、准确的 `approved_event_ids`，并附上验收文件本身。外部分享需要单独的授权和权利审查。
 5. 对导出包运行离线校验：
 
    ```sh

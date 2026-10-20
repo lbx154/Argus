@@ -10,8 +10,7 @@ a suspect.
 New stance (global): TRUST an honest, internally-consistent self-report; verify
 only when evidence is MISSING or self-contradictory (the cheap anti-fabrication
 floor that still stops a faked number); reinvest the round in judging the idea's
-novelty + giving high-altitude direction. In MEASURED-BENCHMARK mode this is
-sharpened and explicitly overrides the generic demand-evidence rules.
+novelty + giving high-altitude direction.
 """
 
 from __future__ import annotations
@@ -23,11 +22,7 @@ from argus.reviewer._core import _verification_directive
 from argus.verticals.research.prompt_policy import academic_paper_review_block
 
 
-def _prompt(*, measured: bool, monkeypatch) -> str:
-    if measured:
-        monkeypatch.setenv("ARGUS_SKILL_MEASURED_MODE", "1")
-    else:
-        monkeypatch.delenv("ARGUS_SKILL_MEASURED_MODE", raising=False)
+def _prompt() -> str:
     r = Reviewer(runner=None, skill_store=None)
     return r._build_prompt(
         objective="minimize cand_ms on the kernel",
@@ -95,8 +90,8 @@ def _project_reviewer_prompt(tmp_path, *, scope: str = "") -> tuple[str, Reviewe
     return prompt, reviewer
 
 
-def test_math_review_omits_paper_review_rubric(tmp_path) -> None:
-    _persist_review_stage(tmp_path, "math")
+def test_non_paper_review_omits_paper_review_rubric(tmp_path) -> None:
+    _persist_review_stage(tmp_path, "learning")
 
     prompt, reviewer = _project_reviewer_prompt(tmp_path)
 
@@ -113,8 +108,8 @@ def test_final_certification_review_keeps_paper_review_rubric(tmp_path) -> None:
     assert reviewer.last_prompt_block_stats["static_total"]["chars"] > 0
 
 
-def test_final_submission_does_not_make_math_a_paper_vertical(tmp_path) -> None:
-    _persist_review_stage(tmp_path, "math")
+def test_final_submission_does_not_make_a_non_paper_vertical_a_paper_one(tmp_path) -> None:
+    _persist_review_stage(tmp_path, "learning")
 
     prompt, _reviewer = _project_reviewer_prompt(
         tmp_path,
@@ -141,31 +136,20 @@ def test_final_submission_forces_certify_over_operator_explore(tmp_path) -> None
 
 
 def test_build_prompt_uses_trust_first_not_old_rerun(monkeypatch):
-    p = _prompt(measured=False, monkeypatch=monkeypatch)
+    p = _prompt()
     assert 'Trust consistent evidence' in p
     assert "use *your own* output as ground truth" not in p
     assert "## Evidence policy" not in p
 
 
-def test_measured_mode_trusts_scorer_and_refocuses(monkeypatch):
-    p = _prompt(measured=True, monkeypatch=monkeypatch)
-    assert "TRUST the scorer, judge the IDEA" in p
-    assert 'Do not rerun the scorer to confirm an honest, consistent number' in p
-    assert 'Engineer checks correctness by running it every round' in p
-    # refocus on novelty judgement + high-level direction
-    assert 'whether this mechanism was new or another adjustment' in p
-    # explicit override of the generic demand-evidence rules
-    assert 'takes precedence over the general rules' in p
-
-
 def test_non_measured_blocks_only_on_claim_critical_evidence(monkeypatch):
-    p = _prompt(measured=False, monkeypatch=monkeypatch)
+    p = _prompt()
     assert 'Only claim-essential evidence gaps warrant `continue`' in p
     assert 'optional evidence and minor weaknesses are advice' in p
 
 
 def test_done_tracks_the_current_verification_profile(monkeypatch):
-    p = _prompt(measured=False, monkeypatch=monkeypatch)
+    p = _prompt()
 
     assert '`done` meets this profile' in p
     assert 'not exhaustive proof or every file' in p
@@ -174,14 +158,14 @@ def test_done_tracks_the_current_verification_profile(monkeypatch):
 
 
 def test_reviewer_separates_integrity_from_scientific_value(monkeypatch):
-    p = _prompt(measured=False, monkeypatch=monkeypatch)
+    p = _prompt()
     assert 'Integrity is required' in p
     assert 'not scientific value' in p
     assert "`replan_requested` for a wrong target" in p
 
 
 def test_reviewer_reasons_in_prose_and_submits_a_native_action(monkeypatch):
-    p = _prompt(measured=False, monkeypatch=monkeypatch)
+    p = _prompt()
     assert "review naturally" in p
     assert "ARGUS_ROLE_DECISION=" not in p
     assert "STATUS=" not in p

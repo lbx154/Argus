@@ -52,9 +52,9 @@ def _confirm(client: TestClient, batch_id: str) -> dict:
     return response.json()
 
 
-def _stored_object_bytes(client: TestClient, digest: str) -> tuple[dict, bytes]:
+def _stored_object_bytes(client: TestClient, key: str) -> tuple[dict, bytes]:
     row = client.app.state.db.fetch_one(
-        "SELECT * FROM content_objects WHERE sha256=?", (digest,)
+        "SELECT * FROM content_objects WHERE object_key=?", (key,)
     )
     assert row is not None
     path = (
@@ -88,7 +88,7 @@ def test_pdf_is_staged_as_base64_but_sealed_as_exact_pdf_bytes(
     draft = staged.json()
     assert draft["fetch_performed"] is False
     assert draft["needs_human_confirmation"] is True
-    assert draft["raw_object_sha256"] is None
+    assert draft["raw_object_key"] is None
     assert client.app.state.db.fetch_all("SELECT * FROM content_objects") == []
     batch = client.app.state.db.fetch_one(
         "SELECT raw_payload_json FROM review_import_batches WHERE id=?", (draft["id"],)
@@ -98,7 +98,7 @@ def test_pdf_is_staged_as_base64_but_sealed_as_exact_pdf_bytes(
     assert "content_utf8" not in staged_payload
 
     confirmed = _confirm(client, draft["id"])
-    row, stored = _stored_object_bytes(client, confirmed["raw_object_sha256"])
+    row, stored = _stored_object_bytes(client, confirmed["raw_object_key"])
     assert row["media_type"] == "application/pdf"
     assert row["byte_length"] == len(pdf)
     assert stored == pdf
@@ -222,7 +222,7 @@ def test_openreview_public_api2_fetch_is_restricted_staged_and_human_gated(
     assert staged["fetch_performed"] is True
     assert staged["source_ref"] == captured["url"]
     assert staged["needs_human_confirmation"] is True
-    assert staged["raw_object_sha256"] is None
+    assert staged["raw_object_key"] is None
     assert staged["parsed"] == json.loads(raw_json)
     row = client.app.state.db.fetch_one(
         "SELECT raw_payload_json FROM review_import_batches WHERE id=?", (staged["id"],)
@@ -231,7 +231,7 @@ def test_openreview_public_api2_fetch_is_restricted_staged_and_human_gated(
     assert client.app.state.db.fetch_all("SELECT * FROM content_objects") == []
 
     confirmed = _confirm(client, staged["id"])
-    object_row, stored = _stored_object_bytes(client, confirmed["raw_object_sha256"])
+    object_row, stored = _stored_object_bytes(client, confirmed["raw_object_key"])
     assert object_row["media_type"] == "application/json"
     assert stored == raw_json
 

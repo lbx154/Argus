@@ -119,100 +119,19 @@ def test_markdown_accepts_the_complete_local_limit_without_truncation():
     assert len(result["title"]) == 160 and result["markdown"] == raw
 
 
-def test_map_auto_follows_front_door_and_persisted_overrides(monkeypatch):
-    monkeypatch.setenv("ARGUS_SKILL_MANAGER_BACKEND", "copilot")
+def test_map_runs_the_light_model_on_the_shared_runner(monkeypatch):
+    monkeypatch.setenv("ARGUS_SKILL_RUNNER_BACKEND", "codex")
     monkeypatch.setenv("ARGUS_SKILL_MANAGER_MODEL", "gpt-5.4-mini")
     monkeypatch.setenv("ARGUS_SKILL_ENGINEER_MODEL", "gpt-5.5")
-    monkeypatch.setenv("ARGUS_SKILL_MODEL", "gpt-5.5")
-    monkeypatch.setenv("ARGUS_SKILL_ENGINEER_REASONING_EFFORT", "medium")
+    # Retired map-only settings are ignored.
+    write_persisted_knobs({"ARGUS_SKILL_MAP_MODEL": "retired", "ARGUS_SKILL_MAP_REASONING_EFFORT": "max"})
     before = map_model.resolve_map_model()
-    assert (before.backend, before.model, before.effort) == ("copilot", "gpt-5.4-mini", "low")
-    write_persisted_knobs({"ARGUS_SKILL_MAP_MODEL": "gpt-5.5", "ARGUS_SKILL_MAP_MODEL_BACKEND": "copilot",
-                           "ARGUS_SKILL_MAP_REASONING_EFFORT": "high"})
+    assert (before.backend, before.model, before.effort) == ("codex", "gpt-5.4-mini", "low")
+    monkeypatch.setenv("ARGUS_SKILL_LIGHT_MODEL", "gpt-5.5")
+    monkeypatch.setenv("ARGUS_SKILL_LIGHT_REASONING_EFFORT", "high")
     changed = map_model.resolve_map_model()
-    assert (changed.backend, changed.model, changed.effort) == ("copilot", "gpt-5.5", "high")
+    assert (changed.backend, changed.model, changed.effort) == ("codex", "gpt-5.5", "high")
     assert changed.revision != before.revision
-    write_persisted_knobs({"ARGUS_SKILL_MAP_MODEL": "auto", "ARGUS_SKILL_MAP_REASONING_EFFORT": "auto"})
-    assert map_model.resolve_map_model() == before
-
-
-def _usage_row(root, provider, model):
-    path = root / "projects" / "s-usage" / "usage.jsonl"
-    path.parent.mkdir(parents=True, exist_ok=True)
-    with path.open("a") as handle:
-        handle.write(json.dumps({"provider": provider, "model": model, "completed_at": time.time(),
-                                 "output_tokens": 10, "error": ""}) + "\n")
-
-
-def test_saved_map_pin_from_another_runner_follows_auto_with_a_note(tmp_path, monkeypatch):
-    """A pin saved under one runner (or seeded with no runner at all) must not
-    be sent to a runner that never offered it: it follows auto and says why."""
-    monkeypatch.setenv("ARGUS_SKILL_HOME", str(tmp_path))
-    monkeypatch.setenv("ARGUS_SKILL_MANAGER_BACKEND", "codex")
-    monkeypatch.setenv("ARGUS_SKILL_MANAGER_MODEL", "front-door-model")
-    monkeypatch.delenv("ARGUS_SKILL_MAP_MODEL", raising=False)
-    monkeypatch.delenv("ARGUS_SKILL_MAP_MODEL_BACKEND", raising=False)
-    _usage_row(tmp_path, "copilot", "other-runner-model")
-    for recorded in ("", "copilot"):
-        write_persisted_knobs({"ARGUS_SKILL_MAP_MODEL": "other-runner-model",
-                               "ARGUS_SKILL_MAP_MODEL_BACKEND": recorded})
-        config = map_model.resolve_map_model(global_root=tmp_path)
-        assert (config.backend, config.model) == ("codex", "front-door-model")
-        assert "other-runner-model" in config.note and "codex" in config.note
-    # Answered through this runner already, or pinned while it was active: kept.
-    _usage_row(tmp_path, "codex", "other-runner-model")
-    config = map_model.resolve_map_model(global_root=tmp_path)
-    assert (config.model, config.note) == ("other-runner-model", "")
-    write_persisted_knobs({"ARGUS_SKILL_MAP_MODEL": "fresh-pin", "ARGUS_SKILL_MAP_MODEL_BACKEND": "codex"})
-    assert map_model.resolve_map_model(global_root=tmp_path).model == "fresh-pin"
-
-
-def test_saved_map_pin_is_checked_against_a_runner_that_lists_its_models(tmp_path, monkeypatch):
-    monkeypatch.setenv("ARGUS_SKILL_HOME", str(tmp_path))
-    monkeypatch.setenv("ARGUS_SKILL_MANAGER_BACKEND", "copilot")
-    monkeypatch.setenv("ARGUS_SKILL_MANAGER_MODEL", "front-door-model")
-    monkeypatch.delenv("ARGUS_SKILL_MAP_MODEL", raising=False)
-    from argus.webapi import mission_items
-    monkeypatch.setattr(mission_items, "backend_model_ids", lambda backend, root=None: ["listed-model"])
-    write_persisted_knobs({"ARGUS_SKILL_MAP_MODEL": "unlisted-model", "ARGUS_SKILL_MAP_MODEL_BACKEND": "copilot"})
-    config = map_model.resolve_map_model(global_root=tmp_path)
-    assert config.model == "front-door-model" and "not in the copilot model list" in config.note
-    write_persisted_knobs({"ARGUS_SKILL_MAP_MODEL": "listed-model"})
-    assert map_model.resolve_map_model(global_root=tmp_path).model == "listed-model"
-    # A deployment-env pin is a default, not a promise the runner can keep:
-    # it is checked against the same list and says why when it is set aside.
-    monkeypatch.setenv("ARGUS_SKILL_MAP_MODEL", "unlisted-model")
-    config = map_model.resolve_map_model(global_root=tmp_path)
-    assert config.model == "front-door-model" and "not in the copilot model list" in config.note
-
-
-def test_map_pin_saved_in_settings_follows_auto_after_switching_runner(tmp_path, monkeypatch):
-    """Pin under one runner through settings, switch the runner in the same
-    server process: the pin is checked against the new runner, whatever
-    source the knob resolver reports for it."""
-    monkeypatch.setenv("ARGUS_SKILL_HOME", str(tmp_path))
-    monkeypatch.setenv("ARGUS_SKILL_MANAGER_BACKEND", "copilot")
-    monkeypatch.setenv("ARGUS_SKILL_MANAGER_MODEL", "front-door-model")
-    monkeypatch.setenv("ARGUS_SKILL_MAP_MODEL", "auto")
-    monkeypatch.delenv("ARGUS_SKILL_MAP_MODEL_BACKEND", raising=False)
-    from argus.webapi import mission_items
-    lists = {"copilot": ["first-runner-model"], "codex": ["second-runner-model"]}
-    monkeypatch.setattr(mission_items, "backend_model_ids", lambda backend, root=None: lists.get(backend, []))
-    write_session_meta(tmp_path, SessionMeta(id="s-switch", created=1, last_active=1))
-    with TestClient(create_app(global_root=tmp_path, auth_token="test")) as client:
-        headers = {"Authorization": "Bearer test"}
-        path = "/api/projects/s-switch/config/set"
-        saved = client.post(path, json={"name": "ARGUS_SKILL_MAP_MODEL", "value": "first-runner-model"},
-                            headers=headers)
-        assert saved.status_code == 200
-        pinned = map_model.resolve_map_model(global_root=tmp_path)
-        assert (pinned.backend, pinned.model, pinned.note) == ("copilot", "first-runner-model", "")
-        runner = client.post(path, json={"name": "ARGUS_SKILL_MANAGER_BACKEND", "value": "codex"},
-                             headers=headers)
-        assert runner.status_code == 200
-        switched = map_model.resolve_map_model(global_root=tmp_path)
-        assert (switched.backend, switched.model) == ("codex", "front-door-model")
-        assert "first-runner-model" in switched.note and "codex" in switched.note
 
 
 def test_opening_a_project_never_inherits_deep_research_effort(monkeypatch):
@@ -220,62 +139,33 @@ def test_opening_a_project_never_inherits_deep_research_effort(monkeypatch):
     every project open pay for deep reasoning."""
     monkeypatch.setenv("ARGUS_SKILL_ENGINEER_REASONING_EFFORT", "xhigh")
     monkeypatch.setenv("ARGUS_SKILL_MANAGER_REASONING_EFFORT", "xhigh")
-    monkeypatch.setenv("ARGUS_SKILL_MAP_REASONING_EFFORT", "auto")
-    monkeypatch.setenv("ARGUS_SKILL_MAP_REVIEW_REASONING_EFFORT", "auto")
     config = map_model.resolve_map_model()
     assert config.effort == "low"
-    assert config.for_review().effort == "medium"
-    assert config.model == map_model.resolve_role_config("manager").model
+    assert config.model == map_model.resolve_light_model(backend=config.backend)
 
 
-def test_review_override_changes_only_the_checker_and_its_effective_revision(monkeypatch):
-    monkeypatch.setenv("ARGUS_SKILL_ENGINEER_REASONING_EFFORT", "high")
-    monkeypatch.setenv("ARGUS_SKILL_MAP_REASONING_EFFORT", "medium")
-    monkeypatch.setenv("ARGUS_SKILL_MAP_REVIEW_REASONING_EFFORT", "auto")
-    inherited = map_model.resolve_map_model()
-    assert inherited.for_review().effort == "medium"
-    monkeypatch.setenv("ARGUS_SKILL_MAP_REVIEW_REASONING_EFFORT", "high")
-    changed = map_model.resolve_map_model()
-    review = changed.for_review()
-    assert changed.effort == inherited.effort == "medium"
-    assert review.effort == "high"
-    assert (review.backend, review.model, review.runner_bin, review.extra_args) == (
-        inherited.backend, inherited.model, inherited.runner_bin, inherited.extra_args)
-    assert changed.revision != inherited.revision
-    assert review.revision != inherited.for_review().revision
-    assert map_model.resolve_role_config("engineer").effort == "high"
-
-
-def test_map_settings_use_existing_config_endpoint(tmp_path, monkeypatch):
-    monkeypatch.setenv("ARGUS_SKILL_MAP_MODEL", "auto")
-    monkeypatch.setenv("ARGUS_SKILL_MAP_REASONING_EFFORT", "auto")
-    monkeypatch.setenv("ARGUS_SKILL_MAP_REVIEW_REASONING_EFFORT", "auto")
+def test_light_model_settings_use_existing_config_endpoint(tmp_path, monkeypatch):
+    monkeypatch.setenv("ARGUS_SKILL_RUNNER_BACKEND", "codex")
     monkeypatch.setenv("ARGUS_SKILL_ENGINEER_MODEL", "gpt-5.4-mini")
     write_session_meta(tmp_path, SessionMeta(id="s-settings", created=1, last_active=1))
     with TestClient(create_app(global_root=tmp_path, auth_token="test")) as client:
         path = "/api/projects/s-settings/config/set"
-        request = {"name": "ARGUS_SKILL_MAP_MODEL", "value": "gpt-5.5"}
+        request = {"name": "ARGUS_SKILL_LIGHT_MODEL", "value": "gpt-5.5"}
         assert client.post(path, json=request).status_code == 401
         headers = {"Authorization": "Bearer test"}
         changed = client.post(path, json=request, headers=headers)
         assert changed.status_code == 200 and not changed.json()["restart_required"]
         assert map_model.resolve_map_model().model == "gpt-5.5"
-        from argus.core.knob_store import read_persisted_knobs
-        assert read_persisted_knobs()["ARGUS_SKILL_MAP_MODEL_BACKEND"] == map_model.map_base_role()[1].backend
         config = client.get("/api/projects/s-settings/config", headers=headers).json()
-        assert config["map_model"]["model"] == "gpt-5.5" and config["map_model"]["note"] == ""
         assert next(r for r in config["roles"] if r["role"] == "engineer")["model"] == "gpt-5.4-mini"
         assert client.post(path, json={**request, "value": "auto"}, headers=headers).status_code == 200
         assert map_model.resolve_map_model().model == map_model.resolve_role_config("manager").model
         assert client.post(path, json={**request, "value": "not a model"}, headers=headers).status_code == 400
-        assert client.post(path, json={"name": "ARGUS_SKILL_MAP_REASONING_EFFORT", "value": "invalid"}, headers=headers).status_code == 400
-        review_request = {"name": "ARGUS_SKILL_MAP_REVIEW_REASONING_EFFORT", "value": "high"}
-        changed = client.post(path, json=review_request, headers=headers)
+        effort = {"name": "ARGUS_SKILL_LIGHT_REASONING_EFFORT", "value": "high"}
+        changed = client.post(path, json=effort, headers=headers)
         assert changed.status_code == 200 and not changed.json()["restart_required"]
-        assert map_model.resolve_map_model().for_review().effort == "high"
-        assert client.post(path, json={**review_request, "value": "invalid"}, headers=headers).status_code == 400
-        assert client.post(path, json={**review_request, "value": "auto"}, headers=headers).status_code == 200
-        assert map_model.resolve_map_model().for_review().effort == "medium"
+        assert map_model.resolve_map_model().effort == "high"
+        assert client.post(path, json={**effort, "value": "invalid"}, headers=headers).status_code == 400
 
 
 @pytest.mark.parametrize("runner", ["codex", "pi"])
@@ -439,14 +329,3 @@ def test_historical_generation_requires_an_owning_session(tmp_path, monkeypatch)
     with TestClient(create_app(global_root=tmp_path)) as client:
         response = client.post("/api/map-copy/dataset/history", json={"cards": [{"key": "a", "task_id": "a", "kind": "task"}]})
         assert response.status_code == 422
-
-
-def test_map_keeps_the_research_runner_when_the_front_door_has_none(monkeypatch, tmp_path):
-    monkeypatch.setenv("ARGUS_SKILL_HOME", str(tmp_path))
-    monkeypatch.setenv("ARGUS_SKILL_MANAGER_BACKEND", "memory")
-    monkeypatch.setenv("ARGUS_SKILL_ENGINEER_BACKEND", "codex")
-    monkeypatch.setenv("ARGUS_SKILL_ENGINEER_RUNNER_BIN", sys.executable)
-    config = map_model.resolve_map_model()
-    assert config.backend == "codex"
-    assert config.runner_bin == sys.executable
-    assert config.available

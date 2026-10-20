@@ -13,14 +13,16 @@ for hours.
 The policy fails safe where it matters: an Engineer that explicitly hands a
 question to the operator without a usable label reaches the operator while one
 may be asked. Every other unclassified question stays with the team, as it
-always did, so ordinary technical choices do not interrupt anyone. In that mode the Manager settles questions
-of interpretation itself and records the assumption; a need for an action only
-the operator can enable (real credentials, spending, an irreversible or
-outward-facing step) ends the work as blocked, without a question.
+always did, so ordinary technical choices do not interrupt anyone.
 
-Plan-challenge routing (a Reviewer replan and its proposed alternative) is
-not changed here: it keeps dev's own boundary check, in
-``manager/plan_boundary.py``.
+Whether the operator can be asked at all is one switch,
+``ARGUS_SKILL_OPERATOR_AVAILABLE``: ``--no-operator`` turns it off for one
+run, and telling the front door not to ask (or to ask again) saves it. While
+it is off the Manager holds the operator's authority: it settles questions of
+interpretation itself and records the assumption, and it decides every parked
+operator question in the operator's place, an action only the operator could
+approve (spending, an irreversible or outward-facing step) included.
+Credentials it does not hold stay out of reach.
 """
 from __future__ import annotations
 
@@ -30,11 +32,9 @@ import re
 import time
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Any, Mapping
+from typing import Any, Iterable, Mapping
 
 from .model_visible_text import LABELLED_FIXTURE_CARVE_OUT
-
-AUTONOMY_MODES = frozenset({"cautious", "pragmatic", "autonomous"})
 
 # What a role may name as the reason only the operator can decide.
 OPERATOR_NEEDS = frozenset(
@@ -80,10 +80,7 @@ _NEED_RE = re.compile(
 _NEED_ALIASES = dict(_NEED_LABELS)
 
 OPERATOR_AVAILABLE_KNOB = "ARGUS_SKILL_OPERATOR_AVAILABLE"
-BOUNDED_OPERATOR_WAIT_EXIT_KNOB = "ARGUS_SKILL_BOUNDED_OPERATOR_WAIT_EXIT_MIN"
-BOUNDED_OPERATOR_WAIT_EXIT_DEFAULT_MINUTES = 30.0
 AUTONOMOUS_ASSUMPTIONS_FILENAME = "autonomous_assumptions.jsonl"
-OPERATOR_WAIT_EXIT_FILENAME = "operator_wait_exit.json"
 # How long Argus keeps retrying an outside failure on its own (a provider
 # outage, a rate limit, an unreachable backend) before it stops retrying and
 # tells the operator. Operator decision, 2026-10-19: three hours.
@@ -94,10 +91,10 @@ RETRY_WINDOW_SPENT_REASON = (
     "Automatic retries ran for three hours and the model service did not recover"
 )
 
-# Model-visible instruction for a decision the operator would normally make,
-# in a run that has no operator to make it.
+# Model-visible instruction for a question of meaning the operator would
+# normally settle, in a run where the operator cannot be asked.
 AUTONOMOUS_ASSUMPTION_INSTRUCTION = (
-    "No operator is available to answer this, so do not wait for one. An "
+    "The operator cannot be asked about this, so do not wait for them. An "
     "assumption may settle only what a requirement means: choose the most "
     "defensible interpretation of the conflicting or unclear requirement within "
     "the stated objective and continue on it. An interpretation may settle "
@@ -110,23 +107,19 @@ AUTONOMOUS_ASSUMPTION_INSTRUCTION = (
     + LABELLED_FIXTURE_CARVE_OUT
     + " Record the "
     "assumption and the conflict that forced it in CHECKPOINT.md and the run "
-    "report, not inside machine-graded deliverables. Do not spend money, use "
-    "real credentials, or take irreversible or outward-facing actions on it."
+    "report, not inside machine-graded deliverables. An assumption never "
+    "authorizes spending money, real credentials, or an irreversible or "
+    "outward-facing action: ask for such an action, naming its operator need, "
+    "and the Manager decides it in the operator's place."
 )
 
 
 @dataclass(frozen=True)
 class OperatorIntervention:
     required: bool
-    mode: str
     reason: str
     authority_impact: str
     operator_need: str = ""
-
-
-def normalize_autonomy_mode(value: Any) -> str:
-    mode = str(value or "").strip().lower()
-    return mode if mode in AUTONOMY_MODES else "pragmatic"
 
 
 def normalize_operator_need(value: Any) -> str:
@@ -140,25 +133,13 @@ def normalize_operator_need(value: Any) -> str:
     return _NEED_ALIASES[match.group(1)] if match else ""
 
 
-def resolve_autonomy_mode(*, env: Mapping[str, str] | None = None) -> str:
-    """Resolve the operator-facing autonomy mode through the normal knob layer."""
-    from .knobs import resolve_knob
-
-    return normalize_autonomy_mode(
-        resolve_knob(
-            "ARGUS_SKILL_AUTONOMY_MODE",
-            "pragmatic",
-            env=env,
-        ).value
-    )
-
-
 def operator_available(*, env: Mapping[str, str] | None = None) -> bool:
-    """Whether this run has an operator who can answer questions.
+    """Whether the operator can be asked now: the one switch.
 
     Headless entry points (a benchmark harness, ``--no-operator``) declare
-    ``ARGUS_SKILL_OPERATOR_AVAILABLE=false``. The default is that someone can
-    answer, because an interactive user who launched the run usually can.
+    ``ARGUS_SKILL_OPERATOR_AVAILABLE=false`` for their run; telling the front
+    door not to ask saves it. The default is that someone can answer, because
+    an interactive user who launched the run usually can.
     """
     from .knobs import _FALSE_VALUES, resolve_knob
 
@@ -166,32 +147,15 @@ def operator_available(*, env: Mapping[str, str] | None = None) -> bool:
     return str(raw or "").strip().lower() not in _FALSE_VALUES
 
 
-def bounded_operator_wait_exit_seconds(
-    *, env: Mapping[str, str] | None = None
-) -> float:
-    """How long a bounded run with only an operator question left may wait.
+def operator_questions_can_be_asked(state_root: Path | str | None = None) -> bool:
+    """Whether an operator question raised now reaches someone who answers.
 
-    When no operator is available nobody can answer, so there is no grace at
-    all. Otherwise the knob (minutes) applies; 0 or less waits indefinitely.
+    The same answer for every project (``state_root`` is accepted for callers
+    that have one). Whenever this is false the Manager holds the operator's
+    authority and decides in their place, so a decision always has a decider.
     """
-    if not operator_available(env=env):
-        return 0.0
-    from .knobs import resolve_knob
-
-    raw = resolve_knob(
-        BOUNDED_OPERATOR_WAIT_EXIT_KNOB,
-        str(BOUNDED_OPERATOR_WAIT_EXIT_DEFAULT_MINUTES),
-        env=env,
-    ).value
-    try:
-        minutes = float(raw)
-    except (TypeError, ValueError):
-        minutes = BOUNDED_OPERATOR_WAIT_EXIT_DEFAULT_MINUTES
-    if minutes != minutes:  # NaN
-        minutes = BOUNDED_OPERATOR_WAIT_EXIT_DEFAULT_MINUTES
-    if minutes <= 0:
-        return -1.0
-    return minutes * 60.0
+    del state_root
+    return operator_available()
 
 
 def assess_operator_intervention(
@@ -200,7 +164,6 @@ def assess_operator_intervention(
     reason: str = "",
     next_action: str = "",
     planner_report: Mapping[str, Any] | None = None,
-    mode: str | None = None,
     operator_need: str = "",
     unclassified_requires_operator: bool | None = None,
 ) -> OperatorIntervention:
@@ -214,11 +177,9 @@ def assess_operator_intervention(
     A question nobody classified stays with the team, as it always has,
     except where the caller passes ``unclassified_requires_operator``: the
     Engineer's explicit ``NEXT_OWNER=operator`` hand-off without a usable
-    label fails safe to the operator while one may be asked. ``cautious`` mode
-    asks on every explicit question because the operator chose that.
+    label fails safe to the operator while one may be asked.
     """
     del reason, next_action  # prose is context, not a classification
-    selected_mode = normalize_autonomy_mode(mode or resolve_autonomy_mode())
     report = planner_report if isinstance(planner_report, Mapping) else {}
     authority = str(report.get("authority_impact") or "").strip().lower()
     need = normalize_operator_need(operator_need) or normalize_operator_need(
@@ -228,7 +189,6 @@ def assess_operator_intervention(
     def decision(required: bool, why: str) -> OperatorIntervention:
         return OperatorIntervention(
             required,
-            selected_mode,
             why,
             authority,
             need if need in OPERATOR_NEEDS else "",
@@ -236,8 +196,6 @@ def assess_operator_intervention(
 
     if not str(question or "").strip():
         return decision(False, "no operator question")
-    if selected_mode == "cautious":
-        return decision(True, "cautious mode asks on every explicit question")
     if need in OPERATOR_NEEDS:
         return decision(
             True, f"the raising role classified this as needing the operator ({need})"
@@ -257,23 +215,8 @@ def assess_operator_intervention(
     return decision(False, "reversible technical choice stays with Argus")
 
 
-def autonomous_operator_resolution(operator_need: Any) -> str:
-    """How a run without an operator settles a question that needed one.
-
-    ``"blocked"`` when the need is an action only the operator can enable;
-    ``"assume"`` otherwise, meaning the Manager picks the most defensible
-    interpretation, records it, and continues.
-    """
-    return (
-        "blocked"
-        if normalize_operator_need(operator_need) in OPERATOR_ACTION_NEEDS
-        else "assume"
-    )
-
-
-# --- what was settled without an operator, per run ---------------------------
+# --- what was decided without asking the operator, per run -------------------
 RUN_ID_ENV = "ARGUS_AUTONOMY_RUN_ID"
-OPERATOR_BLOCKS_FILENAME = "operator_blocks.jsonl"
 
 
 def current_run_id() -> str:
@@ -323,11 +266,12 @@ def record_autonomous_assumption(
     reading: str = "",
     source: str,
     key: str = "",
+    evidence_refs: Iterable[str] = (),
 ) -> dict[str, Any]:
-    """Append one decision settled without an operator, for this run.
+    """Append one decision taken without asking the operator, for this run.
 
-    ``conflict`` is what forced a decision; ``reading`` is the interpretation
-    the team actually chose, in its own words, when it has stated one.
+    ``conflict`` is what forced a decision; ``reading`` is what the team or the
+    Manager actually chose, in its own words, when it has stated one.
     """
     row = {
         "ts": time.time(),
@@ -337,6 +281,7 @@ def record_autonomous_assumption(
         "conflict": str(conflict or "").strip()[:1200],
         "reading": str(reading or "").strip()[:1200],
         "source": str(source or ""),
+        "evidence_refs": [str(ref) for ref in evidence_refs if str(ref).strip()],
     }
     if not (row["conflict"] or row["reading"]):
         return row
@@ -370,52 +315,14 @@ def render_autonomous_assumptions(state_root: Path | str, *, limit: int = 8) -> 
     for row in rows:
         conflict = str(row.get("conflict") or "").strip()
         reading = str(row.get("reading") or "").strip()
+        verb = "Manager decided" if row.get("source") == "manager_decision" else "assumed"
         if reading and conflict:
-            lines.append(f"- {conflict[:300]} -> assumed: {reading[:300]}")
+            lines.append(f"- {conflict[:300]} -> {verb}: {reading[:300]}")
         elif reading:
-            lines.append(f"- assumed: {reading[:300]}")
+            lines.append(f"- {verb}: {reading[:300]}")
         else:
             lines.append(f"- {conflict[:300]} (the chosen reading is in CHECKPOINT.md)")
-    return "Decided without an operator (assumptions to review):\n" + "\n".join(lines)
-
-
-def record_operator_block(
-    state_root: Path | str, *, item_id: str, reason: str, operator_need: str
-) -> None:
-    """Note, for this run, work that ended blocked on an operator-only need."""
-    reason_text = str(reason or "").strip()[:900]
-    if any(
-        str(row.get("reason") or "") == reason_text
-        and str(row.get("item_id") or "") == str(item_id or "")
-        for row in read_operator_blocks(state_root)
-    ):
-        return
-    _append_row(
-        Path(state_root) / OPERATOR_BLOCKS_FILENAME,
-        {
-            "ts": time.time(),
-            "run_id": current_run_id(),
-            "item_id": str(item_id or ""),
-            "reason": str(reason or "").strip()[:900],
-            "operator_need": normalize_operator_need(operator_need),
-        },
-    )
-
-
-def read_operator_blocks(state_root: Path | str) -> list[dict[str, Any]]:
-    return _read_run_rows(Path(state_root) / OPERATOR_BLOCKS_FILENAME)
-
-
-def clear_operator_wait_marker(state_root: Path | str) -> bool:
-    try:
-        (Path(state_root) / OPERATOR_WAIT_EXIT_FILENAME).unlink()
-        return True
-    except OSError:
-        return False
-
-
-def operator_wait_marker_present(state_root: Path | str) -> bool:
-    return (Path(state_root) / OPERATOR_WAIT_EXIT_FILENAME).is_file()
+    return "Decided without asking the operator (review these):\n" + "\n".join(lines)
 
 
 def technical_continuation(
@@ -438,29 +345,19 @@ def technical_continuation(
 
 __all__ = [
     "AUTONOMOUS_ASSUMPTION_INSTRUCTION",
-    "AUTONOMY_MODES",
-    "BOUNDED_OPERATOR_WAIT_EXIT_DEFAULT_MINUTES",
-    "BOUNDED_OPERATOR_WAIT_EXIT_KNOB",
     "NO_OPERATOR_NEED",
     "OPERATOR_ACTION_NEEDS",
     "OPERATOR_AVAILABLE_KNOB",
     "OPERATOR_NEEDS",
     "OperatorIntervention",
-    "clear_operator_wait_marker",
     "current_run_id",
     "assess_operator_intervention",
-    "autonomous_operator_resolution",
-    "bounded_operator_wait_exit_seconds",
-    "normalize_autonomy_mode",
     "normalize_operator_need",
     "operator_available",
-    "operator_wait_marker_present",
+    "operator_questions_can_be_asked",
     "read_autonomous_assumptions",
-    "read_operator_blocks",
     "record_autonomous_assumption",
-    "record_operator_block",
     "render_autonomous_assumptions",
-    "resolve_autonomy_mode",
     "start_autonomy_run",
     "technical_continuation",
 ]

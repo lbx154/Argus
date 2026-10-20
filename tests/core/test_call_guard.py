@@ -42,22 +42,10 @@ def test_progress_restores_the_budget_and_a_new_trip_is_told_again():
     assert len(trips) == 2
 
 
-def test_a_wait_that_only_ran_out_of_time_is_not_progress():
-    _trips()
-    for _ in range(BACKGROUND_CALL_BUDGET + 1):
-        call_guard.refusal("planner.cycle1")
-    call_guard.observe({"type": EventType.LIFE_PLANNER_WAITING_WOKEN, "wake_reason": "expired"})
-    call_guard.observe({"type": EventType.LIFE_PLANNER_VERDICT})
-    call_guard.observe({"type": EventType.AGENT_IO_COMPLETE})
-    assert call_guard.refusal("planner.cycle2")
-    call_guard.observe({"type": "life.planner.waiting_woken", "wake_reason": "revision_changed"})
-    assert call_guard.refusal("planner.cycle2") == ""
-
-
 @pytest.mark.parametrize("label", [
     "engineer-r4", "engineer-r4.winddown", "reviewer", "reviewer-correctness",
-    "advisor.engineer.math", "research.academic_language_review",
-    "subagent:job-1:health", "peer-message-response", "manager-frontdoor-classify",
+    "advisor.engineer.math",
+    "peer-message-response", "manager-frontdoor-classify",
 ])
 def test_mission_work_and_answers_to_one_input_are_never_counted(label):
     _trips()

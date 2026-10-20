@@ -4,7 +4,6 @@ from __future__ import annotations
 
 import logging
 import os
-import re
 import time
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
@@ -18,12 +17,23 @@ from ._constants import (
     PLAN_RETRY,
     PLAN_TERMINAL_IDLE,
     PLANNER_IDLE_JOURNAL_HEARTBEAT_SECONDS,
+    PROXY_DECISION_ATTEMPTS,
 )
 
 if TYPE_CHECKING:
     from ._config import LifeSupervisorConfig
 
 log = logging.getLogger(__name__)
+# A canary in one of these states will still run (or resume by itself), so a
+# new half-open window waits for it; any other state ended the attempt.
+_CANARY_IN_FLIGHT_STATUSES = frozenset({
+    "pending",
+    "running",
+    "paused_provider_cooldown",
+    "paused_daemon_shutdown",
+    "paused_budget",
+    "paused_cost",
+})
 _DAEMON_IDLE_EXIT_DEFAULT_MINUTES = 0.0
 def _idle_exit_seconds() -> float:
     """Idle wall-clock (s) before a continuous daemon auto-exits; 0 = never."""
@@ -60,21 +70,35 @@ class IdleCycleMixin:
             for tag in (getattr(item, "tags", None) or [])
             if str(tag).strip()
         }
-        if item_tags & {"framework_maintenance", "runtime_failure_canary"}:
+        if "framework_maintenance" in item_tags:
             return None
         try:
             from ..runtime_failure_circuit import active_runtime_failure_circuit
 
-            circuit = active_runtime_failure_circuit(self.memory.root)
+            circuit_root = self.memory.root
+            circuit = active_runtime_failure_circuit(circuit_root)
         except Exception:  # noqa: BLE001 - a corrupt advisory file must not crash host
             log.exception("failed to inspect runtime failure circuit")
             return None
         if circuit is None:
             return None
+        # Only the canary this circuit admitted passes. A tag it never handed
+        # out (an earlier circuit's, or one copied onto another row) waits for
+        # a half-open window like any other work.
+        admitted = str(circuit.get("canary_item_id") or "")
+        if (
+            "runtime_failure_canary" in item_tags
+            and admitted
+            and admitted == str(getattr(item, "id", "") or "")
+        ):
+            return None
+        if self._admit_runtime_failure_half_open(circuit_root, circuit, item=item):
+            return None
         fingerprint = str(circuit.get("fingerprint") or "")
         reason = (
             "runtime failure circuit is open; install or canary a changed Argus "
-            f"runtime before dispatching more work ({fingerprint})"
+            f"runtime before dispatching more work ({circuit.get('exception_type')} "
+            f"at {circuit.get('callsite')})"
         )
         if self._should_journal_idle_repeat("runtime_failure_circuit"):
             self._emit({
@@ -98,6 +122,88 @@ class IdleCycleMixin:
             "recoverable": True,
         }
 
+    def _admit_runtime_failure_half_open(
+        self, circuit_root: Path, circuit: dict[str, Any], *, item: Any | None,
+    ) -> bool:
+        """Let one canary through an open circuit once a window opens.
+
+        With an item, that item becomes the window's canary mission (tagged so
+        its reviewed pass clears the circuit). Without one, the Planner gets
+        the window's single turn, so an empty backlog can still produce the
+        work a canary needs. Only one canary is in flight at a time.
+        """
+        from ..runtime_failure_circuit import (
+            CANARY_TAG,
+            claim_runtime_failure_half_open,
+        )
+
+        previous = str(circuit.get("canary_item_id") or "")
+        try:
+            if previous:
+                row = next(
+                    (
+                        row
+                        for row in reversed(self.memory.backlog.history())
+                        if row.id == previous
+                    ),
+                    None,
+                )
+                # The claim is recorded before the item is tagged. An untagged
+                # row means tagging never happened, so it is not in flight.
+                if (
+                    row is not None
+                    and row.status in _CANARY_IN_FLIGHT_STATUSES
+                    and CANARY_TAG in (row.tags or [])
+                ):
+                    return False
+            item_id = str(getattr(item, "id", "") or "")
+            if not claim_runtime_failure_half_open(
+                circuit_root,
+                slot="mission" if item is not None else "planner",
+                item_id=item_id,
+                expected_canary_item_id=previous,
+                facts=self._runtime_failure_canary_facts(),
+            ):
+                return False
+            if item is not None:
+                tags = list(dict.fromkeys([*(item.tags or []), CANARY_TAG]))
+                self.memory.backlog.update(item_id, tags=tags)
+                item.tags = tags
+        except Exception:  # noqa: BLE001 - a failed admission leaves the circuit open
+            log.exception("runtime failure circuit half-open admission failed")
+            return False
+        # The circuit file records the admission (window, canary id); the
+        # status line is the operator-visible trace.
+        self._emit_status(
+            f"runtime failure circuit half-open: mission {item_id} runs as the "
+            f"canary ({circuit.get('fingerprint') or ''})"
+            if item is not None
+            else "runtime failure circuit half-open: one Planner turn to queue a canary"
+        )
+        return True
+
+    def _runtime_failure_canary_facts(self) -> dict[str, Any]:
+        """Facts whose change is worth one canary of an open circuit.
+
+        A backend or model switch saved from the cockpit, and new operator
+        input, are new evidence about a failure no code change has fixed yet.
+        Empty when unreadable: then only the timed window applies.
+        """
+        try:
+            from ...core.knob_store import read_persisted_knobs
+            from ...core.operator_context import (
+                OperatorContextStore,
+                operator_context_state_root,
+            )
+
+            return {
+                "persisted_knobs": read_persisted_knobs(),
+                "operator_context_revision": OperatorContextStore(
+                    operator_context_state_root(self.memory)
+                ).revision,
+            }
+        except Exception:  # noqa: BLE001 - unreadable facts open no window
+            return {}
     def _retry_window_fence_block(self, *, item: Any | None = None) -> dict[str, Any] | None:
         """Start no task while another waits after its automatic retries ran out.
 
@@ -235,13 +341,29 @@ class IdleCycleMixin:
         except Exception:  # noqa: BLE001 - durable peers retry at the next boundary
             log.warning("peer inbox remains pending", exc_info=True)
 
+    def _operator_inbox_unread(self, exc: Exception) -> None:
+        log.warning("operator inbox unread; planning goes on without it", exc_info=True)
+        if getattr(self, "_operator_inbox_alerted", False):
+            return
+        self._operator_inbox_alerted = True
+        self._emit({
+            "type": EventType.OPERATOR_ALERT,
+            "operator_alert": True,
+            "reason": "operator_inbox_unread",
+            "text": (
+                f"Operator messages could not be read ({exc}); they stay queued and "
+                "are delivered once the inbox reads again. Work goes on meanwhile."
+            ),
+        })
+
     def _drain_user_inbox(self, *, max_messages: int = 10) -> list[str]:
         """Pull all pending operator nudges from the configured inbox.
 
         Returns up to ``max_messages`` lines (oldest-first). Empty list
-        if no inbox is configured or nothing is pending. Any exception
-        from the user-supplied callable is swallowed — a flaky bus
-        must never break a mission.
+        if no inbox is configured, nothing is pending, or the inbox cannot
+        be read now — a flaky bus must never break a mission. An unread
+        message stays leased in the durable inbox and is delivered at a
+        later boundary; the operator hears once that it is waiting.
         """
         self._drain_peer_inbox()
         cb = getattr(self.config, "user_inbox", None)
@@ -249,8 +371,8 @@ class IdleCycleMixin:
             return []
         receiver = getattr(cb, "operator_receiver", None)
         if receiver is not None:
-            from ...core.file_lock import FileLockCancelled, bounded_file_lock_wait
-            from ...core.operator_context import OperatorContextUnavailable, _current_mission_id
+            from ...core.file_lock import DEFAULT_FILE_LOCK_TIMEOUT_SECONDS, bounded_file_lock_wait
+            from ...core.operator_context import _current_mission_id
             from ...core.run_gateway import current_run_interrupt_reason
 
             stop = getattr(self.config, "stop_event", None)
@@ -265,18 +387,19 @@ class IdleCycleMixin:
                     return None
 
             try:
-                with bounded_file_lock_wait(timeout_seconds=float("inf"), cancelled=cancelled):
+                with bounded_file_lock_wait(
+                    timeout_seconds=DEFAULT_FILE_LOCK_TIMEOUT_SECONDS, cancelled=cancelled,
+                ):
                     mission_id = _current_mission_id(receiver.root)
                     received = receiver.receive(
                         manager=manager_factory, mission_id=mission_id,
                         limit=max_messages, cancelled=cancelled,
                     )
-            except FileLockCancelled:
-                if cancelled():
-                    return []
-                raise
-            except Exception as exc:
-                raise OperatorContextUnavailable("Supervisor operator inbox remains pending") from exc
+            except Exception as exc:  # noqa: BLE001 - read again at the next boundary
+                if not cancelled():
+                    self._operator_inbox_unread(exc)
+                return []
+            self._operator_inbox_alerted = False
             if received:
                 self._emit({
                     "type": EventType.LIFE_INBOX_DRAINED,
@@ -373,153 +496,85 @@ class IdleCycleMixin:
             self._release_operator_inbox()
         return False
 
-    def _decide_overdue_venue_stalls(self) -> bool:
-        """Decide a venue-stall question the operator left unanswered.
+    def _decide_parked_questions(self) -> bool:
+        """While the operator cannot be asked, the Manager answers parked cards.
 
-        A venue revision that stalled asked the operator how to continue
-        (``decision_kind == "venue_stall"``). Left unanswered for
-        ``VENUE_STALL_DECISION_SECONDS``, the Manager picks one of the offered
-        options, once per question, records it as an assumption and says so.
-        Operator decision, 2026-10-19. The Manager decides one stall per
-        operator message: when its choice stalled again, the next question
-        waits for the operator. Returns True when a decision was applied.
+        Each choice goes through the resolver an operator's answer takes and is
+        recorded for the run report in the Manager's name. A card the Manager
+        names no valid choice for, or whose choice cannot be applied, is asked
+        again after an idle backoff, at most ``PROXY_DECISION_ATTEMPTS`` times;
+        then it waits, with a notice, until it changes or the operator returns.
+        Returns whether any card was resolved.
         """
-        from ...core.venue_review import VENUE_STALL_DECISION_SECONDS
+        from ...core.autonomy import (
+            operator_questions_can_be_asked,
+            record_autonomous_assumption,
+        )
+        from ...core.operator_decision import selected_decision_text
+        from ...manager.proxy_decision import decide_for_operator
 
-        now = time.time()
-        try:
-            items = list(self.memory.backlog.active())
-        except Exception:  # noqa: BLE001 - an unreadable backlog decides nothing
+        resolver = getattr(self.config, "pending_question_resolver", None)
+        root = self._project_state_root()
+        if not callable(resolver) or operator_questions_can_be_asked(root):
             return False
-        for item in items:
-            card = dict(getattr(item, "operator_decision", None) or {})
-            if (
-                card.get("decision_kind") != "venue_stall"
-                or card.get("status") != "pending"
-                or card.get("auto_decision_attempted_at")
-                or now - float(card.get("asked_at") or now) < VENUE_STALL_DECISION_SECONDS
-            ):
+        why = "The operator cannot be asked now"
+        resolved = False
+        for item in self.memory.backlog.active():
+            card = item.operator_decision
+            if item.status != "paused_operator" or card.get("status") != "pending":
                 continue
-            # One attempt per question, recorded before the call.
-            card["auto_decision_attempted_at"] = now
-            self.memory.backlog.update(item.id, operator_decision=card)
-            if self._manager_decided_a_stall_since_the_operator_spoke():
-                self._tell_operator(
-                    f"venue-stall-waiting-{item.id}",
-                    "The revision stalled again after the Manager's earlier choice, so this "
-                    "question waits for your answer.",
-                    "Manager 之前代为选择后，论文修改再次停滞，这次的问题会等待你回答。",
+            key = f"{card.get('id')}:r{card.get('revision', 1)}"
+            attempts, retry_at = self._proxy_retry.get(key, (0, 0.0))
+            if attempts >= PROXY_DECISION_ATTEMPTS or time.monotonic() < retry_at:
+                continue
+            choice = result = None
+            try:
+                choice = decide_for_operator(
+                    self._bound_manager(),
+                    card,
+                    why=why,
+                    context=f"Task: {item.title}\n{item.objective[:2000]}",
+                    on_event=getattr(self.sink, "handle_event", None),
                 )
+                if choice is not None:
+                    result = resolver(item, choice)
+            except Exception:  # noqa: BLE001 - the card stays parked and is asked again
+                log.exception("Manager could not decide parked card %s", key)
+            if choice is None or not (isinstance(result, dict) and result.get("resolved")):
+                self._proxy_retry[key] = (
+                    attempts + 1,
+                    time.monotonic()
+                    + min(IDLE_BACKOFF_CAP_SECONDS, IDLE_BACKOFF_BASE_SECONDS * 2**attempts),
+                )
+                if attempts + 1 < PROXY_DECISION_ATTEMPTS:
+                    self._emit_status(
+                        f"The Manager has not yet decided “{item.title}” in the "
+                        "operator's place; it will be asked again"
+                    )
+                else:
+                    self._tell_operator(
+                        f"proxy-undecided-{key}",
+                        f"The Manager could not decide “{item.title}” in your place, so "
+                        "the question waits for you.",
+                        f"Manager 未能代你决定“{item.title}”，这个问题会等你回来。",
+                    )
                 continue
-            if self._apply_venue_stall_decision(item, card):
-                return True
-        return False
-
-    def _manager_decided_a_stall_since_the_operator_spoke(self) -> bool:
-        from ...core.autonomy import read_autonomous_assumptions
-        from ...core.transcript import read_turns
-
-        spoke = max(
-            (
-                float(turn.get("ts") or 0.0)
-                for turn in read_turns(self._manager_project_report_root())
-                if turn.get("role") == "operator"
-            ),
-            default=0.0,
-        )
-        return any(
-            row.get("source") == "venue_stall_timeout" and float(row.get("ts") or 0.0) > spoke
-            for row in read_autonomous_assumptions(self._project_state_root())
-        )
-
-    def _apply_venue_stall_decision(self, item: Any, card: dict[str, Any]) -> bool:
-        from ...core.autonomy import record_autonomous_assumption
-
-        options = [
-            option for option in card.get("options") or []
-            if isinstance(option, dict) and option.get("id")
-        ]
-        question = str(card.get("question") or getattr(item, "pending_question", "") or "")
-        prompt = (
-            "The operator was asked the question below twelve hours ago and has not "
-            "answered. Decide it on their behalf: choose the option that best serves "
-            "the stated objective given the current paper and its reviews. Do not "
-            "spend money or take outward-facing actions on this decision.\n\n"
-            f"Objective:\n{getattr(self.config, 'continuous_objective', '') or ''}\n\n"
-            f"Question:\n{question}\n\nWhy it was asked:\n{card.get('reason') or ''}\n\n"
-            "Options:\n"
-            + "\n".join(
-                f"- {option['id']}: {option.get('label') or ''}. {option.get('description') or ''}"
-                for option in options
+            record_autonomous_assumption(
+                root,
+                item_id=item.id,
+                conflict=str(card.get("question") or ""),
+                reading=(
+                    selected_decision_text(card, choice.option, choice.note)
+                    + f" (why: {choice.reason})"
+                ),
+                source="manager_decision",
+                key=key,
+                evidence_refs=choice.evidence_refs,
             )
-            + "\n\nEnd with exactly two lines:\nOPTION=<one option id>\nREASON=<one sentence>"
-        )
-        try:
-            reply = str(self._bound_manager().write_prose(
-                prompt,
-                on_event=getattr(self.sink, "handle_event", None),
-                run_label="manager-venue-stall-decision",
-            ) or "")
-        except Exception:  # noqa: BLE001 - the question stays with the operator
-            log.warning("venue stall decision failed for %s", item.id, exc_info=True)
-            reply = ""
-        chosen = re.search(r"(?im)^\s*OPTION\s*=\s*([A-Za-z0-9_-]+)", reply)
-        option = next(
-            (row for row in options if chosen and row["id"] == chosen.group(1)), None,
-        )
-        if option is None:
-            self._tell_operator(
-                f"venue-stall-undecided-{item.id}",
-                "The paper's revision question has waited twelve hours and the Manager "
-                "could not decide it, so it stays open for you.",
-                "论文修改的问题已等待 12 小时，Manager 未能代为决定，问题仍留给你。",
-            )
-            return False
-        stated = re.search(r"(?im)^\s*REASON\s*=\s*(.+)$", reply)
-        why = stated.group(1).strip() if stated else ""
-        decision = (
-            "The operator did not answer within twelve hours, so the Manager chose: "
-            f"{option.get('label') or option['id']}. {why}"
-        ).strip()
-        _blocked, continuation = self.memory.backlog.continue_with_operator_reply(
-            item.id,
-            decision,
-            manager_decision=decision,
-            decision_option=str(option["id"]),
-            decision_id=str(card.get("id") or ""),
-            decision_note="decided by the Manager after twelve hours without an answer",
-            manager_reply=why,
-            operator_context_persisted=True,
-        )
-        if continuation is None:
-            return False
-        self._emit({
-            "type": EventType.LIFE_OPERATOR_QUESTION_ANSWERED,
-            "item_id": item.id,
-            "continuation_item_id": continuation.id,
-            "question": question,
-            "manager_decision": decision,
-            "decision_id": str(card.get("id") or ""),
-        })
-        record_autonomous_assumption(
-            self._project_state_root(),
-            item_id=item.id,
-            conflict=question,
-            reading=f"{option.get('label') or option['id']}: {why}",
-            source="venue_stall_timeout",
-        )
-        self._tell_operator(
-            f"venue-stall-decided-{item.id}",
-            f"You did not answer the paper's revision question within twelve hours, "
-            f"so the Manager chose \u201c{option.get('label') or option['id']}\u201d"
-            + (f": {why}" if why else ".")
-            + " Reply here to change it.",
-            f"论文修改的问题 12 小时内没有收到你的回复，Manager 已代为选择“{option.get('label') or option['id']}”"
-            + (f"：{why}" if why else "。")
-            + " 如需更改，请直接在这里回复。",
-        )
-        self._reset_idle_backoff()
-        return True
+            resolved = True
+        if resolved:
+            self._reset_idle_backoff()
+        return resolved
 
     def _take_operator_guidance_carryover(self) -> list[str]:
         """Operator guidance consumed elsewhere, handed to the Planner once."""
@@ -592,85 +647,6 @@ class IdleCycleMixin:
         self._idle_since = None
         self._suggested_sleep_s = self._idle_backoff_seconds()
         return self._suggested_sleep_s
-
-    def _pending_operator_questions(self) -> list[str] | None:
-        """Open operator questions when they are the only thing left, else ``None``.
-
-        True of a backlog whose live items are all parked on an operator answer
-        (``paused_operator``), or pending behind such an item, with nothing
-        running, claimable, or waiting on a background job. With an empty
-        backlog it is true of a Planner wait that only the operator can end.
-        An unreadable backlog is not evidence of anything, so it answers
-        ``None``.
-        """
-        try:
-            active = list(self.memory.backlog.active())
-        except Exception:  # noqa: BLE001 - an unreadable backlog is not a wait
-            return None
-        parked = [item for item in active if item.status == "paused_operator"]
-        blocked = {item.id for item in parked}
-        others = [item for item in active if item.id not in blocked]
-        grew = True
-        while grew:
-            grew = False
-            for item in others:
-                if (
-                    item.id not in blocked
-                    and item.status == "pending"
-                    and blocked.intersection(getattr(item, "deps", ()) or ())
-                ):
-                    blocked.add(item.id)
-                    grew = True
-        if any(item.id not in blocked for item in others):
-            return None
-        if parked:
-            return [
-                str(getattr(item, "pending_question", "") or item.title or "").strip()
-                for item in parked
-            ]
-        loader = getattr(self, "_load_planner_waiting_contract_state", None)
-        try:
-            contract = loader() if callable(loader) else None
-        except Exception:  # noqa: BLE001 - an unreadable wait is not a wait
-            contract = None
-        if (
-            isinstance(contract, dict)
-            and contract.get("active")
-            and contract.get("operator_action_required")
-        ):
-            return [str(contract.get("recheck_condition") or "").strip()]
-        return None
-
-    def _operator_only_blocks(self) -> list[str] | None:
-        """This run's operator-only blocks, when nothing else can run.
-
-        Work that ended blocked on real credentials, spending, or an
-        irreversible step (recorded by the Manager or the round settlement)
-        leaves the backlog with nothing the team can do. Returns those reasons
-        when no item is runnable, running, or waiting on a background job;
-        otherwise ``None``.
-        """
-        from ...core.autonomy import read_operator_blocks
-
-        state_root = getattr(self, "_project_state_root", None)
-        if not callable(state_root):
-            return None
-        blocks = read_operator_blocks(state_root())
-        if not blocks:
-            return None
-        try:
-            active = list(self.memory.backlog.active())
-        except Exception:  # noqa: BLE001 - an unreadable backlog is not a block
-            return None
-        if any(item.status != "paused_operator" for item in active):
-            return None
-        return [
-            "blocked on an operator-only need ("
-            + str(row.get("operator_need") or "operator")
-            + "): "
-            + str(row.get("reason") or "")[:300]
-            for row in blocks
-        ]
 
     def _maybe_idle_timeout(self) -> str:
         """``"idle_timeout"`` once a continuous daemon has been idle too long.

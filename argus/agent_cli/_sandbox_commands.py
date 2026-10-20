@@ -36,7 +36,14 @@ log = logging.getLogger(__name__)
 _OPENCODE_READ_ONLY_AGENT = "argus-read-only"
 _OPENCODE_FULL_ACCESS_AGENT = "argus-full-access"
 _OPENCODE_NO_TOOLS_AGENT = "argus-no-tools"
+# The whole ``--available-tools`` allowlist of a tool-free Copilot call: a name
+# no tool will ever have. An empty value is a no-op (the call keeps every tool),
+# and a denylist would re-arm the call with each tool a later CLI ships.
 _COPILOT_NO_TOOLS_SENTINEL = "__argus_no_tools__"
+# One empty ``write_stdin`` poll waits at most this long (Codex default: five
+# minutes). TOML's largest integer is the largest value Codex accepts, so a
+# single poll can wait out a whole background job.
+CODEX_MAX_BACKGROUND_TERMINAL_TIMEOUT_MS = 2**63 - 1
 _OPENCODE_OX_ALPHA_MODEL = "opencode/x-preview-f-free"
 _OPENCODE_OX_ALPHA_WARNED = False
 
@@ -434,6 +441,10 @@ class CommandBuilderMixin:
         # it only for this child invocation; the operator's config.toml is never
         # modified, and later explicit extra args may still opt back in.
         command.extend(["-c", "notify=[]"])
+        command.extend([
+            "-c",
+            f"background_terminal_max_timeout={CODEX_MAX_BACKGROUND_TERMINAL_TIMEOUT_MS}",
+        ])
         if options.disable_tools:
             import dataclasses
             options = dataclasses.replace(options, sandbox_mode="read-only", dangerous_yolo=False,
@@ -555,9 +566,6 @@ class CommandBuilderMixin:
             command.extend(["--tools", ""])
         elif options.sandbox_mode == "read-only":
             command.extend(["--tools", "Read,Glob,Grep"])
-            trusted = getattr(options, "trusted_tool_names", None) or []
-            if trusted:
-                command.extend(["--allowedTools", ",".join(trusted)])
         elif options.dangerous_yolo:
             command.extend([
                 "--permission-mode",
@@ -568,6 +576,10 @@ class CommandBuilderMixin:
                 "--permission-mode",
                 "accept_edits" if is_qoder else "acceptEdits",
             ])
+        # Argus's own call-bound tools, which no permission mode pre-approves.
+        trusted = getattr(options, "trusted_tool_names", None) or []
+        if trusted and not options.disable_tools:
+            command.extend(["--allowedTools", ",".join(trusted)])
         # --add-dir
         if options.add_dirs:
             for dir_path in options.add_dirs:
@@ -606,7 +618,7 @@ class CommandBuilderMixin:
         resume_thread_id: str | None,
         options,
     ) -> list[str]:
-        # Use the same loader policy as readiness and warm ACP. Copilot's npm
+        # Use the same loader policy as readiness. Copilot's npm
         # loader can select an older base installation with --no-auto-update,
         # even when the same executable normally selects a compatible update.
         command = [
@@ -622,12 +634,9 @@ class CommandBuilderMixin:
             command.extend(["--model", model])
         if effort:
             command.extend(["--reasoning-effort", effort])
-        review_output = getattr(options, "review_output", None)
-        if review_output and not options.disable_tools:
-            from ..reviewer.review_file import copilot_review_file_args
-
-            command.extend(copilot_review_file_args(review_output))
-        if options.isolate_workdir:
+        if options.isolate_workdir or options.disable_tools:
+            # A tool-free call needs neither repository instructions nor MCP
+            # servers; both only add startup time and input context.
             command.extend([
                 "--no-custom-instructions",
                 "--disable-builtin-mcps",
@@ -648,8 +657,6 @@ class CommandBuilderMixin:
             command.append(f"--available-tools={_COPILOT_NO_TOOLS_SENTINEL}")
         elif options.sandbox_mode == "read-only":
             tools = ",".join(["view", "rg", "glob", *(getattr(options, "trusted_tool_names", None) or [])])
-            if review_output:
-                tools += ",argus_review-read_review,argus_review-write_review"
             command.extend([
                 "--available-tools", tools,
                 "--allow-tool", "view,rg,glob",
@@ -660,8 +667,6 @@ class CommandBuilderMixin:
                     server, separator, tool = name.partition("-")
                     permissions.append(f"{server}({tool})" if separator else name)
                 command.extend(["--allow-tool", ",".join(permissions)])
-            if review_output:
-                command.extend(["--allow-tool", "argus_review"])
         elif options.dangerous_yolo:
             command.append("--yolo")
         else:

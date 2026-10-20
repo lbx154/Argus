@@ -1,4 +1,4 @@
-"""Codex sandbox policy for builder roles (engineer / reviewer / planner / subagent).
+"""Codex sandbox policy for builder roles (engineer / reviewer / planner).
 
 Domain-agnostic plumbing: decides whether a codex-spawning role runs sandboxed
 (``-s workspace-write`` confined to its project workdir) instead of the legacy
@@ -537,35 +537,3 @@ def isolated_workdir_command(
     ])
     return [*wrapped, "--", *command]
 
-
-def codex_sandbox_args(
-    *,
-    working_dir: str | os.PathLike[str] | None = None,
-    life_root: str | os.PathLike[str] | None = None,
-) -> list[str]:
-    """Codex CLI sandbox args for a RAW spawn (a subagent supervisor / report
-    author that does NOT go through AgentCliRunner). Returns the workspace-write
-    sandbox flags when the gate is on, else the legacy dangerous bypass — so raw
-    spawns stay consistent with the run_exec chokepoint and no spawn site is
-    left un-contained when the operator enables the sandbox."""
-    mode = engineer_sandbox_mode()
-    if mode is None:
-        return ["--dangerously-bypass-approvals-and-sandbox"]
-    args = ["-s", mode]
-    # Always pin ``-C``. Without it, workspace-write roots its writable workspace
-    # at the inherited cwd (the daemon's ``/``), exposing the whole FS — so fall
-    # closed to a private scratch dir rather than emit a rootless ``-s``.
-    args += ["-C", str(working_dir) if working_dir else fail_closed_workdir()]
-    for extra in writable_roots(life_root=life_root):
-        args += ["--add-dir", extra]
-    if mode == "workspace-write":
-        args += ["-c", "sandbox_workspace_write.network_access=true"]
-    return args
-
-
-def codex_sandbox_env() -> dict[str, str] | None:
-    """Child env for a RAW sandboxed codex spawn (scrubbed creds +
-    PYTHONSAFEPATH), or ``None`` to inherit the parent env (gate off)."""
-    if engineer_sandbox_mode() is None:
-        return None
-    return sandboxed_child_env()

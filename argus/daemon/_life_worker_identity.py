@@ -8,7 +8,6 @@ by the boot-phase mixin in ``_life_worker_boot.py``.
 """
 from __future__ import annotations
 
-import hashlib
 import json
 import logging
 import os
@@ -39,10 +38,6 @@ def _manager_handoff_identity_path(runtime_root: Path) -> Path:
     return runtime_root / _MANAGER_HANDOFF_IDENTITY_FILE
 
 
-def _objective_sha256(objective: str) -> str:
-    return hashlib.sha256(str(objective).strip().encode("utf-8")).hexdigest()
-
-
 def _write_manager_handoff_identity(
     runtime_root: Path,
     *,
@@ -57,8 +52,8 @@ def _write_manager_handoff_identity(
     path = _manager_handoff_identity_path(runtime_root)
     tmp = path.with_name(f"{path.name}.tmp-{os.getpid()}-{time.time_ns()}")
     payload = {
-        "version": 3,
-        "objective_sha256": _objective_sha256(objective),
+        "version": 4,
+        "objective": str(objective).strip(),
         "vertical": str(vertical).strip(),
         "domain": str(domain).strip(),
         "continuous_generation": max(0, int(continuous_generation)),
@@ -70,7 +65,7 @@ def _write_manager_handoff_identity(
         payload["source_objective_path"] = str(
             Path(source_path).expanduser().resolve()
         )
-        payload["source_objective_sha256"] = _objective_sha256(source_objective)
+        payload["source_objective"] = str(source_objective).strip()
     try:
         tmp.write_text(
             json.dumps(payload, ensure_ascii=False, indent=2) + "\n",
@@ -95,7 +90,8 @@ def _read_manager_handoff_identity(runtime_root: Path) -> dict[str, Any] | None:
         )
     except (FileNotFoundError, OSError, json.JSONDecodeError, TypeError):
         return None
-    if not isinstance(payload, dict) or payload.get("version") not in {1, 2, 3}:
+    # Earlier versions named the objective only by a digest, which reads as no identity.
+    if not isinstance(payload, dict) or payload.get("version") != 4:
         return None
     return payload
 
@@ -130,10 +126,8 @@ def _refresh_file_backed_objective_for_resume(
     ):
         return False
     source_path = str((identity or {}).get("source_objective_path") or "").strip()
-    expected_sha = str(
-        (identity or {}).get("source_objective_sha256") or ""
-    ).strip()
-    if not source_path or len(expected_sha) != 64:
+    recorded = str((identity or {}).get("source_objective") or "").strip()
+    if not source_path or not recorded:
         return False
     path = Path(source_path).expanduser()
     try:
@@ -145,7 +139,7 @@ def _refresh_file_backed_objective_for_resume(
             path,
         )
         return False
-    if not objective or _objective_sha256(objective) == expected_sha:
+    if not objective or objective == recorded:
         return False
     cfg.continuous = True
     cfg.continuous_objective = objective
@@ -218,8 +212,8 @@ def _legacy_manager_handoff_identity(
                 if str(event.get("domain") or "").strip() != domain.strip():
                     continue
                 return {
-                    "version": 2,
-                    "objective_sha256": _objective_sha256(objective),
+                    "version": 4,
+                    "objective": objective.strip(),
                     "vertical": vertical,
                     "domain": domain,
                     "continuous_generation": max(
@@ -246,7 +240,7 @@ def _manager_handoff_identity_matches(
     if identity is None:
         return False
     return (
-        identity.get("objective_sha256") == _objective_sha256(objective)
+        identity.get("objective") == str(objective).strip()
         and str(identity.get("vertical") or "") == vertical
         and str(identity.get("domain") or "") == domain
         and int(identity.get("continuous_generation") or 0) <= generation
@@ -288,10 +282,7 @@ def _daemon_objective_requires_stage_reset(
         except Exception:  # noqa: BLE001 - fall through to identity comparison
             pass
     if prior_handoff is not None:
-        objective_changed = (
-            prior_handoff.get("objective_sha256")
-            != _objective_sha256(execution_task)
-        )
+        objective_changed = prior_handoff.get("objective") != str(execution_task).strip()
         return bool(
             (
                 prior_vertical
@@ -373,10 +364,10 @@ def _preflight_route_on_codex(route: str) -> bool:
     """Will this preflight route actually run on the codex/Azure backend?
 
     EN: Uses the SAME canonical resolution as the role runners
-    (``core.knobs.resolve_role_backend``: ``ARGUS_SKILL_{ROLE}_BACKEND`` →
+    (``core.knobs.resolve_role_backend``:
     ``ARGUS_SKILL_RUNNER_BACKEND`` → ``ARGUS_SKILL_LIFE_BACKEND`` → persisted
     knob store → the default this call site names, which is codex — see the
-    comment on the resolve below). A role pinned to copilot/claude/opencode/pi authenticates through
+    comment on the resolve below). A copilot/claude/opencode/pi backend authenticates through
     its OWN CLI (the copilot subscription / claude), NOT the ``model_api`` vault
     — so probing its Azure route is a FALSE gate. Reading the resolver (not raw
     ``os.environ``) is load-bearing: a non-interactive launcher (the web
@@ -385,7 +376,7 @@ def _preflight_route_on_codex(route: str) -> bool:
     invisible here and the daemon would wrongly probe — and fail on — the codex
     vault. The persisted ``/backend`` switch is honoured for exactly this case.
     Unknown/typo'd values fall back to codex so the safety probe is preserved.
-    中文：与角色 runner 用同一套规范解析（``resolve_role_backend``：角色 env →
+    中文：与角色 runner 用同一套规范解析（``resolve_role_backend``：
     RUNNER_BACKEND → LIFE_BACKEND → 持久化 knob → 本调用点显式传入的默认值，
     此处为 codex）。读解析后的后端而非裸
     ``os.environ`` 是关键：web/tmux 这类非交互启动器不 source ``.bashrc``，只写在
@@ -402,7 +393,7 @@ def _preflight_route_on_codex(route: str) -> bool:
     )
     from ..core.knobs import resolve_role_backend
 
-    role = route if route in ("engineer", "reviewer", "planner", "manager", "curator") else ""
+    role = route if route in ("engineer", "reviewer", "planner", "manager") else ""
     # default=BACKEND_CODEX: this is a SAFETY gate — answering "yes, codex" only
     # keeps the vault probe armed, while answering "no" would skip it. When
     # nothing is configured the run will itself land on codex, so keeping the
@@ -421,12 +412,7 @@ def _preflight_route_on_codex(route: str) -> bool:
         "dsh",
     }:
         return True
-    role_bin = (
-        os.environ.get(f"ARGUS_SKILL_{role.upper()}_RUNNER_BIN", "").strip()
-        if role
-        else ""
-    )
-    configured = role_bin or os.environ.get("ARGUS_SKILL_RUNNER_BIN", "").strip()
+    configured = os.environ.get("ARGUS_SKILL_RUNNER_BIN", "").strip()
     try:
         effective, _runner_bin = resolve_available_runner(
             chosen,

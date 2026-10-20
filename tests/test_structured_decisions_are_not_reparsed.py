@@ -334,14 +334,12 @@ def test_a_reviewer_decision_is_read_without_a_json_round_trip() -> None:
         "status": "continue",
         "reason": "Each round repairs a different symptom of one protocol.",
         "next_action": "Certify per cell instead of per cohort.",
-        "forward_progress": False,
         "plan_signal": "reconsider",
         "plan_challenge": "The all-or-nothing cohort rule is self-imposed.",
     })
 
     assert decision is not None
     assert decision.planner_report["plan_signal"] == "reconsider"
-    assert decision.planner_report["forward_progress"] is False
 
 
 def test_string_options_in_a_reviewer_decision_are_normalized() -> None:

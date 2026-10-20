@@ -32,7 +32,6 @@ import subprocess  # noqa: F401 — re-exported: tests patch life_worker.subproc
 import sys  # noqa: F401 — re-exported: tests read life_worker.sys.executable
 import threading
 import time  # noqa: F401 — re-exported: tests patch life_worker.time.sleep
-from pathlib import Path
 from typing import Any
 
 from ..core import paths as core_paths  # noqa: F401 — compatibility monkeypatch seam
@@ -41,8 +40,6 @@ from ..core.daemon_lock import (
     DaemonAlreadyRunning,
     acquire_global_daemon_lock,  # noqa: F401 — re-exported, monkeypatch seam
 )
-from ..core.models import RunnerOptions
-from ..core.run_gateway import run_exec as gateway_run_exec
 from ..life.supervisor import (
     LifeSupervisor,  # noqa: F401 — monkeypatch seam, see tests/daemon/test_life_worker.py
 )
@@ -81,7 +78,6 @@ from ._life_worker_identity import (  # noqa: F401 — re-exported, see __all__
     _legacy_manager_handoff_identity,
     _manager_handoff_identity_matches,
     _manager_handoff_identity_path,
-    _objective_sha256,
     _preflight_route_on_codex,
     _read_manager_handoff_identity,
     _rearm_operator_drain_for_resume,
@@ -196,13 +192,14 @@ class LifeWorker(LifeWorkerBootMixin, LifeWorkerRunMixin):
         self._adopted_continuous_generation: int | None = None
         self._started_at: float | None = None
         self._missions_completed = 0
-        self._curator: Any = None  # resident teammate-pool Curator (built in run_forever)
         self._control_thread: threading.Thread | None = None
         self._control_started_at_iso = ""
         self._running_stall_stop = threading.Event()
         self._running_stall_thread: threading.Thread | None = None
         self._supervisor_execution_active = threading.Event()
         self._supervisor_execution_threads: dict[str, threading.Thread] = {}
+        # Blue/green successor waiting for this process's daemon lock, if any.
+        self._handoff_successor_pid = 0
 
     # -- signal handling ------------------------------------------------
 
@@ -290,82 +287,3 @@ class LifeWorker(LifeWorkerBootMixin, LifeWorkerRunMixin):
             daemon=True,
         )
         self._control_thread.start()
-
-    # -- main loop ------------------------------------------------------
-
-    def _build_curator(self, runner: Any = None) -> Any:
-        """Construct the resident Curator that owns every team campaign's pool,
-        or ``None`` when this daemon has no project workspace (no teams without
-        one). Lazily imported to keep the daemon free of team deps until needed.
-        """
-        workdir = self.config.project_workdir
-        if workdir is None:
-            return None
-        from ..team.curator import Curator
-        return Curator(
-            project_root=Path(workdir),
-            default_width=int(os.environ.get("ARGUS_TEAM_DEFAULT_WIDTH", "2")),
-            tick_s=float(os.environ.get("ARGUS_TEAM_CURATOR_TICK_S", "5")),
-            teammate_timeout_s=float(os.environ.get("ARGUS_TEAMMATE_TIMEOUT_S", "0")),
-            hard_grace_s=float(os.environ.get("ARGUS_TEAMMATE_HARD_GRACE_S", "600")),
-            completion_fn=self._team_completion_summary_fn(runner),
-            conversation_root=self.config.life_dir,
-            campaign_reconcile_fn=self._curator_campaign_reconcile_fn(),
-        )
-
-    def _curator_campaign_reconcile_fn(self) -> Any:
-        """Resolve optional vertical-owned deterministic campaign upkeep."""
-        workdir = self.config.project_workdir
-        if workdir is None:
-            return None
-        from ..skills.vertical_select import resolve_vertical
-        from ..verticals._base import load_vertical_contract
-
-        project_root = Path(workdir)
-        contract = load_vertical_contract(
-            resolve_vertical(project_root),
-            project_root=project_root,
-        )
-        hook = contract.background_reconciler
-        if hook is None:
-            return None
-
-        def reconcile(marker: dict[str, Any]) -> None:
-            hook(
-                project_root=project_root,
-                state_root=project_root,
-                marker=marker,
-            )
-
-        return reconcile
-
-    def _team_completion_summary_fn(self, runner: Any) -> Any:
-        """Use the Manager backend for one concise Team completion chat summary."""
-        backend = getattr(runner, "manager_backend", None) or getattr(runner, "backend", None)
-        if backend is None:
-            return None
-        from ..core.knobs import resolve_role_model
-
-        model = resolve_role_model(
-            "manager",
-            role_env="ARGUS_SKILL_MODEL",
-            backend=getattr(backend, "backend", self.config.backend),
-        )
-        workdir = str(self.config.project_workdir) if self.config.project_workdir else None
-
-        def _summarize(prompt: str) -> str:
-            result = gateway_run_exec(
-                backend,
-                prompt=prompt,
-                options=RunnerOptions(
-                    model=model or None,
-                    reasoning_effort="low",
-                    skip_git_repo_check=True,
-                    full_auto=True,
-                    working_dir=workdir,
-                ),
-                run_label="manager.team_summary",
-            )
-            return getattr(result, "last_agent_message", "") or ""
-
-        return _summarize

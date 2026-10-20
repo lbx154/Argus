@@ -206,7 +206,7 @@ class TrainingCapture:
 
     def event(self, tenant, sid, episode_id, kind, payload):
         """Trusted bridge only; V2 appends observations before quality review."""
-        from .training_data import _hash, _json, _sensitive
+        from .training_data import _json, _key, _sensitive
 
         if type(episode_id) is not int or kind not in {
             "context", "provider_request", "tool_call", "tool_result", "agent_end", "settled", "quarantine", "capture_warning",
@@ -309,7 +309,7 @@ class TrainingCapture:
                             reason = "capture_projection_failed"
                     elif kind != "settled":
                         observations.append({
-                            "id": _hash(_json(["pi_capture", episode_id, len(observations)]).encode()),
+                            "id": _key("pi_capture", episode_id, len(observations)),
                             "sequence": len(observations), "kind": kind,
                             "observed_at": self.analytics.clock(), "payload": clean,
                         })
@@ -683,7 +683,7 @@ class TrainingCapture:
         return sample
 
     def collect(self, db, tenant, sid, purpose, grant, approved, context_approved):
-        from .training_data import NOTICE_VERSION, _hash, _json
+        from .training_data import NOTICE_VERSION, _key
 
         cutoff = self.analytics.clock() - min(30, self.analytics.retention_days) * 86400
         rows = db.execute(
@@ -694,7 +694,7 @@ class TrainingCapture:
         for row in rows:
             if json.loads(row["grants"]).get(purpose) != grant:
                 continue
-            key = _hash(_json(["pi_episode", tenant, sid, row["id"]]).encode())
+            key = _key("pi_episode", tenant, sid, row["id"])
             origin = {
                 "event_id": key, "tenant_id": tenant, "sid": sid, "episode_id": row["id"],
                 "session_id": row["session_id"], "source": row["runtime_profile"],

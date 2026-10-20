@@ -25,6 +25,7 @@ from ..core.autonomy import AUTOMATIC_RETRY_WINDOW_SECONDS, RETRY_WINDOW_SPENT_R
 from ..core.event_catalog import EventType
 from ..core.models import LoopStatus, ReviewDecision, RoundRecord
 from ..core.role_decision import latest_role_decision
+from ..core.role_handoff import decision_engineer_handoff
 from ..core.runner_errors import is_execution_host_startup_error
 from ..core.runner_receipts import is_provider_background_wait_receipt
 from ..core.secret_guard import known_secret_values, redact_secrets_text
@@ -77,48 +78,37 @@ log = logging.getLogger(__name__)
 # stop and abort signals. The hold itself can grow to the hour scale; a
 # shutdown or an abort must not wait behind it.
 _BACKEND_FAILURE_HOLD_SLICE_SECONDS = 0.2
-# Consecutive silence stops, across different commands, after which the round
-# fails even though no single command hung twice: each stop already cost one
-# full idle limit.
-_IDLE_TERMINATION_ANY_COMMAND_LIMIT = 4
 
 
 def _engineer_decision_message(payload: dict) -> str:
-    """Render a process decision for existing round-control consumers."""
-    status = str(payload.get("status", "") or "").strip().lower()
-    result = str(
-        payload.get("result", payload.get("summary", "")) or ""
-    ).strip()
-    default_owner = "reviewer" if status == "done" else "engineer"
-    lines = [
-        result,
-        f"MILESTONE_STATUS={'done' if status == 'done' else 'continue'}",
-        f"NEXT_OWNER={str(payload.get('next_owner', default_owner) or default_owner)}",
-    ]
-    question = str(payload.get("operator_question", "") or "").strip()
-    if question:
-        lines.append(f"OPERATOR_QUESTION={question}")
-        need = str(payload.get("operator_need", "") or "").strip()
-        if need:
-            lines.append(f"OPERATOR_NEED={need}")
-    options = payload.get("operator_options")
-    if isinstance(options, list) and options:
-        rendered_options = []
-        for option in options:
-            if isinstance(option, dict):
-                rendered_options.append(
-                    " :: ".join(
-                        str(option.get(field, "") or "").strip()
-                        for field in ("id", "label", "description")
-                    )
-                )
-            else:
-                rendered_options.append(str(option))
-        lines.append(
-            "OPERATOR_OPTIONS="
-            + " || ".join(rendered_options)
-        )
-    return "\n".join(line for line in lines if line)
+    """Render a decision event as the baton handoff the round loop acts on.
+
+    The prose, then one line naming the holder control hands the work to
+    (``round_self_review`` reads the same payload), so the Reviewer, the
+    journal and the context packet never read a different holder than the
+    loop used. A question keeps its need and options, which build the card.
+    """
+    result = str(payload.get("result", payload.get("summary", "")) or "").strip()
+    handoff = decision_engineer_handoff(payload)
+    if handoff.waits_for_operator:
+        lines = [result, f"→ operator: {handoff.operator_question}"]
+        if handoff.operator_need:
+            lines.append(f"OPERATOR_NEED={handoff.operator_need}")
+        if handoff.operator_options:
+            # The format the Engineer writes and ``parse_agent_operator_options`` reads.
+            lines.append("OPERATOR_OPTIONS=" + "; ".join(
+                "::".join(str(option.get(field, "") or "").strip()
+                          for field in ("id", "label", "description"))
+                for option in handoff.operator_options
+            ))
+        return "\n".join(line for line in lines if line)
+    done = (
+        str(payload.get("status", "") or "").strip().lower() == "done"
+        and handoff.next_owner == "reviewer"
+    )
+    return "\n".join(
+        line for line in (result, f"→ {'done' if done else handoff.next_owner}") if line
+    )
 
 
 # Longest host-evidence note appended to the next Engineer prompt.
@@ -188,11 +178,11 @@ def _record_round_evidence(
             item.engineer_note.strip() for item in items if item.engineer_note.strip()
         )[:_ROUND_EVIDENCE_ENGINEER_NOTE_CHARS]
         # A retried round replaces its earlier note instead of stacking it.
-        followup = state.pending_external_work_followup
+        followup = state.pending_engineer_followup
         if state.pending_round_evidence_engineer_note:
             followup = followup.replace(state.pending_round_evidence_engineer_note, "").strip()
         state.pending_round_evidence_engineer_note = engineer_note
-        state.pending_external_work_followup = "\n\n".join(
+        state.pending_engineer_followup = "\n\n".join(
             part for part in (followup, engineer_note) if part
         )
     except Exception:  # noqa: BLE001 - evidence staging must never break the round
@@ -303,7 +293,6 @@ class RoundExecutionMixin:
             round_index=round_index,
             round_max=supervised_config.max_rounds,
             on_event=on_event,
-            cache=state.secret_scan_cache,
         )
         if (
             secret_guard_reviewer_note
@@ -328,8 +317,8 @@ class RoundExecutionMixin:
                 "ARGUS PROCESS OWNERSHIP FACT: the provider turn exited while "
                 f"descendants remained in its private process group {orphan_group_id}. "
                 "The runner targeted only that exact group for cleanup "
-                f"(cleanup_succeeded={str(cleanup_succeeded).lower()}). Durable "
-                "Argus subagents run in separately owned process groups. Treat this "
+                f"(cleanup_succeeded={str(cleanup_succeeded).lower()}). Jobs started "
+                "detached with setsid run in their own process groups. Treat this "
                 "as an orchestration fact, not as scientific evidence."
             )
             if on_event:
@@ -586,7 +575,6 @@ class RoundExecutionMixin:
 
         if is_provider_background_wait_receipt(fatal_error):
             engineer_session.rotate("provider_background_wait")
-            state.no_progress_streak = 0
             state.backend_failure_streak = 0
             state.backend_failure_signature = ""
             state.backend_failure_same_cause_streak = 0
@@ -595,12 +583,11 @@ class RoundExecutionMixin:
                 "Continue this unfinished task. Inspect the actual producer "
                 "processes, saved command, partial outputs and checkpoint before deciding "
                 "what remains; do not assume the command completed or rerun valid evidence. "
-                "Preserve the interrupted attempt. For remaining long computations, use "
-                "the available Argus durable job interface with its own task record and "
-                "output directory, so the computation survives a model-call boundary. "
-                "A native shell notification wait can expire when the CLI exits. Continue "
-                "independent work while durable jobs run, then complete the "
-                "related changes and validation before returning for review."
+                "Preserve the interrupted attempt. Start remaining long computations "
+                "detached with their own output directory, so they survive a model-call "
+                "boundary, and wait for them as the rule for commands over two "
+                "minutes says. Then complete the related changes and validation "
+                "before returning for review."
             )
             previous = state.reviewer_next_action or ""
             if guidance not in previous:
@@ -726,8 +713,7 @@ class RoundExecutionMixin:
             # hung again; a different command (or the model itself) is a new
             # attempt that already received the guidance. A stop whose
             # transport did not name the command cannot be told apart from a
-            # different one, so it never counts as a repeat: those stops are
-            # bounded only by ``_IDLE_TERMINATION_ANY_COMMAND_LIMIT``.
+            # different one, so it never counts as a repeat.
             if running_tool:
                 signature = "idle termination: " + " ".join(running_tool.split())
             elif watchdog_failure:
@@ -743,7 +729,6 @@ class RoundExecutionMixin:
                 state.backend_failure_signature = signature
                 state.backend_failure_same_cause_streak = 1
                 state.backend_failure_since = time.time()
-            state.no_progress_streak = 0
             configured_threshold = max(
                 1, int(supervised_config.backend_failure_threshold or 1)
             )
@@ -819,13 +804,8 @@ class RoundExecutionMixin:
                     )
                 # A long command that is legitimately silent (a build, a
                 # download, a training step) gets one stop with guidance. The
-                # round fails when the SAME command hangs again after it, or
-                # when silence stops pile up across different commands.
-                budget_exhausted = (
-                    state.backend_failure_same_cause_streak >= threshold
-                    or state.backend_failure_streak
-                    >= max(configured_threshold, _IDLE_TERMINATION_ANY_COMMAND_LIMIT)
-                )
+                # round fails when the SAME command hangs again after it.
+                budget_exhausted = state.backend_failure_same_cause_streak >= threshold
             else:
                 budget_exhausted = (
                     state.backend_failure_streak >= threshold and not same_cause_hold

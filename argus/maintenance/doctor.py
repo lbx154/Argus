@@ -1,7 +1,6 @@
 """Cross-platform, read-only Doctor inventory and blockage classification."""
 from __future__ import annotations
 
-import hashlib
 import json
 import platform
 import re
@@ -49,8 +48,8 @@ class DoctorContext:
 
     @property
     def target_fingerprint(self) -> str:
-        payload = json.dumps(self.fingerprint_payload(), sort_keys=True).encode("utf-8")
-        return hashlib.sha256(payload).hexdigest()
+        """The target itself, written canonically: a plan applies only to the same one."""
+        return json.dumps(self.fingerprint_payload(), sort_keys=True)
 
 
 def _finding(

@@ -45,8 +45,6 @@ class _PlannerIntake(PlanningCycleIntakeMixin):
     def _emit(self, event: dict) -> None:
         self.events.append(event)
 
-    def _deactivate_planner_waiting_contract(self) -> None:
-        return None
 
     def _clear_manager_planner_feedback(self) -> None:
         return None
@@ -160,7 +158,6 @@ def test_active_directive_reaches_reviewer(tmp_path: Path) -> None:
         scope="bounded",
         checkpoint_path=None,
         reviewer_skill_block=None,
-        escalate_hint="",
         engineer_result=RunnerResult(exit_code=0, agent_messages=["done"]),
         engineer_message="implemented replacement",
         safe_fatal_error=None,

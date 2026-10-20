@@ -95,7 +95,7 @@ def self_skill_context(
             "If a loaded Skill's explicit rule already invalidates the input or "
             "conclusively answers the requested check, report that result and stop; "
             "do not gather more sources, create extra artifacts or run later stages. "
-            "This is one worker: do not create a Team, advance campaign stages, or "
+            "This is one worker: do not advance campaign stages or "
             "claim independent review. Flag checks that need additional evidence.\n"
             + (f"\n{banner}\n" if banner else "")
             + "\n" + libraries.block

@@ -7,8 +7,6 @@ retrieval never opens those references or walks the project worktree.
 
 from __future__ import annotations
 
-import hashlib
-import json
 import logging
 import time
 import uuid
@@ -21,6 +19,7 @@ from .failure_experience_index import (
     EmbeddingAdapter,
     FailureExperienceIndex,
     RecallDocument,
+    is_lexical,
     lexical_scores,
 )
 from .failure_experience_storage import ExperienceRepository, ExperienceSnapshot
@@ -265,21 +264,20 @@ class FailureExperienceStore:
             raise ValueError("a lifecycle correction requires explicit evidence references")
         return refs
 
-    def _documents(self, snapshot: ExperienceSnapshot) -> tuple[list[RecallDocument], str]:
+    def _documents(self, snapshot: ExperienceSnapshot) -> list[RecallDocument]:
         from .failure_experience_storage import active
 
         documents = []
         for item in snapshot.current.values():
             if not active(item, now=time.time()):
                 continue
-            digest = hashlib.sha256(
-                json.dumps(item.to_jsonable(), sort_keys=True).encode()
-            ).hexdigest()
+            # Every change to an experience, an annotation included, takes the
+            # next revision, so the revision alone versions its text.
             documents.append(
                 RecallDocument(
                     item.id,
                     item.revision,
-                    digest,
+                    "",
                     "\n".join(
                         [item.title, item.objective, item.status, *item.concepts, *item.causes]
                     ),
@@ -294,23 +292,14 @@ class FailureExperienceStore:
                     ),
                 )
             )
-        digest = hashlib.sha256(
-            (
-                snapshot.digest
-                + "".join(
-                    f"{item.id}:{item.revision}:{item.digest}"
-                    for item in sorted(documents, key=lambda row: row.id)
-                )
-            ).encode()
-        ).hexdigest()
-        return documents, digest
+        return documents
 
     def _sync(self, snapshot: ExperienceSnapshot) -> bool:
         from .failure_experience_index import EmbeddingUnavailable
 
-        documents, digest = self._documents(snapshot)
+        documents = self._documents(snapshot)
         try:
-            self.index.sync(documents, digest)
+            self.index.sync(documents)
             return True
         except EmbeddingUnavailable:
             log.warning("semantic embedding unavailable; using current lexical recall")
@@ -322,7 +311,7 @@ class FailureExperienceStore:
                 "experience index sync failed; rebuilding from canonical state", exc_info=True
             )
         try:
-            self.index.rebuild(documents, digest)
+            self.index.rebuild(documents)
             return True
         except Exception:
             log.warning("experience index unavailable; using current lexical recall", exc_info=True)
@@ -639,14 +628,14 @@ class FailureExperienceStore:
     def _retrieve_snapshot(
         self, snapshot: ExperienceSnapshot, objective: str, *, max_entries: int, max_bytes: int,
     ) -> list[FailureExperienceHit]:
-        documents, digest = self._documents(snapshot)
+        documents = self._documents(snapshot)
         if not documents:
             self._sync(snapshot)
             return []
         scores = lexical_scores(documents, objective)
         if self._sync(snapshot):
             try:
-                indexed_scores = self.index.scores(objective, source_digest=digest)
+                indexed_scores = self.index.scores(objective, documents=documents)
                 if set(indexed_scores) != {document.id for document in documents}:
                     raise ValueError("experience index identities do not match the source snapshot")
                 scores = indexed_scores
@@ -658,8 +647,8 @@ class FailureExperienceStore:
         # Use current lexical facts without another external request.
         with self._repository.locked():
             current = self._repository.load(max_bytes=max_bytes)
-            current_documents, current_digest = self._documents(current)
-        if current_digest != digest:
+            current_documents = self._documents(current)
+        if current_documents != documents:
             snapshot, documents = current, current_documents
             scores = lexical_scores(documents, objective)
         if not documents:
@@ -694,18 +683,20 @@ class FailureExperienceStore:
         )
         if scores[transfer.id].transfer:
             add(transfer, "transfer insight")
-        if not self.index.embedder.identifier.startswith("lexical-hash-"):
+        if not is_lexical(self.index.embedder):
             vector_hit = max(candidates, key=lambda item: scores[item.id].vector)
             if scores[vector_hit.id].vector > 0:
                 add(vector_hit, "embedding similarity (advisory)")
         remaining = [item for item in candidates if item.id not in selected]
         if remaining:
-            salt = hashlib.sha256(objective.encode()).hexdigest()
+            # The least related, longest untouched experience: an analogy the
+            # matches above would never surface.
             exploratory = min(
                 remaining,
                 key=lambda item: (
                     scores[item.id].direct + scores[item.id].transfer,
-                    hashlib.sha256(f"{salt}:{item.id}".encode()).hexdigest(),
+                    item.updated_at or item.created_at,
+                    item.id,
                 ),
             )
             add(exploratory, "exploratory analogy")
@@ -840,7 +831,7 @@ def experience_from_settled_mission(
     causes = _clean_list([stop_kind, report.get("diagnosis"), report.get("cause")])
     source_identity = f"mission:{mission_id}/attempt:{attempt_id or 'default'}"
     return FailureExperience.new(
-        experience_id=f"exp:{birth.hex()}:{hashlib.sha256(source_identity.encode()).hexdigest()[:32]}",
+        experience_id=f"exp:{birth.hex()}:{source_identity}",
         created_at=birth,
         source_refs=[source_identity],
         evidence_refs=[source_identity, *(artifact_refs or [])],

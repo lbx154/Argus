@@ -142,7 +142,7 @@ function supervisionFailure(event: TypedArgusEvent, context: RenderContext): { t
   if (status === 'cancelled' || status === 'superseded') {
     return { text: localized(context, 'This Manager check was cancelled.', '这次 Manager 检查已取消。'), tone: 'dim' };
   }
-  const text = stage === 'commit' && ['continue', 'wait', 'steer'].includes(stringField(event, 'action'))
+  const text = stage === 'commit' && ['continue', 'wait', 'steer', 'stop'].includes(stringField(event, 'action'))
     ? localized(context, 'Manager reached a decision, but the team adjustment could not be applied.', 'Manager 已作出判断，但团队调整未能生效。')
     : stage === 'decision'
       ? localized(context, 'Manager returned a decision that could not be validated.', 'Manager 返回的判断或引用依据未通过核验。')
@@ -296,6 +296,11 @@ export function renderEvent(event: TypedArgusEvent, context: RenderContext): Ren
       return model('manager', 'role.manager', '🧭', stringField(event, 'summary') || stringField(event, 'reason'), 'info', { expandable: true, rule: true });
     case 'life.peer.message.processed':
       return model('manager', 'role.peer', '↔', stringField(event, 'text'), 'info', { expandable: true });
+    case 'life.observer.note': {
+      const to = renderLabel(`role.${stringField(event, 'to')}`, context.locale);
+      const text = stringField(event, 'text');
+      return model('observer', 'role.observer', '👁', localized(context, `to ${to}: ${text}`, `对${to}：${text}`), 'warn', { expandable: true });
+    }
     case 'life.manager.supervision.failed': {
       const failure = supervisionFailure(event, context);
       return model('manager', 'role.manager', '🧭', failure.text, failure.tone, { expandable: true });
@@ -312,12 +317,6 @@ export function renderEvent(event: TypedArgusEvent, context: RenderContext): Ren
       const target = stringField(event, 'target_stage') || stringField(event, 'stage') || stringField(event, 'current_stage');
       return model('manager', 'role.manager', '🧭', `${stringField(event, 'action')}${target ? ` → ${target}` : ''} ${clean(stringField(event, 'reason'), context.density === 'full' ? 140 : 120)}`, 'info');
     }
-    case 'life.research.second_reading': {
-      const role = roleFor(event, 'manager');
-      const supported = clean(stringField(event, 'supported'), 160);
-      const base = localized(context, 'reread the evidence and reworked the plan', '重读了证据并重排了计划');
-      return model(role, `role.${role}`, '📖', supported ? `${base} · ${supported}` : base, 'info');
-    }
     case 'life.letter.written': {
       const role = roleFor(event, 'manager');
       return model(role, `role.${role}`, '✉', localized(context, 'wrote you a letter', '给你写了一封信'), 'accent');
@@ -332,21 +331,14 @@ export function renderEvent(event: TypedArgusEvent, context: RenderContext): Ren
     }
     case 'life.planner.task_added':
       return model('planner', 'role.planner', '＋', `${localized(context, 'added a task', '新增任务')} · ${clean(stringField(event, 'title') || stringField(event, 'objective'), context.density === 'full' ? 160 : 140)}`, 'accent');
-    case 'life.planner.task_skipped': {
-      const reviewDeferred = stringField(event, 'skip_category') === 'paper_review_purchase_deferred';
-      const prefix = reviewDeferred
-        ? localized(context, 'put off another paper review', '推迟了再买一次评审')
-        : localized(context, 'skipped a task already planned', '跳过了已在计划中的任务');
-      return model('planner', 'role.planner', '⏭', `${prefix} ${clean(stringField(event, 'title'), context.density === 'full' ? 140 : 120)}`, 'dim');
-    }
+    case 'life.planner.task_skipped':
+      return model('planner', 'role.planner', '⏭', `${localized(context, 'skipped a task already planned', '跳过了已在计划中的任务')} ${clean(stringField(event, 'title'), context.density === 'full' ? 140 : 120)}`, 'dim');
     case 'life.planner.preview_skipped':
       return model('planner', 'role.planner', '⏭', localized(context, 'skipped the plan preview: the research Planner owns the campaign plan', '跳过了计划预览:研究规划师负责整个计划'), 'dim');
     case 'life.planner.normalized':
       return model('planner', 'role.planner', '≋', `${localized(context, 'tidied the plan', '整理了计划')} · ${clean(stringField(event, 'diagnostic'), 180)}`, 'dim');
-    case 'life.planner.waiting':
-      return model('planner', 'role.planner', '⌛', `${localized(context, 'waiting', '等待中')} · ${clean(stringField(event, 'reason'), 180)}`, 'info');
-    case 'life.planner.waiting_woken':
-      return model('planner', 'role.planner', '↻', `${localized(context, 'resumed', '已唤醒')} · ${clean(stringField(event, 'wake_reason'), 180)}`, 'info');
+    case 'life.planner.idle':
+      return model('planner', 'role.planner', 'Ⅱ', `${localized(context, 'nothing new to start', '暂无新工作')} · ${clean(stringField(event, 'reason'), 180)}`, 'info');
     case 'life.planner.terminal_idle':
       return model('planner', 'role.planner', 'Ⅱ', `${localized(context, 'nothing left to plan', '暂时没有要规划的')} · ${clean(stringField(event, 'reason'), 180)}`, 'dim');
     case 'life.planner.verification_probe':
@@ -431,10 +423,6 @@ export function renderEvent(event: TypedArgusEvent, context: RenderContext): Ren
     }
     case 'round.stall':
       return model('system', 'event.notice', context.density === 'full' ? '👁' : '!', clean(stringField(event, 'text') || localized(context, context.density === 'full' ? 'no progress this round — keeping a close eye on it' : 'no progress this round', '这一轮没有进展'), 170), 'warn');
-    case 'round.escalated':
-      return model('system', 'event.notice', context.density === 'full' ? '👁' : '!', clean(stringField(event, 'text') || localized(context, 'many rounds without a finish — raising what is blocking the work', '轮次已经很多还没做完 — 把外部阻碍提出来'), 170), 'warn');
-    case 'life.planner.stall_escalation':
-      return model('system', 'event.notice', context.density === 'full' ? '👁' : '!', `${localized(context, 'the Planner is stuck', '规划者卡住了')} — ${clean(stringField(event, 'reason') || stringField(event, 'text'), 150)}`, 'warn');
     case 'life.budget.pause':
       if (stringField(event, 'stop_kind') === 'cost_unreconciled' || stringField(event, 'reason').startsWith('unresolved provider cost'))
         return model('system', 'event.budget', '$', localized(context, 'Provider usage awaits reconciliation — not budget exhaustion', '调用费用待对账 — 并非预算耗尽'), 'warn');
@@ -507,8 +495,6 @@ export function renderEvent(event: TypedArgusEvent, context: RenderContext): Ren
       return model('planner', 'role.planner', '↻', localized(context, 'finished one increment; the standing objective continues', '完成了一个增量；长期目标继续推进'), 'dim');
     case 'life.planner.superseded':
       return model('planner', 'role.planner', '↷', localized(context, 'dropped an outdated planning pass after a newer instruction', '收到更新的指令，放弃了过时的规划'), 'dim');
-    case 'life.planner.wait_overridden':
-      return model('planner', 'role.planner', '＋', `${localized(context, 'scheduled independent work instead of waiting', '不再干等，安排了独立的工作')} · ${clean(stringField(event, 'task_title'), 140)}`, 'info');
     case 'life.daemon.degraded':
       return model('system', 'role.system', '⚠', `${localized(context, 'Argus started, but the objective did not reach the Manager', 'Argus 已启动，但目标没有交到管理者手上')} · ${clean(stringField(event, 'error'), 140)}`, 'warn');
     case 'round.orphan_process_group': {
@@ -545,14 +531,6 @@ export function renderEvent(event: TypedArgusEvent, context: RenderContext): Ren
       const said = clean(stringField(event, 'text'), 200);
       return model('reviewer', 'role.reviewer', '⏳', said || localized(context, `the Reviewer's model service is unavailable — retrying in ${seconds}s`, `审阅者的模型服务不可用 — ${seconds} 秒后重试`), 'warn');
     }
-    case 'round.external_work_wait.started':
-      return model('engineer', 'role.engineer', '⌛', `${localized(context, 'waiting for background work to report', '等待后台工作汇报')} · ${clean(stringField(event, 'work_id'), 80)}`, 'dim');
-    case 'round.external_work_wait.completed':
-      return model('engineer', 'role.engineer', '↻', localized(context, 'background work reported — resuming', '后台工作已汇报 — 继续'), 'dim');
-    case 'round.external_work_review.required':
-      return model('reviewer', 'role.reviewer', '⌛', `${localized(context, 'background work finished — an independent review of its result is required before resuming', '后台工作已结束 — 恢复前需要对其结果做一次独立审阅')} · ${clean(stringField(event, 'work_id'), 80)}`, 'dim');
-    case 'round.external_work_review.completed':
-      return model('reviewer', 'role.reviewer', '✓', `${localized(context, 'background work result reviewed', '后台工作结果已审阅')} · ${clean(stringField(event, 'review_status'), 40)}`, 'dim');
     case 'plan.draft.failed':
       return model('planner', 'role.planner', '⚠', `${localized(context, 'could not draft the plan', '未能起草计划')} · ${clean(stringField(event, 'reason'), 140)}`, 'err');
     case 'plan.draft.done': {
@@ -574,20 +552,6 @@ export function renderEvent(event: TypedArgusEvent, context: RenderContext): Ren
       return model('system', 'role.system', '⚠', `${localized(context, "the review of Argus's own conversation habits failed", '对 Argus 自身对话习惯的复盘失败')} · ${clean(stringField(event, 'error'), 140)}`, 'warn');
     case 'domain.promotion':
       return model('manager', 'role.manager', '★', clean(stringField(event, 'text'), 180), 'dim');
-    case 'idea.portfolio.formed': {
-      const selection = row(event).selection;
-      const routeId = selection && typeof selection === 'object'
-        ? String((selection as Record<string, unknown>).route_id ?? '')
-        : '';
-      const routes = Number(row(event).route_count || 0);
-      const said = clean(stringField(event, 'text'), 180);
-      const formed = routes > 0
-        ? localized(context, `formed an idea portfolio of ${count(routes, 'route')}`, `组成了 ${routes} 条思路的组合`)
-        : localized(context, 'formed an idea portfolio', '组成了思路组合');
-      return model('engineer', 'role.engineer', '💡', routeId
-        ? localized(context, `chose route ${routeId} from the idea portfolio`, `从思路组合中选定了路线 ${routeId}`)
-        : said || formed, 'accent');
-    }
     case 'user.note': {
       const tags = Array.isArray(row(event).tags) ? (row(event).tags as unknown[]).map(String) : [];
       // A chat config change already answers in the conversation; its note is
@@ -616,13 +580,13 @@ export function renderEvent(event: TypedArgusEvent, context: RenderContext): Ren
     case 'usage.recorded': case 'provider.request.started': case 'provider.request.completed':
     case 'codex.util.completed': case 'skill.cost.completed':
     case 'budget.reservation.created': case 'budget.reservation.settled': case 'budget.reservation.released':
-    case 'round.checkpoint.recorded': case 'round.checkpoint.failed': case 'round.secret_redacted':
+    case 'round.secret_redacted':
     case 'role.session.turn': case 'engineer.skill_maintenance.completed': case 'life.status':
     case 'life.mission.skipped': case 'life.mission.orphaned': case 'life.mission.requeued':
     case 'life.manager.plan_challenge.decided': case 'life.vertical.resolved':
     case 'life.manager.backend_resolved': case 'life.planner.backend_resolved':
     case 'life.planner.dependency_dropped': case 'life.planner.parallel_dropped':
-    case 'life.engineer.backend_resolved': case 'life.reviewer.backend_resolved': case 'life.curator.backend_resolved':
+    case 'life.engineer.backend_resolved': case 'life.reviewer.backend_resolved':
     case 'life.runtime_failure.circuit_opened': case 'life.runtime_failure.circuit_blocked': case 'life.runtime_failure.canary_passed':
     case 'life.runtime.incident.detected': case 'life.runtime.incident.recovered': case 'life.runtime.incident.escalated':
     case 'life.plan.revision.proposed': case 'life.plan.revision.rejected': case 'life.plan.revision.committed': case 'life.plan.node.superseded':
@@ -643,10 +607,9 @@ export function renderEvent(event: TypedArgusEvent, context: RenderContext): Ren
     case 'life.planner.verdict.discarded': case 'life.manager.feedback.unresolved':
     case 'life.manager.project_report': case 'life.plan.revision.rolled_back':
     case 'life.planner.completion_circuit.notify_failed': case 'life.planner.completion_circuit_holding':
-    case 'life.planner.external_poll_suppressed': case 'life.planner.waiting_contract.normalized':
     case 'life.daemon.ready': case 'plan.draft.start':
     case 'team.learning.review.skipped': case 'self.learning.review.started': case 'self.learning.review.completed':
-    case 'manager.live_view.updated': case 'manager.live_view.rejected': case 'idea.portfolio.nested_skipped':
+    case 'manager.live_view.updated': case 'manager.live_view.rejected':
     case 'manager.turn.started': case 'manager.turn.cancelled': case 'life.config.parse_failed':
       return fallback(event, context);
     default: {
@@ -669,6 +632,7 @@ const LABELS: Record<string, [english: string, chinese: string]> = {
   'role.engineer': ['Engineer', 'Engineer'],
   'role.reviewer': ['Reviewer', 'Reviewer'],
   'role.advisor': ['Advisor', '顾问'],
+  'role.observer': ['Observer', '监督者'],
   'role.peer': ['Project exchange', '项目交流'],
   'role.critic': ['Critic', 'Critic'],
   'role.system': ['Argus', 'Argus'],

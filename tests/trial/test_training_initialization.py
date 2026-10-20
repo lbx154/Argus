@@ -55,7 +55,7 @@ def test_real_socket_slow_begin_and_late_or_invalid_ack(training, socket_dir, mo
 
     monkeypatch.setattr(training.capture, "begin", begin)
     bridge = TrainingBridge(training, "tenant-one", lambda peer, **kw: {
-        "pid": peer[0], "started": "synthetic-fixture", "source_sha256": {"fixture": "a" * 64},
+        "pid": peer[0], "started": "synthetic-fixture",
     })
     if mode == "receipt":
         dispatch = bridge.dispatch

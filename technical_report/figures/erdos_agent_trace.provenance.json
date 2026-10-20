@@ -9,10 +9,10 @@
   "scope": "single observational campaign; role workflow and accepted process trace",
   "caveat": "mathematical novelty, optimality, and conjecture resolution are not claimed",
   "generation_source": "figures/erdos_agent_trace.html",
-  "output_sha256": {
-    "pptx": "0ab2ba6774c5ff0de22114707a2701e52b93d912da1c42b7efd09f9a1f204adf",
-    "pdf": "c20af89cb22645e68e97356bc27c1249f9d7e688bf50e2bbe841c877b6f96dd5",
-    "png": "c9f493b7f5ea139c40004ad53c110212ec6d689e6d302638f408cad642a8acc2",
-    "svg": "25fb4421a79d0d324dd8b90e35e6624b527c41e4d52abe7db25d15523985892a"
+  "output_bytes": {
+    "pptx": 23425,
+    "pdf": 38690,
+    "png": 207718,
+    "svg": 276655
   }
 }

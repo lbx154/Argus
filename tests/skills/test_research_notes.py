@@ -63,20 +63,10 @@ def test_stage_context_loads_the_notes_under_the_new_name(tmp_path: Path) -> Non
     assert (tmp_path / RESEARCH_NOTES_FILENAME).exists()
 
 
-def test_team_workers_read_the_notes_and_leave_them_to_the_dispatching_mission(
-    monkeypatch,
-) -> None:
+def test_the_engineer_rewrites_the_notes_for_the_next_stage() -> None:
     from argus.verticals.research import stages
 
-    monkeypatch.delenv("ARGUS_SKILL_TEAM_TASK_ID", raising=False)
-    solo = stages.role_banner("engineer")
-    assert "rewrite the research notes, RESEARCH_NOTES.md" in solo
-
-    monkeypatch.setenv("ARGUS_SKILL_TEAM_TASK_ID", "research-idea-pipeline-v8-g1-route-03")
-    worker = stages.role_banner("engineer")
-    assert "rewrite the research notes" not in worker
-    assert "leave them unchanged" in worker
-    assert worker.startswith(solo.split(" and rewrite the research notes")[0])
+    assert "rewrite the research notes, RESEARCH_NOTES.md" in stages.role_banner("engineer")
     assert stages.role_banner("reviewer") == stages._REVIEWER_RESEARCH_JUDGEMENT
 
 

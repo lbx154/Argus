@@ -40,14 +40,44 @@ export interface MissionOutcomePresentation {
 type MissionOutcomeEvent = EventMsg;
 
 const COMPLETED_STATUSES = new Set(['done', 'success', 'completed']);
-const INCOMPLETE_STATUSES = new Set([
-  'research_incomplete',
-  'paused_no_breakthrough',
-  'exhausted_current_methods',
-]);
 const STALLED_STATUSES = new Set(['no_progress', 'max_rounds']);
-const BLOCKED_STATUSES = new Set(['blocked', 'infra_blocked']);
 const FAILED_STATUSES = new Set(['error', 'failed', 'supervisor_error']);
+
+// The park reason each status an older release wrote names; mirrors argus/core/stop_kinds.py.
+const LEGACY_PARK_REASONS: Record<string, string> = {
+  paused: '',
+  paused_budget: 'budget_exhausted',
+  paused_cost: 'cost_unreconciled',
+  paused_provider_cooldown: 'provider_cooldown',
+  paused_provider_fence: 'provider_fence',
+  paused_daemon_shutdown: 'daemon_shutdown',
+  paused_operator: 'operator_pause',
+  paused_external_work: 'external_work',
+  research_incomplete: 'research_open',
+  paused_no_breakthrough: 'research_open',
+  exhausted_current_methods: 'research_open',
+  infra_blocked: 'infra',
+};
+
+/** Why a row or event with `status` is parked, or `null` when it is not. A `parked`
+ * status carries its reason in `recorded`; an older status names its own. */
+export function parkReason(status: unknown, recorded?: unknown): string | null {
+  const value = normalizedString(status);
+  if (value === 'parked') return normalizedString(recorded);
+  if (Object.hasOwn(LEGACY_PARK_REASONS, value)) return LEGACY_PARK_REASONS[value];
+  return value.startsWith('paused_') ? '' : null;
+}
+
+/** Why a backlog row is parked, reading older `paused_*` rows too. */
+export function backlogParkReason(item: { status: string; outcome?: { park?: { reason: string } } }): string | null {
+  return parkReason(item.status, item.outcome?.park?.reason);
+}
+
+/** Whether an event status reads as a pause: `parked` or an older `paused_*`. */
+export function isPauseStatus(status: unknown): boolean {
+  const value = normalizedString(status);
+  return value === 'parked' || value.startsWith('paused_');
+}
 
 const PRESENTATION: Record<MissionOutcomeClass, Omit<MissionOutcomePresentation, 'outcomeClass' | 'kind' | 'label' | 'technical'>> = {
   completed: { glyph: '🎉', tone: 'ok', missionStatus: 'complete' },
@@ -84,6 +114,7 @@ const LABELS: Record<MissionOutcomeKind, string> = {
 // Why a call stopped, as a clause; mirrors argus/core/stop_kinds.py.
 const STOP_KIND_CLAUSES: Record<string, string> = {
   budget_exhausted: 'the project reached its budget limit',
+  cost_unreconciled: 'provider charges are awaiting reconciliation or explicit risk approval',
   provider_cooldown: 'the model service asked Argus to wait before calling again',
   provider_fence: 'the model provider is not accepting calls right now',
   daemon_shutdown: 'Argus was stopped',
@@ -94,25 +125,20 @@ const STOP_KIND_CLAUSES: Record<string, string> = {
   permanent_error: 'an error that will not clear on its own stopped the call',
 };
 
-const PAUSE_STATUS_STOP_KINDS: Record<string, string> = {
-  paused_budget: 'budget_exhausted',
-  paused_provider_cooldown: 'provider_cooldown',
-  paused_provider_fence: 'provider_fence',
-  paused_daemon_shutdown: 'daemon_shutdown',
-  paused_operator: 'operator_pause',
+const PARK_REASON_CLAUSES: Record<string, string> = {
+  external_work: 'work outside Argus had to finish first',
+  operator_question: 'a question is waiting for the operator',
 };
 
 function normalizedString(value: unknown): string {
   return String(value ?? '').trim().toLowerCase();
 }
 
-function pauseClause(status: string, stopKind: string): string {
-  if (status === 'paused_external_work') return 'work outside Argus had to finish first';
-  const viaStatus = PAUSE_STATUS_STOP_KINDS[status];
-  if (viaStatus) return STOP_KIND_CLAUSES[viaStatus];
+function pauseClause(status: string, recorded: unknown, stopKind: string): string {
+  const reason = parkReason(status, recorded);
+  if (reason) return PARK_REASON_CLAUSES[reason] || STOP_KIND_CLAUSES[reason] || 'the work was paused';
   if (STOP_KIND_CLAUSES[stopKind]) return STOP_KIND_CLAUSES[stopKind];
-  if (status.startsWith('paused_')) return 'the work was paused';
-  return 'the work was interrupted';
+  return reason === null ? 'the work was interrupted' : 'the work was paused';
 }
 
 function normalizedOutcomeClass(value: unknown): MissionOutcomeClass | null {
@@ -132,10 +158,11 @@ function normalizedOutcomeClass(value: unknown): MissionOutcomeClass | null {
 
 function derivedOutcomeClass(event: MissionOutcomeEvent): MissionOutcomeClass {
   const status = normalizedString(event.status);
+  const park = parkReason(status, event.park_reason);
   if (event.success === true || COMPLETED_STATUSES.has(status)) return 'completed';
-  if (INCOMPLETE_STATUSES.has(status)) return 'incomplete';
+  if (park === 'research_open') return 'incomplete';
   if (STALLED_STATUSES.has(status)) return 'stalled';
-  if (BLOCKED_STATUSES.has(status)) return 'blocked';
+  if (status === 'blocked' || park === 'infra') return 'blocked';
   if (FAILED_STATUSES.has(status)) return 'failed';
   return 'ended';
 }
@@ -212,13 +239,13 @@ export function missionOutcomePresentation(
   } else if (outcomeClass === 'ended') {
     // An unrecognised status is a technical fact, not part of the sentence.
     technical = String(event.status ?? '').trim();
-    if (status.startsWith('paused_') || event.resumable === true) {
+    if (isPauseStatus(status) || event.resumable === true) {
       const outcome = event.outcome && typeof event.outcome === 'object' && !Array.isArray(event.outcome)
         ? event.outcome as Record<string, unknown>
         : {};
       const stopKind = normalizedString(event.stop_kind) || normalizedString(outcome.interruption_kind);
       kind = 'mission_paused';
-      label = LABELS.mission_paused.replace('{why}', pauseClause(status, stopKind));
+      label = LABELS.mission_paused.replace('{why}', pauseClause(status, event.park_reason, stopKind));
     }
   }
   return {

@@ -40,7 +40,6 @@ def test_latest_operator_scope_reaches_next_round_without_stale_guidance(
             reviewer_model="fixture",
             workflow_mode="direct",
             active_vertical="software",
-            role_session_policy="fresh",
             max_rounds=2,
             require_independent_review=True,
             require_post_task_learning=False,

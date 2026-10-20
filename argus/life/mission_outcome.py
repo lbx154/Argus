@@ -2,15 +2,10 @@
 
 from __future__ import annotations
 
+from ..core.stop_kinds import is_pause_status, park_reason_of
+
 _COMPLETED_STATUSES = frozenset({"done", "success", "completed"})
-_INCOMPLETE_STATUSES = frozenset({
-    "stage_continues",
-    "research_incomplete",
-    "paused_no_breakthrough",
-    "exhausted_current_methods",
-})
 _STALLED_STATUSES = frozenset({"no_progress", "max_rounds"})
-_BLOCKED_STATUSES = frozenset({"blocked", "infra_blocked"})
 _FAILED_STATUSES = frozenset({"error", "failed", "supervisor_error"})
 _REVIEW_STATUSES = frozenset({
     "done",
@@ -25,19 +20,24 @@ _REVIEW_STATUSES = frozenset({
 _RESUMING_REVIEW_STATUSES = frozenset({"continue"})
 
 
-def mission_outcome_class(status: str, success: bool) -> str:
-    """Map raw mission status flags to the lifecycle outcome buckets."""
+def mission_outcome_class(status: str, success: bool, park_reason: object = "") -> str:
+    """Map raw mission status flags to the lifecycle outcome buckets.
+
+    ``park_reason`` is the reason a ``parked`` status carries; an open research
+    question leaves the work incomplete and a failed host blocks it.
+    """
 
     normalized = str(status or "").strip().lower()
+    park = park_reason_of(normalized, park_reason)
     if normalized == "stage_continues":
         return "incomplete"
     if success or normalized in _COMPLETED_STATUSES:
         return "completed"
-    if normalized in _INCOMPLETE_STATUSES:
+    if park == "research_open":
         return "incomplete"
     if normalized in _STALLED_STATUSES:
         return "stalled"
-    if normalized in _BLOCKED_STATUSES:
+    if normalized == "blocked" or park == "infra":
         return "blocked"
     if normalized in _FAILED_STATUSES:
         return "failed"
@@ -58,9 +58,7 @@ def review_keeps_mission_resumable(
     Reviewer's finding about *the work*: it is unfinished and should go on.
     These are independent, and letting the round-level fact win discards the
     verdict — the project then records a terminal stall for a goal a Reviewer
-    explicitly asked to continue, and the task signature is quarantined out of
-    replanning, so the run sits idle with an unfinished objective and an empty
-    queue.
+    explicitly asked to continue.
 
     Deliberately narrow. A success needs no resumption, and ``blocked``,
     ``failed`` and an operator abort stop for reasons no review verdict may
@@ -88,11 +86,12 @@ def mission_outcome_dimensions(
     stage_transition_deferred: bool = False,
     stop_kind: object = None,
     resumable: bool = False,
+    park_reason: object = "",
 ) -> dict[str, object]:
     """Build the canonical terminal outcome from structured owners."""
     normalized_status = str(status or "").strip().lower()
     normalized_stop = str(stop_kind or "").strip().lower()
-    outcome_class = mission_outcome_class(normalized_status, bool(success))
+    outcome_class = mission_outcome_class(normalized_status, bool(success), park_reason)
 
     normalized_review = str(review_status or "").strip().lower()
     if normalized_review not in _REVIEW_STATUSES:
@@ -108,7 +107,7 @@ def mission_outcome_dimensions(
         stop_kind=normalized_stop,
     )
 
-    if normalized_status.startswith("paused_") or resumable:
+    if is_pause_status(normalized_status) or resumable:
         execution_status = "paused"
     elif normalized_status == "aborted" or normalized_stop == "operator_abort":
         execution_status = "aborted"

@@ -251,7 +251,7 @@ Reviewer 比较编辑前后的科学含义与覆盖范围，而不是要求句�
 
 Reviewer 反对包装或位置调整时必须指出丢失的推理环节或覆盖位置。`信息不完整`不是足够具体的否决理由。
 
-Scientific loss check 需要编辑前快照。实现时在内部 mission storage 保存编辑前后的 manuscript source closure、rendered PDF 和哈希；不依赖 Git，也不在项目中新增可见审计包。
+Scientific loss check 需要编辑前快照。实现时在内部 mission storage 保存编辑前后的 manuscript source closure 和 rendered PDF，前后两份逐字节比较；不依赖 Git，也不在项目中新增可见审计包。
 
 ## 8. 冷读可读性评审
 
@@ -293,7 +293,7 @@ Scientific Reviewer 先排除造成结论或覆盖损失的版本，冷读 Revie
 
 当前实现已将 operation 贯通到 role prompt catalog 和实际 round loop：Research Paper 使用 `author_draft`，Research Review 的 Engineer 使用 fresh-context `narrative_edit`，其后并行运行 `science_loss_check`、视觉检查和 `cold_read`，最后仍由普通 integrated Reviewer 裁决。非 Research vertical 继续使用 `mission` / `evaluate` 兼容路径。
 
-编辑前 source/PDF closure 保存在 vertical state root 的 `.argus/internal/narrative-runtime/<mission>/`，按内容哈希保存编辑后版本；不依赖 Git。`cold_read` 每次获得一个临时 workspace，其中只有 `paper/main.pdf`，pass 结束即删除。新 pass 结果只进入当轮 integrated Reviewer 上下文，不单独写入项目。
+编辑前 source/PDF closure 保存在 vertical state root 的 `.argus/internal/narrative-runtime/<mission>/`，编辑后版本按序号保存；不依赖 Git。`cold_read` 每次获得一个临时 workspace，其中只有 `paper/main.pdf`，pass 结束即删除。新 pass 结果只进入当轮 integrated Reviewer 上下文，不单独写入项目。
 
 正常路径中四个 operation 的临时诊断结果不生成新的项目可见包。最终 stage authority 仍由 Reviewer 和 `paper/REVIEW.md` 承担。
 

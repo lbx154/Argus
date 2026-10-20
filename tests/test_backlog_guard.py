@@ -294,7 +294,7 @@ def test_status_reports_bypassed_items() -> None:
     assert "describe_undecided" in source
 
 
-def test_bounded_dispatch_records_manager_decision_on_planner_nodes(
+def test_dispatch_records_manager_decision_on_the_operator_item(
     tmp_path,
     monkeypatch,
 ) -> None:
@@ -325,30 +325,11 @@ def test_bounded_dispatch_records_manager_decision_on_planner_nodes(
                 workflow_mode=decision.workflow_mode,
             )
 
-    plan = SimpleNamespace(
-        reason="two generic DAG nodes",
-        error="",
-        tasks=(
-            SimpleNamespace(
-                key="statement-lock",
-                deps=(),
-                title="Lock statement",
-                objective="Wait for operator approval before locking.",
-            ),
-            SimpleNamespace(
-                key="exact-search",
-                deps=("statement-lock",),
-                title="Exact search",
-                objective="Search only after the statement is approved.",
-            ),
-        ),
-    )
     monkeypatch.setattr(
         front_door,
         "_ensure_manager_runner",
         lambda _state, _mem: SimpleNamespace(manager=Manager()),
     )
-    monkeypatch.setattr(dispatch, "_plan_bounded_execution", lambda *a, **k: plan)
 
     dispatch.enqueue_mission(
         mem,
@@ -357,8 +338,8 @@ def test_bounded_dispatch_records_manager_decision_on_planner_nodes(
         root_task_id="root-manager-decision",
     )
 
-    items = mem.backlog.all()
-    assert [item.node_key for item in items] == ["statement-lock", "exact-search"]
-    assert all(item.manager_decision.get("routed") is True for item in items)
-    assert all(item.manager_decision.get("workflow_mode") == "bounded" for item in items)
-    assert all(needs_manager_decision(item) is False for item in items)
+    (item,) = mem.backlog.all()
+    assert item.id == "root-manager-decision"
+    assert item.manager_decision.get("routed") is True
+    assert item.manager_decision.get("workflow_mode") == "bounded"
+    assert needs_manager_decision(item) is False

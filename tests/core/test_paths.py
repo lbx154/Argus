@@ -51,8 +51,6 @@ def test_top_level_paths_compose_from_root(
     assert paths.tools_root() == tmp_path / "tools"
     assert paths.capabilities_root() == tmp_path / "capabilities"
     assert paths.special_prompts_root() == tmp_path / "special_prompts"
-    assert paths.logs_root() == tmp_path / "logs"
-    assert paths.run_root() == tmp_path / "run"
     assert paths.session_states_root() == tmp_path / "projects"
     assert paths.session_trash_root() == tmp_path / "projects_trash"
 

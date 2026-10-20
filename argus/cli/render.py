@@ -1,7 +1,7 @@
 """ANSI terminal rendering for live headless-runtime events.
 
 The Ink/Web cockpit owns interactive UI. This module only decorates events
-written by ``LifeStderrSink`` and teammate processes; semantic event formatting
+written by ``LifeStderrSink``; semantic event formatting
 stays in :mod:`argus.cli.event_format`.
 """
 
@@ -11,7 +11,7 @@ import os
 from typing import Any
 
 from ..core.event_catalog import EventType, canonical_event_type
-from ..core.role_reply import strip_named_lines
+from ..core.role_handoff import strip_handoff
 from ..core.secret_guard import redact_secrets_text
 from .event_format import _strip_shell_wrapper, _trunc, format_event_message
 from .theme import Theme
@@ -102,10 +102,7 @@ def _render_engineer_progress_terminal(event: dict[str, Any], *, theme: Theme) -
         return theme.dim("  ⋯ " + _trunc(_first_line(text), 200))
 
     if kind in {"assistant_message", "agent_message", "message"}:
-        visible = strip_named_lines(
-            text,
-            ("MILESTONE_STATUS", "NEXT_OWNER", "OPERATOR_QUESTION", "OPERATOR_OPTIONS"),
-        )
+        visible = strip_handoff(text)
         lines = [line.rstrip() for line in visible.splitlines() if line.strip()]
         if not lines:
             return ""

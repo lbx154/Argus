@@ -14,6 +14,7 @@ from typing import Any, Callable
 from ..core.event_catalog import EventType, canonical_event_type
 from ..core.operator_messages import uses_cjk
 from ..core.secret_guard import redact_secrets_text
+from ..core.stop_kinds import is_pause_status
 from ..life.mission_outcome import mission_outcome_class
 
 # Canonical live events with dedicated presentation. Unknown/internal events
@@ -411,7 +412,7 @@ def _render_life_mission_completed(event: dict[str, Any]) -> str:
     success = event.get("success") is True
     outcome_class = str(event.get("outcome_class") or "").strip().lower()
     if not outcome_class:
-        outcome_class = mission_outcome_class(status, success)
+        outcome_class = mission_outcome_class(status, success, event.get("park_reason"))
     outcome = event.get("outcome")
     resumable = bool(event.get("resumable") or event.get("recoverable"))
     if isinstance(outcome, dict):
@@ -427,7 +428,7 @@ def _render_life_mission_completed(event: dict[str, Any]) -> str:
             summary = f"{summary} Residual risk: {_trunc(residual_risk, 300)}".strip()
     elif success or outcome_class == "completed":
         headline = f"已完成：{title}。" if chinese else f"Completed: {title}."
-    elif status.startswith("paused_") or resumable:
+    elif is_pause_status(status) or resumable:
         headline = f"已暂停：{title}。" if chinese else f"Paused: {title}."
     elif outcome_class == "failed":
         headline = f"未能完成 {title}。" if chinese else f"Could not complete {title}."

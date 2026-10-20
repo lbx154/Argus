@@ -161,7 +161,7 @@ def test_cli_explicit_provider_backend_uses_native_model_default(
     assert config.reviewer_model == ""
 
 
-def test_cli_models_follow_role_specific_backends(monkeypatch, tmp_path) -> None:
+def test_cli_models_ignore_a_retired_role_backend(monkeypatch, tmp_path) -> None:
     args = _args()
     args.backend = "codex"
     monkeypatch.setenv("ARGUS_SKILL_REVIEWER_BACKEND", "claude")
@@ -182,7 +182,7 @@ def test_cli_models_follow_role_specific_backends(monkeypatch, tmp_path) -> None
     config = _core._build_worker_config(args)
 
     assert config.engineer_model == "gpt-6.1-sol"
-    assert config.reviewer_model == ""
+    assert config.reviewer_model == "gpt-6.1-sol"
 
 
 def test_cli_management_auto_selects_newest_session_for_shell_workdir(

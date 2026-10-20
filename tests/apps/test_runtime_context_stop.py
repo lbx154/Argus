@@ -42,7 +42,7 @@ def _runtime_case(tmp_path, monkeypatch, *, enable_abort=True, with_stop=True):
     monkeypatch.setenv("ARGUS_SKILL_SKILLS_DIR", str(tmp_path / "skills"))
     monkeypatch.setenv("ARGUS_SKILL_ENGINEER_MODEL", "offline")
     monkeypatch.setenv("ARGUS_SKILL_REVIEWER_MODEL", "offline")
-    monkeypatch.setenv("ARGUS_SKILL_REQUIRE_POST_TASK_LEARNING", "0")
+    monkeypatch.setenv("ARGUS_SKILL_LEARNING", "0")
     append_directive(state, "Keep the current required policy.", expected_revision=0)
     memory = LifeMemory.open(state)
     item = memory.backlog.add(BacklogItem.new(title="current", objective="Inspect this synthetic fixture."))

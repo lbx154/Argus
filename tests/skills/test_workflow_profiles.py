@@ -165,26 +165,6 @@ def test_all_role_prompts_and_cockpit_read_the_selected_state_root(provider, tmp
     assert load_vertical_contract("profile_lab", state).stage_order == ("verify",)
 
 
-def test_automatic_progression_stops_at_the_profiles_final_stage(provider, tmp_path):
-    from argus.life.supervisor._planning_cycle_enqueue import _automatic_stage_target
-
-    state, work = tmp_path / "state", tmp_path / "work"
-    calls = []
-
-    def ready(**kwargs):
-        calls.append(kwargs)
-        return True
-
-    provider.automatic_stage_completion_ready = ready
-    persist_vertical(state, "profile_lab", workflow_profile="build")
-    assert _automatic_stage_target(state_root=state, evidence_root=work) == "verify"
-    payload = read_pipeline_state(state)
-    payload["current_stage"] = "verify"
-    write_pipeline_state(state, payload)
-    assert _automatic_stage_target(state_root=state, evidence_root=work) == ""
-    assert calls == [{"stage": "design", "project_root": work, "state_root": state}]
-
-
 class ProfileRunner:
     def __init__(self, profile):
         self.profile = profile

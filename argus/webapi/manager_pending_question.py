@@ -211,6 +211,160 @@ def _decision_stale(reason: str) -> dict[str, Any]:
     }
 
 
+_DROPPED_REPLY = "Dropped this task. The rest of the campaign continues."
+_CAMPAIGN_STAYS_STOPPED = "The campaign stays stopped until you resume it."
+_DROPPED_STOPPED_REPLY = f"Dropped this task. {_CAMPAIGN_STAYS_STOPPED}"
+
+
+def campaign_stop_reason(project_root: Path | str) -> str:
+    """Why a disarmed campaign stopped, or "" while nothing holds it.
+
+    A pause, a stop, a completion or a Planner hold each disarm the campaign
+    with a ``done_reason``, and only an explicit resume re-arms it. A worker
+    that ended waiting for an answer leaves the campaign armed instead.
+    """
+    from ..daemon.state import read_continuous_state
+
+    state = read_continuous_state(Path(project_root))
+    return "" if state.enabled else state.done_reason.strip()
+
+
+def _keep_recorded_campaign_stop(mem: Any, result: dict[str, Any]) -> bool:
+    """Leave a recorded campaign stop in force after an answer.
+
+    Answering one card answers that question; it is not a resume. The answer
+    reaches its task, but nothing restarts until the operator resumes, and the
+    reply says so. Returns whether a stop holds.
+    """
+    if not campaign_stop_reason(mem.project_root):
+        return False
+    result["resume_requested"] = False
+    reply = str(result.get("reply") or "").strip()
+    if _CAMPAIGN_STAYS_STOPPED not in reply:
+        result["reply"] = f"{reply} {_CAMPAIGN_STAYS_STOPPED}".strip()
+    return True
+
+
+def _is_host_drop_option(item: Any, card: dict[str, Any], option_id: str) -> bool:
+    """Whether ``option_id`` is the host's "drop this task" choice on ``card``.
+
+    The provider-configuration card offers resume/drop. "Drop" must end that
+    one item; delivering its text as an authoritative decision used to enqueue
+    a continuation and start another run under the broken configuration. An
+    agent-authored option that happens to be called "drop" keeps its ordinary
+    meaning, so only the host's card qualifies.
+    """
+    if option_id != "drop":
+        return False
+    if card.get("decision_kind") == "provider_configuration":
+        return True
+    # Cards parked before ``decision_kind`` was recorded: only the host's
+    # provider card offers exactly resume/drop on a provider-cooldown item.
+    option_ids = [
+        str(row.get("id") or "")
+        for row in card.get("options", ())
+        if isinstance(row, dict)
+    ]
+    return option_ids == ["resume", "drop"] and bool(
+        str(getattr(item, "provider_cooldown_signature", "") or "").strip()
+    )
+
+
+def _record_decision_turns(
+    mem: Any, turn_id: str, *, decided_by: str, choice: str, reply: str,
+) -> None:
+    """The choice in its decider's name: the operator's own turn, or the Manager's."""
+    from ..core.transcript import append_turn
+
+    turns = (
+        (("operator", choice), ("argus", reply))
+        if decided_by == "operator"
+        else (("argus", f"Decided in the operator's place: {choice}\n\n{reply}"),)
+    )
+    for role, text in turns:
+        append_turn(mem.project_root, role, text, message_id=f"{turn_id}-{role}")
+        _emit_ui_turn(mem.project_root, role, text, message_id=f"{turn_id}-{role}")
+
+
+def _drop_decision_item(
+    mem: Any,
+    item: Any,
+    *,
+    decision_id: str,
+    note: str,
+    decided_by: str = "operator",
+) -> dict[str, Any]:
+    """Resolve a host "drop" choice by ending only its item; no continuation."""
+    from ..core.event_catalog import EventType
+    from ..core.operator_decision import selected_decision_text
+    from ..life.event_log import JsonlEventSink
+
+    operator_text = selected_decision_text(item.operator_decision, "drop", note)
+    revision = int(item.operator_decision.get("revision", 1) or 1)
+    # Dropping one task is not a resume: an armed campaign (one whose worker
+    # ended waiting for this answer included) continues; a recorded pause,
+    # stop, completion or Planner hold stands, as after any answer.
+    stopped_for = campaign_stop_reason(mem.project_root)
+    reply = _DROPPED_STOPPED_REPLY if stopped_for else _DROPPED_REPLY
+    dropped = mem.backlog.stop_for_operator_decision(
+        item.id,
+        note=note,
+        decision_id=decision_id,
+        selected_option="drop",
+        manager_decision="drop task",
+        reply=reply,
+        last_error=f"{decided_by} dropped this task",
+        decided_by=decided_by,
+    )
+    if dropped is None:
+        # Another answer resolved this card first; report that, never overwrite it.
+        current = next(
+            (row for row in mem.backlog.history() if row.id == item.id), item,
+        )
+        replay = _resolved_decision_replay(
+            mem, current, decision_id=decision_id, option_id="drop", note=note,
+        )
+        return replay or _decision_stale("decision changed while applying")
+    card = dropped.operator_decision
+    resumed, projection_error = (
+        (False, "")
+        if stopped_for
+        else _reconcile_campaign_after_decision(mem, stopped=False)
+    )
+    _record_decision_turns(
+        mem, f"decision-{decision_id}", decided_by=decided_by,
+        choice=operator_text, reply=reply,
+    )
+    JsonlEventSink(None, life_dir=Path(mem.project_root)).append({
+        "type": EventType.LIFE_OPERATOR_QUESTION_ANSWERED,
+        "item_id": item.id,
+        "continuation_item_id": "",
+        "question": str(item.pending_question or ""),
+        "manager_decision": "drop task",
+        "decision_id": decision_id,
+        "decision_revision": revision,
+        "dropped": True,
+        "decided_by": decided_by,
+    })
+    result = {
+        "answered_item_id": item.id,
+        "decision_id": decision_id,
+        "resolved": True,
+        "dropped": True,
+        "application_status": "accepted",
+        "resolution_id": str(card.get("resolution_id") or ""),
+        # The dropped item does not resume; the rest of the campaign does,
+        # unless something recorded holds it.
+        "resume_requested": not stopped_for,
+        "reply": reply,
+    }
+    if resumed:
+        result["continuous"] = True
+    if projection_error:
+        result["projection_error"] = projection_error
+    return result
+
+
 def _resolved_decision_replay(
     mem: Any,
     item: Any,
@@ -223,7 +377,10 @@ def _resolved_decision_replay(
     card = item.operator_decision
     if str(card.get("id") or "") != decision_id:
         if decision_id in card.get("superseded_decision_ids", ()):
-            return _decision_stale("decision was replaced by a newer question")
+            return _decision_stale(
+                "the question changed after this answer was written; read the "
+                "current question and answer it again"
+            )
         return None
     if str(card.get("status") or "") != "resolved":
         return None
@@ -234,6 +391,17 @@ def _resolved_decision_replay(
     )
     if not same_request:
         return _decision_stale("another choice was already applied")
+    if _is_host_drop_option(item, card, option_id):
+        return {
+            "answered_item_id": item.id,
+            "decision_id": decision_id,
+            "resolved": True,
+            "dropped": True,
+            "application_status": "already_applied",
+            "resolution_id": str(card.get("resolution_id") or ""),
+            "resume_requested": False,
+            "reply": str(card.get("reply") or _DROPPED_REPLY),
+        }
     if card.get("decision_kind") == "framework_deployment":
         return {
             "answered_item_id": item.id,
@@ -319,6 +487,7 @@ def _apply_framework_deployment_decision(
     option_id: str,
     decision_id: str,
     note: str,
+    decided_by: str = "operator",
 ) -> dict[str, Any]:
     """Apply the existing adopt/decline decision without another validation run."""
     import subprocess
@@ -339,7 +508,7 @@ def _apply_framework_deployment_decision(
         reply = "The reviewed change was declined. The current runtime is unchanged."
         deployment: dict[str, Any] = {"verdict": "DECLINED"}
         status = "aborted"
-        last_error = "operator declined the reviewed framework change"
+        last_error = f"{decided_by} declined the reviewed framework change"
     else:
         from ..daemon.handoff import request_deployment_handoff
         from ..maintenance.publication import publish_reviewed_change
@@ -376,7 +545,7 @@ def _apply_framework_deployment_decision(
         "resolved_from_revision": revision, "revision": revision + 1,
         "continuation_item_id": "", "resume_requested": False,
         "resolution_id": f"{card.get('id', decision_id)}:r{revision}",
-        "reply": reply, "deployment": deployment,
+        "reply": reply, "deployment": deployment, "decided_by": decided_by,
     })
     mem.backlog.update(
         item.id, status=status, finished_ts=time.time(), last_error=last_error,
@@ -399,6 +568,7 @@ def _apply_framework_deployment_decision(
         "continuation_item_id": "", "question": str(item.pending_question or ""),
         "manager_decision": option_id, "decision_id": decision_id,
         "decision_revision": revision, "deployment": deployment, "maintenance_cleanup": cleanup,
+        "decided_by": decided_by,
     })
     return {
         "answered_item_id": item.id, "decision_id": decision_id, "resolved": True,
@@ -420,8 +590,13 @@ def _apply_operator_answer(
     decision_note: str = "",
     operator_context_persisted: bool = False,
     operator_context_revision: int = 0,
+    decided_by: str = "operator",
 ) -> dict[str, Any]:
-    """Persist an explicit operator answer and enqueue its continuation."""
+    """Persist an explicit answer and enqueue its continuation.
+
+    ``decided_by`` is ``"manager"`` when the Manager answered in the operator's
+    place; the answer is then never recorded as the operator's.
+    """
     if item.operator_decision.get("decision_kind") == "framework_deployment":
         option_id = decision_option.strip().lower()
         if option_id == "custom":
@@ -442,6 +617,7 @@ def _apply_operator_answer(
             option_id=option_id,
             decision_id=(decision_id or str(item.operator_decision.get("id") or "")),
             note=decision_note,
+            decided_by=decided_by,
         )
 
     from ..apps._inbox import queue_inbox_message
@@ -458,6 +634,7 @@ def _apply_operator_answer(
         decision_note=decision_note,
         manager_reply=manager_reply,
         operator_context_persisted=operator_context_persisted,
+        decided_by=decided_by,
     )
     if blocked is None:
         return {"error": "unknown backlog item", "answered_item_id": item.id}
@@ -496,6 +673,7 @@ def _apply_operator_answer(
         "decision_revision": blocked.operator_decision.get(
             "resolved_from_revision"
         ),
+        "decided_by": decided_by,
     })
     if operator_context_revision:
         from ..core.operator_context import OperatorContextStore
@@ -655,7 +833,7 @@ def _resolve_pending_question_with_manager(
             "reply": parsed["reply"] or "Please clarify the requested decision.",
         }
 
-    return _apply_operator_answer(
+    result = _apply_operator_answer(
         mem,
         item,
         answer,
@@ -669,6 +847,9 @@ def _resolve_pending_question_with_manager(
         operator_context_persisted=True,
         operator_context_revision=answer_record.revision,
     )
+    if result.get("resolved") and result.get("resume_requested"):
+        _keep_recorded_campaign_stop(mem, result)
+    return result
 
 
 def manager_answer_pending_question(
@@ -705,6 +886,8 @@ def manager_answer_pending_question(
                     note=decision_note,
                 )
                 if replay is not None:
+                    if replay.get("resume_requested"):
+                        _keep_recorded_campaign_stop(mem, replay)
                     return replay
             return {"error": "question is no longer pending"}
         turn_id = (
@@ -751,12 +934,11 @@ def manager_answer_pending_question(
             operator_context_persisted=True,
             operator_context_revision=answer_record.revision,
         )
-        reply = str(
-            result.get("reply")
-            or result.get("error")
-            or "Manager could not resolve the pending question."
-        )
-        if result.get("resolved") and result.get("resume_requested", True):
+        if (
+            result.get("resolved")
+            and result.get("resume_requested", True)
+            and not _keep_recorded_campaign_stop(mem, result)
+        ):
             resumed, projection_error = _reconcile_campaign_after_decision(
                 mem,
                 stopped=False,
@@ -765,6 +947,11 @@ def manager_answer_pending_question(
                 result["continuous"] = True
             if projection_error:
                 result["projection_error"] = projection_error
+        reply = str(
+            result.get("reply")
+            or result.get("error")
+            or "Manager could not resolve the pending question."
+        )
         append_turn(
             mem.project_root,
             "argus",
@@ -787,8 +974,15 @@ def manager_resolve_operator_decision(
     note: str = "",
     *,
     global_root: Path | str | None = None,
+    decided_by: str = "operator",
+    reason: str = "",
 ) -> dict[str, Any] | None:
-    """Resolve one visible decision-card option with idempotent replay."""
+    """Resolve one visible decision-card option with idempotent replay.
+
+    The Manager may choose (``decided_by="manager"``, with its ``reason``) only
+    while the operator cannot be asked; the choice is then applied exactly as
+    the operator's would be and recorded in the Manager's name.
+    """
     from ..core.operator_decision import selected_decision_text
     from ..life.memory import MemoryBundle
 
@@ -796,6 +990,11 @@ def manager_resolve_operator_decision(
         fingerprint=sid,
         global_root=Path(global_root) if global_root else None,
     )
+    if decided_by == "manager":
+        from ..core.autonomy import operator_questions_can_be_asked
+
+        if operator_questions_can_be_asked(mem.project_root):
+            return {"error": "the operator can be asked; this decision is theirs"}
     with _bridge()._lock_for(sid):
         item = next(
             (
@@ -821,7 +1020,11 @@ def manager_resolve_operator_decision(
         )
         if replay is not None:
             if replay.get("application_status") == "already_applied" and (
-                option_id == "stop" or replay.get("resume_requested", True)
+                option_id == "stop"
+                or (
+                    replay.get("resume_requested", True)
+                    and not _keep_recorded_campaign_stop(mem, replay)
+                )
             ):
                 resumed, projection_error = _reconcile_campaign_after_decision(
                     mem,
@@ -847,6 +1050,10 @@ def manager_resolve_operator_decision(
             and option_id not in {"adopt", "decline"}
         ):
             return {"error": "choose Adopt reviewed change or Decline deployment"}
+        if _is_host_drop_option(item, card, option_id):
+            return _drop_decision_item(
+                mem, item, decision_id=decision_id, note=note, decided_by=decided_by,
+            )
         if option_id == "stop":
             try:
                 operator_text = selected_decision_text(card, option_id, note)
@@ -856,6 +1063,7 @@ def manager_resolve_operator_decision(
                 item.id,
                 note=note,
                 decision_id=decision_id,
+                decided_by=decided_by,
             )
             if stopped is None:
                 current = next(
@@ -889,33 +1097,11 @@ def manager_resolve_operator_decision(
             if projection_error:
                 result["projection_error"] = projection_error
             from ..core.event_catalog import EventType
-            from ..core.transcript import append_turn
             from ..life.event_log import JsonlEventSink
 
-            turn_id = f"decision-{decision_id}"
-            append_turn(
-                mem.project_root,
-                "operator",
-                operator_text,
-                message_id=f"{turn_id}-operator",
-            )
-            append_turn(
-                mem.project_root,
-                "argus",
-                result["reply"],
-                message_id=f"{turn_id}-argus",
-            )
-            _emit_ui_turn(
-                mem.project_root,
-                "operator",
-                operator_text,
-                message_id=f"{turn_id}-operator",
-            )
-            _emit_ui_turn(
-                mem.project_root,
-                "argus",
-                result["reply"],
-                message_id=f"{turn_id}-argus",
+            _record_decision_turns(
+                mem, f"decision-{decision_id}", decided_by=decided_by,
+                choice=operator_text, reply=result["reply"],
             )
             JsonlEventSink(None, life_dir=mem.project_root).append({
                 "type": EventType.LIFE_OPERATOR_QUESTION_ANSWERED,
@@ -928,12 +1114,30 @@ def manager_resolve_operator_decision(
                     "resolved_from_revision"
                 ),
                 "stopped": True,
+                "decided_by": decided_by,
             })
             return result
         try:
             answer = selected_decision_text(card, option_id, note)
         except ValueError as exc:
             return {"error": str(exc)}
+        if decided_by == "manager":
+            result = _apply_operator_answer(
+                mem, item, answer,
+                manager_decision=answer,
+                manager_reply=reason,
+                decision_option=option_id,
+                decision_id=decision_id,
+                decision_note=note,
+                decided_by=decided_by,
+            )
+            if result.get("resolved"):
+                _record_decision_turns(
+                    mem, f"decision-{decision_id}", decided_by=decided_by,
+                    choice=answer, reply=reason,
+                )
+            result["decision_id"] = decision_id
+            return result
         result = manager_answer_pending_question(
             sid,
             item.id,

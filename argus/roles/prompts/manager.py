@@ -12,7 +12,7 @@ from ...core.model_visible_text import (
     sanitize_model_visible_text,
 )
 from ...core.role_decision import decision_footer_instruction
-from ..task_contract import experiment_evidence_contract, format_native_shell_command
+from ..task_contract import EXPERIMENT_EVIDENCE_CONTRACT, format_native_shell_command
 from .types import ChecklistMode, RoleName, RolePromptRequest
 from .voice import RESEARCHER_VOICE, RESEARCHER_VOICE_BRIEF
 
@@ -85,7 +85,7 @@ _IDENTITY_GUARD = (
     "only when the operator asks who or what you are; otherwise answer directly "
     "without a self-introduction. The operator changes model, backend, and effort "
     "by saying so in this chat; earlier advice in this conversation to use slash "
-    "commands or settings files for that is outdated. Long commands use Argus's durable runner.\n\n"
+    "commands or settings files for that is outdated.\n\n"
 )
 
 OPERATIONS = frozenset(
@@ -294,7 +294,7 @@ def build_front_door_prompt(text: str, *, active_mission: bool = False, allow_re
         "or PREFERENCE|CREDENTIAL_GRANT|REVOCATION. Unsure: EPHEMERAL.\n\n"
         "CONFIG: setting as `SET model ALL <id>`, `SET effort planner,engineer "
         "high`: roles ALL or some of manager,planner,engineer,"
-        "reviewer for backend|model|effort; `-` for global_daily_cap,max_daemons,"
+        "reviewer for model|effort; `-` for backend,global_daily_cap,max_daemons,"
         "codex_daily_requests,copilot_daily_requests,copilot_daily_premium,safe_mode,"
         "show_reasoning,telegram. Questions/task-local: NONE. Join with `; `.\n\n"
         "CONTROL: PAUSE=stop campaign; ABORT=end current mission; NO_DISPATCH=no new work; "
@@ -320,7 +320,7 @@ def build_front_door_prompt(text: str, *, active_mission: bool = False, allow_re
         f"{reply_rule}"
         f"{RESEARCHER_VOICE_BRIEF}\n\n"
         "LIFETIME: TEAM: default BOUNDED for casual unscoped work absent ongoing "
-        "intent; BOUNDED_INCREMENT=limited stage; STANDING=ongoing intent. "
+        "intent; STANDING=ongoing intent. "
         "SELF: NONE.\n\n"
         "GREETING: pure greetings; REPLY greets + 2-3 starter asks. "
         "NAME: topic in the message's language; greeting/chat/settings NONE.\n\n"
@@ -538,10 +538,8 @@ def build_vertical_decision_prompt(
         "related output files produced and reviewed together. Host invokes Reviewer "
         "after Engineer; review creates no execution stage. `staged` requires dependent "
         "Engineer phases or independently decided work tracks. "
-        "Repository work is usually `software`, but accelerator runtime, inference "
-        "serving, communication, memory-movement, and kernel performance campaigns are "
-        "`kernel_engineering`; Argus runtime changes are `argus_maintenance`; papers and "
-        "surveys are `research`; original mathematical work is `math`.\n\n"
+        "Repository work is usually `software`; Argus runtime changes are "
+        "`argus_maintenance`; papers and surveys are `research`.\n\n"
         "Use exploratory for well-defined investigation, publishable for requested original work "
         "at publication level, and doctoral only when explicit. "
         "For research_direction_mode, use `broad` or `locked` as defined below; "
@@ -898,16 +896,6 @@ def build_stage_decision_prompt(
     status = str(getattr(review, "status", "") or "")
     reason = str(getattr(review, "reason", "") or "")
     review_source = str(getattr(review, "review_source", "reviewer") or "reviewer").strip()
-    planner_waiting = bool(getattr(planner_verdict, "waiting", False))
-    waiting_contract = getattr(planner_verdict, "waiting_contract", None)
-    waiting_reason = str(
-        getattr(planner_verdict, "waiting_reason", "")
-        or getattr(planner_verdict, "reason", "")
-        or ""
-    ).strip()
-    recheck_condition = str(getattr(waiting_contract, "recheck_condition", "") or "").strip()
-    operator_action_required = bool(getattr(waiting_contract, "operator_action_required", False))
-
     source_instructions = ""
     if review_source == "engineer_self_review":
         source_instructions = (
@@ -947,7 +935,7 @@ def build_stage_decision_prompt(
         if continuous_objective.strip()
         else ""
     )
-    objective_block += experiment_evidence_contract() + "\n\n"
+    objective_block += EXPERIMENT_EVIDENCE_CONTRACT + "\n\n"
 
     harness_control = getattr(review, "harness_control", None)
     mission_scope_change = bool(
@@ -970,33 +958,6 @@ def build_stage_decision_prompt(
             f"{rollback_sentence}"
             "ADVANCE only when independent review finds every current-stage requirement met. "
             "Do not rewrite implementation details yourself.\n\n"
-        )
-
-    wait_resolution_block = ""
-    if planner_waiting:
-        operator_boundary = (
-            "Work cannot resume without fresh OPERATOR action. You cannot create or "
-            "expand operator authorization; set `resolves_wait=false`. "
-            if operator_action_required
-            else "You may set `resolves_wait=true` only when PRE-EXISTING operator "
-            "authority already shown below or concrete changed evidence satisfies "
-            "the recheck condition. Inside an open-ended standing objective, a new "
-            "mechanism, benchmark, or evidence-supported framing is an ordinary "
-            "route decision, not scope expansion. Never invent credentials, legal "
-            "permission, irreversible external authority, or work outside the "
-            "operator objective. "
-        )
-        wait_resolution_block = (
-            "## Planner-wait reconciliation\n"
-            f"Waiting reason: {waiting_reason or '(none)'}\n"
-            f"Declared recheck condition: {recheck_condition or '(none)'}\n"
-            f"{operator_boundary}"
-            "If this Manager ruling identifies such existing authority or changed "
-            "evidence, keep the stage on HOLD and set `resolves_wait=true` so "
-            "the Planner immediately replans without the outdated reason for waiting. "
-            "This does not advance the stage or establish that its requirements are met. Set "
-            "`resolves_wait=false` when the obstacle remains unchanged.\n"
-            "Include `resolves_wait` when the Planner is waiting for a stated condition.\n\n"
         )
 
     actions = "ADVANCE, HOLD, ROLLBACK, or COMPLETE" if allow_rollback else (
@@ -1084,7 +1045,6 @@ def build_stage_decision_prompt(
         f"{rollback_targets}"
         "## What the current stage requires\n"
         f"{checklist_md}\n\n"
-        f"{wait_resolution_block}"
         f"{mission_scope_block}"
         "## Latest completion evidence\n"
         f"source: {review_source}\n"

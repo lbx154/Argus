@@ -1,6 +1,8 @@
+"""Backlog nodes an older release decomposed into a nested repository keep
+replaying from their validated root after dispatch collapsed into one path."""
+
 from __future__ import annotations
 
-import hashlib
 import json
 import os
 import subprocess
@@ -11,12 +13,13 @@ import pytest
 
 from argus.apps._runtime import _SkillLoopRunner
 from argus.core.campaign_workdir import adopt_campaign_workdir
+from argus.core.file_facts import file_facts
 from argus.core.pipeline_state import read_pipeline_state, write_pipeline_state
 from argus.core.stage_certificate import latest_stage_review
-from argus.life import MemoryBundle
+from argus.life import BacklogItem, MemoryBundle
 from argus.life.supervisor import LifeSupervisor, LifeSupervisorConfig
 from argus.loop import SkillLoopConfig
-from argus.manager import dispatch, front_door
+from argus.manager import front_door
 from argus.skills.stage_machine import completion_contract_fingerprint
 from argus.skills.vertical_select import persist_vertical, resolve_vertical
 from argus.verticals._data_domain import write_data_domain
@@ -31,9 +34,8 @@ class _Sink:
     "case",
     ["existing", "deferred", "adopted_campaign", "external_symlink"],
 )
-def test_dispatch_workdir_provenance_replays_from_its_validated_root(
+def test_legacy_node_workdir_provenance_replays_from_its_validated_root(
     tmp_path,
-    monkeypatch,
     case,
 ) -> None:
     base = tmp_path / "workspace"
@@ -76,52 +78,15 @@ def test_dispatch_workdir_provenance_replays_from_its_validated_root(
         target.mkdir()
         subprocess.run(["git", "init", "-q", str(target)], check=True)
 
-    class _Manager:
-        def decide_vertical(self, body, **_kwargs):
-            return SimpleNamespace(execution_task=f"managed: {body}")
-
-        def commit_vertical_decision(self, _body, decision, **_kwargs):
-            return SimpleNamespace(execution_task=decision.execution_task)
-
-    monkeypatch.setattr(
-        front_door,
-        "_ensure_manager_runner",
-        lambda _state, _mem: SimpleNamespace(manager=_Manager()),
-    )
-    run_node = SimpleNamespace(
-        key="run",
-        deps=("prepare",) if deferred else (),
+    item = memory.backlog.add(BacklogItem.new(
         title="Run in selected repository",
         objective="Use the selected repository.",
-        execution_workdir=requested,
-    )
-    tasks = (
-        (
-            SimpleNamespace(
-                key="prepare",
-                deps=(),
-                title="Prepare repository",
-                objective="Create the deferred repository.",
-            ),
-            run_node,
-        )
-        if deferred
-        else (run_node,)
-    )
-    monkeypatch.setattr(
-        dispatch,
-        "_plan_bounded_execution",
-        lambda *_args, **_kwargs: SimpleNamespace(
-            reason="workdir provenance",
-            error="",
-            tasks=tasks,
-        ),
-    )
-
-    dispatch.enqueue_mission(memory, "run nested work", {"backend": "codex"})
-    item = next(row for row in memory.backlog.all() if row.node_key == "run")
-    expected_provenance = anchor / requested
-    assert item.execution_workdir == str(expected_provenance)
+        tags=["manager", "planner", "bounded_dag_node", "scope:bounded"],
+        plan_id="bounded-legacy",
+        plan_version=1,
+        node_key="run",
+        execution_workdir=str(anchor / requested),
+    ))
 
     if deferred:
         target.mkdir()
@@ -200,7 +165,6 @@ class _ProductionRunnerProbe(_SkillLoopRunner):
             operator_question="",
             operator_options=[],
             planner_report={"forward_progress": True},
-            frontier_report={},
         )
         ex_state.rounds_list = [SimpleNamespace(review=review)]
         ex_state.review_source = "reviewer"
@@ -222,7 +186,7 @@ class _ProductionRunnerProbe(_SkillLoopRunner):
         return None
 
 
-def test_enqueue_to_supervisor_uses_nested_node_contract_root(
+def test_legacy_nested_node_uses_its_own_contract_root(
     tmp_path,
     monkeypatch,
 ) -> None:
@@ -284,12 +248,6 @@ def test_enqueue_to_supervisor_uses_nested_node_contract_root(
             self.bound_workdirs.append(Path(workdir).resolve())
             return self
 
-        def decide_vertical(self, body, **kwargs):  # noqa: ANN001
-            return SimpleNamespace(execution_task=f"managed: {body}")
-
-        def commit_vertical_decision(self, body, decision, **kwargs):  # noqa: ANN001
-            return SimpleNamespace(execution_task=decision.execution_task)
-
         def decide_stage_transition(self, *, project_root, **kwargs):  # noqa: ANN001, ANN003
             root = Path(project_root).resolve()
             self.stage_roots.append(root)
@@ -305,41 +263,42 @@ def test_enqueue_to_supervisor_uses_nested_node_contract_root(
                 diagnostic="",
             )
 
-    monkeypatch.setattr(
-        front_door,
-        "_ensure_manager_runner",
-        lambda state, mem: SimpleNamespace(manager=_Manager()),
+    first = BacklogItem.new(
+        title="Run nested replay",
+        objective="Use the target policy and artifact.",
+        tags=[
+            "manager", "planner", "bounded_dag_node", "scope:bounded",
+            "stage_closing", "review:required", "stage:target_scope",
+        ],
+        plan_id="bounded-legacy",
+        plan_version=1,
+        node_key="target-node",
+        execution_workdir=str(target.resolve()),
+        context_refs=[{
+            "kind": "artifact",
+            "ref": "research/TARGET.md",
+            "why": "target evidence",
+            "content_hash": json.dumps(file_facts(artifact)),
+        }],
+        manager_decision={"routed": True, "vertical": "nested_replay", "route_source": "planner"},
     )
-    plan = SimpleNamespace(
-        reason="nested replay",
-        error="",
-        tasks=(
-            SimpleNamespace(
-                key="target-node",
-                deps=(),
-                title="Run nested replay",
-                objective="Use the target policy and artifact.",
-                vertical="nested_replay",
-                execution_workdir="target",
-                context_refs=({
-                    "kind": "artifact",
-                    "ref": "research/TARGET.md",
-                    "why": "target evidence",
-                },),
-                stage_closing=True,
-                require_independent_review=True,
-            ),
-            SimpleNamespace(
-                key="dependent-node",
-                deps=("target-node",),
-                title="Finish nested replay",
-                objective="Finish only after the target stage attempt settles.",
-                vertical="nested_replay",
-                execution_workdir="target",
-            ),
+    memory.backlog.add_many([
+        first,
+        BacklogItem.new(
+            title="Finish nested replay",
+            objective="Finish only after the target stage attempt settles.",
+            tags=[
+                "manager", "planner", "bounded_dag_node", "scope:bounded",
+                "review:required", "stage:target_scope",
+            ],
+            plan_id="bounded-legacy",
+            plan_version=1,
+            node_key="dependent-node",
+            deps=[first.id],
+            execution_workdir=str(target.resolve()),
+            manager_decision={"routed": True, "vertical": "nested_replay", "route_source": "planner"},
         ),
-    )
-    monkeypatch.setattr(dispatch, "_plan_bounded_execution", lambda *a, **k: plan)
+    ])
 
     policy_calls: list[dict[str, object]] = []
 
@@ -363,11 +322,6 @@ def test_enqueue_to_supervisor_uses_nested_node_contract_root(
         _capture_policy,
     )
 
-    item, _, _ = dispatch.enqueue_mission(
-        memory,
-        "replay nested target",
-        {"backend": "codex"},
-    )
     mission_manager = _Manager()
     runner = _ProductionRunnerProbe(
         workdir=base,
@@ -388,12 +342,6 @@ def test_enqueue_to_supervisor_uses_nested_node_contract_root(
     result = supervisor.tick()
 
     assert result is not None and result["status"] == "done"
-    assert item is not None
-    assert item.execution_workdir == str(target.resolve())
-    assert "stage:target_scope" in item.tags
-    assert item.context_refs[0]["content_hash"] == (
-        "sha256:" + hashlib.sha256(artifact.read_bytes()).hexdigest()
-    )
     assert policy_calls == [{
         "vertical_root": target.resolve(),
         "project_root": target.resolve(),

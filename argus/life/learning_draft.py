@@ -6,10 +6,10 @@ normal discovery. A concurrent edit causes a retryable conflict, not lost work.
 """
 from __future__ import annotations
 
-import hashlib
 import os
 import re
 import tempfile
+import time
 from pathlib import Path
 
 import yaml
@@ -146,8 +146,10 @@ class LearningDraft:
                 target = self.roots[name] / relative
                 previous = self.before[name].get(relative)
                 if previous is not None:
-                    digest = hashlib.sha256(previous.encode()).hexdigest()[:16]
-                    history = self.roots[name] / ".history" / relative.parent / f"{relative.stem}.{digest}.md"
+                    history = (
+                        self.roots[name] / ".history" / relative.parent
+                        / f"{relative.stem}.{time.time_ns()}.md"
+                    )
                     _replace(history, previous)
                 _replace(target, content)
                 published.append((name, relative))

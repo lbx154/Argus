@@ -5,17 +5,17 @@ import re
 from pathlib import Path
 
 from ..core import paths as core_paths
+from ..core.project import is_state_directory_name
 
-_PROJECT_FINGERPRINT_RE = re.compile(r"^[0-9a-f]{12}$")
+# 迁移专用，下个版本删除: the names project directories had before they were escaped paths.
+_LEGACY_NAME_RE = re.compile(r"^[0-9a-f]{12}$")
 
 
 def looks_like_project_life_dir(path: Path) -> bool:
-    """Return True when ``path`` already points at ``.../projects/<fingerprint>``."""
+    """Return True when ``path`` already points at ``.../projects/<state directory>``."""
     path = core_paths.resolve_runtime_path(path, context="--life-dir")
-    return (
-        path.parent.name == "projects"
-        and bool(path.name)
-        and bool(_PROJECT_FINGERPRINT_RE.fullmatch(path.name))
+    return path.parent.name == "projects" and (
+        is_state_directory_name(path.name) or bool(_LEGACY_NAME_RE.fullmatch(path.name))
     )
 
 

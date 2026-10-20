@@ -14,11 +14,6 @@ _MODE_LINES = {
         f"`{GROUND_TRUTH_RELPATH}` only when a shared factual record helps; do not "
         "create extra research scaffolding."
     ),
-    "proportional": (
-        "Verify the current claim or delta and reuse reviewed evidence unless a "
-        "dependency changed or conflicts. Do not rebuild snapshots, manifests, or "
-        "audit packets by default."
-    ),
 }
 
 _ROLE_LINES = {

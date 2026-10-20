@@ -104,7 +104,6 @@ independent reviews** before one selector:
 | --- | --- |
 | [`idea_portfolio.py`](../argus/verticals/research/idea_portfolio.py) | Forms the fixed source-only route/review portfolio and admits one selector only after all 24 tasks finish |
 | [`venue_research.py`](../argus/verticals/research/venue_research.py) | A venue's official submission facts, fetched rather than recalled |
-| [`frontier_watch.py`](../argus/verticals/kernel_engineering/frontier_watch.py) | Persists and validates continuous frontier search per stage, across the target repository, official toolchains, and the research frontier |
 
 **The general lesson.** Anything the agent knows from pretraining is, by
 construction, out of date. Where recency matters, the runtime must force a lookup
@@ -267,8 +266,8 @@ limitations, prefers "inconclusive," and is markedly more comfortable reporting
 what failed than stating a success the evidence actually supports.
 
 **Why it happens.** The same load-bearing wall that lets a human leave the room.
-The Reviewer is deliberately weak — read-only, able to return `blocked`, unable
-to certify its own work — and it is instructed to
+The Reviewer is deliberately cautious — able to return `blocked`, unable to
+certify its own work — and it is instructed to
 [treat honest negative or null results as evidence](../argus/builtin_skills/reviewer/argus-reviewer-role.md),
 not as failure. That is correct, and it is why the system's numbers can be
 trusted. But an asymmetric penalty on overclaiming, with no corresponding
@@ -298,7 +297,7 @@ and "need not win on every seed, benchmark, or strongest baseline."
 loop and make underclaiming reviewable, but they do not create an *appetite* for
 success. Nothing in the system rewards an ambitious claim that turns out to be
 right more than it rewards a cautious claim that turns out to be unnecessary. The
-penalty for overclaiming is structural — a read-only Reviewer that can return
+penalty for overclaiming is structural — an independent Reviewer that can return
 `blocked` — while the penalty for underclaiming is a checklist question someone
 has to remember to weigh. Until that asymmetry is corrected on both sides, the
 default posture stays under-confident, and a human still has to push the system

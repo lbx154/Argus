@@ -234,7 +234,6 @@ def test_a_verbatim_live_model_reply_routes() -> None:
     prompt. This is the actual text the model produced, unedited.
     """
     from argus.manager.domain_author import parse_fast_vertical_decision
-    from argus.skills import vertical_select
 
     reply = (
         "CHOICE=existing\n"
@@ -250,7 +249,7 @@ def test_a_verbatim_live_model_reply_routes() -> None:
     )
 
     route = parse_fast_vertical_decision(
-        reply, known_verticals=vertical_select.VERTICALS
+        reply, known_verticals=("kernel_engineering",)
     )
 
     assert route is not None
@@ -268,12 +267,11 @@ def test_a_daemon_still_answering_in_json_is_not_broken() -> None:
     breaking one for every run already in progress.
     """
     from argus.manager.domain_author import parse_fast_vertical_decision
-    from argus.skills import vertical_select
 
     route = parse_fast_vertical_decision(
         '{"choice":"existing","vertical":"kernel_engineering",'
         '"workflow_mode":"direct","confidence":0.9,"rationale":"x"}',
-        known_verticals=vertical_select.VERTICALS,
+        known_verticals=("kernel_engineering",),
     )
 
     assert route is not None and route.vertical == "kernel_engineering"

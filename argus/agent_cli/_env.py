@@ -21,8 +21,6 @@ _DEFAULT_CAPTURE_STDOUT_LINES = 512
 _DEFAULT_CAPTURE_STDERR_LINES = 256
 _DEFAULT_CAPTURE_JSON_EVENTS = 2048
 _DEFAULT_STREAM_QUEUE_LINES = 4096
-_ENGINEER_TURN_MAX_SECONDS_ENV = "ARGUS_SKILL_ENGINEER_TURN_MAX_SECONDS"
-_DEFAULT_ENGINEER_TURN_MAX_SECONDS = 0
 # An operator can opt into per-call context rotation. By default there is no
 # fixed interaction-count ceiling: Engineer finishes a meaningful increment
 # and the independent Reviewer decides whether the task is complete.
@@ -32,12 +30,8 @@ _DEFAULT_PROVIDER_TURN_CAP = 0
 # very conversation that just used its whole allowance, so it gets only a small
 # allowance of its own.
 _WIND_DOWN_PROVIDER_TURN_ALLOWANCE = 8
-_SCIENTIST_TURN_MAX_SECONDS_ENV = "ARGUS_SKILL_SCIENTIST_TURN_MAX_SECONDS"
-_DEFAULT_SCIENTIST_TURN_MAX_SECONDS = 0
-_MANAGER_TURN_MAX_SECONDS_ENV = "ARGUS_SKILL_MANAGER_TURN_MAX_SECONDS"
-_DEFAULT_MANAGER_TURN_MAX_SECONDS = 0
 # These labels sit inside the synchronous Manager request even though they use
-# older or role-specific names. An operator may still give them an explicit cap.
+# older or role-specific names.
 _SYNCHRONOUS_MANAGER_TURN_LABELS = frozenset(
     {
         "chat-1",
@@ -77,26 +71,6 @@ def _is_manager_turn_label(run_label: str | None) -> bool:
     return (
         label.startswith(("manager-", "manager."))
         or label in _SYNCHRONOUS_MANAGER_TURN_LABELS
-    )
-
-
-def _turn_wall_clock_seconds(run_label: str | None) -> int:
-    label = str(run_label or "").strip().lower()
-    if _is_manager_turn_label(label):
-        return _nonnegative_env_int(
-            _MANAGER_TURN_MAX_SECONDS_ENV,
-            _DEFAULT_MANAGER_TURN_MAX_SECONDS,
-        )
-    if label == "scientist.skill_distill":
-        return _nonnegative_env_int(
-            _SCIENTIST_TURN_MAX_SECONDS_ENV,
-            _DEFAULT_SCIENTIST_TURN_MAX_SECONDS,
-        )
-    if not (label.startswith("engineer") or label == "main"):
-        return 0
-    return _nonnegative_env_int(
-        _ENGINEER_TURN_MAX_SECONDS_ENV,
-        _DEFAULT_ENGINEER_TURN_MAX_SECONDS,
     )
 
 

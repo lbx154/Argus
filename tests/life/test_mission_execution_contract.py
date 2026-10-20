@@ -162,22 +162,6 @@ def test_intentional_hold_continues_and_publishes_before_next_attempt(tmp_path, 
     assert len(UsageLedger(memory.root, migrate_legacy=False).records()) == 2
 
 
-def test_repeated_hold_is_bounded_across_supervisor_restart(tmp_path, monkeypatch):
-    monkeypatch.setenv("ARGUS_SKILL_CONSECUTIVE_REPLAN_ESCALATION_THRESHOLD", "2")
-    outcome = _Outcome(True, "done", stage_transition={
-        "action": "hold", "diagnostic": "intentional_hold", "reason": "Need broader evidence",
-    })
-    supervisor, memory, item, runner, sink, _ = _mission(tmp_path, monkeypatch, outcome)
-    assert supervisor._run_one(item)["status"] == "stage_continues"
-    restarted = LifeSupervisor(memory=LifeMemory.open(memory.root), runner=runner,
-                               sink=sink, config=supervisor.config)
-    second = restarted._run_one(next(row for row in memory.backlog.all() if row.id == item.id))
-    assert second["status"] == "no_progress"
-    assert "2 attempts" in second["stop_reason"]
-    assert sink.completions[-1][1] == "failed"
-    assert sink.completions[-1][0]["resumable"] is False
-
-
 def test_hold_with_operator_question_waits_instead_of_repeating(tmp_path, monkeypatch):
     outcome = _Outcome(True, "done", stage_transition={
         "action": "hold", "diagnostic": "intentional_hold", "reason": "Need authorization",
@@ -191,18 +175,16 @@ def test_hold_with_operator_question_waits_instead_of_repeating(tmp_path, monkey
     assert len(sink.completions) == 1
 
 
-def test_measured_progress_allows_multiple_passes_within_one_stage(tmp_path, monkeypatch):
-    monkeypatch.setenv("ARGUS_SKILL_CONSECUTIVE_REPLAN_ESCALATION_THRESHOLD", "2")
+def test_repeated_hold_keeps_passing_within_one_stage(tmp_path, monkeypatch):
     outcome = _Outcome(True, "done", stage_transition={
         "action": "hold", "diagnostic": "intentional_hold", "reason": "Continue extending coverage",
     })
-    outcome.final_planner_report = {"forward_progress": True}
     supervisor, memory, item, _, _, _ = _mission(tmp_path, monkeypatch, outcome)
-    for _ in range(3):
+    for _ in range(4):
         stored = next(row for row in memory.backlog.all() if row.id == item.id)
         assert supervisor._run_one(stored)["status"] == "stage_continues"
     stored = next(row for row in memory.backlog.all() if row.id == item.id)
-    assert stored.consecutive_replans == 0
+    assert stored.status == "pending"
 
 
 def test_superseded_outcome_is_metered_without_settling_replacement(tmp_path, monkeypatch):

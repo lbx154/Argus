@@ -18,7 +18,6 @@ See docs/building-a-vertical.md for the walk-through.
 from __future__ import annotations
 
 import argparse
-import hashlib
 import json
 import re
 import sys
@@ -79,7 +78,6 @@ def main(argv: list[str] | None = None) -> int:
                 "archive": {
                     "file": archive_name,
                     "url": archive.as_uri(),
-                    "sha256": hashlib.sha256(data).hexdigest(),
                     "size": len(data),
                 },
             }

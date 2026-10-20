@@ -3,28 +3,29 @@
 Every ``AgentCliBackend.run_exec`` call optionally persists a durable JSONL
 trail (start/stream/complete/usage/budget events) alongside the live
 event-callback forwarding used for progress display. This module owns that
-concern: the env-configurable knobs (log path, mode, batch size, flush
-interval), the low-level JSONL append helpers, and :class:`AgentIOLogger`,
-which encapsulates the per-call "current io context" state (buffer, locks,
-external callback) that used to live directly on ``AgentCliBackend``.
+concern: the env-configurable knobs (batch size, flush interval), the
+low-level JSONL append helpers, and :class:`AgentIOLogger`, which encapsulates
+the per-call "current io context" state (buffer, locks, external callback)
+that used to live directly on ``AgentCliBackend``.
+
+The raw transcript names a call once: its ``agent.io.start`` row carries the
+identity (run label, backend, model, prompt); each frame after it is only
+``call_id``, ``stream``, ``line`` and ``ts``. Older transcripts repeated the
+identity on every row; ``life.event_log.iter_call_events`` reads both.
 """
 from __future__ import annotations
 
 import json
-import logging
 import os
 import threading
 import time
 from pathlib import Path
 from typing import Any
 
-from ...core.event_catalog import EventType, normalize_event_envelope
+from ...agent_cli.agent_cli_runner import AgentCliRunner
+from ...core.event_catalog import normalize_event_envelope
 from ...core.secret_guard import redact_secrets_record, redact_secrets_text
 
-log = logging.getLogger(__name__)
-
-_AGENT_IO_LOG_ENV = "ARGUS_SKILL_AGENT_IO_LOG"
-_AGENT_IO_MODE_ENV = "ARGUS_SKILL_AGENT_IO_MODE"
 _AGENT_IO_BATCH_BYTES_ENV = "ARGUS_SKILL_AGENT_IO_BATCH_BYTES"
 _AGENT_IO_FLUSH_INTERVAL_ENV = "ARGUS_SKILL_AGENT_IO_FLUSH_INTERVAL_S"
 # ``agent_io.jsonl`` is the verbatim provider transcript — a DEBUG artifact.
@@ -93,37 +94,34 @@ _PROGRESS_STREAM_MARKERS = (
 )
 
 
-def _agent_io_mode(run_label: str) -> str:
-    """Persistence mode: full-once (default) or summary-only compact."""
-    mode = os.environ.get(_AGENT_IO_MODE_ENV, "full").strip().lower()
-    if mode in {"compact", "summary", "off"}:
-        return "compact"
-    return "full"
+# What the transcript leaves out beyond the frames the runner already drops as
+# transport (``retain_json_event``: Copilot's ``*_delta`` and growing partial
+# tool results, Pi's per-token updates and aggregate turn/agent ends). Pi's
+# partial tool result is repeated whole by ``tool_execution_end``, Copilot's
+# message start only opens a run of deltas; the rest is Copilot housekeeping
+# that says nothing of what the agent did. Codex and Claude streams carry
+# neither kind. Live progress still sees every frame.
+_UNSAVED_FRAMES = frozenset({
+    "tool_execution_update",
+    "assistant.message_start", "assistant.idle",
+    "session.mcp_servers_loaded", "session.mcp_server_status_changed",
+    "session.mcp_server_tools_loaded", "session.tools_updated",
+    "model.call_start", "model.call_finished", "model.call_final_result",
+})
 
 
-def _user_message_content(line: str) -> str | None:
-    """Extract a CLI JSONL user-message echo, if this line is one."""
+def _saved_frame(line: str, prompt: str) -> bool:
     try:
-        event = json.loads(str(line or ""))
-    except (json.JSONDecodeError, TypeError, ValueError):
-        return None
-    if not isinstance(event, dict) or event.get("type") != "user.message":
-        return None
-    data = event.get("data")
-    if not isinstance(data, dict):
-        return None
-    content = data.get("content")
-    return content if isinstance(content, str) else None
-
-
-def _positive_int_env(name: str, default: int) -> int:
-    raw = os.environ.get(name, "").strip()
-    if not raw:
-        return default
-    try:
-        return max(1, int(raw))
+        event = json.loads(line)
     except ValueError:
-        return default
+        return True
+    if not isinstance(event, dict):
+        return True
+    if event.get("type") == "user.message":
+        # agent.io.start already holds the prompt the CLI echoes back.
+        data = event.get("data")
+        return not (isinstance(data, dict) and data.get("content") == prompt)
+    return event.get("type") not in _UNSAVED_FRAMES and AgentCliRunner.retain_json_event(event)
 
 
 def _positive_float_env(name: str, default: float) -> float:
@@ -243,10 +241,10 @@ def _jsonl_append_lines(
 class AgentIOLogger:
     """Owns the per-``AgentCliBackend`` I/O logging state across one call.
 
-    ``AgentCliBackend`` is serial by contract (one call at a time), but a
-    warm ACP client can still emit stream frames from its own reader
-    thread, so the "current call" context and its raw-stream buffer are
-    guarded by an ``RLock`` shared with the plain append lock.
+    ``AgentCliBackend`` is serial by contract (one call at a time). The
+    "current call" context and its raw-stream buffer are still guarded by an
+    ``RLock`` shared with the plain append lock, so a frame delivered from
+    another thread never sees a half-switched call.
     """
 
     def __init__(self, *, external_event_callback: Any | None = None) -> None:
@@ -261,21 +259,14 @@ class AgentIOLogger:
         call_id: str,
         run_label: str,
         log_path: Path | None,
-        model: str | None,
         prompt: str,
     ) -> dict[str, Any]:
-        io_mode = _agent_io_mode(run_label)
         context: dict[str, Any] = {
             "call_id": call_id,
             "run_label": run_label,
-            "log_path": str(log_path) if log_path is not None else "",
             "raw_log_path": (
-                str(raw_transcript_path(log_path))
-                if log_path is not None and io_mode == "full"
-                else ""
+                str(raw_transcript_path(log_path)) if log_path is not None else ""
             ),
-            "model": model,
-            "mode": io_mode,
             "original_prompt": prompt,
             "buffer": [],
             "buffer_bytes": 0,
@@ -305,21 +296,8 @@ class AgentIOLogger:
         context: dict[str, Any],
         path: Path,
         row: dict[str, Any],
-        *,
-        known_secret_values: Any,
     ) -> None:
-        safe_row = redact_secrets_record(
-            normalize_event_envelope(row),
-            known_values=known_secret_values,
-        )
-        try:
-            line = json.dumps(
-                safe_row,
-                ensure_ascii=False,
-                separators=(",", ":"),
-            )
-        except (TypeError, ValueError):
-            return
+        line = json.dumps(row, ensure_ascii=False, separators=(",", ":"))
         flush_lines: list[str] = []
         now = time.monotonic()
         with self.io_context_lock:
@@ -367,27 +345,13 @@ class AgentIOLogger:
         stream: str,
         line: str,
         *,
-        backend_name: str,
         known_secret_values: Any,
     ) -> None:
         with self.io_context_lock:
             context = self.io_context
         ctx = context or {}
         log_path = str(ctx.get("raw_log_path") or "")
-        io_mode = str(ctx.get("mode") or "compact")
-        prompt_echo = (
-            _user_message_content(line)
-            if '"user.message"' in str(line or "")
-            else None
-        )
-        duplicate_prompt = bool(
-            prompt_echo is not None
-            and prompt_echo == str(ctx.get("original_prompt") or "")
-        )
-        # The complete prompt is already stored in agent.io.start. Most CLIs
-        # echo that same prompt as user.message; keep exactly one copy while
-        # preserving every non-identical raw frame.
-        persist_raw = bool(log_path and io_mode == "full" and not duplicate_prompt)
+        persist_raw = bool(log_path) and _saved_frame(line, str(ctx.get("original_prompt") or ""))
         run_label = str(ctx.get("run_label") or stream.rsplit(".", 1)[0])
         forward_live = (
             self.external_event_callback is not None
@@ -404,23 +368,10 @@ class AgentIOLogger:
             known_values=known_secret_values,
         )
         if persist_raw:
-            if context is None:
-                raise RuntimeError("raw stream persistence requires an I/O context")
-            self.buffer_stream(
-                context,
-                Path(log_path),
-                {
-                    "type": EventType.AGENT_IO_STREAM,
-                    "io_kind": "stream",
-                    "call_id": ctx.get("call_id"),
-                    "run_label": ctx.get("run_label"),
-                    "backend": backend_name,
-                    "model": ctx.get("model"),
-                    "stream": canonical_stream,
-                    "line": safe_line,
-                    "ts": time.time(),
-                },
-                known_secret_values=known_secret_values,
-            )
+            # A raw path exists only inside a call, so ``ctx`` is its context.
+            self.buffer_stream(ctx, Path(log_path), {
+                "call_id": ctx["call_id"], "stream": canonical_stream,
+                "line": safe_line, "ts": time.time(),
+            })
         if forward_live and self.external_event_callback is not None:
             self.external_event_callback(stream, safe_line)

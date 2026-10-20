@@ -26,11 +26,10 @@
     "policy": {
       "type": "object",
       "additionalProperties": false,
-      "required": ["version", "skill_sha256", "implementation_sha256"],
+      "required": ["version", "bytes"],
       "properties": {
         "version": {"type": "string"},
-        "skill_sha256": {"$ref": "#/$defs/sha256"},
-        "implementation_sha256": {"$ref": "#/$defs/sha256"}
+        "bytes": {"type": "object", "additionalProperties": {"type": "integer", "minimum": 0}}
       }
     },
     "snapshots": {
@@ -65,11 +64,12 @@
           "type": "array",
           "items": {
             "type": "object", "additionalProperties": false,
-            "required": ["reference", "mode", "oid"],
+            "required": ["reference", "mode", "oid", "size"],
             "properties": {
               "reference": {"type": "string"},
               "mode": {"type": "string"},
-              "oid": {"$ref": "#/$defs/git_sha"}
+              "oid": {"$ref": "#/$defs/git_sha"},
+              "size": {"type": ["integer", "null"], "minimum": 0}
             }
           }
         }
@@ -82,10 +82,9 @@
       "items": {
         "type": "object",
         "additionalProperties": false,
-        "required": ["path", "sha256", "base64"],
+        "required": ["path", "base64"],
         "properties": {
           "path": {"type": "string"},
-          "sha256": {"$ref": "#/$defs/sha256"},
           "base64": {"type": "string"}
         }
       }
@@ -101,7 +100,6 @@
     }
   },
   "$defs": {
-    "git_sha": {"type": "string", "pattern": "^[0-9a-f]{40}$"},
-    "sha256": {"type": "string", "pattern": "^[0-9a-f]{64}$"}
+    "git_sha": {"type": "string", "pattern": "^[0-9a-f]{40}$"}
   }
 }

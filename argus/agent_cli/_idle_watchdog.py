@@ -9,6 +9,21 @@ STALLED_STAGE = "stalled"
 TERMINATE_STAGE = "terminate"
 
 
+def requested_restart(decision: object, *, idle_seconds: float, running_tool: str) -> str:
+    """The stop reason when an inactivity callback asked for a restart, else "".
+
+    The callback answers ``"restart"`` or ``"restart: <who decided, and why>"``.
+    """
+    verb, _, why = str(decision or "").partition(":")
+    if verb.strip() != "restart":
+        return ""
+    tool = f"; running tool: {running_tool}" if running_tool else ""
+    return (
+        f"Forced restart after {int(idle_seconds)}s without progress "
+        f"({why.strip() or 'restart requested'}{tool})"
+    )
+
+
 @dataclass
 class IdleEscalation:
     """Emit each configured idle stage once until real activity resumes."""

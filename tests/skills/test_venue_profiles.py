@@ -77,7 +77,6 @@ def test_no_builtin_venue_profiles_exist() -> None:
 def test_from_dict_round_trip_and_defaults() -> None:
     p = VenueProfile.from_dict(_RESEARCHED_CONFERENCE)
     assert p.key == "AAAI"
-    assert p.has_fixed_page_budget is True
     assert (p.conclusion_underfill_page, p.conclusion_max_page, p.references_min_page) == (6, 7, 8)
     assert p.emit_bibliographystyle is False
     assert p.forbidden_packages == ("hyperref", "navigator")
@@ -91,10 +90,8 @@ def test_from_dict_round_trip_and_defaults() -> None:
 
 def test_from_dict_journal_profile_without_page_budget() -> None:
     p = VenueProfile.from_dict(_RESEARCHED_JOURNAL)
-    assert p.has_fixed_page_budget is False
     assert p.two_column is False
     assert p.main_text_word_limit == 12000
-    assert "12,000" in p.page_budget_line()
 
 
 def test_from_dict_rejects_bad_payloads() -> None:

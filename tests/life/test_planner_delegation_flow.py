@@ -384,7 +384,7 @@ def _kernel_supervisor(
         ),
         planner_runner=planner,
     )
-    persist_vertical(life, "kernel_engineering", workflow_mode="staged")
+    persist_vertical(life, "optimize_lab", workflow_mode="staged")
     supervisor._vertical_resolved = True
     supervisor._planner_config = lambda: PlannerConfig(  # type: ignore[method-assign]
         working_dir=str(project),
@@ -395,6 +395,7 @@ def _kernel_supervisor(
 
 
 def test_direct_kernel_workflow_does_not_generate_scope_bundle(
+    optimize_vertical: str,
     tmp_path: Path,
 ) -> None:
     project = tmp_path / "project"
@@ -415,7 +416,7 @@ def test_direct_kernel_workflow_does_not_generate_scope_bundle(
         ])
     ])
     supervisor = _kernel_supervisor(project, life, planner)
-    persist_vertical(life, "kernel_engineering", workflow_mode="direct")
+    persist_vertical(life, optimize_vertical, workflow_mode="direct")
 
     assert supervisor._plan_next_work() is True
 
@@ -554,6 +555,7 @@ def test_continuous_reload_rejects_malformed_provider_tuple(caplog) -> None:
 
 
 def test_task_policy_uses_isolated_stage_and_execution_evidence_root(
+    optimize_vertical: str,
     tmp_path: Path,
 ) -> None:
     project = tmp_path / "project"
@@ -565,7 +567,7 @@ def test_task_policy_uses_isolated_stage_and_execution_evidence_root(
     (research / "frontier" / "scope.json").write_text("{}\n", encoding="utf-8")
     # Deliberately stale workspace state must not override Manager-owned state.
     (research / "PIPELINE_STATE.json").write_text(
-        json.dumps({"vertical": "kernel_engineering", "current_stage": "optimize"}),
+        json.dumps({"vertical": optimize_vertical, "current_stage": "optimize"}),
         encoding="utf-8",
     )
     attempt = project / "attempts" / "winner"
@@ -748,7 +750,6 @@ def _assert_replan_replace_commits_after_source_terminalized(
                     "The source node completed enough evidence to refute itself."
                 ),
                 final_planner_report={
-                    "forward_progress": True,
                     "plan_signal": "reconsider",
                     "challenge": "The source route is now worse than the replacement.",
                     "alternative": "Commit the replacement route.",
@@ -807,7 +808,8 @@ def _assert_replan_replace_commits_after_source_terminalized(
     outcome = supervisor._run_one(trigger)
 
     rows_after_run = {item.id: item for item in supervisor.memory.backlog.all()}
-    assert rows_after_run["source-route"].status == "failed"
+    # The Manager's ruling on the challenge, not a progress bit, retires it.
+    assert rows_after_run["source-route"].status == "pending"
     assert outcome["status"] == "replan_requested"
     assert outcome["plan_revision_witness"]["active_item_ids"] == [
         "source-route",
@@ -863,7 +865,7 @@ def test_replan_replace_commits_after_version_zero_source_terminalized(
 def test_forbidden_questions_request_revision_within_existing_authority(
     tmp_path: Path,
 ) -> None:
-    from argus.manager.directive import set_active_manager_directive
+    from argus.core.knob_store import write_persisted_knob
 
     project = tmp_path / "project"
     project.mkdir()
@@ -872,11 +874,7 @@ def test_forbidden_questions_request_revision_within_existing_authority(
         title="Repair the environment",
         objective="Resolve the reversible environment issue.",
     ))
-    set_active_manager_directive(
-        supervisor.memory.root,
-        "continue without asking",
-        operator_question_policy="forbid",
-    )
+    write_persisted_knob("ARGUS_SKILL_OPERATOR_AVAILABLE", "0")
     outcome = {
         "item_id": item.id,
         "status": "replan_requested",
@@ -929,19 +927,20 @@ def test_forbidden_questions_request_revision_within_existing_authority(
 
 
 @pytest.mark.parametrize(
-    "alternative",
+    ("alternative", "need"),
     [
-        "Use the operator's API credentials.",
-        "Purchase additional compute capacity.",
-        "Force-push the protected release branch.",
+        ("Use the operator's API credentials.", "credentials"),
+        ("Purchase additional compute capacity.", "spending"),
+        ("Force-push the protected release branch.", "irreversible_or_external"),
     ],
     ids=["credentials", "spending", "irreversible"],
 )
-def test_forbidden_questions_block_out_of_scope_operator_alternative(
+def test_forbidden_questions_park_an_out_of_scope_alternative_for_the_manager(
     tmp_path: Path,
     alternative: str,
+    need: str,
 ) -> None:
-    from argus.manager.directive import set_active_manager_directive
+    from argus.core.knob_store import write_persisted_knob
 
     project = tmp_path / "project"
     project.mkdir()
@@ -950,11 +949,7 @@ def test_forbidden_questions_block_out_of_scope_operator_alternative(
         title="Operator-owned boundary",
         objective="Proceed only within existing authority.",
     ))
-    set_active_manager_directive(
-        supervisor.memory.root,
-        "continue without asking",
-        operator_question_policy="forbid",
-    )
+    write_persisted_knob("ARGUS_SKILL_OPERATOR_AVAILABLE", "0")
     outcome = {
         "item_id": item.id,
         "status": "replan_requested",
@@ -965,6 +960,7 @@ def test_forbidden_questions_block_out_of_scope_operator_alternative(
             "challenge": "The current plan reaches an operator-owned boundary.",
             "alternative": alternative,
             "authority_impact": "operator",
+            "operator_need": need,
         },
         "plan_challenge": {
             "manager_action": "ask_operator",
@@ -980,30 +976,14 @@ def test_forbidden_questions_block_out_of_scope_operator_alternative(
 
     action = supervisor._adjudicate_mission_challenge(outcome)
 
-    assert action == "blocked"
-    assert outcome["status"] == "blocked"
-    assert outcome["operator_question"] == ""
-    assert outcome["operator_options"] == []
-    assert outcome["planner_report"]["authority_impact"] == "operator"
-    assert "alternative" not in outcome["planner_report"]
-    challenge = outcome["plan_challenge"]
-    assert challenge["manager_action"] == "blocked"
-    assert challenge["authority_impact"] == "operator"
-    assert challenge["alternative"] == ""
-    assert challenge["operator_question"] == ""
+    # Questions are forbidden, so the Manager holds the operator's authority:
+    # the alternative parks as a question it decides in their place.
+    assert action == "ask_operator"
     persisted = next(
         row for row in supervisor.memory.backlog.all() if row.id == item.id
     )
-    assert persisted.status == "failed"
-    assert persisted.pending_question == ""
-    assert persisted.operator_decision == {}
-    events = [
-        json.loads(line)
-        for line in (supervisor.memory.root / "events.jsonl").read_text().splitlines()
-    ]
-    assert not any(
-        event["type"] == "life.operator_question.pending" for event in events
-    )
+    assert persisted.status == "paused_operator"
+    assert persisted.operator_decision["status"] == "pending"
 
 
 def test_new_continuous_generation_interrupts_obsolete_planner(tmp_path: Path) -> None:
@@ -1038,6 +1018,7 @@ def test_new_continuous_generation_interrupts_obsolete_planner(tmp_path: Path) -
 
 
 def test_split_memory_planner_resolves_vertical_from_project_state(
+    optimize_vertical: str,
     tmp_path: Path,
 ) -> None:
     worktree = tmp_path / "worktree"
@@ -1060,7 +1041,7 @@ def test_split_memory_planner_resolves_vertical_from_project_state(
     )
     persist_vertical(
         project_memory.root,
-        "kernel_engineering",
+        optimize_vertical,
         workflow_mode="direct",
     )
     supervisor = LifeSupervisor(
@@ -1090,7 +1071,7 @@ def test_split_memory_planner_resolves_vertical_from_project_state(
     assert config.state_root == str(project_memory.root)
     assert config.role_session_path == project_memory.root / "role-sessions" / "planner.json"
     assert str(global_root) not in config.add_dirs
-    assert "fill spare mission slots" in prompt
+    assert "optimize_lab planner banner" in prompt
 
 
 def test_research_planner_is_granted_the_playbook_its_prompt_names(

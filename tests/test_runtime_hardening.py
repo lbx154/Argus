@@ -34,9 +34,8 @@ def test_azure_image_calls_are_metered(
         provider="azure_openai",
         wire_api="images",
     )
-    payload = {"prompt": "draw a system", "model": "gpt-image-2"}
-    image_api._reserve_image_call(route, payload, attempt_index=0)
-    image_api._reserve_image_call(route, payload, attempt_index=1)
+    image_api._reserve_image_call(route, attempt_index=0)
+    image_api._reserve_image_call(route, attempt_index=1)
     rows = [json.loads(line) for line in ledger.read_text().splitlines()]
     assert len(rows) == 2
     assert all("prompt" not in row and "api_key" not in row for row in rows)

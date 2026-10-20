@@ -1,5 +1,7 @@
 # Architecture audit
 
+> Note (2026-10): the SHA-256 helpers this snapshot names (for example `_sha256_prompt_file`) have since been removed from Argus.
+
 > Heuristic findings are review candidates, not automatic defects. Preserve justified security, recovery, compatibility, and integrity boundaries.
 
 - Maintained files scanned: 5277

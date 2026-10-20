@@ -74,10 +74,10 @@ Content-Type: application/json
 
 `POST /api/ideation/runs` 将画像与指定会议、deadline、资源、source binding 和可自定义
 终止目标编译在一起，并在 run ledger 另行绑定 connection/provenance。
-`source_snapshot_ref` 与 `source_snapshot_sha256` 必须同时提供或同时为空；后者必须是
+`source_snapshot_ref` 与 `source_snapshot_key` 必须同时提供或同时为空；后者必须是
 恰好 64 个十六进制字符。condition schema v3 还冻结最初的团队条件原文与摘要；其 `source_context` 只保存
-`operator_snapshot_bound`、对 ref 再做 SHA-256 得到的 `reference_sha256`、内容的
-`content_sha256` 与 `fresh_discovery_required`，不会把 raw ref 复制进 condition 或训练
+`operator_snapshot_bound`、对 ref 再做 SHA-256 得到的 `reference_key`、内容的
+`content_key` 与 `fresh_discovery_required`，不会把 raw ref 复制进 condition 或训练
 导出。为运行时定位，`IDEATION_OBJECTIVE.md` 本身会包含 JSON-encoded raw ref；因此 ref
 不能包含 secret。Argus 使用前必须逐字节验证 content SHA-256，不匹配即 `BLOCKED`；
 匹配后保留原 packet，并以另一个版本化 freshness delta 补充新发现，不能静默替换。
@@ -99,7 +99,7 @@ Content-Type: application/json
   "finalist_count": 5,
   "completion_target": "Return a falsifiable portfolio; NO_WINNER is acceptable.",
   "source_snapshot_ref": "artifact://reviewed-source-packet",
-  "source_snapshot_sha256": "<exactly-64-hex-sha256>",
+  "source_snapshot_key": "<exactly-64-hex-sha256>",
   "create_campaign": true,
   "preflight_attestations": {
     "compute_inventory_and_capacity_verified": true,
@@ -117,7 +117,7 @@ runtime/ideation-objectives/<objective-sha256>/
   IDEATION_OBJECTIVE.md
 ```
 
-数据库的 `ideation_runs.condition_snapshot`、`objective_sha256`、source snapshot 引用和
+数据库的 `ideation_runs.condition_snapshot`、`objective_key`、source snapshot 引用和
 可选 `campaign_id` 构成溯源链。若 `create_campaign=true`，只创建
 `campaign_kind=conditioned_ideation` 的 **idle Campaign**；它不会因 run 创建而启动
 Argus。真实 Start 仍需单独提交 `human_approved=true`、非空 `approval_reason` 和
