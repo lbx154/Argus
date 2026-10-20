@@ -439,7 +439,7 @@ def test_bounded_completed_campaign_stops_before_planner_cycle(
     monkeypatch.setattr(
         supervisor,
         "_manager_publish_project_report",
-        lambda _reason: "reported",
+        lambda _reason, **_kwargs: "reported",
     )
 
     result = supervisor.run()
@@ -465,7 +465,7 @@ def test_native_host_report_does_not_block_bounded_planning_or_completion(
     )
     supervisor.config.open_ended = False
     monkeypatch.setattr(
-        supervisor, "_manager_publish_project_report", lambda _reason: "reported",
+        supervisor, "_manager_publish_project_report", lambda _reason, **_kwargs: "reported",
     )
     receiver = DurableInboxReceiver(
         supervisor.memory.root, consumer="planner",
@@ -622,7 +622,7 @@ def test_completed_outbox_cannot_replay_over_new_input(
     delivered = delivery == "delivered"
     reports = []
 
-    def report(_reason):
+    def report(_reason, **_kwargs):
         reports.append(True)
         return "reported" if delivered else "pending"
 

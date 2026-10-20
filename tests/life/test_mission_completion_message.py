@@ -281,6 +281,7 @@ def test_bounded_independent_review_completion_is_natural_and_footer_free(
             "→ done"
         ),
         "independent_review_required": True,
+        "review_source": "reviewer",
         "overall_complete": True,
         "outcome": {
             "review_status": "done",
@@ -345,3 +346,26 @@ def test_continued_mission_names_the_next_queued_task(tmp_path) -> None:
         in transcript[0]["text"]
     )
     assert "Planner is selecting" not in transcript[0]["text"]
+
+
+def test_a_self_review_is_never_announced_as_an_independent_one(tmp_path) -> None:
+    memory = LifeMemory.open(tmp_path)
+    supervisor = LifeSupervisor(
+        memory=memory,
+        runner=_Runner(),
+        sink=JsonlEventSink(None, life_dir=memory.root, verbosity="full"),
+        config=LifeSupervisorConfig(continuous=False, open_ended=False),
+    )
+    append_turn(memory.root, "operator", "请实现折行函数。")
+
+    supervisor._emit({
+        "type": "life.mission.completed", "item_id": "task-self", "title": "Wrap text",
+        "success": True, "status": "done", "summary": "实现了折行函数。",
+        "independent_review_required": True, "review_source": "engineer_self_review",
+        "overall_complete": True, "outcome": {"review_status": "done"},
+    })
+
+    text = json.loads(
+        (tmp_path / "transcript.jsonl").read_text(encoding="utf-8").splitlines()[-1]
+    )["text"]
+    assert "独立审阅者" not in text
