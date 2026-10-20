@@ -212,7 +212,9 @@ def active_research_context(stage: str, project_root: Path | None) -> str:
         f"Loaded only from `{relative}`:\n\n{text.strip()}\n\n"
         "Treat this as the current upstream summary, not as permission to crawl "
         "historical files. Open an older file only if this document explicitly "
-        "names it for a concrete dispute."
+        "names it for a concrete dispute. This is the current text of "
+        f"`{relative}`: open that file only to edit it, or when this copy is "
+        "marked truncated or omits a value you need."
     )
 
 

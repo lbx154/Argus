@@ -166,3 +166,19 @@ def test_final_submission_reviewer_without_a_supplied_review_still_reads_it(
         resolved.role_banner
     )
     assert "rely on its copy under Active research context" not in resolved.role_banner
+
+
+def test_preloaded_research_context_says_when_to_reopen_its_file(tmp_path: Path) -> None:
+    # Every role that receives the notes or the review in its prompt is told
+    # the copy is current, so it opens the file only to edit it or recover
+    # text the copy lacks; an absent file still gets the "absent" wording.
+    (tmp_path / RESEARCH_NOTES_FILENAME).write_text("# Research notes\n\nThe thesis.", encoding="utf-8")
+    (tmp_path / "paper").mkdir()
+    (tmp_path / "paper" / "REVIEW.md").write_text("# Review\n\nRerun Table 3.", encoding="utf-8")
+
+    for stage, relative in (("experiment", RESEARCH_NOTES_FILENAME), ("review", "paper/REVIEW.md")):
+        block = active_research_context(stage, tmp_path)
+        assert f"This is the current text of `{relative}`: open that file only to edit it" in block
+        assert "marked truncated or omits a value you need" in block
+    (tmp_path / "paper" / "REVIEW.md").unlink()
+    assert "currently absent or empty" in active_research_context("review", tmp_path)
