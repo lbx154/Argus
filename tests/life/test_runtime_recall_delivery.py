@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import socket
+from pathlib import Path
 from types import SimpleNamespace
 
 import pytest
@@ -28,6 +29,13 @@ class OfflineBackend(MemoryBackend):
     # Exercise both fresh prompts and the actual Pi rolling-session policy,
     # while all inference remains the in-process deterministic backend.
     backend = "pi"
+
+    def run_exec(self, *, prompt, options, run_label, **kwargs):
+        if run_label.startswith("engineer"):
+            # Every Engineer turn leaves new work: none returns it unchanged.
+            with (Path(options.working_dir) / "progress.log").open("a") as log:
+                log.write(run_label + "\n")
+        return super().run_exec(prompt=prompt, options=options, run_label=run_label, **kwargs)
 
 
 class RuntimeRunner(SkillLoopExecuteMixin):

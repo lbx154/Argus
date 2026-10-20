@@ -38,8 +38,12 @@ class RoundLoopState:
 
     rounds: list[RoundRecord] = field(default_factory=list)
     # The task's workspace snapshots: its baseline, taken before the first
-    # Engineer turn, and the candidate each Reviewer is shown the diff to.
+    # Engineer turn, the candidate each Reviewer is shown the diff to, and
+    # what each holder last held the work as.
     snapshots: WorkspaceSnapshots | None = None
+    # The outside inputs (``round_self_review.outside_inputs``) the current
+    # holder was handed the work under; recorded beside its hold.
+    handed_inputs: list[object] | None = None
     # Accounts of Engineer turns that continued without any review, newest
     # last. The next Reviewer reads them beside the final turn's account; a
     # completed review clears them.
@@ -120,9 +124,8 @@ class RoundControl:
     """What the driving ``for`` loop in ``run()`` should do next.
 
     ``payload`` optionally carries a phase's non-terminal output when
-    ``action == "proceed"`` — currently only the reviewer-invocation phase
-    uses it, to hand its resulting ``ReviewDecision`` to the settlement
-    phase once a real (non-backend-failure) verdict has been obtained.
+    ``action == "proceed"``: the Engineer turn's outcome, or the Reviewer's
+    ``ReviewDecision`` once a real (non-backend-failure) verdict is in.
     """
 
     action: str  # "return" | "continue_loop" | "proceed"

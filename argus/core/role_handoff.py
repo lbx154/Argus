@@ -24,6 +24,8 @@ HANDOFF_STATUS: dict[str, ReviewStatus] = {
     "engineer": "continue", "planner": "replan_requested",
     "manager": "blocked", "operator": "blocked", "done": "done",
 }
+#: The rungs an unchanged return climbs, one at a time (invariant 3).
+LADDER = ("engineer", "reviewer", "planner", "manager", "operator")
 
 _EMPTY_VALUES = frozenset({"", "none", "n/a", "na", "null"})
 
@@ -252,6 +254,7 @@ def parse_engineer_handoff(message: str) -> EngineerHandoff:
 __all__ = [
     "FOOTER_KEYS",
     "HANDOFF_STATUS",
+    "LADDER",
     "EngineerHandoff",
     "HandoffOwner",
     "baton_lines",

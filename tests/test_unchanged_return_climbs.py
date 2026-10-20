@@ -1,0 +1,172 @@
+"""An unchanged return climbs (docs/role-handoff-design.md, "The baton", invariant 3).
+
+Work that would go back to a holder that already held it as it is now, with no
+new operator or Manager input since, is not handed to that model again: it goes
+one rung up the ladder Engineer -> Reviewer -> Planner -> Manager -> operator.
+"Unchanged" is read from the workspace snapshots and the operator ledger, on
+the task's lineage, so a new mission on the same work does not reset it.
+"""
+from __future__ import annotations
+
+from pathlib import Path
+
+import pytest
+
+from argus.adapters.memory_backend import CannedResponse, MemoryBackend
+from argus.apps._inbox import queue_inbox_message
+from argus.core.operator_context import append_directive
+from argus.engineer.runner import EngineerConfig, SupervisedConfig, SupervisedEngineer
+from argus.reviewer import Reviewer, ReviewerConfig
+
+
+def _write(workdir: Path, text: str) -> CannedResponse:
+    """An Engineer turn that changes the workspace, then hands it to the Reviewer."""
+
+    def turn(_prompt, _options) -> str:
+        (workdir / "parser.py").write_text(text, encoding="utf-8")
+        return "Changed the parser.\n→ reviewer"
+
+    return CannedResponse(message_factory=turn)
+
+
+def _review(line: str) -> CannedResponse:
+    return CannedResponse(review_action=("submit_review", {"review": f"Judged the parser.\n{line}"}))
+
+
+def _run(tmp_path: Path, backend: MemoryBackend, *, snapshots: bool = True, max_rounds: int = 6):
+    workdir = tmp_path / "work"
+    workdir.mkdir(exist_ok=True)
+    engineer = SupervisedEngineer(
+        engineer_runner=backend,
+        reviewer=Reviewer(runner=backend),
+        engineer_config=EngineerConfig(model="m"),
+        reviewer_config=ReviewerConfig(model="m"),
+    )
+    status, rounds, _final, _reason, _tid = engineer.run(
+        objective="repair the parser",
+        engineer_prompt_builder=lambda _next, _static=True: "Do the task.",
+        supervised_config=SupervisedConfig(
+            max_rounds=max_rounds,
+            operator_question_policy_root=(tmp_path / "state") if snapshots else None,
+            session_id="parser-task",
+        ),
+        workdir=workdir,
+    )
+    return status, rounds, [label for label, _prompt, _options in backend.history]
+
+
+def _state(tmp_path: Path) -> Path:
+    (tmp_path / "state").mkdir(exist_ok=True)
+    (tmp_path / "work").mkdir(exist_ok=True)
+    return tmp_path / "state"
+
+
+def test_a_turn_that_changed_nothing_goes_to_the_reviewer_not_the_engineer(tmp_path: Path) -> None:
+    _state(tmp_path)
+    backend = MemoryBackend()
+    backend.queue("engineer-r1", CannedResponse(message="Thinking it over.\n→ engineer"))
+    backend.queue("reviewer", _review("→ done"))
+
+    status, _rounds, labels = _run(tmp_path, backend)
+
+    assert labels == ["engineer-r1", "reviewer"]
+    assert status == "done"
+
+
+def test_an_unchanged_candidate_is_not_reviewed_again(tmp_path: Path) -> None:
+    _state(tmp_path)
+    backend = MemoryBackend()
+    backend.queue("engineer-r1", _write(tmp_path / "work", "v1"))
+    backend.queue("reviewer", _review("→ engineer"))
+    backend.queue("engineer-r2", CannedResponse(message="Looked again; it holds.\n→ reviewer"))
+
+    status, rounds, labels = _run(tmp_path, backend)
+
+    assert labels == ["engineer-r1", "reviewer", "engineer-r2"]
+    assert status == "replan_requested"
+    climbed = rounds[-1].review
+    assert (climbed.review_source, climbed.host_placeholder) == ("unchanged_return", "unchanged_return")
+    assert "reviewer" in climbed.reason and "planner" in climbed.reason
+
+
+def test_a_changed_candidate_is_new_work(tmp_path: Path) -> None:
+    _state(tmp_path)
+    backend = MemoryBackend()
+    backend.queue("engineer-r1", _write(tmp_path / "work", "v1"))
+    backend.queue("engineer-r2", _write(tmp_path / "work", "v2"))
+    backend.queue("reviewer", _review("→ engineer"), _review("→ done"))
+
+    status, _rounds, labels = _run(tmp_path, backend)
+
+    assert labels == ["engineer-r1", "reviewer", "engineer-r2", "reviewer"]
+    assert status == "done"
+
+
+@pytest.mark.parametrize("arrives", [
+    lambda state: append_directive(state, "Keep the old date format.", expected_revision=0),
+    lambda state: queue_inbox_message(state, "Keep the old date format.", source="operator"),
+], ids=["directive", "note"])
+def test_new_operator_input_is_new_work(tmp_path: Path, arrives) -> None:
+    state = _state(tmp_path)
+    backend = MemoryBackend()
+    backend.queue("engineer-r1", _write(tmp_path / "work", "v1"))
+
+    def operator_writes(_prompt, _options) -> str:
+        arrives(state)
+        return "Nothing to change for that.\n→ reviewer"
+
+    backend.queue("engineer-r2", CannedResponse(message_factory=operator_writes))
+    backend.queue("reviewer", _review("→ engineer"), _review("→ done"))
+
+    status, _rounds, labels = _run(tmp_path, backend)
+
+    assert labels == ["engineer-r1", "reviewer", "engineer-r2", "reviewer"]
+    assert status == "done"
+
+
+def test_a_new_mission_on_the_same_work_does_not_reset_the_count(tmp_path: Path) -> None:
+    _state(tmp_path)
+    first = MemoryBackend()
+    first.queue("engineer-r1", CannedResponse(message="The task is mis-scoped.\n→ planner"))
+    assert _run(tmp_path, first)[0] == "replan_requested"
+
+    # The Planner sends the same work back unchanged: the Engineer already had
+    # it so; the Reviewer has not judged it; the Planner already held it.
+    second = MemoryBackend()
+    second.queue("reviewer", _review("→ planner"))
+    status, rounds, labels = _run(tmp_path, second)
+
+    assert labels == ["reviewer"]
+    assert status == "blocked"
+    assert rounds[-1].review.review_source == "unchanged_return"
+    assert "planner" in rounds[-1].review.reason and "manager" in rounds[-1].review.reason
+
+
+def test_the_top_rung_is_the_operator(tmp_path: Path) -> None:
+    _state(tmp_path)
+    first = MemoryBackend()
+    first.queue("engineer-r1", CannedResponse(message="The task is mis-scoped.\n→ planner"))
+    _run(tmp_path, first)
+    second = MemoryBackend()
+    second.queue("reviewer", _review("→ planner"))
+    _run(tmp_path, second)
+
+    # Every holder below the operator has held this work as it is.
+    status, rounds, labels = _run(tmp_path, MemoryBackend())
+
+    assert labels == []
+    assert status == "blocked"
+    assert rounds[-1].review.operator_question
+    assert "engineer and the reviewer and the planner and the manager" in rounds[-1].review.reason
+
+
+def test_without_snapshots_nothing_climbs(tmp_path: Path) -> None:
+    backend = MemoryBackend()
+    backend.queue("engineer-r1", CannedResponse(message="Thinking.\n→ engineer"))
+    backend.queue("engineer-r2", CannedResponse(message="Done thinking.\n→ reviewer"))
+    backend.queue("reviewer", _review("→ done"))
+
+    status, _rounds, labels = _run(tmp_path, backend, snapshots=False)
+
+    assert labels == ["engineer-r1", "engineer-r2", "reviewer"]
+    assert status == "done"

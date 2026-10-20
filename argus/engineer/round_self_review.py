@@ -1,13 +1,21 @@
-"""Route an Engineer turn by its baton line: the holder it names is where the work goes."""
+"""Route a turn by its baton line: the holder it names is where the work goes.
+
+The host enforces one invariant on the way (docs/role-handoff-design.md, "The
+baton", invariant 3): work that would return to a holder that already held it
+as it is now, with nothing new from outside since, goes one rung up the ladder
+instead of calling that model again.
+"""
 
 from __future__ import annotations
 
+import time
 from pathlib import Path
 from typing import TYPE_CHECKING, Callable
 
-from ..core.models import ReviewDecision
+from ..core.models import ReviewDecision, RunnerResult
 from ..core.role_handoff import (
     HANDOFF_STATUS,
+    LADDER,
     EngineerHandoff,
     parse_engineer_handoff,
     strip_handoff,
@@ -53,6 +61,63 @@ def _handoff_record(holder: str, outcome: EngineerTurnOutcome) -> ReviewDecision
         operator_question=handoff.operator_question,
         operator_options=list(handoff.operator_options),
         review_source="engineer_self_review" if holder == "done" else "engineer_handoff",
+    )
+
+
+def outside_inputs(state: RoundLoopState) -> list[object] | None:
+    """What reached the work from outside the team.
+
+    When the operator last wrote, the operator's ledger revision and the
+    Manager's direction revision; ``None`` when any cannot be read, since
+    unknown inputs never count as unchanged.
+    """
+    from ..core.operator_context import OperatorContextStore
+    from ..core.operator_presence import operator_presence
+    from .round_manager_wait import manager_direction_revision
+
+    root = state.state_root
+    if root is None:
+        return None
+    try:
+        return [
+            operator_presence(root).last_spoke_at,
+            OperatorContextStore(root).revision,
+            manager_direction_revision(root),
+        ]
+    except Exception:  # noqa: BLE001 - an unreadable ledger is not "nothing new"
+        return None
+
+
+def returned_unchanged(holder: str, state: RoundLoopState, label: str) -> bool:
+    """Whether ``holder`` already held this work as snapshot ``label`` shows it, with nothing new since."""
+    return state.snapshots is not None and state.snapshots.held_unchanged(holder, label, outside_inputs(state))
+
+
+def no_turn(state: RoundLoopState) -> EngineerTurnOutcome:
+    """The round's Engineer slot when the work climbed past the Engineer: no turn ran."""
+    return EngineerTurnOutcome(
+        engineer_result=RunnerResult(exit_code=0), round_thread_id=None, fatal_error=None,
+        safe_fatal_error=None, stop_kind=None, raw_engineer_message="", engineer_message="",
+        process_ownership_note="", round_started_at=time.time(),
+    )
+
+
+def climb_record(passed: list[str], holder: str) -> ReviewDecision:
+    """The host's record that unchanged work climbed past ``passed`` to ``holder``."""
+    who = " and the ".join(passed)
+    return ReviewDecision(
+        status=HANDOFF_STATUS[holder],
+        reason=(
+            f"Nothing changed since the {who} last held this work, and nothing new "
+            f"arrived from outside, so it went one rung up, to the {holder}."
+        ),
+        next_action="",
+        operator_question=(
+            f"Nothing changed since the {who} last held this work. How should it go on?"
+            if holder == "operator" else ""
+        ),
+        review_source="unchanged_return",
+        host_placeholder="unchanged_return",
     )
 
 
@@ -106,7 +171,23 @@ def _record_stated_assumption(
 
 
 class RoundSelfReviewMixin:
-    """Hand an Engineer turn to the holder its baton line names."""
+    """Hand a turn to the holder its baton line names."""
+
+    def _deliver(self, holder: str, *, state: RoundLoopState, label: str) -> tuple[str, list[str]]:
+        """Where work handed to ``holder`` goes, and the holders it climbed past.
+
+        Up to the operator, each holder that already held the work as snapshot
+        ``label`` shows it, with nothing new since, passes it one rung up. The
+        Planner and the Manager hold it from here; the Engineer and the
+        Reviewer record their own hold when their turn completes.
+        """
+        passed: list[str] = []
+        while holder in LADDER[:-1] and returned_unchanged(holder, state, label):
+            passed.append(holder)
+            holder = LADDER[LADDER.index(holder) + 1]
+        if holder in {"planner", "manager"} and state.snapshots is not None:
+            state.snapshots.hold(holder, label, outside_inputs(state))
+        return holder, passed
 
     def _handle_progress_and_self_review(
         self,
@@ -118,7 +199,9 @@ class RoundSelfReviewMixin:
         state: RoundLoopState,
         review_completed_hook,
         on_event: Callable[[dict], None] | None,
+        climbed: bool = False,
     ) -> RoundControl:
+        """Route the turn by its line; ``climbed``: no turn ran, the work climbed past the Engineer."""
         state.backend_failure_streak = 0
         # A turn that reached this phase was not a backend failure, so it ends
         # any run of identical failures: the same-cause count restarts from
@@ -128,16 +211,24 @@ class RoundSelfReviewMixin:
         state.backend_failure_signature = ""
         state.backend_failure_same_cause_streak = 0
         _record_stated_assumption(outcome, supervised_config)
-        holder = _round_handoff(outcome).next_owner
-        if holder == "done" and supervised_config.require_independent_review:
+        if state.snapshots is not None:
+            # The Engineer held the work as its turn began.
+            state.snapshots.hold("engineer", "turn", state.handed_inputs)
+        wanted = "reviewer" if climbed else _round_handoff(outcome).next_owner
+        if wanted == "done" and supervised_config.require_independent_review:
             # Accepting a candidate is the Reviewer's where review is required.
-            holder = "reviewer"
+            wanted = "reviewer"
+        holder, passed = (
+            self._deliver(wanted, state=state, label="now")
+            if state.snapshots is not None and state.snapshots.take("now") else (wanted, [])
+        )
+        passed = ["engineer", *passed] if climbed else passed
         if holder == "engineer":
             return control_continue_loop()
         if holder == "reviewer":
             return control_proceed()
         return self._settle_round(
-            review=_handoff_record(holder, outcome),
+            review=climb_record(passed, holder) if passed else _handoff_record(holder, outcome),
             round_index=round_index,
             supervised_config=supervised_config,
             workdir=workdir,

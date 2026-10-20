@@ -57,15 +57,18 @@ def _run(
     backend = MemoryBackend()
     if resumable:
         backend.backend = "pi"  # type: ignore[misc]
-    backend.queue("engineer-r1", CannedResponse(
-        message="Wrote summary.csv.", thread_id=engineer_threads[0],
-    ))
+    def writes(rows: str, message: str, thread_id: str) -> CannedResponse:
+        def turn(_prompt, _options) -> str:
+            (work / "summary.csv").write_text(rows, encoding="utf-8")
+            return message
+
+        return CannedResponse(message_factory=turn, thread_id=thread_id)
+
+    backend.queue("engineer-r1", writes("ERROR,370\n", "Wrote summary.csv.", engineer_threads[0]))
     backend.queue("reviewer", CannedResponse(
         review_action=("submit_review", {"review": (_FINDING) + "\n→ engineer"}), thread_id="v1",
     ))
-    backend.queue("engineer-r2", CannedResponse(
-        message="Recounted all rows.", thread_id=engineer_threads[1],
-    ))
+    backend.queue("engineer-r2", writes("ERROR,20\n", "Recounted all rows.", engineer_threads[1]))
     backend.queue("reviewer", CannedResponse(
         review_action=("submit_review", {"review": "All rows match.\n→ done"}),
         thread_id="v1",
