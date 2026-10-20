@@ -99,6 +99,9 @@ class EngineerConfig:
     initial_reasoning_effort: str | None = None
     extra_args: list[str] | None = None
     skill_paths: list[str] | None = None
+    # Directories outside the workdir the Engineer may read: the libraries
+    # its recalled knowledge points at. A sandboxed backend reads nothing else.
+    add_dirs: list[str] | None = None
     full_auto: bool = True
     skip_git_repo_check: bool = True
     dangerous_yolo: bool = False

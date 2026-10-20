@@ -17,6 +17,7 @@ from argus.core.pipeline_state import write_pipeline_state
 from argus.life.knowledge_recall import (
     KnowledgeRoot,
     MarkdownKnowledgeRecall,
+    knowledge_read_dirs,
     knowledge_recall_for_memory,
     render_memory_recall,
 )
@@ -198,6 +199,49 @@ def test_what_a_learning_project_kept_is_recalled_in_every_vertical(tenant, tmp_
                    for hit in result.hits)
         # Another vertical's principles govern its own missions, not this one.
         assert "Learning rule" not in result.text
+
+
+def test_a_role_is_given_the_directories_recall_points_at_outside_its_workspace(tenant, tmp_path):
+    workspace = tmp_path / "work" / "current"
+    state = earlier_project(tenant, "s-current", VERTICAL, workspace)
+    project_wiki(workspace, "current", "own.md", page("Own", "d", "quartz"))
+    write(workspace / ".agents" / "skills" / "own" / "SKILL.md", "---\nname: own\ndescription: d\n---\n")
+    earlier = tmp_path / "work" / "earlier"
+    earlier_state = earlier_project(tenant, "s-earlier", OTHER_VERTICAL, earlier)
+    project_wiki(earlier, "earlier", "engine.md", page("Engine", "d", "quartz"))
+    write(earlier / ".agents" / "skills" / "check" / "SKILL.md", "---\nname: check\ndescription: d\n---\n")
+    write(earlier_state / "skills" / "engineer" / "old.md", "---\nname: old\ndescription: d\n---\n")
+    write(tenant / "skills" / "_shared_verticals" / VERTICAL / "engineer" / "shared.md", "shared\n")
+    write(shared_vertical_wiki_root(OTHER_VERTICAL, tenant) / "pages" / "lesson.md", page("L", "d", "quartz"))
+
+    dirs = knowledge_read_dirs(state, tenant, workspace)
+
+    assert set(dirs) == {
+        str(tenant / "skills"),
+        str(shared_vertical_wiki_root(OTHER_VERTICAL, tenant)),
+        str(earlier / ".autors" / "earlier" / "wiki"),
+        str(earlier / ".agents" / "skills"),
+        str(earlier_state / "skills" / "engineer"),
+    }
+    assert knowledge_read_dirs(None, tenant, workspace) == []
+
+
+def test_a_sandboxed_engineer_is_given_the_directories_recall_points_at(tmp_path):
+    from argus.core.models import RunnerResult
+    from argus.loop import SkillLoop, SkillLoopConfig
+
+    class Capture:
+        options = None
+
+        def run_exec(self, *, prompt, options, run_label, resume_thread_id=None):
+            Capture.options = options
+            return RunnerResult(exit_code=0, agent_messages=["done"])
+
+    loop = SkillLoop(skills_dir=tmp_path / "skills", engineer_runner=Capture(),
+                     config=SkillLoopConfig(read_dirs=["/elsewhere/wiki"]))
+    loop.supervised._run_engineer(prompt="work", workdir=tmp_path, run_label="engineer-r1")
+
+    assert Capture.options.add_dirs == ["/elsewhere/wiki"]
 
 
 @pytest.mark.parametrize("switch", [("ARGUS_SKILL_COPILOT_TRIAL", "1"), ("ARGUS_SKILL_LEARNING", "0")])

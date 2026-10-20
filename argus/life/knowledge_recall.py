@@ -768,18 +768,11 @@ def _shared_wiki_roots(global_root: Path, vertical: str) -> list[KnowledgeRoot]:
     return roots
 
 
-def knowledge_recall_for_memory(memory: Any, *, worktree: Path | None = None,
-                                skill_store: Any = None,
-                                index_path: Path | None = None) -> MarkdownKnowledgeRecall:
-    state = getattr(memory, "project_root", None)
-    if state is None:
-        state = getattr(memory, "root", None)
-    if state is None:
-        raise ValueError("knowledge recall requires an explicit project state root")
+def knowledge_roots(state: Path, global_root: Path | None, workspace: Path | None,
+                    skill_store: Any = None) -> list[KnowledgeRoot]:
+    """Where recall reads, in the order the bounded snapshot takes them."""
     state = Path(state).absolute()
-    workspace = worktree if worktree is not None else getattr(memory, "project_worktree", None)
     roots: list[KnowledgeRoot] = [KnowledgeRoot("project Skill", state / "skills", state)]
-    global_root = getattr(memory, "global_root", None)
     if global_root is not None:
         global_root = Path(global_root).absolute()
         roots.append(KnowledgeRoot("shared Skill", global_root / "skills", global_root, scope="global"))
@@ -813,6 +806,38 @@ def knowledge_recall_for_memory(memory: Any, *, worktree: Path | None = None,
         roots[0:0] = _operator_roots(global_root)
         if workspace is not None and _sibling_wikis_enabled():
             roots.extend(_sibling_roots(global_root, state, workspace))
+    return roots
+
+
+def knowledge_read_dirs(state: Path | None, global_root: Path | None, workspace: Path | None) -> list[str]:
+    """The directories recall can point a role at outside its workspace.
+
+    A sandboxed backend reads only its workspace and the directories it is
+    given, so a role that is shown recall's pointers is given these.
+    """
+    if state is None:
+        return []
+    inside = Path(workspace).absolute() if workspace is not None else None
+    libraries = {(root.library or root.path).absolute() for root in knowledge_roots(state, global_root, workspace)}
+    found: list[Path] = []
+    for library in sorted(libraries, key=lambda path: (len(path.parts), str(path))):
+        if (library.is_dir() and not any(library.is_relative_to(path) for path in found)
+                and not (inside is not None and library.is_relative_to(inside))):
+            found.append(library)
+    return [str(path) for path in found]
+
+
+def knowledge_recall_for_memory(memory: Any, *, worktree: Path | None = None,
+                                skill_store: Any = None,
+                                index_path: Path | None = None) -> MarkdownKnowledgeRecall:
+    state = getattr(memory, "project_root", None)
+    if state is None:
+        state = getattr(memory, "root", None)
+    if state is None:
+        raise ValueError("knowledge recall requires an explicit project state root")
+    state = Path(state).absolute()
+    workspace = worktree if worktree is not None else getattr(memory, "project_worktree", None)
+    roots = knowledge_roots(state, getattr(memory, "global_root", None), workspace, skill_store)
     # A subordinate can keep its derived index isolated while using the same
     # explicit canonical source and embedding policy/budget as its parent.
     from .recall_embedding import configured_embedder
