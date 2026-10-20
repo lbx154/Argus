@@ -1146,23 +1146,17 @@ class MissionExecutionSettlementMixin:
         final_output = str(getattr(outcome, "final_output", "") or "").strip()
         # A completed mission needs one durable, operator-facing receipt rather
         # than three loosely related hints (event, chat text, and sidebar).
-        # Resolve targets only from final Reviewer evidence, the accepted
-        # completion message, or a vertical contract; never scan or guess files.
-        # Some Reviewer backends certify the files named in the Engineer handoff
-        # without repeating them in ``frontier.artifacts``. Those explicit links
-        # are still reviewer-accepted evidence and must remain openable in the UI.
+        # Resolve targets only from the accepted completion message or a
+        # vertical contract; never scan or guess files. Files the Engineer
+        # handoff names are reviewer-accepted evidence and must remain openable
+        # in the UI.
         delivery: dict[str, Any] | None = None
         delivery_workspace = state.execution_workdir or self._project_workdir()
-        frontier = getattr(outcome, "final_frontier_report", {}) or {}
-        reviewer_artifacts = (
-            list(frontier.get("artifacts") or [])
-            if isinstance(frontier, dict)
-            else []
-        )
+        reviewer_artifacts: list[str] = []
         try:
             from ..delivery import referenced_delivery_paths, reviewed_change_paths
 
-            referenced = referenced_delivery_paths(
+            reviewer_artifacts.extend(referenced_delivery_paths(
                 delivery_workspace,
                 [
                     raw_mission_summary,
@@ -1170,11 +1164,7 @@ class MissionExecutionSettlementMixin:
                     getattr(outcome, "final_message", ""),
                 ],
                 limit=12,
-            )
-            known_artifacts = {str(candidate) for candidate in reviewer_artifacts}
-            reviewer_artifacts.extend(
-                path for path in referenced if path not in known_artifacts
-            )
+            ))
             if success and not reviewer_artifacts:
                 # A terse accepted direct handoff may omit every filename.
                 # Recover only authored files actually inspected by its final
@@ -1413,14 +1403,11 @@ class MissionExecutionSettlementMixin:
             log.debug("goal mission metric skipped", exc_info=True)
         try:
             research_result = getattr(outcome, "research_result", None)
-            frontier = getattr(outcome, "final_frontier_report", {}) or {}
             reviewed_evidence = list(
                 research_result.get("evidence") or []
                 if isinstance(research_result, dict)
                 else []
             )
-            if isinstance(frontier, dict):
-                reviewed_evidence.extend(frontier.get("artifacts") or [])
             self._evolve_runtime_skills_after_mission(
                 success=bool(success and not state.iteration_requeued),
                 usage_mission_id=state.usage_attempt_id,

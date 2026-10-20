@@ -41,17 +41,18 @@ def test_shared_manager_grounding_renders_once_for_distinct_task_wording() -> No
     assert "Canonical execution objective." in prompt
 
 
-def test_engineer_prompt_avoids_repeated_checks_and_compile_cleanup() -> None:
+def test_engineer_prompt_leaves_working_methods_to_the_backend() -> None:
     prompt = build_mission_prompt(
         task="Audit the repository once.",
         skill_text="",
         next_action=None,
     )
 
-    assert "Never repeat unchanged checks or reads" in prompt
-    assert "Ignore `__pycache__`/`.pyc`" in prompt
-    assert "avoid compile-only ceremony" in prompt
-    assert "never exceed 24" not in prompt
+    for ban in (
+        "Never repeat unchanged", "compile-only ceremony", "add no hashes",
+        "initialize Git", "subagents", "never exceed 24",
+    ):
+        assert ban not in prompt
 
 
 def test_engineer_prompt_marks_detail_dependent_operator_options() -> None:

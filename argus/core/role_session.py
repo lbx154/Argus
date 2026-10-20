@@ -454,7 +454,6 @@ class RoleSessionCapsule:
             mission_lines = (
                 f"\nMission contract: `{self.mission_context_path}`"
                 f"\nLatest work handoff (may await review): `{root / 'latest.json'}`"
-                f"\nSemantic task frontier: `{root / 'frontier.json'}`"
             )
         return (
             "## Role state references\n"
@@ -462,7 +461,7 @@ class RoleSessionCapsule:
             f"{mission_lines}\n"
             "Host already injected current state. Read a reference only for a specific "
             "contradiction or continuation; project artifacts remain authoritative. "
-            "Do not edit capsule or frontier metadata."
+            "Do not edit capsule metadata."
         )
 
     def save(self) -> bool:

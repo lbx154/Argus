@@ -42,7 +42,7 @@ Argus 使用多个角色只有两个理由：生产者无法给自己的独立�
 - `ReviewDecision.review_source` 默认为 `"reviewer"`，有十二个调用点在它为空时回落到 `"reviewer"`。来源信息分散在五个字段里（`review_source`、`reviewer_authored`、`reviewer_words`、`host_notes`、`host_placeholder`）。
 - 有四条宿主路径会就地修改 Reviewer 写下的判决：venue 验收（`core/venue_review.py`）、后台运行保持（`engineer/runner.py`）、操作员提问政策，以及终态问题剥离（`engineer/round_settlement.py`）。被 venue 改写过的判决封存时仍然标记 `producer_role=reviewer`。
 - 下一轮 Engineer 提示词据以构建的 `RoundLoopState.reviewer_next_action` 有五个写入方。
-- `events.jsonl` 是唯一的只追加记录。`latest.json`、`frontier.json`、任务简报和 Backlog 结果字段都是投影，但其中好几个是直接写入的，而不是推导出来的。
+- `events.jsonl` 是唯一的只追加记录。`latest.json`、任务简报和 Backlog 结果字段都是投影，但其中好几个是直接写入的，而不是推导出来的。
 
 ### 宿主在做语义判断
 
@@ -108,7 +108,7 @@ Reviewer 的判决不是第七种动作：`continue` 是退回，`replan_request
 - **事实**：事件日志，以及宿主拥有的工作区快照。
 - **作者记录**：每个参与方只追加自己类型的记录。Reviewer 的判决只来自它的审阅动作。宿主的介入，例如后台保持、提问政策、venue 最低分、预算停止或未被判断的回合，是引用其所影响判决的 `host` 记录。两类记录写入后都不再修改。
 - **有效结果**：由结算根据判决和介入计算得出。它是派生值，与派生它的输入一起记录。
-- **投影**：`latest.json`、frontier、任务简报和 Backlog 结果字段都由记录重建。`CHECKPOINT.md` 仍是 Engineer 自己的工作笔记，不是验收证据。
+- **投影**：`latest.json`、任务简报和 Backlog 结果字段都由记录重建。`CHECKPOINT.md` 仍是 Engineer 自己的工作笔记，不是验收证据。
 
 没有已知作者的记录是缺陷，而不是 Reviewer 的判决。
 

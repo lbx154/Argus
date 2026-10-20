@@ -82,9 +82,6 @@ class _Outcome:
     research_result: dict | None = None
     venue_review: dict | None = None
     venue_review_snapshot: dict | None = None
-    # Reviewer-confirmed artifact paths and evidence from the terminal round.
-    # Settlement turns these into a safe, operator-facing delivery receipt.
-    final_frontier_report: dict = field(default_factory=dict)
     final_planner_report: dict = field(default_factory=dict)
     plan_challenge: dict = field(default_factory=dict)
 

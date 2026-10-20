@@ -1658,12 +1658,6 @@
         "authority_impact": {
           "type": "string"
         },
-        "frontier_change": {
-          "type": "string"
-        },
-        "frontier_summary": {
-          "type": "string"
-        },
         "session_signal": {
           "type": "object"
         },

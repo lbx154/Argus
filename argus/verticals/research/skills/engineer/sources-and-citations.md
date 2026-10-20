@@ -6,10 +6,9 @@ description: "Read each material claim in the manuscript against the raw result,
 # Checking claims and citations against their sources
 
 The global library's `engineer/web-primary-source-evidence.md` says how any
-current fact is grounded: classify the claim, fetch the primary source before
-citing it (`python -m argus.tools.web_source <URL>` caches it under
-`.argus/sources/` with an access date), and keep the URL and cached path beside
-the claim rather than in a separate evidence file. This skill adds the two
+current fact is grounded: classify the claim, fetch the primary source with your
+own web tools before citing it, and keep the URL and access date beside the
+claim rather than in a separate evidence file. This skill adds the two
 judgements a paper needs on top of that: whether a sentence in the manuscript
 says what its evidence supports, and whether a citation names a text that says
 what the sentence attributes to it.

@@ -1332,7 +1332,6 @@ class SkillLoopExecuteMixin:
         final_review_next_action = ""
         review_source = ""
         final_residual_risk = ""
-        final_frontier_report: dict = {}
         final_planner_report: dict = {}
         plan_challenge: dict = {}
         rounds_list = getattr(outcome, "rounds", None) or []
@@ -1385,9 +1384,6 @@ class SkillLoopExecuteMixin:
                 final_review_next_action = str(
                     getattr(_final_review, "next_action", "") or ""
                 ).strip()
-                raw_frontier = getattr(_final_review, "frontier_report", {}) or {}
-                if isinstance(raw_frontier, dict):
-                    final_frontier_report = dict(raw_frontier)
                 raw_report = getattr(_final_review, "planner_report", {}) or {}
                 if isinstance(raw_report, dict):
                     final_planner_report = dict(raw_report)
@@ -1465,7 +1461,6 @@ class SkillLoopExecuteMixin:
         ex_state.final_review_next_action = final_review_next_action
         ex_state.review_source = review_source
         ex_state.final_residual_risk = final_residual_risk if final_review_status == "done" else ""
-        ex_state.final_frontier_report = final_frontier_report
         ex_state.final_planner_report = final_planner_report
         ex_state.plan_challenge = plan_challenge
         ex_state.final_submission_certified = final_submission_certified
@@ -1643,7 +1638,6 @@ class SkillLoopExecuteMixin:
             ),
             venue_review=getattr(rounds[-1].review, "venue_review", None) if rounds else None,
             venue_review_snapshot=getattr(rounds[-1].review, "venue_review_snapshot", None) if rounds else None,
-            final_frontier_report=ex_state.final_frontier_report,
             final_planner_report=ex_state.final_planner_report,
             plan_challenge=ex_state.plan_challenge,
         )

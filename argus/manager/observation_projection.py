@@ -80,7 +80,7 @@ def bounded_facts(canonical: dict[str, Any]) -> tuple[dict[str, Any], tuple[str,
     # Remove secondary descriptions before considering any goal, acceptance,
     # or pending question. These are presentation changes, never identity changes.
     for field in ("advisor_consultations", "manager_supervision", "recent_events", "roles",
-                  "delivery", "frontier", "review", "stage", "accepted_residual_risks"):
+                  "delivery", "review", "stage", "accepted_residual_risks"):
         if fits():
             break
         if facts.get(field):

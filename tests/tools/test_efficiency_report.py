@@ -120,7 +120,6 @@ def test_report_counts_a_fixed_log(project: Path) -> None:
         {"task": "bbb", "reviewer_calls": 1, "continue": 1,
          "elapsed_s": 90.0, "calls": 3, "input_tokens": 2400, "cost_usd": 4.0},
     ]
-    assert report["continue_reasons"] == {"artifact_improved": 1, "uncertainty_reduced": 1, "unspecified": 1}
     assert report["context"]["planner"] == {
         "p50": 100, "p90": 500, "max": 500, "mean_by_session_turn": {"1": 100, "2-3": 300, "8-15": 500},
     }

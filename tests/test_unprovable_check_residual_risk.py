@@ -509,7 +509,6 @@ def test_every_fixture_rule_names_the_three_faithfulness_conditions(tmp_path, mo
 
     tools = {tool["name"]: tool for tool in ReviewActions().tools}
     risk_description = " ".join(tools["approve_review"]["inputSchema"]["properties"]["residual_risk"]["description"].split())
-    obstacle_description = tools["revise_review"]["inputSchema"]["properties"]["unverifiable"]["description"]
     accepted = " ".join(reviewer_block(_accepted_store(tmp_path), item_id="feed-task").split())
     monkeypatch.setenv("ARGUS_SKILL_OPERATOR_AVAILABLE", "false")
     rendered, _revision = build_operator_context_block("engineer", tmp_path)
@@ -519,7 +518,7 @@ def test_every_fixture_rule_names_the_three_faithfulness_conditions(tmp_path, mo
             return "{}"
 
     for text in (
-        obstacle_description, risk_description, accepted,
+        risk_description, accepted,
         " ".join(rendered.split()), AUTONOMOUS_ASSUMPTION_INSTRUCTION,
         " ".join(supervision._prompt(_Observation()).split()),
     ):

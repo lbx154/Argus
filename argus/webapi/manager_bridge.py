@@ -15,7 +15,6 @@ dispatch, and pending-question operations from their owning modules.
 
 from __future__ import annotations
 
-import json
 import logging
 import threading
 import time
@@ -121,31 +120,11 @@ def _frontdoor_says_nothing_to_learn(frontdoor: dict[str, Any] | None) -> bool:
     )
 
 
-def _answer_learning_evidence(steps: list[dict[str, Any]], workdir: str | None) -> str:
-    trace = "\n".join(str({
+def _answer_learning_evidence(steps: list[dict[str, Any]]) -> str:
+    return "\n".join(str({
         key: value for key, value in step.items()
         if key not in {"call_id", "started_ts", "ended_ts"}
     }) for step in steps)[-6000:]
-    if not workdir:
-        return trace
-    from ..tools.web_source import source_read_receipts
-
-    paths = []
-    for step in steps:
-        if step.get("tool") != "read" or step.get("status") != "completed":
-            continue
-        try:
-            detail = json.loads(step.get("detail", ""))
-            if isinstance(detail, dict) and isinstance(detail.get("path"), str):
-                paths.append(detail["path"])
-        except (TypeError, ValueError):
-            continue
-    receipts = source_read_receipts(paths, Path(workdir))
-    if not receipts:
-        return trace
-    return ("Source snapshots read during this turn (access evidence only; "
-            "NOT independent confirmation of their claims):\n"
-            + json.dumps(receipts, ensure_ascii=False) + "\n" + trace)
 
 
 def _recent_team_replay(
@@ -432,9 +411,7 @@ def _manager_message(
             operator_text=operator_text,
             reply=reply,
             turn_id=turn_id,
-            evidence=_answer_learning_evidence(
-                turn_steps, _chat_state_for(sid).get("manager_runner_workdir"),
-            ),
+            evidence=_answer_learning_evidence(turn_steps),
             frontdoor=dict(frontdoor_class) or None,
         )
 
@@ -806,21 +783,6 @@ def _manager_message(
         unparsed_config = str(chat_state.pop("_frontdoor_config_unparsed", "") or "").strip()
         if unparsed_config and intent is None:
             send_body = _with_unparsed_config(send_body, unparsed_config, life_dir)
-
-        subject = chat_state.pop("_frontdoor_lookup_subject", "")
-        if subject and not frontdoor_failure and control in {None, "no_dispatch"} and intent is None:
-            from ..manager.subject_lookup import lookup_subject
-
-            workdir = chat_state.get("manager_runner_workdir")
-            if workdir:
-                emitter.phase("正在查证研究对象与来源…" if uses_cjk(operator_text) else "Checking the research subject and sources…")
-                discovery = lookup_subject(subject, Path(workdir))
-                if _cancelled():
-                    return _cancelled_result()
-                send_body += discovery
-                routing_body += discovery
-                chat_state["_frontdoor_skill_vertical"] = ""
-                chat_state["_frontdoor_self_mode"] = "inspect"
 
         public_task = operator_text
         intake_before = None
