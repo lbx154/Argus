@@ -34,7 +34,6 @@ PLANNER_DEDUP_STATUSES = frozenset({
     "exhausted_current_methods",
     "infra_blocked",
 })
-STALL_ESCALATION_AFTER_NO_PROGRESS_MISSIONS = 3
 MANAGER_FEEDBACK_REPLAN_LIMIT = 3
 # Consecutive planner completion attempts turned back for the SAME reason
 # before the supervisor stops asking and tells the operator. This is keyed on
@@ -73,7 +72,6 @@ __all__ = [
     "PLAN_ERROR",
     "PLAN_RETRY",
     "PLANNER_DEDUP_STATUSES",
-    "STALL_ESCALATION_AFTER_NO_PROGRESS_MISSIONS",
     "MANAGER_FEEDBACK_REPLAN_LIMIT",
     "COMPLETION_REJECTION_CIRCUIT_THRESHOLD",
     "PROVIDER_COOLDOWN_SAME_CAUSE_LIMIT",

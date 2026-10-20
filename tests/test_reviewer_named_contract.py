@@ -123,7 +123,6 @@ def test_research_json_preserves_evidence_and_following_footer_fields(layout: st
     assert decision.to_event_payload()["research_result"] == result
     assert decision.next_action == "Resolve the next question."
     assert decision.planner_report == {
-        "forward_progress": False,
         "plan_signal": "reconsider",
         "challenge": "The next phase needs a causal comparison.",
         "alternative": "Run the matched intervention.",

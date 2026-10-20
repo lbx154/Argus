@@ -20,7 +20,7 @@ from ..core.knobs import resolve_role_reasoning_effort
 from ..core.ports import EventSink
 from ..core.role_handoff import strip_handoff
 from ..core.runner_errors import is_execution_host_startup_error
-from ..engineer.round_config import HOST_PLACEHOLDER_REVIEW_SOURCES
+from ..engineer.round_config import HOST_PLACEHOLDER_REVIEW_SOURCES, QUESTION_POLICY
 from ..engineer.runner import should_clear_thread_id_after_outcome
 from ._env import env_flag as _env_flag
 from ._runtime_backends import _Outcome
@@ -1310,7 +1310,6 @@ class SkillLoopExecuteMixin:
         outcome = ex_state.outcome
         new_tid = getattr(outcome, "last_thread_id", None)
         if should_clear_thread_id_after_outcome(
-            status=str(getattr(outcome, "status", "")),
             fatal_error=str(getattr(outcome, "stop_reason", "") or ""),
             stop_kind=getattr(outcome, "stop_kind", None),
         ):
@@ -1371,11 +1370,17 @@ class SkillLoopExecuteMixin:
                 )
                 review_source = str(getattr(_final_review, "review_source", "") or "").strip()
                 final_residual_risk = str(getattr(_final_review, "residual_risk", "") or "").strip()
-                operator_question = str(
+                # A question the operator may not be asked was not sent; the
+                # intervention beside the verdict says so (round_settlement).
+                withheld = any(
+                    row.get("policy") == QUESTION_POLICY
+                    for row in getattr(_final_review, "interventions", None) or []
+                )
+                operator_question = "" if withheld else str(
                     getattr(_final_review, "operator_question", "") or ""
                 ).strip()
                 raw_operator_options = getattr(_final_review, "operator_options", []) or []
-                if isinstance(raw_operator_options, list):
+                if isinstance(raw_operator_options, list) and not withheld:
                     operator_options = [
                         dict(option)
                         for option in raw_operator_options

@@ -231,8 +231,6 @@ def test_a_run_of_capped_calls_stops_the_mission_truthfully(
 def test_final_review_rotates_beyond_three_sessions_and_keeps_real_stops(
     tmp_path: Path, stop_kind: str | None, expected: str,
 ) -> None:
-    from argus.core.venue_review import configure_venue_revisions
-
     class LongRepair(_AlwaysCappedEngineer):
         def run_exec(self, **kwargs):
             if self.calls < 4:
@@ -249,7 +247,6 @@ def test_final_review_rotates_beyond_three_sessions_and_keeps_real_stops(
         checkpoint_path=tmp_path / "CHECKPOINT.md",
     )
     config.checkpoint_path.write_text("Continue the native PPT mathematical-label repair.")
-    configure_venue_revisions(config)
     events: list[dict] = []
     guidance: list[str] = []
 

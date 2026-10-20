@@ -61,6 +61,54 @@ if TYPE_CHECKING:
 log = logging.getLogger(__name__)
 
 
+def mission_state_root(supervised_config: Any) -> Path | None:
+    """The project state directory the mission belongs to, if it has one."""
+    root = getattr(supervised_config, "operator_question_policy_root", None)
+    if root:
+        return Path(root)
+    packet = str(getattr(supervised_config, "context_packet_path", "") or "").strip()
+    if packet:
+        parents = Path(packet).expanduser().parents
+        if len(parents) >= 3:
+            return parents[2]
+    return None
+
+
+def mission_item_id(supervised_config: Any) -> str:
+    """The backlog item this mission works on, from its context packet, or ""."""
+    packet = str(getattr(supervised_config, "context_packet_path", "") or "").strip()
+    if not packet:
+        return ""
+    try:
+        payload = json.loads(Path(packet).expanduser().read_text(encoding="utf-8"))
+    except (OSError, ValueError):
+        return ""
+    return str(payload.get("mission_id") or "").strip() if isinstance(payload, dict) else ""
+
+
+def mission_contract(supervised_config: Any) -> dict[str, Any]:
+    """The mission contract (``mission.json``) the packet belongs to, or {}."""
+    packet = str(getattr(supervised_config, "context_packet_path", "") or "").strip()
+    if not packet:
+        return {}
+    path = Path(packet).expanduser()
+    for _ in range(2):
+        try:
+            payload = json.loads(path.read_text(encoding="utf-8"))
+        except (OSError, ValueError):
+            return {}
+        if not isinstance(payload, dict):
+            return {}
+        if payload.get("kind") == "mission_context":
+            return payload
+        mission = payload.get("mission")
+        reference = str(mission.get("path") or "") if isinstance(mission, dict) else ""
+        if not reference:
+            return {}
+        path = Path(reference).expanduser()
+    return {}
+
+
 def _no_reviewer_judgment(review: ReviewDecision) -> ReviewDecision:
     """The record a round keeps when the Reviewer leg rendered no verdict.
 
@@ -166,7 +214,6 @@ def _active_manager_directive_for_reviewer(
         # Acceptances of an impossible check, scoped to this item or to a
         # named check; never to the whole objective.
         from ..core.residual_risk import reviewer_block
-        from .obstacle_stall import mission_item_id
 
         try:
             accepted = reviewer_block(
@@ -234,7 +281,6 @@ def mission_grounding(
     this mission; when it cannot, accepting a risk is the Manager's.
     """
     from ..core.residual_risk import active_residual_risks
-    from .obstacle_stall import mission_contract, stall_root
     from .round_settlement import _operator_questions_allowed
 
     contract = mission_contract(supervised_config)
@@ -246,7 +292,7 @@ def mission_grounding(
         for ref in contract.get("context_refs") or []
         if isinstance(ref, dict) and str(ref.get("ref") or "").strip()
     )
-    root = stall_root(supervised_config)
+    root = mission_state_root(supervised_config)
     try:
         accepted = active_residual_risks(root, item_id=item_id, mission_ref=mission_ref) if root else []
     except Exception:  # noqa: BLE001 - an unreadable record accepts nothing
@@ -292,7 +338,6 @@ class RoundReviewerMixin:
         scope: str,
         checkpoint_path: Path | None,
         reviewer_skill_block: str | None,
-        escalate_hint: str,
         engineer_result,
         engineer_message: str,
         safe_fatal_error: str | None,
@@ -469,7 +514,6 @@ class RoundReviewerMixin:
                 scope=scope,
                 checkpoint_path=str(checkpoint_path or ""),
                 background_context=reviewer_background_context,
-                escalate_hint=escalate_hint,
                 engineer_log_path=supervised_config.engineer_log_path,
                 engineer_call_id=(
                     str(engineer_result.call_id or "")
@@ -501,7 +545,6 @@ class RoundReviewerMixin:
             # them for the retry. The next window opens with the next turn.
             state.pending_round_evidence.clear()
             state.unreviewed_engineer_accounts.clear()
-            state.engineer_self_handoffs = 0
             # Provenance: only this call's own judgment becomes a finding
             # carried forward to later rounds.
             review.reviewer_authored = True
@@ -630,39 +673,6 @@ class RoundReviewerMixin:
                 "round_max": supervised_config.max_rounds,
                 "session_id": supervised_config.session_id,
             })
-        # State the harness rule before it can fire so the Reviewer knows that
-        # an explicit true progress judgment preserves productive long work.
-        escalate_hint = ""
-        if (
-            supervised_config.soft_round_limit
-            and round_index >= supervised_config.soft_round_limit
-        ):
-            escalate_hint = (
-                f"After round {supervised_config.soft_round_limit}, the harness "
-                "settles the mission as stalled when neither of your last two "
-                "judgments carries `forward_progress=true`; genuine progress "
-                "continues normally."
-            )
-            if on_event and round_index == supervised_config.soft_round_limit:
-                on_event({
-                    "type": EventType.ROUND_ESCALATED,
-                    "round_index": round_index,
-                    "soft_round_limit": supervised_config.soft_round_limit,
-                    "hard_escalate_rounds": supervised_config.hard_escalate_rounds,
-                    "text": (
-                        f"round {round_index} reached soft limit "
-                        f"{supervised_config.soft_round_limit}: the Reviewer was "
-                        "told the enforced two-round progress rule"
-                    ),
-                })
-        from .obstacle_stall import carried_obstacle_hint
-
-        carried_hint = carried_obstacle_hint(
-            state.carried_obstacle_streak, state.carried_obstacle,
-            supervised_config.stall_threshold,
-        )
-        if carried_hint:
-            escalate_hint = f"{escalate_hint}\n\n{carried_hint}" if escalate_hint else carried_hint
         # Evaluate the reviewer, retrying ONLY the reviewer on an infra flake.
         # The engineer's output for THIS round is already valid and in hand, so
         # a reviewer subprocess crash / 429 / missing-output-schema must retry
@@ -685,7 +695,6 @@ class RoundReviewerMixin:
                 scope=scope,
                 checkpoint_path=checkpoint_path,
                 reviewer_skill_block=reviewer_skill_block,
-                escalate_hint=escalate_hint,
                 engineer_result=engineer_result,
                 engineer_message=engineer_message,
                 safe_fatal_error=safe_fatal_error,

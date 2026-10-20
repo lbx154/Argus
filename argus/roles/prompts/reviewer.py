@@ -290,7 +290,6 @@ def render_reviewer_prompt(
     prior_checkpoint: dict[str, Any] | None = None,
     checkpoint_path: str = "",
     background_context: str = "",
-    escalate_hint: str = "",
     engineer_log_path: str = "",
     engineer_call_id: str = "",
     preselected_skill_block: str | None = None,
@@ -510,7 +509,7 @@ def render_reviewer_prompt(
         else ""
     )
     # Live search-altitude facts (NO verdict) so the reviewer can SEE the
-    # floor history when judging forward_progress — i.e. distinguish "this
+    # floor history when judging the round — i.e. distinguish "this
     # round advanced a declared structural line" from "Nth single-knob
     # nibble at a floor that has not moved in N attempts". Empty for
     # verticals that do not surface it.
@@ -650,12 +649,6 @@ def render_reviewer_prompt(
     _ = prior_checkpoint
     _ = checkpoint_path
     checkpoint_block = ""
-    # Anti-livelock rule supplied at the soft round boundary.
-    escalate_block = ""
-    if escalate_hint:
-        escalate_block = (
-            f"## Escalation directive (operator harness — IMPORTANT)\n{escalate_hint}\n\n"
-        )
     # The Engineer's own account is primary. Keep the execution log as a
     # one-line fallback pointer for a concrete contradiction instead of asking
     # every Reviewer to reconstruct the round from grep recipes. Empty path
@@ -711,8 +704,7 @@ def render_reviewer_prompt(
         "requirement and symptom the task (this increment) states against the "
         "deliverable; tests the Engineer wrote show only its reading of them. "
         "Submit all evidence/next steps unchanged in the review argument. "
-        "Chat cannot replace the tool. Judge forward_progress toward "
-        "the goal, not effort. Plan challenges name a failed assumption, "
+        "Chat cannot replace the tool. Plan challenges name a failed assumption, "
         "alternative and authority: technical for working choices and team plans; "
         "manager_contract or operator for their commitments. "
         "Give Engineer instructions in the review; neither "
@@ -806,7 +798,6 @@ def render_reviewer_prompt(
         + review_validity_block
         + search_altitude_block
         + f"{checkpoint_block}"
-        + f"{escalate_block}"
         + f"{engineer_log_audit_block}"
         + (f"Round: {round_index}/{round_max}\n" if round_max > 0 else f"Round: {round_index}\n")
         + f"Session ID: {session_id or 'none'}\n"

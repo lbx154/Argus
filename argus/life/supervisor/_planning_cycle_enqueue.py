@@ -34,7 +34,6 @@ from ._helpers import (
     _sanitize_planner_task_text,
     _unique_normalized_task_key_aliases,
 )
-from ._planner_rendering import _forward_progress
 from ._planning_cycle_helpers import _PlanCycleState, _revision_reason
 
 log = logging.getLogger(__name__)
@@ -66,34 +65,6 @@ def _render_filtered_task_feedback(state: _PlanCycleState) -> str:
     if len(rows) > 8:
         lines.append(f"- ... and {len(rows) - 8} additional filtered task(s)")
     return "\n".join(lines)
-
-
-def _latest_planner_forward_progress(
-    memory: Any,
-    revision_request: dict[str, Any] | None,
-) -> bool:
-    """Whether the latest settled mission explicitly advanced the objective."""
-    if isinstance(revision_request, dict):
-        report = revision_request.get("planner_report")
-        value = report.get("forward_progress") if isinstance(report, dict) else None
-        if isinstance(value, bool):
-            return value
-    try:
-        # The single most recent terminal settlement: journal chatter (planner
-        # cycles, waiting heartbeats) must not hide it behind a fixed window.
-        entries = memory.journal.tail_settlements(
-            1,
-            kinds=(
-                "mission_complete",
-                "mission_failed",
-                "mission_replan_requested",
-            ),
-        )
-    except Exception:  # noqa: BLE001 - backoff remains conservative on read failure
-        return False
-    if not entries:
-        return False
-    return _forward_progress(entries[-1]) is True
 
 
 def _independent_review_forced() -> bool:
@@ -1045,12 +1016,9 @@ class PlanningCycleEnqueueMixin:
                 )
             return PLAN_RETRY
         self._clear_manager_planner_feedback()
-        # A queued task is not itself evidence that the objective moved. Preserve
-        # the accumulated backoff across hollow/repeated planning cycles; only
-        # the Reviewer's explicit objective-level signal clears it.
-        if _latest_planner_forward_progress(self.memory, state.revision_request):
-            self._reset_idle_backoff()
+        # A queued task is not itself news that the objective moved; the
+        # mission that runs it clears the accumulated backoff.
         return True
 
 
-__all__ = ["PlanningCycleEnqueueMixin", "_latest_planner_forward_progress"]
+__all__ = ["PlanningCycleEnqueueMixin"]

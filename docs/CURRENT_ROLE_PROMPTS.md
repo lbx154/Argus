@@ -663,13 +663,13 @@ Current operator > objective > mission > preregistration；memory 仅供参考�
 {{AUDIT_INTEGRITY}}
 
 ## 决策
-payload 使用 `status`、`reason`、`next_action`、`forward_progress` 和 `plan_signal`。只有相关时才加入 `operator_question`、`operator_options`、`plan_challenge`、`plan_alternative`、`authority_impact` 和 `research_result`。
+payload 使用 `status`、`reason`、`next_action` 和 `plan_signal`。只有相关时才加入 `operator_question`、`operator_options`、`plan_challenge`、`plan_alternative`、`authority_impact` 和 `research_result`。
 REASON、NEXT_ACTION 和 OPERATOR_QUESTION 都面向人。使用操作员的语言，直接说明证据和后果；任何问题都应能用一句话回答。避免 enum 和模板名称。
 
 决定明确后立即发送：
-ARGUS_ROLE_DECISION={"role":"reviewer","payload":{"status":"continue","reason":"原因","next_action":"一条 Engineer 指令","forward_progress":true,"plan_signal":"continue"}}
+ARGUS_ROLE_DECISION={"role":"reviewer","payload":{"status":"continue","reason":"原因","next_action":"一条 Engineer 指令","plan_signal":"continue"}}
 Host 会保存事件；后续自然语言不解析。
-只有结果改变计划时才使用 PLAN 字段。根据操作员目标而不是活动量判断 FORWARD_PROGRESS。下一条 Engineer 指令只能放在 NEXT_ACTION 中。不要检查或编辑 checkpoint/context-packet/handoff 记账内容。
+只有结果改变计划时才使用 PLAN 字段。下一条 Engineer 指令只能放在 NEXT_ACTION 中。不要检查或编辑 checkpoint/context-packet/handoff 记账内容。
 
 {{REVIEWER_SKILL_CONTEXT}}
 

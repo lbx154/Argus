@@ -1,4 +1,4 @@
-"""A second reading of the evidence, and the letter to the operator."""
+"""The letter to the operator."""
 from __future__ import annotations
 
 import json
@@ -7,88 +7,7 @@ from pathlib import Path
 
 from argus.core.operator_presence import operator_presence
 from argus.roles.prompts.letter import build_letter_prompt
-from argus.verticals.research.notes import (
-    RESEARCH_NOTES_FILENAME,
-    read_research_notes,
-)
-from argus.verticals.research.second_reading import (
-    SECTION_TITLE,
-    build_second_reading_prompt,
-    insert_second_reading_into_notes,
-    note_reconsider_signal,
-    parse_second_reading,
-    record_second_reading,
-    second_reading_due,
-)
-
-
-def test_a_reading_is_due_only_after_repeated_doubt_and_a_pause(tmp_path: Path) -> None:
-    now = 1_000_000.0
-    assert second_reading_due(tmp_path, now=now) is False
-    note_reconsider_signal(tmp_path, now=now)
-    assert second_reading_due(tmp_path, now=now) is False
-    note_reconsider_signal(tmp_path, now=now + 60)
-    assert second_reading_due(tmp_path, now=now + 60) is True
-    record_second_reading(tmp_path, now=now + 120)
-    # Doubt starts over after a reading, and a fresh pair of signals soon after
-    # still waits for the interval to pass.
-    note_reconsider_signal(tmp_path, now=now + 200)
-    note_reconsider_signal(tmp_path, now=now + 300)
-    assert second_reading_due(tmp_path, now=now + 400) is False
-    assert second_reading_due(tmp_path, now=now + 120 + 7 * 3600) is True
-
-
-def test_the_reading_prompt_asks_one_question_and_names_pending_tasks() -> None:
-    prompt = build_second_reading_prompt(
-        objective="Test whether free-choice inferences survive across model families.",
-        stage="experiment",
-        notes="# Research notes — Experiment stage\n\nThe thesis so far.",
-        challenge="The signed-margin term hurts wording invariance.",
-        alternative="Try same-information rehearsal.",
-        pending_tasks=[("abc123", "Retrain with gamma 0.05")],
-        recent_reviews=["Round held: SmolLM3 fails on wording."],
-    )
-    assert "what claim does the evidence" not in prompt.lower() or True
-    assert "abc123: Retrain with gamma 0.05" in prompt
-    assert "REFUTED=" in prompt and "SUPPORTED=" in prompt and "NEXT=" in prompt
-    assert "The thesis so far." in prompt
-    assert "gate" not in prompt.lower() and "artifact" not in prompt.lower()
-
-
-def test_parsing_separates_prose_from_the_closing_lines() -> None:
-    raw = (
-        "The evidence supports a narrower claim.\n\nDetails follow.\n"
-        "REFUTED=The signed-margin mechanism transfers across families.\n"
-        "SUPPORTED=Qwen alone learns wording-invariant permission.\n"
-        "NEXT=Evaluate the two held-out families on the frozen panel."
-    )
-    parsed = parse_second_reading(raw)
-    assert parsed["body"] == "The evidence supports a narrower claim.\n\nDetails follow."
-    assert parsed["refuted"].startswith("The signed-margin")
-    assert parsed["supported"].startswith("Qwen alone")
-    assert parsed["next"].startswith("Evaluate the two")
-
-
-def test_the_reading_sits_at_the_top_of_the_notes_and_replaces_an_older_one(
-    tmp_path: Path,
-) -> None:
-    (tmp_path / RESEARCH_NOTES_FILENAME).write_text(
-        "# Research notes — Experiment stage\n\n## Thesis\n\nOld thesis text.\n",
-        encoding="utf-8",
-    )
-    insert_second_reading_into_notes(
-        tmp_path, body="First reading.", supported="Claim A.", next_step="Run B.", when=1.0
-    )
-    text = read_research_notes(tmp_path)
-    assert text.startswith("# Research notes — Experiment stage\n\n## " + SECTION_TITLE)
-    assert "Claim A." in text and "First reading." in text and "Old thesis text." in text
-    insert_second_reading_into_notes(
-        tmp_path, body="Second reading.", supported="Claim B.", next_step="", when=2.0
-    )
-    text = read_research_notes(tmp_path)
-    assert text.count(f"## {SECTION_TITLE}") == 1
-    assert "Second reading." in text and "First reading." not in text
-    assert "Old thesis text." in text
+from argus.verticals.research.notes import RESEARCH_NOTES_FILENAME
 
 
 def test_presence_reads_the_operator_silence_from_transcript_and_inbox(tmp_path: Path) -> None:
@@ -151,9 +70,6 @@ class _Backlog:
     def __init__(self, items: list[_Item]) -> None:
         self._items = items
 
-    def history(self) -> list[_Item]:
-        return list(self._items)
-
     def active(self) -> list[_Item]:
         return [
             item for item in self._items
@@ -199,7 +115,6 @@ class _Sink:
 
 def _supervisor_stub(tmp_path: Path, manager: _Manager, *, stage: str = "experiment"):
     from argus.life.supervisor._letters import LettersMixin
-    from argus.life.supervisor._second_reading import SecondReadingMixin
 
     life_dir = tmp_path / "life"
     workdir = tmp_path / "work"
@@ -211,7 +126,7 @@ def _supervisor_stub(tmp_path: Path, manager: _Manager, *, stage: str = "experim
         encoding="utf-8",
     )
 
-    class Stub(LettersMixin, SecondReadingMixin):
+    class Stub(LettersMixin):
         def __init__(self) -> None:
             self.memory = _Memory(
                 life_dir,
@@ -225,9 +140,6 @@ def _supervisor_stub(tmp_path: Path, manager: _Manager, *, stage: str = "experim
             self.config = type("Cfg", (), {"continuous_objective": ""})()
             self.status: list[str] = []
             self._manager = manager
-
-        def _artifact_root(self) -> Path:
-            return life_dir
 
         def _project_workdir(self) -> Path:
             return workdir
@@ -249,53 +161,6 @@ def _supervisor_stub(tmp_path: Path, manager: _Manager, *, stage: str = "experim
 
 
     return Stub(), life_dir, workdir
-
-
-def test_repeated_doubt_earns_a_reading_that_reshapes_the_plan(tmp_path: Path, monkeypatch) -> None:
-    import argus.skills.vertical_select as vertical_select
-
-    monkeypatch.setattr(vertical_select, "resolve_vertical", lambda root: "research")
-    manager = _Manager(
-        "The evidence supports a narrower claim.\n"
-        "REFUTED=The margin transfers across families.\n"
-        "SUPPORTED=Qwen alone learns wording-invariant permission.\n"
-        "NEXT=Evaluate the two held-out families on the frozen panel.\n"
-    )
-    stub, life_dir, workdir = _supervisor_stub(tmp_path, manager)
-    outcome = {
-        "status": "done",
-        "planner_report": {"plan_signal": "reconsider", "challenge": "It only holds on Qwen."},
-    }
-    # One doubtful mission is not enough.
-    assert stub._maybe_second_reading(outcome) is None
-    assert manager.prompts == []
-    revised = stub._maybe_second_reading(outcome)
-    assert revised is not None
-    assert manager.labels == ["manager-second-reading"]
-    challenge = revised["plan_challenge"]
-    assert challenge["source"] == "second_reading"
-    assert challenge["manager_action"] == "revise"
-    assert "Qwen alone" in challenge["challenge"]
-    assert challenge["alternative"].startswith("Evaluate the two")
-    notes = read_research_notes(workdir)
-    assert f"## {SECTION_TITLE}" in notes and "The signed margin helps." in notes
-    assert "t1: Retrain with gamma 0.05" in manager.prompts[0]
-    kinds = [event["type"] for event in stub.sink.events]
-    assert "life.research.second_reading" in kinds
-    # The reading does not fire again straight away.
-    assert stub._maybe_second_reading(outcome) is None
-
-
-def test_no_reading_outside_the_research_experiment_stage(tmp_path: Path, monkeypatch) -> None:
-    import argus.skills.vertical_select as vertical_select
-
-    monkeypatch.setattr(vertical_select, "resolve_vertical", lambda root: "research")
-    manager = _Manager("unused")
-    stub, _, _ = _supervisor_stub(tmp_path, manager, stage="paper")
-    outcome = {"status": "done", "planner_report": {"plan_signal": "reconsider"}}
-    assert stub._maybe_second_reading(outcome) is None
-    assert stub._maybe_second_reading(outcome) is None
-    assert manager.prompts == []
 
 
 def test_a_letter_is_written_published_and_kept_in_the_project(tmp_path: Path, monkeypatch) -> None:

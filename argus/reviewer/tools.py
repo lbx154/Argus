@@ -236,7 +236,6 @@ class ReviewActions:
         for name, (_, description) in _ACTIONS.items():
             fields: dict[str, Any] = {
                 "review": {"type": "string", "minLength": 1, "description": "Your complete natural-language review, including evidence and any next steps. No template or status footer."},
-                "forward_progress": {"type": "boolean", "description": "Whether this round moved toward the operator's goal."},
                 "research_result": research,
                 "session_signal": {
                     "type": "object",
@@ -428,8 +427,6 @@ class ReviewActions:
             planner_report={"plan_signal": "continue"},
             session_signal=payload.get("session_signal", {}),
         )
-        if "forward_progress" in payload:
-            decision.planner_report["forward_progress"] = payload["forward_progress"]
         if action == "request_review_decision" and payload.get("operator_need"):
             decision.planner_report["operator_need"] = payload["operator_need"]
         for key in ("manager_attention", "learning"):

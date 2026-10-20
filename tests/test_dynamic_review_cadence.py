@@ -5,6 +5,7 @@ from pathlib import Path
 
 from argus.adapters.memory_backend import CannedResponse, MemoryBackend
 from argus.core.models import RunnerResult
+from argus.engineer.round_config import QUESTION_POLICY
 from argus.engineer.runner import (
     EngineerConfig,
     SupervisedConfig,
@@ -396,105 +397,16 @@ def test_forbidden_reviewer_question_preserves_telemetry_and_continues(
     )
 
     assert status == "done"
-    enforced = rounds[0].review
-    assert enforced.status == "continue"
-    assert enforced.operator_question == ""
-    assert enforced.operator_options == []
-    assert enforced.input_tokens == 17
-    assert enforced.output_tokens == 9
-    assert "solve reversible environment, tool, worktree" in enforced.next_action
-
-
-def test_first_forbidden_question_at_hard_boundary_gets_one_retry(
-    tmp_path: Path,
-) -> None:
-    backend = MemoryBackend()
-    backend.queue(
-        "engineer-r1",
-        CannedResponse(message="Prepared a partial fix.\nNEXT_OWNER=reviewer"),
-    )
-    backend.queue(
-        "reviewer",
-        CannedResponse(
-            review_action=('request_review_decision', {'review': ('A reversible tool issue remains.') + '\n\n' + ('Ask the operator.'), 'question': 'Can you install the missing tool?'})
-        ),
-        CannedResponse(review_action=_done_review()),
-    )
-    backend.queue(
-        "engineer-r2",
-        CannedResponse(
-            message="Resolved the tool issue autonomously.\n"
-            "MILESTONE_STATUS=done\nNEXT_OWNER=reviewer"
-        ),
-    )
-
-    status, rounds, _final, _reason, _tid = _engineer(backend).run(
-        objective="complete the fix",
-        engineer_prompt_builder=lambda next_action, _include_static=True: (
-            next_action or "Do the task."
-        ),
-        supervised_config=SupervisedConfig(
-            max_rounds=3,
-            hard_escalate_rounds=1,
-            operator_questions_allowed=False,
-        ),
-        workdir=tmp_path,
-    )
-
-    assert status == "done"
-    assert rounds[0].review.status == "continue"
-    assert "forward_progress" not in rounds[0].review.planner_report
-    assert [label for label, _prompt, _options in backend.history].count(
-        "engineer-r2"
-    ) == 1
-
-
-def test_policy_retry_preserves_existing_stall_clock(tmp_path: Path) -> None:
-    backend = MemoryBackend()
-    for round_index in (1, 2, 3):
-        backend.queue(
-            f"engineer-r{round_index}",
-            CannedResponse(
-                message=f"Round {round_index} state preserved.\nNEXT_OWNER=reviewer"
-            ),
-        )
-    backend.queue(
-        "reviewer",
-        CannedResponse(
-            review_action=('revise_review', {'review': ('The route made no progress.') + '\n\n' + ('Try the next diagnostic.'), 'forward_progress': False})
-        ),
-        CannedResponse(
-            review_action=('request_review_decision', {'review': ('A reversible environment issue remains.') + '\n\n' + ('Ask the operator.'), 'question': 'Can you repair the environment?'})
-        ),
-        CannedResponse(
-            review_action=('revise_review', {'review': ('The route still made no progress.') + '\n\n' + ('Use a different route.'), 'forward_progress': False})
-        ),
-    )
-    events: list[dict] = []
-
-    status, rounds, _final, _reason, _tid = _engineer(backend).run(
-        objective="resolve the blocker autonomously",
-        engineer_prompt_builder=lambda next_action, _include_static=True: (
-            next_action or "Do the task."
-        ),
-        supervised_config=SupervisedConfig(
-            max_rounds=4,
-            no_progress_threshold=99,
-            stall_threshold=2,
-            hard_escalate_rounds=2,
-            operator_questions_allowed=False,
-        ),
-        workdir=tmp_path,
-        on_event=events.append,
-    )
-
-    assert status == "no_progress"
-    assert len(rounds) == 3
-    assert rounds[0].review.planner_report["forward_progress"] is False
-    assert "forward_progress" not in rounds[1].review.planner_report
-    assert rounds[2].review.planner_report["forward_progress"] is False
-    stall_events = [event for event in events if event["type"] == "round.stall"]
-    assert [event["semantic_stall_streak"] for event in stall_events] == [1, 2]
+    kept = rounds[0].review
+    # The Reviewer's verdict stands; the intervention beside it says the
+    # question was not sent and the work went on.
+    assert kept.status == "blocked"
+    assert kept.operator_question == "Can you repair the environment?"
+    assert kept.intervention(QUESTION_POLICY)["action"] == "continue"
+    assert kept.input_tokens == 17
+    assert kept.output_tokens == 9
+    engineer_prompts = [prompt for label, prompt, _options in backend.history if label == "engineer-r2"]
+    assert "solve reversible environment, tool, worktree" in engineer_prompts[0]
 
 
 def test_repeated_forbidden_reviewer_question_ends_blocked_without_asking(
@@ -527,9 +439,15 @@ def test_repeated_forbidden_reviewer_question_ends_blocked_without_asking(
     )
 
     assert status == "blocked"
-    assert [record.review.status for record in rounds] == ["continue", "blocked"]
-    assert all(not record.review.operator_question for record in rounds)
-    assert rounds[-1].review.next_action == ""
+    assert "the Manager decides in the operator's place" in _reason
+    assert [record.review.status for record in rounds] == ["blocked", "blocked"]
+    assert all(
+        record.review.operator_question == "May I perform the irreversible action?"
+        for record in rounds
+    )
+    assert [record.review.intervention(QUESTION_POLICY)["action"] for record in rounds] == [
+        "continue", "manager",
+    ]
 
 
 class _StructuredBlockedEngineer:

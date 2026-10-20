@@ -317,12 +317,6 @@ export function renderEvent(event: TypedArgusEvent, context: RenderContext): Ren
       const target = stringField(event, 'target_stage') || stringField(event, 'stage') || stringField(event, 'current_stage');
       return model('manager', 'role.manager', '🧭', `${stringField(event, 'action')}${target ? ` → ${target}` : ''} ${clean(stringField(event, 'reason'), context.density === 'full' ? 140 : 120)}`, 'info');
     }
-    case 'life.research.second_reading': {
-      const role = roleFor(event, 'manager');
-      const supported = clean(stringField(event, 'supported'), 160);
-      const base = localized(context, 'reread the evidence and reworked the plan', '重读了证据并重排了计划');
-      return model(role, `role.${role}`, '📖', supported ? `${base} · ${supported}` : base, 'info');
-    }
     case 'life.letter.written': {
       const role = roleFor(event, 'manager');
       return model(role, `role.${role}`, '✉', localized(context, 'wrote you a letter', '给你写了一封信'), 'accent');
@@ -429,10 +423,6 @@ export function renderEvent(event: TypedArgusEvent, context: RenderContext): Ren
     }
     case 'round.stall':
       return model('system', 'event.notice', context.density === 'full' ? '👁' : '!', clean(stringField(event, 'text') || localized(context, context.density === 'full' ? 'no progress this round — keeping a close eye on it' : 'no progress this round', '这一轮没有进展'), 170), 'warn');
-    case 'round.escalated':
-      return model('system', 'event.notice', context.density === 'full' ? '👁' : '!', clean(stringField(event, 'text') || localized(context, 'many rounds without a finish — raising what is blocking the work', '轮次已经很多还没做完 — 把外部阻碍提出来'), 170), 'warn');
-    case 'life.planner.stall_escalation':
-      return model('system', 'event.notice', context.density === 'full' ? '👁' : '!', `${localized(context, 'the Planner is stuck', '规划者卡住了')} — ${clean(stringField(event, 'reason') || stringField(event, 'text'), 150)}`, 'warn');
     case 'life.budget.pause':
       if (stringField(event, 'stop_kind') === 'cost_unreconciled' || stringField(event, 'reason').startsWith('unresolved provider cost'))
         return model('system', 'event.budget', '$', localized(context, 'Provider usage awaits reconciliation — not budget exhaustion', '调用费用待对账 — 并非预算耗尽'), 'warn');

@@ -215,9 +215,8 @@ class ReviewDecision:
     operator_question: str = ""
     operator_options: list[dict[str, Any]] = field(default_factory=list)
     checkpoint_recommended: bool = False
-    # Strategic judgment is separate from bounded implementation acceptance.
-    # A round may be correctly ``done`` yet still fail to move the operator's
-    # objective; LifeSupervisor uses this signal to surface repeated hollow work.
+    # Strategic judgment beside the verdict (plan challenges, authority impact),
+    # separate from bounded implementation acceptance.
     planner_report: dict[str, Any] = field(default_factory=dict)
     # Explicit role-session signal, supplied through the native review action.
     session_signal: dict[str, str] = field(default_factory=dict)
@@ -265,11 +264,13 @@ class ReviewDecision:
     # replacements keep (or reset to) False, so they are never carried forward
     # as the Reviewer's own findings.
     reviewer_authored: bool = False
-    # The Reviewer's own status/reason/next_action before any host rewrite
-    # (venue acceptance, pending background run). Later rounds quote these,
-    # and show each rewrite separately from ``host_notes``.
+    # The Reviewer's own status/reason/next_action before any host rewrite.
+    # Later rounds quote these.
     reviewer_words: dict[str, str] | None = None
-    host_notes: list[str] = field(default_factory=list)
+    # The host's interventions beside this verdict, which never rewrite it:
+    # each names the ``policy`` applied, the ``action`` taken instead, when
+    # (``at``), and a ``note``. Settlement reads verdict and interventions.
+    interventions: list[dict[str, Any]] = field(default_factory=list)
     # Why a host-written record stands where no Reviewer judgment was made,
     # e.g. ``provider_turn_cap``, ``backend_failure``, ``silent_command``.
     # Those records name the same kind in ``review_source``, so no consumer
@@ -279,6 +280,10 @@ class ReviewDecision:
     venue_review_required: bool = False
     venue_review_passed: bool = False
     venue_review_snapshot: dict[str, str] | None = None
+
+    def intervention(self, policy: str) -> dict[str, Any] | None:
+        """The host's intervention under ``policy`` beside this verdict, if any."""
+        return next((row for row in self.interventions if row.get("policy") == policy), None)
 
     @property
     def final_submission_certified(self) -> bool:
@@ -318,6 +323,8 @@ class ReviewDecision:
             "stop_kind": self.backend_stop_kind,
             "usage_scope": "delta",
         }
+        if self.interventions:
+            payload["interventions"] = [dict(row) for row in self.interventions]
         if isinstance(self.manuscript_snapshot, dict):
             payload["manuscript_snapshot"] = dict(self.manuscript_snapshot)
         if self.venue_review_required or self.venue_review is not None:
@@ -326,9 +333,6 @@ class ReviewDecision:
             payload["venue_review_passed"] = self.venue_review_passed
             payload["venue_review_snapshot"] = self.venue_review_snapshot
         report = self.planner_report if isinstance(self.planner_report, dict) else {}
-        forward_progress = report.get("forward_progress")
-        if isinstance(forward_progress, bool):
-            payload["forward_progress"] = forward_progress
         plan_signal = str(report.get("plan_signal") or "").strip()
         if plan_signal:
             payload["plan_signal"] = plan_signal

@@ -1199,7 +1199,6 @@ class _TechnicalQuestionRunner:
             "Validate one smaller row, then replan the full measurement."
         )
         outcome.final_planner_report = {
-            "forward_progress": False,
             "plan_signal": "reconsider",
             "authority_impact": "technical",
         }
@@ -1526,50 +1525,6 @@ def test_replan_requested_always_returns_the_node_to_pending(tmp_path) -> None:
         e for e in mem.journal.all()
         if e.kind == "mission_failed" and e.id == item.id
     ]
-
-
-def test_replan_after_forward_progress_is_not_redispatched(tmp_path) -> None:
-    class _ProgressThenReplanRunner:
-        def __init__(self) -> None:
-            self.calls = 0
-
-        def execute(self, **kwargs: Any) -> _Outcome:
-            self.calls += 1
-            outcome = _Outcome(
-                success=False,
-                status="replan_requested",
-                stop_reason="bounded probe completed; redesign the next mission",
-            )
-            outcome.final_planner_report = {
-                "forward_progress": True,
-                "plan_signal": "reconsider",
-            }
-            return outcome
-
-    mem = LifeMemory.open(tmp_path / "life")
-    runner = _ProgressThenReplanRunner()
-    sup = LifeSupervisor(
-        memory=mem,
-        runner=runner,
-        sink=_RecordingSink(mem.root),
-        config=LifeSupervisorConfig(
-            budget=LifeBudget(max_missions=2),
-            poll_interval_seconds=0.01,
-        ),
-    )
-    item = mem.backlog.add(BacklogItem.new(
-        title="bounded probe",
-        objective="measure the premise once, then choose replacement work",
-    ))
-
-    result = sup.tick()
-
-    assert result is not None and result["status"] == "replan_requested"
-    stored = next(row for row in mem.backlog.all() if row.id == item.id)
-    assert stored.status == "failed"
-    assert runner.calls == 1
-    assert sup.tick() is None
-    assert runner.calls == 1
 
 
 def test_stage_reconciled_replan_fails_with_the_stage_reason(tmp_path) -> None:
