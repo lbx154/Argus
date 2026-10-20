@@ -12,21 +12,6 @@ if TYPE_CHECKING:
 log = logging.getLogger(__name__)
 
 
-def _knob_enabled(name: str, default: bool) -> bool:
-    from ...core.knobs import resolve_knob
-
-    value = resolve_knob(name, "1" if default else "0").value
-    return value.strip().lower() in {"1", "true", "yes", "on"}
-
-
-def _cross_project_propagation_enabled() -> bool:
-    """Whether successful missions share reviewed Skills with other projects."""
-    return _knob_enabled(
-        "ARGUS_SKILL_CROSS_PROJECT_PROPAGATION",
-        True,
-    )
-
-
 def _project_state_root(memory: object) -> Path | None:
     value = getattr(memory, "project_root", None)
     if value is None:
@@ -77,8 +62,8 @@ class EvolutionMixin:
                 str(reviewer_source or "").strip().casefold() == "reviewer"
                 and isinstance(research_result, dict)
             ):
+                from ...core.knobs import learning_enabled
                 from ...core.paths import reviewed_facts_digest_path
-                from ...life.reflection import reflection_enabled
                 from ...manager.reviewed_facts import (
                     review_and_append_fact,
                     reviewed_fact_candidate,
@@ -91,7 +76,7 @@ class EvolutionMixin:
                     evidence_refs=evidence_refs,
                 )
                 try:
-                    if reflection_enabled():
+                    if learning_enabled():
                         # The post-mission reflection carries this judgment in its
                         # own call, or runs it alone when it does not reflect.
                         self._pending_reviewed_fact = reviewed_fact_candidate(**facts_kwargs)
@@ -112,17 +97,16 @@ class EvolutionMixin:
             from ...manager.skill_tidy import propagate_after_mission
 
             counts: dict[str, int] = {}
-            if _cross_project_propagation_enabled():
-                counts.update(propagate_after_mission(
-                    self._project_workdir(),
-                    self.runner,
-                    project_state_dir=_project_state_root(self.memory),
-                    shared_root=_shared_skills_root(self.runner, self.memory),
-                    mission_objective=mission_objective,
-                    mission_success=success,
-                    mission_result=mission_result,
-                    on_event=self._emit,
-                ))
+            counts.update(propagate_after_mission(
+                self._project_workdir(),
+                self.runner,
+                project_state_dir=_project_state_root(self.memory),
+                shared_root=_shared_skills_root(self.runner, self.memory),
+                mission_objective=mission_objective,
+                mission_success=success,
+                mission_result=mission_result,
+                on_event=self._emit,
+            ))
             if success:
                 from ...manager.domain_tidy import tidy_domains_after_mission
 
@@ -156,5 +140,4 @@ class EvolutionMixin:
 
 __all__ = [
     "EvolutionMixin",
-    "_cross_project_propagation_enabled",
 ]

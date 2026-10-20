@@ -35,6 +35,7 @@ from pathlib import Path
 from typing import Any, Callable
 
 from .core.event_catalog import EventType
+from .core.knobs import learning_enabled
 from .core.models import LoopOutcome, LoopStatus
 from .core.ports import RunnerBackend
 from .engineer.runner import (
@@ -53,13 +54,6 @@ from .skills.store import SkillStore
 
 log = logging.getLogger(__name__)
 
-def _knob_bool_setting(name: str, default: bool) -> bool:
-    from .core.knobs import resolve_knob
-
-    value = resolve_knob(name, "1" if default else "0").value
-    return value.strip().lower() in {"1", "true", "yes", "on"}
-
-
 @dataclass
 class SkillLoopConfig:
     """All knobs for one SkillLoop.run invocation, in one place."""
@@ -73,12 +67,7 @@ class SkillLoopConfig:
     reviewer_reasoning_effort: str = "high"
     require_independent_review: bool = True
     # Completed tasks may retain durable learning when the Agent judges it useful.
-    require_post_task_learning: bool = field(
-        default_factory=lambda: _knob_bool_setting(
-            "ARGUS_SKILL_REQUIRE_POST_TASK_LEARNING",
-            True,
-        )
-    )
+    require_post_task_learning: bool = field(default_factory=learning_enabled)
     # Zero means no round ceiling.
     max_rounds: int = 0
     backend_failure_threshold: int = 2

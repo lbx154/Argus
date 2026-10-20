@@ -74,10 +74,10 @@ def _schedule_answer_learning(
     control, or a message-only reply with no observed work, there is nothing to
     learn and the paid learning call is not made.
     """
+    from ..core.knobs import learning_enabled
     from ..life.answer_learning import enqueue_answer
-    from ..life.reflection import answer_learning_enabled
 
-    if not answer_learning_enabled() or not str(reply or "").strip() or global_root is None:
+    if not learning_enabled() or not str(reply or "").strip() or global_root is None:
         return None
     if _frontdoor_says_nothing_to_learn(frontdoor):
         return None

@@ -134,9 +134,9 @@ class Manager(
         # project-layer maintenance. No store means no Skill context.
         self.skill_store = skill_store
         if memory_maintenance_enabled is None:
-            from ..skills.role_memory import role_skill_maintenance_enabled
+            from ..core.knobs import learning_enabled
 
-            memory_maintenance_enabled = role_skill_maintenance_enabled()
+            memory_maintenance_enabled = learning_enabled()
         self.memory_maintenance_enabled = memory_maintenance_enabled
         from ..skills.missions import ManagerMission, SelfMission
 

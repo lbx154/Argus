@@ -35,7 +35,7 @@ def test_busy_message_is_saved_and_answered_without_resending(tmp_path, monkeypa
     workspace.mkdir()
     write_session_meta(tmp_path, SessionMeta(id=sid, workdir=str(workspace)))
     manager_state._STATES.pop(sid, None)
-    monkeypatch.setenv("ARGUS_SKILL_ANSWER_LEARNING", "0")
+    monkeypatch.setenv("ARGUS_SKILL_LEARNING", "0")
     busy = threading.Event()
     busy.set()
     answered = []
@@ -134,7 +134,7 @@ def test_web_startup_recovers_waiting_message_without_duplicate_operator_turn(tm
     workspace = tmp_path / "workspace"
     workspace.mkdir()
     write_session_meta(tmp_path, SessionMeta(id=sid, workdir=str(workspace)))
-    monkeypatch.setenv("ARGUS_SKILL_ANSWER_LEARNING", "0")
+    monkeypatch.setenv("ARGUS_SKILL_LEARNING", "0")
     manager_state._STATES.pop(sid, None)
     life = tmp_path / "projects" / sid
     append_turn(life, "operator", "Explain the results", message_id="web-startup-operator")
@@ -208,7 +208,7 @@ def test_a_saved_message_is_checked_against_the_same_question_once(tmp_path, mon
     blocked.pending_question = "Which route?"
     LifeMemory.open(life).backlog.add(blocked)
     manager_state._STATES.pop(sid, None)
-    monkeypatch.setenv("ARGUS_SKILL_ANSWER_LEARNING", "0")
+    monkeypatch.setenv("ARGUS_SKILL_LEARNING", "0")
     checks = []
 
     def triage(mem, body, state, **kwargs):

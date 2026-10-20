@@ -29,7 +29,7 @@ def home(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Path:
     root = tmp_path / "home"
     (root / "projects" / SID).mkdir(parents=True)
     monkeypatch.setenv("ARGUS_SKILL_HOME", str(root))
-    monkeypatch.setenv("ARGUS_SKILL_ANSWER_LEARNING", "1")
+    monkeypatch.setenv("ARGUS_SKILL_LEARNING", "1")
     manager_state._STATES.clear()
     yield root
     manager_state._STATES.clear()
@@ -57,7 +57,7 @@ def _schedule(home: Path, **overrides: Any) -> threading.Thread | None:
 def test_nothing_is_scheduled_when_the_switch_is_off(
     home: Path, monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    monkeypatch.setenv("ARGUS_SKILL_ANSWER_LEARNING", "0")
+    monkeypatch.setenv("ARGUS_SKILL_LEARNING", "0")
     _prime(SID, backend=object(), workdir=home)
 
     assert _schedule(home) is None

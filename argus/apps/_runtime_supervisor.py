@@ -145,7 +145,7 @@ def _build_supervisor_config(
     runtime_root = artifact_root or project_root
     paper_mission = _paper_mission_for_project_root(runtime_root)
     final_certification = _final_certification_for_project_root(runtime_root)
-    from ..skills.role_memory import role_skill_maintenance_enabled
+    from ..core.knobs import learning_enabled
 
     return LifeSupervisorConfig(
         budget=LifeBudget(max_missions=1 if once else max_missions),
@@ -160,7 +160,7 @@ def _build_supervisor_config(
         ),
         pending_question_resolver=_pending_question_resolver_for(project_root),
         runtime_context=runtime_context,
-        role_skill_maintenance_enabled=role_skill_maintenance_enabled(),
+        role_skill_maintenance_enabled=learning_enabled(),
         continuous=continuous,
         continuous_objective=continuous_objective,
         open_ended=open_ended,

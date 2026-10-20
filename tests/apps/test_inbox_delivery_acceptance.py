@@ -51,7 +51,7 @@ def planner_helper():
 def inbox_fixture_environment(tmp_path, monkeypatch):
     monkeypatch.setenv("ARGUS_SKILL_HOME", str(tmp_path / "isolated-home"))
     monkeypatch.setenv("XDG_CACHE_HOME", str(tmp_path / "isolated-cache"))
-    monkeypatch.setenv("ARGUS_SKILL_REQUIRE_POST_TASK_LEARNING", "0")
+    monkeypatch.setenv("ARGUS_SKILL_LEARNING", "0")
 
 
 def ephemeral_classifier(calls):

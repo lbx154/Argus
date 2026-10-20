@@ -163,7 +163,6 @@ KNOBS: tuple[Knob, ...] = (
     Knob("ARGUS_SKILL_MAX_ROUNDS", "0", "optional engineer-round cap per mission; disabled by default", "mission"),
     Knob("ARGUS_SKILL_REVIEWER_READ_DIRS", "[]", "JSON array of absolute input directories for scoped Reviewer reads", "mission"),
     Knob("ARGUS_SKILL_REVIEWER_VALIDATION_IMAGE", "(unset)", "local Docker image for opt-in read-only Reviewer command checks; empty disables", "mission"),
-    Knob("ARGUS_SKILL_REQUIRE_POST_TASK_LEARNING", "1", "enable selective project-layer Skill maintenance for all four roles (default ON)", "mission"),
     Knob("ARGUS_SKILL_PROVIDER_TURN_CAP", "0", "optional per-call interaction allowance for Engineer/Reviewer; disabled by default (0). If explicitly enabled, save a checkpoint and continue in a fresh session", "mission"),
     Knob("ARGUS_SKILL_RUNNER_SOFT_IDLE_SECONDS", "600", "model stream inactivity before a diagnostic warning (0=off)", "mission"),
     Knob("ARGUS_SKILL_RUNNER_STALLED_IDLE_SECONDS", "1800", "seconds a model turn may make no progress (no model stream event, no CPU time in its commands) before it is reported as likely stalled; an Engineer turn is then reported to the Manager once, which decides whether to keep waiting or restart it (0=off)", "mission"),
@@ -172,9 +171,6 @@ KNOBS: tuple[Knob, ...] = (
     Knob("ARGUS_SKILL_ENGINEER_LEAN_TOOLS", "true", "leave the Engineer agent CLI's unused own tools out of every model request (Copilot CLI: session SQL database and CLI self-documentation; built-in MCP servers stay); false restores them", "mission"),
     Knob("ARGUS_SKILL_ENGINEER_FULL_ROUND_POLICY", "session", "when an Engineer round re-sends the full static task text: session sends it only to a new or rotated provider session (plus a stage change, or a first round resuming a session with no sealed prior round for the mission); legacy also re-sends it on every round 1", "mission"),
     Knob("ARGUS_SKILL_AUTOCOMMIT_SKILLS", "off", "compatibility gate for explicitly operator-approved source promotions such as generated data-domain verticals", "lifecycle"),
-    Knob("ARGUS_SKILL_CROSS_PROJECT_PROPAGATION", "on", "Manager-promote changed reviewed Skills into shared global/vertical runtime layers after each successful mission", "lifecycle"),
-    Knob("ARGUS_SKILL_WIKI", "on", "enable the shared direct-edit project knowledge wiki", "lifecycle"),
-    Knob("ARGUS_SKILL_AUTO_INIT_WIKI", "on", "bootstrap a project wiki before the first SkillLoop mission", "lifecycle"),
     Knob("ARGUS_SKILL_METRICS_MAX_BYTES", "16777216", "rotate metrics.jsonl after this many bytes", "telemetry"),
     Knob("ARGUS_SKILL_METRICS_RETENTION_DAYS", "7", "delete rotated metrics archives older than this many days", "telemetry"),
     Knob("ARGUS_SKILL_METRICS_MAX_ARCHIVES", "14", "maximum number of rotated metrics archives to retain", "telemetry"),
@@ -187,11 +183,15 @@ KNOBS: tuple[Knob, ...] = (
         "lifecycle",
     ),
     # --- learning (what Argus keeps from missions and answers) ---
-    Knob("ARGUS_SKILL_REFLECTION", "1", "after each mission, look back once and keep at most one lesson page, two fact pages and one procedure when something durable was learned", "learning", cockpit=True),
+    Knob(
+        "ARGUS_SKILL_LEARNING", "1",
+        "learning on/off: after a mission or a researched answer Argus keeps what is "
+        "worth keeping (lessons, facts, procedures, Skills, shared principles), keeps "
+        "the project wiki, and recalls what other projects on this host learned; "
+        "off does none of this",
+        "learning", cockpit=True,
+    ),
     Knob("ARGUS_SKILL_REFLECTION_MODEL", "auto", "model for the post-mission reflection and answer learning; auto uses the cheap front-door model", "models", cockpit=True),
-    Knob("ARGUS_SKILL_ANSWER_LEARNING", "1", "after a researched chat answer, keep a survey page with its sources and a date to re-verify", "learning"),
-    Knob("ARGUS_SKILL_CONSOLIDATE_INTERVAL_S", "3600", "seconds between passes that rebuild a vertical's shared knowledge index and recompile its principles from repeated lessons", "learning"),
-    Knob("ARGUS_SKILL_RECALL_SIBLING_WIKIS", "1", "let knowledge recall read the shared vertical tier and other projects' Wikis on this host; ignored on multi-tenant hosts", "learning"),
     Knob("ARGUS_SKILL_ENGINEER_SANDBOX", "off", "codex sandbox for builder roles (engineer/reviewer/planner): set 'workspace-write' to confine writes to the project workdir + a writable allowlist (excludes ~/.argus-skill, the package, ~/.codex) and scrub VCS creds, instead of --dangerously-bypass. Default OFF — verify required network, cache, and remote accelerator access before enabling", "lifecycle"),
     Knob("ARGUS_SKILL_SKIP_VAULT_PREFLIGHT", "off", "bypass the capability-vault preflight on daemon start", "lifecycle"),
     Knob("ARGUS_SKILL_SOURCE_ROOT", "(unset)", "expected deployment source root: when set, daemon/WebAPI startup refuses a process whose loaded package resolves to a different checkout (rewritten-launcher guard)", "lifecycle"),
@@ -242,18 +242,12 @@ _EFFORT_KNOBS = frozenset(
 )
 _TOGGLE_KNOBS = frozenset(
     {
-        "ARGUS_SKILL_WIKI",
-        "ARGUS_SKILL_AUTO_INIT_WIKI",
-        "ARGUS_SKILL_CROSS_PROJECT_PROPAGATION",
-        "ARGUS_SKILL_REQUIRE_POST_TASK_LEARNING",
+        "ARGUS_SKILL_LEARNING",
         "ARGUS_SKILL_SAFE_MODE",
         "ARGUS_SKILL_REDACT_SECRETS",
         "ARGUS_SKILL_SHOW_REASONING",
         "ARGUS_SKILL_ENABLE_TELEGRAM",
         "ARGUS_SKILL_ENABLE_FEISHU",
-        "ARGUS_SKILL_REFLECTION",
-        "ARGUS_SKILL_ANSWER_LEARNING",
-        "ARGUS_SKILL_RECALL_SIBLING_WIKIS",
         "ARGUS_SKILL_OPERATOR_AVAILABLE",
     }
 )
@@ -469,6 +463,12 @@ def normalize_cockpit_knob_value(name: str, value: str) -> str:
             return "0"
         raise ValueError(f"{name} must be an on/off value")
     return raw
+
+
+def learning_enabled(*, env: Mapping[str, str] | None = None) -> bool:
+    """The one learning switch, ``ARGUS_SKILL_LEARNING`` (on by default)."""
+    value = resolve_knob("ARGUS_SKILL_LEARNING", "1", env=env).value
+    return value.strip().lower() not in _FALSE_VALUES
 
 
 def redact_knob_value(name: str, value: str, *, source: str) -> str:

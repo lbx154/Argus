@@ -91,8 +91,11 @@ contain only state and saved-entry metadata.
 unchanged and failure receipts. `POST /api/projects/{sid}/learning/{job}/retry`
 retries a failed answer job. Both require the usual project authentication.
 The chat area and library entries poll after foreground work ends and refresh
-the libraries when the receipt changes. `ARGUS_SKILL_ANSWER_LEARNING` and
-`ARGUS_SKILL_REFLECTION` retain their existing opt-out behavior.
+the libraries when the receipt changes. One switch, `ARGUS_SKILL_LEARNING`
+(on by default), turns all of it off: reflection, answer learning, Skill
+maintenance and promotion, the project wiki, recall from other projects, and
+the shared-principles pass, which otherwise runs only when the shared pages
+change.
 
 Quality checks cover a changed factual conclusion reaching the next recall,
 unrelated English/Chinese questions, repeated findings and methods, partially

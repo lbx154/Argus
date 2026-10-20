@@ -16,6 +16,7 @@ import time
 from pathlib import Path
 from typing import Callable
 
+from ..core.knobs import learning_enabled
 from ..core.ports import EventSink
 from ..core.role_handoff import strip_handoff
 from ..core.runner_errors import is_execution_host_startup_error
@@ -698,11 +699,8 @@ class SkillLoopExecuteMixin:
             "require_post_task_learning": bool(
                 getattr(self, "_role_memory_maintenance_enabled", True)
             ),
-            "wiki_enabled": _env_flag("ARGUS_SKILL_WIKI", default=True),
-            "auto_init_wiki": _env_flag(
-                "ARGUS_SKILL_AUTO_INIT_WIKI",
-                default=True,
-            ),
+            "wiki_enabled": learning_enabled(),
+            "auto_init_wiki": learning_enabled(),
             "dangerous_yolo": not safe_mode,
             "full_auto": safe_mode,
             "sandbox_mode": (

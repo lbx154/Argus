@@ -32,7 +32,7 @@ def _make_project(root: Path, sid: str) -> Path:
 @pytest.fixture()
 def queued(monkeypatch: pytest.MonkeyPatch) -> list[dict[str, Any]]:
     calls: list[dict[str, Any]] = []
-    monkeypatch.setenv("ARGUS_SKILL_ANSWER_LEARNING", "1")
+    monkeypatch.setenv("ARGUS_SKILL_LEARNING", "1")
     monkeypatch.setattr(answer_learning, "enqueue_answer", lambda **kw: calls.append(kw))
     manager_state._STATES.clear()
     yield calls

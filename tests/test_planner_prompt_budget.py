@@ -5,7 +5,6 @@ from __future__ import annotations
 import json
 from types import SimpleNamespace
 
-
 from argus.core.pipeline_state import read_pipeline_state, write_pipeline_state
 from argus.life.memory import EventJournal
 from argus.life.supervisor import LifeSupervisor

@@ -77,14 +77,19 @@ def _backlog_fingerprint(supervisor: Any) -> tuple | None:
 
 
 def _maybe_consolidate(rf_state: Any, config: Any) -> None:
-    """Run the hourly knowledge consolidation for this project's vertical.
+    """Consolidate this project's vertical knowledge when its pages changed.
 
-    Called after every drain pass, before the sleep. Skips quietly when the
-    daemon has no project workspace, the vertical is undecided, or the shared
-    root has nothing new; ``consolidate_knowledge`` reads its receipt first,
-    so the common path costs a few file reads. Never raises into the loop.
+    Called after every drain pass, before the sleep. Skips quietly when
+    learning is off, the daemon has no project workspace, the vertical is
+    undecided, or the shared root has nothing new; ``consolidate_knowledge``
+    compares page file facts with its receipt first, so the common path costs
+    one stat per page. Never raises into the loop.
     """
     try:
+        from ..core.knobs import learning_enabled
+
+        if not learning_enabled():
+            return
         workspace = getattr(config, "project_workdir", None)
         sup = getattr(rf_state, "sup", None)
         runner = getattr(rf_state, "runner", None)
@@ -845,8 +850,8 @@ class LifeWorkerRunMixin:
                     supervisor._planning_cycles = 0
                 if self._stop.is_set():
                     break
-                # Between passes the host sleeps on what it learned: at most
-                # one consolidation per interval per vertical, cheap otherwise.
+                # Between passes the host sleeps on what it learned, when the
+                # shared knowledge changed; cheap otherwise.
                 _maybe_consolidate(rf_state, self.config)
                 # Honor the supervisor's suggested backoff (escalating while it is
                 # idle awaiting an external dependency). The sleep is wakeable: it returns

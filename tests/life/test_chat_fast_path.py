@@ -411,7 +411,7 @@ def test_web_self_classification_reaches_execution_and_atlas_without_team(tmp_pa
     from argus.webapi import manager_state, server
 
     # This check counts foreground routing calls; background learning has its own suite.
-    monkeypatch.setenv("ARGUS_SKILL_ANSWER_LEARNING", "0")
+    monkeypatch.setenv("ARGUS_SKILL_LEARNING", "0")
 
     class Backend(_FakeBackend):
         def run_exec(self, **kwargs):
@@ -1315,8 +1315,7 @@ def test_execute_uses_full_pipeline_on_real_task(
 
     planned_tasks.clear()
     loop_kwargs.clear()
-    monkeypatch.setenv("ARGUS_SKILL_WIKI", "0")
-    monkeypatch.setenv("ARGUS_SKILL_AUTO_INIT_WIKI", "0")
+    monkeypatch.setenv("ARGUS_SKILL_LEARNING", "0")
     runner.execute(
         objective="run without project Wiki",
         sink=_RecordingSink(),
