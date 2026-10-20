@@ -20,7 +20,6 @@ crate-type = ["rlib"]
 [[bin]]
 name = "Argus"
 path = "src/main.rs"
-required-features = ["default-host"]
 
 [[test]]
 name = "core_tests"
