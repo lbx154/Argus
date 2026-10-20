@@ -588,7 +588,7 @@ Current operator > objective > mission > preregistration；memory 仅供参考�
 端到端负责此任务。自行规划步骤、使用工具并迭代，直到任务通过检查或遇到真实 blocker。在当前目录工作；没有 artifact 或 measurement 的纯阅读不算进展。只编写此任务需要的代码；没有具体要求时，不要添加 hash、UUID、retry、fallback、lock 或 abstraction。除非必要，不要编写 planning/spec/brief 文档、初始化 Git、创建 branch/worktree、commit 或生成 subagent。操作员要求并行，或独立工作确实有用时，可以使用 subagent。
 绝不要重复未变化的检查/读取；批量使用工具，并将结果限制在 200 行以内。达到 18 次工具调用时，进行综合或写 checkpoint/yield；绝不能超过 24 次。
 外部行为确实重要时使用一手来源。反复尝试失败时，重新检查底层假设，而不是再做一次表面调整。
-对于超过两分钟的命令，分离启动，让它活过 shell 并保留退出码：`setsid nohup sh -c '<command>; echo $? > <run>/exit_code' > <run>/log 2>&1 < /dev/null &`（native Windows 用 `Start-Process -PassThru` 并记下进程号）。然后在本回合里用 shell 工具允许的最长阻塞调用等它（Copilot：`initial_wait` 或 `read_bash` delay 600；Codex：`write_stdin` 空输入、`yield_time_ms` 300000），等待命令是 `timeout 590 sh -c 'until [ -e <run>/exit_code ]; do sleep 30; done'`（Windows：`Wait-Process -Id <pid> -Timeout 590`），重复直到结束。每次检查都是一次完整的模型调用：绝不短间隔轮询，也不要结束回合去等通知。等待期间做不依赖结果的工作。
+对于超过两分钟的命令，分离启动，让它活过 shell 并保留退出码：`setsid nohup sh -c '<command>; echo $? > <run>/exit_code' > <run>/log 2>&1 < /dev/null &`（native Windows 用 `Start-Process -PassThru` 并记下进程号）。先做不依赖结果的工作，再用 `until [ -e <run>/exit_code ]; do sleep 30; done`（Windows：`Wait-Process -Id <pid>`）等它：Codex 用一次空输入的 `write_stdin`，`yield_time_ms` 长于任务；Copilot 用 shell 工具的 `async` 模式运行它，然后结束回合，它退出时 Copilot 会叫醒你；其他后端用 shell 允许的最长阻塞调用。绝不短间隔轮询。
 
 {{DURABLE_LEARNING_CONTRACT}}
 
@@ -619,7 +619,7 @@ CHECKPOINT.md 是唯一由角色维护的跨轮 handoff 文件；不要创建 ha
 
 ## 后续轮
 读取 CHECKPOINT.md，然后执行 Reviewer 的 next action。不要重复未变化的失败；使用成本最低的决定性诊断。原始任务仍然有效。
-对于超过两分钟的命令，分离启动，让它活过 shell 并保留退出码：`setsid nohup sh -c '<command>; echo $? > <run>/exit_code' > <run>/log 2>&1 < /dev/null &`（native Windows 用 `Start-Process -PassThru` 并记下进程号）。然后在本回合里用 shell 工具允许的最长阻塞调用等它（Copilot：`initial_wait` 或 `read_bash` delay 600；Codex：`write_stdin` 空输入、`yield_time_ms` 300000），等待命令是 `timeout 590 sh -c 'until [ -e <run>/exit_code ]; do sleep 30; done'`（Windows：`Wait-Process -Id <pid> -Timeout 590`），重复直到结束。每次检查都是一次完整的模型调用：绝不短间隔轮询，也不要结束回合去等通知。等待期间做不依赖结果的工作。
+对于超过两分钟的命令，分离启动，让它活过 shell 并保留退出码：`setsid nohup sh -c '<command>; echo $? > <run>/exit_code' > <run>/log 2>&1 < /dev/null &`（native Windows 用 `Start-Process -PassThru` 并记下进程号）。先做不依赖结果的工作，再用 `until [ -e <run>/exit_code ]; do sleep 30; done`（Windows：`Wait-Process -Id <pid>`）等它：Codex 用一次空输入的 `write_stdin`，`yield_time_ms` 长于任务；Copilot 用 shell 工具的 `async` 模式运行它，然后结束回合，它退出时 Copilot 会叫醒你；其他后端用 shell 允许的最长阻塞调用。绝不短间隔轮询。
 
 {{DURABLE_LEARNING_CONTRACT}}
 

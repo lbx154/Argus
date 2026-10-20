@@ -71,7 +71,7 @@ def test_long_experiment_protocol_is_in_every_engineer_turn():
     for out in (full, compact):
         assert "setsid nohup" in out
         assert "blocking calls" in out
-        assert "never poll in short loops" in out
+        assert "Never poll in short loops" in out
 
 
 def test_engineer_must_not_spawn_a_subagent_to_impersonate_reviewer():

@@ -646,6 +646,84 @@ def test_validator_authorization_allows_exact_repair_only(
     assert event["allowed_write_paths"] == ["tests/test_terminal_contract.py"]
 
 
+@pytest.mark.parametrize("evidence_changed", [False, True])
+def test_authorization_freezes_the_evidence_the_finding_cites(
+    tmp_path: Path, monkeypatch, evidence_changed: bool,
+) -> None:
+    sid = "s-authorization-evidence"
+    life = _make_project(tmp_path, sid)
+    workdir = tmp_path / "workspace-evidence"
+    validator = workdir / "tests" / "test_terminal_contract.py"
+    validator.parent.mkdir(parents=True)
+    validator.write_text("def test_contract(): pass\n", encoding="utf-8")
+    evidence = workdir / "research" / "RESULT.json"
+    evidence.parent.mkdir()
+    evidence.write_text('{"decision":"rejected"}', encoding="utf-8")
+    from argus.manager.control_state import CampaignControlStore
+
+    (life / "continuous.json").write_text(
+        json.dumps({"objective": "repair terminal gate", "generation": 2}),
+        encoding="utf-8",
+    )
+    store = CampaignControlStore(life, project_root=workdir)
+    store.commit_revision(
+        identity=store.campaign_identity(),
+        updates={
+            "terminal_evidence": [{
+                "failure_source": "validator_defect",
+                "validator_id": "terminal-contract",
+                "repair_paths": ["tests/test_terminal_contract.py"],
+                "failure_source_evidence": [
+                    {"artifact": "research/RESULT.json"},
+                    {"artifact": "tests/test_terminal_contract.py"},
+                ],
+            }],
+        },
+        reason="Reviewer diagnosed validator defect",
+    )
+    manager_state._STATES.clear()
+
+    def classify(mem, text, chat_state, **kwargs):
+        chat_state["_frontdoor_authorization"] = ["validator_repair"]
+        return None, None, "simple"
+
+    monkeypatch.setattr(config_intent, "_front_door_classify", classify)
+    monkeypatch.setattr(
+        manager_dispatch,
+        "_authorization_workdir",
+        lambda *_args, **_kwargs: workdir,
+    )
+
+    result = manager_bridge.manager_message(
+        sid,
+        "authorize the exact validator repair",
+        global_root=tmp_path,
+    )
+
+    assert result["control"] == "authorization"
+    event = store.get_authorization(result["authorization_id"])
+    assert event is not None
+    # The validator under repair is writable, so only the result is frozen.
+    assert [row["path"] for row in event["frozen_evidence"]] == ["research/RESULT.json"]
+    if evidence_changed:
+        evidence.write_text('{"decision":"accepted"}', encoding="utf-8")
+
+    def claim():
+        return store.claim_repair_capability(
+            authorization_id=event["authorization_id"],
+            nonce=event["nonce"],
+            action="validator_repair",
+            identity=store.campaign_identity(campaign_epoch=event["campaign_epoch"]),
+            mission_id="repair-1",
+        )
+
+    if evidence_changed:
+        with pytest.raises(ValueError, match="frozen evidence changed"):
+            claim()
+    else:
+        assert claim().validator_id == "terminal-contract"
+
+
 def test_authorization_without_current_blocker_fails_closed(
     tmp_path: Path, monkeypatch,
 ) -> None:

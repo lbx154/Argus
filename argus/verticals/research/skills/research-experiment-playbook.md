@@ -207,8 +207,8 @@ so they survive the model call. A provider's native background shell can be
 owned by that CLI invocation; its promise of a completion notification does
 not ensure survival after the model call ends. While the job runs, continue
 independent scientific work and record it in the existing checkpoint; then
-wait for it in the turn with blocking calls, never short polls, and check the
-real producer and completed outputs. An empty model answer does not make the
+wait for it as the rule for commands over two minutes says, never with short
+polls, and check the real producer and completed outputs. An empty model answer does not make the
 scientific batch ready for review.
 When promoting a new result, validate the whole attempt first and switch the
 canonical reference together, rather than mixing raw rows, summaries, and
