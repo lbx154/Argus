@@ -57,7 +57,7 @@ def test_team_learning_promotes_to_vertical_and_matching_session_discovers_it(
     global_root = tmp_path / "profile-skills"
     shared = global_root / "_shared_verticals" / "software"
     project.mkdir()
-    candidate = state / "skills" / "engineer" / "debugging-candidate.md"
+    candidate = project / ".agents" / "skills" / "debugging-candidate" / "SKILL.md"
     candidate.parent.mkdir(parents=True)
     candidate.write_text(
         "---\n"
@@ -340,7 +340,7 @@ def test_a_candidate_naming_the_verifier_is_withheld_from_the_evidence(
     state = tmp_path / "session-state"
     global_root = tmp_path / "profile-skills"
     project.mkdir()
-    skills = state / "skills" / "engineer"
+    skills = state / "skills" / "manager"
     skills.mkdir(parents=True)
     (skills / "gate-repair.md").write_text(
         "---\n"
@@ -411,7 +411,7 @@ def test_team_learning_honors_configured_project_skill_root(
     configured = tmp_path / "configured-skills"
     global_root = tmp_path / "profile-skills"
     project.mkdir()
-    candidate = configured / "engineer" / "configured.md"
+    candidate = configured / "manager" / "configured.md"
     candidate.parent.mkdir(parents=True)
     candidate.write_text(
         "---\n"
@@ -448,12 +448,16 @@ def test_a_workspace_skill_is_offered_with_the_code_beside_it(tmp_path: Path) ->
         encoding="utf-8",
     )
     (skill / "check.py").write_text("print('ok')\n", encoding="utf-8")
+    old = state / "skills" / "engineer" / "old-procedure.md"
+    old.parent.mkdir(parents=True)
+    old.write_text("---\nname: old procedure\ndescription: kept by an older release\n---\n", encoding="utf-8")
     backend = _SilentBackend()
 
     propagate_after_mission(project, backend, project_state_dir=state, shared_root=global_root)
 
     (call,) = backend.calls
     assert "- engineer/dependency-closed-check/SKILL.md" in call["prompt"]
+    assert "old-procedure" not in call["prompt"], "Engineer procedures live in the workspace"
     assert f"code beside it in `{skill.resolve()}`: check.py" in call["prompt"]
     assert "promote it whole" in call["prompt"]
     assert call["options"].add_dirs == [str(skill.resolve())]
@@ -466,10 +470,10 @@ def test_unseen_candidate_batch_remains_pending_for_next_success(
     state = tmp_path / "session-state"
     global_root = tmp_path / "profile-skills"
     project.mkdir()
-    skill_root = state / "skills" / "engineer"
-    skill_root.mkdir(parents=True)
+    skill_root = project / ".agents" / "skills"
     for index in range(9):
-        (skill_root / f"candidate-{index}.md").write_text(
+        (skill_root / f"candidate-{index}").mkdir(parents=True)
+        (skill_root / f"candidate-{index}" / "SKILL.md").write_text(
             "---\n"
             f"name: candidate {index}\n"
             f"description: Reusable procedure {index}\n"
@@ -498,13 +502,13 @@ def test_unseen_candidate_batch_remains_pending_for_next_success(
     )
 
     assert len(backend.calls) == 2
-    assert "candidate-8.md" not in backend.calls[0]["prompt"]
-    assert "candidate-8.md" in backend.calls[1]["prompt"]
+    assert "candidate-8/SKILL.md" not in backend.calls[0]["prompt"]
+    assert "candidate-8/SKILL.md" in backend.calls[1]["prompt"]
 
 
 def test_missing_scope_keeps_candidates_local_without_a_model_call(tmp_path, monkeypatch):
     state = tmp_path / 'project'
-    candidate = state / 'skills/engineer/date-reading.md'
+    candidate = state / 'skills/manager/date-reading.md'
     candidate.parent.mkdir(parents=True)
     candidate.write_text('A project-specific birthdate procedure.')
     shared = tmp_path / 'shared'
@@ -522,7 +526,7 @@ def test_missing_scope_keeps_candidates_local_without_a_model_call(tmp_path, mon
 
 def test_vertical_root_cannot_escape_the_shared_namespace(tmp_path):
     state = tmp_path / 'project'
-    candidate = state / 'skills/engineer/procedure.md'
+    candidate = state / 'skills/manager/procedure.md'
     candidate.parent.mkdir(parents=True)
     candidate.write_text('Project procedure.')
     shared = tmp_path / 'shared'

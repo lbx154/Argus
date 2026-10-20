@@ -4,8 +4,8 @@ A person who finishes a piece of work pauses and asks what it taught them.
 This module gives Argus that pause. ``reflect_after_mission`` runs once per
 finished mission and asks a small model to write, at most, one lesson page
 into the vertical's shared Wiki, two fact pages into the project Wiki and one
-procedure into the project Skill layer — or nothing, when nothing durable was
-learned. ``reflect_after_answer`` does the same for a researched chat reply,
+procedure into the workspace's Agent Skills — or nothing, when nothing durable
+was learned. ``reflect_after_answer`` does the same for a researched chat reply,
 deciding itself whether the exchange taught anything worth a survey page.
 
 The host owns everything deterministic: which directories the model may write
@@ -586,8 +586,8 @@ def build_reflection_prompt(
         "Add one line `- [title](pages/lessons/<file>) — description` under "
         f"`## Lessons` in `{vertical_root}/INDEX.md`; the host adds it if you forget.\n"
         + facts_section
-        + "3. At most ONE procedure in the project Skill layer, only when a repeatable "
-        f"procedure would change how the next task is done: `{skills_dir}/<slug>.md` "
+        + "3. At most ONE procedure in the workspace's Skills, only when a repeatable "
+        f"procedure would change how the next task is done: `{skills_dir}/<slug>/SKILL.md` "
         "with front matter `name` and `description`. Explain when to use it, the actions, "
         "what can go wrong and how to check the result; use steps where helpful, not "
         "mandatory headings. A procedure that exists there "
@@ -736,10 +736,9 @@ def _reflect_after_mission(
 
     vertical_root, lesson_scope = _vertical_root(vertical, global_root)
     lesson_dir = vertical_root / "pages" / "lessons"
-    skills_dir = life_dir / "skills" / "engineer"
+    skills_dir = workspace / ".agents" / "skills"
     try:
         lesson_dir.mkdir(parents=True, exist_ok=True)
-        skills_dir.mkdir(parents=True, exist_ok=True)
     except OSError:
         log.warning("reflection: could not prepare the knowledge directories", exc_info=True)
         judge_alone()
@@ -763,7 +762,7 @@ def _reflect_after_mission(
         operator_root=operator_root, reviewed_fact=reviewed_fact,
         reviewed_fact_pointer=full_record.as_posix() if full_record is not None else "",
     )
-    roots: list[tuple[Path, str]] = [(vertical_root, lesson_scope), (life_dir / "skills", "project")]
+    roots: list[tuple[Path, str]] = [(vertical_root, lesson_scope), (skills_dir, "project")]
     if project_wiki is not None:
         roots.insert(1, (project_wiki, "project"))
     if operator_root is not None:
@@ -771,7 +770,7 @@ def _reflect_after_mission(
     watched = [path for root, _scope in roots for path in _markdown_files(root)]
     before = _snapshot(watched)
 
-    add_dirs = [str(vertical_root), str(life_dir / "skills")]
+    add_dirs = [str(vertical_root)]
     if project_wiki is not None and not _under(project_wiki, workspace):
         add_dirs.append(str(project_wiki))
     if operator_root is not None:
@@ -847,9 +846,9 @@ def _reflect_after_mission(
             continue
         root, scope = owner
         relative = _relative(path, root)
-        if root == life_dir / "skills":
+        if root == skills_dir:
             page_kind = "skill"
-            relative = "skills/" + relative
+            relative = ".agents/skills/" + relative
         elif operator_root is not None and root == operator_root:
             page_kind = "profile" if relative == "profile.md" else _kind_for(meta, relative, default="note")
         elif root == vertical_root:

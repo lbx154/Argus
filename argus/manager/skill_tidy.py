@@ -106,9 +106,9 @@ def _backend_for(runner: Any) -> Any:
     return runner if callable(getattr(runner, "run_exec", None)) else None
 
 
-def _role_skill_paths(root: Path) -> list[Path]:
+def _role_skill_paths(root: Path, roles: Iterable[str] = _TEAM_ROLES) -> list[Path]:
     paths: list[Path] = []
-    for role in _TEAM_ROLES:
+    for role in roles:
         role_root = root / role
         if not role_root.is_dir():
             continue
@@ -149,15 +149,17 @@ def _snapshot(paths: Iterable[Path]) -> dict[Path, tuple[int, int]]:
 def _project_skill_files(project_skills: Path | None, workspace: Path) -> dict[str, Path]:
     """Project-authored Skills by their place in a role library.
 
-    The project layer keeps them in role directories. The Engineer writes
-    inside its workspace, as Agent Skills (``.agents/skills/<name>/SKILL.md``,
-    with any code beside it); each takes the place ``engineer/<name>/SKILL.md``.
+    The Manager, Planner and Reviewer keep theirs in role directories of the
+    project state. Engineer procedures, the Engineer's and the post-mission
+    reflection's, are the workspace's Agent Skills
+    (``.agents/skills/<name>/SKILL.md``, with any code beside it); each takes
+    the place ``engineer/<name>/SKILL.md``.
     """
     files: dict[str, Path] = {}
     if project_skills is not None and project_skills.is_dir():
         files = {
             path.relative_to(project_skills).as_posix(): path
-            for path in _role_skill_paths(project_skills)
+            for path in _role_skill_paths(project_skills, (role for role in _TEAM_ROLES if role != "engineer"))
         }
     native = workspace / ".agents" / "skills"
     for path in sorted(native.glob("*/SKILL.md")):

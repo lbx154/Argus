@@ -97,16 +97,19 @@ maintenance and promotion, the project wiki, recall from other projects, and
 the shared-principles pass, which otherwise runs only when the shared pages
 change.
 
-The Engineer writes only inside its workspace, so the Skills it keeps are the
-workspace's Agent Skills, `.agents/skills/<name>/SKILL.md`, with a script it
-ran beside the `SKILL.md` when a step is better run than read. A value read
-from code goes into the Wiki with the layer it belongs to, the value that
-takes effect on the usual path, what decides it and why, and may link a small
-check in the Wiki's `checks/` that a later project reruns against another
-version. Nothing imports these files: roles of the same project discover them,
-recall shows them to later projects of any vertical (as pointers that name the
-code), and the post-mission review offers a workspace Skill for the vertical's
-shared library like any project Skill, with its code.
+The Engineer writes only inside its workspace, so the procedures it keeps, and
+the one the post-mission reflection may add, are the workspace's Agent Skills,
+`.agents/skills/<name>/SKILL.md`, with a script it ran beside the `SKILL.md`
+when a step is better run than read. A value read from code goes into the Wiki
+with the layer it belongs to, the value that takes effect on the usual path,
+what decides it and why, and may link a small check in the Wiki's `checks/`
+that a later project reruns against another version. Nothing imports these
+files: roles of the same project discover them, the project's mission view
+lists them, recall shows them to later projects of any vertical (as pointers
+that name the code), and the post-mission review offers them for the
+vertical's shared library, with their code. Engineer procedures an older
+release kept in the project state (`skills/engineer`) are still read, never
+written.
 
 Quality checks cover a changed factual conclusion reaching the next recall,
 unrelated English/Chinese questions, repeated findings and methods, partially

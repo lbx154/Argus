@@ -328,17 +328,21 @@ def merge_mission_view_snapshot(
     return view
 
 
-def _apply_manuscript_review_freshness(
-    view: dict[str, Any],
-    session: Mapping[str, Any],
-) -> None:
-    """Ensure a persisted paper certificate is never rendered for newer bytes."""
-    workdir = str(
+def _session_workdir(session: Mapping[str, Any]) -> str:
+    return str(
         session.get("campaign_workdir")
         or session.get("workdir")
         or session.get("session_workdir")
         or ""
     ).strip()
+
+
+def _apply_manuscript_review_freshness(
+    view: dict[str, Any],
+    session: Mapping[str, Any],
+) -> None:
+    """Ensure a persisted paper certificate is never rendered for newer bytes."""
+    workdir = _session_workdir(session)
     review = view.get("review")
     if (
         isinstance(review, dict)
@@ -426,20 +430,22 @@ def _mission_for_timestamp(
 
 
 def _discover_project_skills(
-    root: Path,
+    native: Path,
+    state: Path,
     view: dict[str, Any],
     backlog: list[Mapping[str, Any]],
 ) -> None:
-    skill_root = root / "skills"
-    if not skill_root.is_dir():
-        return
+    """Project Skills: the workspace's Agent Skills, then the role Skills of
+    the project state (where older projects also kept Engineer procedures)."""
     rows = view.setdefault("learned_skills", [])
     known_paths = {
         str(row.get("path") or "")
         for row in rows
         if isinstance(row, dict)
     }
-    for path in sorted(skill_root.rglob("*.md")):
+    found = [(path, path.parent.name) for path in sorted(native.glob("*/SKILL.md"))]
+    found += [(path, path.relative_to(state).with_suffix("").as_posix()) for path in sorted(state.rglob("*.md"))]
+    for path, semantic_name in found:
         if "_history" in path.parts or path.name.startswith("."):
             continue
         try:
@@ -448,7 +454,6 @@ def _discover_project_skills(
             continue
         if str(path) in known_paths:
             continue
-        semantic_name = path.relative_to(skill_root).with_suffix("").as_posix()
         mission_id, mission_title = _mission_for_timestamp(backlog, modified)
         rows.append({
             "id": semantic_name,
@@ -466,9 +471,11 @@ def _enrich_skill_content(
     root: Path,
     view: dict[str, Any],
     backlog: list[Mapping[str, Any]],
+    workdir: str,
 ) -> None:
-    _discover_project_skills(root, view, backlog)
-    allowed_roots = [(root / "skills").resolve()]
+    native, state = Path(workdir or root) / ".agents" / "skills", root / "skills"
+    _discover_project_skills(native, state, view, backlog)
+    allowed_roots = [native.resolve(), state.resolve()]
     if root.parent.name == "projects":
         allowed_roots.append((root.parent.parent / "skills").resolve())
     for skill in view.setdefault("learned_skills", []):
@@ -543,5 +550,6 @@ def snapshot_mission_view(
             path,
             response,
             list(kwargs.get("backlog") or []),
+            _session_workdir(kwargs.get("session") or {}),
         )
     return response

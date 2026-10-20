@@ -421,9 +421,9 @@ def _sibling_roots(global_root: Path, state: Path, workspace: Path) -> list[Know
 
     A project is read where the host keeps it: its state directory under
     ``projects/`` and the workspace its session names, with its Wikis and
-    Agent Skills. Of the state directory only the Engineer procedures are read;
-    a project's SELF and Manager Skills hold its operator's preferences and
-    stay in it.
+    Agent Skills. Of the state directory only the Engineer procedures older
+    projects kept there are read; a project's SELF and Manager Skills hold its
+    operator's preferences and stay in it.
     """
     projects = global_root / "projects"
     if not _contained(projects, global_root) or not projects.is_dir():

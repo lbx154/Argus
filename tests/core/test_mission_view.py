@@ -652,6 +652,27 @@ def test_snapshot_discovers_project_skill_and_attributes_mission(
     assert load_mission_view(tmp_path)["learned_skills"] == []
 
 
+def test_snapshot_discovers_the_workspace_agent_skills(tmp_path: Path) -> None:
+    workspace = tmp_path / "workspace"
+    skill_path = workspace / ".agents" / "skills" / "measured-repair" / "SKILL.md"
+    skill_path.parent.mkdir(parents=True)
+    skill_path.write_text(
+        "---\nname: measured-repair\ndescription: Preserve measured repair evidence.\n---\n",
+        encoding="utf-8",
+    )
+    (skill_path.parent / "repair.py").write_text("print('ok')\n", encoding="utf-8")
+    state = tmp_path / "state"
+    state.mkdir()
+
+    view = snapshot_mission_view(
+        state, session={"workdir": str(workspace)}, daemon={}, roles=[], backlog=[], continuous={},
+    )
+
+    (skill,) = view["learned_skills"]
+    assert (skill["id"], skill["path"]) == ("measured-repair", str(skill_path))
+    assert skill["content"] == skill_path.read_text(encoding="utf-8")
+
+
 def test_free_text_is_display_only_and_never_changes_review_state(tmp_path: Path) -> None:
     view = emit(
         tmp_path,
