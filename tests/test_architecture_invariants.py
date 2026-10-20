@@ -1900,7 +1900,8 @@ def test_retired_names_do_not_spread() -> None:
 # signature (_idle_cycle.py) and the venue acceptance check (_core.py) now
 # take LifeSupervisor._project_state_root(), because handing the host root to
 # a vertical lookup answered "undecided" for a classified project.
-MEMORY_ROOT_READS = 69
+# 69 - 1: the plan challenge's operator card (_core.py) went with ask_operator.
+MEMORY_ROOT_READS = 68
 def test_memory_root_reads_do_not_grow() -> None:
     """``MemoryBundle.root`` returns the *host* root; every reader of it is a trap.
 
