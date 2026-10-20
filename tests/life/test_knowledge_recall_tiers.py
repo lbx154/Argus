@@ -260,20 +260,24 @@ def test_hosted_trial_or_switched_off_recall_never_reads_other_workspaces(tenant
     assert f"{VERTICAL} knowledge" in root_kinds(recall) and "shared knowledge" in root_kinds(recall)
 
 
-def test_sibling_roots_are_capped_newest_first_and_roots_stay_bounded(tenant, tmp_path):
+def test_earlier_projects_are_capped_newest_first_and_roots_stay_bounded(tenant, tmp_path):
     workspace = workspace_with_vertical(tenant / "workspaces" / "current", VERTICAL)
     for number in range(16):
         sibling = tmp_path / "work" / f"earlier-{number:02d}"
         state = earlier_project(tenant, f"s-{number:02d}", VERTICAL, sibling)
-        project_wiki(sibling, f"w-{number:02d}", "notes.md", page("P", "d", f"quartz {number}"))
+        if number % 2:
+            project_wiki(sibling, f"w-{number:02d}", "notes.md", page("P", "d", f"quartz {number}"))
+            write(sibling / ".agents" / "skills" / "check" / "SKILL.md", "---\nname: check\ndescription: d\n---\n")
         stamp = dt.datetime(2026, 9, 1, tzinfo=dt.timezone.utc).timestamp() + number * 3600
         os.utime(state, (stamp, stamp))
 
     recall = knowledge_recall_for_memory(bundle(tenant, workspace))
-    siblings = [root.kind for root in recall.roots if root.kind.startswith("earlier project")]
+    siblings = [root.source for root in recall.roots if root.kind.startswith("earlier project")]
 
-    assert len(siblings) == 8
-    assert siblings[0] == "earlier project Wiki (s-15)" and siblings[-1] == "earlier project Wiki (s-08)"
+    # Eight projects that kept something, each with its Wiki and its Skills;
+    # a project that kept nothing does not use up a place.
+    assert list(dict.fromkeys(siblings)) == [f"s-{number:02d}" for number in range(15, 0, -2)]
+    assert len(siblings) == 16
     assert len(recall.roots) <= 32
 
 

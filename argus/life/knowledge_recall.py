@@ -50,8 +50,8 @@ _DESCRIPTION_CHARS = 160
 _FRONT_MATTER_CHARS = 4000
 _MAX_CODE_FILES = 4
 _MAX_CODE_SCAN = 64
-_MAX_SIBLING_ROOTS = 8
-_MAX_SIBLING_PROJECTS = 64
+_MAX_SIBLINGS = 8
+_MAX_SIBLING_CANDIDATES = 64
 _MAX_PROJECT_ENTRIES = 256
 _OBJECTIVE_EXCERPT_CHARS = 200
 # Read through the knob resolver rather than the hosted-trial client: the
@@ -416,7 +416,7 @@ def _same_path(left: Path, right: Path) -> bool:
 
 
 def _sibling_roots(global_root: Path, state: Path, workspace: Path) -> list[KnowledgeRoot]:
-    """Wikis and Skills of earlier projects, newest first.
+    """Wikis and Skills of the newest earlier projects that kept any.
 
     A project is read where the host keeps it: its state directory under
     ``projects/`` and the workspace its session names, with its Wikis and
@@ -446,7 +446,8 @@ def _sibling_roots(global_root: Path, state: Path, workspace: Path) -> list[Know
     from ..core.session import SESSION_META_FILE, SessionMeta, resolve_session_workdir
 
     roots: list[KnowledgeRoot] = []
-    for _modified, candidate in candidates[:_MAX_SIBLING_PROJECTS]:
+    siblings = 0
+    for _modified, candidate in candidates[:_MAX_SIBLING_CANDIDATES]:
         sid = candidate.name
         try:
             meta: SessionMeta | None = SessionMeta.from_dict(
@@ -466,10 +467,11 @@ def _sibling_roots(global_root: Path, state: Path, workspace: Path) -> list[Know
                   for path, boundary in ((candidate / "skills" / "engineer", candidate),
                                          (sibling / ".agents" / "skills", sibling))
                   if path.is_dir()]
-        for kind, path, boundary, library in found:
-            roots.append(KnowledgeRoot(kind, path, boundary, scope="project", library=library, source=sid))
-            if len(roots) >= _MAX_SIBLING_ROOTS:
-                return roots
+        roots += [KnowledgeRoot(kind, path, boundary, scope="project", library=library, source=sid)
+                  for kind, path, boundary, library in found]
+        siblings += bool(found)
+        if siblings >= _MAX_SIBLINGS:
+            break
     return roots
 
 
