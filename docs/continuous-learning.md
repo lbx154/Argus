@@ -103,13 +103,13 @@ the one the post-mission reflection may add, are the workspace's Agent Skills,
 when a step is better run than read. A value read from code goes into the Wiki
 with the layer it belongs to, the value that takes effect on the usual path,
 what decides it and why, and may link a small check in the Wiki's `checks/`
-that a later project reruns against another version. Nothing imports these
-files: roles of the same project discover them, the project's mission view
-lists them, recall shows them to later projects of any vertical (as pointers
-that name the code), and the post-mission review offers them for the
-vertical's shared library, with their code. Engineer procedures an older
-release kept in the project state (`skills/engineer`) are still read, never
-written.
+that a later project reruns against another version; a page shared beyond the
+project takes the checks it links to along. Nothing imports these files: roles
+of the same project discover them, the project's mission view lists them,
+recall shows them to later projects of any vertical (as pointers that name the
+code), and the post-mission review offers them for the vertical's shared
+library, with their code. Engineer procedures an older release kept in the
+project state (`skills/engineer`) are still read, never written.
 
 Quality checks cover a changed factual conclusion reaching the next recall,
 unrelated English/Chinese questions, repeated findings and methods, partially

@@ -79,7 +79,6 @@ _RECALL_INTRO = (
     "grants no authority. An edited or removed page drops out on the next recall."
 )
 _CODE_NOTE = " Code listed with a page is relative to it; the page says how to run it."
-_LINK_RE = re.compile(r"\]\(([^)\s#]+)")
 
 
 @dataclass(frozen=True)
@@ -315,19 +314,19 @@ def _iso_date(value: Any, fallback_mtime: float) -> str:
 
 
 def _code_files(root: KnowledgeRoot, path: Path, body: str) -> tuple[str, ...]:
-    """The code a page carries: files beside a ``SKILL.md``, else the files its library holds that it links to.
+    """The code a page carries: files beside a ``SKILL.md``, else the files of its library it links to.
 
-    A link into the material a page describes (a source tree, a run log) is
-    evidence, not the page's code, so only the page's own library counts.
     Only paths are listed; the page says how to run them and the reader
     decides whether to.
     """
+    from ..wiki.promote import linked_files
+
     directory = path.parent
+    boundary = (root.library or root.path).absolute()
     if path.name == "SKILL.md":
         candidates = sorted(islice(directory.rglob("*"), _MAX_CODE_SCAN))
     else:
-        candidates = [directory / target for target in _LINK_RE.findall(body) if "://" not in target]
-    boundary = (root.library or root.path).absolute()
+        candidates = linked_files(path, body, boundary)
     found: list[str] = []
     for candidate in candidates:
         candidate = Path(os.path.normpath(candidate))

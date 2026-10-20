@@ -4,7 +4,8 @@ A page whose front matter carries ``audience: vertical`` is meant for every
 later project of the same vertical; ``audience: global`` for every project on
 the host. After a mission whose final review passed, the host copies such pages
 from ``<workspace>/.autors/*/wiki/pages/`` into the matching shared Wiki under
-the same relative path, and lists them in that Wiki's ``INDEX.md``.
+the same relative path, with the files of its Wiki it links to (a small check
+under ``checks/``), and lists them in that Wiki's ``INDEX.md``.
 
 Everything here is plain filesystem work. A page that cannot be read or parsed
 is skipped, never raised; an older shared copy is only replaced when the
@@ -13,6 +14,8 @@ project's page is newer.
 from __future__ import annotations
 
 import logging
+import os
+import re
 import shutil
 from pathlib import Path
 from typing import Any
@@ -28,6 +31,7 @@ INDEX_FILENAME = "INDEX.md"
 GLOBAL_DIRNAME = "_global"
 SHARED_VERTICALS_DIRNAME = "_shared_verticals"
 AUDIENCES = ("vertical", "global")
+_LINK_RE = re.compile(r"\]\(([^)\s#]+)")
 
 
 def _front_matter(text: str) -> dict[str, Any]:
@@ -86,6 +90,22 @@ def _append_index_line(target_root: Path, *, audience: str, vertical: str,
     index_path.write_text(existing + line, encoding="utf-8")
 
 
+def linked_files(page: Path, text: str, library: Path) -> list[Path]:
+    """Files other than pages under ``library`` that ``page`` links to: the code it carries.
+
+    A link out of the library points at the material the page cites, not at
+    the page's own code, and is left out.
+    """
+    library = Path(os.path.normpath(library.absolute()))
+    found: list[Path] = []
+    for target in _LINK_RE.findall(text):
+        path = Path(os.path.normpath(page.absolute().parent / target))
+        if ("://" not in target and path.suffix.casefold() != ".md"
+                and path.is_relative_to(library) and path not in found):
+            found.append(path)
+    return found
+
+
 def _candidate_pages(wiki_root: Path) -> list[tuple[Path, Path]]:
     """(source file, path relative to pages/) for every regular page under pages/."""
     pages_root = (wiki_root / "pages").resolve()
@@ -129,6 +149,7 @@ def promote_wiki_pages(workspace: Path, *, vertical: str, shared_root: Path) -> 
         log.exception("wiki promotion: could not list the project Wikis")
         return promoted
     for wiki_root in wiki_roots:
+        library = Path(os.path.normpath(wiki_root.absolute()))
         for source, relative in _candidate_pages(wiki_root):
             try:
                 text = source.read_text(encoding="utf-8")
@@ -144,7 +165,13 @@ def promote_wiki_pages(workspace: Path, *, vertical: str, shared_root: Path) -> 
                 continue
             rel_posix = relative.as_posix()
             try:
-                if not _copy_if_newer(source, target_root / "pages" / relative):
+                copied = _copy_if_newer(source, target_root / "pages" / relative)
+                # The checks a page links to travel with it, so its links hold
+                # in the shared copy.
+                for code in linked_files(source, text, library):
+                    if code.is_file() and not code.is_symlink() and code.resolve().is_relative_to(library.resolve()):
+                        _copy_if_newer(code, target_root / code.relative_to(library))
+                if not copied:
                     continue
                 _append_index_line(
                     target_root,
@@ -161,4 +188,4 @@ def promote_wiki_pages(workspace: Path, *, vertical: str, shared_root: Path) -> 
     return promoted
 
 
-__all__ = ["promote_wiki_pages", "shared_target_root"]
+__all__ = ["linked_files", "promote_wiki_pages", "shared_target_root"]

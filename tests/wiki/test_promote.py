@@ -109,3 +109,26 @@ def test_workspace_without_a_wiki_promotes_nothing(tmp_path):
     shared = tmp_path / "home" / "wiki"
     assert promote_wiki_pages(tmp_path / "ws", vertical="research", shared_root=shared) == {"vertical": [], "global": []}
     assert not shared.exists()
+
+
+def test_a_promoted_page_takes_the_checks_it_links_to(tmp_path):
+    workspace, shared = tmp_path / "ws", tmp_path / "home" / "wiki"
+    wiki = _project_wiki(workspace)
+    _write(wiki / "checks" / "max_tokens.py", "assert True\n", 1_000)
+    _write(workspace / "repo" / "sampling_params.py", "max_tokens = 16\n", 1_000)
+    _write(wiki / "pages" / "defaults.md", _page(
+        "Defaults", "Which max_tokens takes effect",
+        "16 is a placeholder ([source](../../../../repo/sampling_params.py)); "
+        "rerun [the check](../checks/max_tokens.py).", audience="global"), 2_000)
+
+    promote_wiki_pages(workspace, vertical="research", shared_root=shared)
+
+    page = shared / "_global" / "pages" / "defaults.md"
+    check = (page.parent / "../checks/max_tokens.py").resolve()
+    assert check == (shared / "_global" / "checks" / "max_tokens.py").resolve()
+    assert check.read_text(encoding="utf-8") == "assert True\n"
+    assert not list((shared / "_global").rglob("sampling_params.py")), "cited material stays home"
+
+    _write(wiki / "checks" / "max_tokens.py", "assert 16 != 8192\n", 3_000)
+    promote_wiki_pages(workspace, vertical="research", shared_root=shared)
+    assert check.read_text(encoding="utf-8") == "assert 16 != 8192\n", "a newer check travels on its own"
