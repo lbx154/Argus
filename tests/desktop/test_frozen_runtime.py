@@ -388,7 +388,7 @@ def test_frozen_python_compat_dispatches_daemon_spawn_helper(monkeypatch) -> Non
     [
         ("argus_skill", "argus"),
         ("argus_skill.daemon.spawn_helper", "argus.daemon.spawn_helper"),
-        ("argus_skill.tools.subagent", "argus.tools.subagent"),
+        ("argus_skill.tools.peer", "argus.tools.peer"),
     ],
 )
 def test_frozen_python_compat_accepts_the_pre_rename_module_spelling(
@@ -453,7 +453,7 @@ def test_pyinstaller_spec_collects_registered_stage_and_overlay_modules(monkeypa
     expected_domains = [load_domain(name).__name__ for name in BUILTIN_DOMAINS]
 
     assert namespace["vertical_stage_modules"] == expected_verticals
-    assert "argus.verticals.math_synth.stages" in expected_verticals
+    assert "argus.verticals.learning.stages" in expected_verticals
     assert namespace["domain_overlay_modules"] == expected_domains
     assert set(expected_verticals + expected_domains) <= set(namespace["hiddenimports"])
     assert "unittest" in namespace["hiddenimports"]

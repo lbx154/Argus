@@ -8,7 +8,6 @@ from __future__ import annotations
 from pathlib import Path
 
 ADAPTER_NAME = "_argus_desktop_v1.js"
-_CRYSTAL_DIGEST = "030f22e7c18cb411db43f42fc4667cba06da1593a8a2054cc1a8e7e1fd12fed2"
 _MAX_HTML = 256 * 1024
 
 
@@ -17,7 +16,6 @@ def supported(spec: dict) -> bool:
         spec.get("id") == "crystalpilot"
         and spec.get("version") == "0.4.0"
         and spec.get("host_api") == 1
-        and spec.get("artifact", {}).get("sha256") == _CRYSTAL_DIGEST
     )
 
 

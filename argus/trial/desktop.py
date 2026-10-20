@@ -58,8 +58,8 @@ def prepare(api_key: str, progress=print, *, download_progress=None) -> tuple[st
         try:
             os.environ.update(overrides)
             progress("正在验证 Copilot 和一次真实模型回复…")
-            # The actual smoke below proves authorization. Avoid launching a
-            # second persistent ACP worker merely to check the same account.
+            # The actual smoke below proves authorization. Avoid a second
+            # Copilot handshake merely to check the same account.
             report = check_backend_readiness("copilot", runner_bin=executable, probe_auth=False)
             if not report.ok:
                 raise ValueError("Copilot 运行检查未通过，请检查程序或科学角色配置后重试。")

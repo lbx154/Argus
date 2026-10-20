@@ -262,7 +262,7 @@ it("naturally rechecks an open historical step after saving review settings whil
   expect(generate).not.toHaveBeenCalled();
 
   await act(async () => {
-    await api.setConfig('s-history', 'ARGUS_SKILL_MAP_REVIEW_REASONING_EFFORT', 'high');
+    await api.setConfig('s-history', 'ARGUS_SKILL_LIGHT_REASONING_EFFORT', 'high');
     await client.invalidateQueries({ queryKey: ['map-copy'] });
   });
   await act(async () => { await vi.advanceTimersByTimeAsync(25); });

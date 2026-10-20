@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 import argparse
-import hashlib
 import json
 import os
 import re
@@ -66,8 +65,6 @@ def _environment(root: Path, state: Path) -> dict:
 
 
 def _observation(root: Path, command: str, log: Path, result, started: float) -> dict:
-    with log.open("rb") as stream:
-        log_digest = hashlib.file_digest(stream, "sha256").hexdigest()
     return {
         "command": command,
         "cwd": str(root),
@@ -84,7 +81,7 @@ def _observation(root: Path, command: str, log: Path, result, started: float) ->
         "output_limit_bytes": OUTPUT_LIMIT_BYTES,
         "seconds": round(time.monotonic() - started, 3),
         "log": log.relative_to(WORK).as_posix(),
-        "log_sha256": log_digest,
+        "log_bytes": log.stat().st_size,
     }
 
 
@@ -159,12 +156,12 @@ def _source_origin(
                 if (
                     not isinstance(relative, str) or Path(relative).is_absolute()
                     or ".." in Path(relative).parts
-                    or not re.fullmatch(r"[0-9a-f]{40}", str(record.get("git_blob")))
-                    or not re.fullmatch(r"[0-9a-f]{40}", str(record.get("lf_git_blob")))
+                    or any(type(record.get(key)) is not int or record[key] < 0
+                           for key in ("bytes", "lf_bytes", "ctime_ns"))
                 ):
                     issues.append(f"invalid_source_file_trace: pid={pid}")
                     continue
-                entry = {key: record[key] for key in ("path", "git_blob", "lf_git_blob")}
+                entry = {key: record[key] for key in ("path", "bytes", "lf_bytes", "ctime_ns")}
                 if relative in files and files[relative] != entry:
                     issues.append(f"source_changed_between_processes: {relative}")
                 files[relative] = entry
@@ -187,7 +184,7 @@ def _source_origin(
     path.write_bytes(data)
     return {
         "path": path.relative_to(WORK).as_posix(),
-        "sha256": hashlib.sha256(data).hexdigest(), "status": status,
+        "bytes": len(data), "status": status,
     }
 
 
@@ -305,7 +302,7 @@ def run_pair(
                 document["issues"].append("oracle_comparison_incomplete")
                 data = (json.dumps(document, indent=2, sort_keys=True) + "\n").encode()
                 path.write_bytes(data)
-                descriptor.update(status="incomplete", sha256=hashlib.sha256(data).hexdigest())
+                descriptor.update(status="incomplete", bytes=len(data))
             if not observation["execution_error"]:
                 observation["execution_error"] = "oracle_comparison_incomplete"
     return result

@@ -9,7 +9,7 @@ from argus.apps._runtime_helpers import _should_run_stage_transition
 
 
 @pytest.mark.parametrize(("workflow", "action", "stage"), [("staged", "advance", "optimize"), ("direct", "complete", "setup")])
-def test_event_sink_failure_keeps_committed_stage_decision(tmp_path, workflow, action, stage) -> None:
+def test_event_sink_failure_keeps_committed_stage_decision(optimize_vertical, tmp_path, workflow, action, stage) -> None:
     from argus.apps._runtime_stage_transition import StageTransitionMixin
     from argus.core.models import ReviewDecision
     from argus.core.pipeline_state import read_pipeline_state
@@ -19,7 +19,7 @@ def test_event_sink_failure_keeps_committed_stage_decision(tmp_path, workflow, a
     state = tmp_path / "state"
     work = tmp_path / "work"
     work.mkdir()
-    persist_vertical(state, "math_synth", workflow_mode=workflow)
+    persist_vertical(state, optimize_vertical, workflow_mode=workflow)
     manager = Manager(project_root=state, execution_workdir=work, runner=object())
 
     class Sink:
@@ -37,7 +37,7 @@ def test_event_sink_failure_keeps_committed_stage_decision(tmp_path, workflow, a
     assert read_pipeline_state(state)["current_stage"] == stage
 
 
-def test_stale_stage_verdict_preserves_new_campaign_wait(tmp_path) -> None:
+def test_stale_stage_verdict_preserves_new_campaign_head(tmp_path) -> None:
     from argus.apps._runtime_stage_transition import StageTransitionMixin
     from argus.core.models import ReviewDecision
     from argus.manager._core import StageTransition
@@ -45,8 +45,8 @@ def test_stale_stage_verdict_preserves_new_campaign_wait(tmp_path) -> None:
 
     control = CampaignControlStore(tmp_path)
     identity = control.campaign_identity(objective="replacement objective", campaign_epoch=2)
-    original_head = control.activate_wait(
-        identity=identity, wait_id="new-wait", blocker_fingerprint="new-blocker", recheck_token="new-evidence"
+    original_head, _ = control.commit_revision(
+        identity=identity, updates={"stage_projection": {"marker": "new"}}, reason="new campaign"
     )
 
     class Manager:
@@ -68,11 +68,11 @@ def test_stale_stage_verdict_preserves_new_campaign_wait(tmp_path) -> None:
 
     assert result["source"] == "stale_stage_context_hold"
     assert control.read_head() == original_head
-    assert control.read_snapshot()["active_wait"]["wait_id"] == "new-wait"
+    assert control.read_snapshot()["stage_projection"] == {"marker": "new"}
 
 
 @pytest.mark.parametrize("initial_head", [False, True])
-def test_unchanged_campaign_accepts_committed_stage_projection(tmp_path, initial_head) -> None:
+def test_unchanged_campaign_accepts_committed_stage_projection(optimize_vertical, tmp_path, initial_head) -> None:
     from argus.apps._runtime_stage_transition import StageTransitionMixin
     from argus.core.models import ReviewDecision
     from argus.daemon.state import write_continuous_config
@@ -83,12 +83,12 @@ def test_unchanged_campaign_accepts_committed_stage_projection(tmp_path, initial
     state = tmp_path / "state"
     work = tmp_path / "work"
     work.mkdir()
-    persist_vertical(state, "math_synth", workflow_mode="staged")
+    persist_vertical(state, optimize_vertical, workflow_mode="staged")
     write_continuous_config(state, enabled=True, objective="persisted objective")
     control = CampaignControlStore(state)
     identity = control.campaign_identity()
     if initial_head:
-        control.activate_wait(identity=identity, wait_id="old-wait", blocker_fingerprint="old", recheck_token="evidence")
+        control.commit_revision(identity=identity, updates={}, reason="earlier revision")
     manager = Manager(project_root=state, execution_workdir=work, runner=object())
 
     result = StageTransitionMixin._decide_stage_transition(
@@ -104,13 +104,12 @@ def test_unchanged_campaign_accepts_committed_stage_projection(tmp_path, initial
     assert head.campaign_id == identity.campaign_id
     assert head.state_revision == (2 if initial_head else 1)
     assert result["state_revision"] == head.state_revision
-    assert snapshot["active_wait"] is None
     assert snapshot["stage_projection"]["target_stage"] == "optimize"
     assert snapshot["terminal_evidence"][0]["reason"] == "verified"
 
 
-@pytest.mark.parametrize("change", ["new_wait", "replacement", "generation_only"])
-def test_change_after_manager_returns_cannot_be_overwritten_by_projection(tmp_path, change) -> None:
+@pytest.mark.parametrize("change", ["new_revision", "replacement", "generation_only"])
+def test_change_after_manager_returns_cannot_be_overwritten_by_projection(optimize_vertical, tmp_path, change) -> None:
     from argus.apps._runtime_stage_transition import StageTransitionMixin
     from argus.core.models import ReviewDecision
     from argus.daemon.state import write_continuous_config
@@ -119,11 +118,11 @@ def test_change_after_manager_returns_cannot_be_overwritten_by_projection(tmp_pa
     from argus.skills.stage_machine import advance_stage
     from argus.skills.vertical_select import persist_vertical
 
-    persist_vertical(tmp_path, "math_synth", workflow_mode="staged")
+    persist_vertical(tmp_path, optimize_vertical, workflow_mode="staged")
     write_continuous_config(tmp_path, enabled=True, objective="old objective")
     control = CampaignControlStore(tmp_path)
     identity = control.campaign_identity()
-    control.activate_wait(identity=identity, wait_id="old-wait", blocker_fingerprint="old", recheck_token="old")
+    control.commit_revision(identity=identity, updates={"stage_projection": {"marker": "old"}}, reason="old")
     changed_head = []
 
     class CommittedDecision:
@@ -145,9 +144,9 @@ def test_change_after_manager_returns_cannot_be_overwritten_by_projection(tmp_pa
                             objective="old objective" if change == "generation_only" else "new objective",
                         )
                     if change != "generation_only":
-                        control.activate_wait(
-                            identity=control.campaign_identity(), wait_id="new-wait",
-                            blocker_fingerprint="new", recheck_token="new",
+                        control.commit_revision(
+                            identity=control.campaign_identity(),
+                            updates={"stage_projection": {"marker": "new"}}, reason="new",
                         )
                     changed_head.append(control.read_head())
             return "old objective verified"
@@ -172,7 +171,7 @@ def test_change_after_manager_returns_cannot_be_overwritten_by_projection(tmp_pa
     assert "state_revision" not in result
     assert control.read_head() == changed_head[0]
     snapshot = control.read_snapshot()
-    assert snapshot["active_wait"]["wait_id"] == ("old-wait" if change == "generation_only" else "new-wait")
+    assert snapshot["stage_projection"] == {"marker": "old" if change == "generation_only" else "new"}
     assert snapshot["terminal_evidence"] == []
 
 
@@ -219,13 +218,12 @@ def test_final_submission_is_stage_eligible_without_bounded_flag() -> None:
 
 
 def test_worker_without_stage_authority_never_reaches_the_stage_writer() -> None:
-    """A dispatched teammate runs in the project root and must not write its stage.
+    """A parallel worker runs in the project root and must not write its stage.
 
-    The shape a teammate actually presents: no bounded scope (it is handed one
-    task, not a Planner node), a vertical that does not require independent
-    review, and a Reviewer verdict — which is exactly the combination the
-    legacy tail of the guard lets through. N of them run concurrently against
-    one ``.argus/PIPELINE_STATE.json``.
+    The shape that matters: no bounded scope, a vertical that does not require
+    independent review, and a Reviewer verdict — which is exactly the
+    combination the legacy tail of the guard lets through. Several of them run
+    concurrently against one ``.argus/PIPELINE_STATE.json``.
     """
     kwargs = dict(
         mission_scope="",
@@ -258,6 +256,7 @@ def test_withheld_stage_authority_outranks_every_other_eligibility_route() -> No
 
 
 def test_stage_closing_runtime_path_uses_deterministic_manager_writer(
+    optimize_vertical,
     tmp_path,
 ) -> None:
     from argus.apps._runtime_stage_transition import StageTransitionMixin
@@ -268,7 +267,7 @@ def test_stage_closing_runtime_path_uses_deterministic_manager_writer(
     state_root = tmp_path / "state"
     workdir = tmp_path / "worktree"
     workdir.mkdir()
-    persist_vertical(state_root, "math_synth", workflow_mode="staged")
+    persist_vertical(state_root, optimize_vertical, workflow_mode="staged")
 
     class Sink:
         def __init__(self) -> None:
@@ -356,23 +355,3 @@ def test_bounded_direct_runtime_path_retains_manager_adjudication(tmp_path) -> N
 
     assert decision["action"] == "hold"
     assert decision["source"] == "manager_llm"
-
-
-def test_teammate_entry_withholds_stage_authority_from_its_mission() -> None:
-    """The flag is only worth having if the teammate actually passes it.
-
-    Asserted against the real ``execute`` signature rather than a stub, because
-    the previous attempt at this fix passed a keyword the runner accepted and
-    then ignored — the failure mode is silent, so a hand-written double would
-    have reproduced the bug rather than caught it.
-    """
-    import inspect
-
-    from argus.apps._runtime_execute import SkillLoopExecuteMixin
-    from argus.team import teammate_entry
-
-    assert "holds_stage_authority" in inspect.signature(
-        SkillLoopExecuteMixin.execute
-    ).parameters
-    source = inspect.getsource(teammate_entry.run_one_engineer_mission)
-    assert "holds_stage_authority=False" in source

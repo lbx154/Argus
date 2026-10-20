@@ -6,7 +6,6 @@ the Manager turn. This store never writes the operator inbox or control ledger.
 """
 from __future__ import annotations
 
-import hashlib
 import json
 import re
 import sqlite3
@@ -18,11 +17,8 @@ from typing import Any, Iterator
 _PROJECT_ID = re.compile(r"[A-Za-z0-9][A-Za-z0-9_-]{0,127}\Z")
 MAX_TEXT_BYTES = 16384
 MAX_EVIDENCE_REFS = 16
-# Manager attempts at one peer message. Each failure waits longer than the
-# last; once they are spent the handler closes the message with a reply that
-# says it went unanswered, instead of asking the Manager again at every drain.
-PEER_MESSAGE_MAX_ATTEMPTS = 3
-PEER_RETRY_BASE_SECONDS = 300.0
+# A message that fails this often is settled with a host notice instead of retried.
+MAX_ATTEMPTS = 3
 
 
 def _text(value: Any) -> str:
@@ -37,10 +33,6 @@ def _refs(values: Any) -> list[str]:
     ):
         raise ValueError("peer evidence must contain at most 16 bounded references")
     return list(dict.fromkeys(value.strip() for value in values))
-
-
-def _identity(*parts: str) -> str:
-    return hashlib.sha256(json.dumps(parts, separators=(",", ":")).encode()).hexdigest()
 
 
 class PeerMailbox:
@@ -127,7 +119,8 @@ class PeerMailbox:
         text, refs = _text(text), _refs(evidence_refs or [])
         if not parent_call_id or not request_id or len(parent_call_id) > 256 or len(request_id) > 256:
             raise ValueError("peer messages require host call and request identities")
-        identity = _identity(self.project_id, parent_call_id, request_id)
+        # One request of one host call from this project is one message, however often sent.
+        identity = f"{self.project_id}:{parent_call_id}:{request_id}"
         with self._database(write=True) as db:
             previous = self._message(db.execute("SELECT * FROM messages WHERE id=?", (identity,)).fetchone())
             if previous:
@@ -175,7 +168,7 @@ class PeerMailbox:
             reply_id = ""
             if message["kind"] == "request":
                 self._project(message["sender"])
-                reply_id = _identity("reply", message_id)
+                reply_id = f"reply:{message_id}"
                 db.execute("INSERT OR IGNORE INTO messages (id,sender,recipient,kind,reply_to,text,evidence_refs,parent_call_id,mission_id,created_at) "
                            "VALUES (?,?,?,'reply',?,?,?,?,?,?)",
                            (reply_id, self.project_id, message["sender"], message_id, response, "[]", call_id,
@@ -197,15 +190,14 @@ class PeerMailbox:
             if not changed and not db.execute("SELECT 1 FROM messages WHERE id=? AND recipient=? AND acknowledged_at>0", (message_id, self.project_id)).fetchone():
                 raise ValueError("peer acknowledgement belongs to another project")
 
-    def retry_later(self, message_id: str, error: str) -> None:
+    def retry_later(self, message_id: str, error: str) -> bool:
+        """Count a failed attempt, waiting longer each time; True once none remain."""
         with self._database(write=True) as db:
-            row = db.execute("SELECT attempts FROM messages WHERE id=? AND recipient=? AND acknowledged_at=0",
-                             (message_id, self.project_id)).fetchone()
-            if row is None:
-                return
-            delay = PEER_RETRY_BASE_SECONDS * 2 ** min(int(row[0]), 4)
-            db.execute("UPDATE messages SET attempts=attempts+1,next_attempt_at=?,last_error=? WHERE id=? AND recipient=? AND acknowledged_at=0",
-                       (time.time() + delay, str(error)[:1000], message_id, self.project_id))
+            db.execute("UPDATE messages SET attempts=attempts+1,next_attempt_at=?+60*(1<<attempts),last_error=? "
+                       "WHERE id=? AND recipient=? AND acknowledged_at=0",
+                       (time.time(), str(error)[:1000], message_id, self.project_id))
+            row = db.execute("SELECT attempts FROM messages WHERE id=?", (message_id,)).fetchone()
+            return row is not None and row[0] >= MAX_ATTEMPTS
 
 
 def mailbox_for_project(project_root: Path | str) -> PeerMailbox:

@@ -5,28 +5,14 @@ from ...skills.stage_machine import ChecklistItem
 
 STAGE_ORDER = ["inspect", "change", "verify"]
 CHECKLIST_STAGE_ORDER = tuple(STAGE_ORDER)
-WORKFLOW_MODE = "staged"
 VERIFICATION_STAGE_PROFILES = {
     "inspect": "explore",
     "change": "develop",
     "verify": "certify",
 }
-MISSION_KIND = "software"
 GROUND_BEFORE_HANDOFF = True
 REQUIRE_INDEPENDENT_REVIEW = True
 completion_gate = "none"
-# Round guards (core/round_policy.py). Changing Argus itself is system
-# verification: the verify stage runs the full test suite, CI, and live
-# checks, and a failing check followed by several repair rounds is the normal
-# path, not a stall. The round-count guards are off; the Reviewer's explicit
-# FORWARD_PROGRESS=false streak decides, with room for a long repair. A
-# Reviewer that stops giving any progress judgement is caught after 200 rounds.
-ROUND_POLICY = {
-    "stall_threshold": 8,
-    "no_progress_threshold": 2,
-    "soft_round_limit": 0,
-    "hard_escalate_rounds": 200,
-}
 
 CHECKLIST_ITEMS: dict[str, tuple[ChecklistItem, ...]] = {
     "inspect": (
@@ -84,7 +70,6 @@ __all__ = [
     "CHECKLIST_ITEMS",
     "CHECKLIST_STAGE_ORDER",
     "STAGE_ORDER",
-    "WORKFLOW_MODE",
     "VERIFICATION_STAGE_PROFILES",
     "completion_gate",
     "role_banner",

@@ -12,6 +12,7 @@ from __future__ import annotations
 
 import json
 import os
+import re
 import uuid
 from functools import lru_cache
 from pathlib import Path
@@ -25,7 +26,8 @@ MAX_INDEX_RECORD_BYTES = 4096
 
 
 def _is_delivery_id(value: Any) -> TypeGuard[str]:
-    return isinstance(value, str) and len(value) == 64 and all(c in "0123456789abcdef" for c in value)
+    # A uuid; deliveries from older releases carry 64 hex digits.
+    return isinstance(value, str) and re.fullmatch(r"[0-9a-f]{32}(?:[0-9a-f]{32})?", value) is not None
 
 
 def is_mission_delivery_event(event: Any) -> TypeGuard[dict[str, Any]]:

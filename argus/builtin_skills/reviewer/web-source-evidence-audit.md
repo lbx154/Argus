@@ -9,10 +9,9 @@ Use this when a decision or paper claim depends on current web information.
 Open the cited primary source and compare its actual text, code, or observable
 behavior with the claim.
 
-Follow the exact cached source paths cited in the deliverable; inspect actual
-text, not only HTTP status or Engineer's paraphrase. If a path is missing, check
-the project's `.argus/sources/` once, then return the exact essential claim and
-missing URL/path for repair. Do not guess filenames or search shared `/tmp`.
+Open the sources cited in the deliverable with your own web tools; inspect
+actual text, not only HTTP status or Engineer's paraphrase. If an essential
+source is missing, return the exact claim and the missing source for repair.
 
 Check that:
 

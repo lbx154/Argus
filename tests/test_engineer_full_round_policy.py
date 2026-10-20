@@ -2,12 +2,10 @@
 
 The 48-hour billing forensics found 75% of Engineer rounds were FULL —
 每轮 ~8.7k tokens — while a resumed provider session already holds the whole
-task text from the round that created it. The ``session`` policy (default)
-re-sends the full text only when the session cannot already hold it: a new or
-rotated session, a fresh-only policy, a stage that changed since the last full
-prompt, or a first round resuming a session with no sealed prior round for
-this mission. ``legacy`` restores the historical round-1-always-full behavior
-for rollback.
+task text from the round that created it. The full text is re-sent only when
+the session cannot already hold it: a new or rotated session, a fresh-only
+policy, a stage that changed since the last full prompt, or a first round
+resuming a session with no sealed prior round for this mission.
 """
 from __future__ import annotations
 
@@ -53,8 +51,6 @@ def _assemble(
     action: str = "resumed",
     policy: str = "rolling",
     rotation_reason: str = "",
-    full_round_policy: str = "session",
-    compact_continuation_prompts: bool = True,
     mission_path: Path | None = None,
     checkpoint: Path | None = None,
     prompt_block: str = "",
@@ -70,11 +66,8 @@ def _assemble(
         prompt_block=lambda: prompt_block,
     )
     config = SimpleNamespace(
-        compact_continuation_prompts=compact_continuation_prompts,
-        background_subagent_advisory=False,
         max_rounds=8,
         context_packet_path=str(mission_path or ""),
-        engineer_full_round_policy=full_round_policy,
     )
     return (mixin or RoundPromptMixin())._assemble_round_prompt(
         round_index=round_index,
@@ -178,12 +171,12 @@ def test_a_rotated_session_gets_the_full_text_and_names_the_reason(
         round_index=4,
         workdir=tmp_path,
         action="rotated",
-        rotation_reason="context_limit",
+        rotation_reason="branch_changed",
         events=events,
     )
 
     assert "FULL_STATIC_TEXT" in prompt
-    assert _mode(events) == ("full", "session_rotated:context_limit")
+    assert _mode(events) == ("full", "session_rotated:branch_changed")
 
 
 def test_fresh_policy_sends_the_full_text_every_round(tmp_path: Path) -> None:
@@ -199,20 +192,6 @@ def test_fresh_policy_sends_the_full_text_every_round(tmp_path: Path) -> None:
 
     assert "FULL_STATIC_TEXT" in prompt
     assert _mode(events) == ("full", "fresh_policy")
-
-
-def test_disabled_compact_knob_sends_the_full_text(tmp_path: Path) -> None:
-    events: list = []
-
-    prompt = _assemble(
-        round_index=3,
-        workdir=tmp_path,
-        compact_continuation_prompts=False,
-        events=events,
-    )
-
-    assert "FULL_STATIC_TEXT" in prompt
-    assert _mode(events) == ("full", "compact_prompts_disabled")
 
 
 def test_a_stage_change_forces_the_full_text_on_a_resumed_session(
@@ -275,36 +254,6 @@ def test_an_unchanged_stage_does_not_force_the_full_text(tmp_path: Path) -> None
     assert _mode(events)[0] == "compact"
 
 
-def test_legacy_policy_restores_round_one_full(tmp_path: Path) -> None:
-    mission = _mission_file(tmp_path / "m", sealed_rounds=2)
-    events: list = []
-
-    prompt = _assemble(
-        round_index=1,
-        workdir=tmp_path,
-        mission_path=mission,
-        full_round_policy="legacy",
-        events=events,
-    )
-
-    assert "FULL_STATIC_TEXT" in prompt
-    assert _mode(events) == ("full", "first_round_legacy")
-
-
-def test_legacy_policy_keeps_later_resumed_rounds_compact(tmp_path: Path) -> None:
-    events: list = []
-
-    prompt = _assemble(
-        round_index=2,
-        workdir=tmp_path,
-        full_round_policy="legacy",
-        events=events,
-    )
-
-    assert "COMPACT_DELTA_TEXT" in prompt
-    assert _mode(events)[0] == "compact"
-
-
 # --- the compact prompt still names the durable files ------------------------
 
 
@@ -356,49 +305,3 @@ def test_full_round_needs_no_extra_reference_block(tmp_path: Path) -> None:
 
     assert "latest.json" not in prompt
 
-
-# --- configuration plumbing ---------------------------------------------------
-
-
-def test_configured_policy_reads_the_env_knob(monkeypatch) -> None:
-    from argus.engineer.round_config import (
-        configured_engineer_full_round_policy,
-    )
-
-    monkeypatch.delenv("ARGUS_SKILL_ENGINEER_FULL_ROUND_POLICY", raising=False)
-    assert configured_engineer_full_round_policy() == "session"
-
-    monkeypatch.setenv("ARGUS_SKILL_ENGINEER_FULL_ROUND_POLICY", "legacy")
-    assert configured_engineer_full_round_policy() == "legacy"
-
-    monkeypatch.setenv("ARGUS_SKILL_ENGINEER_FULL_ROUND_POLICY", "banana")
-    assert configured_engineer_full_round_policy() == "session"
-
-
-def test_supervised_config_carries_the_policy(monkeypatch) -> None:
-    from argus.engineer.round_config import SupervisedConfig
-
-    monkeypatch.delenv("ARGUS_SKILL_ENGINEER_FULL_ROUND_POLICY", raising=False)
-    assert SupervisedConfig().engineer_full_round_policy == "session"
-
-    monkeypatch.setenv("ARGUS_SKILL_ENGINEER_FULL_ROUND_POLICY", "legacy")
-    assert SupervisedConfig().engineer_full_round_policy == "legacy"
-
-
-def test_supervised_config_rejects_an_unknown_policy() -> None:
-    import pytest
-
-    from argus.engineer.round_config import SupervisedConfig
-
-    with pytest.raises(ValueError, match="session or legacy"):
-        SupervisedConfig(engineer_full_round_policy="banana")
-
-
-def test_knob_registry_documents_the_policy() -> None:
-    from argus.core.knobs import KNOBS
-
-    knob = next(
-        k for k in KNOBS if k.name == "ARGUS_SKILL_ENGINEER_FULL_ROUND_POLICY"
-    )
-    assert knob.default == "session"
-    assert knob.group == "mission"

@@ -6,14 +6,14 @@ pub struct ExpectedBackendIdentity {
     pub host: String,
     pub port: u16,
     pub executable: String,
-    pub manifest_source_digest: String,
-    pub token_sha256: String,
+    pub release_id: String,
+    pub token: String,
 }
 
 #[derive(Clone, Debug)]
 pub struct ExpectedBackendLaunch {
     pub launch_nonce: String,
-    pub manifest_source_digest: String,
+    pub release_id: String,
     pub spawned_at_ms: i64,
     pub now_ms: i64,
 }
@@ -22,7 +22,21 @@ pub struct ExpectedBackendLaunch {
 pub struct ExpectedPriorBackendOwnership {
     pub host: String,
     pub port: u16,
-    pub token_sha256: String,
+    pub token: String,
+}
+
+/// Compare two secrets in time that depends only on their length.
+fn same_secret(left: &str, right: &str) -> bool {
+    left.len() == right.len()
+        && left.bytes().zip(right.bytes()).fold(0, |differ, (a, b)| differ | (a ^ b)) == 0
+}
+
+/// Migration only, delete next release: a schema-3 record kept the token's
+/// SHA-256. It can still prove ownership of the backend an older desktop
+/// started; replacing that backend writes a schema-4 record with the token.
+fn legacy_token_matches(token_sha256: &str, token: &str) -> bool {
+    use sha2::{Digest, Sha256};
+    !token_sha256.is_empty() && same_secret(token_sha256, &format!("{:x}", Sha256::digest(token.as_bytes())))
 }
 
 /// Enable native inspection only for an explicitly isolated preview QA process.
@@ -114,6 +128,9 @@ pub fn same_path(left: &str, right: &str) -> bool {
     { left == right }
 }
 
+/// The record holds the Web token, as the settings file does: the temporary
+/// file is owner-only (0600) on Unix, and the per-user data directory keeps it
+/// private on Windows.
 pub fn save_ownership(path: &std::path::Path, ownership: &BackendOwnership) -> anyhow::Result<()> {
     use std::io::Write;
     let parent = path.parent().ok_or_else(|| anyhow::anyhow!("ownership directory unavailable"))?;
@@ -142,7 +159,7 @@ pub fn backend_launch_claim_matches(
             .as_deref()
             .is_some_and(|value| !value.is_empty())
         && probe.launch_nonce.as_deref() == Some(expected.launch_nonce.as_str())
-        && probe.manifest_source_digest.as_deref() == Some(expected.manifest_source_digest.as_str())
+        && probe.release_id.as_deref() == Some(expected.release_id.as_str())
         && started_at_ms.is_some_and(|value| {
             value >= expected.spawned_at_ms - 5_000 && value <= expected.now_ms + 5_000
         })
@@ -154,7 +171,7 @@ pub fn backend_ownership_matches(
     expected: &ExpectedBackendIdentity,
 ) -> bool {
     probe.authenticated
-        && ownership.schema == 3
+        && ownership.schema == 4
         && ownership.pid == probe.pid.unwrap_or_default()
         && ownership.root_pid > 0
         && ownership.host == expected.host
@@ -164,9 +181,9 @@ pub fn backend_ownership_matches(
             .executable
             .as_deref()
             .is_some_and(|value| same_path(value, &expected.executable))
-        && ownership.manifest_source_digest == expected.manifest_source_digest
-        && probe.manifest_source_digest.as_deref() == Some(expected.manifest_source_digest.as_str())
-        && ownership.token_sha256 == expected.token_sha256
+        && ownership.release_id == expected.release_id
+        && probe.release_id.as_deref() == Some(expected.release_id.as_str())
+        && same_secret(&ownership.token, &expected.token)
         && !ownership.started_at.is_empty()
         && probe.started_at.as_deref() == Some(ownership.started_at.as_str())
 }
@@ -176,7 +193,14 @@ pub fn prior_backend_ownership_matches(
     probe: &ProbeIdentity,
     expected: &ExpectedPriorBackendOwnership,
 ) -> bool {
-    ownership.schema == 3
+    // A schema-3 record (migration only) names no release id, so only the
+    // process, path, start time and token bind it.
+    let current = ownership.schema == 4
+        && !ownership.release_id.is_empty()
+        && probe.release_id.as_deref() == Some(ownership.release_id.as_str())
+        && same_secret(&ownership.token, &expected.token);
+    let legacy = ownership.schema == 3 && legacy_token_matches(&ownership.token_sha256, &expected.token);
+    (current || legacy)
         && probe.occupied
         && ownership.pid == probe.pid.unwrap_or_default()
         && ownership.root_pid > 0
@@ -187,10 +211,6 @@ pub fn prior_backend_ownership_matches(
             .executable
             .as_deref()
             .is_some_and(|value| same_path(value, &ownership.executable))
-        && !ownership.manifest_source_digest.is_empty()
-        && probe.manifest_source_digest.as_deref()
-            == Some(ownership.manifest_source_digest.as_str())
-        && ownership.token_sha256 == expected.token_sha256
         && !ownership.started_at.is_empty()
         && probe.started_at.as_deref() == Some(ownership.started_at.as_str())
 }
@@ -204,7 +224,7 @@ pub fn authenticated_bundled_backend_matches(probe: &ProbeIdentity, executable: 
             .as_deref()
             .is_some_and(|value| same_path(value, executable))
         && probe
-            .manifest_source_digest
+            .release_id
             .as_deref()
             .is_some_and(|value| !value.is_empty())
         && probe
@@ -226,7 +246,7 @@ mod tests {
             detail: None,
             pid: Some(4242),
             executable: Some("D:\\Argus\\argus-backend.exe".into()),
-            manifest_source_digest: Some("a".repeat(64)),
+            release_id: Some("0.1.8+abc".into()),
             started_at: Some("2026-08-09T13:00:00Z".into()),
             launch_nonce: Some("nonce".into()),
             failure_kind: None,
@@ -285,22 +305,23 @@ mod tests {
     #[test]
     fn exact_owned_backend_matches() {
         let ownership = BackendOwnership {
-            schema: 3,
+            schema: 4,
             pid: 4242,
             root_pid: 4141,
             host: "127.0.0.1".into(),
             port: 8799,
             executable: "D:\\Argus\\argus-backend.exe".into(),
-            manifest_source_digest: "a".repeat(64),
-            token_sha256: "b".repeat(64),
+            release_id: "0.1.8+abc".into(),
+            token: "web-token".into(),
+            token_sha256: String::new(),
             started_at: "2026-08-09T13:00:00Z".into(),
         };
         let expected = ExpectedBackendIdentity {
             host: "127.0.0.1".into(),
             port: 8799,
             executable: ownership.executable.clone(),
-            manifest_source_digest: ownership.manifest_source_digest.clone(),
-            token_sha256: ownership.token_sha256.clone(),
+            release_id: ownership.release_id.clone(),
+            token: ownership.token.clone(),
         };
         assert!(backend_ownership_matches(&ownership, &probe(), &expected));
         let mut unauthenticated = probe();
@@ -335,22 +356,23 @@ mod tests {
             r"\\server\share\argus-backend.exe"
         );
         let ownership = BackendOwnership {
-            schema: 3,
+            schema: 4,
             pid: 4242,
             root_pid: 4141,
             host: "127.0.0.1".into(),
             port: 8799,
             executable: r"\\?\D:\Argus\argus-backend.exe".into(),
-            manifest_source_digest: "a".repeat(64),
-            token_sha256: "b".repeat(64),
+            release_id: "0.1.8+abc".into(),
+            token: "web-token".into(),
+            token_sha256: String::new(),
             started_at: "2026-08-09T13:00:00Z".into(),
         };
         let expected = ExpectedBackendIdentity {
             host: "127.0.0.1".into(),
             port: 8799,
             executable: r"D:\Argus\argus-backend.exe".into(),
-            manifest_source_digest: ownership.manifest_source_digest.clone(),
-            token_sha256: ownership.token_sha256.clone(),
+            release_id: ownership.release_id.clone(),
+            token: ownership.token.clone(),
         };
         // `same_path` only folds the verbatim prefix and letter case on
         // Windows; elsewhere the strings are compared as written.
@@ -362,10 +384,10 @@ mod tests {
     }
 
     #[test]
-    fn launch_claim_binds_nonce_digest_and_start_time() {
+    fn launch_claim_binds_nonce_release_and_start_time() {
         let expected = ExpectedBackendLaunch {
             launch_nonce: "nonce".into(),
-            manifest_source_digest: "a".repeat(64),
+            release_id: "0.1.8+abc".into(),
             spawned_at_ms: DateTime::parse_from_rfc3339("2026-08-09T12:59:59Z")
                 .unwrap()
                 .timestamp_millis(),
@@ -377,5 +399,52 @@ mod tests {
         let mut stale = probe();
         stale.launch_nonce = Some("other".into());
         assert!(!backend_launch_claim_matches(&stale, &expected));
+    }
+
+    fn prior(schema: u32, token: &str, token_sha256: &str) -> BackendOwnership {
+        BackendOwnership {
+            schema, pid: 4242, root_pid: 4141, host: "127.0.0.1".into(), port: 8799,
+            executable: "D:\\Argus\\argus-backend.exe".into(),
+            release_id: if schema == 4 { "0.1.8+abc".into() } else { String::new() },
+            token: token.into(), token_sha256: token_sha256.into(),
+            started_at: "2026-08-09T13:00:00Z".into(),
+        }
+    }
+
+    #[test]
+    fn prior_backend_is_proven_by_its_plain_token_and_release() {
+        let mut occupied = probe();
+        occupied.occupied = true;
+        let expected = ExpectedPriorBackendOwnership { host: "127.0.0.1".into(), port: 8799, token: "web-token".into() };
+        assert!(prior_backend_ownership_matches(&prior(4, "web-token", ""), &occupied, &expected));
+        assert!(!prior_backend_ownership_matches(&prior(4, "web-tokem", ""), &occupied, &expected));
+        let mut other_release = occupied.clone();
+        other_release.release_id = Some("0.1.7+old".into());
+        assert!(!prior_backend_ownership_matches(&prior(4, "web-token", ""), &other_release, &expected));
+    }
+
+    #[test]
+    fn a_schema_3_record_still_proves_the_backend_an_older_desktop_started() {
+        let mut occupied = probe();
+        occupied.occupied = true;
+        let expected = ExpectedPriorBackendOwnership { host: "127.0.0.1".into(), port: 8799, token: "web-token".into() };
+        // As an older desktop recorded it: the token's SHA-256, no release id.
+        let legacy: BackendOwnership = serde_json::from_value(serde_json::json!({
+            "schema": 3, "pid": 4242, "rootPid": 4141, "host": "127.0.0.1", "port": 8799,
+            "executable": "D:\\Argus\\argus-backend.exe", "manifestSourceDigest": "a".repeat(64),
+            "tokenSha256": "671391faf68e509ca4ec48ccb0690453e9b82c2fa48273703233d60b52b9640d",
+            "startedAt": "2026-08-09T13:00:00Z",
+        })).unwrap();
+        assert!(prior_backend_ownership_matches(&legacy, &occupied, &expected));
+        assert!(!prior_backend_ownership_matches(&legacy, &occupied,
+            &ExpectedPriorBackendOwnership { token: "other".into(), ..expected }));
+        assert!(!serde_json::to_string(&prior(4, "web-token", "x")).unwrap().contains("tokenSha256"));
+    }
+
+    #[test]
+    fn secrets_compare_by_content() {
+        assert!(same_secret("web-token", "web-token"));
+        assert!(!same_secret("web-token", "web-tokem"));
+        assert!(!same_secret("web-token", "web-token-longer"));
     }
 }

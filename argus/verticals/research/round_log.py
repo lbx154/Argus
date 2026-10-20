@@ -25,10 +25,9 @@ agent CLI's stream rather than by any project file. Without a capture the provid
 the exact event log the host writes for the mission, never a file found by
 walking up from the mission packet, with the same conflict handling.
 
-Evidence, not a gate: the provider renders text into the Reviewer's
-raw-evidence slot and never decides anything. This module only renders text;
-:mod:`spec_checks`, the research vertical's round-evidence entry point, wraps
-:func:`render_round_log` as a provider, so nothing here knows the engineer layer.
+Evidence, not a gate: :func:`round_log_evidence`, registered as a round-evidence
+provider when the research vertical is imported, renders text into the
+Reviewer's raw-evidence slot and never decides anything.
 """
 from __future__ import annotations
 
@@ -42,6 +41,11 @@ from pathlib import Path
 from typing import Any
 
 from ...core.command_record import CommandCapture, CommandRun, anonymous_call_id
+from ...engineer.round_evidence import (
+    RoundEvidence,
+    RoundEvidenceRequest,
+    register_round_evidence_provider,
+)
 
 MAX_EVENTS_SCAN = 200_000
 LONGEST_COMMANDS = 4
@@ -612,6 +616,27 @@ def render_round_log(
     return "\n".join([header, *lines])
 
 
+def round_log_evidence(request: RoundEvidenceRequest) -> RoundEvidence | None:
+    """What the host saw of the Engineer's round, in the Reviewer's slot.
+
+    The calls come from host memory; without them only the host's own event
+    log for the mission is read, never a file near the mission packet.
+    """
+    try:
+        text = render_round_log(
+            request.workdir, request.round_index,
+            runs=request.command_runs,
+            events_path=request.events_path,
+            dropped=request.command_runs_dropped,
+        )
+    except Exception:  # noqa: BLE001 - evidence must never break a round
+        return None
+    return RoundEvidence(reviewer_text=text) if text else None
+
+
+register_round_evidence_provider(round_log_evidence)
+
+
 __all__ = [
     "HEADER",
     "HEADER_WITHOUT_RESULTS",
@@ -620,6 +645,7 @@ __all__ = [
     "is_check",
     "is_evaluation",
     "render_round_log",
+    "round_log_evidence",
     "round_window_start",
     "runs_from_events",
     "show_command",

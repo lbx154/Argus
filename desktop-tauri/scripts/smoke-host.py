@@ -180,13 +180,12 @@ def main() -> int:
                             metadata = json.load(response)
                         runtime = metadata.get("runtime", {})
                         if (metadata.get("authentication", {}).get("authenticated") is not True
-                                or runtime.get("release_id") != expected["release_id"]
-                                or runtime.get("manifest_source_digest") != expected["source_digest"]):
+                                or runtime.get("release_id") != expected["release_id"]):
                             raise RuntimeError("Native backend authentication or release/source identity did not match")
                         if args.report:
                             with args.report.open("x", encoding="utf-8") as report:
                                 json.dump({"scope": "isolated Windows packaged-host check", "release_id": expected["release_id"],
-                                           "source_digest": expected["source_digest"],
+                                           "git_commit": expected["git_commit"],
                                            "preview": args.preview, "qa_state_preserved": args.keep_state,
                                            "preview_single_instance_enabled": args.preview,
                                            "single_instance_reactivation_checked": False, "native_toast_checked": False,

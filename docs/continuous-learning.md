@@ -91,40 +91,14 @@ contain only state and saved-entry metadata.
 unchanged and failure receipts. `POST /api/projects/{sid}/learning/{job}/retry`
 retries a failed answer job. Both require the usual project authentication.
 The chat area and library entries poll after foreground work ends and refresh
-the libraries when the receipt changes. `ARGUS_SKILL_ANSWER_LEARNING` and
-`ARGUS_SKILL_REFLECTION` retain their existing opt-out behavior.
+the libraries when the receipt changes. One switch, `ARGUS_SKILL_LEARNING`
+(on by default), turns all of it off: reflection, answer learning, Skill
+maintenance and promotion, the project wiki, recall from other projects, and
+the shared-principles pass, which otherwise runs only when the shared pages
+change.
 
 Quality checks cover a changed factual conclusion reaching the next recall,
 unrelated English/Chinese questions, repeated findings and methods, partially
 written drafts, concurrent human edits, and a worker killed while another
 process is waiting to recover the same queue. Real-provider validation uses
 isolated state and checks subsequent Manager tool reads of the saved pages.
-
-## Identify research subjects before selecting methods
-
-For automatic web routing, the tools-disabled classifier copies a named public
-research subject verbatim into `LOOKUP_SUBJECT`. This takes precedence over a
-speculative specialist selection or immediate answer. The host searches the
-original phrase, shows “正在查证研究对象与来源…”, and passes discovery results to
-the executing Manager before any workflow offer. Explicit qualifiers are kept;
-the available Skills and the model's prior knowledge cannot redefine the name.
-Local work, private subjects, supplied-source-only/no-web requests and routine
-conversation do not request this lookup. Explicit Chat still skips classification.
-
-Search uses bounded Bing RSS requests and a six-hour workspace cache. Empty
-results, unavailable search and successful discovery remain distinct. Search
-snippets are untrusted discovery data: the Manager must inspect primary sources
-before drawing conclusions, separate vendor claims from independent evidence,
-and check limitations before repeating guarantees. Up to two targeted refinements
-are allowed for identification; unresolved ambiguity is stated rather than turned
-into a claim that the subject does not exist. Helper commands use the running
-version's absolute script paths to avoid accidentally loading a stale installation.
-
-The answer then enters the existing learning queue. Correct identity and qualified
-claims improve the input to that pass; a search hit alone is not a knowledge entry
-or a new Skill. Completed reads of retained source text carry URL/access receipts
-into learning; a receipt proves source access, not independent factual validation.
-Regression checks cover contradictory medical routing, preserved
-names and qualifiers, source failures, visible phases, cancellation and stale
-per-turn state. Real-provider checks include Jev, the explicitly named Japanese
-encephalitis virus, an unverified model name, and subsequent knowledge recall.

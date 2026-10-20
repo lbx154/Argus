@@ -44,7 +44,7 @@ def test_manager_runner_uses_persisted_workdir_without_moving_state_root(
     )
     captured = {}
     sentinel = object()
-    monkeypatch.setenv("ARGUS_SKILL_REVIEWER_BACKEND", "claude")
+    monkeypatch.setenv("ARGUS_SKILL_REVIEWER_BACKEND", "claude")  # retired, ignored
 
     def build(args):
         captured["args"] = args
@@ -70,7 +70,7 @@ def test_manager_runner_uses_persisted_workdir_without_moving_state_root(
     assert args.skills_dir == str(root / "skills")
     assert args.operator_workspace == str(workspace.resolve())
     assert args.engineer_model == "gpt-6.1-sol"
-    assert args.reviewer_model == ""
+    assert args.reviewer_model == "gpt-6.1-sol"
     assert args.skills_dir == str(root / "skills")
     assert args.manager_memory is memory
 
@@ -178,32 +178,6 @@ def test_manager_runner_retries_after_transient_build_failure(
     assert "manager_runner" not in state
     assert front_door._ensure_manager_runner(state, memory) is recovered
     assert calls == 2
-
-
-def test_manager_runner_scopes_acp_to_session_id(tmp_path, monkeypatch) -> None:
-    root = tmp_path / "root"
-    sid = "s-private-acp"
-    memory = MemoryBundle.for_cwd(tmp_path, global_root=root, fingerprint=sid)
-    memory.init()
-    default_scopes: list[str] = []
-    manager_scopes: list[str] = []
-    runner = SimpleNamespace(
-        _backend=SimpleNamespace(set_acp_scope=default_scopes.append),
-        manager_backend=SimpleNamespace(set_acp_scope=manager_scopes.append),
-    )
-    monkeypatch.setattr(
-        "argus.apps._runtime.build_life_runner",
-        lambda args: runner,
-    )
-
-    result = front_door._ensure_manager_runner(
-        {"backend": "copilot", "session_id": sid, "global_root": str(root)},
-        memory,
-    )
-
-    assert result is runner
-    assert default_scopes == [f"manager:{sid}"]
-    assert manager_scopes == [f"manager:{sid}"]
 
 
 def test_operator_workspace_refuses_the_filesystem_root(monkeypatch) -> None:

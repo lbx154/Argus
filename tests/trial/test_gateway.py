@@ -60,8 +60,7 @@ def upstream(request):
 
 
 def issued_auth(client, key_id=KEY_ID):
-    credential = client.app.state.vault.credential(key_id)
-    client.app.state.store.issue(key_id, credential)
+    credential = client.app.state.store.issue(key_id)
     return {"Authorization": "Bearer " + credential}
 
 
@@ -168,8 +167,7 @@ def test_cancelled_queued_request_does_not_spend_or_leak_slot(settings):
     async def scenario():
         app = create_app(settings, transport=httpx.MockTransport(upstream))
         async with app.router.lifespan_context(app):
-            credential = app.state.vault.credential(KEY_ID)
-            app.state.store.issue(KEY_ID, credential)
+            credential = app.state.store.issue(KEY_ID)
             app.state.request_slots = asyncio.Semaphore(0)
             async with httpx.AsyncClient(
                 transport=httpx.ASGITransport(app=app), base_url="http://test",
@@ -288,8 +286,7 @@ def test_global_tpm_wait_succeeds_when_capacity_returns(settings, monkeypatch, r
             store = app.state.store
             now = [1000]
             store.clock = lambda: now[0]
-            credential = app.state.vault.credential(KEY_ID)
-            store.issue(KEY_ID, credential)
+            credential = app.state.store.issue(KEY_ID)
             store.issue("blocker", "blocker-credential")
             blocker = store.reserve("blocker", 100_000)
             if release_capacity == "expire":
@@ -350,8 +347,7 @@ def test_aborted_tpm_wait_does_not_spend_or_leak_slot(settings, monkeypatch, end
         app = create_app(replace(settings, timeout=2), transport=httpx.MockTransport(handler))
         async with app.router.lifespan_context(app):
             store = app.state.store
-            credential = app.state.vault.credential(KEY_ID)
-            store.issue(KEY_ID, credential)
+            credential = app.state.store.issue(KEY_ID)
             store.issue("blocker", "blocker-credential")
             blocker = store.reserve("blocker", 100_000)
             waiting = observe_tpm_wait(monkeypatch)
@@ -411,8 +407,7 @@ def test_disconnected_admission_wait_does_not_spend_or_leak_slot(settings, monke
         app = create_app(replace(settings, timeout=2), transport=httpx.MockTransport(handler))
         async with app.router.lifespan_context(app):
             store = app.state.store
-            credential = app.state.vault.credential(KEY_ID)
-            store.issue(KEY_ID, credential)
+            credential = app.state.store.issue(KEY_ID)
             if waiting_for == "slot":
                 app.state.request_slots = asyncio.Semaphore(0)
             else:
@@ -499,8 +494,7 @@ def test_slot_and_tpm_wait_share_one_admission_deadline(settings, monkeypatch):
         app = create_app(replace(settings, timeout=1.5), transport=httpx.MockTransport(upstream))
         async with app.router.lifespan_context(app):
             store = app.state.store
-            credential = app.state.vault.credential(KEY_ID)
-            store.issue(KEY_ID, credential)
+            credential = app.state.store.issue(KEY_ID)
             store.issue("blocker", "blocker-credential")
             store.reserve("blocker", 100_000)
             app.state.request_slots = asyncio.Semaphore(0)
@@ -543,8 +537,7 @@ def test_slot_timeout_is_distinct_from_tpm_timeout(settings):
         app = create_app(replace(settings, timeout=0.05), transport=httpx.MockTransport(upstream))
         async with app.router.lifespan_context(app):
             store = app.state.store
-            credential = app.state.vault.credential(KEY_ID)
-            store.issue(KEY_ID, credential)
+            credential = app.state.store.issue(KEY_ID)
             app.state.request_slots = asyncio.Semaphore(0)
             async with httpx.AsyncClient(
                 transport=httpx.ASGITransport(app), base_url="http://test",
@@ -605,8 +598,7 @@ def test_gateway_limits_ten_concurrent_requests(settings):
         app = create_app(settings, transport=httpx.MockTransport(held_upstream))
         async with app.router.lifespan_context(app):
             async with httpx.AsyncClient(transport=httpx.ASGITransport(app), base_url="http://test") as client:
-                credential = app.state.vault.credential(KEY_ID)
-                app.state.store.issue(KEY_ID, credential)
+                credential = app.state.store.issue(KEY_ID)
                 headers = {"Authorization": "Bearer " + credential}
                 tasks = [asyncio.create_task(client.post("/v1/chat/completions", headers=headers, json=PAYLOAD)) for _ in range(10)]
                 await asyncio.wait_for(all_started.wait(), 0.8)
@@ -640,8 +632,7 @@ def test_disconnect_keeps_charge_and_releases_slot(settings):
 
         app = create_app(settings, transport=httpx.MockTransport(handler))
         async with app.router.lifespan_context(app):
-            credential = app.state.vault.credential(KEY_ID)
-            app.state.store.issue(KEY_ID, credential)
+            credential = app.state.store.issue(KEY_ID)
             payload = {**PAYLOAD, "stream": True}
             sent_body = False
             disconnected = asyncio.Event()
@@ -710,8 +701,7 @@ def test_asgi24_send_failure_always_cleans_up_without_changing_settlement(settin
             store = app.state.store
             now = [100.0]
             store.clock = lambda: now[0]
-            credential = app.state.vault.credential(KEY_ID)
-            store.issue(KEY_ID, credential)
+            credential = app.state.store.issue(KEY_ID)
             payload = {**PAYLOAD, "stream": True}
             sent_body = False
 

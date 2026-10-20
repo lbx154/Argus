@@ -27,8 +27,9 @@ them is what makes an objective good:
 3. **The Planner** decomposes it into tasks, each with an acceptance check.
    What you leave unsaid, it will decide for you.
 4. **The Reviewer** judges every round against it and against the vertical's
-   stage checklist. The Reviewer runs read-only and cannot ask the Engineer;
-   it can only check what the objective and the work directory let it check.
+   stage checklist. The Reviewer has the Engineer's tools but cannot ask the
+   Engineer; it can only check what the objective and the work directory let
+   it check.
 
 So an objective should say what must be true at the end, what evidence you
 will accept, what the scope and constraints are, and what form the result
@@ -70,8 +71,9 @@ batches. If those choices matter to you, say them.
 Things to avoid in an objective, and why:
 
 - **Work that needs your credentials, your money, or an irreversible or
-  public action.** Those are authority boundaries: whatever the autonomy
-  setting, a task that reaches one stops and asks. Put the credential in
+  public action.** Those are authority boundaries: a task that reaches one
+  stops and asks (or, while Argus cannot ask you, the Manager decides in your
+  place). Put the credential in
   place first (the cockpit accepts credentials and stores them in the
   capability vault) or keep the objective short of the boundary.
 - **A goal with no checkable end.** "Make it better" leaves the Reviewer
@@ -86,34 +88,13 @@ worker keeps proposing follow-up work after the project is declared done.
 
 ## Avoiding unproductive experiment reruns
 
-### Choose evidence depth, not a weaker success criterion
+### Evidence, not a weaker success criterion
 
-Set `ARGUS_SKILL_EVIDENCE_POLICY` for a run, or save it in the existing
-cockpit configuration:
-
-| Policy | Evidence handling |
-|---|---|
-| `progress-first` | Fix the smallest failing step, reuse accepted checks whose inputs have not changed, and keep incidental logs or formatting issues advisory. |
-| `standard` (default) | Require relevant source, input and result evidence without unrelated documentation demands. |
-| `strict` | Additionally check the relevant execution and review archive. |
-
-Manager, Planner, Engineer and Reviewer receive the same contract. Development
-readiness is not scientific acceptance: no mode waives required independent
-validation, numerical thresholds, prerequisite checks, or actual failures.
-These settings do not certify complete provider telemetry or retrospectively
-accept previous failed runs.
-
-`progress-first` also uses the existing round controls: it caps enabled
-no-progress streak thresholds at two and enabled soft-round thresholds at three.
-After that soft threshold, the existing two-verdict progress window applies;
-productive work can continue. A disabled guard stays disabled, and explicit
-mission or individual guard settings still take precedence. Standard and strict
-leave the existing vertical thresholds unchanged. There is no new retry loop,
-automatic replay, or evidence ledger.
-
-An explicit environment value overrides a saved setting. Invalid policy names
-are errors, not silent fallbacks. Use a new mission for a changed policy;
-changing a setting does not revise an already running mission's round controls.
+Manager, Planner, Engineer and Reviewer share one evidence contract: require
+the relevant source, input and result evidence, without unrelated
+documentation demands. Development readiness is not scientific acceptance:
+nothing waives required independent validation, numerical thresholds,
+prerequisite checks, or actual failures.
 
 Start with the cheapest check that can actually reject an unready experiment:
 the required tool must work in the execution environment, inputs must exist,
@@ -121,43 +102,12 @@ and shared preparation must succeed. A readiness pass is not a scientific
 result. Keep dependencies inside an existing script or Make target where
 possible, and propagate failures instead of launching their dependents.
 
-Non-authorization event waits also watch the current planning stage. When an
-accepted review moves that stage, the Planner wakes even if its watched job
-has already finished. A failed wake-state write is reported and retried before
-planning; it cannot consume the transition. A HOLD without a stage change does
-not wake the wait. Operator-action and authorization waits still require their
-declared input; a stage change does not grant permission or rerun a job.
-
-When preparation is already a background job, a dependent submission can bind
-its successful receipt:
-
-```bash
-python -m argus.tools.subagent submit --task-id experiment \
-  --command "python run_experiment.py" --depends-on preparation
-```
-
-Replace the command and prerequisite with those of your project. The
-prerequisite must already be `done` with an actual exit code of zero in the
-same project's task registry. Missing, running, or failed prerequisites cause
-submission to return exit code 1 with `state: blocked`; no dependent job is
-created. This is not a queue that starts automatically when preparation
-finishes. The worker checks the recorded prerequisite `run_id` again before
-execution, including after resource admission. A replaced prerequisite is
-rejected. The final check and launch share the submission admission lock;
-subsequent reruns do not cancel an already-started dependent.
-`--no-preflight` cannot disable this dependency check.
-
-Resubmitting the same task with the same command requires
-`--rerun-reason "what changed, or why an independent replay is necessary"`.
-The new receipt and report retain that explanation and the previous
-`run_id`. A changed command is recorded as such without another explanation.
-Neither a reason string nor a different task name proves that the inputs
-changed. Reuse accepted evidence whose inputs are unchanged, and preserve
-failed attempts instead of overwriting them.
-
-Argus keeps its job logs and receipts per run; arbitrary output files written
-by your command still need separate attempt directories. The runtime does not
-infer hidden dependencies inside scripts or certify their numerical results.
+Long jobs are started detached and waited for inside the Engineer's own turn
+with the backend's blocking commands. Run a dependent job only after its
+preparation has exited with code zero, and keep each attempt's outputs in its
+own directory. Reuse accepted evidence whose inputs are unchanged, and preserve
+failed attempts instead of overwriting them. The runtime does not infer hidden
+dependencies inside scripts or certify their numerical results.
 Engineer and Reviewer share the distinction between readiness and validation;
 producer-written logs cannot replace an independent checker or external
 observation required by the acceptance contract.
@@ -208,20 +158,14 @@ when a task is active and the text clearly redirects it does the second check
 turn it into a `STEER`. Questions, criticism and suggestions are not steering;
 if you mean "change course", say so in the imperative.
 
-When Argus stops on its own to ask you is governed by one setting:
-
-```bash
-export ARGUS_SKILL_AUTONOMY_MODE=pragmatic    # default
-```
-
-`pragmatic` recovers technical problems (a failed test, a timeout, a route
-that did not work) without asking and stops only at authority boundaries:
-credentials, payment or a bigger budget, deleting or force-pushing shared
-state, publishing or sending outward, and changes to an acceptance contract
-you own. `cautious` asks on every explicit question the Reviewer raises.
-`autonomous` still stops at those same boundaries; it only removes the
-remaining discretionary pauses. Pick `cautious` for the first run of a new
-vertical, when you want to see what it would have asked.
+Argus recovers technical problems (a failed test, a timeout, a route that did
+not work) without asking and stops only where the role raising the question
+says it needs you: credentials, payment or a bigger budget, an irreversible or
+outward-facing step, and changes to a scope you own. Whether it can ask you at
+all is one switch, `ARGUS_SKILL_OPERATOR_AVAILABLE`: `--no-operator` turns it
+off for one run, and telling the Manager "don't ask me" (or "you can ask me
+again") saves it. While it is off the Manager decides in your place and
+records each decision for the run report.
 
 Two real cases show what interjection looks like in practice.
 
@@ -250,11 +194,10 @@ what made that possible.
 
 ## Choosing the backend and model
 
-Argus resolves the backend and model for each role separately, and every
-resolution follows the same order:
+Every role runs on one shared backend; each role may pick its own model.
+Both resolve in the same order:
 
-1. an environment variable for that role (`ARGUS_SKILL_ENGINEER_BACKEND`,
-   `ARGUS_SKILL_ENGINEER_MODEL`, ...),
+1. for a model, the role's own variable (`ARGUS_SKILL_ENGINEER_MODEL`, ...),
 2. the shared variable (`ARGUS_SKILL_RUNNER_BACKEND`, `ARGUS_SKILL_MODEL`),
 3. the same names in the persisted settings file `~/.argus-skill/config.json`,
    which is what `argus --setup`, `/backend`, `/config key=value` and a
@@ -272,10 +215,10 @@ a file you can attach to a report.
 | Setting | Default | Notes |
 |---|---|---|
 | `ARGUS_SKILL_RUNNER_BACKEND` | `codex` | `codex`, `claude`, `copilot`, `cursor`, `opencode`, `pi`, `grok`, `qoder`, `dsh` |
-| `ARGUS_SKILL_<ROLE>_BACKEND` | inherits | `ENGINEER`, `REVIEWER`, `PLANNER`, `MANAGER`, `SUPERVISOR` |
 | `ARGUS_SKILL_MODEL` | `auto` | a bare model id (`gpt-5.6-sol`, `copilot/opus-5`); free text reaches the CLI verbatim and every call then fails |
 | `ARGUS_SKILL_<ROLE>_MODEL` | `auto` | `ENGINEER`, `REVIEWER`, `PLAN`, `MANAGER`, `SUPERVISOR` |
-| `ARGUS_SKILL_FRONTDOOR_MODEL` | `auto` | the cheap classifier that reads every message (`gpt-5.4-mini` on Copilot) |
+| `ARGUS_SKILL_LIGHT_MODEL` | `auto` | every light route: front-door classify, `/plan` preview, prompt rewrite, map text, reflection (`gpt-6.1-sol` on Copilot, the Manager model elsewhere) |
+| `ARGUS_SKILL_LIGHT_REASONING_EFFORT` | `low` | effort for every light route |
 | `ARGUS_SKILL_<ROLE>_REASONING_EFFORT` | Engineer `xhigh`, others `high`, Supervisor `low` | `low`, `medium`, `high`, `xhigh`, `max` |
 | `ARGUS_SKILL_PI_PROVIDER` / `ARGUS_SKILL_OPENCODE_PROVIDER` | unset | provider prefix for bare model ids on those two backends; on OpenCode the model is dropped without it |
 
@@ -291,10 +234,9 @@ the Engineer's would have changed everything.
 
 The same ledger explains where the money goes: 33.9 million input tokens
 against 0.3 million output tokens after two hours. Long tool-using rounds
-re-read context, which is why Argus by default sends the full task text only
-on the first round of a session (`ARGUS_SKILL_COMPACT_CONTINUATION_PROMPTS`),
-why the Engineer's agent CLI runs without the few tools of its own that it
-never uses (`ARGUS_SKILL_ENGINEER_LEAN_TOOLS`), and why a precise objective
+re-read context, which is why Argus sends the full task text only on the
+first round of a session, why the Engineer's agent CLI runs without the few
+tools of its own that it never uses, and why a precise objective
 with the evidence already in the work directory costs less than a vague one
 that makes the Engineer explore.
 
@@ -361,15 +303,14 @@ It fits poorly when:
   check the work; it is not worth it for a throwaway.
 - **Finishing requires something only you can do.** Logging in somewhere,
   paying, publishing, deleting shared state, or approving a change to an
-  acceptance contract stops the task by design in every autonomy mode. Plan
+  acceptance contract stops the task by design. Plan
   the objective to end before that step, or do the step first.
 - **"Done" cannot be written down.** If you cannot state what the Reviewer
   should check, it will accept or refuse on its own reading, and rounds will
   continue until a cap.
-- **The evidence lives somewhere the roles cannot reach.** The Reviewer is
-  read-only and works from the work directory and the paths you allow
-  (`ARGUS_SKILL_REVIEWER_READ_DIRS`); a result that only exists in a service it
-  cannot query cannot be certified.
+- **The evidence lives somewhere the roles cannot reach.** The Reviewer has
+  the Engineer's access and nothing more; a result that only exists in a
+  service it cannot query cannot be certified.
 
 A useful test before you start: write the sentence the Reviewer should be
 able to say at the end ("the README reports the maximum error against the

@@ -286,7 +286,6 @@ class LettersMixin:
             types={
                 "life.manager.stage_decision",
                 "life.plan.node.superseded",
-                "life.research.second_reading",
                 "life.manager.plan_challenge.decided",
             },
         ):
@@ -298,10 +297,6 @@ class LettersMixin:
                 )
             elif kind == "life.plan.node.superseded":
                 decisions.append(f"- Let go of a planned task: {str(row.get('reason') or '')[:300]}")
-            elif kind == "life.research.second_reading":
-                decisions.append(
-                    f"- A second reading of the evidence: supports {str(row.get('supported') or '')[:300]}"
-                )
             elif kind == "life.manager.plan_challenge.decided":
                 decisions.append(
                     f"- Plan challenge: {row.get('manager_action')}: {str(row.get('challenge') or '')[:300]}"
@@ -315,12 +310,7 @@ class LettersMixin:
             for item in self.memory.backlog.active():
                 status = str(getattr(item, "status", "") or "")
                 title = str(getattr(item, "title", "") or "")
-                if status == "paused_external_work":
-                    running.append(
-                        f"- {title} (waiting for background results; "
-                        "Argus resumes automatically when they are ready)"
-                    )
-                elif status == "running":
+                if status == "running":
                     running.append(f"- {title} (running)")
                 elif status == "pending":
                     planned.append(f"- {title}")
@@ -345,20 +335,6 @@ class LettersMixin:
                     ))
         except Exception:  # noqa: BLE001
             pass
-        try:
-            live = str(self._live_subagent_id_line() or "").strip()
-            if live:
-                running.append(live)
-        except Exception:  # noqa: BLE001
-            pass
-
-        machine = ""
-        try:
-            from ...verticals.research_bridge import local_gpu_lines
-
-            machine = "\n".join(local_gpu_lines())
-        except Exception:  # noqa: BLE001
-            machine = ""
 
         hours_window = max(0.0, (now - since) / 3600.0)
         cost_line = f"About ${cost:.2f} of model use across {len(missions)} finished missions in {hours_window:.1f} hours."
@@ -377,7 +353,6 @@ class LettersMixin:
             "planned": "\n".join(planned[:12]),
             "questions": "\n".join(questions[:6]),
             "cost": cost_line,
-            "machine": machine,
             "hours_since_operator_wrote": (silence / 3600.0) if silence is not None else None,
             "hours_since_last_letter": hours_window,
         }

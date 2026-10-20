@@ -36,9 +36,8 @@ def test_admin_pi_configuration_preserves_state_and_never_embeds_provider_secret
         configure_provider(root, binary, vault)
         assert os.environ["ARGUS_ADMIN_PROVIDER_TOKEN"] == "fixture-provider-credential"
         persisted = read_persisted_knobs()
-        for role in ("MANAGER", "ENGINEER", "REVIEWER", "PLANNER", "SUPERVISOR", "CURATOR"):
-            assert persisted[f"ARGUS_SKILL_{role}_BACKEND"] == "pi"
-            assert persisted[f"ARGUS_SKILL_{role}_RUNNER_BIN"] == str(binary)
+        assert persisted["ARGUS_SKILL_RUNNER_BACKEND"] == "pi"
+        assert persisted["ARGUS_SKILL_RUNNER_BIN"] == str(binary)
         assert persisted["ARGUS_SKILL_MANAGER_MODEL"] == "gpt-5.5"
         assert persisted["ARGUS_SKILL_WIKI"] == "0"
         config_text = (root / "argus-pi-admin" / "models.json").read_text()
@@ -67,15 +66,14 @@ def test_existing_workspace_enrolls_with_trial_meter_and_live_capture_without_mo
     binary.write_text("#!/bin/sh\nexit 0\n")
     binary.chmod(0o700)
     vault = Mock(spec=Vault)
-    vault.credential.return_value = "argus_trial_" + "a" * 64
+    api_key = "argus_trial_" + "a" * 64
     socket = tmp_path / "run" / "training.sock"
     with patch.dict(os.environ, {"ARGUS_ADMIN_PROVIDER_TOKEN": "old-provider-secret"}):
-        configure_provider(root, binary, vault, tenant="trial-11", training_socket=socket)
+        configure_provider(root, binary, vault, tenant="trial-11", api_key=api_key, training_socket=socket)
         vault.read.assert_not_called()
-        vault.credential.assert_called_once_with("trial-11")
         provider = json.loads((root / "argus-pi" / "models.json").read_text())["providers"]["argus"]
         assert provider["api"] == "openai-completions"
-        assert provider["apiKey"] == vault.credential.return_value
+        assert provider["apiKey"] == api_key
         assert provider["baseUrl"] == "http://127.0.0.1:18765/v1"
         assert "headers" not in provider and "old-provider-secret" not in json.dumps(provider)
         assert "ARGUS_ADMIN_PROVIDER_TOKEN" not in os.environ
@@ -83,27 +81,23 @@ def test_existing_workspace_enrolls_with_trial_meter_and_live_capture_without_mo
         assert os.environ["ARGUS_TRIAL_HARNESS"] == "argus-pi"
         assert os.environ["ARGUS_SKILL_HOME"] == str(root)
         assert os.environ["ARGUS_SKILL_PI_SESSION_DIR"] == str(root / "pi-sessions")
-        assert os.environ["ARGUS_SKILL_MAP_REASONING_EFFORT"] == "auto"
-        assert os.environ["ARGUS_SKILL_MAP_REVIEW_REASONING_EFFORT"] == "auto"
+        assert os.environ["ARGUS_SKILL_LIGHT_REASONING_EFFORT"] == "low"
     assert transcript.read_text() == '{"text":"original project history"}\n'
 
 
-def test_native_restart_keeps_explicit_map_effort_and_research_effort(tmp_path, monkeypatch):
+def test_native_restart_keeps_explicit_light_effort_and_research_effort(tmp_path, monkeypatch):
     monkeypatch.setenv("ARGUS_SKILL_HOME", str(tmp_path))
-    monkeypatch.delenv("ARGUS_SKILL_MAP_REASONING_EFFORT", raising=False)
-    monkeypatch.delenv("ARGUS_SKILL_MAP_REVIEW_REASONING_EFFORT", raising=False)
-    write_persisted_knobs({"ARGUS_SKILL_MAP_REASONING_EFFORT": "low",
-                          "ARGUS_SKILL_MAP_REVIEW_REASONING_EFFORT": "medium",
+    monkeypatch.delenv("ARGUS_SKILL_LIGHT_REASONING_EFFORT", raising=False)
+    write_persisted_knobs({"ARGUS_SKILL_LIGHT_REASONING_EFFORT": "medium",
                           "ARGUS_SKILL_ENGINEER_REASONING_EFFORT": "high"})
     binary = tmp_path / "pi"
     binary.write_text("#!/bin/sh\nexit 0\n")
     binary.chmod(0o700)
     vault = Mock(spec=Vault)
-    vault.credential.return_value = "test-only-credential"
     with patch.dict(os.environ):
-        configure_provider(tmp_path, binary, vault, tenant="trial-11", training_socket=tmp_path / "training.sock")
-        assert os.environ["ARGUS_SKILL_MAP_REASONING_EFFORT"] == "low"
+        configure_provider(tmp_path, binary, vault, tenant="trial-11", api_key="test-only-credential",
+                           training_socket=tmp_path / "training.sock")
+        assert os.environ["ARGUS_SKILL_LIGHT_REASONING_EFFORT"] == "medium"
         saved = read_persisted_knobs()
-        assert saved["ARGUS_SKILL_MAP_REASONING_EFFORT"] == "low"
-        assert saved["ARGUS_SKILL_MAP_REVIEW_REASONING_EFFORT"] == "medium"
+        assert saved["ARGUS_SKILL_LIGHT_REASONING_EFFORT"] == "medium"
         assert saved["ARGUS_SKILL_ENGINEER_REASONING_EFFORT"] == "high"

@@ -45,11 +45,9 @@ from argus.life.supervisor._constants import (
 from argus.life.supervisor._planning_context import PlanningContextMixin
 from argus.planner import parse_planner_text
 from argus.skills.vertical_select import persist_vertical
-from argus.verticals._base import load_vertical_contract
 
 # The two halves of the contract, and what each vertical declares.
 CERTIFIED_AND_TARGETED = "research"
-TARGETED_ONLY = ("math",)
 NEITHER = "software"
 
 
@@ -69,35 +67,19 @@ def _project(tmp_path, vertical: str):
     return _Harness(tmp_path)
 
 
-def test_the_census_that_motivated_this_fix_still_holds() -> None:
-    """Guard the premise: these verticals really do declare targets only."""
-    for vertical in TARGETED_ONLY:
-        contract = load_vertical_contract(vertical)
-        assert contract.research_target_levels, (
-            f"{vertical} no longer declares research targets; if that is "
-            "intended, this whole regression is moot and the test should go"
-        )
-        assert contract.completion_gate != "certified", (
-            f"{vertical} now has a certified completion gate, so the original "
-            "predicate would already cover it"
-        )
-
-
-@pytest.mark.parametrize("vertical", TARGETED_ONLY)
-def test_a_required_research_target_admits_the_scope(tmp_path, vertical) -> None:
+def test_a_required_research_target_admits_the_scope(tmp_path, targeted_vertical) -> None:
     """The gate demands the scope, so the boundary must persist it."""
-    harness = _project(tmp_path, vertical)
+    harness = _project(tmp_path, targeted_vertical)
 
     assert harness._final_submission_scope_applies(tmp_path), (
-        f"{vertical} requires a certified final_submission mission to clear "
+        f"{targeted_vertical} requires a certified final_submission mission to clear "
         "_research_project_done_issue, but the scope is treated as inapplicable"
     )
 
 
-@pytest.mark.parametrize("vertical", TARGETED_ONLY)
-def test_the_planner_scope_survives_enqueue(tmp_path, vertical) -> None:
+def test_the_planner_scope_survives_enqueue(tmp_path, targeted_vertical) -> None:
     """Run 10's exact failure: the tag came out ``scope:bounded``."""
-    harness = _project(tmp_path, vertical)
+    harness = _project(tmp_path, targeted_vertical)
     task = SimpleNamespace(scope=PLANNER_SCOPE_FINAL_SUBMISSION)
 
     tags = harness._planner_task_tags(task)

@@ -30,10 +30,7 @@ def test_engineer_uses_transport_idle_not_semantic_progress_scanning(
         engineer_config=EngineerConfig(model="m"),
         reviewer_config=ReviewerConfig(model="m"),
     )
-    config = SupervisedConfig(
-        runner_hard_idle_seconds=45,
-        session_id="mission-1",
-    )
+    config = SupervisedConfig(session_id="mission-1")
 
     _result, compactions = engineer._run_engineer(
         prompt="work",
@@ -44,7 +41,7 @@ def test_engineer_uses_transport_idle_not_semantic_progress_scanning(
 
     assert compactions == 0
     assert backend.options.external_interrupt_reason_provider is None
-    assert backend.options.watchdog_hard_idle_seconds == 45
+    assert backend.options.watchdog_hard_idle_seconds is None
     assert backend.options.extension_env == {
         "ARGUS_PLUGIN_PARENT_MISSION_ID": "mission-1"
     }
@@ -55,4 +52,4 @@ def test_retired_semantic_progress_compatibility_fields_are_removed() -> None:
 
     assert not hasattr(config, "effective_progress_timeout_seconds")
     assert not hasattr(config, "round_compaction_limit")
-    assert config.runner_hard_idle_seconds == 1800
+    assert not hasattr(config, "runner_hard_idle_seconds")

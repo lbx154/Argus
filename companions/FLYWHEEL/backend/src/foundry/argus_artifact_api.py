@@ -100,7 +100,7 @@ def create_argus_artifact_router() -> APIRouter:
                 episode_id,
                 artifact_path=body.artifact_path,
                 role=body.role,
-                expected_entry_sha256=body.expected_entry_sha256,
+                expected_entry_key=body.expected_entry_key,
                 idempotency_key=body.idempotency_key,
                 client=_client(request, binding.connection),
             )
@@ -130,7 +130,7 @@ def create_argus_artifact_router() -> APIRouter:
             return _service(request).confirm(
                 import_id,
                 actor=body.actor,
-                expected_source_sha256=body.expected_source_sha256,
+                expected_source_key=body.expected_source_key,
                 redaction_confirmed=body.redaction_confirmed,
                 manual_redaction_confirmed=body.manual_redaction_confirmed,
                 training_consent=body.training_consent,

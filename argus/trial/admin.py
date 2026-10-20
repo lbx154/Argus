@@ -17,19 +17,17 @@ from .secrets import Vault, write_private
 from .store import TrialError
 
 
-def issue_keys(vault: Vault, state_dir: Path, output: Path, *, key_count: int = TRIAL_KEY_COUNT):
+def issue_keys(vault: Vault, state_dir: Path, output: Path, *, key_count: int = TRIAL_KEY_COUNT) -> dict[str, str]:
     """Issue an explicitly sized pool; reruns retain the same keys and balances."""
     from .store import Store
 
-    store = Store(state_dir / "usage.sqlite3", key_limit=key_count)
-    keys = []
-    for i in range(1, key_count + 1):
-        key_id = f"trial-{i:02d}"
-        credential = vault.credential(key_id)
-        store.issue(key_id, credential)
-        keys.append({"key_id": key_id, "api_key": credential})
-    write_private(output, json.dumps(keys, indent=2).encode())
+    store = Store(state_dir / "usage.sqlite3", key_limit=key_count, master_key=vault.key_path)
+    keys = {f"trial-{i:02d}": store.issue(f"trial-{i:02d}") for i in range(1, key_count + 1)}
+    write_private(output, json.dumps(
+        [{"key_id": key_id, "api_key": credential} for key_id, credential in keys.items()], indent=2,
+    ).encode())
     print(f"{len(keys)} trial keys saved privately to {output}. Existing balances preserved.")
+    return keys
 
 # Public OAuth application identifier, as used by the Copilot device flow.
 GITHUB_CLIENT_ID = "Iv1.b507a08c87ecfe98"

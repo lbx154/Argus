@@ -56,8 +56,7 @@ def test_the_engineer_turn_captures_its_commands_for_the_providers(tmp_path, mon
     engineer.run(
         objective="Fix the parser.",
         engineer_prompt_builder=lambda _next, _static=True: "Do the task.",
-        supervised_config=SupervisedConfig(max_rounds=1, engineer_log_path=str(log_path),
-                                           decision_progress_timeout_seconds=0),
+        supervised_config=SupervisedConfig(max_rounds=1, engineer_log_path=str(log_path)),
         workdir=tmp_path,
     )
 
@@ -80,17 +79,14 @@ def _review_prompt(engineer_backend: str, tmp_path) -> str:
     engineer.run(
         objective="Fix the parser.",
         engineer_prompt_builder=lambda _next, _static=True: "Do the task.",
-        supervised_config=SupervisedConfig(max_rounds=1, decision_progress_timeout_seconds=0),
+        supervised_config=SupervisedConfig(max_rounds=1),
         workdir=tmp_path,
     )
     return next(prompt for label, prompt, _options in backend.history if label == "reviewer")
 
 
-def test_the_reviewer_relies_on_host_records_only_when_the_engineer_backend_reports_them(tmp_path) -> None:
-    from argus.core.model_visible_text import (
-        REVIEW_EVIDENCE_RULE_READ_ONLY,
-        REVIEW_EVIDENCE_RULE_UNRECORDED,
-    )
+def test_the_reviewer_reruns_the_check_whatever_the_engineer_backend_reports(tmp_path) -> None:
+    from argus.core.model_visible_text import REVIEW_EVIDENCE_RULE
 
-    assert REVIEW_EVIDENCE_RULE_READ_ONLY in _review_prompt("copilot", tmp_path / "a")
-    assert REVIEW_EVIDENCE_RULE_UNRECORDED in _review_prompt("claude", tmp_path / "b")
+    assert REVIEW_EVIDENCE_RULE in _review_prompt("copilot", tmp_path / "a")
+    assert REVIEW_EVIDENCE_RULE in _review_prompt("claude", tmp_path / "b")

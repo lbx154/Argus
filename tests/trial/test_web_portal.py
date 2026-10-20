@@ -29,7 +29,7 @@ def provisioned(tmp_path):
     vault = Vault(key, state / "github-token.enc")
     store = Store(state / "usage.sqlite3", key_limit=len(portal.TENANT_IDS))
     for tenant in portal.TENANT_IDS:
-        store.issue(tenant, vault.credential(tenant))
+        store.issue(tenant)
     config = {
         "state_dir": str(state), "key_file": str(key),
         "tenants": {
@@ -219,7 +219,7 @@ def test_http_observation_separates_headers_from_eof_and_preserves_capture(tmp_p
 def test_portal_records_map_copy_and_other_responses_once_through_body_completion(provisioned, tmp_path):
     from argus.trial.analytics import Analytics
 
-    config, vault, _ = provisioned
+    config, vault, store = provisioned
     analytics = Analytics(
         tmp_path / "analytics", {"trial-01": {"data_dir": tmp_path / "tenant", "internal_test": True}},
         tmp_path / "meter.sqlite3", tmp_path / "compute.sqlite3",
@@ -236,7 +236,7 @@ def test_portal_records_map_copy_and_other_responses_once_through_body_completio
     analytics.record_consent("trial-01", analytics.notice_version)
     with TestClient(app, base_url=ORIGIN) as client:
         assert client.post("/invite/login", headers={"Origin": ORIGIN}, json={
-            "code": vault.credential("trial-01"), "data_notice_accepted": True,
+            "code": store.credential("trial-01"), "data_notice_accepted": True,
             "notice_version": analytics.notice_version,
         }).status_code == 200
         for path in ("/api/map-copy/project/PRIVATE-PROJECT", "/api/map-copy/dataset/PRIVATE-DATASET"):
@@ -267,17 +267,17 @@ def client_for(provisioned, handler=None):
         yield client
 
 
-def login(client, vault, tenant="trial-01", readonly=False):
+def login(client, store, tenant="trial-01", readonly=False):
     response = client.post(
         "/invite/login", headers={"Origin": ORIGIN},
-        json={"code": vault.credential(tenant), "readonly": readonly},
+        json={"code": store.credential(tenant), "readonly": readonly},
     )
     assert response.status_code == 200
     return response
 
 
 def test_chunk_upload_routes_keep_tenant_origin_and_readonly_boundaries(provisioned):
-    _, vault, _ = provisioned
+    _, vault, store = provisioned
     seen = []
 
     def upstream(request):
@@ -288,7 +288,7 @@ def test_chunk_upload_routes_keep_tenant_origin_and_readonly_boundaries(provisio
     path = base + "/att-123456789abc"
     with client_for(provisioned, upstream) as client:
         assert client.put(path + "?offset=0", content=b"part").status_code == 401
-        login(client, vault)
+        login(client, store)
         assert client.post(base, json={}, headers={"Origin": "https://other.test"}).status_code == 403
         headers = {"Origin": ORIGIN, "Content-Type": "application/octet-stream"}
         assert client.post(base, json={"name": "a.txt", "size_bytes": 4}, headers={"Origin": ORIGIN}).status_code == 200
@@ -302,7 +302,7 @@ def test_chunk_upload_routes_keep_tenant_origin_and_readonly_boundaries(provisio
         assert not portal.permitted(base + "/arbitrary", "PUT")
         assert not portal.permitted(path + "/complete", "DELETE")
         count = len(seen)
-        login(client, vault, readonly=True)
+        login(client, store, readonly=True)
         assert client.post(base, json={}, headers={"Origin": ORIGIN}).status_code == 403
         assert client.put(path, content=b"part", headers=headers).status_code == 403
         assert client.delete(path, headers={"Origin": ORIGIN}).status_code == 403
@@ -365,7 +365,7 @@ def test_private_training_policy_only_fills_selected_member_and_preserves_browse
     now[0] += 10
     with TestClient(app, base_url=ORIGIN, follow_redirects=False) as client:
         response = client.post("/invite/login", headers={"Origin": ORIGIN}, json={
-            "code": vault.credential("trial-10"), "data_notice_accepted": True,
+            "code": store.credential("trial-10"), "data_notice_accepted": True,
             "notice_version": COMBINED_NOTICE_VERSION,
         })
         assert response.status_code == 200
@@ -411,8 +411,8 @@ def test_offline_member_can_redeem_invitation_without_fabricating_browser_accept
             entry = client.get("/invite")
             assert ' disabled hidden>' in entry.text
             assert "Owner confirms" not in entry.text and tenant not in entry.text
-            assert client.post("/invite/login", json={"code": vault.credential(tenant)}).status_code == 403
-            login(client, vault, tenant=tenant)
+            assert client.post("/invite/login", json={"code": store.credential(tenant)}).status_code == 403
+            login(client, store, tenant=tenant)
             cookie = client.cookies.get(portal.COOKIE)
             assert client.get("/api/plugins").status_code == 200
             permission = client.get("/trial/data-permissions").json()
@@ -426,25 +426,25 @@ def test_offline_member_can_redeem_invitation_without_fabricating_browser_accept
                 assert permission == original_permission
             client.cookies.clear()
             assert client.post("/invite/login", headers={"Origin": ORIGIN}, json={
-                "code": vault.credential("trial-02"),
+                "code": store.credential("trial-02"),
             }).status_code == 403
             assert analytics.consented("trial-02", analytics.notice_version) is restart
             assert client.post("/invite/login", headers={"Origin": ORIGIN}, json={
-                "code": vault.credential("trial-02"), "team_training_policy": policy,
+                "code": store.credential("trial-02"), "team_training_policy": policy,
             }).status_code == 400
             assert client.post("/invite/login", headers={"Origin": ORIGIN}, json={
-                "code": vault.credential("trial-02"), "data_notice_accepted": True,
+                "code": store.credential("trial-02"), "data_notice_accepted": True,
                 "notice_version": analytics.notice_version,
             }).status_code == 200
             assert client.get("/trial/data-permissions").json()["onboarding"] is not None
     with TestClient(app, base_url=ORIGIN, follow_redirects=False) as client:
-        login(client, vault, tenant=tenant)
+        login(client, store, tenant=tenant)
         notice = client.get("/trial/data-permissions").json()["notice_version"]
         assert client.put("/trial/data-permissions", headers={"Origin": ORIGIN}, json={
             "notice_version": notice, "internal_training": False, "external_sharing": False,
         }).status_code == 200
         client.cookies.clear()
-        login(client, vault, tenant=tenant)
+        login(client, store, tenant=tenant)
         assert client.get("/api/plugins").status_code == 200
         assert client.get("/trial/data-permissions").json()["internal_training"] is False
     with analytics._db() as db:
@@ -486,7 +486,7 @@ def test_login_page_and_unauthenticated_routes(provisioned):
 def test_analytics_requires_explicit_versioned_notice_and_guards_old_sessions(provisioned, tmp_path):
     from argus.trial.analytics import Analytics
 
-    config, vault, _ = provisioned
+    config, vault, store = provisioned
     analytics = Analytics(
         tmp_path / "research",
         {"trial-01": {"data_dir": tmp_path / "tenant", "internal_test": True}},
@@ -504,7 +504,7 @@ def test_analytics_requires_explicit_versioned_notice_and_guards_old_sessions(pr
         assert analytics.notice_version == COMBINED_NOTICE_VERSION
         with analytics._db() as db:
             assert db.execute("SELECT count(*) FROM journey_events").fetchone()[0] == 0
-        body = {"code": vault.credential("trial-01")}
+        body = {"code": store.credential("trial-01")}
         assert client.post("/invite/login", headers={"Origin": ORIGIN}, json=body).status_code == 403
         body.update(data_notice_accepted=True, notice_version="operator-analytics-v1")
         assert client.post("/invite/login", headers={"Origin": ORIGIN}, json=body).status_code == 403
@@ -535,7 +535,7 @@ def test_foundation_post_uses_normal_tenant_origin_readonly_and_capture_rules(pr
     from argus.trial.analytics import Analytics
     from argus.trial.interaction_capture import get_interaction, list_interactions
 
-    config, vault, _ = provisioned
+    config, vault, store = provisioned
     analytics = Analytics(
         tmp_path / "research", {"trial-01": {"data_dir": tmp_path / "tenant", "internal_test": True}},
         tmp_path / "unused-meter.sqlite3", tmp_path / "unused-compute.sqlite3",
@@ -548,7 +548,7 @@ def test_foundation_post_uses_normal_tenant_origin_readonly_and_capture_rules(pr
                               headers={"content-type": "application/json"})
 
     app = portal.create_app(config, analytics=analytics, transport=httpx.MockTransport(upstream))
-    login = {"code": vault.credential("trial-01"), "data_notice_accepted": True,
+    login = {"code": store.credential("trial-01"), "data_notice_accepted": True,
              "notice_version": COMBINED_NOTICE_VERSION}
     body = {"request_id": "48f5757f-cab6-4ef8-8024-b9fcd0a7899f", "question": "Explain feasible bounds.",
             "locale": "en-US", "source_task_id": "task-context"}
@@ -578,7 +578,7 @@ def test_foundation_post_uses_normal_tenant_origin_readonly_and_capture_rules(pr
 def test_research_lifespan_replay_feedback_export_deletion_and_restart(provisioned, tmp_path, monkeypatch):
     from argus.trial.analytics import Analytics
 
-    config, vault, _ = provisioned
+    config, vault, store = provisioned
     analytics = Analytics(
         tmp_path / "research",
         {tenant: {"data_dir": tmp_path / tenant, "internal_test": True}
@@ -596,7 +596,7 @@ def test_research_lifespan_replay_feedback_export_deletion_and_restart(provision
         headers={"content-type": "application/json"},
     ))
     app = portal.create_app(config, analytics=analytics, transport=handler)
-    body = {"code": vault.credential("trial-01"), "data_notice_accepted": True,
+    body = {"code": store.credential("trial-01"), "data_notice_accepted": True,
             "notice_version": COMBINED_NOTICE_VERSION}
     tester_base = "/research/api/projects/s-research"
     admin_base = "/admin/api/research/trial-01/s-research"
@@ -685,14 +685,14 @@ def test_research_lifespan_replay_feedback_export_deletion_and_restart(provision
 def test_research_invitation_disable_expiry_and_readonly(provisioned, tmp_path):
     from argus.trial.analytics import Analytics
 
-    config, vault, _ = provisioned
+    config, vault, store = provisioned
     analytics = Analytics(
         tmp_path / "research", {"trial-01": {"data_dir": tmp_path / "tenant", "internal_test": True}},
         tmp_path / "unused-meter.sqlite3", tmp_path / "unused-compute.sqlite3",
     )
     app = portal.create_app(config, analytics=analytics,
                             transport=httpx.MockTransport(lambda request: httpx.Response(200)))
-    body = {"code": vault.credential("trial-01"), "readonly": True,
+    body = {"code": store.credential("trial-01"), "readonly": True,
             "data_notice_accepted": True, "notice_version": COMBINED_NOTICE_VERSION}
     with TestClient(app, base_url=ORIGIN, follow_redirects=False) as client:
         assert client.post("/invite/login", headers={"Origin": ORIGIN}, json=body).status_code == 200
@@ -722,7 +722,7 @@ def test_team_training_and_optional_sharing_use_real_registered_routes(provision
 
     from argus.trial.analytics import Analytics
 
-    config, vault, _ = provisioned
+    config, vault, store = provisioned
     source = tmp_path / "tenant/home/.argus-skill/projects/s-training"
     source.mkdir(parents=True)
     (source / "session.json").write_text(json.dumps({"id": "s-training", "display_name": "Synthetic training"}))
@@ -738,7 +738,7 @@ def test_team_training_and_optional_sharing_use_real_registered_routes(provision
         ),
     ))
     with TestClient(app, base_url=ORIGIN, follow_redirects=False) as client:
-        body = {"code": vault.credential("trial-01"), "data_notice_accepted": True,
+        body = {"code": store.credential("trial-01"), "data_notice_accepted": True,
                 "notice_version": COMBINED_NOTICE_VERSION}
         assert client.post("/invite/login", headers={"Origin": ORIGIN}, json=body).status_code == 200
         tester_cookie = client.cookies.get(portal.COOKIE)
@@ -781,29 +781,29 @@ def test_team_training_and_optional_sharing_use_real_registered_routes(provision
 
 @pytest.mark.parametrize("origin", [None, "https://evil.test", "null", ORIGIN + ".evil.test"])
 def test_login_requires_exact_origin(provisioned, origin):
-    _, vault, _ = provisioned
+    _, vault, store = provisioned
     with client_for(provisioned) as client:
         headers = {} if origin is None else {"Origin": origin}
-        response = client.post("/invite/login", headers=headers, json={"code": vault.credential("trial-01")})
+        response = client.post("/invite/login", headers=headers, json={"code": store.credential("trial-01")})
         assert response.status_code == 403
         assert portal.COOKIE not in response.cookies
 
 
 @pytest.mark.parametrize("configured", [False, True])
 def test_pinned_public_origin_handles_tls_termination_without_forwarded_headers(provisioned, configured):
-    config, vault, _ = provisioned
+    config, vault, store = provisioned
     if configured:
         config["public_origin"] = "https://public.example.test"
     app = portal.create_app(config)
     # The tunnel preserves Host while its private connection uses HTTP.
     with TestClient(app, base_url="http://public.example.test", follow_redirects=False) as client:
         response = client.post("/invite/login", headers={"Origin": "https://public.example.test"},
-                               json={"code": vault.credential("trial-01")})
+                               json={"code": store.credential("trial-01")})
         assert response.status_code == (200 if configured else 403)
         if configured:
             assert portal.COOKIE in response.cookies
         else:
-            spoofed = client.post("/invite/login", json={"code": vault.credential("trial-01")}, headers={
+            spoofed = client.post("/invite/login", json={"code": store.credential("trial-01")}, headers={
                 "Origin": "https://public.example.test", "X-Forwarded-Proto": "https",
                 "X-Forwarded-Host": "public.example.test",
             })
@@ -811,7 +811,7 @@ def test_pinned_public_origin_handles_tls_termination_without_forwarded_headers(
     # Native local same-origin access still works without a public-origin alias.
     with TestClient(app, base_url="http://127.0.0.1:8899", follow_redirects=False) as client:
         assert client.post("/invite/login", headers={"Origin": "http://127.0.0.1:8899"},
-                           json={"code": vault.credential("trial-01")}).status_code == 200
+                           json={"code": store.credential("trial-01")}).status_code == 200
 
 
 @pytest.mark.parametrize("origin,host", [
@@ -823,10 +823,10 @@ def test_pinned_public_origin_handles_tls_termination_without_forwarded_headers(
     ("null", "public.example.test"),
 ])
 def test_public_origin_is_exact_and_bound_to_actual_host(provisioned, origin, host):
-    config, vault, _ = provisioned
+    config, vault, store = provisioned
     config["public_origin"] = "https://public.example.test"
     with TestClient(portal.create_app(config), base_url="http://" + host) as client:
-        response = client.post("/invite/login", json={"code": vault.credential("trial-01")}, headers={
+        response = client.post("/invite/login", json={"code": store.credential("trial-01")}, headers={
             "Origin": origin, "X-Forwarded-Proto": "https", "X-Forwarded-Host": "public.example.test",
         })
         assert response.status_code == 403
@@ -864,59 +864,47 @@ def test_public_origin_default_port_and_websocket_scheme(provisioned):
     assert not portal.same_origin(WebSocket(scope, unused, unused))
 
 
-def test_cookie_encryption_flags_and_no_secret_exposure(provisioned):
-    config, vault, _ = provisioned
+def test_session_cookie_names_a_server_record_and_exposes_no_secret(provisioned):
+    config, vault, store = provisioned
     with client_for(provisioned) as client:
-        result = login(client, vault)
+        result = login(client, store)
         cookie = result.cookies[portal.COOKIE]
-        payload = vault.cipher.decrypt(cookie.encode())
-        assert payload.startswith(portal.COOKIE_DOMAIN)
-        identity = json.loads(payload[len(portal.COOKIE_DOMAIN):])
+        identity = store.session(cookie)
         assert identity["tenant"] == "trial-01" and identity["role"] == "trial"
         assert identity["readonly"] is False
         assert 604790 < identity["exp"] - time.time() <= 604800
         for flag in ("HttpOnly", "Secure", "SameSite=strict", "Path=/", "Max-Age=604800"):
             assert flag in result.headers["set-cookie"]
-        for secret in (vault.credential("trial-01"), config["admin"]["token"], config["admin_login_token"],
+        for secret in (store.credential("trial-01"), config["admin"]["token"], config["admin_login_token"],
                        config["tenants"]["trial-01"]["token"]):
-            assert secret not in result.text + str(result.headers) + payload.decode()
+            assert secret not in result.text + str(result.headers) + cookie
         assert result.json() == {"redirect": "/invite"}
 
 
-@pytest.mark.parametrize("payload", [
-    b"not a session",
-    portal.COOKIE_DOMAIN + b"{}",
-    portal.COOKIE_DOMAIN + b"null",
-    portal.COOKIE_DOMAIN + b'{"tenant":"trial-99","role":"trial","readonly":false,"exp":9999999999}',
-])
-def test_domain_separated_or_malformed_encrypted_cookie_fails_closed(provisioned, payload):
-    _, vault, _ = provisioned
+@pytest.mark.parametrize("cookie", ["not a session", "x" * 200])
+def test_unknown_session_tokens_fail_closed(provisioned, cookie):
     with client_for(provisioned) as client:
-        client.cookies.set(portal.COOKIE, vault.cipher.encrypt(payload).decode())
+        client.cookies.set(portal.COOKIE, cookie)
         assert client.get("/api/projects").status_code == 401
 
 
-@pytest.mark.parametrize("mode", ["garbage", "forged", "expired", "future", "bad-role", "bad-readonly"])
+@pytest.mark.parametrize("mode", ["garbage", "forged", "expired", "bad-role", "other-tenant"])
 def test_invalid_cookies_fail_closed(provisioned, mode):
-    _, vault, _ = provisioned
+    _, vault, store = provisioned
     with client_for(provisioned) as client:
-        identity = {"tenant": "trial-01", "role": "trial", "readonly": False,
-                    "exp": int(time.time()) + 600}
+        identity = {"tenant": "trial-01", "role": "trial", "readonly": False}
+        expires = time.time() + 600
         if mode == "expired":
-            identity["exp"] = int(time.time()) - 1
-        elif mode == "future":
-            identity["exp"] = int(time.time()) + 2 * portal.SESSION_SECONDS
+            expires = time.time() - 1
         elif mode == "bad-role":
             identity["role"] = "admin"
-        elif mode == "bad-readonly":
-            identity["readonly"] = "false"
-        cookie = vault.cipher.encrypt(portal.COOKIE_DOMAIN + json.dumps(identity).encode()).decode()
+        elif mode == "other-tenant":
+            identity["tenant"] = "trial-99"
+        cookie = store.open_session(identity, expires)
         if mode == "garbage":
             cookie = "invalid"
         elif mode == "forged":
-            cookie = Fernet(Fernet.generate_key()).encrypt(
-                portal.COOKIE_DOMAIN + json.dumps(identity).encode()
-            ).decode()
+            cookie = "x" * len(cookie)
         client.cookies.set(portal.COOKIE, cookie)
         assert client.get("/invite/status").status_code == 401
         with pytest.raises(WebSocketDisconnect) as exc:
@@ -939,7 +927,7 @@ def test_bad_login_has_no_reflected_input(provisioned, body):
 
 
 def test_tenant_routing_and_header_isolation(provisioned):
-    config, vault, _ = provisioned
+    config, vault, store = provisioned
     calls = []
 
     def upstream(request):
@@ -954,7 +942,7 @@ def test_tenant_routing_and_header_isolation(provisioned):
         })
 
     with client_for(provisioned, upstream) as client:
-        login(client, vault)
+        login(client, store)
         response = client.post(
             "/api/projects/trial-02-project/message?token=browser-secret&part=one&part=two",
             headers={
@@ -978,7 +966,7 @@ def test_tenant_routing_and_header_isolation(provisioned):
                      "forwarded", "x-tenant", "origin", "accept-language"):
             assert name not in first.headers
         assert "browser-secret" not in str(first.headers) + str(first.url)
-        login(client, vault, "trial-02")
+        login(client, store, "trial-02")
         client.get("/api/projects/trial-01-project/snapshot")
         second = calls[-1]
         assert second.url.host == "trial-02"
@@ -988,7 +976,7 @@ def test_tenant_routing_and_header_isolation(provisioned):
 
 
 def test_preview_page_keeps_its_sandbox_policy(provisioned):
-    _, vault, _ = provisioned
+    _, vault, store = provisioned
     sandbox = "sandbox allow-scripts; default-src 'none'; script-src 'unsafe-inline' data:"
 
     def upstream(request):
@@ -998,7 +986,7 @@ def test_preview_page_keeps_its_sandbox_policy(provisioned):
         })
 
     with client_for(provisioned, upstream) as client:
-        login(client, vault)
+        login(client, store)
         auth = {"Authorization": "Bearer browser-secret"}
         page = client.get(
             "/api/projects/trial-01-project/artifact/preview/page?path=index.html", headers=auth
@@ -1023,7 +1011,7 @@ def test_preview_page_keeps_its_sandbox_policy(provisioned):
     "wb/refine/analysis/jobs/job-one/cancel", "wb/refine/analysis/jobs/job-one/release",
 ])
 def test_workbench_writes_use_invitation_authority_and_respect_kiosk(provisioned, route):
-    config, vault, _ = provisioned
+    config, vault, store = provisioned
     calls = []
 
     def upstream(request):
@@ -1035,7 +1023,7 @@ def test_workbench_writes_use_invitation_authority_and_respect_kiosk(provisioned
     with client_for(provisioned, upstream) as client:
         assert client.post(path, headers={"Origin": ORIGIN}, json={}).status_code == 401
         for tenant in ("trial-01", "trial-02", "trial-11"):
-            login(client, vault, tenant=tenant)
+            login(client, store, tenant=tenant)
             count = len(calls)
             assert client.post(path, json={}).status_code == 403
             assert client.post(path, headers={"Origin": "https://evil.test"}, json={}).status_code == 403
@@ -1045,7 +1033,7 @@ def test_workbench_writes_use_invitation_authority_and_respect_kiosk(provisioned
             assert calls[-1].url.host == tenant
             assert calls[-1].headers["authorization"] == "Bearer " + config["tenants"][tenant]["token"]
             assert "cookie" not in calls[-1].headers
-        login(client, vault, readonly=True)
+        login(client, store, readonly=True)
         count = len(calls)
         assert client.post(path, headers={"Origin": ORIGIN}, json={}).status_code == 403
         assert len(calls) == count
@@ -1057,21 +1045,21 @@ def test_workbench_writes_use_invitation_authority_and_respect_kiosk(provisioned
     "crystalpilot/unknown", "unreviewed/launch",
 ])
 def test_public_plugin_access_does_not_enable_arbitrary_administration(provisioned, route):
-    _, vault, _ = provisioned
+    _, vault, store = provisioned
     calls = []
     with client_for(provisioned, lambda request: calls.append(request)) as client:
-        login(client, vault)
+        login(client, store)
         assert client.post("/api/plugins/" + route, headers={"Origin": ORIGIN}).status_code == 403
         assert calls == []
 
 
 def test_workbench_page_can_initialize_without_relaxing_global_script_policy(provisioned):
-    _, vault, _ = provisioned
+    _, vault, store = provisioned
     document = b'<html><script>document.documentElement.dataset.palette="kimi"</script></html>'
     with client_for(provisioned, lambda request: httpx.Response(
         200, stream=Chunks([document]), headers={"Content-Type": "text/html"},
     )) as client:
-        login(client, vault)
+        login(client, store)
         page = client.get("/plugins/crystalpilot/")
         assert page.status_code == 200
         policy = page.headers["content-security-policy"]
@@ -1093,7 +1081,7 @@ def test_quota_isolation_persistence_and_no_recovery(provisioned, monkeypatch):
     monkeypatch.setattr(Store, "recover", forbidden_recover)
     for _ in range(2):
         with client_for(provisioned) as client:
-            login(client, vault)
+            login(client, store)
             first_status = client.get("/invite/status").json()
             assert first_status["key_id"] == "trial-01"
             assert first_status["tokens_used"] == 123
@@ -1101,14 +1089,14 @@ def test_quota_isolation_persistence_and_no_recovery(provisioned, monkeypatch):
             assert first_status["tokens_remaining"] == 9_999_877
             assert "global_tpm_reserved" not in first_status
             assert "active_requests" not in first_status
-            login(client, vault, "trial-02")
+            login(client, store, "trial-02")
             assert client.get("/invite/status").json()["tokens_used"] == 250
     with store.transaction() as db:
         assert db.execute("SELECT count(*) FROM trial_requests WHERE state='active'").fetchone()[0] == 1
 
 
 def test_legacy_admin_exchange_only_enters_private_data_backend(provisioned):
-    config, vault, _ = provisioned
+    config, vault, store = provisioned
     calls = []
     with client_for(provisioned, lambda request: calls.append(request)) as client:
         token = config["admin_login_token"]
@@ -1122,7 +1110,7 @@ def test_legacy_admin_exchange_only_enters_private_data_backend(provisioned):
         assert "tokens_used" not in status
         assert client.get("/invite/status").status_code == 401
         assert client.post("/api/projects/demo/message", json={}, headers={"Origin": ORIGIN}).status_code == 401
-        assert client.get("/", params={"token": vault.credential("trial-01")}).status_code == 401
+        assert client.get("/", params={"token": store.credential("trial-01")}).status_code == 401
         assert client.get("/", params={"token": "wrong"}).status_code == 401
         assert client.get("/", params={"token": token}, headers={"Origin": "https://evil.test"}).status_code == 403
         assert not calls
@@ -1130,34 +1118,20 @@ def test_legacy_admin_exchange_only_enters_private_data_backend(provisioned):
 
 @pytest.mark.parametrize("method", ["POST", "PATCH", "PUT", "DELETE", "OPTIONS", "TRACE"])
 def test_kiosk_blocks_all_non_read_methods_even_without_kiosk_query(provisioned, method):
-    _, vault, _ = provisioned
+    _, vault, store = provisioned
     calls = []
     with client_for(provisioned, lambda request: calls.append(request)) as client:
-        result = login(client, vault, readonly=True)
+        result = login(client, store, readonly=True)
         assert result.json()["redirect"] == "/invite"
         response = client.request(method, "/api/projects/p/message", headers={"Origin": ORIGIN})
         assert response.status_code == 403
         assert not calls
 
 
-def test_kiosk_removes_get_prewarm_side_effect(provisioned):
-    _, vault, _ = provisioned
-    calls = []
-
-    def upstream(request):
-        calls.append(request)
-        return httpx.Response(200, stream=Chunks([b"{}"]))
-
-    with client_for(provisioned, upstream) as client:
-        login(client, vault, readonly=True)
-        assert client.get("/api/projects/p/snapshot?prewarm=true&compact=true").status_code == 200
-        assert calls[-1].url.query == b"compact=true"
-
-
 def test_csrf_and_logout(provisioned):
-    _, vault, _ = provisioned
+    _, vault, store = provisioned
     with client_for(provisioned) as client:
-        login(client, vault)
+        login(client, store)
         for path in ("/api/projects/p/message", "/invite/logout"):
             assert client.post(path, json={}).status_code == 403
             assert client.post(path, json={}, headers={"Origin": "https://evil.test"}).status_code == 403
@@ -1181,30 +1155,30 @@ def test_csrf_and_logout(provisioned):
     "/api/projects/p//config/set", "/openapi.json", "/docs",
 ])
 def test_runtime_control_surfaces_are_blocked(provisioned, path):
-    _, vault, _ = provisioned
+    _, vault, store = provisioned
     calls = []
     with client_for(provisioned, lambda request: calls.append(request)) as client:
-        login(client, vault)
+        login(client, store)
         for method in ("GET", "POST"):
             assert client.request(method, path, headers={"Origin": ORIGIN}).status_code == 403
         assert not calls
 
 
 def test_model_configuration_is_readable_without_allowing_changes(provisioned):
-    _, vault, _ = provisioned
+    _, vault, store = provisioned
     with client_for(provisioned) as client:
-        login(client, vault)
+        login(client, store)
         assert client.get("/api/projects/p/config").status_code == 200
         assert client.head("/api/projects/p/config").status_code == 200
         for path in ("/api/projects/p/config", "/api/projects/p/config/set"):
             assert client.post(path, headers={"Origin": ORIGIN}, json={
-                "name": "ARGUS_SKILL_MAP_MODEL", "value": "other-model",
+                "name": "ARGUS_SKILL_LIGHT_MODEL", "value": "other-model",
             }).status_code == 403
 
 
 @pytest.mark.parametrize("tenant", ["trial-01", "trial-11"])
 def test_hosted_frontend_is_authenticated_and_keeps_apis_tenant_scoped(provisioned, tmp_path, tenant):
-    config, vault, _ = provisioned
+    config, vault, store = provisioned
     frontend = tmp_path / "frontend"
     (frontend / "assets").mkdir(parents=True)
     (frontend / "index.html").write_text('<html><script>window.theme=1</script></html>')
@@ -1219,7 +1193,7 @@ def test_hosted_frontend_is_authenticated_and_keeps_apis_tenant_scoped(provision
     with client_for(provisioned, upstream) as client:
         assert client.get("/").status_code == 303
         assert client.get("/assets/app.js").status_code == 401
-        login(client, vault, tenant=tenant, readonly=True)
+        login(client, store, tenant=tenant, readonly=True)
         response = client.get("/")
         nonce = response.headers["content-security-policy"].split("'nonce-", 1)[1].split("'", 1)[0]
         assert f'<script nonce="{nonce}">' in response.text
@@ -1241,7 +1215,7 @@ def test_frontend_directory_requires_a_built_absolute_path(provisioned):
 def test_disabling_invitation_revokes_existing_browser_access(provisioned):
     _, vault, store = provisioned
     with client_for(provisioned) as client:
-        login(client, vault)
+        login(client, store)
         identity = client.get("/invite/status").json()["tester_id"]
         assert identity.startswith("tester_")
         store.set_access("trial-01", enabled=False)
@@ -1253,10 +1227,10 @@ def test_disabling_invitation_revokes_existing_browser_access(provisioned):
 
 
 def test_only_successful_fingerprinted_assets_are_cached(provisioned):
-    _, vault, _ = provisioned
+    _, vault, store = provisioned
     with client_for(provisioned) as client:
         assert client.get("/assets/index-abcdefgh.js").headers["cache-control"] == "no-store"
-        login(client, vault)
+        login(client, store)
         for path in ("/assets/index-abcdefgh.js", "/assets/geist-normal-a1b2c3d4.woff2"):
             assert client.get(path).headers["cache-control"] == "private, max-age=31536000, immutable"
         for path in ("/", "/api/projects/p/snapshot", "/assets/app.js"):
@@ -1270,7 +1244,7 @@ def test_unlimited_hosted_quota_is_explicit_and_preserves_usage(provisioned):
     store.settle(ticket, 99)
     with client_for(provisioned) as client:
         assert "不设累计 token 上限" in client.get("/invite").text
-        login(client, vault)
+        login(client, store)
         status = client.get("/invite/status").json()
         assert status["token_unlimited"] is True
         assert status["token_limit"] is None
@@ -1281,9 +1255,9 @@ def test_unlimited_hosted_quota_is_explicit_and_preserves_usage(provisioned):
 
 
 def test_new_workspace_is_allowed_without_arbitrary_workdir(provisioned):
-    _, vault, _ = provisioned
+    _, vault, store = provisioned
     with client_for(provisioned) as client:
-        login(client, vault)
+        login(client, store)
         assert client.post("/api/daemons", json={"name": "my-project"}, headers={"Origin": ORIGIN}).status_code == 200
         for field in ("workdir", "launch_cwd"):
             assert client.post("/api/daemons", json={field: "/private"}, headers={"Origin": ORIGIN}).status_code == 403
@@ -1291,7 +1265,7 @@ def test_new_workspace_is_allowed_without_arbitrary_workdir(provisioned):
 
 
 def test_bounded_body_and_generic_upstream_errors(provisioned, monkeypatch):
-    _, vault, _ = provisioned
+    _, vault, store = provisioned
     calls = []
 
     def upstream(request):
@@ -1299,7 +1273,7 @@ def test_bounded_body_and_generic_upstream_errors(provisioned, monkeypatch):
         return httpx.Response(500, stream=Chunks([b"private upstream token and path"]))
 
     with client_for(provisioned, upstream) as client:
-        login(client, vault)
+        login(client, store)
         response = client.post("/api/projects/p/message", content=b"x", headers={"Origin": ORIGIN})
         assert response.status_code == 500 and "private" not in response.text
         response = client.post("/api/projects/p/message", content=b"x",
@@ -1316,27 +1290,27 @@ def test_bounded_body_and_generic_upstream_errors(provisioned, monkeypatch):
     (httpx.ReadTimeout("private address"), 504),
 ])
 def test_transport_failure_does_not_reflect_upstream(provisioned, error, expected):
-    _, vault, _ = provisioned
+    _, vault, store = provisioned
 
     def upstream(request):
         raise error
 
     with client_for(provisioned, upstream) as client:
-        login(client, vault)
+        login(client, store)
         response = client.get("/api/projects")
         assert response.status_code == expected
         assert "private address" not in response.text
 
 
 def test_streaming_response_closes_and_preserves_bytes(provisioned):
-    _, vault, _ = provisioned
+    _, vault, store = provisioned
     stream = Chunks([b"data: first\n\n", b"data: second\n\n"])
 
     def upstream(request):
         return httpx.Response(200, stream=stream, headers={"Content-Type": "text/event-stream"})
 
     with client_for(provisioned, upstream) as client:
-        login(client, vault)
+        login(client, store)
         response = client.post("/api/projects/p/message/stream", json={}, headers={"Origin": ORIGIN})
         assert response.content == b"data: first\n\ndata: second\n\n"
         assert response.headers["x-accel-buffering"] == "no"
@@ -1377,9 +1351,9 @@ def test_streaming_does_not_buffer_and_disconnect_closes():
     ("/?secret=internal-trial-01-secret", 502),
 ])
 def test_redirects_never_expose_internal_tokens(provisioned, location, expected):
-    _, vault, _ = provisioned
+    _, vault, store = provisioned
     with client_for(provisioned, lambda request: httpx.Response(303, headers={"Location": location})) as client:
-        login(client, vault)
+        login(client, store)
         response = client.get("/api/projects")
         assert response.status_code == expected
         assert "internal-trial-01-secret" not in response.text + str(response.headers)
@@ -1412,7 +1386,7 @@ class FakeSocket:
 
 
 def test_websocket_forwarding_identity_auth_and_disconnect(provisioned, monkeypatch):
-    config, vault, _ = provisioned
+    config, vault, store = provisioned
     connections = []
 
     def connect(url, **kwargs):
@@ -1422,7 +1396,7 @@ def test_websocket_forwarding_identity_auth_and_disconnect(provisioned, monkeypa
 
     monkeypatch.setattr(portal, "websocket_connect", connect)
     with client_for(provisioned) as client:
-        login(client, vault)
+        login(client, store)
         with client.websocket_connect(
             "wss://portal.test/api/projects/trial-02-project/stream?token=browser-secret&view=ui",
             headers={"Origin": ORIGIN, "Authorization": "browser-secret", "X-Tenant": "trial-02"},
@@ -1440,7 +1414,7 @@ def test_websocket_forwarding_identity_auth_and_disconnect(provisioned, monkeypa
 
 
 def test_websocket_readonly_blocks_data_messages(provisioned, monkeypatch):
-    _, vault, _ = provisioned
+    _, vault, store = provisioned
     connections = []
 
     def connect(*args, **kwargs):
@@ -1450,7 +1424,7 @@ def test_websocket_readonly_blocks_data_messages(provisioned, monkeypatch):
 
     monkeypatch.setattr(portal, "websocket_connect", connect)
     with client_for(provisioned) as client:
-        login(client, vault, readonly=True)
+        login(client, store, readonly=True)
         with client.websocket_connect("wss://portal.test/api/projects/p/stream", headers={"Origin": ORIGIN}) as ws:
             assert ws.receive_json() == {"event": "ready"}
             ws.send_text('{"operation":"write"}')
@@ -1466,14 +1440,14 @@ def test_websocket_readonly_blocks_data_messages(provisioned, monkeypatch):
     ("/api/runtime/stream", ORIGIN),
 ])
 def test_websocket_origin_and_route_checked_before_upstream(provisioned, monkeypatch, path, origin):
-    _, vault, _ = provisioned
+    _, vault, store = provisioned
 
     def forbidden(*args, **kwargs):
         pytest.fail("Unauthorized websocket must not connect upstream")
 
     monkeypatch.setattr(portal, "websocket_connect", forbidden)
     with client_for(provisioned) as client:
-        login(client, vault)
+        login(client, store)
         with pytest.raises(WebSocketDisconnect) as exc:
             with client.websocket_connect("wss://portal.test" + path, headers={} if origin is None else {"Origin": origin}):
                 pass
@@ -1481,14 +1455,14 @@ def test_websocket_origin_and_route_checked_before_upstream(provisioned, monkeyp
 
 
 def test_config_factory_env_and_local_cookie(provisioned, tmp_path, monkeypatch):
-    config, vault, _ = provisioned
+    config, vault, store = provisioned
     config_path = tmp_path / "portal.json"
     config_path.write_text(json.dumps(config))
     monkeypatch.setenv("ARGUS_WEB_TRIAL_CONFIG", str(config_path))
     assert isinstance(portal.create_app(), portal.FastAPI)
     config["secure_cookie"] = False
     with client_for(provisioned) as client:
-        assert "Secure" not in login(client, vault).headers["set-cookie"]
+        assert "Secure" not in login(client, store).headers["set-cookie"]
     for field in ("state_dir", "key_file"):
         invalid = {**config, field: "relative"}
         with pytest.raises(ValueError, match="absolute"):
@@ -1537,7 +1511,7 @@ def test_uds_config_allows_shared_origin_but_requires_unique_absolute_sockets(pr
 
 def test_http_uds_pools_are_selected_by_cookie_not_browser_input(provisioned, monkeypatch):
     config = unix_config(provisioned)
-    _, vault, _ = provisioned
+    _, vault, store = provisioned
     pools = {}
     requests = []
 
@@ -1560,7 +1534,7 @@ def test_http_uds_pools_are_selected_by_cookie_not_browser_input(provisioned, mo
     with TestClient(app, base_url=ORIGIN, follow_redirects=False) as client:
         assert len(pools) == 11
         for tenant, other in (("trial-01", "trial-02"), ("trial-02", "trial-01")):
-            login(client, vault, tenant)
+            login(client, store, tenant)
             response = client.get(
                 f"/api/projects/{other}-project/snapshot?uds=/attacker.sock&tenant={other}",
                 headers={"X-Tenant": other, "X-Argus-Backend": other},
@@ -1585,7 +1559,7 @@ def test_http_uds_pools_are_selected_by_cookie_not_browser_input(provisioned, mo
 
 def test_websocket_uds_uses_own_socket_and_authenticated_uri(provisioned, monkeypatch):
     config = unix_config(provisioned)
-    _, vault, _ = provisioned
+    _, vault, store = provisioned
     connections = []
 
     def unix_connect(path, *, uri, **kwargs):
@@ -1599,7 +1573,7 @@ def test_websocket_uds_uses_own_socket_and_authenticated_uri(provisioned, monkey
     monkeypatch.setattr(portal, "websocket_unix_connect", unix_connect)
     monkeypatch.setattr(portal, "websocket_connect", no_tcp)
     with client_for(provisioned) as client:
-        login(client, vault, "trial-02")
+        login(client, store, "trial-02")
         with client.websocket_connect(
             "wss://portal.test/api/projects/trial-01-project/stream?view=ui&token=browser",
             headers={"Origin": ORIGIN},
@@ -1623,7 +1597,7 @@ def compute_config(provisioned):
 
 def test_compute_proxy_uses_invitation_identity_without_browser_key_leak(provisioned):
     config = compute_config(provisioned)
-    _, vault, _ = provisioned
+    _, vault, store = provisioned
     calls = []
 
     def upstream(request):
@@ -1637,7 +1611,7 @@ def test_compute_proxy_uses_invitation_identity_without_browser_key_leak(provisi
 
     with client_for(provisioned, upstream) as client:
         for tenant, other in (("trial-01", "trial-02"), ("trial-02", "trial-01")):
-            login(client, vault, tenant)
+            login(client, store, tenant)
             response = client.get(
                 f"/compute/jobs/99/logs?tenant={other}&token=browser-secret",
                 headers={"Authorization": "Bearer browser-secret", "X-Argus-Readonly": "true"},
@@ -1648,13 +1622,13 @@ def test_compute_proxy_uses_invitation_identity_without_browser_key_leak(provisi
             assert request.url.host == "localhost"
             assert request.url.path == "/compute/jobs/99/logs"
             assert request.url.query == f"tenant={other}".encode()
-            assert request.headers["authorization"] == "Bearer " + vault.credential(tenant)
+            assert request.headers["authorization"] == "Bearer " + store.credential(tenant)
             assert request.headers["x-argus-readonly"] == "false"
             assert "cookie" not in request.headers
             assert config["tenants"][tenant]["token"] not in str(request.headers)
             assert "authorization" not in response.headers and "set-cookie" not in response.headers
-            assert vault.credential(tenant) not in response.text + str(response.headers)
-            assert vault.credential(tenant) not in str(client.cookies)
+            assert store.credential(tenant) not in response.text + str(response.headers)
+            assert store.credential(tenant) not in str(client.cookies)
         client.get("/api/projects")
         assert calls[-1].extensions["argus_backend"] == "trial-02"
         assert calls[-1].headers["authorization"] == "Bearer " + config["tenants"]["trial-02"]["token"]
@@ -1667,10 +1641,10 @@ def test_compute_proxy_uses_invitation_identity_without_browser_key_leak(provisi
 ])
 def test_compute_allowed_routes_and_csrf(provisioned, method, path):
     compute_config(provisioned)
-    _, vault, _ = provisioned
+    _, vault, store = provisioned
     with client_for(provisioned) as client:
         assert client.request(method, path, headers={"Accept": "text/html"}).status_code == 401
-        login(client, vault)
+        login(client, store)
         if method == "POST":
             assert client.post(path, json={}).status_code == 403
             assert client.post(path, json={}, headers={"Origin": "https://evil.test"}).status_code == 403
@@ -1684,10 +1658,10 @@ def test_compute_allowed_routes_and_csrf(provisioned, method, path):
 ])
 def test_compute_kiosk_mutations_never_reach_backend(provisioned, method, path):
     compute_config(provisioned)
-    _, vault, _ = provisioned
+    _, vault, store = provisioned
     calls = []
     with client_for(provisioned, lambda request: calls.append(request)) as client:
-        login(client, vault, readonly=True)
+        login(client, store, readonly=True)
         assert client.request(method, path, headers={
             "Origin": ORIGIN, "X-Argus-Readonly": "false",
         }).status_code == 403
@@ -1696,7 +1670,7 @@ def test_compute_kiosk_mutations_never_reach_backend(provisioned, method, path):
 
 def test_compute_kiosk_reads_propagate_server_owned_readonly_role(provisioned):
     compute_config(provisioned)
-    _, vault, _ = provisioned
+    _, vault, store = provisioned
     calls = []
 
     def upstream(request):
@@ -1704,16 +1678,16 @@ def test_compute_kiosk_reads_propagate_server_owned_readonly_role(provisioned):
         return httpx.Response(200, stream=Chunks([b"{}"]))
 
     with client_for(provisioned, upstream) as client:
-        login(client, vault, readonly=True)
+        login(client, store, readonly=True)
         assert client.get("/compute/status", headers={"X-Argus-Readonly": "false"}).status_code == 200
         assert calls[-1].headers["x-argus-readonly"] == "true"
 
 
 def test_compute_is_not_an_admin_identity_or_unconfigured_fallback(provisioned):
-    config, vault, _ = provisioned
+    config, vault, store = provisioned
     calls = []
     with client_for(provisioned, lambda request: calls.append(request)) as client:
-        login(client, vault)
+        login(client, store)
         assert client.get("/compute/status").status_code == 404
         assert not calls
     compute_config(provisioned)
@@ -1722,7 +1696,7 @@ def test_compute_is_not_an_admin_identity_or_unconfigured_fallback(provisioned):
         assert client.get("/compute/status").status_code == 401
         assert client.post("/compute/jobs", headers={"Origin": ORIGIN}, json={}).status_code == 401
         assert not calls
-        login(client, vault)
+        login(client, store)
         for method, path in (("POST", "/compute/admin/reset"), ("GET", "/compute/../compute/admin"),
                              ("POST", "/compute/status"), ("GET", "/compute/jobs/1/cancel")):
             assert client.request(method, path, headers={"Origin": ORIGIN}).status_code == 403
@@ -1731,7 +1705,7 @@ def test_compute_is_not_an_admin_identity_or_unconfigured_fallback(provisioned):
 
 def test_compute_connection_pool_is_separate_and_closed(provisioned, monkeypatch):
     config = compute_config(provisioned)
-    _, vault, _ = provisioned
+    _, vault, store = provisioned
     pools = {}
     calls = []
 
@@ -1749,11 +1723,11 @@ def test_compute_connection_pool_is_separate_and_closed(provisioned, monkeypatch
 
     monkeypatch.setattr(portal.httpx, "AsyncHTTPTransport", Transport)
     with TestClient(portal.create_app(config), base_url=ORIGIN, follow_redirects=False) as client:
-        login(client, vault)
+        login(client, store)
         assert client.get("/compute/status").status_code == 200
         assert len(pools) == 12
         assert calls[-1][0] == config["compute_uds"]
-        assert calls[-1][1].headers["authorization"] == "Bearer " + vault.credential("trial-01")
+        assert calls[-1][1].headers["authorization"] == "Bearer " + store.credential("trial-01")
     assert all(pool.closed for pool in pools.values())
 
 
@@ -1772,9 +1746,9 @@ def test_optional_compute_endpoint_configuration(provisioned):
 @pytest.mark.parametrize("readonly", [False, True])
 def test_authenticated_launcher_links_workspace_compute_quota_and_logout(provisioned, readonly):
     compute_config(provisioned)
-    _, vault, _ = provisioned
+    _, vault, store = provisioned
     with client_for(provisioned) as client:
-        response = login(client, vault, readonly=readonly)
+        response = login(client, store, readonly=readonly)
         assert response.json()["redirect"] == "/invite"
         page = client.get(response.json()["redirect"])
         assert page.status_code == 200 and "我的研究空间" in page.text
@@ -1785,7 +1759,7 @@ def test_authenticated_launcher_links_workspace_compute_quota_and_logout(provisi
         assert 'href="/invite/status"' in page.text
         assert 'method="post" action="/invite/logout"' in page.text
         assert "<script" not in page.text
-        assert vault.credential("trial-01") not in page.text
+        assert store.credential("trial-01") not in page.text
         workspace = "/?kiosk=1" if readonly else "/"
         assert f'href="{workspace}">进入工作区' in page.text
         assert ("只读浏览" in page.text) is readonly
@@ -1805,7 +1779,7 @@ def test_compute_dashboard_and_external_script_authentication(provisioned, reado
     from argus.trial.compute_page import PAGE, SCRIPT
 
     compute_config(provisioned)
-    _, vault, _ = provisioned
+    _, vault, store = provisioned
     calls = []
     with client_for(provisioned, lambda request: calls.append(request)) as client:
         for path in ("/invite/compute", "/invite/compute.js"):
@@ -1813,7 +1787,7 @@ def test_compute_dashboard_and_external_script_authentication(provisioned, reado
         response = client.get("/invite/compute", headers={"Accept": "text/html"})
         assert response.status_code == 303 and response.headers["location"] == "/invite"
         assert client.get("/invite/compute.js", headers={"Accept": "text/html"}).status_code == 401
-        login(client, vault, readonly=readonly)
+        login(client, store, readonly=readonly)
         page, script = client.get("/invite/compute"), client.get("/invite/compute.js")
         assert page.status_code == script.status_code == 200
         assert page.text == PAGE and script.text == SCRIPT
@@ -1824,15 +1798,15 @@ def test_compute_dashboard_and_external_script_authentication(provisioned, reado
             assert response.headers["cache-control"] == "no-store"
             assert response.headers["referrer-policy"] == "same-origin"
             assert "script-src 'self'" in response.headers["content-security-policy"]
-            assert vault.credential("trial-01") not in response.text
+            assert store.credential("trial-01") not in response.text
         assert not calls
 
 
 def test_dashboard_rejects_admin_and_missing_compute_without_upstream(provisioned):
-    config, vault, _ = provisioned
+    config, vault, store = provisioned
     calls = []
     with client_for(provisioned, lambda request: calls.append(request)) as client:
-        login(client, vault)
+        login(client, store)
         assert "尚未配置" in client.get("/invite").text
         assert client.get("/invite/compute").status_code == 404
         assert client.get("/invite/compute.js").status_code == 404
@@ -1869,13 +1843,14 @@ def test_legacy_demo_token_only_redirects_to_invitation(provisioned, private_log
 
 @pytest.mark.parametrize("private_login_enabled", [False, True])
 def test_previously_minted_public_admin_cookies_are_invalid(provisioned, private_login_enabled):
-    config, vault, _ = provisioned
+    config, vault, store = provisioned
     if not private_login_enabled:
         config.pop("admin_login_token")
     old_identity = {"tenant": "admin", "role": "admin", "readonly": False,
                     "exp": int(time.time()) + portal.SESSION_SECONDS}
+    # A cookie minted before sessions moved to the server carried the identity itself.
     old_cookie = vault.cipher.encrypt(
-        portal.COOKIE_DOMAIN + json.dumps(old_identity).encode()
+        b"argus-web-invitation-session-v1\x00" + json.dumps(old_identity).encode()
     ).decode()
     with client_for(provisioned) as client:
         client.cookies.set(portal.COOKIE, old_cookie)
@@ -1897,12 +1872,10 @@ def test_private_admin_rotation_revokes_only_admin_sessions(provisioned, change)
         result = client.get("/", params={"token": config["admin_login_token"], "kiosk": "1"})
         assert result.status_code == 303
         admin_cookie = result.cookies[portal.ADMIN_COOKIE]
-        payload = vault.cipher.decrypt(admin_cookie.encode()).decode()
-        assert config["admin_login_token"] not in payload
-        assert config["admin"]["token"] not in payload
-        assert "admin_binding" in payload
-        assert "admin_binding" not in client.get("/admin/status").json()
-        tenant_cookie = login(client, vault).cookies[portal.COOKIE]
+        assert config["admin_login_token"] not in admin_cookie
+        assert config["admin"]["token"] not in admin_cookie
+        assert "admin_login" not in client.get("/admin/status").json()
+        tenant_cookie = login(client, store).cookies[portal.COOKIE]
     if change == "rotate":
         config["admin_login_token"] += "-rotated"
     else:
@@ -1956,7 +1929,7 @@ def test_web_allowance_default_does_not_change_store_desktop_default(provisioned
     desktop_default_store.settle(reservation, 321)
     assert portal.Settings.load(config).token_limit == 10_000_000
     with client_for(provisioned) as client:
-        login(client, vault)
+        login(client, desktop_default_store)
         assert client.app.state.store.token_limit == 10_000_000
         status = client.get("/invite/status").json()
         assert status["token_limit"] == 10_000_000
@@ -1975,7 +1948,7 @@ def test_configured_web_token_limit_drives_status_and_copy_without_reset(provisi
     store.settle(reservation, 99)
     with client_for(provisioned) as client:
         assert f"{copy} tokens" in client.get("/invite").text
-        login(client, vault)
+        login(client, store)
         status = client.get("/invite/status").json()
         assert status["token_limit"] == limit
         assert status["tokens_used"] == 99
@@ -1990,7 +1963,7 @@ def test_web_token_limit_requires_positive_integer(provisioned, invalid):
 
 
 def test_invitation_only_copy_and_private_admin_entry_stays_hidden(provisioned):
-    _, vault, _ = provisioned
+    _, vault, store = provisioned
     with client_for(provisioned) as client:
         entry = client.get("/invite")
         assert "邀请码入口" in entry.text and "进入工作区" in entry.text
@@ -2001,7 +1974,7 @@ def test_invitation_only_copy_and_private_admin_entry_stays_hidden(provisioned):
         for account_field in ('type="email"', 'name="username"', 'name="password"', 'href="/admin"'):
             assert account_field not in entry.text
         assert "admin_login_token" not in entry.text and "oauth" not in entry.text.lower()
-        login(client, vault)
+        login(client, store)
         launcher = client.get("/invite")
         assert "登录" not in launcher.text and "账户" not in launcher.text
         assert 'href="/admin"' not in launcher.text
@@ -2026,14 +1999,14 @@ def test_same_invitation_resumes_same_workspace_on_different_devices(provisioned
         return httpx.Response(200, stream=Chunks([request.url.host.encode()]))
 
     with client_for(provisioned, upstream) as first, client_for(provisioned, upstream) as second:
-        login(first, vault, "trial-01")
-        login(second, vault, "trial-01")
+        login(first, store, "trial-01")
+        login(second, store, "trial-01")
         assert first.get("/api/projects").text == second.get("/api/projects").text == "trial-01"
         for device in (first, second):
             status = device.get("/invite/status").json()
             assert status["key_id"] == "trial-01"
             assert status["tokens_used"] == 75
-        login(second, vault, "trial-02")
+        login(second, store, "trial-02")
         assert second.get("/api/projects").text == "trial-02"
         assert first.get("/api/projects").text == "trial-01"
 
@@ -2041,7 +2014,7 @@ def test_same_invitation_resumes_same_workspace_on_different_devices(provisioned
 def test_team_training_notice_requires_submission_and_keeps_external_choice_separate(provisioned, tmp_path):
     from argus.trial.analytics import Analytics
 
-    config, vault, _ = provisioned
+    config, vault, store = provisioned
     analytics = Analytics(
         tmp_path / "training-research",
         {"trial-01": {"data_dir": tmp_path / "tenant", "internal_test": True}},
@@ -2064,7 +2037,7 @@ def test_team_training_notice_requires_submission_and_keeps_external_choice_sepa
         with analytics._db() as db:
             assert db.execute("SELECT count(*) FROM consents").fetchone()[0] == 0
             assert db.execute("SELECT count(*) FROM training_permissions").fetchone()[0] == 0
-        body = {"code": vault.credential("trial-01"), "data_notice_accepted": True,
+        body = {"code": store.credential("trial-01"), "data_notice_accepted": True,
                 "notice_version": COMBINED_NOTICE_VERSION}
         invalid = {**body, "external_sharing_accepted": "true"}
         assert client.post("/invite/login", headers={"Origin": ORIGIN}, json=invalid).status_code == 400

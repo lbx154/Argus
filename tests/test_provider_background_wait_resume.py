@@ -63,7 +63,7 @@ def test_repeated_waits_preserve_reviewer_feedback_without_failure_backoff(tmp_p
         objective="Complete the comparison",
         engineer_prompt_builder=lambda action, include_static=True: action or "Begin",
         supervised_config=SupervisedConfig(
-            max_rounds=8, backend_failure_threshold=1, background_subagent_advisory=False,
+            max_rounds=8, backend_failure_threshold=1,
         ),
         workdir=tmp_path, on_event=events.append,
     )
@@ -72,7 +72,7 @@ def test_repeated_waits_preserve_reviewer_feedback_without_failure_backoff(tmp_p
     assert len(engineer.prompts) == 6 and reviewer.calls == 2
     assert sum(r.review.review_source == "provider_background_wait" for r in rounds) == 4
     assert engineer.prompts[-1].count("Repair the remaining baseline.") == 1
-    assert engineer.prompts[-1].count("Argus durable job interface") == 1
+    assert engineer.prompts[-1].count("wait for them as the rule for commands over two minutes says") == 1
     assert not any("backoff" in e.get("type", "") for e in events)
     assert all(not r.engineer_message for r in rounds[1:5])
 
@@ -105,7 +105,7 @@ def test_a_working_provider_wait_breaks_a_backend_failure_streak(tmp_path):
         engineer_prompt_builder=lambda action, include_static=True: action or "Begin",
         supervised_config=SupervisedConfig(
             max_rounds=5, backend_failure_threshold=2,
-            backend_failure_backoff_seconds=0, background_subagent_advisory=False,
+            backend_failure_backoff_seconds=0,
         ),
         workdir=tmp_path,
     )
@@ -133,7 +133,7 @@ def test_real_stops_still_take_precedence_after_a_wait(tmp_path, stop_kind, expe
     status, *_ = _supervised(engineer, reviewer).run(
         objective="Continue work",
         engineer_prompt_builder=lambda action, include_static=True: action or "Begin",
-        supervised_config=SupervisedConfig(max_rounds=5, background_subagent_advisory=False),
+        supervised_config=SupervisedConfig(max_rounds=5),
         workdir=tmp_path,
     )
     assert status == expected

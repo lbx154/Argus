@@ -6,7 +6,6 @@ seeded only for the active context.
 """
 from __future__ import annotations
 
-import hashlib
 import json
 import logging
 import os
@@ -18,538 +17,169 @@ from importlib.resources.abc import Traversable
 from pathlib import Path
 from typing import Iterable
 
+from ..core.file_facts import file_facts
+
 log = logging.getLogger(__name__)
 _BUILTIN_PACKAGE = "argus.builtin_skills"
 DEFAULT_PROJECT_BUILTIN_SKILLS_DIR = "argus_builtin_skills"
 _BUILTIN_SEED_STATE = ".argus-builtin-seeds.json"
 _MOVED_SKILL_MARKER = ".moved-from-global.json"
-_LEGACY_BUILTIN_SEED_HASHES = {
-    "agent-md-optimize-project-template.md": "52fbd7e60f85042624a54b563945b26739a590120d21c830c8f2d4eda0b3db7d",
-    "engineer/argus-engineer-role.md": "8823e0c01e377e1be5293d1529344213e0f1326ebe94a6863dc4ee0e2730dadd",
-    "engineer/environment-readiness.md": "f8615f2a465cbe7b2ce838179c24a575baf4fbe6370730035c85cd4dd907de9b",
-    "engineer/mermaid-graphviz-diagrams.md": "d340f45b0aeb7ee5f239aa79f1c8f3ed94be4a56af036dd7b80a60cd72953542",
-    "engineer/training-infrastructure-guide.md": "43d1cbc1017173a5376f2a47642ea3ba5bf007b879ba86737514f8aba28f3f39",
-    "manager/argus-manager-role.md": "dc193f31dca3acd3041544745d97b832725c0e37b55a44bd9a93db5f97a631be",
-    "manager/evidence-based-stage-decision.md": "75347a834448d8abb92ae04ad486ab06c595d1fb53cbe3cd24e70b37368515ed",
-    "planner/argus-planner-role.md": "30d16975503a9b41d97c05d622b4d36117677ff9500e65a4556dd2f8c244fb12",
-    "reviewer/argus-reviewer-role.md": "bc971a888bfcdc3acaca939b643410f509c328376737377ba8e898f1b4dee925",
-    "agent-team-lead.md": "3d7cd66367c1c093503b7985a5c86a6e35331600e746f8e96811b3ef7f3df76f",
-    "curator/argus-curator-role.md": "4545b826842c39f54fa9f8f260bfb289e1d54b68403be03a9ade3a2d1172495c",
-    "engineer/minimal-coding-agent.md": "18a5cbb3c6f3a937bb493eaf54db3a41637b4c57f324169a4829151105a22e73",
-    "engineer/pdf-chat.md": "7debea0fb441b6b1de96dc9041266486430cded6afbffe13e7e2687acaf230e9",
-    "engineer/presentation-master.md": "16fb15d865670dfaad96b0445a7aa0d410660a8f6954ce1d61d5d6df3de5f17f",
-    "engineer/project-environment-management.md": "f4b1e8afa92d911b699fbb359a47bf1ad62c6a9dde7f5aaf54ed0324cdfb11c3",
-    "engineer/rl-training-collapse-diagnosis.md": "6830af8a4172e28e2f7c760469a4c47955923693826e7c9dadce7e6282854f18",
-    "engineer/semantic-scholar-search.md": "9d4c7db970747e4ab6f5905f64ba189f3dbb79a14d5b7d31c8ebde2c6e498e75",
-    "engineer/skill-authoring-guide.md": "95babe92e841066aed028f221b0e009336422048e7461db0676b0bd40980722e",
-    "engineer/stale-world-model.md": "1a461c11c40314a4ccb61bf40204198e5dfa172bfa932ad0aaed9b2165748427",
-    "performance-profile-ground-truth.md": "037052a75b63a4e29b05f23652d9a8b8bb9254bc546e9f4f1e06771f11e4faa0",
-    "project-venv-package-management.md": "f912af39a3a8c9914dd79abc78946fbb0b134268e560bb8977e84f9a539ac008",
-    "reviewer/claim-to-code-trace.md": "6ad0934c355227eb0ec772d52cdc9849ceee20128669c437dd16e23cc9990f0b",
-    "reviewer/engineer-process-audit.md": "5227066930458e945c486d628d5ff0c082c9db81e2c8d85827f94ee69c80c741",
-    "reviewer/guiding-the-engineer.md": "4636cfe91844f1416de84e18155f57220b9922076274f362c2f35c0c78233d4b",
-    "stale-blocker-verification-probe.md": "9c570afd9abb7ba72c194da754018c1a96ae640f70061b7669afa4021ea490e2",
-}
-_RETIRED_BUILTIN_SEED_HASHES = {
+_RETIRED_BUILTIN_SEEDS = frozenset({
     # Consolidated into project-venv-package-management.md.
-    "engineer/project-environment-management.md": "f4b1e8afa92d911b699fbb359a47bf1ad62c6a9dde7f5aaf54ed0324cdfb11c3",
+    "engineer/project-environment-management.md",
     # Renamed on 2026-09-06 so that the library speaks like a researcher:
     # reading the evidence, the strongest argument against, claims against
     # evidence, a citation check, an environment readiness check, guiding the
     # engineer. A seeded copy under the old name is removed when it still
     # matches, archived otherwise.
-    "reviewer/experiment-audit.md": (
-        "67ab93f4bd258207d8eedf1f2c7b27455f50d76d746f61f07b4facd1a35dcff7"
-    ),
-    "reviewer/kill-argument.md": (
-        "a84fba34ce27bc8d2fcaba3a245d0ca4d49c5922f8401032c71e0f468eff0150"
-    ),
-    "engineer/citation-audit.md": (
-        "ee79f3b888dd2d60a36bd4e7efd771b345b24ca8bebf8827a4affd7d584834b2"
-    ),
-    "engineer/claims-evidence-audit.md": (
-        "de4fbd08530256ec6ac724051cf6d37e98917b0f7b24c120fbe198e4784474ce"
-    ),
-    "engineer/environment-readiness-gate.md": (
-        "a85d54656f5e5ffa7b5d8519456fc8e340e1df23d2f47f63a95f428bb75d7c71"
-    ),
-    "reviewer/reviewer-engineer-handoff.md": (
-        "e31210ceaab0cf524b0edc009615bf8aaee06e9c9c77656eb1509c1037a2f800"
-    ),
-    "engineer/experiment-audit.md": (
-        "d7fa41bfefaa0aaa8156f5febc8a4c1dc98874f3e7e24e6306f075266c49074e"
-    ),
-    "engineer/paper-claim-audit.md": (
-        "65311eb7bc317e82195f7dcc56abf7fb8caf357f144bdd16fcf7504e48904ad1"
-    ),
-    "engineer/singularity-amlt-gpu-ops.md": (
-        "18f7020894021a6a15a68e54022c3a7758535ce7e501cea4dc408a33f79ef6dc"
-    ),
-    "engineer/nanochat-autoresearch-hands-on-trace.md": (
-        "7df00f9f7e985143e3ca1af53bf8d16eda864b7598ff8446034c27abefce528f"
-    ),
-    "engineer/nanochat-autoresearch-sota-optimization.md": (
-        "ef6acedaa464fb7e9e5bac60a7737ef8590f72f00c7d658f346d3a227a893ba6"
-    ),
-    "engineer/nanochat-pretrain-runner.md": (
-        "5986a1df8ca519f1ad4a20b9c175647922711b1bad0cf1855c0fdfa30a7d3b46"
-    ),
+    "reviewer/experiment-audit.md",
+    "reviewer/kill-argument.md",
+    "engineer/citation-audit.md",
+    "engineer/claims-evidence-audit.md",
+    "engineer/environment-readiness-gate.md",
+    "reviewer/reviewer-engineer-handoff.md",
+    "engineer/experiment-audit.md",
+    "engineer/paper-claim-audit.md",
+    "engineer/singularity-amlt-gpu-ops.md",
+    "engineer/nanochat-autoresearch-hands-on-trace.md",
+    "engineer/nanochat-autoresearch-sota-optimization.md",
+    "engineer/nanochat-pretrain-runner.md",
     # Removed on 2026-10-01 after the skill usage audit (121 projects, 2026-08-28
     # to 09-30): none of these was opened by any role, or the file duplicated a
     # sibling. Seeded copies are removed when unedited, archived otherwise.
     # Research: zero-opened figure and timeline files.
-    "engineer/academic-vector-figures.md": (
-        "7167cd0fbd87b470ab5a9faaaffb1a457f586742cbf52101d2835c14c24c442d"
-    ),
-    "engineer/figure-spec.md": (
-        "e63d1f7e807a3e918a79c02b5a5584ae531cc6e48de608a6fbb632ca6a16b2ca"
-    ),
-    "engineer/research-timeline.md": (
-        "4e08e186b5cf37f6e71215cf47a0cd262a54ca574e89ed2e6c5162f616bda07a"
-    ),
+    "engineer/academic-vector-figures.md",
+    "engineer/figure-spec.md",
+    "engineer/research-timeline.md",
     # Research: the ideation sub-pattern cards, anti-patterns, companion
     # combos and the vendored attribution page (#193). The 15 pattern cards
     # follow further down; only their overview stays.
-    "engineer/references/ideation/ideation-sub-patterns/C00.md": (
-        "0bc790076bc61bc5a902094b3b1326375b20a2210540b9665c97728f8a869d56"
-    ),
-    "engineer/references/ideation/ideation-sub-patterns/C01.md": (
-        "7313de54f35bd19420a234d65261429f27555af69e6babde10bb204bd4cb82a8"
-    ),
-    "engineer/references/ideation/ideation-sub-patterns/C02.md": (
-        "254f83ef47ab39d36ae3475bc05ed3e0eee3c8b4f40f970c3dbec0dd5703f119"
-    ),
-    "engineer/references/ideation/ideation-sub-patterns/C03.md": (
-        "b0c71cc591da1a7a87579a7aaa983b8b8e1a53a9f51376dca9232ff5fd868a32"
-    ),
-    "engineer/references/ideation/ideation-sub-patterns/C04.md": (
-        "e6caef00b214d780e5735e4323d10aac059d5d7c8c8c8ec16a5b050f6d81ba45"
-    ),
-    "engineer/references/ideation/ideation-sub-patterns/C05.md": (
-        "543f82fee5c11136813c512e82bf493d6bbae00f8c857e8a0a523320e44b0dda"
-    ),
-    "engineer/references/ideation/ideation-sub-patterns/C06.md": (
-        "d1570fddded634848788b33c6a731dbce440d0450e6f3c550f0f517d87a7bba8"
-    ),
-    "engineer/references/ideation/ideation-sub-patterns/C07.md": (
-        "1cf23b65fbee15bbbffcda7f4af3542f60cc167134efce2e203cd0fc4aede69f"
-    ),
-    "engineer/references/ideation/ideation-sub-patterns/C08.md": (
-        "ab97e07ed950cc256732ee18991001e3f4866a23b08f04aed402a8027b4fa538"
-    ),
-    "engineer/references/ideation/ideation-sub-patterns/C09.md": (
-        "e178b7925e08f94311f28639a88030f84ece1468b7080707472afe432ff4126e"
-    ),
-    "engineer/references/ideation/ideation-sub-patterns/C10.md": (
-        "8724aaff35a9704544a9be7625e6a05d58c606335f3a65e99a825d3bbce8366a"
-    ),
-    "engineer/references/ideation/ideation-sub-patterns/C11.md": (
-        "65ba6973f962ab0e8e1cdea6f30da92ca27e6be3b6d08a09a1dc0e565e309e75"
-    ),
-    "engineer/references/ideation/ideation-sub-patterns/C12.md": (
-        "6157bfd876ba96f837c0f577399f6afc1602e419c45fe77424f57b5e446a8927"
-    ),
-    "engineer/references/ideation/ideation-sub-patterns/C13.md": (
-        "7e19113e0aff6d02e77fc4a9898c6c5edae5a1b20f6c46bf65cd78fae0e62d9b"
-    ),
-    "engineer/references/ideation/ideation-sub-patterns/C14.md": (
-        "006232a2a76a5730b6746b8caf98a3601a369af0881749e38c3c6aeec332ec1c"
-    ),
-    "engineer/references/ideation/ideation-sub-patterns/C15.md": (
-        "fce7d01cac2fe7f8562d5de2af87159547d7a7e9bb9b115560af14a00a6f8999"
-    ),
-    "engineer/references/ideation/ideation-sub-patterns/C16.md": (
-        "0978269b1da55a84902d42087c8d481a3fb40c6d299870d760ff9a64df1ed70e"
-    ),
-    "engineer/references/ideation/ideation-sub-patterns/C17.md": (
-        "95020d47a0cd32cd65240db80018e09119021d3616af43015b1a6797400c4303"
-    ),
-    "engineer/references/ideation/ideation-sub-patterns/C18.md": (
-        "871ad780b2120f7f4bd0930a3ae0d2c66e3928368a5ffbf36f4777c3fb8d01a6"
-    ),
-    "engineer/references/ideation/ideation-sub-patterns/C19.md": (
-        "27c570e775a3a845334dfd5d06494bfc382dbb79bad4928d349a30b9129c166a"
-    ),
-    "engineer/references/ideation/ideation-sub-patterns/C20.md": (
-        "44b744d5822c8c662171e2f9607e78f0dd57246938254a22354e05386841c63f"
-    ),
-    "engineer/references/ideation/ideation-sub-patterns/C21.md": (
-        "17fd8f2d33a83878dbd31bba149eb409be958e022ff666b52f1a8d169257b5a9"
-    ),
-    "engineer/references/ideation/ideation-sub-patterns/C22.md": (
-        "094fa0747a14ae5f706575ad7be75604d7ccd307420e39ad22c79bc870c5a17c"
-    ),
-    "engineer/references/ideation/ideation-sub-patterns/C23.md": (
-        "4f611478bb586c82f5f965e2ae8104c173355df780745af4193a721eb39ca0c1"
-    ),
-    "engineer/references/ideation/ideation-sub-patterns/C24.md": (
-        "b87fd8132e773ee277b2387567d6d91ff3a6680fd9e57da7591900f582a4e2ee"
-    ),
-    "engineer/references/ideation/ideation-sub-patterns/C25.md": (
-        "af5e435dd553c6e4893e9f17bd8da9c19e8dbf3cbc15699b0d716cf24f32b787"
-    ),
-    "engineer/references/ideation/ideation-sub-patterns/C26.md": (
-        "8b3b77eb217046fa5c64a7f5fd38a67bbfc96550b92cc6249a46241d222318ae"
-    ),
-    "engineer/references/ideation/ideation-sub-patterns/C27.md": (
-        "227cca6515c13719e55b5fd3393db32e50143795732fc252246997915eb52704"
-    ),
-    "engineer/references/ideation/ideation-sub-patterns/C28.md": (
-        "3930ba042b73d11820201a4e191c2203a32b837934673465d2df908adf5bbff6"
-    ),
-    "engineer/references/ideation/ideation-sub-patterns/C29.md": (
-        "1ad7523af2d0a5c1a2aa81e144cb6269a87fcba110397ce679604c8e3db22d9d"
-    ),
-    "engineer/references/ideation/ideation-sub-patterns/C30.md": (
-        "07a9807ff9890c993d50f8589f02014927aa320b9e9475d240ed609da97753cd"
-    ),
-    "engineer/references/ideation/ideation-sub-patterns/overview.md": (
-        "f38798c718bd61a1641075bbcea582ecea8c01c09756ecfd37ab86d68e720d92"
-    ),
-    "engineer/references/ideation/anti-patterns.md": (
-        "ec3f36e3281c2a7762e3af9142323e338b0c88911d290eec331451d3c60a7c95"
-    ),
-    "engineer/references/ideation/ideation-patterns/companion-combos.md": (
-        "eaaa98d1c54a360cf126c88345ca34c807f5206e07d0e579a36cb202592cbd86"
-    ),
-    "engineer/references/ideation/ATTRIBUTION.md": (
-        "768eb690ea6dc36812abc8bb7bc580739e38081c2fa6efe890401d49db5445fd"
-    ),
+    "engineer/references/ideation/ideation-sub-patterns/C00.md",
+    "engineer/references/ideation/ideation-sub-patterns/C01.md",
+    "engineer/references/ideation/ideation-sub-patterns/C02.md",
+    "engineer/references/ideation/ideation-sub-patterns/C03.md",
+    "engineer/references/ideation/ideation-sub-patterns/C04.md",
+    "engineer/references/ideation/ideation-sub-patterns/C05.md",
+    "engineer/references/ideation/ideation-sub-patterns/C06.md",
+    "engineer/references/ideation/ideation-sub-patterns/C07.md",
+    "engineer/references/ideation/ideation-sub-patterns/C08.md",
+    "engineer/references/ideation/ideation-sub-patterns/C09.md",
+    "engineer/references/ideation/ideation-sub-patterns/C10.md",
+    "engineer/references/ideation/ideation-sub-patterns/C11.md",
+    "engineer/references/ideation/ideation-sub-patterns/C12.md",
+    "engineer/references/ideation/ideation-sub-patterns/C13.md",
+    "engineer/references/ideation/ideation-sub-patterns/C14.md",
+    "engineer/references/ideation/ideation-sub-patterns/C15.md",
+    "engineer/references/ideation/ideation-sub-patterns/C16.md",
+    "engineer/references/ideation/ideation-sub-patterns/C17.md",
+    "engineer/references/ideation/ideation-sub-patterns/C18.md",
+    "engineer/references/ideation/ideation-sub-patterns/C19.md",
+    "engineer/references/ideation/ideation-sub-patterns/C20.md",
+    "engineer/references/ideation/ideation-sub-patterns/C21.md",
+    "engineer/references/ideation/ideation-sub-patterns/C22.md",
+    "engineer/references/ideation/ideation-sub-patterns/C23.md",
+    "engineer/references/ideation/ideation-sub-patterns/C24.md",
+    "engineer/references/ideation/ideation-sub-patterns/C25.md",
+    "engineer/references/ideation/ideation-sub-patterns/C26.md",
+    "engineer/references/ideation/ideation-sub-patterns/C27.md",
+    "engineer/references/ideation/ideation-sub-patterns/C28.md",
+    "engineer/references/ideation/ideation-sub-patterns/C29.md",
+    "engineer/references/ideation/ideation-sub-patterns/C30.md",
+    "engineer/references/ideation/ideation-sub-patterns/overview.md",
+    "engineer/references/ideation/anti-patterns.md",
+    "engineer/references/ideation/ideation-patterns/companion-combos.md",
+    "engineer/references/ideation/ATTRIBUTION.md",
     # Research: the 15 ideation pattern cards (2026-10-07). Zero opens in the
     # audited projects, including the 11 whose agent opened the Idea playbook
     # that points at them; overview.md keeps every pattern's definition,
     # signature and when-to-apply, which is all a route choice needs.
-    "engineer/references/ideation/ideation-patterns/adapt_via_conditioning.md": (
-        "62dc2865c62d0adccfd14613312f9f746990baa930314be8dfc2b914e4a65865"
-    ),
-    "engineer/references/ideation/ideation-patterns/algebraic_equivalence_unification.md": (
-        "f52205190e01c73e751d586bafb44b53df85d3a75a6a58214922b6b0c45a9a33"
-    ),
-    "engineer/references/ideation/ideation-patterns/architectural_operator_substitution.md": (
-        "3d19340d40077d188b19d8db29f6dc531068b2f94f474a814a12e6da47a220e7"
-    ),
-    "engineer/references/ideation/ideation-patterns/assumption_audit_and_pivot.md": (
-        "7fb65ff9bc53521846363d63a24232dc7b60d82a2b7190e0b57fc1ed575e0b16"
-    ),
-    "engineer/references/ideation/ideation-patterns/characterize_limit_then_surpass.md": (
-        "546e02ccfcf965d4084f8d3a00776268f93212b32a3849f2fa20c7a287db5001"
-    ),
-    "engineer/references/ideation/ideation-patterns/controlled_diagnostic_design.md": (
-        "b92e7c4d77dfbe941f005d10804a72791043ba1637b70dd8e6d5725b09eb66e9"
-    ),
-    "engineer/references/ideation/ideation-patterns/decompose_and_delegate.md": (
-        "5c07cc1f7e08ac4b50d771aa3b57c02c6430f24b60f99433e7f876795422dc27"
-    ),
-    "engineer/references/ideation/ideation-patterns/generative_process_redesign.md": (
-        "d8d7a8633ff3243ab5d56f0e3ddabba88cb0314bf01b788922e369d4d19348d0"
-    ),
-    "engineer/references/ideation/ideation-patterns/heterogeneous_decomposition.md": (
-        "08cc30a356d8aeb0c07109c914938c3da14d60c07be809613b2195efd45f4476"
-    ),
-    "engineer/references/ideation/ideation-patterns/reframe_as_solvable_object.md": (
-        "ffd715c78896db4c4ce25c45a123418021a1df5d25994abb05b36c3c5cee2e08"
-    ),
-    "engineer/references/ideation/ideation-patterns/relax_discrete_search_to_continuous.md": (
-        "7a4db9933efa57024083886e5d42432ac5330f56a9ea6a7936de8fd70368b502"
-    ),
-    "engineer/references/ideation/ideation-patterns/self_supervised_signal_engineering.md": (
-        "036371622e9e367ed5af220da88ecaf2b172d5d3ead1f2e2375f36c05b144ca4"
-    ),
-    "engineer/references/ideation/ideation-patterns/structural_prior_encoding.md": (
-        "3e48b13ac8b73ccb6e0260202674beecfe056f0084daaf8f2b8adde3aa53cc4b"
-    ),
-    "engineer/references/ideation/ideation-patterns/targeted_self_supervised_objective.md": (
-        "a7e8ba7e87ea63a0446741ed89d53f38b2f7fc85a84c9f69dd75afcb67ba8df1"
-    ),
-    "engineer/references/ideation/ideation-patterns/unify_into_shared_representation.md": (
-        "ebba3230237271e37d5280030ad147493deed2605fe53f5324f3ebb70f1d599c"
-    ),
+    "engineer/references/ideation/ideation-patterns/adapt_via_conditioning.md",
+    "engineer/references/ideation/ideation-patterns/algebraic_equivalence_unification.md",
+    "engineer/references/ideation/ideation-patterns/architectural_operator_substitution.md",
+    "engineer/references/ideation/ideation-patterns/assumption_audit_and_pivot.md",
+    "engineer/references/ideation/ideation-patterns/characterize_limit_then_surpass.md",
+    "engineer/references/ideation/ideation-patterns/controlled_diagnostic_design.md",
+    "engineer/references/ideation/ideation-patterns/decompose_and_delegate.md",
+    "engineer/references/ideation/ideation-patterns/generative_process_redesign.md",
+    "engineer/references/ideation/ideation-patterns/heterogeneous_decomposition.md",
+    "engineer/references/ideation/ideation-patterns/reframe_as_solvable_object.md",
+    "engineer/references/ideation/ideation-patterns/relax_discrete_search_to_continuous.md",
+    "engineer/references/ideation/ideation-patterns/self_supervised_signal_engineering.md",
+    "engineer/references/ideation/ideation-patterns/structural_prior_encoding.md",
+    "engineer/references/ideation/ideation-patterns/targeted_self_supervised_objective.md",
+    "engineer/references/ideation/ideation-patterns/unify_into_shared_representation.md",
     # Software: the Verus plugin (kept in git history for the Vertical Store)
     # and the opt-in Manager grounding pass nobody enabled.
-    "engineer/formal-verification/references/verus-spec-generation-and-repair.zh-CN.md": (
-        "d8b9d0454dba11e26939164ebced294115ec3441e36a732d1900c53835fde5b4"
-    ),
-    "engineer/formal-verification/verus-spec-generation-and-repair.md": (
-        "b8b75623f4beeccd7d1d49f88c846ae581509ba500471534f828320653bb4677"
-    ),
-    "manager/formal-verification/references/verus-spec-generation-and-repair.zh-CN.md": (
-        "99265e73d9466208838f9537d4c72616809530d81b0066d43ac3a865845d9cf2"
-    ),
-    "manager/formal-verification/verus-spec-generation-and-repair.md": (
-        "6fc81720d8d3d16a9b66b51179242143fb7c489362c195dfda42c778e26ab271"
-    ),
-    "planner/formal-verification/references/verus-spec-generation-and-repair.zh-CN.md": (
-        "0b80e1fb7dc18b9653f47a1ec40694b34d37c187bbf9ac3e6a3402f2177213fc"
-    ),
-    "planner/formal-verification/verus-spec-generation-and-repair.md": (
-        "ca5d22fa5f52a7e619b41b438d41f26be7668e7de7cba1a69a9093af1d1803a4"
-    ),
-    "references/verus-spec-generation-and-repair.zh-CN.md": (
-        "137e9d9e612a3f4b9a7a4d36a78da78faa03de8ef74899ca2aaa96d9cbeb2dbe"
-    ),
-    "reviewer/formal-verification/references/verus-spec-generation-and-repair.zh-CN.md": (
-        "f34f3985042716c286604d8dcb9a30049ec02d41cbe8a84fabbad438c39fe755"
-    ),
-    "reviewer/formal-verification/verus-spec-generation-and-repair.md": (
-        "615c33c439f573a4a2495d9b3b4614be6e436ad014fabd87e339359d44f09103"
-    ),
-    "verus-spec-generation-and-repair.md": (
-        "e74c0de684a224d3edc2e986c7e5e16cbe512d7ccd8558d18a2fe2ef96797614"
-    ),
-    "manager/software-project-grounding.md": (
-        "0b1d8a2ab9b01b713568dd469bc6e44d6c59c7cc108b976e4168edbef0b44bb6"
-    ),
+    "engineer/formal-verification/references/verus-spec-generation-and-repair.zh-CN.md",
+    "engineer/formal-verification/verus-spec-generation-and-repair.md",
+    "manager/formal-verification/references/verus-spec-generation-and-repair.zh-CN.md",
+    "manager/formal-verification/verus-spec-generation-and-repair.md",
+    "planner/formal-verification/references/verus-spec-generation-and-repair.zh-CN.md",
+    "planner/formal-verification/verus-spec-generation-and-repair.md",
+    "references/verus-spec-generation-and-repair.zh-CN.md",
+    "reviewer/formal-verification/references/verus-spec-generation-and-repair.zh-CN.md",
+    "reviewer/formal-verification/verus-spec-generation-and-repair.md",
+    "verus-spec-generation-and-repair.md",
+    "manager/software-project-grounding.md",
     # Global library: identity text the prompt already carries, a diagram
     # route whose renderers are not installed, and a duplicate of
     # performance-profile-ground-truth.md.
-    "engineer/drawio-diagram-authoring.md": (
-        "c53d92072531bd3662ef181c7bd0459b0ecff10963a41b078e5ca6f5162b92e6"
-    ),
-    "engineer/mermaid-graphviz-diagrams.md": (
-        "6d544cb4ec918840a3ccbe07de86771831c660c3ec07d751b3b64fd26969af12"
-    ),
-    "engineer/argus-engineer-role.md": (
-        "3c4f983a645ed3a3be7742db797c741c1741362b93b9de72253bd5ca4b3334bf"
-    ),
-    "agent-md-optimize-project-template.md": (
-        "04635712c232d01b2b7ecae3af0e94f32071b89996094f43ca3b89c921296eaf"
-    ),
+    "engineer/drawio-diagram-authoring.md",
+    "engineer/mermaid-graphviz-diagrams.md",
+    "engineer/argus-engineer-role.md",
+    "agent-md-optimize-project-template.md",
     # Kernel engineering: a single B200 kernel's work log and an external
     # reading list.
-    "engineer/kernel-optimization-process-trace.md": (
-        "84e8feb27c50abdeaee10413eff2147bc80cad71a52d9d5e05e0f9ac82f0cada"
-    ),
-    "engineer/modern-gpu-blackwell-kernel-techniques.md": (
-        "e4b21b069c4714e1f41fab19186cc6452d09f87193965ad0931f27e123a11ef8"
-    ),
+    "engineer/kernel-optimization-process-trace.md",
+    "engineer/modern-gpu-blackwell-kernel-techniques.md",
     # Merged on 2026-10-01: the same audit found the figure, diagnosis-ladder,
     # method-card, infrastructure, source-checking, role-banner and wiki
     # material each written three to five times across sibling files. Each
     # cluster now lives in one file; these are the absorbed originals.
     # Research vertical.
-    "engineer/result-to-claim.md": (
-        "f089b08ca0546150b55e594393c1e2a4aa20cc02ed8d77e38a68735913e66c1b"
-    ),
-    "engineer/suspect-the-setup.md": (
-        "44978c6edc4f4dbd126d40336edbb4af7079ef6f062a3cbd4be2ec1ec6494255"
-    ),
-    "engineer/method_card_template.md": (
-        "dc1a6b08dd80155e2f4a6332752d8ef9a12b435bc72f262b5836afba76b9c2d9"
-    ),
-    "engineer/executable-spec.md": (
-        "a5486acdd969b46fd6d464e2b408b43ecea398d6a41d7ea90718dbd10ee63e5b"
-    ),
-    "engineer/delta-on-reference.md": (
-        "236b2b124907bbef2b13ce3fb467503ba28780d64d64cb92478267232714f3ff"
-    ),
-    "engineer/write-for-review.md": (
-        "455ffba88572baf1e0945715cb892b00ab4384baebbede40a77f45b5fc50fce1"
-    ),
-    "engineer/hypothesis-implementation-contract.md": (
-        "5732ec92babec1a2d8f81ff223af8dbc38df3ecb4518acde78ff312e69adb5e3"
-    ),
-    "engineer/implementation-brief.md": (
-        "a48829e84b0b538ee83e869d03f306054ed895eed14fda69bffd1fcbb1a7b8e7"
-    ),
-    "engineer/research-visualization-router.md": (
-        "85dd3779ab694d38b0a80a4451780f1d550b7fff6a706072e93945e30760606f"
-    ),
-    "engineer/research-results-analysis-and-figures.md": (
-        "7cca016207fc39003028c43abab480e26f2f9b418d4ce439b833e532c30b68a6"
-    ),
-    "engineer/paper-illustration-image2.md": (
-        "567c6e25be4d3be443fe25833b7ff958ae2c3afd1207610f3faa62f8f06c7c34"
-    ),
-    "engineer/training-infrastructure-guide.md": (
-        "13db77beee6648eb5d5ab6e0d99c81dfdf142ef130c93ae80944ef546eee6707"
-    ),
-    "engineer/infrastructure-landscape-survey.md": (
-        "045d974fc5ee96077fbfeb4dfd66af3f11c55775cb5f58a1089f3c100e4bc09e"
-    ),
-    "engineer/framework-stand-up-pilot.md": (
-        "828921f48c22fc0edac47b2fb8629f001f9a1422a6a0eb0308a8bf7f6bf8d049"
-    ),
-    "engineer/recipe-anchored-tuning.md": (
-        "1a101849e7276b9370a87728ad540ebe1ccd3463955cc65421741b539ba9a8f0"
-    ),
-    "engineer/claims-against-evidence.md": (
-        "f7edc1fcaac5a573972af565ccb891e3821ef8bc9687bb3aaefca726edbe08f5"
-    ),
-    "engineer/citation-check.md": (
-        "1c865d8b4a38e95b35847f83b54aeac3e9b33f3632ca19e560c6ed2ad2f7093d"
-    ),
-    "engineer/semantic-scholar-search.md": (
-        "b80ebdca7fd1f60a9979dea04437da48f2ef5f29304aca35d28a7ce961bfa1c9"
-    ),
-    "engineer/paper-infrastructure-review.md": (
-        "31775a6b15692a938c75c31f434cb08fbf518616eab2ad08eba643388368b7b5"
-    ),
-    "engineer/paper-exemplar-pdf-learning.md": (
-        "e8435d84ea38da7f24e4ec9304e5c47705d9b14c7228ca61b5049605c2d8b617"
-    ),
-    "reviewer/reading-the-evidence.md": (
-        "b7b445df97f695fddcecde05fa42780a143af569a6d3935d62936020d7381e3a"
-    ),
-    "reviewer/infrastructure-choice-review.md": (
-        "6244075c1903ee733b9bef3995475d743a9b9e5c52975cd0f6f7692fd0055446"
-    ),
+    "engineer/result-to-claim.md",
+    "engineer/suspect-the-setup.md",
+    "engineer/method_card_template.md",
+    "engineer/executable-spec.md",
+    "engineer/delta-on-reference.md",
+    "engineer/write-for-review.md",
+    "engineer/hypothesis-implementation-contract.md",
+    "engineer/implementation-brief.md",
+    "engineer/research-visualization-router.md",
+    "engineer/research-results-analysis-and-figures.md",
+    "engineer/paper-illustration-image2.md",
+    "engineer/training-infrastructure-guide.md",
+    "engineer/infrastructure-landscape-survey.md",
+    "engineer/framework-stand-up-pilot.md",
+    "engineer/recipe-anchored-tuning.md",
+    "engineer/claims-against-evidence.md",
+    "engineer/citation-check.md",
+    "engineer/semantic-scholar-search.md",
+    "engineer/paper-infrastructure-review.md",
+    "engineer/paper-exemplar-pdf-learning.md",
+    "reviewer/reading-the-evidence.md",
+    "reviewer/infrastructure-choice-review.md",
     # Global library.
-    "engineer/stale-world-model.md": (
-        "714994de1046a062cd3ef6a06d80e55bb62aba75e1499aef51645be635064302"
-    ),
-    "engineer/environment-readiness.md": (
-        "726cfbbdc2952d253e800904d8e4bc4749e06c6de1ad8cad445dade753b0c625"
-    ),
-    "engineer/study-and-curate.md": (
-        "7b4ed6295967d305b13b0cadbb83ede8d5906eed81c775523f1426338c3d7561"
-    ),
-    "engineer/wiki-collector.md": (
-        "429e3feb524fecef7022d73998cb086e805251db779c2a200edf56bdcf0b8ff8"
-    ),
-    "reviewer/wiki-curator.md": (
-        "27112369581e1e255660c4a60408e7810abe5a4f6afd28bf2e2b53827a4b6d68"
-    ),
-    "planner/argus-planner-role.md": (
-        "d96d5258ecbfec8ffb7a16672ba812d331c8b24446be6b633df26fbc103f38e7"
-    ),
-    "reviewer/guiding-the-engineer.md": (
-        "0829bb50b5546b07a1b9b3a33cc544254c9ef6c37a3e67a3deccce2d4afa7ee6"
-    ),
-    "manager/argus-manager-role.md": (
-        "b3ac66146051884ec9523daf5d372d65d993687a8a6c9eb9a992a2a25a051cea"
-    ),
+    "engineer/stale-world-model.md",
+    "engineer/environment-readiness.md",
+    "engineer/study-and-curate.md",
+    "engineer/wiki-collector.md",
+    "reviewer/wiki-curator.md",
+    "planner/argus-planner-role.md",
+    "reviewer/guiding-the-engineer.md",
+    "manager/argus-manager-role.md",
     # Kernel engineering, software and learning verticals.
-    "engineer/kernel-optimization-knowledge.md": (
-        "95e726bbf4687e3d5f8929c4136e55de30b28aa508a24f357db65d8bebacc4a0"
-    ),
-    "engineer/kernel-environment-first-engineering.md": (
-        "a5e41f397ec10f57bceff7c853f788947464132f82861387f7d81739d3b56700"
-    ),
-    "reviewer/kernel-engineering-review.md": (
-        "43e801e03ffdca459ebeca46f9d8b15119e74d0f6e90522582dcde6e06e4f664"
-    ),
-    "planner/software-project-grounding.md": (
-        "70b38719478858afc0e4e8eb191ac54c70db9ffff304bb593983fca271ddd7c6"
-    ),
-    "engineer/learning-curation.md": (
-        "04b79b844bc15ab1aebd612001f624eb79551028cd14845c3223c5883fa5a59b"
-    ),
-    "reviewer/curation-review.md": (
-        "67ee5918b390ae7f278d983df34f939d30d18800935158a2fad8929dd90d3afa"
-    ),
-}
-
-
-#: Factory digests of the skills the seventeen community verticals shipped
-#: while they were still in this package (as of the last in-tree release,
-#: ``origin/dev`` 4554450cd on 2026-09-14), keyed by vertical. Workspaces
-#: seeded before the split hold these bytes; where ``argus-verticals`` is
-#: installed they are pruned like any other inactive vertical's seeds, where
-#: it is not, nothing else enumerates them (``available_verticals()`` cannot
-#: name them) and they would stay behind as matcher candidates forever.
-#: Inherited built-in skills (kernelbench's kernel_engineering playbooks) are
-#: deliberately absent: those still ship here.
-_MOVED_VERTICAL_SEED_HASHES: dict[str, dict[str, str]] = {
-    "quant": {
-        "engineer/kline-chart.md": "5207776344f46c4a8772c3b0d61271f603833a172cf57f48d357b24b7ad9d423",
-        "engineer/model-selection-loop.md": "f728fb01023cbe09502caea6843a66d147607eed5712cacef68e970a69509581",
-        "engineer/quant-factor-loop.md": "007a427c256cb781907c823e43a1810b82bd5af3a7e851cc90a4f4495d747510",
-        "reviewer/quant-factor-report-review.md": "0e993b653e5923601a3cec7b0b1e7bc10c041b4b2f69aecdfd1bab58f6f8c2d4",
-    },
-    "kernelbench": {
-        "engineer/b200-kernelbench-runtime.md": "6d506cb21b2a820fb41791fdf07d4b74249a47d093d9980cd36a2f65dc106e83",
-        "engineer/official-sol-execbench-env.md": "18804dc6aefd16b95d03166e45ea8520ec2813fc3219618e5f2d3da2ff0fe628",
-        "engineer/sol-kernel-hands-on-trace.md": "e52878510d2dbb1eba8a117eb1ec2cc2647d42638f05aefccdb9bc52340feb52",
-        "engineer/sol-kernel-sota-optimization.md": "2250b9c5fb8efe2a27ad0b976ce9c0abf7ded2e1680cfc9dac52391b21abb72c",
-        "repair-governance-snapshot-verifier-drift.md": "3672f2f34c72e3a3c9996c62275241458e53b00fb6600e42d2fb3569ff4bebef",
-        "report-only-head-to-head-benchmark-evidence.md": "6ef644420f4593f55c10297ab8e54c0beba3902cea66d48eb70c9f77917ce561",
-        "sol-target-selection-without-execution.md": "8c377042931b4b1ad62bb420bfb0ecca7683bd24d368aafcf71c3b1d331bd2a6",
-    },
-    "speedrun": {
-        "engineer/speedrun-hands-on-trace.md": "01b83b4b0a983be5a8779719dba8454f917ebfe026c23fe82f0a618321d1868c",
-        "engineer/speedrun-sota-optimization.md": "0e15f62b91b452a400c7ccda928181258f179330ec7f2d89069bdc12c268aa06",
-    },
-    "nanogpt_speedrun": {
-        "engineer/nanogpt-speedrun-h100-sota.md": "b76745e60e2d2e5ca3f844f93e7313a584b4580003ed54c4908253d5b04f30b0",
-        "engineer/speedrun-hands-on-trace.md": "01b83b4b0a983be5a8779719dba8454f917ebfe026c23fe82f0a618321d1868c",
-        "engineer/speedrun-sota-optimization.md": "0e15f62b91b452a400c7ccda928181258f179330ec7f2d89069bdc12c268aa06",
-    },
-    "chip_design": {
-        "engineer/chip-design-environment-first.md": "1749dfe59ef5ea532c811de0292b4fdb9de9da886f5768217859cc766b6f1156",
-        "engineer/digital-circuit-benchmark-execution.md": "de03d306d4c940693710ae07ad2e02052ef9b2875ca8487952953c520b931c5b",
-        "engineer/digital-circuit-error-guided-repair.md": "23357ee12fcaa77cbd2834c289a6e4c52a4b6a1536aebed8aa68fa42eab6d629",
-        "engineer/digital-circuit-first-pass-contract-closure.md": "960c56e91d6f35b8843a87bdbffd2338ca29abbc881676b0e6c3720b848584fd",
-        "engineer/digital-circuit-rtl-verification.md": "ef7e355dacbf04e3ad9a9f66a217c227df60f366551b622dbbd15e2621e44a00",
-        "engineer/digital-circuit-spec-guidance-registry.md": "0ad5d6e1e9774e169dfb6baae4e31fed2b22e277770d02da56badfe41397d41e",
-        "reviewer/chip-design-signoff-review.md": "f031a3f469a94534eeb6ccacc297eb3b6bd1fe21cde7a181cc944bdafcf66df6",
-        "reviewer/digital-circuit-benchmark-review.md": "90f49ebfc6b13c7098b252577a8a0ac451c8b94d90b89044371c98e848af33ff",
-        "reviewer/digital-circuit-guidance-promotion-review.md": "2e8d431abae4953a2f32e7ba2376fd6a198755b97f5a496f18c5a2adf86e7cbb",
-        "reviewer/digital-circuit-signoff-review.md": "982ff813edacd00cc38a72154f85d3f0c70150d21c1ea7606030a7ddeba3d0c9",
-    },
-    "digital_circuit": {
-        "engineer/digital-circuit-benchmark-execution.md": "de03d306d4c940693710ae07ad2e02052ef9b2875ca8487952953c520b931c5b",
-        "engineer/digital-circuit-error-guided-repair.md": "23357ee12fcaa77cbd2834c289a6e4c52a4b6a1536aebed8aa68fa42eab6d629",
-        "engineer/digital-circuit-first-pass-contract-closure.md": "960c56e91d6f35b8843a87bdbffd2338ca29abbc881676b0e6c3720b848584fd",
-        "engineer/digital-circuit-rtl-verification.md": "ef7e355dacbf04e3ad9a9f66a217c227df60f366551b622dbbd15e2621e44a00",
-        "engineer/digital-circuit-spec-guidance-registry.md": "0ad5d6e1e9774e169dfb6baae4e31fed2b22e277770d02da56badfe41397d41e",
-        "reviewer/digital-circuit-benchmark-review.md": "90f49ebfc6b13c7098b252577a8a0ac451c8b94d90b89044371c98e848af33ff",
-        "reviewer/digital-circuit-guidance-promotion-review.md": "2e8d431abae4953a2f32e7ba2376fd6a198755b97f5a496f18c5a2adf86e7cbb",
-        "reviewer/digital-circuit-signoff-review.md": "982ff813edacd00cc38a72154f85d3f0c70150d21c1ea7606030a7ddeba3d0c9",
-    },
-    "digital_circuit_benchmark": {
-        "engineer/digital-circuit-benchmark-execution.md": "de03d306d4c940693710ae07ad2e02052ef9b2875ca8487952953c520b931c5b",
-        "engineer/digital-circuit-error-guided-repair.md": "23357ee12fcaa77cbd2834c289a6e4c52a4b6a1536aebed8aa68fa42eab6d629",
-        "engineer/digital-circuit-first-pass-contract-closure.md": "960c56e91d6f35b8843a87bdbffd2338ca29abbc881676b0e6c3720b848584fd",
-        "engineer/digital-circuit-rtl-verification.md": "ef7e355dacbf04e3ad9a9f66a217c227df60f366551b622dbbd15e2621e44a00",
-        "engineer/digital-circuit-spec-guidance-registry.md": "0ad5d6e1e9774e169dfb6baae4e31fed2b22e277770d02da56badfe41397d41e",
-        "reviewer/digital-circuit-benchmark-review.md": "90f49ebfc6b13c7098b252577a8a0ac451c8b94d90b89044371c98e848af33ff",
-        "reviewer/digital-circuit-guidance-promotion-review.md": "2e8d431abae4953a2f32e7ba2376fd6a198755b97f5a496f18c5a2adf86e7cbb",
-        "reviewer/digital-circuit-signoff-review.md": "982ff813edacd00cc38a72154f85d3f0c70150d21c1ea7606030a7ddeba3d0c9",
-    },
-    "fiction_writing": {
-        "engineer/chapter-drafting-and-continuation.md": "3d727fd292cce7190eeef96d1bec8b0607753ec859c8f0fe9ce03f525edadd98",
-        "engineer/creative-brief-and-style-profile.md": "6702aee825e99f4bcdb0bea9c05c4efbed55bc2f499a18dfb865f05539d4a3cc",
-        "engineer/story-and-chapter-planning.md": "a9bd8e636c30d291e3e765c5ee9fa302227700da61b619914d44a3428988f4e9",
-        "engineer/story-state-update.md": "217c58934839eab905cd58feebac5d5307a024162ea51cf6a5c9c131ad1b2ab0",
-        "engineer/targeted-fiction-revision.md": "f7e2d9e821ae9beb2f851fcd0be382636bb6511cd118760cede6287cfcf8030e",
-        "reviewer/continuity-style-and-plot-review.md": "e4dff16951b478ba73d9afc69b97840b0288cbca4c2aa8e0c935cea21e9b2470",
-    },
-    "prose": {
-        "reviewer/prose-review.md": "6571b39d6de6cc20f7c729c3cff391c07bdd9834e8e332b16d01864ad7b3d8db",
-    },
-    "modern_poetry": {
-        "reviewer/modern-verse-review.md": "12af6d2c80843fb43ae9ab0f0c0a3b8312cbb325cced0427571f98ce23919757",
-    },
-    "classical_poetry": {
-        "reviewer/prosody-and-conception-review.md": "f4774a1085b1751f07e44b7fa3612dca788f45b0f361a4fe11144dd523a315a0",
-    },
-    "literary_editor": {
-        "reviewer/edit-review.md": "4026c87167388cf5c3a3846b162d0fa28208c869eb13b71cc84fbff8712e91c8",
-    },
-    "medical": {
-        "engineer/target-disease-research.md": "22ed6c69a27379b7f494a85c71317b60cbe9d5176656dd2c3c6b7936c40a471f",
-        "manager/medical-manager.md": "df9437e0726ff66368a5fa1c17507df14880dae0b5a7b4419ef6c50f94b9930d",
-        "planner/medical-planning.md": "0d63fdbb93f55befffda8fd1c4f80acfa3f0603f6633b80a4df850d4b900ba66",
-        "reviewer/medical-evidence-review.md": "25d2e461064ae9bea1d33a19c44a3977dcc28386ac3e42eaa794d9d3cc719274",
-    },
-    "materials": {
-        "engineer/materials-atomistic-simulation.md": "f25b616dae6cb6b29bfeb40f1d511e2f360053afc4a7d10bf873ff284619c650",
-        "engineer/materials-cad-cae-process-simulation.md": "9aa47450cfa2afe18ee5099c8cfc052c4111e14157e64e8fb6967a3e0e15b22e",
-        "engineer/materials-data-literature-grounding.md": "354baed9452335c86256da4ee8d3cd2a7f8a029f827a8c41cd0fb05601296860",
-        "engineer/materials-ecosystem-routing.md": "4050aa1d0ad457847b5d769d6b2fdae9321244c5d414d93cbbe122986500f4ba",
-        "engineer/materials-experiment-loop.md": "217012b924203cc8cd9f99ac4b13b34a00ccefaf985bdcb2579ec1d16f1ebce2",
-        "engineer/materials-research-execution.md": "25900094642969566df9ad2b6497facc0b51d40c4a9d87c4801bf0fa818ae0c7",
-        "manager/materials-research-manager.md": "3b8133f2372ce1525ae68f8ee4457b081694a2495d1659773f77d128fae69463",
-        "planner/materials-research-planning.md": "aac59ffaad7276929a3f766f44eab8e9996c1b5087685a8ee3b34c1a33d97ae8",
-        "reviewer/materials-research-review.md": "ceb7c0caa00a89e641fe8f6b05a27d061b8b9c4c707e5b6b2d2f343ef608dbeb",
-        "reviewer/materials-simulation-signoff.md": "21461c5898dbc44d57a3d9a5fcb5456fbbe547e5cbc9364bbe85ca2977f2eb09",
-        "reviewer/materials-validation-review.md": "62230196f280f5538ea8b88207c83a025d9370492de42deea44e13eb59a07741",
-    },
-    "ale_last_exam": {
-        "engineer/ale-last-exam-execution.md": "ab531ddd28e7d49dbb97ce9e7436cd365725d62db2318308bc8de02da2f4d53a",
-        "reviewer/ale-last-exam-delivery-review.md": "04cf27944b1b3c13ab32ba6c45601a50fd3b53d69279aabad17a224c883ade73",
-    },
-}
+    "engineer/kernel-optimization-knowledge.md",
+    "engineer/kernel-environment-first-engineering.md",
+    "reviewer/kernel-engineering-review.md",
+    "planner/software-project-grounding.md",
+    "engineer/learning-curation.md",
+    "reviewer/curation-review.md",
+    # Agent Teams removed on 2026-10-20.
+    "agent-team-lead.md",
+    # Retired on 2026-10-20 with its PDF CLI: the backend reads PDFs itself.
+    "engineer/pdf-chat.md",
+})
 
 
 def builtin_skill_source_path() -> Path:
@@ -597,9 +227,9 @@ def vertical_skill_parents(vertical: str) -> tuple[str, ...]:
 
     A vertical declares its own parents: an entry-point plugin exposes
     ``VERTICAL_SKILL_PARENTS`` (validated by ``verticals._registry``); the
-    built-in verticals declare none. A parent may itself be a plugin
-    (``nanogpt_speedrun <- speedrun``) or built in (``kernelbench <-
-    kernel_engineering``); ``_vertical_skill_roots`` resolves both the same way.
+    built-in verticals declare none. A parent may be a plugin
+    (``nanogpt_speedrun <- speedrun``) or built in; ``_vertical_skill_roots``
+    resolves both the same way.
     """
     from ..verticals._registry import vertical_plugin
 
@@ -784,90 +414,27 @@ def _moved_global_skill_names() -> set[str]:
     return moved
 
 
-def _seed_content_digests(body: bytes) -> set[str]:
-    """Recognize factory copies across LF/CRLF conversion, preserving other bytes.
-
-    Older Windows seeds were written as CRLF while their manifests hashed the
-    LF source text. Keep raw hashes compatible with existing manifests too.
-    Whitespace, a missing final newline, and all content changes still count
-    as operator edits; only line-ending representation is interchangeable.
-    """
-    lf_body = body.replace(b"\r\n", b"\n")
-    return {
-        hashlib.sha256(candidate).hexdigest()
-        for candidate in (body, lf_body, lf_body.replace(b"\n", b"\r\n"))
-    }
-
-
-def retire_uninstalled_vertical_seeds(skills_dir: Path) -> list[str]:
-    """Remove factory copies of seeds whose vertical left the package and is not installed.
-
-    Only a byte-identical factory copy (``_MOVED_VERTICAL_SEED_HASHES``) is
-    removed; an operator's edited copy is left exactly where it is -- not
-    archived -- because the vertical may be installed later and the edit is
-    then its rightful project-layer skill. A vertical that *is* installed is
-    skipped entirely; its seeds are the plugin's to manage.
-    """
-    from .vertical_select import available_verticals
-
-    root = Path(skills_dir)
-    present = set(available_verticals())
-    removed: list[str] = []
-    for vertical, seeds in _MOVED_VERTICAL_SEED_HASHES.items():
-        if vertical in present:
-            continue
-        for relative_name, expected_digest in seeds.items():
-            if relative_name in removed:
-                continue
-            path = root / relative_name
-            try:
-                body = path.read_bytes()
-            except (FileNotFoundError, IsADirectoryError, OSError):
-                continue
-            if expected_digest not in _seed_content_digests(body):
-                continue
-            try:
-                path.unlink()
-            except OSError:
-                continue
-            removed.append(relative_name)
-    return sorted(removed)
-
-
 def retire_orphaned_builtin_seeds(skills_dir: Path, *, include_moved: bool = True) -> list[str]:
-    """Remove retired seeds from matching, archiving any operator-edited copy.
+    """Remove retired seeds from matching, archiving any copy Argus cannot vouch for.
 
-    Also removes unmodified seeds of community verticals that are not
-    installed here (``retire_uninstalled_vertical_seeds``); those are never
-    archived.
+    A copy whose file facts still match what Argus recorded when it wrote it is
+    factory-owned and removed. Anything else -- an operator's edit, or a copy
+    seeded before Argus recorded file facts -- is archived, never deleted.
     """
     skills_dir = Path(skills_dir)
     state = _seed_state(skills_dir)
-    retired = dict(_RETIRED_BUILTIN_SEED_HASHES)
-    retired.update({
-        relative: state.get(relative)
-        or _LEGACY_BUILTIN_SEED_HASHES.get(relative)
-        or ""
-        for relative in (_moved_global_skill_names() if include_moved else ())
-    })
+    retired = set(_RETIRED_BUILTIN_SEEDS)
+    if include_moved:
+        retired |= _moved_global_skill_names()
     removed: list[str] = []
-    for relative_name, expected_digest in sorted(
-        retired.items()
-    ):
+    for relative_name in sorted(retired):
         path = skills_dir / relative_name
         try:
             body = path.read_bytes()
-        except (FileNotFoundError, IsADirectoryError, OSError):
+            facts = file_facts(path)
+        except OSError:
             continue
-        # An unedited copy of any shipped revision is factory-owned: the last
-        # bundled text, the pre-manifest seed and whatever this workspace
-        # recorded when it was seeded.
-        factory_digests = {
-            expected_digest,
-            _LEGACY_BUILTIN_SEED_HASHES.get(relative_name, ""),
-            state.get(relative_name, ""),
-        } - {""}
-        if factory_digests & _seed_content_digests(body):
+        if state.get(relative_name) == facts:
             try:
                 path.unlink()
             except OSError:
@@ -884,9 +451,8 @@ def retire_orphaned_builtin_seeds(skills_dir: Path, *, include_moved: bool = Tru
                     if archive.read_bytes() == body:
                         path.unlink()
                     else:
-                        digest = hashlib.sha256(body).hexdigest()[:12]
                         path.replace(
-                            archive.with_name(f"{archive.name}.{digest}")
+                            archive.with_name(f"{archive.name}.{uuid.uuid4().hex[:12]}")
                         )
                 except OSError:
                     continue
@@ -896,10 +462,11 @@ def retire_orphaned_builtin_seeds(skills_dir: Path, *, include_moved: bool = Tru
                 except OSError:
                     continue
         removed.append(relative_name)
-    removed.extend(retire_uninstalled_vertical_seeds(skills_dir))
     return removed
 
-def _seed_state(skills_dir: Path) -> dict[str, str]:
+
+def _seed_state(skills_dir: Path) -> dict[str, list[int]]:
+    """The file facts of each seed as Argus last wrote or confirmed it."""
     try:
         payload = json.loads(
             (skills_dir / _BUILTIN_SEED_STATE).read_text(encoding="utf-8")
@@ -909,9 +476,9 @@ def _seed_state(skills_dir: Path) -> dict[str, str]:
     if not isinstance(payload, dict):
         return {}
     return {
-        str(name): str(digest)
-        for name, digest in payload.items()
-        if isinstance(name, str) and isinstance(digest, str)
+        str(name): facts
+        for name, facts in payload.items()
+        if isinstance(facts, list)
     }
 
 
@@ -929,32 +496,30 @@ def _seed_texts(
         if filename.endswith(".md"):
             _validate_builtin(filename, text)
         dest = skills_dir / filename
-        source_digest = hashlib.sha256(text.encode("utf-8")).hexdigest()
+        body = text.encode("utf-8")
         try:
-            installed_body = dest.read_bytes()
-            installed_digest = hashlib.sha256(installed_body).hexdigest()
-            installed_digests = _seed_content_digests(installed_body)
+            installed = dest.read_bytes()
+            facts = file_facts(dest)
         except (FileNotFoundError, IsADirectoryError):
-            installed_digest = ""
-            installed_digests = set()
+            installed = facts = None
         except OSError:
             created[filename] = False
             continue
-        prior_digest = state.get(filename, "")
+        # Factory-owned: absent, already this text (in either line ending), or
+        # untouched since Argus last wrote it. Anything else is an operator edit.
         factory_owned = (
-            not installed_digest
-            or source_digest in installed_digests
-            or prior_digest in installed_digests
-            or _LEGACY_BUILTIN_SEED_HASHES.get(filename) in installed_digests
+            installed is None
+            or installed.replace(b"\r\n", b"\n") == body
+            or state.get(filename) == facts
         )
         if not overwrite and not factory_owned:
             created[filename] = False
             continue
-        changed = installed_digest != source_digest
+        changed = installed != body
         if changed:
             dest.parent.mkdir(parents=True, exist_ok=True)
             _atomic_write_text(dest, text)
-        state[filename] = source_digest
+        state[filename] = file_facts(dest)
         created[filename] = changed
     if state != previous_state:
         _atomic_write_text(

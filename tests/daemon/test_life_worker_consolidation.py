@@ -22,6 +22,14 @@ def test_skips_without_a_project_workspace_or_supervisor(tmp_path: Path, monkeyp
     _maybe_consolidate(SimpleNamespace(sup=sup, runner=None), SimpleNamespace(project_workdir=tmp_path, life_dir=tmp_path))
 
 
+def test_skips_when_learning_is_off(tmp_path: Path, monkeypatch) -> None:
+    monkeypatch.setattr(consolidation, "consolidate_knowledge", _refuse)
+    monkeypatch.setattr(vertical_select, "resolve_skill_scope", lambda ws: "research")
+    monkeypatch.setenv("ARGUS_SKILL_LEARNING", "0")
+    sup = SimpleNamespace(_budget_global_root=lambda: tmp_path, _emit=lambda event: True)
+    _maybe_consolidate(SimpleNamespace(sup=sup, runner=object()), SimpleNamespace(project_workdir=tmp_path, life_dir=tmp_path))
+
+
 def test_skips_quietly_when_the_vertical_is_undecided_or_unreadable(tmp_path: Path, monkeypatch, caplog) -> None:
     monkeypatch.setattr(consolidation, "consolidate_knowledge", _refuse)
     sup = SimpleNamespace(_budget_global_root=lambda: tmp_path, _emit=lambda event: True)

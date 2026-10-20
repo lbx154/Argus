@@ -1,13 +1,12 @@
 """Manager-owned campaign revisions and durable operator authorizations.
 
 A revision snapshot is immutable. ``HEAD.json`` is replaced last and is the sole
-current-state commit point, so stale waiting contracts and authorizations cannot
+current-state commit point, so stale review evidence and authorizations cannot
 be mistaken for current control-plane state after a restart.
 """
 
 from __future__ import annotations
 
-import hashlib
 import json
 import os
 import secrets
@@ -25,25 +24,6 @@ CONTROL_DIRNAME = "campaign-control"
 HEAD_FILENAME = "HEAD.json"
 AUTHORIZATION_LOG = "operator-authorizations.jsonl"
 CONTROL_VERSION = 1
-_TREE_IGNORE_DIRS = frozenset(
-    {
-        ".git",
-        ".mypy_cache",
-        ".pytest_cache",
-        ".ruff_cache",
-        ".tox",
-        ".venv",
-        "__pycache__",
-        "node_modules",
-        "venv",
-    }
-)
-_TREE_IGNORE_ROOTS = frozenset(
-    {
-        ".argus_external_work",
-        ".argus_subagents",
-    }
-)
 _ALLOWED_ACTIONS = frozenset(
     {
         "validator_repair",
@@ -58,14 +38,14 @@ _ALLOWED_ACTIONS = frozenset(
 @dataclass(frozen=True)
 class CampaignIdentity:
     campaign_id: str
-    objective_sha256: str
+    objective: str
     campaign_epoch: int
 
 
 @dataclass(frozen=True)
 class ControlHead:
     campaign_id: str
-    objective_sha256: str
+    objective: str
     campaign_epoch: int
     state_revision: int
     snapshot: str
@@ -76,17 +56,13 @@ class ControlHead:
 class Authorization:
     authorization_id: str
     campaign_id: str
-    objective_sha256: str
+    objective: str
     campaign_epoch: int
     state_revision: int
     blocker_fingerprint: str
     allowed_actions: tuple[str, ...]
     scope: str
     allowed_write_paths: tuple[str, ...]
-    allowed_write_baseline: tuple[dict[str, str], ...]
-    frozen_evidence: tuple[dict[str, str], ...]
-    frozen_tree_sha256: str
-    forbidden_mutations: tuple[str, ...]
     nonce: str
     source_channel: str
     source_message_id: str
@@ -103,23 +79,17 @@ class RepairCapability:
     capability_id: str
     authorization_id: str
     campaign_id: str
-    objective_sha256: str
+    objective: str
     campaign_epoch: int
     state_revision: int
     action: str
     validator_id: str
     allowed_write_paths: tuple[str, ...]
-    frozen_evidence: tuple[dict[str, str], ...]
-    frozen_tree_sha256: str
     nonce: str
     mission_id: str
     status: str
     acceptance_retries_remaining: int
     claimed_at: float
-
-
-def objective_sha256(objective: str) -> str:
-    return hashlib.sha256(str(objective or "").encode("utf-8")).hexdigest()
 
 
 def _read_json(path: Path) -> dict[str, Any] | None:
@@ -197,7 +167,7 @@ def _validated_write_paths(
     project_root: Path,
     paths: Iterable[object],
 ) -> tuple[str, ...]:
-    """Validate exact writable files at each capability boundary."""
+    """Validate the exact writable files an authorization names."""
     validated: list[str] = []
     for value in paths:
         safe, path = _validated_project_path(project_root, value)
@@ -205,79 +175,6 @@ def _validated_write_paths(
             raise ValueError("validator repair writable paths must identify files")
         validated.append(safe)
     return tuple(dict.fromkeys(validated))
-
-
-def _hash_path(project_root: Path, relative: str) -> dict[str, str]:
-    safe, path = _validated_project_path(project_root, relative)
-    if path.is_dir():
-        digest = _tree_sha256(path, excluded_paths=())
-        return {"path": safe, "sha256": f"tree:{digest}"}
-    try:
-        content = path.read_bytes()
-    except FileNotFoundError:
-        digest = "missing"
-    except OSError as exc:
-        raise ValueError(f"cannot freeze evidence path {safe}: {exc}") from exc
-    else:
-        digest = hashlib.sha256(content).hexdigest()
-    return {"path": safe, "sha256": digest}
-
-
-def _path_is_within(relative: str, roots: Iterable[str]) -> bool:
-    path = Path(relative)
-    return any(path == Path(root) or Path(root) in path.parents for root in roots)
-
-
-def _tree_sha256(project_root: Path, *, excluded_paths: Iterable[str]) -> str:
-    """Hash the project tree except explicitly writable and operational paths."""
-    project_root = project_root.expanduser().resolve(strict=False)
-    excluded = tuple(_validated_project_path(project_root, value)[0] for value in excluded_paths)
-    digest = hashlib.sha256()
-    if not project_root.exists():
-        return digest.hexdigest()
-    for root, dirs, files in os.walk(project_root, topdown=True, followlinks=False):
-        root_path = Path(root)
-        try:
-            root_relative = root_path.relative_to(project_root)
-        except ValueError as exc:
-            raise ValueError("project tree escaped its root") from exc
-        kept_dirs: list[str] = []
-        for name in sorted(dirs):
-            child = root_relative / name
-            relative = child.as_posix()
-            if name in _TREE_IGNORE_DIRS or relative in _TREE_IGNORE_ROOTS:
-                continue
-            if _path_is_within(relative, excluded):
-                continue
-            path = root_path / name
-            if path.is_symlink():
-                digest.update(b"L\0" + relative.encode("utf-8") + b"\0")
-                digest.update(os.readlink(path).encode("utf-8") + b"\0")
-                continue
-            digest.update(b"D\0" + relative.encode("utf-8") + b"\0")
-            kept_dirs.append(name)
-        dirs[:] = kept_dirs
-        for name in sorted(files):
-            path = root_path / name
-            relative = (root_relative / name).as_posix()
-            if _path_is_within(relative, excluded):
-                continue
-            digest.update(b"F\0" + relative.encode("utf-8") + b"\0")
-            if path.is_symlink():
-                digest.update(b"LINK\0" + os.readlink(path).encode("utf-8") + b"\0")
-                continue
-            try:
-                with path.open("rb") as handle:
-                    while chunk := handle.read(1024 * 1024):
-                        digest.update(chunk)
-            except OSError as exc:
-                raise ValueError(f"cannot freeze project path {relative}: {exc}") from exc
-            digest.update(b"\0")
-    return digest.hexdigest()
-
-
-def _campaign_id(objective_hash: str, epoch: int) -> str:
-    return f"campaign-{epoch}-{objective_hash[:16]}"
 
 
 class CampaignControlStore:
@@ -317,10 +214,9 @@ class CampaignControlStore:
             if campaign_epoch is not None
             else max(0, int(continuous.get("generation", 0) or 0))
         )
-        digest = objective_sha256(current_objective)
         return CampaignIdentity(
-            campaign_id=_campaign_id(digest, epoch),
-            objective_sha256=digest,
+            campaign_id=f"campaign-{epoch}",
+            objective=current_objective,
             campaign_epoch=epoch,
         )
 
@@ -331,7 +227,7 @@ class CampaignControlStore:
         try:
             return ControlHead(
                 campaign_id=str(value["campaign_id"]),
-                objective_sha256=str(value["objective_sha256"]),
+                objective=str(value["objective"]),
                 campaign_epoch=int(value["campaign_epoch"]),
                 state_revision=int(value["state_revision"]),
                 snapshot=str(value["snapshot"]),
@@ -365,7 +261,7 @@ class CampaignControlStore:
         same_campaign = bool(
             current is not None
             and current.campaign_id == identity.campaign_id
-            and current.objective_sha256 == identity.objective_sha256
+            and current.objective == identity.objective
             and current.campaign_epoch == identity.campaign_epoch
         )
         previous = self.read_snapshot(current) if same_campaign else None
@@ -373,12 +269,11 @@ class CampaignControlStore:
         snapshot: dict[str, Any] = {
             "version": CONTROL_VERSION,
             "campaign_id": identity.campaign_id,
-            "objective_sha256": identity.objective_sha256,
+            "objective": identity.objective,
             "campaign_epoch": identity.campaign_epoch,
             "state_revision": revision,
             "reason": str(reason or "manager control update")[:500],
             "committed_at": time.time(),
-            "active_wait": None,
             "authorization_ids": [],
             "active_capability": None,
             "stage_projection": {},
@@ -386,7 +281,6 @@ class CampaignControlStore:
         }
         if previous is not None:
             for field_name in (
-                "active_wait",
                 "authorization_ids",
                 "active_capability",
                 "stage_projection",
@@ -394,10 +288,10 @@ class CampaignControlStore:
             ):
                 snapshot[field_name] = previous.get(field_name, snapshot[field_name])
         snapshot.update(updates)
-        relative = f"revisions/{identity.campaign_id}-{revision}.json"
+        relative = f"revisions/{identity.campaign_id}-{revision}-{uuid.uuid4().hex[:8]}.json"
         head = ControlHead(
             campaign_id=identity.campaign_id,
-            objective_sha256=identity.objective_sha256,
+            objective=identity.objective,
             campaign_epoch=identity.campaign_epoch,
             state_revision=revision,
             snapshot=relative,
@@ -424,51 +318,7 @@ class CampaignControlStore:
                 reason=reason,
             )
 
-    def activate_wait(
-        self,
-        *,
-        identity: CampaignIdentity,
-        wait_id: str,
-        blocker_fingerprint: str,
-        recheck_token: str,
-        watched_paths: Iterable[str] = (),
-    ) -> ControlHead:
-        safe_watched_paths = [_safe_relative_path(path) for path in watched_paths]
-        head, _ = self.commit_revision(
-            identity=identity,
-            updates={
-                "active_wait": {
-                    "wait_id": str(wait_id),
-                    "blocker_fingerprint": str(blocker_fingerprint),
-                    "recheck_token": str(recheck_token),
-                    "watched_paths": safe_watched_paths,
-                },
-            },
-            reason="planner waiting contract activated",
-        )
-        return head
-
-    def clear_wait_for_new_evidence(
-        self,
-        *,
-        identity: CampaignIdentity,
-        stage_projection: dict[str, Any] | None = None,
-        terminal_evidence: Iterable[dict[str, Any]] | None = None,
-        reason: str,
-    ) -> ControlHead:
-        updates: dict[str, Any] = {"active_wait": None}
-        if stage_projection is not None:
-            updates["stage_projection"] = dict(stage_projection)
-        if terminal_evidence is not None:
-            updates["terminal_evidence"] = [dict(row) for row in terminal_evidence]
-        head, _ = self.commit_revision(
-            identity=identity,
-            updates=updates,
-            reason=reason,
-        )
-        return head
-
-    def clear_wait_for_new_evidence_if_current(
+    def record_review_evidence_if_current(
         self,
         *,
         identity: CampaignIdentity,
@@ -487,43 +337,12 @@ class CampaignControlStore:
             head, _ = self._next_revision_unlocked(
                 identity=identity,
                 updates={
-                    "active_wait": None,
                     "stage_projection": dict(stage_projection),
                     "terminal_evidence": [dict(row) for row in terminal_evidence],
                 },
                 reason=reason,
             )
             return head
-
-    def clear_wait_if_current(
-        self,
-        *,
-        identity: CampaignIdentity,
-        expected_state_revision: int,
-        expected_wait_id: str,
-        reason: str,
-    ) -> ControlHead | None:
-        """Atomically clear one exact active wait, or leave newer state intact."""
-        with self.locked():
-            head = self.read_head()
-            snapshot = self.read_snapshot(head)
-            active = snapshot.get("active_wait") if snapshot else None
-            if (
-                head is None
-                or head.campaign_id != identity.campaign_id
-                or head.objective_sha256 != identity.objective_sha256
-                or head.campaign_epoch != identity.campaign_epoch
-                or head.state_revision != int(expected_state_revision)
-                or not isinstance(active, dict)
-                or active.get("wait_id") != str(expected_wait_id)
-            ):
-                return None
-            cleared_head, _ = self._next_revision_unlocked(
-                identity=identity,
-                updates={"active_wait": None},
-                reason=reason,
-            )
-            return cleared_head
 
     def issue_authorization(
         self,
@@ -533,8 +352,6 @@ class CampaignControlStore:
         allowed_actions: Iterable[str],
         scope: str,
         allowed_write_paths: Iterable[str] = (),
-        evidence_paths: Iterable[str],
-        forbidden_mutations: Iterable[str] = (),
         source_channel: str,
         source_message_id: str,
         expires_at: float = 0.0,
@@ -542,7 +359,6 @@ class CampaignControlStore:
         acceptance_retries: int = 0,
         metadata: dict[str, Any] | None = None,
         expected_state_revision: int | None = None,
-        expected_wait_id: str = "",
     ) -> Authorization:
         actions = tuple(
             dict.fromkeys(
@@ -567,17 +383,6 @@ class CampaignControlStore:
                 raise ValueError("validator repair requires explicit writable paths")
             if max(0, min(1, int(acceptance_retries or 0))) != 1:
                 raise ValueError("validator repair requires exactly one acceptance retry")
-        safe_forbidden = tuple(
-            dict.fromkeys(_safe_relative_path(value) for value in forbidden_mutations)
-        )
-        if any(_path_is_within(path, safe_forbidden) for path in safe_allowed):
-            raise ValueError("writable path overlaps a forbidden mutation path")
-        frozen = tuple(_hash_path(self.project_root, value) for value in evidence_paths)
-        allowed_baseline = tuple(_hash_path(self.project_root, value) for value in safe_allowed)
-        frozen_tree_sha256 = _tree_sha256(
-            self.project_root,
-            excluded_paths=safe_allowed,
-        )
         issued_at = time.time()
         if expires_at and float(expires_at) <= issued_at:
             raise ValueError("authorization expiry must be in the future")
@@ -585,7 +390,7 @@ class CampaignControlStore:
             current = self.read_head()
             if current is not None and (
                 current.campaign_id != identity.campaign_id
-                or current.objective_sha256 != identity.objective_sha256
+                or current.objective != identity.objective
                 or current.campaign_epoch != identity.campaign_epoch
             ):
                 current = None
@@ -593,32 +398,17 @@ class CampaignControlStore:
                 current is None or current.state_revision != int(expected_state_revision)
             ):
                 raise ValueError("Manager HEAD changed before authorization issuance")
-            if expected_wait_id:
-                current_snapshot = self.read_snapshot(current)
-                active_wait = (
-                    current_snapshot.get("active_wait") if current_snapshot is not None else None
-                )
-                if (
-                    not isinstance(active_wait, dict)
-                    or active_wait.get("wait_id") != expected_wait_id
-                    or active_wait.get("blocker_fingerprint") != blocker
-                ):
-                    raise ValueError("Manager wait changed before authorization issuance")
             next_revision = (current.state_revision + 1) if current else 1
             authorization = Authorization(
                 authorization_id=f"auth-{uuid.uuid4().hex[:16]}",
                 campaign_id=identity.campaign_id,
-                objective_sha256=identity.objective_sha256,
+                objective=identity.objective,
                 campaign_epoch=identity.campaign_epoch,
                 state_revision=next_revision,
                 blocker_fingerprint=blocker,
                 allowed_actions=actions,
                 scope=str(scope or "bounded").strip()[:200],
                 allowed_write_paths=safe_allowed,
-                allowed_write_baseline=allowed_baseline,
-                frozen_evidence=frozen,
-                frozen_tree_sha256=frozen_tree_sha256,
-                forbidden_mutations=safe_forbidden,
                 nonce=secrets.token_urlsafe(24),
                 source_channel=str(source_channel or "unknown").strip()[:100],
                 source_message_id=str(source_message_id or "").strip()[:200],
@@ -634,10 +424,7 @@ class CampaignControlStore:
             )
             head, _ = self._next_revision_unlocked(
                 identity=identity,
-                updates={
-                    "active_wait": None,
-                    "authorization_ids": [authorization.authorization_id],
-                },
+                updates={"authorization_ids": [authorization.authorization_id]},
                 reason="Manager issued operator authorization",
             )
             if head.state_revision != authorization.state_revision:
@@ -702,12 +489,12 @@ class CampaignControlStore:
                 return None
             identity = CampaignIdentity(
                 campaign_id=str(latest.get("campaign_id") or ""),
-                objective_sha256=str(latest.get("objective_sha256") or ""),
+                objective=str(latest.get("objective") or ""),
                 campaign_epoch=int(latest.get("campaign_epoch") or 0),
             )
             if (
                 head.campaign_id != identity.campaign_id
-                or head.objective_sha256 != identity.objective_sha256
+                or head.objective != identity.objective
                 or head.campaign_epoch != identity.campaign_epoch
             ):
                 return None
@@ -797,11 +584,6 @@ class CampaignControlStore:
             "scope": str(row.get("scope") or ""),
             "validator_id": str(row.get("validator_id") or ""),
             "allowed_write_paths": list(row.get("allowed_write_paths") or []),
-            "frozen_evidence": [
-                {"path": str(value.get("path") or "")}
-                for value in (row.get("frozen_evidence") or [])
-                if isinstance(value, dict)
-            ],
             "issued_at": float(row.get("issued_at") or 0.0),
             "expires_at": float(row.get("expires_at") or 0.0),
         }
@@ -821,7 +603,7 @@ class CampaignControlStore:
             raise ValueError("authorization nonce mismatch")
         if (
             issued.get("campaign_id") != identity.campaign_id
-            or issued.get("objective_sha256") != identity.objective_sha256
+            or issued.get("objective") != identity.objective
             or int(issued.get("campaign_epoch", -1)) != identity.campaign_epoch
         ):
             raise ValueError("authorization campaign mismatch")
@@ -831,7 +613,7 @@ class CampaignControlStore:
             head is None
             or snapshot is None
             or head.campaign_id != identity.campaign_id
-            or head.objective_sha256 != identity.objective_sha256
+            or head.objective != identity.objective
             or head.campaign_epoch != identity.campaign_epoch
             or head.state_revision != int(issued.get("state_revision", -1))
             or authorization_id not in set(snapshot.get("authorization_ids") or [])
@@ -843,32 +625,6 @@ class CampaignControlStore:
         expires_at = float(issued.get("expires_at") or 0.0)
         if expires_at > 0 and time.time() >= expires_at:
             raise ValueError("authorization expired")
-        expected_frozen = list(issued.get("frozen_evidence") or [])
-        current_frozen = [
-            _hash_path(self.project_root, row.get("path"))
-            for row in expected_frozen
-            if isinstance(row, dict)
-        ]
-        if current_frozen != expected_frozen:
-            raise ValueError("frozen evidence changed")
-        expected_allowed = list(issued.get("allowed_write_baseline") or [])
-        _validated_write_paths(
-            self.project_root,
-            issued.get("allowed_write_paths") or [],
-        )
-        current_allowed = [
-            _hash_path(self.project_root, row.get("path"))
-            for row in expected_allowed
-            if isinstance(row, dict)
-        ]
-        if current_allowed != expected_allowed:
-            raise ValueError("authorized validator changed before capability claim")
-        frozen_tree = _tree_sha256(
-            self.project_root,
-            excluded_paths=issued.get("allowed_write_paths") or [],
-        )
-        if frozen_tree != str(issued.get("frozen_tree_sha256") or ""):
-            raise ValueError("frozen project tree changed")
         return issued, head, snapshot
 
     def claim_repair_capability(
@@ -901,14 +657,12 @@ class CampaignControlStore:
                 capability_id=f"repair-{uuid.uuid4().hex[:16]}",
                 authorization_id=authorization_id,
                 campaign_id=identity.campaign_id,
-                objective_sha256=identity.objective_sha256,
+                objective=identity.objective,
                 campaign_epoch=identity.campaign_epoch,
                 state_revision=head.state_revision + 1,
                 action=normalized_action,
                 validator_id=validator_id,
                 allowed_write_paths=tuple(issued.get("allowed_write_paths") or []),
-                frozen_evidence=tuple(issued.get("frozen_evidence") or []),
-                frozen_tree_sha256=str(issued.get("frozen_tree_sha256") or ""),
                 nonce=str(issued.get("nonce") or ""),
                 mission_id=str(mission_id or ""),
                 status="claimed",
@@ -949,28 +703,10 @@ class CampaignControlStore:
             if (
                 head is None
                 or head.campaign_id != identity.campaign_id
-                or head.objective_sha256 != identity.objective_sha256
+                or head.objective != identity.objective
                 or head.campaign_epoch != identity.campaign_epoch
             ):
                 raise ValueError("repair capability campaign mismatch")
-            expected_frozen = list(raw.get("frozen_evidence") or [])
-            _validated_write_paths(
-                self.project_root,
-                raw.get("allowed_write_paths") or [],
-            )
-            current_frozen = [
-                _hash_path(self.project_root, row.get("path"))
-                for row in expected_frozen
-                if isinstance(row, dict)
-            ]
-            if current_frozen != expected_frozen:
-                raise ValueError("frozen evidence changed")
-            tree_digest = _tree_sha256(
-                self.project_root,
-                excluded_paths=raw.get("allowed_write_paths") or [],
-            )
-            if tree_digest != str(raw.get("frozen_tree_sha256") or ""):
-                raise ValueError("write occurred outside authorized validator paths")
             remaining = int(raw.get("acceptance_retries_remaining") or 0)
             if remaining != 1:
                 raise ValueError("acceptance retry budget is unavailable")
@@ -1018,37 +754,16 @@ class CampaignControlStore:
             if (
                 head is None
                 or head.campaign_id != identity.campaign_id
-                or head.objective_sha256 != identity.objective_sha256
+                or head.objective != identity.objective
                 or head.campaign_epoch != identity.campaign_epoch
             ):
                 raise ValueError("repair capability campaign mismatch")
-            expected_frozen = list(raw.get("frozen_evidence") or [])
-            _validated_write_paths(
-                self.project_root,
-                raw.get("allowed_write_paths") or [],
-            )
-            current_frozen = [
-                _hash_path(self.project_root, row.get("path"))
-                for row in expected_frozen
-                if isinstance(row, dict)
-            ]
-            tree_digest = _tree_sha256(
-                self.project_root,
-                excluded_paths=raw.get("allowed_write_paths") or [],
-            )
-            guard_errors: list[str] = []
-            if current_frozen != expected_frozen:
-                guard_errors.append("frozen evidence changed")
-            if tree_digest != str(raw.get("frozen_tree_sha256") or ""):
-                guard_errors.append("write occurred outside authorized validator paths")
-            final_accepted = bool(accepted and not guard_errors)
             closed = {
                 **raw,
                 "event": "closed",
-                "status": "accepted" if final_accepted else "rejected",
-                "accepted": final_accepted,
+                "status": "accepted" if accepted else "rejected",
+                "accepted": bool(accepted),
                 "reason": str(reason or "")[:1000],
-                "guard_errors": guard_errors,
                 "closed_at": time.time(),
                 "state_revision": head.state_revision + 1,
             }
@@ -1069,7 +784,6 @@ class CampaignControlStore:
         nonce: str,
         action: str,
         identity: CampaignIdentity,
-        evidence_paths: Iterable[str] | None = None,
     ) -> dict[str, Any]:
         normalized_action = str(action or "").strip().lower()
         with self.locked():
@@ -1085,7 +799,7 @@ class CampaignControlStore:
                 raise ValueError("authorization nonce mismatch")
             if (
                 issued.get("campaign_id") != identity.campaign_id
-                or issued.get("objective_sha256") != identity.objective_sha256
+                or issued.get("objective") != identity.objective
                 or int(issued.get("campaign_epoch", -1)) != identity.campaign_epoch
             ):
                 raise ValueError("authorization campaign mismatch")
@@ -1095,7 +809,7 @@ class CampaignControlStore:
                 head is None
                 or snapshot is None
                 or head.campaign_id != identity.campaign_id
-                or head.objective_sha256 != identity.objective_sha256
+                or head.objective != identity.objective
                 or head.campaign_epoch != identity.campaign_epoch
                 or head.state_revision != int(issued.get("state_revision", -1))
                 or authorization_id not in set(snapshot.get("authorization_ids") or [])
@@ -1106,18 +820,6 @@ class CampaignControlStore:
             expires_at = float(issued.get("expires_at") or 0.0)
             if expires_at > 0 and time.time() >= expires_at:
                 raise ValueError("authorization expired")
-            expected_frozen = list(issued.get("frozen_evidence") or [])
-            current_frozen = [
-                _hash_path(self.project_root, row.get("path"))
-                for row in expected_frozen
-                if isinstance(row, dict)
-            ]
-            if current_frozen != expected_frozen:
-                raise ValueError("frozen evidence changed")
-            if evidence_paths is not None:
-                requested = [_safe_relative_path(path) for path in evidence_paths]
-                if requested != [row["path"] for row in expected_frozen]:
-                    raise ValueError("evidence set differs from authorization")
             consumed = {
                 **issued,
                 "event": "consumed",
@@ -1134,21 +836,3 @@ class CampaignControlStore:
             if consumed_head.state_revision != consumed["consumed_state_revision"]:
                 raise RuntimeError("authorization consumption revision mismatch")
             return consumed
-
-    def is_wait_current(
-        self,
-        *,
-        campaign_epoch: int,
-        state_revision: int,
-        wait_id: str,
-    ) -> bool:
-        head = self.read_head()
-        snapshot = self.read_snapshot(head)
-        active = snapshot.get("active_wait") if snapshot else None
-        return bool(
-            head is not None
-            and head.campaign_epoch == int(campaign_epoch)
-            and head.state_revision == int(state_revision)
-            and isinstance(active, dict)
-            and active.get("wait_id") == wait_id
-        )

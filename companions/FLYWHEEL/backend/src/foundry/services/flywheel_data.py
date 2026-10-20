@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-import hashlib
 import json
 import os
 import re
@@ -11,7 +10,7 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Iterable
 
-from ..db import Database, decode_row, decode_rows, utc_now
+from ..db import Database, decode_row, decode_rows, new_key, utc_now
 from .episode_artifact_manifest import (
     confirmed_argus_artifact_manifest,
     head_argus_artifacts_are_current,
@@ -117,10 +116,6 @@ def canonical_json(value: Any) -> str:
     return json.dumps(value, ensure_ascii=False, sort_keys=True, separators=(",", ":"))
 
 
-def sha256_text(value: str) -> str:
-    return hashlib.sha256(value.encode("utf-8")).hexdigest()
-
-
 def assert_no_secrets(value: Any, *, path: str = "payload") -> None:
     """Reject likely credentials without rejecting ordinary token-budget descriptions."""
 
@@ -155,7 +150,7 @@ def assert_no_secrets(value: Any, *, path: str = "payload") -> None:
 
 @dataclass(frozen=True, slots=True)
 class StoredObject:
-    sha256: str
+    object_key: str
     media_type: str
     byte_length: int
     storage_path: str
@@ -213,35 +208,31 @@ class ContentObjectStore:
             assert_no_secrets(decoded, path="object_bytes")
         redaction_scan_state = "passed" if text_scannable else "not_scannable_binary"
         manual_redaction_required = not text_scannable
-        digest = hashlib.sha256(value).hexdigest()
-        relative = Path(digest[:2]) / digest[2:4] / digest
+        object_key = new_key()
+        relative = Path(object_key[:2]) / object_key[2:4] / object_key
         destination = self.root / relative
-        if destination.exists():
-            if hashlib.sha256(destination.read_bytes()).hexdigest() != digest:
-                raise FlywheelDataError("existing content-addressed object failed verification")
-        else:
-            destination.parent.mkdir(parents=True, exist_ok=True)
-            handle, temporary_name = tempfile.mkstemp(prefix=".incoming-", dir=destination.parent)
-            try:
-                with os.fdopen(handle, "wb") as stream:
-                    stream.write(value)
-                    stream.flush()
-                    os.fsync(stream.fileno())
-                Path(temporary_name).replace(destination)
-            finally:
-                temporary = Path(temporary_name)
-                if temporary.exists():
-                    temporary.unlink()
+        destination.parent.mkdir(parents=True, exist_ok=True)
+        handle, temporary_name = tempfile.mkstemp(prefix=".incoming-", dir=destination.parent)
+        try:
+            with os.fdopen(handle, "wb") as stream:
+                stream.write(value)
+                stream.flush()
+                os.fsync(stream.fileno())
+            Path(temporary_name).replace(destination)
+        finally:
+            temporary = Path(temporary_name)
+            if temporary.exists():
+                temporary.unlink()
         now = utc_now()
 
         def register(target: sqlite3.Connection) -> sqlite3.Row:
             target.execute(
-                "INSERT OR IGNORE INTO content_objects"
-                "(sha256,media_type,byte_length,storage_path,secret_scan_state,metadata_json,"
+                "INSERT INTO content_objects"
+                "(object_key,media_type,byte_length,storage_path,secret_scan_state,metadata_json,"
                 "redaction_scan_state,manual_redaction_required,created_at) "
                 "VALUES(?,?,?,?,?,?,?,?,?)",
                 (
-                    digest,
+                    object_key,
                     media_type,
                     len(value),
                     relative.as_posix(),
@@ -253,7 +244,7 @@ class ContentObjectStore:
                 ),
             )
             row = target.execute(
-                "SELECT * FROM content_objects WHERE sha256=?", (digest,)
+                "SELECT * FROM content_objects WHERE object_key=?", (object_key,)
             ).fetchone()
             if row is None:
                 raise FlywheelDataError("content object registry insert failed")
@@ -269,7 +260,7 @@ class ContentObjectStore:
         if not row:
             raise FlywheelDataError("content object registry insert failed")
         return StoredObject(
-            digest,
+            object_key,
             media_type,
             len(value),
             relative.as_posix(),
@@ -277,8 +268,10 @@ class ContentObjectStore:
             bool(row["manual_redaction_required"]),
         )
 
-    def verify(self, digest: str) -> tuple[bool, str]:
-        row = self.db.fetch_one("SELECT * FROM content_objects WHERE sha256=?", (digest,))
+    def verify(self, object_key: str) -> tuple[bool, str]:
+        row = self.db.fetch_one(
+            "SELECT * FROM content_objects WHERE object_key=?", (object_key,)
+        )
         if not row:
             return False, "registry row missing"
         path = (self.root / row["storage_path"]).resolve()
@@ -288,23 +281,14 @@ class ContentObjectStore:
             return False, "storage path escapes object root"
         if not path.is_file():
             return False, "object file missing"
-        data = path.read_bytes()
-        if len(data) != row["byte_length"]:
+        if path.stat().st_size != row["byte_length"]:
             return False, "byte length mismatch"
-        if hashlib.sha256(data).hexdigest() != digest:
-            return False, "sha256 mismatch"
         return True, "verified"
 
 
-def _chain_hash(parent_chain_sha256: str | None, manifest_sha256: str) -> str:
-    return sha256_text(
-        canonical_json(
-            {
-                "manifest_sha256": manifest_sha256,
-                "parent_chain_sha256": parent_chain_sha256,
-            }
-        )
-    )
+def manifest_object_key(item: dict[str, Any]) -> str:
+    """An object reference in a sealed manifest; manifests sealed before keys were random say ``sha256``."""
+    return str(item.get("object_key") or item.get("sha256") or "")
 
 
 def _decode_revision(row: dict[str, Any]) -> dict[str, Any]:
@@ -317,7 +301,7 @@ def _confirmed_review_manifest(rows: Iterable[dict[str, Any]]) -> list[dict[str,
             "id": row["id"],
             "source_kind": row["source_kind"],
             "source_ref": row["source_ref"],
-            "raw_object_sha256": row["raw_object_sha256"],
+            "raw_object_key": row["raw_object_key"],
             "parsed": row.get("parsed", {}),
             "redaction_confirmed": bool(row["redaction_confirmed"]),
             "training_consent": bool(row["training_consent"]),
@@ -352,26 +336,26 @@ class EpisodeService:
     def _annotate_review_redaction(self, rows: list[dict[str, Any]]) -> None:
         """Attach immutable object-scan truth to review import projections."""
 
-        digests = sorted(
+        keys = sorted(
             {
-                str(row.get("raw_object_sha256") or "")
+                str(row.get("raw_object_key") or "")
                 for row in rows
-                if row.get("state") == "confirmed" and row.get("raw_object_sha256")
+                if row.get("state") == "confirmed" and row.get("raw_object_key")
             }
         )
         objects: dict[str, dict[str, Any]] = {}
-        if digests:
-            placeholders = ",".join("?" for _ in digests)
+        if keys:
+            placeholders = ",".join("?" for _ in keys)
             objects = {
-                str(item["sha256"]): dict(item)
+                str(item["object_key"]): dict(item)
                 for item in self.db.fetch_all(
-                    f"SELECT sha256,secret_scan_state,redaction_scan_state,"
-                    f"manual_redaction_required FROM content_objects WHERE sha256 IN ({placeholders})",
-                    digests,
+                    f"SELECT object_key,secret_scan_state,redaction_scan_state,"
+                    f"manual_redaction_required FROM content_objects WHERE object_key IN ({placeholders})",
+                    keys,
                 )
             }
         for row in rows:
-            obj = objects.get(str(row.get("raw_object_sha256") or ""))
+            obj = objects.get(str(row.get("raw_object_key") or ""))
             manual_required = bool(obj and obj.get("manual_redaction_required"))
             human_confirmed = bool(row.get("redaction_confirmed"))
             row["redaction_scan_state"] = (
@@ -385,12 +369,12 @@ class EpisodeService:
             row["redaction_ready"] = bool(obj and human_confirmed)
 
     def list_episode_summaries(self) -> list[dict[str, Any]]:
-        """Return one-query list metadata; content/hash verification stays lazy."""
+        """Return one-query list metadata; content verification stays lazy."""
 
         rows = decode_rows(
             self.db.fetch_all(
                 "SELECT e.*,hr.revision_number AS head_revision_number,"
-                "hr.manifest_sha256 AS head_manifest_sha256,"
+                "hr.manifest_key AS head_manifest_key,"
                 "(SELECT COUNT(*) FROM episode_revisions er WHERE er.episode_id=e.id) "
                 "AS revision_count,"
                 "(SELECT COUNT(*) FROM review_import_batches rb "
@@ -424,7 +408,7 @@ class EpisodeService:
             row["data_eligibility"] = {
                 "eligible": None,
                 "verification_required": True,
-                "reason": "load episode detail or verify endpoint for content/hash eligibility",
+                "reason": "load episode detail or verify endpoint for content eligibility",
             }
         return rows
 
@@ -604,7 +588,7 @@ class EpisodeService:
             sealed = bool(
                 artifact_import["state"] == "confirmed"
                 and artifact_membership.get(artifact_import["id"])
-                == artifact_import.get("content_object_sha256")
+                == artifact_import.get("content_object_key")
             )
             artifact_import["sealed_in_head"] = sealed
             artifact_import["sealed_revision_id"] = (
@@ -621,7 +605,7 @@ class EpisodeService:
             "valid": False,
             "checks": [{"name": "head_revision", "valid": False, "detail": "no sealed revision"}],
             "head_revision": None,
-            "manifest_sha256": None,
+            "manifest_key": None,
         }
         provenance_status = self.training_provenance_status(episode, head_row)
         gates = {
@@ -774,20 +758,20 @@ class EpisodeService:
         sealed_at = utc_now()
         object_refs = sorted(
             {
-                (row["raw_object_sha256"], f"review_import:{row['source_kind']}")
+                (row["raw_object_key"], f"review_import:{row['source_kind']}")
                 for row in imports
                 if row["state"] == "confirmed"
             }
             | {
-                (row["content_object_sha256"], f"argus_artifact:{row['role']}")
+                (row["content_object_key"], f"argus_artifact:{row['role']}")
                 for row in artifact_imports
                 if row["state"] == "confirmed"
             }
         )
-        for digest, _ in object_refs:
-            valid, detail = self.objects.verify(digest)
+        for object_key, _ in object_refs:
+            valid, detail = self.objects.verify(object_key)
             if not valid:
-                raise FlywheelDataError(f"content object {digest} cannot be sealed: {detail}")
+                raise FlywheelDataError(f"content object {object_key} cannot be sealed: {detail}")
         manifest = {
             "schema_version": SCHEMA_VERSION,
             "episode": {
@@ -817,11 +801,11 @@ class EpisodeService:
                 artifact_imports
             ),
             "objects": [
-                {"sha256": digest, "role": role} for digest, role in object_refs
+                {"object_key": object_key, "role": role} for object_key, role in object_refs
             ],
             "provenance": {
                 "parent_revision_id": parent["id"] if parent else None,
-                "parent_chain_sha256": parent["chain_sha256"] if parent else None,
+                "parent_chain_key": parent["chain_key"] if parent else None,
                 "revision_number": revision_number,
                 "reason": reason,
                 "sealed_by": actor,
@@ -830,33 +814,33 @@ class EpisodeService:
         }
         assert_no_secrets(manifest)
         manifest_json = canonical_json(manifest)
-        manifest_sha256 = sha256_text(manifest_json)
-        chain_sha256 = _chain_hash(parent["chain_sha256"] if parent else None, manifest_sha256)
+        manifest_key = new_key()
+        chain_key = new_key()
         revision_id = str(uuid.uuid4())
         with self.db.transaction() as connection:
             connection.execute(
                 "INSERT INTO episode_revisions"
-                "(id,episode_id,revision_number,parent_revision_id,manifest_json,manifest_sha256,"
-                "chain_sha256,object_count,reason,sealed_by,sealed_at) VALUES(?,?,?,?,?,?,?,?,?,?,?)",
+                "(id,episode_id,revision_number,parent_revision_id,manifest_json,manifest_key,"
+                "chain_key,object_count,reason,sealed_by,sealed_at) VALUES(?,?,?,?,?,?,?,?,?,?,?)",
                 (
                     revision_id,
                     episode_id,
                     revision_number,
                     parent["id"] if parent else None,
                     manifest_json,
-                    manifest_sha256,
-                    chain_sha256,
+                    manifest_key,
+                    chain_key,
                     len(object_refs),
                     reason,
                     actor,
                     sealed_at,
                 ),
             )
-            for digest, role in object_refs:
+            for object_key, role in object_refs:
                 connection.execute(
                     "INSERT INTO episode_revision_objects"
-                    "(revision_id,object_sha256,role,created_at) VALUES(?,?,?,?)",
-                    (revision_id, digest, role, sealed_at),
+                    "(revision_id,object_key,role,created_at) VALUES(?,?,?,?)",
+                    (revision_id, object_key, role, sealed_at),
                 )
             connection.execute(
                 "UPDATE research_episodes SET state=?,head_revision_id=?,updated_at=? WHERE id=?",
@@ -875,35 +859,25 @@ class EpisodeService:
         parent_id: str | None = None
         parent_chain: str | None = None
         for expected_number, revision in enumerate(revisions, 1):
-            manifest_digest = sha256_text(revision["manifest_json"])
-            checks.append(
-                {
-                    "name": f"revision_{expected_number}_manifest",
-                    "valid": manifest_digest == revision["manifest_sha256"],
-                    "detail": revision["id"],
-                }
-            )
-            chain_digest = _chain_hash(parent_chain, revision["manifest_sha256"])
             checks.append(
                 {
                     "name": f"revision_{expected_number}_chain",
                     "valid": (
                         revision["revision_number"] == expected_number
                         and revision["parent_revision_id"] == parent_id
-                        and chain_digest == revision["chain_sha256"]
                     ),
                     "detail": revision["id"],
                 }
             )
             refs = self.db.fetch_all(
-                "SELECT object_sha256,role FROM episode_revision_objects WHERE revision_id=?",
+                "SELECT object_key,role FROM episode_revision_objects WHERE revision_id=?",
                 (revision["id"],),
             )
             for ref in refs:
-                valid, detail = self.objects.verify(ref["object_sha256"])
+                valid, detail = self.objects.verify(ref["object_key"])
                 checks.append(
                     {
-                        "name": f"object_{ref['object_sha256']}",
+                        "name": f"object_{ref['object_key']}",
                         "valid": valid,
                         "detail": detail,
                     }
@@ -912,16 +886,16 @@ class EpisodeService:
                 manifest = json.loads(revision["manifest_json"])
                 provenance = manifest["provenance"]
                 manifest_refs = sorted(
-                    (item["sha256"], item["role"]) for item in manifest.get("objects", [])
+                    (manifest_object_key(item), item["role"]) for item in manifest.get("objects", [])
                 )
-                row_refs = sorted((item["object_sha256"], item["role"]) for item in refs)
+                row_refs = sorted((item["object_key"], item["role"]) for item in refs)
                 schema_version = manifest.get("schema_version")
                 artifact_rows = manifest.get("argus_artifact_imports", [])
                 artifact_refs = (
                     sorted(
                         {
                             (
-                                item["content_object_sha256"],
+                                item["content_object_key"],
                                 f"argus_artifact:{item['role']}",
                             )
                             for item in artifact_rows
@@ -933,7 +907,7 @@ class EpisodeService:
                 )
                 row_artifact_refs = sorted(
                     {
-                        (item["object_sha256"], item["role"])
+                        (item["object_key"], item["role"])
                         for item in refs
                         if str(item["role"]).startswith("argus_artifact:")
                     }
@@ -952,7 +926,7 @@ class EpisodeService:
                     schema_version in SUPPORTED_SCHEMA_VERSIONS
                     and manifest.get("episode", {}).get("id") == episode_id
                     and provenance.get("parent_revision_id") == parent_id
-                    and provenance.get("parent_chain_sha256") == parent_chain
+                    and provenance.get("parent_chain_key") == parent_chain
                     and provenance.get("revision_number") == expected_number
                     and manifest_refs == row_refs
                     and revision["object_count"] == len(row_refs)
@@ -968,7 +942,7 @@ class EpisodeService:
                 }
             )
             parent_id = revision["id"]
-            parent_chain = revision["chain_sha256"]
+            parent_chain = revision["chain_key"]
         head = revisions[-1] if revisions else None
         return checks, head
 
@@ -999,7 +973,7 @@ class EpisodeService:
                     }
                 ],
                 "head_revision": None,
-                "manifest_sha256": None,
+                "manifest_key": None,
             }
         checks, target = self._verify_revision_rows(
             episode_id, revisions[: target_index + 1]
@@ -1015,7 +989,7 @@ class EpisodeService:
             "valid": bool(checks) and all(check["valid"] for check in checks),
             "checks": checks,
             "head_revision": _decode_revision(target) if target else None,
-            "manifest_sha256": target["manifest_sha256"] if target else None,
+            "manifest_key": target["manifest_key"] if target else None,
         }
 
     def verify_episode(self, episode_id: str) -> dict[str, Any]:
@@ -1056,7 +1030,7 @@ class EpisodeService:
             "valid": bool(checks) and all(check["valid"] for check in checks),
             "checks": checks,
             "head_revision": _decode_revision(head) if head else None,
-            "manifest_sha256": head["manifest_sha256"] if head else None,
+            "manifest_key": head["manifest_key"] if head else None,
         }
 
 
@@ -1108,9 +1082,9 @@ def selection_preview(
             reasons.append("review_training_rights_missing")
         review_redaction = service.db.fetch_one(
             "SELECT COUNT(*) AS count FROM review_import_batches r "
-            "LEFT JOIN content_objects o ON o.sha256=r.raw_object_sha256 "
+            "LEFT JOIN content_objects o ON o.object_key=r.raw_object_key "
             "WHERE r.episode_id=? AND r.state='confirmed' "
-            "AND (r.redaction_confirmed=0 OR r.raw_object_sha256 IS NULL OR o.sha256 IS NULL)",
+            "AND (r.redaction_confirmed=0 OR r.raw_object_key IS NULL OR o.object_key IS NULL)",
             (episode["id"],),
         )
         if review_redaction and review_redaction["count"]:
@@ -1161,8 +1135,8 @@ def selection_preview(
             {
                 "episode_id": episode["id"],
                 "revision_id": revision["id"],
-                "manifest_sha256": revision["manifest_sha256"],
-                "chain_sha256": revision["chain_sha256"],
+                "manifest_key": revision["manifest_key"],
+                "chain_key": revision["chain_key"],
                 "training_provenance": provenance_status["provenance"],
             }
         )
@@ -1175,5 +1149,5 @@ def selection_preview(
         "eligible": members,
         "excluded": excluded,
         "counts": {"eligible": len(members), "excluded": len(excluded)},
-        "selection_sha256": sha256_text(canonical_json(selection)),
+        "selection": selection,
     }

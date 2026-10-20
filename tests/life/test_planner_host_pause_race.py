@@ -26,14 +26,13 @@ def _supervisor(tmp_path, monkeypatch):
         config=LifeSupervisorConfig(continuous=True, continuous_objective="original campaign"),
     )
     for name in (
-        "_render_research_plan_for_planner", "_planner_runtime_with_idle_note",
-        "_stuck_subagent_families_note", "_manager_intent_prompt_block",
+        "_render_research_plan_for_planner", "_planner_runtime_notes",
+        "_manager_intent_prompt_block",
         "_planner_authorization_prompt_block",
     ):
         monkeypatch.setattr(supervisor, name, lambda *args: "")
     monkeypatch.setattr(supervisor, "_planner_journal_window", lambda: None)
     monkeypatch.setattr(supervisor, "_render_journal_delta_for_planner", lambda _: ("", None))
-    monkeypatch.setattr(supervisor, "_recent_subagent_family_failures", lambda: {})
     monkeypatch.setattr(supervisor, "_apply_research_plan_update", lambda _: None)
     return supervisor, events
 

@@ -41,21 +41,21 @@ for (const width of [960, 1280, 1920]) for (const locale of ['zh-CN', 'en']) for
     const skills = page.locator('[data-skill-library]');
     await expect(skills.locator('[data-library-introduction]')).toContainText(zh ? '怎么做' : 'how to work');
     await skills.getByRole('navigation').getByRole('button', { name: /^(全局|Global)/ }).click();
-    await skills.getByRole('searchbox').fill(zh ? '分段阅读' : 'Progressive PDF Reading');
-    await skills.getByRole('button', { name: zh ? /^分段阅读 PDF/ : /^Progressive PDF Reading/ }).click();
+    await skills.getByRole('searchbox').fill(zh ? '演示文稿' : 'Editable Presentations with PPT Master');
+    await skills.getByRole('button', { name: zh ? /^可编辑演示文稿/ : /^Editable Presentations with PPT Master/ }).click();
     if (zh) {
       await expect(skills.locator('[data-skill-reading-guide]')).toContainText('不是完整执行指令');
       await skills.locator('[data-skill-original] > summary').click();
-      await expect(skills.locator('[data-skill-original] h1')).toHaveText('Progressive PDF Reading');
+      await expect(skills.locator('[data-skill-original] h1')).toHaveText('Editable Presentations with PPT Master');
       await skills.locator('[data-skill-original] > summary').click();
     } else {
       await expect(skills.locator('[data-skill-reading-guide]')).toHaveCount(0);
-      await expect(skills.getByRole('article')).toContainText('Progressive PDF Reading');
+      await expect(skills.getByRole('article')).toContainText('Editable Presentations with PPT Master');
     }
     const requested = fixture.state.trace.filter((row: { path: string }) => row.path.startsWith('/api/skill-library/document?'));
     expect(requested.some((row: { path: string }) => {
       const query = new URL(row.path, fixture.origin).searchParams;
-      return query.get('sid') === 's-A' && query.get('library') === 'global:bundled' && query.get('path') === 'engineer/pdf-chat.md';
+      return query.get('sid') === 's-A' && query.get('library') === 'global:bundled' && query.get('path') === 'engineer/presentation-master.md';
     })).toBe(true);
     await page.screenshot({ path: info.outputPath(`skill-guide-${width}-${locale}-${theme}.png`) });
     await close(page);

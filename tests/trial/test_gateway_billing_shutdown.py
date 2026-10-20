@@ -96,8 +96,7 @@ def test_shutdown_keeps_lock_until_cancel_swallowing_send_and_late_close_finish(
         lifespan = app.router.lifespan_context(app)
         await lifespan.__aenter__()
         store = app.state.store
-        credential = app.state.vault.credential(KEY_ID)
-        store.issue(KEY_ID, credential)
+        credential = app.state.store.issue(KEY_ID)
         receive, send = asgi_exchange(PAYLOAD, messages)
         request_task = asyncio.create_task(app(request_scope(credential), receive, send))
         shutdown_task = None
@@ -194,8 +193,7 @@ def test_sse_timeout_ends_before_billing_writer_releases(tmp_path):
         app = create_app(settings, transport=httpx.MockTransport(provider))
         async with app.router.lifespan_context(app):
             store = app.state.store
-            credential = app.state.vault.credential(KEY_ID)
-            store.issue(KEY_ID, credential)
+            credential = app.state.store.issue(KEY_ID)
             writer = HeldWriter(store.path)
             receive, send = asgi_exchange(payload, messages)
             request_task = asyncio.create_task(app(request_scope(credential), receive, send))
@@ -258,8 +256,7 @@ def test_shutdown_cancels_reserve_waiter_but_keeps_lock_through_late_refund(tmp_
         lifespan = app.router.lifespan_context(app)
         await lifespan.__aenter__()
         store = app.state.store
-        credential = app.state.vault.credential(KEY_ID)
-        store.issue(KEY_ID, credential)
+        credential = app.state.store.issue(KEY_ID)
         reserve_entered = threading.Event()
         reserve = store.reserve
 

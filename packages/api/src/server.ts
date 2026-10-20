@@ -1,4 +1,4 @@
-import { createHash, timingSafeEqual } from 'node:crypto';
+import { timingSafeEqual } from 'node:crypto';
 import { createServer, type IncomingMessage, type ServerResponse } from 'node:http';
 import {
   READ_API, SNAPSHOT_SCHEMA_VERSION, validProjectId,
@@ -58,7 +58,7 @@ export async function startReadApi(options: ReadApiOptions): Promise<ReadApiServ
   if (!['127.0.0.1', '::1'].includes(host)) throw new Error('read API must bind to a loopback address');
   if (!Number.isInteger(port) || port < 0 || port > 65535) throw new Error('invalid port');
   if (typeof options.token !== 'string' || options.token.length < 16) throw new Error('read API requires a bearer token of at least 16 characters');
-  const tokenHash = createHash('sha256').update(`Bearer ${options.token}`).digest();
+  const expected = Buffer.from(`Bearer ${options.token}`);
   let closing: Promise<void> | undefined;
   let url = '';
   const authorities = new Set<string>();
@@ -80,8 +80,8 @@ export async function startReadApi(options: ReadApiOptions): Promise<ReadApiServ
       if (request.headers.origin && request.headers.origin !== new URL(`http://${authority}`).origin) {
         throw new HttpError(403, 'invalid_origin', 'cross-origin requests are not supported');
       }
-      const supplied = typeof request.headers.authorization === 'string' ? request.headers.authorization : '';
-      if (!timingSafeEqual(createHash('sha256').update(supplied).digest(), tokenHash)) {
+      const supplied = Buffer.from(typeof request.headers.authorization === 'string' ? request.headers.authorization : '');
+      if (supplied.length !== expected.length || !timingSafeEqual(supplied, expected)) {
         response.setHeader('www-authenticate', 'Bearer');
         throw new HttpError(401, 'unauthorized', 'invalid or missing bearer token');
       }

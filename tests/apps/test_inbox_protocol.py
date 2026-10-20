@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-import hashlib
 import json
 import os
 import sqlite3
@@ -33,9 +32,8 @@ def transient(root, claim):
 
 
 def receipt(claim, target):
-    return {"format": "operator-delivery-receipt-v1", "identity": claim.identity,
-            "target_root": str(target.resolve()), "revision": 17,
-            "effect_digest": hashlib.sha256((json.dumps(claim.decision, ensure_ascii=False, sort_keys=True, allow_nan=False) + "\n").encode()).hexdigest()}
+    return {"format": "operator-delivery-receipt-v2", "identity": claim.identity,
+            "target_root": str(target.resolve()), "plan": claim.decision, "revision": 17}
 
 
 def test_transient_ack_retains_original_envelope_and_blocks_next(tmp_path):
@@ -87,7 +85,7 @@ def test_frozen_canonical_recovery_keeps_exact_plan_and_binding(tmp_path):
     assert recovered.decision == plan and recovered.target_root == str(target.resolve())
     with pytest.raises(inbox.InboxProtocolError, match="immutable"):
         inbox.freeze_inbox_decision(tmp_path, recovered, decision=plan | {"effect": {"text": "changed"}}, target_root=target)
-    for invalid in [receipt(recovered, target) | {"identity": original.identity | {"digest": "0" * 64}}, receipt(recovered, tmp_path)]:
+    for invalid in [receipt(recovered, target) | {"identity": original.identity | {"sequence": 99}}, receipt(recovered, tmp_path)]:
         with pytest.raises(inbox.InboxProtocolError, match="identity and target"):
             inbox.accept_inbox_claim(tmp_path, recovered, receipt=invalid)
     accepted = inbox.accept_inbox_claim(tmp_path, recovered, receipt=receipt(recovered, target))
@@ -112,7 +110,7 @@ def test_ack_cannot_precede_durable_acceptance(tmp_path):
     assert inbox.count_durable_inbox_messages(tmp_path) == 1
 
 
-def test_complete_legacy_identity_preserves_raw_digest_and_distinct_positions(tmp_path):
+def test_complete_legacy_identity_keeps_distinct_positions(tmp_path):
     raw = b'{"text":"same"}\n'
     path = tmp_path / "inbox.jsonl"
     path.write_bytes(raw + raw)
@@ -121,7 +119,6 @@ def test_complete_legacy_identity_preserves_raw_digest_and_distinct_positions(tm
     assert path.read_bytes() == raw + raw
     inbox.migrate_legacy_inbox(tmp_path, writers_stopped=True)
     first = take(tmp_path)
-    assert first.identity["digest"] == hashlib.sha256(raw).hexdigest()
     inbox.settle_inbox_claim(tmp_path, transient(tmp_path, first))
     second = take(tmp_path)
     assert first.text == second.text
@@ -143,7 +140,7 @@ def test_legacy_status_and_migration_use_exact_byte_offsets_for_line_endings(tmp
     inbox.migrate_legacy_inbox(tmp_path, writers_stopped=True)
     claim = take(tmp_path)
     assert claim.text == "pending"
-    assert claim.identity["digest"] == hashlib.sha256(pending).hexdigest()
+    assert claim.identity == {"stream": claim.identity["stream"], "generation": 1, "sequence": 2}
 
 
 def test_partial_legacy_never_acknowledged_and_completion_is_discoverable(tmp_path):
@@ -357,13 +354,25 @@ def test_receipt_cannot_ack_a_different_frozen_effect(tmp_path):
     claim = take(tmp_path)
     claim = inbox.freeze_inbox_decision(tmp_path, claim, decision={"version": 1, "target_root": str(target), "effect": {"text": "original"}}, target_root=target)
     bad = receipt(claim, target)
-    bad["effect_digest"] = "0" * 64
+    bad["plan"] = bad["plan"] | {"effect": {"text": "other"}}
     with pytest.raises(inbox.InboxProtocolError, match="frozen effect"):
         inbox.accept_inbox_claim(tmp_path, claim, receipt=bad)
     assert inbox.count_durable_inbox_messages(tmp_path) == 1
 
 
-def test_generation_change_and_raw_digest_corruption_fail_closed(tmp_path):
+def test_version_one_receipt_with_identity_digest_still_reads(tmp_path):
+    put(tmp_path)
+    target = tmp_path / "global"
+    claim = take(tmp_path)
+    claim = inbox.freeze_inbox_decision(tmp_path, claim, decision={"version": 1, "target_root": str(target), "effect": {"text": "once"}}, target_root=target)
+    legacy = {"format": "operator-delivery-receipt-v1", "identity": claim.identity | {"digest": "0" * 64},
+              "target_root": str(target.resolve()), "effect_digest": "0" * 64, "revision": 17}
+    claim = inbox.accept_inbox_claim(tmp_path, claim, receipt=legacy)
+    inbox.release_inbox_claim(tmp_path, claim)
+    assert take(tmp_path).receipt == legacy
+
+
+def test_generation_change_and_raw_corruption_fail_closed(tmp_path):
     put(tmp_path)
     path = tmp_path / inbox.PROTOCOL_DIR / "queue.sqlite3"
     with sqlite3.connect(path) as db:
@@ -373,7 +382,7 @@ def test_generation_change_and_raw_digest_corruption_fail_closed(tmp_path):
     with sqlite3.connect(path) as db:
         db.execute("UPDATE streams SET generation=1")
         db.execute("UPDATE messages SET raw=?", (b'{"text":"changed"}\n',))
-    with pytest.raises(inbox.InboxProtocolError, match="digest"):
+    with pytest.raises(inbox.InboxProtocolError, match="complete line or byte range"):
         take(tmp_path)
 
 
@@ -464,7 +473,7 @@ def test_original_source_is_derived_from_validated_raw_not_a_parallel_field(tmp_
     with sqlite3.connect(dbpath) as db:
         raw = db.execute("SELECT raw FROM messages").fetchone()[0]
         db.execute("UPDATE messages SET raw=?", (raw.replace(b'web.operator', b'peer.adviser'),))
-    with pytest.raises(inbox.InboxProtocolError, match="digest"):
+    with pytest.raises(inbox.InboxProtocolError, match="binding changed"):
         take(tmp_path)
 
 
@@ -472,8 +481,8 @@ def test_original_source_is_derived_from_validated_raw_not_a_parallel_field(tmp_
     ("mission_id", "changed mission"), ("consumer_stage", "changed stage"),
     ("consumer", "supervisor"), ("transient_text", "different transient"),
     ("decision", '{"kind":"different"}'), ("decision", "[]"),
-    ("target_root", "/different/target"), ("binding_digest", "0" * 64),
-    ("frozen_digest", "0" * 64), ("accepted", 0),
+    ("target_root", "/different/target"), ("binding_digest", '{"changed":true}'),
+    ("frozen_digest", '{"changed":true}'), ("accepted", 0),
 ])
 def test_corrupt_frozen_transient_or_binding_never_delivers(tmp_path, column, value):
     put(tmp_path)
@@ -488,8 +497,7 @@ def test_corrupt_frozen_transient_or_binding_never_delivers(tmp_path, column, va
 
 
 @pytest.mark.parametrize("column,value", [
-    ("receipt", "[]"), ("receipt_digest", "0" * 64),
-    ("receipt", '{"revision":999}'), ("receipt", None),
+    ("receipt", "[]"), ("receipt", '{"revision":999}'), ("receipt", None),
 ])
 def test_corrupt_accepted_canonical_receipt_cannot_ack_or_close(tmp_path, column, value):
     put(tmp_path)

@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 import contextlib
-import hashlib
 import json
 import os
 import shutil
@@ -26,9 +25,10 @@ def now() -> str:
     return datetime.now(timezone.utc).isoformat()
 
 
-def digest(path: Path) -> str:
-    with path.open("rb") as stream:
-        return hashlib.file_digest(stream, "sha256").hexdigest()
+def file_facts(path: Path) -> list[int]:
+    """``[size, mtime_ns, ctime_ns]`` like ``argus.core.file_facts``, which a frozen runner cannot import."""
+    stat = path.stat()
+    return [stat.st_size, stat.st_mtime_ns, stat.st_ctime_ns]
 
 
 def asset_source(name: str) -> Path:

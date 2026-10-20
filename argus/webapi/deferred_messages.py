@@ -5,7 +5,6 @@ after execution started is left for inspection, never blindly replayed.
 """
 from __future__ import annotations
 
-import hashlib
 import json
 import logging
 import os
@@ -14,6 +13,7 @@ import threading
 import time
 from pathlib import Path
 from typing import Any, Callable
+from urllib.parse import quote
 
 import portalocker
 
@@ -58,8 +58,7 @@ class DeferredMessages:
     def enqueue(self, life_dir: Path, request: dict[str, Any]) -> dict[str, Any]:
         directory = life_dir / "manager-deferred"
         directory.mkdir(parents=True, exist_ok=True)
-        identity = hashlib.sha256(request["turn_id"].encode()).hexdigest()
-        path = directory / f"{identity}.json"
+        path = directory / f"{quote(request['turn_id'], safe='')}.json"
         with self._lock:
             self._roots.add(life_dir.resolve())
             if not path.exists():

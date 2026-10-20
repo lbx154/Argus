@@ -1,5 +1,4 @@
 """Offline validator tests use only newly generated synthetic dataset packages."""
-import hashlib
 import io
 import json
 import zipfile
@@ -24,16 +23,12 @@ def canonical(value):
     return json.dumps(value, ensure_ascii=True, allow_nan=False, sort_keys=True, separators=(",", ":"))
 
 
-def digest(value):
-    return hashlib.sha256(value).hexdigest()
-
-
 @pytest.fixture
 def package(training, tmp_path):
     """A synthetic parallel-tool episode passed through the actual exporter."""
     evidence = tmp_path / "acceptance.json"
     evidence.write_text('{"synthetic_unit_test":true,"checks_passed":true}\n')
-    evidence_hash = digest(evidence.read_bytes())
+    evidence_bytes = len(evidence.read_bytes())
     tools = [{"name": "bash", "description": "Execute a workspace command.", "parameters": {
         "type": "object", "properties": {"command": {"type": "string"}, "timeout": {"type": "integer"}},
         "required": ["command"],
@@ -68,8 +63,7 @@ def package(training, tmp_path):
                      ("settled", {})]
     episode = training.capture.begin("tenant-one", "s-project", "synthetic-session", observer_verified=True,
                                      allowed_tools=["bash"], runtime_profile=HOSTED_PROFILE, runtime_metadata={
-                                         "profile": HOSTED_PROFILE, "capture_id": "a" * 32, "call_id": "actual-call", "mission_id": "actual-task",
-                                         "source_sha256": {"synthetic_fixture": "b" * 64}, "launch_sha256": "c" * 64})["episode_id"]
+                                         "profile": HOSTED_PROFILE, "capture_id": "a" * 32, "call_id": "actual-call", "mission_id": "actual-task"})["episode_id"]
     for kind, payload in observations:
         result = training.capture.event("tenant-one", "s-project", episode, kind, payload)
         assert result["state"] != "quarantined", result
@@ -77,7 +71,7 @@ def package(training, tmp_path):
     sample = training.preview("internal_training", projects)["candidates"][0]
     blob, _ = training.export("internal_training", projects, review={
         "content_approved": True, "tool_context_approved": True, "approved_event_ids": [sample["event_id"]],
-        "reviewer_kind": "automated_acceptance", "evidence_sha256": evidence_hash})
+        "reviewer_kind": "automated_acceptance", "evidence_bytes": evidence_bytes})
     return blob, evidence, training, projects
 
 
@@ -90,7 +84,7 @@ def rewrite(blob, mutate):
     for name, value in parsed.items():
         files[name] = ("".join(canonical(row) + "\n" for row in value) if name.endswith(".jsonl") else canonical(value)).encode()
     manifest = parsed["manifest.json"]
-    manifest["files"] = {name: {"sha256": digest(raw), "bytes": len(raw)} for name, raw in files.items() if name != "manifest.json"}
+    manifest["files"] = {name: {"bytes": len(raw)} for name, raw in files.items() if name != "manifest.json"}
     files["manifest.json"] = canonical(manifest).encode()
     stream = io.BytesIO()
     with zipfile.ZipFile(stream, "w", compression=zipfile.ZIP_DEFLATED) as archive:
@@ -114,7 +108,7 @@ def test_automated_acceptance_requires_exact_external_evidence(package, tmp_path
     assert validate_package(blob)["errors"][0]["code"] == "automated_review_evidence_file_required"
     wrong = tmp_path / "wrong.json"
     wrong.write_text("unrelated synthetic evidence")
-    assert validate_package(blob, evidence_path=wrong)["errors"][0]["code"] == "evidence_file_hash_mismatch"
+    assert validate_package(blob, evidence_path=wrong)["errors"][0]["code"] == "evidence_file_size_mismatch"
 
 
 def test_chat_review_package_is_valid_but_not_agentic(training):
@@ -151,14 +145,13 @@ def test_persisted_sample_review_keeps_its_own_reviewer_and_evidence(package):
      "tool_arguments_schema_mismatch"),
     (lambda p: p["hf_trl_train.jsonl"][0]["messages"][-1].update(reasoning_content="PRIVATE_SYNTHETIC_NEVER_REPORT"),
      "private_or_unknown_message_field"),
-    (lambda p: p["samples.jsonl"][0].update(sample_id="f" * 64), "sample_content_hash_mismatch"),
     (lambda p: p["samples.jsonl"][0]["quality_evidence"].update(human_reviewed=True), "sample_reviewer_evidence_mismatch"),
     (lambda p: p["trajectories.jsonl"][0]["events"][2]["payload"]["input"].update(command="printf changed"),
      "executed_arguments_do_not_match_model_call"),
     (lambda p: p["provenance.jsonl"][0]["consent"].update(notice_version="unrelated-notice"), "source_consent_scope_mismatch"),
     (lambda p: p["manifest.json"]["counts"].update(sft=42), "manifest_quality_actual_counts_mismatch"),
 ])
-def test_rehashed_but_semantically_invalid_package_is_rejected(package, mutation, code):
+def test_resized_but_semantically_invalid_package_is_rejected(package, mutation, code):
     blob, evidence, _, _ = package
     report = validate_package(rewrite(blob, mutation), evidence_path=evidence)
     assert not report["valid"] and report["errors"][0]["code"] == code, report
@@ -224,7 +217,7 @@ def test_cli_writes_content_free_structured_report(package, tmp_path, capsys):
     assert main([str(source), "--evidence", str(evidence), "--report", str(report), "--require-agentic"]) == 0
     saved = json.loads(report.read_text())
     assert saved == json.loads(capsys.readouterr().out)
-    assert saved["package_sha256"] == digest(blob)
+    assert saved["package_bytes"] == len(blob)
     assert "printf" not in report.read_text()
 
 
@@ -245,7 +238,7 @@ def test_file_integrity_failure_is_detected_before_semantics(package):
     with zipfile.ZipFile(stream, "w") as archive:
         for name, raw in files.items():
             archive.writestr(name, raw)
-    assert validate_package(stream.getvalue(), evidence_path=evidence)["errors"][0]["code"] == "manifest_hash_or_size_mismatch"
+    assert validate_package(stream.getvalue(), evidence_path=evidence)["errors"][0]["code"] == "manifest_size_mismatch"
 
 
 def test_duplicate_json_keys_and_nonfinite_numbers_fail_strictly():
@@ -293,9 +286,6 @@ def test_provider_required_order_is_irrelevant_but_membership_is_exact(package, 
             for filename in (f"hf_trl_{split}.jsonl", f"sft_{split}.jsonl"):
                 for sample in parsed[filename]:
                     sample["tools"][0]["function"]["parameters"]["required"] = list(required)
-            selected = [row for row in parsed["samples.jsonl"] if row["quality_approved"] and row["split"] == split]
-            for row, sample in zip(selected, parsed[f"hf_trl_{split}.jsonl"]):
-                row["sample_id"] = digest(canonical(sample).encode())
         for source in parsed["trajectories.jsonl"]:
             for event in source["events"]:
                 if event["kind"] == "provider_request":

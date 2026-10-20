@@ -3,7 +3,7 @@
 Covers everything that can decide "there is nothing to plan right now" before
 the planner is ever invoked: draining operator messages, Manager→Planner
 feedback exhaustion, dynamic-plan revision-request validation, retrying a
-pending planner verdict, terminal-idle / event-wait outcomes, the wiki-collect
+pending planner verdict, terminal-idle and unchanged-input outcomes, the wiki-collect
 maintenance task, the missing-planner-runner error, the operator
 external-blocker short circuit, and the bounded-vertical-reached-terminal-stage
 fast path.
@@ -36,6 +36,9 @@ if TYPE_CHECKING:
     from ._config import _MemoryView
 
 _TERMINAL_TASK_STATUSES = {"done", "failed", "aborted", "skipped", "superseded"}
+# Stands in for a Planner input digest that could not be computed after a
+# turn, so a Manager WAIT still holds after it instead of re-granting one.
+_UNREADABLE_WAIT_INPUT = "planner-input:unreadable"
 
 
 class PlanningCycleIntakeMixin:
@@ -237,12 +240,10 @@ class PlanningCycleIntakeMixin:
         )
 
         transient_messages = unique_operator_messages(transient_messages)
-        # A subagent's completion report is the host telling itself a job
-        # settled. The job's state already reaches the waits and the
-        # unchanged-input digest through the external-work registry, so the
-        # report rides along with the next Planner turn instead of forcing one.
-        # Counting it as operator input dropped every wait: on 2026-10-15 it
-        # forced 63 of 131 back-to-back "still waiting" Planner calls.
+        # A background-job report an older release queued is the host telling
+        # itself a job settled, so it rides along with the next Planner turn
+        # instead of forcing one. Counting it as operator input forced 63 of
+        # 131 back-to-back Planner calls on 2026-10-15.
         operator_messages = [
             message for message in transient_messages if not is_host_report(message)
         ]
@@ -273,16 +274,23 @@ class PlanningCycleIntakeMixin:
             from ...manager.supervision import waiting_for_evidence
 
             if waiting_for_evidence(operator_context_state_root(self.memory)):
-                self._enter_idle_backoff()
-                self._emit_status("Waiting for the requested operator facts; unchanged work is not being reviewed again")
-                return PLAN_AWAITING
+                # The WAIT parks the tasks whose answers it awaits: they are
+                # unclaimable and their dependents unready on their own. It
+                # must not freeze the project, so the Planner gets one turn per
+                # state of its inputs to plan work that does not need the
+                # answer; only a state it has already seen is held without a
+                # call.
+                current = self._current_planner_input_signature()
+                held = str(getattr(self, "_planner_last_turn_signature", "") or "")
+                if held and (current or _UNREADABLE_WAIT_INPUT) == held:
+                    self._enter_idle_backoff()
+                    self._emit_status("Waiting for the requested operator facts; unchanged work is not being reviewed again")
+                    return PLAN_AWAITING
         if operator_messages:
             self._clear_manager_planner_feedback()
             self._reset_idle_backoff()
         if operator_messages or state.has_unhandled_operator_input:
-            self._deactivate_planner_waiting_contract()
             self._last_open_ended_project_done_signature = ""
-            self._uncontracted_wait_probed = False
             # The inbox was already drained above. Do not let a durable idle
             # receipt restore the hold before Planner sees this new instruction.
             from ..planner_verdict_outbox import (
@@ -362,7 +370,6 @@ class PlanningCycleIntakeMixin:
                         or "."
                     )
                 ),
-                str(getattr(self.config, "continuous_objective", "") or ""),
             )
             circuit = load_completion_rejection_circuit(circuit_path)
             if circuit is not None and circuit.get("paused"):
@@ -575,46 +582,13 @@ class PlanningCycleIntakeMixin:
             return terminal_idle
 
         if revision_request is None:
-            if not state.had_operator_messages and not state.has_unhandled_operator_input:
-                active = self.memory.backlog.active()
-                parked = [item for item in active if item.status == "paused_external_work"]
-                pending = [item for item in active if item.status == "pending"]
-                if parked and pending:
-                    in_flight = {
-                        item.id for item in active
-                        if item.status in {"running", "paused_external_work"}
-                    }
-                    blocked = set(in_flight)
-                    while dependents := {
-                        item.id for item in pending
-                        if item.id not in blocked and blocked.intersection(item.deps)
-                    }:
-                        blocked.update(dependents)
-                    if all(item.id in blocked for item in pending):
-                        from ...planner import PlannerVerdict
-
-                        # The existing mission external_wait records own the wake:
-                        # run() resumes each parked mission when its job settles.
-                        # Pending descendants are already planned work, so another
-                        # Planner turn cannot make them ready.
-                        return self._record_planner_waiting(PlannerVerdict(
-                            project_done=False,
-                            waiting=True,
-                            reason=(
-                                "Pending work depends on in-flight missions: "
-                                + ", ".join(sorted(in_flight))
-                            ),
-                        ))
-            event_wait_outcome = self._planner_event_wait_outcome()
-            if event_wait_outcome:
-                return event_wait_outcome
             if not state.had_operator_messages:
                 unchanged_outcome = self._maybe_skip_unchanged_planner_cycle(
                     state
                 )
                 if unchanged_outcome is not None:
                     return unchanged_outcome
-                failing_hold = self._maybe_hold_failing_planner(state)
+                failing_hold = self._maybe_hold_failing_planner()
                 if failing_hold is not None:
                     return failing_hold
 
@@ -678,7 +652,7 @@ class PlanningCycleIntakeMixin:
                 project_root=self._project_workdir(),
             )
         if short_circuit is not None:
-            return self._record_planner_waiting(short_circuit)
+            return self._record_planner_handoff(short_circuit, state)
 
         # The mission is now committing to real planning work — every idle /
         # blocked / no-runner / done short-circuit above has returned. Decide +

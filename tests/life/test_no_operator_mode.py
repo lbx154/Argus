@@ -1,9 +1,10 @@
 """Runs with and without an operator settle operator decisions differently.
 
 With an operator, a decision the raising role classified as the operator's is
-asked. Without one, nobody is asked: scope and interpretation questions are
-settled on the most defensible reading with the assumption recorded, and only
-an action the operator alone can enable ends the work as blocked.
+asked. Without one, nobody is asked and the Manager holds the operator's
+authority: scope and interpretation questions are settled on the most
+defensible reading with the assumption recorded, and an action only the
+operator could approve parks as a question the Manager decides in their place.
 """
 from __future__ import annotations
 
@@ -59,7 +60,6 @@ class _ClassifiedQuestionRunner:
         outcome.final_review_reason = "Two requirements conflict."
         outcome.final_review_next_action = ""
         outcome.final_planner_report = {
-            "forward_progress": False,
             "plan_signal": "reconsider",
             "authority_impact": "operator",
             "operator_need": self.need,
@@ -139,7 +139,7 @@ def test_no_operator_settles_the_conflict_on_a_recorded_assumption(
     )
     challenge = outcome["plan_challenge"]
     assert challenge["autonomous_assumption"] is True
-    assert "No operator is available" in challenge["manager_reason"]
+    assert "The operator cannot be asked" in challenge["manager_reason"]
     # The Planner is told to decide, record the assumption, and not wait.
     rendered = _render_revision_request(outcome, [])
     assert "manager_instruction:" in rendered
@@ -161,7 +161,7 @@ def test_no_operator_settles_the_conflict_on_a_recorded_assumption(
 
 
 @pytest.mark.parametrize("need", ["credentials", "spending", "irreversible_or_external"])
-def test_no_operator_blocks_an_action_only_the_operator_can_enable(
+def test_no_operator_parks_an_action_for_the_manager_to_decide(
     tmp_path, monkeypatch, need
 ) -> None:
     monkeypatch.setenv("ARGUS_SKILL_OPERATOR_AVAILABLE", "false")
@@ -174,11 +174,10 @@ def test_no_operator_blocks_an_action_only_the_operator_can_enable(
         _conflict_outcome(item.id, operator_need=need)
     )
 
-    assert action == "blocked"
+    assert action == "ask_operator"
     stored = next(row for row in supervisor.memory.backlog.all() if row.id == item.id)
-    assert stored.status == "failed"
-    assert stored.pending_question == ""
-    assert need in stored.last_error
+    assert stored.status == "paused_operator"
+    assert stored.operator_decision["status"] == "pending"
 
 
 def test_no_operator_mission_question_becomes_a_replan_not_a_park(
@@ -220,84 +219,6 @@ def test_operator_available_mission_question_still_parks(tmp_path, monkeypatch) 
     assert stored.pending_question == "Which of the two conflicting release rules wins?"
 
 
-def test_pending_operator_questions_reports_only_an_operator_wait(tmp_path) -> None:
-    supervisor, _sink = _supervisor(tmp_path, runner=object())
-    backlog = supervisor.memory.backlog
-    parked = backlog.add(BacklogItem.new(title="Plan", objective="plan"))
-    backlog.update(parked.id, status="paused_operator", pending_question="Which rule wins?")
-    blocked_child = BacklogItem.new(title="Write back", objective="write back")
-    blocked_child.deps = [parked.id]
-    backlog.add(blocked_child)
-
-    assert supervisor._pending_operator_questions() == ["Which rule wins?"]
-
-    backlog.add(BacklogItem.new(title="Independent", objective="independent work"))
-    assert supervisor._pending_operator_questions() is None
-
-
-def test_bounded_daemon_ends_an_operator_only_wait_with_a_clear_outcome(
-    monkeypatch,
-) -> None:
-    from argus.daemon._life_worker_run import LifeWorkerRunMixin
-
-    events: list[dict[str, Any]] = []
-    statuses: list[str] = []
-    supervisor = SimpleNamespace(
-        _pending_operator_questions=lambda: ["Which rule wins?"],
-        _emit=events.append,
-        _emit_status=statuses.append,
-    )
-    worker = LifeWorkerRunMixin()
-
-    monkeypatch.setenv("ARGUS_SKILL_OPERATOR_AVAILABLE", "true")
-    monkeypatch.setenv("ARGUS_SKILL_BOUNDED_OPERATOR_WAIT_EXIT_MIN", "30")
-    assert worker._bounded_operator_wait_expired([supervisor]) is False
-    assert events == []
-    # The grace is measured from the first pass that found only the wait.
-    worker._operator_wait_since -= 31 * 60
-    assert worker._bounded_operator_wait_expired([supervisor]) is True
-    # Reported as a block that needs the operator, not as idleness.
-    assert events[-1]["type"] == EventType.LIFE_LIFECYCLE_BLOCK
-    assert events[-1]["lifecycle_state"] == "needs_operator"
-    assert events[-1]["text"].startswith("blocked: needs operator")
-    assert "Which rule wins?" in events[-1]["text"]
-    assert statuses and statuses[-1].startswith("blocked: needs operator")
-
-
-def test_bounded_daemon_without_an_operator_does_not_wait_at_all(monkeypatch) -> None:
-    from argus.daemon._life_worker_run import LifeWorkerRunMixin
-
-    supervisor = SimpleNamespace(
-        _pending_operator_questions=lambda: ["Which rule wins?"],
-        _emit=lambda _event: None,
-        _emit_status=lambda _text: None,
-    )
-    monkeypatch.setenv("ARGUS_SKILL_OPERATOR_AVAILABLE", "false")
-    assert LifeWorkerRunMixin()._bounded_operator_wait_expired([supervisor]) is True
-
-
-def test_bounded_daemon_keeps_working_while_other_work_remains(monkeypatch) -> None:
-    from argus.daemon._life_worker_run import LifeWorkerRunMixin
-
-    supervisor = SimpleNamespace(_pending_operator_questions=lambda: None)
-    worker = LifeWorkerRunMixin()
-    monkeypatch.setenv("ARGUS_SKILL_OPERATOR_AVAILABLE", "false")
-    assert worker._bounded_operator_wait_expired([supervisor]) is False
-    assert worker._operator_wait_since is None
-
-
-def test_operator_wait_can_be_made_indefinite(monkeypatch) -> None:
-    from argus.daemon._life_worker_run import LifeWorkerRunMixin
-
-    supervisor = SimpleNamespace(_pending_operator_questions=lambda: ["Which rule wins?"])
-    worker = LifeWorkerRunMixin()
-    monkeypatch.setenv("ARGUS_SKILL_OPERATOR_AVAILABLE", "true")
-    monkeypatch.setenv("ARGUS_SKILL_BOUNDED_OPERATOR_WAIT_EXIT_MIN", "0")
-    assert worker._bounded_operator_wait_expired([supervisor]) is False
-    worker._operator_wait_since -= 10 * 24 * 3600
-    assert worker._bounded_operator_wait_expired([supervisor]) is False
-
-
 def test_operator_context_tells_every_role_when_nobody_will_answer(
     tmp_path, monkeypatch
 ) -> None:
@@ -313,81 +234,17 @@ def test_operator_context_tells_every_role_when_nobody_will_answer(
     assert "no operator is available" not in block
 
 
-def test_web_started_bounded_worker_keeps_waiting_for_the_ui_answer(monkeypatch) -> None:
-    from argus.daemon._life_worker_run import LifeWorkerRunMixin
-
-    supervisor = SimpleNamespace(_pending_operator_questions=lambda: ["Which rule wins?"])
-    worker = LifeWorkerRunMixin()
-    monkeypatch.setenv("ARGUS_SKILL_OPERATOR_AVAILABLE", "true")
-    monkeypatch.setenv("ARGUS_SKILL_BOUNDED_OPERATOR_WAIT_EXIT_MIN", "1")
-    worker._operator_wait_since = 0.0
-    assert worker._bounded_operator_wait_expired([supervisor], enabled=False) is False
-
-
-def test_operator_wait_exit_leaves_a_marker_for_answer_and_resume(
-    tmp_path, monkeypatch
-) -> None:
-    from argus.core.autonomy import OPERATOR_WAIT_EXIT_FILENAME
-    from argus.daemon._life_worker_run import LifeWorkerRunMixin
-
-    supervisor = SimpleNamespace(
-        _pending_operator_questions=lambda: ["Which rule wins?"],
-        memory=SimpleNamespace(root=tmp_path),
-    )
-    monkeypatch.setenv("ARGUS_SKILL_OPERATOR_AVAILABLE", "false")
-    assert LifeWorkerRunMixin()._bounded_operator_wait_expired([supervisor]) is True
-    marker = tmp_path / OPERATOR_WAIT_EXIT_FILENAME
-    assert "blocked: needs operator" in marker.read_text(encoding="utf-8")
-
-
-def test_cli_operator_wait_exit_is_on_only_for_foreground_bounded_runs() -> None:
+def test_retired_operator_wait_exit_is_accepted_and_ignored(tmp_path) -> None:
     from argus.apps.cli import build_parser
-    from argus.apps.cli._core import _operator_wait_exit_enabled
-
-    parse = build_parser().parse_args
-    assert _operator_wait_exit_enabled(parse(["--daemon-fg", "--bounded"])) is True
-    assert _operator_wait_exit_enabled(parse(["--daemon", "--bounded"])) is False
-    assert _operator_wait_exit_enabled(parse(["--daemon-fg"])) is False
-    assert _operator_wait_exit_enabled(
-        parse(["--daemon-fg", "--bounded", "--operator-wait-exit", "off"])
-    ) is False
-
-
-def test_spawned_worker_command_carries_the_operator_wait_choice(tmp_path) -> None:
     from argus.daemon.config import LifeWorkerConfig, config_from_payload, config_payload
     from argus.daemon.process import _windows_daemon_command
 
-    web = LifeWorkerConfig(life_dir=tmp_path / "projects" / "s-1", continuous_open_ended=False)
-    command = _windows_daemon_command(web)
-    assert command[command.index("--operator-wait-exit") + 1] == "off"
-    headless = LifeWorkerConfig(
-        life_dir=tmp_path / "projects" / "s-2",
-        continuous_open_ended=False,
-        operator_wait_exit=True,
-    )
-    assert config_from_payload(config_payload(headless)).operator_wait_exit is True
-
-
-def test_answer_restarts_a_worker_that_ended_on_the_question(tmp_path, monkeypatch) -> None:
-    from argus.apps.cli import _core
-    from argus.core.autonomy import OPERATOR_WAIT_EXIT_FILENAME
-
-    (tmp_path / OPERATOR_WAIT_EXIT_FILENAME).write_text("{}", encoding="utf-8")
-    started: list[str] = []
-    monkeypatch.setattr(
-        "argus.webapi.daemon_lifecycle.start_project_daemon",
-        lambda sid, **_kwargs: started.append(sid) or {"rc": 0},
-    )
-    bundle = SimpleNamespace(
-        project=SimpleNamespace(root=tmp_path, fingerprint="s-abc"),
-        global_root=tmp_path,
-    )
-    _core._restart_worker_after_operator_wait_exit(bundle)
-    assert started == ["s-abc"]
-    assert not (tmp_path / OPERATOR_WAIT_EXIT_FILENAME).exists()
-    # Without the marker the worker is left alone.
-    _core._restart_worker_after_operator_wait_exit(bundle)
-    assert started == ["s-abc"]
+    # Old launch scripts still parse; nothing reads the value.
+    build_parser().parse_args(["--daemon-fg", "--bounded", "--operator-wait-exit", "on"])
+    bounded = LifeWorkerConfig(life_dir=tmp_path / "projects" / "s-1", continuous_open_ended=False)
+    assert "--operator-wait-exit" not in _windows_daemon_command(bounded)
+    payload = {**config_payload(bounded), "operator_wait_exit": True}
+    assert not hasattr(config_from_payload(payload), "operator_wait_exit")
 
 
 @pytest.mark.parametrize(
@@ -411,7 +268,7 @@ def test_plan_alternatives_route_exactly_as_on_dev_with_an_operator(
     assert decision.action == "replace"
 
 
-def test_no_operator_alternative_flagged_by_devs_check_ends_blocked(
+def test_no_operator_irreversible_alternative_parks_for_the_manager(
     tmp_path, monkeypatch
 ) -> None:
     monkeypatch.setenv("ARGUS_SKILL_OPERATOR_AVAILABLE", "false")
@@ -422,14 +279,12 @@ def test_no_operator_alternative_flagged_by_devs_check_ends_blocked(
     outcome = _conflict_outcome(
         item.id,
         authority_impact="operator",
+        operator_need="irreversible_or_external",
         alternative="Force-push the protected release branch.",
     )
-    assert supervisor._adjudicate_mission_challenge(outcome) == "blocked"
+    assert supervisor._adjudicate_mission_challenge(outcome) == "ask_operator"
     stored = next(row for row in supervisor.memory.backlog.all() if row.id == item.id)
-    assert stored.status == "failed"
-    from argus.core.autonomy import read_operator_blocks
-
-    assert read_operator_blocks(supervisor._project_state_root())
+    assert stored.status == "paused_operator"
 
 
 def test_reviewer_decision_request_carries_its_classification() -> None:
@@ -456,9 +311,9 @@ def test_reviewer_decision_request_carries_its_classification() -> None:
 
 
 @pytest.mark.parametrize("need", ["credentials", "spending", "irreversible_or_external"])
-def test_no_operator_reviewer_action_need_blocks_the_round(tmp_path, monkeypatch, need) -> None:
+def test_no_operator_reviewer_action_need_stays_a_question(tmp_path, monkeypatch, need) -> None:
     from argus.core.models import ReviewDecision
-    from argus.engineer.round_settlement import _enforce_operator_question_policy
+    from argus.engineer.round_settlement import _apply_operator_question_policy
 
     monkeypatch.setenv("ARGUS_SKILL_OPERATOR_AVAILABLE", "false")
     review = ReviewDecision(
@@ -469,58 +324,157 @@ def test_no_operator_reviewer_action_need_blocks_the_round(tmp_path, monkeypatch
         planner_report={"operator_need": need},
     )
     config = SimpleNamespace(operator_question_policy_root=None, operator_questions_allowed=True)
-    settled = _enforce_operator_question_policy(
+    settled = _apply_operator_question_policy(
         review, supervised_config=config, state=SimpleNamespace(rounds=[])
     )
-    assert settled.status == "blocked"
-    assert settled.operator_question == ""
-    assert need in settled.reason
-    assert settled.planner_report["operator_need"] == need
+    assert settled is review
 
 
-def test_no_operator_planner_wait_is_settled_before_the_run_ends(tmp_path, monkeypatch) -> None:
-    from argus.core.autonomy import read_autonomous_assumptions
-    from argus.life.supervisor._constants import PLAN_RETRY
-    from argus.planner import PlannerVerdict, WaitingContract
+class _ProxyManager:
+    """A Manager that answers every card it is asked to decide with ``fields``."""
 
-    monkeypatch.setenv("ARGUS_SKILL_OPERATOR_AVAILABLE", "false")
-    supervisor, sink = _supervisor(tmp_path, runner=object())
-    verdict = PlannerVerdict(
+    def __init__(self, **fields: str) -> None:
+        self.fields = fields
+        self.prompts: list[str] = []
+
+    def run_turn(self, prompt: str, **_kwargs: Any) -> str:
+        self.prompts.append(prompt)
+        return "\n".join(f"{key}: {value}" for key, value in self.fields.items())
+
+
+def _planner_question():
+    from argus.planner import PlannerVerdict
+
+    return PlannerVerdict(
         project_done=False,
         reason="the operator decides which release rule wins",
-        waiting=True,
-        waiting_reason="the operator decides which release rule wins",
-        waiting_contract=WaitingContract(
-            blocker_fingerprint="release-rule-conflict",
-            recheck_condition="the operator decides which release rule wins",
-            recheck_token="release-rule-conflict",
-            wait_mode="event",
-            wake_on=("authorization",),
-            operator_action_required=True,
+        handoff="operator",
+        operator_question="Which release rule wins?",
+    )
+
+
+def _proxy_supervisor(tmp_path, manager: _ProxyManager) -> LifeSupervisor:
+    from argus.apps._runtime_construction import _pending_question_resolver_for
+
+    # The web answer path a Manager's choice takes reads a registered project.
+    life = tmp_path / "projects" / "s-proxy"
+    life.mkdir(parents=True)
+    supervisor = LifeSupervisor(
+        memory=LifeMemory.open(life),
+        runner=object(),
+        sink=_Sink(),
+        config=LifeSupervisorConfig(
+            budget=LifeBudget(max_missions=2),
+            poll_interval_seconds=0.01,
+            pending_question_resolver=_pending_question_resolver_for(life),
         ),
     )
+    supervisor._bound_manager = lambda: manager
+    return supervisor
 
-    assert supervisor._record_planner_waiting(verdict) == PLAN_RETRY
-    feedback = supervisor._load_manager_planner_feedback()
-    assert feedback is not None and "no operator is available" in feedback["reason"]
-    # The Planner's interpretation may settle ambiguity, never drop a stated requirement.
-    assert "never drops or explains away an explicit requirement or reported symptom" in " ".join(
-        feedback["reason"].split()
-    )
-    assert read_autonomous_assumptions(supervisor.memory.root)[-1]["source"] == "planner_wait"
-    assert supervisor._pending_operator_questions() is None
-    # The same blocker again is recorded as a wait, and the run may then end.
-    assert supervisor._record_planner_waiting(verdict) != PLAN_RETRY
-    assert supervisor._pending_operator_questions() == [
-        "the operator decides which release rule wins"
+
+def _card(supervisor: LifeSupervisor):
+    [card] = [
+        row for row in supervisor.memory.backlog.active() if row.status == "paused_operator"
     ]
+    return card
 
 
-def test_engineer_prompt_hides_the_operator_handoff_without_an_operator(monkeypatch) -> None:
+@pytest.mark.parametrize("mode", ["no_operator", "forbid"])
+def test_manager_decides_a_planner_question_in_the_operators_place(
+    tmp_path, monkeypatch, mode
+) -> None:
+    """The Planner's question goes on a card like any other; with nobody to
+    ask, the Manager answers it there."""
+    from argus.core.autonomy import read_autonomous_assumptions
+    from argus.core.knob_store import write_persisted_knob
+    from argus.life.supervisor._constants import PLAN_AWAITING
+
+    if mode == "no_operator":
+        monkeypatch.setenv("ARGUS_SKILL_OPERATOR_AVAILABLE", "false")
+    else:  # the operator said not to be asked
+        write_persisted_knob("ARGUS_SKILL_OPERATOR_AVAILABLE", "0")
+    manager = _ProxyManager()
+    supervisor = _proxy_supervisor(tmp_path, manager)
+
+    assert supervisor._record_planner_handoff(_planner_question()) == PLAN_AWAITING
+    card = _card(supervisor)
+    assert card.pending_question == "Which release rule wins?"
+    manager.fields = {
+        "DECISION_ID": card.operator_decision["id"],
+        "OPTION": "custom",
+        "NOTE": "The release rule wins.",
+        "REASON": "It is the stricter of the two.",
+        "EVIDENCE_REFS": "spec.md",
+    }
+
+    assert supervisor._decide_parked_questions() is True
+    row = read_autonomous_assumptions(supervisor._project_state_root())[-1]
+    assert row["source"] == "manager_decision"
+    assert row["evidence_refs"] == ["spec.md"]
+    assert "The release rule wins." in row["reading"]
+
+
+def test_a_planner_question_the_manager_names_no_decision_for_stays_open(
+    tmp_path, monkeypatch
+) -> None:
+    from argus.core.autonomy import read_autonomous_assumptions
+
+    monkeypatch.setenv("ARGUS_SKILL_OPERATOR_AVAILABLE", "false")
+    supervisor = _proxy_supervisor(tmp_path, _ProxyManager(
+        DECISION_ID="decision-other", OPTION="custom", NOTE="x", REASON="y",
+    ))
+
+    supervisor._record_planner_handoff(_planner_question())
+    assert supervisor._decide_parked_questions() is False
+    assert _card(supervisor).pending_question == "Which release rule wins?"
+    assert read_autonomous_assumptions(supervisor._project_state_root()) == []
+
+
+def test_an_operator_only_external_blocker_is_decided_by_the_manager_without_an_operator(
+    tmp_path, monkeypatch
+) -> None:
+    """The host's own question about operator-supplied artifacts has a decider
+    too: with nobody to ask, the Manager answers its card."""
+    import json
+
+    monkeypatch.setenv("ARGUS_SKILL_OPERATOR_AVAILABLE", "false")
+    manager = _ProxyManager()
+    supervisor = _proxy_supervisor(tmp_path, manager)
+    project = tmp_path / "project"
+    (project / "diagnosis").mkdir(parents=True)
+    (project / "diagnosis" / "operator_only_external_blocker.json").write_text(
+        json.dumps({
+            "local_engineer_action_required_before_mount": False,
+            "required_external_targets": ["data/heldout.tar"],
+        }),
+        encoding="utf-8",
+    )
+
+    question = supervisor._operator_external_blocker_short_circuit_decision(project_root=project)
+
+    assert question.handoff == "operator"
+    supervisor._record_planner_handoff(question)
+    manager.fields = {
+        "DECISION_ID": _card(supervisor).operator_decision["id"],
+        "OPTION": "custom",
+        "NOTE": "Evaluate on the public split and say so in the report.",
+        "REASON": "The held-out set will not arrive in this run.",
+    }
+    assert supervisor._decide_parked_questions() is True
+    assert len(manager.prompts) == 1
+
+
+def test_engineer_prompt_hands_only_actions_to_the_manager_without_an_operator(
+    monkeypatch,
+) -> None:
     from argus.roles.prompts.engineer import engineer_operator_handoff_rule
 
     monkeypatch.setenv("ARGUS_SKILL_OPERATOR_AVAILABLE", "false")
-    assert "never use next_owner=operator" in engineer_operator_handoff_rule()
+    rule = engineer_operator_handoff_rule()
+    assert "ASSUMPTION=" in rule
+    assert "OPERATOR_NEED=credentials (or spending, irreversible_or_external)" in rule
+    assert rule.endswith("the Manager decides it.")
     monkeypatch.setenv("ARGUS_SKILL_OPERATOR_AVAILABLE", "true")
     rule = engineer_operator_handoff_rule()
     assert "OPERATOR_NEED=credentials (or" in rule
@@ -534,15 +488,14 @@ def test_bounded_completion_summary_names_the_assumptions(tmp_path) -> None:
         tmp_path, item_id="x", conflict="Two release rules conflict.", source="mission_challenge"
     )
     text = render_autonomous_assumptions(tmp_path)
-    assert text.startswith("Decided without an operator")
+    assert text.startswith("Decided without asking the operator")
     assert "Two release rules conflict." in text
 
 
-def test_autonomous_mode_still_parks_a_reviewer_credential_request(
+def test_a_reviewer_credential_request_parks(
     tmp_path, monkeypatch
 ) -> None:
     monkeypatch.setenv("ARGUS_SKILL_OPERATOR_AVAILABLE", "true")
-    monkeypatch.setenv("ARGUS_SKILL_AUTONOMY_MODE", "autonomous")
     supervisor, _sink = _supervisor(tmp_path, runner=_ClassifiedQuestionRunner("credentials"))
     item = supervisor.memory.backlog.add(
         BacklogItem.new(title="Deploy staging", objective="deploy staging")
@@ -563,9 +516,8 @@ _EVERYDAY_QUESTIONS = (
 
 
 @pytest.mark.parametrize("question", _EVERYDAY_QUESTIONS)
-@pytest.mark.parametrize("mode", ["pragmatic", "autonomous"])
 def test_everyday_unclassified_questions_never_reach_the_operator(
-    monkeypatch, question, mode
+    monkeypatch, question
 ) -> None:
     """dev escalated none of these (no keyword matched); neither may we."""
     from argus.core.autonomy import assess_operator_intervention
@@ -573,16 +525,15 @@ def test_everyday_unclassified_questions_never_reach_the_operator(
 
     monkeypatch.setenv("ARGUS_SKILL_OPERATOR_AVAILABLE", "true")
     # A Reviewer or runner question nobody classified.
-    assert assess_operator_intervention(question=question, mode=mode).required is False
+    assert assess_operator_intervention(question=question).required is False
     # A Reviewer request the Reviewer itself marked as the team's.
     assert assess_operator_intervention(
-        question=question, operator_need="none", mode=mode
+        question=question, operator_need="none"
     ).required is False
     # A technical replan carrying the question.
     assert adjudicate_plan_challenge(
         {"authority_impact": "technical", "challenge": question},
         reviewer_status="replan_requested",
-        operator_question=question,
     ).action != "ask_operator"
 
 
@@ -600,17 +551,15 @@ def test_everyday_engineer_questions_without_explicit_handoff_reach_the_reviewer
     assert assess_operator_intervention(
         question=handoff.operator_question,
         operator_need=handoff.operator_need,
-        mode="pragmatic",
         unclassified_requires_operator=handoff.source == "structured",
     ).required is False
 
 
 @pytest.mark.parametrize("question", _EVERYDAY_QUESTIONS)
-def test_reviewer_none_in_pragmatic_mode_continues_instead_of_parking(
+def test_reviewer_none_continues_instead_of_parking(
     tmp_path, monkeypatch, question
 ) -> None:
     monkeypatch.setenv("ARGUS_SKILL_OPERATOR_AVAILABLE", "true")
-    monkeypatch.setenv("ARGUS_SKILL_AUTONOMY_MODE", "pragmatic")
 
     class _Runner:
         def execute(self, **_kwargs: Any) -> _Outcome:
@@ -672,16 +621,12 @@ def test_assumptions_are_scoped_to_the_run(tmp_path, monkeypatch) -> None:
     assert read_autonomous_assumptions(tmp_path) == []
 
 
-def test_round_level_forbid_records_the_question_and_blocks_credentials(
+def test_round_level_forbid_records_a_question_of_meaning_and_keeps_an_action(
     tmp_path, monkeypatch
 ) -> None:
-    from argus.core.autonomy import (
-        read_autonomous_assumptions,
-        read_operator_blocks,
-        start_autonomy_run,
-    )
+    from argus.core.autonomy import read_autonomous_assumptions, start_autonomy_run
     from argus.core.models import ReviewDecision
-    from argus.engineer.round_settlement import _enforce_operator_question_policy
+    from argus.engineer.round_settlement import _apply_operator_question_policy
 
     monkeypatch.setenv("ARGUS_SKILL_OPERATOR_AVAILABLE", "false")
     start_autonomy_run()
@@ -691,16 +636,18 @@ def test_round_level_forbid_records_the_question_and_blocks_credentials(
         operator_question="Which spec line wins?",
         planner_report={"operator_need": "scope_or_authority"},
     )
-    _enforce_operator_question_policy(scope, supervised_config=config, state=SimpleNamespace(rounds=[]))
+    _apply_operator_question_policy(scope, supervised_config=config, state=SimpleNamespace(rounds=[]))
     assert read_autonomous_assumptions(tmp_path)[-1]["conflict"] == "Which spec line wins?"
     cred = ReviewDecision(
         status="blocked", reason="r", next_action="",
         operator_question="Provide the production key?",
         planner_report={"operator_need": "credentials"},
     )
-    _enforce_operator_question_policy(cred, supervised_config=config, state=SimpleNamespace(rounds=[]))
+    kept = _apply_operator_question_policy(
+        cred, supervised_config=config, state=SimpleNamespace(rounds=[])
+    )
+    assert kept is cred
     assert len(read_autonomous_assumptions(tmp_path)) == 1
-    assert read_operator_blocks(tmp_path)[-1]["operator_need"] == "credentials"
 
 
 def test_engineer_states_the_reading_it_chose(tmp_path, monkeypatch) -> None:
@@ -725,41 +672,6 @@ def test_engineer_states_the_reading_it_chose(tmp_path, monkeypatch) -> None:
     from argus.core.autonomy import render_autonomous_assumptions
 
     assert "assumed: The release rule wins" in render_autonomous_assumptions(tmp_path)
-
-
-def test_credential_block_is_not_settled_as_an_assumption(tmp_path, monkeypatch) -> None:
-    from argus.core.autonomy import (
-        read_autonomous_assumptions,
-        record_operator_block,
-        start_autonomy_run,
-    )
-    from argus.planner import PlannerVerdict, WaitingContract
-
-    monkeypatch.setenv("ARGUS_SKILL_OPERATOR_AVAILABLE", "false")
-    start_autonomy_run()
-    supervisor, _sink = _supervisor(tmp_path, runner=object())
-    record_operator_block(
-        supervisor._project_state_root(), item_id="i", reason="needs the key",
-        operator_need="credentials",
-    )
-    verdict = PlannerVerdict(
-        project_done=False,
-        reason="wait for the key",
-        waiting=True,
-        waiting_reason="wait for the key",
-        waiting_contract=WaitingContract(
-            blocker_fingerprint="key",
-            recheck_condition="the operator provides the key",
-            recheck_token="key",
-            wait_mode="event",
-            wake_on=("authorization",),
-            operator_action_required=True,
-        ),
-    )
-    from argus.life.supervisor._constants import PLAN_RETRY
-
-    assert supervisor._record_planner_waiting(verdict) != PLAN_RETRY
-    assert read_autonomous_assumptions(supervisor._project_state_root()) == []
 
 
 def test_completion_report_prompt_names_each_assumption() -> None:
@@ -809,80 +721,6 @@ def test_task_completed_message_lists_the_assumptions(tmp_path, monkeypatch) -> 
         for line in (tmp_path / "transcript.jsonl").read_text(encoding="utf-8").splitlines()
     ]
     assert any("assumed: Hello goes to stdout" in text for text in texts)
-
-
-# --- restarts after the wait exit ---------------------------------------------
-def test_web_start_resumes_the_campaign_a_wait_exit_left(tmp_path, monkeypatch) -> None:
-    from argus.core.autonomy import OPERATOR_WAIT_EXIT_FILENAME
-    from argus.webapi import daemon_lifecycle
-
-    life_dir = tmp_path / "projects" / "s-1"
-    life_dir.mkdir(parents=True)
-    (life_dir / OPERATOR_WAIT_EXIT_FILENAME).write_text("{}", encoding="utf-8")
-    seen: dict[str, Any] = {}
-    monkeypatch.setattr(daemon_lifecycle, "project_life_dir", lambda sid, **_k: life_dir)
-    monkeypatch.setattr(
-        daemon_lifecycle.daemon_worker,
-        "read_daemon_status",
-        lambda _d: SimpleNamespace(alive=False),
-    )
-    monkeypatch.setattr(
-        daemon_lifecycle,
-        "_worker_config_from_env",
-        lambda d, r: SimpleNamespace(continuous_open_ended=True, continuous_objective=""),
-    )
-
-    def stop_here(*_a, **_k):
-        raise RuntimeError("stop")
-
-    def record(life):
-        seen["read"] = True
-        return SimpleNamespace(enabled=True, objective="o", open_ended=False, done_reason="")
-
-    monkeypatch.setattr(daemon_lifecycle.daemon_worker, "read_continuous_state", record)
-    monkeypatch.setattr(daemon_lifecycle, "_max_active_daemons", stop_here)
-    with pytest.raises(RuntimeError):
-        daemon_lifecycle.start_project_daemon("s-1", global_root=tmp_path)
-    # The marker made the start adopt the bounded campaign it left behind.
-    assert seen.get("read") is True
-
-
-def test_framework_deployment_answer_also_restarts(tmp_path, monkeypatch) -> None:
-    import inspect
-
-    from argus.apps.cli import _core
-
-    source = inspect.getsource(_core._cmd_answer)
-    deployment = source.split('if card.get("decision_kind") == "framework_deployment":', 1)[1]
-    deployment = deployment.split("blocked, continuation =", 1)[0]
-    assert "_restart_worker_after_operator_wait_exit(bundle)" in deployment
-
-
-# --- item 6: a run blocked on an operator-only need ends -----------------------
-def test_operator_only_block_with_nothing_runnable_ends_after_one_more_pass(
-    tmp_path, monkeypatch
-) -> None:
-    from argus.core.autonomy import record_operator_block, start_autonomy_run
-    from argus.daemon._life_worker_run import LifeWorkerRunMixin
-
-    monkeypatch.setenv("ARGUS_SKILL_OPERATOR_AVAILABLE", "false")
-    start_autonomy_run()
-    supervisor, sink = _supervisor(tmp_path, runner=object())
-    record_operator_block(
-        supervisor._project_state_root(), item_id="i", reason="needs the staging key",
-        operator_need="credentials",
-    )
-    assert supervisor._pending_operator_questions() is None
-    assert supervisor._operator_only_blocks()
-    worker = LifeWorkerRunMixin()
-    # First pass after the block: the Planner gets its chance.
-    assert worker._bounded_operator_wait_expired([supervisor]) is False
-    assert worker._bounded_operator_wait_expired([supervisor]) is True
-    blocks = [e for e in sink.events if e["type"] == EventType.LIFE_LIFECYCLE_BLOCK]
-    assert blocks and blocks[-1]["text"].startswith("blocked: needs operator")
-    # Runnable work resets it.
-    supervisor.memory.backlog.add(BacklogItem.new(title="Other", objective="other"))
-    assert supervisor._operator_only_blocks() is None
 
 
 def test_multi_line_assumption_is_kept_whole(tmp_path, monkeypatch) -> None:

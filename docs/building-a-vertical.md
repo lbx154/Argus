@@ -38,8 +38,6 @@ The names the contract reads:
 | `completion_gate` | yes | `"none"`, `"metric"` or `"certified"` |
 | `CHECKLIST_OPTIONAL_STAGES` | no | stages that may have no checklist |
 | `STAGE_ALIASES` | no | `{"experiment": "measure"}`: other names the Manager may use for a stage |
-| `WORKFLOW_MODE` | no | `"staged"`, `"direct"` or `"proportional"`; does not pick orchestration (the Manager chooses `direct` or `staged` per task, and with no stored choice the run is `staged`); only `"proportional"` has an effect, as the evidence-reuse policy inside a staged run |
-| `MISSION_KIND` | no | `"custom"`, `"optimize"`, `"research"` or `"software"` |
 | `REQUIRE_INDEPENDENT_REVIEW` | no | defaults to `True` |
 | `role_banner(role)` | no | a paragraph each role reads before its task |
 | `render_role_prompt_fragment`, `render_role_prompt_context`, `stage_completion_issues`, `prepare_mission`, `LIBRARY_PREPARER`, `EVIDENCE_SCHEMA`, `WORKFLOW_PROFILES` | no | hooks the larger built-ins use; not needed for a first vertical |
@@ -57,8 +55,8 @@ class ChecklistItem:
 
 The `statement` is what must be true; the `evidence_hint` tells the Engineer
 what to show and the Reviewer what to look for. This is the whole mechanism:
-the Reviewer is read-only, so the quality of your checklist is the quality of
-your review.
+the Reviewer judges against it, so the quality of your checklist is the quality
+of your review.
 
 ## Two built-ins to learn from
 
@@ -74,8 +72,6 @@ STAGE_ORDER = ["delivery"]
 CHECKLIST_STAGE_ORDER = tuple(STAGE_ORDER)
 CHECKLIST_OPTIONAL_STAGES: tuple[str, ...] = ()
 completion_gate = "none"
-MISSION_KIND = "software"
-WORKFLOW_MODE = "staged"
 
 PROTECTED_ITEM_IDS = frozenset({"delivery.builds", "delivery.tests-executed"})
 ```
@@ -96,8 +92,7 @@ CANONICAL_STAGE_ORDER: tuple[str, ...] = ("idea", "experiment", "paper", "review
 STAGE_ALIASES = {"research": "idea", "plan": "experiment", ..., "submission": "review"}
 ```
 
-with `completion_gate = "certified"`, `WORKFLOW_MODE = "proportional"`, role
-prompts in `prompt_policy.py`, a `prepare_mission` hook in `mission_brief.py`,
+with `completion_gate = "certified"`, role prompts in `prompt_policy.py`, a `prepare_mission` hook in `mission_brief.py`,
 and some forty engineer skills plus seven reviewer skills. It shows where a
 vertical can grow; it is not where one should start.
 
@@ -124,7 +119,7 @@ then write it up so someone else can rerun it. Two stages follow from that,
 would actually check.
 
 Write the checklist before anything else, and write it as statements a
-read-only reviewer can verify from files. "The measurement was repeated" is
+reviewer can verify from files. "The measurement was repeated" is
 checkable (there are N raw files); "the measurement is good" is not.
 
 `examples/verticals/argus_verticals/lab_notebook/stages.py`:
@@ -143,8 +138,6 @@ CHECKLIST_OPTIONAL_STAGES: tuple[str, ...] = ()
 STAGE_ALIASES = {"experiment": "measure", "writeup": "report"}
 
 completion_gate = "none"
-WORKFLOW_MODE = "staged"
-MISSION_KIND = "custom"
 REQUIRE_INDEPENDENT_REVIEW = True
 
 CHECKLIST_ITEMS: dict[str, tuple[ChecklistItem, ...]] = {
@@ -193,26 +186,18 @@ Why these particular choices:
   stage's checklist is met. `"metric"` is for verticals whose completion is a
   number reaching a target; `"certified"` adds an explicit certification step,
   which the research vertical uses for papers. A notebook entry needs neither.
-- `WORKFLOW_MODE = "staged"` says the vertical moves through its stages in
-  order. `"proportional"` keeps that staged pipeline but lets agents reuse
-  evidence in proportion to the task. Start with `staged`; the aliases let a
-  Manager that says "experiment" land on `measure`.
-- `WORKFLOW_MODE` does not choose between direct and staged orchestration. The
+- The aliases let a Manager that says "experiment" land on `measure`.
+- A vertical does not choose between direct and staged orchestration. The
   Manager decides `workflow_mode` for every task it routes and persists it in
-  `.argus/PIPELINE_STATE.json`; when no decision is stored the run is `staged`,
-  whatever the vertical declares (`resolve_workflow_mode` in
-  `argus/skills/vertical_select.py`; `_workflow_mode_for_project_root` in
-  `argus/apps/_runtime_supervisor.py` also falls back to `staged` on errors).
-  The vertical's value is read only for the evidence policy of a staged run
-  (`resolve_evidence_mode`), so declaring `"direct"` there does not make runs direct. A small request ("measure one thing and
+  `.argus/PIPELINE_STATE.json`; when no decision is stored the run is `staged`
+  (`resolve_workflow_mode` in `argus/skills/vertical_select.py`). How much
+  evidence to reuse belongs in your `role_banner`, as the research vertical
+  does. A small request ("measure one thing and
   write it down") is usually routed `direct`. In direct mode the Reviewer gets
   no stage checklist (`argus/roles/prompts/reviewer.py` clears it) and judges
   the task against its own requirements, so your checklist ids are not in the
   prompt and cannot show up in the verdict. Your `role_banner` and skills still
   apply in both modes; the checklist only governs staged runs.
-- `MISSION_KIND = "custom"` because the other three values switch on
-  behaviour written for optimization loops, research campaigns and repository
-  changes.
 - The `role_banner` says one thing, in the field's own terms. It is read by
   every role, so it is the place for the rule that ties the stages together.
 
@@ -229,7 +214,7 @@ p = pathlib.Path('examples/verticals/argus_verticals/lab_notebook/stages.py')
 spec = importlib.util.spec_from_file_location('lab_notebook_stages', p)
 m = importlib.util.module_from_spec(spec); spec.loader.exec_module(m)
 c = vertical_contract('lab_notebook', m)
-print(c.stage_order, c.completion_gate, c.workflow_mode)
+print(c.stage_order, c.completion_gate)
 "
 ```
 
@@ -294,7 +279,7 @@ described by a `catalog.json`. The catalog entry the store validates
 | `module` | `argus_verticals.<name>.stages`, and it must live in `paths[0]` |
 | `paths` | at least `["argus_verticals/<name>"]` |
 | `purpose` | non-empty |
-| `archive.file`, `archive.url`, `archive.sha256`, `archive.size` | the zip's name, location, digest and exact byte size; a non-`https` URL is only accepted when the catalog itself is local |
+| `archive.file`, `archive.url`, `archive.size` | the zip's name, location and exact byte size; a non-`https` URL is only accepted when the catalog itself is local |
 
 Optional: `purpose_zh`, `requires` (other verticals to install first),
 `shared` (helper trees outside the vertical's own directory),
@@ -330,7 +315,6 @@ The catalog it wrote:
       "archive": {
         "file": "lab_notebook-0.1.0.zip",
         "url": "file:///tmp/lab-store/lab_notebook-0.1.0.zip",
-        "sha256": "5b36…b8e0",
         "size": 3099
       }
     }
@@ -338,8 +322,8 @@ The catalog it wrote:
 }
 ```
 
-The `sha256` and `size` are checked byte-for-byte at install; regenerate the
-catalog whenever the zip changes.
+The `size` is checked at install; regenerate the catalog whenever the zip
+changes. An older catalog may still carry an archive `sha256`; it is ignored.
 
 ## Step 4: install it and confirm Argus sees it
 

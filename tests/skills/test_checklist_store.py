@@ -35,9 +35,9 @@ def test_research_ignores_but_preserves_legacy_checklists(tmp_path: Path) -> Non
     assert path.is_file()
 
 
-def test_other_vertical_custom_checklists_still_load(tmp_path: Path) -> None:
-    persist_vertical(tmp_path, "math_synth")
-    _store(tmp_path, "math_synth", "setup")
+def test_other_vertical_custom_checklists_still_load(optimize_vertical, tmp_path: Path) -> None:
+    persist_vertical(tmp_path, optimize_vertical)
+    _store(tmp_path, optimize_vertical, "setup")
 
     items = store_items_for_stage(tmp_path, "setup")
 

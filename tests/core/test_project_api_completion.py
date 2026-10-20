@@ -33,11 +33,12 @@ def _status(state: ProjectState = ProjectState.WRITING) -> ProjectStatus:
     ("vertical", "expected"),
     [
         ("research", "certified"),
-        ("math_synth", "metric"),
+        ("optimize_lab", "metric"),
         ("software", "none"),
     ],
 )
 def test_required_strength_comes_from_vertical_contract(
+    optimize_vertical: str,
     tmp_path: Path,
     vertical: str,
     expected: str,

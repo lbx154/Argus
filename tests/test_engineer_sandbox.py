@@ -234,6 +234,8 @@ def test_build_codex_command_disables_interactive_notify_hook_per_turn():
 
     pairs = list(zip(cmd, cmd[1:]))
     assert ("-c", "notify=[]") in pairs
+    # One empty ``write_stdin`` may wait as long as Codex accepts (TOML's i64).
+    assert ("-c", f"background_terminal_max_timeout={2**63 - 1}") in pairs
 
 
 def test_build_codex_no_tools_keeps_provider_config_but_skips_tool_startup():
@@ -672,35 +674,12 @@ def test_isolated_copilot_disables_builtin_mcp_and_custom_instructions() -> None
 
 
 # ── raw subagent-spawn helpers ───────────────────────────────────────────────
-def test_codex_sandbox_args_legacy_when_off(gate_off):
-    assert sandbox.codex_sandbox_args(working_dir="/wd") == [
-        "--dangerously-bypass-approvals-and-sandbox"
-    ]
-    assert sandbox.codex_sandbox_env() is None
-
-
-def test_codex_sandbox_args_sandboxed_when_on(gate_on):
-    args = sandbox.codex_sandbox_args(working_dir="/wd")
-    assert "--dangerously-bypass-approvals-and-sandbox" not in args
-    assert args[:4] == ["-s", "workspace-write", "-C", "/wd"]
-    assert "--add-dir" in args
-    assert sandbox.codex_sandbox_env()["PYTHONSAFEPATH"] == "1"
-
-
-def test_no_hardcoded_bypass_left_in_subagent_spawns():
-    """Every codex spawn must route through the gated policy. The only remaining
-    literal bypass is the legacy default-OFF fallback in the runner/policy."""
-    import argus.tools.subagent._core as sub
-    src = Path(sub.__file__).read_text(encoding="utf-8")
-    assert "--dangerously-bypass-approvals-and-sandbox" not in src
-
-
 def test_no_raw_codex_spawn_bypasses_gate_anywhere():
     """Repo-wide invariant (not just one file): the literal dangerous bypass may
     appear ONLY in the runner/policy (the gated default-OFF fallback). Every
-    other module that spawns codex (e.g. team/teammate_entry.py) must go through
-    codex_sandbox_args/codex_sandbox_env, so enabling the gate contains them too.
-    Guards against a future raw spawn re-opening the hole the PR closed.
+    other module that spawns codex must go through that chokepoint, so enabling
+    the gate contains it too. Guards against a future raw spawn re-opening the
+    hole the PR closed.
 
     ``agent_cli/_sandbox_commands.py`` holds the codex command builders +
     ``_apply_sandbox_policy`` gate that used to live inline in
@@ -723,16 +702,6 @@ def test_no_raw_codex_spawn_bypasses_gate_anywhere():
         ):
             offenders.append(rel)
     assert offenders == [], f"raw codex bypass outside the gated chokepoint: {offenders}"
-
-
-def test_teammate_has_no_harness_forced_research_spawn():
-    """Teammates use the normal reviewed mission path, not a second CLI spawn."""
-    import argus.team.teammate_entry as te
-
-    src = Path(te.__file__).read_text(encoding="utf-8")
-    assert "_forced_web_research" not in src
-    assert "codex_sandbox_args" not in src
-    assert "--dangerously-bypass-approvals-and-sandbox" not in src
 
 
 # ── default-OFF inertness (must stay byte-for-byte legacy) ────────────────────

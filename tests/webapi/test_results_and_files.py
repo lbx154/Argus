@@ -13,7 +13,6 @@ from argus.life.memory import BacklogItem, LifeMemory
 from argus.webapi import server
 from argus.webapi.project_state import compact_backlog_item
 from argus.webapi.routes.artifacts import _bundle_filename
-from argus.webapi.routes.meta import _resource_status_payload
 
 HEADERS = {"Authorization": "Bearer test-token"}
 
@@ -92,16 +91,3 @@ def test_snapshot_reports_disk_space_and_compact_tasks_carry_time_and_reason(tmp
     row = compact_backlog_item(item)
     assert row["ts"] == item.ts and row["last_error"] == ""
 
-
-def test_gpu_queue_reports_how_long_each_request_has_waited():
-    snapshot = {
-        "probe": {"enforcement": "strict", "accelerators": []},
-        "grants": [],
-        "queue": [{
-            "owner": {"project_root": "/state/projects/s-1", "task_id": "t"},
-            "demand": {"intent": "train"}, "expires_at": 2000.0, "created_at": 1000.0,
-        }],
-    }
-    payload = _resource_status_payload(snapshot, now=1600.0)
-    assert payload["queue"][0]["waited_seconds"] == 600.0
-    assert payload["queue"][0]["project"] == "s-1"

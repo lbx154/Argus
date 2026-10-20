@@ -90,6 +90,4 @@ def test_engineer_process_decision_drives_existing_handoff() -> None:
         "next_owner": "reviewer",
     })
 
-    assert "Implemented the fix" in message
-    assert "MILESTONE_STATUS=done" in message
-    assert "NEXT_OWNER=reviewer" in message
+    assert message == "Implemented the fix and the focused test passed.\n→ done"

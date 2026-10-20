@@ -3,7 +3,6 @@ from __future__ import annotations
 import json
 from dataclasses import replace
 from pathlib import Path
-from tempfile import TemporaryDirectory
 
 import pytest
 
@@ -107,38 +106,17 @@ def test_minimum_rating_cannot_be_satisfied_by_aspirational_prose(paper):
     write_pipeline_state(paper, state)
     prose = ACCEPTANCE + "未来有望达到 strong accept。"
     result = evaluate(paper, ProseRunner(prose, "approve_review"))
-    assert result.status == "continue" and not result.final_submission_certified
+    assert result.status == "done" and not result.final_submission_certified
+    assert result.interventions[0]["action"] == "kept_open"
     assert result.venue_review["recommendation"] == "weak_accept"
     assert result.reason == prose
     result = evaluate(paper, ProseRunner("当前版本达到 strong accept。", "approve_review", "strong_accept"))
     assert result.final_submission_certified
 
 
-def test_reviewer_owned_file_stays_authoritative(paper):
-    from argus.reviewer.review_file import ReviewFileStore
-
-    class WritingReviewer(ProseRunner):
-        backend = "copilot"
-
-        def run_exec(self, **kwargs):
-            ReviewFileStore(**kwargs["options"].review_output).write_review(self.prose)
-            return super().run_exec(**kwargs)
-
-    runner = WritingReviewer(FEEDBACK)
-    result = evaluate(paper, runner)
-    assert result.reason == FEEDBACK and result.status == "continue"
-    assert (paper / "paper/REVIEW.md").read_text() == FEEDBACK
-    runner.prose = ACCEPTANCE + "新增实验解决了此前问题，无需返修。"
-    runner.action = "approve_review"
-    result = evaluate(paper, runner)
-    assert result.final_submission_certified
-    assert (paper / "paper/REVIEW.md").read_text() == runner.prose
-
-
 @pytest.mark.parametrize(("backend", "failure"), [
     ("pi", None),
     ("copilot", None),
-    ("copilot", "report_cleanup"),
     ("pi", "report_write"),
     ("copilot", "report_write"),
     ("pi", "state_write"),
@@ -148,7 +126,6 @@ def test_post_call_report_failures_preserve_usage_and_block_approval(
     paper, monkeypatch, backend, failure,
 ):
     from argus.manager import source_writeback
-    from argus.reviewer.review_file import ReviewFileStore
 
     metadata = {
         "input_tokens": 100,
@@ -160,23 +137,12 @@ def test_post_call_report_failures_preserve_usage_and_block_approval(
 
     class MeasuredReviewer(ProseRunner):
         def run_exec(self, **kwargs):
-            if kwargs["options"].review_output:
-                ReviewFileStore(**kwargs["options"].review_output).write_review(self.prose)
             return replace(super().run_exec(**kwargs), **metadata)
 
     runner = MeasuredReviewer(ACCEPTANCE, "approve_review")
     runner.backend = backend
     error = f"synthetic {failure} failure"
-    if failure == "report_cleanup":
-        cleanup = TemporaryDirectory.cleanup
-
-        def fail_cleanup(directory):
-            cleanup(directory)
-            if Path(directory.name).name.startswith("argus-review-output-"):
-                raise OSError(error)
-
-        monkeypatch.setattr(TemporaryDirectory, "cleanup", fail_cleanup)
-    elif failure == "report_write":
+    if failure == "report_write":
         atomic_write = source_writeback.atomic_write
 
         def fail_write(path, text):
@@ -199,9 +165,6 @@ def test_post_call_report_failures_preserve_usage_and_block_approval(
         assert payload[name] == value
     assert review.static_fingerprint
     assert review.prompt_block_stats
-    if backend == "copilot":
-        receipt = Path(runner.calls[0]["options"].review_output["receipt"])
-        assert not receipt.parent.exists()
     if failure is None:
         assert review.final_submission_certified and not review.backend_unavailable
         assert read_pipeline_state(paper)["current_verdict"] == "done"
@@ -233,14 +196,15 @@ def test_review_without_explicit_root_does_not_inspect_a_manuscript(monkeypatch)
 
 def test_below_threshold_recommendation_cannot_pass_an_approval_action(paper):
     result = evaluate(paper, ProseRunner("当前只有 borderline。", "approve_review", "borderline"))
-    assert result.status == "continue" and not result.final_submission_certified
+    assert result.status == "done" and not result.final_submission_certified
+    assert result.interventions[0]["action"] == "kept_open"
     assert not result.backend_unavailable
 
 
 @pytest.mark.parametrize(("action", "arguments", "status"), [
     ("defer_review", {}, "continue"),
     ("request_review_decision", {"question": "可否使用授权数据集？"}, "blocked"),
-    ("replan_review", {"authority_impact": "technical", "alternative": "补充分组实验。"}, "continue"),
+    ("replan_review", {"authority_impact": "technical", "alternative": "补充分组实验。"}, "replan_requested"),
 ])
 def test_wait_questions_and_scientific_repairs_are_not_backend_failure(paper, action, arguments, status):
     feedback = "需要等后台实验，或解决所述前提，再作最终判断。"

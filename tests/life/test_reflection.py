@@ -170,9 +170,8 @@ class _Roots:
 def roots(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> _Roots:
     fixture = _Roots(tmp_path)
     monkeypatch.setenv("ARGUS_SKILL_HOME", str(fixture.home))
-    monkeypatch.setenv("ARGUS_SKILL_REFLECTION", "1")
-    monkeypatch.setenv("ARGUS_SKILL_ANSWER_LEARNING", "1")
-    monkeypatch.setenv("ARGUS_SKILL_REFLECTION_MODEL", "reflection-model-under-test")
+    monkeypatch.setenv("ARGUS_SKILL_LEARNING", "1")
+    monkeypatch.setenv("ARGUS_SKILL_LIGHT_MODEL", "reflection-model-under-test")
     return fixture
 
 
@@ -185,12 +184,12 @@ def _learned(events: list[dict[str, Any]], **match: Any) -> list[dict[str, Any]]
 
 
 def test_reflection_skips_when_switched_off(roots: _Roots, monkeypatch: pytest.MonkeyPatch) -> None:
-    monkeypatch.setenv("ARGUS_SKILL_REFLECTION", "0")
+    monkeypatch.setenv("ARGUS_SKILL_LEARNING", "0")
     backend = _Backend([(roots.vertical_root / "pages" / "lessons" / LESSON_NAME, LESSON)])
 
     result = roots.reflect(backend)
 
-    assert "ARGUS_SKILL_REFLECTION" in result["skipped"]
+    assert result["skipped"] == "learning is off"
     assert backend.calls == []
     assert roots.events == []
 
@@ -446,7 +445,7 @@ def test_survey_page_is_created_indexed_and_recorded(roots: _Roots) -> None:
     assert result["created"] == [str(survey_path)]
     call = backend.calls[0]
     assert call["run_label"] == "answer-learning"
-    assert call["options"].reasoning_effort == "medium"
+    assert call["options"].reasoning_effort == "low"
     draft = Path(call["options"].working_dir)
     assert draft.parent == roots.life / ".learning-drafts"
     assert call["options"].add_dirs == [str(draft)]
@@ -567,13 +566,13 @@ def test_concurrent_edit_is_preserved_and_not_claimed_as_this_pass_learning(root
     assert not _learned(roots.events)
 
 
-def test_answer_learning_respects_its_switch(roots: _Roots, monkeypatch: pytest.MonkeyPatch) -> None:
-    monkeypatch.setenv("ARGUS_SKILL_ANSWER_LEARNING", "off")
+def test_answer_learning_respects_the_learning_switch(roots: _Roots, monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setenv("ARGUS_SKILL_LEARNING", "off")
     backend = _Backend()
 
     result = _answer(roots, backend)
 
-    assert "ARGUS_SKILL_ANSWER_LEARNING" in result["skipped"]
+    assert result["skipped"] == "learning is off"
     assert backend.calls == []
 
 

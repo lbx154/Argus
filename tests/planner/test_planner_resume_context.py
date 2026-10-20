@@ -26,7 +26,7 @@ _TASK_REPLY = (
 
 
 class _RecordingRunner:
-    backend = "recorder"
+    backend = "copilot"
 
     def __init__(self) -> None:
         self.calls: list[dict] = []
@@ -44,7 +44,6 @@ def _config(tmp_path: Path) -> PlannerConfig:
     return PlannerConfig(
         working_dir=str(tmp_path),
         state_root=str(tmp_path),
-        role_session_policy="rolling",
         role_session_path=tmp_path / "role-sessions" / "planner.json",
     )
 

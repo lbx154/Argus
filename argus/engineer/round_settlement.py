@@ -6,16 +6,15 @@ import logging
 import time
 from dataclasses import replace
 from pathlib import Path
-from typing import TYPE_CHECKING, Any, Callable
+from typing import TYPE_CHECKING, Callable
 
-from ..core.event_catalog import EventType
-from ..core.models import LoopStatus, ReviewDecision, RoundRecord, without_routing_judgments
+from ..core.models import LoopStatus, ReviewDecision, RoundRecord
+from ..core.venue_review import ACCEPTANCE_BAR_POLICY
 from .checkpoint import resolve_shared_checkpoint
-from .reviewer_findings import reviewer_authored_rounds
 from .round_config import (
     HOST_PLACEHOLDER_REVIEW_SOURCES,
     OPERATOR_QUESTION_FORBIDDEN_NEXT_ACTION,
-    OPERATOR_QUESTION_POLICY_REVIEW_SOURCES,
+    QUESTION_POLICY,
 )
 from .round_signals import _review_event_payload
 from .round_state import (
@@ -34,41 +33,43 @@ log = logging.getLogger(__name__)
 
 
 def _operator_questions_allowed(supervised_config: "SupervisedConfig") -> bool:
-    root = supervised_config.operator_question_policy_root
+    from ..core.autonomy import operator_questions_can_be_asked
+
+    root = getattr(supervised_config, "operator_question_policy_root", None)
     if root is not None:
-        from ..manager.directive import effective_operator_question_policy
+        return operator_questions_can_be_asked(root)
+    return (
+        bool(getattr(supervised_config, "operator_questions_allowed", True))
+        and operator_questions_can_be_asked()
+    )
 
-        return effective_operator_question_policy(root) != "forbid"
-    from ..core.autonomy import operator_available
 
-    return bool(supervised_config.operator_questions_allowed) and operator_available()
+def _operator_only_action(review: ReviewDecision) -> bool:
+    """Whether the question asks for an action only the operator could approve.
+
+    Such a question is never settled on an assumption: it stays a question, and
+    while the operator cannot be asked the Manager decides it in their place
+    once the mission parks on it.
+    """
+    from ..core.autonomy import OPERATOR_ACTION_NEEDS, normalize_operator_need
+
+    report = review.planner_report if isinstance(review.planner_report, dict) else {}
+    return normalize_operator_need(report.get("operator_need")) in OPERATOR_ACTION_NEEDS
 
 
 def _record_forbidden_question(
     review: ReviewDecision,
     supervised_config: "SupervisedConfig",
-    action_need: str,
 ) -> None:
-    """Without an operator, keep the record the run report is built from.
+    """Keep the record the run report is built from.
 
-    An operator-only need is a block, not an assumption; anything else the
-    team now settles itself is logged as a conflict whose chosen reading the
-    Engineer states (``ASSUMPTION=``) and CHECKPOINT.md keeps.
+    The team now settles the question itself; it is logged as a conflict whose
+    chosen reading the Engineer states (``ASSUMPTION=``) and CHECKPOINT.md keeps.
     """
-    from ..core.autonomy import (
-        OPERATOR_ACTION_NEEDS,
-        operator_available,
-        record_autonomous_assumption,
-        record_operator_block,
-    )
+    from ..core.autonomy import record_autonomous_assumption
 
     root = getattr(supervised_config, "operator_question_policy_root", None)
-    if root is None or operator_available():
-        return
-    if action_need in OPERATOR_ACTION_NEEDS:
-        record_operator_block(
-            root, item_id="", reason=review.operator_question, operator_need=action_need
-        )
+    if root is None:
         return
     record_autonomous_assumption(
         root,
@@ -78,13 +79,41 @@ def _record_forbidden_question(
     )
 
 
-def _enforce_operator_question_policy(
+def _question_withheld(review: ReviewDecision, supervised_config: "SupervisedConfig") -> bool:
+    """Whether this verdict's question may not go to the operator."""
+    return bool(
+        review.operator_question
+        and not review.intervention(QUESTION_POLICY)
+        and not _operator_questions_allowed(supervised_config)
+        and not _operator_only_action(review)
+    )
+
+
+def _withheld(review: ReviewDecision, action: str, outcome: str) -> ReviewDecision:
+    """The verdict as written, with the question-policy intervention beside it."""
+    return replace(review, interventions=[*review.interventions, {
+        "policy": QUESTION_POLICY,
+        "action": action,
+        "at": time.time(),
+        "note": "the operator may not be asked in this mission, so the question was not sent; "
+        + outcome,
+    }])
+
+
+def _apply_operator_question_policy(
     review: ReviewDecision,
     *,
     supervised_config: "SupervisedConfig",
     state: RoundLoopState,
 ) -> ReviewDecision:
-    if _operator_questions_allowed(supervised_config) or not review.operator_question:
+    """Record beside the verdict that its question was not sent to the operator.
+
+    The verdict stays as its author wrote it. The intervention names the
+    policy, what the host did instead of asking, and when: the team first
+    carries the obstacle on; when that did not clear it, the mission ends and
+    the Manager decides in the operator's place.
+    """
+    if not _question_withheld(review, supervised_config):
         return review
     # A turn nobody judged (a turn-limit restart, a dropped session) between
     # two forbidden questions does not make the second one new.
@@ -92,329 +121,72 @@ def _enforce_operator_question_policy(
         record for record in state.rounds
         if record.review.review_source not in HOST_PLACEHOLDER_REVIEW_SOURCES
     ]
-    repeated = bool(
-        judged
-        and judged[-1].review.review_source
-        in OPERATOR_QUESTION_POLICY_REVIEW_SOURCES
-    )
-    from ..core.autonomy import OPERATOR_ACTION_NEEDS, normalize_operator_need
-
-    raw_report = review.planner_report if isinstance(review.planner_report, dict) else {}
-    action_need = normalize_operator_need(raw_report.get("operator_need"))
-    if action_need in OPERATOR_ACTION_NEEDS:
-        # The raising role said this needs an action only the operator can
-        # enable. Continuing "autonomously" could only mean faking it, so the
-        # mission ends blocked at once and says what was missing.
-        repeated = True
-    _record_forbidden_question(review, supervised_config, action_need)
-    # ReviewDecision is a plain dataclass, so nothing enforces this field's
-    # type at runtime, and it carries model-derived data into a completion
-    # decision. ``core.models.ReviewDecision.to_event_payload`` guards the same
-    # field for the same reason; the two should not disagree.
-    # The host overrides this verdict, so the Reviewer's routing judgments no
-    # longer apply to it.
-    planner_report = without_routing_judgments(review.planner_report)
-    planner_report.update(
-        {
-            "plan_signal": "continue",
-            "challenge": "",
-            "authority_impact": "technical",
-        }
-    )
-    if action_need in OPERATOR_ACTION_NEEDS:
-        planner_report["operator_need"] = action_need
-    else:
-        planner_report.pop("operator_need", None)
-    source = (
-        "engineer_operator_question_policy"
-        if review.review_source == "engineer_operator_question"
-        else "reviewer_operator_question_policy"
-    )
-    status = "blocked" if repeated else "continue"
-    reason = (
-        f"Blocked: this needs an operator-only action ({action_need}) and no "
-        f"operator can be asked: {review.operator_question}"[:1200]
-        if action_need in OPERATOR_ACTION_NEEDS
-        else "Operator questions are forbidden and the autonomous continuation did "
-        "not clear the obstacle; state is preserved."
-        if repeated
-        else "Operator questions are forbidden; the obstacle remains owned by "
-        "the autonomous mission."
-    )
-    # Only the routing is overridden. The review's own findings and requested
-    # repairs still stand: the Engineer works from them next round, and the
-    # Planner reads them if the mission ends here.
-    own_reason = str(review.reason or "").strip()
-    if own_reason:
-        reason += "\n\nThe review's own findings:\n" + own_reason
-    next_action = "" if repeated else "\n\n".join(
-        part
-        for part in (str(review.next_action or "").strip(), OPERATOR_QUESTION_FORBIDDEN_NEXT_ACTION)
-        if part
-    )
-    from_reviewer = (review.review_source or "reviewer") == "reviewer"
-    return replace(
-        review,
-        status=status,
-        reason=reason,
-        next_action=next_action,
-        operator_question="",
-        operator_options=[],
-        planner_report=planner_report,
-        review_source=source,
-        # The host replaced this judgment; it is no longer the Reviewer's.
-        reviewer_authored=False,
-        host_placeholder="operator_question_policy",
-        # The Reviewer's own words stay quotable apart from the host's change.
-        reviewer_words=(
-            review.reviewer_words or {
-                "status": review.status,
-                "reason": review.reason,
-                "next_action": review.next_action,
-            }
-            if from_reviewer
-            else review.reviewer_words
-        ),
-        host_notes=(
-            [
-                *review.host_notes,
-                "operator questions are not allowed in this mission, so your "
-                f"question was not sent (your `{review.status}` became `{status}`)",
-            ]
-            if from_reviewer
-            else review.host_notes
-        ),
-    )
-
-
-def enforce_terminal_question_policy(
-    terminal: tuple | None,
-    supervised_config: "SupervisedConfig",
-) -> tuple:
-    """Remove forbidden questions from terminal records without losing metadata."""
-    if terminal is None:
-        raise ValueError("A terminal round control must include its outcome")
-    if _operator_questions_allowed(supervised_config):
-        return terminal
-    status, rounds, final_message, reason, thread_id = terminal
-    sanitized = [
-        (
-            replace(
-                record,
-                review=replace(
-                    record.review,
-                    operator_question="",
-                    operator_options=[],
-                ),
-            )
-            if record.review.operator_question
-            else record
+    _record_forbidden_question(review, supervised_config)
+    if judged and judged[-1].review.intervention(QUESTION_POLICY):
+        return _withheld(
+            review, "manager",
+            "carrying the obstacle on did not clear it, so the Manager decides in the "
+            "operator's place",
         )
-        for record in rounds
-    ]
-    return status, sanitized, final_message, reason, thread_id
+    return _withheld(
+        review, "continue",
+        "the team carries the obstacle on and settles it on the most defensible reading",
+    )
 
 
-def enforce_question_policy_event(
-    event: dict[str, Any],
-    supervised_config: "SupervisedConfig",
-) -> dict[str, Any]:
-    if (
-        not event.get("operator_question")
-        or _operator_questions_allowed(supervised_config)
-    ):
-        return event
-    return {**event, "operator_question": "", "operator_options": []}
+def withhold_terminal_question(terminal: tuple, supervised_config: "SupervisedConfig") -> tuple:
+    """Record beside a final record whose question may not go out that it was not sent.
+
+    Host stop records (an expired login, say) reach the end of a run without
+    settlement; the outcome reads this intervention and sends no question.
+    """
+    rounds = terminal[1]
+    if rounds and _question_withheld(rounds[-1].review, supervised_config):
+        rounds[-1] = replace(
+            rounds[-1],
+            review=_withheld(rounds[-1].review, "not_sent", "the run ends without it"),
+        )
+    return terminal
 
 
-def _review_forward_progress(review: ReviewDecision) -> bool | None:
-    """Return only the Reviewer's explicit structured progress judgment."""
-    report = review.planner_report
-    if not isinstance(report, dict):
+def _next_engineer_action(review: ReviewDecision) -> str | None:
+    """What the next Engineer turn works from: the verdict, and an intervention that kept the work going."""
+    if review.intervention(QUESTION_POLICY):
+        parts: tuple[str, ...] = (review.next_action, OPERATOR_QUESTION_FORBIDDEN_NEXT_ACTION)
+    elif review.status == "continue":
+        return review.next_action
+    elif review.intervention(ACCEPTANCE_BAR_POLICY):
+        parts = (review.reason, review.next_action, *(row["note"] for row in review.interventions))
+    else:
         return None
-    value = report.get("forward_progress")
-    return value if isinstance(value, bool) else None
+    return "\n\n".join(part.strip() for part in parts if str(part or "").strip())
 
 
-def _blocked_on_healthy_work(workdir: Path) -> bool:
-    """True while a job this mission launched is still running and healthy."""
-    from .external_work import scan_external_work
+def _record_operator_acceptance(state: RoundLoopState, review: ReviewDecision) -> None:
+    """Keep the operator's acceptance of a residual risk the verdict carries.
+
+    The operator's choice on the decision card, which the host found before
+    recording the verdict, is kept like the Manager's: scoped to this item or,
+    with none, to this mission.
+    """
+    detail = review.residual_risk_detail if review.status == "done" else {}
+    if (
+        state.state_root is None
+        or (review.review_source or "reviewer") != "reviewer"
+        or detail.get("accepted_by") != "operator"
+    ):
+        return
+    from ..core.residual_risk import accept_residual_risk
 
     try:
-        return any(status.waitable for status in scan_external_work(workdir))
-    except Exception:  # noqa: BLE001 — an unreadable registry is not a stall claim
-        return False
-
-
-def _next_semantic_stall_streak(
-    review: ReviewDecision,
-    current_streak: int,
-    *,
-    blocked_on_healthy_work: bool = False,
-    obstacle_streak: int = 0,
-) -> tuple[int, bool | None]:
-    """Count consecutive explicit no-progress ``continue`` verdicts.
-
-    A missing or malformed ``forward_progress`` value is unknown, not evidence
-    of a stall. Resetting on unknown makes this guard fail open and prevents the
-    harness from replacing the Reviewer's judgment with an inference of its own.
-
-    Waiting is not stalling. While a healthy job the mission launched is still
-    running, no round can show forward progress, so four such rounds retired the
-    mission for doing exactly what it was asked to do -- seven missions across
-    six campaigns in ninety minutes, including the MATH-500 gate the whole run-03
-    paper rests on. Work that is stalled or needs attention still counts, so a
-    dead job cannot buy unlimited rounds, and the round budget is untouched.
-
-    ``obstacle_streak`` is the current run of rounds naming one obstacle
-    (:func:`_advance_obstacle_run`), which a replan does not reset and which
-    may continue an earlier mission's run (``obstacle_stall.py``).
-    """
-    forward_progress = _review_forward_progress(review)
-    if blocked_on_healthy_work:
-        return 0, forward_progress
-    obstacle_streak = max(0, int(obstacle_streak))
-    if review.status == "continue" and forward_progress is False:
-        return max(max(0, int(current_streak)) + 1, obstacle_streak), forward_progress
-    if review.status == "replan_requested" and forward_progress is False and obstacle_streak:
-        return obstacle_streak, forward_progress
-    return 0, forward_progress
-
-
-def _advance_obstacle_run(
-    state: RoundLoopState,
-    review: ReviewDecision,
-    forward_progress: bool | None,
-    *,
-    blocked_on_healthy_work: bool = False,
-) -> None:
-    """Extend, restart or end the run of rounds that name one obstacle.
-
-    Only a Reviewer's no-progress verdict that names an obstacle counts. The
-    same obstacle (normalised comparison) extends the run; a different one
-    starts its own. An earlier mission's carry is offered once, to this
-    mission's first obstacle run, and only if it names the same obstacle.
-    """
-    from ..core.residual_risk import sanitize_text
-    from .obstacle_stall import MAX_OBSTACLE_CHARS, same_obstacle
-
-    obstacle = sanitize_text(review.verification_obstacle, MAX_OBSTACLE_CHARS)
-    if (
-        blocked_on_healthy_work
-        or (review.review_source or "reviewer") != "reviewer"
-        or forward_progress is not False
-        or not obstacle
-        or review.status not in {"continue", "replan_requested"}
-    ):
-        state.obstacle_streak, state.obstacle_text = 0, ""
-        return
-    if state.obstacle_streak and same_obstacle(obstacle, state.obstacle_text):
-        state.obstacle_streak += 1
-    elif state.carried_obstacle_streak and same_obstacle(obstacle, state.carried_obstacle):
-        state.obstacle_streak = state.carried_obstacle_streak + 1
-    else:
-        state.obstacle_streak = 1
-    state.obstacle_text = obstacle
-    state.carried_obstacle_streak, state.carried_obstacle = 0, ""
-
-
-def _carry_obstacle_stall(
-    state: RoundLoopState,
-    review: ReviewDecision,
-    forward_progress: bool | None,
-) -> None:
-    """Keep this mission's obstacle run for the next mission, or clear it."""
-    if (review.review_source or "reviewer") != "reviewer":
-        return
-    from .obstacle_stall import clear_obstacle_stall, record_obstacle_stall
-
-    root, objective = state.obstacle_stall_root, state.obstacle_stall_objective
-    detail = review.residual_risk_detail if review.status == "done" else {}
-    if root is not None and detail.get("accepted_by") == "operator":
-        # The operator's acceptance -- their choice on the decision card, which
-        # the host found before recording the verdict -- is kept like the
-        # Manager's, scoped to this item or, with none, to this mission.
-        import hashlib
-
-        from ..core.residual_risk import accept_residual_risk
-
-        try:
-            accept_residual_risk(
-                root, check=detail.get("check", ""), risk=detail.get("risk", ""),
-                accepted_by="operator", item_id=state.mission_item_id, mission_ref=state.mission_ref,
-                basis=detail.get("basis", ""), basis_source=detail.get("basis_source", ""),
-                source_ref="operator:" + hashlib.sha256(
-                    str(detail.get("acceptance", "")).encode("utf-8")
-                ).hexdigest()[:16],
-            )
-        except OSError:
-            log.warning("operator residual-risk acceptance could not be recorded", exc_info=True)
-    if forward_progress is True or review.status == "done":
-        clear_obstacle_stall(root, objective)
-        state.carried_obstacle_streak, state.carried_obstacle = 0, ""
-    elif state.obstacle_streak > 0:
-        record_obstacle_stall(
-            root, objective, streak=state.obstacle_streak, obstacle=state.obstacle_text,
+        accept_residual_risk(
+            state.state_root, check=detail.get("check", ""), risk=detail.get("risk", ""),
+            accepted_by="operator", item_id=state.mission_item_id, mission_ref=state.mission_ref,
+            basis=detail.get("basis", ""), basis_source=detail.get("basis_source", ""),
+            source_ref=f"operator:{detail.get('acceptance', '')}",
         )
-
-
-# Half of every failed mission across seven campaigns ended on one of the stall
-# counters, and the reason each returned described only the refusal. One
-# campaign read it as a verdict on the work: its claim-bearing benchmark run
-# stalled, and the next thing the Planner queued was an unrelated question with
-# a four-word objective. What a stall measures is the approach, so the reason
-# has to point somewhere instead of just stopping.
-_STALL_REDIRECT = (
-    " The rounds ended; the question did not. Name what these rounds kept "
-    "failing to move, then take a different route to the same question — "
-    "changing the question is how a campaign loses its paper."
-)
-
-
-def _venue_stall_question(
-    review: ReviewDecision, reason: str, rounds: int, *, language_hint: str,
-) -> ReviewDecision:
-    """The Reviewer's last verdict, turned into the stall question for the operator."""
-    from ..core.operator_messages import uses_cjk
-
-    if uses_cjk(language_hint):
-        question = f"论文已连续 {rounds} 轮复审没有看到向投稿标准的进展。接下来怎么做？"
-        options = [
-            ("change_approach", "换一种思路继续修改", "保持投稿标准，用新的方法处理剩下的问题。"),
-            ("accept_current", "接受当前版本", "停止修改，按现状交付论文，并列出仍未解决的问题。"),
-            ("lower_bar", "降低标准或换投稿目标", "选一个当前工作能够达到的目标。"),
-        ]
-    else:
-        question = (
-            f"The paper has gone {rounds} review rounds without the Reviewer seeing "
-            "progress toward the venue bar. How should Argus continue?"
-        )
-        options = [
-            ("change_approach", "Revise with a different approach",
-             "Keep the venue bar and attack the remaining issues in a new way."),
-            ("accept_current", "Accept the current version",
-             "Stop revising and deliver the paper as it stands, with the open issues listed."),
-            ("lower_bar", "Lower the bar or change the venue",
-             "Pick a target the current work can reach."),
-        ]
-    return replace(
-        review,
-        status="blocked",
-        reason=reason,
-        next_action="Resume after the operator decides how to continue.",
-        operator_question=question,
-        operator_options=[
-            {"id": option_id, "label": label, "description": description}
-            for option_id, label, description in options
-        ],
-        review_source="venue_stall",
-        planner_report={
-            **dict(review.planner_report or {}),
-            "challenge": question,
-            "authority_impact": "operator",
-            "operator_need": "scope_or_authority",
-        },
-    )
+    except OSError:
+        log.warning("operator residual-risk acceptance could not be recorded", exc_info=True)
 
 
 class RoundSettlementMixin:
@@ -422,24 +194,13 @@ class RoundSettlementMixin:
     the ``_classify`` terminal-status decision gate."""
 
     @staticmethod
-    def _classify(
-        *,
-        review: ReviewDecision,
-        no_progress_streak: int,
-        no_progress_threshold: int,
-        semantic_stall_streak: int = 0,
-        stall_threshold: int = 0,
-        round_index: int,
-        max_rounds: int,
-        hard_escalate_rounds: int = 0,
-        decision_idle_seconds: float = 0.0,
-        decision_timeout_seconds: int = 0,
-        policy_retry: bool = False,
-        soft_limit_stalled: bool = False,
-        soft_round_limit: int = 0,
-        blocked_on_healthy_work: bool = False,
-    ) -> tuple[LoopStatus | None, str]:
+    def _classify(*, review: ReviewDecision) -> tuple[LoopStatus | None, str]:
+        """The terminal status a verdict settles, or ``None`` to go on."""
         if review.status == "done":
+            if not review.final_submission_certified:
+                # The operator's acceptance bar holds the paper open; the
+                # host's note beside the verdict says why.
+                return None, ""
             return "done", review.reason or "Reviewer judged the objective complete."
         if review.status == "blocked":
             if review.backend_unavailable and not review.operator_question:
@@ -449,68 +210,6 @@ class RoundSettlementMixin:
             return (
                 "replan_requested",
                 review.reason or "Reviewer requested a Manager-owned replacement plan.",
-            )
-        if policy_retry:
-            return None, ""
-        # Empty Engineer turns are a harness count. A job the mission launched
-        # can advance while the Engineer says nothing, so the Reviewer's
-        # explicit progress judgment outranks the count -- but only while such
-        # a job is actually running and healthy. A progress claim with nothing
-        # running cannot be backed by anything, and without this floor a
-        # Reviewer that always says ``true`` would loop an empty Engineer
-        # forever in runs that have no Manager checkpoint (teammates, CLI).
-        if (
-            no_progress_threshold > 0
-            and no_progress_streak >= no_progress_threshold
-            and not (
-                blocked_on_healthy_work
-                and _review_forward_progress(review) is True
-            )
-        ):
-            return (
-                "no_progress",
-                "Engineer produced no effective output for "
-                f"{no_progress_streak} consecutive rounds." + _STALL_REDIRECT,
-            )
-        if soft_limit_stalled:
-            return (
-                "no_progress",
-                f"Soft round limit {soft_round_limit} passed and neither of the "
-                "Reviewer's last two judgments reported forward progress."
-                + _STALL_REDIRECT,
-            )
-        if (
-            stall_threshold > 0
-            and semantic_stall_streak >= stall_threshold
-            and (max_rounds <= 0 or round_index < max_rounds)
-        ):
-            return (
-                "no_progress",
-                "Reviewer reported no forward progress for "
-                f"{semantic_stall_streak} consecutive rounds." + _STALL_REDIRECT,
-            )
-        if (
-            decision_timeout_seconds > 0
-            and decision_idle_seconds >= decision_timeout_seconds
-            and (max_rounds <= 0 or round_index < max_rounds)
-        ):
-            return (
-                "no_progress",
-                f"Reached {decision_timeout_seconds} seconds without decision "
-                "progress." + _STALL_REDIRECT,
-            )
-        if (
-            hard_escalate_rounds > 0
-            and round_index >= hard_escalate_rounds
-            and review.status == "continue"
-            and _review_forward_progress(review) is None
-        ):
-            return (
-                "blocked",
-                f"Escalated after {round_index} rounds because Reviewer did not "
-                "provide an explicit forward-progress judgment at the continuation "
-                "boundary. Refusing to continue blindly; Planner can re-plan or "
-                "decompose. " + (review.reason or ""),
             )
         return None, ""
 
@@ -524,10 +223,9 @@ class RoundSettlementMixin:
         outcome: EngineerTurnOutcome,
         state: RoundLoopState,
         review_completed_hook,
-        continue_adaptor,
         on_event: Callable[[dict], None] | None,
     ) -> RoundControl:
-        review = _enforce_operator_question_policy(
+        review = _apply_operator_question_policy(
             review,
             supervised_config=supervised_config,
             state=state,
@@ -536,50 +234,14 @@ class RoundSettlementMixin:
         engineer_message = outcome.engineer_message
         state.reviewer_backend_failure_streak = 0
         state.pending_secret_guard_notes.clear()
-        policy_retry = bool(
-            review.status == "continue"
-            and review.review_source in OPERATOR_QUESTION_POLICY_REVIEW_SOURCES
-        )
-        explicit_forward_progress = _review_forward_progress(review)
-        healthy_work = _blocked_on_healthy_work(workdir)
-        if policy_retry and explicit_forward_progress is None:
-            next_semantic_stall_streak = state.semantic_stall_streak
-            forward_progress = None
-        else:
-            _advance_obstacle_run(
-                state, review, explicit_forward_progress,
-                blocked_on_healthy_work=healthy_work,
-            )
-            next_semantic_stall_streak, forward_progress = (
-                _next_semantic_stall_streak(
-                    review,
-                    state.semantic_stall_streak,
-                    blocked_on_healthy_work=healthy_work,
-                    obstacle_streak=state.obstacle_streak,
-                )
-            )
-            _carry_obstacle_stall(state, review, forward_progress)
-        now_monotonic = time.monotonic()
-        next_decision_progress_at = (
-            state.last_decision_progress_at
-            if (
-                review.status == "continue"
-                and (
-                    forward_progress is False
-                    or (policy_retry and forward_progress is None)
-                )
-            )
-            else now_monotonic
-        )
+        _record_operator_acceptance(state, review)
         if on_event:
-            on_event(
-                _review_event_payload(
-                    review,
-                    round_index=round_index,
-                    round_max=supervised_config.max_rounds,
-                    text=f"review: {review.status} — {review.reason}",
-                )
-            )
+            on_event(_review_event_payload(
+                review,
+                round_index=round_index,
+                round_max=supervised_config.max_rounds,
+                text=f"review: {review.status} — {review.reason}",
+            ))
         record = RoundRecord(
             round_index=round_index,
             engineer_message=engineer_message,
@@ -588,7 +250,7 @@ class RoundSettlementMixin:
             fatal_error=engineer_result.fatal_error,
         )
         state.rounds.append(record)
-        state.reviewer_next_action = review.next_action if review.status == "continue" else None
+        state.reviewer_next_action = _next_engineer_action(review)
         # Seal the Reviewer half of the round packet, symmetrically with
         # ``record_engineer_handoff`` in round_execution. Sealed before the
         # terminal classification below, because the terminal round is exactly
@@ -621,119 +283,26 @@ class RoundSettlementMixin:
             except Exception:  # noqa: BLE001 - memory capture never owns verdict
                 log.warning("review completion hook failed", exc_info=True)
 
-        state.semantic_stall_streak = next_semantic_stall_streak
-        state.last_decision_progress_at = next_decision_progress_at
-        decision_idle_seconds = max(
-            0.0,
-            now_monotonic - state.last_decision_progress_at,
-        )
-        if (
-            on_event
-            and state.semantic_stall_streak > 0
-            and not (policy_retry and forward_progress is None)
-        ):
-            on_event(
-                {
-                    "type": EventType.ROUND_STALL,
-                    "round_index": round_index,
-                    "round_max": supervised_config.max_rounds,
-                    "forward_progress": False,
-                    # A Reviewer that cannot observe the disputed fact will
-                    # repeat itself however many rounds run; name that apart
-                    # from an ordinary stall so the Manager can steer.
-                    "stall_reason": (
-                        "unverifiable_through_view"
-                        if str(review.verification_obstacle or "").strip()
-                        else "no_forward_progress"
-                    ),
-                    "semantic_stall_streak": state.semantic_stall_streak,
-                    "stall_threshold": supervised_config.stall_threshold,
-                    "decision_idle_seconds": round(decision_idle_seconds, 1),
-                    "text": (
-                        "reviewer reported no forward progress "
-                        f"{state.semantic_stall_streak}/"
-                        f"{supervised_config.stall_threshold} rounds"
-                    ),
-                }
+        terminal_status, reason = self._classify(review=review)
+        withheld = review.intervention(QUESTION_POLICY)
+        if withheld is not None:
+            terminal_status, reason = (
+                (
+                    "blocked",
+                    "Operator questions are forbidden and carrying the obstacle on did "
+                    "not clear it; the Manager decides in the operator's place: "
+                    + review.operator_question
+                    + ("\n\nThe review's own findings:\n" + review.reason if review.reason else ""),
+                )
+                if withheld["action"] == "manager"
+                else (None, "")
             )
-        if (
-            on_event
-            and supervised_config.hard_escalate_rounds > 0
-            and round_index == supervised_config.hard_escalate_rounds
-            and review.status == "continue"
-            and forward_progress is not None
-        ):
-            on_event({
-                "type": EventType.ROUND_ESCALATED,
-                "round_index": round_index,
-                "hard_escalate_rounds": supervised_config.hard_escalate_rounds,
-                "forward_progress": forward_progress,
-                "continuation_reason": (
-                    "semantic_progress"
-                    if forward_progress
-                    else "bounded_no_progress_observation"
-                ),
-                "text": (
-                    f"round {round_index} crossed the continuation boundary under "
-                    "the Reviewer's explicit progress judgment"
-                ),
-            })
         from .round_manager_wait import manager_wait_terminal
 
         paused = manager_wait_terminal(supervised_config, state)
         if paused is not None:
             return control_return(paused)
-        terminal_status, reason = self._classify(
-            review=review,
-            no_progress_streak=state.no_progress_streak,
-            no_progress_threshold=supervised_config.no_progress_threshold,
-            semantic_stall_streak=state.semantic_stall_streak,
-            stall_threshold=supervised_config.stall_threshold,
-            round_index=round_index,
-            max_rounds=supervised_config.max_rounds,
-            hard_escalate_rounds=supervised_config.hard_escalate_rounds,
-            decision_idle_seconds=decision_idle_seconds,
-            decision_timeout_seconds=(supervised_config.decision_progress_timeout_seconds),
-            policy_retry=policy_retry,
-            # The Reviewer's last two judgments, not the last two records:
-            # a host placeholder for an unjudged turn carries no progress
-            # judgment and must not push a real one out of the window.
-            soft_limit_stalled=bool(
-                supervised_config.soft_round_limit > 0
-                and round_index > supervised_config.soft_round_limit
-                and len(reviewer_rounds := reviewer_authored_rounds(state.rounds)) >= 2
-                and all(
-                    _review_forward_progress(row.review) is not True
-                    for row in reviewer_rounds[-2:]
-                )
-            ),
-            soft_round_limit=supervised_config.soft_round_limit,
-            blocked_on_healthy_work=healthy_work,
-        )
         if terminal_status is not None:
-            if (
-                supervised_config.stall_threshold > 0
-                and state.semantic_stall_streak >= supervised_config.stall_threshold
-            ):
-                # The stall fired: the Manager now sees it. One firing per
-                # obstacle, so the next mission does not inherit it.
-                from .obstacle_stall import clear_obstacle_stall
-
-                clear_obstacle_stall(state.obstacle_stall_root, state.obstacle_stall_objective)
-                if (
-                    terminal_status == "no_progress"
-                    and supervised_config.stall_asks_operator
-                    and _operator_questions_allowed(supervised_config)
-                    and state.rounds
-                ):
-                    # A stalled venue revision would otherwise be resumed on
-                    # the Reviewer's "continue" and stall again, for as long
-                    # as the bar stayed out of reach: the operator decides.
-                    state.rounds[-1].review = _venue_stall_question(
-                        review, reason, state.semantic_stall_streak,
-                        language_hint=f"{review.reason}\n{engineer_message}",
-                    )
-                    terminal_status = "blocked"
             return control_return(
                 (
                     terminal_status,
@@ -743,22 +312,6 @@ class RoundSettlementMixin:
                     None,
                 )
             )
-
-        if continue_adaptor is not None and (
-            supervised_config.max_rounds <= 0
-            or round_index < supervised_config.max_rounds
-        ):
-            try:
-                adapted = str(continue_adaptor(state.rounds) or "").strip()
-                if adapted:
-                    prior = str(state.reviewer_next_action or "").strip()
-                    state.reviewer_next_action = (
-                        "## Scientist alternative playbook for the next round\n"
-                        + adapted
-                        + ("\n\n## Reviewer guidance\n" + prior if prior else "")
-                    )
-            except Exception:  # noqa: BLE001 — adaptation is advisory
-                log.debug("continue adaptor failed", exc_info=True)
-        if review.review_source in OPERATOR_QUESTION_POLICY_REVIEW_SOURCES:
+        if withheld is not None:
             return control_continue_loop()
         return control_proceed()

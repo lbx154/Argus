@@ -48,6 +48,7 @@ import portalocker
 from ..core.event_catalog import EventType, canonical_event_type
 from ..core.json_codec import loads_finite_json
 from ..core.prompt_example_tasks import is_prompt_example_task
+from ..core.stop_kinds import PARK_STATUSES, park_reason_of, park_rule
 
 _BACKLOG_THREAD_LOCKS: weakref.WeakValueDictionary[str, threading.Lock] = (
     weakref.WeakValueDictionary()
@@ -467,7 +468,7 @@ class EventJournal:
         EventType.LIFE_MISSION_COMPLETED,
         EventType.LIFE_PLANNER_VERDICT,
         EventType.LIFE_PLANNER_ERROR,
-        EventType.LIFE_PLANNER_WAITING,
+        EventType.LIFE_PLANNER_IDLE,
         EventType.LIFE_BUDGET_PAUSE,
         EventType.LIFE_LIFECYCLE_BLOCK,
         "user.note",
@@ -519,16 +520,20 @@ class EventJournal:
             known_statuses = {status.value for status in PlannerVerdictStatus}
             if str(row.get("status") or "") not in known_statuses:
                 row = adapt_legacy_planner_verdict_event(row)
-        # The mid-mission budget breaker emits ``life.mission.completed`` with
-        # ``status="paused_budget"`` (success=False). Derive the documented
-        # ``budget_pause`` kind rather than mislabeling it ``mission_failed`` —
-        # the generic completed→kind map below keys only on ``success``.
-        if (
-            etype == EventType.LIFE_MISSION_COMPLETED
-            and str(row.get("status") or "") in {"budget_pause", "paused_budget"}
+        # A park ended this mission: name the documented pause kind rather than
+        # mislabel it ``mission_failed``; the generic completed→kind map below
+        # keys only on ``success``. The mid-mission budget breaker also wrote
+        # ``status="budget_pause"``.
+        park = (
+            park_reason_of(row.get("status"), row.get("park_reason"))
+            if etype == EventType.LIFE_MISSION_COMPLETED
+            else None
+        )
+        if park == "budget_exhausted" or (
+            etype == EventType.LIFE_MISSION_COMPLETED and row.get("status") == "budget_pause"
         ):
             kind: str | None = "budget_pause"
-        elif etype == EventType.LIFE_MISSION_COMPLETED and row.get("status") == "paused_cost":
+        elif park == "cost_unreconciled":
             kind = "cost_pause"
         elif (
             etype == EventType.LIFE_MISSION_COMPLETED
@@ -541,22 +546,9 @@ class EventJournal:
             and str(row.get("status") or "") == "replan_requested"
         ):
             kind = "mission_replan_requested"
-        elif (
-            etype == EventType.LIFE_MISSION_COMPLETED
-            and str(row.get("status") or "") in {
-                "paused_provider_cooldown",
-            }
-        ):
+        elif park == "provider_cooldown":
             kind = "provider_pause"
-        elif (
-            etype == EventType.LIFE_MISSION_COMPLETED
-            and str(row.get("status") or "") in {
-                "research_incomplete",
-                "paused_no_breakthrough",
-                "exhausted_current_methods",
-                "infra_blocked",
-            }
-        ):
+        elif park in {"research_open", "infra"}:
             kind = "research_pause"
         else:
             kind = {
@@ -566,7 +558,7 @@ class EventJournal:
                 ),
                 EventType.LIFE_PLANNER_VERDICT: "planner_cycle",
                 EventType.LIFE_PLANNER_ERROR: "planner_error",
-                EventType.LIFE_PLANNER_WAITING: "planner_waiting",
+                EventType.LIFE_PLANNER_IDLE: "planner_idle",
                 EventType.LIFE_BUDGET_PAUSE: "budget_pause",
                 EventType.LIFE_LIFECYCLE_BLOCK: "lifecycle_block",
                 "user.note": "user_note",
@@ -675,15 +667,11 @@ class EventJournal:
     ) -> list[JournalEntry]:
         """Last ``n`` mission-settlement entries across the whole journal.
 
-        Only ``life.mission.completed`` events occupy window slots: the
-        planner failure quarantine reasons over mission settlements, and its
-        lookback must not shrink because journal-level chatter (planner
+        Only ``life.mission.completed`` events occupy window slots, so the
+        lookback does not shrink because journal-level chatter (planner
         cycles, waiting heartbeats) landed in between. When ``kinds`` is
         given, only settlements whose projected :class:`JournalEntry` ``kind``
-        is in it occupy window slots — the failure quarantine passes exactly
-        its quarantine-or-release kinds so neutral settlements (budget or
-        provider pauses, iteration requeues) cannot evict an older failure
-        out of a threshold-sized window. Spans every retained rollover
+        is in it occupy window slots. Spans every retained rollover
         generation and covers both the canonical spelling and the legacy
         ``mission.completed`` alias.
         """
@@ -710,60 +698,6 @@ class EventJournal:
             predicate=_is_settlement,
             raw_markers=self._SETTLEMENT_RAW_MARKERS,
             rg_pattern=self._SETTLEMENT_RG_PATTERN,
-        )
-        return [
-            entry for row in events
-            if (entry := self._entry_from_event(row)) is not None
-        ]
-
-    def tail_for_item(
-        self,
-        item_id: str,
-        n: int,
-        *,
-        kinds: Iterable[str] | None = None,
-    ) -> list[JournalEntry]:
-        """Last ``n`` mission-settlement entries journaled for one backlog item.
-
-        Only ``life.mission.completed`` events count: those are the entries the
-        replan-streak guard reasons about, and a per-item tail must not shrink
-        just because unrelated journal-level traffic (planner cycles, parallel
-        missions) landed in between. When ``kinds`` is given, only settlements
-        whose projected :class:`JournalEntry` ``kind`` is in it occupy window
-        slots — the replan-streak guard passes exactly its count-or-break kinds
-        so neutral settlements (budget/provider/research pauses) cannot evict
-        an older replan out of a threshold-sized window. Spans every retained
-        rollover generation.
-        """
-        item_id = str(item_id or "")
-        if n <= 0 or not item_id:
-            return []
-        raw_marker = item_id.encode("utf-8")
-        wanted = None if kinds is None else frozenset(kinds)
-
-        def _is_item_settlement(row: dict[str, Any]) -> bool:
-            etype = canonical_event_type(
-                row.get("canonical_type") or row.get("type")
-            )
-            if etype != EventType.LIFE_MISSION_COMPLETED:
-                return False
-            if str(row.get("item_id") or row.get("id") or "") != item_id:
-                return False
-            if wanted is None:
-                return True
-            # Derive the same kind projection the returned entries carry, so
-            # the filter and the caller reason about identical labels.
-            entry = self._entry_from_event(row)
-            return entry is not None and entry.kind in wanted
-
-        events = _read_jsonl_tail_history(
-            self.path,
-            n,
-            predicate=_is_item_settlement,
-            raw_predicate=lambda raw: raw_marker in raw,
-            # Item ids are plain uuid hex (``BacklogItem.new_id``), so the id
-            # itself is a regex-safe ripgrep pattern for sparse per-item rows.
-            rg_pattern=item_id,
         )
         return [
             entry for row in events
@@ -815,42 +749,38 @@ class EventJournal:
 # Backlog
 # ---------------------------------------------------------------------------
 
-_BACKLOG_STATUSES = {
-    "pending",
-    "running",
-    "paused",
-    "paused_budget",
-    "paused_cost",
-    "paused_provider_cooldown",
-    "paused_provider_fence",
-    "paused_daemon_shutdown",
-    "paused_external_work",
-    "paused_operator",
-    "research_incomplete",
-    "paused_no_breakthrough",
-    "exhausted_current_methods",
-    "infra_blocked",
-    "done",
-    "failed",
-    "aborted",
-    "skipped",
-    "superseded",
-}
 _TERMINAL_STATUSES = {"done", "failed", "aborted", "skipped", "superseded"}
-_RECOVERABLE_PAUSE_STATUSES = {
-    "paused",
-    "paused_budget",
-    "paused_cost",
-    "paused_provider_cooldown",
-    "paused_provider_fence",
-    "paused_daemon_shutdown",
-    "paused_external_work",
-    "paused_operator",
-    "research_incomplete",
-    "paused_no_breakthrough",
-    "exhausted_current_methods",
-    "infra_blocked",
-}
+_BACKLOG_STATUSES = {"pending", "running", *PARK_STATUSES, *_TERMINAL_STATUSES}
+
+
+def park_reason(item: Any) -> str | None:
+    """Why ``item`` is parked, or ``None`` when it is not; reads older ``paused_*`` rows too."""
+    outcome = getattr(item, "outcome", None)
+    park = outcome.get("park") if isinstance(outcome, dict) else None
+    return park_reason_of(
+        getattr(item, "status", ""),
+        park.get("reason") if isinstance(park, dict) else "",
+    )
+
+
+def _holds_resources(item: Any) -> bool:
+    """Running work holds its GPUs and paths; parked work holds nothing."""
+    return getattr(item, "status", "") == "running"
+
+
+def planner_may_retire_park(item: Any) -> bool:
+    """Whether a parked row is the Planner's to retire rather than the operator's.
+
+    Parks no automatic path resumes and no operator owns leave their pending
+    dependents waiting forever, so the Planner may retire one (RETIRE_TASK);
+    the dead-dependency cascade then releases the dependents. A row that holds
+    a ``pending_question`` stays the operator's whatever its reason.
+    """
+    reason = park_reason(item)
+    if reason is None or str(getattr(item, "pending_question", "") or "").strip():
+        return False
+    rule = park_rule(reason)
+    return not rule.auto_resume and rule.holder != "operator"
 
 
 def _expire_unanswered_operator_question(item: BacklogItem) -> None:
@@ -898,7 +828,6 @@ class PlanRevisionResult:
 _GPU_PROBE_TTL_S = 10.0
 _GPU_PROBE_LOCK = threading.Lock()
 _GPU_PROBE_CACHE: tuple[float, tuple[tuple[int, bool], ...] | None] | None = None
-_GPU_ACTIVE_STATUSES = frozenset({"running", "paused_external_work"})
 # ``last_error`` prefix for a task that asks for more GPUs than the machine
 # has; the Planner digest lists these so the task can be re-planned smaller.
 GPU_UNFITTABLE_PREFIX = "gpus: "
@@ -907,10 +836,9 @@ GPU_UNFITTABLE_PREFIX = "gpus: "
 def _gpu_cards() -> tuple[tuple[int, bool], ...] | None:
     """``(index, busy)`` per GPU on this machine, or ``None`` when none is visible.
 
-    Busy uses the thresholds the GPU lease uses for "not idle": over 5 %
-    utilisation or over 2 GiB in use, whichever process holds the card. The
-    probe is a subprocess and this is consulted on every claim, so its answer
-    is kept for ten seconds.
+    A card is busy over 5 % utilisation or over 2 GiB in use, whichever
+    process holds it. The nvidia-smi probe is consulted on every claim, so its
+    answer is kept for ten seconds.
     """
     global _GPU_PROBE_CACHE
     now = time.monotonic()
@@ -918,29 +846,33 @@ def _gpu_cards() -> tuple[tuple[int, bool], ...] | None:
         cached = _GPU_PROBE_CACHE
         if cached is not None and now - cached[0] < _GPU_PROBE_TTL_S:
             return cached[1]
-    from ..tools.gpu_lease import gpu_snapshot
-
-    snapshot = gpu_snapshot()
-    value: tuple[tuple[int, bool], ...] | None = None
-    if snapshot:
-        value = tuple(
-            (
-                int(gpu["index"]),
-                gpu["util_pct"] > 5 or gpu["mem_used_mib"] > 2048,
-            )
-            for gpu in snapshot
-        )
+    try:
+        output = subprocess.run(
+            ["nvidia-smi", "--query-gpu=index,memory.used,utilization.gpu",
+             "--format=csv,noheader,nounits"],
+            capture_output=True, text=True, timeout=15, check=True,
+        ).stdout
+    except (OSError, subprocess.SubprocessError):
+        output = ""
+    cards: list[tuple[int, bool]] = []
+    for line in output.splitlines():
+        try:
+            index, mem_used_mib, util_pct = (int(part) for part in line.split(","))
+        except ValueError:
+            continue
+        cards.append((index, util_pct > 5 or mem_used_mib > 2048))
+    value = tuple(cards) or None
     with _GPU_PROBE_LOCK:
         _GPU_PROBE_CACHE = (now, value)
     return value
 
 
 def gpu_reservation(items: Iterable[Any]) -> int:
-    """GPUs held by running tasks and by tasks parked on their own jobs."""
+    """GPUs held by running tasks."""
     return sum(
         max(0, int(getattr(item, "gpu_count", 0) or 0))
         for item in items
-        if getattr(item, "status", "") in _GPU_ACTIVE_STATUSES
+        if _holds_resources(item)
     )
 
 
@@ -957,7 +889,7 @@ def _free_gpu_indices(
     reserved: set[int] = set()
     unassigned = 0
     for item in items:
-        if getattr(item, "status", "") not in _GPU_ACTIVE_STATUSES:
+        if not _holds_resources(item):
             continue
         count = max(0, int(getattr(item, "gpu_count", 0) or 0))
         indices = list(getattr(item, "gpu_indices", None) or [])
@@ -993,11 +925,11 @@ def task_cpu_count(item: Any, usable: int) -> int:
 
 
 def cpu_reservation(items: Iterable[Any], usable: int) -> int:
-    """Cores declared by running tasks and by tasks parked on their own jobs."""
+    """Cores declared by running tasks."""
     return sum(
         task_cpu_count(item, usable)
         for item in items
-        if getattr(item, "status", "") in _GPU_ACTIVE_STATUSES
+        if _holds_resources(item)
     )
 
 
@@ -1108,10 +1040,6 @@ class BacklogItem:
     plan_version: int = 0
     node_key: str = ""
     context_refs: list[dict[str, str]] = field(default_factory=list)
-    # Stable Planner-authored identity for a known blocker. It deliberately
-    # excludes display prose so terminal blockers cannot be retried by renaming
-    # the task.
-    blocker_fingerprint: str = ""
     # Canonical Planner→Engineer handoff fields. ``objective`` says what to do;
     # these fields bound completion and prevent a fresh session from reopening
     # unrelated project history.
@@ -1123,8 +1051,6 @@ class BacklogItem:
     non_goals: list[str] = field(default_factory=list)
     superseded_by_plan_id: str = ""
     superseded_reason: str = ""
-    # Persisted so daemon restarts cannot reset a filtered-replan livelock.
-    replan_rejections: int = 0
     # Consecutive provider-cooldown pauses of this item whose stop reason
     # normalized to the same signature. Persisted so daemon restarts cannot
     # reset the count; at the limit a model-configuration failure is treated
@@ -1135,12 +1061,6 @@ class BacklogItem:
     # When the current run of provider-cooldown pauses without progress began;
     # auto-resume stops after the automatic-retry window.
     provider_cooldown_since: float = 0.0
-    # Persisted so a configurable convergence threshold is not bounded by the
-    # finite journal tail used only to migrate older backlog rows.
-    consecutive_replans: int = 0
-    # Distinguishes an authoritative zero after forward progress from a legacy
-    # row whose pre-upgrade streak still needs reconstruction from the journal.
-    replan_streak_tracked: bool = False
     authorization_id: str = ""
     authorization_action: str = ""
     # Optional execution root. Framework maintenance may use an isolated
@@ -1190,7 +1110,6 @@ class BacklogItem:
         plan_version: int = 0,
         node_key: str = "",
         context_refs: list[dict[str, str]] | None = None,
-        blocker_fingerprint: str = "",
         authorization_id: str = "",
         authorization_action: str = "",
         execution_workdir: str = "",
@@ -1230,7 +1149,6 @@ class BacklogItem:
                 for ref in (context_refs or [])
                 if isinstance(ref, dict)
             ],
-            blocker_fingerprint=str(blocker_fingerprint or "").strip(),
             authorization_id=str(authorization_id),
             authorization_action=str(authorization_action),
             execution_workdir=str(execution_workdir),
@@ -1312,7 +1230,6 @@ class BacklogItem:
                 for ref in (row.get("context_refs", []) or [])
                 if isinstance(ref, dict)
             ],
-            blocker_fingerprint=str(row.get("blocker_fingerprint", "")),
             acceptance_check=str(row.get("acceptance_check", "")),
             plan_hypothesis=str(row.get("plan_hypothesis", "")),
             goal_contribution=str(row.get("goal_contribution", "")),
@@ -1325,7 +1242,6 @@ class BacklogItem:
             ],
             superseded_by_plan_id=str(row.get("superseded_by_plan_id", "")),
             superseded_reason=str(row.get("superseded_reason", "")),
-            replan_rejections=max(0, int(row.get("replan_rejections", 0) or 0)),
             provider_cooldown_streak=max(
                 0,
                 int(row.get("provider_cooldown_streak", 0) or 0),
@@ -1337,11 +1253,6 @@ class BacklogItem:
                 0.0,
                 float(row.get("provider_cooldown_since", 0.0) or 0.0),
             ),
-            consecutive_replans=max(
-                0,
-                int(row.get("consecutive_replans", 0) or 0),
-            ),
-            replan_streak_tracked=bool(row.get("replan_streak_tracked", False)),
             authorization_id=str(row.get("authorization_id", "")),
             authorization_action=str(row.get("authorization_action", "")),
             execution_workdir=str(row.get("execution_workdir", "")),
@@ -1585,7 +1496,7 @@ class Backlog:
         Only ``done`` counts as a satisfied dependency. ``failed`` /
         ``skipped`` are terminal but *not* satisfied — a dependent of a
         failed item can never run and is cascade-skipped (see
-        :meth:`_cascade_blocked`). Mirrors ``team/task_board._done_ids``.
+        :meth:`_cascade_blocked`).
         """
         return {it.id for it in items if it.status == "done"}
 
@@ -1709,10 +1620,7 @@ class Backlog:
         )
         if parallel_only or (
             respect_running
-            and any(
-                item.status in {"running", "paused_external_work"}
-                for item in items
-            )
+            and any(_holds_resources(item) for item in items)
         ):
             ready = [
                 item
@@ -1720,7 +1628,15 @@ class Backlog:
                 if self._parallel_worker_can_claim(item, items)
             ]
         admission["claimable"] = len(ready)
-        ready.sort(key=lambda it: (it.priority, it.ts))
+        # A runtime-failure canary heads the queue: while that circuit is open
+        # it is the one mission allowed through, and the supervisor only ever
+        # tries the head, so a row ahead of it (an operator-priority item, say)
+        # would be held forever with the canary waiting behind it.
+        ready.sort(
+            key=lambda it: (
+                "runtime_failure_canary" not in it.tags, it.priority, it.ts,
+            )
+        )
         self.last_admission = admission
         return ready, changed
 
@@ -1733,14 +1649,13 @@ class Backlog:
 
         A continuation that keeps the origin's ``node_key``, or uses the
         origin's id as its node key, is the same unit of campaign work. While
-        any such row is running or parked on external work, a second worker
-        must not start it in parallel; it becomes claimable once the active
+        any such row is running, a second worker must not start it in parallel; it becomes claimable once the active
         row settles. (Same-origin claim exclusion from #133.)
         """
         aliases = {candidate.id, str(candidate.node_key or "").strip()} - {""}
         return any(
             item.id != candidate.id
-            and item.status in {"running", "paused_external_work"}
+            and _holds_resources(item)
             and aliases & ({item.id, str(item.node_key or "").strip()} - {""})
             for item in items
         )
@@ -1800,16 +1715,11 @@ class Backlog:
         if tags & forbidden:
             return False
         running = [item for item in items if item.status == "running"]
-        paused_external = [
-            item for item in items if item.status == "paused_external_work"
-        ]
         if any(not item.parallel_safe or not item.owns_paths for item in running):
-            return False
-        if any(not item.owns_paths for item in paused_external):
             return False
         return not any(
             cls._paths_overlap(candidate_path, active_path)
-            for item in (*running, *paused_external)
+            for item in running
             for candidate_path in candidate.owns_paths
             for active_path in item.owns_paths
         )
@@ -2012,9 +1922,6 @@ class Backlog:
             duplicate = next((item_id for item_id in ids if item_id in existing), None)
             if duplicate is not None:
                 raise ValueError(f"backlog item already exists: {duplicate}")
-            for item in batch:
-                # Same as add(): new rows never need journal migration.
-                item.replan_streak_tracked = True
             items.extend(batch)
             self._validate_no_dependency_cycles(items)
             self._save(items)
@@ -2057,15 +1964,25 @@ class Backlog:
         item_ids: Iterable[str],
         reason: str,
         superseded_by_plan_id: str,
+        include_parked: bool = False,
     ) -> tuple[str, ...]:
-        """Retire named pending items, preserving paused and running work."""
+        """Retire named pending items, preserving paused and running work.
+
+        ``include_parked`` also retires parks only an agent can release
+        (:func:`planner_may_retire_park`); running work, recoverable pauses
+        the host resumes itself, and operator questions are never touched.
+        """
         selected = set(item_ids)
         superseded: list[str] = []
         with self._locked():
             items = self._load()
             now = time.time()
             for item in items:
-                if item.id not in selected or item.status != "pending":
+                if item.id not in selected:
+                    continue
+                if item.status != "pending" and not (
+                    include_parked and planner_may_retire_park(item)
+                ):
                     continue
                 item.status = "superseded"
                 item.finished_ts = now
@@ -2225,11 +2142,6 @@ class Backlog:
                 archived.superseded_reason = reason
                 terminal_updates.append(archived)
             items.extend(terminal_updates)
-            for item in replacements:
-                # Same as Backlog.add(): a freshly inserted replacement row has
-                # no journal history to migrate, so its zero replan streak is
-                # authoritative and the first settlement skips the journal scan.
-                item.replan_streak_tracked = True
             items.extend(replacements)
             self._save(items)
 
@@ -2325,7 +2237,7 @@ class Backlog:
                                 f"{new_status!r}. Enqueue a new item instead."
                             )
                         if (
-                            it.status in _RECOVERABLE_PAUSE_STATUSES
+                            it.status in PARK_STATUSES
                             and new_status == "pending"
                         ):
                             raise IllegalStateTransition(
@@ -2385,7 +2297,9 @@ class Backlog:
             return sorted(records, key=lambda row: (float(row["event"].get("ts") or 0), row["id"]))
 
     def acknowledge_mission_delivery(self, delivery_id: str, *, keep_for_experience: bool = False) -> None:
-        if len(delivery_id) != 64 or any(c not in "0123456789abcdef" for c in delivery_id):
+        from .mission_event_index import _is_delivery_id
+
+        if not _is_delivery_id(delivery_id):
             raise ValueError("invalid mission delivery acknowledgement")
         with self._locked():
             path = self._mission_deliveries_path / f"{delivery_id}.json"
@@ -2453,12 +2367,14 @@ class Backlog:
         decision_note: str = "",
         manager_reply: str = "",
         operator_context_persisted: bool = False,
+        decided_by: str = "operator",
     ) -> tuple[BacklogItem | None, BacklogItem | None]:
         """Atomically consume one pending question and enqueue its continuation.
 
         A decision id binds typed-card requests to the pending card. The backlog
         lock and resolved card provide idempotency without a separate revision
-        or campaign-generation gate.
+        or campaign-generation gate. An answer the Manager gave in the
+        operator's place (``decided_by="manager"``) is never recorded as theirs.
         """
         from ..core.operator_context import import_deterministic_credential
 
@@ -2471,7 +2387,7 @@ class Backlog:
                 else None
             ),
         )
-        if not operator_context_persisted:
+        if decided_by == "operator" and not operator_context_persisted:
             from ..core.operator_context import persist_once_answer
 
             persist_once_answer(
@@ -2506,6 +2422,11 @@ class Backlog:
                 return blocked, None
             answer = answer.strip()
             decision = manager_decision.strip()
+            response = (
+                "Operator response"
+                if decided_by == "operator"
+                else "Manager decision in the operator's place"
+            )
             if decision:
                 objective = (
                     "Authoritative Manager operator-answer decision:\n"
@@ -2515,13 +2436,10 @@ class Backlog:
                     "Inherited blocked mission objective (retain only non-conflicting "
                     "context):\n"
                     f"{blocked.objective.strip()}\n\n"
-                    f"Operator response:\n{answer}"
+                    f"{response}:\n{answer}"
                 )
             else:
-                objective = (
-                    f"{blocked.objective.strip()}\n\n"
-                    f"Operator response:\n{answer}"
-                )
+                objective = f"{blocked.objective.strip()}\n\n{response}:\n{answer}"
             acceptance_check = blocked.acceptance_check
             non_goals = list(blocked.non_goals)
             if decision:
@@ -2547,8 +2465,9 @@ class Backlog:
                 title=blocked.title,
                 objective=objective,
                 priority=blocked.priority,
+                # A canary admission belongs to the admitted item only.
                 tags=list(dict.fromkeys([
-                    *blocked.tags,
+                    *(tag for tag in blocked.tags if tag != "runtime_failure_canary"),
                     "operator-reply",
                     "manager-approved",
                     "review:required",
@@ -2596,6 +2515,7 @@ class Backlog:
                     "continuation_item_id": continuation.id,
                     "manager_decision": decision,
                     "reply": manager_reply.strip(),
+                    "decided_by": decided_by,
                     "resume_requested": True,
                     "resolution_id": (
                         f"{blocked.operator_decision.get('id', decision_id)}:"
@@ -2619,10 +2539,6 @@ class Backlog:
                 # Append the resolved terminal revision; history() selects the
                 # latest row for this stable id.
                 items.append(blocked)
-            # Same as Backlog.add(): the continuation is a brand-new row with
-            # no journal history, so its zero replan streak is authoritative
-            # and the first settlement skips the journal migration scan.
-            continuation.replan_streak_tracked = True
             items.append(continuation)
             self._validate_no_dependency_cycles(items)
             self._save(items)
@@ -2634,8 +2550,17 @@ class Backlog:
         *,
         note: str = "",
         decision_id: str = "",
+        selected_option: str = "stop",
+        manager_decision: str = "stop campaign",
+        reply: str = "Campaign stopped. Current work was preserved.",
+        last_error: str = "",
+        decided_by: str = "operator",
     ) -> BacklogItem | None:
-        """Resolve one pending decision by stopping its campaign item."""
+        """Resolve one pending decision by ending its item.
+
+        The card is re-checked under the backlog lock, so a concurrent answer
+        that already resolved it wins and this returns ``None``.
+        """
         with self._locked():
             items = self._load()
             item = next((row for row in items if row.id == item_id), None)
@@ -2652,19 +2577,22 @@ class Backlog:
             item.status = "aborted"
             item.finished_ts = time.time()
             item.pending_question = ""
+            if last_error:
+                item.last_error = last_error
             if item.operator_decision:
                 resolved_from_revision = int(
                     item.operator_decision.get("revision", 1) or 1
                 )
                 item.operator_decision.update({
                     "status": "resolved",
-                    "selected_option": "stop",
+                    "selected_option": selected_option,
                     "note": note.strip(),
                     "resolved_from_revision": resolved_from_revision,
                     "revision": resolved_from_revision + 1,
                     "continuation_item_id": "",
-                    "manager_decision": "stop campaign",
-                    "reply": "Campaign stopped. Current work was preserved.",
+                    "manager_decision": manager_decision,
+                    "reply": reply,
+                    "decided_by": decided_by,
                     "resume_requested": False,
                     "resolution_id": (
                         f"{item.operator_decision.get('id', decision_id)}:"
@@ -2673,6 +2601,86 @@ class Backlog:
                 })
             self._save(items)
             return item
+
+    def park_terminal_operator_question(
+        self,
+        item_id: str,
+        *,
+        holder_id: str,
+        question: str,
+        operator_decision: dict[str, Any],
+    ) -> BacklogItem | None:
+        """Hold an operator question raised after its mission already ended.
+
+        A terminal row cannot carry a live question (it expires with the
+        mission), and it cannot be reopened. Without a holder the question was
+        simply lost: the run stopped for an operator decision nobody could see
+        or answer. The holder is a new ``paused_operator`` row with the ended
+        mission's contract, so the ordinary answer path
+        (:meth:`continue_with_operator_reply` / :meth:`stop_for_operator_decision`)
+        resolves it, and live dependents of an ended row that did not succeed
+        wait on the holder instead of being cascade-skipped while the operator
+        decides. A row that finished ``done`` already released its dependents;
+        a later question about it must not hold them, nor skip them on "stop".
+        """
+        question = str(question or "").strip()
+        if not question:
+            raise ValueError("an operator question holder needs a question")
+        with self._locked():
+            items = self._load()
+            source = next((row for row in items if row.id == item_id), None)
+            if source is None:
+                source = next(
+                    (
+                        row
+                        for row in reversed(self._load_archive())
+                        if row.id == item_id
+                    ),
+                    None,
+                )
+            if source is None or source.status not in _TERMINAL_STATUSES:
+                return None
+            holder = BacklogItem.new(
+                item_id=holder_id,
+                title=source.title,
+                objective=source.objective,
+                priority=source.priority,
+                tags=[tag for tag in source.tags if tag != "runtime_failure_canary"],
+                notes=f"Holds the operator question raised after item {source.id} ended.",
+                iterate=source.iterate,
+                iteration_max_cycles=source.iteration_max_cycles,
+                deps=list(source.deps),
+                plan_id=source.plan_id,
+                plan_version=source.plan_version,
+                node_key=source.node_key,
+                context_refs=list(source.context_refs),
+                authorization_id=source.authorization_id,
+                authorization_action=source.authorization_action,
+                execution_workdir=source.execution_workdir,
+                acceptance_check=source.acceptance_check,
+                plan_hypothesis=source.plan_hypothesis,
+                goal_contribution=source.goal_contribution,
+                expected_regressions=source.expected_regressions,
+                decision_rule=source.decision_rule,
+                non_goals=list(source.non_goals),
+                original_objective=source.original_objective,
+                manager_decision=dict(source.manager_decision),
+            )
+            holder.status = "paused_operator"
+            holder.finished_ts = time.time()
+            holder.last_error = source.last_error
+            holder.pending_question = question
+            holder.operator_decision = dict(operator_decision)
+            for row in items if source.status != "done" else ():
+                if row.status in _TERMINAL_STATUSES or source.id not in row.deps:
+                    continue
+                row.deps = list(dict.fromkeys(
+                    holder.id if dep == source.id else dep for dep in row.deps
+                ))
+            items.append(holder)
+            self._validate_no_dependency_cycles(items)
+            self._save(items)
+            return holder
 
     def claim_next(
         self,
@@ -2821,11 +2829,6 @@ class Backlog:
                     it.started_ts = None
                     it.finished_ts = None
                     it.last_error = ""
-                    # An accepted cycle re-armed the item, which the settlement
-                    # journals as mission_iterated — forward progress, so the
-                    # replan streak restarts from an authoritative zero.
-                    it.consecutive_replans = 0
-                    it.replan_streak_tracked = True
                     out = it
                     break
             if out is not None:
@@ -2923,7 +2926,7 @@ class Backlog:
             for item in items:
                 if item.id != item_id:
                     continue
-                if item.status not in _RECOVERABLE_PAUSE_STATUSES:
+                if item.status not in PARK_STATUSES:
                     return None
                 if str(item.pending_question or "").strip():
                     return None
@@ -2943,7 +2946,7 @@ class Backlog:
             items = self._load()
             resumed: list[BacklogItem] = []
             for item in items:
-                if item.status not in _RECOVERABLE_PAUSE_STATUSES:
+                if item.status not in PARK_STATUSES:
                     continue
                 if str(item.pending_question or "").strip():
                     continue
@@ -2960,19 +2963,19 @@ class Backlog:
         self,
         statuses: Iterable[str],
     ) -> list[BacklogItem]:
-        """Atomically re-arm only explicitly auto-resumable pause classes."""
-        allowed = {
-            str(status)
-            for status in statuses
-            if str(status) in _RECOVERABLE_PAUSE_STATUSES
-        }
-        if not allowed:
+        """Atomically re-arm only explicitly auto-resumable pause classes.
+
+        A class is named by its older status; a ``parked`` row with the same
+        reason resumes with it.
+        """
+        reasons = {park_reason_of(status) for status in statuses} - {None}
+        if not reasons:
             return []
         with self._locked():
             items = self._load()
             resumed: list[BacklogItem] = []
             for item in items:
-                if item.status not in allowed:
+                if park_reason(item) not in reasons:
                     continue
                 if str(item.pending_question or "").strip():
                     continue

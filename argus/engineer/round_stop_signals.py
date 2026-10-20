@@ -12,27 +12,12 @@ re-imports these same names to keep its historical public surface unchanged.
 """
 from __future__ import annotations
 
-import json
 import re
 from dataclasses import dataclass
 
 from ..core.http_status import has_http_status
 from ..core.models import ReviewDecision, RunnerResult
 from ..core.stop_kinds import normalize_stop_kind, stop_kind_clause
-
-_SUCCESS_ITEM_STATUSES: tuple[str, ...] = (
-    "completed",
-    "succeeded",
-    "success",
-    "ok",
-    "applied",
-)
-_FAILED_ITEM_STATUSES: tuple[str, ...] = (
-    "failed",
-    "error",
-    "cancelled",
-    "canceled",
-)
 
 _POISONED_SESSION_FATAL_ERROR_PATTERNS: tuple[str, ...] = (
     "empty output",
@@ -55,10 +40,8 @@ _POISONED_SESSION_FATAL_ERROR_PATTERNS: tuple[str, ...] = (
 # and retried with backoff; the streak threshold still terminates a session
 # that keeps dying.
 _SESSION_DEATH_FATAL_ERROR_PATTERNS: tuple[str, ...] = (
-    "forced restart after hard idle timeout",
+    "forced restart after",
     "hard idle timeout",
-    "acp prompt timed out",
-    "acp process died",
     "before turn completion",
     "cli exited with code",
 )
@@ -306,61 +289,6 @@ def fatal_error_looks_like_operator_abort_request(fatal_error: str | None) -> bo
     return bool(_OPERATOR_ABORT_INTERRUPT_RE.search(low))
 
 
-def _parse_json_event(raw: object) -> dict | None:
-    text = str(raw or "").strip()
-    if not text or text[0] not in "{[":
-        return None
-    try:
-        event = json.loads(text)
-    except (TypeError, ValueError):
-        return None
-    return event if isinstance(event, dict) else None
-
-
-def _event_has_successful_work_signal(event: dict) -> bool:
-    event_type = str(event.get("type") or "").strip()
-    if event_type == "item.completed":
-        item = event.get("item") or {}
-        if not isinstance(item, dict):
-            return False
-        kind = str(item.get("type") or "").strip()
-        status = str(item.get("status") or "").strip().casefold()
-        exit_code = item.get("exit_code")
-        if kind == "agent_message":
-            return bool(str(item.get("text") or "").strip())
-        if status in _FAILED_ITEM_STATUSES:
-            return False
-        if kind == "command_execution":
-            return exit_code == 0 or status in _SUCCESS_ITEM_STATUSES
-        if kind in {"file_change", "tool_use"}:
-            return status in _SUCCESS_ITEM_STATUSES or bool(item.get("changes"))
-        return False
-    if event_type in {"tool.result", "assistant.message"}:
-        data = event.get("data") or {}
-        if isinstance(data, dict):
-            return bool(str(data.get("content") or data.get("output") or "").strip())
-    return False
-
-
-def _runner_result_has_successful_work_signal(
-    result: RunnerResult,
-    *,
-    engineer_message: str,
-) -> bool:
-    if normalize_stop_kind(result.stop_kind) is not None:
-        return False
-    if engineer_message.strip():
-        return True
-    if fatal_error_looks_like_backend_failure(result.fatal_error):
-        return False
-
-    for raw in result.stdout_lines:
-        event = _parse_json_event(raw)
-        if event is not None and _event_has_successful_work_signal(event):
-            return True
-    return False
-
-
 def runner_result_is_backend_failure(result: RunnerResult) -> bool:
     stop_kind = normalize_stop_kind(result.stop_kind)
     if stop_kind is not None:
@@ -421,20 +349,20 @@ def backend_failure_hold_backoff_seconds(
 
 def should_clear_thread_id_after_outcome(
     *,
-    status: str,
     fatal_error: str | None,
     stop_kind: str | None = None,
 ) -> bool:
     """Return True when the carried Codex thread id should be cleared."""
     return (
-        str(status).strip().casefold() == "no_progress"
-        or _fatal_error_looks_like_poisoned_session(fatal_error)
+        _fatal_error_looks_like_poisoned_session(fatal_error)
         or fatal_error_looks_like_backend_failure(fatal_error)
         or normalize_stop_kind(stop_kind) in {"backend_unavailable", "transient_error"}
     )
 
 
-_IDLE_TERMINATION_MARKER = "hard idle timeout"
+# Argus stopped the turn because the Manager decided to restart a turn that
+# stopped progressing.
+_IDLE_TERMINATION_MARKER = "forced restart after"
 _RUNNING_TOOL_MARKER = "running tool: "
 
 
@@ -464,11 +392,11 @@ def idle_termination_review_decision(
     streak: int,
     threshold: int,
 ) -> ReviewDecision:
-    """The skipped-review record for a turn Argus stopped for silence.
+    """The skipped-review record for a turn Argus stopped for making no progress.
 
     Unlike a backend failure, nothing broke on the provider's side: a
-    command ran for the whole idle limit without finishing or printing. The
-    next round must not repeat it as it was, so the sentence names the
+    command made no progress until the Manager decided to restart the turn.
+    The next round must not repeat it as it was, so the sentence names the
     command when the transport recorded it and says what to do instead.
     """
     error_text = str(fatal_error or f"exit={exit_code}").strip()
@@ -481,20 +409,17 @@ def idle_termination_review_decision(
         status="continue",
         reason=(
             "Argus stopped the Engineer's session because neither the model nor "
-            f"{what} produced anything for the whole idle limit; nothing was "
-            "judged. "
+            f"{what} made any progress for a long time; nothing was judged. "
             f"Technical record: consecutive failures={streak}, "
             f"limit={threshold}, error={error_text}"
         ),
         next_action=(
-            f"Argus stopped {what} after it stayed silent for the whole idle "
-            "limit. "
+            f"Argus stopped {what} after it made no progress for a long time. "
             "Read CHECKPOINT.md, then continue in a fresh session without "
             "repeating that command as it was: give it a time limit (for example "
             "`timeout 10m ...`), narrow it to the directories that matter instead "
             "of the whole machine, or start it as a background job and wait for "
-            "the job. A command that stays silent for the whole limit is stopped "
-            "again."
+            "the job."
         ),
     )
 

@@ -94,7 +94,7 @@ def test_forged_rebuttal_type_without_immutable_rows_cannot_start(tmp_path: Path
                     "campaign_kind": "rebuttal_follow_up",
                     "source_campaign_id": "missing-source",
                     "submission_id": "missing-submission",
-                    "rebuttal_objective_sha256": "0" * 64,
+                    "rebuttal_objective_key": "0" * 64,
                 },
             },
         )

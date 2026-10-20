@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 import base64
-import hashlib
 import json
 import os
 import shlex
@@ -107,7 +106,7 @@ def fake_analysis(
         oracle_copy = directory / "oracle.py"
         oracle_copy.write_bytes(driver)
         oracle = {"tests/_regression_probe/test_example.py": {
-            "sha256": hashlib.sha256(driver).hexdigest(),
+            "facts": [len(driver), 0, 0],
             "evidence_path": "evidence/pair/oracle.py",
         }}
         receipt["comparison"] = {
@@ -125,22 +124,21 @@ def fake_analysis(
                 "cwd": str(work / label),
                 "timed_out": False, "seconds": 0.01,
                 "log": f"evidence/pair/{label}.log",
-                "log_sha256": hashlib.sha256(log.read_bytes()).hexdigest(),
+                "log_bytes": log.stat().st_size,
             }
             code = (work / label / "app.py").read_bytes()
-            blob = hashlib.sha1(b"blob " + str(len(code)).encode() + b"\0" + code).hexdigest()
             source_origin = directory / f"{label}.origin.json"
             source_origin.write_text(json.dumps({
                 "schema_version": "probe-source-origin/v1", "status": "verified",
                 "source_root": str(work / label), "context_id": f"fixture-{label}",
                 "main_pid": 10 if label == "base" else 11,
                 "guard_loaded": True, "completed": True, "issues": [],
-                "files": [{"path": "app.py", "git_blob": blob, "lf_git_blob": blob}],
+                "files": [{"path": "app.py", "bytes": len(code), "lf_bytes": len(code), "ctime_ns": 0}],
             }))
             receipt[label]["process_pid"] = 10 if label == "base" else 11
             receipt[label]["source_origin"] = {
                 "path": f"evidence/pair/{label}.origin.json",
-                "sha256": hashlib.sha256(source_origin.read_bytes()).hexdigest(),
+                "bytes": source_origin.stat().st_size,
                 "status": "verified",
             }
             probes = work / label / "tests/_regression_probe"
@@ -264,7 +262,7 @@ def test_policy_change_invalidates_evidence(repo, monkeypatch):
     stage_change(repo)
     local_gate.check(repo, analyzer=fake_analysis)
     old = local_evidence.policy_identity()
-    monkeypatch.setattr(local_evidence, "policy_identity", lambda: dict(old, skill_sha256="0" * 64))
+    monkeypatch.setattr(local_evidence, "policy_identity", lambda: dict(old, version="stale"))
     with pytest.raises(GateError, match="Skill"):
         local_gate.verify(repo)
 
@@ -508,7 +506,7 @@ def test_different_oracles_support_neither_false_block_nor_false_pass(repo, verd
         receipt_path = work / "evidence/pair/receipt.json"
         receipt = json.loads(receipt_path.read_text())
         receipt["comparison"]["oracle_files"]["candidate"]["tests/_regression_probe/test_example.py"] = {
-            "sha256": hashlib.sha256(test.read_bytes()).hexdigest(),
+            "facts": [test.stat().st_size, 0, 0],
             "evidence_path": "evidence/pair/candidate-oracle.py",
         }
         receipt_path.write_text(json.dumps(receipt))
@@ -519,7 +517,7 @@ def test_different_oracles_support_neither_false_block_nor_false_pass(repo, verd
     assert local_gate.verify(repo)["status"] == "INCOMPLETE"
 
 
-def test_source_origin_hash_is_bound_to_the_actual_git_tree(repo):
+def test_source_origin_size_is_bound_to_the_actual_git_tree(repo):
     stage_change(repo)
 
     def analyzer(root, metadata, **kwargs):
@@ -527,11 +525,11 @@ def test_source_origin_hash_is_bound_to_the_actual_git_tree(repo):
         work = root / "work"
         path = work / "evidence/pair/candidate.origin.json"
         origin = json.loads(path.read_text())
-        origin["files"][0].update(git_blob="0" * 40, lf_git_blob="0" * 40)
+        origin["files"][0].update(bytes=10**6, lf_bytes=10**6)
         path.write_text(json.dumps(origin))
         receipt_path = work / "evidence/pair/receipt.json"
         receipt = json.loads(receipt_path.read_text())
-        receipt["candidate"]["source_origin"]["sha256"] = hashlib.sha256(path.read_bytes()).hexdigest()
+        receipt["candidate"]["source_origin"]["bytes"] = path.stat().st_size
         receipt_path.write_text(json.dumps(receipt))
         return result
 
@@ -555,7 +553,7 @@ def test_malformed_origin_record_is_incomplete_not_an_exception(repo, invalid_re
         path.write_text(json.dumps(invalid_record))
         receipt_path = work / "evidence/pair/receipt.json"
         receipt = json.loads(receipt_path.read_text())
-        receipt["candidate"]["source_origin"]["sha256"] = hashlib.sha256(path.read_bytes()).hexdigest()
+        receipt["candidate"]["source_origin"]["bytes"] = path.stat().st_size
         receipt_path.write_text(json.dumps(receipt))
         return result
 
@@ -738,7 +736,7 @@ def test_evidence_tampering_is_rejected(repo):
     report = json.loads(path.read_text())
     report["evidence"][0]["base64"] = base64.b64encode(b"edited").decode()
     path.write_text(json.dumps(report))
-    with pytest.raises(GateError, match="digest"):
+    with pytest.raises(GateError, match="does not reproduce"):
         local_gate.verify(repo)
 
 

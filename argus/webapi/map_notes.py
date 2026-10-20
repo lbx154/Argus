@@ -73,7 +73,7 @@ def append_note(
         raise ValueError(
             f"a map note needs a node id of 1..{NOTE_NODE_ID_MAX_CHARS} characters"
         )
-    # Node ids are backlog/team digests. Anything else — especially newlines —
+    # Node ids are backlog/team ids. Anything else — especially newlines —
     # would be rendered verbatim into the planner digest and could forge
     # digest lines the operator never wrote.
     if not all(ch.isalnum() or ch in ":_-." for ch in node_id):

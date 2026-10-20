@@ -6,24 +6,19 @@
   "validation": "/data/v-boxiuli/argus_figure_test/studio/figure_contract.schema.json",
   "artifacts": {
     "contract": {
-      "path": "/data/v-boxiuli/argus_figure_test/studio/out/scenario_3_federated_protocol/contract.json",
-      "sha256": "b9ed068eb3278036acf9a8e019ce9eb09f9460d0494dad3f847dcfbd8a8ff9d2"
+      "path": "/data/v-boxiuli/argus_figure_test/studio/out/scenario_3_federated_protocol/contract.json"
     },
     "svg": {
-      "path": "/data/v-boxiuli/argus_figure_test/studio/out/scenario_3_federated_protocol/scenario_3_federated_protocol.svg",
-      "sha256": "36362575477da5621eaf6f563ca74730199f8e0007c062bfd89047ccdcca27a1"
+      "path": "/data/v-boxiuli/argus_figure_test/studio/out/scenario_3_federated_protocol/scenario_3_federated_protocol.svg"
     },
     "png": {
-      "path": "/data/v-boxiuli/argus_figure_test/studio/out/scenario_3_federated_protocol/scenario_3_federated_protocol.png",
-      "sha256": "983ab012c3a6074ba713f2aee5ab5c2f26f0d84dfdc53c0468b28ea7f2002ed2"
+      "path": "/data/v-boxiuli/argus_figure_test/studio/out/scenario_3_federated_protocol/scenario_3_federated_protocol.png"
     },
     "pdf": {
-      "path": "/data/v-boxiuli/argus_figure_test/studio/out/scenario_3_federated_protocol/scenario_3_federated_protocol.pdf",
-      "sha256": "92db74959f4ef40c2dab5c05557cf4550da23212c11cbbdacb96e379159d44ca"
+      "path": "/data/v-boxiuli/argus_figure_test/studio/out/scenario_3_federated_protocol/scenario_3_federated_protocol.pdf"
     },
     "pptx": {
-      "path": "/data/v-boxiuli/argus_figure_test/studio/out/scenario_3_federated_protocol/scenario_3_federated_protocol.pptx",
-      "sha256": "34295408ee26235a8311cd4b8ffa404362419cd9dbac12c36aa8c2cf3975dd2e"
+      "path": "/data/v-boxiuli/argus_figure_test/studio/out/scenario_3_federated_protocol/scenario_3_federated_protocol.pptx"
     }
   },
   "steps": [

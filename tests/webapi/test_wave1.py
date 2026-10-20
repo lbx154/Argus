@@ -176,7 +176,7 @@ def test_workdir_update_preserves_state_root_and_session_name(tmp_path: Path) ->
     assert meta.workdir == str(workspace.resolve())
 
 
-def test_set_project_workdir_uses_pipeline_then_session_lock_order(
+def test_set_project_workdir_takes_the_pipeline_lock(
     tmp_path: Path,
     monkeypatch,
 ) -> None:
@@ -190,18 +190,9 @@ def test_set_project_workdir_uses_pipeline_then_session_lock_order(
         order.append("pipeline")
         yield
 
-    @contextmanager
-    def session_lock(_root):
-        order.append("session")
-        yield
-
     monkeypatch.setattr(
         "argus.manager._session_ops.manager_pipeline_lock",
         pipeline_lock,
-    )
-    monkeypatch.setattr(
-        "argus.manager._session_ops.manager_session_lock",
-        session_lock,
     )
 
     result = daemon_lifecycle.set_project_workdir(
@@ -211,7 +202,7 @@ def test_set_project_workdir_uses_pipeline_then_session_lock_order(
     )
 
     assert result is not None and result["ok"] is True
-    assert order == ["pipeline", "session"]
+    assert order == ["pipeline"]
 
 
 def test_web_session_defaults_are_independent_of_server_cwd(

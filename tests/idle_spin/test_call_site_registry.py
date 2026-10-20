@@ -61,53 +61,16 @@ REGISTRY: tuple[Site, ...] = (
         ("advisor.engineer.math",),
     ),
     Site(
-        r"research\.(academic_language_review|paper_infrastructure_review)", FOREGROUND,
-        "A research-vertical review pass that runs as part of a mission round.",
-        (
-            "argus/verticals/research/academic_language_review.py:681",
-            "argus/verticals/research/paper_infrastructure_review.py:236",
-        ),
-        ("research.academic_language_review", "research.paper_infrastructure_review"),
-    ),
-    Site(
-        r"subagent:[^:]+:(preflight|report|discussion)(:resume-recovery)?", FOREGROUND,
-        "A job the Engineer submitted: one preflight before launch, one report when it ends, "
-        "one reply per Engineer turn of an early-stop discussion; a resumed thread that "
-        "returns nothing is retried once in a fresh session.",
-        (
-            "argus/tools/subagent/_supervised_preflight.py:107",
-            "argus/tools/subagent/_reporting.py:194",
-            "argus/tools/subagent/_discuss_run.py:108",
-            "argus/tools/subagent/_llm.py:136",
-        ),
-        (
-            "subagent:job-1:preflight", "subagent:job-1:report",
-            "subagent:job-1:discussion", "subagent:job-1:report:resume-recovery",
-        ),
-    ),
-    Site(
-        r"subagent", FOREGROUND,
-        "Default of the legacy _run_supervisor wrapper, kept for compatibility; nothing in "
-        "the product calls it.",
-        ("argus/tools/subagent/_llm.py:113",),
-        ("subagent",),
-    ),
-    Site(
         r"peer-message-response", FOREGROUND,
-        "Answers one message another project sent; at most PEER_MESSAGE_MAX_ATTEMPTS tries "
-        "per message, then the sender gets a deterministic reply.",
+        "Answers one message another project sent; at most MAX_ATTEMPTS tries per message, "
+        "then the sender gets a host notice. Replies are filed without a call.",
         ("argus/messaging/handler.py:85",),
         ("peer-message-response",),
     ),
     Site(
         r"manager-frontdoor-classify", FOREGROUND,
-        "Classifies one operator message. The web prewarm and the ACP front-door session "
-        "use the same label to start the transport, without a model turn.",
-        (
-            "argus/manager/_front_door_ops.py:122",
-            "argus/webapi/manager_state.py:211",
-            "argus/agent_cli/copilot_acp.py:52",
-        ),
+        "Classifies one operator message.",
+        ("argus/manager/_front_door_ops.py:122",),
         ("manager-frontdoor-classify",),
     ),
     Site(
@@ -160,18 +123,6 @@ REGISTRY: tuple[Site, ...] = (
         "The plan preview for one operator request, cached per request.",
         ("argus/webapi/manager_bridge.py:1049",),
         ("planner-preview",),
-    ),
-    Site(
-        r"planner-bounded-plan", FOREGROUND,
-        "The outline of one dispatched mission, drafted once when it starts.",
-        ("argus/apps/_runtime_execute.py:1061",),
-        ("planner-bounded-plan",),
-    ),
-    Site(
-        r"planner\.bounded_dag(\.repair)?", FOREGROUND,
-        "Plans the task graph for one operator task, with at most one repair.",
-        ("argus/planner/bounded_dag.py:338",),
-        ("planner.bounded_dag", "planner.bounded_dag.repair"),
     ),
     Site(
         r"simple-1|manager-quick-reply|self-(?!learning-review$)[\w-]+", FOREGROUND,
@@ -234,18 +185,6 @@ REGISTRY: tuple[Site, ...] = (
         ("manager-project-report",),
     ),
     Site(
-        r"manager-second-reading", EVENT,
-        "Per settled mission that carries a reconsider signal, when second_reading_due allows.",
-        ("argus/life/supervisor/_second_reading.py:111",),
-        ("manager-second-reading",),
-    ),
-    Site(
-        r"manager\.team_summary", EVENT,
-        "Once per team-completion fingerprint; the summary is cached before it is published.",
-        ("argus/daemon/life_worker.py:367",),
-        ("manager.team_summary",),
-    ),
-    Site(
         r"manager\.reviewed_facts", EVENT,
         "Once per Reviewer-confirmed research result at mission settlement.",
         ("argus/manager/reviewed_facts.py:290",),
@@ -257,6 +196,13 @@ REGISTRY: tuple[Site, ...] = (
         "one applied decision per evidence and control revision.",
         ("argus/manager/supervision.py:870",),
         ("manager-supervision",),
+    ),
+    Site(
+        r"observer", EVENT,
+        "Once per Engineer, Reviewer or Planner call, when its role.session.turn ends the turn; "
+        "its own calls end none, and turns that end during a look share the next one.",
+        ("argus/life/observer.py:91",),
+        ("observer",),
     ),
     Site(
         r"manager\.skill_placement_batch", EVENT,
@@ -290,18 +236,19 @@ REGISTRY: tuple[Site, ...] = (
     ),
     # -- capped -------------------------------------------------------------
     Site(
-        r"manager-venue-stall-decision", CAPPED,
-        "At most once per unanswered stall question, and one automatic decision per "
-        "operator message.",
-        ("argus/life/supervisor/_idle_cycle.py:461",),
-        ("manager-venue-stall-decision",),
+        r"manager-proxy-decision", CAPPED,
+        "The Manager decides a parked card in the operator's place: at most "
+        "PROXY_DECISION_ATTEMPTS tries per card revision while the operator cannot be asked, "
+        "and once per venue-stall question left unanswered for twelve hours.",
+        ("argus/manager/proxy_decision.py:48",),
+        ("manager-proxy-decision",),
     ),
     # -- gated by time, bounded by a gate -------------------------------------
     Site(
         r"planner\.cycle\d+(\.repair\d+)?", GATED_TIME,
-        "Event waits take no call; unchanged inputs buy at most PLANNER_UNCHANGED_RELOOK_LIMIT "
-        "looks; failing turns back off and stop after AUTOMATIC_RETRY_WINDOW_SECONDS; an "
-        "operator wait is re-granted only on changed input.",
+        "Event waits take no call; unchanged inputs take none either; failing turns back off "
+        "and stop after AUTOMATIC_RETRY_WINDOW_SECONDS; an operator wait is re-granted only "
+        "on changed input.",
         ("argus/planner/planner.py:328", "argus/planner/planner.py:541"),
         ("planner.cycle12", "planner.cycle12.repair1"),
     ),
@@ -321,27 +268,15 @@ REGISTRY: tuple[Site, ...] = (
     ),
     Site(
         r"knowledge-consolidation", GATED_TIME,
-        "Per interval only when the lessons digest changed; a digest that keeps failing "
-        "stops after AUTOMATIC_RETRY_WINDOW_SECONDS.",
+        "Per interval only when the lesson files changed; lessons that keep failing stop "
+        "after AUTOMATIC_RETRY_WINDOW_SECONDS.",
         ("argus/life/consolidation.py:578",),
         ("knowledge-consolidation",),
-    ),
-    Site(
-        r"subagent:[^:]+:health(:resume-recovery)?", GATED_TIME,
-        "Only when the run's signals changed since the last judged look, plus one look after "
-        "_SILENT_RUN_RECHECK_SECONDS of silence.",
-        ("argus/tools/subagent/_supervised_run.py:316",),
-        ("subagent:job-1:health", "subagent:job-1:health:resume-recovery"),
     ),
 )
 
 # Background labels the daemon guard exempts, and why that is safe.
-OUTSIDE_THE_DAEMON = {
-    r"subagent:[^:]+:health(:resume-recovery)?": (
-        "Runs in the subagent worker process, where the daemon guard is never enabled; "
-        "its own run-signal gate is what bounds it."
-    ),
-}
+OUTSIDE_THE_DAEMON: dict[str, str] = {}
 
 # Literal labels that name a usage-ledger record or a fixture, not a model call.
 NOT_MODEL_CALLS = {
@@ -356,17 +291,14 @@ NOT_MODEL_CALLS = {
 # Functions that pass a caller's label on (or record it) without choosing one.
 PASS_THROUGH = {
     # The backend and its transport.
-    ("argus/adapters/agent_cli_backend/_core.py", "prewarm_acp_client", "run_label"),
     ("argus/adapters/agent_cli_backend/_core.py", "run_exec", "run_label"),
     ("argus/adapters/agent_cli_backend/_exec.py", "_execute_prepared", "run_label"),
     ("argus/adapters/agent_cli_backend/_exec.py", "execute", "run_label"),
     ("argus/adapters/agent_cli_backend/_exec_finalize.py", "finalize_result", "ctx.run_label"),
     ("argus/adapters/agent_cli_backend/_exec_spawn.py", "spawn_and_finish", "ctx.run_label"),
-    ("argus/agent_cli/_acp_routing.py", "_run_exec_acp", "run_label"),
     ("argus/agent_cli/_run_exec.py", "_run_prepared_exec", "run_label"),
     ("argus/agent_cli/_run_exec.py", "_stream_turn_output.check_idle_deadlines", "run_label"),
     ("argus/agent_cli/_run_exec.py", "run_exec", "run_label"),
-    ("argus/agent_cli/copilot_acp.py", "run_prompt._watchdog", "run_label"),
     ("argus/provider_integrations/authorization_retry.py", "run_agent_cli.request", "run_label"),
     ("argus/core/run_gateway.py", "run_exec", "run_label"),
     ("argus/core/cost_events.py", "metered_run_exec.wrapped", "run_label"),
@@ -375,23 +307,17 @@ PASS_THROUGH = {
     ("argus/core/agent_probe.py", "run_agent_repair_prompt", "run_label"),
     ("argus/core/agent_probe.py", "run_read_only_agent_prompt", "run_label"),
     ("argus/engineer/runner.py", "_run_engineer", "run_label"),
-    ("argus/manager/_session_ops.py", "_run_exec", "run_label"),
-    ("argus/manager/_session_ops.py", "_run_exec._no_session", "run_label"),
     ("argus/manager/_session_ops.py", "run_exec", "run_label"),
+    ("argus/manager/_session_ops.py", "run_exec._no_session", "run_label"),
     ("argus/manager/_stage_ops.py", "_build_stage_run_exec", "run_label"),
     ("argus/manager/_stage_ops.py", "_build_stage_run_exec._run_exec", "run_label"),
+    ("argus/manager/_stage_ops.py", "run_turn", "run_label"),
     ("argus/manager/_stage_ops.py", "write_prose", "run_label"),
     ("argus/manager/_vertical_ops.py", "_decide_vertical_once.invoke_grounded_route", "run_label"),
     ("argus/manager/plan_mode.py", "_resolve_run_exec._call", "run_label"),
     ("argus/manager/plan_mode.py", "draft_plan", "run_label"),
     ("argus/manager/prompt_rewrite.py", "_resolve_run_exec._call", "run_label"),
     ("argus/manager/prompt_rewrite.py", "rewrite_prompt", "run_label"),
-    ("argus/tools/subagent/_llm.py", "_run_backend_turn", "run_label"),
-    ("argus/tools/subagent/_llm.py", "_run_supervisor_with_usage", "f'{run_label}:resume-recovery'"),
-    (
-        "argus/verticals/research/_reviewer_runner_fallback.py",
-        "run_reviewer_prompt_via_runner", "run_label",
-    ),
     ("argus/webapi/map_model.py", "_run_map_turn", "run_label"),
     ("argus/webapi/map_model.py", "run_map_model", "run_label"),
     # The reader's provenance record carries the literal "reader-foundation".
@@ -580,7 +506,7 @@ def test_every_label_that_reaches_a_model_is_classified(found: list[Found]) -> N
         if item.label is not None
         and (item.where.rsplit(":", 1)[0], item.function, item.label) not in NOT_MODEL_CALLS
     ]
-    assert len(chosen) > 60, "the sweep no longer sees the call sites"
+    assert len(chosen) > 50, "the sweep no longer sees the call sites"
     unclassified = [f"{item.where} {item.label!r}" for item in chosen if not _matches(item.label)]
     ambiguous = [
         f"{item.where} {item.label!r}: {[site.pattern for site in _matches(item.label)]}"

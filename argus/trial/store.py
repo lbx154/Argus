@@ -1,7 +1,7 @@
 """Durable admission and usage accounting for one trial gateway instance."""
 from __future__ import annotations
 
-import hashlib
+import json
 import logging
 import math
 import secrets
@@ -24,7 +24,7 @@ class TrialError(Exception):
 
 class Store:
     def __init__(self, path: Path, *, clock=time.time, token_limit: int | None = TOKEN_LIMIT,
-                 key_limit: int = TRIAL_KEY_COUNT):
+                 key_limit: int = TRIAL_KEY_COUNT, master_key: Path | None = None):
         if token_limit is not None and (type(token_limit) is not int or token_limit <= 0):
             raise ValueError("Trial token limit must be a positive integer")
         if type(key_limit) is not int or not 1 <= key_limit <= 100:
@@ -33,14 +33,23 @@ class Store:
         self.clock = clock
         self.token_limit = token_limit
         self.key_limit = key_limit
+        if master_key is not None:
+            from .credential_migration import migrate_derived_credentials
+
+            migrate_derived_credentials(path, master_key)
         with closing(sqlite3.connect(path)) as db:
             db.executescript("""
                 PRAGMA journal_mode=WAL;
                 CREATE TABLE IF NOT EXISTS trial_keys (
                     key_id TEXT PRIMARY KEY,
-                    credential_hash TEXT UNIQUE NOT NULL,
+                    credential TEXT UNIQUE NOT NULL,
                     used INTEGER NOT NULL DEFAULT 0 CHECK (used >= 0),
                     claim_hash TEXT UNIQUE
+                );
+                CREATE TABLE IF NOT EXISTS portal_sessions (
+                    token TEXT PRIMARY KEY,
+                    value TEXT NOT NULL,
+                    expires_at REAL NOT NULL
                 );
                 CREATE TABLE IF NOT EXISTS trial_requests (
                     id INTEGER PRIMARY KEY,
@@ -92,6 +101,8 @@ class Store:
                     created_at REAL NOT NULL
                 );
             """)
+            if "credential" not in {row[1] for row in db.execute("PRAGMA table_info(trial_keys)")}:
+                raise ValueError("Trial keys predate stored credentials; open the store with the master key once")
         path.chmod(0o600)
 
     @contextmanager
@@ -159,22 +170,25 @@ class Store:
             db.execute("UPDATE trial_gateway_attempts SET " + ",".join(f"{key}=?" for key in fields)
                        + " WHERE id=? AND outcome IS NULL", (*fields.values(), attempt_id))
 
-    def issue(self, key_id: str, credential: str):
-        digest = hashlib.sha256(credential.encode()).hexdigest()
+    def issue(self, key_id: str, credential: str | None = None) -> str:
+        """The credential of ``key_id``; a new key gets ``credential`` or a random one."""
         with self.transaction() as db:
-            existing = db.execute("SELECT credential_hash FROM trial_keys WHERE key_id=?", (key_id,)).fetchone()
+            existing = db.execute("SELECT credential FROM trial_keys WHERE key_id=?", (key_id,)).fetchone()
             if existing:
-                if existing[0] != digest:
-                    raise ValueError("Existing trial key differs; restore the original master key")
-                return
-            else:
-                count = db.execute("SELECT count(*) FROM trial_keys").fetchone()[0]
-                if count >= self.key_limit:
-                    raise ValueError(f"All {self.key_limit} trial keys have already been issued")
-            db.execute(
-                "INSERT OR IGNORE INTO trial_keys(key_id, credential_hash) VALUES (?, ?)",
-                (key_id, digest),
-            )
+                if credential is not None and existing[0] != credential:
+                    raise ValueError("Existing trial key differs")
+                return existing[0]
+            count = db.execute("SELECT count(*) FROM trial_keys").fetchone()[0]
+            if count >= self.key_limit:
+                raise ValueError(f"All {self.key_limit} trial keys have already been issued")
+            credential = credential or "argus_trial_" + secrets.token_hex(32)
+            db.execute("INSERT INTO trial_keys(key_id, credential) VALUES (?, ?)", (key_id, credential))
+            return credential
+
+    def credential(self, key_id: str) -> str | None:
+        with closing(sqlite3.connect(self.path)) as db:
+            row = db.execute("SELECT credential FROM trial_keys WHERE key_id=?", (key_id,)).fetchone()
+        return row[0] if row else None
 
     def availability(self) -> dict:
         with closing(sqlite3.connect(self.path)) as db:
@@ -184,15 +198,32 @@ class Store:
         return {"total_keys": max(self.key_limit, issued), "issued_keys": issued, "available_keys": available}
 
     def authenticate(self, credential: str) -> str:
-        digest = hashlib.sha256(credential.encode()).hexdigest()
         with closing(sqlite3.connect(self.path)) as db:
-            row = db.execute(
-                "SELECT key_id FROM trial_keys WHERE credential_hash=?", (digest,)
-            ).fetchone()
-        if not row:
+            rows = db.execute("SELECT key_id, credential FROM trial_keys").fetchall()
+        offered = credential.encode()
+        key_id = next((key for key, stored in rows if secrets.compare_digest(stored.encode(), offered)), None)
+        if key_id is None:
             raise TrialError(401, "invalid_trial_key", "Invalid trial credential.")
-        self.check_access(row[0])
-        return row[0]
+        self.check_access(key_id)
+        return key_id
+
+    def open_session(self, value: dict, expires_at: float) -> str:
+        """A random token naming ``value`` on the server until ``expires_at``."""
+        token = secrets.token_urlsafe(32)
+        with self.transaction() as db:
+            db.execute("DELETE FROM portal_sessions WHERE expires_at <= ?", (self.clock(),))
+            db.execute("INSERT INTO portal_sessions(token, value, expires_at) VALUES (?, ?, ?)",
+                       (token, json.dumps(value), expires_at))
+        return token
+
+    def session(self, token: str) -> dict | None:
+        with closing(sqlite3.connect(self.path)) as db:
+            row = db.execute("SELECT value, expires_at FROM portal_sessions WHERE token=?", (token,)).fetchone()
+        return json.loads(row[0]) if row and row[1] > self.clock() else None
+
+    def close_session(self, token: str):
+        with self.transaction() as db:
+            db.execute("DELETE FROM portal_sessions WHERE token=?", (token,))
 
     def _check_access(self, db, key_id: str):
         row = db.execute("""

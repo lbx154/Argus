@@ -1,4 +1,5 @@
 import { translate } from '../i18n';
+import { isPauseStatus } from '../../../core/src/missionOutcome';
 import { agentRoleName, isAgentRole } from '../lib/agentRoles';
 
 export type WorkbenchText = (zh: string, en: string) => string;
@@ -82,7 +83,7 @@ function label(
 }
 
 export function statusLabel(value: string | null | undefined, text: WorkbenchText): string {
-  if (String(value ?? '').startsWith('paused_') && !STATUS_LABELS[String(value)]) return text('已暂停', 'Paused');
+  if (isPauseStatus(value) && !STATUS_LABELS[String(value)]) return text('已暂停', 'Paused');
   return label(value, STATUS_LABELS, ['状态已更新', 'Status updated'], text);
 }
 

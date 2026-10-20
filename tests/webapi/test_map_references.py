@@ -27,7 +27,7 @@ from argus.webapi.map_references import (
     expand_operator_references,
     parse_card_reference,
 )
-from argus.webapi.map_view import digest
+from argus.webapi.map_view import event_id
 
 
 def _marker(task_id: str = "task-a", **overrides) -> str:
@@ -41,7 +41,7 @@ def _marker(task_id: str = "task-a", **overrides) -> str:
     return "[[Argus引用 " + json.dumps(ref, ensure_ascii=False) + "]]"
 
 
-_DIGEST_EVENT = {
+_UNNAMED_EVENT = {
     "type": "agent.message",
     "item_id": "task-a",
     "text": "第二条证据：区间宽度保持稳定。",
@@ -79,7 +79,7 @@ def _life(tmp_path: Path) -> Path:
             "summary": "覆盖率 91%，凭据 AKIAABCDEFGHIJKLMNOP 已写入配置。",
             "ts": 3.0,
         },
-        _DIGEST_EVENT,
+        _UNNAMED_EVENT,
     ]
     (life / "events.jsonl").write_text(
         "".join(json.dumps(row, ensure_ascii=False) + "\n" for row in rows),
@@ -136,10 +136,10 @@ def test_malformed_reference_line_is_left_untouched(tmp_path: Path) -> None:
 
 def test_valid_reference_replaces_marker_and_builds_block(redact_secrets_on, tmp_path: Path) -> None:
     life = _life(tmp_path)
-    digest_id = digest(_DIGEST_EVENT)
+    derived_id = event_id(_UNNAMED_EVENT)
     text = (
         "请基于这个继续\n"
-        + _marker(step_title="步骤一", event_ids=["ev-1", digest_id])
+        + _marker(step_title="步骤一", event_ids=["ev-1", derived_id])
         + "\n收尾说明"
     )
     expansion = expand_operator_references(text, life)
@@ -159,7 +159,7 @@ def test_valid_reference_replaces_marker_and_builds_block(redact_secrets_on, tmp
     assert "状态 done" in block
     assert "Run 100 seeds." in block
     assert "引用环节: 步骤一" in block
-    # Both events resolve: the explicit event_id and the digest-derived id.
+    # Both events resolve: the explicit event_id and the derived id.
     assert "覆盖率 91%" in block
     assert "区间宽度保持稳定" in block
     # Secret redaction uses the same helper the map projection uses.

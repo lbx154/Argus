@@ -54,22 +54,22 @@ def _open(path: Path) -> RoleSessionCapsule:
 def test_capsule_elides_only_on_the_same_resumed_thread(tmp_path: Path) -> None:
     path = tmp_path / "planner-session.json"
     first = _open(path)
-    assert first.prepare(max_turns=20, max_input_tokens=0) is None
+    assert first.prepare() is None
     assert first.resume_prompt(_prompt("one")) == _prompt("one")
     first.complete(SimpleNamespace(thread_id="t1"), prompt=_prompt("one"))
 
     second = _open(path)
-    assert second.prepare(max_turns=20, max_input_tokens=0) == "t1"
+    assert second.prepare() == "t1"
     assert CHECKLIST.strip() not in second.resume_prompt(_prompt("two"))
     # The provider answered on a new thread: it never saw what was omitted.
     second.complete(SimpleNamespace(thread_id="t2"), prompt=_prompt("two"))
 
     third = _open(path)
-    assert third.prepare(max_turns=20, max_input_tokens=0) == "t2"
+    assert third.prepare() == "t2"
     assert third.resume_prompt(_prompt("three")) == _prompt("three")
     third.complete(SimpleNamespace(thread_id="t2"), prompt=_prompt("three"))
 
     fourth = _open(path)
-    fourth.prepare(max_turns=20, max_input_tokens=0)
-    fourth.rotate("turn_limit")
+    fourth.prepare()
+    fourth.signal("quality_degradation")
     assert fourth.resume_prompt(_prompt("four")) == _prompt("four")

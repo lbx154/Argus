@@ -263,10 +263,10 @@ def test_task_referencing_only_failed_tasks_attaches_nothing(
     assert queued[result["item"]["id"]].deps == []
 
 
-def test_bounded_direct_dispatch_attaches_reference_deps(
+def test_direct_dispatch_attaches_reference_deps(
     tmp_path: Path, monkeypatch,
 ) -> None:
-    """The non-continuous (bounded/direct) persist path also attaches deps."""
+    """The direct (stage-closing) persist path also attaches deps."""
     from argus.life.memory import MemoryBundle
 
     sid = "s-ref-direct"
@@ -277,13 +277,11 @@ def test_bounded_direct_dispatch_attaches_reference_deps(
     workdir.mkdir()
     monkeypatch.setattr(dispatch, "_resolve_manager_workdir", lambda _mem: workdir)
 
-    def handoff(mem_arg, body, chat_state, persist, *, root_task_id=None, cancelled=None,
-                prepare_persist=None, validate_persist=None, prepared_handoff=None):
-        prepare_persist(body)
-        validate_persist(body)
-        return persist(body, None)
+    def handoff(mem_arg, body, chat_state, *, persist, **_kwargs):
+        persist(body, None)
+        return body
 
-    monkeypatch.setattr(front_door, "manager_bounded_handoff", handoff)
+    monkeypatch.setattr(front_door, "manager_continuous_handoff", handoff)
 
     prepared = SimpleNamespace(
         decision=SimpleNamespace(workflow_mode="direct"),

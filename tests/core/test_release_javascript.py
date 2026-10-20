@@ -1,9 +1,9 @@
-"""First-party JS adapters must change the shared release identity."""
+"""First-party JS adapters belong to the shared release identity."""
 from pathlib import Path
 
 import pytest
 
-from argus.release import _source_files, compute_source_digest
+from argus.release import _source_files, source_files
 
 
 @pytest.mark.parametrize("relative", [
@@ -16,14 +16,11 @@ from argus.release import _source_files, compute_source_digest
     "argus/messaging/pi_tools.mjs",
     "desktop-tauri/src-tauri/tauri.macos.conf.json",
 ])
-def test_adapter_only_edit_changes_release_digest(tmp_path: Path, relative: str) -> None:
+def test_adapter_is_listed_in_the_release(tmp_path: Path, relative: str) -> None:
     source = tmp_path / relative
     source.parent.mkdir(parents=True, exist_ok=True)
-    source.write_text("/* first product revision */\n", encoding="utf-8")
-    assert source in set(_source_files(tmp_path))
-    initial = compute_source_digest(tmp_path)
-    source.write_text("/* second product revision */\n", encoding="utf-8")
-    assert compute_source_digest(tmp_path) != initial
+    source.write_text("/* product revision */\n", encoding="utf-8")
+    assert source_files(tmp_path) == {relative: source.stat().st_size}
 
 
 def test_adapter_patterns_do_not_include_dependencies(tmp_path: Path) -> None:

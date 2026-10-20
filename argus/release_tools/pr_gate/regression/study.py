@@ -26,7 +26,7 @@ if __package__:
         asset_source,
         command,
         copy_evidence,
-        digest,
+        file_facts,
         invoke,
         network,
         now,
@@ -45,7 +45,7 @@ else:
         asset_source,
         command,
         copy_evidence,
-        digest,
+        file_facts,
         invoke,
         network,
         now,
@@ -188,10 +188,10 @@ def prepare(root: Path, *, source: Path, seed: int) -> None:
         "created_at": now(), "cohort_size": 50, "maximum_parallel_copilot_sessions": 5,
         "source_head": command(["git", "-C", str(source), "rev-parse", "HEAD"]),
         "main_head": command([*git, "rev-parse", "refs/heads/study-main"]),
-        "skill_sha256": digest(root / "SKILL.md"), "copilot_binary": str(binary),
-        "copilot_sha256": digest(binary), "copilot_source_binary": str(original_binary),
+        "skill_file": file_facts(root / "SKILL.md"), "copilot_binary": str(binary),
+        "copilot_file": file_facts(binary), "copilot_source_binary": str(original_binary),
         "copilot_version": command([str(binary), "--version"]),
-        "runner_files": {p.relative_to(runner).as_posix(): digest(p) for p in runner.rglob("*") if p.is_file()},
+        "runner_files": {p.relative_to(runner).as_posix(): file_facts(p) for p in runner.rglob("*") if p.is_file()},
         "image_tag": IMAGE, "image_id": command(["docker", "image", "inspect", "--format", "{{.Id}}", IMAGE]),
         "cpu_per_worker": 2, "memory_per_worker": "4g", "pids_per_worker": 256,
         "source_and_host_state_mounted": False, "live_argus_runs_allowed": False,
@@ -292,12 +292,12 @@ def execute(root: Path, *, smoke: bool, model: str, workers: int, timeout: int) 
     if not 1 <= workers <= 5:
         raise ValueError("At most five Copilot sessions may run concurrently")
     manifest = json.loads((root / "manifest.json").read_text())
-    if digest(root / "SKILL.md") != manifest["skill_sha256"]:
+    if file_facts(root / "SKILL.md") != manifest["skill_file"]:
         raise ValueError("Frozen Skill changed")
-    if digest(Path(manifest["copilot_binary"])) != manifest["copilot_sha256"]:
+    if file_facts(Path(manifest["copilot_binary"])) != manifest["copilot_file"]:
         raise ValueError("Copilot executable changed since preparation")
     for filename, expected in manifest["runner_files"].items():
-        if digest(root / "runner" / filename) != expected:
+        if file_facts(root / "runner" / filename) != expected:
             raise ValueError(f"Frozen runner changed: {filename}")
     if command(["docker", "image", "inspect", "--format", "{{.Id}}", IMAGE]) != manifest["image_id"]:
         raise ValueError("Worker image changed since preparation")

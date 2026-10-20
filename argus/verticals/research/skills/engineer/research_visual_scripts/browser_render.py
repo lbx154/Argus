@@ -3,21 +3,12 @@
 from __future__ import annotations
 
 import argparse
-import hashlib
 import json
 import re
 from importlib.metadata import version
 from pathlib import Path
 from urllib.parse import urlparse
 from xml.etree import ElementTree
-
-
-def _sha256(path: Path) -> str:
-    digest = hashlib.sha256()
-    with path.open("rb") as handle:
-        for chunk in iter(lambda: handle.read(1024 * 1024), b""):
-            digest.update(chunk)
-    return digest.hexdigest()
 
 
 def _validate_svg(svg: str) -> None:
@@ -299,10 +290,8 @@ def main(argv: list[str] | None = None) -> int:
     metadata = {
         "schema_version": 1,
         "input": str(input_path.resolve()) if input_path.is_file() else url,
-        "input_sha256": _sha256(input_path.resolve()) if input_path.is_file() else None,
         "selector": args.selector,
         "output": str(output),
-        "output_sha256": _sha256(output),
         "width": args.width,
         "height": args.height,
         "device_scale_factor": args.device_scale_factor,

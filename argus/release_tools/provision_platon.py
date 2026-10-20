@@ -41,9 +41,10 @@ def provision(root, directory, record):
         if path.is_symlink() and not path.resolve().is_relative_to(directory):
             raise ValueError("PLATON copy contains a symlink outside its private directory")
     executable = directory / "platon"
-    if runtime.sha256(executable) != record["sha256"]:
-        raise ValueError("PLATON executable does not match its trusted source record")
-    source = Path(record["path"]).parent
+    trusted = Path(record["path"])
+    if not trusted.is_file() or executable.read_bytes() != trusted.read_bytes():
+        raise ValueError("PLATON executable does not match its trusted source")
+    source = trusted.parent
     libraries = [
         (directory / Path(path).relative_to(source)).resolve(strict=True)
         for path in record["libs"]
@@ -56,7 +57,6 @@ def provision(root, directory, record):
         "environment": {"CRYSTALPILOT_PLATON": str(executable)},
         "version": record["version"],
         "recipe": record["recipe"],
-        "sha256": record["sha256"],
     }
     with portalocker.Lock(str(plugin_root / "manage.lock"), timeout=5):
         operation = manager.read_json(plugin_root / "operation.json")

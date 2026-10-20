@@ -5,7 +5,6 @@ project extensions, plugin registries and model logs are never read here.
 """
 from __future__ import annotations
 
-import hashlib
 import re
 from functools import lru_cache
 from pathlib import Path
@@ -107,5 +106,5 @@ def check_public_skill_event(kind, payload):
                 or not isinstance(content[0], dict)
                 or set(content[0]) != {"type", "text"} or content[0].get("type") != "text"
                 or not isinstance(content[0].get("text"), str)
-                or hashlib.sha256(content[0]["text"].encode()).digest() != hashlib.sha256(expected.encode()).digest()):
+                or content[0]["text"] != expected):
             raise ValueError("unverified_public_skill_content")

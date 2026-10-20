@@ -184,13 +184,13 @@ def test_bounded_handoff_yields_after_current_mission_before_draining_backlog(tm
             return supervisor.run()
 
     prepared = _prepared(memory, manager, "new bounded request", commit=commit)
+    prepared.on_wait = ready_to_commit.set
     with ThreadPoolExecutor(max_workers=2) as executor:
         running = executor.submit(drain)
         assert started.wait(timeout=5)
         handoff = executor.submit(
             front_door.manager_bounded_handoff, memory, prepared.body, {},
             lambda task, _division: task, prepared_handoff=prepared,
-            prepare_persist=lambda _task: ready_to_commit.set(),
         )
         try:
             assert ready_to_commit.wait(timeout=5)
@@ -236,7 +236,6 @@ def test_cancelled_handoff_does_not_wait_for_running_mission_or_commit(tmp_path,
         fn = front_door.manager_continuous_handoff if route == "continuous" else front_door.manager_bounded_handoff
         kwargs = dict(
             prepared_handoff=prepared, cancelled=cancelled.is_set,
-            prepare_persist=lambda _task: waiting.set(),
             persist=lambda *_args: mutations.append("persist"),
         )
         return fn(memory, prepared.body, {}, **kwargs)

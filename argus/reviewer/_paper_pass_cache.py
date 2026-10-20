@@ -5,63 +5,57 @@ they are deliberately not memoized here. Neither are integrated verdicts.
 """
 from __future__ import annotations
 
-import hashlib
+import filecmp
 import json
 from pathlib import Path
 from typing import Any
 
+from ..core.file_facts import file_facts
 
-def pdf_sha256(workdir: Path) -> str:
-    """Return exact rendered bytes, or disable reuse if they cannot be read."""
+
+def pdf_facts(workdir: Path) -> list[int]:
+    """The rendered PDF's ``file_facts``, or [] (disabling reuse) when it cannot be read."""
     try:
-        with (workdir / "paper" / "main.pdf").open("rb") as stream:
-            digest = hashlib.sha256()
-            for chunk in iter(lambda: stream.read(1024 * 1024), b""):
-                digest.update(chunk)
-            return digest.hexdigest()
+        return file_facts(workdir / "paper" / "main.pdf")
     except OSError:
-        return ""
+        return []
 
 
-def paper_pass_key(*, pdf_digest: str, prompt: str, config: Any, runner: Any) -> str:
-    if not pdf_digest or not config.model:
+def same_pdf(workdir: Path, copy_root: Path, facts: list[int]) -> bool:
+    """Whether ``copy_root`` holds, byte for byte, the PDF that had ``facts``."""
+    source = workdir / "paper" / "main.pdf"
+    try:
+        return pdf_facts(workdir) == facts and filecmp.cmp(
+            source, copy_root / "paper" / "main.pdf", shallow=False
+        )
+    except OSError:
+        return False
+
+
+def paper_pass_key(*, pdf: list[int], prompt: str, config: Any, runner: Any) -> str:
+    if not pdf or not config.model:
         return ""
     workdir = Path(config.artifact_root or config.working_dir or ".").resolve()
     state_root = Path(config.vertical_state_root or workdir).resolve()
-    policy_files: dict[str, str] = {}
+    policy_files: dict[str, list[int] | None] = {}
     for path in (workdir / "research/VENUE_PROFILE.json", state_root / "goal_contract.json"):
         try:
-            policy_files[str(path)] = hashlib.sha256(path.read_bytes()).hexdigest()
+            policy_files[str(path)] = file_facts(path)
         except FileNotFoundError:
-            policy_files[str(path)] = "absent"
+            policy_files[str(path)] = None
         except OSError:
             return ""
-    payload = {
-        "pdf": pdf_digest,
-        "prompt": prompt,
-        "model": config.model,
-        "reasoning_effort": config.reasoning_effort,
-        "extra_args": config.extra_args,
-        "policy_context": config.review_policy_context,
-        "policy_files": policy_files,
-        "backend": str(getattr(runner, "backend", type(runner).__qualname__)),
-    }
-    return hashlib.sha256(
-        json.dumps(payload, sort_keys=True, ensure_ascii=False).encode("utf-8")
-    ).hexdigest()
-
-
-def identical_snapshot_pair(comparison: Any) -> bool:
-    """Check actual immutable trees, not just the saved manifest's claim."""
-    if comparison.before_sha256 != comparison.after_sha256:
-        return False
-    from ..core.manuscript_narrative_runtime import manuscript_closure_sha256
-
-    try:
-        return (
-            manuscript_closure_sha256(comparison.before_paper.parent)
-            == manuscript_closure_sha256(comparison.after_paper.parent)
-            == comparison.before_sha256
-        )
-    except (OSError, ValueError):
-        return False
+    return json.dumps(
+        {
+            "pdf": pdf,
+            "prompt": prompt,
+            "model": config.model,
+            "reasoning_effort": config.reasoning_effort,
+            "extra_args": config.extra_args,
+            "policy_context": config.review_policy_context,
+            "policy_files": policy_files,
+            "backend": str(getattr(runner, "backend", type(runner).__qualname__)),
+        },
+        sort_keys=True,
+        ensure_ascii=False,
+    )

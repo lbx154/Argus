@@ -3,7 +3,6 @@ from __future__ import annotations
 
 import itertools
 import logging
-import time
 from dataclasses import replace
 from pathlib import Path
 from typing import Callable
@@ -15,19 +14,19 @@ from ..core.models import (
     RoundRecord,
     RunnerOptions,
     RunnerResult,
-    without_routing_judgments,
 )
 from ..core.ports import RunnerBackend
 from ..core.role_session import (
     RoleSessionCapsule,
-    effective_role_session_policy,
     objective_revision,
+    role_session_policy,
 )
 from ..core.run_gateway import run_exec as gateway_run_exec
 from ..core.secret_guard import (
     known_secret_values,
     redact_secrets_record,
 )
+from ..core.workspace_snapshot import WorkspaceSnapshots
 from ..reviewer import Reviewer, ReviewerConfig
 from .checkpoint import resolve_shared_checkpoint
 
@@ -45,19 +44,13 @@ from .round_manager_wait import manager_wait_terminal
 from .round_prompt import RoundPromptMixin
 from .round_reviewer import RoundReviewerMixin
 from .round_self_review import RoundSelfReviewMixin
-from .round_settlement import (
-    RoundSettlementMixin,
-    enforce_question_policy_event,
-    enforce_terminal_question_policy,
-)
+from .round_settlement import RoundSettlementMixin, withhold_terminal_question
 
 # These round-signal helpers remain module attributes because callers and tests
 # patch them through ``argus.engineer.runner``.
 from .round_signals import (
     _apply_round_secret_guard,  # noqa: F401
-    _pause_decision_clock,  # noqa: F401
     _review_event_payload,  # noqa: F401
-    _run_external_work_wait,  # noqa: F401
 )
 from .round_state import RoundLoopState
 from .round_stop_signals import (
@@ -74,7 +67,7 @@ from .round_stop_signals import (
     runner_result_is_backend_failure,
     should_clear_thread_id_after_outcome,
 )
-from .round_waits import RoundWaitsMixin
+from .turn_stall import LOOK_SECONDS, TurnStallWatch
 
 # The next Reviewer reads at most this many earlier unreviewed Engineer
 # accounts, each kept to its head and tail when longer than the char bound.
@@ -96,37 +89,22 @@ def _carry_unreviewed_turn(state: RoundLoopState, round_index: int, message: str
     del state.unreviewed_engineer_accounts[:-_UNREVIEWED_ACCOUNT_TURNS]
 
 
-def hold_review_for_pending_background_run(review: ReviewDecision) -> ReviewDecision:
-    """Keep a ``done`` open while a declared background run has no result.
+def _paper_unchanged_since_venue_review(rounds: list[RoundRecord], workdir: Path) -> bool:
+    """Whether the paper the last venue review judged is still the paper here.
 
-    The Reviewer's own words are preserved in ``reviewer_words`` and the
-    host's change is recorded separately, so later rounds never present the
-    host's sentence as the Reviewer's judgment. The Reviewer's routing
-    judgments no longer describe this verdict and are dropped (read as absent).
+    Reviewing it again could only repeat that paid verdict, so the unchanged
+    return climbs to the Planner instead (the baton's third invariant).
     """
-    return replace(
-        review, status="continue",
-        planner_report=without_routing_judgments(review.planner_report),
-        reason=review.reason + " The declared background run still has no terminal result.",
-        next_action="Await the declared background run, then inspect its result before completing the mission.",
-        reviewer_words=review.reviewer_words or {
-            "status": review.status,
-            "reason": review.reason,
-            "next_action": review.next_action,
-        },
-        host_notes=[
-            *review.host_notes,
-            "the review was held open because a declared background run is "
-            "still pending (your `done` became `continue`, and the host asked "
-            "the Engineer to await the run)",
-        ],
-    )
+    from ..core.venue_review import paper_review_snapshot
+
+    last = next((record.review for record in reversed(rounds) if record.review.venue_review_required), None)
+    recorded = last.venue_review_snapshot if last is not None else None
+    return bool(recorded) and recorded == paper_review_snapshot(workdir)
 
 
 class SupervisedEngineer(
     RoundPromptMixin,
     RoundExecutionMixin,
-    RoundWaitsMixin,
     RoundSelfReviewMixin,
     RoundReviewerMixin,
     RoundSettlementMixin,
@@ -163,7 +141,6 @@ class SupervisedEngineer(
         scope: str = "",
         prepare_review_context: Callable[[], None] | None = None,
         review_completed_hook: Callable[[RoundRecord], None] | None = None,
-        continue_adaptor: Callable[[list[RoundRecord]], str] | None = None,
         reviewer_skill_block: str | None = None,
     ) -> tuple[LoopStatus, list[RoundRecord], str, str, str | None]:
         """Run the supervised loop.
@@ -194,37 +171,33 @@ class SupervisedEngineer(
                     event,
                     known_values=known_secret_values(),
                 )
-                raw_on_event(
-                    enforce_question_policy_event(redacted, supervised_config)
-                )
+                raw_on_event(redacted)
 
             on_event = _redacted_on_event
         state = RoundLoopState()
         from ..core.grounding_baseline import objective_baseline
-        from .obstacle_stall import (
-            load_obstacle_stall,
-            mission_item_id,
-            stall_root,
-        )
+        from .round_reviewer import mission_item_id, mission_lineage, mission_state_root
 
-        state.obstacle_stall_root = stall_root(supervised_config)
+        state.state_root = mission_state_root(supervised_config)
         state.mission_item_id = mission_item_id(supervised_config)
         state.mission_ref = str(getattr(supervised_config, "session_id", "") or "")
-        state.obstacle_stall_objective = str(original_objective or objective or "")
         # Before this mission's Engineer writes anything: what the workspace held
         # when the first mission on this objective began.
         try:
             state.grounding_baseline = objective_baseline(
-                state.obstacle_stall_root, state.obstacle_stall_objective,
+                state.state_root, str(original_objective or objective or ""),
                 (workdir, getattr(self.reviewer_config, "vertical_state_root", None)),
             )
         except Exception:  # noqa: BLE001 - without it, no workspace file grounds
             log.debug("grounding baseline unavailable", exc_info=True)
             state.grounding_baseline = None
-        state.carried_obstacle_streak, state.carried_obstacle = load_obstacle_stall(
-            state.obstacle_stall_root, state.obstacle_stall_objective,
-            threshold=int(getattr(supervised_config, "stall_threshold", 0) or 0),
-        )
+        lineage = mission_lineage(supervised_config) or state.mission_ref
+        if state.state_root is not None and lineage:
+            snapshots = WorkspaceSnapshots(
+                state.state_root / "snapshots.git", Path(workdir).resolve(), lineage,
+            )
+            # The task's baseline stays when the same work resumes or is replanned.
+            state.snapshots = snapshots if snapshots.take("baseline", keep=True) else None
         if seed_thread_id:
             state.engineer_thread_ids.add(str(seed_thread_id))
         checkpoint_path = resolve_shared_checkpoint(supervised_config.checkpoint_path)
@@ -233,16 +206,14 @@ class SupervisedEngineer(
         engineer_backend = str(
             getattr(self.engineer_runner, "backend", type(self.engineer_runner).__name__)
         )
-        engineer_policy = effective_role_session_policy(
-            (
-                "fresh"
-                if supervised_config.engineer_operation == "narrative_edit"
-                else supervised_config.role_session_policy
-            ),
+        engineer_policy = role_session_policy(
             engineer_backend,
             # Pi deliberately uses --no-session in isolated maintenance
             # worktrees, so no persisted thread may be passed there.
-            allow_resume=not self.engineer_config.isolate_workdir,
+            allow_resume=(
+                not self.engineer_config.isolate_workdir
+                and supervised_config.engineer_operation != "narrative_edit"
+            ),
         )
         state.engineer_session = RoleSessionCapsule.open(
             role="engineer",
@@ -264,10 +235,7 @@ class SupervisedEngineer(
         reviewer_backend = str(
             getattr(reviewer_runner, "backend", type(reviewer_runner).__name__)
         )
-        reviewer_policy = effective_role_session_policy(
-            supervised_config.role_session_policy,
-            reviewer_backend,
-        )
+        reviewer_policy = role_session_policy(reviewer_backend)
         state.reviewer_session = RoleSessionCapsule.open(
             role="reviewer",
             policy=reviewer_policy,
@@ -304,10 +272,7 @@ class SupervisedEngineer(
                 )
             except Exception as exc:  # noqa: BLE001 - comparison is a hard contract
                 reason = f"Could not preserve the pre-edit paper snapshot: {exc}"
-                return enforce_terminal_question_policy(
-                    ("error", state.rounds, "", reason, None),
-                    supervised_config,
-                )
+                return "error", state.rounds, "", reason, None
         round_indices = (
             itertools.count(1)
             if supervised_config.max_rounds <= 0
@@ -317,22 +282,7 @@ class SupervisedEngineer(
             paused = manager_wait_terminal(supervised_config, state)
             if paused is not None:
                 return paused
-            control = self._handle_runtime_team_wait(
-                round_index=round_index,
-                supervised_config=supervised_config,
-                workdir=workdir,
-                state=state,
-                on_event=on_event,
-            )
-            if control.action == "return":
-                return enforce_terminal_question_policy(
-                    control.terminal,
-                    supervised_config,
-                )
-            engineer_resume_id = state.engineer_session.prepare(
-                max_turns=supervised_config.role_session_max_turns,
-                max_input_tokens=supervised_config.role_session_max_input_tokens,
-            )
+            engineer_resume_id = state.engineer_session.prepare()
             engineer_prompt = self._assemble_round_prompt(
                 round_index=round_index,
                 supervised_config=supervised_config,
@@ -343,12 +293,10 @@ class SupervisedEngineer(
                 role_session=state.engineer_session,
                 on_event=on_event,
             )
-            if state.pending_external_work_followup:
-                engineer_prompt += "\n\n" + state.pending_external_work_followup
-                state.pending_external_work_followup = ""
+            if state.pending_engineer_followup:
+                engineer_prompt += "\n\n" + state.pending_engineer_followup
+                state.pending_engineer_followup = ""
 
-            if state.round_started_wall is None:
-                state.round_started_wall = time.time()
             outcome = self._run_engineer_turn(
                 round_index=round_index,
                 engineer_prompt=engineer_prompt,
@@ -368,40 +316,13 @@ class SupervisedEngineer(
                 on_event=on_event,
             )
             if control.action == "return":
-                return enforce_terminal_question_policy(
-                    control.terminal,
-                    supervised_config,
-                )
+                return withhold_terminal_question(control.terminal, supervised_config)
             if control.action == "continue_loop":
                 continue
 
             paused = manager_wait_terminal(supervised_config, state)
             if paused is not None:
                 return paused
-            wait_message = (
-                outcome.engineer_result.last_agent_message or outcome.raw_engineer_message
-            )
-            review_before_wait = self._external_wait_needs_review(
-                supervised_config=supervised_config,
-                raw_engineer_message=wait_message,
-                workdir=workdir,
-                state=state,
-                on_event=on_event,
-            )
-            if not review_before_wait:
-                control = self._handle_agent_driven_wait(
-                    round_index=round_index,
-                    supervised_config=supervised_config,
-                    raw_engineer_message=wait_message,
-                    workdir=workdir,
-                    state=state,
-                    on_event=on_event,
-                )
-                if control.action == "return":
-                    return enforce_terminal_question_policy(control.terminal, supervised_config)
-                if control.action == "continue_loop":
-                    _carry_unreviewed_turn(state, round_index, outcome.engineer_message)
-                    continue
 
             control = self._handle_progress_and_self_review(
                 round_index=round_index,
@@ -410,17 +331,34 @@ class SupervisedEngineer(
                 outcome=outcome,
                 state=state,
                 review_completed_hook=review_completed_hook,
-                continue_adaptor=continue_adaptor,
                 on_event=on_event,
             )
             if control.action == "return":
-                return enforce_terminal_question_policy(
-                    control.terminal,
-                    supervised_config,
-                )
+                return withhold_terminal_question(control.terminal, supervised_config)
             if control.action == "continue_loop":
                 _carry_unreviewed_turn(state, round_index, outcome.engineer_message)
                 continue
+
+            if _paper_unchanged_since_venue_review(state.rounds, workdir):
+                control = self._settle_round(
+                    review=ReviewDecision(
+                        status="replan_requested",
+                        reason=(
+                            "The paper and its figures are unchanged since the last venue "
+                            "review; reviewing them again would only repeat that verdict."
+                        ),
+                        next_action="",
+                        review_source="unchanged_paper",
+                    ),
+                    round_index=round_index,
+                    supervised_config=supervised_config,
+                    workdir=workdir,
+                    outcome=outcome,
+                    state=state,
+                    review_completed_hook=review_completed_hook,
+                        on_event=on_event,
+                )
+                return withhold_terminal_question(control.terminal, supervised_config)
 
             control = self._invoke_reviewer_with_retry(
                 objective=objective,
@@ -437,26 +375,10 @@ class SupervisedEngineer(
                 on_event=on_event,
             )
             if control.action == "return":
-                return enforce_terminal_question_policy(
-                    control.terminal,
-                    supervised_config,
-                )
+                return withhold_terminal_question(control.terminal, supervised_config)
             if control.action == "continue_loop":
                 continue
             review = control.payload
-
-            if review_before_wait:
-                from .external_work import inspect_external_work, parse_external_wait_request
-
-                request = parse_external_wait_request(wait_message)
-                waiting = inspect_external_work(workdir, request[1]) if request else None
-                if review.status == "done" and waiting is not None and waiting.waitable:
-                    review = hold_review_for_pending_background_run(review)
-                self._acknowledge_external_wait_review(
-                    supervised_config=supervised_config, state=state,
-                    review=review, on_event=on_event,
-                )
-
             control = self._settle_round(
                 review=review,
                 round_index=round_index,
@@ -465,20 +387,16 @@ class SupervisedEngineer(
                 outcome=outcome,
                 state=state,
                 review_completed_hook=review_completed_hook,
-                continue_adaptor=continue_adaptor,
                 on_event=on_event,
             )
             if control.action == "return":
-                return enforce_terminal_question_policy(
-                    control.terminal,
-                    supervised_config,
-                )
+                return withhold_terminal_question(control.terminal, supervised_config)
             if control.action == "continue_loop":
                 continue
             # else "proceed": fall through to the next round.
 
         # Only an explicit positive max_rounds can exhaust the finite range.
-        return enforce_terminal_question_policy(
+        return withhold_terminal_question(
             (
                 "max_rounds",
                 state.rounds,
@@ -501,17 +419,17 @@ class SupervisedEngineer(
         supervised_config: SupervisedConfig | None = None,
         on_event: Callable[[dict], None] | None = None,
     ) -> tuple[RunnerResult, int]:
-        hard_idle_seconds: int | None = None
         stalled_idle_seconds: int | None = None
+        stall_watch: TurnStallWatch | None = None
         if supervised_config is not None:
-            hard_idle_seconds = int(supervised_config.runner_hard_idle_seconds or 0)
-            # Say which command is silent well before it is stopped, so the
-            # operator's status line can show where the round is stuck.
-            # With the hard stop off, leave the backend's own likely-stalled
-            # alert in place (None = backend default) rather than disabling it.
-            stalled_idle_seconds = (
-                min(600, max(1, hard_idle_seconds // 3)) if hard_idle_seconds > 0 else None
-            )
+            stalled_idle_seconds = int(supervised_config.runner_stalled_idle_seconds or 0)
+            if stalled_idle_seconds > 0:
+                stall_watch = TurnStallWatch(
+                    stall_seconds=stalled_idle_seconds,
+                    state_root=supervised_config.operator_question_policy_root,
+                    run_label=run_label,
+                    on_event=on_event,
+                )
         try:
             result = gateway_run_exec(
                 self.engineer_runner,
@@ -530,9 +448,9 @@ class SupervisedEngineer(
                     dangerous_yolo=self.engineer_config.dangerous_yolo,
                     sandbox_mode=self.engineer_config.sandbox_mode,
                     isolate_workdir=self.engineer_config.isolate_workdir,
-                    lean_tool_surface=getattr(
-                        self.engineer_config, "lean_tool_surface", False
-                    ),
+                    # The Engineer keeps its state in CHECKPOINT.md, so the
+                    # agent CLI's own tools it never uses stay out of requests.
+                    lean_tool_surface=True,
                     working_dir=str(workdir),
                     live_search=_engineer_live_search(
                         self.engineer_config.vertical_state_root or workdir,
@@ -542,8 +460,9 @@ class SupervisedEngineer(
                     # watchdog. Do not infer semantic progress from project
                     # mtimes or provider-private session files.
                     external_interrupt_reason_provider=None,
+                    inactivity_callback=stall_watch,
+                    watchdog_soft_idle_seconds=LOOK_SECONDS if stall_watch else None,
                     watchdog_stalled_idle_seconds=stalled_idle_seconds,
-                    watchdog_hard_idle_seconds=hard_idle_seconds,
                     extension_env=(
                         {
                             "ARGUS_PLUGIN_PARENT_MISSION_ID": str(

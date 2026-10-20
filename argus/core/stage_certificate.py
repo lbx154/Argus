@@ -1,7 +1,6 @@
 """Host-owned intermediate stage review certificates."""
 from __future__ import annotations
 
-import hashlib
 import json
 import os
 import time
@@ -25,25 +24,6 @@ def _read(path: Path) -> dict[str, Any]:
     return payload
 
 
-def _evidence_fingerprint(item: Any) -> str:
-    refs = []
-    for ref in getattr(item, "context_refs", []) or []:
-        if not isinstance(ref, dict):
-            continue
-        refs.append({
-            "kind": str(ref.get("kind") or ""),
-            "ref": str(ref.get("ref") or ""),
-            "content_hash": str(ref.get("content_hash") or ""),
-        })
-    payload = {
-        "acceptance_check": str(getattr(item, "acceptance_check", "") or ""),
-        "context_refs": sorted(refs, key=lambda row: (row["kind"], row["ref"])),
-    }
-    return hashlib.sha256(
-        json.dumps(payload, sort_keys=True, separators=(",", ":")).encode("utf-8")
-    ).hexdigest()
-
-
 def record_stage_review(
     *,
     state_root: Path | str,
@@ -52,10 +32,10 @@ def record_stage_review(
     item: Any,
     manager_action: str,
     manager_reason: str = "",
-    manuscript_binding: dict[str, str] | None = None,
+    manuscript_binding: dict[str, Any] | None = None,
     contract_root: Path | str | None = None,
     venue_review: dict[str, Any] | None = None,
-    venue_review_snapshot: dict[str, str] | None = None,
+    venue_review_snapshot: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
     """Record one independently reviewed stage-closing attempt."""
     normalized_stage = str(stage or "").strip().lower()
@@ -82,7 +62,6 @@ def record_stage_review(
         "certified": str(manager_action or "").strip().lower()
         in {"advance", "complete"},
         "checklist_fingerprint": checklist_fingerprint,
-        "evidence_fingerprint": _evidence_fingerprint(item),
         "recorded_at": now,
         "project_root": str(Path(project_root).resolve()),
         "contract_root": str(Path(contract_root or project_root).resolve()),
@@ -98,7 +77,7 @@ def record_stage_review(
             if isinstance(manuscript_binding, dict)
             else manuscript_snapshot(project_root)
         )
-        if snapshot["sha256"]:
+        if snapshot.get("facts"):
             record["manuscript_snapshot"] = snapshot
     except Exception:  # noqa: BLE001 - non-paper certificates remain valid
         pass
@@ -131,7 +110,7 @@ def all_stage_reviews(state_root: Path | str) -> dict[str, dict[str, Any]]:
         result = dict(record)
         snapshot = result.get("manuscript_snapshot")
         project_root = str(result.get("project_root") or "").strip()
-        if isinstance(snapshot, dict) and snapshot.get("sha256") and project_root:
+        if isinstance(snapshot, dict) and snapshot and project_root:
             try:
                 from .manuscript_snapshot import manuscript_review_status
 

@@ -126,7 +126,6 @@ def test_container_absolute_evidence_path_maps_only_inside_assigned_root(tmp_pat
 
 
 def test_uncertainty_can_preserve_a_supported_local_regression(tmp_path):
-    import hashlib
 
     metadata, report, schema = report_fixture(tmp_path)
     evidence = tmp_path / "evidence/probe"
@@ -139,7 +138,7 @@ def test_uncertainty_can_preserve_a_supported_local_regression(tmp_path):
             "command": "fixture-only", "cwd": f"/work/{label}",
             "exit_code": 0 if label == "base" else 1, "seconds": 0.01,
             "log": f"evidence/probe/{label}.log",
-            "log_sha256": hashlib.sha256(log.read_bytes()).hexdigest(),
+            "log_bytes": log.stat().st_size,
             "timed_out": False,
         }
     (evidence / "receipt.json").write_text(json.dumps(receipt))

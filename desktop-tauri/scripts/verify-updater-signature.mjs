@@ -59,7 +59,6 @@ export function verifyTauriSignature(filename, encodedSignature, encodedPublicKe
   if (!initial.isFile() || initial.isSymbolicLink()) throw new Error('Updater input must be a regular file.');
   const input = fs.openSync(filename, 'r');
   const digest = createHash('blake2b512');
-  const sha256 = createHash('sha256');
   let bytes = 0;
   const same = (a, b) => ['dev', 'ino', 'size', 'mtimeNs', 'ctimeNs'].every(field => a[field] === b[field]);
   try {
@@ -71,7 +70,7 @@ export function verifyTauriSignature(filename, encodedSignature, encodedPublicKe
     let count;
     while ((count = fs.readSync(input, buffer, 0, buffer.length, null)) > 0) {
       const chunk = buffer.subarray(0, count);
-      digest.update(chunk); sha256.update(chunk); bytes += count;
+      digest.update(chunk); bytes += count;
     }
     if (!same(before, fs.fstatSync(input, { bigint: true })) || BigInt(bytes) !== before.size) {
       throw new Error('Updater input changed during verification (handle metadata).');
@@ -84,5 +83,5 @@ export function verifyTauriSignature(filename, encodedSignature, encodedPublicKe
   if (!verify(null, digest.digest(), key, signature)) {
     throw new Error('Updater package signature verification failed.');
   }
-  return { bytes, sha256: sha256.digest('hex') };
+  return { bytes };
 }

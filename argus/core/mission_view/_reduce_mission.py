@@ -18,11 +18,12 @@ from typing import Any, Mapping
 
 from ...life.mission_outcome import mission_outcome_class, mission_outcome_dimensions
 from ..event_catalog import EventType
-from ..role_reply import strip_named_lines
+from ..role_handoff import strip_handoff
 from ..stop_kinds import (
     NON_FAILURE_STOP_KINDS,
+    is_pause_status,
     normalize_stop_kind,
-    pause_status_clause,
+    park_clause,
     stop_kind_clause,
 )
 from ._reduce_helpers import (
@@ -227,6 +228,7 @@ def _mission_outcome_presentation(
             else mission_outcome_class(
                 status=_text(event, "status"),
                 success=bool(event.get("success")),
+                park_reason=event.get("park_reason"),
             )
         )
     mission_status, role_status, kind, tone = _MISSION_OUTCOME_PRESENTATIONS[
@@ -254,10 +256,10 @@ def _mission_outcome_presentation(
         why = (
             say(f"why_{named_kind}", chinese, cause=named_line)
             if named_kind
-            else pause_status_clause(raw_status, chinese=chinese)
+            else park_clause(raw_status, event.get("park_reason"), chinese=chinese)
             or stop_kind_clause(stop_kind, chinese=chinese)
         )
-        if raw_status.lower().startswith("paused_") or event.get("resumable") is True:
+        if is_pause_status(raw_status) or event.get("resumable") is True:
             kind = "mission_paused"
             return (
                 mission_status,
@@ -378,6 +380,7 @@ def reduce_mission_lifecycle_event(
                 success=bool(event.get("success")),
                 stop_kind=event.get("stop_kind"),
                 resumable=bool(event.get("resumable")),
+                park_reason=event.get("park_reason"),
             )
         if event.get("final_submission_certified") is True:
             view["outcome"]["final_submission_certified"] = True
@@ -457,13 +460,6 @@ def _reduce_review_completed(
         view["review"]["manuscript_snapshot"] = dict(
             event["manuscript_snapshot"]
         )
-    frontier_change = _text(event, "frontier_change")
-    if frontier_change:
-        view["frontier"] = {
-            "change": frontier_change,
-            "summary": _text(event, "frontier_summary", 2000),
-            "updated_at": ts,
-        }
     if review_skipped:
         cause, stop_kind = _skipped_round_cause(event)
         _named_kind, named_line = _named_failure(event)
@@ -719,16 +715,7 @@ def reduce_round_event(
             and ts >= mission["started_at"]
             and (not event.get("item_id") or event["item_id"] == mission.get("id"))
         ):
-            candidate = strip_named_lines(
-                str(event.get("text") or ""),
-                (
-                    "MILESTONE_STATUS",
-                    "NEXT_OWNER",
-                    "OPERATOR_QUESTION",
-                    "OPERATOR_OPTIONS",
-                    "ROLE_DECISION",
-                ),
-            ).strip()
+            candidate = strip_handoff(str(event.get("text") or "")).strip()
             mission["final_output"] = candidate
         detail = (
             _text(event, "action_summary", 4000)

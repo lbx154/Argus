@@ -81,7 +81,7 @@ def _isolate_argus_state_roots(
     # Argus session, child-env tests inherit the real worker home and stop
     # exercising the "no explicit home was chosen" path. Start from a clean slate;
     # a test that needs a value sets it itself.
-    for name in [k for k in os.environ if k.startswith(("ARGUS_SKILL_", "ARGUS_TEAM_", "ARGUS_WORKBENCH_", "ARGUS_PLUGIN_", "ARGUS_DESKTOP_", "ARGUS_TRIAL_"))]:
+    for name in [k for k in os.environ if k.startswith(("ARGUS_SKILL_", "ARGUS_WORKBENCH_", "ARGUS_PLUGIN_", "ARGUS_DESKTOP_", "ARGUS_TRIAL_"))]:
         monkeypatch.delenv(name, raising=False)
     monkeypatch.delenv("COPILOT_HOME", raising=False)
     # The life-worker boot path setdefault()s the workbench host root into
@@ -203,3 +203,60 @@ def _no_stop_leaks_between_tests():
 def redact_secrets_on(monkeypatch):
     """Opt into Argus's credential masking, which is off by default."""
     monkeypatch.setenv("ARGUS_SKILL_REDACT_SECRETS", "1")
+
+
+def _install_vertical(monkeypatch: pytest.MonkeyPatch, name: str, **attrs: object) -> Iterator[str]:
+    """Advertise one in-memory plugin vertical as the only entry point."""
+    from types import ModuleType, SimpleNamespace
+
+    from argus.verticals import _registry
+
+    module = ModuleType(f"{name}.stages")
+    module.ARGUS_VERTICAL_API_VERSION = 1
+    module.VERTICAL_PURPOSE = f"{name} test vertical"
+    for key, value in attrs.items():
+        setattr(module, key, value)
+    entry = SimpleNamespace(name=name, value=module.__name__, load=lambda: module)
+    monkeypatch.setattr(
+        _registry, "entry_points",
+        lambda group: [entry] if group == _registry.ENTRY_POINT_GROUP else [],
+    )
+    _registry.refresh_vertical_plugins()
+    yield name
+    _registry.refresh_vertical_plugins()
+
+
+@pytest.fixture
+def optimize_vertical(monkeypatch: pytest.MonkeyPatch) -> Iterator[str]:
+    """``optimize_lab``: a metric vertical (setup -> optimize -> measure -> report).
+
+    No optimization vertical is built in any more (``math_synth`` and the rest
+    live in argus-verticals), so generic stage, completion and mission tests
+    install this plugin instead.
+    """
+    from argus.verticals.optimization_base import speedrun_base_contract
+
+    base = speedrun_base_contract()
+    yield from _install_vertical(
+        monkeypatch, "optimize_lab",
+        CHECKLIST_STAGE_ORDER=base.stage_order,
+        CHECKLIST_ITEMS=base.checklist_items,
+        completion_gate="metric",
+        role_banner=lambda role: f"optimize_lab {role} banner",
+    )
+
+
+@pytest.fixture
+def targeted_vertical(monkeypatch: pytest.MonkeyPatch) -> Iterator[str]:
+    """``targeted_lab``: research targets without a certified gate, the shape ``math`` has."""
+    from argus.skills.stage_machine import ChecklistItem
+
+    stages = ("scope", "solve", "review")
+    yield from _install_vertical(
+        monkeypatch, "targeted_lab",
+        CHECKLIST_STAGE_ORDER=stages,
+        CHECKLIST_ITEMS={stage: (ChecklistItem(f"{stage}.done", f"{stage} is done", stage),) for stage in stages},
+        completion_gate="none",
+        COMPLETION_CONTRACT_VERSION=1,
+        RESEARCH_TARGET_LEVELS=("exploratory", "publishable", "doctoral"),
+    )

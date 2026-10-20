@@ -67,7 +67,7 @@ def test_deferred_completion_drops_planner_settlements(tmp_path: Path) -> None:
 
     out = sup._defer_project_done_for_operator_external_blocker(verdict)
 
-    assert out.waiting is True and out.project_done is False
+    assert out.handoff == "operator" and out.project_done is False
     assert out.settled_instructions == ()
 
 

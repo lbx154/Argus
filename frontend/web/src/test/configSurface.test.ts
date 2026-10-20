@@ -19,7 +19,7 @@ const knob = (name: string, group = 'internal'): ConfigKnob => ({
 describe('conciseConfigKnobs', () => {
   it('keeps only essential controls already not represented by roles or budgets', () => {
     const result = conciseConfigKnobs([
-      knob('ARGUS_SKILL_ENGINEER_BACKEND', 'backend'),
+      knob('ARGUS_SKILL_RUNNER_BACKEND', 'backend'),
       knob('ARGUS_SKILL_ENGINEER_MODEL', 'models'),
       knob('ARGUS_SKILL_GLOBAL_DAILY_CAP_USD', 'budget'),
       knob('ARGUS_SKILL_RUNNER_BIN', 'backend'),

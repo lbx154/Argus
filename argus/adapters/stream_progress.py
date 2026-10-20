@@ -1004,8 +1004,9 @@ def make_stream_progress_callback(
                         "tool_kind": tool_kind,
                     }
                     if is_shell:
-                        # ACP titles describe the call in plain words; keep that
-                        # next to the command so the cockpit can show both.
+                        # A ``tool.call`` title describes the call in plain
+                        # words; keep it next to the command so the cockpit
+                        # can show both.
                         extra["action_summary"] = name
                     _emit_progress(kind=kind, text=text, actor=actor, extra=extra)
             return
@@ -1096,7 +1097,6 @@ class StreamProgressRelay:
 _ENGINEER_HELPER_ACTOR_PREFIXES = (
     "venue-research",
     "idea-search",
-    "research.",
 )
 
 _MANAGER_ACTOR_PREFIXES = (

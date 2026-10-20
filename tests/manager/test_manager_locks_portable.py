@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import errno
+import json
 import subprocess
 import sys
 import threading
@@ -14,11 +15,11 @@ import portalocker
 import pytest
 
 from argus.manager._session_ops import (
+    _SESSION_FILE,
     ManagerLockCancelled,
     _acquire_session_lock,
     _ManagerSession,
     manager_pipeline_lock,
-    manager_session_lock,
 )
 from argus.manager.control_state import CampaignControlStore
 
@@ -32,8 +33,18 @@ root = Path(root_raw)
 marker = Path(marker_raw)
 release = Path(release_raw)
 if kind == "session":
-    from argus.manager._session_ops import manager_session_lock
-    lock = manager_session_lock(root)
+    from contextlib import contextmanager
+
+    import portalocker
+
+    @contextmanager
+    def turn_on_the_shared_thread():
+        root.mkdir(parents=True, exist_ok=True)
+        with (root / ".manager_session.lock").open("a+b") as handle:
+            portalocker.lock(handle, portalocker.LOCK_EX)
+            yield
+
+    lock = turn_on_the_shared_thread()
 elif kind == "pipeline":
     from argus.manager._session_ops import manager_pipeline_lock
     lock = manager_pipeline_lock(root)
@@ -102,7 +113,6 @@ def _held_by_child(root: Path, kind: str) -> Iterator[Path]:
 @pytest.mark.parametrize(
     ("kind", "lock_factory"),
     [
-        ("session", manager_session_lock),
         ("pipeline", manager_pipeline_lock),
     ],
 )
@@ -129,42 +139,41 @@ def test_manager_locks_wait_for_a_real_peer_process(
         pass
 
 
-def test_manager_session_waits_then_uses_the_shared_session(
+def test_a_held_manager_session_never_blocks_another_turn(
     tmp_path: Path,
 ) -> None:
-    root = tmp_path / "session-wait"
-    omitted = object()
+    root = tmp_path / "session-busy"
+    root.mkdir()
+    shared = {"thread_id": "shared-thread", "recent_turns": [
+        {"kind": "decision", "request_excerpt": "Pause training?", "answer_excerpt": "Keep training."},
+    ]}
+    (root / _SESSION_FILE).write_text(json.dumps(shared), encoding="utf-8")
 
     class _Runner:
         def __init__(self) -> None:
-            self.resume_values: list[object] = []
+            self.prompts: list[str] = []
 
-        def run_exec(
-            self,
-            *,
-            prompt,
-            options,
-            run_label,
-            resume_thread_id=omitted,
-        ):
-            self.resume_values.append(resume_thread_id)
+        def run_exec(self, *, prompt, options, run_label, resume_thread_id=None):
+            self.prompts.append(prompt)
+            assert resume_thread_id is None
             return SimpleNamespace(thread_id="fresh-thread")
 
     runner = _Runner()
-    with _held_by_child(root, "session") as release:
-        releaser = threading.Thread(
-            target=lambda: (time.sleep(0.35), release.write_text("release", encoding="utf-8"))
-        )
-        releaser.start()
+    with _held_by_child(root, "session"):
+        started = time.monotonic()
         result = _ManagerSession(runner, root).run_exec(
             prompt="route this request",
             options=None,
             run_label="manager-route",
         )
-        releaser.join(timeout=2)
+        # The holder never releases while this turn runs: it answered at once.
+        assert time.monotonic() - started < 10
 
+    # A fresh thread that still carries the saved turns; the shared thread
+    # stays with its holder.
     assert result.thread_id == "fresh-thread"
-    assert runner.resume_values == [None]
+    assert "Keep training." in runner.prompts[0] and "route this request" in runner.prompts[0]
+    assert json.loads((root / _SESSION_FILE).read_text(encoding="utf-8")) == shared
 
 
 def test_campaign_control_lock_blocks_until_real_peer_process_releases(

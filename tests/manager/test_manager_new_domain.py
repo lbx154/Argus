@@ -168,7 +168,7 @@ def test_autonomous_authors_and_commits(tmp_path, monkeypatch):
     monkeypatch.delenv("ARGUS_SKILL_VERTICAL", raising=False)
     mgr = Manager(project_root=tmp_path, runner=_FakeRunner(_NEW_DOMAIN_DECISION))
     div = mgr.divide(_NOVEL_TASK)
-    assert div.kind == "custom" and div.vertical == "robotics_sim"
+    assert div.vertical == "robotics_sim"
     assert div.pending_confirmation is False
     # Written + persisted so the supervisor trusts it.
     assert (tmp_path / "research" / "DOMAINS" / "robotics_sim.json").exists()
@@ -393,7 +393,7 @@ def test_preset_task_unchanged(tmp_path, monkeypatch):
     monkeypatch.delenv("ARGUS_SKILL_VERTICAL", raising=False)
     mgr = Manager(project_root=tmp_path, runner=_FakeRunner(_EXISTING_RESEARCH_DECISION))
     div = mgr.divide("write an EMNLP paper with a literature review and submission")
-    assert div.vertical == "research" and div.kind == "research"
+    assert div.vertical == "research"
     assert not (tmp_path / "research" / "DOMAINS").exists()  # no domain authored
 
 

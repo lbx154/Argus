@@ -1,8 +1,8 @@
 """The volatile half of the method card is derived, not hand-maintained.
 
 The Engineer writes METHOD.md once (statement, components with the route's
-words, protocol, falsifier). Component status, reused code, hyperparameters
-and history come from the code, the markers on tests/spec, the config files
+words, protocol, falsifier). The tests behind each component, reused code,
+hyperparameters and history come from the code, the markers on tests/spec, the config files
 and git, at zero model cost, and never raise.
 """
 from __future__ import annotations
@@ -68,24 +68,6 @@ SPEC_COMPONENTS = {
             "kind": "claim",
         },
     },
-}
-
-LATEST_CHECKS = {
-    "round_index": 3,
-    "ran_at": 2.0,
-    "exit_code": 1,
-    "timed_out": False,
-    "duration_s": 4.2,
-    "counts": {"PASSED": 3, "FAILED": 1, "SKIPPED": 1},
-    "outcomes": {
-        "tests/spec/test_knockouts.py::test_knockout_gate": "PASSED",
-        "tests/spec/test_differential.py::test_gate_matches_oracle": "PASSED",
-        "tests/spec/test_knockouts.py::test_knockout_sparse": "PASSED",
-        "tests/spec/test_differential.py::test_sparse_matches_oracle": "FAILED",
-        "tests/spec/test_claim_shape.py::test_extra_component": "SKIPPED",
-    },
-    "skipped_reasons": {"tests/spec/test_claim_shape.py::test_extra_component": "TODO"},
-    "removed_test_ids": [],
 }
 
 BASE_YAML = """model:
@@ -157,12 +139,10 @@ def project(tmp_path: Path) -> Path:
     (clone / "rpc" / "__init__.py").write_text("def attention(x):\n    return x\n", encoding="utf-8")
     (clone / "rpc" / "utils.py").write_text("", encoding="utf-8")
     _init_repo(clone, remote="https://example.invalid/rpc.git")
-    argus_dir = root / ".argus" / "round-checks"
-    argus_dir.mkdir(parents=True)
+    (root / ".argus").mkdir()
     (root / ".argus" / "spec_components.json").write_text(
         json.dumps(SPEC_COMPONENTS), encoding="utf-8"
     )
-    (argus_dir / "latest.json").write_text(json.dumps(LATEST_CHECKS), encoding="utf-8")
     _init_repo(root)
     return root
 
@@ -183,56 +163,37 @@ def test_card_text_is_parsed_from_the_hand_written_sections(project: Path) -> No
     json.dumps(card)  # JSON-serialisable end to end
 
 
-def test_component_status_joins_markers_with_the_host_run(project: Path) -> None:
+def test_components_list_the_tests_that_carry_their_marker(project: Path) -> None:
     card = derive_method_card(project)
     by_name = {entry["component"]: entry for entry in card["components"]}
 
     assert list(by_name) == ["residual gate", "sparse attention", "curriculum warmup"]
     gate = by_name["residual gate"]
-    assert gate["status"] == "proven"
     assert gate["prescribes"] == '"the residual is scaled by a per-token sigmoid gate"'
-    assert {test["kind"] for test in gate["tests"]} == {"knockout", "differential"}
-    assert all(test["outcome"] == "PASSED" for test in gate["tests"])
-    sparse = by_name["sparse attention"]
-    assert sparse["status"] == "contradicted"
-    assert sparse["notes"].startswith("simplified:")
-    assert by_name["curriculum warmup"]["status"] == "untested"
+    assert gate["tests"] == [
+        {"id": "tests/spec/test_differential.py::test_gate_matches_oracle", "kind": "differential"},
+        {"id": "tests/spec/test_knockouts.py::test_knockout_gate", "kind": "knockout"},
+    ]
+    assert by_name["sparse attention"]["notes"].startswith("simplified:")
     assert by_name["curriculum warmup"]["tests"] == []
     assert [entry["component"] for entry in card["unlisted_components"]] == ["positional bias"]
-    assert card["checks"] == {
-        "round_index": 3,
-        "ran_at": 2.0,
-        "exit_code": 1,
-        "counts": {"PASSED": 3, "FAILED": 1, "SKIPPED": 1},
-    }
+    assert "checks" not in card and "status" not in gate
 
 
-def test_markers_without_a_host_run_are_unchecked(project: Path) -> None:
-    (project / ".argus" / "round-checks" / "latest.json").unlink()
-    card = derive_method_card(project)
-    by_name = {entry["component"]: entry for entry in card["components"]}
+def test_an_old_host_check_record_is_ignored(project: Path) -> None:
+    before = derive_method_card(project)
+    checks = project / ".argus" / "round-checks"
+    checks.mkdir()
+    (checks / "latest.json").write_text(json.dumps({
+        "round_index": 3, "exit_code": 1, "counts": {"FAILED": 1},
+        "outcomes": {"tests/spec/test_knockouts.py::test_knockout_gate": "FAILED"},
+        "components": {"residual gate": {"tests": [], "status": "contradicted"}},
+    }), encoding="utf-8")
 
-    assert by_name["residual gate"]["status"] == "unchecked"
-    assert by_name["curriculum warmup"]["status"] == "untested"
-    assert card["checks"] is None
+    after = derive_method_card(project)
 
-
-def test_host_join_in_latest_json_is_preferred_when_present(project: Path) -> None:
-    latest = dict(LATEST_CHECKS)
-    latest["components"] = {
-        "residual gate": {
-            "tests": [{"id": "tests/spec/test_knockouts.py::test_knockout_gate", "kind": "knockout", "outcome": "PASSED"}],
-            "status": "partial",
-        }
-    }
-    (project / ".argus" / "round-checks" / "latest.json").write_text(json.dumps(latest), encoding="utf-8")
-    card = derive_method_card(project)
-    by_name = {entry["component"]: entry for entry in card["components"]}
-
-    assert by_name["residual gate"]["status"] == "partial"
-    # Markers the host has not run yet stay visible without an outcome.
-    ids = {test["id"] for test in by_name["residual gate"]["tests"]}
-    assert "tests/spec/test_differential.py::test_gate_matches_oracle" in ids
+    assert after["components"] == before["components"]
+    assert "round 3" not in render_for_reviewer(project)
 
 
 def test_old_five_column_component_table_still_parses(project: Path) -> None:
@@ -247,7 +208,7 @@ def test_old_five_column_component_table_still_parses(project: Path) -> None:
 
     assert [entry["component"] for entry in card["components"]] == ["residual gate"]
     assert card["components"][0]["notes"] == ""
-    assert card["components"][0]["status"] == "proven"
+    assert {test["kind"] for test in card["components"][0]["tests"]} == {"knockout", "differential"}
 
 
 def test_reused_code_maps_imports_to_clones_and_packages(project: Path) -> None:
@@ -320,14 +281,13 @@ def test_reviewer_rendering_is_short_and_names_the_repairs(project: Path) -> Non
     assert 0 < len(lines) <= method_card.REVIEWER_MAX_LINES
     assert lines[0].startswith("## Method card")
     assert "not a gate" in lines[0]
-    assert any(line.startswith("- residual gate: proven") for line in lines)
-    assert any(line.startswith("- sparse attention: contradicted") for line in lines)
+    assert any(line.startswith("- residual gate (1 differential, 1 knockout)") for line in lines)
+    assert any(line.startswith("- sparse attention (1 differential, 1 knockout)") for line in lines)
     assert any("no test carries its marker: curriculum warmup" in line for line in lines)
     assert any("Markers without a card row: positional bias" in line for line in lines)
     assert any(line.startswith("- third_party/rpc @ ") and "example.invalid" in line for line in lines)
     assert any(line.startswith("- numpy @ ") for line in lines)
     assert any("configs/base.yaml:model.rank 128 -> 256" in line for line in lines)
-    assert any("round 3, exit 1" in line for line in lines)
 
 
 def test_project_without_a_card_is_empty_and_silent(tmp_path: Path) -> None:
@@ -336,22 +296,19 @@ def test_project_without_a_card_is_empty_and_silent(tmp_path: Path) -> None:
     assert card["exists"] is False
     assert card["components"] == [] and card["reused_code"] == []
     assert card["hyperparameters"] == [] and card["change_log"] == []
-    assert card["checks"] is None
     assert render_for_reviewer(tmp_path) == ""
     assert render_for_reviewer(tmp_path / "missing") == ""
 
 
 def test_derivation_survives_broken_inputs(project: Path) -> None:
     (project / ".argus" / "spec_components.json").write_text("{not json", encoding="utf-8")
-    (project / ".argus" / "round-checks" / "latest.json").write_text("[]", encoding="utf-8")
     (project / "configs" / "broken.yaml").write_text("a: [unclosed", encoding="utf-8")
     (project / "src" / "bad.py").write_text("def (:\n", encoding="utf-8")
 
     card = derive_method_card(project)
 
     assert card["exists"] is True
-    assert all(entry["status"] == "untested" for entry in card["components"])
-    assert card["checks"] is None
+    assert all(entry["tests"] == [] for entry in card["components"])
     assert {entry["file"] for entry in card["hyperparameters"]} == {"configs/base.yaml"}
     assert any(entry["name"] == "rpc" for entry in card["reused_code"])
 
@@ -400,7 +357,6 @@ def test_code_anchors_attach_to_the_card_rows(anchored: Path) -> None:
     by_name = {entry["component"]: entry for entry in card["components"]}
 
     gate = by_name["residual gate"]
-    assert gate["status"] == "proven"
     assert gate["simplified"] == []
     assert len(gate["anchors"]) == 1
     anchor = gate["anchors"][0]
@@ -411,13 +367,11 @@ def test_code_anchors_attach_to_the_card_rows(anchored: Path) -> None:
 
     # The join is case- and whitespace-insensitive, like the marker join.
     sparse = by_name["sparse attention"]
-    assert sparse["status"] == "contradicted (simplified)"
     assert sparse["anchors"][0]["symbol"] == "sparse"
     assert sparse["simplified"] == [
         {"reason": "fixed k instead of learned k", "file": "src/model.py", "line": 12}
     ]
     assert by_name["curriculum warmup"]["anchors"] == []
-    assert by_name["curriculum warmup"]["status"] == "untested"
 
     assert card["reuse_anchors"] == [
         {"file": "src/model.py", "line": 15, "what": "rpc.attention", "note": "the dense baseline path"}
@@ -431,7 +385,7 @@ def test_anchors_for_components_the_card_does_not_name_are_listed(anchored: Path
 
     assert set(unlisted) == {"positional bias", "rotary cache"}
     rotary = unlisted["rotary cache"]
-    assert rotary["status"] == "untested" and rotary["tests"] == []
+    assert rotary["tests"] == []
     assert rotary["anchors"][0]["symbol"] == "RotaryCache"
     assert unlisted["positional bias"]["anchors"] == []
 
@@ -442,9 +396,9 @@ def test_review_packet_shows_anchor_excerpt_changes_and_gaps(anchored: Path) -> 
     lines = text.splitlines()
 
     assert 0 < len(lines) <= method_card.REVIEWER_MAX_LINES
-    gate_index = next(i for i, line in enumerate(lines) if line.startswith("- residual gate: proven"))
+    gate_index = next(i for i, line in enumerate(lines) if line.startswith("- residual gate (1 differential"))
     assert "src/model.py:7 (gate)" in lines[gate_index]
-    # The excerpt sits under its own status line, indented, at most 20 lines.
+    # The excerpt sits under its own component line, indented, at most 20 lines.
     excerpt = []
     for line in lines[gate_index + 1 :]:
         if not line.startswith("    "):
@@ -453,10 +407,9 @@ def test_review_packet_shows_anchor_excerpt_changes_and_gaps(anchored: Path) -> 
     assert excerpt and excerpt[0].strip() == "# @component residual gate"
     assert excerpt[1].strip() == "def gate(x):"
     assert len(excerpt) <= method_card.REVIEWER_EXCERPT_LINES + 1
-    sparse = next(line for line in lines if line.startswith("- sparse attention: contradicted (simplified)"))
+    sparse = next(line for line in lines if line.startswith("- sparse attention (1 differential"))
     assert "src/model.py:13 (sparse)" in sparse
     assert any(line.strip().startswith("simplified: fixed k instead of learned k") for line in lines)
-    assert any(line.strip().startswith("failing: tests/spec/test_differential.py::test_sparse_matches_oracle") for line in lines)
     assert any("no `# @component` anchor in the code: curriculum warmup" in line for line in lines)
     assert any("Anchors without a card row: rotary cache (src/model.py:19 (RotaryCache))" in line for line in lines)
     assert any("Markers without a card row: positional bias" in line for line in lines)

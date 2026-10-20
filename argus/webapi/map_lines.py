@@ -17,7 +17,7 @@ from pathlib import Path
 
 from .map_model import MapGenerationError, map_timeout_seconds, resolve_map_model, run_map_model
 from .map_narrative import _source_lock, _write_cache, cache_path, read_cache
-from .map_view import digest, text
+from .map_view import facts, text
 
 LINES_VERSION = 2
 PAIR_LIMIT = 24
@@ -159,7 +159,7 @@ def notes(
     revision = config.revision if config else ""
     by_id = {task["id"]: task for task in dataset["tasks"]}
     inputs = {
-        _key(source, target): digest([LINES_VERSION, revision, locale, _told(by_id[source]), _told(by_id[target])])
+        _key(source, target): facts([LINES_VERSION, revision, locale, _told(by_id[source]), _told(by_id[target])])
         for source, target in wanted
     }
     source_name = lines_source(dataset["id"], locale)

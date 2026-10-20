@@ -15,14 +15,13 @@ hypothesis.
 
 ## How to approach the question
 
-1. For a new broad publishable or doctoral paper mission, form exactly the
-   configured number of materially different mechanism routes (default three;
-   operators set `ARGUS_RESEARCH_PORTFOLIO_ROUTES`), give every route one fresh
-   independent review, and run one selector after all route and review tasks finish.
+1. For a new broad publishable or doctoral paper mission, develop several
+   materially different mechanism routes, have each one reviewed independently,
+   and then choose one.
 2. For an operator-locked paper direction, examine and position the supplied idea
-   without creating a portfolio or selecting a replacement. For an exploratory
-   target, perform the source-only investigation requested; do not
-   manufacture a route portfolio or a paper commitment.
+   without selecting a replacement. For an exploratory target, perform the
+   source-only investigation requested; do not manufacture routes or a paper
+   commitment.
 3. For a direct Idea-only request, produce the requested source-grounded idea,
    comparison, or critique and stop after independent review. Do not continue
    into Experiment, Paper, or Review unless the operator requested that
@@ -37,10 +36,9 @@ hypothesis.
    public data, and code that exists. Do not build the decisive experiment on
    human participants, ethics approval, paid annotation, credentials, or
    compute the operator has not supplied.
-6. Close Idea search after a portfolio selection or examination of the locked
-   direction. Later implementation, evaluator,
-   experiment, or paper defects are repaired in the current later stage and do
-   not reopen the portfolio.
+6. Close Idea search after the choice or examination of the locked direction.
+   Later implementation, evaluator, experiment, or paper defects are repaired in
+   the current later stage and do not reopen the choice.
 
 Prefer a sharp mechanism, theorem, system capability, or field-level empirical
 result over a safe incremental combination. Do not select an idea because it is
@@ -52,12 +50,10 @@ promise, prefer the one whose decisive first test fits the operator's stated
 time and this machine; a route whose first decisive evidence lies weeks of
 GPU time away needs a correspondingly stronger case.
 
-When a portfolio exists, an internal Team worker performs only its assigned
-route or review and never creates another portfolio.
 Native read-only research delegates must return their full source report inline;
 the parent saves that report to the assigned internal path before review. Do not
 ask a read-only delegate to write files or accept a path-only confirmation as a
-saved report. This does not replace the portfolio Team's durable task outputs.
+saved report.
 
 ## When the idea is ready
 
@@ -73,12 +69,12 @@ work required for the applicable path is complete and the stage's standards are 
 ## Research notes
 
 For a staged paper mission, replace the research notes at project-root
-`RESEARCH_NOTES.md`, beginning with `# Research notes — Idea stage`. A completed broad
-portfolio includes a detailed winner explanation and exactly one single-line
+`RESEARCH_NOTES.md`, beginning with `# Research notes — Idea stage`. A broad
+mission's notes include a detailed winner explanation and exactly one single-line
 rejection reason for each route that was not selected. A locked or exploratory
 path records only its supplied direction or scoped finding and the next relevant
-work; it does not invent rejected routes or a selector. Do not create another
-project-visible selection report.
+work; it does not invent rejected routes. Do not create another project-visible
+selection report.
 
 Describe the decisive experiment as a direction — which comparison would settle
 the thesis and why it is decisive — in the prose a strong collaborator would
@@ -102,5 +98,5 @@ the stage.
 | A reviewer needs the strongest adversarial case | `reviewer/strongest-argument-against.md` | One decisive scientific objection |
 
 These sources answer a question about a route. They do not create another way
-to develop candidates, another selector, another set of research notes, or
+to develop candidates, another set of research notes, or
 another rule for completing Idea.

@@ -25,10 +25,9 @@ The Copilot MCP configuration exists only for the duration of that provider
 call, in a private temporary directory with a mode-0600 file. The CLI receives
 an `@file` path; the bearer capability is absent from argv and prompts. The MCP
 server receives only its bridge environment and the package import path.
-Call-scoped tools use the ordinary CLI path instead of a warm ACP process that
-cannot inherit the new capability. MCP cancellation forwards the same request
-identity to the Advisor service. Host-call cleanup closes the bridge, cancels
-remaining advice work, and removes the temporary configuration.
+MCP cancellation forwards the same request identity to the Advisor service.
+Host-call cleanup closes the bridge, cancels remaining advice work, and removes
+the temporary configuration.
 
 Validation covers the actual role gateway, admission options, generated Copilot
 argv, real stdio MCP discovery/calls, the loopback bridge, cancellation, and

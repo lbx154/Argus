@@ -115,7 +115,7 @@ conservative `forecast_window_start` for `forecast`.
 - `POST /api/ideation/runs` freezes the current profile plus venue/deadline/resource,
   optional source binding, preflight attestations and run target into a content-addressed
   condition snapshot and Objective, and may create an idle `conditioned_ideation`
-  Campaign. It never starts Argus. `source_snapshot_ref`/`source_snapshot_sha256` are
+  Campaign. It never starts Argus. `source_snapshot_ref`/`source_snapshot_key` are
   all-or-neither; SHA-256 is exactly 64 hex. Schema v2 hashes the ref in
   `source_context`, keeps raw ref out of the condition/training export, verifies content
   bytes at runtime or blocks, and requires a newly frozen snapshot when unbound.

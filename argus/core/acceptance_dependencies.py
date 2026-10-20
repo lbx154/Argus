@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import hashlib
 import json
 import re
 from pathlib import PurePosixPath
@@ -41,9 +40,8 @@ def mission_acceptance_contract(item: Any) -> dict[str, Any]:
 
 
 def contract_fingerprint(contract: dict[str, Any]) -> str:
-    return hashlib.sha256(json.dumps(
-        contract, ensure_ascii=False, sort_keys=True, separators=(",", ":"),
-    ).encode("utf-8")).hexdigest()
+    """The contract itself, canonically encoded: equal exactly when it is unchanged."""
+    return json.dumps(contract, ensure_ascii=False, sort_keys=True, separators=(",", ":"))
 
 
 def needs_dependency_assessment(contract: dict[str, Any]) -> bool:

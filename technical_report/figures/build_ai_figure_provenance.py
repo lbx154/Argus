@@ -12,9 +12,8 @@ files and (re)writes their public-safe provenance evidence:
   * ``<stem>.png.provenance.json`` -- public-safe per-figure provenance
   * ``IMAGE2_FIGURES.json``        -- six-entry image-2 manifest
 
-Every path recorded is repo-relative; every hash is computed from the committed
-bytes so the manifest, sidecars, and provenance are hash-consistent with the
-rasters. The two deterministic data figures (``public_results``,
+Every path recorded is repo-relative; every size is read from the committed
+files so the manifest, sidecars, and provenance agree with the rasters. The two deterministic data figures (``public_results``,
 ``paper_portfolio``) are handled by ``build_report_figures.py`` and are not
 touched here.
 
@@ -24,7 +23,6 @@ Usage::
 """
 from __future__ import annotations
 
-import hashlib
 import json
 import sys
 from pathlib import Path
@@ -49,10 +47,6 @@ FIGURE_STUDIO_SOURCE = "paper-framework-figure-studio-pro-v3.1.4a"
 FIGURE_STUDIO_STAGE = "S5-CANDIDATE-IMAGE"
 TOOL = "argus_skill.tools.image_tool"
 MANIFEST_PATH = _HERE / "IMAGE2_FIGURES.json"
-
-
-def _sha256_file(path: Path) -> str:
-    return hashlib.sha256(path.read_bytes()).hexdigest()
 
 
 def _rel(stem: str, suffix: str) -> str:
@@ -83,9 +77,8 @@ def build_one(stem: str, contract) -> dict:
     if not prompt_path.is_file():
         raise FileNotFoundError(f"missing prompt: {prompt_path}")
 
-    output_sha = _sha256_file(png_path)
-    prompt_sha = _sha256_file(prompt_path)
     prompt_text = prompt_path.read_text(encoding="utf-8")
+    prompt_bytes = prompt_path.stat().st_size
     width, height = _png_dimensions(png_path)
     n_bytes = png_path.stat().st_size
 
@@ -103,7 +96,6 @@ def build_one(stem: str, contract) -> dict:
         "height": height,
         "image": output_rel,
         "mime": "image/png",
-        "sha256": output_sha,
         "width": width,
     }
 
@@ -113,10 +105,10 @@ def build_one(stem: str, contract) -> dict:
         "image": image_block,
         "model": MODEL,
         "output_path": output_rel,
-        "output_sha256": output_sha,
+        "output_bytes": n_bytes,
         "prompt": prompt_text,
         "prompt_path": prompt_rel,
-        "prompt_sha256": prompt_sha,
+        "prompt_bytes": prompt_bytes,
         "requested_size": REQUESTED_SIZE,
         "sidecar": sidecar_rel,
     }
@@ -167,9 +159,9 @@ def build_one(stem: str, contract) -> dict:
         "figure_studio_source": FIGURE_STUDIO_SOURCE,
         "figure_studio_stage": FIGURE_STUDIO_STAGE,
         "prompt_path": prompt_rel,
-        "prompt_sha256": prompt_sha,
+        "prompt_bytes": prompt_bytes,
         "output_path": output_rel,
-        "output_sha256": output_sha,
+        "output_bytes": n_bytes,
         "sidecar_path": sidecar_rel,
         "inspect_path": inspect_rel,
         "ocr_path": ocr_json_rel,
@@ -177,7 +169,7 @@ def build_one(stem: str, contract) -> dict:
         "width": width,
         "height": height,
         "validation_route": (
-            "operator-accepted raster; provenance/hash/dimension/no-local-path "
+            "operator-accepted raster; provenance/size/dimension/no-local-path "
             "checks via technical_report/figures/validate_ai_figures.py; "
             "Tesseract OCR coverage recorded as evidence"
         ),
@@ -198,9 +190,9 @@ def build_one(stem: str, contract) -> dict:
         "width": width,
         "height": height,
         "output_path": output_rel,
-        "output_sha256": output_sha,
+        "output_bytes": n_bytes,
         "prompt_path": prompt_rel,
-        "prompt_sha256": prompt_sha,
+        "prompt_bytes": prompt_bytes,
         "sidecar_path": sidecar_rel,
         "inspect_path": inspect_rel,
         "ocr_path": ocr_json_rel,
@@ -218,8 +210,8 @@ def main() -> int:
         "description": (
             "Six structural report figures drawn by the gpt-image-2 image "
             "model and accepted by the operator for final integration. Each "
-            "entry is hash-consistent with the committed raster, prompt, and "
-            "public-safe provenance sidecar. No local/absolute paths or "
+            "entry records the byte sizes of the committed raster and prompt, "
+            "and its public-safe provenance sidecar. No local/absolute paths or "
             "secrets are recorded; the two deterministic data figures live in "
             "REPORT_FIGURES.json."
         ),
@@ -229,8 +221,8 @@ def main() -> int:
     }
     _write_json(MANIFEST_PATH, manifest)
     for e in entries:
-        print(f"{e['figure_id']:26s} png={e['output_sha256'][:12]}  "
-              f"prompt={e['prompt_sha256'][:12]}")
+        print(f"{e['figure_id']:26s} png={e['output_bytes']}B  "
+              f"prompt={e['prompt_bytes']}B")
     print(f"manifest -> {MANIFEST_PATH.name} ({len(entries)} figures)")
     return 0
 

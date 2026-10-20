@@ -25,7 +25,6 @@ use chrono::Utc;
 use rand::RngCore;
 use reqwest::{header::AUTHORIZATION, Client};
 use serde::Deserialize;
-use sha2::{Digest, Sha256};
 use std::{
     collections::VecDeque,
     env,
@@ -106,7 +105,7 @@ struct MetaAuthentication {
 #[derive(Deserialize)]
 struct MetaRuntime {
     package_version: Option<String>,
-    manifest_source_digest: Option<String>,
+    release_id: Option<String>,
     executable: Option<String>,
     pid: Option<u32>,
     started_at: Option<String>,
@@ -665,7 +664,7 @@ impl BackendSupervisor {
                     }),
                     pid: None,
                     executable: None,
-                    manifest_source_digest: None,
+                    release_id: None,
                     started_at: None,
                     launch_nonce: None,
                     failure_kind: Some(if timeout_failure {
@@ -684,7 +683,7 @@ impl BackendSupervisor {
                 detail: Some(format!("本地服务健康检查返回 HTTP {}", response.status())),
                 pid: None,
                 executable: None,
-                manifest_source_digest: None,
+                release_id: None,
                 started_at: None,
                 launch_nonce: None,
                 failure_kind: Some(ProbeFailureKind::Http),
@@ -708,7 +707,7 @@ impl BackendSupervisor {
                     detail: Some("端口上的服务返回了无法验证的后端身份数据".to_owned()),
                     pid: None,
                     executable: None,
-                    manifest_source_digest: None,
+                    release_id: None,
                     started_at: None,
                     launch_nonce: None,
                     failure_kind: Some(ProbeFailureKind::Identity),
@@ -734,7 +733,7 @@ impl BackendSupervisor {
             detail: None,
             pid: runtime.pid,
             executable: runtime.executable,
-            manifest_source_digest: runtime.manifest_source_digest,
+            release_id: runtime.release_id,
             started_at: runtime.started_at,
             launch_nonce: runtime.desktop_launch_nonce,
             failure_kind: None,
@@ -769,7 +768,7 @@ impl BackendSupervisor {
                 };
             }
             if let Err(detail) = self.inner.release.validate_backend_release(
-                package_version.as_deref(), probe.manifest_source_digest.as_deref(),
+                package_version.as_deref(), probe.release_id.as_deref(),
             ) {
                 return ProbeIdentity {
                     detail: Some(detail),
@@ -830,13 +829,6 @@ impl BackendSupervisor {
         })
     }
 
-    fn expected_manifest_digest(&self) -> String {
-        self.inner.release.manifest_digest()
-    }
-
-    fn token_sha256(settings: &DesktopSettings) -> String {
-        format!("{:x}", Sha256::digest(settings.token.as_bytes()))
-    }
 
     fn ownership_path(&self) -> PathBuf {
         self.inner
@@ -872,7 +864,6 @@ impl BackendSupervisor {
             return false;
         }
         let Some(ownership) = cached.or_else(|| self.read_ownership()) else { return false; };
-        let digest = self.expected_manifest_digest();
         let executable = if self.inner.release.development {
             probe.executable.clone().unwrap_or_default()
         } else {
@@ -885,8 +876,8 @@ impl BackendSupervisor {
                 host: settings.host.clone(),
                 port: settings.port,
                 executable,
-                manifest_source_digest: digest,
-                token_sha256: Self::token_sha256(settings),
+                release_id: self.inner.release.release_id(),
+                token: settings.token.clone(),
             },
         )
     }
@@ -901,7 +892,7 @@ impl BackendSupervisor {
             &ExpectedPriorBackendOwnership {
                 host: settings.host.clone(),
                 port: settings.port,
-                token_sha256: Self::token_sha256(settings),
+                token: settings.token.clone(),
             },
         )
     }
@@ -951,7 +942,7 @@ impl BackendSupervisor {
         settings: DesktopSettings,
         generation: u64,
     ) -> anyhow::Result<()> {
-        let manifest_source_digest = self.expected_manifest_digest();
+        let release_id = self.inner.release.release_id();
         self.ensure_special_prompts()?;
         let runtime_bin = self.ensure_runtime_command_shims(&command.command)?;
         let shell_command = shell_command_path(&command.command);
@@ -1101,7 +1092,7 @@ impl BackendSupervisor {
                     generation,
                     ExpectedBackendLaunch {
                         launch_nonce,
-                        manifest_source_digest,
+                        release_id,
                         spawned_at_ms,
                         now_ms: 0,
                     },
@@ -1379,18 +1370,17 @@ impl BackendSupervisor {
 
     fn write_ownership(&self, pid: u32, root_pid: u32, executable: &str, started_at: &str) -> anyhow::Result<()> {
         anyhow::ensure!(pid > 0 && root_pid > 0, "invalid backend process identity");
-        let manifest_source_digest = self.expected_manifest_digest();
         let settings = self.inner.settings.snapshot();
-        let token_sha256 = Self::token_sha256(&settings);
         let ownership = BackendOwnership {
-            schema: 3,
+            schema: 4,
             pid,
             root_pid,
             host: settings.host,
             port: settings.port,
             executable: normalized_path(Path::new(executable)),
-            manifest_source_digest,
-            token_sha256,
+            release_id: self.inner.release.release_id(),
+            token: settings.token.clone(),
+            token_sha256: String::new(),
             started_at: started_at.to_owned(),
         };
         crate::identity::save_ownership(&self.ownership_path(), &ownership)?;
@@ -1505,7 +1495,7 @@ fn identity_probe(
         detail: None,
         pid: None,
         executable: None,
-        manifest_source_digest: None,
+        release_id: None,
         started_at: None,
         launch_nonce: None,
         failure_kind: None,

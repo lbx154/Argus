@@ -5,9 +5,6 @@ import re
 import unicodedata
 from pathlib import Path, PurePosixPath
 
-from ..memory import JournalEntry
-from ._constants import PLANNER_RECENT_FAILURE_STATUS
-
 
 def _resolve_task_dep_ids(
     deps: list[str],
@@ -205,7 +202,7 @@ def _planner_task_signature(
 
     Title/objective-only dedup incorrectly suppresses a legitimate rerun after
     an upstream artifact changes. Stable context refs keep true duplicates
-    filtered while a changed content hash creates a new acceptance unit.
+    filtered while a changed file state creates a new acceptance unit.
     """
     refs = sorted(
         (
@@ -231,54 +228,3 @@ def _planner_task_signature(
         "stage_transition_skipped" if skip_stage_transition else "stage_transition_allowed",
         str(execution_workdir or "").strip(),
     )
-
-
-def _normalize_blocker_fingerprint(value: object) -> str:
-    """Normalize a Planner-authored blocker identity without using task prose."""
-    return " ".join(str(value or "").strip().lower().split())[:500]
-
-
-def _entry_task_signature(entry: JournalEntry) -> tuple[str, str] | None:
-    extra = getattr(entry, "extra", {}) or {}
-    signature = extra.get("planner_task_signature")
-    title = ""
-    objective = ""
-    if isinstance(signature, dict):
-        title = str(signature.get("title", "") or "")
-        objective = str(signature.get("objective", "") or "")
-    elif isinstance(signature, (list, tuple)) and len(signature) >= 2:
-        title = str(signature[0] or "")
-        objective = str(signature[1] or "")
-    else:
-        title = str(extra.get("title") or entry.title or "")
-        objective = str(extra.get("objective") or "")
-    normalized_title = _normalize_planner_text(title)
-    normalized_objective = _normalize_planner_text(objective)
-    if not normalized_title and not normalized_objective:
-        return None
-    return normalized_title, normalized_objective
-
-
-def _is_recent_no_progress_failure(entry: JournalEntry) -> bool:
-    if entry.kind != "mission_failed":
-        return False
-    extra = getattr(entry, "extra", {}) or {}
-    terminal_status = str(
-        extra.get("terminal_status")
-        or extra.get("status")
-        or extra.get("failure_status")
-        or ""
-    ).strip().casefold()
-    if terminal_status != PLANNER_RECENT_FAILURE_STATUS:
-        return False
-    # Quarantine is for a task signature that has proved unrecoverable. A
-    # mission recorded as resumable — a Reviewer answered the stall with
-    # ``continue``, or the stop kind was recoverable — has not: skipping it
-    # leaves the Planner with nothing to enqueue and the project idle against
-    # an unfinished goal. Both fields are read because the settlement event
-    # carries the flag at top level and inside the outcome dimensions.
-    outcome = extra.get("outcome")
-    outcome_resumable = (
-        outcome.get("resumable") if isinstance(outcome, dict) else False
-    )
-    return not bool(extra.get("resumable") or outcome_resumable)

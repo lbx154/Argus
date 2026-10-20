@@ -162,8 +162,8 @@ class LifeWorkerBootMixin:
 
         ``--backend`` is a CLI ARGUMENT. It lands in
         ``LifeWorkerConfig.backend`` and was never exported, so
-        ``core.knobs.resolve_role_backend`` — which the reviewer gate, the
-        subagent supervisor and the vault preflight all read — walked role env
+        ``core.knobs.resolve_role_backend`` — which the reviewer gate and the
+        vault preflight read — walked role env
         -> ``ARGUS_SKILL_RUNNER_BACKEND`` -> ``ARGUS_SKILL_LIFE_BACKEND`` ->
         persisted knob, found NOTHING (``/proc/<pid>/environ`` of a daemon
         launched with ``--backend copilot`` carries ``ARGUS_SKILL_HOME`` and no
@@ -275,15 +275,12 @@ class LifeWorkerBootMixin:
         )
         self._rf_record_role_backends(rf_state)
 
-    #: Roles whose backend the daemon resolves independently. Kept next to the
-    #: emit below rather than imported from core.role_config: that tuple is the
-    #: /roles DISPLAY set and omits the Curator, which the daemon does run.
+    #: Roles whose backend the daemon resolves independently.
     _BACKEND_PROVENANCE_ROLES: tuple[str, ...] = (
         "manager",
         "planner",
         "engineer",
         "reviewer",
-        "curator",
     )
 
     def _rf_record_role_backends(self, rf_state: _RunForeverState) -> None:
@@ -617,7 +614,6 @@ class LifeWorkerBootMixin:
                             target_enabled and rf_state.cfg.continuous_open_ended
                         ),
                         "domain": getattr(division, "domain", ""),
-                        "kind": getattr(division, "kind", ""),
                         "learned_vertical_status": getattr(
                             division,
                             "learned_vertical_status",

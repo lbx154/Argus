@@ -230,7 +230,8 @@ def create_app(settings: Settings, *, transport: httpx.AsyncBaseTransport | None
         # worker from refunding/recovering requests that are still executing.
         with portalocker.Lock(str(settings.state_dir / "gateway.lock"), timeout=0):
             vault = Vault(settings.key_file, settings.state_dir / "github-token.enc")
-            store = Store(settings.state_dir / "usage.sqlite3", token_limit=settings.token_limit)
+            store = Store(settings.state_dir / "usage.sqlite3", token_limit=settings.token_limit,
+                          master_key=settings.key_file)
             store.recover()
             async with httpx.AsyncClient(
                 transport=transport, timeout=settings.timeout, follow_redirects=False,

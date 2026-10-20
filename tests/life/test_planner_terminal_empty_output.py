@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import hashlib
 import json
 import time
 from pathlib import Path
@@ -29,6 +28,8 @@ from argus.life.supervisor._constants import (
 from argus.life.supervisor._core import LifeSupervisor
 from argus.manager import Manager
 from argus.planner import NO_CONCRETE_TASKS_ERROR, PlannerVerdict
+
+pytestmark = pytest.mark.usefixtures("targeted_vertical")
 
 
 @pytest.mark.parametrize("report_count", [1, 12])
@@ -81,6 +82,59 @@ def test_operator_behind_native_host_reports_reaches_planner_before_completion(
         supervisor._plan_next_work()
         assert prompts
         assert instruction in prompts[0]
+    finally:
+        receiver.release_pending()
+
+
+def test_held_lock_skips_one_inbox_read_alerts_once_and_loses_no_message(
+    tmp_path: Path, monkeypatch,
+) -> None:
+    import threading
+
+    from argus.apps._inbox import queue_inbox_message
+    from argus.apps._inbox_delivery import DurableInboxReceiver
+    from argus.core import file_lock
+    from argus.core.operator_context import IntakeDecision
+
+    supervisor, _backend, sink = _make_supervisor(tmp_path, monkeypatch, terminal_stage_done=False)
+    receiver = DurableInboxReceiver(
+        supervisor.memory.root, consumer="planner",
+        project_root=Path(supervisor.config.artifact_root),
+    )
+    callback = lambda: None
+    monkeypatch.setattr(callback, "operator_receiver", receiver, raising=False)
+    supervisor.config.user_inbox = callback
+    monkeypatch.setattr(
+        "argus.apps._inbox_delivery.classify_operator_message",
+        lambda *args, **kwargs: IntakeDecision(kind="ephemeral"),
+    )
+    monkeypatch.setattr(file_lock, "DEFAULT_FILE_LOCK_TIMEOUT_SECONDS", 0.2)
+    instruction = "Also report the p95 latency."
+    queue_inbox_message(supervisor.memory.root, instruction, source="operator")
+
+    holding, release = threading.Event(), threading.Event()
+
+    def hold() -> None:
+        with supervisor.memory.backlog._locked():
+            holding.set()
+            release.wait(30)
+
+    holder = threading.Thread(target=hold)
+    holder.start()
+    assert holding.wait(5)
+    try:
+        # Someone else holds the lock: planning goes on without the message.
+        started = time.monotonic()
+        assert supervisor._drain_user_inbox() == []
+        assert supervisor._drain_user_inbox() == []
+        assert time.monotonic() - started < 10
+    finally:
+        release.set()
+        holder.join()
+    alerts = [event for event in sink.events if event.get("operator_alert")]
+    assert [alert["reason"] for alert in alerts] == ["operator_inbox_unread"]
+    try:
+        assert supervisor._drain_user_inbox() == [instruction]
     finally:
         receiver.release_pending()
 
@@ -280,7 +334,7 @@ def _write_software_state(project: Path, *, done: bool) -> None:
     )
 
 
-def _write_reviewed_math_scope_state(project: Path) -> None:
+def _write_reviewed_scope_state(project: Path) -> None:
     research = project / "research"
     research.mkdir(parents=True, exist_ok=True)
     state_path = project / ".argus" / "PIPELINE_STATE.json"
@@ -288,11 +342,10 @@ def _write_reviewed_math_scope_state(project: Path) -> None:
     state_path.write_text(
         json.dumps(
             {
-                "vertical": "math",
+                "vertical": "targeted_lab",
                 "current_stage": "scope",
                 "research_target_level": "doctoral",
                 "workflow_mode": "staged",
-                "math_objective_mode": "exploratory",
             }
         ),
         encoding="utf-8",
@@ -368,53 +421,9 @@ def _make_supervisor(
     monkeypatch.setattr(supervisor, "_resolve_vertical_once", lambda: None)
     monkeypatch.setattr(supervisor, "_wiki_collect_task_if_due_under_blocker", lambda: None)
     monkeypatch.setattr(supervisor, "_render_journal_for_planner", lambda: "")
-    monkeypatch.setattr(supervisor, "_recent_no_progress_failures", lambda: {})
-    monkeypatch.setattr(supervisor, "_recent_subagent_family_failures", lambda: {})
     monkeypatch.setattr(supervisor, "_effective_final_certification_gate", lambda *_a, **_k: False)
-    monkeypatch.setattr(supervisor, "_planner_runtime_with_idle_note", lambda: "")
+    monkeypatch.setattr(supervisor, "_planner_runtime_notes", lambda: "")
     return supervisor, backend, sink
-
-
-def test_review_purchase_hook_releases_stage_blocker_before_deferring(
-    tmp_path: Path,
-    monkeypatch,
-) -> None:
-    from argus.core.vertical_contract import PlannerReviewPurchaseDecision, VerticalContract
-    from argus.life.supervisor._planning_cycle_helpers import _PlanCycleState
-    from argus.planner import PlannerVerdict, TaskSpec
-
-    supervisor, _backend, sink = _make_supervisor(
-        tmp_path,
-        monkeypatch,
-        terminal_stage_done=False,
-    )
-    monkeypatch.setenv("ARGUS_SKILL_FORCE_STAGE_CLOSING", "1")
-    monkeypatch.setattr(
-        VerticalContract, "planner_task_issues", lambda *_args: (),
-    )
-    monkeypatch.setattr(
-        VerticalContract, "review_purchase",
-        lambda self, **kwargs: PlannerReviewPurchaseDecision(
-            defer_reason="current review exists", release_stage_closing_blocker=True,
-        ),
-    )
-    monkeypatch.setattr(
-        supervisor,
-        "_stage_closing_reproposal_blocker",
-        lambda _task: (SimpleNamespace(), "needs repair", 1.0),
-    )
-    state = _PlanCycleState(None)
-    state.verdict = PlannerVerdict(
-        project_done=False,
-        reason="review already purchased",
-        new_tasks=[TaskSpec(title="Final paper review", objective="Review the paper.")],
-    )
-
-    supervisor._pc_build_dedupe_index(state)
-    supervisor._pc_build_pending_items(state)
-
-    assert state.pending_items == []
-    assert sink.events[-1]["skip_category"] == "paper_review_purchase_deferred"
 
 
 def test_bounded_completed_campaign_stops_before_planner_cycle(
@@ -499,21 +508,11 @@ def test_bounded_completion_waits_for_live_backlog(
     supervisor.config.open_ended = False
     item = supervisor.memory.backlog.add(
         BacklogItem.new(
-            title="Await external verification",
-            objective="Wait for the durable result before completing.",
+            title="Run the verification",
+            objective="Run the verification before completing.",
         )
     )
-    supervisor.memory.backlog.update(
-        item.id,
-        status="paused_external_work",
-        outcome={
-            "external_wait": {
-                "kind": "subagent",
-                "work_id": "verification-1",
-                "workdir": str(tmp_path),
-            }
-        },
-    )
+    supervisor.memory.backlog.mark_running(item.id)
 
     assert supervisor._bounded_completion_reason() == ""
 
@@ -522,7 +521,6 @@ def test_bounded_completion_waits_for_live_backlog(
     state = _PlanCycleState(None)
     state.verdict = PlannerVerdict(
         project_done=True,
-        waiting=False,
         new_tasks=[],
         reason="The visible artifact looks complete.",
     )
@@ -778,8 +776,8 @@ def test_direct_research_can_complete_its_bounded_deliverable(
     )
     objective = "Complete the reviewed direct research deliverable."
     handoff = {
-        "version": 3,
-        "objective_sha256": hashlib.sha256(objective.encode("utf-8")).hexdigest(),
+        "version": 4,
+        "objective": objective,
         "vertical": "research",
         "domain": "",
         "continuous_generation": 1,
@@ -805,10 +803,7 @@ def test_direct_research_can_complete_its_bounded_deliverable(
     )
     assert state["stages"]["idea"]["status"] == "done"
     assert state["stages"]["idea"]["completion_intent_id"] == "intent-current"
-    assert (
-        state["stages"]["idea"]["completion_objective_sha256"]
-        == handoff["objective_sha256"]
-    )
+    assert state["stages"]["idea"]["completion_objective"] == objective
     from argus.skills.vertical_select import vertical_completion_certificate_status
 
     assert vertical_completion_certificate_status(project, "research")["ok"] is True
@@ -1032,18 +1027,14 @@ def test_nonterminal_empty_plan_repair_exhaustion_asks_operator(
     tmp_path: Path,
     monkeypatch,
 ) -> None:
-    from argus.manager.directive import set_active_manager_directive
+    from argus.core.knob_store import write_persisted_knob
 
     supervisor, backend, sink = _make_supervisor(
         tmp_path,
         monkeypatch,
         terminal_stage_done=False,
     )
-    set_active_manager_directive(
-        supervisor.memory.root,
-        "questions are allowed",
-        operator_question_policy="allow",
-    )
+    write_persisted_knob("ARGUS_SKILL_OPERATOR_AVAILABLE", "1")
 
     assert supervisor._plan_next_work() == PLAN_AWAITING
 
@@ -1075,18 +1066,14 @@ def test_nonterminal_empty_plan_does_not_park_when_questions_are_forbidden(
     tmp_path: Path,
     monkeypatch,
 ) -> None:
-    from argus.manager.directive import set_active_manager_directive
+    from argus.core.knob_store import write_persisted_knob
 
     supervisor, backend, sink = _make_supervisor(
         tmp_path,
         monkeypatch,
         terminal_stage_done=False,
     )
-    set_active_manager_directive(
-        supervisor.memory.root,
-        "continue without questions",
-        operator_question_policy="forbid",
-    )
+    write_persisted_knob("ARGUS_SKILL_OPERATOR_AVAILABLE", "0")
 
     assert supervisor._plan_next_work() == PLAN_ERROR
 
@@ -1278,7 +1265,7 @@ def test_nonterminal_planning_replays_unassessed_current_stage_review_first(
     backend.manager_action = "advance"
     backend.manager_target_stage = "solve"
     project = Path(supervisor.config.project_worktree)
-    _write_reviewed_math_scope_state(project)
+    _write_reviewed_scope_state(project)
     assert _candidate_artifact_paths(project) == []
     item = supervisor.memory.backlog.add(
         BacklogItem.new(
@@ -1433,7 +1420,7 @@ def test_newer_replan_review_blocks_older_stage_replay(
         split_memory=True,
     )
     project = Path(supervisor.config.project_worktree)
-    _write_reviewed_math_scope_state(project)
+    _write_reviewed_scope_state(project)
     older = supervisor.memory.backlog.add(
         BacklogItem.new(
             title="Define the mathematical scope",
@@ -1517,18 +1504,9 @@ def test_newer_replan_review_blocks_older_stage_replay(
     assert state["current_stage"] == "scope"
 
 
-@pytest.mark.parametrize(("wait_kind", "retirement_failure"), [
-    ("none", False),
-    ("subagent", False),
-    ("subagent", True),
-    ("operator", False),
-    ("authorization", False),
-])
 def test_bounded_continuous_campaign_replays_deferred_stage_review(
     tmp_path: Path,
     monkeypatch,
-    wait_kind: str,
-    retirement_failure: bool,
 ) -> None:
     """A bounded staged campaign still traverses stages.
 
@@ -1549,7 +1527,7 @@ def test_bounded_continuous_campaign_replays_deferred_stage_review(
     backend.manager_action = "advance"
     backend.manager_target_stage = "solve"
     project = Path(supervisor.config.project_worktree)
-    _write_reviewed_math_scope_state(project)
+    _write_reviewed_scope_state(project)
     item = supervisor.memory.backlog.add(
         BacklogItem.new(
             title="Define the mathematical scope",
@@ -1586,28 +1564,6 @@ def test_bounded_continuous_campaign_replays_deferred_stage_review(
             "resumable": False,
         },
     )
-    if wait_kind != "none":
-        from argus.planner import WaitingContract
-
-        wake_on = ("authorization",) if wait_kind == "authorization" else ("subagent_state",)
-        supervisor._persist_planner_waiting_contract(WaitingContract(
-            blocker_fingerprint="completed-verification-job",
-            recheck_condition="Wait for the independent verification review.",
-            recheck_token=item.id,
-            wait_mode="event",
-            wake_on=wake_on,
-            observed_revision=supervisor._planner_waiting_observed_revision(
-                wake_on=("authorization",) if wait_kind == "operator" else wake_on,
-                watched_paths=(),
-            ),
-            operator_action_required=wait_kind == "operator",
-        ))
-        waiting = supervisor._load_planner_waiting_contract_state()
-        assert waiting["wait_mode"] == "event"
-        assert waiting["wake_on"] == (
-            ["subagent_state"] if wait_kind == "subagent" else ["authorization"]
-        )
-
     assert supervisor._plan_next_work() == PLAN_RETRY
 
     state = json.loads((project / ".argus" / "PIPELINE_STATE.json").read_text(encoding="utf-8"))
@@ -1621,33 +1577,6 @@ def test_bounded_continuous_campaign_replays_deferred_stage_review(
         and event.get("recovered_item_id") == item.id
         for event in sink.events
     )
-    if wait_kind != "none":
-        waiting = supervisor._load_planner_waiting_contract_state()
-        assert waiting is not None
-        assert waiting["blocker_fingerprint"] == "completed-verification-job"
-        assert waiting["active"] is True
-        assert waiting["idle_capacity_turn_used"] is True
-    if wait_kind == "subagent":
-        assert backend.planner_calls == 0
-        if retirement_failure:
-            with monkeypatch.context() as failed_storage:
-                failed_storage.setattr(
-                    supervisor, "_write_planner_waiting_contract_state", lambda _state: False,
-                )
-                assert supervisor._plan_next_work() == PLAN_ERROR
-            assert supervisor._load_planner_waiting_contract_state()["active"] is True
-            assert backend.planner_calls == 0
-            assert any(
-                event.get("error") == "failed to persist event-wait wake"
-                for event in sink.events
-            )
-        supervisor._plan_next_work()
-        assert backend.planner_calls > 0
-        assert supervisor._load_planner_waiting_contract_state()["active"] is False
-        assert backend.manager_calls == 1
-    elif wait_kind != "none":
-        assert supervisor._plan_next_work() == PLAN_AWAITING
-        assert backend.planner_calls == 0
 
 
 def test_deterministic_stage_gate_hold_is_not_re_adjudicated_next_cycle(
@@ -1665,7 +1594,7 @@ def test_deterministic_stage_gate_hold_is_not_re_adjudicated_next_cycle(
         split_memory=True,
     )
     project = Path(supervisor.config.project_worktree)
-    _write_reviewed_math_scope_state(project)
+    _write_reviewed_scope_state(project)
     monkeypatch.setattr(
         "argus.core.vertical_contract.VerticalContract.completion_issues",
         lambda *_args, **_kwargs: ("scope evidence is incomplete",),
@@ -1706,21 +1635,7 @@ def test_deterministic_stage_gate_hold_is_not_re_adjudicated_next_cycle(
             "resumable": False,
         },
     )
-    from argus.planner import WaitingContract
-
-    supervisor._persist_planner_waiting_contract(WaitingContract(
-        blocker_fingerprint="verification-job",
-        recheck_condition="Wait for independently accepted verification.",
-        recheck_token=item.id,
-        wait_mode="event",
-        wake_on=("subagent_state",),
-        observed_revision=supervisor._planner_waiting_observed_revision(
-            wake_on=("subagent_state",), watched_paths=(),
-        ),
-    ))
-
     assert supervisor._reconcile_reviewed_stage_empty_plan(None) == ""
-    assert supervisor._load_planner_waiting_contract_state()["active"] is True
     stored = next(row for row in supervisor.memory.backlog.all() if row.id == item.id)
     assert stored.outcome["stage_certification"] == "not_certified"
     assert backend.manager_calls == 1
@@ -1745,7 +1660,7 @@ def test_review_only_item_is_never_replayed_into_stage_writer(
         split_memory=True,
     )
     project = Path(supervisor.config.project_worktree)
-    _write_reviewed_math_scope_state(project)
+    _write_reviewed_scope_state(project)
     item = supervisor.memory.backlog.add(
         BacklogItem.new(
             title="Review bounded candidate",
@@ -1808,7 +1723,7 @@ def test_replay_reads_only_the_latest_run_of_a_requeued_mission(
         split_memory=True,
     )
     project = Path(supervisor.config.project_worktree)
-    _write_reviewed_math_scope_state(project)
+    _write_reviewed_scope_state(project)
     item = supervisor.memory.backlog.add(
         BacklogItem.new(
             title="Define the mathematical scope",

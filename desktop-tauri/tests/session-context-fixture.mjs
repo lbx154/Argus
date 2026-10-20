@@ -14,7 +14,7 @@ export function deferred() {
 }
 
 /** Deterministic HTTP replacement, NOT an Argus/provider process. Even a GET
- * snapshot?prewarm=true only reads these synthetic objects. No CLI discovery,
+ * snapshot only reads these synthetic objects. No CLI discovery,
  * real settings, outbound calls, source updates, daemon or task starts exist. */
 export async function startSessionFixture(options = {}) {
   const checkout = resolve(import.meta.dirname, '../..');
@@ -93,7 +93,7 @@ export async function startSessionFixture(options = {}) {
         authentication: { required: true, authenticated: true },
         runtime: { package_version: manifest.package_version, source_root: checkout, configured_source_root: checkout, source_root_matches_config: true,
           revision: 'synthetic-fixture', pid: process.pid, python_version: 'not-used', executable: 'deterministic-node-fixture', started_at: '2026-09-17T00:00:00Z',
-          release_id: manifest.release_id, manifest_source_digest: manifest.source_digest, runtime_source_digest: null, release_matches_source: null },
+          release_id: manifest.release_id, manifest_source_digest: null, runtime_source_digest: null, release_matches_source: null },
       });
       if (method === 'GET' && options.read) {
         const extra = await options.read({ url, state, root });

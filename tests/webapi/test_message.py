@@ -535,21 +535,16 @@ def test_explicit_authorization_persists_current_blocker_and_never_dispatches(
     validator = workdir / "tests" / "test_terminal_contract.py"
     validator.parent.mkdir()
     validator.write_text("def test_contract(): pass\n", encoding="utf-8")
-    store.clear_wait_for_new_evidence(
+    store.commit_revision(
         identity=identity,
-        terminal_evidence=[{
-            "failure_source": "validator_defect",
-            "validator_id": "terminal-contract",
-            "repair_paths": ["tests/test_terminal_contract.py"],
-        }],
+        updates={
+            "terminal_evidence": [{
+                "failure_source": "validator_defect",
+                "validator_id": "terminal-contract",
+                "repair_paths": ["tests/test_terminal_contract.py"],
+            }],
+        },
         reason="Reviewer diagnosed validator defect",
-    )
-    store.activate_wait(
-        identity=identity,
-        wait_id="wait-1",
-        blocker_fingerprint="validator:terminal-contract",
-        recheck_token="validator-v1",
-        watched_paths=["research/RESULT.json"],
     )
     manager_state._STATES.clear()
 
@@ -595,7 +590,7 @@ def test_explicit_authorization_persists_current_blocker_and_never_dispatches(
     assert LifeMemory.open(life).backlog.all() == []
 
 
-def test_validator_authorization_allows_exact_repair_under_watched_parent(
+def test_validator_authorization_allows_exact_repair_only(
     tmp_path: Path, monkeypatch,
 ) -> None:
     sid = "s-authorization-parent"
@@ -614,21 +609,16 @@ def test_validator_authorization_allows_exact_repair_under_watched_parent(
     )
     store = CampaignControlStore(life, project_root=workdir)
     identity = store.campaign_identity()
-    store.clear_wait_for_new_evidence(
+    store.commit_revision(
         identity=identity,
-        terminal_evidence=[{
-            "failure_source": "validator_defect",
-            "validator_id": "terminal-contract",
-            "repair_paths": ["tests/test_terminal_contract.py"],
-        }],
+        updates={
+            "terminal_evidence": [{
+                "failure_source": "validator_defect",
+                "validator_id": "terminal-contract",
+                "repair_paths": ["tests/test_terminal_contract.py"],
+            }],
+        },
         reason="Reviewer diagnosed validator defect",
-    )
-    store.activate_wait(
-        identity=identity,
-        wait_id="wait-parent",
-        blocker_fingerprint="validator:terminal-contract",
-        recheck_token="validator-v1",
-        watched_paths=["tests"],
     )
     manager_state._STATES.clear()
 
@@ -652,7 +642,6 @@ def test_validator_authorization_allows_exact_repair_under_watched_parent(
     assert result["control"] == "authorization"
     event = store.get_authorization(result["authorization_id"])
     assert event is not None
-    assert event["frozen_evidence"] == []
     assert event["allowed_write_paths"] == ["tests/test_terminal_contract.py"]
 
 
@@ -676,7 +665,7 @@ def test_authorization_without_current_blocker_fails_closed(
     )
 
     assert result["control"] == "authorization_rejected"
-    assert "no current Manager-bound blocker" in result["reply"]
+    assert "no current Reviewer finding" in result["reply"]
     assert LifeMemory.open(life).backlog.all() == []
 
 
@@ -714,20 +703,14 @@ def test_repeated_greeting_calls_frontdoor_every_time_without_cache(
     assert classify_calls == 2
 
 
-@pytest.mark.parametrize("rotation", [False, True])
-def test_greeting_defers_handoff_until_a_substantive_turn(tmp_path, monkeypatch, rotation):
+def test_greeting_defers_handoff_until_a_substantive_turn(tmp_path, monkeypatch):
     sid = "s-greeting-handoff"
     life = _make_project(tmp_path, sid)
     manager_state._STATES.clear()
     append_turn(life, "operator", "Explain the binary search invariant.")
     append_turn(life, "argus", "The target remains in the search interval.")
     state = manager_state._chat_state_for(sid)
-    if rotation:
-        state["turns"] = 100
-        monkeypatch.setattr(manager_dispatch, "_rotate_after", lambda: 100)
-        state.pop("needs_startup_handoff", None)
-    else:
-        state["needs_startup_handoff"] = True
+    state["needs_startup_handoff"] = True
 
     def classify(mem, text, chat_state, **kwargs):
         if text == "你好":
@@ -1129,17 +1112,13 @@ def test_cancel_during_handoff_stops_before_backlog_commit(
         lambda *args, **kwargs: (None, None, "complex"),
     )
     monkeypatch.setattr(front_door, "manager_triage", lambda *args, **kwargs: None)
-    monkeypatch.setattr(
-        dispatch,
-        "maybe_promote_to_continuous",
-        lambda *args, **kwargs: False,
-    )
 
-    def handoff(mem, body, state, persist, **kwargs):
+    def handoff(mem, body, state, *, persist, **kwargs):
         cancelled.set()
-        return persist("safe task", None)
+        persist("safe task", None)
+        return "safe task"
 
-    monkeypatch.setattr(front_door, "manager_bounded_handoff", handoff)
+    monkeypatch.setattr(front_door, "manager_continuous_handoff", handoff)
 
     result = manager_bridge.manager_message(
         sid,
@@ -1164,7 +1143,6 @@ def test_manager_steer_persists_high_priority_live_directive(
             "根据来源证据安排下一节点。"
         )
         chat_state["_frontdoor_lifetime"] = "standing"
-        chat_state["_frontdoor_operator_question_policy"] = "forbid"
         return None, "steer", "simple"
 
     monkeypatch.setattr(config_intent, "_front_door_classify", classify)
@@ -1201,7 +1179,6 @@ def test_manager_steer_persists_high_priority_live_directive(
     assert active is not None
     assert "检索最接近的前人研究" in active.text
     assert "发明新的数学工具" not in active.text
-    assert active.operator_question_policy == "forbid"
     from argus.daemon.state import read_continuous_state
 
     continuous = read_continuous_state(life)
@@ -1351,16 +1328,11 @@ def test_active_mission_team_message_uses_continuous_dispatch(
     monkeypatch.setattr(config_intent, "_front_door_classify", classify)
     monkeypatch.setattr(front_door, "manager_triage", lambda *args, **kwargs: None)
 
-    def promote(mem, body, chat_state, **kwargs):
-        seen["promoted"] = body
-        chat_state.setdefault("config", {})["continuous"] = True
-        return True
-
     def enqueue(mem, body, chat_state, **kwargs):
         seen["enqueued"] = body
+        chat_state.setdefault("config", {})["continuous"] = True
         return None, True, 123
 
-    monkeypatch.setattr(dispatch, "maybe_promote_to_continuous", promote)
     monkeypatch.setattr(dispatch, "enqueue_mission", enqueue)
 
     result = manager_bridge.manager_message(
@@ -1372,9 +1344,8 @@ def test_active_mission_team_message_uses_continuous_dispatch(
     assert result["kind"] == "task"
     assert result["continuous"] is True
     assert seen["classify"] == 1
-    assert "last_team_task: finish current work" in seen["promoted"]
-    assert "[CURRENT OPERATOR MESSAGE]\n你怎么不动了？" in seen["promoted"]
-    assert seen["enqueued"] == seen["promoted"]
+    assert "last_team_task: finish current work" in seen["enqueued"]
+    assert "[CURRENT OPERATOR MESSAGE]\n你怎么不动了？" in seen["enqueued"]
     assert len(memory.backlog.all()) == 1
 
 
@@ -1397,20 +1368,11 @@ def test_mission_claimed_during_classification_still_uses_continuous_dispatch(
     monkeypatch.setattr(config_intent, "_front_door_classify", classify)
     monkeypatch.setattr(front_door, "manager_triage", lambda *a, **k: None)
 
-    def promote(mem, body, chat_state, **kwargs):
+    def enqueue(mem, body, chat_state, **kwargs):
         chat_state.setdefault("config", {})["continuous"] = True
-        return True
+        return None, True, 456
 
-    monkeypatch.setattr(
-        dispatch,
-        "maybe_promote_to_continuous",
-        promote,
-    )
-    monkeypatch.setattr(
-        dispatch,
-        "enqueue_mission",
-        lambda *a, **k: (None, True, 456),
-    )
+    monkeypatch.setattr(dispatch, "enqueue_mission", enqueue)
 
     result = manager_bridge.manager_message(
         sid,
@@ -1547,17 +1509,11 @@ def test_team_message_validates_lifecycle_before_workflow_and_enqueue(
     )
     monkeypatch.setattr(front_door, "manager_triage", lambda *args, **kwargs: None)
 
-    def promote(mem, body, chat_state, **kwargs):
-        assert seen["order"] == ["lifecycle"]
-        seen["order"].append("promote")
-        seen["promoted_body"] = body
-        seen["root_task_id"] = kwargs.get("root_task_id")
-        chat_state.setdefault("config", {})["continuous"] = True
-        return True
-
     def enqueue(mem, body, chat_state, **kwargs):
-        assert seen["order"] == ["lifecycle", "promote"]
+        assert seen["order"] == ["lifecycle"]
         seen["order"].append("enqueue")
+        seen["enqueued_body"] = body
+        seen["root_task_id"] = kwargs.get("root_task_id")
         seen["continuous_at_enqueue"] = chat_state["config"]["continuous"]
         return None, False, None
 
@@ -1566,7 +1522,6 @@ def test_team_message_validates_lifecycle_before_workflow_and_enqueue(
         seen["resumed"] = True
         return False
 
-    monkeypatch.setattr(dispatch, "maybe_promote_to_continuous", promote)
     monkeypatch.setattr(dispatch, "resume_done_lifecycle_for_team_dispatch", resume)
     monkeypatch.setattr(dispatch, "enqueue_mission", enqueue)
 
@@ -1576,17 +1531,17 @@ def test_team_message_validates_lifecycle_before_workflow_and_enqueue(
         global_root=tmp_path,
     )
 
-    assert seen["promoted_body"] == "keep researching this conjecture"
+    assert seen["enqueued_body"] == "keep researching this conjecture"
     assert seen["root_task_id"]
     assert seen["resumed"] is True
     assert seen["continuous_at_enqueue"] is True
-    assert seen["order"] == ["lifecycle", "promote", "enqueue"]
+    assert seen["order"] == ["lifecycle", "enqueue"]
     assert result["kind"] == "task"
     assert result["item"] is None
     assert result["continuous"] is True
 
 
-def test_finite_staged_paper_request_does_not_enter_bounded_dag(
+def test_finite_staged_paper_request_runs_as_a_finite_campaign(
     tmp_path: Path,
     monkeypatch,
 ) -> None:
@@ -1633,13 +1588,6 @@ def test_finite_staged_paper_request_does_not_enter_bounded_dag(
         "_ensure_manager_runner",
         lambda *_args, **_kwargs: SimpleNamespace(manager=_StagedResearchManager()),
     )
-    monkeypatch.setattr(
-        dispatch,
-        "_plan_bounded_execution",
-        lambda *args, **kwargs: (_ for _ in ()).throw(
-            AssertionError("staged paper must not be collapsed into a bounded DAG")
-        ),
-    )
 
     objective = "给我写个论文 iclr的 我要投稿"
     result = manager_bridge.manager_message(sid, objective, global_root=tmp_path)
@@ -1655,12 +1603,14 @@ def test_finite_staged_paper_request_does_not_enter_bounded_dag(
     assert "operator_priority" in queued[0].tags
     continuous = json.loads((life / "continuous.json").read_text(encoding="utf-8"))
     assert continuous["enabled"] is True
+    assert continuous["open_ended"] is False
     assert continuous["objective"] == objective
 
 
-def test_manager_decided_math_vertical_web_enqueue_enters_backlog(
+def test_manager_decided_targeted_vertical_web_enqueue_enters_backlog(
     tmp_path: Path,
     monkeypatch,
+    targeted_vertical,
 ) -> None:
     sid = "s-explicit-math"
     life = _make_project(tmp_path, sid)
@@ -1679,7 +1629,7 @@ def test_manager_decided_math_vertical_web_enqueue_enters_backlog(
         "decide_vertical",
         lambda task, **kwargs: VerticalDecision(
             choice="existing",
-            vertical="math",
+            vertical=targeted_vertical,
             workflow_mode="direct",
             execution_task=task,
             research_target_level="exploratory",
@@ -1692,44 +1642,10 @@ def test_manager_decided_math_vertical_web_enqueue_enters_backlog(
     )
     monkeypatch.setattr(front_door, "manager_triage", lambda *args, **kwargs: None)
 
-    class _PlannerBackend:
-        def run_exec(self, **_kwargs):
-            return SimpleNamespace(
-                exit_code=0,
-                fatal_error=None,
-                agent_messages=[
-                    "\n".join([
-                        "PLAN_REASON=one bounded proof task",
-                        "TASK_KEY=proof",
-                        "TASK_DEPS=",
-                        "TASK_TITLE=Prove the bounded integer lemma",
-                        f"TASK_OBJECTIVE={objective}",
-                        "TASK_HYPOTHESIS=The stated proof route can close the lemma.",
-                        "TASK_GOAL_CONTRIBUTION=Produce the bounded proof the user requested.",
-                        "TASK_EXPECTED_REGRESSIONS=Intermediate obligations may temporarily reopen.",
-                        "TASK_DECISION_RULE=Replan if a counterexample refutes the proof route.",
-                        "TASK_SCOPE=bounded",
-                        "TASK_STAGE_CLOSING=false",
-                        "TASK_REQUIRE_INDEPENDENT_REVIEW=false",
-                        "TASK_SKIP_STAGE_TRANSITION=false",
-                        "TASK_OPERATOR_APPROVAL_REQUIRED=false",
-                        "TASK_ALLOW_SKILL_CHANGES=false",
-                    ])
-                ],
-            )
-
     monkeypatch.setattr(
         front_door,
         "_ensure_manager_runner",
-        lambda chat_state, mem: SimpleNamespace(
-            manager=manager,
-            planner_backend=_PlannerBackend(),
-        ),
-    )
-    monkeypatch.setattr(
-        dispatch,
-        "maybe_promote_to_continuous",
-        lambda *args, **kwargs: False,
+        lambda chat_state, mem: SimpleNamespace(manager=manager),
     )
     monkeypatch.setattr(
         daemon_lifecycle,
@@ -1753,7 +1669,7 @@ def test_manager_decided_math_vertical_web_enqueue_enters_backlog(
     state = json.loads(
         (life / ".argus" / "PIPELINE_STATE.json").read_text(encoding="utf-8")
     )
-    assert state["vertical"] == "math"
+    assert state["vertical"] == targeted_vertical
     assert state["research_target_level"] == "exploratory"
 
 
@@ -2004,8 +1920,11 @@ def test_unclassified_message_stays_in_conversation_without_research_directive(
     monkeypatch.setattr(front_door, "manager_triage", interpret)
     result = manager_bridge.manager_message("s-msgtest0", question, global_root=tmp_path)
 
-    assert result["kind"] == "pending_question"
-    assert result.get("error") and result["answer_preserved"] is False
+    # A failed interpretation no longer consumes the turn: it continues to the
+    # ordinary front door (which here fails the same way) instead of holding
+    # the control channel, and nothing is promoted to an answer.
+    assert result["kind"] != "pending_question"
+    assert "answered_item_id" not in result
     assert not (life / "operator_context.jsonl").exists()
     assert not (life / "inbox.jsonl").exists()
     rows = LifeMemory.open(life).backlog.all()
@@ -2650,7 +2569,6 @@ def test_web_daemon_config_uses_resolved_role_models_and_efforts(
     monkeypatch.setenv("ARGUS_SKILL_REVIEWER_MODEL", "reviewer-model")
     monkeypatch.setenv("ARGUS_SKILL_ENGINEER_REASONING_EFFORT", "high")
     monkeypatch.setenv("ARGUS_SKILL_REVIEWER_REASONING_EFFORT", "xhigh")
-    monkeypatch.setenv("ARGUS_SKILL_PLANNER_TASK_ITERATION_MAX_CYCLES", "9")
     life_dir = tmp_path / "life"
     life_dir.mkdir()
     write_session_meta(
@@ -2663,7 +2581,6 @@ def test_web_daemon_config_uses_resolved_role_models_and_efforts(
     assert cfg.reviewer_model == "reviewer-model"
     assert cfg.engineer_reasoning_effort == "high"
     assert cfg.reviewer_reasoning_effort == "xhigh"
-    assert cfg.planner_task_iteration_max_cycles == 9
 
 
 def test_web_daemon_config_uses_persisted_session_workdir(tmp_path: Path) -> None:

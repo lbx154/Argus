@@ -1,6 +1,6 @@
 """Offline validation of an Argus dataset ZIP; never runs tools or training.
 
-The report establishes file integrity, training format, source correspondence,
+The report establishes file sizes, training format, source correspondence,
 and review-evidence consistency. It does not prove scientific conclusions,
 mathematical correctness, performance claims, licensing, or genuine human review.
 Error reports contain locations and fixed codes, never sample text or arguments.
@@ -8,7 +8,6 @@ Error reports contain locations and fixed codes, never sample text or arguments.
 from __future__ import annotations
 
 import argparse
-import hashlib
 import io
 import json
 import math
@@ -31,12 +30,13 @@ from .training_schema import pi_execution_arguments, pi_schema_equal, pi_strict_
 
 MAX_PACKAGE_BYTES = 64 * 1024 * 1024
 MAX_EVIDENCE_BYTES = 32 * 1024 * 1024
-SHA256 = re.compile(r"[0-9a-f]{64}\Z")
 NAME = re.compile(r"[A-Za-z0-9_-]{1,64}\Z")
 FILES = frozenset({"manifest.json", "quality_report.json", "README.txt", "trajectories.jsonl",
                    "provenance.jsonl", "samples.jsonl", "hf_trl_train.jsonl", "hf_trl_validation.jsonl",
                    "sft_train.jsonl", "sft_validation.jsonl"})
 REVIEWERS = {"unspecified", "human_operator", "automated_acceptance"}
+# Must equal training_data.SAMPLE_FORMAT; the validator stays importable on its own.
+SAMPLE_FORMAT = "argus-sft-sample-v1"
 
 
 class InvalidPackage(ValueError):
@@ -54,16 +54,13 @@ def _canonical(value):
     return json.dumps(value, ensure_ascii=True, allow_nan=False, sort_keys=True, separators=(",", ":"))
 
 
-def _hash(value):
-    return hashlib.sha256(value).hexdigest()
+def _is_size(value):
+    return type(value) is int and value > 0
 
 
-def _digest(value):
-    return _hash(_canonical(value).encode())
-
-
-def _is_hash(value):
-    return isinstance(value, str) and SHA256.fullmatch(value) is not None
+def _is_key(value):
+    """An identity as Argus writes it: the canonical JSON of its parts."""
+    return isinstance(value, str) and 0 < len(value) <= 1024
 
 
 def _json(raw, location):
@@ -312,8 +309,8 @@ def _tool_source(metadata, sample, calls, results, source, origin, location, exp
              "source_session_mismatch", location)
     episode_id = origin.get("episode_id")
     _require(type(episode_id) is int and episode_id > 0, "missing_source_episode_id", location)
-    _require(metadata["event_id"] == _digest(["pi_episode", metadata["tenant_id"], metadata["sid"], episode_id]),
-             "episode_identity_hash_mismatch", location)
+    _require(metadata["event_id"] == _canonical(["pi_episode", metadata["tenant_id"], metadata["sid"], episode_id]),
+             "episode_identity_mismatch", location)
     events = source.get("events")
     _require(isinstance(events, list) and bool(events), "missing_episode_events", location)
     _require(metadata.get("event_ids") == [event.get("id") for event in events if isinstance(event, dict)],
@@ -327,8 +324,8 @@ def _tool_source(metadata, sample, calls, results, source, origin, location, exp
     schema_by_name = {}
     for index, event in enumerate(events):
         spot = f"{location}/source/{index}"
-        _require(isinstance(event, dict) and event.get("id") == _digest(["pi_capture", episode_id, index])
-                 and event.get("sequence") == index, "source_event_hash_or_sequence_mismatch", spot)
+        _require(isinstance(event, dict) and event.get("id") == _canonical(["pi_capture", episode_id, index])
+                 and event.get("sequence") == index, "source_event_identity_or_sequence_mismatch", spot)
         observed = event.get("observed_at")
         _require(type(observed) in (float, int) and grant <= observed <= exported_at, "source_precedes_authorization_or_follows_export", spot)
         kind, payload = event.get("kind"), event.get("payload")
@@ -435,12 +432,9 @@ def _tool_source(metadata, sample, calls, results, source, origin, location, exp
                  and isinstance(runtime_metadata.get("call_id"), str) and bool(runtime_metadata["call_id"]),
                  "missing_runtime_call_attribution", location)
         _require(metadata.get("task_id") == runtime_metadata.get("mission_id"), "task_attribution_mismatch", location)
-        hashes = runtime_metadata.get("source_sha256")
-        _require(isinstance(hashes, dict) and bool(hashes) and all(_is_hash(value) for value in hashes.values())
-                 and _is_hash(runtime_metadata.get("launch_sha256")), "missing_runtime_source_hashes", location)
 
 
-def _validate(files, evidence_by_hash):
+def _validate(files, evidence_sizes):
     manifest = _json(files["manifest.json"], "manifest.json")
     quality = _json(files["quality_report.json"], "quality_report.json")
     _require(isinstance(manifest, dict) and manifest.get("format_version") == "argus-training-package-v1",
@@ -453,8 +447,7 @@ def _validate(files, evidence_by_hash):
         if name == "manifest.json":
             continue
         entry = listed[name]
-        _require(isinstance(entry, dict) and entry.get("sha256") == _hash(data) and entry.get("bytes") == len(data),
-                 "manifest_hash_or_size_mismatch", name)
+        _require(isinstance(entry, dict) and entry.get("bytes") == len(data), "manifest_size_mismatch", name)
     _require(isinstance(quality, dict), "invalid_quality_report", "quality_report.json")
     tables = {name: _rows(data, name) for name, data in files.items() if name.endswith(".jsonl")}
     metadata, origins, trajectories = tables["samples.jsonl"], tables["provenance.jsonl"], tables["trajectories.jsonl"]
@@ -465,7 +458,7 @@ def _validate(files, evidence_by_hash):
                                      (metadata, samples_by_id, "event_id", "samples.jsonl")):
         for offset, row in enumerate(rows, 1):
             key = row.get(field)
-            _require(_is_hash(key) and key not in index, "missing_or_duplicate_source_identity", f"{name}:{offset}")
+            _require(_is_key(key) and key not in index, "missing_or_duplicate_source_identity", f"{name}:{offset}")
             index[key] = row
     _require(all(row.get("disposition") in {"diagnostic", "quarantined"} for row in origins),
              "invalid_provenance_disposition", "provenance.jsonl")
@@ -475,18 +468,16 @@ def _validate(files, evidence_by_hash):
     reviewer = review.get("reviewer_kind", "unspecified")
     _require(reviewer in REVIEWERS and manifest.get("reviewer_kind") == reviewer
              and manifest.get("human_reviewed") is (reviewer == "human_operator"), "reviewer_attribution_mismatch", "manifest.json")
-    evidence_hash = review.get("evidence_sha256")
-    _require(manifest.get("evidence_sha256") == evidence_hash and (evidence_hash is None or _is_hash(evidence_hash)),
-             "review_evidence_hash_mismatch", "manifest.json")
-    evidence_verified = False
+    evidence = review.get("evidence_bytes")
+    _require(manifest.get("evidence_bytes") == evidence and (evidence is None or _is_size(evidence)),
+             "review_evidence_size_mismatch", "manifest.json")
     if reviewer == "automated_acceptance":
-        _require(_is_hash(evidence_hash), "automated_review_evidence_missing", "quality_report.json")
-        _require(bool(evidence_by_hash), "automated_review_evidence_file_required", "evidence")
-        _require(evidence_hash in evidence_by_hash, "evidence_file_hash_mismatch", "evidence")
-    if evidence_hash in evidence_by_hash:
-        evidence_verified = True
+        _require(_is_size(evidence), "automated_review_evidence_missing", "quality_report.json")
+        _require(bool(evidence_sizes), "automated_review_evidence_file_required", "evidence")
+        _require(evidence in evidence_sizes, "evidence_file_size_mismatch", "evidence")
+    evidence_verified = evidence in evidence_sizes
     approved = review.get("approved_event_ids", [])
-    _require(isinstance(approved, list) and all(_is_hash(key) and key in samples_by_id for key in approved),
+    _require(isinstance(approved, list) and all(_is_key(key) and key in samples_by_id for key in approved),
              "invalid_reviewed_event_selection", "quality_report.json")
     purpose = manifest.get("purpose")
     _require(purpose in {"internal_training", "external_sharing"}, "invalid_training_purpose", "manifest.json")
@@ -499,27 +490,25 @@ def _validate(files, evidence_by_hash):
                        events=len(trajectories), candidates=len(metadata),
                        quarantined=sum(row.get("disposition") == "quarantined" for row in origins),
                        duplicates=sum(bool(row.get("duplicate_of")) for row in metadata))
-    accepted_ids, split_by_tenant, split_by_prompt = set(), {}, {}
+    accepted_contents, split_by_tenant, split_by_prompt = set(), {}, {}
     reviewed_tool_samples, automated_sample_evidence_verified = 0, 0
     for index, row in enumerate(metadata, 1):
         spot = f"samples.jsonl:{index}"
-        _require(type(row.get("quality_approved")) is bool and _is_hash(row.get("sample_id"))
-                 and _is_hash(row.get("split_group")) and row.get("split") in {"train", "validation"},
+        _require(type(row.get("quality_approved")) is bool
+                 and _is_key(row.get("split_group")) and row.get("split") in {"train", "validation"},
                  "invalid_sample_metadata", spot)
         _require((row.get("tenant_id"), row.get("sid")) in project_keys, "sample_project_not_selected", spot)
         _require(row.get("sample_complete") is True and row.get("global_complete") is False,
                  "invalid_sample_completeness_claim", spot)
         ids = row.get("event_ids")
-        _require(isinstance(ids, list) and bool(ids) and len(ids) == len(set(ids)) and all(_is_hash(key) for key in ids),
+        _require(isinstance(ids, list) and bool(ids) and len(ids) == len(set(ids)) and all(_is_key(key) for key in ids),
                  "invalid_source_event_ids", spot)
         is_tool = source_by_id.get(row["event_id"], {}).get("kind") == "pi.training_episode"
         expected["tool_candidates"] += int(is_tool)
         if row.get("duplicate_of"):
-            _require(row["duplicate_of"] in samples_by_id and not row["quality_approved"]
-                     and samples_by_id[row["duplicate_of"]]["sample_id"] == row["sample_id"], "invalid_duplicate_reference", spot)
+            _require(row["duplicate_of"] in samples_by_id and not row["quality_approved"],
+                     "invalid_duplicate_reference", spot)
         if row["quality_approved"]:
-            _require(row["sample_id"] not in accepted_ids, "duplicate_accepted_sample", spot)
-            accepted_ids.add(row["sample_id"])
             expected["sft"] += 1
             expected["tool_sft"] += int(is_tool)
     for split in ("train", "validation"):
@@ -532,7 +521,8 @@ def _validate(files, evidence_by_hash):
             normalized, calls, results = _sample(native, spot, source=source)
             converted, _, _ = _sample(standard, f"sft_{split}.jsonl:{index}", portable=True, source=source)
             _require(native == normalized and normalized == converted, "portable_hf_semantic_mismatch", spot)
-            _require(_digest(native) == row["sample_id"], "sample_content_hash_mismatch", spot)
+            _require(_canonical(native) not in accepted_contents, "duplicate_accepted_sample", spot)
+            accepted_contents.add(_canonical(native))
             evidence_row = row.get("quality_evidence")
             _require(isinstance(evidence_row, dict), "sample_quality_evidence_missing", spot)
             kind = evidence_row.get("kind")
@@ -546,17 +536,19 @@ def _validate(files, evidence_by_hash):
                 _require(evidence_row.get("event_id") == row["event_id"] and (persisted or row["event_id"] in approved),
                          "sample_review_event_mismatch", spot)
                 actual_reviewer = evidence_row.get("reviewer_kind")
-                actual_evidence = evidence_row.get("evidence_sha256")
+                actual_evidence = evidence_row.get("evidence_bytes")
                 _require(actual_reviewer in REVIEWERS and evidence_row.get("human_reviewed") is (actual_reviewer == "human_operator")
-                         and (actual_evidence is None or _is_hash(actual_evidence)), "sample_reviewer_evidence_mismatch", spot)
+                         and (actual_evidence is None or _is_size(actual_evidence)), "sample_reviewer_evidence_mismatch", spot)
                 if persisted:
-                    _require(evidence_row.get("sample_sha256") == row["sample_id"] and type(evidence_row.get("reviewed_at")) in (float, int),
+                    _require(evidence_row.get("sample_format") == SAMPLE_FORMAT
+                             and evidence_row.get("sample_bytes") == len(_canonical(native).encode())
+                             and type(evidence_row.get("reviewed_at")) in (float, int),
                              "persisted_review_content_binding_mismatch", spot)
                 else:
-                    _require(actual_reviewer == reviewer and actual_evidence == evidence_hash,
+                    _require(actual_reviewer == reviewer and actual_evidence == evidence,
                              "sample_reviewer_evidence_mismatch", spot)
                 if actual_reviewer == "automated_acceptance":
-                    _require(_is_hash(actual_evidence) and actual_evidence in evidence_by_hash,
+                    _require(_is_size(actual_evidence) and actual_evidence in evidence_sizes,
                              "sample_acceptance_evidence_file_required", spot)
                     automated_sample_evidence_verified += 1
                 if calls and actual_reviewer != "unspecified":
@@ -603,10 +595,10 @@ def _validate(files, evidence_by_hash):
     _require(manifest.get("dataset_status") == quality.get("dataset_status") == status,
              "dataset_status_count_mismatch", "manifest.json")
     return {"counts": actual_counts, "reviewer_kind": reviewer, "human_reviewed": reviewer == "human_operator",
-            "evidence_sha256": evidence_hash, "evidence_file_verified": evidence_verified,
+            "evidence_bytes": evidence, "evidence_file_verified": evidence_verified,
             "agentic_training_ready": ready and reviewed_tool_samples == actual_counts["tool_sft"],
             "automated_sample_evidence_verified": automated_sample_evidence_verified,
-            "provided_evidence_sha256": sorted(evidence_by_hash),
+            "provided_evidence_bytes": sorted(evidence_sizes),
             "train": quality["train"], "validation": quality["validation"],
             "warnings": ["reviewer_kind_unspecified"] if reviewer == "unspecified" else []}
 
@@ -615,7 +607,7 @@ def validate_package(package, *, evidence_path=None, evidence_paths=()):
     """Validate bytes or a local ZIP path. Return a content-free JSON report."""
     report = {"validator": "argus-training-validator-v1", "valid": False, "agentic_training_ready": False,
               "errors": [], "limitations": [
-                  "Checks format, hashes, observed source correspondence and declared review attribution only.",
+                  "Checks format, sizes, observed source correspondence and declared review attribution only.",
                   "Does not verify scientific conclusions, mathematical proofs, benchmark claims or licensing.",
                   "Public episodes omit system/private reasoning and are not complete model contexts.",
                   "A self-consistent ZIP is not a cryptographic proof of an untampered runtime or actual human review.",
@@ -627,15 +619,15 @@ def validate_package(package, *, evidence_path=None, evidence_paths=()):
             with Path(package).open("rb") as stream:
                 raw = stream.read(MAX_PACKAGE_BYTES + 1)
         _require(len(raw) <= MAX_PACKAGE_BYTES, "package_size_limit", "package")
-        report["package_sha256"] = _hash(raw)
-        evidence_by_hash = {}
+        report["package_bytes"] = len(raw)
+        evidence_sizes = set()
         paths = [*evidence_paths, *([evidence_path] if evidence_path is not None else [])]
         _require(len(paths) <= 256, "evidence_file_count_limit", "evidence")
         for path in paths:
             with Path(path).open("rb") as stream:
                 evidence = stream.read(MAX_EVIDENCE_BYTES + 1)
             _require(len(evidence) <= MAX_EVIDENCE_BYTES, "evidence_size_limit", "evidence")
-            evidence_by_hash[_hash(evidence)] = True
+            evidence_sizes.add(len(evidence))
         with zipfile.ZipFile(io.BytesIO(raw)) as archive:
             entries = archive.infolist()
             names = [entry.filename for entry in entries]
@@ -646,7 +638,7 @@ def validate_package(package, *, evidence_path=None, evidence_paths=()):
                              and entry.compress_type in {zipfile.ZIP_STORED, zipfile.ZIP_DEFLATED}
                              for entry in entries), "zip_capacity_encryption_or_entry_type", "package")
             files = {name: archive.read(name) for name in names}
-        report.update(_validate(files, evidence_by_hash))
+        report.update(_validate(files, evidence_sizes))
         report["valid"] = True
     except InvalidPackage as exc:
         report["errors"].append({"code": exc.code, "location": exc.location})

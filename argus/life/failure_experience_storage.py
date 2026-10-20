@@ -6,7 +6,6 @@ admission watermark together. SQLite is a disposable projection of this file.
 
 from __future__ import annotations
 
-import hashlib
 import json
 import math
 import os
@@ -44,7 +43,6 @@ class ExperienceSnapshot:
     history: list[FailureExperience] = field(default_factory=list)
     admission_floor: float = 0.0
     generation: int = 0
-    digest: str = ""
     legacy: bool = False
 
 
@@ -112,7 +110,7 @@ class ExperienceRepository:
         if len(_row(item)) > _MAX_RECORD_BYTES:
             raise ValueError("experience exceeds the per-record byte limit")
         if item.id.startswith("exp:"):
-            parts = item.id.split(":")
+            parts = item.id.split(":", 2)
             if len(parts) != 3 or not parts[2] or float.fromhex(parts[1]) != item.created_at:
                 raise ValueError(
                     "experience identity does not match its original creation timestamp"
@@ -140,7 +138,7 @@ class ExperienceRepository:
                     key in header
                     for key in (
                         "admission_floor",
-                        "records_digest",
+                        "records_bytes",
                         "current_count",
                         "schema_version",
                     )
@@ -154,18 +152,14 @@ class ExperienceRepository:
             if header.get("schema_version") != _SCHEMA_VERSION:
                 raise ValueError("unsupported experience snapshot version")
             body = handle.read(_MAX_SOURCE_BYTES + 1)
-            if len(body) > _MAX_SOURCE_BYTES or hashlib.sha256(body).hexdigest() != header.get(
-                "records_digest"
-            ):
+            # Snapshots are replaced atomically; a length that disagrees with
+            # the header is a truncated or foreign file. (Older headers carry
+            # digests instead, which are ignored.)
+            if len(body) > _MAX_SOURCE_BYTES or header.get("records_bytes", len(body)) != len(body):
                 raise ValueError("experience snapshot is truncated or corrupt")
-            metadata = dict(header)
-            signature = metadata.pop("snapshot_digest", None)
-            if hashlib.sha256(_encoded(metadata) + body).hexdigest() != signature:
-                raise ValueError("experience snapshot metadata is corrupt")
             snapshot = ExperienceSnapshot(
                 admission_floor=float(header["admission_floor"]),
                 generation=int(header["generation"]),
-                digest=hashlib.sha256(first + body).hexdigest(),
             )
             if not math.isfinite(snapshot.admission_floor) or snapshot.admission_floor < 0:
                 raise ValueError("invalid experience admission watermark")
@@ -196,8 +190,8 @@ class ExperienceRepository:
             handle.seek(start)
             if start:
                 handle.readline(_MAX_RECORD_BYTES + 1)
-        digest = hashlib.sha256()
         while True:
+            offset = handle.tell()
             raw = handle.readline(_MAX_RECORD_BYTES + 1)
             if not raw:
                 break
@@ -205,7 +199,6 @@ class ExperienceRepository:
                 while raw and not raw.endswith(b"\n"):
                     raw = handle.readline(_MAX_RECORD_BYTES + 1)
                 continue
-            digest.update(raw)
             try:
                 row = json.loads(raw)
                 if not isinstance(row, dict):
@@ -215,7 +208,7 @@ class ExperienceRepository:
                     payload = row.get("annotation")
                     if previous is not None and isinstance(payload, dict):
                         annotation = FailureAnnotation(
-                            id=str(payload.get("id") or hashlib.sha256(raw).hexdigest()[:16]),
+                            id=str(payload.get("id") or f"legacy-{offset}"),
                             created_at=float(payload.get("created_at") or previous.created_at),
                             text=str(payload.get("text") or "")[:4000],
                             relation=str(payload.get("relation") or "")[:200],
@@ -229,8 +222,8 @@ class ExperienceRepository:
                     continue
                 if row.get("record_type") not in {None, "experience"}:
                     continue
-                # Missing old identities receive a deterministic migration identity.
-                row.setdefault("id", hashlib.sha256(raw).hexdigest()[:16])
+                # Missing old identities take their line's place in the stream.
+                row.setdefault("id", f"legacy-{offset}")
                 item = FailureExperience.from_jsonable(row)
                 self.validate(item)
                 previous = snapshot.current.get(item.id)
@@ -243,7 +236,6 @@ class ExperienceRepository:
             # Migration reads the original stream once, keeping bounded state.
             if len(snapshot.current) > self.max_active * 2:
                 self.trim(snapshot, now=0)
-        snapshot.digest = digest.hexdigest()
         return snapshot
 
     def trim(
@@ -339,9 +331,8 @@ class ExperienceRepository:
             "admission_floor": snapshot.admission_floor,
             "current_count": len(current),
             "history_count": len(snapshot.history),
-            "records_digest": hashlib.sha256(body).hexdigest(),
+            "records_bytes": len(body),
         }
-        metadata["snapshot_digest"] = hashlib.sha256(_encoded(metadata) + body).hexdigest()
         header = _encoded(metadata)
         self.path.parent.mkdir(parents=True, exist_ok=True)
         fd, temporary = tempfile.mkstemp(
@@ -364,4 +355,3 @@ class ExperienceRepository:
             Path(temporary).unlink(missing_ok=True)
         snapshot.generation += 1
         snapshot.legacy = False
-        snapshot.digest = hashlib.sha256(header + body).hexdigest()

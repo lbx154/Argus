@@ -2,9 +2,8 @@
 
 Owns deciding whether one round re-sends the full static task/skill contract
 or the compact Reviewer-delta continuation (``full_prompt_decision``),
-building that prompt, attaching the shared CHECKPOINT.md and the
-background-subagent / external-work
-advisories, and emitting the ``round.start`` event. This is purely prompt
+building that prompt, attaching the shared CHECKPOINT.md, and emitting the
+``round.start`` event. This is purely prompt
 text assembly — it makes no completion or control-flow decisions.
 """
 from __future__ import annotations
@@ -17,7 +16,6 @@ from ..core.event_catalog import EventType
 from ..life.context_packet import render_mission_brief
 from ..roles.prompts.engineer import MISSION, assemble_round_prompt
 from .checkpoint import shared_checkpoint_instructions
-from .external_work import render_external_work_advisory
 
 if TYPE_CHECKING:
     from ..core.role_session import RoleSessionCapsule
@@ -69,8 +67,6 @@ def full_prompt_decision(
     session_policy: str,
     session_action: str,
     rotation_reason: str,
-    compact_continuation_prompts: bool,
-    full_round_policy: str,
     mission_has_history: bool,
     stage: str,
     stage_at_last_full: str,
@@ -79,17 +75,13 @@ def full_prompt_decision(
 
     A provider session receives the full static text on the round that
     creates it — a session only ever starts on a FULL round — so a resumed
-    session needs the full text again only when what it holds may be stale.
-    Under the default ``session`` policy that means: compact prompts are
-    disabled, the policy is fresh-per-round, the session was just created or
-    rotated (rotation already covers an objective or workdir change and an
-    explicit Reviewer redirection signal), the stage changed since the last
-    full prompt, or a first round resumes a session with no sealed prior
-    round for this mission. ``legacy`` keeps the historical round-1-always-
-    full behavior for rollback.
+    session needs the full text again only when what it holds may be stale:
+    the policy is fresh-per-round, the session was just created or rotated
+    (rotation already covers an objective or workdir change and an explicit
+    Reviewer redirection signal), the stage changed since the last full
+    prompt, or a first round resumes a session with no sealed prior round for
+    this mission.
     """
-    if not compact_continuation_prompts:
-        return True, "compact_prompts_disabled"
     if session_policy == "fresh":
         # Every round starts a provider session with no memory of the last.
         return True, "fresh_policy"
@@ -97,10 +89,6 @@ def full_prompt_decision(
         return True, f"session_rotated:{rotation_reason or 'unspecified'}"
     if session_action != "resumed":
         return True, "session_fresh"
-    if full_round_policy == "legacy":
-        if round_index == 1:
-            return True, "first_round_legacy"
-        return False, "resumed_session"
     if stage and stage_at_last_full and stage != stage_at_last_full:
         return True, "stage_changed"
     if round_index == 1:
@@ -119,7 +107,7 @@ class RoundPromptMixin:
         supervised_config: "SupervisedConfig",
         workdir: Path,
     ) -> str:
-        """The active vertical's per-turn facts (research notes, GPU memory in use).
+        """The active vertical's per-turn facts (the research notes).
 
         Resolved with the same vertical, state root, stage and operation the
         static banner was resolved with, so the facts match the policy; placed
@@ -199,13 +187,6 @@ class RoundPromptMixin:
             rotation_reason=str(
                 getattr(role_session, "rotation_reason", "") or ""
             ),
-            compact_continuation_prompts=(
-                supervised_config.compact_continuation_prompts
-            ),
-            full_round_policy=str(
-                getattr(supervised_config, "engineer_full_round_policy", "")
-                or "session"
-            ),
             # Only round 1 consults mission history; skip the directory scan on
             # every later round.
             mission_has_history=(
@@ -283,10 +264,6 @@ class RoundPromptMixin:
             )
             if block
         )
-        external_work_advisory = render_external_work_advisory(
-            workdir,
-            include_subagents=supervised_config.background_subagent_advisory,
-        )
         engineer_prompt = assemble_round_prompt(
             engineer_prompt,
             role_context=self._vertical_role_context(
@@ -294,8 +271,6 @@ class RoundPromptMixin:
                 workdir=workdir,
             ),
             checkpoint_block=checkpoint_block,
-            background_advisory="",
-            external_work_advisory=external_work_advisory,
         )
         if on_event:
             on_event({

@@ -37,64 +37,6 @@ def test_idle_escalation_emits_once_and_resets_on_activity() -> None:
     assert escalation.newly_due(30) == (WARNING_STAGE, STALLED_STAGE)
 
 
-@pytest.mark.parametrize(
-    ("backend", "run_label"),
-    [
-        ("codex", "manager-classify-grounded"),
-        ("opencode", "simple-1"),
-        ("opencode", "self-implement"),
-    ],
-)
-def test_manager_wall_clock_stops_reconnect_chatter(
-    monkeypatch: pytest.MonkeyPatch,
-    backend: str,
-    run_label: str,
-) -> None:
-    monkeypatch.setenv("ARGUS_SKILL_MANAGER_TURN_MAX_SECONDS", "1")
-    events: list[tuple[str, str]] = []
-    runner = AgentCliRunner(
-        agent_bin=sys.executable,
-        backend=backend,
-        event_callback=lambda stream, line: events.append((stream, line)),
-    )
-    command = [
-        sys.executable,
-        "-c",
-        (
-            "import json, time\n"
-            "while True:\n"
-            "    print(json.dumps({'type': 'step_start'}), flush=True)\n"
-            "    time.sleep(0.05)\n"
-        ),
-    ]
-    model_call = subprocess.Popen(
-        command,
-        stdout=subprocess.PIPE,
-        stderr=subprocess.PIPE,
-        text=True,
-        encoding="utf-8",
-        start_new_session=os.name != "nt",
-    )
-    try:
-        started = time.monotonic()
-        state = runner._stream_turn_output(
-            process=model_call,
-            command=command,
-            options=RunnerOptions(watchdog_hard_idle_seconds=10),
-            run_label=run_label,
-            thread_id=None,
-        )
-
-        assert time.monotonic() - started < 5
-        assert state.watchdog_terminated is True
-        assert "Manager turn wall-clock limit reached" in str(state.watchdog_reason)
-        assert any("wall-clock limit reached" in line for _stream, line in events)
-    finally:
-        if model_call.poll() is None:
-            model_call.terminate()
-            model_call.wait(timeout=3)
-
-
 @pytest.mark.skipif(os.name != "posix", reason="POSIX process-group isolation")
 def test_hard_idle_terminates_only_current_model_process_group() -> None:
     events: list[tuple[str, str]] = []
@@ -137,11 +79,7 @@ def test_hard_idle_terminates_only_current_model_process_group() -> None:
 
 
 @pytest.mark.skipif(os.name != "posix", reason="POSIX process-group isolation")
-def test_opencode_wall_clock_stops_detached_tool_group(
-    tmp_path,
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    monkeypatch.setenv("ARGUS_SKILL_MANAGER_TURN_MAX_SECONDS", "1")
+def test_opencode_interrupt_stops_detached_tool_group(tmp_path) -> None:
     runner = AgentCliRunner(agent_bin=sys.executable, backend="opencode")
     child_pid_path = tmp_path / "child.pid"
     completed_path = tmp_path / "completed"
@@ -179,14 +117,16 @@ def test_opencode_wall_clock_stops_detached_tool_group(
         state = runner._stream_turn_output(
             process=model_call,
             command=command,
-            options=RunnerOptions(watchdog_hard_idle_seconds=10),
+            options=RunnerOptions(
+                external_interrupt_reason_provider=lambda: "operator stop",
+            ),
             run_label="self-implement",
             thread_id=None,
         )
         time.sleep(2.2)
 
         assert state.watchdog_terminated is True
-        assert "Manager turn wall-clock limit reached" in str(state.watchdog_reason)
+        assert "External interrupt: operator stop" in str(state.watchdog_reason)
         assert model_call.poll() is not None
         assert not completed_path.exists()
         with pytest.raises(ProcessLookupError):
@@ -444,7 +384,7 @@ def test_inactivity_callback_is_reached_during_stderr_chatter() -> None:
 
     def on_idle(snapshot):
         snapshots.append(snapshot)
-        return "restart"
+        return "restart: the Manager decided to restart the stalled turn"
 
     state, events = _run_stream_with_chatter(
         "chatter(2.6)\n",
@@ -455,7 +395,6 @@ def test_inactivity_callback_is_reached_during_stderr_chatter() -> None:
     assert len(snapshots) == 1
     assert snapshots[0].idle_seconds >= 1
     assert snapshots[0].stderr_tail
-    assert "stall sub-agent" in str(state.watchdog_reason)
+    assert str(state.watchdog_reason).startswith("Forced restart after 1s without progress (the Manager decided")
     # The restart reason is final: no later stage may emit or overwrite it.
-    assert sum("stall sub-agent" in line for line in _watchdog_lines(events)) == 1
-    assert not any("Forced restart" in line for line in _watchdog_lines(events))
+    assert sum("Forced restart" in line for line in _watchdog_lines(events)) == 1

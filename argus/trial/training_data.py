@@ -8,7 +8,6 @@ Pi collector, with exact schema/call/result/context verification and attributed 
 """
 from __future__ import annotations
 
-import hashlib
 import io
 import json
 import math
@@ -104,8 +103,22 @@ def _json(value):
                       separators=(",", ":"))
 
 
-def _hash(value):
-    return hashlib.sha256(value).hexdigest()
+def _key(*parts):
+    """A durable identity: the canonical JSON of the parts that make it."""
+    return _json(list(parts))
+
+
+# Review receipts bind to this format and the sample's byte length; a changed
+# sample format retires every receipt made against the old one.
+SAMPLE_FORMAT = "argus-sft-sample-v1"
+
+
+def _sample_bytes(sample):
+    return len(_json(sample).encode())
+
+
+def _columns(db, table):
+    return {row[1] for row in db.execute(f"PRAGMA table_info({table})")}
 
 
 def _sensitive(value):
@@ -199,7 +212,7 @@ class TrainingData:
                 );
                 CREATE TABLE IF NOT EXISTS training_review_evidence (
                     audit_id INTEGER PRIMARY KEY, reviewer_kind TEXT NOT NULL,
-                    evidence_sha256 TEXT
+                    evidence_bytes INTEGER
                 );
                 CREATE TRIGGER IF NOT EXISTS training_review_evidence_prune
                 AFTER DELETE ON research_audit BEGIN
@@ -224,13 +237,19 @@ class TrainingData:
         self._initialize_review_receipts()
 
     def _initialize_review_receipts(self):
-        """Persist only provenance and hashes; source bodies keep their own retention."""
+        """Persist only provenance and sizes; source bodies keep their own retention."""
         with self.analytics._db() as db:
+            # Receipts bound to a content digest cannot be checked any more; they
+            # lapse as if their samples had changed, and evidence keeps its size.
+            if "sample_sha256" in _columns(db, "training_sample_reviews"):
+                db.execute("DROP TABLE training_sample_reviews")
+            if "evidence_bytes" not in _columns(db, "training_review_evidence"):
+                db.execute("ALTER TABLE training_review_evidence ADD COLUMN evidence_bytes INTEGER")
             db.executescript("""
                 CREATE TABLE IF NOT EXISTS training_sample_reviews (
                     tenant_id TEXT NOT NULL, sid TEXT NOT NULL, purpose TEXT NOT NULL,
-                    event_id TEXT NOT NULL, sample_sha256 TEXT NOT NULL,
-                    reviewer_kind TEXT NOT NULL, evidence_sha256 TEXT, reviewed_at REAL NOT NULL,
+                    event_id TEXT NOT NULL, sample_format TEXT NOT NULL, sample_bytes INTEGER NOT NULL,
+                    reviewer_kind TEXT NOT NULL, evidence_bytes INTEGER, reviewed_at REAL NOT NULL,
                     grant_at REAL NOT NULL, notice_version TEXT NOT NULL,
                     context_approved INTEGER NOT NULL, source_event_ids TEXT NOT NULL,
                     source_episode_id INTEGER,
@@ -292,7 +311,7 @@ class TrainingData:
                     WHERE tenant_id=? AND sid=? AND purpose=? AND event_id=?""", identity).fetchone()
                 if row is None:
                     continue
-                if (row["sample_sha256"] != _hash(_json(candidate["sample"]).encode())
+                if (row["sample_format"] != SAMPLE_FORMAT or row["sample_bytes"] != _sample_bytes(candidate["sample"])
                         or row["grant_at"] != grants.get(identity[:2])
                         or row["notice_version"] != self.analytics.notice_version
                         or row["reviewer_kind"] not in REVIEWER_KINDS
@@ -308,8 +327,8 @@ class TrainingData:
                     "kind": "operator_tool_context_review" if "tools" in candidate["sample"] else "operator_event_review",
                     "event_id": candidate["event_id"], "persisted": True,
                     "reviewer_kind": row["reviewer_kind"], "human_reviewed": row["reviewer_kind"] == "human_operator",
-                    "evidence_sha256": row["evidence_sha256"], "reviewed_at": row["reviewed_at"],
-                    "sample_sha256": row["sample_sha256"],
+                    "evidence_bytes": row["evidence_bytes"], "reviewed_at": row["reviewed_at"],
+                    "sample_format": row["sample_format"], "sample_bytes": row["sample_bytes"],
                 }
         return restored
 
@@ -323,12 +342,12 @@ class TrainingData:
                 if not candidate["quality_approved"] or candidate["event_id"] not in approved:
                     continue
                 db.execute("""INSERT OR REPLACE INTO training_sample_reviews
-                    (tenant_id,sid,purpose,event_id,sample_sha256,reviewer_kind,evidence_sha256,
+                    (tenant_id,sid,purpose,event_id,sample_format,sample_bytes,reviewer_kind,evidence_bytes,
                      reviewed_at,grant_at,notice_version,context_approved,source_event_ids,source_episode_id)
-                    VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?)""", (
+                    VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?)""", (
                     candidate["tenant_id"], candidate["sid"], purpose, candidate["event_id"],
-                    _hash(_json(candidate["sample"]).encode()), review.get("reviewer_kind", "unspecified"),
-                    review.get("evidence_sha256"), self.analytics.clock(),
+                    SAMPLE_FORMAT, _sample_bytes(candidate["sample"]), review.get("reviewer_kind", "unspecified"),
+                    review.get("evidence_bytes"), self.analytics.clock(),
                     grants[candidate["tenant_id"], candidate["sid"]], self.analytics.notice_version,
                     int(review.get("tool_context_approved") is True), _json(candidate["event_ids"]),
                     episodes.get(candidate["event_id"]),
@@ -349,10 +368,11 @@ class TrainingData:
                 kind = review.get("reviewer_kind", "unspecified")
                 if kind not in REVIEWER_KINDS:
                     kind = "unspecified"
-                digest = review.get("evidence_sha256")
-                if not isinstance(digest, str) or not re.fullmatch(r"[0-9a-f]{64}", digest):
-                    digest = None
-                db.execute("INSERT INTO training_review_evidence VALUES (?,?,?)", (audit_id, kind, digest))
+                size = review.get("evidence_bytes")
+                if type(size) is not int or size <= 0:
+                    size = None
+                db.execute("INSERT INTO training_review_evidence(audit_id,reviewer_kind,evidence_bytes) VALUES (?,?,?)",
+                           (audit_id, kind, size))
         return audit_id
 
     def review_audit(self, limit=40):
@@ -360,7 +380,7 @@ class TrainingData:
             raise ValueError("Audit limit must be 1..100")
         with self.analytics._db() as db:
             return {"events": [dict(row) for row in db.execute("""
-                SELECT a.id,a.created_at,a.actor,a.action,a.outcome,e.reviewer_kind,e.evidence_sha256,
+                SELECT a.id,a.created_at,a.actor,a.action,a.outcome,e.reviewer_kind,e.evidence_bytes,
                     c.purpose,c.projects,c.sft,c.quarantined
                 FROM research_audit a JOIN training_review_evidence e ON e.audit_id=a.id
                 LEFT JOIN training_audit_counts c ON c.audit_id=a.id
@@ -842,19 +862,18 @@ class TrainingData:
         # Equal content is retained once; all source observations remain traceable.
         seen = {}
         for candidate in candidates:
-            digest = _hash(_json(candidate["sample"]).encode())
-            candidate["sample_id"] = digest
-            if digest in seen:
-                earlier = seen[digest]
+            content = _json(candidate["sample"])
+            if content in seen:
+                earlier = seen[content]
                 if candidate["quality_approved"] and not earlier["quality_approved"]:
                     earlier["duplicate_of"] = candidate["event_id"]
-                    seen[digest] = candidate
+                    seen[content] = candidate
                 else:
                     candidate["duplicate_of"] = earlier["event_id"]
                     candidate["quality_approved"] = False
                 reasons["duplicate_sample"] += 1
             else:
-                seen[digest] = candidate
+                seen[content] = candidate
         self._splits(candidates)
         counts = {
             "projects": len(selected), "eligible_projects": sum(p["eligible"] for p in output),
@@ -951,13 +970,11 @@ class TrainingData:
                 left, right = sorted((root(tenant), root(prompts[prompt])))
                 groups[right] = left
             prompts[prompt] = tenant
-        roots = {root(key) for key in groups}
+        validation = set(sorted({root(key) for key in groups})[9::10])
         for candidate in candidates:
-            group = _hash(root(candidate["tenant_id"]).encode())
+            group = root(candidate["tenant_id"])
             candidate["split_group"] = group
-            candidate["split"] = (
-                "validation" if len(roots) > 1 and int(group[:8], 16) % 10 == 0 else "train"
-            )
+            candidate["split"] = "validation" if group in validation else "train"
 
     def observations(self, purpose, tenant, sid, task_id=None, *, cursor=None, limit=200):
         from .training_observations import ObservedData
@@ -1092,7 +1109,7 @@ class TrainingData:
             review = review or {}
             if (not isinstance(review, dict) or set(review) - {
                 "content_approved", "approved_event_ids", "rights_reviewed", "tool_context_approved",
-                "reviewer_kind", "evidence_sha256",
+                "reviewer_kind", "evidence_bytes",
             } or any(type(review[key]) is not bool for key in (
                 "content_approved", "rights_reviewed", "tool_context_approved",
             ) if key in review)):
@@ -1100,10 +1117,9 @@ class TrainingData:
             reviewer_kind = review.get("reviewer_kind", "unspecified")
             if reviewer_kind not in REVIEWER_KINDS:
                 raise ValueError("Invalid reviewer kind")
-            evidence = review.get("evidence_sha256")
-            if evidence is not None and (not isinstance(evidence, str)
-                                         or not re.fullmatch(r"[0-9a-f]{64}", evidence)):
-                raise ValueError("Evidence must be a SHA256 digest")
+            evidence = review.get("evidence_bytes")
+            if evidence is not None and (type(evidence) is not int or evidence <= 0):
+                raise ValueError("Evidence must be its size in bytes")
             if reviewer_kind == "automated_acceptance" and evidence is None:
                 raise AnalyticsError(409, "automated_acceptance_evidence_required")
             review = {**review, "reviewer_kind": reviewer_kind}
@@ -1111,7 +1127,7 @@ class TrainingData:
             self.audit(audit_action, purpose, review=review)
             approved = review.get("approved_event_ids", [])
             if (not isinstance(approved, list) or len(approved) > MAX_EVENTS
-                    or any(not isinstance(v, str) or not re.fullmatch(r"[0-9a-f]{64}", v)
+                    or any(not isinstance(v, str) or not 0 < len(v) <= 1024
                            for v in approved)):
                 raise ValueError("Review must identify retained response event IDs")
             if review.get("content_approved") is not True:
@@ -1134,7 +1150,7 @@ class TrainingData:
                     if candidate["event_id"] in approved and candidate.get("quality_evidence"):
                         candidate["quality_evidence"].update(
                             reviewer_kind=reviewer_kind, human_reviewed=reviewer_kind == "human_operator",
-                            evidence_sha256=evidence,
+                            evidence_bytes=evidence,
                         )
                 data = self._package(purpose, result, review)
                 # Fresh consent/access/deletion checks immediately before releasing
@@ -1223,15 +1239,14 @@ class TrainingData:
             "counts": result["counts"], "source_limits": LIMITATIONS,
             "dataset_status": report["dataset_status"],
             "agentic_tool_training_ready": report["agentic_tool_training_ready"],
-            "split_policy": "tester groups connected by exact prompt; SHA256 bucket 0/10 validation; single group train",
+            "split_policy": "tester groups connected by exact prompt; every tenth group in sorted order is validation",
             "rights_status": "unknown", "provider_license_review": "pending",
             "explicit_operator_rights_review": review.get("rights_reviewed") is True,
             "legal_certification": False, "content_approved": True,
             "reviewer_kind": review.get("reviewer_kind", "unspecified"),
             "human_reviewed": review.get("reviewer_kind") == "human_operator",
-            "evidence_sha256": review.get("evidence_sha256"),
-            "files": {name: {"sha256": _hash(content), "bytes": len(content)}
-                      for name, content in files.items()},
+            "evidence_bytes": review.get("evidence_bytes"),
+            "files": {name: {"bytes": len(content)} for name, content in files.items()},
         }
         files["manifest.json"] = _json(manifest).encode()
         if sum(map(len, files.values())) > MAX_EXPORT_BYTES:

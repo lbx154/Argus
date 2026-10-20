@@ -247,11 +247,6 @@
   width: 1.1em;
   height: 1.1em;
 }
-.argus-map .macro-summary .map-card-teambar {
-  margin: 4px 0 0;
-  flex-shrink: 0;
-}
-
 .argus-map .macro-summary .map-history-toggle {
   font-size: 10px;
 }
@@ -320,8 +315,6 @@
   --map-edge-dependency: var(--ink-1);
   --map-edge-semantic: var(--ink-4);
   --map-edge-replacement: var(--pig-ochre);
-  --map-edge-fanout: var(--ink-3);
-  --map-edge-fanin: var(--ink-3);
 }
 [data-theme="dark"] .argus-map.argus-map {
   /* Night ink: the sheet is dark, the ink is pale, the pigments lift a step. */
@@ -347,8 +340,6 @@
   --map-edge-dependency: var(--ink-1);
   --map-edge-semantic: var(--ink-4);
   --map-edge-replacement: var(--pig-ochre);
-  --map-edge-fanout: var(--ink-3);
-  --map-edge-fanin: var(--ink-3);
 }
 .argus-map .map-state-done { --state: var(--pig-malachite); }
 .argus-map .map-state-running { --state: var(--pig-indigo); }
@@ -596,28 +587,6 @@
 .argus-map .react-flow__minimap {
   border-radius: 12px;
   overflow: hidden;
-}
-
-/* ── A branch of the team, on the same sheet ────────────────────────────── */
-.argus-map .map-branch {
-  background: color-mix(in srgb, var(--state) 9%, var(--map-paper));
-  border: 2px solid color-mix(in srgb, var(--state) 26%, rgb(var(--ink) / 0.1));
-  border-left: 12px solid var(--state);
-  border-radius: calc(14 * var(--px));
-  box-shadow:
-    0 calc(1 * var(--px)) calc(1.5 * var(--px)) rgb(40 34 24 / 0.05),
-    0 calc(8 * var(--px)) calc(24 * var(--px)) rgb(40 34 24 / 0.07);
-}
-.argus-map .map-branch.map-state-done { --state: var(--pig-malachite); }
-.argus-map .map-branch.map-state-running { --state: var(--pig-indigo); }
-.argus-map .map-branch.map-state-failed { --state: var(--pig-vermilion); }
-.argus-map .map-branch.map-state-question { --state: var(--pig-gamboge); }
-.argus-map .map-branch.map-state-paused { --state: var(--pig-ochre); }
-.argus-map .map-branch.map-state-superseded { --state: var(--pig-lotus); }
-.argus-map .map-branch-title {
-  font-family: var(--map-serif);
-  font-weight: 600;
-  color: var(--ink-1);
 }
 
 /* ── What a line says ───────────────────────────────────────────────────────

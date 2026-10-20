@@ -32,7 +32,7 @@ def test_select_and_clear_vertical_without_mutating_active_campaign(tmp_path):
     events = []
     matched = self_skill_context(manager, vertical="software", on_event=events.append)
     assert "SOFTWARE VERTICAL" in matched.block
-    assert "do not create a Team" in matched.block
+    assert "This is one worker" in matched.block
     shared = tmp_path / "skills" / "_shared_verticals" / "software"
     assert shared / "engineer" in matched.native_paths
     assert list((shared / "engineer").glob("*.md")), "Bundled skills must be available on first SELF use"

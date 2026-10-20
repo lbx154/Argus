@@ -5,7 +5,7 @@ assert the output changes by more than noise. A knockout that does not move
 the output means the component is not doing what the card says.
 
 Tag each test with the component's name exactly as METHOD.md spells it; the
-host derives the component's status from the marker and the run.
+host lists the test under that component.
 """
 from __future__ import annotations
 

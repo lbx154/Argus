@@ -28,14 +28,6 @@ _ROLE_LESSONS = {
 _DEFAULT_LESSON = "a reusable procedure"
 
 
-def role_skill_maintenance_enabled() -> bool:
-    """Resolve the existing post-task-learning A/B switch."""
-    from ..core.knobs import resolve_knob
-
-    value = resolve_knob("ARGUS_SKILL_REQUIRE_POST_TASK_LEARNING", "1").value
-    return value.strip().lower() in {"1", "true", "yes", "on"}
-
-
 def project_role_skill_dir(skill_store: Any, role: str) -> Path | None:
     """Return the project-layer directory owned by ``role``."""
     project_store = getattr(skill_store, "project", None)
@@ -109,6 +101,5 @@ __all__ = [
     "profile_self_skill_dir",
     "project_role_skill_dir",
     "role_skill_edit_rules",
-    "role_skill_maintenance_enabled",
     "role_skill_maintenance_block",
 ]

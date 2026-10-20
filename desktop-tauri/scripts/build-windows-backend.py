@@ -71,9 +71,10 @@ def assert_release_versions(repo: Path) -> str:
     values["marketplace"] = next(plugin["version"] for plugin in marketplace["plugins"] if plugin["name"] == "argus")
     cargo = tomllib.loads((repo / "desktop-tauri/src-tauri/Cargo.toml").read_text(encoding="utf-8"))
     values["Cargo.toml"] = cargo["package"]["version"]
-    for filename, name in (("uv.lock", "argus"), ("desktop-tauri/src-tauri/Cargo.lock", "argus-desktop")):
-        lock = tomllib.loads((repo / filename).read_text(encoding="utf-8"))
-        values[filename] = next(package["version"] for package in lock["package"] if package["name"] == name)
+    lock = tomllib.loads((repo / "desktop-tauri/src-tauri/Cargo.lock").read_text(encoding="utf-8"))
+    values["desktop-tauri/src-tauri/Cargo.lock"] = next(
+        package["version"] for package in lock["package"] if package["name"] == "argus-desktop"
+    )
     runtime = (repo / "argus/__init__.py").read_text(encoding="utf-8")
     runtime_version = re.search(r'^__version__ = "([^"]+)"$', runtime, re.MULTILINE)
     values["Python runtime"] = runtime_version.group(1) if runtime_version else None
@@ -85,7 +86,7 @@ def assert_release_versions(repo: Path) -> str:
 def validate_payload_identity(source: Path, repo: Path = REPO) -> None:
     frozen = json.loads((source / "_internal/argus/release_manifest.json").read_text(encoding="utf-8"))
     expected = json.loads((repo / "argus/release_manifest.json").read_text(encoding="utf-8"))
-    for name in ("package_version", "release_id", "source_digest"):
+    for name in ("package_version", "release_id", "source_files"):
         if not expected.get(name) or frozen.get(name) != expected[name]:
             raise RuntimeError("Frozen backend identity differs from the reviewed source; use a fresh build.")
 

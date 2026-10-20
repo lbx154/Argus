@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-import hashlib
 import json
 import runpy
 import sys
@@ -48,16 +47,14 @@ def test_exporter_writes_all_290_resource_bound_packets(
     assert "seed coverage baseline" in markdown_catalog
     assert "不是 launch-ready Prompt" in markdown_catalog
     assert len(objectives) == len(manifests) == len(rough_ideas) == 290
-    assert all(packet["prompt_sha256"] for packet in catalog["packets"])
+    assert all(packet["prompt_key"] for packet in catalog["packets"])
     for packet in catalog["packets"]:
         packet_root = output / packet["packet_path"]
         objective_bytes = (packet_root / "OBJECTIVE.md").read_bytes()
-        disk_sha256 = hashlib.sha256(objective_bytes).hexdigest()
         packet_manifest = json.loads(
             (packet_root / "MANIFEST.json").read_text(encoding="utf-8")
         )
-        assert disk_sha256 == packet["prompt_sha256"]
-        assert disk_sha256 == packet_manifest["prompt_sha256"]
+        assert packet["prompt_key"] == packet_manifest["prompt_key"]
         assert packet["personalization_state"] == "seed_coverage_baseline"
         assert packet["launch_ready"] is False
         assert packet["requires_team_condition_snapshot"] is True

@@ -145,7 +145,7 @@ def _build_supervisor_config(
     runtime_root = artifact_root or project_root
     paper_mission = _paper_mission_for_project_root(runtime_root)
     final_certification = _final_certification_for_project_root(runtime_root)
-    from ..skills.role_memory import role_skill_maintenance_enabled
+    from ..core.knobs import learning_enabled
 
     return LifeSupervisorConfig(
         budget=LifeBudget(max_missions=1 if once else max_missions),
@@ -160,7 +160,7 @@ def _build_supervisor_config(
         ),
         pending_question_resolver=_pending_question_resolver_for(project_root),
         runtime_context=runtime_context,
-        role_skill_maintenance_enabled=role_skill_maintenance_enabled(),
+        role_skill_maintenance_enabled=learning_enabled(),
         continuous=continuous,
         continuous_objective=continuous_objective,
         open_ended=open_ended,
@@ -303,21 +303,17 @@ def _invoke_supervisor(
     open_ended: bool = True,
     allow_chat_fast_path: bool = False,
 ) -> tuple[dict[str, Any], str | None]:
-    from ._runtime_construction import _resolve_role_runner_backend_name
-
     ns = argparse.Namespace()
     ns.backend = backend
-    engineer_backend = _resolve_role_runner_backend_name("engineer", backend)
-    reviewer_backend = _resolve_role_runner_backend_name("reviewer", backend)
     ns.engineer_model = resolve_role_model(
         "engineer",
         role_env="ARGUS_SKILL_ENGINEER_MODEL",
-        backend=engineer_backend,
+        backend=backend,
     )
     ns.reviewer_model = resolve_role_model(
         "reviewer",
         role_env="ARGUS_SKILL_REVIEWER_MODEL",
-        backend=reviewer_backend,
+        backend=backend,
     )
     ns.engineer_reasoning_effort = resolve_role_reasoning_effort(
         "ARGUS_SKILL_ENGINEER_REASONING_EFFORT",

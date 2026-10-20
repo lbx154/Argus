@@ -48,7 +48,7 @@ def test_survey_teaches_successor_discovery_and_evidence_cards() -> None:
     survey = _flat(GUIDE)
     assert "successor discovery" in survey
     assert "evidence card" in survey
-    assert "argus.tools.web_source" in survey
+    assert "your own web tools" in survey
     assert "sources-and-citations.md" in survey
     assert "no material update found" in survey
     assert "exclusion reason" in survey
@@ -63,7 +63,7 @@ def test_stand_up_pilot_profiles_a_real_step_and_measures_engine_agreement() -> 
     assert "phase table" in pilot
     assert "log-prob" in pilot
     assert "engine on and off" in pilot
-    assert "--intent 'stand-up pilot: <candidate>@<sha>'" in pilot
+    assert "exit-code file named after the candidate (`<candidate>@<sha>`)" in pilot
     assert "gpu-hours per valid update" in pilot
 
 

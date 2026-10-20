@@ -32,8 +32,9 @@ from .training_data import (
     MAX_SOURCE_BYTES,
     PURPOSES,
     REVIEWER_KINDS,
-    _hash,
-    _json,
+    SAMPLE_FORMAT,
+    _key,
+    _sample_bytes,
     _sensitive,
     _timestamp,
 )
@@ -101,7 +102,7 @@ def _text(value, limit=4096):
 
 
 def _identity(tenant, sid, task):
-    return _hash(_json([tenant, sid, task]).encode())
+    return _key(tenant, sid, task)
 
 
 def _bucket(tenant, sid, task):
@@ -416,7 +417,7 @@ class CollaborationData:
 
     def _episode(self, db, row, runtime, purpose, tenant, sid, grant, budget):
         role = _role(runtime.get("run_label"))
-        key = _hash(_json(["pi_episode", tenant, sid, row["id"]]).encode())
+        key = _key("pi_episode", tenant, sid, row["id"])
         state = row["state"] if row["state"] in {"complete", "capturing", "quarantined", "interrupted"} else "unknown"
         episode = {
             "episode_id": row["id"], "sample_event_id": key, "role": role, "label": ROLES[role],
@@ -454,7 +455,7 @@ class CollaborationData:
             return episode, 0
         raw = db.execute("SELECT record FROM training_tool_episodes WHERE id=?", (row["id"],)).fetchone()[0]
         cache_key = (tenant, sid, row["id"], grant, row["runtime_profile"], _task_id(runtime.get("mission_id")),
-                     _hash(raw.encode()))
+                     row["updated_at"], row["size"])
         with self._cache_lock:
             validated = self._validated.get(cache_key)
         if validated is None:
@@ -468,12 +469,12 @@ class CollaborationData:
             except (ValueError, TypeError, KeyError, IndexError, RecursionError, OverflowError):
                 episode["reason"] = "malformed_tool_episode"
                 return episode, row["size"]
-            validated = (_hash(_json(sample).encode()), self._pairs(events), len(events))
+            validated = (_sample_bytes(sample), self._pairs(events), len(events))
             with self._cache_lock:
                 if len(self._validated) >= MAX_EPISODES:
                     self._validated.pop(next(iter(self._validated)))
                 self._validated[cache_key] = validated
-        sample_hash, pairs, event_count = validated
+        sample_bytes, pairs, event_count = validated
         episode["sample_eligible"] = True
         episode["raw_available"] = True
         episode["observed_event_count"] = event_count
@@ -484,13 +485,13 @@ class CollaborationData:
         ).fetchone()
         cutoff = self.analytics.clock() - min(30, self.analytics.retention_days) * 86400
         if (review is not None and cutoff <= review["reviewed_at"] <= self.analytics.clock()
-                and review["sample_sha256"] == sample_hash
+                and review["sample_format"] == SAMPLE_FORMAT and review["sample_bytes"] == sample_bytes
                 and review["grant_at"] == grant and review["notice_version"] == self.analytics.notice_version
                 and review["reviewer_kind"] in REVIEWER_KINDS and review["context_approved"]):
             episode["quality_approved"] = True
             episode["quality_evidence"] = {
                 "reviewer_kind": review["reviewer_kind"], "human_reviewed": review["reviewer_kind"] == "human_operator",
-                "evidence_sha256": review["evidence_sha256"], "reviewed_at": review["reviewed_at"],
+                "evidence_bytes": review["evidence_bytes"], "reviewed_at": review["reviewed_at"],
             }
         return episode, row["size"]
 

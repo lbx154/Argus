@@ -170,7 +170,7 @@ def test_five_reviewer_panel_preserves_independent_receipts(
     assert panel["acceptance_probability"] is None
     assert {row["reviewer_kind"] for row in panel["reviewers"]} == set(kinds)
     assert len({row["review_id"] for row in panel["reviewers"]}) == 5
-    assert len({row["evidence_snapshot_sha256"] for row in panel["reviewers"]}) == 1
+    assert len({row["evidence_snapshot_key"] for row in panel["reviewers"]}) == 1
     rows = client.app.state.db.fetch_all(
         "SELECT reviewer_kind,feedback_json FROM reviews WHERE campaign_id=?",
         (campaign["id"],),

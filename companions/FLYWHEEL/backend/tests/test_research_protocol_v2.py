@@ -106,7 +106,7 @@ def test_project_protocol_contains_independent_roles_two_reviews_and_human_gates
         "FINAL_INTEGRITY_CHECK",
         "HUMAN_GATE_2_FINAL",
         "REPRODUCIBILITY_MANIFEST",
-        "Argus code SHA",
+        "Argus code commit",
         '"search_cutoff"',
         '"closest_source_ids"',
         '"falsifier"',
@@ -114,15 +114,15 @@ def test_project_protocol_contains_independent_roles_two_reviews_and_human_gates
         assert marker in objective
 
 
-def test_condition_hash_binds_goal_and_is_deterministic() -> None:
+def test_condition_snapshot_binds_goal_and_is_deterministic() -> None:
     first = _compile_ideation()
     repeated = _compile_ideation()
     changed = _compile_ideation(completion_target="A different bounded objective.")
 
-    assert first.condition_sha256 == repeated.condition_sha256
-    assert first.objective_sha256 == repeated.objective_sha256
-    assert changed.condition_sha256 != first.condition_sha256
-    assert changed.objective_sha256 != first.objective_sha256
+    assert first.condition_snapshot == repeated.condition_snapshot
+    assert changed.condition_snapshot != first.condition_snapshot
+    assert first.condition_key != repeated.condition_key
+    assert first.objective_key != repeated.objective_key
 
 
 VENUE = {
@@ -172,8 +172,7 @@ def test_idea_prompt_compiler_binds_team_goal_and_protocol_provenance() -> None:
     assert compiled.manifest["positive_result_required"] is False
     assert compiled.manifest["automatic_submission_allowed"] is False
     assert compiled.manifest["goal_contract"]["hard_budget"]["gpu_hours"] == 80
-    assert len(compiled.manifest["input_sha256"]) == 64
-    assert len(compiled.manifest["prompt_sha256"]) == 64
+    assert len(compiled.manifest["prompt_key"]) == 64
     for marker in (
         "ARGUS / FLYWHEEL",
         "Builder / Breaker / Arbiter",
@@ -188,7 +187,7 @@ def test_idea_prompt_compiler_binds_team_goal_and_protocol_provenance() -> None:
         assert marker in compiled.prompt
 
 
-def test_prompt_hash_changes_with_team_conditions() -> None:
+def test_prompt_changes_with_team_conditions() -> None:
     compiler = PromptCompiler()
     first = compiler.compile(
         venue=VENUE, domain=DOMAIN, idea=IDEA, resources=RESOURCES, team=TEAM
@@ -199,8 +198,8 @@ def test_prompt_hash_changes_with_team_conditions() -> None:
         venue=VENUE, domain=DOMAIN, idea=IDEA, resources=RESOURCES, team=other_team
     )
 
-    assert first.manifest["input_sha256"] != second.manifest["input_sha256"]
-    assert first.prompt_sha256 != second.prompt_sha256
+    assert first.prompt != second.prompt
+    assert first.prompt_key != second.prompt_key
 
 
 def test_prompt_is_execution_eligible_only_with_conditioned_candidate_binding() -> None:
@@ -209,9 +208,9 @@ def test_prompt_is_execution_eligible_only_with_conditioned_candidate_binding() 
         "condition_binding": {
             "ideation_run_id": "run-1",
             "candidate_id": "candidate-1",
-            "condition_sha256": "a" * 64,
-            "parent_objective_sha256": "b" * 64,
-            "candidate_artifact_sha256": "c" * 64,
+            "condition_key": "a" * 64,
+            "parent_objective_key": "b" * 64,
+            "candidate_artifact_key": "c" * 64,
         },
     }
     compiled = PromptCompiler().compile(

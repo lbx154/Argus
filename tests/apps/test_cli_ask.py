@@ -181,9 +181,6 @@ def test_ask_runs_the_real_quick_reply_path_against_a_scripted_cli(
     monkeypatch.setenv("ARGUS_SKILL_RUNNER_BACKEND", "dsh")
     monkeypatch.setenv("ARGUS_SKILL_HOME", str(tmp_path / "home"))
     monkeypatch.delenv("ARGUS_SKILL_AGENT_IO_LOG", raising=False)
-    monkeypatch.delenv("ARGUS_SKILL_ENGINEER_BACKEND", raising=False)
-    monkeypatch.delenv("ARGUS_SKILL_REVIEWER_BACKEND", raising=False)
-    monkeypatch.delenv("ARGUS_SKILL_MANAGER_BACKEND", raising=False)
     monkeypatch.chdir(work)
 
     rc = main(["--ask", "what is 2+2?", "--life-dir", str(tmp_path / "life")])
@@ -218,9 +215,6 @@ def test_ask_reports_backend_failure_when_runner_is_missing(
     monkeypatch.setenv("ARGUS_SKILL_RUNNER_BACKEND", "dsh")
     monkeypatch.setenv("ARGUS_SKILL_HOME", str(tmp_path / "home"))
     monkeypatch.delenv("ARGUS_SKILL_AGENT_IO_LOG", raising=False)
-    monkeypatch.delenv("ARGUS_SKILL_ENGINEER_BACKEND", raising=False)
-    monkeypatch.delenv("ARGUS_SKILL_REVIEWER_BACKEND", raising=False)
-    monkeypatch.delenv("ARGUS_SKILL_MANAGER_BACKEND", raising=False)
     monkeypatch.chdir(work)
 
     rc = main(["--ask", "what is 2+2?", "--life-dir", str(tmp_path / "life")])

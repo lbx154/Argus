@@ -15,21 +15,19 @@ pub struct ReleaseContext {
     pub resource_dir: Option<PathBuf>,
 }
 
+/// The engine release this desktop build ships: its package version and the
+/// release id the build stamps from that version and its git commit.
 #[derive(Clone, Debug, Deserialize, PartialEq, Eq)]
 struct ReleaseManifest {
     package_version: String,
     release_id: String,
-    source_digest: String,
 }
 
 fn parse_manifest(raw: &str) -> Result<ReleaseManifest, String> {
     let manifest: ReleaseManifest = serde_json::from_str(raw)
         .map_err(|error| format!("版本清单格式无效：{error}"))?;
-    if manifest.package_version.is_empty() || manifest.release_id.is_empty()
-        || manifest.source_digest.len() != 64
-        || !manifest.source_digest.bytes().all(|byte| byte.is_ascii_hexdigit())
-    {
-        return Err("版本清单缺少有效的版本或源码摘要。".into());
+    if manifest.package_version.is_empty() || manifest.release_id.is_empty() {
+        return Err("版本清单缺少有效的版本或发布标识。".into());
     }
     Ok(manifest)
 }
@@ -68,20 +66,19 @@ impl ReleaseContext {
         DesktopReleaseIdentity {
             package_version: manifest.package_version.clone(),
             release_id: manifest.release_id.clone(),
-            source_digest: manifest.source_digest.clone(),
             distribution: if self.development { "development" }
                 else if preview_mode() { "preview" } else { "packaged" }.into(),
         }
     }
 
-    pub fn manifest_digest(&self) -> String {
-        build_manifest().source_digest.clone()
+    pub fn release_id(&self) -> String {
+        build_manifest().release_id.clone()
     }
 
     pub fn validate_backend_release(
         &self,
         package_version: Option<&str>,
-        source_digest: Option<&str>,
+        release_id: Option<&str>,
     ) -> Result<(), String> {
         let expected = build_manifest();
         if package_version != Some(expected.package_version.as_str()) {
@@ -90,7 +87,7 @@ impl ReleaseContext {
                 package_version.unwrap_or_default(), expected.package_version,
             ));
         }
-        if source_digest != Some(expected.source_digest.as_str()) {
+        if release_id != Some(expected.release_id.as_str()) {
             return Err("端口上的后端不是当前桌面构建".to_owned());
         }
         Ok(())
@@ -172,15 +169,15 @@ mod tests {
     fn missing_or_corrupt_disk_manifest_never_changes_host_identity() {
         let directory = tempfile::tempdir().unwrap();
         let context = fixture(directory.path());
-        let digest = context.manifest_digest();
+        let release = context.release_id();
         assert!(context.validate_payload().is_ok());
         let path = context.manifest_path().unwrap();
         fs::remove_file(&path).unwrap();
         assert!(context.validate_payload().unwrap_err().contains("无法读取"));
-        assert_eq!(context.manifest_digest(), digest);
+        assert_eq!(context.release_id(), release);
         fs::write(&path, "{partial").unwrap();
         assert!(context.validate_payload().unwrap_err().contains("格式无效"));
-        assert_eq!(context.identity().source_digest, digest);
+        assert_eq!(context.identity().release_id, release);
         fs::write(&path, BUILD_MANIFEST).unwrap();
         assert!(context.validate_payload().is_ok());
     }
@@ -190,10 +187,10 @@ mod tests {
         let directory = tempfile::tempdir().unwrap();
         let context = fixture(directory.path());
         let mut value: serde_json::Value = serde_json::from_str(BUILD_MANIFEST).unwrap();
-        value["source_digest"] = "0".repeat(64).into();
+        value["release_id"] = "0.0.0+replaced".into();
         fs::write(context.manifest_path().unwrap(), value.to_string()).unwrap();
         assert!(context.validate_payload().unwrap_err().contains("不配套"));
-        assert_ne!(context.manifest_digest(), "0".repeat(64));
+        assert_ne!(context.release_id(), "0.0.0+replaced");
     }
 
     #[test]
@@ -207,20 +204,19 @@ mod tests {
     }
 
     #[test]
-    fn live_backend_uses_engine_version_and_exact_source_identity() {
+    fn live_backend_uses_engine_version_and_exact_release_identity() {
         let directory = tempfile::tempdir().unwrap();
         let mut context = fixture(directory.path());
         context.app_version = "42.0.0".into();
         let engine = context.identity();
         assert!(context.validate_backend_release(
-            Some(&engine.package_version), Some(&engine.source_digest),
+            Some(&engine.package_version), Some(&engine.release_id),
         ).is_ok());
         for version in [None, Some(""), Some("42.0.0")] {
-            assert!(context.validate_backend_release(version, Some(&engine.source_digest)).is_err());
+            assert!(context.validate_backend_release(version, Some(&engine.release_id)).is_err());
         }
-        let other_source = "0".repeat(64);
-        for digest in [None, Some(""), Some(other_source.as_str())] {
-            assert!(context.validate_backend_release(Some(&engine.package_version), digest).is_err());
+        for release in [None, Some(""), Some("0.0.0+other")] {
+            assert!(context.validate_backend_release(Some(&engine.package_version), release).is_err());
         }
         assert_eq!(context.app_version, "42.0.0");
     }
@@ -238,7 +234,7 @@ mod tests {
 
     #[test]
     fn invalid_identity_fields_are_rejected() {
-        for raw in ["{}", "[]", r#"{"package_version":"1","release_id":"r","source_digest":"abc"}"#] {
+        for raw in ["{}", "[]", r#"{"package_version":"1","release_id":""}"#] {
             assert!(parse_manifest(raw).is_err());
         }
     }

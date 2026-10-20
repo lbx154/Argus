@@ -2,10 +2,7 @@
 from __future__ import annotations
 
 import json
-import os
 import re
-import uuid
-from contextlib import contextmanager
 from pathlib import Path
 from typing import Any, Callable
 
@@ -29,35 +26,6 @@ def session_identity(runner: Any, options: Any) -> dict[str, str]:
         "backend": str(getattr(runner, "backend", "") or ""),
         "model": str(getattr(options, "model", "") or ""),
     }
-
-
-@contextmanager
-def manager_interaction_priority(root: Path):
-    """Publish foreground demand without interrupting the Engineer pipeline."""
-    directory = root / ".manager_session_foreground"
-    directory.mkdir(parents=True, exist_ok=True)
-    marker = directory / f"{os.getpid()}-{uuid.uuid4().hex}.json"
-    marker.write_text(json.dumps({"pid": os.getpid()}), encoding="utf-8")
-    try:
-        yield
-    finally:
-        marker.unlink(missing_ok=True)
-
-
-def manager_session_yield_reason(root: Path | str) -> str | None:
-    """Background Manager providers should include this in their stop callback."""
-    from ..core.daemon_lock import is_pid_running
-
-    directory = Path(root) / ".manager_session_foreground"
-    for marker in directory.glob("*.json"):
-        try:
-            pid = int(marker.name.split("-", 1)[0])
-            if is_pid_running(pid):
-                return "Foreground Manager conversation is waiting"
-            marker.unlink(missing_ok=True)
-        except (OSError, ValueError):
-            continue
-    return None
 
 
 def _supervision_excerpt(prompt: str) -> str:
@@ -87,7 +55,6 @@ def _supervision_excerpt(prompt: str) -> str:
     tasks.sort(key=lambda task: task.get("id") != event.get("item_id"))
     summary = {
         "objective_excerpt": excerpt(facts.get("objective"), 400),
-        "evidence_revision": excerpt(facts.get("evidence_revision"), 64),
         "trigger": {"type": excerpt(event.get("type"), 80), "item_id": excerpt(event.get("item_id"), 80),
                     "reason_excerpt": excerpt(event.get("reason") or event.get("summary"), 400)},
         "tasks": [{"id": excerpt(task.get("id"), 80), "status": excerpt(task.get("status"), 30),
@@ -162,5 +129,4 @@ def session_handoff(
 
 __all__ = [
     "conversation_backend", "session_identity", "remember_turn", "session_handoff",
-    "manager_interaction_priority", "manager_session_yield_reason",
 ]

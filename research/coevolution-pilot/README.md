@@ -9,9 +9,8 @@ use reduced calls from 33 to 23, tokens by 2.8%, and estimated cost by 0.9%.
 The reference inconsistency and defects in the generated Skills/Wiki were retained;
 this small experiment did not establish an accuracy improvement.
 
-Daily Pi tasks now use the [production runtime integration](../../docs/pi-runtime-learning.md).
 The experimental controller, subscription gateway, report generators and duplicated
-artifacts were removed from the current tree. The historical commit preserves the
+artifacts were removed from the current tree, and so was the production integration
+that followed it (the Pi learned tools). The historical commit preserves the
 original protocol, source, generated artifacts, scores and losslessly compressed
-trajectories for reproduction. The production implementation has its own tests;
-the historical benchmark scores do not evaluate its newer execution contract.
+trajectories for reproduction.

@@ -134,7 +134,7 @@ def generate_source_first(documents: list[dict], tasks: list[dict], locale: str,
                             global_root=global_root, deadline=deadline,
                             **({"on_progress": on_progress, "phase": "planning"} if on_progress is not None else {}))
     second_prompt, second_schema = compose(contexts, outline, locale)
-    result = run_map_model(second_prompt, second_schema, config.for_review(), project_root=project_root,
+    result = run_map_model(second_prompt, second_schema, config, project_root=project_root,
                            global_root=global_root, deadline=deadline,
                            **({"on_progress": on_progress, "phase": "writing"} if on_progress is not None else {}))
     cards = []
@@ -151,7 +151,7 @@ def generate_source_first(documents: list[dict], tasks: list[dict], locale: str,
             "kind": "learning_plan_then_lesson" if learning_path else "source_outline_then_lesson",
             "version": map_learning.PROCESS_VERSION if learning_path else PROCESS_VERSION,
             "outline_model_revision": config.revision,
-            "lesson_model_revision": config.for_review().revision,
+            "lesson_model_revision": config.revision,
             "outline": copy.deepcopy(outline["outlines"][key]),
             "finished_at": time.time(),
         }

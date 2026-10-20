@@ -12,8 +12,7 @@
     "released": "2026-03-31",
     "corrected": "2026-04-09",
     "count": 58,
-    "source_url": "https://www.ccf.org.cn/Academic_Evaluation/By_category/",
-    "source_pdf_sha256": "271B630B576BF8A4F802E767F5694CADED93680E22B3A19BEF7902591C45C1D3"
+    "source_url": "https://www.ccf.org.cn/Academic_Evaluation/By_category/"
   },
   "evidence_legend": {
     "official_confirmed": "independently verified on an official conference/organizer source",
@@ -29,7 +28,6 @@
     "checked_at": "2026-08-23",
     "selection": "Full/Regular paper submission deadlines in the inclusive 2026-08-22 to 2027-08-22 window; abstract-only, registration, artifact, camera-ready, notification, and workshop dates excluded.",
     "source_name": "official_deadline_overrides.json",
-    "source_sha256": "5915287708C667800378B1BF85A5BC804A25CA04D4A8F2593F6782D23028FF36",
     "source_size_bytes": 21713,
     "bundled_materialization": "Accepted overrides are materialized into this self-contained calendar; source_name is generation provenance, not a bundled sibling file."
   },

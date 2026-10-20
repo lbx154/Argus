@@ -33,16 +33,16 @@
       "type": "object",
       "additionalProperties": {
         "type": "object",
-        "required": ["sha256", "evidence_path"],
+        "required": ["facts", "evidence_path"],
         "properties": {
-          "sha256": {"type": "string", "pattern": "^[0-9a-f]{64}$"},
+          "facts": {"type": "array", "items": {"type": "integer", "minimum": 0}, "minItems": 3, "maxItems": 3},
           "evidence_path": {"type": "string"}
         }
       }
     },
     "observation": {
       "type": "object",
-      "required": ["command", "cwd", "exit_code", "timed_out", "seconds", "log", "log_sha256"],
+      "required": ["command", "cwd", "exit_code", "timed_out", "seconds", "log", "log_bytes"],
       "properties": {
         "command": {"type": "string", "minLength": 1},
         "cwd": {"type": "string", "minLength": 1},
@@ -54,16 +54,16 @@
         "execution_error": {"type": ["string", "null"]},
         "process_pid": {"type": "integer", "minimum": 0},
         "source_origin": {
-          "type": "object", "required": ["path", "sha256", "status"],
+          "type": "object", "required": ["path", "bytes", "status"],
           "properties": {
             "path": {"type": "string"},
-            "sha256": {"type": "string", "pattern": "^[0-9a-f]{64}$"},
+            "bytes": {"type": "integer", "minimum": 0},
             "status": {"enum": ["verified", "incomplete"]}
           }
         },
         "seconds": {"type": "number", "minimum": 0},
         "log": {"type": "string", "minLength": 1},
-        "log_sha256": {"type": "string", "pattern": "^[0-9a-f]{64}$"}
+        "log_bytes": {"type": "integer", "minimum": 0}
       }
     }
   }

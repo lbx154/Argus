@@ -36,22 +36,6 @@ Host summaries read resource totals and process names for the service account,
 without reading command arguments, environment variables, or other accounts'
 process details. These queries create no tasks or background learning calls.
 
-## Concurrency
-
-Research candidate count and worker concurrency are independent. A twelve-route
-idea portfolio uses the configured pool width instead of launching twelve
-workers at once. Defaults are two teammates per pool and a total of two live
-teammates per daemon:
-
-```text
-ARGUS_TEAM_DEFAULT_WIDTH=2
-ARGUS_TEAM_MAX_TOTAL_IN_FLIGHT=2
-```
-
-These are teammate limits; provider request limits have their own settings.
-Existing explicit operator settings remain supported. Nested Teams remain
-subject to the existing disabled-by-default formation policy.
-
 ## Results and downloads
 
 The first-use examples prepare editable drafts; they do not submit work.

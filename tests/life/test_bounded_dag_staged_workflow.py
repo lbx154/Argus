@@ -72,21 +72,20 @@ def _authorized_repair(tmp_path):  # noqa: ANN001
         json.dumps({"objective": "repair terminal gate", "generation": 2}),
         encoding="utf-8",
     )
-    evidence = workdir / "research" / "RESULT.json"
-    evidence.parent.mkdir()
-    evidence.write_text('{"decision":"rejected"}', encoding="utf-8")
     validator = workdir / "tests" / "test_terminal_contract.py"
     validator.parent.mkdir()
     validator.write_text("def test_contract(): assert False\n", encoding="utf-8")
     store = CampaignControlStore(life, project_root=workdir)
     identity = store.campaign_identity()
-    store.clear_wait_for_new_evidence(
+    store.commit_revision(
         identity=identity,
-        terminal_evidence=[{
-            "failure_source": "validator_defect",
-            "validator_id": "terminal-contract",
-            "repair_paths": ["tests/test_terminal_contract.py"],
-        }],
+        updates={
+            "terminal_evidence": [{
+                "failure_source": "validator_defect",
+                "validator_id": "terminal-contract",
+                "repair_paths": ["tests/test_terminal_contract.py"],
+            }],
+        },
         reason="Reviewer diagnosed validator defect",
     )
     authorization = store.issue_authorization(
@@ -95,8 +94,6 @@ def _authorized_repair(tmp_path):  # noqa: ANN001
         allowed_actions=["validator_repair", "acceptance_retry"],
         scope="tests/terminal only",
         allowed_write_paths=["tests/test_terminal_contract.py"],
-        evidence_paths=["research/RESULT.json"],
-        forbidden_mutations=["research/RESULT.json"],
         source_channel="vscode",
         source_message_id="message-1",
         validator_id="terminal-contract",
@@ -109,7 +106,7 @@ def _authorized_repair(tmp_path):  # noqa: ANN001
         authorization_id=authorization.authorization_id,
         authorization_action="validator_repair",
     ))
-    return memory, workdir, store, evidence, validator, item
+    return memory, workdir, store, validator, item
 
 
 def test_bounded_dag_node_keeps_vertical_stage_workflow(tmp_path) -> None:
@@ -275,7 +272,7 @@ def test_review_only_item_suppresses_manager_stage_transition(tmp_path) -> None:
 def test_validator_repair_claims_capability_and_forces_one_direct_round(
     tmp_path,
 ) -> None:
-    memory, workdir, store, evidence, validator, item = _authorized_repair(tmp_path)
+    memory, workdir, store, validator, item = _authorized_repair(tmp_path)
     runner = _RepairRunner(validator, "def test_contract(): assert True\n")
     supervisor = LifeSupervisor(
         memory=memory,
@@ -296,34 +293,8 @@ def test_validator_repair_claims_capability_and_forces_one_direct_round(
     assert runner.kwargs["max_rounds_override"] == 1
     assert store.read_snapshot()["active_capability"] is None
     assert store.authorization_events()[-1]["status"] == "accepted"
-    assert evidence.read_text(encoding="utf-8") == '{"decision":"rejected"}'
     stored = next(row for row in memory.backlog.all() if row.id == item.id)
     assert stored.status == "done"
-
-
-def test_validator_repair_cannot_mutate_frozen_scientific_evidence(tmp_path) -> None:
-    memory, workdir, store, evidence, _validator, item = _authorized_repair(tmp_path)
-    runner = _RepairRunner(evidence, '{"decision":"GO"}')
-    supervisor = LifeSupervisor(
-        memory=memory,
-        runner=runner,
-        sink=_Sink(),
-        config=LifeSupervisorConfig(
-            continuous=True,
-            continuous_objective="repair terminal gate",
-            project_worktree=workdir,
-            artifact_root=workdir,
-        ),
-    )
-
-    result = supervisor.tick()
-
-    assert result is not None and result["success"] is False
-    assert result["status"] == "error"
-    stored = next(row for row in memory.backlog.all() if row.id == item.id)
-    assert stored.status == "failed"
-    assert store.authorization_events()[-1]["status"] == "rejected"
-    assert "frozen evidence changed" in store.authorization_events()[-1]["guard_errors"]
 
 
 def test_supervisor_recovers_closed_repair_without_rerunning_acceptance(
@@ -331,7 +302,7 @@ def test_supervisor_recovers_closed_repair_without_rerunning_acceptance(
 ) -> None:
     from dataclasses import asdict
 
-    memory, workdir, store, _evidence, validator, item = _authorized_repair(tmp_path)
+    memory, workdir, store, validator, item = _authorized_repair(tmp_path)
     identity = store.campaign_identity()
     authorization = store.get_authorization(item.authorization_id)
     assert authorization is not None
@@ -387,7 +358,7 @@ def test_supervisor_recovers_closed_repair_without_rerunning_acceptance(
 def test_supervisor_rejects_interrupted_acceptance_without_rerunning(
     tmp_path,
 ) -> None:
-    memory, workdir, store, _evidence, validator, item = _authorized_repair(tmp_path)
+    memory, workdir, store, validator, item = _authorized_repair(tmp_path)
     identity = store.campaign_identity()
     authorization = store.get_authorization(item.authorization_id)
     assert authorization is not None

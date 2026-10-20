@@ -74,8 +74,6 @@ class CardReference:
     part: int | None = None
     step_id: str = ""
     step_title: str = ""
-    team_id: str = ""
-    team_task_id: str = ""
     # Locale the operator quoted under; old markers carry none and stay zh.
     lang: str = "zh"
 
@@ -124,7 +122,7 @@ def parse_card_reference(line: str) -> CardReference | None:
         isinstance(part, bool) or not isinstance(part, int) or part <= 0
     ):
         return None
-    for key in ("step_id", "step_title", "team_id", "team_task_id", "lang"):
+    for key in ("step_id", "step_title", "lang"):
         value = raw.get(key)
         if value is not None and not isinstance(value, str):
             return None
@@ -141,8 +139,6 @@ def parse_card_reference(line: str) -> CardReference | None:
         part=part,
         step_id=str(raw.get("step_id") or ""),
         step_title=str(raw.get("step_title") or ""),
-        team_id=str(raw.get("team_id") or ""),
-        team_task_id=str(raw.get("team_task_id") or ""),
         lang="en" if raw.get("lang") == "en" else "zh",
     )
 
@@ -170,7 +166,7 @@ def _event_texts_by_id(life_dir: Path, wanted: set[str]) -> dict[str, str]:
     """Resolve map event ids to their text from the events.jsonl tail.
 
     Uses the map projection's own id scheme — the raw ``event_id`` field when
-    present, else ``map_view.digest(row)`` for rows the map would surface — so
+    present, else ``map_view.event_id(row)`` for rows the map would surface — so
     the ids the frontend copied into the reference resolve here. Bounded to
     the same 8 MiB tail the map reads; anything older simply does not resolve.
     """
@@ -183,9 +179,9 @@ def _event_texts_by_id(life_dir: Path, wanted: set[str]) -> dict[str, str]:
     except OSError:
         return {}
     try:
-        from .map_view import EVENT_PREFIXES, digest
+        from .map_view import EVENT_PREFIXES, event_id
     except Exception:  # noqa: BLE001 — fall back to explicit event ids only
-        EVENT_PREFIXES, digest = (), None
+        EVENT_PREFIXES, event_id = (), None
     found: dict[str, str] = {}
     try:
         with path.open("rb") as handle:
@@ -209,14 +205,10 @@ def _event_texts_by_id(life_dir: Path, wanted: set[str]) -> dict[str, str]:
         if not isinstance(row, dict):
             continue
         row_id = str(row.get("event_id") or "")
-        if not row_id and digest is not None:
-            kind = str(row.get("type") or "")
-            if not kind.startswith(tuple(EVENT_PREFIXES)):
+        if not row_id and event_id is not None:
+            if not str(row.get("type") or "").startswith(tuple(EVENT_PREFIXES)):
                 continue
-            try:
-                row_id = digest(row)
-            except Exception:  # noqa: BLE001 — one odd row must not stop the scan
-                continue
+            row_id = event_id(row)
         if row_id not in wanted:
             continue
         text = str(

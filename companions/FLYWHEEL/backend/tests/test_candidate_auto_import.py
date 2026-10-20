@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 import asyncio
-import hashlib
 import json
 from pathlib import Path
 
@@ -128,7 +127,6 @@ class _ArtifactArgus:
                 "exists": True,
                 "kind": "json",
                 "size": len(content),
-                "sha256": hashlib.sha256(content).hexdigest(),
             }
             for path, content in self.payloads.items()
         ]
@@ -141,7 +139,6 @@ class _ArtifactArgus:
         return ArtifactDownload(
             path=path,
             size=len(content),
-            sha256=hashlib.sha256(content).hexdigest(),
             content_type="application/json",
             content=content,
         )
@@ -153,9 +150,8 @@ def test_terminal_bound_candidate_artifacts_are_auto_imported(tmp_path: Path) ->
         candidates = [_candidate()]
         manifest = {
             "schema_version": "flywheel.ideation-candidates/1",
-            "condition_sha256": run["condition_sha256"],
-            "objective_sha256": run["objective_sha256"],
-            "candidates_sha256": hashlib.sha256(canonical_bytes(candidates)).hexdigest(),
+            "condition_key": run["condition_key"],
+            "objective_key": run["objective_key"],
             "candidate_count": 1,
         }
         client.app.state.coordinator._client = lambda row: _ArtifactArgus(  # type: ignore[method-assign]
@@ -197,9 +193,8 @@ def test_unbound_candidate_artifacts_are_quarantined_not_imported(tmp_path: Path
         candidates = [_candidate()]
         manifest = {
             "schema_version": "flywheel.ideation-candidates/1",
-            "condition_sha256": "0" * 64,
-            "objective_sha256": run["objective_sha256"],
-            "candidates_sha256": hashlib.sha256(canonical_bytes(candidates)).hexdigest(),
+            "condition_key": "0" * 64,
+            "objective_key": run["objective_key"],
             "candidate_count": 1,
         }
         client.app.state.coordinator._client = lambda row: _ArtifactArgus(  # type: ignore[method-assign]

@@ -6,24 +6,19 @@
   "validation": "/data/v-boxiuli/argus_figure_test/studio/figure_contract.schema.json",
   "artifacts": {
     "contract": {
-      "path": "/data/v-boxiuli/argus_figure_test/studio/out/scenario_1_marl_architecture/contract.json",
-      "sha256": "cbf68b6231091cae60efbe84cff0522f0f17dc0fadb516674478a18f55020147"
+      "path": "/data/v-boxiuli/argus_figure_test/studio/out/scenario_1_marl_architecture/contract.json"
     },
     "svg": {
-      "path": "/data/v-boxiuli/argus_figure_test/studio/out/scenario_1_marl_architecture/scenario_1_marl_architecture.svg",
-      "sha256": "283e8a87969f914ed9e8f423d4f92fc06969f1a2aa5c28456ac91cf2901d04c2"
+      "path": "/data/v-boxiuli/argus_figure_test/studio/out/scenario_1_marl_architecture/scenario_1_marl_architecture.svg"
     },
     "png": {
-      "path": "/data/v-boxiuli/argus_figure_test/studio/out/scenario_1_marl_architecture/scenario_1_marl_architecture.png",
-      "sha256": "facccdede8e378d09de296a8ffd3ba9b0fc5dba030bedc41a097a4cf1dc86153"
+      "path": "/data/v-boxiuli/argus_figure_test/studio/out/scenario_1_marl_architecture/scenario_1_marl_architecture.png"
     },
     "pdf": {
-      "path": "/data/v-boxiuli/argus_figure_test/studio/out/scenario_1_marl_architecture/scenario_1_marl_architecture.pdf",
-      "sha256": "4dbaf2e501af45ec7d5d98c5042624c4cfe83a3834e3766266e928ef47949dd3"
+      "path": "/data/v-boxiuli/argus_figure_test/studio/out/scenario_1_marl_architecture/scenario_1_marl_architecture.pdf"
     },
     "pptx": {
-      "path": "/data/v-boxiuli/argus_figure_test/studio/out/scenario_1_marl_architecture/scenario_1_marl_architecture.pptx",
-      "sha256": "9f0ea312f97e502a6b09ae99238165d7c6f07146f72839ea1090a1c4e6a93582"
+      "path": "/data/v-boxiuli/argus_figure_test/studio/out/scenario_1_marl_architecture/scenario_1_marl_architecture.pptx"
     }
   },
   "steps": [

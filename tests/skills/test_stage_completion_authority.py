@@ -45,7 +45,9 @@ from argus.skills.vertical_select import (
     vertical_completion_certificate_status,
 )
 
-MATH_STAGES = ("scope", "solve", "review")
+STAGES = ("scope", "solve", "review")
+
+pytestmark = pytest.mark.usefixtures("targeted_vertical")
 
 
 def _project(tmp_path: Path, *, stage: str, mode: str = "staged") -> Path:
@@ -56,7 +58,7 @@ def _project(tmp_path: Path, *, stage: str, mode: str = "staged") -> Path:
             {
                 "current_stage": stage,
                 "workflow_mode": mode,
-                "stages": {name: {"status": "pending"} for name in MATH_STAGES},
+                "stages": {name: {"status": "pending"} for name in STAGES},
             },
             indent=2,
             sort_keys=True,
@@ -64,7 +66,7 @@ def _project(tmp_path: Path, *, stage: str, mode: str = "staged") -> Path:
         + "\n",
         encoding="utf-8",
     )
-    persist_vertical(root, "math")
+    persist_vertical(root, "targeted_lab")
     return root
 
 
@@ -125,7 +127,7 @@ def test_early_completion_is_still_available_to_a_caller_with_standing(
         allow_early_completion=True,
     )
 
-    assert vertical_completion_certificate_status(root, "math")["ok"] is True
+    assert vertical_completion_certificate_status(root, "targeted_lab")["ok"] is True
 
 
 def test_early_completion_flag_cannot_bypass_staged_workflow(
@@ -166,7 +168,7 @@ def _forge(root: Path, *, mode: str) -> None:
     from argus.skills.stage_machine import completion_contract_fingerprint
     from argus.verticals._base import load_vertical_contract
 
-    version = load_vertical_contract("math", project_root=root).completion_contract_version
+    version = load_vertical_contract("targeted_lab", project_root=root).completion_contract_version
     fingerprint = completion_contract_fingerprint(root, "scope", version=version)
     state = root / ".argus" / "PIPELINE_STATE.json"
     payload = json.loads(state.read_text(encoding="utf-8"))
@@ -198,7 +200,7 @@ def test_a_record_like_run_13s_is_rejected_at_read_time(tmp_path: Path) -> None:
     root = _project(tmp_path, stage="scope")
     _forge(root, mode="staged")
 
-    status = vertical_completion_certificate_status(root, "math")
+    status = vertical_completion_certificate_status(root, "targeted_lab")
 
     assert status["ok"] is False
     assert "final stage" in status["reason"]
@@ -209,7 +211,7 @@ def test_the_read_side_rejection_names_the_uncertified_stages(tmp_path: Path) ->
     root = _project(tmp_path, stage="scope")
     _forge(root, mode="staged")
 
-    reason = vertical_completion_certificate_status(root, "math")["reason"]
+    reason = vertical_completion_certificate_status(root, "targeted_lab")["reason"]
 
     assert "solve" in reason
     assert "review" in reason
@@ -224,7 +226,7 @@ def test_a_valid_contract_fingerprint_does_not_rescue_it(tmp_path: Path) -> None
     root = _project(tmp_path, stage="scope")
     _forge(root, mode="staged")
 
-    status = vertical_completion_certificate_status(root, "math")
+    status = vertical_completion_certificate_status(root, "targeted_lab")
 
     assert status["ok"] is False
     assert "differs from the live one" not in status["reason"], (
@@ -237,7 +239,7 @@ def test_direct_mode_still_accepts_its_own_early_completion(tmp_path: Path) -> N
     root = _project(tmp_path, stage="scope")
     _forge(root, mode="direct")
 
-    status = vertical_completion_certificate_status(root, "math")
+    status = vertical_completion_certificate_status(root, "targeted_lab")
 
     assert status["ok"] is True, status
 
@@ -246,4 +248,4 @@ def test_an_unreadable_workflow_mode_fails_closed(tmp_path: Path) -> None:
     root = _project(tmp_path, stage="scope")
     _forge(root, mode="")
 
-    assert vertical_completion_certificate_status(root, "math")["ok"] is False
+    assert vertical_completion_certificate_status(root, "targeted_lab")["ok"] is False

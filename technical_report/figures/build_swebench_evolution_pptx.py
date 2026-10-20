@@ -4,7 +4,6 @@
 from __future__ import annotations
 
 import csv
-import hashlib
 import json
 import shutil
 import subprocess
@@ -50,14 +49,6 @@ PALE_GOLD = RGBColor(252, 246, 229)
 GRAY = RGBColor(122, 131, 142)
 LIGHT_GRAY = RGBColor(216, 224, 232)
 PANEL = RGBColor(255, 253, 248)
-
-
-def sha256(path: Path) -> str:
-    digest = hashlib.sha256()
-    with path.open("rb") as handle:
-        for chunk in iter(lambda: handle.read(1024 * 1024), b""):
-            digest.update(chunk)
-    return digest.hexdigest()
 
 
 def add_text(
@@ -458,8 +449,8 @@ def main() -> int:
         "scope": "One 731-task experiment. Copilot per-wave resource traces are unavailable; Argus windows are observational, W23-24 are shown separately as late difficult-task stress, and Reviewer routing is task-dependent rather than randomized.",
         "visual_style": "anime research field log with cream paper, navy linework, mountain-ridge motif, and shared Planner/Engineer characters; quantitative marks remain exact",
         "character_assets": [str(PLANNER_AVATAR.relative_to(FIGURES)), str(ENGINEER_AVATAR.relative_to(FIGURES))],
-        "inputs": {SUMMARY_PATH.name: sha256(SUMMARY_PATH), WAVES_PATH.name: sha256(WAVES_PATH), REVIEWER_STATS_PATH.name: sha256(REVIEWER_STATS_PATH)},
-        "outputs": {path.name: sha256(path) for path in (PPTX_PATH, PDF_PATH, SVG_PATH, PNG_PATH, WINDOWS_PATH, MACROS_PATH, REVIEWER_MACROS_PATH)},
+        "input_bytes": {path.name: path.stat().st_size for path in (SUMMARY_PATH, WAVES_PATH, REVIEWER_STATS_PATH)},
+        "output_bytes": {path.name: path.stat().st_size for path in (PPTX_PATH, PDF_PATH, SVG_PATH, PNG_PATH, WINDOWS_PATH, MACROS_PATH, REVIEWER_MACROS_PATH)},
         "editable_source": PPTX_PATH.name,
     }
     PROVENANCE_PATH.write_text(json.dumps(provenance, indent=2, sort_keys=True) + "\n", encoding="utf-8")

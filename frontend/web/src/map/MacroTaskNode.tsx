@@ -14,12 +14,13 @@ import {
   TriangleAlert,
   X,
 } from "lucide-react";
+import { backlogParkReason, isPauseStatus } from "../../../core/src/missionOutcome";
 import { MarkdownExcerpt } from "../components/MarkdownExcerpt";
 import { Button } from "../components/primitives";
 import { MapReaderContent, type MapReaderSelection } from "./MapReaderContent";
 import type { ArtifactInfo } from "../api";
 import type { MapCopy, CardReference } from "./presentation";
-import { ACTIVE, statusKey, teamOutcomeKey, teamOutcomeLabel } from "./model";
+import { ACTIVE, statusKey } from "./model";
 import {
   STEP_KINDS,
   humanizeHarnessNote,
@@ -54,8 +55,6 @@ export type MacroData = MapCard & {
   dispatchState?: 'receiving' | 'landed';
   growingSteps?: Record<string, number>;
   growingLinks?: Record<string, number>;
-  /** Fan width the planner declared for this task's formation, if any. */
-  plannedWidth?: number;
   seenCards?: Set<string>;
   restoring?: boolean;
   /** The pointer is on this card, or on one it is related to. */
@@ -67,9 +66,6 @@ export type MacroData = MapCard & {
   revealing?: boolean;
   /** The role at work on this card right now, when the session is live. */
   phase?: string;
-  /** The one sentence for a task waiting on its background team; the same
-   * words the sidebar and the conversation header show at that moment. */
-  waiting?: string;
   readOnly: boolean;
   source: string;
   quote: (ref: CardReference) => void;
@@ -160,9 +156,7 @@ const TURN_KIND_NOTES: Record<StepKind, [string, string]> = {
   result: ["Argus 给出的回答", "What Argus answered"],
 };
 const sourceLabel = (step: SubmapStep, zh: boolean) =>
-  step.source === "team"
-    ? zh ? "子任务工作记录" : "Subtask work record"
-    : step.source === "task"
+  step.source === "task"
     ? zh
       ? "任务记录"
       : "Task record"
@@ -186,8 +180,6 @@ export const MacroTaskNode = memo(function MacroTaskNode({
   useEffect(() => { data.seenCards?.add(id); }, [data.seenCards, id]);
   const [readingLayout, setReadingLayout] = useState<SubmapLayout | null>(null);
   const layout = readingLayout || currentLayout;
-  const currentStep = (step: SubmapStep) => step.source === 'team'
-    ? currentLayout.steps.find((current) => current.id === step.id) || step : step;
   const screenWidth = data.canvasSize?.width || window.innerWidth;
   const screenHeight = data.canvasSize?.height || window.innerHeight;
   useEffect(() => {
@@ -208,17 +200,16 @@ export const MacroTaskNode = memo(function MacroTaskNode({
     const timer = setTimeout(() => setCompletedNow(false), 1500);
     return () => clearTimeout(timer);
   }, [task.status, data.completionScope]);
-  const selectedDetail = layout.steps.find((s) => s.id === detailId);
-  const detail = selectedDetail ? currentStep(selectedDetail) : undefined;
-  const detailTs = detail?.updatedAt ?? detail?.ts;
+  const detail = layout.steps.find((s) => s.id === detailId);
+  const detailTs = detail?.ts;
   const isLastPart = data.part === data.partCount;
   const state = !isLastPart || data.completionScope
     ? "recorded"
     : task.status === "missing"
       ? "missing"
       : data.paused && ACTIVE.has(task.status) ? "paused" : statusKey(task);
-  const displayedState = state === 'paused' && task.status === 'paused_external_work'
-    ? task.status : state;
+  const displayedState = state === 'paused' && backlogParkReason(task) === 'external_work'
+    ? 'paused_external_work' : state;
   const summaryScale = Math.min(
     data.frame.width / 288,
     data.frame.height / 280,
@@ -234,10 +225,7 @@ export const MacroTaskNode = memo(function MacroTaskNode({
     (ACTIVE.has(task.status) || task.status === "pending");
   const stepCopy = (step: SubmapStep) => {
     if (step.completionScope || step.status === "review_unavailable") return undefined;
-    const saved = copy[step.id];
-    if (step.source !== 'team') return saved;
-    const index = saved?.event_ids?.indexOf(step.id) ?? -1;
-    return currentStep(step).revision && index >= 0 && saved?.event_revisions?.[index] === currentStep(step).revision ? saved : undefined;
+    return copy[step.id];
   };
   // A reader's own turn keeps the words the reader used.
   const words = task.kind === "turn" ? undefined : data.words;
@@ -251,7 +239,7 @@ export const MacroTaskNode = memo(function MacroTaskNode({
   const partSummary =
     data.partCount > 1 && !isLastPart
       ? layout.steps
-          .map((step) => stepCopy(step)?.summary || currentStep(step).summary || currentStep(step).detail)
+          .map((step) => stepCopy(step)?.summary || step.summary || step.detail)
           .filter(
             (value) => value && ![noDetails(true), noDetails(false)].includes(value),
           )
@@ -280,22 +268,11 @@ export const MacroTaskNode = memo(function MacroTaskNode({
     isLastPart && data.live && ACTIVE.has(task.status)
       ? [...layout.steps]
           .reverse()
-          .find((s) => s.source !== 'team' && !["plan", "result"].includes(s.kind))?.id
+          .find((s) => !["plan", "result"].includes(s.kind))?.id
       : null;
   const activeStep = data.paused ? null : activityStep;
-  const teamSteps = currentLayout.steps.filter((step) => step.source === 'team');
-  const activeTeamSteps = data.live ? teamSteps.filter((step) => ACTIVE.has(step.status)).map((step) => step.id) : [];
-  const teamComplete = teamSteps.filter((step) => step.status === 'done').length;
-  const teamRunning = teamSteps.filter((step) => ACTIVE.has(step.status)).length;
-  const teamSummary = (zh ? `子任务 ${teamComplete}/${teamSteps.length} 完成 · ${teamRunning} 进行中` : `Subtasks ${teamComplete}/${teamSteps.length} done · ${teamRunning} running`)
-    + ((data.plannedWidth ?? 0) > teamSteps.length
-      ? zh ? ` · 计划并行 ×${data.plannedWidth}` : ` · planned ×${data.plannedWidth}`
-      : "");
-  const isStepActive = (step: SubmapStep) => step.source === 'team'
-    ? activeTeamSteps.includes(step.id) : activeStep === step.id;
-  const stepStatus = (step: SubmapStep) => step.source === 'team'
-    ? currentStep(step).status
-    : activityStep === step.id ? data.paused ? 'paused' : 'running' : step.status;
+  const stepStatus = (step: SubmapStep) =>
+    activityStep === step.id ? data.paused ? 'paused' : 'running' : step.status;
   const reference = (step?: SubmapStep): CardReference => ({
     source: data.source,
     task_id: task.id,
@@ -304,8 +281,6 @@ export const MacroTaskNode = memo(function MacroTaskNode({
     part: data.partCount > 1 ? data.part : undefined,
     step_id: step?.id,
     step_title: step?.title,
-    team_id: step?.teamId,
-    team_task_id: step?.teamTaskId,
     event_ids: step
       ? step.eventIds
       : data.partCount > 1
@@ -355,7 +330,7 @@ export const MacroTaskNode = memo(function MacroTaskNode({
   }, [screenWidth, screenHeight]);
   const stateLabel = (s: string) =>
     (STATES[
-      s === 'paused_external_work' ? s : s.startsWith("paused_") ? "paused" : ACTIVE.has(s) ? "running" : s
+      s === 'paused_external_work' ? s : isPauseStatus(s) ? "paused" : ACTIVE.has(s) ? "running" : s
     ] ?? STATES.unknown)[zh ? 0 : 1];
   const taskStateLabel = data.completionScope
     ? zh ? "当次结束 · 当时目标未完成" : "Execution ended · goal incomplete then"
@@ -386,7 +361,7 @@ export const MacroTaskNode = memo(function MacroTaskNode({
       data-detailed={detailed}
       aria-label={title}
       data-completed-now={completedNow}
-      data-active={activeTeamSteps.length > 0 || isLastPart && data.live && !data.paused && ACTIVE.has(task.status)}
+      data-active={isLastPart && data.live && !data.paused && ACTIVE.has(task.status)}
       onContextMenu={(e) => {
         e.preventDefault();
         e.stopPropagation();
@@ -474,7 +449,7 @@ export const MacroTaskNode = memo(function MacroTaskNode({
           {cardSummary && cardSummary.trim() !== (objectiveVisible ? task.objective.trim() : "") &&
             <div className="map-card-copy"><MarkdownExcerpt>{cardSummary}</MarkdownExcerpt></div>}
           {/* Where the task stands, apart from whether its steps finished:
-              the route chosen, what the review asked for, the round under way. */}
+              what the review asked for, the round under way. */}
           {data.conclusion && (
             <p className="map-card-conclusion" data-testid="map-card-conclusion" title={data.conclusion}>{data.conclusion}</p>
           )}
@@ -487,7 +462,7 @@ export const MacroTaskNode = memo(function MacroTaskNode({
               {(['plan', 'execution', 'review', 'result'] as const).map((kind) => {
                 const StageIcon = ICONS[kind];
                 const present = layout.steps.some((step) => step.kind === kind);
-                const active = layout.steps.some((step) => step.kind === kind && isStepActive(step));
+                const active = layout.steps.some((step) => step.kind === kind && activeStep === step.id);
                 const label = zh ? { plan: '规划', execution: '执行', review: '审查', result: '交付' }[kind] : KINDS[kind][1];
                 return (
                   <span key={kind} className={`submap-kind-${kind}`} data-present={present} data-active={active} title={label}>
@@ -499,41 +474,23 @@ export const MacroTaskNode = memo(function MacroTaskNode({
             </div>
           )}
           {(() => {
-            const waiting = isLastPart && data.live && data.waiting;
-            const live = !waiting && isLastPart && data.live && !data.paused && ACTIVE.has(task.status);
+            const live = isLastPart && data.live && !data.paused && ACTIVE.has(task.status);
             // The state is on the chip at the top of the card; it is not said
             // again down here unless the card has no chip.
             const chip = state !== "recorded" || !!data.completionScope;
-            const team = !!data.historyCount && teamSteps.length > 0;
-            if (!live && !waiting && isLastPart && chip && !team) return null;
+            if (!live && isLastPart && chip) return null;
             return (
               <div className="map-card-stages">
-                {waiting
-                  ? <LiveLine text={data.waiting} zh={zh} />
-                  : live
+                {live
                   ? <LiveLine role={data.phase ?? task.role} since={task.started_ts} zh={zh} />
                   : isLastPart && chip ? null
                   : <span className="map-card-recorded">{isLastPart ? taskStateLabel : (zh ? "历史记录 · 非当前执行" : "History · not current execution")}</span>}
-                {team && <span className="map-card-team-summary">{teamSummary}</span>}
               </div>
             );
           })()}
-          {isLastPart && teamSteps.length > 0 && (
-            <span className="map-card-teambar" aria-hidden>
-              <i
-                style={{
-                  width: `${Math.round((teamComplete / teamSteps.length) * 100)}%`,
-                }}
-              />
-            </span>
-          )}
           <div className="map-card-bottom">
-            <span className={teamSteps.length ? 'map-card-team-summary' : undefined} title={range}>
-              {task.turn_kind === 'qa' ? (zh ? '问题与回答' : 'Question and answer') : data.historyCount ? "" : teamSteps.length
-                ? teamSummary
-                : data.plannedWidth && ACTIVE.has(task.status)
-                ? zh ? `并行编队 ×${data.plannedWidth} 展开中` : `Fanning out ×${data.plannedWidth}`
-                : data.partCount > 1
+            <span title={range}>
+              {task.turn_kind === 'qa' ? (zh ? '问题与回答' : 'Question and answer') : data.historyCount ? "" : data.partCount > 1
                 ? range
                 : `${layout.steps.length} ${zh ? "个环节" : "steps"}`}
             </span>
@@ -621,7 +578,7 @@ export const MacroTaskNode = memo(function MacroTaskNode({
             ))}
           </aside>
         )}
-        <SubmapEdges layout={layout} growing={data.growingLinks} activeStep={activeStep} activeTeamSteps={activeTeamSteps} />
+        <SubmapEdges layout={layout} growing={data.growingLinks} activeStep={activeStep} />
         {layout.columns.map((col) => (
           <div
             className="macro-column-label"
@@ -631,8 +588,7 @@ export const MacroTaskNode = memo(function MacroTaskNode({
             {col.title}
           </div>
         ))}
-        {layout.steps.map((recorded, stepIndex) => {
-          const step = currentStep(recorded);
+        {layout.steps.map((step, stepIndex) => {
           const Icon = ICONS[step.kind];
           return (
             <button
@@ -641,10 +597,8 @@ export const MacroTaskNode = memo(function MacroTaskNode({
               data-testid="submap-step"
               data-step-id={step.id}
               data-source={step.source}
-              data-team-id={step.teamId}
-              data-team-task-id={step.teamTaskId}
               data-status={stepStatus(step)}
-              data-active={isStepActive(step)}
+              data-active={activeStep === step.id}
               data-growing={data.growingSteps?.[step.id] != null}
               onContextMenu={(e) => {
                 e.preventDefault();
@@ -664,25 +618,23 @@ export const MacroTaskNode = memo(function MacroTaskNode({
               <div className="submap-step-meta">
                 <span>
                   <Icon size={16} />
-                  {step.source === 'team' ? (zh ? '子任务 · ' : 'Subtask · ') : ''}{(task.kind === 'turn' ? TURN_KINDS : KINDS)[step.kind][zh ? 0 : 1]}
+                  {(task.kind === 'turn' ? TURN_KINDS : KINDS)[step.kind][zh ? 0 : 1]}
                   {step.round != null && (
                     <em className="submap-round">
                       {zh ? `第 ${step.round} 轮` : `Round ${step.round}`}
                     </em>
                   )}
                 </span>
-                <small data-verdict={step.source === 'team' ? teamOutcomeKey(currentStep(step).teamOutcome) || undefined : undefined}>
+                <small>
                   {step.completionScope && step.status === 'recorded'
                     ? zh ? '执行结束' : 'Execution ended'
-                    : step.source === 'team' && stepStatus(step) === 'failed' ? (zh ? '失败' : 'Failed')
-                    // A finished subtask says what it concluded, not only that it finished.
-                    : step.source === 'team' && teamOutcomeLabel(currentStep(step).teamOutcome, zh) || stateLabel(stepStatus(step))}
+                    : stateLabel(stepStatus(step))}
                 </small>
               </div>
               <h4><MarkdownExcerpt>{step.title}</MarkdownExcerpt></h4>
               <div className="submap-step-copy"><MarkdownExcerpt>
                 {stepCopy(step)?.summary ||
-                  currentStep(step).summary ||
+                  step.summary ||
                   step.detail ||
                   noDetails(zh)}
               </MarkdownExcerpt></div>

@@ -2,49 +2,11 @@
 
 from __future__ import annotations
 
-import os
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
 
-
-def _default_subagent_family_failure_streak_limit() -> int:
-    # Function-level import: life.supervisor.__init__ pulls in _core, which
-    # would create an import cycle at module load time.
-    from ..life.supervisor._config import LifeSupervisorConfig
-
-    return LifeSupervisorConfig.subagent_family_failure_streak_limit
-
-
-def _default_subagent_family_failure_window_hours() -> float:
-    from ..life.supervisor._config import LifeSupervisorConfig
-
-    return LifeSupervisorConfig.subagent_family_failure_window_hours
-
-
-AUTO_MISSION_WIDTH_MAX = 4
-
-
-def _usable_cpu_count() -> int:
-    try:
-        return len(os.sched_getaffinity(0))
-    except (AttributeError, OSError):
-        return os.cpu_count() or 1
-
-
-def resolve_auto_mission_width() -> int:
-    """The worker ceiling ``--mission-width auto`` stands for on this machine.
-
-    ``auto`` is an upper bound, not a target. How many missions actually run
-    together is decided at claim time: helpers only take ready, parallel-safe
-    items whose dependencies are met (the Planner's DAG), and each job's GPU
-    needs are admitted by the shared resource ledger. The bound is the cores
-    this process may use (a mission needs at least one), capped at four
-    because more workers share one provider session budget and one
-    operator's attention. GPU count does not set it: CPU-only campaigns are
-    common, and a card listing ignores ``CUDA_VISIBLE_DEVICES`` and load.
-    """
-    return max(1, min(AUTO_MISSION_WIDTH_MAX, _usable_cpu_count()))
+DEFAULT_MISSION_WIDTH = 2
 
 
 @dataclass
@@ -66,20 +28,10 @@ class LifeWorkerConfig:
     reviewer_model: str = "gpt-6.1-sol"
     engineer_reasoning_effort: str = "xhigh"
     reviewer_reasoning_effort: str = "high"
-    # An integer, or "auto": a ceiling of up to four workers bounded by the
-    # usable cores, resolved when the config is built; the ready DAG and the
-    # resource ledger decide how many of them run at once.
-    mission_width: int | str = 2
-    planner_task_iteration_max_cycles: int = 0
-    # See LifeSupervisorConfig.subagent_family_failure_streak_limit /
-    # ..._window_hours (life/supervisor/_config.py) for the circuit breaker
-    # this configures; that class is the single source of the defaults.
-    subagent_family_failure_streak_limit: int = field(
-        default_factory=_default_subagent_family_failure_streak_limit
-    )
-    subagent_family_failure_window_hours: float = field(
-        default_factory=_default_subagent_family_failure_window_hours
-    )
+    # A ceiling on concurrent mission workers; the ready DAG and free GPUs
+    # decide how many of them run at once. A retired ``auto`` reads as the
+    # default.
+    mission_width: int | str = DEFAULT_MISSION_WIDTH
     poll_interval: float = 5.0
     log_path: Path | None = None  # defaults to <life_dir>/daemon.log
     project_workdir: Path | None = None
@@ -103,10 +55,6 @@ class LifeWorkerConfig:
     # mission alive after the planner certifies ``project_done`` instead of
     # hard-stopping. Set False (via ``--bounded``) for a one-shot bounded goal.
     continuous_open_ended: bool = True
-    # A bounded run nobody watches (a foreground CLI or harness run) ends as
-    # "blocked: needs operator" once only an unanswered question remains.
-    # Off for workers the web cockpit starts: their operator answers in the UI.
-    operator_wait_exit: bool = False
     # Parent-only diagnostic populated by the clean launcher.  It is
     # deliberately excluded from config_payload(): the child does not need to
     # receive its own launch failure, while WebAPI needs the captured helper
@@ -115,7 +63,7 @@ class LifeWorkerConfig:
 
     def __post_init__(self) -> None:
         if isinstance(self.mission_width, str) and self.mission_width.strip().lower() == "auto":
-            self.mission_width = resolve_auto_mission_width()
+            self.mission_width = DEFAULT_MISSION_WIDTH
         self.mission_width = int(self.mission_width)
         if self.mission_width < 0:
             raise ValueError("mission_width must be zero or a positive integer")
@@ -132,9 +80,6 @@ def config_payload(config: LifeWorkerConfig) -> dict[str, Any]:
         "engineer_reasoning_effort": config.engineer_reasoning_effort,
         "reviewer_reasoning_effort": config.reviewer_reasoning_effort,
         "mission_width": config.mission_width,
-        "planner_task_iteration_max_cycles": config.planner_task_iteration_max_cycles,
-        "subagent_family_failure_streak_limit": config.subagent_family_failure_streak_limit,
-        "subagent_family_failure_window_hours": config.subagent_family_failure_window_hours,
         "poll_interval": config.poll_interval,
         "log_path": str(config.log_path) if config.log_path is not None else "",
         "project_workdir": str(config.project_workdir) if config.project_workdir is not None else "",
@@ -147,13 +92,18 @@ def config_payload(config: LifeWorkerConfig) -> dict[str, Any]:
         ),
         "resume_continuous": config.resume_continuous,
         "continuous_open_ended": config.continuous_open_ended,
-        "operator_wait_exit": config.operator_wait_exit,
     }
 
 
 def config_from_payload(data: dict[str, Any]) -> LifeWorkerConfig:
     from ..core.knobs import resolve_role_model
+    from ..core.project import resolve_legacy_project_state
 
+    # 迁移专用，下个版本删除: a config saved before a project's state directory
+    # was renamed still names the old one.
+    recorded_life_dir = Path(str(data["life_dir"])).expanduser()
+    life_dir = resolve_legacy_project_state(recorded_life_dir)
+    fingerprint = str(data.get("project_fingerprint") or "")
     log_path = str(data.get("log_path") or "")
     global_root = str(data.get("global_root") or "")
     project_workdir = str(data.get("project_workdir") or "")
@@ -180,10 +130,10 @@ def config_from_payload(data: dict[str, Any]) -> LifeWorkerConfig:
             return default
 
     return LifeWorkerConfig(
-        life_dir=Path(str(data["life_dir"])).expanduser(),
+        life_dir=life_dir,
         global_root=Path(global_root).expanduser() if global_root else None,
         project_workdir=Path(project_workdir).expanduser() if project_workdir else None,
-        project_fingerprint=str(data.get("project_fingerprint") or ""),
+        project_fingerprint=life_dir.name if fingerprint == recorded_life_dir.name else fingerprint,
         project_label=str(data.get("project_label") or ""),
         backend=backend,
         engineer_model=_model(
@@ -202,23 +152,7 @@ def config_from_payload(data: dict[str, Any]) -> LifeWorkerConfig:
         reviewer_reasoning_effort=str(
             data.get("reviewer_reasoning_effort") or "high"
         ),
-        mission_width=int(data.get("mission_width", 2)),
-        planner_task_iteration_max_cycles=int(
-            data.get("planner_task_iteration_max_cycles", 0) or 0
-        ),
-        # ``is None`` (via _number), not ``or``: an explicit 0 disables the F6
-        # breaker (see _planner_orchestration) and must survive a payload round
-        # trip instead of silently reverting to the default.
-        subagent_family_failure_streak_limit=int(
-            _number(
-                "subagent_family_failure_streak_limit",
-                _default_subagent_family_failure_streak_limit(),
-            )
-        ),
-        subagent_family_failure_window_hours=_number(
-            "subagent_family_failure_window_hours",
-            _default_subagent_family_failure_window_hours(),
-        ),
+        mission_width=data.get("mission_width", DEFAULT_MISSION_WIDTH),
         poll_interval=float(data.get("poll_interval") or 5.0),
         log_path=Path(log_path).expanduser() if log_path else None,
         continuous=bool(data.get("continuous")),
@@ -230,7 +164,6 @@ def config_from_payload(data: dict[str, Any]) -> LifeWorkerConfig:
         ),
         resume_continuous=bool(data.get("resume_continuous")),
         continuous_open_ended=bool(data.get("continuous_open_ended", True)),
-        operator_wait_exit=bool(data.get("operator_wait_exit", False)),
     )
 
 __all__ = ["LifeWorkerConfig", "config_from_payload", "config_payload"]

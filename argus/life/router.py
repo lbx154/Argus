@@ -78,7 +78,6 @@ _FRONT_DOOR_FIELDS = (
     "name",
     "domain_action",
     "skill_vertical",
-    "lookup_subject",
 )
 
 
@@ -207,9 +206,10 @@ def _first_alpha_token(text: str) -> str:
 # switch). The merged front-door call is biased hard toward None so real work
 # is never swallowed as a config change.
 
-_CONFIG_ROLE_KNOBS = frozenset({"backend", "model", "effort"})
+_CONFIG_ROLE_KNOBS = frozenset({"model", "effort"})
 _CONFIG_GLOBAL_KNOBS = frozenset(
     {
+        "backend",
         "global_daily_cap",
         "max_daemons",
         "codex_daily_requests",
@@ -247,7 +247,7 @@ SelfModeIntent = Literal[
     "synthesize",
 ]
 ConfigDecision = ConfigIntent | tuple[ConfigIntent, ...] | None
-LifetimeIntent = Literal["bounded", "bounded_increment", "standing"]
+LifetimeIntent = Literal["bounded", "standing"]
 AuthorizationAction = Literal[
     "validator_repair",
     "acceptance_retry",
@@ -454,17 +454,7 @@ def classify_front_door(
                 config_failure_sink(raw_config[:600])
             except Exception:  # noqa: BLE001 - diagnostics never own routing
                 pass
-    subject = fields["lookup_subject"].strip().strip('"`')
-    lookup_requested = bool(subject and subject.upper() != "NONE")
-    if subject.upper() == "NONE" or not 1 <= len(subject) <= 160 or subject.casefold() not in cleaned.casefold():
-        subject = ""
-    if lookup_requested:
-        # A source lookup is deterministic precedence over speculative routing.
-        # Even a contradictory classifier cannot force a specialist or fast reply.
-        fields.update(domain_action="NONE", skill_vertical="", self_mode="INSPECT", reply="NONE", greeting="NONE")
-    if callable(domain_sink) and subject:
-        domain_sink({"action": "none", "vertical": "", "lookup_subject": subject})
-    elif callable(domain_sink) and fields["domain_action"].lower() in {"none", "offer", "ask", "prepare", "skip", "cancel"}:
+    if callable(domain_sink) and fields["domain_action"].lower() in {"none", "offer", "ask", "prepare", "skip", "cancel"}:
         domain_sink({"action": fields["domain_action"].lower(),
                      **({"vertical": fields["skill_vertical"].strip()}
                         if fields["skill_vertical"].strip() else {})})
@@ -571,25 +561,14 @@ def classify_front_door(
         if lifetime_parts
         else ""
     )
+    # One bit survives the single dispatch topology: whether the campaign
+    # stops when its Planner certifies the outcome (BOUNDED) or keeps going
+    # (STANDING). A steering turn stays on the SELF control path but may
+    # explicitly promote the active campaign to standing.
     if route == "complex":
-        # BOUNDED_INCREMENT preserves an operator's explicit instruction to do
-        # only one named stage/increment even when vertical classification later
-        # identifies a normally-staged workflow.
-        if lifetime_token == "BOUNDED_INCREMENT":
-            lifetime = "bounded_increment"
-        elif lifetime_token == "STANDING":
-            lifetime = "standing"
-        else:
-            lifetime = "bounded"
-    elif control == "steer":
-        # A steering turn stays on the SELF control path, but it may explicitly
-        # promote the active bounded mission to a standing campaign.
-        if lifetime_token == "STANDING":
-            lifetime = "standing"
-        elif lifetime_token == "BOUNDED_INCREMENT":
-            lifetime = "bounded_increment"
-        elif lifetime_token == "BOUNDED":
-            lifetime = "bounded"
+        lifetime = "standing" if lifetime_token == "STANDING" else "bounded"
+    elif control == "steer" and lifetime_token == "STANDING":
+        lifetime = "standing"
     if callable(lifetime_sink) and lifetime is not None:
         try:
             lifetime_sink(lifetime)
@@ -626,11 +605,7 @@ def classify_front_door(
                 failure_sink,
             )
     question_policy = fields["operator_question_policy"].strip().lower()
-    if (
-        callable(operator_question_policy_sink)
-        and control == "steer"
-        and question_policy in {"allow", "forbid", "unchanged"}
-    ):
+    if callable(operator_question_policy_sink) and question_policy in {"allow", "forbid", "unchanged"}:
         try:
             operator_question_policy_sink(
                 cast(OperatorQuestionPolicy, question_policy)
@@ -674,7 +649,7 @@ def classify_front_door(
             dict.fromkeys(
                 role.strip()
                 for role in raw_roles.split(",")
-                if role.strip() in {"manager", "planner", "engineer", "reviewer", "teammate"}
+                if role.strip() in {"manager", "planner", "engineer", "reviewer"}
             )
         ) or "all"
     preference_kind = fields["preference_kind"].strip().lower()

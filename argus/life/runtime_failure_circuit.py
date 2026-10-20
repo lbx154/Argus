@@ -8,8 +8,8 @@ relevant source, checkpoint contract, or an explicit canary result changes.
 """
 from __future__ import annotations
 
-import hashlib
 import json
+import math
 import os
 import re
 import time
@@ -18,11 +18,32 @@ from contextlib import contextmanager
 from pathlib import Path
 from typing import Any, Iterator
 
+from ..core.file_facts import file_facts
 from ..core.file_lock import exclusive_file_lock
 from ..core.secret_guard import known_secret_values, redact_secrets_text
 from .context_packet import CHECKPOINT_CONTRACT_VERSION
 
 CIRCUIT_FILENAME = "runtime-failure-circuit.json"
+# Half-open recovery. A window admits one canary mission (and, while nothing is
+# queued, one Planner turn to produce work for it); a reviewed canary pass
+# clears the circuit. A window opens when a fact the caller watches changes
+# (a backend switch, new operator input). A new Argus runtime needs no window:
+# it clears the circuit outright. For a recovery nothing announces (a provider
+# or disk coming back) a timed window is the fallback, its wait doubling after
+# each window that ends without a pass. Nothing used to produce a canary, so
+# only a changed runtime could close a circuit.
+CANARY_COOLDOWN_KNOB = "ARGUS_SKILL_RUNTIME_CANARY_COOLDOWN_MIN"
+CANARY_COOLDOWN_DEFAULT_MINUTES = 30.0
+CANARY_TAG = "runtime_failure_canary"
+_CANARY_FIELDS = (
+    "canary_window",
+    "canary_due_at",
+    "canary_facts",
+    "canary_item_id",
+    "canary_admitted_at",
+    "canary_mission_window",
+    "canary_planner_window",
+)
 _CIRCUIT_LOCK_FILENAME = "runtime-failure-circuit.lock"
 _SCHEMA_VERSION = 1
 _HANDOFF_CHECKPOINT_RE = re.compile(
@@ -69,17 +90,11 @@ def _read_unlocked(path: Path) -> dict[str, Any]:
     return payload if isinstance(payload, dict) else {}
 
 
-def _relevant_source_digest() -> str:
-    """Cheap hash that changes when the checkpoint settlement code changes."""
-    try:
-        from ..core import role_session
+def _relevant_source() -> list[int]:
+    """The checkpoint settlement code's ``file_facts``: they move when that code does."""
+    from ..core import role_session
 
-        path = Path(str(role_session.__file__ or ""))
-        if path.is_file():
-            return hashlib.sha256(path.read_bytes()).hexdigest()
-    except (OSError, ValueError):
-        pass
-    return ""
+    return file_facts(str(role_session.__file__))
 
 
 def runtime_failure_identity() -> dict[str, Any]:
@@ -92,10 +107,8 @@ def runtime_failure_identity() -> dict[str, Any]:
     except Exception:  # noqa: BLE001 - identity failure must fail closed
         identity = {}
     return {
-        "release_id": str(identity.get("release_id") or "unknown"),
-        "manifest_source_digest": str(identity.get("manifest_source_digest") or ""),
-        "runtime_source_digest": str(identity.get("runtime_source_digest") or ""),
-        "relevant_source_digest": _relevant_source_digest(),
+        "release": identity,
+        "relevant_source": _relevant_source(),
         "checkpoint_contract_version": CHECKPOINT_CONTRACT_VERSION,
     }
 
@@ -180,17 +193,8 @@ def runtime_failure_fingerprint(exc: BaseException) -> dict[str, str]:
     exception_type = type(exc).__name__
     callsite = _exception_callsite(exc)
     normalized_error = normalize_runtime_failure_message(exc)
-    canonical = json.dumps(
-        {
-            "exception_type": exception_type,
-            "callsite": callsite,
-            "normalized_error": normalized_error,
-        },
-        sort_keys=True,
-        separators=(",", ":"),
-    )
     return {
-        "fingerprint": hashlib.sha256(canonical.encode("utf-8")).hexdigest()[:24],
+        "fingerprint": f"{exception_type} at {callsite}: {normalized_error}",
         "exception_type": exception_type,
         "callsite": callsite,
         "normalized_error": normalized_error,
@@ -235,9 +239,8 @@ def record_runtime_failure_circuit(
             "last_observed_at": now,
             "item_ids": list(dict.fromkeys(item_ids))[-20:],
             "clear_conditions": [
-                "release_id_changed",
-                "manifest_or_runtime_source_digest_changed",
-                "relevant_source_digest_changed",
+                "release_changed",
+                "relevant_source_changed",
                 "checkpoint_contract_version_changed",
                 "reviewed_canary_passed",
             ],
@@ -245,8 +248,102 @@ def record_runtime_failure_circuit(
             "cleared_reason": "",
             "newly_opened": not same,
         }
+        if previous.get("active"):
+            # A failure while the circuit is already open (a canary that
+            # raised, or a new fingerprint) keeps the recovery schedule, so
+            # the next half-open window still waits its doubled cooldown.
+            state.update({
+                key: previous[key] for key in _CANARY_FIELDS if key in previous
+            })
         _atomic_json(path, state)
     return state
+
+
+def runtime_failure_canary_cooldown_seconds(
+    window: int, *, env: Any = None,
+) -> float:
+    """Timed fallback before half-open window ``window`` (1-based) opens.
+
+    ``ARGUS_SKILL_RUNTIME_CANARY_COOLDOWN_MIN`` sets the first wait (default
+    30 minutes); each later window waits twice the one before. 0 or less
+    leaves windows to changed facts alone (``math.inf``).
+    """
+    default = str(CANARY_COOLDOWN_DEFAULT_MINUTES)
+    try:
+        from ..core.knobs import resolve_knob
+
+        raw = resolve_knob(CANARY_COOLDOWN_KNOB, default, env=env).value
+    except Exception:  # noqa: BLE001 - an unreadable knob store keeps the default
+        raw = default
+    try:
+        minutes = float(raw)
+    except (TypeError, ValueError):
+        minutes = CANARY_COOLDOWN_DEFAULT_MINUTES
+    if not minutes > 0:  # also NaN
+        return math.inf
+    return minutes * 60.0 * 2.0 ** min(max(0, int(window) - 1), 64)
+
+
+def claim_runtime_failure_half_open(
+    root: Path | str,
+    *,
+    slot: str,
+    item_id: str = "",
+    expected_canary_item_id: str = "",
+    facts: dict[str, Any] | None = None,
+    now: float | None = None,
+) -> bool:
+    """Take the current half-open window's single ``mission`` or ``planner`` slot.
+
+    The caller has already established that the previous canary (named by
+    ``expected_canary_item_id``) is no longer in flight; a different value on
+    disk means another worker raced ahead, and nothing is granted. ``facts``
+    is what the caller watches, stored as given; facts that differ from those
+    the last window (or the first claim) saw open a window at once. Mechanical
+    only: facts, time, a window counter, and one slot of each kind per window.
+    """
+    if slot not in {"mission", "planner"}:
+        raise ValueError(f"unknown half-open slot: {slot!r}")
+    state_root = Path(root)
+    path = state_root / CIRCUIT_FILENAME
+    now = time.time() if now is None else float(now)
+    with _locked(state_root):
+        state = _read_unlocked(path)
+        if not state.get("active"):
+            return False
+        if str(state.get("canary_item_id") or "") != str(expected_canary_item_id or ""):
+            return False
+        window = int(state.get("canary_window") or 0)
+        due = float(state.get("canary_due_at") or 0.0) or (
+            float(state.get("first_observed_at") or now)
+            + runtime_failure_canary_cooldown_seconds(window + 1)
+        )
+        seen = state.get("canary_facts") or {}
+        facts = dict(facts or {})
+        changed = bool(facts and seen and facts != seen)
+        dirty = bool(facts and not seen)
+        if dirty:
+            state["canary_facts"] = facts
+        opened = changed or now >= due
+        if opened:
+            window += 1
+            state["canary_window"] = window
+            state["canary_facts"] = facts or seen
+            next_due = now + runtime_failure_canary_cooldown_seconds(window + 1)
+            # Unset (0) while no timed window is configured, so a later
+            # setting is measured from the circuit's opening instead.
+            state["canary_due_at"] = next_due if math.isfinite(next_due) else 0.0
+        slot_key = f"canary_{slot}_window"
+        if window <= 0 or int(state.get(slot_key) or 0) >= window:
+            if opened or dirty:
+                _atomic_json(path, state)
+            return False
+        state[slot_key] = window
+        if slot == "mission":
+            state["canary_item_id"] = str(item_id)
+            state["canary_admitted_at"] = now
+        _atomic_json(path, state)
+    return True
 
 
 def active_runtime_failure_circuit(root: Path | str) -> dict[str, Any] | None:
@@ -277,8 +374,12 @@ def clear_runtime_failure_circuit(
     *,
     reason: str,
     fingerprint: str = "",
+    canary_item_id: str = "",
 ) -> bool:
-    """Close a circuit after a reviewed canary or another explicit fact change."""
+    """Close a circuit after a reviewed canary or another explicit fact change.
+
+    With ``canary_item_id``, only the canary this circuit admitted closes it.
+    """
     state_root = Path(root)
     path = state_root / CIRCUIT_FILENAME
     with _locked(state_root):
@@ -286,6 +387,12 @@ def clear_runtime_failure_circuit(
         if not state.get("active"):
             return False
         if fingerprint and str(state.get("fingerprint") or "") != fingerprint:
+            return False
+        # Only the canary a half-open window admitted closes the circuit; a
+        # tag it never handed out is not a reviewed canary of this failure.
+        if canary_item_id and str(state.get("canary_item_id") or "") != str(
+            canary_item_id
+        ):
             return False
         state.update(
             active=False,
@@ -298,11 +405,15 @@ def clear_runtime_failure_circuit(
 
 
 __all__ = [
+    "CANARY_COOLDOWN_KNOB",
+    "CANARY_TAG",
     "CIRCUIT_FILENAME",
     "active_runtime_failure_circuit",
+    "claim_runtime_failure_half_open",
     "clear_runtime_failure_circuit",
     "normalize_runtime_failure_message",
     "record_runtime_failure_circuit",
+    "runtime_failure_canary_cooldown_seconds",
     "runtime_failure_fingerprint",
     "runtime_failure_identity",
 ]

@@ -26,8 +26,6 @@ from __future__ import annotations
 
 import json
 
-import pytest
-
 from argus.reviewer import Reviewer
 from argus.roles.prompts import reviewer as reviewer_prompt
 from argus.roles.task_contract import NATIVE_WINDOWS_SHELL_SUMMARY
@@ -83,6 +81,9 @@ _TASK_OWNED_BLOCKS = (
 # fixture conditions live in the action tool descriptions, not here. Measured
 # at 5_658 (5_694 on Windows); the others at 5_371 and 5_463. No headroom is
 # left on Windows: re-compress before adding prose.
+#
+# The read-only forms then went: every Reviewer has the Engineer's tools and
+# gets the executing form alone. Measured at 5_198.
 FIXED_PROSE_BUDGET = 5_700
 
 
@@ -93,11 +94,7 @@ def _fixed_prose_chars(reviewer: Reviewer) -> int:
     return stats["static_total"]["chars"] - task_owned
 
 
-def _build(measured: bool, monkeypatch, evidence_mode: str = "") -> tuple[str, Reviewer]:
-    if measured:
-        monkeypatch.setenv("ARGUS_SKILL_MEASURED_MODE", "1")
-    else:
-        monkeypatch.delenv("ARGUS_SKILL_MEASURED_MODE", raising=False)
+def _build(monkeypatch) -> tuple[str, Reviewer]:
     r = Reviewer(runner=None, skill_store=None)
     prompt = r._build_prompt(
         objective="minimize cand_ms on the kernel",
@@ -108,13 +105,12 @@ def _build(measured: bool, monkeypatch, evidence_mode: str = "") -> tuple[str, R
         main_summary="HANDOFF: tried X. RESULT correct=true cand_ms=0.5",
         main_error=None,
         prior_checkpoint={},
-        evidence_mode=evidence_mode,
     )
     return prompt, r
 
 
-def _prompt(measured: bool, monkeypatch) -> str:
-    return _build(measured, monkeypatch)[0]
+def _prompt(monkeypatch) -> str:
+    return _build(monkeypatch)[0]
 
 
 def _persist_research_stage(project_root, stage: str) -> None:
@@ -128,7 +124,7 @@ def _persist_research_stage(project_root, stage: str) -> None:
 
 
 def test_fixed_contract_prose_within_budget(monkeypatch):
-    _prompt_text, reviewer = _build(measured=False, monkeypatch=monkeypatch)
+    _prompt_text, reviewer = _build(monkeypatch=monkeypatch)
     fixed = _fixed_prose_chars(reviewer)
     assert fixed < FIXED_PROSE_BUDGET, (
         f"reviewer fixed contract prose is {fixed} chars, over the "
@@ -138,38 +134,19 @@ def test_fixed_contract_prose_within_budget(monkeypatch):
     )
 
 
-@pytest.mark.parametrize("mode", ["execute", "recorded", "read"])
-def test_every_evidence_form_fits_the_budget(monkeypatch, mode):
-    _prompt_text, reviewer = _build(measured=False, monkeypatch=monkeypatch, evidence_mode=mode)
-    assert _fixed_prose_chars(reviewer) < FIXED_PROSE_BUDGET
-
-
-@pytest.mark.parametrize("mode", ["execute", "recorded", "read"])
-@pytest.mark.parametrize("policy", ["standard", "progress-first", "strict"])
-def test_windows_fixed_contract_prose_within_budget_for_every_form(monkeypatch, mode, policy):
-    monkeypatch.setenv("ARGUS_SKILL_EVIDENCE_POLICY", policy)
-    monkeypatch.setattr(
-        reviewer_prompt,
-        "native_shell_summary",
-        lambda: NATIVE_WINDOWS_SHELL_SUMMARY,
-    )
-    _prompt_text, reviewer = _build(measured=False, monkeypatch=monkeypatch, evidence_mode=mode)
-    assert _fixed_prose_chars(reviewer) < FIXED_PROSE_BUDGET
-
-
 def test_windows_fixed_contract_prose_within_budget(monkeypatch):
     monkeypatch.setattr(
         reviewer_prompt,
         "native_shell_summary",
         lambda: NATIVE_WINDOWS_SHELL_SUMMARY,
     )
-    _prompt_text, reviewer = _build(measured=False, monkeypatch=monkeypatch)
+    _prompt_text, reviewer = _build(monkeypatch=monkeypatch)
 
     assert _fixed_prose_chars(reviewer) < FIXED_PROSE_BUDGET
 
 
 def test_reviewer_scopes_product_acceptance_to_the_claim(monkeypatch):
-    prompt = _prompt(measured=False, monkeypatch=monkeypatch)
+    prompt = _prompt(monkeypatch=monkeypatch)
 
     assert 'Test claimed UI/API/CLI/service flows' in prompt
     assert 'at a safe public entry point' in prompt
@@ -185,7 +162,7 @@ def test_the_budget_ignores_content_a_vertical_owns(monkeypatch):
     most of the assembled prompt, so a vertical adding one line pushed the
     role prose over a limit it had not moved.
     """
-    _prompt_text, reviewer = _build(measured=False, monkeypatch=monkeypatch)
+    _prompt_text, reviewer = _build(monkeypatch=monkeypatch)
     before = _fixed_prose_chars(reviewer)
     stats = dict(reviewer.last_prompt_block_stats)
     grown = dict(stats["stage_checklist"])
@@ -204,7 +181,7 @@ def test_compression_removed_redundant_examples(monkeypatch):
     # Tie the guard to the actual compression, not just a byte count: these
     # verbose snippets were deleted and must not reappear (they are the
     # redundancy the cut targeted).
-    p = _prompt(measured=False, monkeypatch=monkeypatch)
+    p = _prompt(monkeypatch=monkeypatch)
     assert "you are not a JSON robot" not in p
     assert "Anti-pattern: agent shows test_accuracy=0.98" not in p
     assert "expense_tracker/ package using unittest" not in p
@@ -212,7 +189,7 @@ def test_compression_removed_redundant_examples(monkeypatch):
 
 
 def test_ceremonial_frontier_footer_fields_are_not_requested(monkeypatch):
-    prompt = _prompt(measured=False, monkeypatch=monkeypatch)
+    prompt = _prompt(monkeypatch=monkeypatch)
 
     for field in (
         "FRONTIER_CHANGE",
@@ -226,7 +203,7 @@ def test_ceremonial_frontier_footer_fields_are_not_requested(monkeypatch):
         assert field not in prompt
 
     # These affect round settlement or Manager plan routing and remain requested.
-    assert "forward_progress" in prompt
+    assert "forward_progress" not in prompt
     assert "replan_review" in prompt
     assert "alternative" in prompt
 
@@ -236,13 +213,12 @@ def test_the_verdict_vocabulary_is_stated_once(monkeypatch):
     # once in the role block and again, at greater length, in the handoff
     # policy. Two definitions of the same four words is the redundancy this
     # budget exists to catch, and it cost more than the sentence it funded.
-    p = _prompt(measured=False, monkeypatch=monkeypatch)
+    p = _prompt(monkeypatch=monkeypatch)
     assert p.count('one material gap in scope') == 1
     assert p.count('wrong target or scope change') == 1
 
 
 def test_reviewer_records_prompt_block_token_estimates(monkeypatch):
-    monkeypatch.delenv("ARGUS_SKILL_MEASURED_MODE", raising=False)
     reviewer = Reviewer(runner=None, skill_store=None)
     prompt = reviewer._build_prompt(
         objective="audit the current research result",
@@ -267,7 +243,6 @@ def test_bounded_review_stage_checklist_stays_compact(
     tmp_path,
     monkeypatch,
 ) -> None:
-    monkeypatch.delenv("ARGUS_SKILL_MEASURED_MODE", raising=False)
     _persist_research_stage(tmp_path, "review")
     reviewer = Reviewer(runner=None, skill_store=None)
     prompt = reviewer._build_prompt(
@@ -295,7 +270,6 @@ def test_bounded_review_stage_checklist_stays_compact(
 
 
 def test_reviewer_does_not_duplicate_identical_objective(monkeypatch):
-    monkeypatch.delenv("ARGUS_SKILL_MEASURED_MODE", raising=False)
     reviewer = Reviewer(runner=None, skill_store=None)
     objective = "repair the exact benchmark evidence " * 120
 
@@ -380,7 +354,7 @@ def test_research_target_context_stays_compact(tmp_path, monkeypatch):
 
 
 def test_reviewer_prompt_uses_native_actions_without_a_prose_footer(monkeypatch) -> None:
-    prompt = _prompt(measured=False, monkeypatch=monkeypatch)
+    prompt = _prompt(monkeypatch=monkeypatch)
 
     assert "ARGUS_ROLE_DECISION=" not in prompt
     assert "review naturally" in prompt
@@ -395,7 +369,7 @@ def test_reviewer_prompt_uses_native_actions_without_a_prose_footer(monkeypatch)
 def test_reviewer_accepts_implementation_grounding_proportionally(
     monkeypatch,
 ) -> None:
-    prompt = _prompt(measured=False, monkeypatch=monkeypatch)
+    prompt = _prompt(monkeypatch=monkeypatch)
 
     assert 'Use primary sources for external claims' in prompt
     assert 'community code may ground implementation details' in prompt
@@ -407,7 +381,7 @@ def test_reviewer_accepts_implementation_grounding_proportionally(
 def test_reviewer_checks_metric_split_and_requested_deliverable(monkeypatch):
     """Given only a summary, no reviewer noticed evaluation on training data;
     given the artifacts, every one did. The judgement question names it."""
-    flat = " ".join(_prompt(measured=False, monkeypatch=monkeypatch).split())
+    flat = " ".join(_prompt(monkeypatch=monkeypatch).split())
 
     assert "which data split" in flat
     assert "check each requirement and symptom the task (this increment) states" in flat
@@ -416,7 +390,7 @@ def test_reviewer_checks_metric_split_and_requested_deliverable(monkeypatch):
     assert "operator's own words" not in flat
 
 
-def _artifact_prompt(workdir, round_started_ts):
+def _change_prompt(snapshots, raw_evidence=""):
     r = Reviewer(runner=None, skill_store=None)
     return r._build_prompt(
         objective="evaluate the model",
@@ -427,40 +401,75 @@ def _artifact_prompt(workdir, round_started_ts):
         main_summary="accuracy 0.93",
         main_error=None,
         prior_checkpoint={},
-        working_dir=str(workdir),
-        round_started_ts=round_started_ts,
+        raw_evidence=raw_evidence,
+        snapshots=snapshots,
     )
 
 
-def test_reviewer_receives_files_modified_this_round_without_git(tmp_path):
-    """Mission workspaces are not git repositories; the list must still appear,
-    scoped to the workspace and to this round."""
-    import os
-    import time
+def _task(tmp_path):
+    from argus.core.workspace_snapshot import WorkspaceSnapshots
 
     workspace = tmp_path / "my project"
-    (workspace / "results").mkdir(parents=True)
-    old = workspace / "train.py"
-    old.write_text("x", encoding="utf-8")
-    hidden = workspace / ".argus" / "state.json"
-    hidden.parent.mkdir()
-    hidden.write_text("{}", encoding="utf-8")
-    long_ago = time.time() - 3600
-    os.utime(old, (long_ago, long_ago))
-    round_start = time.time() - 60
-    (workspace / "results" / "eval results.json").write_text("{}", encoding="utf-8")
-    (tmp_path / "outside.txt").write_text("x", encoding="utf-8")
-
-    prompt = _artifact_prompt(workspace, round_start)
-
-    line = next(row for row in prompt.splitlines() if "modified during this round" in row)
-    assert "results/eval results.json" in line
-    assert "train.py" not in line
-    assert ".argus" not in line
-    assert "outside.txt" not in line
+    workspace.mkdir()
+    (workspace / "train.py").write_text("split = 'test'\n", encoding="utf-8")
+    snapshots = WorkspaceSnapshots(tmp_path / "state" / "snapshots.git", workspace, "m1")
+    assert snapshots.take("baseline")
+    return workspace, snapshots
 
 
-def test_reviewer_artifact_list_absent_without_round_start(tmp_path):
-    (tmp_path / "eval.json").write_text("{}", encoding="utf-8")
+def test_reviewer_starts_from_the_diff_then_the_commands_then_the_account(tmp_path):
+    workspace, snapshots = _task(tmp_path)
+    (workspace / "train.py").write_text("split = 'train'\n", encoding="utf-8")
+    (workspace / "results").mkdir()
+    (workspace / "results" / "eval results.json").write_text('{"acc": 0.93}\n', encoding="utf-8")
+    (workspace / ".argus").mkdir()
+    (workspace / ".argus" / "state.json").write_text("{}", encoding="utf-8")
+    assert snapshots.take("candidate")
 
-    assert "modified during this round" not in _artifact_prompt(tmp_path, None)
+    prompt = _change_prompt(snapshots, raw_evidence="$ pytest -q\n3 passed")
+
+    block = prompt.split("## Workspace changes under review\n", 1)[1].split("Raw verification", 1)[0]
+    assert "2 files changed, +2 -1:" in block
+    assert "- results/eval results.json: +1 -0\n" in block
+    assert "- train.py: +1 -1\n" in block
+    assert "do not re-explore the workspace" in block
+    assert "--- train.py\n@@ -1 +1 @@\n-split = 'test'\n+split = 'train'\n" in block
+    assert ".argus" not in block.split("caches and nested repositories.", 1)[1]
+    order = [
+        prompt.index("## Workspace changes under review"),
+        prompt.index("Raw verification evidence"),
+        prompt.index("## Engineer's account of this round"),
+    ]
+    assert order == sorted(order)
+
+
+def test_a_very_large_change_is_listed_by_counts_beyond_the_caps(tmp_path):
+    from argus.roles.prompts import reviewer as prompts
+
+    workspace, snapshots = _task(tmp_path)
+    for index in range(150):
+        lines = "".join(f"value_{index}_{line} = {'x' * 400}\n" for line in range(200))
+        (workspace / f"module_{index:03d}.py").write_text(lines, encoding="utf-8")
+    assert snapshots.take("candidate")
+
+    prompt = _change_prompt(snapshots)
+
+    block = prompt.split("## Workspace changes under review\n", 1)[1].split("Main agent fatal", 1)[0]
+    excerpt = block.split("\nDiff excerpt:\n", 1)[1].splitlines()
+    assert len(excerpt) <= prompts._DIFF_TOTAL_LINES + prompts._DIFF_TOTAL_LINES // prompts._DIFF_FILE_LINES
+    assert max(len(line) for line in excerpt) <= prompts._DIFF_LINE_CHARS
+    assert "- module_000.py: +200 -0, excerpt cut\n" in block
+    assert "- module_079.py: +200 -0, not excerpted\n" in block
+    assert "- and 70 more files: +14000 -0" in block
+    assert "module_080.py" not in block.split("\nDiff excerpt:\n", 1)[0]
+    assert "150 files changed, +30000 -0:" in block
+    assert "Read a file marked cut or not excerpted yourself" in block
+    assert len(block) < 90_000
+
+
+def test_an_unchanged_workspace_says_so_and_no_snapshots_say_nothing(tmp_path):
+    _, snapshots = _task(tmp_path)
+    assert snapshots.take("candidate")
+
+    assert "Nothing in it has changed." in _change_prompt(snapshots)
+    assert "## Workspace changes under review" not in _change_prompt(None)

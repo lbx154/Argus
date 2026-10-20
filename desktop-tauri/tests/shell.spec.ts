@@ -78,7 +78,7 @@ async function launch(page: Page, complete = false, options: { state?: string; c
         runnerKind: 'codex', runnerConfigured: state.complete,
         runnerBins: {}, detectedRunners: { codex: 'C:/agents/codex.cmd', pi: 'C:/agents/pi.cmd' },
         piConfiguration: { configDir: '' },
-        releaseIdentity: { packageVersion: '0.1.1', releaseId: 'test', sourceDigest: 'test', distribution: 'preview' },
+        releaseIdentity: { packageVersion: '0.1.1', releaseId: 'test', distribution: 'preview' },
         runtimeIdentity: { state: state.status.state },
       }),
       openCockpit: async () => state.url,

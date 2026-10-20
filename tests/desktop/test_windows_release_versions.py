@@ -32,7 +32,7 @@ def test_windows_release_version_matrix_has_no_drift():
 def test_version_matrix_rejects_divergent_host_or_plugin_metadata(tmp_path, metadata):
     # Copy only named public release metadata, never a profile or signing file.
     files = (
-        "pyproject.toml", "argus/__init__.py", "uv.lock",
+        "pyproject.toml", "argus/__init__.py",
         "frontend/core/package.json", "frontend/web/package.json", "frontend/web/package-lock.json",
         "frontend/tui/package.json", "frontend/tui/package-lock.json", "desktop-tauri/package.json",
         "desktop-tauri/package-lock.json", "desktop-tauri/src-tauri/Cargo.toml", "desktop-tauri/src-tauri/Cargo.lock",
@@ -71,18 +71,18 @@ def test_windows_template_cannot_launch_legacy_uninstallers_or_delete_shared_boo
     assert source.count('!insertmacro CheckIfAppIsRunning "${MAINBINARYNAME}.exe"') == 3
     package = json.loads((ROOT / "desktop-tauri/package.json").read_text(encoding="utf-8"))
     assert package["devDependencies"]["@tauri-apps/cli"] == "2.11.4"
-    assert "20f4ecc730defb71f1342eaeaec4021df13be3d843abba0effe88ea5835fa079" in source
+    assert "commit 59585e1aac2d2e3503aa1caececf3568dce51a47" in source
     assert (ROOT / "desktop-tauri/src-tauri/installer-template.LICENSE").is_file()
 
 
 def test_installer_source_and_license_participate_in_release_identity(tmp_path):
-    from argus.release import compute_source_digest
+    from argus.release import source_files
 
     root = tmp_path / "desktop-tauri/src-tauri"
     root.mkdir(parents=True)
-    before = compute_source_digest(tmp_path)
     (root / "installer-template.nsi").write_text("synthetic installer input\n", encoding="utf-8")
-    with_template = compute_source_digest(tmp_path)
-    assert with_template != before
     (root / "installer-template.LICENSE").write_text("synthetic license input\n", encoding="utf-8")
-    assert compute_source_digest(tmp_path) != with_template
+    assert set(source_files(tmp_path)) == {
+        "desktop-tauri/src-tauri/installer-template.nsi",
+        "desktop-tauri/src-tauri/installer-template.LICENSE",
+    }

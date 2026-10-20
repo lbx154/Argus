@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from types import SimpleNamespace
 
-from argus.life.supervisor._constants import PLAN_RETRY
+from argus.life.supervisor._constants import PLAN_RETRY, PROJECT_REPORT_MODEL_ATTEMPTS
 from argus.life.supervisor._planning_context import PlanningContextMixin
 from argus.life.supervisor._planning_cycle_completion import (
     PlanningCycleCompletionMixin,
@@ -57,7 +57,6 @@ def test_harness_returns_rejected_completion_to_planner_without_authoring_task(
     state = _PlanCycleState(None)
     state.verdict = PlannerVerdict(
         project_done=True,
-        waiting=False,
         new_tasks=[],
         reason="The paper is complete.",
     )
@@ -172,7 +171,6 @@ def test_planner_cannot_complete_before_manager_finishes_final_stage(
     state = _PlanCycleState(None)
     state.verdict = PlannerVerdict(
         project_done=True,
-        waiting=False,
         new_tasks=[],
         reason="Planner says done",
     )
@@ -199,7 +197,6 @@ def test_manager_reports_all_stages_after_project_completion(
     state = _PlanCycleState(None)
     state.verdict = PlannerVerdict(
         project_done=True,
-        waiting=False,
         new_tasks=[],
         reason="Planner says done",
     )
@@ -233,3 +230,80 @@ def test_manager_reports_all_stages_after_project_completion(
         and event.get("stage_count") == 2
         for event in harness.events
     )
+
+
+class _FailingReportHarness(_ManagerCompletionHarness):
+    """A completion report that keeps failing, retried at the daemon's pace."""
+
+    from argus.life.supervisor._idle_cycle import IdleCycleMixin
+
+    _enter_idle_backoff = IdleCycleMixin._enter_idle_backoff
+    _idle_backoff_seconds = IdleCycleMixin._idle_backoff_seconds
+
+    def __init__(self, tmp_path, *, manager_fails: bool) -> None:
+        super().__init__(tmp_path)
+        self.manager_fails = manager_fails
+        self.manager_calls = 0
+        self._consecutive_idle_planner_cycles = 0
+        self._idle_since = None
+        self._suggested_sleep_s = 0.0
+
+    def _bound_manager(self):
+        harness = self
+
+        class Manager:
+            def report_project_completion(self, **_kwargs):
+                harness.manager_calls += 1
+                if harness.manager_fails:
+                    raise RuntimeError("manager backend down")
+                return "Manager project report covering every stage."
+
+        return Manager()
+
+    def retry_for(self, seconds: float, poll_interval: float = 5.0) -> int:
+        """Retry the report as the daemon would for ``seconds``; return attempts."""
+        attempts, elapsed = 0, 0.0
+        while elapsed < seconds:
+            attempts += 1
+            if self._manager_publish_project_report("done") == "reported":
+                break
+            elapsed += max(poll_interval, self._suggested_sleep_s)
+        return attempts
+
+
+def _alerts(harness) -> list[dict]:
+    return [event for event in harness.events if event.get("type") == "operator_alert"]
+
+
+def test_a_failing_manager_report_backs_off_and_alerts_once(tmp_path) -> None:
+    harness = _FailingReportHarness(tmp_path, manager_fails=True)
+
+    attempts = harness.retry_for(3600)
+
+    # At the daemon's 5 s poll this was 720 Manager calls an hour. The Manager
+    # gets its attempts; the next one sends the stage summary without it.
+    assert harness.manager_calls == PROJECT_REPORT_MODEL_ATTEMPTS
+    assert attempts == harness.manager_calls + 1
+    assert len(_alerts(harness)) == 1
+
+
+def test_a_failing_publish_never_asks_the_manager_again(tmp_path, monkeypatch) -> None:
+    from argus.core import operator_messages
+
+    def refuse(*_args, **_kwargs):
+        raise OSError("disk full")
+
+    monkeypatch.setattr(operator_messages, "publish_operator_message", refuse)
+    harness = _FailingReportHarness(tmp_path, manager_fails=False)
+
+    attempts = harness.retry_for(3600)
+
+    assert harness.manager_calls == 1
+    assert attempts <= 20
+    assert len(_alerts(harness)) == 1
+    # The written report survives a restart: a fresh supervisor publishes it
+    # without a second Manager call once publishing works again.
+    monkeypatch.undo()
+    restarted = _FailingReportHarness(tmp_path, manager_fails=True)
+    assert restarted._manager_publish_project_report("done") == "reported"
+    assert restarted.manager_calls == 0

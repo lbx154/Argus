@@ -54,7 +54,7 @@ def tenant(tmp_path, monkeypatch):
     home.mkdir()
     monkeypatch.setenv("ARGUS_SKILL_HOME", str(home))
     monkeypatch.delenv("ARGUS_SKILL_COPILOT_TRIAL", raising=False)
-    monkeypatch.delenv("ARGUS_SKILL_RECALL_SIBLING_WIKIS", raising=False)
+    monkeypatch.delenv("ARGUS_SKILL_LEARNING", raising=False)
     return home
 
 
@@ -131,7 +131,7 @@ def test_roots_include_shared_tiers_principles_and_same_vertical_siblings_only(t
     assert str(other) not in context
 
 
-@pytest.mark.parametrize("switch", [("ARGUS_SKILL_COPILOT_TRIAL", "1"), ("ARGUS_SKILL_RECALL_SIBLING_WIKIS", "0")])
+@pytest.mark.parametrize("switch", [("ARGUS_SKILL_COPILOT_TRIAL", "1"), ("ARGUS_SKILL_LEARNING", "0")])
 def test_hosted_trial_or_switched_off_recall_never_reads_other_workspaces(tenant, monkeypatch, switch):
     workspace = workspace_with_vertical(tenant / "workspaces" / "current", VERTICAL)
     same = workspace_with_vertical(tenant / "workspaces" / "earlier-same", VERTICAL)
@@ -198,7 +198,7 @@ def test_rendering_describes_each_page_and_appends_the_vertical_principles(tenan
     assert "Current Wiki and Skill pointers" not in context
     lesson_line = next(line for line in lines if str(lesson) in line)
     assert lesson_line.startswith(f"- {VERTICAL} knowledge: `{lesson}` — Read the installed torch version's docs before writing a kernel. (lesson; s-fb4716b7/cf2c076f939e; 2026-09-17)")
-    assert "[content " in lesson_line and "embedding similarity" not in lesson_line
+    assert lesson_line.endswith("2026-09-17)"), "a lexical hit carries no channel tag"
     legacy_line = next(line for line in lines if str(legacy) in line)
     legacy_date = dt.date.fromtimestamp(legacy.stat().st_mtime).isoformat()
     assert f"— The quartz mount needs a warm-up run. (page; global; {legacy_date})" in legacy_line

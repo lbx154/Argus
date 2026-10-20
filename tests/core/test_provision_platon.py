@@ -1,6 +1,7 @@
 import io
 import json
 import sys
+from pathlib import Path
 from types import ModuleType
 from unittest.mock import Mock
 
@@ -16,13 +17,15 @@ def offline(tmp_path, monkeypatch):
     directory = resources / "software/platon-reviewed"
     (directory / "lib").mkdir(parents=True)
     (directory / "platon").write_bytes(b"reviewed executable")
+    trusted = tmp_path / "trusted-host/software/platon-reviewed"
+    trusted.mkdir(parents=True)
+    (trusted / "platon").write_bytes(b"reviewed executable")
     record = {
-        "path": "/trusted-host/software/platon-reviewed/platon",
-        "libs": ["/trusted-host/software/platon-reviewed/lib"],
-        "environment": {"CRYSTALPILOT_PLATON": "/trusted-host/software/platon-reviewed/platon"},
+        "path": str(trusted / "platon"),
+        "libs": [str(trusted / "lib")],
+        "environment": {"CRYSTALPILOT_PLATON": str(trusted / "platon")},
         "version": "2026-06-19",
         "recipe": "native-2026-06",
-        "sha256": tool.runtime.sha256(directory / "platon"),
     }
     plugin = Mock()
     monkeypatch.setattr(tool.manager, "_busy", Mock())
@@ -64,11 +67,11 @@ def test_relocates_only_standard_runtime_metadata_and_uses_existing_activation(o
     assert tool.manager.read_json(operation_path)["status"] == "completed"
 
 
-@pytest.mark.parametrize("mutation", ["wrong_digest", "outside_library", "escape_symlink", "outside_directory"])
+@pytest.mark.parametrize("mutation", ["different_source", "outside_library", "escape_symlink", "outside_directory"])
 def test_rejects_untrusted_or_cross_tenant_inputs(offline, mutation, tmp_path):
     root, directory, record, plugin, run = offline
-    if mutation == "wrong_digest":
-        record["sha256"] = "not-the-reviewed-executable"
+    if mutation == "different_source":
+        Path(record["path"]).write_bytes(b"not the reviewed executable")
     elif mutation == "outside_library":
         record["libs"] = ["/another-tenant/lib"]
     elif mutation == "escape_symlink":

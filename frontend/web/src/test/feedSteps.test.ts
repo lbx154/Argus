@@ -284,9 +284,10 @@ describe('foldFeedRows · a real campaign', () => {
     ), 0);
     const echoes = events.filter((event) => event.type === 'engineer.progress' && event.kind === 'tool_use' && event.status === 'failed').length;
 
-    // 622 events → 209 rendered rows → 127 rows once folded (manager 5→5,
-    // planner 27→16, engineer 161→99, reviewer 13→5, Argus updates 3→2).
-    expect(before).toBe(209);
+    // 622 events → 207 rendered rows → 125 rows once folded (manager 5→5,
+    // planner 27→16, engineer 159→97, reviewer 13→5, Argus updates 3→2).
+    // The recording's two retired idea-portfolio events render as nothing.
+    expect(before).toBe(207);
     expect(after).toBeLessThanOrEqual(Math.round(before * 0.65));
     // Every rendered row is still reachable: as a step, a group member or a repeat.
     expect(preserved + echoes).toBe(before);

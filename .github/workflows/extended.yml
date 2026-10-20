@@ -77,7 +77,6 @@ env:
     tests/planner/test_execution_host_failure.py
     tests/test_backend_receipt_classification.py
     tests/test_provider_turn_cap_restart.py
-    tests/tools/test_lean_check.py
     tests/webapi/test_manager_rotation.py
     tests/webapi/test_pairing.py
     tests/webapi/test_source_update.py

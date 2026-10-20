@@ -73,7 +73,6 @@
       "rights_notice_zh": "© 2026 TopoSpace 保留所有权利。未经许可，禁止商用或二次开发。",
       "artifact": {
         "filename": "argus_crystalpilot-0.4.0-py3-none-any.whl",
-        "sha256": "030f22e7c18cb411db43f42fc4667cba06da1593a8a2054cc1a8e7e1fd12fed2",
         "url": "https://crystalpilot-downloads.argusbot.cn/releases/0.4.0/argus_crystalpilot-0.4.0-py3-none-any.whl"
       }
     }

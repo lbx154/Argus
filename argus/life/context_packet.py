@@ -19,7 +19,6 @@ CONTEXT_PACKET_VERSION = 3
 CHECKPOINT_CONTRACT_VERSION = 2
 CHECKPOINT_FILENAME = "CHECKPOINT.md"
 HANDOFF_DIRNAME = "handoffs"
-FRONTIER_FILENAME = "frontier.json"
 
 log = logging.getLogger(__name__)
 
@@ -70,12 +69,11 @@ def _file_reference(path: Path | None) -> dict[str, Any]:
 
 def _model_visible_context_ref(ref: Mapping[str, Any]) -> dict[str, str]:
     """Drop host-only integrity metadata from agent-readable context packets."""
-    hidden = {"content_hash", "hash", "sha", "sha256", "digest"}
+    hidden = {"content_hash", "hash", "digest"}
     return {
         str(key): str(value)
         for key, value in ref.items()
         if str(key).strip().casefold() not in hidden
-        and not str(key).strip().casefold().endswith("_sha256")
     }
 
 
@@ -113,16 +111,6 @@ def render_mission_contract(path: Path | str | None) -> str:
 
 def _brief_text(value: Any, *, limit: int = 600) -> str:
     return " ".join(str(value or "").split())[:limit]
-
-
-def _brief_items(value: Any, *, limit: int = 6) -> list[str]:
-    if not isinstance(value, list):
-        return []
-    return list(dict.fromkeys(
-        text
-        for item in value
-        if (text := _brief_text(item, limit=400))
-    ))[:limit]
 
 
 def _latest_reviewed_handoff(root: Path) -> dict[str, Any]:
@@ -171,9 +159,8 @@ def render_mission_brief(
     *,
     include_engineer_account: bool = True,
     include_previous_review: bool = True,
-    include_missing_condition: bool = True,
 ) -> str:
-    """Project canonical mission/frontier state into one compact role briefing.
+    """Project canonical mission state into one compact role briefing.
 
     The projection selects named semantic fields only. It never reads a
     checkpoint or transcript and writes no state of its own. Unreviewed work is
@@ -187,13 +174,6 @@ def render_mission_brief(
     mission = _read_json_object(mission_path)
     if str(mission.get("kind") or "") != "mission_context":
         return ""
-
-    frontier: dict[str, Any] = {}
-    frontier_ref = mission.get("frontier")
-    if isinstance(frontier_ref, Mapping):
-        frontier_path = _brief_text(frontier_ref.get("path"), limit=4000)
-        if frontier_path:
-            frontier = _read_json_object(Path(frontier_path).expanduser())
 
     reviewed = _latest_reviewed_handoff(mission_path.parent)
     pending_engineer, pending_path = _latest_unreviewed_engineer(mission_path.parent)
@@ -229,10 +209,6 @@ def render_mission_brief(
             "request edits outside it): " + "; ".join(owns_paths)
         )
 
-    changed_surface = _brief_items(frontier.get("artifacts"))
-    if changed_surface:
-        lines.append("- Changed surface: " + "; ".join(changed_surface))
-
     resources: list[str] = []
     context_refs = mission.get("context_refs")
     if isinstance(context_refs, list):
@@ -264,11 +240,6 @@ def render_mission_brief(
     if engineer_summary and include_engineer_account:
         label = "Unreviewed Engineer work" if pending_engineer else "Reviewed Engineer work"
         lines.append(f"- {label}: {engineer_summary}")
-    if reviewed and status != "done" and include_missing_condition:
-        missing = _brief_items(frontier.get("remaining_work"))
-        if missing:
-            label = "Previously missing condition" if pending_engineer else "Missing condition"
-            lines.append(f"- {label}: " + "; ".join(missing))
     next_action = (
         _brief_text(review.get("next_action")) if include_previous_review else ""
     )
@@ -374,57 +345,6 @@ def create_mission_context(
     # The supervisor creates the context once at the start of every run of
     # this mission, so each call opens the next run.
     run = mission_run(existing) + 1 if existing else 1
-    frontier_path = root / FRONTIER_FILENAME
-    from ..core.task_frontier import (
-        TaskFrontier,
-        load_task_frontier,
-        save_task_frontier,
-    )
-
-    frontier = load_task_frontier(frontier_path)
-    initial_only = frontier is not None and not any((
-        frontier.transition_count, frontier.history, frontier.artifacts,
-        frontier.evidence, frontier.resolved_obligations, frontier.new_obligations,
-        frontier.regressed_obligations, frontier.proxy_changes,
-        frontier.active_regression, frontier.unchanged_failure_streak,
-    )) and (
-        frontier.current_hypothesis in {"", str(existing.get("plan_hypothesis") or "")}
-        and frontier.next_decision_point in {"", str(existing.get("decision_rule") or "")}
-        and frontier.uncertainty in {"", "Unresolved until reviewed evidence narrows it."}
-        and set(frontier.remaining_work).issubset(frontier.invariants)
-    )
-    if initial_only:
-        frontier = None
-    if frontier is None:
-        frontier = TaskFrontier.initial(
-            mission_id=str(mission_id),
-            objective=objective,
-            invariants=[acceptance_check, *(non_goals or [])],
-            hypothesis=plan_hypothesis,
-            remaining_work=[acceptance_check] if acceptance_check else [],
-            uncertainty="Unresolved until reviewed evidence narrows it.",
-            next_decision_point=decision_rule,
-        )
-    else:
-        # Rebind only the operator's contract. Preserve learned scientific state,
-        # including prior transitions and concerns unrelated to that contract.
-        previous_contract = {
-            str(existing.get("acceptance_check") or ""),
-            *(str(value) for value in existing.get("non_goals") or []),
-        }
-        frontier.objective = str(objective or "").strip()
-        frontier.invariants = list(dict.fromkeys(
-            [value for value in frontier.invariants if value not in previous_contract]
-            + [value for value in [acceptance_check, *(non_goals or [])] if value]
-        ))
-        previous_acceptance = str(existing.get("acceptance_check") or "")
-        if previous_acceptance and previous_acceptance in frontier.remaining_work:
-            frontier.remaining_work = list(dict.fromkeys(
-                [value for value in frontier.remaining_work if value != previous_acceptance]
-                + ([acceptance_check] if acceptance_check else [])
-            ))
-        frontier.updated_at = time.time()
-    save_task_frontier(frontier_path, frontier)
     payload = {
         "schema_version": CONTEXT_PACKET_VERSION,
         "kind": "mission_context",
@@ -455,7 +375,6 @@ def create_mission_context(
         "node_key": str(node_key or ""),
         "deps": [str(dep) for dep in (deps or [])],
         "tags": [str(tag) for tag in (tags or [])],
-        "frontier": _file_reference(frontier_path),
         "checkpoint": {
             **_file_reference(checkpoint_path),
             "contract_version": CHECKPOINT_CONTRACT_VERSION,
@@ -503,7 +422,6 @@ def record_engineer_handoff(
         "engineer_summary": str(engineer_summary or "").strip()[:4000],
         "session_id": str(thread_id or ""),
         "checkpoint": _file_reference(checkpoint_path),
-        "frontier": _file_reference(root / FRONTIER_FILENAME),
         "created_at": time.time(),
     }
     path = round_handoff_path(root, round_index, run, "-engineer")
@@ -574,19 +492,6 @@ def record_reviewed_handoff(
                     state_root=root,
                 )
             )
-    frontier_path = root / FRONTIER_FILENAME
-    from ..core.task_frontier import load_task_frontier, save_task_frontier
-
-    frontier = load_task_frontier(frontier_path)
-    frontier_transition: dict[str, Any] = {}
-    if frontier is not None:
-        report = getattr(review, "frontier_report", {})
-        if isinstance(report, dict):
-            frontier_transition = frontier.apply(report, round_index=round_index)
-            if frontier_transition:
-                save_task_frontier(frontier_path, frontier)
-                review_payload["frontier_transition"] = frontier_transition
-                review_payload["frontier_disposition"] = frontier.disposition
     payload = {
         "schema_version": CONTEXT_PACKET_VERSION,
         "kind": "round_reviewed_handoff",
@@ -598,7 +503,6 @@ def record_reviewed_handoff(
         "engineer_summary": str(engineer_summary or "").strip()[:4000],
         "review": review_payload,
         "checkpoint": _file_reference(checkpoint_path),
-        "frontier": _file_reference(frontier_path),
         "created_at": time.time(),
     }
     path = round_handoff_path(root, round_index, mission_run(mission))
@@ -617,7 +521,6 @@ __all__ = [
     "CHECKPOINT_CONTRACT_VERSION",
     "CHECKPOINT_FILENAME",
     "CONTEXT_PACKET_VERSION",
-    "FRONTIER_FILENAME",
     "create_mission_context",
     "mission_context_dir",
     "mission_run",

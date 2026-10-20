@@ -10,11 +10,11 @@ import statistics
 from pathlib import Path
 
 if __package__:
-    from .runtime import digest, validate_skill_session, write_json
+    from .runtime import file_facts, validate_skill_session, write_json
     from .study import DEFAULT_ROOT
     from .validation import validate_report
 else:
-    from runtime import digest, validate_skill_session, write_json
+    from runtime import file_facts, validate_skill_session, write_json
     from study import DEFAULT_ROOT
     from validation import validate_report
 
@@ -40,7 +40,7 @@ def summarize(root: Path, output: Path) -> dict:
                 else "not_performed_before_original_report_rejection"
             ),
             "duration_seconds": runner["duration_seconds"],
-            "original_report_sha256": digest(directory / "report.json"),
+            "original_report_file": file_facts(directory / "report.json"),
         }
         try:
             validate_skill_session(directory / "copilot.jsonl")
@@ -74,14 +74,14 @@ def summarize(root: Path, output: Path) -> dict:
     summary = {
         "schema": "copilot-pr-regression-posthoc-artifact-audit/v1",
         "created_at": dt.datetime.now(dt.timezone.utc).isoformat(),
-        "original_summary_sha256": digest(root / "summary.json"),
+        "original_summary_file": file_facts(root / "summary.json"),
         "original_run_summary": original,
         "posthoc_changes": [
             "Map only /work/... evidence paths into each PR's retained artifact root.",
             "Allow UNCERTAIN with supported local findings; do not alter declared verdicts.",
         ],
-        "auditor_sha256": digest(Path(__file__)),
-        "validator_sha256": digest(Path(__file__).with_name("validation.py")),
+        "auditor_file": file_facts(Path(__file__)),
+        "validator_file": file_facts(Path(__file__).with_name("validation.py")),
         "selected_prs": len(selection),
         "report_artifact_audit_counts": dict(collections.Counter(
             record["artifact_audit"] for record in records

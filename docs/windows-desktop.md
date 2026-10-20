@@ -168,20 +168,21 @@ cockpit，并在存在目标时定位到对应成果。没有可展示文件时�
 ## 后端身份与恢复
 
 首次启动会生成 32-byte URL-safe Web token，保存在当前用户的
-`%APPDATA%\argus-desktop\settings.json`。原 token 从不会写进 ownership record、
-日志或诊断包。每次启动或健康检查均需认证 `/api/meta`，并验证：
+`%APPDATA%\argus-desktop\settings.json`。ownership record 也原样记下这个 token，
+用来证明旧后端归属；它和 settings.json 一样只对当前用户可读，token 从不写进日志或
+诊断包。每次启动或健康检查均需认证 `/api/meta`，并验证：
 
 1. listener PID 与启动时间；
 2. 精确后端 executable path；
 3. loopback host/port；
-4. Web token 的 SHA-256；
+4. Web token（逐字节比较，耗时与内容无关）；
 5. 本次 spawn 的随机 `ARGUS_DESKTOP_LAUNCH_NONCE`。
 
 新版本只能替换两类旧 listener：完整旧 ownership record 精确匹配的后端，或经过
 当前 token 认证且路径精确等于 bundled backend 的兼容旧版 listener。其他端口占用、
-远程地址、身份缺字段或 digest 不一致均 fail closed。
+远程地址、身份缺字段或发布标识不一致均 fail closed。
 
-健康检测每 5 秒一次。当前宿主的预期版本指纹编译进 EXE，已认证的 PID、启动时间、路径和
+健康检测每 5 秒一次。当前宿主的预期发布标识（版本号 + git 提交号）编译进 EXE，已认证的 PID、启动时间、路径和
 启动证明保存在当前会话中；不再因磁盘清单／ownership 记录暂时不可读而变成“陌生后端”。
 ownership 记录使用同目录临时文件与原子替换写入，写入失败会明确拒绝完成启动。
 
@@ -251,7 +252,7 @@ Cloudflare Worker 模板：它仅代理 `lbx154/Argus` 的允许 release 资产�
 操作脚本。它下载 GitHub Release、重写镜像 manifest URL、上传安装器和 `.sig`。
 在配置 OSS/Worker 前，主 GitHub endpoint 仍是可用且安全的默认通道。部署镜像后，
 将 HTTPS mirror endpoint 放到下一次 Tauri release 的 updater endpoint 列表首位，
-并保留 GitHub 作为回退。每次发布都应比对 OSS 与 GitHub 的 SHA-256。
+并保留 GitHub 作为回退。每次发布都应比对 OSS 与 GitHub 上各安装器的字节数。
 
 这些脚本不会在本地 build、测试或应用启动时写入任何远程服务。
 
@@ -266,10 +267,10 @@ Python 后端，以 Tauri `--no-bundle --no-sign --features preview` 编译宿�
 
 构建前需提交手写源码，再按现有生成器一致生成并独立提交 Web/TUI/manifest。
 预览构建前后要求跟踪输入干净、没有未跟踪的产品输入或资产，并绑定同一候选 commit/tree；
-若生成器或并发修改造成变化，会拒绝 ZIP，不手改摘要。`ARGUS_PREVIEW_BASE` 可指定完整冻结 base SHA，
+若生成器或并发修改造成变化，会拒绝 ZIP，不手改清单。`ARGUS_PREVIEW_BASE` 可指定完整冻结 base 提交号，
 省略时取本地 `HEAD` 与 `origin/dev` 的 merge-base，不查询或追逐远端 HEAD。
 可用 `ARGUS_PREVIEW_REVIEW` 指向不含凭据的 JSON 回归记录；其 `candidate_sha`、`base_sha`、
-`release_id`、`source_digest` 必须匹配本构建，并包含 `tasks`、`checks`、`pending`。
+`release_id`、`git_commit` 必须匹配本构建，并包含 `tasks`、`checks`、`pending`。
 它随包保存为 `PREVIEW-VALIDATION.json`；`SOURCE-IDENTITY.json` 总是记录实际构建身份。
 没有此回归记录时不宣称源码回归全部通过。
 
@@ -326,7 +327,7 @@ AI IDE 的编辑区、文件树、Git 区域、终端和状态栏统一跟随全
 一致构建、复制校验、冻结模块及原生后端启动/短时健康检查后生成 ZIP，不等待 CDP 或长稳。
 包内必须标明这是最低限度检查，未做真实 Windows Toast、成品像素动效、完整界面、故障注入和长稳验收；不代表 PR-ready。
 手测预览的最低启动检查使用随机测试实例标识和隔离 profile，保留真实单实例保护；
-认证后端的 release ID 与 source digest 都须匹配冻结清单。该检查不等于托盘/再次唤醒/明确退出已验收。
+认证后端的 release ID 须匹配冻结清单。该检查不等于托盘/再次唤醒/明确退出已验收。
 
 不带该参数的 `build:preview` 默认仍要求 1800 秒连续运行及故障注入检查通过，再生成 ZIP。开发者可通过
 `ARGUS_PREVIEW_SOAK_SECONDS` 缩短本地诊断，但交付验收不得把短检查当成长稳测试。
@@ -356,12 +357,12 @@ CLI 预检、再次启动、单实例恢复、退出和独立数据目录；这�
 
 ### Role session 复用
 
-Desktop 不需要机器专用的 Pi 设置来复用角色上下文。共享运行时默认使用
-`ARGUS_SKILL_ROLE_SESSION_POLICY=auto`：支持 resume 的 Pi、Codex、Claude/Qoder、
-Copilot、OpenCode 和 Grok 使用有界、按角色隔离的 rolling session；DeepSeek Harness 等
+Desktop 不需要任何设置来复用角色上下文：支持 resume 的 Pi、Codex、Claude/Qoder、
+Copilot、OpenCode 和 Grok 按角色续用各自的 provider thread；DeepSeek Harness 等
 fresh-only backend 保持 fresh。Planner、Engineer、Reviewer 各自维护独立 capsule，不会跨角色
-或无关任务共享 provider thread；达到 turn/token 上限或身份相关上下文变化时自动轮换。完整
-契约见 [Role sessions and on-demand Skills](ROLE_SESSIONS_AND_SKILLS.md)。
+或无关任务共享 provider thread。上下文由 backend 自己压缩，Argus 不按轮数或大小轮换，只在
+分支、目标、backend、模型变化时换新 thread。完整契约见
+[Role sessions and on-demand Skills](ROLE_SESSIONS_AND_SKILLS.md)。
 
 安装依赖：
 
@@ -444,11 +445,12 @@ npm --prefix desktop-tauri run dist
 ```
 
 `dist` 的 Windows 路径先一致构建、冻结、签名；正式发行只产生 NSIS installer、detached `.exe.sig`
-和 updater `latest.json`，以及校验和文件。发布暂存尊重实际 `CARGO_TARGET_DIR`；也可通过
+和 updater `latest.json`。发布暂存尊重实际 `CARGO_TARGET_DIR`；也可通过
 `stage-release.ps1 -BundleDirectory <NSIS目录> -OutputDirectory <新目录>` 指定路径。
-目标发行目录已存在时直接拒绝，不会清空它。只有复制后的安装器和 trusted comment 均通过
-应用内置公钥验证，才写 `latest.json` 与 `SHA256SUMS`；缺失、空白、错版本、错架构、错误公钥
-或被篡改的签名不能生成发布元数据。JSON 是更新元数据，不是账户凭据。
+目标发行目录已存在时直接拒绝，不会清空它。只有复制后的安装器与输入逐字节一致，且安装器和
+trusted comment 均通过应用内置公钥验证，才写 `latest.json`；缺失、空白、错版本、错架构、
+错误公钥或被篡改的签名不能生成发布元数据。发布说明列出版本号、git 提交号和各文件的字节数。
+JSON 是更新元数据，不是账户凭据。
 
 只有诊断候选才使用 `build:backend` 后接 `build:unsigned`；此路径没有可发布的 SIG/JSON，
 不能把文件改名后称为正式版。新的发行还必须使用高于已发布版本的统一版本号。

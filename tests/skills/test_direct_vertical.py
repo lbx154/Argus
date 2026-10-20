@@ -15,7 +15,7 @@ from argus.skills.vertical_select import (
     VERTICALS,
     persist_vertical,
 )
-from argus.verticals._base import _contract, load_vertical, load_vertical_contract
+from argus.verticals._base import load_vertical, load_vertical_contract
 
 
 def test_software_vertical_is_separate_from_direct_workflow(tmp_path) -> None:
@@ -25,7 +25,6 @@ def test_software_vertical_is_separate_from_direct_workflow(tmp_path) -> None:
     module = load_vertical("software", project_root=tmp_path)
     assert module.STAGE_ORDER == ["delivery"]
     assert module.completion_gate == "none"
-    assert _contract(module).workflow_mode == "staged"
 
 
 def test_runtime_resolves_direct_workflow(tmp_path) -> None:
@@ -179,6 +178,7 @@ def test_skill_loop_keeps_both_roles_on_the_configured_workflow(
     engineer_prompt = next(
         prompt for label, prompt, _ in backend.history if label == "engineer-r1"
     )
+    engineer_options = next(options for label, _, options in backend.history if label == "engineer-r1")
     reviewer_prompt, reviewer_options = next(
         (prompt, options) for label, prompt, options in backend.history if label == "reviewer"
     )
@@ -186,7 +186,8 @@ def test_skill_loop_keeps_both_roles_on_the_configured_workflow(
     assert (
         "when a direct task meets its requirements and decisive check" in reviewer_prompt
     ) == (workflow_mode == "direct")
-    assert reviewer_options.sandbox_mode == "read-only"
+    for access in ("full_auto", "dangerous_yolo", "sandbox_mode"):
+        assert getattr(reviewer_options, access) == getattr(engineer_options, access)
 
 
 def test_reviewer_workflow_change_refreshes_the_session_rubric(tmp_path) -> None:
@@ -228,8 +229,8 @@ def test_direct_engineer_and_reviewer_keep_selected_vertical_banners(
 ) -> None:
     from argus.roles.prompts.engineer import build_mission_prompt
 
-    persist_vertical(tmp_path, "kernel_engineering", workflow_mode="direct")
-    contract = load_vertical_contract("kernel_engineering", project_root=tmp_path)
+    persist_vertical(tmp_path, "argus_maintenance", workflow_mode="direct")
+    contract = load_vertical_contract("argus_maintenance", project_root=tmp_path)
     engineer_banner = contract.banner("engineer")
     engineer_prompt = build_mission_prompt(
         task="Profile one decode and patch the measured hot path.",
@@ -253,7 +254,5 @@ def test_direct_engineer_and_reviewer_keep_selected_vertical_banners(
     )
 
     assert "## Active vertical role" in engineer_prompt
-    assert "Treat unattended benchmark and profiler runs as asynchronous" in (
-        engineer_prompt
-    )
-    assert "never fail work merely because" in reviewer_prompt
+    assert "ARGUS MAINTENANCE: improve Argus itself" in engineer_prompt
+    assert "Review the changed causal surface" in reviewer_prompt

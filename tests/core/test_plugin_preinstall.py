@@ -15,8 +15,6 @@ def host(tmp_path, monkeypatch):
     monkeypatch.setenv("ARGUS_SKILL_HOME", str(tmp_path / "host"))
     monkeypatch.setenv("ARGUS_WORKBENCH_HOST_ROOT", str(tmp_path / "host"))
     monkeypatch.setenv("ARGUS_SKILL_RUNNER_BACKEND", "pi")
-    for role in ("MANAGER", "PLANNER", "ENGINEER", "REVIEWER"):
-        monkeypatch.setenv("ARGUS_SKILL_" + role + "_BACKEND", "pi")
     monkeypatch.delenv(pm.PREINSTALL_ENV, raising=False)
     # Registry rows in these tests point at no real package; loading one is not the subject.
     monkeypatch.setattr(pm, "load_plugin", lambda *args, **kwargs: None)
@@ -34,7 +32,7 @@ def current_row(**changes):
         "python": "/science/bin/python",
         "enabled": True,
         "installed": 1.0,
-        "sha256": spec["artifact"]["sha256"],
+        "git_commit": spec.get("git_commit"),
         "python_constraints": spec.get("python_constraints", []),
         "validation_imports": spec.get("validation_imports", []),
     }
@@ -126,7 +124,7 @@ def test_missing_plugin_is_installed_once_even_when_asked_again(host, slow_insta
 def test_outdated_plugin_is_updated_and_disabled_plugin_is_enabled(host, slow_install):
     release, calls = slow_install
     release.set()
-    write_registry(host, current_row(version="0.3.9", sha256="0" * 64))
+    write_registry(host, current_row(version="0.3.9"))
     assert pm.preinstall_need("crystalpilot", host) == "update"
     assert pm.preinstall(host, ids=["crystalpilot"], wait=True, timeout=10) == {
         "crystalpilot": {"status": "completed", "action": "update"}

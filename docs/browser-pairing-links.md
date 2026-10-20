@@ -11,7 +11,7 @@ the URL. Ordinary refreshes and visits to the site's root remain paired.
 
 Issuance requires the existing owner authentication. Links expire after one hour,
 are consumed atomically, and are invalidated by a server restart. At most 32 pending
-links are retained in memory, as hashes. Pairing continues to use the existing
+links are retained in memory, as issued. Pairing continues to use the existing
 shared workbench identity; this does not add user accounts or project permissions.
 Responses prevent caching, framing and referrer forwarding. No authentication is
 removed from existing APIs.

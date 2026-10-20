@@ -36,8 +36,7 @@ def offline_settings(tmp_path, *, timeout=2):
 
 
 def issue(app):
-    credential = app.state.vault.credential(KEY_ID)
-    app.state.store.issue(KEY_ID, credential)
+    credential = app.state.store.issue(KEY_ID)
     return credential
 
 

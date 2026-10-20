@@ -1,6 +1,5 @@
-"""Host-level, policy-light resource grants for Argus work."""
+"""Host accelerator and memory probes, and the status schema the web UI reads."""
 
-from .ledger import ResourceLedger, demand_hash, owner_identity
 from .probe import ResourceProbe
 
-__all__ = ["ResourceLedger", "ResourceProbe", "demand_hash", "owner_identity"]
+__all__ = ["ResourceProbe"]

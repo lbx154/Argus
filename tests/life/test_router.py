@@ -111,7 +111,6 @@ def test_build_quick_reply_prompt_names_the_worker_and_guards_identity() -> None
     assert _IDENTITY_GUARD in out
     assert "identify only as Argus Manager" in out
     assert "only when the operator asks who or what you are" in out
-    assert "Argus's durable runner" in out
     assert "do not claim inspection" in out
     assert out.endswith("Message:\n你好")
 
@@ -216,7 +215,7 @@ def test_build_simple_prompt_includes_grounding_workspace_when_given() -> None:
 
 
 def test_manager_prompts_include_runtime_context_only_when_given() -> None:
-    fact = "Runtime fact: one warm ACP conversation session."
+    fact = "Runtime fact: the Team log is events.jsonl."
     chat = build_quick_reply_prompt(objective="how are you?", runtime_context=fact)
     simple = build_simple_prompt(objective="status", runtime_context=fact)
 

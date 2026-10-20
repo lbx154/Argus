@@ -7,7 +7,7 @@ import { ArgusArtifactsPanel } from '../components/ArgusArtifactsPanel'
 import type { DatasetSnapshot, EpisodeVerification, ResearchEpisode } from '../types'
 import { useApp } from '../App'
 
-const shortHash = (value?: string | null) => value ? `${value.slice(0, 10)}…${value.slice(-6)}` : 'not sealed'
+const shortKey = (value?: string | null) => value ? `${value.slice(0, 10)}…${value.slice(-6)}` : 'not sealed'
 const when = (value?: string) => value ? new Intl.DateTimeFormat(undefined, { dateStyle: 'medium', timeStyle: 'short' }).format(new Date(value)) : '—'
 
 function integrityTone(value: string): 'good' | 'warn' | 'bad' | 'neutral' {
@@ -94,7 +94,7 @@ export function DataVaultPage() {
     try {
       const result = await verifyEpisode(selected.id)
       setVerification(result)
-      toast(result.valid ? 'Episode 哈希链与对象引用验证通过。' : '验证发现问题；本 Episode 不会进入数据集快照。')
+      toast(result.valid ? 'Episode 修订链与对象引用验证通过。' : '验证发现问题；本 Episode 不会进入数据集快照。')
     } catch (cause) {
       toast(`验证失败：${cause instanceof Error ? cause.message : 'unknown error'}`)
     } finally { setBusy('') }
@@ -188,7 +188,7 @@ export function DataVaultPage() {
       })
       setReviewOpen(false); setReviewDraft(null); setReviewRaw(''); setReviewRef(''); setReviewFile(null); setReviewRedacted(false); setReviewTraining(false); setReviewLicense('')
       setSelected(await loadEpisode(selected.id)); await refresh()
-      toast('外部评审已由人工确认并按原始字节 SHA-256 封存；下一次 Episode revision 会引用它。')
+      toast('外部评审已由人工确认并按原始字节封存；下一次 Episode revision 会引用它。')
     } catch (cause) { toast(`评审确认失败：${cause instanceof Error ? cause.message : 'unknown error'}`) }
     finally { setBusy('') }
   }
@@ -230,7 +230,7 @@ export function DataVaultPage() {
       <div><h2>创建数据集快照</h2></div>
       <pre>{JSON.stringify(preview, null, 2)}</pre>
       <div className="snapshot-fields"><label><span>Snapshot name</span><input value={datasetName} onChange={(event) => setDatasetName(event.target.value)} /></label><label><span>汇总许可证依据 · 必填</span><input value={datasetLicense} onChange={(event) => setDatasetLicense(event.target.value)} placeholder="例如：仅包含团队拥有且获准用于研究训练的脱敏记录" /></label></div>
-      <div className="snapshot-actions"><Button onClick={() => setPreview(null)}>取消</Button><Button kind="primary" icon={<LockKeyhole size={14} />} onClick={createSnapshot} disabled={busy === 'dataset' || !datasetName.trim() || !datasetLicense.trim() || !preview.selection_sha256}>{busy === 'dataset' ? '正在封存…' : '确认创建不可变快照'}</Button></div>
+      <div className="snapshot-actions"><Button onClick={() => setPreview(null)}>取消</Button><Button kind="primary" icon={<LockKeyhole size={14} />} onClick={createSnapshot} disabled={busy === 'dataset' || !datasetName.trim() || !datasetLicense.trim() || !preview.selection}>{busy === 'dataset' ? '正在封存…' : '确认创建不可变快照'}</Button></div>
     </section>}
 
     {episodes.length === 0 ? <EmptyState
@@ -251,7 +251,7 @@ export function DataVaultPage() {
         {!selected ? <LoadingState /> : <>
           <div className="episode-title-row">
             <div><span>RESEARCH EPISODE · {selected.id.slice(0, 8)}</span><h2>{selected.title}</h2><p>{selected.team_name ?? selected.team_profile_id ?? 'Team pending'} · {selected.venue_name ?? selected.venue_key ?? 'Venue pending'}</p></div>
-            <div><Button icon={<Upload size={14} />} onClick={() => setReviewOpen(true)} disabled={Boolean(busy)}>导入外部评审</Button><Button icon={<ShieldCheck size={14} />} onClick={verify} disabled={Boolean(busy)}>{busy === 'verify' ? '正在验证…' : '验证哈希链'}</Button><Button kind="primary" icon={<LockKeyhole size={14} />} onClick={() => setSealOpen(true)} disabled={Boolean(busy)}>封存新版本</Button></div>
+            <div><Button icon={<Upload size={14} />} onClick={() => setReviewOpen(true)} disabled={Boolean(busy)}>导入外部评审</Button><Button icon={<ShieldCheck size={14} />} onClick={verify} disabled={Boolean(busy)}>{busy === 'verify' ? '正在验证…' : '验证修订链'}</Button><Button kind="primary" icon={<LockKeyhole size={14} />} onClick={() => setSealOpen(true)} disabled={Boolean(busy)}>封存新版本</Button></div>
           </div>
 
           <div className="episode-state-grid">
@@ -288,7 +288,7 @@ export function DataVaultPage() {
             <div className="section-heading"><div><h3>Episode revisions</h3></div><StatusPill tone="iris">head r{selected.head_revision}</StatusPill></div>
             {selected.revisions?.length ? <div className="revision-list">{[...selected.revisions].reverse().map((revision) => <article key={revision.id}>
               <div className="revision-marker"><i /><span>r{revision.revision}</span></div>
-              <div><strong>{revision.trigger_type}</strong><p><code>{shortHash(revision.manifest_sha256)}</code></p><small>{revision.sealed_by} · {when(revision.sealed_at)}</small></div>
+              <div><strong>{revision.trigger_type}</strong><p><code>{shortKey(revision.manifest_key)}</code></p><small>{revision.sealed_by} · {when(revision.sealed_at)}</small></div>
               <CheckCircle2 size={16} />
             </article>)}</div> : <EmptyState title="尚未封存 revision" />}
           </div>

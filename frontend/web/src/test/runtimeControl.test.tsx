@@ -23,7 +23,7 @@ beforeEach(() => {
   };
   vi.stubGlobal('fetch', vi.fn(() => { throw new Error('Unexpected unmocked request'); }));
   vi.stubGlobal('window', { confirm: vi.fn(() => true) });
-  vi.spyOn(api, 'resources').mockResolvedValue({ schema_version: 1, enforcement: 'strict', accelerators: [], holders: [], queue: [] });
+  vi.spyOn(api, 'resources').mockResolvedValue({ schema_version: 1, enforcement: 'strict', accelerators: [] });
   vi.spyOn(api, 'metrics').mockRejectedValue(new Error('synthetic metrics failure'));
   vi.spyOn(api, 'trash').mockResolvedValue({ entries: [], total: 0 });
   vi.spyOn(api, 'sourceUpdateStatus').mockRejectedValue(new Error('synthetic unavailable source'));

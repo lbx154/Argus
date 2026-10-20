@@ -1,4 +1,4 @@
-"""The hourly consolidation pass: index rebuild, receipt, validation and the one model call."""
+"""The consolidation pass: index rebuild, receipt, validation and the one model call."""
 from __future__ import annotations
 
 import json
@@ -13,8 +13,8 @@ from argus.life.consolidation import (
     Receipt,
     build_prompt,
     consolidate_knowledge,
+    lesson_facts,
     lesson_pages,
-    lessons_digest,
     list_pages,
     read_receipt,
     rebuild_index,
@@ -90,7 +90,7 @@ def _stub_model(monkeypatch: pytest.MonkeyPatch, reply):
     return calls
 
 
-def _run(home: Path, *, now: float = NOW, emit=None, interval: float = HOUR, life_dir: Path | None = None):
+def _run(home: Path, *, now: float = NOW, emit=None, life_dir: Path | None = None):
     return consolidate_knowledge(
         runner=object(),
         global_root=home,
@@ -98,7 +98,6 @@ def _run(home: Path, *, now: float = NOW, emit=None, interval: float = HOUR, lif
         vertical=VERTICAL,
         emit=emit,
         now=now,
-        interval_s=interval,
     )
 
 
@@ -162,29 +161,29 @@ def test_unreadable_pages_are_skipped_not_raised(tmp_path: Path) -> None:
     assert [page.title for page in list_pages(root)] == ["Good"]
 
 
-# --------------------------------------------------------------------------- digest and receipt
+# --------------------------------------------------------------------------- lesson facts and receipt
 
 
-def test_lessons_digest_changes_only_with_lesson_files(tmp_path: Path) -> None:
+def test_lesson_facts_change_only_with_lesson_files(tmp_path: Path) -> None:
     _home_, root = _home(tmp_path)
     _three_lessons(root)
-    before = lessons_digest(lesson_pages(list_pages(root)))
+    before = lesson_facts(lesson_pages(list_pages(root)))
     (root / "pages" / "facts").mkdir()
     (root / "pages" / "facts" / "f.md").write_text(_page("Fact", "d", "b"), encoding="utf-8")
-    assert lessons_digest(lesson_pages(list_pages(root))) == before
+    assert lesson_facts(lesson_pages(list_pages(root))) == before
     _lesson(root, "20260918-new", "New lesson")
-    assert lessons_digest(lesson_pages(list_pages(root))) != before
+    assert lesson_facts(lesson_pages(list_pages(root))) != before
 
 
 def test_receipt_round_trips_and_tolerates_corruption(tmp_path: Path) -> None:
     _home_, root = _home(tmp_path)
-    receipt = Receipt(vertical=VERTICAL, last_ts=NOW, lessons_digest="abc", lesson_count=3, principle_count=2, outcome="compiled")
+    receipt = Receipt(vertical=VERTICAL, last_ts=NOW, lessons_compiled=[["a.md", [1, 2, 3]]], lesson_count=3, principle_count=2, outcome="compiled")
     path = write_receipt(root, receipt, now=NOW)
     assert path == root / ".consolidated.json"
     data = json.loads(path.read_text(encoding="utf-8"))
-    assert data["last_ts"] == NOW and data["lessons_digest"] == "abc" and data["updated_at"].startswith(TODAY)
+    assert data["last_ts"] == NOW and data["lessons_compiled"] == [["a.md", [1, 2, 3]]] and data["updated_at"].startswith(TODAY)
     loaded = read_receipt(root)
-    assert (loaded.last_ts, loaded.lessons_digest, loaded.lesson_count, loaded.principle_count) == (NOW, "abc", 3, 2)
+    assert (loaded.last_ts, loaded.lessons_compiled, loaded.lesson_count, loaded.principle_count) == (NOW, [["a.md", [1, 2, 3]]], 3, 2)
     path.write_text("{not json", encoding="utf-8")
     assert read_receipt(root) == Receipt()
 
@@ -192,7 +191,7 @@ def test_receipt_round_trips_and_tolerates_corruption(tmp_path: Path) -> None:
 # --------------------------------------------------------------------------- skip logic
 
 
-def test_skips_with_fewer_than_three_lessons_and_then_waits_for_the_interval(tmp_path: Path, monkeypatch) -> None:
+def test_skips_with_fewer_than_three_lessons_and_then_waits_for_a_page_change(tmp_path: Path, monkeypatch) -> None:
     home, root = _home(tmp_path)
     _lesson(root, "20260916-a", "One")
     _lesson(root, "20260917-b", "Two")
@@ -202,11 +201,14 @@ def test_skips_with_fewer_than_three_lessons_and_then_waits_for_the_interval(tmp
     assert first["outcome"] == "skipped_few_lessons" and first["lessons"] == 2
     assert read_receipt(root).last_ts == NOW
 
-    _lesson(root, "20260917-c", "Three")
     second = _run(home, now=NOW + 60)
-    assert second["outcome"] == "skipped_interval"
-    assert read_receipt(root).last_ts == NOW, "an interval skip does not touch the receipt"
+    assert second["outcome"] == "skipped_unchanged"
+    assert read_receipt(root).last_ts == NOW, "nothing new does not touch the receipt"
     assert calls == []
+
+    _lesson(root, "20260917-c", "Three")
+    _stub_model(monkeypatch, RuntimeError("provider unavailable"))
+    assert _run(home, now=NOW + 120)["outcome"] == "failed", "a new page is new input"
 
 
 def test_no_shared_root_or_vertical_skips_without_writing(tmp_path: Path, monkeypatch) -> None:
@@ -230,28 +232,19 @@ def test_unchanged_lessons_skip_the_model_until_a_lesson_changes(tmp_path: Path,
 
     assert _run(home)["outcome"] == "compiled"
     assert len(calls) == 1
-    assert _run(home, now=NOW + HOUR + 1)["outcome"] == "skipped_unchanged"
+    assert _run(home, now=NOW + 1)["outcome"] == "skipped_unchanged"
+    fact = root / "pages" / "facts" / "gpu.md"
+    fact.parent.mkdir()
+    fact.write_text(_page("GPU hosts", "Which hosts have GPUs", "Two."), encoding="utf-8")
+    assert _run(home, now=NOW + 2)["outcome"] == "skipped_unchanged"
     assert len(calls) == 1
     receipt = read_receipt(root)
-    assert receipt.outcome == "skipped_unchanged" and receipt.lessons_digest, "the compiled digest is kept"
+    assert receipt.outcome == "skipped_unchanged" and receipt.lessons_compiled, "the compiled lessons are kept"
 
     _lesson(root, "20260918-new", "New lesson")
-    assert _run(home, now=NOW + 2 * HOUR + 2)["outcome"] == "compiled"
+    assert _run(home, now=NOW + 3)["outcome"] == "compiled"
     assert len(calls) == 2
-    assert _run(home, now=NOW + 2 * HOUR + 3)["outcome"] == "skipped_interval"
-
-
-def test_interval_comes_from_the_knob_when_not_given(tmp_path: Path, monkeypatch) -> None:
-    home, root = _home(tmp_path)
-    _three_lessons(root)
-    _stub_model(monkeypatch, RuntimeError("must not be called"))
-    write_receipt(root, Receipt(last_ts=NOW - 100, lessons_digest="x", outcome="compiled"), now=NOW - 100)
-    monkeypatch.setenv("ARGUS_SKILL_CONSOLIDATE_INTERVAL_S", "120")
-    result = consolidate_knowledge(runner=object(), global_root=home, life_dir=home, vertical=VERTICAL, emit=None, now=NOW)
-    assert result["outcome"] == "skipped_interval"
-    monkeypatch.setenv("ARGUS_SKILL_CONSOLIDATE_INTERVAL_S", "60")
-    result = consolidate_knowledge(runner=object(), global_root=home, life_dir=home, vertical=VERTICAL, emit=None, now=NOW)
-    assert result["outcome"] == "failed", "past the interval the pass proceeds to the model"
+    assert _run(home, now=NOW + 4)["outcome"] == "skipped_unchanged"
 
 
 def test_a_concurrent_pass_holding_the_lock_makes_this_one_skip(tmp_path: Path, monkeypatch) -> None:
@@ -349,7 +342,7 @@ def test_stubbed_model_produces_principles_event_and_journal(tmp_path: Path, mon
 
     receipt = read_receipt(root)
     assert receipt.outcome == "compiled" and receipt.principle_count == 2 and receipt.lesson_count == 3
-    assert receipt.lessons_digest == lessons_digest(lesson_pages(list_pages(root)))
+    assert receipt.lessons_compiled == lesson_facts(lesson_pages(list_pages(root)))
     assert receipt.compiled_at.startswith(TODAY)
     index = (root / "INDEX.md").read_text(encoding="utf-8")
     assert "[Principles for research](principles.md)" in index and "## Lessons" in index
@@ -380,12 +373,13 @@ def test_a_bad_reply_restores_the_previous_principles_and_records_the_failure(tm
     assert events == [] and read_knowledge_events(home) == []
     receipt = read_receipt(root)
     assert receipt.outcome == "failed" and "do not exist" in receipt.failure
-    assert receipt.lessons_digest == "", "a failed pass leaves the digest so the next interval retries"
+    assert receipt.lessons_compiled == [], "a failed pass does not count the lessons as compiled"
     assert receipt.last_ts == NOW
     assert (root / "INDEX.md").exists(), "the index is still rebuilt"
 
 
-def test_a_failed_model_call_is_recorded_and_retried_after_the_interval(tmp_path: Path, monkeypatch) -> None:
+def test_a_failed_pass_is_retried_only_when_a_page_changes(tmp_path: Path, monkeypatch) -> None:
+    """A retry on unchanged lessons was a model call every interval."""
     home, root = _home(tmp_path)
     _three_lessons(root)
     calls = _stub_model(monkeypatch, RuntimeError("provider unavailable"))
@@ -393,25 +387,11 @@ def test_a_failed_model_call_is_recorded_and_retried_after_the_interval(tmp_path
     result = _run(home)
     assert result["outcome"] == "failed" and result["failure"] == "RuntimeError: provider unavailable"
     assert not (root / "principles.md").exists()
-    assert _run(home, now=NOW + 10)["outcome"] == "skipped_interval"
-    assert _run(home, now=NOW + HOUR + 1)["outcome"] == "failed"
-    assert len(calls) == 2
-
-
-def test_failing_on_the_same_lessons_stops_after_the_retry_window(tmp_path: Path, monkeypatch) -> None:
-    """An hourly retry on unchanged lessons was a model call every hour, forever."""
-    from argus.core.autonomy import AUTOMATIC_RETRY_WINDOW_SECONDS
-
-    home, root = _home(tmp_path)
-    _three_lessons(root)
-    calls = _stub_model(monkeypatch, RuntimeError("provider unavailable"))
-    outcomes = [_run(home, now=NOW + hours * HOUR + 1)["outcome"] for hours in range(0, 24 * 7)]
-
-    assert len(calls) == AUTOMATIC_RETRY_WINDOW_SECONDS / HOUR
-    assert outcomes[-1] == "skipped_failed_unchanged"
+    assert [_run(home, now=NOW + day * 86400)["outcome"] for day in range(1, 8)] == ["skipped_unchanged"] * 7
+    assert len(calls) == 1
     _lesson(root, "20260918-new", "A new lesson")
-    _run(home, now=NOW + 24 * 7 * HOUR + 1)
-    assert len(calls) == AUTOMATIC_RETRY_WINDOW_SECONDS / HOUR + 1, "new lessons are new input"
+    assert _run(home, now=NOW + 8 * 86400)["outcome"] == "failed"
+    assert len(calls) == 2, "new lessons are new input"
 
 
 def test_lessons_that_share_no_principle_are_an_answer_not_a_failure(
@@ -500,7 +480,7 @@ def test_prompt_shows_at_most_forty_lessons(tmp_path: Path) -> None:
     assert prompt.count("\n### [") == 40 and "(40 of 45)" in prompt
 
 
-def test_the_model_call_uses_the_cheap_route_unless_a_model_is_named(monkeypatch, tmp_path: Path) -> None:
+def test_the_model_call_uses_the_light_model(monkeypatch, tmp_path: Path) -> None:
     seen: list[dict] = []
 
     def fake_exec(backend, *, prompt, run_label, options=None, **_kw):
@@ -508,20 +488,16 @@ def test_the_model_call_uses_the_cheap_route_unless_a_model_is_named(monkeypatch
         return SimpleNamespace(exit_code=0, fatal_error=None, last_agent_message="reply text")
 
     monkeypatch.setattr(consolidation, "gateway_run_exec", fake_exec)
-    monkeypatch.setattr(consolidation, "resolve_manager_classify_model", lambda **_kw: "cheap-route-model")
+    monkeypatch.setattr(consolidation, "resolve_light_model", lambda **_kw: "light-model")
     backend = SimpleNamespace(backend="fake")
     runner = SimpleNamespace(_backend=backend)
 
-    monkeypatch.delenv("ARGUS_SKILL_REFLECTION_MODEL", raising=False)
+    monkeypatch.delenv("ARGUS_SKILL_LIGHT_REASONING_EFFORT", raising=False)
     assert consolidation._run_principles_model(runner, prompt="p", vertical_root=tmp_path) == "reply text"
     options = seen[-1]["options"]
     assert seen[-1]["backend"] is backend and seen[-1]["run_label"] == "knowledge-consolidation"
-    assert options.model == "cheap-route-model" and options.reasoning_effort == "low"
+    assert options.model == "light-model" and options.reasoning_effort == "low"
     assert options.sandbox_mode == "workspace-write" and options.working_dir == str(tmp_path)
-
-    monkeypatch.setenv("ARGUS_SKILL_REFLECTION_MODEL", "named-model")
-    consolidation._run_principles_model(runner, prompt="p", vertical_root=tmp_path)
-    assert seen[-1]["options"].model == "named-model"
 
     monkeypatch.setattr(
         consolidation, "gateway_run_exec",

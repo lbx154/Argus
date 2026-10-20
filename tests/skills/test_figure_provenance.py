@@ -73,7 +73,7 @@ def test_register_and_validate_renderer_neutral_figure(tmp_path: Path) -> None:
     assert payload["schema_version"] == 1
 
 
-def test_validate_detects_output_hash_drift(tmp_path: Path) -> None:
+def test_validate_detects_a_changed_output(tmp_path: Path) -> None:
     source = tmp_path / "source.py"
     output = tmp_path / "figure.svg"
     source.write_text("source\n", encoding="utf-8")
@@ -93,7 +93,29 @@ def test_validate_detects_output_hash_drift(tmp_path: Path) -> None:
     report = validate_figure_provenance(tmp_path)
 
     assert not report.ok
-    assert any(issue.code == "hash_mismatch" for issue in report.issues)
+    assert any(issue.code == "file_changed" for issue in report.issues)
+
+
+def test_an_entry_recorded_with_digests_still_validates(tmp_path: Path) -> None:
+    source = tmp_path / "source.py"
+    output = tmp_path / "figure.svg"
+    source.write_text("source\n", encoding="utf-8")
+    output.write_text("<svg viewBox='0 0 1 1'/>\n", encoding="utf-8")
+    register_figure(
+        project_root=tmp_path,
+        figure_id="figure",
+        role="method",
+        renderer="figure-spec",
+        source_path=source,
+        output_path=output,
+        **_supporting_records(tmp_path),
+    )
+    manifest = tmp_path / FIGURE_PROVENANCE_PATH
+    legacy = manifest.read_text(encoding="utf-8").replace('_facts"', '_sha256"')
+    legacy = legacy.replace('"facts"', '"sha256"')
+    manifest.write_text(legacy, encoding="utf-8")
+
+    assert validate_figure_provenance(tmp_path).ok
 
 
 def test_register_rejects_path_outside_project(tmp_path: Path) -> None:

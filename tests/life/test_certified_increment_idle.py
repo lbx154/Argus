@@ -19,7 +19,7 @@ from argus.life.supervisor._constants import (
     PLAN_RETRY,
     PLAN_TERMINAL_IDLE,
 )
-from argus.planner import PlannerVerdict, TaskSpec, WaitingContract
+from argus.planner import PlannerVerdict, TaskSpec
 from argus.skills.stage_machine import completion_contract_fingerprint
 from argus.skills.vertical_select import persist_vertical
 from argus.verticals._base import load_vertical_contract
@@ -123,7 +123,7 @@ def test_rejected_wait_consumes_feedback_budget_across_restarts(
     def plan(_planner, **_kwargs):
         calls.append(True)
         return PlannerVerdict(
-            project_done=False, waiting=True,
+            project_done=False, handoff="engineer",
             reason=f"Waiting instead of fixing the rejection, wording {len(calls)}",
         )
 
@@ -181,8 +181,8 @@ def test_rejected_wait_reports_feedback_write_failure(campaign, monkeypatch):
     monkeypatch.setattr(supervisor, "_emit_status", lambda text: events.append({"status": text}))
     monkeypatch.setattr(supervisor, "_write_manager_planner_feedback", lambda _value: False)
     state = _PlanCycleState(None)
-    state.verdict = PlannerVerdict(project_done=False, waiting=True, reason="Wait")
-    assert supervisor._pc_handle_waiting(state) == PLAN_ERROR
+    state.verdict = PlannerVerdict(project_done=False, handoff="engineer", reason="Wait")
+    assert supervisor._pc_handle_handoff(state) == PLAN_ERROR
     assert supervisor._manager_planner_feedback_path().read_bytes() == before
     assert any("failed to persist" in event.get("status", "") for event in events)
 
@@ -206,10 +206,9 @@ def _legacy_handoff(campaign):
     "The current final certification is accepted. Waiting for new explicit operator direction.",
     "当前稿件已完成终局独立认证，现保留全部成果并等待新的明确研究指示。",
 ])
-@pytest.mark.parametrize("contracted", [False, True])
 @pytest.mark.parametrize("fresh_inbox", [False, True])
 def test_legacy_certified_wait_reports_once_without_recertification(
-    campaign, monkeypatch, reason, contracted, fresh_inbox,
+    campaign, monkeypatch, reason, fresh_inbox,
 ):
     instruction, store = _legacy_handoff(campaign)
     fresh_instruction = "Publish the current final report; do not repeat certification."
@@ -221,15 +220,8 @@ def test_legacy_certified_wait_reports_once_without_recertification(
     def plan(_planner, **kwargs):
         calls.append(kwargs["runtime_change_summary"])
         return PlannerVerdict(
-            project_done=False, reason=reason, waiting=True,
-            waiting_contract=(
-                WaitingContract(
-                    blocker_fingerprint="new-direction", recheck_token="certified",
-                    recheck_condition="New operator instruction arrives",
-                    operator_action_required=True, wait_mode="event",
-                    wake_on=("authorization",),
-                ) if contracted else None
-            ),
+            project_done=False, reason=reason, handoff="operator",
+            operator_question="What should the campaign take on next?",
         )
 
     monkeypatch.setattr("argus.planner.Planner.plan_next", plan)
@@ -272,7 +264,7 @@ def test_certified_handoff_delivery_failure_does_not_repeat_planning(
     def plan(_planner, **_kwargs):
         calls.append(True)
         return PlannerVerdict(
-            project_done=False, waiting=True,
+            project_done=False, handoff="operator",
             reason="Certified artifact preserved; waiting for new operator instruction.",
         )
 
@@ -325,7 +317,7 @@ def test_certified_handoff_never_consumes_newer_work_after_failure(
         if arrival == "planning":
             append_newer()
         return PlannerVerdict(
-            project_done=False, waiting=True,
+            project_done=False, handoff="operator",
             reason="Certified increment accepted; waiting for new operator direction.",
         )
 
@@ -370,22 +362,16 @@ def test_certified_handoff_never_consumes_newer_work_after_failure(
     "No actionable work after the backend failure.",
     "Waiting for new operator direction while the experiment is still running.",
 ])
-def test_uncontracted_wait_is_not_blindly_acknowledged(campaign, monkeypatch, reason):
+def test_a_turn_without_new_work_is_not_blindly_acknowledged(campaign, monkeypatch, reason):
     from argus.core.operator_context import OperatorContextStore, append_directive
 
     instruction = "Run the new experiment even though the previous attempt failed."
     append_directive(campaign.life, instruction, lifetime="once", expected_revision=0)
-    monkeypatch.setattr(
-        LifeSupervisor, "_reconcile_open_ended_planner_waiting", lambda *_args: False,
-    )
-    monkeypatch.setattr(
-        LifeSupervisor, "_planner_turn_available_during_wait", lambda *_args: False,
-    )
     calls = []
 
     def plan(_planner, **kwargs):
         calls.append(kwargs["runtime_change_summary"])
-        return PlannerVerdict(project_done=False, waiting=True, reason=reason)
+        return PlannerVerdict(project_done=False, handoff="engineer", reason=reason)
 
     monkeypatch.setattr("argus.planner.Planner.plan_next", plan)
     for _ in range(2):
@@ -398,7 +384,7 @@ def test_uncontracted_wait_is_not_blindly_acknowledged(campaign, monkeypatch, re
 
 @pytest.mark.parametrize("blocker", [
     "not_invoked", "error", "revision", "tasks", "retire", "advance", "pending",
-    "paused", "job", "nonterminal_stage", "stale_cert", "external_contract",
+    "paused", "nonterminal_stage", "stale_cert", "not_operator",
 ])
 def test_certified_handoff_requires_current_final_idle_state(campaign, monkeypatch, blocker):
     from dataclasses import replace
@@ -409,7 +395,7 @@ def test_certified_handoff_requires_current_final_idle_state(campaign, monkeypat
     state = _PlanCycleState(None)
     state.planner_invoked = True
     state.verdict = PlannerVerdict(
-        project_done=False, waiting=True, reason="Waiting for new operator direction.",
+        project_done=False, handoff="operator", reason="Waiting for new operator direction.",
     )
     if blocker == "not_invoked":
         state.planner_invoked = False
@@ -427,8 +413,6 @@ def test_certified_handoff_requires_current_final_idle_state(campaign, monkeypat
         item = supervisor.memory.backlog.add(BacklogItem.new(title="New work", objective="New work"))
         if blocker == "paused":
             supervisor.memory.backlog.update(item.id, status="paused_operator", pending_question="Approve?")
-    elif blocker == "job":
-        monkeypatch.setattr(supervisor, "_waitable_subagent_jobs", lambda: [object()])
     elif blocker == "nonterminal_stage":
         path = campaign.project / ".argus" / "PIPELINE_STATE.json"
         pipeline = json.loads(path.read_text())
@@ -437,10 +421,7 @@ def test_certified_handoff_requires_current_final_idle_state(campaign, monkeypat
     elif blocker == "stale_cert":
         (campaign.project / "result.txt").write_text("new uncertified result")
     else:
-        state.verdict = replace(state.verdict, waiting_contract=WaitingContract(
-            blocker_fingerprint="experiment", recheck_token="1", recheck_condition="Result arrives",
-            operator_action_required=True, wake_on=("filesystem",), watched_paths=("result.txt",),
-        ))
+        state.verdict = replace(state.verdict, handoff="engineer")
     assert supervisor._pc_is_certified_operator_wait(state) is False
     assert not _reports(campaign.life)
 
@@ -451,7 +432,7 @@ def test_certified_wait_cannot_ack_past_completion_gate(campaign, monkeypatch, g
     monkeypatch.setattr(
         "argus.planner.Planner.plan_next",
         lambda *_args, **_kw: PlannerVerdict(
-            project_done=False, waiting=True, reason="Waiting for new operator direction.",
+            project_done=False, handoff="operator", reason="Waiting for new operator direction.",
         ),
     )
     if gate == "external":
@@ -533,7 +514,8 @@ def test_report_and_verdict_failures_retry_durably(campaign, monkeypatch, failur
     assert restarted._plan_next_work() == PLAN_TERMINAL_IDLE
     assert restarted._plan_next_work() == PLAN_TERMINAL_IDLE
     assert len(_reports(campaign.life)) == 1
-    assert len(campaign.reports) == (2 if failure == "publish" else 1)
+    # A failed publish keeps the Manager's text; the retry does not ask again.
+    assert len(campaign.reports) == 1
     verdicts = [
         json.loads(line) for line in (campaign.life / "events.jsonl").read_text().splitlines()
         if json.loads(line).get("type") == "life.planner.verdict"
@@ -592,7 +574,10 @@ def test_unhandled_input_blocks_old_certificate_until_tasks_committed(
         return PlannerVerdict(
             project_done=failure == "done",
             error="injected Planner failure" if failure == "error" else "",
-            reason="injected rejected decision",
+            reason=(
+                "planner backend failed before producing output; will retry later"
+                if failure == "error" else "injected rejected decision"
+            ),
             new_tasks=(
                 [TaskSpec(title="Investigate next increment", objective=instruction)]
                 if failure == "commit" else []
@@ -624,6 +609,13 @@ def test_unhandled_input_blocks_old_certificate_until_tasks_committed(
 
     monkeypatch.setattr("argus.planner.Planner.plan_next", succeed)
     monkeypatch.setattr(backlog_type, "add_many", original_commit)
+    if failure == "done":
+        # A completion the Host declined is the Planner's answer to these
+        # inputs; it is asked again only when something it reads changes.
+        assert supervisor._plan_next_work() != PLAN_TERMINAL_IDLE
+        assert len(calls) == 2
+        messages.append(instruction)
+        supervisor.config.user_inbox = lambda: messages.pop(0) if messages else None
     assert supervisor._plan_next_work() is True
     assert store.acknowledged_revision("planner") == store.revision
     item = supervisor.memory.backlog.active()[0]
@@ -662,7 +654,9 @@ def test_second_inbox_drain_reenters_intake_before_certification(
     def plan(_planner, **kwargs):
         calls.append(kwargs["runtime_change_summary"])
         return PlannerVerdict(
-            project_done=False, reason="test failure", error="injected Planner failure",
+            project_done=False,
+            reason="planner backend failed before producing output; will retry later",
+            error="injected Planner failure",
         )
 
     monkeypatch.setattr("argus.planner.Planner.plan_next", plan)
@@ -674,47 +668,31 @@ def test_second_inbox_drain_reenters_intake_before_certification(
     assert load_planner_verdict_outbox(campaign.life) is None
 
 
-@pytest.mark.parametrize("event_wait", [False, True])
-def test_handled_wait_preserves_waiting_and_report_dedup(campaign, monkeypatch, event_wait):
+def test_a_handled_turn_without_new_work_keeps_report_dedup(campaign, monkeypatch):
     from argus.core.operator_context import OperatorContextStore
 
     supervisor = campaign.supervisor
     assert supervisor._plan_next_work() == PLAN_TERMINAL_IDLE
     messages = ["Wait for the new result before deciding the next increment."]
     supervisor.config.user_inbox = lambda: messages.pop(0) if messages else None
-    monkeypatch.setattr(
-        LifeSupervisor, "_reconcile_open_ended_planner_waiting", lambda *_args: False,
-    )
-    monkeypatch.setattr(
-        LifeSupervisor, "_planner_turn_available_during_wait", lambda *_args: False,
-    )
     calls = []
 
     def plan(_planner, **kwargs):
         calls.append(kwargs)
         return PlannerVerdict(
-            project_done=False, reason="Wait for the result", waiting=True,
-            waiting_contract=(
-                WaitingContract(
-                    blocker_fingerprint="new-result",
-                    recheck_condition="The new result arrives",
-                    recheck_token="new-result-1",
-                    wait_mode="event", wake_on=("filesystem",),
-                    watched_paths=("new-result.txt",),
-                ) if event_wait else None
-            ),
+            project_done=False, reason="Wait for the result", handoff="engineer",
         )
 
     monkeypatch.setattr("argus.planner.Planner.plan_next", plan)
     for _ in range(3):
         assert supervisor._plan_next_work() == PLAN_AWAITING
-    assert len(calls) == (1 if event_wait else 2)
+    assert len(calls) == 2
     store = OperatorContextStore(campaign.life)
-    assert (store.acknowledged_revision("planner") == store.revision) is event_wait
+    assert store.acknowledged_revision("planner") < store.revision
     restarted = campaign.make()
     for _ in range(3):
         assert restarted._plan_next_work() == PLAN_AWAITING
-    assert len(calls) == (1 if event_wait else 3)
+    assert len(calls) == 3
     assert len(_reports(campaign.life)) == 1
     assert load_planner_verdict_outbox(campaign.life) is None
 
@@ -1139,7 +1117,8 @@ def test_project_report_routes_and_deduplicates_in_project_conversation(
     assert supervisor._manager_publish_project_report("accepted") == "reported"
     assert len(_reports(project_memory.root)) == 1
     assert supervisor._manager_publish_project_report("accepted") == "reported"
-    assert len(campaign.reports) == 2
+    # Republishing reuses the recorded report text: no second Manager call.
+    assert len(campaign.reports) == 1
 
     other = ProjectMemory.open("project-b", global_root=global_root)
     other.init()
@@ -1150,14 +1129,12 @@ def test_project_report_routes_and_deduplicates_in_project_conversation(
     assert supervisor._manager_publish_project_report("accepted") == "reported"
     assert len(_reports(other.root)) == 1
     assert _reports(other.root)[0]["message_id"] != message["message_id"]
-    assert len(campaign.reports) == 3
+    assert len(campaign.reports) == 2
 
 
 def test_completion_context_separates_current_artifacts_from_historical_reviews(
     campaign, monkeypatch,
 ):
-    import hashlib
-
     from argus.core.pipeline_state import read_pipeline_state, write_pipeline_state
     from argus.roles.prompts.manager import build_project_completion_report_prompt
 
@@ -1205,7 +1182,7 @@ def test_completion_context_separates_current_artifacts_from_historical_reviews(
     assert old_review["manuscript_freshness"]["status"] == "stale"
     artifacts = {row["path"]: row for row in context["current_artifact_evidence"]}
     assert artifacts["paper/main.tex"]["excerpt"] == manuscript
-    assert artifacts["paper/main.tex"]["sha256"] == hashlib.sha256(manuscript.encode()).hexdigest()
+    assert artifacts["paper/main.tex"]["size_bytes"] == len(manuscript.encode())
     assert "10 pages" in artifacts["paper/REVIEW.md"]["excerpt"]
     assert "alone do not prove" in artifacts["paper/REVIEW.md"]["reporting_use"]
     # The fixture's old certificate cannot certify this changed manuscript.
@@ -1269,7 +1246,7 @@ def test_failed_project_report_publish_cannot_use_global_dedup(campaign, monkeyp
     assert supervisor._manager_publish_project_report("accepted") == "reported"
     assert len(_reports(project_root)) == 1
     assert supervisor._manager_publish_project_report("accepted") == "reported"
-    assert len(campaign.reports) == 2
+    assert len(campaign.reports) == 1
 
 
 @pytest.mark.parametrize("failure", ["raises", "empty"])
@@ -1332,7 +1309,8 @@ def test_project_report_attempts_are_counted_per_completion(campaign, monkeypatc
         ("commit-declared", True),
         ("commit-undeclared", False),
         ("commit-unoffered", False),
-        ("wait-declared", True),
+        # A handoff starts no work and is not checkpointed, so nothing settles.
+        ("handoff-declared", False),
         ("error-declared", False),
     ],
 )
@@ -1348,17 +1326,11 @@ def test_idle_instruction_settles_only_when_applied_decision_declares_it(
         campaign.life, instruction, scope="mission", lifetime="bounded_increment",
         expected_revision=store.revision,
     )
-    monkeypatch.setattr(
-        LifeSupervisor, "_reconcile_open_ended_planner_waiting", lambda *_args: False,
-    )
-    monkeypatch.setattr(
-        LifeSupervisor, "_planner_turn_available_during_wait", lambda *_args: False,
-    )
     declared = {
         "commit-declared": (idle.revision,),
         "commit-undeclared": (),
         "commit-unoffered": (idle.revision + 100,),
-        "wait-declared": (idle.revision,),
+        "handoff-declared": (idle.revision,),
         "error-declared": (idle.revision,),
     }[decision]
     calls = []
@@ -1367,16 +1339,9 @@ def test_idle_instruction_settles_only_when_applied_decision_declares_it(
     def plan(_planner, **kwargs):
         calls.append(kwargs["runtime_change_summary"])
         offered.append(kwargs["config"].settleable_instructions)
-        if decision.startswith("wait"):
+        if decision.startswith("handoff"):
             return PlannerVerdict(
-                project_done=False, reason="Wait for the parser result", waiting=True,
-                waiting_contract=WaitingContract(
-                    blocker_fingerprint="parser-result",
-                    recheck_condition="The parser result arrives",
-                    recheck_token="parser-result-1",
-                    wait_mode="event", wake_on=("filesystem",),
-                    watched_paths=("parser-result.txt",),
-                ),
+                project_done=False, reason="The parser run goes on", handoff="engineer",
                 settled_instructions=declared,
             )
         if decision.startswith("error"):
@@ -1485,7 +1450,8 @@ def test_certified_handoff_carries_planner_settlements(campaign, monkeypatch):
         return PlannerVerdict(
             project_done=False,
             reason="The current final certification is accepted. Waiting for new explicit operator direction.",
-            waiting=True,
+            handoff="operator",
+            operator_question="What should the campaign take on next?",
             settled_instructions=(idle.revision,),
         )
 

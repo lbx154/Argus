@@ -122,9 +122,6 @@ def test_planner_enqueued_goal_gate_keeps_the_standing_objective(tmp_path: Path)
         def _item_requires_independent_review(self, item) -> bool:
             return "review:required" in item.tags
 
-        def _recent_no_progress_failures(self) -> dict:
-            return {}
-
         def _task_mentions_family(self, _task, _family: str) -> bool:
             return False
 
@@ -139,9 +136,6 @@ def test_planner_enqueued_goal_gate_keeps_the_standing_objective(tmp_path: Path)
             if bool(getattr(task, "stage_closing", False)):
                 tags.extend(["stage_closing", "review:required"])
             return tags
-
-        def _item_iteration_cycles(self) -> int:
-            return 1
 
         def _project_workdir(self) -> Path:
             return tmp_path

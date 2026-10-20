@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import hashlib
 import json
 import logging
 import os
@@ -11,7 +10,7 @@ import uuid
 from dataclasses import asdict, dataclass
 from datetime import datetime, timezone
 from pathlib import Path
-from typing import Any, Literal, cast
+from typing import Any
 
 ACTIVE_MANAGER_DIRECTIVE_FILENAME = "active_manager_directive.json"
 ACTIVE_MANAGER_DIRECTIVE_PREFIX = (
@@ -23,19 +22,16 @@ STEERING_MAX_ENTRIES = 10
 STEERING_MAX_CHARS = 4_000
 _DIRECTIVE_VERSION = 1
 _STEERING_VERSION = 1
-OperatorQuestionPolicy = Literal["allow", "forbid", "unchanged"]
-_OPERATOR_QUESTION_POLICIES = frozenset({"allow", "forbid", "unchanged"})
 
 
 @dataclass(frozen=True)
 class ActiveManagerDirective:
     text: str
     source: str
-    objective_sha256: str
+    objective: str
     revision: str
     set_at: float
     version: int = _DIRECTIVE_VERSION
-    operator_question_policy: OperatorQuestionPolicy = "unchanged"
     authorized_objective: str = ""
 
 
@@ -94,30 +90,30 @@ def _append_steering_record(state_root: Path | str, record: dict) -> None:
         os.close(descriptor)
 
 
-def _latest_ledger_objective_sha256(records: list[dict]) -> str | None:
+def _latest_ledger_objective(records: list[dict]) -> str | None:
     for record in reversed(records):
-        if "objective_sha256" in record:
-            return str(record.get("objective_sha256") or "")
+        if "objective" in record:
+            return str(record.get("objective") or "")
     return None
 
 
 def _sync_steering_objective(state_root: Path | str) -> list[dict]:
     """Record objective transitions in the ledger without retiring directives."""
     records = _read_steering_records(state_root)
-    current_hash = _current_objective_sha256(state_root)
-    previous_hash = _latest_ledger_objective_sha256(records)
-    if previous_hash is None:
+    current = _current_objective(state_root)
+    previous = _latest_ledger_objective(records)
+    if previous is None:
         _append_steering_record(
             state_root,
             {
                 "kind": "objective_checkpoint",
-                "objective_sha256": current_hash,
+                "objective": current,
                 "timestamp": _steering_timestamp(),
                 "version": _STEERING_VERSION,
             },
         )
         return _read_steering_records(state_root)
-    if previous_hash != current_hash:
+    if previous != current:
         timestamp = _steering_timestamp()
         _append_steering_record(
             state_root,
@@ -125,7 +121,7 @@ def _sync_steering_objective(state_root: Path | str) -> list[dict]:
                 "automatic": True,
                 "id": uuid.uuid4().hex,
                 "kind": "directive",
-                "objective_sha256": current_hash,
+                "objective": current,
                 "source": "objective.change",
                 "text": f"OBJECTIVE.md changed on {timestamp[:10]}",
                 "timestamp": timestamp,
@@ -184,7 +180,7 @@ def append_steering_directive(
             matches = active[-1:]
         record = {
             "kind": "retraction",
-            "objective_sha256": _current_objective_sha256(state_root),
+            "objective": _current_objective(state_root),
             "retired_ids": [str(row.get("id") or "") for row in matches],
             "source": str(source or "").strip() or "operator.inbox",
             "target": target,
@@ -195,7 +191,7 @@ def append_steering_directive(
         record = {
             "id": uuid.uuid4().hex,
             "kind": "directive",
-            "objective_sha256": _current_objective_sha256(state_root),
+            "objective": _current_objective(state_root),
             "source": str(source or "").strip() or "operator.inbox",
             "text": normalized,
             "timestamp": timestamp,
@@ -332,21 +328,6 @@ def render_active_steering(state_root: Path | str | None) -> str:
     return rendered()
 
 
-def _current_objective_sha256(state_root: Path | str) -> str:
-    try:
-        payload = json.loads(
-            (Path(state_root) / "continuous.json").read_text(encoding="utf-8")
-        )
-    except (OSError, json.JSONDecodeError):
-        return ""
-    if not isinstance(payload, dict):
-        return ""
-    objective = str(payload.get("objective") or "").strip()
-    if not objective:
-        return ""
-    return hashlib.sha256(objective.encode("utf-8")).hexdigest()
-
-
 def _current_objective(state_root: Path | str) -> str:
     try:
         payload = json.loads(
@@ -359,19 +340,11 @@ def _current_objective(state_root: Path | str) -> str:
     return str(payload.get("objective") or "").strip()
 
 
-def _validated_operator_question_policy(value: object) -> OperatorQuestionPolicy:
-    normalized = str(value or "").strip().lower()
-    if normalized in _OPERATOR_QUESTION_POLICIES:
-        return cast(OperatorQuestionPolicy, normalized)
-    return "unchanged"
-
-
 def set_active_manager_directive(
     state_root: Path | str,
     text: str,
     *,
     source: str = "manager.steer",
-    operator_question_policy: OperatorQuestionPolicy = "unchanged",
     authorized_objective: str = "",
     scope_objective: str | None = None,
 ) -> ActiveManagerDirective:
@@ -379,31 +352,16 @@ def set_active_manager_directive(
     normalized = str(text or "").strip()
     if not normalized:
         raise ValueError("manager directive must not be empty")
-    question_policy = _validated_operator_question_policy(operator_question_policy)
-    if question_policy == "unchanged":
-        current = load_active_manager_directive(
-            state_root,
-            expected_objective=scope_objective,
-        )
-        if current is not None:
-            question_policy = current.operator_question_policy
-    scoped_objective = str(scope_objective or "").strip()
-    objective_sha256 = (
-        _current_objective_sha256(state_root)
-        if scope_objective is None
-        else (
-            hashlib.sha256(scoped_objective.encode("utf-8")).hexdigest()
-            if scoped_objective
-            else ""
-        )
-    )
     record = ActiveManagerDirective(
         text=normalized,
         source=str(source or "").strip() or "manager",
-        objective_sha256=objective_sha256,
+        objective=(
+            _current_objective(state_root)
+            if scope_objective is None
+            else str(scope_objective or "").strip()
+        ),
         revision=uuid.uuid4().hex,
         set_at=time.time(),
-        operator_question_policy=question_policy,
         authorized_objective=str(authorized_objective or "").strip(),
     )
     path = _directive_path(state_root)
@@ -456,29 +414,18 @@ def load_active_manager_directive(
     text = str(payload.get("text") or "").strip()
     if not text:
         return None
-    recorded_objective = str(payload.get("objective_sha256") or "").strip()
+    recorded_objective = str(payload.get("objective") or "").strip()
     authorized_objective = str(payload.get("authorized_objective") or "").strip()
     current_objective = (
         _current_objective(state_root)
         if expected_objective is None
         else str(expected_objective or "").strip()
     )
-    current_objective_sha256 = (
-        hashlib.sha256(current_objective.encode("utf-8")).hexdigest()
-        if current_objective
-        else ""
-    )
-    objective_scope_matches = bool(
-        (recorded_objective and current_objective_sha256 == recorded_objective)
-        or (
-            authorized_objective
-            and current_objective == authorized_objective
-        )
-    )
+    scopes = {recorded_objective, authorized_objective} - {""}
     if (
-        (recorded_objective or authorized_objective)
+        scopes
         and (expected_objective is not None or current_objective)
-        and not objective_scope_matches
+        and current_objective not in scopes
     ):
         return None
     try:
@@ -488,16 +435,12 @@ def load_active_manager_directive(
         return None
     if version != _DIRECTIVE_VERSION:
         return None
-    question_policy = _validated_operator_question_policy(
-        payload.get("operator_question_policy") or "unchanged"
-    )
     return ActiveManagerDirective(
         text=text,
         source=str(payload.get("source") or "").strip() or "manager",
-        objective_sha256=recorded_objective,
+        objective=recorded_objective,
         revision=str(payload.get("revision") or "").strip(),
         set_at=set_at,
-        operator_question_policy=question_policy,
         authorized_objective=authorized_objective,
         version=version,
     )
@@ -508,45 +451,6 @@ def active_manager_directive_message(
 ) -> str:
     """Render all active standing steering, newest first and budget capped."""
     return render_active_steering(state_root)
-
-
-def active_operator_question_policy(
-    state_root: Path | str | None,
-    *,
-    expected_objective: str | None = None,
-) -> OperatorQuestionPolicy:
-    """Read the current directive's structured operator-question policy."""
-    record = load_active_manager_directive(
-        state_root,
-        expected_objective=expected_objective,
-    )
-    return record.operator_question_policy if record is not None else "unchanged"
-
-
-def effective_operator_question_policy(
-    state_root: Path | str | None,
-    *,
-    expected_objective: str | None = None,
-) -> OperatorQuestionPolicy:
-    """The question policy the running team must follow.
-
-    A run that declared no operator available (``--no-operator`` or
-    ``ARGUS_SKILL_OPERATOR_AVAILABLE=false``) forbids operator questions
-    whatever the directive says: nobody would answer them. Otherwise the
-    Manager directive's policy applies. Callers that persist or inherit a
-    directive's own policy keep using :func:`active_operator_question_policy`,
-    so a run-level setting never leaks into a stored directive.
-    """
-    from ..core.autonomy import operator_available
-
-    if not operator_available():
-        return "forbid"
-    if expected_objective is None:
-        return active_operator_question_policy(state_root)
-    return active_operator_question_policy(
-        state_root,
-        expected_objective=expected_objective,
-    )
 
 
 def clear_active_manager_directive(state_root: Path | str) -> bool:
@@ -570,10 +474,7 @@ __all__ = [
     "STEERING_HEADER",
     "STEERING_LEDGER_FILENAME",
     "ActiveManagerDirective",
-    "OperatorQuestionPolicy",
     "active_manager_directive_message",
-    "active_operator_question_policy",
-    "effective_operator_question_policy",
     "append_steering_directive",
     "clear_active_manager_directive",
     "load_active_manager_directive",

@@ -518,9 +518,8 @@ export function CampaignDetailPage() {
           live={mode === "live"}
           onClose={() => setContractOpen(false)}
           onLocked={async (result) => {
-            const hash =
-              result.locked_contract?.contract_sha256 ?? result.contract_hash;
-            const suffix = hash ? ` · ${hash.slice(0, 12)}` : "";
+            const key = result.locked_contract?.contract_key;
+            const suffix = key ? ` · ${key.slice(0, 12)}` : "";
             const promotedId =
               result.id && result.id !== campaign.id ? result.id : undefined;
             toast(

@@ -13,7 +13,6 @@ Where a hosted operation needs a capability this platform lacks, it raises
 """
 from __future__ import annotations
 
-import hashlib
 import os
 import socket
 import sys
@@ -79,9 +78,9 @@ def require_linux_process_identity(operation: str) -> None:
 def boot_id() -> str:
     """An identifier that changes on every reboot of this machine.
 
-    Linux exposes one directly. Elsewhere the kernel's boot timestamp (which
-    psutil reads from ``kern.boottime`` on macOS) is hashed into the same
-    shape, so persisted worker registrations from an earlier boot never match.
+    Linux exposes one directly. Elsewhere it is the kernel's boot timestamp
+    (which psutil reads from ``kern.boottime`` on macOS), so persisted worker
+    registrations from an earlier boot never match.
     """
     try:
         return Path("/proc/sys/kernel/random/boot_id").read_text().strip()
@@ -90,6 +89,4 @@ def boot_id() -> str:
     import psutil
 
     # Windows derives boot time from uptime, which can drift by a second.
-    stamp = round(psutil.boot_time())
-    digest = hashlib.sha256(f"argus-boot:{stamp}".encode()).hexdigest()
-    return f"{digest[:8]}-{digest[8:12]}-{digest[12:16]}-{digest[16:20]}-{digest[20:32]}"
+    return f"boot-{round(psutil.boot_time())}"

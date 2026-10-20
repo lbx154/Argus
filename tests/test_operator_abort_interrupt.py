@@ -183,7 +183,6 @@ def test_loop_stops_clean_on_operator_abort_without_calling_reviewer(
         max_rounds=10,
         backend_failure_threshold=2,
         backend_failure_backoff_seconds=0.0,
-        background_subagent_advisory=False,
     )
     status, rounds, _final_msg, reason, _tid = engine.run(
         objective="minimize val_bpb",
@@ -227,7 +226,6 @@ def test_loop_stops_without_backend_retry_when_reviewer_is_operator_aborted(
         max_rounds=10,
         backend_failure_threshold=2,
         backend_failure_backoff_seconds=0.0,
-        background_subagent_advisory=False,
     )
 
     status, rounds, _final_msg, reason, _tid = engine.run(

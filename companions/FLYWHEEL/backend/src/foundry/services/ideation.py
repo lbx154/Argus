@@ -7,7 +7,6 @@ that Argus can produce a different portfolio for a different operator.
 
 from __future__ import annotations
 
-import hashlib
 import json
 import os
 import stat
@@ -15,6 +14,8 @@ import uuid
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Mapping, Sequence
+
+from ..db import new_key
 
 CONDITION_SCHEMA_VERSION = 3
 RESEARCH_PROTOCOL_VERSION = "argus.flywheel/research-protocol-v2"
@@ -25,17 +26,17 @@ CANDIDATE_RESEARCH_SCHEMA = "flywheel.conditioned-candidate-research/1"
 @dataclass(frozen=True)
 class CompiledIdeationObjective:
     objective: str
-    objective_sha256: str
+    objective_key: str
     condition_snapshot: Mapping[str, Any]
-    condition_sha256: str
+    condition_key: str
 
 
 @dataclass(frozen=True)
 class CompiledCandidateObjective:
     objective: str
-    prompt_sha256: str
-    input_sha256: str
-    candidate_sha256: str
+    prompt_key: str
+    input_key: str
+    candidate_record_key: str
     contract: Mapping[str, Any]
 
 
@@ -43,25 +44,22 @@ def compile_candidate_research_objective(
     *,
     ideation_run_id: str,
     condition_snapshot: Mapping[str, Any],
-    condition_sha256: str,
-    parent_objective_sha256: str,
+    condition_key: str,
+    parent_objective_key: str,
     candidate_id: str,
-    candidate_artifact_sha256: str,
+    candidate_artifact_key: str,
     candidate: Mapping[str, Any],
     completion_target: str | None = None,
     stop_criteria: Sequence[str] | None = None,
 ) -> CompiledCandidateObjective:
     """Compile one selected, team-conditioned direction into an idle Argus objective."""
 
-    for label, digest in (
-        ("condition_sha256", condition_sha256),
-        ("parent_objective_sha256", parent_objective_sha256),
-        ("candidate_artifact_sha256", candidate_artifact_sha256),
+    for label, key in (
+        ("condition_key", condition_key),
+        ("parent_objective_key", parent_objective_key),
+        ("candidate_artifact_key", candidate_artifact_key),
     ):
-        _required_sha256(digest, label)
-    actual_condition_sha = hashlib.sha256(_canonical_json(condition_snapshot)).hexdigest()
-    if actual_condition_sha != condition_sha256.lower():
-        raise ValueError("condition_snapshot does not match condition_sha256")
+        _required_key(key, label)
     target = _required_text(
         completion_target
         or "Test this selected direction under the frozen conditions and return an evidence-backed result for human review; a negative result is valid.",
@@ -70,15 +68,15 @@ def compile_candidate_research_objective(
     )
     operator_stops = _clean_string_list(list(stop_criteria or []), "stop_criteria", 32)
     frozen_candidate = json.loads(json.dumps(dict(candidate), ensure_ascii=False))
-    candidate_sha = hashlib.sha256(_canonical_json(frozen_candidate)).hexdigest()
+    candidate_record_key = new_key()
     binding = {
         "schema_version": CANDIDATE_RESEARCH_SCHEMA,
         "ideation_run_id": _required_text(ideation_run_id, "ideation_run_id", 100),
-        "condition_sha256": condition_sha256.lower(),
-        "parent_objective_sha256": parent_objective_sha256.lower(),
+        "condition_key": condition_key.lower(),
+        "parent_objective_key": parent_objective_key.lower(),
         "candidate_id": _required_text(candidate_id, "candidate_id", 100),
-        "candidate_artifact_sha256": candidate_artifact_sha256.lower(),
-        "candidate_sha256": candidate_sha,
+        "candidate_artifact_key": candidate_artifact_key.lower(),
+        "candidate_record_key": candidate_record_key,
     }
     default_stops = [
         "nearest-work collision invalidates the bounded differentiation claim",
@@ -104,25 +102,18 @@ def compile_candidate_research_objective(
         "positive_result_required": False,
         "automatic_submission_allowed": False,
     }
-    input_document = {
-        "schema_version": CANDIDATE_RESEARCH_SCHEMA,
-        "binding": binding,
-        "condition_snapshot": condition_snapshot,
-        "candidate": frozen_candidate,
-        "goal_contract": contract,
-    }
-    input_sha = hashlib.sha256(_canonical_json(input_document)).hexdigest()
+    input_key = new_key()
     snapshot_json = json.dumps(condition_snapshot, ensure_ascii=False, sort_keys=True, indent=2)
     candidate_json = json.dumps(frozen_candidate, ensure_ascii=False, sort_keys=True, indent=2)
     contract_json = json.dumps(contract, ensure_ascii=False, sort_keys=True, indent=2)
     objective = f"""# ARGUS / FLYWHEEL · CONDITIONED CANDIDATE RESEARCH
 
 Schema: `{CANDIDATE_RESEARCH_SCHEMA}`
-Frozen input SHA-256: `{input_sha}`
-Parent condition SHA-256: `{condition_sha256.lower()}`
-Parent ideation objective SHA-256: `{parent_objective_sha256.lower()}`
-Candidate artifact SHA-256: `{candidate_artifact_sha256.lower()}`
-Candidate record SHA-256: `{candidate_sha}`
+Frozen input key: `{input_key}`
+Parent condition key: `{condition_key.lower()}`
+Parent ideation objective key: `{parent_objective_key.lower()}`
+Candidate artifact key: `{candidate_artifact_key.lower()}`
+Candidate record key: `{candidate_record_key}`
 
 ## Authority and scope
 
@@ -163,7 +154,7 @@ or narrow the claim when evidence crosses a stop criterion.
 
 ## Required Argus process
 
-1. Verify the parent hashes and freeze current official venue/source/code state.
+1. Check the parent keys and freeze current official venue/source/code state.
 2. Build a claim-by-claim nearest-work and baseline-authenticity matrix.
 3. Have isolated Builder and Breaker tracks propose the minimum decisive plan;
    an Arbiter preserves disagreement and may return `NO_WINNER`/kill.
@@ -175,18 +166,18 @@ or narrow the claim when evidence crosses a stop criterion.
 8. End only at an evidenced non-positive state or
    `SUBMISSION_READY_FOR_HUMAN_REVIEW`; never submit automatically.
 
-Every material artifact records this input SHA, parent condition/objective SHA,
-candidate/artifact SHA, Argus/code/model/provider/data/environment versions,
-commands, configs, seeds, cost, timestamps, actor and content SHA. Register final
+Every material artifact records this input key, the parent condition/objective
+keys, the candidate/artifact keys, Argus/code/model/provider/data/environment
+versions, commands, configs, seeds, cost, timestamps, actor and its own path and
+size. Register final
 research, integrity, reproducibility and paper artifacts through Argus's
 authenticated research/delivery allowlist so FLYWHEEL can verify and ingest them.
 """
-    prompt_sha = hashlib.sha256(objective.encode("utf-8")).hexdigest()
     return CompiledCandidateObjective(
         objective=objective,
-        prompt_sha256=prompt_sha,
-        input_sha256=input_sha,
-        candidate_sha256=candidate_sha,
+        prompt_key=new_key(),
+        input_key=input_key,
+        candidate_record_key=candidate_record_key,
         contract=contract,
     )
 
@@ -194,7 +185,7 @@ authenticated research/delivery allowlist so FLYWHEEL can verify and ingest them
 def write_immutable_candidate_objective(
     root: Path, compiled: CompiledCandidateObjective
 ) -> Path:
-    directory = root.resolve() / compiled.prompt_sha256
+    directory = root.resolve() / compiled.prompt_key
     target = directory / "CANDIDATE_OBJECTIVE.md"
     _write_once(target, compiled.objective.encode("utf-8"))
     _write_once(directory / "CANDIDATE_CONTRACT.json", _canonical_json(compiled.contract))
@@ -224,18 +215,6 @@ def compile_ideation_objective(
     source_snapshot_ref = _optional_text(
         options.get("source_snapshot_ref"), "source_snapshot_ref", 2_048
     )
-    source_snapshot_sha256 = _optional_text(
-        options.get("source_snapshot_sha256"), "source_snapshot_sha256", 64
-    ).lower()
-    if bool(source_snapshot_ref) != bool(source_snapshot_sha256):
-        raise ValueError(
-            "source_snapshot_ref and source_snapshot_sha256 must be supplied together"
-        )
-    if source_snapshot_sha256 and (
-        len(source_snapshot_sha256) != 64
-        or any(character not in "0123456789abcdef" for character in source_snapshot_sha256)
-    ):
-        raise ValueError("source_snapshot_sha256 must be exactly 64 hexadecimal characters")
     preflight_attestations = _boolean_mapping(
         options.get("preflight_attestations"), "preflight_attestations"
     )
@@ -267,17 +246,11 @@ def compile_ideation_objective(
         "deadline": deadline_snapshot,
         "resource": resource_snapshot,
         "source_context": {
-            "operator_snapshot_bound": bool(source_snapshot_sha256),
-            # The reference itself can be a private path or object locator.  It
-            # is bound into the condition by digest without copying that value
-            # into later training exports.
-            "reference_sha256": (
-                hashlib.sha256(source_snapshot_ref.encode("utf-8")).hexdigest()
-                if source_snapshot_ref
-                else ""
-            ),
-            "content_sha256": source_snapshot_sha256,
-            "fresh_discovery_required": not bool(source_snapshot_sha256),
+            # The reference itself can be a private path or object locator, so
+            # the condition records only that one was bound; later training
+            # exports never see the value.
+            "operator_snapshot_bound": bool(source_snapshot_ref),
+            "fresh_discovery_required": not bool(source_snapshot_ref),
         },
         "preflight_attestations": preflight_attestations,
         "run": {
@@ -294,16 +267,15 @@ def compile_ideation_objective(
             "automatic_submission_allowed": False,
         },
     }
-    canonical = _canonical_json(snapshot)
-    condition_sha = hashlib.sha256(canonical).hexdigest()
-    snapshot_json = canonical.decode("utf-8").rstrip("\n")
+    condition_key = new_key()
+    objective_key = new_key()
+    snapshot_json = _canonical_json(snapshot).decode("utf-8").rstrip("\n")
     if source_snapshot_ref:
         source_binding_instructions = (
             "An operator-bound source packet is available at the JSON-encoded reference "
-            f"`{json.dumps(source_snapshot_ref, ensure_ascii=False)}`. Before using it, verify "
-            f"its bytes have SHA-256 `{source_snapshot_sha256}`; stop with `BLOCKED` on any "
-            "mismatch. Preserve that packet, then add a separately versioned freshness delta "
-            "instead of silently replacing it."
+            f"`{json.dumps(source_snapshot_ref, ensure_ascii=False)}`; stop with `BLOCKED` if "
+            "it is missing. Preserve that packet, then add a separately versioned freshness "
+            "delta instead of silently replacing it."
         )
     else:
         source_binding_instructions = (
@@ -337,7 +309,7 @@ use restricted data, or change the frozen conditions without a human gate.
 
 Protocol: `{RESEARCH_PROTOCOL_VERSION}`
 Condition schema: {CONDITION_SCHEMA_VERSION}
-Condition SHA-256: `{condition_sha}`
+Condition key: `{condition_key}`
 
 ```json
 {snapshot_json}
@@ -358,7 +330,7 @@ Condition SHA-256: `{condition_sha}`
 ## Compiled operator goal
 
 The operator's free-form aspiration has been compiled into the following
-machine-checkable contract.  A gate can pass only with cited, hashed evidence;
+machine-checkable contract.  A gate can pass only with cited, versioned evidence;
 the budget is a hard ceiling; stop criteria override the aspiration.
 
 ```json
@@ -431,27 +403,22 @@ for novelty evidence, falsifiability, resource fit, venue fit, methodological
 soundness, integrity risk, and expected information gain.  Preserve uncertainty
 and reviewer disagreement so humans can label or pairwise-rank candidates later.
 
-After freezing `CANDIDATES.json`, serialize it as UTF-8 canonical JSON with
-lexicographically sorted object keys, compact separators (`,` and `:`), and one
-trailing newline. Compute SHA-256 over those exact bytes. Then write
-`CANDIDATES_MANIFEST.json` with exactly these binding fields:
+After freezing `CANDIDATES.json`, write `CANDIDATES_MANIFEST.json` with exactly
+these binding fields, copying both keys verbatim:
 
 ```json
 {{
   "schema_version": "{CANDIDATE_MANIFEST_SCHEMA}",
-  "condition_sha256": "{condition_sha}",
-  "objective_sha256": "SHA-256 of the exact FLYWHEEL IDEATION_OBJECTIVE.md bytes",
-  "candidates_sha256": "SHA-256 of canonical CANDIDATES.json bytes",
+  "condition_key": "{condition_key}",
+  "objective_key": "{objective_key}",
   "candidate_count": "integer length of CANDIDATES.json"
 }}
 ```
 
-The runtime-provided objective SHA is authoritative; if it is unavailable or
-does not match the exact received objective bytes, stop with `BLOCKED`. Register
-both files as Argus research/delivery artifacts so the authenticated artifact
-allowlist exposes them. A missing registration, schema mismatch, condition or
-objective mismatch, candidate-count mismatch, or content-digest mismatch means
-the pair is quarantined and must not enter FLYWHEEL.
+Register both files as Argus research/delivery artifacts so the authenticated
+artifact allowlist exposes them. A missing registration, schema mismatch,
+condition or objective key mismatch, or candidate-count mismatch means the pair
+is quarantined and must not enter FLYWHEEL.
 
 ## Project lifecycle, review panel, and human checkpoints
 
@@ -467,7 +434,7 @@ The Project Protocol is staged and may not silently skip a gate:
 4. `EVIDENCE_AND_WRITE`: execute only approved, budgeted experiments; preserve
    raw/failed/negative runs; write only claims supported by the ledger.
 5. `INTEGRITY_CHECK_1`: verify citations, data rights, baseline authenticity,
-   leakage, statistics, claim scope, and artifact hashes.  Any blocker stops promotion.
+   leakage, statistics, claim scope, and artifact versions.  Any blocker stops promotion.
 6. `INDEPENDENT_REVIEW_1`: instantiate five fresh-context, read-only reviewers:
    novelty/collision; methods/statistics/falsifiability; resources/schedule;
    venue/policy; integrity/ethics/licensing.
@@ -478,9 +445,9 @@ The Project Protocol is staged and may not silently skip a gate:
 9. `FINAL_INTEGRITY_CHECK`: re-audit from primary artifacts and require zero
    unresolved integrity blockers.
 10. `HUMAN_GATE_2_FINAL`: a human confirms claims, authorship, AI disclosure,
-    venue compliance, final hashes, and any submission action.
+    venue compliance, final artifact versions, and any submission action.
 
-Each reviewer cites the immutable artifact version/SHA it examined and returns
+Each reviewer cites the immutable artifact version it examined and returns
 `score: null` if evidence is absent.  Do not average away vetoes or disagreement,
 turn reviewer scores into acceptance probability, or let campaign self-review
 count as an independent review.
@@ -498,42 +465,42 @@ not acceptance, Oral selection, or permission to submit.
 
 ## Artifact, reproducibility, and provenance contract
 
-Maintain immutable, versioned, content-addressed artifacts for:
+Maintain immutable, versioned artifacts for:
 `SOURCE_SNAPSHOT`, `NEAREST_WORK_MATRIX`, Builder/Breaker/Arbiter outputs,
 `CANDIDATES`, `CANDIDATES_MANIFEST`, `BASELINE_PROVENANCE`, `RUN_LEDGER`, `EXCLUDED_RUNS`,
 `CLAIM_EVIDENCE_MATRIX`, `STATISTICAL_AUDIT`, `VENUE_COMPLIANCE`, both review
 rounds, both integrity reports, revision diffs, final paper/package, and
 `PROCESS_SUMMARY`.
 
-Every material record must state protocol version, parent version, prompt SHA,
-condition SHA, source SHA(s), Argus code SHA, model/provider identifier, code and
-data revisions, configuration, seeds, command, environment, cost, timestamps,
-actor (human or agent), and artifact SHA.  Append new versions; never rewrite a
-sealed artifact.  A result is reproducible only when an authorized operator can
-reconstruct the exact input, code, environment, command, seed, and output hash.
+Every material record must state protocol version, parent version, objective
+key, condition key, source references, Argus code commit, model/provider
+identifier, code and data revisions, configuration, seeds, command, environment,
+cost, timestamps, actor (human or agent), and artifact path and size.  Append new
+versions; never rewrite a sealed artifact.  A result is reproducible only when an
+authorized operator can reconstruct the exact input, code, environment, command,
+seed, and output.
 
 ## Dataset trace
 
-Persist the protocol version, frozen condition hash, source snapshot hash, prompt hash, exact
+Persist the protocol version, frozen condition key, source snapshot reference, objective key, exact
 candidate JSON, all independent reviews, human dimension labels, pairwise
 preferences, decisions, and eventual outcomes.  Do not mark any record eligible
 for training unless explicit consent, a license basis, and redaction confirmation
 are present.  Never include secrets, reviewer identities, private paths, or
 unlicensed text in a training export.
 """
-    objective_sha = hashlib.sha256(objective.encode("utf-8")).hexdigest()
     return CompiledIdeationObjective(
         objective=objective,
-        objective_sha256=objective_sha,
+        objective_key=objective_key,
         condition_snapshot=snapshot,
-        condition_sha256=condition_sha,
+        condition_key=condition_key,
     )
 
 
 def write_immutable_objective(root: Path, compiled: CompiledIdeationObjective) -> Path:
-    """Write an objective below a content-addressed FLYWHEEL-owned directory."""
+    """Write an objective below its own key's FLYWHEEL-owned directory."""
 
-    directory = root.resolve() / compiled.objective_sha256
+    directory = root.resolve() / compiled.objective_key
     target = directory / "IDEATION_OBJECTIVE.md"
     _write_once(target, compiled.objective.encode("utf-8"))
     snapshot = _canonical_json(compiled.condition_snapshot)
@@ -569,7 +536,7 @@ def _compile_goal_contract(
             {
                 "gate": "G0_CONDITIONS_CONFIRMED",
                 "pass_when": (
-                    "A named human approves this exact condition/protocol hash, "
+                    "A named human approves this exact condition/protocol version, "
                     "source rights, goal interpretation, and hard budget."
                 ),
                 "evidence": ["HUMAN_APPROVAL.json", "CONDITION_SNAPSHOT.json"],
@@ -629,7 +596,7 @@ def _compile_goal_contract(
                 "gate": "G5_FINAL_INTEGRITY_AND_HUMAN_RELEASE",
                 "pass_when": (
                     "A from-scratch final integrity audit has zero blockers and a named "
-                    "human approves the exact final artifact hashes."
+                    "human approves the exact final artifact versions."
                 ),
                 "evidence": ["FINAL_INTEGRITY_REPORT.json", "FINAL_HUMAN_APPROVAL.json"],
             },
@@ -733,16 +700,11 @@ def _team_snapshot(
     origin_kind = _optional_text(origin_input.get("kind"), "team.origin.kind", 100) or (
         "confirmed_operator_intake" if statement else "structured_profile"
     )
-    structured_sha = hashlib.sha256(_canonical_json(semantic_profile)).hexdigest()
     origin = {
         "kind": origin_kind,
         "source_intake_id": source_intake_id,
         "operator_statement_bound": bool(statement),
         "operator_statement": statement,
-        "operator_statement_sha256": (
-            hashlib.sha256(statement.encode("utf-8")).hexdigest() if statement else ""
-        ),
-        "structured_profile_sha256": structured_sha,
         "extraction": _bounded_mapping(origin_input.get("extraction"), "team.origin.extraction"),
         "uncertainties": _clean_string_list(
             origin_input.get("uncertainties") or [], "team.origin.uncertainties", 64
@@ -802,10 +764,10 @@ def _bounded_int(value: Any, minimum: int, maximum: int, field: str) -> int:
     return value
 
 
-def _required_sha256(value: Any, field: str) -> str:
+def _required_key(value: Any, field: str) -> str:
     text = _required_text(value, field, 64).lower()
     if len(text) != 64 or any(character not in "0123456789abcdef" for character in text):
-        raise ValueError(f"{field} must be exactly 64 hexadecimal characters")
+        raise ValueError(f"{field} must be a 64-hex key")
     return text
 
 
@@ -839,10 +801,10 @@ def _write_once(path: Path, content: bytes) -> None:
     path.parent.mkdir(parents=True, exist_ok=True)
     if path.exists():
         if path.read_bytes() != content:
-            raise RuntimeError("content-addressed objective collision")
+            raise RuntimeError("objective key already holds different content")
         return
     # Keep the temporary basename short enough for Windows' legacy MAX_PATH;
-    # the parent already contains a 64-character content digest.
+    # the parent already contains a 64-character key.
     temporary = path.parent / f".tmp-{uuid.uuid4().hex[:8]}"
     try:
         with temporary.open("xb") as handle:

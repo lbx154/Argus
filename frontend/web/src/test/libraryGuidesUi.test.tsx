@@ -14,7 +14,7 @@ vi.mock('../i18n', async importOriginal => {
 vi.mock('../api', () => ({ api: { skillLibrary: vi.fn(), skillDocument: vi.fn(), wikiLibrary: vi.fn(), wikiDocument: vi.fn(), knowledgeFeed: vi.fn(), learningStatus: vi.fn() } }));
 vi.mock('../components/MarkdownContent', () => ({ MarkdownContent: ({ children }: { children: string }) => <pre data-original>{children}</pre> }));
 const builtin: SkillLibraryItem = { scope: 'global', vertical: '', source: 'bundled', library: 'global:bundled',
-  path: 'engineer/pdf-chat.md', name: 'Progressive PDF Reading', description: 'Original English description',
+  path: 'engineer/presentation-master.md', name: 'Editable Presentations with PPT Master', description: 'Original English description',
   role: 'engineer', updated_at: null, is_default: true };
 const custom = { ...builtin, library: 'project:learned', source: 'project', scope: 'project', is_default: false,
   name: 'Operator original title', description: 'Do not rewrite this description', updated_at: 2 } as SkillLibraryItem;
@@ -54,7 +54,7 @@ it('unifies navigation into four categories while keeping private records, index
 
 it('reads skills in the unified browser and resets selection on a project switch', async () => {
   await act(async () => { view = create(<QueryClientProvider client={client}><LearningLibrary sid="s-A" initialScope="global" /></QueryClientProvider>); }); await settle();
-  act(() => view!.root.findAllByType('button').find(node => content(node).includes('分段阅读 PDF'))!.props.onClick()); await settle();
+  act(() => view!.root.findAllByType('button').find(node => content(node).includes('可编辑演示文稿'))!.props.onClick()); await settle();
   expect(api.skillDocument).toHaveBeenCalledWith('s-A', builtin.library, builtin.path, expect.any(AbortSignal));
   expect(content(view!.root.findByProps({ 'data-skill-reading-guide': true }))).toContain('不会运行工具或发起模型任务');
   await act(async () => view!.update(<QueryClientProvider client={client}><LearningLibrary sid="s-B" initialScope="global"
@@ -91,12 +91,12 @@ it('separates real learning records from file updates and reports source failure
   expect(content(view!.root)).toContain('知识无法加载');
   expect(content(view!.root)).toContain(custom.name);
   expect(content(view!.root)).not.toContain('当前分类或筛选条件下没有资料');
-  expect(content(view!.root)).not.toContain('分段阅读 PDF');
+  expect(content(view!.root)).not.toContain('可编辑演示文稿');
 });
 
 it.each([
-  { locale: 'zh-CN', labels: ['学习动态', '全局项目', '垂直领域', '项目'], skillName: '分段阅读 PDF' },
-  { locale: 'en', labels: ['Learning feed', 'Across projects', 'Vertical', 'Project'], skillName: 'Progressive PDF Reading' },
+  { locale: 'zh-CN', labels: ['学习动态', '全局项目', '垂直领域', '项目'], skillName: '可编辑演示文稿' },
+  { locale: 'en', labels: ['Learning feed', 'Across projects', 'Vertical', 'Project'], skillName: 'Editable Presentations with PPT Master' },
 ])('restores the original category order and learning-feed default in $locale', async ({ locale, labels, skillName }) => {
   state.locale = locale;
   await act(async () => { view = create(<QueryClientProvider client={client}><LearningLibrary sid="s-A" /></QueryClientProvider>); }); await settle();
@@ -128,9 +128,9 @@ async function skills() {
 it('shows and searches the Chinese built-in alias, while the document request retains its original identity', async () => {
   await skills();
   expect(content(view!.root)).toContain('怎么做');
-  act(() => view!.root.findByType('input').props.onChange({ target: { value: '分段阅读' } }));
-  act(() => button('分段阅读 PDF').props.onClick()); await settle();
-  expect(api.skillDocument).toHaveBeenCalledExactlyOnceWith('s-A', 'global:bundled', 'engineer/pdf-chat.md', expect.any(AbortSignal));
+  act(() => view!.root.findByType('input').props.onChange({ target: { value: '演示文稿' } }));
+  act(() => button('可编辑演示文稿').props.onClick()); await settle();
+  expect(api.skillDocument).toHaveBeenCalledExactlyOnceWith('s-A', 'global:bundled', 'engineer/presentation-master.md', expect.any(AbortSignal));
   const guide = view!.root.findByProps({ 'data-skill-reading-guide': true });
   expect(content(guide)).toContain('什么时候参考');
   expect(content(guide)).toContain('不会运行工具或发起模型任务');
@@ -139,16 +139,16 @@ it('shows and searches the Chinese built-in alias, while the document request re
 });
 it('keeps English mode, and never aliases a learned document with a matching built-in filename', async () => {
   state.locale = 'en'; await skills();
-  expect(content(view!.root)).toContain('Progressive PDF Reading');
-  expect(content(view!.root)).not.toContain('分段阅读 PDF');
+  expect(content(view!.root)).toContain('Editable Presentations with PPT Master');
+  expect(content(view!.root)).not.toContain('可编辑演示文稿');
   act(() => button('Project').props.onClick());
   act(() => button('Operator original title').props.onClick()); await settle();
   expect(view!.root.findAllByProps({ 'data-skill-reading-guide': true })).toHaveLength(0);
   expect(content(view!.root)).toContain('Do not rewrite this description');
-  expect(api.skillDocument).toHaveBeenCalledWith('s-A', 'project:learned', 'engineer/pdf-chat.md', expect.any(AbortSignal));
+  expect(api.skillDocument).toHaveBeenCalledWith('s-A', 'project:learned', 'engineer/presentation-master.md', expect.any(AbortSignal));
 });
 it('clears the guide and document selection when sid changes', async () => {
-  await skills(); act(() => button('分段阅读 PDF').props.onClick()); await settle();
+  await skills(); act(() => button('可编辑演示文稿').props.onClick()); await settle();
   expect(view!.root.findAllByProps({ 'data-skill-reading-guide': true })).toHaveLength(1);
   await act(async () => view!.update(<QueryClientProvider client={client}><SkillLibrary sid="s-B" /></QueryClientProvider>)); await settle();
   expect(view!.root.findAllByProps({ 'data-skill-reading-guide': true })).toHaveLength(0);

@@ -51,7 +51,7 @@ _EVENT_HANDLERS: dict[str, _FamilyReducer] = {
         EventType.LIFE_PLANNER_START,
         EventType.LIFE_PLANNER_TASK_ADDED,
         EventType.LIFE_PLANNER_VERDICT,
-        EventType.LIFE_PLANNER_WAITING,
+        EventType.LIFE_PLANNER_IDLE,
         EventType.LIFE_PLANNER_TERMINAL_IDLE,
         EventType.LIFE_PLANNER_ERROR,
     ),

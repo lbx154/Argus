@@ -84,8 +84,9 @@ def test_reviewer_sees_provider_text_as_raw_evidence_and_engineer_gets_the_note(
         assert f"## Host observation (round {index})" in prompt
         assert f"probe-{index} fired" in prompt
         assert _NOT_A_GATE in prompt
-        # Evidence, not subagent chatter: it must not ride in the background block.
-        assert prompt.index("Raw verification evidence:") > prompt.index(
+        # Evidence, not subagent chatter: it must not ride in the background
+        # block, and the Reviewer reads it before the Engineer's account.
+        assert prompt.index("Raw verification evidence:") < prompt.index(
             "## Engineer's account of this round"
         )
     # Each review sees only its own round's evidence; it is consumed once read.

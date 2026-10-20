@@ -1,12 +1,12 @@
 """Stop automatic paid retries after a hosted-trial failure until user review."""
 from __future__ import annotations
 
-import hashlib
 import json
 import math
 import os
 import time
 
+from ..core.file_facts import file_facts
 from .client import profile_path, trial_home
 from .storage import write_private
 
@@ -33,8 +33,12 @@ def _path():
 
 
 def _fingerprint():
-    config = json.loads(profile_path().read_text(encoding="utf-8"))
-    return hashlib.sha256(str(config["api_key"]).encode()).hexdigest()
+    """The trial profile as it was when the pause was recorded.
+
+    A pause belongs to that profile: saving another key (or the same one again)
+    is the user's review. The key itself never reaches the pause file.
+    """
+    return file_facts(profile_path())
 
 
 def state() -> dict:
@@ -42,7 +46,11 @@ def state() -> dict:
         return {}  # Explicit onboarding has already checked the server balance.
     try:
         row = json.loads(_path().read_text(encoding="utf-8"))
-        return row if row.get("profile") == _fingerprint() else {}
+        profile = row.get("profile")
+        # A pause recorded by an older release names its key by a digest; it
+        # stays until the user reviews it, whichever key is configured now.
+        legacy = isinstance(profile, str) and len(profile) == 64
+        return row if legacy or profile == _fingerprint() else {}
     except FileNotFoundError:
         return {}
     except (OSError, ValueError, KeyError):

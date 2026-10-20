@@ -15,7 +15,6 @@ import type {
   ProjectCostRow,
   ProgressSourceRef,
   Role,
-  Snapshot,
   VerticalAction,
   VerticalManageResult,
   VerticalOperation,
@@ -212,20 +211,16 @@ export interface KnowledgeFeed {
   events: KnowledgeEvent[];
 }
 
-/** Status the host derived for one method component from the spec tests carrying its marker. */
-export type ResearchMethodComponentStatus = 'proven' | 'contradicted' | 'partial' | 'untested' | 'unchecked';
-/** One spec test joined to a component through its marker; outcome is null until the host has run it. */
+/** One spec test joined to a component through its marker. */
 export interface ResearchMethodTest {
   id: string;
   kind: string;
-  outcome: string | null;
 }
-/** One component of the hand-written card; component/prescribes/notes are the agent's text, status/tests are derived. */
+/** One component of the hand-written card; component/prescribes/notes are the agent's text, tests are derived. */
 export interface ResearchMethodComponent {
   component: string;
   prescribes: string;
   notes: string;
-  status: ResearchMethodComponentStatus;
   tests: ResearchMethodTest[];
 }
 /** A third_party/ clone or installed package the project's own code imports, found by the host's import scan. */
@@ -252,13 +247,6 @@ export interface ResearchMethodChange {
   summary: string;
   files: string[];
 }
-/** The latest host-run check round joined into the card. */
-export interface ResearchMethodChecks {
-  round_index: number;
-  ran_at: number;
-  exit_code: number | null;
-  counts: Record<string, number>;
-}
 /**
  * A research project's method card: the hand-written METHOD.md plus what the
  * host derived from code, tests, config files and git at zero model cost.
@@ -283,7 +271,6 @@ export type ResearchMethod =
     reused_code: ResearchMethodReusedCode[];
     hyperparameters: ResearchMethodHyperparameter[];
     change_log: ResearchMethodChange[];
-    checks: ResearchMethodChecks | null;
   };
 
 export interface JournalEntry {
@@ -349,7 +336,6 @@ export interface ConfigSnapshot {
   model_options?: Array<{ model: string; source: 'backend' | 'catalog' | 'seen' | 'current'; default?: boolean; last_used_at?: number; invalid?: boolean; offline?: boolean }>;
   model_auto_resolves_to?: string;
   /** What map text actually runs on; `note` says why a saved pin was set aside for auto. */
-  map_model?: { backend: string; model: string; note: string } | null;
   how_to_change: string[];
 }
 export interface AdvisorConfig {
@@ -983,8 +969,6 @@ async function readSSE(
   }
 }
 
-let activeSnapshotPrewarmSid: string | null = null;
-
 /** An explicitly selected preview uses the normal web request and its own cache. */
 function mapCopyPath(source: string, name: string, values: Record<string, string>, sessionId?: string, preview = readerPreview(), foundationId?: string | null): string {
   const params = new URLSearchParams(values);
@@ -1118,29 +1102,15 @@ export const api = {
       workdir: string;
       workdir_preserved: boolean;
     }>('DELETE', P(sid)),
-  snapshot: async (sid: string, signal?: AbortSignal, prewarm = false) => {
+  snapshot: async (sid: string, signal?: AbortSignal) => {
     await compatibleApiMeta();
     const value = await getJson<unknown>(
-      P(sid, `/snapshot?compact=true&events_limit=1${prewarm ? '&prewarm=true' : ''}`),
+      P(sid, '/snapshot?compact=true&events_limit=1'),
       signal,
       API_LOCAL_READ_TIMEOUT_MS,
     );
     return requireSnapshotContract(value);
   },
-  activeSnapshot: async (sid: string, signal?: AbortSignal): Promise<Snapshot> => {
-    const prewarm = activeSnapshotPrewarmSid !== sid;
-    if (prewarm) activeSnapshotPrewarmSid = sid;
-    try {
-      return await api.snapshot(sid, signal, prewarm);
-    } catch (error) {
-      if (prewarm && activeSnapshotPrewarmSid === sid) {
-        activeSnapshotPrewarmSid = null;
-      }
-      throw error;
-    }
-  },
-  prefetchSnapshot: (sid: string, signal?: AbortSignal) =>
-    api.snapshot(sid, signal, false),
   status: (sid: string, signal?: AbortSignal) =>
     getJson<StatusView>(P(sid, '/status'), signal),
   journal: (sid: string, n = 20, signal?: AbortSignal) =>
@@ -1445,7 +1415,7 @@ export const api = {
     const attachments = isAbortSignal(signalOrOptions) ? undefined : signalOrOptions?.attachments;
     const routeOverride = isAbortSignal(signalOrOptions) ? undefined : signalOrOptions?.routeOverride;
     const requestId = isAbortSignal(signalOrOptions) ? undefined : signalOrOptions?.requestId;
-    return postJson<{ kind: 'chat' | 'task' | 'pending_question' | 'pending_question_choice' | 'error' | 'cancelled'; reply: string | null; resolved?: boolean; item?: BacklogItem | null; daemon_alive?: boolean }>(
+    return postJson<{ kind: 'chat' | 'task' | 'pending_question' | 'error' | 'cancelled'; reply: string | null; resolved?: boolean; item?: BacklogItem | null; daemon_alive?: boolean }>(
       P(sid, '/message'),
       messageBody(text, attachments, routeOverride, requestId),
       signal,

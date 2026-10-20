@@ -33,7 +33,7 @@ def initialize(root: Path, admin_token_file: Path, admin_url: str) -> None:
             raise ValueError("Restore the missing master key; existing allowances must not be reset")
         write_private(master, Fernet.generate_key())
     vault = Vault(master, root / "meter/github-token.enc")
-    issue_keys(vault, root / "meter", root / "invitations.json")
+    credentials = issue_keys(vault, root / "meter", root / "invitations.json")
     admin_access = root / "admin-access.json"
     if not admin_access.exists():
         write_private(admin_access, json.dumps({
@@ -71,7 +71,7 @@ def initialize(root: Path, admin_token_file: Path, admin_url: str) -> None:
         bootstrap = tenant / "bootstrap/runtime.json"
         if not bootstrap.exists():
             write_private(bootstrap, json.dumps({
-                "api_key": vault.credential(key),
+                "api_key": credentials[key],
                 "web_token": secrets.token_urlsafe(32),
                 "name": f"Argus {key}", "tenant_id": key,
             }).encode())

@@ -119,17 +119,17 @@ it("reuses the placement pass while zoom stays inside one bucket", () => {
   expect(relationLayout(store, 1.2).labels).not.toBe(first);
 });
 
-it("derives fan kinds from the edge className and skips their labels", () => {
+it("derives edge kinds from the className and skips unlabeled edges", () => {
   const store = storeWith([
     relation({
-      id: "fan",
-      className: "react-flow__edge map-edge-fanout",
+      id: "dependency",
+      className: "react-flow__edge map-edge-dependency",
       label: undefined,
     }),
     relation({ id: "plain", className: undefined }),
   ]);
   const layout = relationLayout(store, 1);
-  expect(layout.kinds.get("fan")).toBe("fanout");
+  expect(layout.kinds.get("dependency")).toBe("dependency");
   expect(layout.kinds.get("plain")).toBeUndefined();
-  expect(layout.labels.has("fan")).toBe(false);
+  expect(layout.labels.has("dependency")).toBe(false);
 });

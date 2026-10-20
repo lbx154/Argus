@@ -1,7 +1,6 @@
 """Official Windows runtime preparation without installer or model execution."""
 from __future__ import annotations
 
-import hashlib
 import json
 import struct
 import sys
@@ -72,7 +71,6 @@ def fake_publishers(tmp_path, monkeypatch):
     launcher.write_bytes(pe(0x8664))
     monkeypatch.setattr(platon, "launcher_path", lambda: launcher)
     library = pe() + b"synthetic runtime"
-    monkeypatch.setattr(platon, "DLL_SHA256", hashlib.sha256(library).hexdigest())
     archives = {}
     for url, name, data in [
         (platon.PLATON_URL, "platon.exe", program),
@@ -84,8 +82,8 @@ def fake_publishers(tmp_path, monkeypatch):
             package.writestr(name, data)
         archives[url] = archive
     downloads, commands = [], []
-    def download(url, destination, *, checksum):
-        assert checksum and url.startswith("https://")
+    def download(url, destination):
+        assert url.startswith("https://")
         downloads.append(url)
         return archives[url]
     def run(command, **kwargs):
