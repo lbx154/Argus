@@ -33,11 +33,7 @@ log = logging.getLogger(__name__)
 
 
 def _open_runtime_failure_circuit(supervisors: Any) -> dict[str, Any] | None:
-    """The first active runtime failure circuit among the worker's supervisors.
-
-    The circuit only clears when a different Argus runtime is loaded, so a
-    finite (bounded) worker that hits it can never make progress again.
-    """
+    """The first active runtime failure circuit among the worker's supervisors."""
     from ..life.runtime_failure_circuit import active_runtime_failure_circuit
 
     for supervisor in supervisors or ():
@@ -706,9 +702,9 @@ class LifeWorkerRunMixin:
                         log.info("daemon: bounded work completed; exiting cleanly")
                         break
                     # A bounded worker parked behind an open runtime failure
-                    # circuit would wait forever: the circuit only clears once a
-                    # changed runtime is loaded, which never happens inside this
-                    # process. Release the slot instead of idling until killed.
+                    # circuit waits on facts this process does not produce (a
+                    # changed runtime, the operator's Run). Release the slot
+                    # instead of idling until killed.
                     if (
                         not rf_state.cfg.continuous_open_ended
                         and not standing_enabled
@@ -717,9 +713,8 @@ class LifeWorkerRunMixin:
                         if circuit is not None:
                             log.warning(
                                 "daemon: bounded work blocked by an open runtime failure "
-                                "circuit (%s at %s); exiting",
-                                circuit.get("exception_type") or "error",
-                                circuit.get("callsite") or "unknown callsite",
+                                "circuit (%s); exiting",
+                                circuit.get("fingerprint") or "unknown",
                             )
                             break
                     # Idle auto-exit: the supervisor judged the project idle past

@@ -166,6 +166,10 @@ contract does not require one.
   input); a timed window is only the fallback
   (`ARGUS_SKILL_RUNTIME_CANARY_COOLDOWN_MIN`, doubling per window; 0 disables
   it).
+- A model service that turns a task away past its automatic retries (the task
+  parks on `provider_fence`) opens the same circuit: it would turn every other
+  call away too, so Planner turns and task dispatch wait the same way. The
+  operator's explicit Run also ends this circuit.
 
 Explicit pause stops the current mission and daemon while preserving the goal
 and backlog. An explicit resume that runs commands or changes artifacts is TEAM
@@ -176,10 +180,11 @@ Work that has to wait is `parked`, one status whose reason is data
 stop such as `daemon_shutdown`, `provider_cooldown` or `provider_fence`, an
 `operator_question`, a Manager stop left for the Planner (`research_open`), or
 a host that could not start (`infra`). A park holds only its task and the tasks
-that depend on it. A new fact ends it: the next daemon pass for the runtime's
-own parks (shutdown, cooldown), the operator's explicit Run for parks only the
-operator or the outside world can clear, the answer for a question, and the
-Planner retiring a park it owns. Older `paused_*` statuses load as the park
+that depend on it; a `provider_fence` park also opens the runtime-failure
+circuit above, which holds every model call. A new fact ends it: the next
+daemon pass for the runtime's own parks (shutdown, cooldown), the operator's
+explicit Run for parks only the operator or the outside world can clear, the
+answer for a question, and the Planner retiring a park it owns. Older `paused_*` statuses load as the park
 they name.
 
 ### Manager model boundary
@@ -518,6 +523,7 @@ Web UI, Manager model, and daemon:
 | Planner acceptance check | No unconditional-success or tautological checks |
 | Successful Pi turn with no `CHECKPOINT.md` | Mission remains successful; empty open-item metadata and a persistence warning only when needed |
 | Same uncaught runtime exception under rephrased missions | One durable circuit opens; later Planner/Engineer dispatch waits for changed runtime facts |
+| Model service down past the automatic-retry window | The same circuit opens; Planner turns and dispatch wait for Run, a backend or model switch, operator input, or a passing canary |
 | Frozen Desktop framework repair request | Reports release-update mode and never runs `git rev-parse` against `_internal` |
 
 ## 10. Project lifecycle

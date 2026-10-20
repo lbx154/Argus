@@ -53,7 +53,7 @@ class IdleCycleMixin:
         *,
         item: Any | None = None,
     ) -> dict[str, Any] | None:
-        """Hold dispatch while the same loaded runtime owns an open circuit."""
+        """Hold dispatch and Planner turns while a circuit is open."""
         host_block = self._execution_host_failure_block(item=item)
         if host_block is not None:
             return host_block
@@ -62,10 +62,8 @@ class IdleCycleMixin:
             for tag in (getattr(item, "tags", None) or [])
             if str(tag).strip()
         }
-        if "framework_maintenance" in item_tags:
-            return None
         try:
-            from ..runtime_failure_circuit import active_runtime_failure_circuit
+            from ..runtime_failure_circuit import PROVIDER_OUTAGE, active_runtime_failure_circuit
 
             circuit_root = self.memory.root
             circuit = active_runtime_failure_circuit(circuit_root)
@@ -73,6 +71,11 @@ class IdleCycleMixin:
             log.exception("failed to inspect runtime failure circuit")
             return None
         if circuit is None:
+            return None
+        fingerprint = str(circuit.get("fingerprint") or "")
+        outage = fingerprint == PROVIDER_OUTAGE
+        # Maintenance repairs Argus's own code; it cannot bring a provider back.
+        if "framework_maintenance" in item_tags and not outage:
             return None
         # Only the canary this circuit admitted passes. A tag it never handed
         # out (an earlier circuit's, or one copied onto another row) waits for
@@ -86,9 +89,13 @@ class IdleCycleMixin:
             return None
         if self._admit_runtime_failure_half_open(circuit_root, circuit, item=item):
             return None
-        fingerprint = str(circuit.get("fingerprint") or "")
         reason = (
-            "runtime failure circuit is open; install or canary a changed Argus "
+            "the model service turned work away past its automatic retries; no "
+            "model call starts until the operator clicks Run, the backend or "
+            "model changes, the operator writes, or a canary finds it back "
+            f"({circuit.get('normalized_error')})"
+            if outage
+            else "runtime failure circuit is open; install or canary a changed Argus "
             f"runtime before dispatching more work ({circuit.get('exception_type')} "
             f"at {circuit.get('callsite')})"
         )

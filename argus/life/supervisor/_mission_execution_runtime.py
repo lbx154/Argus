@@ -894,29 +894,35 @@ class MissionExecutionRuntimeMixin:
         except Exception as exc:  # noqa: BLE001
             state.exc_str = f"{type(exc).__name__}: {exc}"
             log.exception("life supervisor: mission raised")
-            try:
-                from ..runtime_failure_circuit import record_runtime_failure_circuit
-
-                circuit = record_runtime_failure_circuit(
-                    self.memory.root,
-                    exc,
-                    item_id=item.id,
-                )
-                self._emit({
-                    "type": EventType.LIFE_RUNTIME_FAILURE_CIRCUIT_OPENED,
-                    "item_id": item.id,
-                    "fingerprint": circuit.get("fingerprint"),
-                    "exception_type": circuit.get("exception_type"),
-                    "callsite": circuit.get("callsite"),
-                    "normalized_error": circuit.get("normalized_error"),
-                    "occurrence_count": circuit.get("occurrence_count"),
-                    "runtime_identity": circuit.get("runtime_identity"),
-                    "newly_opened": circuit.get("newly_opened"),
-                    "operator_alert": True,
-                })
-            except Exception:  # noqa: BLE001 - circuit failure cannot hide original
-                log.exception("failed to persist mission runtime failure circuit")
+            self._record_runtime_failure(exc, item_id=item.id)
         state.elapsed = time.time() - state.t0
+
+    def _record_runtime_failure(
+        self, failure: BaseException | dict[str, str], *, item_id: str,
+    ) -> None:
+        """Open (or count again) the circuit that holds every model call."""
+        try:
+            from ..runtime_failure_circuit import record_runtime_failure_circuit
+
+            circuit = record_runtime_failure_circuit(
+                self.memory.root,
+                failure,
+                item_id=item_id,
+            )
+            self._emit({
+                "type": EventType.LIFE_RUNTIME_FAILURE_CIRCUIT_OPENED,
+                "item_id": item_id,
+                "fingerprint": circuit.get("fingerprint"),
+                "exception_type": circuit.get("exception_type"),
+                "callsite": circuit.get("callsite"),
+                "normalized_error": circuit.get("normalized_error"),
+                "occurrence_count": circuit.get("occurrence_count"),
+                "runtime_identity": circuit.get("runtime_identity"),
+                "newly_opened": circuit.get("newly_opened"),
+                "operator_alert": True,
+            })
+        except Exception:  # noqa: BLE001 - circuit failure cannot hide original
+            log.exception("failed to persist mission runtime failure circuit")
 
     # ------------------------------------------------------------------
     # Phase: basic outcome derivation + budget/provider pause
@@ -1073,6 +1079,14 @@ class MissionExecutionRuntimeMixin:
                 last_error=state.stop_reason,
                 outcome=pause_outcome,
             )
+        if reason == "provider_fence":
+            # The model service turned this task away past its automatic
+            # retries; it would turn every other call away too.
+            from ..runtime_failure_circuit import provider_outage_failure
+
+            self._record_runtime_failure(
+                provider_outage_failure(state.stop_reason), item_id=item.id,
+            )
         from ...engineer.round_stop_signals import backend_failure_cause
 
         # When the pause is the model service being out of reach, the record
@@ -1126,8 +1140,8 @@ class MissionExecutionRuntimeMixin:
         tasks that ended that way with nothing else in between, once the first
         is older than the automatic-retry window the next one waits for the
         operator instead of failing into another plan. A task already parked
-        on the fence is part of the same outage, so every later task in it
-        gets one attempt and then parks itself; none holds another's work.
+        on the fence is part of the same outage, so a task that still meets it
+        (a canary, or one that was already running) parks too.
         """
         from ...core.autonomy import AUTOMATIC_RETRY_WINDOW_SECONDS
 

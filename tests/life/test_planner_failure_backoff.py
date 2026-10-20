@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import json
 from pathlib import Path
+from types import SimpleNamespace
 from typing import Any
 
 import pytest
@@ -631,3 +632,58 @@ def test_a_stopped_backend_retry_comes_back_for_the_operator_or_a_new_model(
 
     assert planner.planner_calls == stopped_calls + 1
     assert _streak(supervisor) == 0
+
+
+def test_a_provider_outage_circuit_holds_the_planner_until_it_closes(tmp_path, monkeypatch) -> None:
+    """A task the model service turned away past its retries opens the runtime
+    failure circuit. The Planner is not asked while it is open, a half-open
+    window lets one probe through, and once the operator's Run closes the
+    circuit the Planner is asked again."""
+    import time
+
+    from argus.core.autonomy import RETRY_WINDOW_SPENT_REASON
+    from argus.life.memory import BacklogItem
+    from argus.life.runtime_failure_circuit import (
+        CIRCUIT_FILENAME,
+        PROVIDER_OUTAGE,
+        active_runtime_failure_circuit,
+    )
+    from argus.webapi.routes.daemon import _resume_parks_after_start
+
+    supervisor, planner, _sink, clock = _supervisor(tmp_path, monkeypatch, _NOT_DONE_NO_TASKS)
+    planner.fatal = _OUTAGE
+    life = tmp_path / "life"
+    missions: list[int] = []
+
+    def execute(**_kwargs: Any) -> Any:
+        missions.append(1)
+        if len(missions) == 1:
+            return SimpleNamespace(
+                success=False, status="parked", park_reason="provider_fence",
+                stop_kind="provider_fence", rounds=1,
+                stop_reason=f"{RETRY_WINDOW_SPENT_REASON} (HTTP 503).",
+            )
+        return SimpleNamespace(success=True, status="done", stop_reason="", rounds=1)
+
+    supervisor.runner.execute = execute
+    supervisor.memory.backlog.add(BacklogItem.new(
+        title="greet", objective="write greet.py",
+        manager_decision={"routed": True, "vertical": "software"},
+    ))
+
+    _drive(supervisor, clock, 3600.0)
+    assert active_runtime_failure_circuit(life)["fingerprint"] == PROVIDER_OUTAGE
+    assert (len(missions), planner.planner_calls) == (1, 0)
+
+    # A half-open window (a changed fact, or the timed fallback) admits one probe.
+    state = json.loads((life / CIRCUIT_FILENAME).read_text())
+    state["canary_due_at"] = time.time() - 1
+    (life / CIRCUIT_FILENAME).write_text(json.dumps(state))
+    _drive(supervisor, clock, 3600.0)
+    assert planner.planner_calls == 1
+
+    planner.fatal = None
+    _resume_parks_after_start(life, {"rc": 0})
+    _pass(supervisor)
+    assert active_runtime_failure_circuit(life) is None
+    assert len(missions) == 2 and planner.planner_calls > 1

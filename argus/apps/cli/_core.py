@@ -2021,7 +2021,14 @@ def _cmd_lifecycle_transition(
     resumed_items = []
     if action == "resume":
         from ...life.memory import LifeMemory
+        from ...life.runtime_failure_circuit import (
+            PROVIDER_OUTAGE,
+            clear_runtime_failure_circuit,
+        )
 
+        clear_runtime_failure_circuit(
+            lifecycle_root, reason="operator resume", fingerprint=PROVIDER_OUTAGE,
+        )
         resumed_items = LifeMemory.open(lifecycle_root).backlog.resume_parked()
 
     print(
