@@ -96,7 +96,12 @@ class PlannerRenderingMixin:
         from ...planner.planner import _GLOBAL_KEY_VALUE_KEYS
         from ..research_plan import replace_research_plan
 
-        keys = (*_GLOBAL_KEY_VALUE_KEYS, "PLAN_UPDATE", "TASK_KEY")
+        # A quoted SETTLE_INSTRUCTION line is plan text, not the end of the plan.
+        keys = (
+            *(key for key in _GLOBAL_KEY_VALUE_KEYS if key != "SETTLE_INSTRUCTION"),
+            "PLAN_UPDATE",
+            "TASK_KEY",
+        )
         update = read_block(raw_text, "PLAN_UPDATE", keys).strip()
         if not update or not replace_research_plan(self.memory.root, update):
             return False

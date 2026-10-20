@@ -706,18 +706,9 @@ def _planner_key_values(
     current_task: dict[str, str] | None = None
     # The objective a following non-field line extends, as (row, field).
     open_objective: tuple[dict[str, str], str] | None = None
-    in_plan_update = False
     for raw_line in decision_footer_text(text).splitlines():
         line = raw_line.strip().strip("`").strip()
         match = _KEY_VALUE_LINE.match(line)
-        if in_plan_update:
-            # A settle line written after the plan still belongs to the
-            # decision; nothing else in the plan is read as a field.
-            if match is not None and match.group("key").upper() == "SETTLE_INSTRUCTION":
-                settled_instructions.extend(
-                    _settled_instruction_revisions(match.group("value").strip())
-                )
-            continue
         if match is None:
             if open_objective is not None and not _OBJECTIVE_CONTINUATION_STOP.match(line):
                 row, field = open_objective
@@ -731,8 +722,7 @@ def _planner_key_values(
         # parsed separately with role_reply.read_block by the supervisor; no
         # heading or evidence line inside it may impersonate task metadata.
         if key == "PLAN_UPDATE":
-            in_plan_update = True
-            continue
+            break
         if key == "RETIRE_TASK":
             item_id, separator, reason = value.partition("|")
             if separator and item_id.strip() and reason.strip():

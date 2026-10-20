@@ -1182,10 +1182,14 @@ class PlanningCycleMixin(
 
             try:
                 if state.operator_context_revision > 0:
-                    OperatorContextStore(operator_context_state_root(self.memory)).acknowledge(
+                    settled = OperatorContextStore(
+                        operator_context_state_root(self.memory)
+                    ).acknowledge(
                         "planner", state.operator_context_revision,
                         settle=state.operator_settlements(),
                     )
+                    if settled:
+                        log.info("Planner settled idle operator instructions %s", list(settled))
                 settle = getattr(self, "_settle_operator_inbox", None)
                 if callable(settle):
                     settle(state.inbox_delivery_messages)
