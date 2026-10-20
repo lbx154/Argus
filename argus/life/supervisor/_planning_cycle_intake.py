@@ -336,14 +336,13 @@ class PlanningCycleIntakeMixin:
                 (feedback or {}).get("attempts") or (1 if feedback else 0)
             )
             if feedback is not None and feedback_attempts >= MANAGER_FEEDBACK_REPLAN_LIMIT:
-                sleep_s = self._enter_idle_backoff()
+                self._enter_idle_backoff()
                 self._emit({
                     "type": "life.manager.feedback.exhausted",
                     "stage": feedback.get("stage") or "",
                     "diagnostic": feedback.get("diagnostic") or "",
                     "reason": feedback.get("reason") or "",
                     "attempts": feedback_attempts,
-                    "suggested_sleep_s": sleep_s,
                 })
                 self._emit_status(
                     "Manager→Planner feedback repeated without a commit; "
@@ -383,7 +382,7 @@ class PlanningCycleIntakeMixin:
                     )
                     self._reset_idle_backoff()
                 else:
-                    sleep_s = self._enter_idle_backoff()
+                    self._enter_idle_backoff()
                     self._emit({
                         "type": "life.planner.completion_circuit_holding",
                         "diagnostic": str(circuit.get("diagnostic") or ""),
@@ -391,7 +390,6 @@ class PlanningCycleIntakeMixin:
                         "consecutive_rejections": int(
                             circuit.get("consecutive_rejections") or 0
                         ),
-                        "suggested_sleep_s": sleep_s,
                     })
                     self._emit_status(
                         "completion attempts stay paused: the same reason "

@@ -1263,9 +1263,7 @@ export interface LifePlannerIdleEvent extends EventMsg {
   "cycle"?: number;
   "reason"?: string;
   "handoff"?: string;
-  "consecutive_idle_cycles"?: number;
   "consecutive_failures"?: number;
-  "suggested_sleep_s"?: number;
   "model_call_skipped"?: boolean;
 }
 
@@ -1274,8 +1272,6 @@ export interface LifePlannerTerminalIdleEvent extends EventMsg {
   payload_schema_version?: 1;
   "cycle"?: number;
   "reason"?: string;
-  "consecutive_idle_cycles"?: number;
-  "suggested_sleep_s"?: number;
 }
 
 export interface LifePlannerVerificationProbeEvent extends EventMsg {
@@ -1573,7 +1569,6 @@ export interface LifeManagerFeedbackExhaustedEvent extends EventMsg {
   "diagnostic"?: string;
   "reason"?: string;
   "attempts": number;
-  "suggested_sleep_s"?: number;
 }
 
 export interface LifeManagerProjectReportEvent extends EventMsg {
@@ -1629,7 +1624,6 @@ export interface LifePlannerContinuationRequiredEvent extends EventMsg {
   payload_schema_version?: 1;
   "cycle": number;
   "reason"?: string;
-  "suggested_sleep_s"?: number;
 }
 
 export interface LifePlannerCompletionRejectedEvent extends EventMsg {
@@ -1658,7 +1652,6 @@ export interface LifePlannerCompletionCircuitHoldingEvent extends EventMsg {
   "diagnostic"?: string;
   "reason"?: string;
   "consecutive_rejections": number;
-  "suggested_sleep_s"?: number;
 }
 
 export interface LifePlannerCompletionCircuitNotifyFailedEvent extends EventMsg {

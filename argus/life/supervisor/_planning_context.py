@@ -758,15 +758,13 @@ class PlanningContextMixin:
             self._park_planner_question(
                 state, str(verdict.operator_question or reason), reason,
             )
-        sleep_s = self._enter_pause_backoff()
+        self._enter_pause_backoff()
         self._emit(
             {
                 "type": EventType.LIFE_PLANNER_IDLE,
                 "cycle": self._planning_cycles,
                 "reason": reason,
                 "handoff": str(verdict.handoff or ""),
-                "consecutive_idle_cycles": self._consecutive_idle_planner_cycles,
-                "suggested_sleep_s": sleep_s,
             }
         )
         self._emit_status(f"planner: nothing new to start — {reason}")
@@ -950,9 +948,9 @@ class PlanningContextMixin:
         # Preserve whichever backoff family the campaign is already in: an
         # armed idle-exit clock keeps running, a recoverable pause stays one.
         if getattr(self, "_idle_since", None) is not None:
-            sleep_s = self._enter_idle_backoff()
+            self._enter_idle_backoff()
         else:
-            sleep_s = self._enter_pause_backoff()
+            self._enter_pause_backoff()
         self._emit(
             {
                 "type": EventType.LIFE_PLANNER_IDLE,
@@ -964,8 +962,6 @@ class PlanningContextMixin:
                     "nothing the Planner reads has changed since its last "
                     "decision; keeping that decision without another model call"
                 ),
-                "consecutive_idle_cycles": self._consecutive_idle_planner_cycles,
-                "suggested_sleep_s": sleep_s,
                 "model_call_skipped": True,
             }
         )

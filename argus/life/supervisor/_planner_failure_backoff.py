@@ -389,7 +389,6 @@ class PlannerFailureBackoffMixin:
                     "id": f"planner-alert-{uuid.uuid4().hex}",
                     "kind": kind,
                     "streak": streak,
-                    "delay": delay,
                     "failing_for": now - first_failed_at,
                     "detail": " ".join(
                         str(
@@ -444,10 +443,9 @@ class PlannerFailureBackoffMixin:
         detail = str(alert.get("detail") or "")
         try:
             streak = int(alert.get("streak") or 0)
-            delay = float(alert.get("delay") or 0.0)
             failing_for = float(alert.get("failing_for") or 0.0)
         except (TypeError, ValueError):
-            streak, delay, failing_for = 0, 0.0, 0.0
+            streak, failing_for = 0, 0.0
         minutes = int(failing_for // 60)
         if kind == FAILURE_KIND_INTERNAL:
             text = (
@@ -475,7 +473,6 @@ class PlannerFailureBackoffMixin:
             "stop_kind": "planner_repeated_failure",
             "failure_kind": kind,
             "consecutive_failures": streak,
-            "suggested_sleep_s": delay,
             "alert_id": alert_id,
         })
         # Manager supervision listens for degraded-daemon evidence; this is
@@ -540,7 +537,6 @@ class PlannerFailureBackoffMixin:
                     "cycle": getattr(self, "_planning_cycles", 0),
                     "reason": "backing off after repeated failed Planner turns",
                     "consecutive_failures": streak,
-                    "suggested_sleep_s": remaining,
                     "model_call_skipped": True,
                 })
                 self._emit_status(

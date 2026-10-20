@@ -759,12 +759,11 @@ class PlanningCycleCompletionMixin:
             # supervisor guard for injected/fake/custom planners. Stay alive and
             # ask again after backoff instead of recording project_done and then
             # idling until the daemon exits.
-            sleep_s = self._enter_pause_backoff()
+            self._enter_pause_backoff()
             self._emit({
                 "type": "life.planner.continuation_required",
                 "cycle": self._planning_cycles,
                 "reason": verdict.reason,
-                "suggested_sleep_s": sleep_s,
             })
             self._emit_status(
                 "planner completed one increment, but the standing objective "
