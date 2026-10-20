@@ -682,8 +682,8 @@ class MissionExecutionRuntimeMixin:
                     f"- validator_id: {state.repair_capability['validator_id']}\n"
                     "- allowed_write_paths: "
                     + ", ".join(state.repair_capability.get("allowed_write_paths") or [])
-                    + "\n- scientific evidence, preregistration, thresholds, and "
-                    "success criteria are frozen. Edit only the listed paths. "
+                    + "\n- Do not change scientific evidence, preregistration, "
+                    "thresholds, or success criteria. Edit only the listed paths. "
                     "Run the same acceptance checks once. Reviewer must compare "
                     "the old and new validator logic and reject any lowered "
                     "scientific standard."
