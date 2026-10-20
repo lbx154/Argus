@@ -1,8 +1,9 @@
 """Cut #1 (daemon side): the inter-pass sleep is wakeable.
 
-``LifeWorker._wakeable_sleep`` must return promptly on a stop request and on
-fresh user input (a growing ``inbox.jsonl``), so a long await-external backoff
-never makes ``/add`` / ``/nudge`` unresponsive.
+``LifeWorker._wakeable_sleep`` must return promptly on a stop request, on
+fresh user input (a growing ``inbox.jsonl``) and on someone else's backlog
+write, so a long backoff never makes ``/add``, ``/nudge`` or an explicit Run
+unresponsive.
 """
 from __future__ import annotations
 
@@ -99,6 +100,36 @@ def test_durable_input_wakes_once_and_new_input_interrupts_retained_envelope_wai
     worker._stop.wait = enqueue_during_wait
     worker._wakeable_sleep(60, 0.5, tmp_path)
     assert waits == [0.5]
+
+
+def test_an_explicit_run_wakes_the_sleep_instead_of_waiting_out_the_backoff(tmp_path) -> None:
+    from argus.life.memory import BacklogItem, LifeMemory
+    from argus.webapi.routes.daemon import _resume_parks_after_start
+
+    worker = _worker(tmp_path)
+    memory = LifeMemory.open(tmp_path)
+    item = memory.backlog.add(BacklogItem.new(title="fenced", objective="resume after recovery"))
+    memory.backlog.update(item.id, park_reason="provider_fence")
+    supervisor = SimpleNamespace(memory=memory)
+    waits: list[float] = []
+
+    def run_during_wait(timeout):
+        waits.append(timeout)
+        if len(waits) == 2:
+            _resume_parks_after_start(tmp_path, {"rc": 0})
+        return False
+
+    worker._stop.wait = run_during_wait
+    worker._wakeable_sleep(300.0, 0.5, tmp_path, supervisor=supervisor)
+
+    # The Run's backlog write ended a 300-second backoff after one slice.
+    assert waits == [0.5, 0.5]
+    assert memory.backlog.all()[0].status == "pending"
+    # With nothing new the backoff is slept out in full.
+    waits.clear()
+    worker._stop.wait = lambda timeout: waits.append(timeout) or False
+    worker._wakeable_sleep(2.0, 0.5, tmp_path, supervisor=supervisor)
+    assert waits == [0.5] * 4
 
 
 @pytest.mark.parametrize("existing_config", [False, True])

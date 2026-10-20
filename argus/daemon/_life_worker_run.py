@@ -60,7 +60,7 @@ _HELPER_WAKE_SETTLE_SECONDS = 0.05
 
 
 def _backlog_fingerprint(supervisor: Any) -> tuple | None:
-    """Cheap change marker for the backlog a helper supervisor claims from."""
+    """Cheap change marker for the backlog a supervisor claims from."""
     backlog = getattr(getattr(supervisor, "memory", None), "backlog", None)
     paths = getattr(backlog, "storage_paths", None)
     if not paths:
@@ -756,8 +756,9 @@ class LifeWorkerRunMixin:
                 _maybe_consolidate(rf_state, self.config)
                 # Honor the supervisor's suggested backoff (escalating while it is
                 # idle awaiting an external dependency). The sleep is wakeable: it returns
-                # early on stop, or when the user inbox grows — so /add and /nudge
-                # stay responsive even during a long await-external backoff.
+                # early on stop, when the user inbox grows, or when someone else
+                # writes the backlog — so /add, /nudge and an explicit Run stay
+                # responsive even during a long await-external backoff.
                 try:
                     suggested = float(summary.get("suggested_sleep") or 0.0)
                 except Exception:  # noqa: BLE001
@@ -766,6 +767,7 @@ class LifeWorkerRunMixin:
                     max(float(rf_state.cfg.poll_interval), suggested),
                     rf_state.cfg.poll_interval,
                     rf_state.runtime_root,
+                    supervisor=rf_state.sup,
                 )
         finally:
             from ..manager.supervision import shutdown_supervision
@@ -885,11 +887,17 @@ class LifeWorkerRunMixin:
         total_seconds: float,
         poll_interval: float,
         runtime_root: Path,
+        *,
+        supervisor: Any = None,
     ) -> None:
-        """Sleep until stop, inbox input, or configuration changes.
+        """Sleep until stop, inbox input, a backlog write, or configuration changes.
 
         The sleep is chunked into ``poll_interval`` slices so a stop request or
-        newly queued operator guidance interrupts a long backoff promptly.
+        newly queued operator guidance interrupts a long backoff promptly. The
+        pass that just ended wrote the backlog before the sleep began, so a
+        change seen during it is someone else's new fact (an explicit Run that
+        resumed parked work, an answer, a new task), and wakes the daemon the
+        way a backlog write wakes an idle helper.
         """
         if total_seconds <= 0:
             return
@@ -934,6 +942,7 @@ class LifeWorkerRunMixin:
         baseline = _inbox_size()
         durable_baseline = _durable_input()
         config_baseline = _config_version()
+        backlog_baseline = _backlog_fingerprint(supervisor)
         previously_observed = getattr(self, "_last_inbox_wake_observation", None)
         self._last_inbox_wake_observation = durable_baseline
         if _inbox_offset() < baseline or (durable_baseline[1] and durable_baseline != previously_observed):
@@ -951,4 +960,6 @@ class LifeWorkerRunMixin:
                 return
             if _config_version() != config_baseline:
                 return  # an operator config change must wake paused work
+            if _backlog_fingerprint(supervisor) != backlog_baseline:
+                return
             remaining -= chunk
