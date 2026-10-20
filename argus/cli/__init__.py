@@ -1,4 +1,4 @@
-"""Terminal presentation helpers for headless and teammate runtimes.
+"""Terminal presentation helpers for headless runtimes.
 
 Layer: capabilities
 """

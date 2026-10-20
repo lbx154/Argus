@@ -139,7 +139,6 @@ def _execute_prepared(backend, *, prompt, options, run_label, resume_thread_id):
         call_id=call_id,
         started_at=started_at,
         log_path=log_path,
-        io_mode="",
         usage_project_root=usage_project_root,
         usage_mission_id=usage_mission_id,
         usage_global_root=usage_global_root,
@@ -148,14 +147,12 @@ def _execute_prepared(backend, *, prompt, options, run_label, resume_thread_id):
     from ...advisor.runtime import advisor_run
     from ...life.experience_runtime import experience_run
     from ...messaging.runtime import peer_run
-    from ...skills.runtime_tools_context import runtime_tools_run
 
-    with advisor_run(ctx), peer_run(ctx), experience_run(ctx), runtime_tools_run(ctx):
-        io_context = backend._io_logger.start_call(
+    with advisor_run(ctx), peer_run(ctx), experience_run(ctx):
+        backend._io_logger.start_call(
             call_id=call_id, run_label=run_label, log_path=log_path,
-            model=ctx.options.model, prompt=ctx.prompt,
+            prompt=ctx.prompt,
         )
-        ctx.io_mode = io_context["mode"]
         from ...core.paths import global_root
         from ...core.provider_slots import (
             acquire_provider_slot,

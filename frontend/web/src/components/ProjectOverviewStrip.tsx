@@ -1,10 +1,9 @@
 import { useEffect, useState } from 'react';
 import { formatBytes } from '../lib/format';
 import type { DeliveryReceipt, MissionView, Snapshot } from '../../../core/src/types';
-import type { ResourceStatus } from '../../../core/src/resourceStatus.generated';
 import { useI18n } from '../i18n';
 import { deliveryHeadingKey } from '../lib/deliveryKind';
-import { diskView, durationLabel, gpuWait, projectOverview, spendLabel } from '../lib/projectOverview';
+import { diskView, durationLabel, projectOverview, spendLabel } from '../lib/projectOverview';
 
 export interface NotificationControl {
   supported: boolean;
@@ -15,12 +14,10 @@ export interface NotificationControl {
 }
 
 /** One line a returning operator reads first: goal, progress, time, cost and the newest result. */
-export function ProjectOverviewStrip({ snapshot, view, onOpenDelivery, notifications, resources, latestDelivery }: {
+export function ProjectOverviewStrip({ snapshot, view, onOpenDelivery, notifications, latestDelivery }: {
   snapshot: Snapshot;
   /** Newest delivered result across the conversation (the mission view only knows the current task). */
   latestDelivery?: DeliveryReceipt | null;
-  /** Shared GPU ledger status, read by the app only while this project works. */
-  resources?: ResourceStatus | null;
   view?: MissionView | null;
   onOpenDelivery?: (delivery: DeliveryReceipt) => void;
   notifications?: NotificationControl;
@@ -30,11 +27,8 @@ export function ProjectOverviewStrip({ snapshot, view, onOpenDelivery, notificat
   const [now, setNow] = useState(() => Date.now() / 1000);
   useEffect(() => { const timer = setInterval(() => setNow(Date.now() / 1000), 60_000); return () => clearInterval(timer); }, []);
   const overview = projectOverview(snapshot, view, now, latestDelivery);
-  const working = Boolean(overview?.active) || snapshot.daemon.alive;
   if (!overview) return null;
   const disk = diskView(snapshot.storage, zh, formatBytes);
-  const workdirName = String(snapshot.session.workdir || '').split(/[\\/]/).filter(Boolean).at(-1) || '';
-  const queued = working ? gpuWait(resources, [snapshot.session.id, workdirName].filter(Boolean)) : null;
   const elapsed = durationLabel(overview.elapsedSeconds, zh);
   const spend = spendLabel(overview, zh);
   const delivery = overview.latestDelivery;
@@ -46,9 +40,6 @@ export function ProjectOverviewStrip({ snapshot, view, onOpenDelivery, notificat
       <span>{zh ? `任务 ${overview.done}/${overview.total} 已完成` : `${overview.done}/${overview.total} tasks done`}{overview.active ? (zh ? ` · ${overview.active} 项进行中` : ` · ${overview.active} open`) : ''}</span>
       {elapsed ? <span>{zh ? `已用时 ${elapsed}` : `${elapsed} elapsed`}</span> : null}
       {spend ? <span>{zh ? `花费 ${spend}` : `Spent ${spend}`}</span> : null}
-      {queued ? <span className="text-warn">{zh
-        ? `正在排队等 GPU：第 ${queued.position} 位${queued.waitedSeconds != null ? `，已等 ${durationLabel(queued.waitedSeconds, zh)}` : ''}${queued.etaSeconds != null ? `，最早约 ${durationLabel(queued.etaSeconds, zh)}后有空位` : ''}`
-        : `Waiting for a GPU: #${queued.position}${queued.waitedSeconds != null ? `, waited ${durationLabel(queued.waitedSeconds, zh)}` : ''}${queued.etaSeconds != null ? `, a slot may free in ~${durationLabel(queued.etaSeconds, zh)}` : ''}`}</span> : null}
       {disk ? <span className={disk.warn ? 'font-medium text-warn' : ''} title={disk.warn ? (zh ? '建议清理不需要的中间文件，或让 Argus 只保留可复现所需的数据' : 'Consider removing intermediate files or keeping only what reproduction needs') : undefined}>{disk.text}</span> : null}
       {delivery ? <span className="flex min-w-0 items-center gap-1">
         <span className="shrink-0">{t(deliveryHeadingKey(delivery))}：</span>

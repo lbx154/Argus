@@ -85,9 +85,9 @@ binding remains; a successful official login is not undone if a later check
 fails. `--copilot-login` cannot be combined with `--non-interactive`.
 
 Restart existing Argus TUI, Web/API and daemon processes after changing the
-binding, so warm Copilot processes do not retain the previous account. Subsequent
-ordinary `argus` launches using the same `ARGUS_SKILL_HOME` use this account for
-both ACP and one-shot Copilot workers. Other Agent backends are unaffected.
+binding, so they pick up the new account. Subsequent ordinary `argus` launches
+using the same `ARGUS_SKILL_HOME` use this account for every Copilot worker.
+Other Agent backends are unaffected.
 
 The environment setting `ARGUS_SKILL_COPILOT_HOME` overrides the persisted
 directory. A dedicated binding overrides inherited `COPILOT_HOME`, removes

@@ -8,10 +8,9 @@ from collections.abc import Sequence
 
 EFFECTIVE_TASK_CONTRACT = (
     "## Task authority\n"
-    "Follow operator>objective>mission>preregistration; memory advises. Add no "
-    "unrelated cleanup, hardening, or substitute outputs. Recheck material changes, "
-    "never unchanged work. Limit output; no `.git` or Git retries. "
-    "Equal authority in conflict means `ambiguous_objective`."
+    "Follow operator>objective>mission>preregistration; memory advises. Deliver "
+    "the requested outputs, not substitutes. Equal authority in conflict means "
+    "`ambiguous_objective`."
 )
 
 NATIVE_WINDOWS_SHELL_CONTRACT = (
@@ -37,21 +36,10 @@ NATIVE_WINDOWS_SHELL_SUMMARY = (
 )
 
 
-def experiment_evidence_contract() -> str:
-    from ..core.knobs import resolve_evidence_policy
-
-    mode = resolve_evidence_policy()
-    depth = {
-        "progress-first": (
-            "debug the first failing step; reuse unchanged checks; incidental logs only warn."
-        ),
-        "standard": "require relevant source, inputs and results, not unrelated logs.",
-        "strict": "also inspect the relevant execution and review archive.",
-    }[mode]
-    return (
-        f"Evidence policy {mode}: {depth} "
-        "Keep failures; readiness never replaces required independent validation."
-    )
+EXPERIMENT_EVIDENCE_CONTRACT = (
+    "Evidence: require relevant source, inputs and results, not unrelated logs. "
+    "Keep failures; readiness never replaces required independent validation."
+)
 
 
 def native_shell_contract(*, platform_name: str | None = None) -> str:
@@ -86,7 +74,7 @@ __all__ = [
     "EFFECTIVE_TASK_CONTRACT",
     "NATIVE_WINDOWS_SHELL_CONTRACT",
     "NATIVE_WINDOWS_SHELL_SUMMARY",
-    "experiment_evidence_contract",
+    "EXPERIMENT_EVIDENCE_CONTRACT",
     "format_native_shell_command",
     "native_shell_contract",
     "native_shell_summary",

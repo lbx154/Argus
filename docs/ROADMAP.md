@@ -65,7 +65,7 @@ To be honest: Argus can already do a lot, but it is still a good distance from t
 | --- | --- | --- | --- |
 | **0.2** | Stop making mistakes first | We have a baseline to measure everything; the most wasteful reviews and the most dangerous hole are closed first; CI no longer lets type and frontend problems through | HO-1–6, HO-15, SE-1–2, CI-1–2, CO-1, CO-3, CE-1–2, EV-4, LE-5, RL-4, SC-14 |
 | **0.3** | Results you can trust | The Reviewer looks at the real change and judges against acceptance criteria; who said what is on record; research numbers are checked by the host; we can measure how many errors the Reviewer lets through | HO-7–11, SC-1–5, SC-7–9, SC-11, EV-3 |
-| **0.4** | Fast, cheap, and provably so | A public comparison table against using an Agent directly; cost is visible and budgets can be set; review happens only when work is handed in | HO-12–13, HO-16, CE-3–8, EV-1–2, EV-5–6, CI-8 |
+| **0.4** | Fast, cheap, and provably so | A public comparison table against using an Agent directly; cost is visible and budgets can be set; review happens only when work is handed in | HO-12–13, HO-16–17, CE-3–8, EV-1–2, EV-5–6, CI-8 |
 | **0.5** | Anyone can get started | A new machine on any of the three platforms gets a result in 10 minutes; Windows works natively; interrupted uploads resume | UX-1–4, UX-6, CI-4–7, CI-10 |
 | **0.6** | Safe for many users | Accounts, project isolation, a fixed address, data that can be exported and deleted; nothing is lost when you switch devices; passes the security review | SE-3–6, SE-8, UX-5, UX-7–9, UX-11, UX-13 |
 | **0.7** | An ecosystem you can rely on | The code structure makes sense; the domain SDK has a public version; old data upgrades | CO-4–13, EC-1–2, EC-4–6, EC-10–11, RA-10–11, RL-1–2, HO-14 |
@@ -124,19 +124,20 @@ not guess on the model's behalf whether there is progress. The full design is in
   replaying old logs through HO-1 shows the share of wasted reviews going down.
 - Split into: HO-2a define "change"; HO-2b check before the call and record the event; HO-2c the web page shows "waiting
   for results, not reviewing again"; HO-2d tests.
+- Status: dropped. The Engineer now waits for its own jobs inside its turn and hands over only after they finish, so a
+  review in the middle of a running job no longer happens; the change-facts ledger that skipped the Reviewer is gone.
+  Old `holders.json` files under mission lineages and old skip events are ignored.
 
 #### HO-3 Hand problems the Reviewer can't judge to whoever can solve them
 `0.2` · `M` · Depends on: none
 - Today: when the Reviewer cannot read files or has no command line, all it can do is send the work back to an Engineer
   who is just as stuck, and the two spin in circles (17 of the 59).
 - Do: let the Reviewer report an obstacle to the system (missing permission, missing tool) or to the owner of the
-  contract (requirements that contradict each other), reusing the existing `manager_attention`; in that case, do not
-  rerun the Engineer. Let a domain declare "does review at this stage need to run code itself": if yes, turn on the
-  existing read-only validation sandbox; if no, remove the rerun demands from the prompt.
+  contract (requirements that contradict each other), handing it on with `→ manager`; in that case, do not
+  rerun the Engineer. The Reviewer now has the Engineer's tools, so it runs code itself wherever review needs it.
 - Done when: in tests, after the Reviewer reports it cannot read files, the task goes to escalation with no further
-  Engineer round; at stages that need execution, the Reviewer starts with the sandbox.
-- Split into: HO-3a the report action; HO-3b the domain declaration; HO-3c wiring in the sandbox; HO-3d cleaning up the
-  prompts.
+  Engineer round.
+- Split into: HO-3a the report action; HO-3b cleaning up the prompts.
 
 #### HO-4 The Reviewer wrote a paragraph but didn't press "submit"
 `0.2` · `S` · Depends on: none · good first issue
@@ -168,7 +169,9 @@ not guess on the model's behalf whether there is progress. The full design is in
 - Done when: when the policy is "no questions", the Reviewer's tool description no longer says "ask the operator"; no
   code path waits for the operator or ends as "needs operator"; the Manager can answer only the cards handed to it;
   the delivery report lists each decision it took.
-- Status: the single policy and the Manager taking over the operator's authority are both in `dev`.
+- Status: the single policy and the Manager taking over the operator's authority are both in `dev`. The four ways to
+  say it (`AUTONOMY_MODE`, `--no-operator`, the front door's question policy, `--operator-wait-exit` with its 30-minute
+  timer) are now one switch, `ARGUS_SKILL_OPERATOR_AVAILABLE`; the text-matching boundary regex is gone.
 
 #### HO-7 Show the Reviewer a real diff
 `0.3` · `L` · Depends on: none
@@ -189,8 +192,8 @@ not guess on the model's behalf whether there is progress. The full design is in
     modification time.
 - Done when: non-git directories, git directories, nested `.git`, large files, and excluded directories all have tests;
   a "pass" covers the whole task's changes.
-- Status: HO-7a and HO-7b are done (`247b432c`), and the window based on modification time went with them; HO-7c and
-  the rest of HO-7d remain.
+- Status: HO-7a and HO-7b are done (`247b432c`), and the window based on modification time went with them; HO-7d is
+  done (the round checkpoint and its switch are deleted); HO-7c remains.
 
 #### HO-8 Record what someone said under their own name
 `0.3` · `L` · Depends on: none
@@ -260,7 +263,7 @@ not guess on the model's behalf whether there is progress. The full design is in
 
 #### HO-14 Every summary file can be rebuilt from the records
 `0.7` · `M` · Depends on: HO-8
-- Today: `latest.json`, the frontier, the task brief, and the Backlog result fields are each written directly, and can
+- Today: `latest.json`, the task brief, and the Backlog result fields are each written directly, and can
   disagree with the facts.
 - Do: derive all of them from the records, continuing the `MISSION.md` plan in
   [architecture-simplification-plan.md](architecture-simplification-plan.md).
@@ -275,24 +278,51 @@ not guess on the model's behalf whether there is progress. The full design is in
   whose process is alive but whose heartbeat stopped still counts as running; answering a question after a pause
   reopens the campaign.
 - Do: close each one according to the four invariants in the "baton" section of the
-  [handoff design](role-handoff-design.md): one holder per item; every wait has a deadline and a fallback; an unchanged
-  return climbs; authority never vanishes.
+  [handoff design](role-handoff-design.md): one holder per item; waiting happens in the holder's own turn and the
+  backend handles it; an unchanged return climbs; authority never vanishes.
 - Done when: each case above has a test (`tests/test_liveness_*.py`) that reaches done, dropped, or an explicit climb.
 - Status: all in `dev`. The first upgrade of a daemon from an
-  old release should still stop the service before starting the new one.
+  old release should still stop the service before starting the new one. The Planner waiting contract, the Engineer
+  wait line and the host's background-job waits are deleted: Argus keeps no waiting state.
 
 #### HO-16 The baton: one handoff line instead of footers and many pause states
 `0.4` · `L` · Depends on: HO-2, HO-12, HO-15
 - Today: the Engineer hands off with seven footer keys, a Planner wait needs a fingerprint, a token, and a recheck
   condition, and there are eleven `paused_*` statuses, each with its own resume logic.
 - Do: per the handoff design, a handoff is a prose note plus one line
-  `→ engineer|reviewer|planner|manager|operator: <question>|wait: <what>|done`; the host enforces only the four
-  invariants; the eleven pauses become one park whose reason is data; the host supplies wait deadlines and
-  fingerprints; an unchanged return climbs instead of calling the same model again.
+  `→ engineer|reviewer|planner|manager|operator: <question>|done`; the host enforces only the four
+  invariants; the eleven pauses become one park whose reason is data; waiting stays inside the holder's turn; an
+  unchanged return climbs instead of calling the same model again.
 - Done when: an architecture test confirms only this handoff format and one park status remain; HO-1 shows the number
   of model calls made without a change never exceeds the height of the ladder.
 - Can be split into: HO-16a read the line leniently (an unreadable line never means done); HO-16b merge the pause
-  states; HO-16c host-supplied wait deadlines; HO-16d unchanged return climbs; HO-16e delete the old footers and states.
+  states; HO-16c (dropped: waits stay in the holder's turn, no `wait:` line); HO-16d unchanged return climbs; HO-16e
+  delete the old footers and states.
+
+#### HO-17 The Observer: watching in the person's place
+`0.4` · `M` · Depends on: HO-16
+- Today: nobody notices when a role goes round in circles, a wait drags on with nobody moving, the work drifts off
+  the task, or money goes out faster than anything changes, unless someone happens to read the project logs. On the
+  live trial that someone was Claude Code, which found the Planner idling every five minutes.
+- Do: an Observer role (`observer` in code, shown as 监督者) on the same backends as the others, with the Engineer's
+  tools and low reasoning effort. It watches only whether the work flows; whether the work is right stays
+  the Reviewer's to judge. Each time the Engineer, Reviewer or Planner ends a turn (each model call of theirs ends
+  one; a delivery ends a turn, so it is covered) it looks once, in a fresh session, at how that task has flowed so
+  far: who held the baton and whom it passed to, how long each turn took and what it cost, a role called again and
+  again with nothing new, idling, and drift from the task. Its own turns end none. Its prompt gives only where
+  `events.jsonl` is, the task id of each turn that just ended, the event types that carry the flow, and its earlier
+  remarks; it takes the task's events itself with rg and reads nothing else. When the flow is fine it says nothing
+  and writes no event. Otherwise it writes `→ manager: <one sentence and where it saw it>`, in the operator's
+  language, as one `life.observer.note` event: the Manager hears it through its supervision and decides what to
+  do; with no Manager, or once the task is delivered, the operator gets it as an alert. It never makes a remark
+  twice. A delivery does not wait for it, but a bounded daemon waits for its look at the last turns before it exits.
+  Its model is `ARGUS_SKILL_OBSERVER_MODEL`, by default the Reviewer's.
+- Done when: tests show it looks once at each ended turn and never at its own, in a fresh session, reads only the
+  events, stays silent when the flow is fine, gives a remark to the Manager's supervision or else alerts the
+  operator, never repeats one, and that a failed look leaves the work running.
+- Known gaps: the Manager's turns are not watched yet.
+- Status: implemented on `feat/observer`; tried on small tasks on the real Copilot backend and on a copied stretch
+  of a live project where the Planner kept waiting. Not yet merged.
 ---
 
 ### Theme CO: Reliability and the core — failures you can see, a structure you can follow
@@ -512,8 +542,8 @@ rejects is measured, and public.
 
 #### SC-5 The Reviewer reruns one key number itself
 `0.3` · `L` · Depends on: HO-3
-- Do: turn on the read-only validation sandbox at the certify stage, and have the Reviewer rerun at least one number that
-  supports the main conclusion.
+- Do: at the certify stage, have the Reviewer rerun, with its own tools, at least one number that supports the main
+  conclusion.
 
 #### SC-6 Certify-level conclusions come with a one-command rerun package
 `0.8` · `L` · Depends on: HO-7, SC-5
@@ -756,11 +786,6 @@ cleared, with success rate and cost improving as experience grows.
 `0.8` · `M` · Depends on: LE-1
 - Do: evaluate a small offline embedding model as the default recall method, and compare its recall hit rate with word
   hashing.
-
-#### LE-7 Bring "learned tools" to more backends
-`0.8` · `L` · Depends on: none
-- Today: only the Pi backend can turn repeated actions into tools.
-- Do: extend it to Copilot and Codex.
 
 #### LE-8 The first public "gets better with use" curve
 `0.8` · `L` · Depends on: LE-1, LE-2, EV-1

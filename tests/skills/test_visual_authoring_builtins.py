@@ -40,9 +40,9 @@ def test_presentation_toolkit_notes_live_in_one_global_skill() -> None:
 
 
 def test_seeding_preserves_existing_agent_document(tmp_path: Path) -> None:
-    destination = tmp_path / "engineer" / "pdf-chat.md"
+    destination = tmp_path / "engineer" / "presentation-master.md"
     destination.parent.mkdir(parents=True)
     destination.write_text("operator-authored Skill\n", encoding="utf-8")
     seeded = seed_builtin_skills(tmp_path)
-    assert seeded["engineer/pdf-chat.md"] is False
+    assert seeded["engineer/presentation-master.md"] is False
     assert destination.read_text(encoding="utf-8") == "operator-authored Skill\n"

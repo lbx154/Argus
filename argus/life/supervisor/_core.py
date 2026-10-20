@@ -57,7 +57,6 @@ from ._planner_orchestration import PlannerOrchestrationMixin
 from ._planner_rendering import PlannerRenderingMixin
 from ._planning_context import PlanningContextMixin
 from ._planning_cycle import PlanningCycleMixin
-from ._second_reading import SecondReadingMixin
 from .pending_notify import should_report_pending_wait
 
 log = logging.getLogger(__name__)
@@ -86,7 +85,6 @@ def _review_phrase(review: str, chinese: bool) -> str:
 class LifeSupervisor(
     EvolutionMixin,
     LettersMixin,
-    SecondReadingMixin,
     IdleCycleMixin,
     MissionExecutionMixin,
     LifecycleMixin,
@@ -136,7 +134,9 @@ class LifeSupervisor(
 
         # Roles this supervisor starts may not change this project's control state.
         orchestrate_state_root(getattr(self.memory, "project_root", None) or getattr(self.memory, "root", None))
-        self.sink = SupervisionSink(sink, self)
+        from ..observer import ObserverSink
+
+        self.sink = ObserverSink(SupervisionSink(sink, self), self)
         self.config = config or LifeSupervisorConfig()
         self.engineer_model = engineer_model
         self.reviewer_model = reviewer_model
@@ -189,18 +189,11 @@ class LifeSupervisor(
         # emits except on change or a slow heartbeat.
         self._last_lifecycle_block_sig: tuple[str, str] | None = None
         self._last_lifecycle_block_at = 0.0
-        # Planner idle/waiting log-hygiene (same family as the lifecycle-block
-        # heartbeat above): suppress repeated identical planner_waiting /
-        # planner_idle events.
+        # Planner idle log-hygiene (same family as the lifecycle-block
+        # heartbeat above): suppress repeated identical planner_idle events.
         self._last_planner_idle_sig: str | None = None
         self._last_planner_idle_at = 0.0
-        self._last_planner_wait_reconciliation_key: (
-            tuple[str, str, str, bool] | None
-        ) = None
-        # Consecutive missions that COMPLETED with the reviewer judging
-        # forward_progress=false; when it crosses the threshold the harness
-        # escalates to the operator (surface, don't loop invisibly).
-        self._consecutive_no_progress_missions = 0
+        self._last_planner_handoff_key: tuple[str, str] | None = None
         self._reap_orphans_on_startup()
         if self.manager is not None:
             from ...manager.supervision import recover_issued_supervision
@@ -381,10 +374,7 @@ class LifeSupervisor(
     def _planner_config(self):
         from ...core.knobs import resolve_knob, resolve_role_model
         from ...daemon.state import read_continuous_state
-        from ...planner import (
-            PlannerConfig,
-            configured_role_session_max_input_tokens,
-        )
+        from ...planner import PlannerConfig
 
         continuous_root = Path(
             getattr(self.memory, "project_root", self.memory.root)
@@ -438,11 +428,6 @@ class LifeSupervisor(
             open_ended=bool(self.config.continuous and self.config.open_ended),
             external_interrupt_reason_provider=_semantic_interrupt,
             role_session_path=state_root / "role-sessions" / "planner.json",
-            # The same environment knob that budgets Engineer sessions budgets
-            # the Planner's rolling session, so one setting moves every role.
-            role_session_max_input_tokens=(
-                configured_role_session_max_input_tokens()
-            ),
             objective_revision=(
                 f"{expected.generation}:"
                 f"{objective_revision(expected.objective)}"
@@ -470,80 +455,16 @@ class LifeSupervisor(
         }
         # Work paused by the retired spending checks resumes like any other
         # paused work: spending is recorded, never a reason to hold a mission.
-        statuses.update({"paused_budget", "paused_cost"})
+        # So does work an older release parked on a background job it watched
+        # for the Engineer, who now waits on its own jobs in its turn.
+        statuses.update({"paused_budget", "paused_cost", "paused_external_work"})
         resumed = self.memory.backlog.resume_paused_statuses(statuses)
-        from ...engineer.external_work import inspect_external_work
-
-        # Subagent records are reconciled only by the interactive CLI listing,
-        # so unattended nobody ever notices a job whose process is gone: run-01
-        # held darc-v9-full915-claim-run-r2 as `running` for eight hours after
-        # its pid died, and a paused mission kept reserving paths on its
-        # behalf. Reconciling here costs a stat per record and is the same
-        # check the CLI already makes.
-        self._reconcile_dead_subagent_records()
-
-        for item in self.memory.backlog.active():
-            if item.status != "paused_external_work":
-                continue
-            wait = (
-                item.outcome.get("external_wait")
-                if isinstance(item.outcome, dict)
-                else None
-            )
-            if not isinstance(wait, dict):
-                ready = True
-            else:
-                work_id = str(wait.get("work_id") or "")
-                workdir = Path(str(wait.get("workdir") or self._project_workdir()))
-                status = inspect_external_work(workdir, work_id) if work_id else None
-                ready = status is None or not status.waitable
-            if ready:
-                resumed_item = self.memory.backlog.resume_paused(item.id)
-                if resumed_item is not None:
-                    resumed.append(resumed_item)
         if resumed:
             self._emit_status(
                 "auto-resumed recoverable mission(s): "
                 + ", ".join(item.id for item in resumed)
             )
         return resumed
-
-    def _reconcile_dead_subagent_records(self) -> None:
-        """Mark subagent records whose process is gone, fail-soft throughout."""
-        try:
-            import json
-
-            from ...tools.subagent._registry import reconcile_terminal_task
-
-            root = (
-                Path(self._project_workdir()).expanduser().resolve(strict=False)
-                / ".argus_subagents"
-            )
-            if not root.is_dir():
-                return
-            for record_path in root.glob("*.json"):
-                try:
-                    record = json.loads(record_path.read_text(encoding="utf-8"))
-                except (OSError, ValueError):
-                    continue
-                if not isinstance(record, dict):
-                    continue
-                if record.get("state") not in {"starting", "preflight", "running"}:
-                    continue
-                before = record.get("state")
-                task_id = str(record.get("task_id") or record_path.stem)
-                updated = reconcile_terminal_task(
-                    task_id,
-                    dict(record),
-                    registry_root=root,
-                )
-                if updated.get("state") != before:
-                    self._emit_status(
-                        f"external job {record_path.stem} is {updated.get('state')}: "
-                        "its process is gone"
-                    )
-        except Exception:  # noqa: BLE001 - reconciliation never blocks work
-            log.exception("life supervisor: subagent reconciliation failed")
 
     def _adjudicate_mission_challenge(self, outcome: dict[str, Any]) -> str:
         """Persist the Manager authority decision before Planner sees a challenge."""
@@ -580,44 +501,26 @@ class LifeSupervisor(
         if action not in {"keep", "revise", "replace", "ask_operator"}:
             action = "revise"
         if action == "ask_operator":
-            from ...manager.directive import effective_operator_question_policy
+            from ...core.autonomy import operator_questions_can_be_asked
 
-            if effective_operator_question_policy(self.memory.root) == "forbid":
+            if not operator_questions_can_be_asked():
                 from ...core.autonomy import (
                     AUTONOMOUS_ASSUMPTION_INSTRUCTION,
                     OPERATOR_ACTION_NEEDS,
                     normalize_operator_need,
                     record_autonomous_assumption,
                 )
-                from ...manager.plan_boundary import assess_plan_boundary
 
-                reviewer_alternative = str(
-                    challenge.get("alternative") or ""
-                ).strip()
-                # dev's own boundary check, unchanged.
-                boundary = assess_plan_boundary(
-                    question=str(
-                        challenge.get("operator_question")
-                        or outcome.get("operator_question")
-                        or challenge.get("challenge")
-                        or outcome.get("review_reason")
-                        or ""
-                    ),
-                    reason=str(challenge.get("challenge") or ""),
-                    next_action=reviewer_alternative,
-                    planner_report={},
-                    mode="autonomous",
-                )
                 need = normalize_operator_need(
                     challenge.get("operator_need")
                     or (report.get("operator_need") if isinstance(report, dict) else "")
                 )
                 # The operator cannot be asked, so the Manager holds their
-                # authority. Crossing an operator-owned boundary, or an action
-                # only they could approve, stays a question that the Manager
-                # decides in their place once it is parked. Anything else the
-                # Manager settles here, on the most defensible reading.
-                if not (boundary.required or need in OPERATOR_ACTION_NEEDS):
+                # authority. An action only they could approve stays a
+                # question that the Manager decides in their place once it is
+                # parked. Anything else the Manager settles here, on the most
+                # defensible reading.
+                if need not in OPERATOR_ACTION_NEEDS:
                     action = "revise"
                     challenge["manager_reason"] = (
                         "The operator cannot be asked, so the Manager settles the "
@@ -767,8 +670,6 @@ class LifeSupervisor(
                 stopped_by = "mission_delivery_pending"
                 self._suggested_sleep_s = 1.0
                 break
-            if self._decide_overdue_venue_stalls():
-                continue
             yield_provider = getattr(
                 self.config,
                 "manager_pipeline_yield_provider",
@@ -968,20 +869,6 @@ class LifeSupervisor(
                     else self.memory.backlog.next_pending()
                 )
                 if next_item is None:
-                    # A finite queue can be temporarily unclaimable while a
-                    # durable job owns its next step. The daemon exits on
-                    # backlog_empty, so preserve its wake loop until that
-                    # external condition settles, even without continuous mode.
-                    if any(
-                        item.status == "paused_external_work"
-                        for item in self.memory.backlog.active()
-                    ):
-                        self._enter_pause_backoff()
-                        self._emit_status(
-                            "waiting for background results; the task will resume automatically"
-                        )
-                        stopped_by = _PLAN_AWAITING
-                        break
                     self._emit_status("backlog empty; exiting")
                     stopped_by = "backlog_empty"
                     break
@@ -1004,7 +891,6 @@ class LifeSupervisor(
                 "paused_provider_cooldown",
                 "paused_provider_fence",
                 "paused_daemon_shutdown",
-                "paused_external_work",
                 "paused_operator",
                 "iteration_cap",
                 "lifecycle_block",
@@ -1065,38 +951,7 @@ class LifeSupervisor(
                     self._emit_status(gate_reason)
                     stopped_by = gate_reason
                     break
-                revision = self._maybe_second_reading(outcome) or outcome
-                planned = self._plan_next_work(revision_request=revision)
-                if planned is True:
-                    continue
-                if planned == "daemon_handoff":
-                    stopped_by = "daemon_handoff"
-                elif planned == "planner_retry":
-                    stopped_by = "planner_retry"
-                elif planned == _PLAN_AWAITING:
-                    stopped_by = _PLAN_AWAITING
-                elif planned == _PLAN_TERMINAL_IDLE:
-                    stopped_by = _PLAN_TERMINAL_IDLE
-                else:
-                    stopped_by = "planner_error"
-                break
-            # A mission can end well and still leave the Reviewer doubting the
-            # line of work it belongs to. Repeated doubt earns a fresh reading
-            # of the evidence and a re-plan around what it supports, without
-            # waiting for a formal request to replace the plan.
-            reading = self._maybe_second_reading(outcome)
-            if reading is not None:
-                gate_reason = self._planner_cycle_gate_reason()
-                if gate_reason:
-                    self._emit({
-                        "type": "life.planner.deferred",
-                        "reason": gate_reason,
-                        "agent_layer": "planner",
-                    })
-                    self._emit_status(gate_reason)
-                    stopped_by = gate_reason
-                    break
-                planned = self._plan_next_work(revision_request=reading)
+                planned = self._plan_next_work(revision_request=outcome)
                 if planned is True:
                     continue
                 if planned == "daemon_handoff":
@@ -1929,27 +1784,6 @@ class LifeSupervisor(
                         "mission_result": True, "item_id": item_id, "status": status,
                         "success": success, "campaign_continues": True,
                         "overall_complete": False, "user_action_required": False,
-                    },
-                )
-                return
-            if status == "paused_external_work" and not success:
-                wait = event.get("external_wait") or outcome.get("external_wait")
-                wait = wait if isinstance(wait, dict) else {}
-                work_id = str(wait.get("work_id") or "background")
-                publish_operator_message(
-                    life_dir,
-                    text=render_operator_update(
-                        title=title,
-                        status=status,
-                        language_hint=language_hint,
-                    ),
-                    message_id=_message_id(f"mission-wait-{item_id}-{work_id}"),
-                    event_fields={
-                        "mission_result": False,
-                        "item_id": item_id,
-                        "status": status,
-                        "external_wait": wait,
-                        "user_action_required": False,
                     },
                 )
                 return

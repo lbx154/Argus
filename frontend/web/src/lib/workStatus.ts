@@ -1,18 +1,8 @@
-import type { BacklogItem, EventMsg, MissionView, Snapshot } from '../../../core/src/types';
+import type { EventMsg, MissionView, Snapshot } from '../../../core/src/types';
 import { operatorDecisionCards } from '../../../core/src/decisions';
-import { backlogParkReason, parkReason } from '../../../core/src/missionOutcome';
+import { parkReason } from '../../../core/src/missionOutcome';
 import type { Locale } from '../i18n';
 import { roleActionLabel } from './taskLanguage';
-
-/** The team the current task waits on, as far as the runtime has read it. */
-export interface BackgroundWait {
-  workId: string;
-  /** Counts by kind of subtask, routes before their reviews. */
-  parts: Array<{ role: string; done: number; total: number; running: number }>;
-  done: number;
-  total: number;
-  lastProgressAt: number | null;
-}
 
 export interface WorkStatus {
   state: 'running' | 'waiting' | 'paused' | 'step_finished' | 'idle' | 'unknown';
@@ -21,9 +11,7 @@ export interface WorkStatus {
   title: string;
   activityAt: number | null;
   activityAgeSeconds: number | null;
-  reason: 'provider_wait' | 'no_recent_progress' | 'awaiting_next_step' | 'not_running' | 'task_failed' | 'operator_input' | 'background_work' | 'launch_confirm' | '';
-  /** Set when the task is waiting on work outside its own rounds. */
-  waitingOn?: BackgroundWait;
+  reason: 'provider_wait' | 'no_recent_progress' | 'awaiting_next_step' | 'not_running' | 'task_failed' | 'operator_input' | 'launch_confirm' | '';
   /** The Manager is answering a request the operator sent, not tidying up on its own. */
   foreground?: boolean;
 }
@@ -69,26 +57,6 @@ export function activeProviderRequest(events: EventMsg[], notBefore = 0): EventM
   return [...calls.values()].at(-1) ?? null;
 }
 
-/** The background work the task waits on: the wait parked on the backlog item,
- * or the team the snapshot names a running task as waiting on; its progress
- * comes from the snapshot, which read the team board once for every surface. */
-export function backgroundWait(snapshot: Snapshot | undefined, task: BacklogItem | undefined): BackgroundWait | null {
-  if (!snapshot || !task || !snapshot.daemon.alive) return null;
-  const parked = backlogParkReason(task) === 'external_work';
-  if (!parked && !ACTIVE.has(task.status)) return null;
-  const workId = parked ? String(task.outcome?.external_wait?.work_id || '') : '';
-  const entry = (snapshot.background_work || []).find(candidate =>
-    (workId && candidate.work_id === workId) || candidate.waited_by?.includes(task.id));
-  if (!entry) return workId ? { workId, parts: [], done: 0, total: 0, lastProgressAt: null } : null;
-  return {
-    workId: entry.work_id,
-    parts: (entry.parts || []).map(part => ({ role: part.role, done: part.done, total: part.total, running: part.running })),
-    done: entry.done,
-    total: entry.total,
-    lastProgressAt: timestamp(entry.last_progress_ts),
-  };
-}
-
 /** Runtime status is separate from progress toward the user's research goal. */
 export function currentWorkStatus(
   snapshot: Snapshot | undefined,
@@ -96,9 +64,7 @@ export function currentWorkStatus(
   events: EventMsg[] = [],
   nowSeconds = Date.now() / 1000,
 ): WorkStatus {
-  // A mission parked on its background team is still the current one.
-  const taskId = view?.mission.id
-    || snapshot?.backlog?.find(item => ACTIVE.has(item.status) || backlogParkReason(item) === 'external_work')?.id || '';
+  const taskId = view?.mission.id || snapshot?.backlog?.find(item => ACTIVE.has(item.status))?.id || '';
   const task = snapshot?.backlog?.find(item => item.id === taskId);
   const started = currentWorkStartedAt(snapshot, view, taskId);
   const liveRoles = snapshot?.roles?.filter(role => role.active) || [];
@@ -163,21 +129,6 @@ export function currentWorkStatus(
       };
     }
   }
-  // A task waiting on its own background team is neither stalled nor paused:
-  // one sentence, with the team's progress, wherever the status is shown.
-  const wait = backgroundWait(snapshot, task);
-  if (wait) {
-    const at = wait.lastProgressAt ?? activityAt;
-    return {
-      ...result,
-      state: 'waiting',
-      role: '',
-      reason: 'background_work',
-      waitingOn: wait,
-      activityAt: at,
-      activityAgeSeconds: at === null ? null : Math.max(0, nowSeconds - at),
-    };
-  }
   const missionState = String(task?.status || view?.mission.status || '').toLowerCase();
   if (PAUSED.has(missionState) || parkReason(missionState) !== null) {
     const needsReply = operatorDecisionCards(snapshot.pending_questions ?? [], snapshot.backlog.map(item => ({ ...item })), taskId)
@@ -218,42 +169,12 @@ export function progressAgeLabel(seconds: number | null, locale: Locale): string
   return zh ? `${Math.floor(seconds / 3600)} 小时前` : `${Math.floor(seconds / 3600)} hr ago`;
 }
 
-const PART_NOUNS: Record<string, [zh: string, en: [string, string]]> = {
-  'idea-route': ['条研究路线', ['research route', 'research routes']],
-  'idea-review': ['次独立复核', ['independent review', 'independent reviews']],
-  'idea-selector': ['次方案选择', ['idea selection', 'idea selections']],
-};
-
-function partPhrase(part: BackgroundWait['parts'][number], zh: boolean): string {
-  if (!part.total) return '';
-  const [nounZh, [one, many]] = PART_NOUNS[part.role] ?? ['项子任务', ['subtask', 'subtasks']];
-  const noun = part.total === 1 ? one : many;
-  if (part.done === part.total) return zh ? `${part.total} ${nounZh}全部完成` : `all ${part.total} ${noun} done`;
-  return zh ? `${part.total} ${nounZh}中 ${part.done} ${nounZh.slice(0, 1)}完成` : `${part.done} of ${part.total} ${noun} done`;
-}
-
-/** One sentence for a task waiting on its background team: what it waits
- * for, how far that is, and when it last moved. */
-export function backgroundWaitLabel(status: WorkStatus, locale: Locale): string {
-  const zh = locale === 'zh-CN';
-  const wait = status.waitingOn;
-  const parts = (wait?.parts ?? []).map(part => partPhrase(part, zh)).filter(Boolean);
-  const progress = parts.length ? parts.join(zh ? '、' : ', ')
-    : wait?.total ? (zh ? `${wait.total} 项子任务中 ${wait.done} 项完成` : `${wait.done} of ${wait.total} subtasks done`) : '';
-  const age = progressAgeLabel(status.activityAgeSeconds, locale);
-  const recent = !age ? '' : zh ? (age === '刚刚' ? '，最近一次进展就在刚刚' : `，最近一次进展在 ${age}`) : `, last progress ${age}`;
-  return progress
-    ? zh ? `正在等待后台团队：${progress}${recent}` : `Waiting for the background team: ${progress}${recent}`
-    : zh ? `正在等待后台团队完成工作${recent}` : `Waiting for the background team to finish${recent}`;
-}
-
 export function workStatusLabel(status: WorkStatus, locale: Locale, connected = true): string {
   const zh = locale === 'zh-CN';
   if (!connected) return zh ? '实时连接已断开' : 'Live connection lost';
   if (status.reason === 'operator_input') return zh ? '当前任务等待你的回复' : 'This task is waiting for your reply';
   if (status.reason === 'launch_confirm') return zh ? '计划已排好，等你确认开始' : 'Plan ready; waiting for your go-ahead';
   if (status.reason === 'task_failed') return zh ? '这一步执行未完成' : 'Execution of this step did not finish';
-  if (status.reason === 'background_work') return backgroundWaitLabel(status, locale);
   if (status.state === 'running') {
     if (status.foreground) return zh ? '正在处理你的请求' : 'Working on your request';
     return roleActionLabel(status.role, zh, status.title);

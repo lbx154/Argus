@@ -26,10 +26,14 @@ from __future__ import annotations
 
 from types import SimpleNamespace
 
+import pytest
+
 from argus.manager.stage_decider import (
     final_stage_completion_blockers,
     final_stage_completion_decision,
 )
+
+pytestmark = pytest.mark.usefixtures("targeted_vertical")
 
 STAGES = ["scope", "solve", "review"]
 
@@ -44,7 +48,7 @@ def test_a_non_final_stage_says_so_and_names_what_remains() -> None:
         _review(),
         current_stage="scope",
         stage_order=STAGES,
-        vertical="math",
+        vertical="targeted_lab",
     )
 
     assert blockers
@@ -59,7 +63,7 @@ def test_an_external_gate_blocker_is_passed_through_verbatim() -> None:
         _review(),
         current_stage="review",
         stage_order=STAGES,
-        vertical="math",
+        vertical="targeted_lab",
         completion_blocker="benchmark regression is still open",
     )
 
@@ -91,7 +95,7 @@ def test_an_unknown_stage_is_named_rather_than_swallowed() -> None:
         _review(),
         current_stage="publication",
         stage_order=STAGES,
-        vertical="math",
+        vertical="targeted_lab",
     )
 
     assert blockers
@@ -105,11 +109,11 @@ def test_the_blockers_agree_with_the_decision() -> None:
     regression back to the unexplained refusal this exists to remove.
     """
     cases = [
-        {"current_stage": "scope", "stage_order": STAGES, "vertical": "math"},
+        {"current_stage": "scope", "stage_order": STAGES, "vertical": "targeted_lab"},
         {
             "current_stage": "review",
             "stage_order": STAGES,
-            "vertical": "math",
+            "vertical": "targeted_lab",
             "completion_blocker": "gate open",
         },
         {
@@ -118,7 +122,7 @@ def test_the_blockers_agree_with_the_decision() -> None:
             "vertical": "research",
             "mission_scope": "bounded",
         },
-        {"current_stage": "publication", "stage_order": STAGES, "vertical": "math"},
+        {"current_stage": "publication", "stage_order": STAGES, "vertical": "targeted_lab"},
     ]
     for kwargs in cases:
         decision = final_stage_completion_decision(_review(), **kwargs)
@@ -131,7 +135,7 @@ def test_nothing_blocks_a_decision_that_is_allowed() -> None:
     kwargs = {
         "current_stage": "review",
         "stage_order": STAGES,
-        "vertical": "math",
+        "vertical": "targeted_lab",
         "mission_scope": "project",
     }
     decision = final_stage_completion_decision(_review(), **kwargs)
@@ -171,7 +175,7 @@ def test_research_final_review_done_certifies_regardless_of_result_grades() -> N
     assert (
         _review_certifies_completion(
             review,
-            vertical="math",
+            vertical="targeted_lab",
             mission_scope="final_submission",
             research_target_level="publishable",
         )

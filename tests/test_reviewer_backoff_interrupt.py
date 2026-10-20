@@ -66,7 +66,7 @@ def make_loop(tmp_path, engineer, reviewer, events):
         skills_dir=tmp_path / "skills", engineer_runner=engineer, reviewer_runner=reviewer,
         config=SkillLoopConfig(
             engineer_model="offline", reviewer_model="offline", max_rounds=3,
-            active_vertical="software", workflow_mode="direct", role_session_policy="fresh",
+            active_vertical="software", workflow_mode="direct",
             require_post_task_learning=False, wiki_enabled=False, auto_init_wiki=False,
         ),
         on_event=events.append,

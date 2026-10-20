@@ -10,7 +10,7 @@ import uuid
 from dataclasses import asdict, dataclass
 from datetime import datetime, timezone
 from pathlib import Path
-from typing import Any, Literal, cast
+from typing import Any
 
 ACTIVE_MANAGER_DIRECTIVE_FILENAME = "active_manager_directive.json"
 ACTIVE_MANAGER_DIRECTIVE_PREFIX = (
@@ -22,8 +22,6 @@ STEERING_MAX_ENTRIES = 10
 STEERING_MAX_CHARS = 4_000
 _DIRECTIVE_VERSION = 1
 _STEERING_VERSION = 1
-OperatorQuestionPolicy = Literal["allow", "forbid", "unchanged"]
-_OPERATOR_QUESTION_POLICIES = frozenset({"allow", "forbid", "unchanged"})
 
 
 @dataclass(frozen=True)
@@ -34,7 +32,6 @@ class ActiveManagerDirective:
     revision: str
     set_at: float
     version: int = _DIRECTIVE_VERSION
-    operator_question_policy: OperatorQuestionPolicy = "unchanged"
     authorized_objective: str = ""
 
 
@@ -343,19 +340,11 @@ def _current_objective(state_root: Path | str) -> str:
     return str(payload.get("objective") or "").strip()
 
 
-def _validated_operator_question_policy(value: object) -> OperatorQuestionPolicy:
-    normalized = str(value or "").strip().lower()
-    if normalized in _OPERATOR_QUESTION_POLICIES:
-        return cast(OperatorQuestionPolicy, normalized)
-    return "unchanged"
-
-
 def set_active_manager_directive(
     state_root: Path | str,
     text: str,
     *,
     source: str = "manager.steer",
-    operator_question_policy: OperatorQuestionPolicy = "unchanged",
     authorized_objective: str = "",
     scope_objective: str | None = None,
 ) -> ActiveManagerDirective:
@@ -363,14 +352,6 @@ def set_active_manager_directive(
     normalized = str(text or "").strip()
     if not normalized:
         raise ValueError("manager directive must not be empty")
-    question_policy = _validated_operator_question_policy(operator_question_policy)
-    if question_policy == "unchanged":
-        current = load_active_manager_directive(
-            state_root,
-            expected_objective=scope_objective,
-        )
-        if current is not None:
-            question_policy = current.operator_question_policy
     record = ActiveManagerDirective(
         text=normalized,
         source=str(source or "").strip() or "manager",
@@ -381,7 +362,6 @@ def set_active_manager_directive(
         ),
         revision=uuid.uuid4().hex,
         set_at=time.time(),
-        operator_question_policy=question_policy,
         authorized_objective=str(authorized_objective or "").strip(),
     )
     path = _directive_path(state_root)
@@ -455,16 +435,12 @@ def load_active_manager_directive(
         return None
     if version != _DIRECTIVE_VERSION:
         return None
-    question_policy = _validated_operator_question_policy(
-        payload.get("operator_question_policy") or "unchanged"
-    )
     return ActiveManagerDirective(
         text=text,
         source=str(payload.get("source") or "").strip() or "manager",
         objective=recorded_objective,
         revision=str(payload.get("revision") or "").strip(),
         set_at=set_at,
-        operator_question_policy=question_policy,
         authorized_objective=authorized_objective,
         version=version,
     )
@@ -475,45 +451,6 @@ def active_manager_directive_message(
 ) -> str:
     """Render all active standing steering, newest first and budget capped."""
     return render_active_steering(state_root)
-
-
-def active_operator_question_policy(
-    state_root: Path | str | None,
-    *,
-    expected_objective: str | None = None,
-) -> OperatorQuestionPolicy:
-    """Read the current directive's structured operator-question policy."""
-    record = load_active_manager_directive(
-        state_root,
-        expected_objective=expected_objective,
-    )
-    return record.operator_question_policy if record is not None else "unchanged"
-
-
-def effective_operator_question_policy(
-    state_root: Path | str | None,
-    *,
-    expected_objective: str | None = None,
-) -> OperatorQuestionPolicy:
-    """The question policy the running team must follow.
-
-    A run that declared no operator available (``--no-operator`` or
-    ``ARGUS_SKILL_OPERATOR_AVAILABLE=false``) forbids operator questions
-    whatever the directive says: nobody would answer them. Otherwise the
-    Manager directive's policy applies. Callers that persist or inherit a
-    directive's own policy keep using :func:`active_operator_question_policy`,
-    so a run-level setting never leaks into a stored directive.
-    """
-    from ..core.autonomy import operator_available
-
-    if not operator_available():
-        return "forbid"
-    if expected_objective is None:
-        return active_operator_question_policy(state_root)
-    return active_operator_question_policy(
-        state_root,
-        expected_objective=expected_objective,
-    )
 
 
 def clear_active_manager_directive(state_root: Path | str) -> bool:
@@ -537,10 +474,7 @@ __all__ = [
     "STEERING_HEADER",
     "STEERING_LEDGER_FILENAME",
     "ActiveManagerDirective",
-    "OperatorQuestionPolicy",
     "active_manager_directive_message",
-    "active_operator_question_policy",
-    "effective_operator_question_policy",
     "append_steering_directive",
     "clear_active_manager_directive",
     "load_active_manager_directive",

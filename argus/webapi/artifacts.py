@@ -166,10 +166,9 @@ def registered_delivery_artifacts(
 ) -> list[dict[str, str]]:
     """Expose safe outputs selected by a receipt or accepted completion text.
 
-    Older and third-party Reviewer backends can certify an Engineer handoff
-    without copying its file links into ``frontier.artifacts``. Recover only
-    those explicitly named files (never a workspace scan), then feed every row
-    through ``artifact_metadata`` so confinement remains authoritative.
+    Recover only files the accepted handoff names explicitly (never a
+    workspace scan), then feed every row through ``artifact_metadata`` so
+    confinement remains authoritative.
     """
     life_dir = project_life_dir(sid, global_root=global_root)
     if life_dir is None:

@@ -498,22 +498,6 @@ def _run_noninteractive_setup(
     return 0
 
 
-# -- GPU keep-alive (anti-reclaim) -----------------------------------------
-
-# Unique, inert marker passed to the loader so gpu_lease's `match` token can
-# find THIS keep-alive precisely instead of relying on the broad `gpu_load.py`
-# basename (which could match unrelated loaders or stale processes).
-_KEEPALIVE_TOKEN = "argus-skill-gpu-keepalive"
-
-
-# -- Experiment use of the configured model API ----------------------------
-
-_EXPERIMENT_API_PROMPT_NAME = "30-experiment-api.md"
-
-
-# -- Author identity -------------------------------------------------------
-
-
 def run_setup(
     *,
     backend: str | None = None,

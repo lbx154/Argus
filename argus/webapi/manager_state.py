@@ -1,9 +1,8 @@
-"""Manager chat-state, locks, and prewarm lifecycle for the webapi bridge.
+"""Manager chat-state and locks for the webapi bridge.
 
 Extracted from ``manager_bridge.py`` as part of a behavior-preserving
-decomposition. Owns the per-project chat_state cache, the per-sid lock
-registry, and the manager-runner prewarm bookkeeping so
-``manager_bridge.py`` can stay focused on the ``manager_message`` /
+decomposition. Owns the per-project chat_state cache and the per-sid lock
+registry so ``manager_bridge.py`` can stay focused on the ``manager_message`` /
 ``manager_plan`` request pipeline. Public names are re-exported from
 ``manager_bridge`` unchanged so existing imports/monkeypatches keep working.
 """
@@ -32,9 +31,6 @@ log = logging.getLogger(__name__)
 _STATES: dict[str, dict[str, Any]] = {}
 _LOCKS: weakref.WeakValueDictionary[str, threading.RLock] = weakref.WeakValueDictionary()
 _REGISTRY_LOCK = threading.Lock()
-_MANAGER_PREWARMING: set[str] = set()
-_MANAGER_PREWARMING_LOCK = threading.Lock()
-_MANAGER_PREWARM_OWNER: str | None = None
 # Emergency natural-language pause bypasses the per-session Manager lock. A
 # generation bump lets any older turn notice that it was superseded before it
 # can commit/dispatch work after the operator has clocked the session out.
@@ -82,7 +78,6 @@ def interrupt_manager_turns(
         if state is not None and clear_continuous:
             state.setdefault("config", {})["continuous"] = False
             state["continuous_objective"] = ""
-            state.pop("_continuous_pending_manager_handoff", None)
         return generation
 
 
@@ -113,13 +108,6 @@ def _release_manager_state(sid: str) -> None:
     runner = state.get("manager_runner") if state else None
     if runner is not None:
         try:
-            backend = getattr(runner, "_backend", None)
-            close_acp = getattr(backend, "close_acp_clients", None)
-            if callable(close_acp):
-                close_acp()
-        except Exception:  # noqa: BLE001
-            pass
-        try:
             if hasattr(runner, "reset_chat_session"):
                 runner.reset_chat_session()
         except Exception:  # noqa: BLE001
@@ -138,152 +126,13 @@ def answer_learning_backend(root: Path, sid: str) -> Any:
     from ..manager.front_door import _ensure_manager_runner
 
     with _lock_for(sid):
-        state = _chat_state_for(sid, manager_activity=False)
+        state = _chat_state_for(sid)
         state.update(session_id=sid, global_root=str(root))
         runner = _ensure_manager_runner(state, MemoryBundle.for_cwd(fingerprint=sid, global_root=root))
         backend = getattr(runner, "_backend", None)
     if backend is None:
         raise RuntimeError("Learning backend is unavailable")
     return backend
-
-
-def _prewarm_manager_context(
-    sid: str,
-    *,
-    global_root: Path | str | None = None,
-) -> None:
-    """Warm one lightweight classifier transport for the active project."""
-    from ..life.memory import MemoryBundle
-    from ..manager.front_door import _ensure_manager_runner
-
-    mem = MemoryBundle.for_cwd(
-        fingerprint=sid,
-        global_root=Path(global_root) if global_root else None,
-    )
-    with _lock_for(sid):
-        if not mem.project_root.is_dir():
-            return
-        if not _is_manager_prewarm_owner(sid):
-            return
-        state = _chat_state_for(sid, manager_activity=False)
-        if state.get("_manager_acp_prewarmed") or state.get("backend") != "copilot":
-            return
-        state["session_id"] = sid
-        state["global_root"] = str(mem.global_root)
-        runner = _ensure_manager_runner(state, mem)
-        default_backend = getattr(runner, "_backend", None) if runner is not None else None
-        classifier_backend = None
-        if runner is not None:
-            classifier_backend = (
-                getattr(runner, "manager_backend", None) or default_backend
-            )
-        prewarm_classifier = getattr(
-            classifier_backend,
-            "prewarm_acp_client",
-            None,
-        )
-        prewarm_reply = getattr(default_backend, "prewarm_acp_client", None)
-        if not callable(prewarm_classifier) or not callable(prewarm_reply):
-            return
-        from ..core.knobs import (
-            resolve_knob,
-            resolve_manager_classify_model,
-            resolve_manager_reply_model,
-            resolve_role_reasoning_effort,
-        )
-
-        cwd = str(state.get("manager_runner_workdir") or Path.cwd())
-        classifier_backend_name = getattr(
-            classifier_backend,
-            "backend",
-            state.get("backend"),
-        )
-        reply_backend_name = getattr(
-            default_backend,
-            "backend",
-            state.get("backend"),
-        )
-        classify_effort = resolve_knob(
-            "ARGUS_SKILL_FRONTDOOR_CLASSIFY_EFFORT",
-            "low",
-        ).value.strip() or "low"
-        prewarm_classifier(
-            run_label="manager-frontdoor-classify",
-            model=resolve_manager_classify_model(
-                backend=classifier_backend_name,
-            ),
-            reasoning_effort=classify_effort,
-            lean=True,
-            cwd=cwd,
-            front_door_session=True,
-        )
-        prewarm_reply(
-            run_label="simple-1",
-            model=resolve_manager_reply_model(backend=reply_backend_name),
-            reasoning_effort=resolve_role_reasoning_effort(
-                "ARGUS_SKILL_SELF_REASONING_EFFORT",
-                default="high",
-            ),
-            lean=False,
-            cwd=cwd,
-            add_dirs=(
-                [str(mem.project_root)]
-                if str(mem.project_root) != cwd
-                else None
-            ),
-        )
-        if not _is_manager_prewarm_owner(sid):
-            _release_manager_state(sid)
-            return
-        state["_manager_acp_prewarmed"] = True
-
-
-def _is_manager_prewarm_owner(sid: str) -> bool:
-    with _MANAGER_PREWARMING_LOCK:
-        return _MANAGER_PREWARM_OWNER == sid
-
-
-def _claim_manager_prewarm_owner(sid: str) -> None:
-    """Make the latest explicit active-project request the sole prewarm owner."""
-    global _MANAGER_PREWARM_OWNER
-
-    with _MANAGER_PREWARMING_LOCK:
-        _MANAGER_PREWARM_OWNER = sid
-
-
-def _mark_manager_activity(sid: str) -> None:
-    _claim_manager_prewarm_owner(sid)
-
-
-def schedule_manager_prewarm(
-    sid: str,
-    *,
-    global_root: Path | str | None = None,
-) -> None:
-    """Best-effort prewarm for the one project currently open in the Web UI."""
-    _claim_manager_prewarm_owner(sid)
-    state = _STATES.get(sid)
-    if state and state.get("_manager_acp_prewarmed"):
-        return
-    with _MANAGER_PREWARMING_LOCK:
-        if sid in _MANAGER_PREWARMING:
-            return
-        _MANAGER_PREWARMING.add(sid)
-
-    def _run() -> None:
-        try:
-            _prewarm_manager_context(sid, global_root=global_root)
-        except Exception:  # noqa: BLE001 - page reads must stay available
-            pass
-        finally:
-            with _MANAGER_PREWARMING_LOCK:
-                _MANAGER_PREWARMING.discard(sid)
-
-    threading.Thread(
-        target=_run,
-        name=f"manager-prewarm-{sid}",
-        daemon=True,
-    ).start()
 
 
 def _warm_context_limits() -> tuple[int, float]:
@@ -313,7 +162,7 @@ def _warm_context_limits() -> tuple[int, float]:
 
 
 def _evict_stale_manager_states(*, exclude_sid: str) -> None:
-    """Bound warm ACP processes without interrupting an active Manager turn."""
+    """Bound cached Manager runners without interrupting an active Manager turn."""
     now = time.monotonic()
     limit, idle_seconds = _warm_context_limits()
     ordered = sorted(
@@ -337,18 +186,10 @@ def _evict_stale_manager_states(*, exclude_sid: str) -> None:
             lock.release()
 
 
-def _chat_state_for(
-    sid: str,
-    *,
-    manager_activity: bool = True,
-) -> dict[str, Any]:
-    if manager_activity:
-        _mark_manager_activity(sid)
+def _chat_state_for(sid: str) -> dict[str, Any]:
     _evict_stale_manager_states(exclude_sid=sid)
     st = _STATES.get(sid)
     if st is not None:
-        if manager_activity:
-            st["_manager_activity_seen"] = True
         st["last_access_monotonic"] = time.monotonic()
         return st
     from ..agent_cli.runner_backend import normalize_runner_backend
@@ -371,30 +212,18 @@ def _chat_state_for(
         "backend": backend,
         "last_thread_id": None,
         # The first message handled by this web process may belong to an older
-        # persisted conversation. Seed the newly-warm ACP chat session from its
-        # transcript once; a brand-new project has no prior transcript and skips
-        # the handoff.
+        # persisted conversation. Seed the new chat session from its transcript
+        # once; a brand-new project has no prior transcript and skips the
+        # handoff.
         "needs_startup_handoff": True,
         "session_started_s": time.monotonic(),
         "last_access_monotonic": time.monotonic(),
-        "_manager_activity_seen": manager_activity,
         "mission_count": 0,
         "config": dict(DEFAULT_MANAGER_CONFIG),
         "continuous_objective": "",
     }
     _STATES[sid] = st
     return st
-
-
-def _rotate_after() -> int:
-    """Turns before the Manager session is rotated (a proxy for its context
-    filling). Override with ARGUS_SKILL_MANAGER_ROTATE_TURNS."""
-    import os
-
-    try:
-        return max(4, int(os.environ.get("ARGUS_SKILL_MANAGER_ROTATE_TURNS", "40")))
-    except ValueError:
-        return 40
 
 
 def reset_manager_context(
@@ -416,20 +245,15 @@ def reset_manager_context(
 
 
 def shutdown_manager_bridge() -> None:
-    """Release warm Manager runners and Copilot ACP children on Web shutdown."""
+    """Release cached Manager runners on Web shutdown."""
     from ..manager.supervision import shutdown_supervision
 
     shutdown_supervision()
-    global _MANAGER_PREWARM_OWNER
-
     with _REGISTRY_LOCK:
         states = list(_STATES.values())
         _STATES.clear()
         _LOCKS.clear()
         _CONTROL_GENERATIONS.clear()
-    with _MANAGER_PREWARMING_LOCK:
-        _MANAGER_PREWARMING.clear()
-        _MANAGER_PREWARM_OWNER = None
     for state in states:
         runner = state.get("manager_runner")
         if runner is not None and hasattr(runner, "reset_chat_session"):
@@ -437,9 +261,3 @@ def shutdown_manager_bridge() -> None:
                 runner.reset_chat_session()
             except Exception:  # noqa: BLE001
                 pass
-    try:
-        from ..agent_cli.copilot_acp import close_all_clients
-
-        close_all_clients()
-    except Exception:  # noqa: BLE001
-        pass

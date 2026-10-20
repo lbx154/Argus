@@ -144,10 +144,14 @@ def test_unreviewed_turn_evidence_waits_for_the_reviewer(
     assert prompt.index("probe-1 fired") < prompt.index("probe-2 fired")
 
 
-def test_engineer_cannot_hand_itself_the_work_indefinitely(tmp_path: Path) -> None:
-    backend = MemoryBackend(
-        default=CannedResponse(message="still working\nMILESTONE_STATUS=continue\nNEXT_OWNER=engineer")
-    )
+def test_the_reviewer_judges_every_turn_the_engineer_kept_for_itself(tmp_path: Path) -> None:
+    backend = MemoryBackend()
+    for index in (1, 2):
+        backend.queue(
+            f"engineer-r{index}",
+            CannedResponse(message=f"step {index} written\nMILESTONE_STATUS=continue\nNEXT_OWNER=engineer"),
+        )
+    backend.queue("engineer-r3", CannedResponse(message="all steps written and checked"))
     backend.queue("reviewer", CannedResponse(review_action=("approve_review", {"review": "ok"})))
 
     status, rounds, *_ = _engineer(backend).run(
@@ -158,7 +162,7 @@ def test_engineer_cannot_hand_itself_the_work_indefinitely(tmp_path: Path) -> No
     )
 
     labels = [label for label, _prompt, _options in backend.history]
-    assert labels[:4] == ["engineer-r1", "engineer-r2", "engineer-r3", "reviewer"]
+    assert labels == ["engineer-r1", "engineer-r2", "engineer-r3", "reviewer"]
     assert status == "done"
     assert len(rounds) == 1
     [prompt] = _reviewer_prompts(backend)

@@ -78,10 +78,6 @@ optional, and you can continue using any of the other supported backends.
 Argus remains the Driver for scheduling, role assignment, and task lifecycle;
 Argus-Pi focuses on the Harness for model and tool execution.
 
-Ordinary Pi tasks can now [learn project runtime tools](docs/pi-runtime-learning.md):
-validate a reusable JSON transformation, use it in the current task, and retain its
-Skill and Wiki for later tasks under the existing task budget.
-
 **Harbor evaluation:** Harbor Framework can invoke the complete bounded Argus
 Manager/Planner/Engineer/Reviewer runtime as a custom agent. See
 **[Harbor integration](docs/harbor.md)**.
@@ -89,9 +85,8 @@ Manager/Planner/Engineer/Reviewer runtime as a custom agent. See
 **Coding-agent plugin:** use the packaged MCP bridge and host-specific Skills
 without changing the core runtime. See **[Plugin quick start](docs/plugin.md)**.
 
-**Counterexample research:** use a live
-Counterexample Lab, an isolated Jacobian MCP bridge, and safe in-app source
-updates. See **[Counterexample Lab and Jacobian setup](docs/counterexample-lab-jacobian.md)**.
+**Counterexample research:** use a live Counterexample Lab and safe in-app
+source updates. See **[Counterexample Lab setup](docs/counterexample-lab.md)**.
 
 ## WeChat community
 
@@ -177,7 +172,7 @@ configuration too, set `PI_CODING_AGENT_DIR` before login and throughout the tri
 
 **2. Configure this trial terminal.** Still at the checkout root, set the following
 process-local variables, replacing **`provider/model`** with your selected model.
-Remove any inherited per-role backend/model/runner overrides in this terminal;
+Remove any inherited per-role model overrides in this terminal;
 they can take precedence over the shared settings. Do not put these trial settings
 in your shell startup files or persistent system environment.
 
@@ -561,21 +556,11 @@ See **[docs/mobile.md](docs/mobile.md)** for the full setup.
 
 Argus is designed to be changed, not merely configured.
 
-### Autonomy level
+### When Argus asks you
 
-The default `pragmatic` mode handles recoverable engineering choices—timeouts, failed tests, benchmark sizing, and technical routes—without interrupting you. It asks only for credentials, more spending, irreversible/outward-facing actions, or changes to an operator-owned acceptance boundary.
+Argus handles recoverable engineering choices—timeouts, failed tests, benchmark sizing, and technical routes—without interrupting you. Whether a question needs you is decided by the role that raises it: the Engineer and the Reviewer each name an `operator_need` (credentials, spending, irreversible or external action, scope or authority, or none), and a Reviewer replan marks `authority_impact`. No keyword list over question wording overrides that judgement. An unclassified question stays with the team, except that an Engineer's explicit `NEXT_OWNER=operator` hand-off with no usable label still reaches you.
 
-```bash
-export ARGUS_SKILL_AUTONOMY_MODE=cautious    # ask on every explicit question
-export ARGUS_SKILL_AUTONOMY_MODE=pragmatic   # default: recover technical issues
-export ARGUS_SKILL_AUTONOMY_MODE=autonomous  # maximize reversible execution
-```
-
-The Web configuration view and `/config` expose the same setting.
-
-Whether a question needs you is decided by the role that raises it: the Engineer and the Reviewer each name an `operator_need` (credentials, spending, irreversible or external action, scope or authority, or none), and a Reviewer replan marks `authority_impact`. No keyword list over question wording overrides that judgement. An unclassified question stays with the team, except that an Engineer's explicit `NEXT_OWNER=operator` hand-off with no usable label still reaches you. Plan challenges and proposed alternatives from a Reviewer replan are routed as before.
-
-Headless runs (benchmarks, CI) have nobody to answer. Declare that with `--no-operator`; it lasts for that run only and is never carried into later web or resumed workers. (`ARGUS_SKILL_OPERATOR_AVAILABLE` is also an on/off switch in the configuration view; while a saved off value is in effect, the web cockpit shows a "No-operator mode: questions suppressed" banner with a button to turn questions back on.) The Manager then settles questions about what a requirement means on the most defensible interpretation and continues; an assumption never stands in for facts, data, results, real credentials, or required services, and each one is recorded for that run and named in CHECKPOINT.md, the completion message, and the run report rather than in graded deliverables. The Manager holds your authority in such a run, and equally when you tell it not to ask you: a need for spending or an irreversible or external step, a release, or a plan alternative the existing boundary check flags parks as a question that the Manager decides in your place, and real credentials it does not hold stay out of reach, so it decides how the work proceeds without them. Each such decision is recorded in the Manager's name and listed with the assumptions. `--bounded` alone does not imply `--no-operator`, because bounded runs are often watched. A foreground `--daemon-fg --bounded` run (or `--operator-wait-exit on`) whose only remaining work is an unanswered question ends as `blocked: needs operator` after `ARGUS_SKILL_BOUNDED_OPERATOR_WAIT_EXIT_MIN` minutes (default 30; 0 waits indefinitely); answering, from `argus --answer` or the web cockpit, restarts the worker. Workers started from the web cockpit keep waiting for your answer there.
+Whether Argus can ask you at all is one switch, `ARGUS_SKILL_OPERATOR_AVAILABLE`. Headless runs (benchmarks, CI) declare `--no-operator`; it lasts for that run only and is never carried into later web or resumed workers. Telling the Manager not to ask you (or to ask again) saves the switch, and so does the configuration view; while a saved off value is in effect, the web cockpit shows a "No-operator mode: questions suppressed" banner with a button to turn questions back on. While it is off, the Manager settles questions about what a requirement means on the most defensible interpretation and continues; an assumption never stands in for facts, data, results, real credentials, or required services, and each one is recorded for that run and named in CHECKPOINT.md, the completion message, and the run report rather than in graded deliverables. The Manager holds your authority while it is off: a need for spending or an irreversible or external step, or a release, parks as a question that the Manager decides in your place, and real credentials it does not hold stay out of reach, so it decides how the work proceeds without them. Each such decision is recorded in the Manager's name and listed with the assumptions. `--bounded` alone does not imply `--no-operator`, because bounded runs are often watched; a question in such a run waits for your answer.
 
 ### Adapt the runtime
 
@@ -601,8 +586,8 @@ What follows from that audit is **[the simplification plan](docs/simplification-
 
 ### Verticals
 
-Seven verticals ship with Argus itself: `research`, `software`, `argus_maintenance`,
-`kernel_engineering`, `math`, `math_synth`, `learning`. The other seventeen — `quant`,
+Four verticals ship with Argus itself: `research`, `software`, `argus_maintenance`,
+`learning`. The others — `math`, `kernel_engineering`, `math_synth`, `quant`,
 `speedrun`, `kernelbench`, `nanochat`, `nanogpt_speedrun`, `chip_design`, `digital_circuit`,
 `digital_circuit_benchmark`, `medical`, `materials`, `physics`, `ale_last_exam`,
 `fiction_writing`, `prose`, `modern_poetry`, `classical_poetry`, `literary_editor` — live in
@@ -629,10 +614,11 @@ Argus never installs community verticals either way.
 
 A Vertical gives your field its own stages, Skills, datasets, tools, evidence expectations, evaluation methods, and completion criteria. Planning and review can then follow the real standards of your domain instead of a generic process.
 
-The `math` vertical is the worked example: three stages, a content-addressed
-evidence store, Lean-backed mechanical verification, and an explicit rule for
-which kind of check is allowed to settle which kind of question. See
-**[mathematical research](docs/research-mathematics.md)**.
+The `math` vertical in argus-verticals is the worked example: three stages, a
+content-addressed evidence store, Lean-backed mechanical verification, and an
+explicit rule for which kind of check is allowed to settle which kind of
+question. See its
+**[design notes](https://github.com/Argus-AiTeam/argus-verticals/blob/main/argus_verticals/math/DESIGN.md)**.
 
 ### Use another agent as the outer layer
 
@@ -739,7 +725,7 @@ service id, and the other on-disk markers (`/tmp/argus-skill-role-slots`,
 **Kept for one release.** `import argus_skill` is the same package object as
 `import argus` (a two-file alias, not a copy), `python -m argus_skill ...` runs
 the same modules, the `argus-skill` command still exists and prints one
-deprecation line on stderr, teammates and trial containers started under the
+deprecation line on stderr, trial containers started under the
 old name are still recognised, and community verticals registered under the
 pre-rename entry-point group are still discovered (with a warning).
 
@@ -819,13 +805,13 @@ logs.
 ## Repository layout
 
 - `argus/` — the Python package; everything `argus`, `argus` and the daemon run.
-- `argus/core/`, `proof_ledger/` — kernel: models, ports, contracts, paths. Intended leaf: must import nothing above itself; today's remaining upward edges are pinned in the invariants test (`tests/test_architecture_invariants.py`) and removed in phase 1.
+- `argus/core/` — kernel: models, ports, contracts, paths. Intended leaf: must import nothing above itself; today's remaining upward edges are pinned in the invariants test (`tests/test_architecture_invariants.py`) and removed in phase 1.
 - `argus/agent_cli/`, `adapters/`, `provider_integrations/`, `advisor/` — drivers for the model CLIs (codex, claude, copilot, ...).
 - `argus/skills/`, `tools/`, `wiki/`, `cli/` — capabilities: the Skill library, operator-approved tools, the project Wiki, terminal rendering.
 - `argus/verticals/`, `domains/`, `builtin_skills/` — domain knowledge: the 7 built-in verticals (17 more arrive as entry points from `argus-verticals`), overlays, seeded Skills.
 - `argus/roles/`, `planner/`, `engineer/`, `reviewer/` — the persistent roles: the prompt catalog (`roles/`) plus the Planner, Engineer and Reviewer code (the Manager's code is in `manager/`).
 - `argus/life/`, `manager/`, `messaging/` — runtime: project memory, backlog, supervisor, the Manager control plane, cross-project messages.
-- `argus/daemon/`, `team/` — the detached 7x24 worker and agent teams.
+- `argus/daemon/` — the detached 7x24 worker.
 - `argus/apps/`, `webapi/`, `plugin/`, `maintenance/`, `trial/` — delivery: CLI, web API, host plugin, Doctor, hosted trial.
 - `frontend/` — Ink terminal cockpit (`tui`), React web cockpit (`web`), shared TypeScript (`core`).
 - `desktop-tauri/` — Tauri desktop shell (Windows release; four CI targets); `plugins/` — installable host plugin; `tests/` — pytest suite.

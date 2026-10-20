@@ -26,8 +26,7 @@ def test_release_files_cover_runtime_and_frontend_build_inputs() -> None:
     }
 
     assert {
-        "argus/verticals/kernel_engineering/references/specialized_tool_registry.json",
-        "argus/verticals/kernel_engineering/references/toolchain-selection.md",
+        "argus/core/timeline_example.json",
         "frontend/tui/scripts/build-bundle.mjs",
         "frontend/web/src/index.css",
         "frontend/web/public/manifest.webmanifest",

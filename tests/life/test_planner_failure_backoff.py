@@ -1,4 +1,4 @@
-"""Repeated unusable Planner turns are paced, surfaced once, and never spin.
+"""Repeated failed Planner calls are paced, surfaced once, and never spin.
 
 Each daemon pass is simulated with a fake clock that advances by the sleep the
 supervisor asks for, so these tests measure model calls over wall-clock time
@@ -88,6 +88,7 @@ class _ScriptedPlanner:
 
 
 _UNREADABLE = "I looked around and I am not sure what to do."
+_OUTAGE = "stream error: HTTP 503 Service Unavailable"
 _NOT_DONE_NO_TASKS = "PROJECT_DONE=false\nREASON=still thinking about the next step"
 _ONE_TASK = "\n".join([
     "PROJECT_DONE=false",
@@ -160,10 +161,8 @@ def _supervisor(tmp_path: Path, monkeypatch, reply: str, *, clock: _Clock | None
     monkeypatch.setattr(supervisor, "_resolve_vertical_once", lambda: None)
     monkeypatch.setattr(supervisor, "_wiki_collect_task_if_due_under_blocker", lambda: None)
     monkeypatch.setattr(supervisor, "_render_journal_for_planner", lambda: "")
-    monkeypatch.setattr(supervisor, "_recent_no_progress_failures", lambda: {})
-    monkeypatch.setattr(supervisor, "_recent_subagent_family_failures", lambda: {})
     monkeypatch.setattr(supervisor, "_effective_final_certification_gate", lambda *_a, **_k: False)
-    monkeypatch.setattr(supervisor, "_planner_runtime_with_idle_note", lambda: "")
+    monkeypatch.setattr(supervisor, "_planner_runtime_notes", lambda: "")
     clock = clock or _Clock()
     monkeypatch.setattr(backoff, "time", clock)
     return supervisor, planner, sink, clock
@@ -197,7 +196,7 @@ def _seconds_until_next_call(supervisor, planner, clock, limit: float) -> float 
     return None
 
 
-def _drive_until_alert(supervisor, sink, clock, limit: float = 3600.0) -> None:
+def _drive_until_alert(supervisor, sink, clock, limit: float = 2 * 3600.0) -> None:
     """Stop right after the alert, while the hold is fresh."""
     deadline = clock.now + limit
     while not _alerts(sink):
@@ -252,78 +251,11 @@ def test_backoff_starts_after_the_free_attempts_and_doubles_to_a_cap() -> None:
     assert all(lo >= hi / 2 for lo, hi in zip(low, high))
 
 
-def test_failure_key_ignores_ids_counters_and_quotes_but_not_the_failure() -> None:
-    class Verdict:
-        def __init__(self, error: str, reason: str = "") -> None:
-            self.error = error
-            self.reason = reason
-
-    key = lambda text: backoff.planner_failure_key("planner_error", Verdict(text))  # noqa: E731
-    assert key("repair exhausted after 1 attempt") == key("repair exhausted after 2 attempt")
-    assert key("bad node 'x1' in plan 3f2a9c1d7e") == key("bad node 'other' in plan 9d8e7f6a5b")
-    assert key(
-        "missing marker request_id=req_AbCdEfGhIjKl trace 123e4567-e89b-12d3-a456-426614174000"
-    ) == key("missing marker request_id=req_ZyXwVuTsRqPo trace 00000000-0000-0000-0000-000000000000")
-    assert key("repair exhausted") != key("backend refused the call")
-    # Every backend failure is one class; its wording is provider noise.
-    backend = lambda text: backoff.planner_failure_key(  # noqa: E731
-        "planner_error", Verdict(text, "planner backend failed before producing output"),
-    )
-    assert backend("upstream 500 req_abc") == backend("stream error: HTTP 503")
-
-
-def test_unreadable_planner_replies_are_bounded_over_a_day(tmp_path, monkeypatch) -> None:
-    supervisor, planner, sink, clock = _supervisor(tmp_path, monkeypatch, _UNREADABLE)
-
-    summaries = _drive(supervisor, clock, DAY_SECONDS)
-
-    # A tight loop asked thousands of times a day. The paced loop makes a few
-    # attempts, reports the repeat once, then re-asks at most once per hold.
-    cycles = backoff.PLANNER_FAILURE_ALERT_AFTER + int(DAY_SECONDS // CAP) + 1
-    assert planner.planner_calls <= 2 * cycles
-    assert len(summaries) < 3000
-    alerts = _alerts(sink)
-    assert len(alerts) == 1
-    assert alerts[0]["operator_alert"] is True
-    assert alerts[0]["failure_kind"] == backoff.FAILURE_KIND_DECISION
-    degraded = sink.of(EventType.LIFE_DAEMON_DEGRADED, reason="planner_repeated_failure")
-    assert len(degraded) == 1
-    assert degraded[0]["objective_dispatched"] is True
-
-
-def test_first_ten_minutes_reach_the_alert_without_a_burst(tmp_path, monkeypatch) -> None:
-    supervisor, planner, sink, clock = _supervisor(tmp_path, monkeypatch, _UNREADABLE)
-
-    summaries = _drive(supervisor, clock, 600.0)
-
-    assert planner.planner_calls <= 2 * backoff.PLANNER_FAILURE_ALERT_AFTER
-    assert _alerts(sink)
-    assert all(float(summary["suggested_sleep"] or 0) > 0 for summary in summaries)
-
-
-def test_varying_unreadable_replies_still_alert(tmp_path, monkeypatch) -> None:
-    supervisor, planner, sink, clock = _supervisor(tmp_path, monkeypatch, _UNREADABLE)
-    replies = iter(f"garbage {n} {'x' * (n % 7)} id={n:08x}" for n in range(10_000))
-    original = planner.run_exec
-
-    def varied(**kwargs):
-        planner.reply = next(replies)
-        return original(**kwargs)
-
-    monkeypatch.setattr(planner, "run_exec", varied)
-    _drive(supervisor, clock, DAY_SECONDS)
-
-    assert len(_alerts(sink)) == 1
-    assert planner.planner_calls <= 2 * (backoff.PLANNER_FAILURE_ALERT_AFTER + int(DAY_SECONDS // CAP) + 1)
-
-
-def test_empty_plan_asks_once_and_waits_for_the_operator(tmp_path, monkeypatch) -> None:
-    from argus.manager.directive import set_active_manager_directive
+def test_empty_plan_asks_the_operator_once(tmp_path, monkeypatch) -> None:
+    from argus.core.knob_store import write_persisted_knob
 
     supervisor, planner, sink, clock = _supervisor(tmp_path, monkeypatch, _NOT_DONE_NO_TASKS)
-    set_active_manager_directive(
-        supervisor.memory.root, "questions are allowed", operator_question_policy="allow",
-    )
+    write_persisted_knob("ARGUS_SKILL_OPERATOR_AVAILABLE", "1")
 
     _drive(supervisor, clock, DAY_SECONDS)
 
@@ -333,16 +265,16 @@ def test_empty_plan_asks_once_and_waits_for_the_operator(tmp_path, monkeypatch) 
     ]
     assert len(questions) == 1
     assert len(sink.of(EventType.LIFE_OPERATOR_QUESTION_PENDING)) == 1
-    assert planner.planner_calls <= 2 * (1 + int(DAY_SECONDS // CAP) + 1)
 
 
 def test_operator_guidance_reaches_the_held_planner_at_once(tmp_path, monkeypatch) -> None:
-    supervisor, planner, sink, clock = _supervisor(tmp_path, monkeypatch, _UNREADABLE)
+    supervisor, planner, sink, clock = _supervisor(tmp_path, monkeypatch, _ONE_TASK)
+    planner.fatal = _OUTAGE
     _drive_until_alert(supervisor, sink, clock)
     _assert_held(supervisor, planner, clock)
     held_calls = planner.planner_calls
 
-    planner.reply = _ONE_TASK
+    planner.fatal = None
     supervisor.test_inbox.append("write greet.py now")
     _pass(supervisor)
 
@@ -350,38 +282,9 @@ def test_operator_guidance_reaches_the_held_planner_at_once(tmp_path, monkeypatc
     assert _streak(supervisor) == 0
 
 
-def test_a_manager_directive_wakes_the_held_planner_at_the_next_cycle(tmp_path, monkeypatch) -> None:
-    from argus.core.operator_context import operator_context_state_root
-    from argus.manager.directive import set_active_manager_directive
-
-    supervisor, planner, sink, clock = _supervisor(tmp_path, monkeypatch, _UNREADABLE)
-    _drive_until_alert(supervisor, sink, clock)
-    _assert_held(supervisor, planner, clock)
-    planner.reply = _ONE_TASK
-    set_active_manager_directive(
-        operator_context_state_root(supervisor.memory),
-        "Use format X; stop writing prose.",
-        source="manager.supervision:abc123",
-        scope_objective=supervisor.config.continuous_objective,
-    )
-
-    assert _seconds_until_next_call(supervisor, planner, clock, CAP) == 0.0
-
-
-def test_new_project_evidence_wakes_the_held_planner_at_the_next_cycle(tmp_path, monkeypatch) -> None:
-    supervisor, planner, sink, clock = _supervisor(tmp_path, monkeypatch, _UNREADABLE)
-    _drive_until_alert(supervisor, sink, clock)
-    _assert_held(supervisor, planner, clock)
-    planner.reply = _ONE_TASK
-    results = tmp_path / "project" / "results"
-    results.mkdir()
-    (results / "metrics.json").write_text('{"acc": 0.93}', encoding="utf-8")
-
-    assert _seconds_until_next_call(supervisor, planner, clock, CAP) == 0.0
-
-
 def test_a_planner_model_change_wakes_the_held_planner(tmp_path, monkeypatch) -> None:
-    supervisor, planner, sink, clock = _supervisor(tmp_path, monkeypatch, _UNREADABLE)
+    supervisor, planner, sink, clock = _supervisor(tmp_path, monkeypatch, _ONE_TASK)
+    planner.fatal = _OUTAGE
     _drive_until_alert(supervisor, sink, clock)
     _assert_held(supervisor, planner, clock)
     monkeypatch.setenv("ARGUS_SKILL_PLANNER_MODEL", "another-model")
@@ -389,19 +292,9 @@ def test_a_planner_model_change_wakes_the_held_planner(tmp_path, monkeypatch) ->
     assert _seconds_until_next_call(supervisor, planner, clock, CAP) == 0.0
 
 
-def test_unchanged_inputs_hold_no_longer_than_the_cap(tmp_path, monkeypatch) -> None:
-    supervisor, planner, sink, clock = _supervisor(tmp_path, monkeypatch, _UNREADABLE)
-    _drive_until_alert(supervisor, sink, clock)
-    _assert_held(supervisor, planner, clock)
-
-    waited = _seconds_until_next_call(supervisor, planner, clock, 8 * 3600.0)
-
-    assert waited is not None and waited <= CAP
-
-
 def test_backend_outage_backs_off_but_recovers_within_the_cap(tmp_path, monkeypatch) -> None:
     supervisor, planner, sink, clock = _supervisor(tmp_path, monkeypatch, _ONE_TASK)
-    planner.fatal = "stream error: HTTP 503 Service Unavailable"
+    planner.fatal = _OUTAGE
     _drive(supervisor, clock, 300.0)
     # A five-minute outage is not worth an alarm, and nothing is held for it.
     assert not _alerts(sink)
@@ -462,41 +355,41 @@ def test_an_empty_plan_the_manager_reconciled_is_not_a_failure(tmp_path, monkeyp
 
 
 def test_a_restart_keeps_the_streak_and_does_not_alert_again(tmp_path, monkeypatch) -> None:
-    supervisor, planner, sink, clock = _supervisor(tmp_path, monkeypatch, _UNREADABLE)
-    _drive(supervisor, clock, 600.0)
-    assert len(_alerts(sink)) == 1
-    calls = planner.planner_calls
+    supervisor, planner, sink, clock = _supervisor(tmp_path, monkeypatch, _ONE_TASK)
+    planner.fatal = _OUTAGE
+    _drive_until_alert(supervisor, sink, clock)
+    streak = _streak(supervisor)
 
     for _ in range(3):
-        restarted, planner, sink, clock = _supervisor(tmp_path, monkeypatch, _UNREADABLE, clock=clock)
+        restarted, planner, sink, clock = _supervisor(tmp_path, monkeypatch, _ONE_TASK, clock=clock)
+        planner.fatal = _OUTAGE
         _drive(restarted, clock, 600.0)
         assert not _alerts(sink)
-        calls += planner.planner_calls
-
-    # Four ten-minute lives cost what one does plus at most a re-probe each.
-    assert calls <= 2 * (backoff.PLANNER_FAILURE_ALERT_AFTER + 3)
+        # The streak carries over, so a restart re-probes at the cap at most.
+        assert planner.planner_calls <= 1
+        assert _streak(restarted) >= streak
 
 
 def test_parallel_supervisors_share_one_streak_and_one_alert(tmp_path, monkeypatch) -> None:
-    primary, planner_a, sink_a, clock = _supervisor(tmp_path, monkeypatch, _UNREADABLE)
-    helper, planner_b, sink_b, _ = _supervisor(tmp_path, monkeypatch, _UNREADABLE, clock=clock)
+    primary, planner_a, sink_a, clock = _supervisor(tmp_path, monkeypatch, _ONE_TASK)
+    helper, planner_b, sink_b, _ = _supervisor(tmp_path, monkeypatch, _ONE_TASK, clock=clock)
+    planner_a.fatal = planner_b.fatal = _OUTAGE
     deadline = clock.now + 3600.0
     while clock.now < deadline:
         sleeps = [_pass(primary), _pass(helper)]
         clock.now += max(POLL_SECONDS, min(float(s.get("suggested_sleep") or 0) or POLL_SECONDS for s in sleeps))
 
     assert len(_alerts(sink_a)) + len(_alerts(sink_b)) == 1
-    assert planner_a.planner_calls + planner_b.planner_calls <= 2 * (
-        backoff.PLANNER_FAILURE_ALERT_AFTER + 3
-    )
+    # One shared streak: together they pace like one supervisor, not two.
+    assert _streak(primary) == planner_a.planner_calls + planner_b.planner_calls
 
 
 def test_health_reads_degraded_while_held_after_the_alert(tmp_path, monkeypatch) -> None:
     from argus.daemon.health import DaemonHealthTracker, read_daemon_health
 
-    supervisor, planner, sink, clock = _supervisor(tmp_path, monkeypatch, _UNREADABLE)
-    _drive(supervisor, clock, 1500.0)
-    assert _alerts(sink)
+    supervisor, planner, sink, clock = _supervisor(tmp_path, monkeypatch, _ONE_TASK)
+    planner.fatal = _OUTAGE
+    _drive_until_alert(supervisor, sink, clock)
     tracker = DaemonHealthTracker(tmp_path / "health")
     for event in sink.events:
         tracker.observe(event)
@@ -504,27 +397,13 @@ def test_health_reads_degraded_while_held_after_the_alert(tmp_path, monkeypatch)
     assert read_daemon_health(tmp_path / "health", pid=None, alive=True)["state"] == "degraded"
 
 
-def test_a_mission_finishing_wakes_the_backoff_before_the_alert(tmp_path, monkeypatch) -> None:
-    from argus.life.memory import BacklogItem
-
-    supervisor, planner, sink, clock = _supervisor(tmp_path, monkeypatch, _UNREADABLE)
-    while _streak(supervisor) < backoff.PLANNER_FAILURE_ALERT_AFTER - 1:
-        _pass(supervisor)
-        clock.now += POLL_SECONDS
-    assert not _alerts(sink)
-    item = supervisor.memory.backlog.add(BacklogItem.new(title="side job", objective="x"))
-    supervisor.memory.backlog.update(item.id, status="done")
-    planner.reply = _ONE_TASK
-
-    assert _seconds_until_next_call(supervisor, planner, clock, CAP) == 0.0
-
-
 def test_a_productive_turn_clears_the_streak(tmp_path, monkeypatch) -> None:
-    supervisor, planner, _sink, clock = _supervisor(tmp_path, monkeypatch, _UNREADABLE)
+    supervisor, planner, _sink, clock = _supervisor(tmp_path, monkeypatch, _ONE_TASK)
+    planner.fatal = _OUTAGE
     _drive(supervisor, clock, 30.0)
     assert _streak(supervisor) >= 1
 
-    planner.reply = _ONE_TASK
+    planner.fatal = None
     clock.now += CAP
     assert supervisor._plan_next_work() is True
 
@@ -534,20 +413,14 @@ def test_a_productive_turn_clears_the_streak(tmp_path, monkeypatch) -> None:
 
 @pytest.mark.parametrize("streak", [3, 5, 30])
 def test_held_cycle_never_calls_the_model(tmp_path, monkeypatch, streak) -> None:
-    supervisor, planner, _sink, clock = _supervisor(tmp_path, monkeypatch, _UNREADABLE)
-    from argus.life.supervisor._planning_cycle_helpers import _PlanCycleState
-
-    state = _PlanCycleState(None)
+    supervisor, planner, _sink, clock = _supervisor(tmp_path, monkeypatch, _ONE_TASK)
     supervisor._save_planner_failure_state({
         "streak": streak,
-        "same": 1,
-        "key": "k",
-        "kind": backoff.FAILURE_KIND_DECISION,
+        "kind": backoff.FAILURE_KIND_BACKEND,
         "first_failed_at": clock.now,
         "last_failed_at": clock.now,
         "not_before": clock.now + 60.0,
         "alerted_at": None,
-        "signature": supervisor._planner_failure_input_signature(state),
         "config_signature": supervisor._planner_failure_config_signature(),
     })
 
@@ -592,11 +465,16 @@ def test_an_unreadable_state_file_never_blocks_the_planner(tmp_path, monkeypatch
 @pytest.mark.parametrize(
     "fields",
     [
-        {"streak": 3, "not_before": "soon", "first_failed_at": 0, "last_failed_at": 0},
-        {"streak": 3, "not_before": float("nan"), "first_failed_at": 0, "last_failed_at": 0},
+        {"streak": 3, "not_before": "soon", "first_failed_at": 0, "last_failed_at": 0,
+         "kind": "backend"},
+        {"streak": 3, "not_before": float("nan"), "first_failed_at": 0, "last_failed_at": 0,
+         "kind": "backend"},
         {"streak": 3, "not_before": 1e300, "first_failed_at": 0, "last_failed_at": 0,
          "kind": "no-such-kind"},
-        {"streak": 3, "first_failed_at": 0},
+        {"streak": 3, "first_failed_at": 0, "kind": "backend"},
+        # A streak of unusable answers an older version paced.
+        {"streak": 3, "not_before": 1e300, "first_failed_at": 0, "last_failed_at": 0,
+         "kind": "decision"},
     ],
 )
 def test_wrongly_typed_fields_count_as_an_empty_streak(tmp_path, monkeypatch, fields) -> None:
@@ -608,23 +486,18 @@ def test_wrongly_typed_fields_count_as_an_empty_streak(tmp_path, monkeypatch, fi
     assert planner.planner_calls == 1
 
 
-@pytest.mark.parametrize("kind", [backoff.FAILURE_KIND_DECISION, backoff.FAILURE_KIND_BACKEND])
+@pytest.mark.parametrize("kind", [backoff.FAILURE_KIND_BACKEND, backoff.FAILURE_KIND_INTERNAL])
 def test_a_clock_stepped_back_cannot_stretch_the_hold(tmp_path, monkeypatch, kind) -> None:
-    from argus.life.supervisor._planning_cycle_helpers import _PlanCycleState
-
     supervisor, planner, _sink, clock = _supervisor(tmp_path, monkeypatch, _ONE_TASK)
     future = clock.now + 3 * DAY_SECONDS
     _write_state(
         supervisor,
         streak=5,
-        same=5,
-        key="k",
         kind=kind,
         first_failed_at=future,
         last_failed_at=future,
         not_before=future,
         alerted_at=future,
-        signature=supervisor._planner_failure_input_signature(_PlanCycleState(None)),
         config_signature=supervisor._planner_failure_config_signature(),
     )
 
@@ -634,17 +507,19 @@ def test_a_clock_stepped_back_cannot_stretch_the_hold(tmp_path, monkeypatch, kin
 
 
 def test_an_alert_lost_to_a_crash_is_sent_once_after_restart(tmp_path, monkeypatch) -> None:
-    supervisor, planner, sink, clock = _supervisor(tmp_path, monkeypatch, _UNREADABLE)
+    supervisor, planner, sink, clock = _supervisor(tmp_path, monkeypatch, _ONE_TASK)
+    planner.fatal = _OUTAGE
 
     def crash(_alert):
         raise SystemExit("crashed between saving and emitting the alert")
 
     monkeypatch.setattr(supervisor, "_alert_repeated_planner_failure", crash)
     with pytest.raises(SystemExit):
-        _drive(supervisor, clock, 3600.0)
+        _drive(supervisor, clock, 2 * 3600.0)
     assert supervisor._load_planner_failure_state()["alert_pending"] is True
 
-    restarted, _planner, sink, clock = _supervisor(tmp_path, monkeypatch, _UNREADABLE, clock=clock)
+    restarted, planner, sink, clock = _supervisor(tmp_path, monkeypatch, _ONE_TASK, clock=clock)
+    planner.fatal = _OUTAGE
     _drive(restarted, clock, 4 * 3600.0)
 
     assert len(_alerts(sink)) == 1
@@ -652,7 +527,8 @@ def test_an_alert_lost_to_a_crash_is_sent_once_after_restart(tmp_path, monkeypat
 
 
 def test_an_alert_already_in_the_event_log_is_not_sent_again(tmp_path, monkeypatch) -> None:
-    supervisor, planner, sink, clock = _supervisor(tmp_path, monkeypatch, _UNREADABLE)
+    supervisor, planner, sink, clock = _supervisor(tmp_path, monkeypatch, _ONE_TASK)
+    planner.fatal = _OUTAGE
     _drive_until_alert(supervisor, sink, clock)
     record = supervisor._load_planner_failure_state()
     alert_id = record["alert"]["id"]
@@ -663,42 +539,19 @@ def test_an_alert_already_in_the_event_log_is_not_sent_again(tmp_path, monkeypat
     with events.open("a", encoding="utf-8") as handle:
         handle.write(json.dumps({"type": "life.planner.error", "alert_id": alert_id}) + "\n")
 
-    restarted, _planner, sink, clock = _supervisor(tmp_path, monkeypatch, _UNREADABLE, clock=clock)
+    restarted, planner, sink, clock = _supervisor(tmp_path, monkeypatch, _ONE_TASK, clock=clock)
+    planner.fatal = _OUTAGE
     _drive(restarted, clock, 3600.0)
 
     assert not _alerts(sink)
     assert not restarted._load_planner_failure_state().get("alert_pending")
 
 
-def test_project_signing_runs_outside_the_shared_lock(tmp_path, monkeypatch) -> None:
-    import portalocker
-
-    supervisor, planner, _sink, clock = _supervisor(tmp_path, monkeypatch, _UNREADABLE)
-    lock_path = supervisor._planner_failure_state_path().with_suffix(".lock")
-    original = supervisor._planner_failure_input_signature
-    observed: list[bool] = []
-
-    def signing(state):
-        lock_path.parent.mkdir(parents=True, exist_ok=True)
-        with lock_path.open("a+b") as handle:
-            try:
-                portalocker.lock(handle, portalocker.LOCK_EX | portalocker.LOCK_NB)
-                portalocker.unlock(handle)
-                observed.append(True)
-            except portalocker.exceptions.LockException:
-                observed.append(False)
-        return original(state)
-
-    monkeypatch.setattr(supervisor, "_planner_failure_input_signature", signing)
-    _drive(supervisor, clock, 120.0)
-
-    assert observed and all(observed)
-
-
 def test_a_stuck_lock_holder_does_not_stall_planning(tmp_path, monkeypatch) -> None:
     import portalocker
 
-    supervisor, planner, _sink, _clock = _supervisor(tmp_path, monkeypatch, _UNREADABLE)
+    supervisor, planner, _sink, _clock = _supervisor(tmp_path, monkeypatch, _ONE_TASK)
+    planner.fatal = _OUTAGE
     monkeypatch.setattr(backoff, "_LOCK_WAIT_SECONDS", 0.2)
     lock_path = supervisor._planner_failure_state_path().with_suffix(".lock")
     lock_path.parent.mkdir(parents=True, exist_ok=True)
@@ -742,25 +595,21 @@ def test_an_argus_bug_is_reported_as_an_argus_fault(tmp_path, monkeypatch) -> No
     assert backoff.planner_failure_kind(None) == backoff.FAILURE_KIND_INTERNAL
 
 
-def test_unusable_answers_stop_after_three_hours_until_something_changes(
-    tmp_path, monkeypatch,
-) -> None:
-    supervisor, planner, sink, clock = _supervisor(tmp_path, monkeypatch, _UNREADABLE)
+def test_unusable_answers_are_the_planners_business(tmp_path, monkeypatch) -> None:
+    """An answered call is never counted, held or alerted on, and it ends a
+    backend streak: the backend is evidently answering again."""
+    supervisor, planner, sink, clock = _supervisor(tmp_path, monkeypatch, _ONE_TASK)
+    planner.fatal = _OUTAGE
+    _drive(supervisor, clock, 300.0)
+    assert _streak(supervisor) >= 1
+
+    planner.fatal = None
+    planner.reply = _UNREADABLE
     _drive(supervisor, clock, WINDOW + CAP)
-    window_calls = planner.planner_calls
 
-    _drive(supervisor, clock, 7 * DAY_SECONDS)
-
-    assert planner.planner_calls == window_calls
-    assert len(_stop_notices(supervisor)) == 1
-    turns = len(sink.of(EventType.LIFE_PLANNER_START))
-    results = tmp_path / "project" / "results"
-    results.mkdir()
-    (results / "metrics.json").write_text('{"acc": 0.93}', encoding="utf-8")
-    _drive(supervisor, clock, DAY_SECONDS)
-    # One new piece of evidence buys one more turn, not a new round of retries.
-    assert len(sink.of(EventType.LIFE_PLANNER_START)) == turns + 1
-    assert len(_stop_notices(supervisor)) == 1
+    assert _streak(supervisor) == 0
+    assert not _alerts(sink)
+    assert not _stop_notices(supervisor)
 
 
 @pytest.mark.parametrize("wake", ["operator", "model"])

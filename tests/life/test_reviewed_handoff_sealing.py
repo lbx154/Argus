@@ -3,15 +3,12 @@
 ``record_engineer_handoff`` has always been wired (round_execution.py), so
 ``round-NNNN-engineer.json`` appeared on disk. ``record_reviewed_handoff`` —
 which writes ``round-NNNN.json`` with ``kind="round_reviewed_handoff"`` and
-``producer_role="reviewer"`` — had **zero production callers**. Two things
-were dead as a result:
-
-1. ``_latest_unassessed_review_for_current_stage`` (life/supervisor) scans for
-   exactly that file, so the framework's only non-circular campaign-level
-   stage-advance trigger could never fire. No mission in any vertical whose
-   completion gate is not ``certified`` could leave its first stage.
-2. ``TaskFrontier.apply`` is reached only from ``record_reviewed_handoff``, so
-   the Reviewer's frontier reports never advanced the persisted frontier.
+``producer_role="reviewer"`` — had **zero production callers**. As a result
+``_latest_unassessed_review_for_current_stage`` (life/supervisor), which
+scans for exactly that file, could never fire: it is the framework's only
+non-circular campaign-level stage-advance trigger, so no mission in any
+vertical whose completion gate is not ``certified`` could leave its first
+stage.
 
 The seal is gated on ``review_source == "reviewer"``: the packet declares
 itself independent evidence, so an Engineer self-review must never produce
@@ -31,17 +28,11 @@ from pathlib import Path
 from typing import Any, cast
 
 from argus.core.models import ReviewDecision, RunnerResult
-from argus.core.task_frontier import (
-    TaskFrontier,
-    load_task_frontier,
-    save_task_frontier,
-)
 from argus.engineer.runner import (
     EngineerConfig,
     SupervisedConfig,
     SupervisedEngineer,
 )
-from argus.life.context_packet import FRONTIER_FILENAME
 from argus.reviewer import ReviewerConfig
 
 
@@ -56,9 +47,8 @@ class _StubEngineer:
 class _StubReviewer:
     """Reviewer stub returning a verdict with a caller-chosen provenance."""
 
-    def __init__(self, review_source: str, frontier_report: dict | None = None) -> None:
+    def __init__(self, review_source: str) -> None:
         self._review_source = review_source
-        self._frontier_report = frontier_report or {}
 
     def evaluate(self, **_kwargs) -> ReviewDecision:
         return ReviewDecision(
@@ -66,7 +56,6 @@ class _StubReviewer:
             reason="The mod 8 branch is established and checked.",
             next_action="",
             review_source=self._review_source,
-            frontier_report=dict(self._frontier_report),
         )
 
 
@@ -152,47 +141,3 @@ def test_sealing_is_skipped_without_a_mission_packet(tmp_path: Path) -> None:
 
     assert not (root / "round-0001.json").exists()
     assert not (root / "round-0001-engineer.json").exists()
-
-
-def test_reviewer_frontier_report_advances_the_persisted_frontier(
-    tmp_path: Path,
-) -> None:
-    """The seal is also the only site that ever applies a frontier report."""
-    mission_root = tmp_path / "mission"
-    mission_root.mkdir(parents=True, exist_ok=True)
-    frontier_path = mission_root / FRONTIER_FILENAME
-    save_task_frontier(
-        frontier_path,
-        TaskFrontier.initial(
-            mission_id="mission",
-            objective="prove p^2 = 1 mod 24",
-            remaining_work=["mod 8 branch", "mod 3 branch"],
-        ),
-    )
-    before = load_task_frontier(frontier_path)
-    assert before is not None and before.transition_count == 0
-
-    root = _run_one_round(
-        tmp_path,
-        _StubReviewer(
-            "reviewer",
-            frontier_report={
-                "change": "risk_reduced",
-                "summary": "mod 8 branch discharged",
-                "resolved_obligations": ["mod 8 branch"],
-                "remaining_work": ["mod 3 branch"],
-            },
-        ),
-    )
-    assert root == mission_root
-
-    payload = json.loads((root / "round-0001.json").read_text(encoding="utf-8"))
-    assert payload["review"].get("frontier_transition"), (
-        "the Reviewer's frontier report was discarded; TaskFrontier.apply is "
-        "reachable only from the reviewed seal"
-    )
-    after = load_task_frontier(frontier_path)
-    assert after is not None
-    assert after.transition_count == 1
-    assert after.resolved_obligations == ["mod 8 branch"]
-    assert after.remaining_work == ["mod 3 branch"]

@@ -34,14 +34,14 @@ describe('source-bound Chinese display guides (not runtime instructions)', () =>
     expect(skillSearchText(item, 'zh-CN')).toContain(guide.title.toLowerCase());
   });
   it('never relabels edited/learned/custom/third-party content because a filename matches', () => {
-    const item = row('global/engineer/pdf-chat.md');
+    const item = row('global/engineer/presentation-master.md');
     for (const changed of [{ is_default: false }, { source: 'native' as const }, { library: 'project:native' },
       { name: 'My own reading instructions' }, { scope: 'project' as const }]) {
       const custom = { ...item, ...changed };
       expect(bundledSkillGuide(custom)).toBeNull();
       expect(skillPresentation(custom, 'zh-CN').title).toBe(custom.name);
     }
-    expect(bundledSkillGuide({ ...item, source: 'shared', library: 'global:shared' })?.title).toBe('分段阅读 PDF');
+    expect(bundledSkillGuide({ ...item, source: 'shared', library: 'global:shared' })?.title).toBe('可编辑演示文稿');
   });
   it('does not turn unknown domain identifiers or knowledge kinds into invented facts', () => {
     expect(libraryVertical('research', 'zh-CN')).toBe('科研');

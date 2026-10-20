@@ -135,13 +135,13 @@ The kernel Reviewer now:
 
 ## Runtime and Skill changes
 
-The policy is implemented in:
+The policy is implemented in the argus-verticals repository:
 
-- `argus/verticals/kernel_engineering/stages.py`
-- `argus/verticals/kernel_engineering/skills/engineer/kernel-benchmark-measurement-integrity.md`
-- `argus/verticals/kernel_engineering/references/frontier-search-protocol.md`
-- `argus/verticals/kernel_engineering/references/idgl-loop.md`
-- `argus/verticals/kernel_engineering/skills/engineer/kernel-benchmark-measurement-integrity.md`
+- `argus_verticals/kernel_engineering/stages.py`
+- `argus_verticals/kernel_engineering/skills/engineer/kernel-benchmark-measurement-integrity.md`
+- `argus_verticals/kernel_engineering/references/frontier-search-protocol.md`
+- `argus_verticals/kernel_engineering/references/idgl-loop.md`
+- `argus_verticals/kernel_engineering/skills/engineer/kernel-benchmark-measurement-integrity.md`
 
 Live search is available throughout kernel missions. Tests pin the role banners,
 search availability, report-only acceptance, high-upside posture, single-run

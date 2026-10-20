@@ -34,7 +34,6 @@ LoopStatus = Literal[
     "paused_provider_cooldown",
     "paused_provider_fence",
     "paused_daemon_shutdown",
-    "paused_external_work",
     "paused_operator",
     "parked",
     "aborted",
@@ -58,8 +57,6 @@ class RunnerOptions:
     # backends use the path-only discovery block in the prompt.
     skill_paths: list[str] | None = None
     extra_args: list[str] | None = None
-    # Host-bound write capability for the independent Reviewer's own report.
-    review_output: dict[str, str] | None = None
     skip_git_repo_check: bool = False
     # Enable codex's native live web_search tool for this call (``codex exec
     # --search``). Off by default; turned on for the research/ideation stage so
@@ -190,13 +187,11 @@ class RunnerResult:
         return self.agent_messages[-1]
 
 
-#: Reviewer judgments that route the host's own calls (Manager supervision,
-#: post-mission reflection). When the host rewrites a verdict's status or strips
-#: its signals, these no longer describe what the Reviewer saw, so they are
-#: dropped and read as absent: the Manager looks and reflection runs.
-REVIEW_ROUTING_JUDGMENTS = (
-    "manager_attention", "manager_attention_reason", "learning", "learning_reason",
-)
+#: Reviewer judgments that route the host's own calls (post-mission
+#: reflection). When the host rewrites a verdict's status or strips its
+#: signals, these no longer describe what the Reviewer saw, so they are
+#: dropped and read as absent: reflection runs.
+REVIEW_ROUTING_JUDGMENTS = ("learning", "learning_reason")
 
 
 def without_routing_judgments(report: Any) -> dict[str, Any]:
@@ -215,14 +210,10 @@ class ReviewDecision:
     next_action: str
     operator_question: str = ""
     operator_options: list[dict[str, Any]] = field(default_factory=list)
-    checkpoint_recommended: bool = False
-    # Strategic judgment is separate from bounded implementation acceptance.
-    # A round may be correctly ``done`` yet still fail to move the operator's
-    # objective; LifeSupervisor uses this signal to surface repeated hollow work.
+    # Strategic judgment beside the verdict (plan challenges, authority impact),
+    # separate from bounded implementation acceptance.
     planner_report: dict[str, Any] = field(default_factory=dict)
-    # Runtime-owned semantic transition and explicit role-session signal. The
-    # Reviewer supplies these through its native review action.
-    frontier_report: dict[str, Any] = field(default_factory=dict)
+    # Explicit role-session signal, supplied through the native review action.
     session_signal: dict[str, str] = field(default_factory=dict)
     # The Reviewer's own judgment that the fact it disputes cannot be observed
     # through any view it has (a masked display, for example), so repeating the
@@ -268,11 +259,16 @@ class ReviewDecision:
     # replacements keep (or reset to) False, so they are never carried forward
     # as the Reviewer's own findings.
     reviewer_authored: bool = False
-    # The Reviewer's own status/reason/next_action before any host rewrite
-    # (venue acceptance, pending background run). Later rounds quote these,
-    # and show each rewrite separately from ``host_notes``.
+    # The Reviewer's own status/reason/next_action before any host rewrite.
+    # Later rounds quote these.
     reviewer_words: dict[str, str] | None = None
-    host_notes: list[str] = field(default_factory=list)
+    # The host's interventions beside this verdict, which never rewrite it:
+    # each names the ``policy`` applied, the ``action`` taken instead, when
+    # (``at``), and a ``note``. Settlement reads verdict and interventions.
+    interventions: list[dict[str, Any]] = field(default_factory=list)
+    # Workspace paths that changed while the Reviewer judged, from the round's
+    # snapshots. A fact beside the verdict, which stands as written.
+    changed_during_review: list[str] = field(default_factory=list)
     # Why a host-written record stands where no Reviewer judgment was made,
     # e.g. ``provider_turn_cap``, ``backend_failure``, ``silent_command``.
     # Those records name the same kind in ``review_source``, so no consumer
@@ -282,6 +278,10 @@ class ReviewDecision:
     venue_review_required: bool = False
     venue_review_passed: bool = False
     venue_review_snapshot: dict[str, str] | None = None
+
+    def intervention(self, policy: str) -> dict[str, Any] | None:
+        """The host's intervention under ``policy`` beside this verdict, if any."""
+        return next((row for row in self.interventions if row.get("policy") == policy), None)
 
     @property
     def final_submission_certified(self) -> bool:
@@ -303,7 +303,6 @@ class ReviewDecision:
                 for option in (self.operator_options or [])
                 if isinstance(option, dict)
             ],
-            "checkpoint_recommended": bool(self.checkpoint_recommended),
             "review_source": self.review_source or "reviewer",
             "prompt_block_stats": {
                 str(name): dict(stats)
@@ -321,6 +320,8 @@ class ReviewDecision:
             "stop_kind": self.backend_stop_kind,
             "usage_scope": "delta",
         }
+        if self.interventions:
+            payload["interventions"] = [dict(row) for row in self.interventions]
         if isinstance(self.manuscript_snapshot, dict):
             payload["manuscript_snapshot"] = dict(self.manuscript_snapshot)
         if self.venue_review_required or self.venue_review is not None:
@@ -329,9 +330,6 @@ class ReviewDecision:
             payload["venue_review_passed"] = self.venue_review_passed
             payload["venue_review_snapshot"] = self.venue_review_snapshot
         report = self.planner_report if isinstance(self.planner_report, dict) else {}
-        forward_progress = report.get("forward_progress")
-        if isinstance(forward_progress, bool):
-            payload["forward_progress"] = forward_progress
         plan_signal = str(report.get("plan_signal") or "").strip()
         if plan_signal:
             payload["plan_signal"] = plan_signal
@@ -339,19 +337,12 @@ class ReviewDecision:
             ("challenge", "plan_challenge"),
             ("alternative", "plan_alternative"),
             ("authority_impact", "authority_impact"),
-            ("manager_attention", "manager_attention"),
-            ("manager_attention_reason", "manager_attention_reason"),
             ("learning", "learning"),
             ("learning_reason", "learning_reason"),
         ):
             value = str(report.get(source_key) or "").strip()
             if value:
                 payload[event_key] = value
-        frontier = self.frontier_report if isinstance(self.frontier_report, dict) else {}
-        frontier_change = str(frontier.get("change") or "").strip()
-        if frontier_change:
-            payload["frontier_change"] = frontier_change
-            payload["frontier_summary"] = str(frontier.get("summary") or "")[:2000]
         signal = self.session_signal if isinstance(self.session_signal, dict) else {}
         if str(signal.get("kind") or "").strip():
             payload["session_signal"] = dict(signal)
@@ -371,6 +362,8 @@ class ReviewDecision:
                 payload["residual_risk_detail"] = dict(self.residual_risk_detail)
         if self.research_result is not None:
             payload["research_result"] = dict(self.research_result)
+        if self.changed_during_review:
+            payload["changed_during_review"] = list(self.changed_during_review)
         payload.update(extras)
         return payload
 

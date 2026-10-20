@@ -88,7 +88,6 @@ def test_goal_metrics_cover_acceptance_progress_replans_and_duplicate_work(
             "project_id": "p1",
             "item_id": "m1",
             "accepted": False,
-            "forward_progress": False,
             "replan_requested": True,
         },
         timestamp=100.0,
@@ -101,7 +100,6 @@ def test_goal_metrics_cover_acceptance_progress_replans_and_duplicate_work(
             "project_id": "p1",
             "item_id": "m2",
             "accepted": True,
-            "forward_progress": True,
             "replan_requested": False,
         },
         timestamp=110.0,
@@ -138,7 +136,6 @@ def test_goal_metrics_cover_acceptance_progress_replans_and_duplicate_work(
 
     assert goal["missions"] == 2
     assert goal["mission_acceptance_rate"] == 0.5
-    assert goal["forward_progress_rate"] == 0.5
     assert goal["replan_rate"] == 0.5
     assert goal["duplicate_work_rate"] == 0.5
     assert goal["time_to_first_useful_progress_seconds"] == 10.0

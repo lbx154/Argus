@@ -41,17 +41,18 @@ def test_shared_manager_grounding_renders_once_for_distinct_task_wording() -> No
     assert "Canonical execution objective." in prompt
 
 
-def test_engineer_prompt_avoids_repeated_checks_and_compile_cleanup() -> None:
+def test_engineer_prompt_leaves_working_methods_to_the_backend() -> None:
     prompt = build_mission_prompt(
         task="Audit the repository once.",
         skill_text="",
         next_action=None,
     )
 
-    assert "Never repeat unchanged checks or reads" in prompt
-    assert "Ignore `__pycache__`/`.pyc`" in prompt
-    assert "avoid compile-only ceremony" in prompt
-    assert "never exceed 24" not in prompt
+    for ban in (
+        "Never repeat unchanged", "compile-only ceremony", "add no hashes",
+        "initialize Git", "subagents", "never exceed 24",
+    ):
+        assert ban not in prompt
 
 
 def test_engineer_prompt_marks_detail_dependent_operator_options() -> None:
@@ -79,9 +80,7 @@ def _without_host_shell_guidance(prompt: str) -> str:
     return prompt
 
 
-@pytest.mark.parametrize("policy", ["standard", "progress-first", "strict"])
-def test_direct_team_prompt_uses_one_mission_contract(monkeypatch, policy) -> None:
-    monkeypatch.setenv("ARGUS_SKILL_EVIDENCE_POLICY", policy)
+def test_direct_team_prompt_uses_one_mission_contract() -> None:
     marker = "DIRECT_TEAM_CONTRACT_17"
     prompt = build_mission_prompt(
         task=f"## Mission contract\nDeliver {marker}.\n\nAcceptance:\ncheck it once",
@@ -138,7 +137,7 @@ def test_direct_fresh_retry_forwards_reviewer_action_through_skill_loop(tmp_path
         config=SkillLoopConfig(
             engineer_model="fixture", reviewer_model="fixture",
             workflow_mode="direct", active_vertical="software",
-            role_session_policy="fresh", max_rounds=2,
+            max_rounds=2,
             require_independent_review=True, require_post_task_learning=False,
             wiki_enabled=False, auto_init_wiki=False,
         ),

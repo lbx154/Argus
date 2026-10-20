@@ -11,7 +11,7 @@ from ...core.model_visible_text import (
 )
 from ..task_contract import (
     EFFECTIVE_TASK_CONTRACT,
-    experiment_evidence_contract,
+    EXPERIMENT_EVIDENCE_CONTRACT,
     native_shell_contract,
     native_shell_summary,
 )
@@ -24,15 +24,23 @@ NARRATIVE_EDIT = "narrative_edit"
 OPERATIONS = frozenset({MISSION, AUTHOR_DRAFT, NARRATIVE_EDIT})
 _MANAGER_GROUNDING_HEADER = "\n\n## Manager project grounding (advisory evidence)\n"
 
+# A long job runs inside the Engineer's own model call: Argus does not wait for
+# it. Every check is a model call, so the Engineer waits on it once where the
+# backend allows: Argus raises Codex's single-wait limit and Copilot's
+# background-task wait to their maximums (_sandbox_commands, _prompt_delivery),
+# and Copilot resumes a turn when its async shell exits.
+_WAIT_BY_BACKEND = (
+    ": on Codex, one `write_stdin` with empty input and a `yield_time_ms` longer "
+    "than the job; on Copilot, the shell tool in `async` mode, then end your turn, "
+    "and Copilot resumes you when it exits; elsewhere, the longest blocking calls "
+    "your shell allows. Never poll in short loops."
+)
 _POSIX_LONG_EXPERIMENT_RULE = (
-    "For commands over two minutes, use Argus's durable runner: "
-    "`\"${ARGUS_SKILL_PYTHON:-python3}\" -m "
-    "argus.tools.subagent submit --task-id <id> --mode direct "
-    "--command '<command>'`. Use `--mode supervised` only for "
-    "semantic monitoring. Never `task(mode=\"background\")` or a session-owned "
-    "background shell. Keep the `state=submitted`, `task_id`, `run_id` and "
-    "`check_with` response; on `state=discussing` answer with `reply_with` "
-    "and do not poll in the foreground."
+    "For commands over two minutes, start them detached so they outlive your "
+    "shell, keeping the exit code: `setsid nohup sh -c '<command>; echo $? > "
+    "<run>/exit_code' > <run>/log 2>&1 < /dev/null &`. Do the work that does not "
+    "need the result, then wait for it on `until [ -e <run>/exit_code ]; do "
+    "sleep 30; done`" + _WAIT_BY_BACKEND
 )
 # The baton line of docs/role-handoff-design.md: prose for the next holder,
 # then one line naming it. The host routes the work by that line alone.
@@ -43,8 +51,8 @@ _HANDOFF_RULE = (
     "naming that holder:\n"
     "→ reviewer\n"
     "Or `→ done` (milestone complete), `→ engineer` (keep working), `→ planner` "
-    "(task mis-scoped), `→ manager` (obstacle only it can remove), "
-    "`→ operator: <one question>`, or `→ wait: <task-id>` (submitted job)."
+    "(task mis-scoped), `→ manager` (obstacle only it can remove), or "
+    "`→ operator: <one question>`."
 )
 
 
@@ -81,41 +89,20 @@ _PERFORMANCE_DIAGNOSTIC_RULE = (
     "processes; free memory or a zero-utilization snapshot does not prove isolation. "
     "Independent process repetitions can run sequentially on a released device."
 )
-_ACCELERATOR_ADMISSION_RULE = (
-    "For GPU jobs, add `--accelerator cuda` (or `rocm`), `--gpu-count <count>`, "
-    "`--gpu-mem-mib <peak-MiB>`, `--expected-duration <duration>` and "
-    "`--intent '<purpose>'` to submit; add `--checkpointable` only when supported. "
-    "Use the allocator's visibility mask and logical device indices; do not "
-    "override CUDA_VISIBLE_DEVICES/ROCR_VISIBLE_DEVICES inside the command. "
-    "The shared ledger coordinates cooperating tasks, not unmanaged external "
-    "processes. `waiting_resource` is a healthy queue; continue independent "
-    "work while it waits. Never put nvidia-smi/GPU polling in the command."
-)
-_DURABLE_WAIT_RULE = (
-    "After submit, do independent work. If only a healthy running or resource-queued "
-    "job remains, save the checkpoint and hand off with `→ wait: <task-id>`, using "
-    "its existing ID, including jobs submitted during this same turn. "
-    "Do not foreground-poll or relaunch. "
-    "Argus resumes this task on state change; validate outputs. Waiting is not "
-    "milestone completion or paper review."
-)
 _EXPERIMENT_PREREQUISITE_RULE = (
-    "Block dependents on failed readiness. Use --depends-on for prerequisites, "
-    "--rerun-reason for retries; keep attempt outputs separate."
+    "Block dependents on failed readiness; keep each attempt's outputs separate."
 )
 _DESIGN_SYMPTOM_RULE = (
     "Fix reported symptoms within design rules; intended behavior needs task-text support."
 )
 
 _WINDOWS_LONG_EXPERIMENT_RULE = (
-    "For commands over two minutes on native Windows, use Windows PowerShell 5.1 syntax "
-    "and Argus's durable runner: "
-    "`& '.\\.venv\\Scripts\\python.exe' -m argus.tools.subagent submit "
-    "--task-id '<id>' --mode direct --command '<command>'`. "
-    "Use `--mode supervised` only for semantic monitoring. Do not use "
-    "`task(mode=\"background\")` or a session-owned background shell. Keep the "
-    "`state=submitted`, `task_id`, `run_id`, and `check_with` response. On "
-    "`state=discussing`, answer with `reply_with`; do not poll in the foreground."
+    "For commands over two minutes on native Windows, use Windows PowerShell 5.1 "
+    "syntax: start them detached with `Start-Process -PassThru -WindowStyle Hidden "
+    "-FilePath <exe> -ArgumentList <args> -RedirectStandardOutput <run>\\log.txt "
+    "-RedirectStandardError <run>\\err.txt`, "
+    "keep the process id, do the work that does not need the result, then wait "
+    "for it on `Wait-Process -Id <pid>`" + _WAIT_BY_BACKEND
 )
 
 def _long_experiment_rule() -> str:
@@ -125,8 +112,7 @@ def _long_experiment_rule() -> str:
         else _POSIX_LONG_EXPERIMENT_RULE
     )
     return " ".join((
-        shell_rule, _ACCELERATOR_ADMISSION_RULE, _EXPERIMENT_PREREQUISITE_RULE,
-        experiment_evidence_contract(), _DURABLE_WAIT_RULE,
+        shell_rule, _EXPERIMENT_PREREQUISITE_RULE, EXPERIMENT_EVIDENCE_CONTRACT,
     ))
 
 
@@ -158,7 +144,6 @@ def assemble_round_prompt(
     role_context: str = "",
     checkpoint_block: str = "",
     background_advisory: str = "",
-    external_work_advisory: str = "",
 ) -> str:
     """Append all dynamic Engineer round fragments in one stable order.
 
@@ -177,12 +162,7 @@ def assemble_round_prompt(
         separator, operator_tail = "", ""
     tail = [
         sanitize_model_visible_text(block)
-        for block in (
-            role_context,
-            checkpoint_block,
-            background_advisory,
-            external_work_advisory,
-        )
+        for block in (role_context, checkpoint_block, background_advisory)
         if block
     ]
     if separator:
@@ -262,7 +242,6 @@ def build_mission_prompt(
     """Build the complete per-round Engineer mission prompt."""
     shell_contract = native_shell_contract()
     shell_summary = native_shell_summary()
-    from ...tools.web_source import ENGINEER_SOURCE_HANDOFF
     learning_block = _post_task_learning_section(
         require_post_task_learning=require_post_task_learning,
         project_skill_dir=project_skill_dir,
@@ -302,16 +281,12 @@ def build_mission_prompt(
                 + sanitize_model_visible_text(role_banner.strip())
             )
         sections.append(_PERFORMANCE_DIAGNOSTIC_RULE)
-        sections.append(ENGINEER_SOURCE_HANDOFF)
         sections.append(_long_experiment_rule())
         sections.append(
             "## Engineer service\n"
             "Implement this task end to end; run its profile's named feedback check. "
-            "Never repeat unchanged checks, reopen campaign planning, start another "
-            "Argus service or add unrelated outputs. In explore/develop, follow feedback "
-            "into alternatives authorized by the decision rule. "
-            + _DESIGN_SYMPTOM_RULE + " "
-            "If blocked, keep only state needed next round."
+            "In explore/develop, follow feedback into alternatives authorized by the "
+            "decision rule. " + _DESIGN_SYMPTOM_RULE
         )
         if learning_block:
             sections.append(learning_block)
@@ -340,19 +315,10 @@ def build_mission_prompt(
     sections.append(
         "## This turn\n"
         "Own this task end to end: plan and use tools until its check passes or a real "
-        "obstacle remains. Work here; reading must yield a written result or measurement. "
-        "Write only needed code; add no hashes, UUIDs, retries, fallbacks, locks, or "
-        "abstractions unless required. Do not write planning/spec/brief documents, "
-        "initialize Git, branch/worktree, or commit unless required; Planner owns the "
-        "campaign plan. Delegate wide reads, sweeps, and long runs to subagents; take "
-        "back the answer, not the transcript. Budget your context.\n"
-        "Never repeat unchanged checks or reads. Ignore `__pycache__`/`.pyc`; "
-        "Python tests already import code, so avoid compile-only ceremony.\n"
+        "obstacle remains.\n"
         "Web UI: test real Chromium and mobile.\n"
-        "Use primary sources when external behavior matters. If repeated attempts fail, "
-        "recheck the underlying assumption, not another cosmetic tweak. "
+        "Use primary sources when external behavior matters. "
         + _DESIGN_SYMPTOM_RULE + "\n"
-        + ENGINEER_SOURCE_HANDOFF + "\n"
         + _PERFORMANCE_DIAGNOSTIC_RULE
         + "\n"
         + _long_experiment_rule()
@@ -361,9 +327,8 @@ def build_mission_prompt(
         sections.append(learning_block)
     sections.append(
         "## Carrying context between rounds\n"
-        "CHECKPOINT.md is the only file you maintain to carry context between rounds; do not create "
-        "separate summaries or collections of evidence. Host invokes Reviewer only when required; do not "
-        "spawn a Reviewer subagent. "
+        "CHECKPOINT.md carries your state from one round to the next. Host invokes "
+        "Reviewer only when required; do not spawn a Reviewer subagent. "
         + engineer_operator_handoff_rule()
         + " Options use "
         "`id::label::description`, or `id::true::label::description` when a note "
@@ -430,9 +395,7 @@ def build_mission_prompt(
         "Read CHECKPOINT.md, then execute the Reviewer next action. If your own labeled "
         "measurement contradicts a value the review asks for, do not write that value: "
         "record the evidence in CHECKPOINT.md and ask the Reviewer to resolve the "
-        "discrepancy. Do not repeat an "
-        "unchanged failure; use the most informative decisive diagnostic. The original task "
-        "still applies.\n"
+        "discrepancy. The original task still applies.\n"
         + _PERFORMANCE_DIAGNOSTIC_RULE
         + "\n"
         + _long_experiment_rule()

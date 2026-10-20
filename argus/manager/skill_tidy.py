@@ -8,7 +8,7 @@ from pathlib import Path
 from typing import Any, Callable, Iterable
 
 from ..core.file_facts import file_facts
-from ..core.knobs import resolve_manager_classify_model
+from ..core.knobs import resolve_light_effort, resolve_light_model
 from ..core.models import RunnerOptions
 from ..core.run_gateway import run_exec as gateway_run_exec
 from ..skills.layered import shared_skill_scope_dir
@@ -452,10 +452,8 @@ def propagate_after_mission(
             backend,
             prompt=prompt,
             options=RunnerOptions(
-                model=resolve_manager_classify_model(
-                    backend=getattr(backend, "backend", None),
-                ),
-                reasoning_effort="low",
+                model=resolve_light_model(backend=getattr(backend, "backend", None)),
+                reasoning_effort=resolve_light_effort(),
                 sandbox_mode="workspace-write",
                 skip_git_repo_check=True,
                 working_dir=str(shared),

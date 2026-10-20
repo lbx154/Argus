@@ -96,7 +96,7 @@ class StageTransitionMixin:
                         "reason": str(getattr(final_review, "reason", "") or ""),
                     }
                     with manager_pipeline_lock(control.state_root):
-                        control_head = control.clear_wait_for_new_evidence_if_current(
+                        control_head = control.record_review_evidence_if_current(
                             identity=identity,
                             expected_head=expected_head,
                             stage_projection={

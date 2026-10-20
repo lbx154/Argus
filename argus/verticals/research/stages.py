@@ -7,26 +7,17 @@ while the evidence comes in.
 """
 from __future__ import annotations
 
-import logging
-import os
 import re
 from pathlib import Path
 from typing import Any
 
 from ...core.vertical_contract import IterationAssessment
 from ...skills.stage_machine import ChecklistItem
-from . import idea_portfolio, library_preparation
+from . import library_preparation
 from .mission_brief import prepare_mission
 from .prompt_policy import render_role_prompt_context, render_role_prompt_fragment
-from .review_purchase import review_purchase_policy
-from .task_routes import (
-    model_route_for_task,  # noqa: F401 - the host reads this hook off the vertical module
-)
-
-log = logging.getLogger(__name__)
 
 LIBRARY_PREPARER = library_preparation.prepare_skill_libraries
-BACKGROUND_RECONCILER = idea_portfolio.reconcile_idea_portfolio_campaign
 
 CANONICAL_STAGE_ORDER: tuple[str, ...] = (
     "idea",
@@ -56,31 +47,19 @@ def _checklist(*items: ChecklistItem) -> tuple[ChecklistItem, ...]:
 STAGE_CHECKLISTS: dict[str, tuple[ChecklistItem, ...]] = {
     "idea": _checklist(
         ChecklistItem(
-            id="idea.portfolio",
-            statement=(
-                "For a new broad publishable or doctoral paper mission, complete exactly "
-                "the configured number of source-only routes (default three; operators "
-                "set ARGUS_RESEARCH_PORTFOLIO_ROUTES), one independent review per route, "
-                "and one selector. Candidate execution is forbidden during selection. Full "
-                "working outputs stay under internal `.argus` team storage."
-            ),
-            evidence_hint="internal `.argus/teams/...` task outputs",
-        ),
-        ChecklistItem(
             id="idea.selection",
             statement=(
-                "For a staged broad paper mission, the selector makes one resumable "
-                "choice; the project-root research notes, `RESEARCH_NOTES.md`, carry "
-                "the winner into Experiment, with a one-line reason for setting aside "
-                "every other route. For a staged direction the operator has fixed, the "
-                "research notes instead examine and position the supplied idea without "
-                "inventing a selector or routes that were set aside. The notes replace "
-                "the previous text rather than accumulating history. The selection "
-                "itself completes this stage; missing or thin notes are written on the "
-                "way out and are never a reason to hold. A direct Idea-only request "
-                "returns its independently reviewed result without writing that file."
+                "For a staged broad paper mission, compare several source-only routes "
+                "and choose one; the project-root research notes, `RESEARCH_NOTES.md`, "
+                "carry the winner into Experiment, with a one-line reason for setting "
+                "aside every other route. For a staged direction the operator has fixed, "
+                "the research notes instead examine and position the supplied idea "
+                "without inventing routes that were set aside. The notes replace the "
+                "previous text rather than accumulating history. A direct Idea-only "
+                "request returns its independently reviewed result without writing "
+                "that file."
             ),
-            evidence_hint="the selected idea in the project's stage record",
+            evidence_hint="RESEARCH_NOTES.md",
         ),
     ),
     "experiment": _checklist(
@@ -104,8 +83,8 @@ STAGE_CHECKLISTS: dict[str, tuple[ChecklistItem, ...]] = {
                 "differential, knockout and claim-shaped tests) written first."
             ),
             evidence_hint=(
-                "METHOD.md, code, explicit run configuration, host-run tests/spec "
-                "output, and direct smoke output"
+                "METHOD.md, code, explicit run configuration, tests/spec output, "
+                "and direct smoke output"
             ),
         ),
         ChecklistItem(
@@ -120,8 +99,8 @@ STAGE_CHECKLISTS: dict[str, tuple[ChecklistItem, ...]] = {
                 "that fails when that component is disabled."
             ),
             evidence_hint=(
-                "METHOD.md component rows, implemented entry points, and host-run "
-                "tests/spec output"
+                "METHOD.md component rows, implemented entry points, and tests/spec "
+                "output"
             ),
         ),
         ChecklistItem(
@@ -314,7 +293,7 @@ STAGE_CHECKLISTS: dict[str, tuple[ChecklistItem, ...]] = {
             statement=(
                 "Before narrative editing, preserve an immutable source/PDF snapshot in "
                 "internal mission state. After the fresh-context edit, the host obtains independent "
-                "read-only passes in parallel: before/after scientific semantic-loss, strict "
+                "passes in parallel: before/after scientific semantic-loss, strict "
                 "rendered visual quality, and a cold read whose isolated input contains only "
                 "the current rendered PDF. The host skips semantic loss for identical verified "
                 "snapshots and reuses PDF-only assessments only for identical input and policy. "
@@ -524,29 +503,9 @@ def stage_completion_issues(
 ) -> tuple[str, ...]:
     normalized = str(stage or "").strip().lower()
     root = Path(project_root)
-    if normalized == "idea":
-        from ...core.pipeline_state import pipeline_state_exists
-        from .idea_portfolio import idea_portfolio_completion_issues
-
-        resolved_state_root = Path(state_root or root)
-        if not pipeline_state_exists(resolved_state_root):
-            log.warning(
-                "idea-stage requirements cannot be determined: "
-                "PIPELINE_STATE.json is missing at resolved state root %s",
-                resolved_state_root,
-            )
-            return (
-                "idea-stage requirements cannot be determined because "
-                "PIPELINE_STATE.json is missing at the resolved state root",
-            )
-        portfolio_issues = idea_portfolio_completion_issues(
-            root,
-            state_root=resolved_state_root,
-        )
-        return tuple(portfolio_issues)
-    if normalized == "experiment":
-        # Experiment is judged on its evidence by the Reviewer and Manager; the
-        # research notes are context for Paper, not a completion condition.
+    if normalized in {"idea", "experiment"}:
+        # Idea and Experiment are judged on their evidence by the Reviewer and
+        # Manager; the research notes are context, not a completion condition.
         return ()
     if normalized == "paper":
         return _paper_issue(root)
@@ -560,26 +519,6 @@ def stage_completion_issues(
             )
         )
     return ()
-
-
-def automatic_stage_completion_ready(
-    *,
-    stage: str,
-    project_root: Path,
-    state_root: Path,
-) -> bool:
-    """Only a completed mandatory portfolio closes without Manager judgment."""
-    from .idea_portfolio import portfolio_required
-
-    return bool(
-        str(stage or "").strip().lower() == "idea"
-        and portfolio_required(state_root)
-        and not stage_completion_issues(
-            stage,
-            project_root,
-            state_root=state_root,
-        )
-    )
 
 
 def iteration_assessment(
@@ -632,9 +571,7 @@ CHECKLIST_STAGE_ORDER = CANONICAL_STAGE_ORDER
 CHECKLIST_ITEMS = STAGE_CHECKLISTS
 ALLOW_STAGE_ROLLBACK = False
 completion_gate = "certified"
-MISSION_KIND = "research"
 PAPER_MISSION = True
-WORKFLOW_MODE = "proportional"
 VERIFICATION_STAGE_PROFILES = {
     "idea": "explore",
     "experiment": "develop",
@@ -647,19 +584,6 @@ ENGINEER_STAGE_OPERATIONS = {
     "review": "narrative_edit",
 }
 REQUIRE_INDEPENDENT_REVIEW = True
-# Round guards (core/round_policy.py). Research missions build methods, run
-# experiments, and revise papers; one mission can legitimately take dozens of
-# rounds. The guards stay on but far out: the two-verdict progress window
-# opens after round 60, an explicit progress judgement is required from round
-# 120, and six consecutive explicit no-progress verdicts end the mission.
-# Venue-quality review loops (core/venue_review.py) still turn all of these
-# off for the review stage.
-ROUND_POLICY = {
-    "stall_threshold": 6,
-    "no_progress_threshold": 2,
-    "soft_round_limit": 60,
-    "hard_escalate_rounds": 120,
-}
 
 _AMBITIOUS_RESEARCH_POLICY = (
     "Build a paper around a real contribution and a result worth defending. "
@@ -679,10 +603,11 @@ _PLANNER_RESEARCH_ORCHESTRATION = (
     "are the sole normal cross-stage context until Review, with one named exception: "
     "the method card, METHOD.md, is a work product every role reads and its claim "
     "changes only as the experiment.repair item allows. Review uses "
-    "paper/main.tex, its rendered output and direct dependencies, and paper/REVIEW.md."
+    "paper/main.tex, its rendered output and direct dependencies, and paper/REVIEW.md. "
+    "Verify the current claim or delta and reuse reviewed evidence unless a "
+    "dependency changed or conflicts; do not rebuild snapshots, manifests, or audit "
+    "packets by default."
 )
-
-_TEAM_TASK_ENV = "ARGUS_SKILL_TEAM_TASK_ID"
 
 _ENGINEER_RESEARCH_METHOD = (
     _AMBITIOUS_RESEARCH_POLICY
@@ -701,25 +626,12 @@ _ENGINEER_RESEARCH_EXECUTION = (
     "stage needs."
 )
 
-# One worker among several in a shared project tree. Every sibling rewriting
-# the project-root notes left each of them reading another route's account and
-# spending rounds repairing the wrong task.
-_ENGINEER_TEAM_RESEARCH_EXECUTION = (
-    _ENGINEER_RESEARCH_METHOD
-    + ". You are one of several workers sharing this project tree: write only the "
-    "files your task names and your own continuation note. The project-root research "
-    "notes, RESEARCH_NOTES.md, belong to the mission that dispatched this work; read "
-    "them for context and leave them unchanged. Read the method card, METHOD.md, the "
-    "same way: it tells you what the method is, and only the lead edits it."
-)
-
 _REVIEWER_RESEARCH_JUDGEMENT = (
     _AMBITIOUS_RESEARCH_POLICY
     + " Distinguish scientific failure from implementation or evaluator failure. "
     "Keep defects in the current stage and specify the repair; never request rollback. "
-    "In Review, you own paper/REVIEW.md: update it through the provided report tool "
-    "when available, giving the complete judgment naturally. The host preserves your "
-    "opinion and binds it to the current paper. "
+    "In Review, your review becomes paper/REVIEW.md: give the complete judgment "
+    "naturally. The host preserves your opinion and binds it to the current paper. "
     "Engineer performs the requested scientific repairs and experiments directly in Review "
     "and returns for independent re-review; do not create parallel review records."
 )
@@ -746,7 +658,7 @@ def import_legacy_state(*, source_root: object, state_root: object) -> None:
     Runs once, right after legacy Manager state naming this vertical is copied
     into the new state root: old stage names are rewritten to the current
     four-stage order, and any idea-selection record made under the legacy
-    layout is brought along so the campaign does not reopen its portfolio.
+    layout is brought along so the campaign keeps its chosen idea.
     """
     from ...skills.stage_machine import migrate_legacy_research_stage
     from .idea_portfolio import migrate_legacy_idea_selection
@@ -765,53 +677,7 @@ def search_altitude_context(project_root: object) -> str:
     return ""
 
 
-def planner_task_issues(
-    stage: str,
-    project_root: Path,
-    task: object,
-) -> tuple[str, ...]:
-    """Keep Planner tasks from competing with the runtime-owned Idea portfolio."""
-    _ = project_root
-    if str(stage or "").strip().lower() != "idea":
-        return ()
-    owns_paths = tuple(
-        str(path or "").strip().replace("\\", "/")
-        for path in (getattr(task, "owns_paths", ()) or ())
-    )
-    if not any(
-        path == ".argus/teams" or path.startswith(".argus/teams/")
-        for path in owns_paths
-    ):
-        return ()
-    contract = " ".join(
-        [
-            *(
-                str(getattr(task, field, "") or "")
-                for field in ("title", "objective", "acceptance_check")
-            ),
-            *owns_paths,
-        ]
-    ).lower()
-    explicitly_portfolio = any(
-        marker in contract
-        for marker in ("portfolio", "tournament", "idea-pipeline")
-    )
-    portfolio_shaped = (
-        "route" in contract
-        and ("review" in contract or "selector" in contract)
-        and re.search(r"\b(?:twelve|\d{1,2}) (?:[a-z-]+ ){0,3}routes?\b", contract) is not None
-    )
-    if not explicitly_portfolio and not portfolio_shaped:
-        return ()
-    return (
-        "the research runtime owns the canonical Idea portfolio; omit all "
-        "`.argus/teams/...` paths and let the runtime-provided portfolio complete",
-    )
-
-
 def role_banner(role: str = "engineer") -> str:
-    if role == "engineer" and os.environ.get(_TEAM_TASK_ENV, "").strip():
-        return _ENGINEER_TEAM_RESEARCH_EXECUTION
     return {
         "planner": _PLANNER_RESEARCH_ORCHESTRATION,
         "reviewer": _REVIEWER_RESEARCH_JUDGEMENT,
@@ -832,23 +698,18 @@ __all__ = [
     "render_full_checklist_body",
     "CHECKLIST_STAGE_ORDER",
     "CHECKLIST_ITEMS",
-    "WORKFLOW_MODE",
     "VERIFICATION_STAGE_PROFILES",
     "ENGINEER_LIVE_SEARCH_STAGES",
     "ENGINEER_STAGE_OPERATIONS",
     "REQUIRE_INDEPENDENT_REVIEW",
     "role_banner",
-    "planner_task_issues",
     "import_legacy_state",
     "prepare_mission",
     "search_altitude_context",
     "render_role_prompt_fragment",
     "render_role_prompt_context",
-    "review_purchase_policy",
     "stage_completion_issues",
-    "automatic_stage_completion_ready",
     "iteration_assessment",
     "completion_gate",
     "PAPER_MISSION",
-    "model_route_for_task",
 ]

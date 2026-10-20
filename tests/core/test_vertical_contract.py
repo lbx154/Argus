@@ -11,7 +11,6 @@ from argus.core.vertical_contract import (
     vertical_contract,
 )
 from argus.skills.stage_machine import ChecklistItem
-from argus.verticals._base import _contract
 
 
 def _item(item_id: str) -> ChecklistItem:
@@ -30,19 +29,11 @@ def test_minimal_non_research_vertical_implements_only_documented_contract() -> 
     assert contract.name == "minimal_delivery"
     assert contract.stage_order == ("build", "verify")
     assert contract.completion_gate == "none"
-    assert contract.mission_kind == "custom"
     assert contract.ground_before_handoff is False
     assert contract.allow_stage_rollback is True
     assert contract.banner("engineer") == ""
     assert contract.role_prompt_context is None
     assert contract.evidence_schema is None
-    assert contract.review_purchase(
-        project_root=Path("."),
-        task=object(),
-        existing_items=(),
-        semantic_duplicate=None,
-        stage_reviewed_at=None,
-    ) is None
 
 
 @pytest.mark.parametrize("value", [None, "false", "true", 0, 1, [], {}])
@@ -63,13 +54,12 @@ def test_provider_declares_routing_metadata_without_manager_name_tables() -> Non
         CHECKLIST_STAGE_ORDER=("work",),
         CHECKLIST_ITEMS={"work": (_item("work.output"),)},
         completion_gate="none",
-        MISSION_KIND="software",
+        MISSION_KIND="software",  # retired; read without error
         GROUND_BEFORE_HANDOFF=True,
     )
 
     contract = vertical_contract("maintainer", provider)
 
-    assert contract.mission_kind == "software"
     assert contract.ground_before_handoff is True
 
 
@@ -86,60 +76,6 @@ def test_provider_completion_validator_is_typed_and_normalized(tmp_path: Path) -
     assert contract.completion_issues("verify", tmp_path) == (
         f"verify:{tmp_path.name}",
     )
-
-
-def test_empty_completion_gate_does_not_opt_into_automatic_close(tmp_path: Path) -> None:
-    provider = SimpleNamespace(
-        CHECKLIST_STAGE_ORDER=("verify",),
-        CHECKLIST_ITEMS={"verify": (_item("verify.output"),)},
-        completion_gate="none",
-        stage_completion_issues=lambda *_args: (),
-    )
-    contract = vertical_contract("model_reviewed", provider)
-
-    assert contract.completion_issues("verify", tmp_path) == ()
-    assert not _contract(provider).automatic_stage_completion_ready(
-        stage="verify", project_root=tmp_path, state_root=tmp_path,
-    )
-
-
-@pytest.mark.parametrize("ready", [True, False])
-def test_auto_close_policy_receives_separate_state_and_evidence_roots(
-    tmp_path: Path, ready: bool,
-) -> None:
-    calls = []
-
-    def allowed(*, stage, project_root, state_root):
-        calls.append((stage, project_root, state_root))
-        return ready
-
-    provider = SimpleNamespace(
-        CHECKLIST_STAGE_ORDER=("verify",),
-        CHECKLIST_ITEMS={"verify": (_item("verify.output"),)},
-        completion_gate="none", automatic_stage_completion_ready=allowed,
-    )
-    evidence, state = tmp_path / "evidence", tmp_path / "state"
-
-    assert _contract(provider).automatic_stage_completion_ready(
-        stage="verify", project_root=evidence, state_root=state,
-    ) is ready
-    assert calls == [("verify", evidence, state)]
-
-
-@pytest.mark.parametrize("policy", [
-    "yes", lambda **_kwargs: "false", lambda **_kwargs: "yes",
-    lambda **_kwargs: 1, lambda **_kwargs: 0, lambda **_kwargs: None,
-])
-def test_auto_close_rejects_invalid_policy(policy, tmp_path: Path) -> None:
-    provider = SimpleNamespace(
-        CHECKLIST_STAGE_ORDER=("verify",),
-        CHECKLIST_ITEMS={"verify": (_item("verify.output"),)},
-        completion_gate="none", automatic_stage_completion_ready=policy,
-    )
-    with pytest.raises(VerticalContractError, match="automatic stage completion"):
-        _contract(provider).automatic_stage_completion_ready(
-            stage="verify", project_root=tmp_path, state_root=tmp_path,
-        )
 
 
 def test_vertical_validator_can_defer_checks_by_verification_profile(
@@ -173,14 +109,15 @@ def test_vertical_validator_can_defer_checks_by_verification_profile(
 
     assert contract.completion_issues("propose", tmp_path) == ()
     assert contract.completion_issues("final", tmp_path) == ("certify now",)
+    # A profile saved by an older version is ignored: the stage decides.
     state_root = tmp_path / "state"
     write_pipeline_state(state_root, {"verification_profile": "certify"})
     assert contract.completion_issues(
         "propose",
         tmp_path,
         state_root=state_root,
-    ) == ("certify now",)
-    assert seen == ["explore", "certify", "certify"]
+    ) == ()
+    assert seen == ["explore", "certify", "explore"]
 
 
 def test_non_callable_completion_validator_fails_visibly() -> None:

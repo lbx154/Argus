@@ -2,7 +2,7 @@
 
 The project's implementation of the baseline path reproduces the reference
 implementation's output on a fixed input within a stated tolerance. Until it
-passes, the host shows the baseline component as partial or contradicted. The
+passes, the baseline component is not shown to match the reference. The
 reference is used as cloned at a pinned revision, never edited in place; the
 host reads the revision and remote from the clone itself.
 """

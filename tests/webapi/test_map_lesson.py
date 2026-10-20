@@ -2,7 +2,6 @@
 
 import copy
 import json
-from dataclasses import replace
 
 import pytest
 from jsonschema import Draft202012Validator
@@ -52,7 +51,7 @@ def card(learning_path=False):
 
 
 def model():
-    return replace(MapModel("pi", "gpt-5.5", "medium", "argus-pi"), review_effort="high")
+    return MapModel("pi", "gpt-5.5", "medium", "argus-pi")
 
 
 def run_stub(calls, *, fail_second=False, learning_path=False):
@@ -89,7 +88,7 @@ def test_two_stages_share_exact_bounded_sources_deadline_and_actual_efforts(monk
     assert len(calls) == 2 and calls[0]["deadline"] == calls[1]["deadline"]
     assert all(call["prompt"].count(TEACHING_CORE) == 1 for call in calls)
     assert phases == ["planning", "writing"]
-    assert [call["config"].effort for call in calls] == ["medium", "high"]
+    assert [call["config"].effort for call in calls] == ["medium", "medium"]
     assert calls[0]["sources"] == calls[1]["sources"]
     sent = calls[0]["sources"]["passages"]["a"]
     assert sent["events"][0]["text_truncated"] is True

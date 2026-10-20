@@ -7,9 +7,7 @@
   "required": [
     "schema_version",
     "enforcement",
-    "accelerators",
-    "holders",
-    "queue"
+    "accelerators"
   ],
   "properties": {
     "schema_version": {
@@ -26,32 +24,19 @@
       "items": {
         "$ref": "#/$defs/ResourceAcceleratorStatus"
       }
-    },
-    "holders": {
-      "type": "array",
-      "items": {
-        "$ref": "#/$defs/ResourceHolderStatus"
-      }
-    },
-    "queue": {
-      "type": "array",
-      "items": {
-        "$ref": "#/$defs/ResourceQueueStatus"
-      }
     }
   },
   "$defs": {
     "ResourceDeviceStatus": {
       "type": "object",
       "additionalProperties": false,
-      "required": ["index", "name", "total_memory_mib", "used_memory_mib", "utilization_percent", "reserved"],
+      "required": ["index", "name", "total_memory_mib", "used_memory_mib", "utilization_percent"],
       "properties": {
         "index": {"type": "string"},
         "name": {"type": "string"},
         "total_memory_mib": {"type": "integer", "minimum": 0},
         "used_memory_mib": {"type": "integer", "minimum": 0},
-        "utilization_percent": {"type": "number", "minimum": 0, "maximum": 100},
-        "reserved": {"type": "boolean"}
+        "utilization_percent": {"type": "number", "minimum": 0, "maximum": 100}
       }
     },
     "ResourceAcceleratorStatus": {
@@ -85,123 +70,6 @@
         "devices": {
           "type": "array",
           "items": {"$ref": "#/$defs/ResourceDeviceStatus"}
-        }
-      }
-    },
-    "ResourceYieldResponse": {
-      "type": "object",
-      "additionalProperties": false,
-      "required": [
-        "decision",
-        "reason"
-      ],
-      "properties": {
-        "decision": {
-          "enum": [
-            "decline",
-            "yield"
-          ]
-        },
-        "reason": {
-          "type": "string",
-          "minLength": 1,
-          "maxLength": 300
-        }
-      }
-    },
-    "ResourceYieldRequest": {
-      "type": "object",
-      "additionalProperties": false,
-      "required": [
-        "reason",
-        "response"
-      ],
-      "properties": {
-        "reason": {
-          "type": "string",
-          "minLength": 1,
-          "maxLength": 300
-        },
-        "response": {
-          "anyOf": [
-            {
-              "$ref": "#/$defs/ResourceYieldResponse"
-            },
-            {
-              "type": "null"
-            }
-          ]
-        }
-      }
-    },
-    "ResourceHolderStatus": {
-      "type": "object",
-      "additionalProperties": false,
-      "required": [
-        "project",
-        "task_id",
-        "intent",
-        "ttl_seconds",
-        "device_count",
-        "yield_requests"
-      ],
-      "properties": {
-        "project": {
-          "type": "string"
-        },
-        "task_id": {
-          "type": "string"
-        },
-        "intent": {
-          "type": "string"
-        },
-        "ttl_seconds": {
-          "type": "number",
-          "minimum": 0
-        },
-        "device_count": {
-          "type": "integer",
-          "minimum": 0
-        },
-        "yield_requests": {
-          "type": "array",
-          "items": {
-            "$ref": "#/$defs/ResourceYieldRequest"
-          }
-        }
-      }
-    },
-    "ResourceQueueStatus": {
-      "type": "object",
-      "additionalProperties": false,
-      "required": [
-        "position",
-        "project",
-        "task_id",
-        "intent",
-        "ttl_seconds"
-      ],
-      "properties": {
-        "position": {
-          "type": "integer",
-          "minimum": 1
-        },
-        "project": {
-          "type": "string"
-        },
-        "task_id": {
-          "type": "string"
-        },
-        "intent": {
-          "type": "string"
-        },
-        "ttl_seconds": {
-          "type": "number",
-          "minimum": 0
-        },
-        "waited_seconds": {
-          "type": "number",
-          "minimum": 0
         }
       }
     }

@@ -53,15 +53,17 @@ class _ArgusArgumentParser(argparse.ArgumentParser):
         return _PUBLIC_HELP
 
 
-def _mission_width(value: str) -> int | str:
+def _mission_width(value: str) -> int:
+    from ...daemon.config import DEFAULT_MISSION_WIDTH
+
     text = str(value or "").strip().lower()
-    if text == "auto":
-        return "auto"
+    if text == "auto":  # retired; old scripts get the default
+        return DEFAULT_MISSION_WIDTH
     try:
         width = int(text)
     except ValueError as exc:
         raise argparse.ArgumentTypeError(
-            "mission width must be a whole number or 'auto'"
+            "mission width must be a whole number"
         ) from exc
     if width < 0:
         raise argparse.ArgumentTypeError("mission width must be zero or more")
@@ -273,18 +275,14 @@ def build_parser() -> argparse.ArgumentParser:
         dest="operator_wait_exit",
         choices=("auto", "on", "off"),
         default="auto",
-        help="whether a bounded run whose only remaining work is an unanswered "
-             "operator question ends as 'blocked: needs operator' after "
-             "ARGUS_SKILL_BOUNDED_OPERATOR_WAIT_EXIT_MIN minutes. auto (default): "
-             "on for a foreground --daemon-fg --bounded run, off otherwise.",
+        help=argparse.SUPPRESS,  # retired; accepted so old launch scripts still run
     )
     daemon_grp.add_argument(
         "--mission-width",
         type=_mission_width,
         default=2,
         help="concurrent mission workers: 0 pauses, 1 is serial, N enables "
-             "path-disjoint parallel Planner tasks, auto is a ceiling of up to "
-             "4 bounded by usable cores; ready tasks and the resource ledger "
+             "path-disjoint parallel Planner tasks; ready tasks and free GPUs "
              "decide how many run (default: 2)",
     )
 

@@ -21,14 +21,7 @@ from typing import Any, Iterator
 from .file_facts import file_facts
 
 _INTERNAL_DIR = Path(".argus/internal/narrative-runtime")
-_EXCLUDED_NAMES = frozenset(
-    {
-        "REVIEW.md",
-        "academic_language_review.json",
-        "academic_language_review.md",
-        "academic_language_review_history.jsonl",
-    }
-)
+_EXCLUDED_NAMES = frozenset({"REVIEW.md"})
 _EXCLUDED_SUFFIXES = frozenset(
     {
         ".aux",
@@ -208,11 +201,11 @@ def snapshot_after_edit(
 
 
 def _prepare_readable_pdf(paper: Path) -> None:
-    """Render on the host before a read-only CLI reviewer receives the PDF.
+    """Render on the host before a CLI reviewer receives the PDF.
 
-    Some CLI file viewers expose PDFs as binary text and cannot run a renderer
-    in read-only mode. Only derivatives of the copied PDF enter this workspace;
-    manuscript source, earlier reviews, and project previews remain excluded.
+    Some CLI file viewers expose PDFs as binary text. Only derivatives of the
+    copied PDF enter this workspace; manuscript source, earlier reviews, and
+    project previews remain excluded.
     """
     try:
         import pymupdf as fitz

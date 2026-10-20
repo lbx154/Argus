@@ -1,24 +1,10 @@
 {
-  "global/agent-team-lead.md": {
-    "title": "多智能体团队协作",
-    "summary": "判断何时值得并行工作，按文件与职责拆分协作，并独立审查汇总结果；不替代原有角色与授权。",
-    "originalName": "Agent Team Lead",
-    "source": "argus/builtin_skills/agent-team-lead.md",
-    "sourceBytes": 6933
-  },
   "global/engineer/minimal-coding-agent.md": {
     "title": "最小且严谨的软件修改",
     "summary": "用足够小的改动实现、修复或重构软件与界面，保留既有行为，避免无依据的抽象和新增依赖。",
     "originalName": "极简而严谨的 Coding Agent",
     "source": "argus/builtin_skills/engineer/minimal-coding-agent.md",
     "sourceBytes": 2672
-  },
-  "global/engineer/pdf-chat.md": {
-    "title": "分段阅读 PDF",
-    "summary": "按页或章节阅读并核对版本、页码；图片和版式需查看实际页面，回答只依据相关证据。",
-    "originalName": "Progressive PDF Reading",
-    "source": "argus/builtin_skills/engineer/pdf-chat.md",
-    "sourceBytes": 2101
   },
   "global/engineer/presentation-master.md": {
     "title": "可编辑演示文稿",
@@ -39,7 +25,7 @@
     "summary": "为软件、产品、接口和基准等现实信息寻找并保留一手来源，让重要结论能够追溯。",
     "originalName": "Web Primary-Source Evidence",
     "source": "argus/builtin_skills/engineer/web-primary-source-evidence.md",
-    "sourceBytes": 1625
+    "sourceBytes": 1297
   },
   "global/manager/evidence-based-stage-decision.md": {
     "title": "经理的职责与阶段决定",
@@ -88,7 +74,7 @@
     "summary": "核对实际取得的来源与重要现实信息声明是否一致，不把有链接等同于已经证实。",
     "originalName": "Web Source-Evidence Audit",
     "source": "argus/builtin_skills/reviewer/web-source-evidence-audit.md",
-    "sourceBytes": 1212
+    "sourceBytes": 1124
   },
   "global/stale-blocker-verification-probe.md": {
     "title": "核实旧阻塞与易变的外部事实",
@@ -587,61 +573,12 @@
     "source": "argus/domains/chemistry/skills/scientist/chemistry-distillation.md",
     "sourceBytes": 1537
   },
-  "vertical/kernel_engineering/engineer/kernel-benchmark-measurement-integrity.md": {
-    "title": "GPU 算子工程：先算屋顶线，隔离测量",
-    "summary": "先用屋顶线定瓶颈再改机制而非参数；一次干净的隔离运行足以筛选想法，要主张或保留的提升必须在官方条件下测量；审阅只看正确性与基准证据。",
-    "originalName": "Kernel Engineering: Roofline First, Measure in Isolation",
-    "source": "argus/verticals/kernel_engineering/skills/engineer/kernel-benchmark-measurement-integrity.md",
-    "sourceBytes": 17012
-  },
   "vertical/learning/learning-curation.md": {
     "title": "学习任务的整理与审阅",
     "summary": "把操作者材料变成有证据锚点的项目 Skill/Wiki 修改或诚实的空操作，说明 CHANGE_PLAN.json 的约定以及审阅者如何判断修改是否忠实、无冗余、不倒退、层级正确。",
     "originalName": "Learning Curation",
     "source": "argus/verticals/learning/skills/learning-curation.md",
     "sourceBytes": 4940
-  },
-  "vertical/math/engineer/math-research-execution.md": {
-    "title": "数学研究执行",
-    "summary": "忠实保留命题与范围，诚实区分结果类别；需要 Lean 证据时实际编译，不虚构证明。",
-    "originalName": "Math Research Execution",
-    "source": "argus/verticals/math/skills/engineer/math-research-execution.md",
-    "sourceBytes": 16600
-  },
-  "vertical/math/manager/math-research-manager.md": {
-    "title": "数学研究任务协调",
-    "summary": "在通用协调流程中保持研究目标、范围、求解和评审职责，不另造一套权限体系。",
-    "originalName": "Math Research Manager Context",
-    "source": "argus/verticals/math/skills/manager/math-research-manager.md",
-    "sourceBytes": 630
-  },
-  "vertical/math/planner/math-research-planning.md": {
-    "title": "数学研究规划",
-    "summary": "围绕范围界定、求解和评审安排动态任务，保持原有角色与生命周期规则。",
-    "originalName": "Math Research Planning",
-    "source": "argus/verticals/math/skills/planner/math-research-planning.md",
-    "sourceBytes": 2300
-  },
-  "vertical/math/reviewer/math-research-review.md": {
-    "title": "数学研究独立评审",
-    "summary": "检查正确性、新意、意义、命题忠实性和真实形式化证据，不以叙述代替证明。",
-    "originalName": "Math Research Review",
-    "source": "argus/verticals/math/skills/reviewer/math-research-review.md",
-    "sourceBytes": 7408
-  },
-  "vertical/math/scientist/math-research-adaptation.md": {
-    "title": "改进数学研究方法",
-    "summary": "在评审确认方法失败或技能缺口后，按已有适应阶段调整可复用方法。",
-    "originalName": "Math Research Scientist Adaptation",
-    "source": "argus/verticals/math/skills/scientist/math-research-adaptation.md",
-    "sourceBytes": 660
-  },
-  "vertical/math/scientist/math-research-distillation.md": {
-    "title": "沉淀数学研究方法",
-    "summary": "在首次匹配缺失后整理可复用研究方法，不假定已经失败，也不代替当前任务的执行。",
-    "originalName": "Math Research Skill Distillation",
-    "source": "argus/verticals/math/skills/scientist/math-research-distillation.md",
-    "sourceBytes": 631
   },
   "vertical/research/engineer/ablation-planner.md": {
     "title": "选择有判别力的消融实验",
@@ -655,7 +592,7 @@
     "summary": "在 METHOD.md 中写清方法、组件、协议和证伪条件；以钉版参考实现为底把方法写成 diff；先写 tests/spec 再跑承载论断的实验；用代码锚点让不在场的审阅者找到机制；规划者据此写实现简报。",
     "originalName": "Method card (METHOD.md), executable spec and review anchors",
     "source": "argus/verticals/research/skills/engineer/method-card.md",
-    "sourceBytes": 20533
+    "sourceBytes": 20082
   },
   "vertical/research/engineer/novelty-check.md": {
     "title": "检验研究想法的新意",
@@ -676,7 +613,7 @@
     "summary": "按表达内容选渲染路线：数据图走 SciencePlots/Matplotlib，概念与框架图默认以图像蓝图重建为可编辑 PPT，无图像接口时直接原生绘制；生成图像只用于不承载论断的部分。",
     "originalName": "Composing a conceptual paper figure",
     "source": "argus/verticals/research/skills/engineer/paper-framework-figure-studio.md",
-    "sourceBytes": 26228
+    "sourceBytes": 25858
   },
   "vertical/research/engineer/references/ideation/ideation-patterns/overview.md": {
     "title": "研究构思模式总览",
@@ -711,14 +648,14 @@
     "summary": "把稿件中的论断对回支撑它的证据，把引用对回被引的原文，并用 Semantic Scholar 核对版本；补充全局的一手来源技能，不另起一轮整篇审阅。",
     "originalName": "Checking claims and citations against their sources",
     "source": "argus/verticals/research/skills/engineer/sources-and-citations.md",
-    "sourceBytes": 7027
+    "sourceBytes": 6954
   },
   "vertical/research/engineer/training-infrastructure.md": {
     "title": "训练基础设施的选择、搭建与调参",
     "summary": "训练或大规模推理需要框架时，用实时来源调查候选、在隔离环境中试装并剖析一步真实更新、以官方配方为锚每次只改一个因素，并把结论写成带日期的项目决策记录；评测证据完整保留，训练流按种子/索引、标量和抽样输入保存并验证可再生，开跑前估算磁盘占用。",
     "originalName": "Training infrastructure: choosing, standing up and tuning it",
     "source": "argus/verticals/research/skills/engineer/training-infrastructure.md",
-    "sourceBytes": 12552
+    "sourceBytes": 12354
   },
   "vertical/research/engineer/venue-format-preflight.md": {
     "title": "投稿前的编译与泄露检查",
@@ -746,14 +683,14 @@
     "summary": "忠实实现已选想法，先跑通一个小而完整、记录了耗时与算力的闭环，再通过适应性实验形成足以支撑论文的证据；经独立审核的阶段成果可以先作为阶段包交付。",
     "originalName": "Developing an idea through experiments",
     "source": "argus/verticals/research/skills/research-experiment-playbook.md",
-    "sourceBytes": 34531
+    "sourceBytes": 34271
   },
   "vertical/research/research-idea-playbook.md": {
     "title": "寻找并选择研究想法",
     "summary": "从来源中发现候选可能性，估算每条路线拿到决定性证据所需的时间与算力，经独立审查后作最终选择，不把构思直接当作实验结果。",
     "originalName": "Finding a research idea",
     "source": "argus/verticals/research/skills/research-idea-playbook.md",
-    "sourceBytes": 6027
+    "sourceBytes": 5604
   },
   "vertical/research/research-paper-playbook.md": {
     "title": "撰写完整研究论文",
@@ -767,7 +704,7 @@
     "summary": "综合科学性、图示、语言和整体论证，判断工作是否成立并提出建设性意见。",
     "originalName": "Reaching a judgment on the paper",
     "source": "argus/verticals/research/skills/research-review-playbook.md",
-    "sourceBytes": 18954
+    "sourceBytes": 18928
   },
   "vertical/research/reviewer/academic-paper-peer-review-benchmark.md": {
     "title": "按目标期刊会议评审论文",
@@ -781,14 +718,14 @@
     "summary": "沿配置和执行路径核对公式、比较条件与观测，判断研究声明是否对应实际产生证据的代码。",
     "originalName": "Claim-to-Code Trace",
     "source": "argus/verticals/research/skills/reviewer/claim-to-code-trace.md",
-    "sourceBytes": 2062
+    "sourceBytes": 1996
   },
   "vertical/research/reviewer/experiment-results-review.md": {
     "title": "判断实验真正说明了什么",
     "summary": "亲自读代码、配置、评测器和原始行，判断证据对当前声明的支持与缺口；低于基线的结果在阶梯未走完前是修复请求；训练类实验另核对基础设施决策记录。",
     "originalName": "What the experiments establish",
     "source": "argus/verticals/research/skills/reviewer/experiment-results-review.md",
-    "sourceBytes": 10435
+    "sourceBytes": 10413
   },
   "vertical/research/reviewer/strongest-argument-against.md": {
     "title": "寻找最有力的科学反对意见",

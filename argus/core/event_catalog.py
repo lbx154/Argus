@@ -51,6 +51,7 @@ class EventType(StrEnum):
     LIFE_MANAGER_SUPERVISION_ISSUED = "life.manager.supervision.issued"
     LIFE_MANAGER_SUPERVISION_APPLIED = "life.manager.supervision.applied"
     LIFE_MANAGER_SUPERVISION_FAILED = "life.manager.supervision.failed"
+    LIFE_OBSERVER_NOTE = "life.observer.note"
     LIFE_PEER_MESSAGE_PROCESSED = "life.peer.message.processed"
     LIFE_CONFIG_PARSE_FAILED = "life.config.parse_failed"
     AGENT_IO_START = "agent.io.start"
@@ -77,10 +78,7 @@ class EventType(StrEnum):
     ROUND_REVIEW_STARTED = "round.review.started"
     ROUND_REVIEW_DEFERRED = "round.review.deferred"
     ROUND_REVIEW_COMPLETED = "round.review.completed"
-    ROUND_CHECKPOINT_RECORDED = "round.checkpoint.recorded"
-    ROUND_CHECKPOINT_FAILED = "round.checkpoint.failed"
     ROUND_SECRET_REDACTED = "round.secret_redacted"
-    ROUND_ESCALATED = "round.escalated"
     ROUND_STALL = "round.stall"
     ROUND_REVIEWER_BACKEND_FAILURE = "round.reviewer_backend_failure"
     ROUND_REVIEWER_BACKEND_FAILURE_BACKOFF = "round.reviewer_backend_failure.backoff"
@@ -92,9 +90,6 @@ class EventType(StrEnum):
     ROUND_PROVIDER_TURN_CAP_RESTART = "round.provider_turn_cap.restart"
     ROUND_PROVIDER_TURN_CAP_REVIEWER_RESTART = "round.provider_turn_cap.reviewer_restart"
     ROUND_ORPHAN_PROCESS_GROUP = "round.orphan_process_group"
-    ROUND_EXTERNAL_WORK_REVIEW_REQUIRED = "round.external_work_review.required"
-    ROUND_EXTERNAL_WORK_REVIEW_COMPLETED = "round.external_work_review.completed"
-    ROUND_REVIEW_SKIPPED_UNCHANGED = "round.review.skipped_unchanged"
     ROLE_SESSION_TURN = "role.session.turn"
     ENGINEER_PROGRESS = "engineer.progress"
     ENGINEER_SKILL_MAINTENANCE_COMPLETED = "engineer.skill_maintenance.completed"
@@ -138,26 +133,20 @@ class EventType(StrEnum):
     LIFE_PLANNER_BACKEND_RESOLVED = "life.planner.backend_resolved"
     LIFE_ENGINEER_BACKEND_RESOLVED = "life.engineer.backend_resolved"
     LIFE_REVIEWER_BACKEND_RESOLVED = "life.reviewer.backend_resolved"
-    LIFE_CURATOR_BACKEND_RESOLVED = "life.curator.backend_resolved"
     LIFE_PLANNER_START = "life.planner.start"
     LIFE_PLANNER_PREVIEW_SKIPPED = "life.planner.preview_skipped"
     LIFE_PLANNER_NORMALIZED = "life.planner.normalized"
     LIFE_PLANNER_TASK_ADDED = "life.planner.task_added"
     LIFE_PLANNER_TASK_SKIPPED = "life.planner.task_skipped"
     LIFE_PLANNER_VERDICT = "life.planner.verdict"
-    LIFE_PLANNER_WAITING = "life.planner.waiting"
-    LIFE_PLANNER_WAITING_WOKEN = "life.planner.waiting_woken"
+    LIFE_PLANNER_IDLE = "life.planner.idle"
     LIFE_PLANNER_TERMINAL_IDLE = "life.planner.terminal_idle"
     LIFE_PLANNER_VERIFICATION_PROBE = "life.planner.verification_probe"
-    LIFE_PLANNER_STALL_ESCALATION = "life.planner.stall_escalation"
     LIFE_PLANNER_DEPENDENCY_DROPPED = "life.planner.dependency_dropped"
     LIFE_PLANNER_PARALLEL_DROPPED = "life.planner.parallel_dropped"
     LIFE_PLANNER_ERROR = "life.planner.error"
     LIFE_PLANNER_DEFERRED = "life.planner.deferred"
     LIFE_PLANNER_SUPERSEDED = "life.planner.superseded"
-    LIFE_PLANNER_WAIT_OVERRIDDEN = "life.planner.wait_overridden"
-    LIFE_PLANNER_WAITING_CONTRACT_NORMALIZED = "life.planner.waiting_contract.normalized"
-    LIFE_PLANNER_EXTERNAL_POLL_SUPPRESSED = "life.planner.external_poll_suppressed"
     LIFE_PLANNER_VERDICT_DISCARDED = "life.planner.verdict.discarded"
     LIFE_PLANNER_FINAL_SUBMISSION_SKIPPED = "life.planner.final_submission_skipped"
     LIFE_PLANNER_CONTINUATION_REQUIRED = "life.planner.continuation_required"
@@ -179,7 +168,6 @@ class EventType(StrEnum):
     LIFE_PLAN_REVISION_COMMITTED = "life.plan.revision.committed"
     LIFE_PLAN_NODE_SUPERSEDED = "life.plan.node.superseded"
     LIFE_PLAN_REVISION_ROLLED_BACK = "life.plan.revision.rolled_back"
-    LIFE_RESEARCH_SECOND_READING = "life.research.second_reading"
     LIFE_LETTER_WRITTEN = "life.letter.written"
     LIFE_BUDGET_PAUSE = "life.budget.pause"
     LIFE_LIFECYCLE_BLOCK = "life.lifecycle.block"
@@ -200,8 +188,6 @@ class EventType(StrEnum):
     IDEA_SEARCH_STARTED = "idea.search.started"
     IDEA_SEARCH_COMPLETED = "idea.search.completed"
     IDEA_SEARCH_SKIPPED = "idea.search.skipped"
-    IDEA_PORTFOLIO_FORMED = "idea.portfolio.formed"
-    IDEA_PORTFOLIO_NESTED_SKIPPED = "idea.portfolio.nested_skipped"
     VENUE_RESEARCH_STARTED = "venue.research.started"
     VENUE_RESEARCH_COMPLETED = "venue.research.completed"
     RESEARCH_ACHIEVEMENT_CERTIFIED = "research.achievement.certified"
@@ -249,7 +235,8 @@ LEGACY_EVENT_ALIASES: dict[str, EventType] = {
     "mission.started": EventType.LIFE_MISSION_STARTED,
     "mission.completed": EventType.LIFE_MISSION_COMPLETED,
     "mission.error": EventType.LIFE_MISSION_FAILED,
-    "life.team.waiting": EventType.LIFE_PLANNER_WAITING,
+    "life.team.waiting": EventType.LIFE_PLANNER_IDLE,
+    "life.planner.waiting": EventType.LIFE_PLANNER_IDLE,
 }
 
 SIGNAL_EVENT_TYPES: frozenset[str] = frozenset({
@@ -260,6 +247,7 @@ SIGNAL_EVENT_TYPES: frozenset[str] = frozenset({
     EventType.ADVISOR_CONSULTATION_MODEL_MISMATCH,
     EventType.LIFE_MANAGER_SUPERVISION_APPLIED,
     EventType.LIFE_MANAGER_SUPERVISION_FAILED,
+    EventType.LIFE_OBSERVER_NOTE,
     EventType.LIFE_PEER_MESSAGE_PROCESSED,
     EventType.LIFE_CONFIG_PARSE_FAILED,
     # One line per role per boot, and the exact line an operator needs when a
@@ -269,17 +257,13 @@ SIGNAL_EVENT_TYPES: frozenset[str] = frozenset({
     EventType.LIFE_PLANNER_BACKEND_RESOLVED,
     EventType.LIFE_ENGINEER_BACKEND_RESOLVED,
     EventType.LIFE_REVIEWER_BACKEND_RESOLVED,
-    EventType.LIFE_CURATOR_BACKEND_RESOLVED,
     EventType.LOOP_START,
     EventType.LOOP_DONE,
     EventType.ROUND_START,
     EventType.ROUND_MAIN_COMPLETED,
     EventType.ROUND_REVIEW_DEFERRED,
     EventType.ROUND_REVIEW_COMPLETED,
-    EventType.ROUND_CHECKPOINT_RECORDED,
-    EventType.ROUND_CHECKPOINT_FAILED,
     EventType.ROUND_SECRET_REDACTED,
-    EventType.ROUND_ESCALATED,
     EventType.ROUND_STALL,
     EventType.ROUND_REVIEWER_BACKEND_FAILURE,
     EventType.ENGINEER_SKILL_MAINTENANCE_COMPLETED,
@@ -319,11 +303,9 @@ SIGNAL_EVENT_TYPES: frozenset[str] = frozenset({
     EventType.LIFE_PLANNER_PARALLEL_DROPPED,
     EventType.LIFE_PLANNER_VERDICT,
     EventType.LIFE_PLANNER_VERDICT_DISCARDED,
-    EventType.LIFE_PLANNER_WAITING,
-    EventType.LIFE_PLANNER_WAITING_WOKEN,
+    EventType.LIFE_PLANNER_IDLE,
     EventType.LIFE_PLANNER_TERMINAL_IDLE,
     EventType.LIFE_PLANNER_VERIFICATION_PROBE,
-    EventType.LIFE_PLANNER_STALL_ESCALATION,
     EventType.LIFE_RUNTIME_FAILURE_CIRCUIT_OPENED,
     EventType.LIFE_RUNTIME_FAILURE_CIRCUIT_BLOCKED,
     EventType.LIFE_RUNTIME_FAILURE_CANARY_PASSED,
@@ -334,7 +316,6 @@ SIGNAL_EVENT_TYPES: frozenset[str] = frozenset({
     EventType.LIFE_PLAN_REVISION_REJECTED,
     EventType.LIFE_PLAN_REVISION_COMMITTED,
     EventType.LIFE_PLAN_NODE_SUPERSEDED,
-    EventType.LIFE_RESEARCH_SECOND_READING,
     EventType.LIFE_LETTER_WRITTEN,
     EventType.LIFE_BUDGET_PAUSE,
     EventType.BUDGET_RESERVATION_DENIED,
@@ -374,7 +355,6 @@ SIGNAL_EVENT_TYPES: frozenset[str] = frozenset({
     EventType.LIFE_MANAGER_PROJECT_REPORT_FAILED,
     EventType.LIFE_PLANNER_DEFERRED,
     EventType.LIFE_PLANNER_SUPERSEDED,
-    EventType.LIFE_PLANNER_WAIT_OVERRIDDEN,
     EventType.LIFE_PLANNER_FINAL_SUBMISSION_SKIPPED,
     EventType.LIFE_PLANNER_CONTINUATION_REQUIRED,
     EventType.LIFE_PLANNER_COMPLETION_REJECTED,
@@ -391,11 +371,7 @@ SIGNAL_EVENT_TYPES: frozenset[str] = frozenset({
     EventType.ROUND_PROVIDER_TURN_CAP_RESTART,
     EventType.ROUND_PROVIDER_TURN_CAP_REVIEWER_RESTART,
     EventType.ROUND_ORPHAN_PROCESS_GROUP,
-    EventType.ROUND_EXTERNAL_WORK_REVIEW_REQUIRED,
-    EventType.ROUND_EXTERNAL_WORK_REVIEW_COMPLETED,
-    EventType.ROUND_REVIEW_SKIPPED_UNCHANGED,
     EventType.LIFE_DAEMON_DEGRADED,
-    EventType.IDEA_PORTFOLIO_FORMED,
     EventType.TEAM_LEARNING_REVIEW_STARTED,
     EventType.TEAM_LEARNING_REVIEW_COMPLETED,
     EventType.TEAM_LEARNING_REVIEW_FAILED,

@@ -93,7 +93,13 @@ def event_log_paths(log_path: Path) -> list[Path]:
 
 
 def iter_call_events(log_path: Path, call_id: str) -> Iterator[dict[str, Any]]:
-    """Yield one call's rows across retained generations, oldest first."""
+    """Yield one call's rows across retained generations, oldest first.
+
+    Also reads ``agent_io.jsonl``, whose frames name the call only by
+    ``call_id``: each row is completed from the call's ``agent.io.start``, and
+    a row without a type is a stream frame. Older rows that carry all of it
+    themselves read unchanged.
+    """
     target = str(call_id or "").strip()
     if not target:
         raise ValueError("call_id must be non-empty")
@@ -118,8 +124,12 @@ def iter_call_events(log_path: Path, call_id: str) -> Iterator[dict[str, Any]]:
             matched_generations.append(generation_matches)
         if found_start:
             break
+    identity: dict[str, Any] = {"type": EventType.AGENT_IO_STREAM}
     for generation in reversed(matched_generations):
-        yield from generation
+        for row in generation:
+            if row.get("type") == EventType.AGENT_IO_START:
+                identity.update((key, row[key]) for key in ("run_label", "backend", "model") if key in row)
+            yield {**identity, **row}
 
 # Idle-poll chatter that pollutes the persistent log without telling
 # operators anything actionable. We keep these on the in-process sink
@@ -193,7 +203,7 @@ class JsonlEventSink:
         # this is the SELLABLE trajectory: a clean per-mission episode, no
         # command/idle/heartbeat churn. "full" keeps everything for deep debug.
         # Errors are NEVER dropped (full, untruncated, via markers). Explicit arg
-        # wins; else env; else "signal" so teammates emit clean episodes too.
+        # wins; else env; else "signal".
         if verbosity is None:
             verbosity = os.environ.get("ARGUS_SKILL_EVENT_VERBOSITY", "signal")
         self._verbosity = "signal" if str(verbosity).strip().lower() == "signal" else "full"

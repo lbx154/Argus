@@ -73,17 +73,6 @@ def test_host_project_scope_evidence_and_revision_cannot_be_overridden(tmp_path)
     assert other.store.get(foreign.id).revision == 1
 
 
-def test_reviewer_remains_read_only_even_with_forged_writable_request(tmp_path):
-    service = ExperienceToolService(tmp_path, role="reviewer", parent_call_id="review", writable=True)
-    original = capsule(service)
-    assert service.dispatch("search", {"query": "quartz"})["experiences"]
-    with pytest.raises(ValueError, match="cannot mutate"):
-        service.dispatch("revise", correction(original.id))
-    with pytest.raises(ValueError, match="cannot mutate"):
-        service.dispatch("retract", {key: value for key, value in correction(original.id).items() if key != "changes"})
-    assert service.store.get(original.id).revision == 1
-
-
 def test_replaced_project_alias_cannot_change_tool_namespace(tmp_path):
     original = tmp_path / "project"
     original.mkdir()
@@ -156,12 +145,11 @@ def test_native_role_tools_preserve_workspace_permissions_and_role_boundary(tmp_
                           backend=SimpleNamespace(_backend_name="pi"), call_id="real-host-call", prompt="role prompt")
     with experience_runtime.experience_run(ctx):
         names = ctx.options.trusted_tool_names
-        assert "get_experience" in names and "search_experiences" in names
-        assert ("revise_experience" in names) == (role != "reviewer")
+        assert {"get_experience", "search_experiences", "revise_experience", "retract_experience"} <= set(names)
         assert ctx.options.sandbox_mode == "read-only"
         assert not ctx.options.dangerous_yolo and ctx.options.force_safe_mode
         assert not ({"bash", "write", "edit"} & set(names))
-        assert "expected_revision" in ctx.prompt if role != "reviewer" else "get_experience" in ctx.prompt
+        assert "expected_revision" in ctx.prompt
     assert options.extension_env is None
 
 
@@ -189,7 +177,7 @@ const {experienceExtension}=await import(process.argv[1]);
 const {bridgeRequest}=await import(process.argv[2]);
 const Type={Object:properties=>({properties}),String:()=>({}),Integer:()=>({}),Array:()=>({}),Optional:value=>value};
 const tools={};
-experienceExtension((op,params,signal)=>bridgeRequest("ARGUS_PLUGIN_EXPERIENCE",op,params,signal),Type,true)(
+experienceExtension((op,params,signal)=>bridgeRequest("ARGUS_PLUGIN_EXPERIENCE",op,params,signal),Type)(
   {registerTool:tool=>{tools[tool.name]=tool;}}
 );
 const result=await tools.revise_experience.execute("native-tool-call",{
@@ -204,8 +192,7 @@ process.stdout.write(JSON.stringify(result.details));
     def provider(ctx, _options):
         calls.append(ctx.call_id)
         assert {"consult_advisor", "send_peer_message", "revise_experience", "get_experience"} <= set(ctx.options.trusted_tool_names)
-        assert len(ctx.options.trusted_extensions) == 4
-        assert any(Path(path).as_posix().endswith("skills/runtime_extension.mjs") for path in ctx.options.trusted_extensions)
+        assert len(ctx.options.trusted_extensions) == 3
         command = ctx.backend._runner._build_pi_command(resume_thread_id=None, options=ctx.options)
         names = command[command.index("--tools") + 1].split(",")
         assert "revise_experience" in names and not {"bash", "write", "edit"} & set(names)

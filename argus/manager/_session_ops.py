@@ -535,8 +535,6 @@ class _ManagerSession:
                     self.runner, prompt=call_prompt, options=options, run_label=run_label,
                 )
             try:
-                from .session_capacity import capacity_rotation_reason, remember_capacity
-
                 prior = self._read_state()
                 tid = self._read_tid()
                 prior_tid = tid
@@ -549,13 +547,10 @@ class _ManagerSession:
                         options = replace(options, model=prior_model)
                 identity = session_identity(self.runner, options)
                 call_prompt = prompt
-                rotation_reason = ""
-                if tid and prior.get("identity") not in (None, identity):
-                    rotation_reason = "the configured model or backend changed"
-                elif tid:
-                    rotation_reason = capacity_rotation_reason(
-                        prior, prompt=prompt, runner=self.runner, options=options,
-                    )
+                rotation_reason = (
+                    "the configured model or backend changed"
+                    if tid and prior.get("identity") not in (None, identity) else ""
+                )
                 if rotation_reason:
                     call_prompt = session_handoff(
                         prior, prompt, rotation_reason, project_root=self.project_root, run_label=run_label,
@@ -612,8 +607,6 @@ class _ManagerSession:
                             "version": 3, "identity": identity,
                             "logical_manager_id": logical_id,
                             "provider_generation": generation,
-                            "capacity": remember_capacity(prior, call_prompt, result, continued=continued,
-                                                          runner=self.runner, options=options),
                             "recent_turns": remember_turn(prior, prompt, result, run_label),
                             "rotation_reason": rotation_reason,
                             "last_rotation": last_rotation,

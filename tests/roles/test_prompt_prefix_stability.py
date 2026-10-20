@@ -71,7 +71,7 @@ def test_engineer_static_rules_precede_every_mission_specific_line(monkeypatch, 
         cycle=2,
     )
 
-    static_end = _end_of(first, "(submitted job).")
+    static_end = _end_of(first, "`→ operator: <one question>`.")
     assert _lcp(first, second) >= static_end
     # The recalled Skills, the request and the task follow the static rules.
     assert first.index("## Skill libraries") > static_end
@@ -85,7 +85,7 @@ def test_engineer_compact_team_prompt_keeps_the_same_shape(monkeypatch, tmp_path
     first = _engineer(monkeypatch, tmp_path, task="Fix the prefix.", next_action=None, cycle=1, compact_team=True)
     second = _engineer(monkeypatch, tmp_path, task="Fix the suffix instead.", next_action=None, cycle=2, compact_team=True)
 
-    static_end = _end_of(first, "(submitted job).")
+    static_end = _end_of(first, "`→ operator: <one question>`.")
     assert _lcp(first, second) >= static_end
     assert first.index("## Skill libraries") > static_end
     assert first.index("Fix the prefix.") > first.index("## Skill libraries")
@@ -104,20 +104,20 @@ def test_engineer_round_tail_follows_the_mission_text(monkeypatch, tmp_path) -> 
         prompt,
         role_context="## Active research context\nnotes after round 0",
         checkpoint_block="## MissionBrief\n- Decisive result: round 1",
-        external_work_advisory="## External work status\n- job-1: running",
+        background_advisory="## Current host context\n- recalled: round 1",
     )
     second = assemble_round_prompt(
         prompt,
         role_context="## Active research context\nnotes after round 1",
         checkpoint_block="## MissionBrief\n- Decisive result: round 2",
-        external_work_advisory="",
+        background_advisory="",
     )
 
     mission_end = _end_of(first, "Ship it.")
     assert _lcp(first, second) >= mission_end
     assert first.index("## Active research context") > mission_end
     assert first.index("## MissionBrief") > first.index("## Active research context")
-    assert first.rindex("## OperatorContext") > first.index("## External work status")
+    assert first.rindex("## OperatorContext") > first.index("## Current host context")
     assert first.rstrip().endswith("operator_context_revision=4")
 
 
@@ -209,7 +209,7 @@ def test_reviewer_static_is_identical_and_delta_opens_with_the_mission(tmp_path)
 # --- Manager ----------------------------------------------------------------
 
 
-def _stage_decision(status: str, reason: str, *, waiting: bool) -> str:
+def _stage_decision(status: str, reason: str) -> str:
     return build_stage_decision_prompt(
         current_stage="experiment",
         next_stage="paper",
@@ -217,25 +217,17 @@ def _stage_decision(status: str, reason: str, *, waiting: bool) -> str:
         earlier_stages=("idea",),
         checklist_md="- [ ] experiment.result — the decisive run exists",
         review=SimpleNamespace(status=status, reason=reason),
-        planner_verdict=SimpleNamespace(
-            waiting=waiting,
-            waiting_reason="waiting on the run",
-            waiting_contract=None,
-            reason="hold",
-        ),
+        planner_verdict=SimpleNamespace(reason="hold"),
         continuous_objective="Write the paper.",
     )
 
 
 def test_manager_stage_prompt_keeps_objective_and_checklist_ahead_of_the_evidence() -> None:
-    first = _stage_decision("continue", "Round 1: the run is half done.", waiting=False)
-    second = _stage_decision("done", "Round 2: the run finished.", waiting=True)
+    first = _stage_decision("continue", "Round 1: the run is half done.")
+    second = _stage_decision("done", "Round 2: the run finished.")
 
     checklist_end = _end_of(first, "## What the current stage requires\n- [ ] experiment.result — the decisive run exists")
     assert _lcp(first, second) >= checklist_end
-    assert second.index("## Planner-wait reconciliation") > checklist_end
-    assert "Include `resolves_wait` when the Planner is waiting" in second
-    assert "Include `resolves_wait`" not in first
     assert first.index("## Latest completion evidence") > checklist_end
 
 
@@ -256,27 +248,10 @@ def test_manager_assembly_leads_with_the_vertical_banner() -> None:
     )
 
 
-# --- Research vertical: static inventory vs. live facts ---------------------
+# --- Research vertical: static policy vs. live notes ------------------------
 
 
-def test_gpu_inventory_is_static_while_memory_in_use_is_live(monkeypatch) -> None:
-    readings = [[("0", "NVIDIA RTX A6000", 45.0, 1.0)]]
-    monkeypatch.setattr(prompt_policy, "_query_local_gpus", lambda: readings[0])
-    first_static = prompt_policy.local_hardware_block()
-    first_live = prompt_policy.local_hardware_usage_block()
-    readings[0] = [("0", "NVIDIA RTX A6000", 45.0, 30.0)]
-    second_static = prompt_policy.local_hardware_block()
-    second_live = prompt_policy.local_hardware_usage_block()
-
-    assert first_static == second_static
-    assert "- GPU 0: NVIDIA RTX A6000, 45 GB memory" in first_static
-    assert "GB free" not in first_static
-    assert "- GPU 0: 44 GB free, 1 GB in use by running jobs" in first_live
-    assert "- GPU 0: 15 GB free, 30 GB in use by running jobs" in second_live
-
-
-def test_research_fragment_is_static_and_the_context_carries_notes_and_usage(monkeypatch, tmp_path) -> None:
-    monkeypatch.setattr(prompt_policy, "_query_local_gpus", lambda: [("0", "NVIDIA RTX A6000", 45.0, 1.0)])
+def test_research_fragment_is_static_and_the_context_carries_notes(tmp_path) -> None:
     notes = tmp_path / "RESEARCH_NOTES.md"
     notes.write_text("# Research notes\nround one findings\n", encoding="utf-8")
     roles = (("planner", "continuous"), ("engineer", "mission"), ("manager", "stage_decision"))
@@ -291,11 +266,7 @@ def test_research_fragment_is_static_and_the_context_carries_notes_and_usage(mon
         )
         fragments[role] = fragment
         assert "round one findings" not in fragment, role
-        assert "GB free" not in fragment, role
         assert "round one findings" in context, role
-        if role != "manager":
-            assert "## Compute available on this machine" in fragment, role
-            assert "1 GB in use by running jobs" in context, role
 
     notes.write_text("# Research notes\nround two findings\n", encoding="utf-8")
     for role, operation in roles:
@@ -304,18 +275,15 @@ def test_research_fragment_is_static_and_the_context_carries_notes_and_usage(mon
         ) == fragments[role], role
 
 
-def test_engineer_round_carries_the_research_notes_after_the_static_prompt(monkeypatch, tmp_path) -> None:
+def test_engineer_round_carries_the_research_notes_after_the_static_prompt(tmp_path) -> None:
     from argus.engineer.round_prompt import RoundPromptMixin
 
     persist_vertical(tmp_path, "research")
-    monkeypatch.setattr(prompt_policy, "_query_local_gpus", lambda: [])
     (tmp_path / "RESEARCH_NOTES.md").write_text("# Research notes\nlive findings\n", encoding="utf-8")
     mixin = RoundPromptMixin()
     mixin.engineer_config = SimpleNamespace(vertical_state_root=tmp_path)
     mixin.reviewer_config = SimpleNamespace(active_vertical="research", vertical_state_root=str(tmp_path))
     config = SimpleNamespace(
-        compact_continuation_prompts=True,
-        background_subagent_advisory=False,
         max_rounds=8,
         context_packet_path="",
         engineer_operation="author_draft",

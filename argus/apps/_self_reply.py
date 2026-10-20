@@ -12,8 +12,9 @@ from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
 from ..core.knobs import (
-    resolve_manager_classify_model,
-    resolve_manager_reply_model,
+    resolve_light_effort,
+    resolve_light_model,
+    resolve_role_model,
     resolve_role_reasoning_effort,
 )
 from ..core.models import RunnerOptions
@@ -38,9 +39,6 @@ if TYPE_CHECKING:
     from ..manager import Manager
 
 _SELF_RETRYABLE_TRANSPORT_ERRORS = (
-    "acp restart requested",
-    "acp process died",
-    "stopreason=cancelled",
     "upstream request failed: endpoint is unavailable",
     "provider finish_reason: network_error",
 )
@@ -396,9 +394,6 @@ class SelfReplyMixin:
                     skip_git_repo_check=True,
                     dangerous_yolo=not safe_mode,
                     working_dir=str(workdir),
-                    watchdog_hard_idle_seconds=env_int(
-                        "ARGUS_SKILL_SELF_HARD_IDLE_SECONDS", 0
-                    ),
                 ),
                 run_label="router-classify",
                 resume_thread_id=None,
@@ -556,7 +551,7 @@ class SelfReplyMixin:
     def _manager_state_path(self) -> Path:
         return Path(getattr(self, "_manager_session_root", None) or self.manager.manager_session_root)
 
-    def _manager_reply_runtime_context(self, run_label: str) -> str:
+    def _manager_reply_runtime_context(self) -> str:
         workspace_context = ""
         team_log_context = ""
         try:
@@ -592,29 +587,8 @@ class SelfReplyMixin:
         except Exception:  # noqa: BLE001 — context must never block a reply
             workspace_context = ""
             team_log_context = ""
-        try:
-            runner = getattr(self._backend, "_runner", None)
-            if runner is None or not runner._acp_enabled(run_label):
-                return "\n\n".join(
-                    part for part in (workspace_context, team_log_context) if part
-                )
-        except Exception:  # noqa: BLE001 - metadata must never block a reply
-            return "\n\n".join(
-                part for part in (workspace_context, team_log_context) if part
-            )
-        runtime_fact = (
-            "Runtime fact (answer accurately if the operator asks): this "
-            "operator-facing Manager conversation is one logical session on a "
-            "long-lived Copilot ACP process. Ordinary turns use session/prompt "
-            "on that same live process and session; they do NOT spawn a fresh "
-            "CLI process with --resume, and Argus does NOT resend the full chat "
-            "transcript each turn. The front-door classifier is isolated from "
-            "this conversation, and the background task daemon is a separate "
-            "process. A deliberate context rotation starts a new conversation "
-            "session with a structured handoff."
-        )
         return "\n\n".join(
-            part for part in (workspace_context, team_log_context, runtime_fact) if part
+            part for part in (workspace_context, team_log_context) if part
         )
 
     def _live_mission_status_block(self) -> str:
@@ -835,7 +809,7 @@ class SelfReplyMixin:
                 identity_card=memory_prelude,
                 skill_library=libraries.block,
                 mission_status=self._live_mission_status_block(),
-                runtime_context=self._manager_reply_runtime_context("simple-1"),
+                runtime_context=self._manager_reply_runtime_context(),
                 operator_workspace=str(workdir),
             )
             native_skill_paths = [str(path) for path in libraries.native_paths]
@@ -900,7 +874,9 @@ class SelfReplyMixin:
         reply_model = (
             str(getattr(args, "engineer_model", "") or "")
             if executing
-            else resolve_manager_reply_model(backend=effective_backend)
+            else resolve_role_model(
+                "manager", role_env="ARGUS_SKILL_MANAGER_MODEL", backend=effective_backend,
+            )
         )
         reply_effort = (
             "low"
@@ -946,9 +922,6 @@ class SelfReplyMixin:
             add_dirs=read_dirs,
             skill_paths=native_skill_paths,
             extra_args=extra_args,
-            watchdog_hard_idle_seconds=env_int(
-                "ARGUS_SKILL_SELF_HARD_IDLE_SECONDS", 0
-            ),
             watchdog_soft_idle_seconds=env_int(
                 "ARGUS_SKILL_SELF_SOFT_IDLE_SECONDS", 5
             ),
@@ -1019,9 +992,7 @@ class SelfReplyMixin:
         success = result.exit_code == 0 and not fatal and bool(last_msg)
         new_thread_id = getattr(result, "thread_id", None)
         round_thread_id = new_thread_id or seed
-        result_status = "done" if success else "error"
         if should_clear_thread_id_after_outcome(
-            status=result_status,
             fatal_error=str(getattr(result, "fatal_error", "") or ""),
         ):
             self.last_thread_id = None
@@ -1231,10 +1202,10 @@ class SelfReplyMixin:
                     self._backend,
                     prompt=prompt,
                     options=RunnerOptions(
-                        model=resolve_manager_classify_model(
+                        model=resolve_light_model(
                             backend=getattr(self._args, "backend", None),
                         ),
-                        reasoning_effort="low",
+                        reasoning_effort=resolve_light_effort(),
                         sandbox_mode="workspace-write",
                         skip_git_repo_check=True,
                         working_dir=str(skill_dir),

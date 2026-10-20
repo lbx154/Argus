@@ -9,7 +9,7 @@ from argus.core.models import ReviewDecision, RunnerResult
 from argus.core.pipeline_state import read_pipeline_state, write_pipeline_state
 from argus.core.role_tool_bridge import bridge_request
 from argus.core.venue_review import (
-    configure_venue_revisions,
+    ACCEPTANCE_BAR_POLICY,
     current_venue_acceptance_issue,
     enforce_venue_acceptance,
     normalize_venue_review,
@@ -18,6 +18,7 @@ from argus.core.venue_review import (
     selected_acceptance_minimum,
     venue_review_issue,
 )
+from argus.engineer.round_settlement import RoundSettlementMixin
 from argus.reviewer import Reviewer, ReviewerConfig
 from argus.reviewer._parsing import decision_from_payload, parse_decision_text
 from argus.skills.vertical_select import persist_vertical
@@ -50,12 +51,17 @@ def paper(tmp_path: Path) -> Path:
 def test_rejection_cannot_pass_even_with_done(paper, rating):
     review = ReviewDecision(status="done", reason="The local edit is fixed.", next_action="", venue_review=assessment(rating))
     enforce_venue_acceptance(review, venue="ICLR", before=paper_review_snapshot(paper), artifact_root=paper)
-    assert review.status == "continue"
+    # The Reviewer's verdict stands; the operator's bar holds the paper open beside it.
+    assert review.status == "done"
     assert not review.final_submission_certified
     assert not review.backend_unavailable
     assert review.venue_review["recommendation"] == rating
     assert review.reason == "The local edit is fixed."
-    assert review.next_action
+    assert review.next_action == ""
+    intervention = review.intervention(ACCEPTANCE_BAR_POLICY)
+    assert intervention["action"] == "kept_open" and intervention["at"] > 0
+    assert f"venue recommendation is {rating}" in intervention["note"]
+    assert RoundSettlementMixin._classify(review=review) == (None, "")
 
 
 @pytest.mark.parametrize("rating", ["weak_accept", "accept", "strong_accept", "best_paper"])
@@ -84,13 +90,14 @@ def test_strong_accept_goal_uses_the_real_rating_without_upgrading_it(paper, rat
 
     sufficient = rating in {"strong_accept", "best_paper"}
     assert review.final_submission_certified is sufficient
-    assert review.status == ("done" if sufficient else "continue")
+    assert review.status == "done"
     assert review.venue_review["recommendation"] == rating
     assert review.reason == reason
     assert not review.backend_unavailable
     assert bool(current_venue_acceptance_issue(review, state_root=paper, artifact_root=paper)) is not sufficient
+    assert bool(review.intervention(ACCEPTANCE_BAR_POLICY)) is not sufficient
     if not sufficient:
-        assert "actual strong accept quality" in review.next_action
+        assert "strong accept or better" in review.interventions[0]["note"]
     assert read_pipeline_state(paper)["current_stage"] == "review"
 
 
@@ -120,8 +127,9 @@ def test_invalid_explicit_acceptance_minimum_cannot_silently_lower_the_bar(paper
 def test_uncertain_acceptance_or_unresolved_reject_issue_requires_revision(paper, report):
     review = ReviewDecision(status="done", reason="Mostly ready.", next_action="", venue_review=report)
     enforce_venue_acceptance(review, venue="ICLR", before=paper_review_snapshot(paper), artifact_root=paper)
-    assert review.status == "continue"
+    assert review.status == "done"
     assert not review.final_submission_certified
+    assert review.intervention(ACCEPTANCE_BAR_POLICY)
 
 
 @pytest.mark.parametrize("changed", ["main.tex", "main.pdf", "figures/method.pdf"])
@@ -137,28 +145,27 @@ def test_manuscript_change_during_review_cannot_be_certified(paper):
     (paper / "paper/main.pdf").write_bytes(b"Concurrent new PDF")
     review = ReviewDecision(status="done", reason="Accepted old PDF.", next_action="", venue_review=assessment())
     enforce_venue_acceptance(review, venue="ICLR", before=before, artifact_root=paper)
-    assert review.status == "continue"
+    assert review.status == "done"
     assert not review.final_submission_certified
+    assert "changed during review" in review.intervention(ACCEPTANCE_BAR_POLICY)["note"]
 
 
-def test_final_scientific_repair_preserves_experiment_plan_without_replanning(paper):
+def test_a_final_reviews_own_routing_stands(paper):
+    report = {
+        "plan_signal": "reconsider", "challenge": "Unequal useful work invalidates the speed comparison.",
+        "alternative": "Hold accepted token yield fixed, run matched-budget controls, and report throughput.",
+        "authority_impact": "technical",
+    }
     review = ReviewDecision(
         status="replan_requested", reason="The baseline processes fewer positions.",
         next_action="Measure latency and accepted tokens under the same speculative budget.",
-        venue_review=assessment("weak_reject", clear=False),
-        planner_report={
-            "plan_signal": "reconsider", "challenge": "Unequal useful work invalidates the speed comparison.",
-            "alternative": "Hold accepted token yield fixed, run matched-budget controls, and report throughput.",
-            "forward_progress": True, "authority_impact": "technical",
-        },
+        venue_review=assessment("weak_reject", clear=False), planner_report=dict(report),
     )
     enforce_venue_acceptance(review, venue="ICLR", before=paper_review_snapshot(paper), artifact_root=paper)
-    assert review.status == "continue"
-    assert "Hold accepted token yield fixed" in review.next_action
-    assert "Measure latency and accepted tokens" in review.next_action
-    assert "current final Review" in review.next_action
-    assert review.planner_report == {"forward_progress": True}
-    assert read_pipeline_state(paper)["current_stage"] == "review"
+    assert review.status == "replan_requested"
+    assert review.next_action == "Measure latency and accepted tokens under the same speculative budget."
+    assert review.planner_report == report
+    assert not review.interventions
     assert not review.final_submission_certified
 
 
@@ -246,8 +253,9 @@ def test_formal_reviewer_gets_the_operator_bar_from_control_state(paper):
     )
     assert "completion bar is strong accept" in runner.prompt
     assert "recommendation: clearly weak_accept or better" not in runner.prompt
-    assert review.status == "continue"
+    assert review.status == "done"
     assert not review.final_submission_certified
+    assert review.intervention(ACCEPTANCE_BAR_POLICY)
     assert "Recommendation: weak_accept" in (paper / "paper/REVIEW.md").read_text()
     prior_fingerprint = review.static_fingerprint
 
@@ -281,33 +289,16 @@ def test_gate_applies_to_final_papers_only():
     assert not requires_venue_review(vertical="software", stage="review", scope="final_submission")
 
 
-def test_quality_revision_runs_to_a_round_budget_without_disabling_stops():
-    from argus.core.venue_review import VENUE_STALL_ROUNDS
-    from argus.engineer.round_config import SupervisedConfig
-    from argus.engineer.round_settlement import RoundSettlementMixin
-
-    config = SupervisedConfig(max_rounds=50, stall_threshold=4, soft_round_limit=12, hard_escalate_rounds=24)
-    configure_venue_revisions(config)
-    assert config.max_rounds == 6  # the venue-review budget, smaller than the mission cap
-    assert config.provider_turn_cap_streak_limit == 0
-    assert config.require_independent_review
-    # Operator decision, 2026-10-19: fruitless rounds stop after five and ask.
-    assert config.stall_threshold == VENUE_STALL_ROUNDS and config.stall_asks_operator
-    kwargs = {
-        "no_progress_streak": 0, "no_progress_threshold": config.no_progress_threshold,
-        "semantic_stall_streak": VENUE_STALL_ROUNDS - 1, "stall_threshold": config.stall_threshold,
-        "round_index": config.max_rounds - 1, "max_rounds": config.max_rounds,
-        "hard_escalate_rounds": config.hard_escalate_rounds,
-        "decision_idle_seconds": 100000, "decision_timeout_seconds": config.decision_progress_timeout_seconds,
-    }
+def test_settlement_follows_the_verdict_and_the_operator_bar(paper):
     rejecting = ReviewDecision(status="continue", reason="Still below weak accept.", next_action="Run the missing matched control.")
-    assert RoundSettlementMixin._classify(review=rejecting, **kwargs) == (None, "")
-    stalled = dict(kwargs, semantic_stall_streak=VENUE_STALL_ROUNDS)
-    assert RoundSettlementMixin._classify(review=rejecting, **stalled)[0] == "no_progress"
+    assert RoundSettlementMixin._classify(review=rejecting) == (None, "")
     stopped = ReviewDecision(status="blocked", reason="Operator stopped this work.", next_action="", operator_question="Wait for the operator.")
-    assert RoundSettlementMixin._classify(review=stopped, **kwargs)[0] == "blocked"
+    assert RoundSettlementMixin._classify(review=stopped)[0] == "blocked"
     unavailable = ReviewDecision(status="blocked", reason="Provider unavailable.", next_action="Retry provider.", backend_unavailable=True)
-    assert RoundSettlementMixin._classify(review=unavailable, **kwargs)[0] == "infra_blocked"
+    assert RoundSettlementMixin._classify(review=unavailable)[0] == "infra_blocked"
+    accepted = ReviewDecision(status="done", reason="Accepted.", next_action="", venue_review=assessment())
+    enforce_venue_acceptance(accepted, venue="ICLR", before=paper_review_snapshot(paper), artifact_root=paper)
+    assert RoundSettlementMixin._classify(review=accepted)[0] == "done"
 
 
 def test_stage_certificate_keeps_venue_rating_and_expires_on_figure_changes(paper):
@@ -404,8 +395,7 @@ def _final_review(paper: Path, *, revise: bool):
     supervised = cast(Any, SupervisedEngineer.__new__(SupervisedEngineer))
     supervised.engineer_runner, supervised.engineer_config = engineer, EngineerConfig(model="stub")
     supervised.reviewer, supervised.reviewer_config = reviewer, ReviewerConfig(model="stub")
-    config = SupervisedConfig(checkpoint_path=paper / "CHECKPOINT.md", background_subagent_advisory=False)
-    configure_venue_revisions(config)
+    config = SupervisedConfig(checkpoint_path=paper / "CHECKPOINT.md")
     status, _rounds, _final, reason, _thread = supervised.run(
         objective="Bring the paper to the venue bar in final Review",
         engineer_prompt_builder=lambda next_action, include_static=True: "Revise. " + (next_action or ""),
@@ -419,11 +409,3 @@ def test_an_unchanged_paper_is_not_reviewed_again(paper):
     assert (engineer_calls, reviewer_calls) == (2, 1)
     assert status == "replan_requested"
     assert "unchanged since the last venue review" in reason
-
-
-def test_a_final_review_stops_at_its_budget_and_hands_the_paper_to_the_manager(paper, monkeypatch):
-    monkeypatch.setenv("ARGUS_SKILL_VENUE_REVIEW_MAX_ROUNDS", "3")
-    status, reason, engineer_calls, reviewer_calls = _final_review(paper, revise=True)
-    assert (engineer_calls, reviewer_calls) == (3, 3)
-    assert status == "blocked"
-    assert "the Manager decides" in reason

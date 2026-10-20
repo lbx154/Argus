@@ -165,42 +165,23 @@ def write_persisted_knobs(values: Mapping[str, str]) -> bool:
             data = read_persisted_knobs()
             from ..agent_cli.runner_backend import normalize_runner_backend
 
-            combined = {**data, **updates}
-            shared_before = str(
-                data.get("ARGUS_SKILL_RUNNER_BACKEND")
-                or data.get("ARGUS_SKILL_LIFE_BACKEND")
-                or ""
-            ).strip()
-            shared_after = str(
-                combined.get("ARGUS_SKILL_RUNNER_BACKEND")
-                or combined.get("ARGUS_SKILL_LIFE_BACKEND")
-                or ""
-            ).strip()
-            for runner_bin_name, runner_bin in data.items():
-                if (
-                    not runner_bin
-                    or runner_bin_name in updates
-                    or (
-                        runner_bin_name != "ARGUS_SKILL_RUNNER_BIN"
-                        and not runner_bin_name.endswith("_RUNNER_BIN")
-                    )
-                ):
-                    continue
-                if runner_bin_name == "ARGUS_SKILL_RUNNER_BIN":
-                    before, after = shared_before, shared_after
-                else:
-                    backend_name = (
-                        f"{runner_bin_name.removesuffix('_RUNNER_BIN')}_BACKEND"
-                    )
-                    before = str(data.get(backend_name) or shared_before).strip()
-                    after = str(combined.get(backend_name) or shared_after).strip()
-                if (
-                    before
-                    and after
-                    and normalize_runner_backend(before)
-                    != normalize_runner_backend(after)
-                ):
-                    updates[runner_bin_name] = ""
+            def backend_of(source: Mapping[str, str]) -> str:
+                return str(
+                    source.get("ARGUS_SKILL_RUNNER_BACKEND")
+                    or source.get("ARGUS_SKILL_LIFE_BACKEND")
+                    or ""
+                ).strip()
+
+            # A saved CLI path belongs to the backend it was saved with.
+            before, after = backend_of(data), backend_of({**data, **updates})
+            if (
+                data.get("ARGUS_SKILL_RUNNER_BIN")
+                and "ARGUS_SKILL_RUNNER_BIN" not in updates
+                and before
+                and after
+                and normalize_runner_backend(before) != normalize_runner_backend(after)
+            ):
+                updates["ARGUS_SKILL_RUNNER_BIN"] = ""
             data.update(updates)
             fd, tmp_name = tempfile.mkstemp(
                 dir=path.parent,

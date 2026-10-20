@@ -19,8 +19,8 @@ and stage transitions during the staged migration.
 - `packages/api` provides a runnable, authenticated Node read API and typed
   client. A bounded Python process reads the existing stores. Metadata, project
   listings and snapshots use Python projections; project costs are now computed
-  in Node from a stream of normalized usage records. There is no command or
-  prewarm operation.
+  in Node from a stream of normalized usage records. There is no command
+  operation.
 - `python -m argus.release_tools.generate_event_types` is a compatibility entry
   point for the Node generator. Python event producers continue using the Python
   validator; the new TS envelope validator has shared behavioural fixtures.
@@ -118,8 +118,8 @@ Every request requires `Authorization: Bearer <token>`:
 | `/api/projects/costs` | `limit` (1–2000, default 100) |
 | `/api/projects/{sid}/snapshot` | `events_limit` (0–500, default 80), `compact` (default false) |
 
-Unknown/repeated parameters, request bodies, write methods and `prewarm` are
-rejected. Project identifiers must name a direct child; the Python resolver also
+Unknown/repeated parameters, request bodies and write methods are rejected.
+Project identifiers must name a direct child; the Python resolver also
 rejects symlinks that escape the configured project directory. Responses are
 bounded to 16 MiB and use `Cache-Control: no-store`.
 

@@ -26,8 +26,6 @@ from __future__ import annotations
 
 import json
 
-import pytest
-
 from argus.reviewer import Reviewer
 from argus.roles.prompts import reviewer as reviewer_prompt
 from argus.roles.task_contract import NATIVE_WINDOWS_SHELL_SUMMARY
@@ -83,6 +81,9 @@ _TASK_OWNED_BLOCKS = (
 # fixture conditions live in the action tool descriptions, not here. Measured
 # at 5_658 (5_694 on Windows); the others at 5_371 and 5_463. No headroom is
 # left on Windows: re-compress before adding prose.
+#
+# The read-only forms then went: every Reviewer has the Engineer's tools and
+# gets the executing form alone. Measured at 5_198.
 FIXED_PROSE_BUDGET = 5_700
 
 
@@ -93,11 +94,7 @@ def _fixed_prose_chars(reviewer: Reviewer) -> int:
     return stats["static_total"]["chars"] - task_owned
 
 
-def _build(measured: bool, monkeypatch, evidence_mode: str = "") -> tuple[str, Reviewer]:
-    if measured:
-        monkeypatch.setenv("ARGUS_SKILL_MEASURED_MODE", "1")
-    else:
-        monkeypatch.delenv("ARGUS_SKILL_MEASURED_MODE", raising=False)
+def _build(monkeypatch) -> tuple[str, Reviewer]:
     r = Reviewer(runner=None, skill_store=None)
     prompt = r._build_prompt(
         objective="minimize cand_ms on the kernel",
@@ -108,13 +105,12 @@ def _build(measured: bool, monkeypatch, evidence_mode: str = "") -> tuple[str, R
         main_summary="HANDOFF: tried X. RESULT correct=true cand_ms=0.5",
         main_error=None,
         prior_checkpoint={},
-        evidence_mode=evidence_mode,
     )
     return prompt, r
 
 
-def _prompt(measured: bool, monkeypatch) -> str:
-    return _build(measured, monkeypatch)[0]
+def _prompt(monkeypatch) -> str:
+    return _build(monkeypatch)[0]
 
 
 def _persist_research_stage(project_root, stage: str) -> None:
@@ -128,7 +124,7 @@ def _persist_research_stage(project_root, stage: str) -> None:
 
 
 def test_fixed_contract_prose_within_budget(monkeypatch):
-    _prompt_text, reviewer = _build(measured=False, monkeypatch=monkeypatch)
+    _prompt_text, reviewer = _build(monkeypatch=monkeypatch)
     fixed = _fixed_prose_chars(reviewer)
     assert fixed < FIXED_PROSE_BUDGET, (
         f"reviewer fixed contract prose is {fixed} chars, over the "
@@ -138,38 +134,19 @@ def test_fixed_contract_prose_within_budget(monkeypatch):
     )
 
 
-@pytest.mark.parametrize("mode", ["execute", "recorded", "read"])
-def test_every_evidence_form_fits_the_budget(monkeypatch, mode):
-    _prompt_text, reviewer = _build(measured=False, monkeypatch=monkeypatch, evidence_mode=mode)
-    assert _fixed_prose_chars(reviewer) < FIXED_PROSE_BUDGET
-
-
-@pytest.mark.parametrize("mode", ["execute", "recorded", "read"])
-@pytest.mark.parametrize("policy", ["standard", "progress-first", "strict"])
-def test_windows_fixed_contract_prose_within_budget_for_every_form(monkeypatch, mode, policy):
-    monkeypatch.setenv("ARGUS_SKILL_EVIDENCE_POLICY", policy)
-    monkeypatch.setattr(
-        reviewer_prompt,
-        "native_shell_summary",
-        lambda: NATIVE_WINDOWS_SHELL_SUMMARY,
-    )
-    _prompt_text, reviewer = _build(measured=False, monkeypatch=monkeypatch, evidence_mode=mode)
-    assert _fixed_prose_chars(reviewer) < FIXED_PROSE_BUDGET
-
-
 def test_windows_fixed_contract_prose_within_budget(monkeypatch):
     monkeypatch.setattr(
         reviewer_prompt,
         "native_shell_summary",
         lambda: NATIVE_WINDOWS_SHELL_SUMMARY,
     )
-    _prompt_text, reviewer = _build(measured=False, monkeypatch=monkeypatch)
+    _prompt_text, reviewer = _build(monkeypatch=monkeypatch)
 
     assert _fixed_prose_chars(reviewer) < FIXED_PROSE_BUDGET
 
 
 def test_reviewer_scopes_product_acceptance_to_the_claim(monkeypatch):
-    prompt = _prompt(measured=False, monkeypatch=monkeypatch)
+    prompt = _prompt(monkeypatch=monkeypatch)
 
     assert 'Test claimed UI/API/CLI/service flows' in prompt
     assert 'at a safe public entry point' in prompt
@@ -185,7 +162,7 @@ def test_the_budget_ignores_content_a_vertical_owns(monkeypatch):
     most of the assembled prompt, so a vertical adding one line pushed the
     role prose over a limit it had not moved.
     """
-    _prompt_text, reviewer = _build(measured=False, monkeypatch=monkeypatch)
+    _prompt_text, reviewer = _build(monkeypatch=monkeypatch)
     before = _fixed_prose_chars(reviewer)
     stats = dict(reviewer.last_prompt_block_stats)
     grown = dict(stats["stage_checklist"])
@@ -204,7 +181,7 @@ def test_compression_removed_redundant_examples(monkeypatch):
     # Tie the guard to the actual compression, not just a byte count: these
     # verbose snippets were deleted and must not reappear (they are the
     # redundancy the cut targeted).
-    p = _prompt(measured=False, monkeypatch=monkeypatch)
+    p = _prompt(monkeypatch=monkeypatch)
     assert "you are not a JSON robot" not in p
     assert "Anti-pattern: agent shows test_accuracy=0.98" not in p
     assert "expense_tracker/ package using unittest" not in p
@@ -212,7 +189,7 @@ def test_compression_removed_redundant_examples(monkeypatch):
 
 
 def test_ceremonial_frontier_footer_fields_are_not_requested(monkeypatch):
-    prompt = _prompt(measured=False, monkeypatch=monkeypatch)
+    prompt = _prompt(monkeypatch=monkeypatch)
 
     for field in (
         "FRONTIER_CHANGE",
@@ -226,7 +203,7 @@ def test_ceremonial_frontier_footer_fields_are_not_requested(monkeypatch):
         assert field not in prompt
 
     # These affect round settlement or Manager plan routing and remain requested.
-    assert "forward_progress" in prompt
+    assert "forward_progress" not in prompt
     assert "replan_review" in prompt
     assert "alternative" in prompt
 
@@ -236,13 +213,12 @@ def test_the_verdict_vocabulary_is_stated_once(monkeypatch):
     # once in the role block and again, at greater length, in the handoff
     # policy. Two definitions of the same four words is the redundancy this
     # budget exists to catch, and it cost more than the sentence it funded.
-    p = _prompt(measured=False, monkeypatch=monkeypatch)
+    p = _prompt(monkeypatch=monkeypatch)
     assert p.count('one material gap in scope') == 1
     assert p.count('wrong target or scope change') == 1
 
 
 def test_reviewer_records_prompt_block_token_estimates(monkeypatch):
-    monkeypatch.delenv("ARGUS_SKILL_MEASURED_MODE", raising=False)
     reviewer = Reviewer(runner=None, skill_store=None)
     prompt = reviewer._build_prompt(
         objective="audit the current research result",
@@ -267,7 +243,6 @@ def test_bounded_review_stage_checklist_stays_compact(
     tmp_path,
     monkeypatch,
 ) -> None:
-    monkeypatch.delenv("ARGUS_SKILL_MEASURED_MODE", raising=False)
     _persist_research_stage(tmp_path, "review")
     reviewer = Reviewer(runner=None, skill_store=None)
     prompt = reviewer._build_prompt(
@@ -295,7 +270,6 @@ def test_bounded_review_stage_checklist_stays_compact(
 
 
 def test_reviewer_does_not_duplicate_identical_objective(monkeypatch):
-    monkeypatch.delenv("ARGUS_SKILL_MEASURED_MODE", raising=False)
     reviewer = Reviewer(runner=None, skill_store=None)
     objective = "repair the exact benchmark evidence " * 120
 
@@ -380,7 +354,7 @@ def test_research_target_context_stays_compact(tmp_path, monkeypatch):
 
 
 def test_reviewer_prompt_uses_native_actions_without_a_prose_footer(monkeypatch) -> None:
-    prompt = _prompt(measured=False, monkeypatch=monkeypatch)
+    prompt = _prompt(monkeypatch=monkeypatch)
 
     assert "ARGUS_ROLE_DECISION=" not in prompt
     assert "review naturally" in prompt
@@ -395,7 +369,7 @@ def test_reviewer_prompt_uses_native_actions_without_a_prose_footer(monkeypatch)
 def test_reviewer_accepts_implementation_grounding_proportionally(
     monkeypatch,
 ) -> None:
-    prompt = _prompt(measured=False, monkeypatch=monkeypatch)
+    prompt = _prompt(monkeypatch=monkeypatch)
 
     assert 'Use primary sources for external claims' in prompt
     assert 'community code may ground implementation details' in prompt
@@ -407,7 +381,7 @@ def test_reviewer_accepts_implementation_grounding_proportionally(
 def test_reviewer_checks_metric_split_and_requested_deliverable(monkeypatch):
     """Given only a summary, no reviewer noticed evaluation on training data;
     given the artifacts, every one did. The judgement question names it."""
-    flat = " ".join(_prompt(measured=False, monkeypatch=monkeypatch).split())
+    flat = " ".join(_prompt(monkeypatch=monkeypatch).split())
 
     assert "which data split" in flat
     assert "check each requirement and symptom the task (this increment) states" in flat

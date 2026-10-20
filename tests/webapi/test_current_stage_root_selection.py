@@ -7,7 +7,7 @@ pipeline, belonging to a vertical that project never ran.
 
 Two files, one name. The session state root holds the real thing::
 
-    {"current_stage": "review", "vertical": "math", "workflow_mode": "staged",
+    {"current_stage": "review", "vertical": "targeted_lab", "workflow_mode": "staged",
      "stages": {"scope": {"status": "done"}, ...}}
 
 The execution workdir holds the adopted objective and nothing else::
@@ -37,7 +37,11 @@ from __future__ import annotations
 
 import json
 
+import pytest
+
 from argus.webapi.project_state import current_stage_for_session
+
+pytestmark = pytest.mark.usefixtures("targeted_vertical")
 
 WORKDIR_ONLY_OBJECTIVE = {
     "math_goal": "characterise the universal moduli",
@@ -46,7 +50,7 @@ WORKDIR_ONLY_OBJECTIVE = {
 }
 STATE_ROOT_PIPELINE = {
     "current_stage": "review",
-    "vertical": "math",
+    "vertical": "targeted_lab",
     "workflow_mode": "staged",
     "stages": {
         "scope": {"status": "done"},
@@ -87,7 +91,7 @@ def test_the_wrong_verticals_first_stage_is_not_served(tmp_path) -> None:
 def test_a_workdir_that_does_record_a_stage_is_still_honoured(tmp_path) -> None:
     """Sessions that execute in their own project root must not regress."""
     workdir = tmp_path / "single-root"
-    _write(workdir, {"current_stage": "solve", "vertical": "math"})
+    _write(workdir, {"current_stage": "solve", "vertical": "targeted_lab"})
 
     stage = current_stage_for_session({"workdir": str(workdir)}, tmp_path / "empty")
 
@@ -96,7 +100,7 @@ def test_a_workdir_that_does_record_a_stage_is_still_honoured(tmp_path) -> None:
 
 def test_cwd_is_read_when_there_is_no_workdir(tmp_path) -> None:
     cwd = tmp_path / "cwd"
-    _write(cwd, {"current_stage": "solve", "vertical": "math"})
+    _write(cwd, {"current_stage": "solve", "vertical": "targeted_lab"})
 
     assert current_stage_for_session({"cwd": str(cwd)}, tmp_path / "empty") == "solve"
 
@@ -123,6 +127,6 @@ def test_an_unreadable_state_file_does_not_win_the_authoritative_pass(tmp_path) 
     workdir = tmp_path / "work"
     (state_root / ".argus").mkdir(parents=True)
     (state_root / ".argus" / "PIPELINE_STATE.json").write_text("{not json", encoding="utf-8")
-    _write(workdir, {"current_stage": "solve", "vertical": "math"})
+    _write(workdir, {"current_stage": "solve", "vertical": "targeted_lab"})
 
     assert current_stage_for_session({"workdir": str(workdir)}, state_root) == "solve"

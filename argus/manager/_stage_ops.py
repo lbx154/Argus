@@ -75,23 +75,6 @@ _NEUTRAL_REVIEW_TEXT = {
     "nothing further",
     "null",
 }
-_FRONTIER_CHANGES = {
-    "artifact_improved",
-    "risk_reduced",
-    "uncertainty_reduced",
-    "information_gain",
-    "bounded_regression",
-    "recovered",
-    "unchanged_failure",
-    "expanding_regression",
-    "unexplained_regression",
-}
-_FRONTIER_CONFLICTS = {
-    "bounded_regression",
-    "unchanged_failure",
-    "expanding_regression",
-    "unexplained_regression",
-}
 
 
 # ---------------------------------------------------------------------------
@@ -175,7 +158,6 @@ class _StageDecisionMixin:
         backend_unavailable = field("backend_unavailable")
         backend_fatal_error = field("backend_fatal_error")
         planner_report = field("planner_report")
-        frontier_report = field("frontier_report")
         session_signal = field("session_signal")
 
         if not (
@@ -196,33 +178,24 @@ class _StageDecisionMixin:
             and isinstance(backend_fatal_error, str)
             and not backend_fatal_error.strip()
             and isinstance(planner_report, dict)
-            and isinstance(frontier_report, dict)
             and isinstance(session_signal, dict)
             and not session_signal
         ):
             return False
 
         allowed_plan_fields = {
-            "forward_progress",
             "plan_signal",
             "challenge",
             "alternative",
             "authority_impact",
-            # Routing judgments for supervision and reflection; they say
-            # nothing about whether the stage is accepted.
-            "manager_attention",
-            "manager_attention_reason",
+            # The reflection judgment says nothing about whether the stage is accepted.
             "learning",
             "learning_reason",
         }
         if not set(planner_report).issubset(allowed_plan_fields):
             return False
-        for name in ("manager_attention", "manager_attention_reason", "learning", "learning_reason"):
+        for name in ("learning", "learning_reason"):
             if name in planner_report and not isinstance(planner_report[name], str):
-                return False
-        if "forward_progress" in planner_report:
-            progress = planner_report["forward_progress"]
-            if not isinstance(progress, bool) or not progress:
                 return False
         if "plan_signal" in planner_report:
             signal = planner_report["plan_signal"]
@@ -245,69 +218,6 @@ class _StageDecisionMixin:
                 return False
             if authority in {"manager_contract", "operator"}:
                 return False
-
-        allowed_frontier_fields = {
-            "change",
-            "summary",
-            "resolved_obligations",
-            "new_obligations",
-            "regressed_obligations",
-            "remaining_work",
-            "proxy_changes",
-            "artifacts",
-            "evidence",
-            "hypothesis",
-            "uncertainty",
-            "next_decision_point",
-            "regression",
-        }
-        if not set(frontier_report).issubset(allowed_frontier_fields):
-            return False
-        if frontier_report:
-            change = frontier_report.get("change", _MISSING_REVIEW_FIELD)
-            if not isinstance(change, str):
-                return False
-            change = change.strip().lower()
-            if change not in _FRONTIER_CHANGES or change in _FRONTIER_CONFLICTS:
-                return False
-        for name in (
-            "resolved_obligations",
-            "new_obligations",
-            "regressed_obligations",
-            "remaining_work",
-            "proxy_changes",
-            "artifacts",
-            "evidence",
-        ):
-            if name in frontier_report:
-                values = frontier_report[name]
-                if not isinstance(values, list) or not all(
-                    isinstance(value, str) for value in values
-                ):
-                    return False
-        for name in (
-            "summary",
-            "hypothesis",
-            "uncertainty",
-            "next_decision_point",
-        ):
-            if name in frontier_report and not isinstance(frontier_report[name], str):
-                return False
-        if "regression" in frontier_report and not isinstance(
-            frontier_report["regression"], dict
-        ):
-            return False
-        if any(
-            frontier_report.get(name)
-            for name in (
-                "new_obligations",
-                "regressed_obligations",
-                "remaining_work",
-                "next_decision_point",
-                "regression",
-            )
-        ):
-            return False
         return True
 
     def _gather_stage_context(
@@ -440,8 +350,7 @@ class _StageDecisionMixin:
     ) -> str:
         """The prose of one Manager turn (:meth:`run_turn`), footer removed.
 
-        This is how the Manager writes for a person: a letter to the operator,
-        or a second reading of the evidence.
+        This is how the Manager writes for a person: a letter to the operator.
         """
         raw = self.run_turn(
             prompt, on_event=on_event, run_label=run_label, root_task_id=root_task_id,
@@ -452,7 +361,7 @@ class _StageDecisionMixin:
 
         return strip_control_footer(
             raw,
-            ("ACTION", "TARGET_STAGE", "REASON", "RESOLVES_WAIT"),
+            ("ACTION", "TARGET_STAGE", "REASON"),
         ).strip()
 
     def _run_stage_model(
@@ -524,7 +433,7 @@ class _StageDecisionMixin:
 
         return strip_control_footer(
             raw,
-            ("ACTION", "TARGET_STAGE", "REASON", "RESOLVES_WAIT"),
+            ("ACTION", "TARGET_STAGE", "REASON"),
         ).strip()
 
     def _parse_and_finalize_stage_decision(
@@ -535,7 +444,7 @@ class _StageDecisionMixin:
         review: Any,
         open_ended: bool,
         mission_scope: str,
-        planner_wait_reconciliation: bool,
+        planner_handoff: bool,
         checklist_contract: Any,
         root: Path,
         on_event: Any,
@@ -579,15 +488,15 @@ class _StageDecisionMixin:
             from .stage_decider import StageDecision
 
             if (
-                planner_wait_reconciliation
+                planner_handoff
                 and (not open_ended or resolve_workflow_mode(root) != "direct")
                 and decision.action in {"advance", "complete"}
             ):
                 decision = StageDecision(
                     "hold",
                     cur,
-                    "planner waiting cannot advance without reviewer evidence",
-                    "planner_wait_advance_rejected",
+                    "a Planner handoff cannot advance without reviewer evidence",
+                    "planner_handoff_advance_rejected",
                 )
             return decision
 
@@ -766,15 +675,15 @@ class _StageDecisionMixin:
                 decision = StageDecision("hold", cur, str(error), error.diagnostic)
 
         if (
-            planner_wait_reconciliation
+            planner_handoff
             and (not open_ended or resolve_workflow_mode(root) != "direct")
             and decision.action in {"advance", "complete"}
         ):
             decision = StageDecision(
                 "hold",
                 cur,
-                "planner waiting cannot advance without reviewer evidence",
-                "planner_wait_advance_rejected",
+                "a Planner handoff cannot advance without reviewer evidence",
+                "planner_handoff_advance_rejected",
             )
         return decision
 
@@ -818,8 +727,7 @@ class _StageDecisionMixin:
                     diagnostic="stage_write_illegal_target",
                 )
             return StageTransition("advance", decision.target_stage, decision.reason,
-                                   cur, source, decision.diagnostic,
-                                   decision.resolves_wait)
+                                   cur, source, decision.diagnostic)
 
         if decision.action == "complete":
             from ..skills.vertical_select import resolve_workflow_mode
@@ -850,8 +758,7 @@ class _StageDecisionMixin:
                     diagnostic="stage_write_illegal_target",
                 )
             return StageTransition("complete", decision.target_stage, decision.reason,
-                                   cur, source, decision.diagnostic,
-                                   decision.resolves_wait)
+                                   cur, source, decision.diagnostic)
 
         if decision.action == "rollback":
             try:
@@ -870,12 +777,10 @@ class _StageDecisionMixin:
                     diagnostic="stage_write_illegal_target",
                 )
             return StageTransition("rollback", decision.target_stage, decision.reason,
-                                   cur, source, decision.diagnostic,
-                                   decision.resolves_wait)
+                                   cur, source, decision.diagnostic)
 
         return StageTransition("hold", cur, decision.reason or "manager held",
-                               cur, source, decision.diagnostic,
-                               decision.resolves_wait)
+                               cur, source, decision.diagnostic)
 
     # ------------------------------------------------------------------
     # Public interface
@@ -946,29 +851,21 @@ class _StageDecisionMixin:
             and order
             and cur == order[-1]
         )
-        planner_wait_reconciliation = bool(
-            (
-                open_ended
-                or bool(getattr(
-                    getattr(planner_verdict, "waiting_contract", None),
-                    "stage_reconciliation_required",
-                    False,
-                ))
-            )
-            and review is None
+        planner_handoff = bool(
+            review is None
             and planner_verdict is not None
-            and bool(getattr(planner_verdict, "waiting", False))
+            and getattr(planner_verdict, "handoff", "") == "manager"
             and not bool(getattr(planner_verdict, "project_done", False))
             and not list(getattr(planner_verdict, "new_tasks", []) or [])
         )
 
         # --- Phase 4: Handle no-review (early hold or build synthetic review) ---
         # No reviewer feedback normally means no stage transition. Structured
-        # open-ended terminal and Planner-wait reconciliations are the exceptions.
+        # open-ended terminal reconciliation and a Planner handoff are the exceptions.
         if review is None:
             if not (
                 open_ended_terminal_reconciliation
-                or planner_wait_reconciliation
+                or planner_handoff
             ):
                 return StageTransition(
                     "hold", cur, "no reviewer feedback", current_stage=cur,
@@ -977,7 +874,7 @@ class _StageDecisionMixin:
             planner_reason = str(
                 getattr(planner_verdict, "reason", "") or planner_verdict
             )
-            if planner_wait_reconciliation:
+            if planner_handoff:
                 review = SimpleNamespace(
                     status="blocked",
                     reason=(
@@ -1228,7 +1125,7 @@ class _StageDecisionMixin:
                 review=review,
                 open_ended=open_ended,
                 mission_scope=mission_scope,
-                planner_wait_reconciliation=planner_wait_reconciliation,
+                planner_handoff=planner_handoff,
                 checklist_contract=checklist_contract,
                 root=root,
                 on_event=on_event,

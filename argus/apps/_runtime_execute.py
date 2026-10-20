@@ -1,6 +1,6 @@
 """Execute-lifecycle mixin: ``SkillLoopExecuteMixin`` — the
 ``_SkillLoopRunner.execute()`` orchestrator and its lifecycle-phase helper
-methods (config build, mission-context prep, bounded planning, loop
+methods (config build, mission-context prep, loop
 invocation, outcome-field extraction, stage-transition decision, outcome
 assembly).
 """
@@ -16,11 +16,11 @@ import time
 from pathlib import Path
 from typing import Callable
 
-from ..core.knobs import resolve_role_reasoning_effort
+from ..core.knobs import learning_enabled
 from ..core.ports import EventSink
 from ..core.role_handoff import strip_handoff
 from ..core.runner_errors import is_execution_host_startup_error
-from ..engineer.round_config import HOST_PLACEHOLDER_REVIEW_SOURCES
+from ..engineer.round_config import HOST_PLACEHOLDER_REVIEW_SOURCES, QUESTION_POLICY
 from ..engineer.runner import should_clear_thread_id_after_outcome
 from ._env import env_flag as _env_flag
 from ._runtime_backends import _Outcome
@@ -32,58 +32,6 @@ from ._runtime_helpers import (
 )
 
 log = logging.getLogger(__name__)
-
-# The advisory Planner preview outlines; a preview that is still running after
-# this long is exploring, which is the Engineer's job.
-_PLANNER_PREVIEW_MAX_SECONDS = 180
-
-
-def _engineer_model_for_task(default: str, vertical: str, task_text: str, project_root: Path | None) -> str:
-    """The engineer model for this task, or the route model its vertical asked for.
-
-    A vertical's module may define ``model_route_for_task(text) -> str`` (the
-    research vertical routes figure work to ``figure``); the route's knob
-    ``ARGUS_SKILL_<ROUTE>_MODEL`` then names the model and ``auto`` keeps the
-    engineer's. Anything failing here keeps the default: routing is a
-    convenience and must never stop a mission.
-    """
-    if not vertical or not task_text:
-        return default
-    try:
-        from ..verticals._base import load_vertical
-
-        module = load_vertical(vertical, project_root=project_root)
-        route_for = getattr(module, "model_route_for_task", None)
-        route = str(route_for(task_text) or "").strip() if callable(route_for) else ""
-        if not route:
-            return default
-        from ..core.knobs import resolve_task_route_model
-
-        chosen = resolve_task_route_model(route, fallback=default)
-    except Exception:  # noqa: BLE001 - see above
-        return default
-    if chosen != default:
-        log.info("engineer model for this task: %s (route %s)", chosen, route)
-    return chosen
-
-
-def _decided_vertical(config: object, workdir: Path) -> str:
-    """The Manager-classified vertical of this mission, or "" when undecided.
-
-    Role-prompt resolution falls back to research for an unclassified
-    workspace, so it cannot tell a research campaign from a task nobody has
-    classified yet; the mission's own classification can.
-    """
-    active = str(getattr(config, "active_vertical", "") or "").strip().lower()
-    if active:
-        return active
-    from ..skills.vertical_select import resolve_vertical_if_decided
-
-    state_root = getattr(config, "vertical_state_root", None) or workdir
-    try:
-        return str(resolve_vertical_if_decided(Path(state_root)) or "").strip().lower()
-    except Exception:  # noqa: BLE001 — undecided is the safe reading
-        return ""
 
 
 def _execution_host_blocked_outcome(outcome: object) -> bool:
@@ -153,27 +101,6 @@ def _engineer_guidance(
             # Standalone callers have no complete-prompt settlement hook.
             receiver.release_pending()
     return [block] if block else []
-
-
-def _external_wait_hold_with_quiet_inbox(
-    hold: Callable[[], bool] | None, life_dir: Path | None,
-) -> Callable[[], bool] | None:
-    """The daemon's answer on holding a mission slot, and only while the
-    operator inbox is empty: a waiting message is read at the next round
-    boundary, so the round must not sit on its slot for an hour first."""
-    if hold is None:
-        return None
-
-    def answer() -> bool:
-        if not hold():
-            return False
-        if life_dir is None:
-            return True
-        from ._inbox import count_pending_inbox_messages
-
-        return count_pending_inbox_messages(life_dir) == 0
-
-    return answer
 
 
 class SkillLoopExecuteMixin:
@@ -524,9 +451,6 @@ class SkillLoopExecuteMixin:
         preload_injects: list[str] | None = None,  # noqa: ARG002 — protocol parity
         prelude_context: str = "",
         prelude_context_provider: Callable[[], str] | None = None,
-        planner_context: str = "",
-        planner_context_provider: Callable[[], str] | None = None,
-        external_wait_hold: Callable[[], bool] | None = None,
         seed_thread_id: str | None = None,
         scope: str = "",
         preplanned: bool = False,
@@ -569,11 +493,6 @@ class SkillLoopExecuteMixin:
 
             ex_state = _ExecuteState()
             ex_state.prelude_context_provider = prelude_context_provider
-            ex_state.external_wait_hold = external_wait_hold
-            # This is an explicitly shared projection. Engineer prelude_context may
-            # contain role-exclusive runtime instructions and must never be reused.
-            ex_state.planner_context = planner_context
-            ex_state.planner_context_provider = planner_context_provider
             self._build_execute_config(
                 ex_state,
                 working_dir_override=working_dir_override,
@@ -600,7 +519,6 @@ class SkillLoopExecuteMixin:
                 sink=sink,
                 objective=objective,
                 original_objective=original_objective,
-                preplanned=preplanned,
                 mission_id=mission_id,
                 usage_mission_id=usage_mission_id,
             )
@@ -732,7 +650,7 @@ class SkillLoopExecuteMixin:
         # Operators can opt back into sandbox via ARGUS_SKILL_SAFE_MODE=1.
         safe_mode = _env_flag("ARGUS_SKILL_SAFE_MODE", False)
         config_kwargs = {
-            "engineer_model": _engineer_model_for_task(args.engineer_model, active_vertical, objective, _proot),
+            "engineer_model": args.engineer_model,
             "reviewer_model": args.reviewer_model,
             "require_independent_review": effective_require_independent_review,
             "engineer_initial_reasoning_effort": os.environ.get(
@@ -752,11 +670,8 @@ class SkillLoopExecuteMixin:
             "require_post_task_learning": bool(
                 getattr(self, "_role_memory_maintenance_enabled", True)
             ),
-            "wiki_enabled": _env_flag("ARGUS_SKILL_WIKI", default=True),
-            "auto_init_wiki": _env_flag(
-                "ARGUS_SKILL_AUTO_INIT_WIKI",
-                default=True,
-            ),
+            "wiki_enabled": learning_enabled(),
+            "auto_init_wiki": learning_enabled(),
             "dangerous_yolo": not safe_mode,
             "full_auto": safe_mode,
             "sandbox_mode": (
@@ -799,19 +714,14 @@ class SkillLoopExecuteMixin:
         config_kwargs["engineer_log_path"] = (
             str(_project_state_dir / "events.jsonl") if _project_state_dir is not None else ""
         )
-        from ..manager.directive import effective_operator_question_policy
+        from ..core.autonomy import operator_questions_can_be_asked
 
         explicit_operator_root = str(getattr(args, "operator_context_dir", "") or "").strip()
         operator_policy_root = (
             Path(explicit_operator_root).expanduser() if explicit_operator_root else _project_state_dir
         )
-        config_kwargs["operator_questions_allowed"] = (
-            effective_operator_question_policy(operator_policy_root) != "forbid"
-        )
+        config_kwargs["operator_questions_allowed"] = operator_questions_can_be_asked()
         config_kwargs["operator_question_policy_root"] = operator_policy_root
-        # Only a LifeSupervisor mission carries a context packet, and every
-        # one of those runs under the project's Manager.
-        config_kwargs["manager_supervised"] = bool(context_packet_path)
         # Campaign lifetime metadata forwarded from the daemon namespace so the
         # Manager stage hook receives open_ended=True for daemon-created open-ended
         # campaigns, preventing final_stage_completion_decision from overwriting a
@@ -941,9 +851,6 @@ class SkillLoopExecuteMixin:
             extra_guidance_provider=extra_guidance_provider,
             prelude_context_provider=getattr(ex_state, "prelude_context_provider", None),
         )
-        ex_state.loop.external_wait_hold = _external_wait_hold_with_quiet_inbox(
-            getattr(ex_state, "external_wait_hold", None), inbox_life_dir,
-        )
 
     def _prepare_execute_mission_context(
         self,
@@ -975,158 +882,6 @@ class SkillLoopExecuteMixin:
         ex_state.seed = seed
         ex_state.mission_scope = mission_scope
 
-    def _run_bounded_planning(
-        self,
-        ex_state: "_ExecuteState",
-        *,
-        sink: EventSink,
-        objective: str,
-        original_objective: str,
-        preplanned: bool,
-        mission_id: str | None,
-    ) -> None:
-        """Draft the advisory Planner execution plan for bounded (non-direct,
-        non-preplanned) work and fold it into ``ex_state.full_task``.
-
-        User-authored bounded work now follows the full team chain:
-        Manager → Planner → Engineer → Reviewer. Planner-authored backlog
-        items set ``preplanned=True`` and skip this call, avoiding a second
-        redundant planning pass. The plan is advisory context, not a gate:
-        if drafting fails, Engineer still receives the immutable objective.
-        """
-        args = self._args
-        workdir = ex_state.workdir
-        config = ex_state.config
-        if preplanned or getattr(config, "workflow_mode", "staged") == "direct":
-            return
-        try:
-            from ..core.planner_verdict import (
-                PlannerVerdictStatus,
-                build_planner_verdict_event,
-            )
-            from ..manager.plan_mode import draft_plan
-            from ..roles.prompts import resolve_role_prompt
-            from ..roles.prompts.planner import PLAN_PREVIEW, continuous_request
-            from ._runtime_planning_context import bounded_planner_request
-
-            preview_prompt = resolve_role_prompt(continuous_request(
-                getattr(config, "vertical_state_root", None) or workdir,
-                operation=PLAN_PREVIEW,
-                include_search_altitude=False,
-                altitude_root=workdir,
-            ))
-            if _decided_vertical(config, workdir) == "research":
-                # The research Planner's own cycle plans the campaign minutes
-                # later with the stage playbook, and the idea stage forms its
-                # portfolio without reading this outline. On the stable web
-                # trial (2026-09-16) this preview ran at every attempt with
-                # repository tools and no turn cap; on an empty workspace it
-                # wandered the host for nineteen turns (361k input tokens)
-                # before the provider cut it off, and its output was unused.
-                sink.handle_event(
-                    {
-                        "type": "life.planner.preview_skipped",
-                        "agent_layer": "planner",
-                        "vertical": "research",
-                        "text": (
-                            "Planner preview skipped: the research Planner cycle "
-                            "owns the campaign plan"
-                        ),
-                    }
-                )
-                return
-            planner_role_banner = preview_prompt.role_banner
-            sink.handle_event(
-                {
-                    "type": "life.planner.start",
-                    "agent_layer": "planner",
-                    "objective": objective,
-                    "completion_required": True,
-                    "text": "Planner project grounding and decomposition started",
-                }
-            )
-            shared_context = ex_state.planner_context
-            context_provider = getattr(ex_state, "planner_context_provider", None)
-            if context_provider is not None:
-                try:
-                    shared_context = str(context_provider() or "").strip()
-                except Exception:  # noqa: BLE001 — never fall back to old recalled claims
-                    log.warning("current Planner memory unavailable", exc_info=True)
-                    shared_context = "Current shared memory is unavailable."
-                shared_context = (
-                    "## Current shared Planner context\n"
-                    "This projection replaces earlier recalled memory for this request. "
-                    "An omitted experience requires a fresh read of its current state "
-                    "and revision before reuse; omission alone does not mean revocation.\n\n"
-                    + (shared_context or "No current shared memory.")
-                )
-            plan = draft_plan(
-                getattr(self, "planner_backend", None) or self._backend,
-                bounded_planner_request(
-                    objective,
-                    shared_context=shared_context,
-                    checkpoint_path=getattr(config, "checkpoint_path", None),
-                    operator_state_root=getattr(
-                        config, "operator_question_policy_root", None
-                    ),
-                    mission_id=str(mission_id or ""),
-                ),
-                sink=sink,
-                model=getattr(args, "plan_model", None),
-                reasoning_effort=resolve_role_reasoning_effort(
-                    "ARGUS_SKILL_PLANNER_REASONING_EFFORT"
-                ),
-                run_label="planner-bounded-plan",
-                role_banner=planner_role_banner,
-                working_dir=str(workdir),
-                dangerous_yolo=True,
-                # An outline for the operator, not an investigation: the
-                # Engineer inspects the repository itself a moment later.
-                allow_repository_inspection=False,
-                max_seconds=_PLANNER_PREVIEW_MAX_SECONDS,
-            )
-            if plan.steps:
-                lines = ["## Planner execution plan (advisory)"]
-                for index, step in enumerate(plan.steps, 1):
-                    detail = f" — {step.detail}" if step.detail else ""
-                    lines.append(f"{index}. {step.title}{detail}")
-                if plan.notes:
-                    lines.append("Notes: " + "; ".join(plan.notes))
-                ex_state.full_task += "\n\n---\n" + "\n".join(lines)
-                sink.handle_event(
-                    build_planner_verdict_event(
-                        status=PlannerVerdictStatus.PLANNED,
-                        reason=(
-                            "Grounded bounded plan completed with "
-                            f"{len(plan.steps)} step(s)"
-                        ),
-                        project_id=str(workdir),
-                        mission_id=str(mission_id or ""),
-                        agent_layer="planner",
-                        project_done=False,
-                        steps=len(plan.steps),
-                        text="Planner grounding and decomposition completed",
-                    )
-                )
-            else:
-                sink.handle_event(
-                    {
-                        "type": "life.planner.error",
-                        "agent_layer": "planner",
-                        "error": plan.error or "bounded plan unavailable",
-                        "text": plan.error or "bounded plan unavailable; Engineer continues",
-                    }
-                )
-        except Exception as exc:  # noqa: BLE001 — planning is advisory
-            sink.handle_event(
-                {
-                    "type": "life.planner.error",
-                    "agent_layer": "planner",
-                    "error": f"{type(exc).__name__}: {exc}",
-                    "text": "bounded plan unavailable; Engineer continues",
-                }
-            )
-
     def _invoke_execute_loop(
         self,
         ex_state: "_ExecuteState",
@@ -1134,13 +889,11 @@ class SkillLoopExecuteMixin:
         sink: EventSink,
         objective: str,
         original_objective: str,
-        preplanned: bool,
         mission_id: str | None,
         usage_mission_id: str | None,
     ) -> None:
-        """Run the mission through ``SkillLoop.run``, sandwiched between the
-        advisory bounded-planning pass and this call's sink/usage-context
-        teardown.
+        """Run the mission through ``SkillLoop.run`` and this call's
+        sink/usage-context teardown.
         """
         self._current_sink = sink
         self._current_failure_ledger = None
@@ -1175,14 +928,6 @@ class SkillLoopExecuteMixin:
                     )
                 )
             execution_started = True
-            self._run_bounded_planning(
-                ex_state,
-                sink=sink,
-                objective=objective,
-                original_objective=original_objective,
-                preplanned=preplanned,
-                mission_id=mission_id,
-            )
 
             def _pre_settlement_guard(
                 _mission: object,
@@ -1336,7 +1081,6 @@ class SkillLoopExecuteMixin:
         outcome = ex_state.outcome
         new_tid = getattr(outcome, "last_thread_id", None)
         if should_clear_thread_id_after_outcome(
-            status=str(getattr(outcome, "status", "")),
             fatal_error=str(getattr(outcome, "stop_reason", "") or ""),
             stop_kind=getattr(outcome, "stop_kind", None),
         ):
@@ -1358,7 +1102,6 @@ class SkillLoopExecuteMixin:
         final_review_next_action = ""
         review_source = ""
         final_residual_risk = ""
-        final_frontier_report: dict = {}
         final_planner_report: dict = {}
         plan_challenge: dict = {}
         rounds_list = getattr(outcome, "rounds", None) or []
@@ -1398,11 +1141,17 @@ class SkillLoopExecuteMixin:
                 )
                 review_source = str(getattr(_final_review, "review_source", "") or "").strip()
                 final_residual_risk = str(getattr(_final_review, "residual_risk", "") or "").strip()
-                operator_question = str(
+                # A question the operator may not be asked was not sent; the
+                # intervention beside the verdict says so (round_settlement).
+                withheld = any(
+                    row.get("policy") == QUESTION_POLICY
+                    for row in getattr(_final_review, "interventions", None) or []
+                )
+                operator_question = "" if withheld else str(
                     getattr(_final_review, "operator_question", "") or ""
                 ).strip()
                 raw_operator_options = getattr(_final_review, "operator_options", []) or []
-                if isinstance(raw_operator_options, list):
+                if isinstance(raw_operator_options, list) and not withheld:
                     operator_options = [
                         dict(option)
                         for option in raw_operator_options
@@ -1411,9 +1160,6 @@ class SkillLoopExecuteMixin:
                 final_review_next_action = str(
                     getattr(_final_review, "next_action", "") or ""
                 ).strip()
-                raw_frontier = getattr(_final_review, "frontier_report", {}) or {}
-                if isinstance(raw_frontier, dict):
-                    final_frontier_report = dict(raw_frontier)
                 raw_report = getattr(_final_review, "planner_report", {}) or {}
                 if isinstance(raw_report, dict):
                     final_planner_report = dict(raw_report)
@@ -1426,7 +1172,6 @@ class SkillLoopExecuteMixin:
                             getattr(_final_review, "reason", "") or ""
                         ),
                         next_action=final_review_next_action,
-                        operator_question=operator_question,
                     )
                 else:
                     from ..manager import adjudicate_plan_challenge
@@ -1438,7 +1183,6 @@ class SkillLoopExecuteMixin:
                             getattr(_final_review, "reason", "") or ""
                         ),
                         next_action=final_review_next_action,
-                        operator_question=operator_question,
                     )
                 if challenge_decision.action != "keep":
                     plan_challenge = {
@@ -1491,7 +1235,6 @@ class SkillLoopExecuteMixin:
         ex_state.final_review_next_action = final_review_next_action
         ex_state.review_source = review_source
         ex_state.final_residual_risk = final_residual_risk if final_review_status == "done" else ""
-        ex_state.final_frontier_report = final_frontier_report
         ex_state.final_planner_report = final_planner_report
         ex_state.plan_challenge = plan_challenge
         ex_state.final_submission_certified = final_submission_certified
@@ -1539,10 +1282,9 @@ class SkillLoopExecuteMixin:
             workflow_skips_stage_transition
             or (skip_stage_transition and not stage_closing)
         )
-        # Direct workflow skips an extra planning pass, not Manager stage
-        # authority. Review-only tasks and ordinary non-stage-closing Planner
-        # nodes suppress the stage writer; Reviewer-requested replans still
-        # reach Manager through planning-cycle reconciliation.
+        # Review-only tasks and ordinary non-stage-closing Planner nodes
+        # suppress the stage writer; Reviewer-requested replans still reach
+        # Manager through planning-cycle reconciliation.
         if (
             not maintenance_mission
             and not workflow_skips_stage_transition
@@ -1617,11 +1359,6 @@ class SkillLoopExecuteMixin:
         engineer_message = str(getattr(outcome, "final_message", "") or "")
         summary_lines = []
         visible_engineer_message = strip_handoff(engineer_message)
-        from ..engineer.external_work import strip_external_wait_footer
-
-        visible_engineer_message = strip_external_wait_footer(
-            visible_engineer_message
-        )
         for line in visible_engineer_message.splitlines():
             cleaned = line.strip()
             if not cleaned:
@@ -1674,7 +1411,6 @@ class SkillLoopExecuteMixin:
             ),
             venue_review=getattr(rounds[-1].review, "venue_review", None) if rounds else None,
             venue_review_snapshot=getattr(rounds[-1].review, "venue_review_snapshot", None) if rounds else None,
-            final_frontier_report=ex_state.final_frontier_report,
             final_planner_report=ex_state.final_planner_report,
             plan_challenge=ex_state.plan_challenge,
         )

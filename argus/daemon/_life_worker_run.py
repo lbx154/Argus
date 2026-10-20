@@ -74,41 +74,22 @@ def _backlog_fingerprint(supervisor: Any) -> tuple | None:
             continue
         marks.append((stat.st_ino, stat.st_mtime_ns, stat.st_size))
     return tuple(marks)
-_SUBAGENT_INFLIGHT_STATES = frozenset({
-    "discussing",
-    "preflight",
-    "running",
-    "starting",
-    "waiting_resource",
-})
-# Every state a subagent writer settles on. ``early_stopped`` (the parked
-# discussion's exit, tools/subagent/_discuss_run.py) and ``crashed`` (the
-# exit-sidecar reconciler, tools/subagent/_registry.py) were missing, so a
-# parent whose job ended that way failed as "unknown state" instead of being
-# requeued; ``early_stop`` stays for records an older release wrote.
-_SUBAGENT_TERMINAL_STATES = frozenset({
-    "cancelled",
-    "canceled",
-    "crashed",
-    "done",
-    "early_stop",
-    "early_stopped",
-    "error",
-    "failed",
-    "stopped",
-    "timeout",
-})
 
 
 def _maybe_consolidate(rf_state: Any, config: Any) -> None:
-    """Run the hourly knowledge consolidation for this project's vertical.
+    """Consolidate this project's vertical knowledge when its pages changed.
 
-    Called after every drain pass, before the sleep. Skips quietly when the
-    daemon has no project workspace, the vertical is undecided, or the shared
-    root has nothing new; ``consolidate_knowledge`` reads its receipt first,
-    so the common path costs a few file reads. Never raises into the loop.
+    Called after every drain pass, before the sleep. Skips quietly when
+    learning is off, the daemon has no project workspace, the vertical is
+    undecided, or the shared root has nothing new; ``consolidate_knowledge``
+    compares page file facts with its receipt first, so the common path costs
+    one stat per page. Never raises into the loop.
     """
     try:
+        from ..core.knobs import learning_enabled
+
+        if not learning_enabled():
+            return
         workspace = getattr(config, "project_workdir", None)
         sup = getattr(rf_state, "sup", None)
         runner = getattr(rf_state, "runner", None)
@@ -144,11 +125,6 @@ def _maybe_consolidate(rf_state: Any, config: Any) -> None:
         log.exception("daemon: knowledge consolidation failed")
 
 
-def _bounded_operator_wait_text(questions: list[str]) -> str:
-    shown = "; ".join(question[:300] for question in questions if question)[:900]
-    return "blocked: needs operator" + (f" — {shown}" if shown else "")
-
-
 class LifeWorkerRunMixin:
     """``run_forever``'s post-boot phases: main loop and shutdown."""
 
@@ -156,47 +132,6 @@ class LifeWorkerRunMixin:
     _stop: threading.Event
     # Set by LifeWorker at construction (a LifeWorkerConfig).
     config: Any
-
-    @staticmethod
-    def _owned_subagents(
-        rf_state: _RunForeverState,
-        mission_id: str,
-    ) -> list[tuple[float, str, str]]:
-        def timestamp(value: object) -> float:
-            try:
-                return float(value or 0.0)
-            except (TypeError, ValueError):
-                return 0.0
-
-        workdir = getattr(getattr(rf_state, "cfg", None), "project_workdir", None)
-        if not workdir:
-            return None
-        registry = Path(workdir) / ".argus_subagents"
-        if not registry.is_dir():
-            return None
-        owned: list[tuple[float, str, str]] = []
-        for path in registry.glob("*.json"):
-            try:
-                import json
-
-                record = json.loads(path.read_text(encoding="utf-8"))
-            except (OSError, ValueError):
-                continue
-            if not isinstance(record, dict):
-                continue
-            if str(record.get("owner_mission_id") or "").strip() != mission_id:
-                continue
-            task_id = str(record.get("task_id") or path.stem).strip()
-            state = str(record.get("state") or "").strip().lower()
-            if not task_id or not state:
-                continue
-            observed_at = max(
-                timestamp(record.get("submitted_at")),
-                timestamp(record.get("started_at")),
-                timestamp(record.get("completed_at")),
-            )
-            owned.append((observed_at, task_id, state))
-        return sorted(owned, reverse=True)
 
     @staticmethod
     def _backlog_item(rf_state: _RunForeverState, item_id: str) -> Any | None:
@@ -257,174 +192,8 @@ class LifeWorkerRunMixin:
                 item.id,
             )
 
-    def _recover_stalled_external_mission(
-        self,
-        rf_state: _RunForeverState,
-        item: Any,
-        *,
-        now: float,
-    ) -> bool:
-        owned = self._owned_subagents(rf_state, str(item.id))
-        if not owned:
-            return False
-        observed_work = [
-            {"task_id": task_id, "state": state, "observed_at": observed_at}
-            for observed_at, task_id, state in owned
-        ]
-        inflight = [row for row in owned if row[2] in _SUBAGENT_INFLIGHT_STATES]
-        terminal = [row for row in owned if row[2] in _SUBAGENT_TERMINAL_STATES]
-        if not inflight and len(terminal) != len(owned):
-            from ..core.runtime_incidents import (
-                RuntimeIncidentStore,
-                drain_runtime_incident_events,
-            )
-
-            try:
-                store = RuntimeIncidentStore(rf_state.runtime_root)
-                store.record_unresolved(
-                    detector="running_stall_watchdog",
-                    invariant="owned_subagents_have_known_states",
-                    subject_kind="mission",
-                    subject_id=str(item.id),
-                    severity="error",
-                    observed={
-                        "backlog_status": item.status,
-                        "owned_work": observed_work,
-                    },
-                    reason="owned subagent state is neither in-flight nor terminal",
-                )
-                drain_runtime_incident_events(
-                    rf_state.runtime_root,
-                    rf_state.sink.handle_event,
-                )
-            except Exception:  # noqa: BLE001 - fallback failure remains available
-                log.exception(
-                    "daemon: failed to record unknown subagent state for mission %s",
-                    item.id,
-                )
-            return False
-        _observed_at, task_id, subagent_state = (
-            inflight[0] if inflight else owned[0]
-        )
-        workdir = Path(rf_state.cfg.project_workdir)
-        external_wait = {
-            "kind": "subagent",
-            "work_id": task_id,
-            "workdir": str(workdir),
-        }
-        if inflight:
-            from ..life.mission_outcome import mission_outcome_dimensions
-
-            outcome = mission_outcome_dimensions(
-                status="paused_external_work",
-                success=False,
-                review_status="",
-                stop_kind=None,
-                resumable=True,
-            )
-            outcome["external_wait"] = external_wait
-            rf_state.mem.backlog.update(
-                item.id,
-                status="paused_external_work",
-                started_ts=None,
-                finished_ts=now,
-                running_owner="",
-                last_error=_RUNNING_STALL_ERROR,
-                outcome=outcome,
-            )
-            rf_state.sink.handle_event({
-                "type": "life.mission.completed",
-                "item_id": item.id,
-                "title": item.title,
-                "success": False,
-                "status": "paused_external_work",
-                "recoverable": True,
-                "external_wait": external_wait,
-                "outcome": outcome,
-            })
-            settled = self._backlog_item(rf_state, str(item.id))
-            self._record_runtime_recovery(
-                rf_state,
-                detector="running_stall_watchdog",
-                invariant="running_requires_live_executor",
-                item=item,
-                observed={
-                    "backlog_status": "running",
-                    "executor_alive": False,
-                    "owned_work": observed_work,
-                },
-                action="park_parent_on_owned_external_work",
-                expected_postcondition=(
-                    "parent is paused_external_work and references an in-flight "
-                    "owned subagent"
-                ),
-                recovered=bool(
-                    settled is not None
-                    and settled.status == "paused_external_work"
-                    and isinstance(settled.outcome, dict)
-                    and settled.outcome.get("external_wait", {}).get("work_id")
-                    == task_id
-                ),
-                verification={
-                    "backlog_status": getattr(settled, "status", ""),
-                    "wait_id": (
-                        settled.outcome.get("external_wait", {}).get("work_id")
-                        if settled is not None
-                        and isinstance(settled.outcome, dict)
-                        else ""
-                    ),
-                    "owned_work": observed_work,
-                },
-            )
-            log.warning(
-                "daemon: parked stalled mission %s on owned subagent %s",
-                item.id,
-                task_id,
-            )
-            return True
-        rf_state.mem.backlog.update(
-            item.id,
-            status="pending",
-            attempt=max(1, int(item.attempt or 1)) + 1,
-            started_ts=None,
-            finished_ts=None,
-            running_owner="",
-            last_error=(
-                f"{_RUNNING_STALL_ERROR}; owned subagent {task_id} "
-                f"is already {subagent_state}"
-            ),
-            outcome={"external_wait": external_wait},
-        )
-        settled = self._backlog_item(rf_state, str(item.id))
-        self._record_runtime_recovery(
-            rf_state,
-            detector="running_stall_watchdog",
-            invariant="terminal_subagent_resumes_parent",
-            item=item,
-            observed={
-                "backlog_status": "running",
-                "executor_alive": False,
-                "owned_work": observed_work,
-            },
-            action="requeue_parent_after_owned_work_terminal",
-            expected_postcondition="parent mission is pending and claimable",
-            recovered=bool(settled is not None and settled.status == "pending"),
-            verification={
-                "backlog_status": getattr(settled, "status", ""),
-                "owned_work": observed_work,
-            },
-        )
-        log.warning(
-            "daemon: requeued stalled mission %s after all owned subagents became terminal "
-            "(latest=%s:%s)",
-            item.id,
-            task_id,
-            subagent_state,
-        )
-        return True
-
     def _recover_stalled_running_items(self, rf_state: _RunForeverState) -> list[str]:
-        """Requeue (or park on owned work) running claims whose executor thread died.
+        """Requeue running claims whose executor thread died.
 
         A dead executor says nothing about the mission itself, so the item keeps
         its workspace and goes back to the queue for the next free worker.
@@ -448,13 +217,6 @@ class LifeWorkerRunMixin:
             executor_thread = executor_threads.get(owner)
             if executor_thread is None or executor_thread.is_alive():
                 continue
-            if self._recover_stalled_external_mission(
-                rf_state,
-                item,
-                now=now,
-            ):
-                recovered.append(item.id)
-                continue
             if rf_state.mem.backlog.update(
                 item.id,
                 status="pending",
@@ -471,12 +233,8 @@ class LifeWorkerRunMixin:
                 detector="running_stall_watchdog",
                 invariant="running_requires_live_executor",
                 item=item,
-                observed={
-                    "backlog_status": "running",
-                    "executor_alive": False,
-                    "owned_work": [],
-                },
-                action="requeue_parent_without_owned_external_work",
+                observed={"backlog_status": "running", "executor_alive": False},
+                action="requeue_running_item",
                 expected_postcondition="parent mission is pending and claimable",
                 recovered=bool(settled is not None and settled.status == "pending"),
                 verification={"backlog_status": getattr(settled, "status", "")},
@@ -484,81 +242,6 @@ class LifeWorkerRunMixin:
             recovered.append(item.id)
             log.warning("daemon: requeued stalled running item %s", item.id)
         return recovered
-
-    def _bounded_operator_wait_expired(
-        self, supervisors: Any, *, enabled: bool = True
-    ) -> bool:
-        """End a bounded run that has nothing left but an unanswered question.
-
-        Applies only to a foreground CLI/harness bounded run
-        (``operator_wait_exit``; grace from
-        ``ARGUS_SKILL_BOUNDED_OPERATOR_WAIT_EXIT_MIN``). Workers the web
-        cockpit starts keep waiting for the answer in the UI. While the
-        operator cannot be asked the Manager answers in their place; it is the
-        top of the ladder, so a question it has not settled within the same
-        grace ends the run the same way. On exit the run records
-        ``blocked: needs operator``; the question and the parked work stay on
-        disk, and ``argus --answer`` restarts the worker. This is about not
-        hanging; it never caps work that is still running.
-        """
-        from ..core.autonomy import OPERATOR_WAIT_EXIT_FILENAME, bounded_operator_wait_exit_seconds
-
-        supervisor = next(iter(supervisors or ()), None)
-        state_root = getattr(supervisor, "_project_state_root", None)
-        root = (
-            state_root()
-            if callable(state_root)
-            else getattr(getattr(supervisor, "memory", None), "root", None)
-        )
-        probe = getattr(supervisor, "_pending_operator_questions", None)
-        questions = probe() if enabled and callable(probe) else None
-        if questions is None:
-            self._operator_wait_since = None
-            return False
-        now = time.monotonic()
-        since = getattr(self, "_operator_wait_since", None)
-        if since is None:
-            since = now
-            self._operator_wait_since = since
-        grace = bounded_operator_wait_exit_seconds()
-        if grace < 0 or now - since < grace:
-            return False
-        text = _bounded_operator_wait_text(questions)
-        log.warning("daemon: bounded run %s; exiting (answer to continue)", text)
-        emit = getattr(supervisor, "_emit", None)
-        status = getattr(supervisor, "_emit_status", None)
-        try:
-            if root is not None:
-                import json as _json
-
-                (Path(root) / OPERATOR_WAIT_EXIT_FILENAME).write_text(
-                    _json.dumps(
-                        {
-                            "outcome": "blocked: needs operator",
-                            "questions": questions,
-                            "waited_seconds": round(now - since, 1),
-                            "ts": time.time(),
-                        },
-                        ensure_ascii=False,
-                    )
-                    + "\n",
-                    encoding="utf-8",
-                )
-            if callable(emit):
-                from ..core.event_catalog import EventType
-
-                emit({
-                    "type": EventType.LIFE_LIFECYCLE_BLOCK,
-                    "lifecycle_state": "needs_operator",
-                    "reason": text,
-                    "text": text,
-                    "agent_layer": "manager",
-                })
-            if callable(status):
-                status(text + " (answer it with argus --answer to continue)")
-        except Exception:  # noqa: BLE001 - the exit itself must still happen
-            log.exception("daemon: could not record the operator-wait outcome")
-        return True
 
     def _run_supervisor_pass(self, supervisor: Any) -> dict:
         worker_id = str(
@@ -861,7 +544,7 @@ class LifeWorkerRunMixin:
         return None
 
     def _rf_start_services(self, rf_state: _RunForeverState) -> None:
-        """Log readiness, start the Telegram poller, and start the Curator."""
+        """Log readiness and start the chat bridges."""
         if rf_state.handoff_failure:
             log.warning(
                 "daemon: degraded; Manager objective was not dispatched "
@@ -929,14 +612,6 @@ class LifeWorkerRunMixin:
         except Exception:  # noqa: BLE001
             log.exception("daemon: failed to start feishu bridge; continuing")
 
-        # Start the resident Curator: it keeps each active team campaign's pool
-        # in flight and is the single reaper (the lead drops .argus/team campaign
-        # markers under project_workdir, which the Curator watches). Stopped in
-        # the finally below so a clean shutdown reaps every teammate it owns.
-        self._curator = self._build_curator(rf_state.runner)
-        if self._curator is not None:
-            self._curator.start()
-
         # Protect a resumed running claim before the main loop reaches its first
         # supervisor call. The loop clears this guard as soon as that call
         # returns, which is the only point where executor-loss detection is safe.
@@ -951,18 +626,6 @@ class LifeWorkerRunMixin:
         # Each worker is one run: assumptions and operator-only blocks from an
         # earlier run of this project are not reported again.
         start_autonomy_run()
-        self._operator_wait_passes = 0
-        # A running worker makes an earlier "ended waiting for the operator"
-        # marker stale.
-        from ..core.autonomy import clear_operator_wait_marker
-
-        for supervisor in getattr(rf_state, "supervisors", None) or [rf_state.sup]:
-            state_root = getattr(supervisor, "_project_state_root", None)
-            if callable(state_root):
-                try:
-                    clear_operator_wait_marker(state_root())
-                except Exception:  # noqa: BLE001 - a stale marker is harmless
-                    pass
         from ..core import call_guard
 
         call_guard.enable(
@@ -1019,8 +682,8 @@ class LifeWorkerRunMixin:
                                 )
                             ):
                                 self._adopted_continuous_generation = None
-                    # A bounded worker owns one finite queue. Plain bounded DAGs
-                    # finish with ``backlog_empty``; finite staged campaigns end
+                    # A bounded worker owns one finite queue. A plain backlog
+                    # finishes with ``backlog_empty``; a finite campaign ends
                     # with ``project_done``. Both must release the process slot.
                     # A standing campaign that was enabled while this worker was
                     # alive remains resident even if the launch itself was bounded.
@@ -1035,6 +698,11 @@ class LifeWorkerRunMixin:
                         and not rf_state.cfg.continuous_open_ended
                         and not standing_enabled
                     ):
+                        from ..life.observer import settle
+
+                        # The delivery did not wait for the Observer; the
+                        # process waits for its look at the last turns.
+                        settle(self._stop)
                         log.info("daemon: bounded work completed; exiting cleanly")
                         break
                     # A bounded worker parked behind an open runtime failure
@@ -1053,13 +721,6 @@ class LifeWorkerRunMixin:
                                 circuit.get("exception_type") or "error",
                                 circuit.get("callsite") or "unknown callsite",
                             )
-                            break
-                        if self._bounded_operator_wait_expired(
-                            supervisors,
-                            enabled=bool(
-                                getattr(rf_state.cfg, "operator_wait_exit", False)
-                            ),
-                        ):
                             break
                     # Idle auto-exit: the supervisor judged the project idle past
                     # the cap. Exit the loop so the process shuts down cleanly
@@ -1090,8 +751,8 @@ class LifeWorkerRunMixin:
                     supervisor._planning_cycles = 0
                 if self._stop.is_set():
                     break
-                # Between passes the host sleeps on what it learned: at most
-                # one consolidation per interval per vertical, cheap otherwise.
+                # Between passes the host sleeps on what it learned, when the
+                # shared knowledge changed; cheap otherwise.
                 _maybe_consolidate(rf_state, self.config)
                 # Honor the supervisor's suggested backoff (escalating while it is
                 # idle awaiting an external dependency). The sleep is wakeable: it returns
@@ -1115,8 +776,6 @@ class LifeWorkerRunMixin:
             call_guard.disable()
             shutdown_supervision(rf_state.runtime_root)
             self._stop_running_stall_watcher()
-            if self._curator is not None:
-                self._curator.stop()
             if self._control_started_at_iso:
                 clear_daemon_control_stop(
                     self.config.life_dir,

@@ -9,13 +9,11 @@ from argus.planner.planner import (
     PLANNER_SUPERSEDED_ERROR,
     Planner,
     PlannerConfig,
-    WaitingContract,
     parse_planner_payload,
     parse_planner_text,
     parse_task_scope,
 )
 from argus.roles.prompts.planner import (
-    _BOUNDED_DAG_FOOTER,
     _PLANNER_CORE_CONTRACT,
     _PLANNER_DECISION_FOOTER,
 )
@@ -91,14 +89,15 @@ def test_parse_retire_task_ignores_malformed_line(line: str) -> None:
 def test_retire_tasks_use_only_the_footer_before_plan_update() -> None:
     verdict = parse_planner_text(
         "RETIRE_TASK=quoted | Discard this earlier thought.\n"
-        "Decision:\nPROJECT_DONE=false\nWAITING=true\nREASON=Await new evidence.\n"
+        "Decision:\nPROJECT_DONE=false\nREASON=Await new evidence.\n"
         "RETIRE_TASK=item-a | The hypothesis was refuted.\n"
+        "→ engineer\n"
         "PLAN_UPDATE=# Research plan\n"
         "RETIRE_TASK=plan-text | This is document content."
     )
 
     assert verdict.error == ""
-    assert verdict.waiting
+    assert verdict.handoff == "engineer"
     assert verdict.retire_tasks == (("item-a", "The hypothesis was refuted."),)
 
 
@@ -130,29 +129,21 @@ def test_structured_planner_payload_preserves_list_item_text() -> None:
     assert verdict.new_tasks[0].decision_rule.startswith("Revise the parser")
 
 
-def test_a_structured_planner_wait_is_its_sentence_and_two_flags() -> None:
-    """Everything else about a wait is the host's; older fields are ignored."""
+def test_an_older_structured_wait_is_ignored() -> None:
+    """A wait is no Planner state: a payload an older prompt taught reads as no work."""
     verdict = parse_planner_payload({
         "project_done": False,
         "reason": "the external job is still running",
         "waiting": {
             "wait": "job-42 reaches a terminal state",
             "stage_reconciliation_required": True,
-            "blocker_fingerprint": "job-running",
-            "recheck_token": "job-42",
-            "wait_mode": "event",
             "wake_on": ["subagent_state"],
-            "watched_paths": ["results/a,b.json"],
-            "wait_id": "job-42",
         },
         "tasks": [],
     })
 
-    assert verdict.error == ""
-    assert verdict.waiting_contract == WaitingContract(
-        recheck_condition="job-42 reaches a terminal state",
-        stage_reconciliation_required=True,
-    )
+    assert verdict.handoff == ""
+    assert verdict.error == "planner said not done but produced no concrete tasks"
 
 
 def test_structured_planner_payload_rejects_wrong_field_types() -> None:
@@ -282,7 +273,7 @@ def test_parse_planner_task_ignores_legacy_blocker_fingerprint() -> None:
     )
 
     assert verdict.error == ""
-    assert verdict.new_tasks[0].blocker_fingerprint == ""
+    assert verdict.new_tasks[0].title == "Retry renamed task"
 
 
 def test_parse_numbered_planner_task_fields() -> None:
@@ -328,33 +319,39 @@ def test_incomplete_key_value_result_is_retryable() -> None:
     assert verdict.error == "planner said not done but produced no concrete tasks"
 
 
-def test_an_operator_wait_is_its_sentence_and_the_operator_flag() -> None:
+@pytest.mark.parametrize("line, handoff", [
+    ("→ engineer", "engineer"),
+    ("→ manager", "manager"),
+    ("→ 统筹", "manager"),
+])
+def test_a_planner_without_new_work_names_who_acts_next(line: str, handoff: str) -> None:
     verdict = parse_planner_text(
-        "PROJECT_DONE=false\n"
-        "REASON=An operator must approve the external action.\n"
-        "WAITING=true\n"
-        "WAIT=Operator approval arrives.\n"
-        "BLOCKER_FINGERPRINT=external-approval\n"
-        "WAKE_ON=subagent_state\n"
-        "OPERATOR_ACTION_REQUIRED=true"
+        "Decision:\nPROJECT_DONE=false\nREASON=The running evaluation decides the next step.\n"
+        + line
     )
 
     assert verdict.error == ""
-    assert verdict.waiting_contract == WaitingContract(
-        recheck_condition="Operator approval arrives.",
-        operator_action_required=True,
+    assert (verdict.handoff, verdict.operator_question) == (handoff, "")
+    assert verdict.new_tasks == []
+
+
+def test_a_planner_asks_the_operator_on_the_baton_line() -> None:
+    verdict = parse_planner_text(
+        "Decision:\nPROJECT_DONE=false\nREASON=An operator must approve the external action.\n"
+        "→ operator: May I publish the dataset?"
     )
 
+    assert verdict.error == ""
+    assert verdict.handoff == "operator"
+    assert verdict.operator_question == "May I publish the dataset?"
 
-def test_wait_with_independent_task_preserves_both_and_marks_diagnostic() -> None:
+
+def test_older_wait_fields_are_ignored_and_tasks_still_run() -> None:
     verdict = parse_planner_text(
         "PROJECT_DONE=false\n"
         "REASON=One branch waits for operator input; an independent check can run.\n"
         "WAITING=true\n"
-        "WAITING_REASON=Waiting for the operator answer.\n"
-        "BLOCKER_FINGERPRINT=operator-choice\n"
-        "RECHECK_CONDITION=Operator provides the choice.\n"
-        "RECHECK_TOKEN=choice-v1\n"
+        "WAIT=Operator provides the choice.\n"
         "OPERATOR_ACTION_REQUIRED=true\n"
         "TASK_KEY=independent-check\n"
         "TASK_TITLE=Run independent check\n"
@@ -362,10 +359,22 @@ def test_wait_with_independent_task_preserves_both_and_marks_diagnostic() -> Non
     )
 
     assert verdict.error == ""
-    assert verdict.waiting is True
-    assert verdict.waiting_reason == "Waiting for the operator answer."
+    assert verdict.handoff == ""
     assert [task.key for task in verdict.new_tasks] == ["independent-check"]
-    assert any("preserving both" in item for item in verdict.diagnostics)
+    assert verdict.new_tasks[0].objective == (
+        "Collect evidence that does not depend on the operator choice."
+    )
+
+
+def test_a_closing_baton_line_does_not_run_on_into_the_objective() -> None:
+    verdict = parse_planner_text(
+        "Decision:\nPROJECT_DONE=false\nREASON=Ask and run.\n"
+        "TASK_KEY=k1\nTASK_TITLE=Run it\nTASK_OBJECTIVE=Run the check.\n"
+        "→ operator: Which dataset?"
+    )
+
+    assert verdict.new_tasks[0].objective == "Run the check."
+    assert verdict.handoff == "operator"
 
 
 def test_missing_completion_marker_is_retryable() -> None:
@@ -411,11 +420,9 @@ def test_planner_prompt_requires_read_only_delegation_and_minimal_footer() -> No
     assert "TASK_KEY=k1" in _PLANNER_CORE_CONTRACT
     assert "RETIRE_TASK=<item id> | <one-sentence reason>" in _PLANNER_CORE_CONTRACT
     assert 'never retire running or done work' in _PLANNER_CORE_CONTRACT
-    assert "`WAITING=true`" in _PLANNER_CORE_CONTRACT
-    assert "`WAIT=<one sentence: what must happen>`" in _PLANNER_CORE_CONTRACT
-    assert "a work id from live_subagent_work_ids" in _PLANNER_CORE_CONTRACT
-    assert "a wait it cannot observe goes\n  to the Manager" in _PLANNER_CORE_CONTRACT
-    for field in ("wake_on", "WAIT_ID", "BLOCKER_FINGERPRINT", "RECHECK_TOKEN"):
+    for line in ("`→ engineer`", "`→ manager`", "`→ operator: <one question>`"):
+        assert line in _PLANNER_CORE_CONTRACT
+    for field in ("WAITING", "WAIT=", "wake_on", "OPERATOR_ACTION_REQUIRED"):
         assert field not in _PLANNER_CORE_CONTRACT
     assert "no `TASK_*` blocks" in _PLANNER_CORE_CONTRACT
     for field in ("`TASK_TITLE`", "`TASK_OBJECTIVE`", "`TASK_ACCEPTANCE_CHECK`"):
@@ -442,13 +449,8 @@ def test_planner_prompt_requires_read_only_delegation_and_minimal_footer() -> No
     assert 'official code' in _PLANNER_CORE_CONTRACT
 
 
-@pytest.mark.parametrize(
-    "footer",
-    [_PLANNER_DECISION_FOOTER, _BOUNDED_DAG_FOOTER],
-)
-def test_planner_footer_example_is_an_ambitious_experiment_program(
-    footer: str,
-) -> None:
+def test_planner_footer_example_is_an_ambitious_experiment_program() -> None:
+    footer = _PLANNER_DECISION_FOOTER
     assert (
         "TASK_TITLE=Launch the strongest untested attack on the core hypothesis"
         in footer
@@ -926,14 +928,13 @@ def test_plan_next_repairs_not_done_empty_task_response(monkeypatch) -> None:
     assert runner.calls[1]["options"].working_dir == "/tmp/project"
 
 
-def test_repair_missing_waiting_marker_preserves_in_flight_wait(monkeypatch) -> None:
-    # The production response named the blocker but omitted WAITING=true.
+def test_repair_asks_a_planner_without_tasks_who_acts_next(monkeypatch) -> None:
+    # The response named what is in flight but no task and no holder.
     fields = (
         "PROJECT_DONE=false\n"
         "REASON=Wait for the existing blind test to finish.\n"
-        "WAIT=blind-test finishes\n"
     )
-    runner = _SequenceRunner([fields, fields + "WAITING=true"])
+    runner = _SequenceRunner([fields, fields + "→ engineer"])
     monkeypatch.setattr(
         Planner, "_build_planner_prompt", staticmethod(lambda **kwargs: "planner prompt")
     )
@@ -945,30 +946,23 @@ def test_repair_missing_waiting_marker_preserves_in_flight_wait(monkeypatch) -> 
 
     assert len(runner.calls) == 2
     repair = runner.calls[1]["prompt"]
-    assert "a WAIT sentence alone does not declare waiting" in repair
-    assert "`WAITING=true`, no `TASK_*` blocks and `WAIT=<what must happen>`" in repair
-    assert "background work launched by Argus" in repair
+    assert "one closing line naming who acts next: `→ engineer`" in repair
+    assert "WAITING" not in repair
     assert verdict.error == ""
-    assert verdict.waiting is True
+    assert verdict.handoff == "engineer"
     assert verdict.project_done is False
     assert verdict.new_tasks == []
-    assert verdict.waiting_contract == WaitingContract(recheck_condition="blind-test finishes")
 
 
 @pytest.mark.parametrize("project_done", ["false", "true"])
 def test_repair_preserves_certified_increment_operator_handoff(
     monkeypatch, tmp_path, project_done,
 ) -> None:
-    reason = (
-        "Current final certification is accepted; "
-        "waiting for new explicit operator direction."
-    )
+    reason = "Current final certification is accepted."
     footer = (
         "PROJECT_DONE=false\n"
         f"REASON={reason}\n"
-        "WAITING=true\n"
-        "WAIT=New explicit operator instruction arrives\n"
-        "OPERATOR_ACTION_REQUIRED=true\n"
+        "→ operator: What should the campaign take on next?\n"
     )
     runner = _SequenceRunner([
         f"PROJECT_DONE={project_done}\nREASON={reason}",
@@ -994,27 +988,21 @@ def test_repair_preserves_certified_increment_operator_handoff(
     assert "no-new-work" in repair
     assert "current final certification" in repair
     assert "final stage is complete" in repair
-    assert "no active backlog or live subagent work remains" in repair
+    assert "no active backlog or live background work remains" in repair
     assert "Uncertified work or a generic empty response" in repair
     assert "Do not set `project_done=true`" in repair
     assert "Delegate the next distinct task, or use" not in repair
     assert "`waiting` only for a real external blocker" not in repair
     assert "Re-inspect current project reality" not in repair
-    assert "PROJECT_DONE=false\nWAITING=true\n" in repair
-    assert (
-        "WAIT=New explicit operator instruction arrives\nOPERATOR_ACTION_REQUIRED=true\n"
-        in repair
-    )
+    assert "→ operator: What should the campaign take on next?" in repair
+    assert "WAITING" not in repair
     assert runner.calls[1]["resume_thread_id"] == "planner-thread"
     assert verdict.error == ""
     assert verdict.project_done is False
-    assert verdict.waiting is True
+    assert verdict.handoff == "operator"
+    assert verdict.operator_question == "What should the campaign take on next?"
     assert verdict.reason == reason
     assert verdict.new_tasks == []
-    assert verdict.waiting_contract == WaitingContract(
-        recheck_condition="New explicit operator instruction arrives",
-        operator_action_required=True,
-    )
 
 
 def test_plan_next_accepts_structured_decision_with_redundant_brace(monkeypatch) -> None:
@@ -1435,25 +1423,6 @@ def test_planner_zero_exit_fatal_error_preserves_actionable_reason() -> None:
         "ignored old stderr\n"
         "recent stderr detail"
     )
-
-
-def test_planner_config_reads_the_shared_rolling_session_budget(monkeypatch) -> None:
-    monkeypatch.delenv("ARGUS_SKILL_ROLE_SESSION_MAX_INPUT_TOKENS", raising=False)
-    assert PlannerConfig().role_session_max_input_tokens == 120_000
-
-    # The same environment knob that budgets Engineer rolling sessions in
-    # round_config and the loop entry now budgets the Planner's session.
-    monkeypatch.setenv("ARGUS_SKILL_ROLE_SESSION_MAX_INPUT_TOKENS", "42000")
-    assert PlannerConfig().role_session_max_input_tokens == 42_000
-
-    monkeypatch.setenv("ARGUS_SKILL_ROLE_SESSION_MAX_INPUT_TOKENS", "not-a-number")
-    assert PlannerConfig().role_session_max_input_tokens == 120_000
-
-
-def test_planner_turn_budget_outlives_a_long_campaign() -> None:
-    # Six turns rotated the Planner hundreds of times across one 48-hour run,
-    # each rotation re-paying the full static prompt with a cold cache.
-    assert PlannerConfig().role_session_max_turns == 20
 
 
 def test_parse_planner_objective_keeps_the_brief_that_follows_it() -> None:

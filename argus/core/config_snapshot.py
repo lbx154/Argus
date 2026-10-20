@@ -65,11 +65,7 @@ def _backend_source(
     return _source_from_layers(
         env,
         persisted,
-        (
-            f"ARGUS_SKILL_{role.upper()}_BACKEND",
-            "ARGUS_SKILL_RUNNER_BACKEND",
-            "ARGUS_SKILL_LIFE_BACKEND",
-        ),
+        ("ARGUS_SKILL_RUNNER_BACKEND", "ARGUS_SKILL_LIFE_BACKEND"),
         default="default: codex",
     )
 

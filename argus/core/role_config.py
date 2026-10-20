@@ -1,4 +1,4 @@
-"""Canonical per-role backend, model, and reasoning-effort resolution.
+"""Canonical per-role model and reasoning-effort resolution, on the shared backend.
 
 This is runtime configuration shared by Manager prompts, WebAPI snapshots,
 and terminal surfaces; it is not CLI presentation logic.
@@ -100,10 +100,7 @@ def _resolve_backend(role: str, env: Mapping[str, str]) -> str:
         return normalized
     from ..agent_cli.runner_backend import resolve_available_runner
 
-    configured = (
-        str(env.get(f"ARGUS_SKILL_{role.upper()}_RUNNER_BIN", "") or "").strip()
-        or str(env.get("ARGUS_SKILL_RUNNER_BIN", "") or "").strip()
-    )
+    configured = str(env.get("ARGUS_SKILL_RUNNER_BIN", "") or "").strip()
     effective, _runner_bin = resolve_available_runner(
         requested,
         configured or None,

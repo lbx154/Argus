@@ -1,8 +1,8 @@
-"""Planning-cycle phase: waiting-verdict handling and project_done normalization.
+"""Planning-cycle phase: handoff handling and project_done normalization.
 
-Covers the planner's ``waiting`` branch (Manager-feedback-unresolved check,
-open-ended wait reconciliation, plan-revision rollback, recorded waiting entry,
-and the stall-breaker verification probe), followed by the full-paper-gate
+Covers a Planner turn that adds no work and names who acts next
+(Manager-feedback-unresolved check, the Manager handoff, plan-revision
+rollback, the recorded handoff), followed by the full-paper-gate
 override, the research-target completion gate, revision/project_done
 rejection, open-ended vs. plain ``project_done`` handling, and the
 degenerate no-new-tasks rejection. All of this runs after the planner has
@@ -13,7 +13,6 @@ from __future__ import annotations
 
 import json
 import logging
-import re
 import uuid
 from dataclasses import replace
 from pathlib import Path
@@ -31,6 +30,7 @@ from ._constants import (
     PLANNER_TASKS_FILTERED_DIAGNOSTIC,
     PROJECT_REPORT_MODEL_ATTEMPTS,
 )
+from ._planner_failure_backoff import MANAGER_HANDOFF_UNANSWERED
 from ._planning_cycle_helpers import (
     _PlanCycleState,
     _research_project_done_issue,
@@ -46,7 +46,7 @@ log = logging.getLogger(__name__)
 
 
 class PlanningCycleCompletionMixin:
-    """Waiting handling + project_done normalization + no-tasks rejection."""
+    """Handoff handling + project_done normalization + no-tasks rejection."""
 
     def _bounded_completion_issue(
         self,
@@ -97,43 +97,18 @@ class PlanningCycleCompletionMixin:
         return research_issue
 
     def _pc_is_certified_operator_wait(self, state: _PlanCycleState) -> bool:
-        """Recognize an actual Planner handoff, never infer handling from a cert."""
+        """An open-ended Planner hands a certified increment to the operator."""
         verdict = state.verdict
         if (
             not state.planner_invoked
             or state.revision_request is not None
             or not self.config.open_ended
             or verdict.error
-            or not verdict.waiting
+            or verdict.handoff != "operator"
             or verdict.project_done
             or verdict.new_tasks
             or verdict.retire_tasks
             or verdict.advance_to_stage
-        ):
-            return False
-        # A wait the host watches something specific for -- files, live work,
-        # the stage -- is not a handoff to new direction.
-        contract = verdict.waiting_contract
-        if contract is not None and (
-            contract.stage_reconciliation_required
-            or contract.watched_paths
-            or set(contract.wake_on) - {"authorization", "planner_input"}
-        ):
-            return False
-        # A generic wait (including credentials or an experiment result) is not
-        # acceptance of the certified increment. Require an explicit handoff to
-        # *new* direction.
-        reason = str(verdict.waiting_reason or verdict.reason or "").strip()
-        if not re.search(
-            r"(?:\b(?:wait(?:ing)?|await(?:ing)?)\s+(?:only\s+)?(?:for\s+)?"
-            r"(?:(?:the|a)\s+)?(?:new|fresh|further|next)\s+"
-            r"(?:explicit\s+)?(?:(?:operator|user|research)\s+)?"
-            r"(?:direction|instruction|request)s?"
-            r"|(?:等待|等候)(?:(?:操作员|用户|操作者)的?)?"
-            r"(?:新的?|进一步的?)(?:明确的?)?(?:研究)?(?:指示|指令|方向))"
-            r"[\s.!。！]*$",
-            reason,
-            re.IGNORECASE,
         ):
             return False
         return bool(
@@ -141,7 +116,6 @@ class PlanningCycleCompletionMixin:
                 item.status not in {"done", "failed", "aborted", "skipped", "superseded"}
                 for item in self.memory.backlog.active()
             )
-            and not self._waitable_subagent_jobs()
             and self._effective_final_certification_gate(self._artifact_root())
             and self._journal_has_final_certification()
             and self._manager_final_stage_is_completed()
@@ -534,116 +508,127 @@ class PlanningCycleCompletionMixin:
         self._emit_status("planner: terminal stage certified and Manager held; idling")
         return PLAN_TERMINAL_IDLE
 
-    def _pc_handle_waiting(self, state: _PlanCycleState) -> Any | None:
+    def _pc_handle_handoff(self, state: _PlanCycleState) -> Any | None:
         verdict = state.verdict
         revision_request = state.revision_request
         expected_plan_id = state.expected_plan_id
         expected_plan_version = state.expected_plan_version
 
-        if verdict.waiting:
-            feedback = self._load_manager_planner_feedback()
-            if feedback is not None:
-                diagnostic = str(feedback.get("diagnostic") or "")
-                if diagnostic == PLANNER_TASKS_FILTERED_DIAGNOSTIC:
-                    # Filtered-task feedback says every proposed task
-                    # duplicated live backlog work. A deliberate wait answers
-                    # that feedback instead of dodging it: nothing new is
-                    # schedulable until the live work moves, so hand control
-                    # to the waiting contract rather than another replan.
-                    self._clear_manager_planner_feedback()
-                else:
-                    if self._record_manager_feedback_no_progress(
-                        "planner returned waiting instead of revision tasks"
-                    ):
-                        self._emit_status(
-                            "planner ignored unresolved Manager feedback; retry later"
-                        )
-                    self._enter_idle_backoff()
-                    return PLAN_ERROR
-            if self._pc_is_certified_operator_wait(state):
-                state.certified_operator_wait = True
-                state.verdict = replace(verdict, waiting=False, project_done=True)
-                return self._pc_normalize_project_done(state)
-            if revision_request is not None:
-                reconciliation_result = self._reconcile_open_ended_planner_waiting(verdict)
-                if reconciliation_result == "rollback":
-                    superseding_plan_id = f"manager-rollback-{BacklogItem.new_id()}"
-                    try:
-                        result = self.memory.backlog.supersede_active_plan(
-                            expected_plan_id=expected_plan_id,
-                            expected_version=expected_plan_version,
-                            supersede_item_ids=[item.id for item in state.revision_active_items],
-                            superseded_by_plan_id=superseding_plan_id,
-                            reason=verdict.waiting_reason or verdict.reason,
-                        )
-                    except Exception as exc:  # noqa: BLE001
-                        self._emit(
-                            {
-                                "type": EventType.LIFE_PLAN_REVISION_REJECTED,
-                                "reason": (
-                                    "Manager rolled back stage but active plan could "
-                                    f"not be retired: {type(exc).__name__}: {exc}"
-                                ),
-                                "expected_plan_id": expected_plan_id,
-                                "expected_plan_version": expected_plan_version,
-                            }
-                        )
-                        return PLAN_ERROR
-                    for item_id in result.superseded_ids:
-                        self._emit(
-                            {
-                                "type": EventType.LIFE_PLAN_NODE_SUPERSEDED,
-                                "item_id": item_id,
-                                "plan_id": expected_plan_id,
-                                "plan_version": expected_plan_version,
-                                "superseded_by_plan_id": superseding_plan_id,
-                                "reason": verdict.waiting_reason or verdict.reason,
-                            }
-                        )
+        if not verdict.handoff:
+            return None
+        if verdict.new_tasks:
+            # The tasks run. A stage handed to the Manager is put to it first:
+            # a stage it moves leaves these tasks planned against the old one,
+            # so plan again under the new stage. A question goes on the card.
+            if revision_request is None and self._reconcile_planner_handoff(verdict) in {"hold", "rollback"}:
+                return PLAN_RETRY
+            if verdict.handoff == "operator":
+                self._park_planner_question(
+                    state, verdict.operator_question or verdict.reason, verdict.reason,
+                )
+            return None
+        feedback = self._load_manager_planner_feedback()
+        if feedback is not None:
+            if str(feedback.get("diagnostic") or "") == PLANNER_TASKS_FILTERED_DIAGNOSTIC:
+                # Filtered-task feedback says every proposed task duplicated
+                # live backlog work. Adding nothing answers it: nothing new is
+                # schedulable until the live work moves.
+                self._clear_manager_planner_feedback()
+            else:
+                if self._record_manager_feedback_no_progress(
+                    "planner handed off instead of revision tasks"
+                ):
+                    self._emit_status(
+                        "planner ignored unresolved Manager feedback; retry later"
+                    )
+                self._enter_idle_backoff()
+                return PLAN_ERROR
+        if self._pc_is_certified_operator_wait(state):
+            state.certified_operator_wait = True
+            state.verdict = replace(verdict, handoff="", project_done=True)
+            return self._pc_normalize_project_done(state)
+        if revision_request is not None:
+            reconciliation_result = self._reconcile_planner_handoff(verdict)
+            if reconciliation_result == "rollback":
+                superseding_plan_id = f"manager-rollback-{BacklogItem.new_id()}"
+                try:
+                    result = self.memory.backlog.supersede_active_plan(
+                        expected_plan_id=expected_plan_id,
+                        expected_version=expected_plan_version,
+                        supersede_item_ids=[item.id for item in state.revision_active_items],
+                        superseded_by_plan_id=superseding_plan_id,
+                        reason=verdict.reason,
+                    )
+                except Exception as exc:  # noqa: BLE001
                     self._emit(
                         {
-                            "type": "life.plan.revision.rolled_back",
-                            "old_plan_id": expected_plan_id,
-                            "old_plan_version": expected_plan_version,
-                            "superseded_item_ids": list(result.superseded_ids),
-                            "reason": verdict.waiting_reason or verdict.reason,
+                            "type": EventType.LIFE_PLAN_REVISION_REJECTED,
+                            "reason": (
+                                "Manager rolled back stage but active plan could "
+                                f"not be retired: {type(exc).__name__}: {exc}"
+                            ),
+                            "expected_plan_id": expected_plan_id,
+                            "expected_plan_version": expected_plan_version,
                         }
                     )
-                    return PLAN_RETRY
-                if reconciliation_result:
-                    return PLAN_RETRY
+                    return PLAN_ERROR
+                for item_id in result.superseded_ids:
+                    self._emit(
+                        {
+                            "type": EventType.LIFE_PLAN_NODE_SUPERSEDED,
+                            "item_id": item_id,
+                            "plan_id": expected_plan_id,
+                            "plan_version": expected_plan_version,
+                            "superseded_by_plan_id": superseding_plan_id,
+                            "reason": verdict.reason,
+                        }
+                    )
                 self._emit(
                     {
-                        "type": EventType.LIFE_PLAN_REVISION_REJECTED,
-                        "reason": "replacement planner returned waiting",
-                        "expected_plan_id": expected_plan_id,
-                        "expected_plan_version": expected_plan_version,
+                        "type": "life.plan.revision.rolled_back",
+                        "old_plan_id": expected_plan_id,
+                        "old_plan_version": expected_plan_version,
+                        "superseded_item_ids": list(result.superseded_ids),
+                        "reason": verdict.reason,
                     }
                 )
-            if revision_request is None and self._reconcile_open_ended_planner_waiting(verdict):
                 return PLAN_RETRY
-            return self._record_planner_waiting(verdict)
-
-        carried = state.carried_wait
-        if carried is not None:
-            # The tasks run, and the wait declared with them stays recorded.
-            # An explicit stage-reconciliation request reaches the Manager now,
-            # as it would for a bare wait; a stage it moves leaves these tasks
-            # planned against the old one, so plan again under the new stage.
-            wait_only = replace(carried, new_tasks=[])
-            if revision_request is None and self._reconcile_open_ended_planner_waiting(
-                wait_only
-            ):
+            if reconciliation_result == "unanswered":
+                return self._pc_handoff_unanswered(state)
+            if reconciliation_result:
                 return PLAN_RETRY
-            if self._persist_planner_waiting_contract(carried.waiting_contract) is None:
-                self._emit_status("failed to persist the wait declared with tasks")
-            return None
+            self._emit(
+                {
+                    "type": EventType.LIFE_PLAN_REVISION_REJECTED,
+                    "reason": "replacement planner handed off instead of planning",
+                    "expected_plan_id": expected_plan_id,
+                    "expected_plan_version": expected_plan_version,
+                }
+            )
+        if revision_request is None:
+            reconciliation_result = self._reconcile_planner_handoff(verdict)
+            if reconciliation_result == "unanswered":
+                return self._pc_handoff_unanswered(state)
+            if reconciliation_result:
+                return PLAN_RETRY
+        return self._record_planner_handoff(verdict, state)
 
-        # The Planner has explicitly moved on from waiting: stop injecting the
-        # old blocker into subsequent planning context.
-        self._deactivate_planner_waiting_contract()
-        self._last_planner_wait_reconciliation_key = None
-        return None
+    def _pc_handoff_unanswered(self, state: _PlanCycleState) -> str:
+        """The Manager's backend left the Planner's handoff unanswered.
+
+        Argus launched that backend, so the turn failed: the Planner's failure
+        streak paces the retry, alerts, and stops it with the operator told.
+        """
+        state.verdict = replace(
+            state.verdict, reason=MANAGER_HANDOFF_UNANSWERED, error=MANAGER_HANDOFF_UNANSWERED,
+        )
+        self._emit({
+            "type": EventType.LIFE_PLANNER_ERROR,
+            "cycle": self._planning_cycles,
+            "error": MANAGER_HANDOFF_UNANSWERED,
+        })
+        self._enter_pause_backoff()
+        return PLAN_ERROR
 
     def _pc_normalize_project_done(self, state: _PlanCycleState) -> Any | None:
         verdict = state.verdict
@@ -726,7 +711,7 @@ class PlanningCycleCompletionMixin:
 
         staged_goal_candidate = bool(
             verdict.project_done
-            or (not planner_declared_done and not verdict.waiting and not verdict.new_tasks)
+            or (not planner_declared_done and not verdict.handoff and not verdict.new_tasks)
         )
         if staged_goal_candidate and revision_request is None:
             goal_gate_issue = _staged_goal_completion_issue(self._artifact_root())
@@ -819,14 +804,13 @@ class PlanningCycleCompletionMixin:
                         "bounded_completion_invariant_failed",
                     )
             if certified_increment:
-                if state.certified_operator_wait:
-                    self._deactivate_planner_waiting_contract()
-                    self._last_planner_wait_reconciliation_key = None
                 reason = (
                     "Independent final certification is current: this increment "
                     "is complete, not the standing campaign. The objective remains "
-                    "active; waiting for new operator input or changed project state."
+                    "active until new operator input or changed project state."
                 )
+                if state.certified_operator_wait and verdict.operator_question:
+                    reason += f" The Planner asks: {verdict.operator_question}"
                 delivered = self._emit_planner_verdict(
                     status=PlannerVerdictStatus.COMPLETED,
                     completion_kind="certified_increment",
@@ -912,7 +896,7 @@ class PlanningCycleCompletionMixin:
             }
         )
         self._emit_status("planner error: produced no tasks; retry later")
-        # No tasks, no waiting flag, not done: a degenerate no-work cycle.
+        # No tasks, no handoff, not done: a degenerate no-work cycle.
         # Back off so repeated empty plans cannot spin the daemon.
         self._enter_idle_backoff()
         return PLAN_ERROR

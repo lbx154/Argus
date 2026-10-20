@@ -300,14 +300,14 @@ def test_one_draft_and_one_check_share_a_deadline_and_a_cached_check_is_reused(m
 
     monkeypatch.setattr(map_narrative, "run_map_model", run)
     monkeypatch.setattr(map_narrative.time, "monotonic", lambda: 1000.0)
-    config = MapModel("pi", "gpt-5.5", "medium", "argus-pi", review_effort="high")
+    config = MapModel("pi", "gpt-5.5", "medium", "argus-pi")
     kwargs = {"config": config, "project_root": None, "global_root": None, "on_progress": phases.append}
     result = map_narrative.generate([document()], [{"id": "a"}], "en-US", **kwargs)
     assert len(observed) == 2 and observed[0][1] == observed[1][1]
     assert all(prompt.count(teaching.TEACHING_CORE) == 1 for prompt, _, _ in observed)
     assert phases == ["writing", "reviewing"]
     assert observed[0][1] == 1170.0
-    assert observed[0][2].effort == "medium" and observed[1][2].effort == "high"
+    assert observed[0][2].effort == observed[1][2].effort == "medium"
     saved = result["cards"][0]
     assert saved["reader_brief"]["concept"] == replacement
     assert saved["teaching_review"]["status"] == "corrected"
@@ -322,10 +322,10 @@ def test_one_draft_and_one_check_share_a_deadline_and_a_cached_check_is_reused(m
     assert again["cards"][0]["reader_brief"]["concept"] == replacement
     assert reading_fields(again["cards"][0]) == reading
     # Same source and draft, but a different checker must not reuse its receipt.
-    kwargs["config"] = replace(config, review_effort="medium")
+    kwargs["config"] = replace(config, effort="high")
     map_narrative.generate([document()], [{"id": "a"}], "en-US",
                            cached_reviews=result["teaching_reviews"], **kwargs)
-    assert len(observed) == 5 and observed[-1][2].effort == "medium"
+    assert len(observed) == 5 and observed[-1][2].effort == "high"
     assert phases == ["writing", "reviewing", "writing", "writing", "reviewing"]
 
 
@@ -525,7 +525,7 @@ def test_cached_card_does_not_bypass_a_new_model_or_teaching_checker(tmp_path, m
     first = map_narrative.enrich(tmp_path, dataset, request, "en-US", project_root=tmp_path)
     assert map_narrative.enrich(tmp_path, dataset, request, "en-US", project_root=tmp_path)["cached"]
     assert len(calls) == 1
-    config = replace(config, review_effort="high")
+    config = replace(config, effort="high")
     second = map_narrative.enrich(tmp_path, dataset, request, "en-US", project_root=tmp_path)
     assert len(calls) == 2 and second["cards"][key]["model_revision"] == config.revision
     monkeypatch.setattr(map_narrative, "TEACHING_REVIEW_VERSION", 99)

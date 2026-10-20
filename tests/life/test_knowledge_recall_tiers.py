@@ -54,7 +54,7 @@ def tenant(tmp_path, monkeypatch):
     home.mkdir()
     monkeypatch.setenv("ARGUS_SKILL_HOME", str(home))
     monkeypatch.delenv("ARGUS_SKILL_COPILOT_TRIAL", raising=False)
-    monkeypatch.delenv("ARGUS_SKILL_RECALL_SIBLING_WIKIS", raising=False)
+    monkeypatch.delenv("ARGUS_SKILL_LEARNING", raising=False)
     return home
 
 
@@ -131,7 +131,7 @@ def test_roots_include_shared_tiers_principles_and_same_vertical_siblings_only(t
     assert str(other) not in context
 
 
-@pytest.mark.parametrize("switch", [("ARGUS_SKILL_COPILOT_TRIAL", "1"), ("ARGUS_SKILL_RECALL_SIBLING_WIKIS", "0")])
+@pytest.mark.parametrize("switch", [("ARGUS_SKILL_COPILOT_TRIAL", "1"), ("ARGUS_SKILL_LEARNING", "0")])
 def test_hosted_trial_or_switched_off_recall_never_reads_other_workspaces(tenant, monkeypatch, switch):
     workspace = workspace_with_vertical(tenant / "workspaces" / "current", VERTICAL)
     same = workspace_with_vertical(tenant / "workspaces" / "earlier-same", VERTICAL)

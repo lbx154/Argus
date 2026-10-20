@@ -14,8 +14,7 @@ CLI adapter 在构造时直接导入仓库内的 `AgentCliRunner`，使用真实
 
 领域调用先取 `load_vertical_contract(name, project_root=...)`，随后直接读取
 `stage_order`、`completion_gate` 等字段，或调用 `completion_issues()`、
-`assess_iteration()`、`automatic_stage_completion_ready()`。同一操作复用合同对象，
-自动阶段关闭仍要求 provider 明确返回布尔值。`argus-verticals` 已使用的旧访问入口
+`assess_iteration()`。同一操作复用合同对象。`argus-verticals` 已使用的旧访问入口
 保留兼容；已移除的其余逐字段包装入口应改为对应合同属性或方法。
 
 内部调用直接访问实现所在模块，runtime 门面只保留实际跨包入口和社区插件
@@ -97,9 +96,11 @@ Reviewer 的语义判断和 Host 的状态提交发生在不同位置；定位�
 工程证书和任务终态保持不变；尚未被 Planner 处理的原生收件仍可按同一身份重入。
 没有新输入的已验收有限任务仍可直接结束，不强制购买额外 Planner 调用。
 
-有限任务的 Planner 预览也通过角色目录读取会话 state root 中选定的 vertical
-和阶段，并接收该领域的阶段规则；工作目录只作为代码、数据和执行位置，
-不能因为它没有 `PIPELINE_STATE.json` 就回退到 research。
+操作者的每个 TEAM 任务都只走一种派发：Manager 把它写成一个经过评审的操作者任务，
+放进由 Planner 逐轮推进的 campaign。没有运行中的 campaign 时，任务开启一个有限
+campaign（前门判为 STANDING 时开放式），Planner 认定完成后停止；`direct` 任务
+加入运行中的 campaign 而不替换它，分阶段或 STANDING 任务替换其目标。旧版本留下的
+DAG 节点仍按普通 Planner 节点执行。
 
 ## 单任务执行顺序
 
@@ -196,34 +197,33 @@ HTTP 路径、返回结构与直接 Python 调用保留兼容。`daemon_lifecycl
 
 ### 控制面等待与取消
 
-Planner 在未解决的 Manager 反馈下返回等待，并不代表反馈已处理。该拒绝通过
-`_record_manager_feedback_no_progress` 累计到原有持久重试上限；重启或改写等待理由
+Planner 在未解决的 Manager 反馈下只交接、不给修订任务，并不代表反馈已处理。该拒绝通过
+`_record_manager_feedback_no_progress` 累计到原有持久重试上限；重启或改写理由
 不重置计数。原始原因、证据签名、创建时间和修复关联保持，最近拒绝另记
 `last_rejection`，写入失败显式报告。到上限后由原 intake 进入等待新证据或操作者
 输入的终态空闲，不修改科研任务终态。因所有新任务都重复已有工作而产生的
-filtered-task 反馈仍可由合法等待解除；普通等待和新证据唤醒不受此拒绝计数影响。
+filtered-task 反馈仍可由一次不加任务的交接解除。
 
-A Planner wait is one sentence, `WAIT=<what must happen>`, plus two authority
-flags (`OPERATOR_ACTION_REQUIRED`, `STAGE_RECONCILIATION_REQUIRED`). The host
-binds it to what it can watch, first match wins: authorization events for an
-operator wait, a live job or team the sentence names by id, existing project
-paths it names (which climb to the Manager after `FILE_WAIT_CLIMB_SECONDS`
-without a change), and otherwise the Planner's own inputs. Identity, wake
-sources and deadline are the host's; wait fields an older prompt taught are
-ignored. There are no timed re-asks and no verification probes.
+Argus keeps no waiting state. A Planner with nothing new to start ends with one
+baton line naming who acts next: `→ engineer` (the work in flight decides what
+comes next), `→ manager` (the stage blocks it), or `→ operator: <question>`,
+which goes on the planning slot's decision card. The Planner is called again
+only when its inputs change: a mission ends, the operator writes, the Manager
+directs. Long jobs are waited for inside the Engineer's own turn with the
+backend's blocking commands. Planner waiting-contract files and wait events an
+older release wrote are ignored.
 
-Bounded campaigns route a Planner wait to the Manager when it sets
-`stage_reconciliation_required=true` or when the host cannot observe what it
-waits for. This grants a stage-authority decision, not permission to
-expand operator scope, skip required stages, certify a project, or replay work.
-Operator-gated waits are not stage questions: the operator decides them while
-they can be asked, and otherwise the Manager decides them in the operator's
-place outside stage reconciliation. Each wait is reconciled once; returning the
-same wait is recorded, not re-adjudicated, and wakes when what it depends on
-changes. Stage validators remain authoritative.
+Bounded campaigns put a `→ manager` handoff to the Manager once per stage and
+reason. This grants a stage-authority decision, not permission to expand
+operator scope, skip required stages, certify a project, or replay work.
+Operator questions are not stage questions: the operator decides them while
+they can be asked, and otherwise the Manager decides the card in the operator's
+place. Returning the same handoff is recorded, not re-adjudicated. Stage
+validators remain authoritative.
 Bounded reconciliation cannot advance or complete without Reviewer evidence,
-including direct workflows. Native subagent reports remain host evidence, not
-new operator requests that could repeatedly defer bounded completion. Once a
+including direct workflows. Background-job reports an older release queued
+remain host evidence, not new operator requests that could repeatedly defer
+bounded completion. Once a
 current completion certificate exists, report-only native receipts are settled
 before checking the next inbox item; a retained report must not conceal a queued
 operator instruction. Operator receipts still require actual Planner handling.

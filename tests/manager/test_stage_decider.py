@@ -451,6 +451,7 @@ def test_no_second_machine_value_guard_overrides_manager() -> None:
 
 
 def test_reviewer_certified_intermediate_stage_still_uses_manager_judgment(
+    optimize_vertical,
     tmp_path,
 ) -> None:
     from argus.manager import Manager
@@ -459,7 +460,7 @@ def test_reviewer_certified_intermediate_stage_still_uses_manager_judgment(
     state_root = tmp_path / "state"
     workdir = tmp_path / "worktree"
     workdir.mkdir()
-    persist_vertical(state_root, "math_synth", workflow_mode="staged")
+    persist_vertical(state_root, optimize_vertical, workflow_mode="staged")
 
     prompts: list[str] = []
 
@@ -498,19 +499,6 @@ def test_reviewer_certified_intermediate_stage_still_uses_manager_judgment(
         if state["stages"][stage]["status"] == "skipped"
     ] == ["optimize"]
     assert prompts and "Legal ADVANCE targets" in prompts[0]
-
-
-def test_kernel_direct_vertical_has_no_process_completion_hook(
-    tmp_path,
-) -> None:
-    from argus.verticals._base import load_vertical_contract
-
-    issues = load_vertical_contract("kernel_engineering").completion_issues(
-        stage="optimize",
-        project_root=tmp_path,
-    )
-
-    assert issues == ()
 
 
 @pytest.mark.parametrize(

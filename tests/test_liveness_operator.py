@@ -18,14 +18,14 @@ from typing import Any
 
 import pytest
 
-from argus.core.autonomy import OPERATOR_WAIT_EXIT_FILENAME, read_autonomous_assumptions
+from argus.core.autonomy import read_autonomous_assumptions
+from argus.core.knob_store import write_persisted_knob
 from argus.core.operator_decision import build_operator_decision
 from argus.daemon.state import read_continuous_state, write_continuous_config
 from argus.life.memory import Backlog, BacklogItem, LifeMemory
 from argus.life.supervisor import LifeSupervisor, LifeSupervisorConfig
 from argus.life.supervisor._constants import PROXY_DECISION_ATTEMPTS
 from argus.manager import config_intent, front_door
-from argus.manager.directive import set_active_manager_directive
 from argus.webapi import manager_bridge, manager_pending_question, manager_state
 
 pytest.importorskip("fastapi")
@@ -292,12 +292,10 @@ def test_drop_leaves_a_stopped_campaign_stopped(
     assert campaign.objective == "keep optimizing"
 
 
-def test_drop_after_a_wait_exit_continues_the_armed_campaign(tmp_path: Path) -> None:
+def test_drop_continues_an_armed_campaign(tmp_path: Path) -> None:
     sid = "s-liveness"
     life = _make_project(tmp_path, sid)
-    # A worker that ended waiting for the answer leaves the campaign armed.
     write_continuous_config(life, enabled=True, objective="keep optimizing")
-    (life / OPERATOR_WAIT_EXIT_FILENAME).write_text("{}", encoding="utf-8")
     item = _provider_card_item(life)
 
     result = manager_pending_question.manager_resolve_operator_decision(
@@ -312,14 +310,13 @@ def test_drop_after_a_wait_exit_continues_the_armed_campaign(tmp_path: Path) -> 
 
 
 @pytest.mark.parametrize("explicit_resume", [False, True])
-def test_wait_marker_does_not_rearm_a_campaign_paused_after_the_exit(
+def test_only_an_explicit_resume_rearms_a_paused_campaign(
     tmp_path: Path, monkeypatch, explicit_resume: bool,
 ) -> None:
     from argus.webapi import daemon_lifecycle
 
     sid = "s-liveness"
     life = _make_project(tmp_path, sid)
-    (life / OPERATOR_WAIT_EXIT_FILENAME).write_text("{}", encoding="utf-8")
     write_continuous_config(
         life, enabled=False, objective="keep optimizing", done_reason="operator pause",
     )
@@ -343,7 +340,7 @@ def test_wait_marker_does_not_rearm_a_campaign_paused_after_the_exit(
             sid, global_root=tmp_path, resume_continuous=explicit_resume,
         )
 
-    # Only the operator's own Resume re-arms a pause; the marker alone does not.
+    # Only the operator's own Resume re-arms a pause.
     assert read_continuous_state(life).enabled is explicit_resume
     assert config.resume_continuous is explicit_resume
 
@@ -366,29 +363,10 @@ def _cli_answer(
     return code, started
 
 
-def test_cli_drop_restarts_a_worker_that_ended_on_the_question(
-    tmp_path: Path, monkeypatch,
-) -> None:
-    sid = "s-liveness"
-    life = _make_project(tmp_path, sid)
-    item = _provider_card_item(life)
-    (life / OPERATOR_WAIT_EXIT_FILENAME).write_text("{}", encoding="utf-8")
-
-    code, started = _cli_answer(tmp_path, monkeypatch, life, sid)
-
-    assert code == 0
-    assert started == [sid]
-    assert not (life / OPERATOR_WAIT_EXIT_FILENAME).exists()
-    rows = LifeMemory.open(life).backlog.history()
-    assert [(row.id, row.status) for row in rows] == [(item.id, "aborted")]
-
-
 def test_cli_drop_after_a_pause_starts_nothing(tmp_path: Path, monkeypatch) -> None:
     sid = "s-liveness"
     life = _make_project(tmp_path, sid)
     item = _provider_card_item(life)
-    # The worker ended on the question; the operator paused afterwards.
-    (life / OPERATOR_WAIT_EXIT_FILENAME).write_text("{}", encoding="utf-8")
     write_continuous_config(
         life, enabled=False, objective="keep optimizing", done_reason="operator pause",
     )
@@ -408,14 +386,11 @@ def test_cli_drop_after_a_pause_starts_nothing(tmp_path: Path, monkeypatch) -> N
 
 
 def _campaign_left_by(life: Path, how: str) -> None:
-    (life / OPERATOR_WAIT_EXIT_FILENAME).write_text("{}", encoding="utf-8")
     if how == "pause":
-        # The worker ended on the question; the operator paused afterwards.
         write_continuous_config(
             life, enabled=False, objective="keep optimizing", done_reason="operator pause",
         )
     else:
-        # The worker ended waiting for this answer; the campaign stayed armed.
         write_continuous_config(life, enabled=True, objective="keep optimizing")
 
 
@@ -460,10 +435,10 @@ def test_web_answer_after_a_pause_reaches_its_task_and_restarts_nothing(
         assert read_continuous_state(life).enabled is False
 
 
-def test_web_answer_after_a_wait_exit_continues_the_campaign(tmp_path: Path) -> None:
+def test_web_answer_continues_an_armed_campaign(tmp_path: Path) -> None:
     sid = "s-liveness"
     life = _make_project(tmp_path, sid)
-    _campaign_left_by(life, "wait_exit")
+    _campaign_left_by(life, "armed")
     item = _park(life, "route", "Which route?")
 
     result = manager_pending_question.manager_answer_pending_question(
@@ -502,8 +477,8 @@ def test_chat_answer_after_a_pause_reaches_its_task_and_restarts_nothing(
     assert read_continuous_state(life).enabled is False
 
 
-@pytest.mark.parametrize("how", ["pause", "wait_exit"])
-def test_cli_answer_restarts_only_a_campaign_nothing_stopped(
+@pytest.mark.parametrize("how", ["pause", "armed"])
+def test_cli_answer_reaches_its_task_and_starts_no_worker(
     tmp_path: Path, monkeypatch, capsys, how: str,
 ) -> None:
     sid = "s-liveness"
@@ -517,14 +492,11 @@ def test_cli_answer_restarts_only_a_campaign_nothing_stopped(
 
     assert code == 0
     assert "Take the short route." in _continuation(life, item).objective
+    assert started == []
+    assert ("still stopped" in capsys.readouterr().out) is (how == "pause")
     if how == "pause":
-        assert started == []
-        assert "still stopped" in capsys.readouterr().out
         campaign = read_continuous_state(life)
         assert campaign.enabled is False and campaign.done_reason == "operator pause"
-    else:
-        assert started == [sid]
-        assert not (life / OPERATOR_WAIT_EXIT_FILENAME).exists()
 
 
 def test_drop_does_not_overwrite_an_answer_that_resolved_the_card_first(
@@ -588,11 +560,7 @@ def _nobody_to_ask(monkeypatch, state_root: Path, mode: str) -> None:
     if mode == "no_operator":
         monkeypatch.setenv("ARGUS_SKILL_OPERATOR_AVAILABLE", "false")
         return
-    monkeypatch.setenv("ARGUS_SKILL_OPERATOR_AVAILABLE", "true")
-    set_active_manager_directive(
-        state_root, "Work without asking the operator.",
-        operator_question_policy="forbid",
-    )
+    write_persisted_knob("ARGUS_SKILL_OPERATOR_AVAILABLE", "0")
 
 
 @pytest.mark.parametrize("mode", ["no_operator", "forbid", "operator"])

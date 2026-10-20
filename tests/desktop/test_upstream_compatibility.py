@@ -54,7 +54,6 @@ def test_actual_nonzero_cli_exit_preserves_the_stderr_cause(tmp_path, monkeypatc
     monkeypatch.setenv("ARGUS_SKILL_COPILOT_TRIAL", "0")
     script = tmp_path / "failed_cli.py"
     script.write_text("import sys\nsys.stdin.read()\nprint('Error: synthetic runtime missing', file=sys.stderr, flush=True)\nsys.exit(7)\n", encoding="utf-8")
-    monkeypatch.setattr(AgentCliRunner, "_acp_enabled", lambda *a, **k: False)
     monkeypatch.setattr(AgentCliRunner, "_build_command", lambda *a, **k: [sys.executable, "-u", str(script)])
     runner = AgentCliRunner(agent_bin=sys.executable, backend="copilot")
     result = runner.run_exec(prompt="Local fixture, never a provider", resume_thread_id=None,

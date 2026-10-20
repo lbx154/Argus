@@ -6,8 +6,6 @@ from types import SimpleNamespace
 
 import pytest
 
-from argus.core.event_catalog import validate_event_envelope
-from argus.core.file_facts import file_facts
 from argus.life import BacklogItem, MemoryBundle
 from argus.manager import dispatch, front_door
 
@@ -39,73 +37,7 @@ def manager_runner(monkeypatch):
     )
 
 
-def test_bounded_dispatch_persists_nested_workdir(
-    memory,
-    monkeypatch,
-):
-    from argus.core.models import RunnerResult
-    from argus.planner.bounded_dag import BoundedDagNode, plan_bounded_dag
-
-    older = memory.backlog.add(
-        BacklogItem.new(title="older", objective="older", priority=100)
-    )
-    nested = memory.project_worktree / "nested" / "target"
-    nested.mkdir(parents=True)
-    decision = {
-        "role": "planner",
-        "payload": {
-            "reason": "one typed nested task",
-            "tasks": [{
-                "key": "execute",
-                "deps": [],
-                "title": "`managed task`",
-                "objective": "managed: operator request",
-                "execution_workdir": "nested/target",
-            }],
-        },
-    }
-
-    class Runner:
-        def run_exec(self, **_kwargs):
-            return RunnerResult(
-                exit_code=0,
-                agent_messages=[
-                    f"ARGUS_ROLE_DECISION={json.dumps(decision)}"
-                ],
-            )
-
-    plan = plan_bounded_dag(
-        Runner(),
-        "managed: operator request",
-        workdir=memory.project_worktree,
-    )
-    assert plan.error == ""
-    assert isinstance(plan.tasks[0], BoundedDagNode)
-    monkeypatch.setattr(
-        dispatch,
-        "_plan_bounded_execution",
-        lambda *args, **kwargs: plan,
-    )
-
-    item, alive, pid = dispatch.enqueue_mission(
-        memory,
-        "operator request",
-        {"backend": "memory"},
-        root_task_id="root-task-1",
-    )
-
-    assert item.id == "root-task-1"
-    assert item.title == "managed task"
-    assert item.objective == "managed: operator request"
-    assert item.execution_workdir == str(nested.resolve())
-    assert item.priority < older.priority
-    assert (alive, pid) == (False, None)
-
-
-def test_direct_workflow_persists_manager_package_without_planner(
-    memory,
-    monkeypatch,
-) -> None:
+def _direct_manager(monkeypatch) -> None:
     class Manager:
         def decide_vertical(self, body, **kwargs):
             return SimpleNamespace(
@@ -118,23 +50,38 @@ def test_direct_workflow_persists_manager_package_without_planner(
         def commit_vertical_decision(self, body, decision, **kwargs):
             return decision
 
+        def plan_stages(self, vertical):
+            return []
+
     monkeypatch.setattr(
         front_door,
         "_ensure_manager_runner",
         lambda *_args, **_kwargs: SimpleNamespace(manager=Manager()),
     )
-    monkeypatch.setattr(
-        dispatch,
-        "_plan_bounded_execution",
-        lambda *_args, **_kwargs: (_ for _ in ()).throw(
-            AssertionError("direct Manager package must not call Planner")
-        ),
-    )
+
+
+def _events(memory) -> list[dict]:
+    return [
+        json.loads(line)
+        for line in (memory.project.root / "events.jsonl")
+        .read_text(encoding="utf-8")
+        .splitlines()
+    ]
+
+
+def test_direct_task_arms_a_finite_campaign_with_one_reviewed_mission(
+    memory,
+    monkeypatch,
+) -> None:
+    from argus.daemon.state import read_continuous_state
+
+    _direct_manager(monkeypatch)
+    state = {"backend": "codex"}
 
     item, alive, pid = dispatch.enqueue_mission(
         memory,
         "one coherent package",
-        {"backend": "codex"},
+        state,
         root_task_id="root-direct-1",
         context_refs=[{
             "kind": "attachment",
@@ -154,9 +101,9 @@ def test_direct_workflow_persists_manager_package_without_planner(
         "ref": "brief.md",
         "why": "operator input",
     }]
-    assert "manager_direct" in item.tags
+    assert {"manager_direct", "stage_closing", "review:required"} <= set(item.tags)
     assert "planner" not in item.tags
-    assert "review:required" in item.tags
+    assert "stage_transition:skip" not in item.tags
     assert item.manager_decision == {
         "vertical": "software",
         "workflow_mode": "direct",
@@ -165,13 +112,12 @@ def test_direct_workflow_persists_manager_package_without_planner(
         "route_source": "manager",
     }
     assert (alive, pid) == (False, None)
+    campaign = read_continuous_state(memory.project.root)
+    assert campaign.enabled and not campaign.open_ended
+    assert campaign.objective == "managed: one coherent package"
+    assert state["config"]["continuous"] is True
 
-    events = [
-        json.loads(line)
-        for line in (memory.project.root / "events.jsonl")
-        .read_text(encoding="utf-8")
-        .splitlines()
-    ]
+    events = _events(memory)
     queued = next(
         event
         for event in events
@@ -185,16 +131,102 @@ def test_direct_workflow_persists_manager_package_without_planner(
     )
 
 
-def test_bounded_dispatch_fails_closed_without_planner_backend(memory) -> None:
-    with pytest.raises(
-        front_door.ManagerHandoffError,
-        match="cannot preserve review and stage-transition semantics",
-    ):
-        dispatch._plan_bounded_execution(
-            memory,
-            "managed: review-only task",
-            {"backend": "memory"},
-        )
+def test_direct_task_joins_a_running_campaign_without_replacing_it(
+    memory,
+    monkeypatch,
+) -> None:
+    from argus.daemon.state import read_continuous_state, write_continuous_config
+
+    write_continuous_config(
+        memory.project.root, enabled=True, objective="existing campaign",
+    )
+    _direct_manager(monkeypatch)
+    state = {"backend": "codex", "_frontdoor_lifetime": "bounded"}
+
+    item, _, _ = dispatch.enqueue_mission(memory, "one finite check", state)
+
+    assert "manager_direct" in item.tags
+    campaign = read_continuous_state(memory.project.root)
+    assert campaign.enabled is True
+    assert campaign.objective == "existing campaign"
+    assert state["continuous_objective"] == "existing campaign"
+    assert "_frontdoor_lifetime" not in state
+
+
+@pytest.mark.parametrize(
+    ("lifetime", "open_ended"),
+    [(None, False), ("bounded", False), ("garbage", False), ("standing", True)],
+)
+def test_every_team_task_arms_a_planner_run_campaign(memory, lifetime, open_ended):
+    from argus.daemon.state import read_continuous_state
+
+    state = {"backend": "codex"}
+    if lifetime is not None:
+        state["_frontdoor_lifetime"] = lifetime
+
+    item, _, _ = dispatch.enqueue_mission(memory, "write the paper", state)
+
+    campaign = read_continuous_state(memory.project.root)
+    assert campaign.enabled is True
+    assert campaign.open_ended is open_ended
+    assert campaign.objective == "managed: write the paper"
+    assert "operator_priority" in item.tags
+    assert "_frontdoor_lifetime" not in state
+
+
+def test_direct_item_carries_the_stage_the_supervisor_replays(memory, monkeypatch):
+    """The item is bound to the stage kept in the project state root.
+
+    The Manager records the campaign stage under the project state root while
+    the team works in a separate workspace with no pipeline state. Tagging the
+    item from the workspace gave it the vertical's first stage, and the
+    supervisor never replayed its reviewed result for the real stage.
+    """
+    from argus.core.pipeline_state import write_pipeline_state
+    from argus.life.supervisor._planning_cycle_enqueue import (
+        PlanningCycleEnqueueMixin,
+    )
+    from argus.skills.stage_machine import current_stage
+
+    state_root = front_door._life_dir_for(memory)
+    workspace = memory.project_worktree
+    assert state_root != workspace
+    write_pipeline_state(
+        state_root,
+        {"vertical": "software", "workflow_mode": "direct", "current_stage": "delivery"},
+    )
+    assert current_stage(workspace) != "delivery"
+    _direct_manager(monkeypatch)
+
+    item, _, _ = dispatch.enqueue_mission(memory, "write greet.py", {"backend": "codex"})
+
+    assert PlanningCycleEnqueueMixin._item_pipeline_stage(item) == "delivery"
+
+
+def test_resumed_campaign_workdir_takes_the_state_root_stage(memory, monkeypatch):
+    """After a campaign adopted its own workdir, the item follows the state root."""
+    from argus.core.campaign_workdir import adopt_campaign_workdir
+    from argus.core.pipeline_state import write_pipeline_state
+    from argus.life.supervisor._planning_cycle_enqueue import PlanningCycleEnqueueMixin
+
+    state_root = front_door._life_dir_for(memory)
+    base = memory.project_worktree
+    campaign = base / "campaign"
+    campaign.mkdir()
+    subprocess.run(["git", "init", "-q", str(campaign)], check=True)
+    adopt_campaign_workdir(
+        state_root=state_root, base_root=base, current_root=base, requested="campaign",
+    )
+    write_pipeline_state(
+        state_root,
+        {"vertical": "research", "workflow_mode": "direct", "current_stage": "paper"},
+    )
+    _direct_manager(monkeypatch)
+
+    item, _, _ = dispatch.enqueue_mission(memory, "resume the campaign", {"backend": "codex"})
+
+    assert dispatch._resolve_manager_workdir(memory) == campaign.resolve()
+    assert PlanningCycleEnqueueMixin._item_pipeline_stage(item) == "paper"
 
 
 def test_manager_workdir_prefers_persisted_session_metadata(tmp_path) -> None:
@@ -223,365 +255,10 @@ def test_manager_workdir_prefers_persisted_session_metadata(tmp_path) -> None:
     assert dispatch._resolve_manager_workdir(mem) == expected_worktree.resolve()
 
 
-def test_bounded_dispatch_uses_nested_node_worktree_as_its_only_contract_root(
-    memory,
-    monkeypatch,
-):
-    from argus.core.campaign_workdir import adopt_campaign_workdir
-    from argus.core.pipeline_state import write_pipeline_state
-    from argus.skills.vertical_select import persist_vertical
-    from argus.verticals._data_domain import write_data_domain
-
-    base = memory.project_worktree
-    campaign = base / "campaign"
-    target = campaign / "target"
-    campaign.mkdir()
-    subprocess.run(["git", "init", "-q", str(campaign)], check=True)
-    target.mkdir()
-    subprocess.run(["git", "init", "-q", str(target)], check=True)
-
-    life_dir = front_door._life_dir_for(memory)
-    adopt_campaign_workdir(
-        state_root=life_dir,
-        base_root=base,
-        current_root=base,
-        requested="campaign",
-    )
-    persist_vertical(campaign, "research", workflow_mode="staged")
-    write_pipeline_state(
-        campaign,
-        {
-            "vertical": "research",
-            "workflow_mode": "staged",
-            "current_stage": "submission",
-        },
-    )
-    write_data_domain(
-        target,
-        "nested_replay",
-        stages=["target_scope", "target_delivery"],
-        status="formal",
-        purpose="target-only replay contract",
-    )
-    persist_vertical(target, "nested_replay", workflow_mode="staged")
-    parent_artifact = campaign / "research" / "TARGET.md"
-    parent_artifact.parent.mkdir(exist_ok=True)
-    parent_artifact.write_text("stale parent evidence", encoding="utf-8")
-    artifact = target / "research" / "TARGET.md"
-    artifact.write_text("target evidence", encoding="utf-8")
-
-    plan = SimpleNamespace(
-        reason="replay the nested target",
-        error="",
-        tasks=(
-            SimpleNamespace(
-                key="target-node",
-                deps=(),
-                title="Run target replay",
-                objective="Use only the nested target contract.",
-                vertical="nested_replay",
-                execution_workdir="target",
-                context_refs=({
-                    "kind": "artifact",
-                    "ref": "research/TARGET.md",
-                    "why": "target evidence",
-                },),
-            ),
-        ),
-    )
-    monkeypatch.setattr(dispatch, "_plan_bounded_execution", lambda *args, **kwargs: plan)
-
-    item, _, _ = dispatch.enqueue_mission(
-        memory,
-        "replay nested target",
-        {"backend": "codex"},
-    )
-
-    assert item is not None
-    assert item.execution_workdir == str(target.resolve())
-    assert item.manager_decision["vertical"] == "nested_replay"
-    assert "stage:target_scope" in item.tags
-    assert "stage:submission" not in item.tags
-    assert item.context_refs[0]["ref"] == "research/TARGET.md"
-    assert item.context_refs[0]["content_hash"] == json.dumps(file_facts(artifact))
-    assert adopt_campaign_workdir(
-        state_root=life_dir,
-        base_root=base,
-        current_root=campaign,
-        requested=item.execution_workdir,
-    ) == target.resolve()
-
-
-def test_bounded_dispatch_persists_real_dependency_dag(memory, monkeypatch):
-    result = memory.project_worktree / "research" / "chem_playground" / "x" / "RESULT.md"
-    result.parent.mkdir(parents=True)
-    result.write_text("candidate result", encoding="utf-8")
-    plan = SimpleNamespace(
-        reason="fan out then integrate",
-        error="",
-        tasks=(
-            SimpleNamespace(key="a", deps=(), title="Implement A", objective="write a.txt; test -s a.txt"),
-            SimpleNamespace(key="b", deps=(), title="Implement B", objective="write b.txt; test -s b.txt"),
-            SimpleNamespace(
-                key="c",
-                deps=("a", "b"),
-                title="Integrate",
-                objective="read a.txt and b.txt; write result.txt; test -s result.txt",
-                hypothesis="The integrated route improves the measured outcome.",
-                goal_contribution="Turn measured feedback into the requested result.",
-                expected_regressions="One component may trade off against the other.",
-                decision_rule="Revise the route when measured feedback misses the target.",
-                acceptance_check="validator exits zero",
-                non_goals=("do not edit pipeline state",),
-                context_refs=({
-                    "kind": "artifact",
-                    "ref": "research/chem_playground/x/RESULT.md",
-                    "why": "candidate result",
-                    "content_hash": "",
-                },),
-                require_independent_review=True,
-                skip_stage_transition=True,
-            ),
-        ),
-    )
-    monkeypatch.setattr(
-        dispatch,
-        "_plan_bounded_execution",
-        lambda *args, **kwargs: plan,
-    )
-
-    first, _, _ = dispatch.enqueue_mission(
-        memory,
-        "operator request",
-        {"backend": "codex"},
-        root_task_id="root-task-dag",
-    )
-
-    items = {item.node_key: item for item in memory.backlog.all()}
-    assert set(items) == {"a", "b", "c"}
-    assert first.id == "root-task-dag"
-    assert items["a"].deps == [] and items["b"].deps == []
-    assert items["c"].deps == [items["a"].id, items["b"].id]
-    assert {item.plan_id for item in items.values()} == {items["a"].plan_id}
-    assert items["a"].plan_id.startswith("bounded-")
-    assert all("bounded_dag_node" in item.tags for item in items.values())
-    assert all("planner" in item.tags for item in items.values())
-    assert all(item.iterate for item in items.values())
-    assert all(item.iteration_max_cycles == 3 for item in items.values())
-    assert items["c"].plan_hypothesis.startswith("The integrated route")
-    assert items["c"].decision_rule.startswith("Revise the route")
-    assert all(item.original_objective == "managed: operator request" for item in items.values())
-    assert items["c"].acceptance_check == "validator exits zero"
-    assert items["c"].non_goals == ["do not edit pipeline state"]
-    assert items["c"].context_refs[0]["ref"].endswith("/RESULT.md")
-    assert items["c"].context_refs[0]["content_hash"] == json.dumps(file_facts(result))
-    assert "review:required" in items["c"].tags
-    assert "stage_closing" not in items["c"].tags
-    assert "stage_transition:skip" in items["c"].tags
-    events = [
-        json.loads(line)
-        for line in (memory.project.root / "events.jsonl").read_text(encoding="utf-8").splitlines()
-    ]
-    verdict = next(event for event in events if event.get("type") == "life.planner.verdict")
-    assert validate_event_envelope(verdict, require_known=True).valid
-    assert verdict["status"] == "planned"
-    assert verdict["success"] is True
-    assert verdict["recoverable"] is False
-    assert verdict["project_id"] == memory.project.root.name
-    assert verdict["mission_id"] == items["a"].plan_id
-    assert verdict["enqueued_tasks"] == 3
-
-
-def test_staged_nodes_carry_the_stage_the_supervisor_replays(memory, monkeypatch):
-    """Planner nodes are bound to the stage kept in the project state root.
-
-    The Manager records the campaign stage under the project state root while
-    the team works in a separate workspace with no pipeline state. Tagging the
-    nodes from the workspace gave them the vertical's first stage, the
-    supervisor never replayed their reviewed results for the real stage, the
-    campaign could not certify, and no delivery was ever announced.
-    """
-    from argus.core.pipeline_state import write_pipeline_state
-    from argus.life.supervisor._planning_cycle_enqueue import (
-        PlanningCycleEnqueueMixin,
-    )
-    from argus.skills.stage_machine import current_stage
-
-    state_root = front_door._life_dir_for(memory)
-    workspace = memory.project_worktree
-    assert state_root != workspace
-    write_pipeline_state(
-        state_root,
-        {"vertical": "software", "workflow_mode": "staged", "current_stage": "delivery"},
-    )
-    assert current_stage(state_root) == "delivery"
-    assert current_stage(workspace) != "delivery"
-    plan = SimpleNamespace(
-        reason="write it, then run it",
-        error="",
-        tasks=(
-            SimpleNamespace(key="write", deps=(), title="Write greet.py", objective="write greet.py"),
-            SimpleNamespace(key="run", deps=("write",), title="Run greet.py", objective="run greet.py"),
-        ),
-    )
-    monkeypatch.setattr(dispatch, "_plan_bounded_execution", lambda *args, **kwargs: plan)
-
-    dispatch.enqueue_mission(memory, "plan it in steps", {"backend": "codex"})
-
-    items = {item.node_key: item for item in memory.backlog.all()}
-    assert set(items) == {"write", "run"}
-    for item in items.values():
-        assert PlanningCycleEnqueueMixin._item_pipeline_stage(item) == "delivery"
-
-
-def _research_state(root, stage):
-    from argus.core.pipeline_state import write_pipeline_state
-
-    write_pipeline_state(
-        root, {"vertical": "research", "workflow_mode": "staged", "current_stage": stage},
-    )
-
-
-@pytest.mark.parametrize(
-    ("case", "expected"),
-    [
-        ("dot", "paper"),
-        ("absolute_root", "paper"),
-        ("nested_without_state", "paper"),
-        ("nested_with_state", "experiment"),
-        ("deferred_clone", "paper"),
-    ],
-)
-def test_node_stage_follows_where_the_node_really_runs(memory, monkeypatch, case, expected):
-    """Root-level spellings and stateless nested dirs take the state-root stage."""
-    from argus.life.supervisor._planning_cycle_enqueue import PlanningCycleEnqueueMixin
-
-    state_root = front_door._life_dir_for(memory)
-    workspace = memory.project_worktree
-    _research_state(state_root, "paper")
-    plain = workspace / "nested" / "plain"
-    plain.mkdir(parents=True)
-    own = workspace / "nested" / "own"
-    own.mkdir(parents=True)
-    _research_state(own, "experiment")
-    first = SimpleNamespace(key="first", deps=(), title="First", objective="prepare")
-    workdirs = {
-        "dot": ".",
-        "absolute_root": str(workspace.resolve()),
-        "nested_without_state": "nested/plain",
-        "nested_with_state": "nested/own",
-        # Not cloned yet: the node falls back to the campaign workdir.
-        "deferred_clone": "nested/not-cloned-yet",
-    }
-    node = SimpleNamespace(
-        key="node",
-        deps=("first",),
-        title="Node",
-        objective="do the work",
-        execution_workdir=workdirs[case],
-    )
-    plan = SimpleNamespace(reason="r", error="", tasks=(first, node))
-    monkeypatch.setattr(dispatch, "_plan_bounded_execution", lambda *args, **kwargs: plan)
-
-    dispatch.enqueue_mission(memory, "staged request", {"backend": "codex"})
-
-    items = {item.node_key: item for item in memory.backlog.all()}
-    assert PlanningCycleEnqueueMixin._item_pipeline_stage(items["first"]) == "paper"
-    assert PlanningCycleEnqueueMixin._item_pipeline_stage(items["node"]) == expected
-
-
-def test_resumed_campaign_workdir_takes_the_state_root_stage(memory, monkeypatch):
-    """After a campaign adopted its own workdir, root nodes still follow the state root."""
-    from argus.core.campaign_workdir import adopt_campaign_workdir
-    from argus.life.supervisor._planning_cycle_enqueue import PlanningCycleEnqueueMixin
-
-    state_root = front_door._life_dir_for(memory)
-    base = memory.project_worktree
-    campaign = base / "campaign"
-    campaign.mkdir()
-    subprocess.run(["git", "init", "-q", str(campaign)], check=True)
-    adopt_campaign_workdir(
-        state_root=state_root, base_root=base, current_root=base, requested="campaign",
-    )
-    _research_state(state_root, "paper")
-    plan = SimpleNamespace(
-        reason="r",
-        error="",
-        tasks=(SimpleNamespace(key="k", deps=(), title="T", objective="o"),),
-    )
-    monkeypatch.setattr(dispatch, "_plan_bounded_execution", lambda *args, **kwargs: plan)
-
-    item, _, _ = dispatch.enqueue_mission(memory, "resume the campaign", {"backend": "codex"})
-
-    assert dispatch._resolve_manager_workdir(memory) == campaign.resolve()
-    assert PlanningCycleEnqueueMixin._item_pipeline_stage(item) == "paper"
-
-
-def test_bounded_dispatch_rejects_context_ref_outside_worktree(memory, monkeypatch):
-    commit_calls = []
-
-    class TrackingManager:
-        def decide_vertical(self, body, **kwargs):
-            return SimpleNamespace(execution_task=f"managed: {body}")
-
-        def commit_vertical_decision(self, body, decision, **kwargs):
-            commit_calls.append((body, decision))
-            return SimpleNamespace(execution_task=decision.execution_task)
-
-    monkeypatch.setattr(
-        front_door,
-        "_ensure_manager_runner",
-        lambda state, mem: SimpleNamespace(manager=TrackingManager()),
-    )
-    plan = SimpleNamespace(
-        reason="unsafe ref",
-        error="",
-        tasks=(
-            SimpleNamespace(
-                key="a",
-                deps=(),
-                title="Unsafe",
-                objective="read outside worktree",
-                context_refs=({
-                    "kind": "artifact",
-                    "ref": "../../outside.txt",
-                    "why": "unsafe",
-                    "content_hash": "",
-                },),
-            ),
-        ),
-    )
-    monkeypatch.setattr(dispatch, "_plan_bounded_execution", lambda *args, **kwargs: plan)
-
-    with pytest.raises(front_door.ManagerHandoffError, match="invalid context reference"):
-        dispatch.enqueue_mission(
-            memory,
-            "operator request",
-            {"backend": "codex"},
-        )
-
-    assert memory.backlog.all() == []
-    assert commit_calls == []
-
-
-def test_bounded_dispatch_merges_operator_attachment_context_refs(memory, monkeypatch):
+def test_dispatch_merges_operator_attachment_context_refs(memory):
     payload = memory.project_worktree / ".argus" / "attachments" / "s-dispatch01" / "att-deadbeefcafe" / "brief.md"
     payload.parent.mkdir(parents=True)
     payload.write_text("# brief\n", encoding="utf-8")
-    plan = SimpleNamespace(
-        reason="single task",
-        error="",
-        tasks=(
-            SimpleNamespace(
-                key="a",
-                deps=(),
-                title="Inspect upload",
-                objective="Read the operator attachment.",
-            ),
-        ),
-    )
-    monkeypatch.setattr(dispatch, "_plan_bounded_execution", lambda *args, **kwargs: plan)
-
     item, _, _ = dispatch.enqueue_mission(
         memory,
         "operator request",
@@ -608,77 +285,11 @@ def test_bounded_dispatch_merges_operator_attachment_context_refs(memory, monkey
     assert stored["integrity"].startswith("01234567")
 
 
-def test_bounded_dispatch_rejects_context_revision_changed_before_commit(
-    memory,
-    monkeypatch,
-):
-    artifact = memory.project_worktree / "research" / "RESULT.md"
-    artifact.parent.mkdir(parents=True)
-    artifact.write_text("planned revision", encoding="utf-8")
-    commit_calls = []
-
-    class MutatingLock:
-        def __enter__(self):
-            artifact.write_text("new revision", encoding="utf-8")
-
-        def __exit__(self, exc_type, exc, traceback):
-            return False
-
-    class TrackingManager:
-        def decide_vertical(self, body, **kwargs):
-            return SimpleNamespace(execution_task=f"managed: {body}")
-
-        def pipeline_lock(self):
-            return MutatingLock()
-
-        def commit_vertical_decision(self, body, decision, **kwargs):
-            commit_calls.append((body, decision))
-            return SimpleNamespace(execution_task=decision.execution_task)
-
-    monkeypatch.setattr(
-        front_door,
-        "_ensure_manager_runner",
-        lambda state, mem: SimpleNamespace(manager=TrackingManager()),
-    )
-    plan = SimpleNamespace(
-        reason="stable context required",
-        error="",
-        tasks=(
-            SimpleNamespace(
-                key="a",
-                deps=(),
-                title="Read result",
-                objective="Use the planned result revision.",
-                context_refs=({
-                    "kind": "artifact",
-                    "ref": "research/RESULT.md",
-                    "why": "planned result",
-                    "content_hash": "",
-                },),
-            ),
-        ),
-    )
-    monkeypatch.setattr(dispatch, "_plan_bounded_execution", lambda *args, **kwargs: plan)
-
-    with pytest.raises(
-        front_door.ManagerHandoffError,
-        match="context references changed before Manager commit",
-    ):
-        dispatch.enqueue_mission(
-            memory,
-            "operator request",
-            {"backend": "codex"},
-        )
-
-    assert commit_calls == []
-    assert memory.backlog.all() == []
-
-
 def test_continuous_dispatch_persists_operator_priority_item(memory):
     item, _, _ = dispatch.enqueue_mission(
         memory,
         "operator request",
-        {"backend": "codex", "config": {"continuous": True}},
+        {"backend": "codex", "_frontdoor_lifetime": "standing"},
     )
 
     payload = json.loads(
@@ -824,127 +435,26 @@ def test_continuous_replacement_queues_operator_task_after_running_work(memory):
     )
 
 
-def test_lifetime_promotion_sets_pending_handoff(memory):
-    state = {"backend": "codex", "_frontdoor_lifetime": "standing"}
+def test_dispatch_validates_the_life_backend(memory, monkeypatch):
+    from argus.daemon.state import read_continuous_state
 
-    assert dispatch.maybe_promote_to_continuous(memory, "keep researching", state)
-    assert state["config"]["continuous"] is True
-    assert state["_continuous_pending_manager_handoff"] is True
-    assert state["_continuous_open_ended"] is True
-    assert state["continuous_objective"] == ""
-
-
-def test_lifetime_promotion_revalidates_existing_continuous_state(
-    memory, monkeypatch,
-):
-    from argus.daemon.state import write_continuous_config
-
-    monkeypatch.setenv("ARGUS_SKILL_RUNNER_BACKEND", "codex")
-    write_continuous_config(
-        memory.project.root,
-        enabled=True,
-        objective="existing campaign",
-    )
-    state = {
-        "backend": "codex",
-        "config": {"continuous": False},
-        "_frontdoor_lifetime": "standing",
-    }
-
-    assert dispatch.maybe_promote_to_continuous(memory, "keep researching", state)
-    assert state["config"]["continuous"] is True
-    assert state["continuous_objective"] == "existing campaign"
-    assert "_continuous_pending_manager_handoff" not in state
-
-
-def test_lifetime_promotion_repairs_stale_continuous_cache(memory, monkeypatch):
-    monkeypatch.setenv("ARGUS_SKILL_RUNNER_BACKEND", "codex")
-    state = {
-        "backend": "codex",
-        "config": {"continuous": True},
-        "_frontdoor_lifetime": "standing",
-    }
-
-    assert dispatch.maybe_promote_to_continuous(memory, "new campaign", state)
-    assert state["_continuous_pending_manager_handoff"] is True
-    assert state["continuous_objective"] == ""
-
-
-def test_lifetime_promotion_keeps_explicit_bounded_direct_task_finite(memory):
-    state = {"backend": "codex", "_frontdoor_lifetime": "bounded"}
-
-    assert not dispatch.maybe_promote_to_continuous(
-        memory,
-        "one report",
-        state,
-        workflow_mode="direct",
-    )
-    assert state["config"]["continuous"] is False
-    assert "_frontdoor_lifetime" not in state
-
-
-def test_missing_lifetime_defaults_direct_task_to_bounded(memory):
-    state = {"backend": "codex"}
-
-    assert not dispatch.maybe_promote_to_continuous(
-        memory,
-        "one report",
-        state,
-        workflow_mode="direct",
-    )
-    assert state["config"]["continuous"] is False
-
-
-def test_finite_staged_task_uses_durable_campaign_supervisor(memory, monkeypatch):
-    monkeypatch.setenv("ARGUS_SKILL_RUNNER_BACKEND", "codex")
-    state = {"backend": "codex", "_frontdoor_lifetime": "bounded"}
-
-    assert dispatch.maybe_promote_to_continuous(
-        memory,
-        "给我写个论文 iclr的 我要投稿",
-        state,
-        workflow_mode="staged",
-    )
-    assert state["config"]["continuous"] is True
-    assert state["_continuous_pending_manager_handoff"] is True
-    assert state["_continuous_open_ended"] is False
-    assert "_frontdoor_lifetime" not in state
-
-
-def test_explicit_bounded_increment_overrides_normally_staged_workflow(memory):
-    state = {
-        "backend": "codex",
-        "_frontdoor_lifetime": "bounded_increment",
-    }
-
-    assert not dispatch.maybe_promote_to_continuous(
-        memory,
-        "只完成 research 阶段，不要进入 plan",
-        state,
-        workflow_mode="staged",
-    )
-    assert state["config"]["continuous"] is False
-    assert "_frontdoor_lifetime" not in state
-
-
-def test_lifetime_promotion_validates_the_life_backend(memory, monkeypatch):
     monkeypatch.setenv("ARGUS_SKILL_RUNNER_BACKEND", "memory")
     monkeypatch.setenv("ARGUS_SKILL_LIFE_BACKEND", "memory")
     monkeypatch.setenv("ARGUS_SKILL_DAEMON_TEST_ALLOW_MEMORY_CONTINUOUS", "0")
-    state = {"backend": "codex", "_frontdoor_lifetime": "standing"}
+    state = {"backend": "codex"}
 
     with pytest.raises(
         front_door.ManagerHandoffError,
         match="ARGUS_SKILL_LIFE_BACKEND=memory cannot plan",
     ):
-        dispatch.maybe_promote_to_continuous(memory, "one report", state)
+        dispatch.enqueue_mission(memory, "one report", state)
 
+    assert memory.backlog.all() == []
+    assert not read_continuous_state(memory.project.root).enabled
     assert "config" not in state
 
 
-def test_lifetime_promotion_validates_the_active_daemon_backend(
-    memory, monkeypatch,
-):
+def test_dispatch_validates_the_active_daemon_backend(memory, monkeypatch):
     from argus.daemon import life_worker
 
     monkeypatch.setenv("ARGUS_SKILL_RUNNER_BACKEND", "codex")
@@ -958,48 +468,18 @@ def test_lifetime_promotion_validates_the_active_daemon_backend(
             life_backend="memory",
         ),
     )
-    state = {"backend": "codex", "_frontdoor_lifetime": "standing"}
 
     with pytest.raises(
         front_door.ManagerHandoffError,
         match="ARGUS_SKILL_LIFE_BACKEND=memory cannot plan",
     ):
-        dispatch.maybe_promote_to_continuous(memory, "one report", state)
+        dispatch.enqueue_mission(memory, "one report", {"backend": "codex"})
 
-    assert "config" not in state
-
-
-def test_team_bounded_verdict_selects_bounded_dispatch(memory):
-    state = {"backend": "codex", "_frontdoor_lifetime": "bounded"}
-
-    assert not dispatch.maybe_promote_to_continuous(memory, "one report", state)
-    assert state["config"]["continuous"] is False
     assert memory.backlog.all() == []
 
 
-def test_lifetime_promotion_never_calls_a_second_classifier(memory, monkeypatch):
-    monkeypatch.setattr(
-        front_door,
-        "_ensure_manager_runner",
-        lambda *args, **kwargs: (_ for _ in ()).throw(
-            AssertionError("front-door lifetime must avoid a second model call")
-        ),
-    )
-    standing = {"backend": "codex", "_frontdoor_lifetime": "standing"}
-    bounded = {"backend": "codex", "_frontdoor_lifetime": "bounded"}
-
-    assert dispatch.maybe_promote_to_continuous(memory, "keep going", standing)
-    assert not dispatch.maybe_promote_to_continuous(memory, "one report", bounded)
-    assert "_frontdoor_lifetime" not in standing
-    assert "_frontdoor_lifetime" not in bounded
-
-
-def test_failed_continuous_handoff_rolls_back_auto_promotion(memory, monkeypatch):
-    state = {
-        "backend": "codex",
-        "config": {"continuous": True},
-        "_continuous_pending_manager_handoff": True,
-    }
+def test_failed_campaign_handoff_publishes_nothing(memory, monkeypatch):
+    state = {"backend": "codex"}
     monkeypatch.setattr(
         front_door,
         "manager_continuous_handoff",
@@ -1009,52 +489,27 @@ def test_failed_continuous_handoff_rolls_back_auto_promotion(memory, monkeypatch
     with pytest.raises(RuntimeError, match="failed"):
         dispatch.enqueue_mission(memory, "keep researching", state)
 
-    assert state["config"]["continuous"] is False
-    assert state["continuous_objective"] == ""
+    assert "config" not in state
+    assert memory.backlog.all() == []
 
 
 def test_the_operator_item_does_not_claim_planner_authorship(memory):
-    """``preplanned`` is computed as ``"planner" in item.tags``, and it skips
-    the advisory planning pass on the ground that a Planner already decomposed
-    the work. A raw operator message has not been decomposed by anyone, so the
-    tag sent it straight to a single Engineer — the opposite of the chain
-    ``_maybe_draft_plan`` documents for user-authored bounded work.
-    """
+    """``preplanned`` is computed as ``"planner" in item.tags`` and marks work a
+    Planner already decomposed. Nobody decomposed a raw operator message."""
     item, _, _ = dispatch.enqueue_mission(
         memory,
         "operator request",
         {"backend": "codex", "config": {"continuous": True}},
     )
 
-    assert item is not None
     assert "planner" not in item.tags
-    # Still the operator's priority work, still bounded: only the authorship
-    # claim is dropped.
     assert "operator_priority" in item.tags
     assert "scope:bounded" in item.tags
 
 
-def test_the_operator_item_is_not_treated_as_preplanned(memory):
-    """Asserted through the reader rather than the tag, so this keeps holding
-    if the discriminator moves."""
-    item, _, _ = dispatch.enqueue_mission(
-        memory,
-        "operator request",
-        {"backend": "codex", "config": {"continuous": True}},
-    )
-
-    preplanned = any(
-        str(tag).strip().lower() == "planner" for tag in getattr(item, "tags", [])
-    )
-
-    assert preplanned is False
-
-
 def test_the_operator_item_satisfies_the_review_only_contract(memory):
-    """``_prepare_persist`` rejects a Planner node that skips the stage
-    transition without requiring independent review. The Manager's own operator
-    item set exactly that pair, exempting itself from the contract it enforces.
-    """
+    """Skipping the stage transition is honored only alongside required
+    independent review; the operator item must carry the pair together."""
     item, _, _ = dispatch.enqueue_mission(
         memory,
         "operator request",
@@ -1113,51 +568,3 @@ def test_the_operator_item_keeps_stage_authority_with_the_manager(memory):
         require_independent_review=False,
         review_source="engineer_self_review",
     ) is True
-
-
-def test_new_finite_campaign_persists_real_planner_dependencies(memory, monkeypatch):
-    from argus.daemon.state import read_continuous_state
-    from argus.planner.bounded_dag import BoundedDagNode, BoundedDagPlan
-
-    plan = BoundedDagPlan(tasks=(
-        BoundedDagNode(key='data', deps=(), title='Create city data', objective='Write validated city.json'),
-        BoundedDagNode(key='algorithm', title='Build routes', objective='Read city.json and validate routes', deps=('data',)),
-        BoundedDagNode(key='interface', title='Build interactive map', objective='Read city.json and render the map', deps=('data',)),
-        BoundedDagNode(key='integrate', title='Integrate and deliver', objective='Join routes and map; verify browser behavior', deps=('algorithm', 'interface')),
-    ), reason='The interface and routing consume the same data contract.')
-    monkeypatch.setattr(dispatch, '_plan_bounded_execution', lambda *a, **k: plan)
-    state = {'backend': 'codex', 'config': {'continuous': True}, '_continuous_pending_manager_handoff': True, '_continuous_open_ended': False}
-    prepared = front_door.prepare_manager_execution_task(memory, 'Build a city routing product', state, root_task_id='city-root')
-    prepared.decision.vertical = 'software'
-    item, _, _ = dispatch.enqueue_mission(memory, 'Build a city routing product', state, root_task_id='city-root', prepared_handoff=prepared)
-    tasks = memory.backlog.all()
-    assert len(tasks) == 4
-    by_key = {task.node_key: task for task in tasks}
-    assert item.id == 'city-root' == by_key['data'].id
-    assert by_key['algorithm'].deps == [item.id]
-    assert by_key['interface'].deps == [item.id]
-    assert set(by_key['integrate'].deps) == {by_key['algorithm'].id, by_key['interface'].id}
-    assert all('planner' in task.tags and 'bounded_dag_node' in task.tags for task in tasks)
-    assert all(task.original_objective == 'managed: Build a city routing product' for task in tasks)
-    continuous = read_continuous_state(memory.project.root)
-    assert continuous.enabled and not continuous.open_ended
-    assert continuous.objective == 'managed: Build a city routing product'
-    events = [json.loads(line) for line in (memory.project.root / 'events.jsonl').read_text().splitlines()]
-    assert len([e for e in events if e['type'] == 'life.planner.task_added']) == 4
-    assert state['config']['continuous'] is True
-    assert '_continuous_pending_manager_handoff' not in state
-
-
-def test_failed_new_campaign_plan_does_not_publish_an_atomic_fallback(memory, monkeypatch):
-    from argus.daemon.state import read_continuous_state
-    state = {'backend': 'codex', 'config': {'continuous': True}, '_continuous_pending_manager_handoff': True, '_continuous_open_ended': False}
-    def fail(*args, **kwargs):
-        raise front_door.ManagerHandoffError('Planner unavailable')
-    monkeypatch.setattr(dispatch, '_plan_bounded_execution', fail)
-    prepared = front_door.prepare_manager_execution_task(memory, 'Build dependent modules', state)
-    prepared.decision.vertical = 'software'
-    with pytest.raises(front_door.ManagerHandoffError, match='Planner unavailable'):
-        dispatch.enqueue_mission(memory, 'Build dependent modules', state, prepared_handoff=prepared)
-    assert memory.backlog.all() == []
-    assert not read_continuous_state(memory.project.root).enabled
-    assert state['config']['continuous'] is False

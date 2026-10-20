@@ -39,8 +39,8 @@ def build_letter_prompt(*, facts: Mapping[str, Any]) -> str:
         "happen next if they say nothing.\n\n"
         "Use only the facts below; do not invent results, numbers, or file names. "
         "Current tasks, checkpoints and waiting states take precedence over "
-        "historical settlements. A healthy background wait continues automatically; "
-        "it is not a failed experiment or a request for operator permission. "
+        "historical settlements. A long job still running is not a failed "
+        "experiment or a request for operator permission. "
         "The saved review describes the version reviewed, not acceptance of newer "
         "unreviewed work. Treat old failure and plan-change summaries as history, "
         "not as current Reviewer feedback. Ask the operator to answer only a "
@@ -65,7 +65,6 @@ def build_letter_prompt(*, facts: Mapping[str, Any]) -> str:
         + section("Historical decisions taken", "decisions")
         + section("Planned next", "planned")
         + section("Cost and time in this window", "cost")
-        + section("The machine", "machine")
         + "\nWrite the letter now."
     )
 

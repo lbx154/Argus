@@ -9,14 +9,10 @@ from __future__ import annotations
 import inspect
 from dataclasses import dataclass, field, replace
 from pathlib import Path
-from typing import Any, Callable, Iterable, Protocol
-
-from .round_policy import RoundPolicy, RoundPolicyError, parse_round_policy
+from typing import Any, Callable, Protocol
 
 VERTICAL_CONTRACT_VERSION = 1
 _COMPLETION_GATES = frozenset({"none", "metric", "certified"})
-_WORKFLOW_MODES = frozenset({"staged", "direct", "proportional"})
-_MISSION_KINDS = frozenset({"custom", "optimize", "research", "software"})
 _VERIFICATION_PROFILES = frozenset({"explore", "develop", "certify"})
 
 
@@ -112,18 +108,6 @@ class IterationAssessmentHook(Protocol):
     ) -> "IterationAssessment | None": ...
 
 
-class BackgroundReconciler(Protocol):
-    """Optional vertical-owned upkeep for daemon-resident campaign state."""
-
-    def __call__(
-        self,
-        *,
-        project_root: Path,
-        state_root: Path,
-        marker: dict[str, Any],
-    ) -> None: ...
-
-
 @dataclass(frozen=True)
 class IterationAssessment:
     """A vertical's domain-specific reason to continue or stop iteration.
@@ -141,15 +125,6 @@ class IterationAssessment:
 
 
 @dataclass(frozen=True)
-class PlannerReviewPurchaseDecision:
-    """A vertical-owned decision about a proposed review purchase."""
-
-    defer_reason: str = ""
-    discard_semantic_duplicate: bool = False
-    release_stage_closing_blocker: bool = False
-
-
-@dataclass(frozen=True)
 class VerticalLibraryContext:
     """Core-owned inputs for optional provider-owned Skill preparation."""
 
@@ -160,7 +135,6 @@ class VerticalLibraryContext:
     direction: str
     workflow_mode: str
     paper_mission: bool
-    team_task_id: str | None
     runner: Any
     model: str | None
     emit: Callable[[dict], None]
@@ -180,7 +154,6 @@ class VerticalContract:
     stage_order: tuple[str, ...]
     checklist_items: dict[str, Any]
     completion_gate: str
-    mission_kind: str = "custom"
     paper_mission: bool = False
     ground_before_handoff: bool = False
     role_guidance: Callable[[str], str] | None = None
@@ -190,18 +163,13 @@ class VerticalContract:
     requires_independent_review: bool = False
     completion_contract_version: int = 0
     research_target_levels: tuple[str, ...] = ()
-    workflow_mode: str = "staged"
     verification_stage_profiles: dict[str, str] | None = None
     checklist_optional_stages: frozenset[str] = frozenset()
     stage_aliases: dict[str, str] | None = None
     search_altitude: Callable[[object], str] | None = None
     mission_prelude: MissionPrelude | None = None
     library_preparer: Callable[[VerticalLibraryContext], None] | None = None
-    background_reconciler: BackgroundReconciler | None = None
     stage_completion_validator: Callable[..., object] | None = None
-    automatic_stage_completion: Callable[..., bool] | None = None
-    planner_task_validator: Callable[[str, Path, Any], object] | None = None
-    review_purchase_policy: Callable[..., PlannerReviewPurchaseDecision] | None = None
     iteration_assessor: IterationAssessmentHook | None = None
     # Optional: records the operator's stated objective at project setup, for a
     # vertical that cannot pick a completion bar on its own. See
@@ -220,9 +188,6 @@ class VerticalContract:
     # explicitly declared empty set ("never search"): the former keeps the
     # framework default, the latter overrides it off.
     engineer_live_search_stages: frozenset[str] | None = None
-    # Round-guard thresholds for this vertical's missions (see
-    # ``core/round_policy.py``). ``None`` keeps the framework default.
-    round_policy: RoundPolicy | None = None
     # False keeps repairs in the current stage; replacing the operator's
     # objective may still reset the pipeline. Existing providers default to True.
     allow_stage_rollback: bool = True
@@ -275,7 +240,6 @@ class VerticalContract:
             checklist_items={stage: self.checklist_items.get(stage, ()) for stage in stages},
             checklist_optional_stages=self.checklist_optional_stages.intersection(stages),
             workflow_profile=name,
-            workflow_mode="staged",
             workflow_requested_stages=requested,
         )
 
@@ -401,10 +365,8 @@ class VerticalContract:
                 else None
             )
             policy = resolve_policy(
-                state_root if state_root is not None else project_root,
                 scope=final_scope,
                 stage=stage,
-                vertical=self.name,
                 stage_profiles=self.verification_stage_profiles,
             )
             kwargs["verification_profile"] = policy.profile
@@ -429,55 +391,6 @@ class VerticalContract:
             raise VerticalContractError(
                 f"vertical {self.name!r} completion validator returned a non-iterable"
             ) from exc
-
-    def automatic_stage_completion_ready(
-        self, *, stage: str, project_root: Path, state_root: Path,
-    ) -> bool:
-        """Only an explicit boolean from the provider permits automatic close."""
-        if self.automatic_stage_completion is None:
-            return False
-        ready = self.automatic_stage_completion(
-            stage=stage, project_root=project_root, state_root=state_root,
-        )
-        if not isinstance(ready, bool):
-            raise VerticalContractError(
-                f"vertical {self.name!r} automatic stage completion hook returned a non-boolean"
-            )
-        return ready
-
-    def planner_task_issues(self, stage: str, project_root: Path, task: Any) -> tuple[str, ...]:
-        if self.planner_task_validator is None:
-            return ()
-        return tuple(
-            str(issue).strip()
-            for issue in self.planner_task_validator(stage, project_root, task)
-            if str(issue).strip()
-        )
-
-    def review_purchase(
-        self,
-        *,
-        project_root: Path,
-        task: Any,
-        existing_items: Iterable[Any],
-        semantic_duplicate: Any | None,
-        stage_reviewed_at: float | None,
-    ) -> PlannerReviewPurchaseDecision | None:
-        if self.review_purchase_policy is None:
-            return None
-        value = self.review_purchase_policy(
-            project_root=project_root,
-            task=task,
-            existing_items=existing_items,
-            semantic_duplicate=semantic_duplicate,
-            stage_reviewed_at=stage_reviewed_at,
-        )
-        if isinstance(value, PlannerReviewPurchaseDecision):
-            return value
-        raise VerticalContractError(
-            f"vertical {self.name!r} review purchase policy returned "
-            f"{type(value).__name__}, expected PlannerReviewPurchaseDecision"
-        )
 
     def assess_iteration(
         self,
@@ -727,22 +640,10 @@ def vertical_contract(name: str, provider: Any) -> VerticalContract:
                 if dependency not in seen:
                     seen.add(dependency)
                     pending.extend(requirements[dependency])
-    mode = str(getattr(provider, "WORKFLOW_MODE", "staged") or "staged").strip().lower()
-    if mode not in _WORKFLOW_MODES:
-        raise VerticalContractError(
-            f"vertical {name!r} has unsupported workflow mode {mode!r}"
-        )
     allow_stage_rollback = getattr(provider, "ALLOW_STAGE_ROLLBACK", True)
     if not isinstance(allow_stage_rollback, bool):
         raise VerticalContractError(
             f"vertical {name!r} ALLOW_STAGE_ROLLBACK must be a boolean"
-        )
-    mission_kind = str(
-        getattr(provider, "MISSION_KIND", "custom") or "custom"
-    ).strip().lower()
-    if mission_kind not in _MISSION_KINDS:
-        raise VerticalContractError(
-            f"vertical {name!r} has unsupported mission kind {mission_kind!r}"
         )
     aliases = getattr(provider, "STAGE_ALIASES", {})
     aliases = {
@@ -759,25 +660,6 @@ def vertical_contract(name: str, provider: Any) -> VerticalContract:
     if stage_completion_validator is not None and not callable(stage_completion_validator):
         raise VerticalContractError(
             f"vertical {name!r} has a non-callable stage completion validator"
-        )
-    automatic_stage_completion = getattr(
-        provider, "automatic_stage_completion_ready", None
-    )
-    if automatic_stage_completion is not None and not callable(
-        automatic_stage_completion
-    ):
-        raise VerticalContractError(
-            f"vertical {name!r} has a non-callable automatic stage completion hook"
-        )
-    planner_task_validator = getattr(provider, "planner_task_issues", None)
-    if planner_task_validator is not None and not callable(planner_task_validator):
-        raise VerticalContractError(
-            f"vertical {name!r} has a non-callable planner task validator"
-        )
-    review_purchase_policy = getattr(provider, "review_purchase_policy", None)
-    if review_purchase_policy is not None and not callable(review_purchase_policy):
-        raise VerticalContractError(
-            f"vertical {name!r} has a non-callable review purchase policy"
         )
     iteration_assessor = getattr(provider, "iteration_assessment", None)
     if iteration_assessor is not None and not callable(iteration_assessor):
@@ -847,12 +729,6 @@ def vertical_contract(name: str, provider: Any) -> VerticalContract:
         engineer_live_search_stages = _normalize_live_search_stages(
             name, raw_live_search_stages, stage_order
         )
-    try:
-        round_policy = parse_round_policy(
-            f"vertical {name!r}", getattr(provider, "ROUND_POLICY", None)
-        )
-    except RoundPolicyError as exc:
-        raise VerticalContractError(str(exc)) from exc
     raw_verification_profiles = (
         getattr(provider, "VERIFICATION_STAGE_PROFILES", {}) or {}
     )
@@ -890,7 +766,6 @@ def vertical_contract(name: str, provider: Any) -> VerticalContract:
         stage_order=stage_order,
         checklist_items=checklist_items,
         completion_gate=gate,
-        mission_kind=mission_kind,
         paper_mission=bool(getattr(provider, "PAPER_MISSION", False)),
         ground_before_handoff=bool(
             getattr(provider, "GROUND_BEFORE_HANDOFF", False)
@@ -918,7 +793,6 @@ def vertical_contract(name: str, provider: Any) -> VerticalContract:
             for level in (getattr(provider, "RESEARCH_TARGET_LEVELS", ()) or ())
             if str(level).strip()
         ),
-        workflow_mode=mode,
         verification_stage_profiles=verification_stage_profiles,
         checklist_optional_stages=optional_stages,
         stage_aliases=aliases,
@@ -940,22 +814,13 @@ def vertical_contract(name: str, provider: Any) -> VerticalContract:
             if callable(getattr(provider, "LIBRARY_PREPARER", None))
             else None
         ),
-        background_reconciler=(
-            getattr(provider, "BACKGROUND_RECONCILER")
-            if callable(getattr(provider, "BACKGROUND_RECONCILER", None))
-            else None
-        ),
         stage_completion_validator=stage_completion_validator,
-        automatic_stage_completion=automatic_stage_completion,
-        planner_task_validator=planner_task_validator,
-        review_purchase_policy=review_purchase_policy,
         iteration_assessor=iteration_assessor,
         operator_objective_adopter=operator_objective_adopter,
         legacy_state_importer=legacy_state_importer,
         stage_primary_deliverables=stage_primary_deliverables,
         engineer_stage_operations=engineer_stage_operations,
         engineer_live_search_stages=engineer_live_search_stages,
-        round_policy=round_policy,
     )
 
 
@@ -964,7 +829,6 @@ __all__ = [
     "MissionPrelude",
     "IterationAssessment",
     "IterationAssessmentHook",
-    "PlannerReviewPurchaseDecision",
     "RolePromptFragment",
     "VerticalContract",
     "VerticalContractError",

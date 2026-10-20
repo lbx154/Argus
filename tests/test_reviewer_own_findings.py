@@ -21,7 +21,6 @@ from argus.engineer.round_stop_signals import (
     idle_termination_review_decision,
     provider_turn_cap_review_decision,
 )
-from argus.engineer.runner import hold_review_for_pending_background_run
 from argus.life.context_packet import render_mission_brief
 from argus.reviewer import Reviewer
 
@@ -50,13 +49,15 @@ def _context(tmp_path: Path) -> tuple[Path, Path]:
 def _run(
     tmp_path: Path,
     *,
-    policy: str,
+    resumable: bool,
     engineer_threads: tuple[str, str] = ("e1", "e1"),
 ) -> tuple[MemoryBackend, list[dict], object]:
     work = tmp_path / "work"
     work.mkdir(parents=True)
     context, checkpoint = _context(tmp_path)
     backend = MemoryBackend()
+    if resumable:
+        backend.backend = "pi"  # type: ignore[misc]
     backend.queue("engineer-r1", CannedResponse(
         message="Wrote summary.csv.", thread_id=engineer_threads[0],
     ))
@@ -82,7 +83,6 @@ def _run(
             backend_failure_backoff_seconds=0,
             context_packet_path=str(context),
             checkpoint_path=checkpoint,
-            role_session_policy=policy,
         ),
         on_event=events.append,
     )
@@ -114,7 +114,7 @@ def _reviewer_judgment(reason: str) -> ReviewDecision:
 
 
 def test_fresh_reviewer_gets_its_full_previous_findings_once(tmp_path: Path) -> None:
-    backend, _events, outcome = _run(tmp_path, policy="fresh")
+    backend, _events, outcome = _run(tmp_path, resumable=False)
 
     assert outcome.successful
     assert _reviewer_resumes(backend) == [None, None]
@@ -135,7 +135,7 @@ def test_fresh_reviewer_gets_its_full_previous_findings_once(tmp_path: Path) -> 
 def test_resumed_reviewer_gets_one_copy_and_no_unverifiable_thread_claim(
     tmp_path: Path,
 ) -> None:
-    backend, _events, outcome = _run(tmp_path, policy="mission")
+    backend, _events, outcome = _run(tmp_path, resumable=True)
 
     assert outcome.successful
     assert _reviewer_resumes(backend) == [None, "v1"]
@@ -148,7 +148,7 @@ def test_resumed_reviewer_gets_one_copy_and_no_unverifiable_thread_claim(
 
 
 def test_first_round_review_is_unchanged(tmp_path: Path) -> None:
-    backend, _events, outcome = _run(tmp_path, policy="mission")
+    backend, _events, outcome = _run(tmp_path, resumable=True)
 
     first = _reviewer_prompts(backend)[0]
     assert _FINDINGS not in first
@@ -245,7 +245,7 @@ def test_self_reviews_are_not_reviewer_findings() -> None:
 # --- host rewrites keep the Reviewer's own words ------------------------------
 
 
-def test_operator_question_policy_replacement_is_not_a_reviewer_finding(
+def test_a_withheld_question_stays_the_reviewers_finding_beside_the_host_fact(
     monkeypatch,
 ) -> None:
     import argus.engineer.round_settlement as settlement
@@ -255,31 +255,14 @@ def test_operator_question_policy_replacement_is_not_a_reviewer_finding(
         status="blocked", reason="REAL: the operator must pick dataset A or B",
         next_action="REAL: pick", operator_question="A or B?", reviewer_authored=True,
     )
-    replaced = settlement._enforce_operator_question_policy(
+    recorded = settlement._apply_operator_question_policy(
         asked, supervised_config=SimpleNamespace(), state=RoundLoopState(),
     )
-    assert replaced.reviewer_authored is False
-    findings = render_previous_findings([_record(1, replaced)], round_index=2)
-    assert not findings.has_reviewer_findings
-    assert "Operator questions are forbidden" not in findings.text
-    assert "the host replaced the review because operator questions" in findings.text
-
-
-def test_background_wait_hold_keeps_the_reviewer_words_and_labels_the_host_change() -> None:
-    approved = ReviewDecision(
-        status="done", reason="REAL: the launch is correct.", next_action="",
-        reviewer_authored=True,
-    )
-    held = hold_review_for_pending_background_run(approved)
-    assert held.status == "continue" and held.reviewer_authored
-    text = render_previous_findings([_record(1, held)], round_index=2).text
+    assert recorded.reviewer_authored is True
+    text = render_previous_findings([_record(1, recorded)], round_index=2).text
     findings, host = text.split("## Host facts since then (not your words)\n", 1)
-    assert "Your judgment in round 1 (`done`):\nREAL: the launch is correct." in findings
-    assert "still has no terminal result" not in findings
-    assert "Await the declared background run" not in findings
-    assert "held open because a declared background run is still pending" in host
-    summary = _previous_review_summary(RoundLoopState(rounds=[_record(1, held)]))
-    assert summary == "Round 1 — done: REAL: the launch is correct."
+    assert "REAL: the operator must pick dataset A or B" in findings
+    assert "the question was not sent" in host
 
 
 def test_venue_enforcement_keeps_the_reviewer_words_and_labels_the_host_change(
@@ -320,15 +303,15 @@ def test_venue_enforcement_keeps_the_reviewer_words_and_labels_the_host_change(
             working_dir=str(tmp_path), vertical_state_root=str(tmp_path),
         ),
     )
-    assert review.status == "continue"
-    assert review.next_action.startswith("The operator requires actual strong accept")
+    # The verdict stays the Reviewer's; the operator's bar is the host's fact beside it.
+    assert review.status == "done"
+    assert review.next_action == ""
     review.reviewer_authored = True
     text = render_previous_findings([_record(1, review)], round_index=2).text
     findings, host = text.split("## Host facts since then (not your words)\n", 1)
     assert f"Your judgment in round 1 (`done`):\n{prose}" in findings
-    assert "The operator requires actual strong accept" not in findings
-    assert "selected-venue acceptance check changed this judgment" in host
-    assert "your `done` became `continue`" in host
+    assert "strong accept or better" not in findings
+    assert "the operator's bar (strong accept or better) is not met" in host
 
 
 # --- earlier words are open to correction -------------------------------------
@@ -347,45 +330,8 @@ def test_findings_are_framed_as_correctable_earlier_words() -> None:
         round_index=2, session_id=None, main_summary="S", main_error=None,
         prev_review_summary="Round 1 — continue: x",
     )
-    assert "settled context" in boundary
+    assert "not fact" in boundary
     assert "If current evidence shows your earlier judgment was wrong" in boundary
-
-
-def test_open_items_are_bounded_and_say_when_truncated() -> None:
-    judgment = _reviewer_judgment("Fix the totals.")
-    judgment.frontier_report = {
-        "remaining_work": [f"item {index} " + "x" * 500 for index in range(8)],
-    }
-    findings = render_previous_findings([_record(1, judgment)], round_index=2)
-    assert findings.has_open_items
-    items = [line for line in findings.text.splitlines() if line.startswith("- item")]
-    assert len(items) == 6
-    assert all(len(line) <= 402 for line in items)
-    assert "- (+2 more not shown)" in findings.text
-
-
-def test_brief_keeps_the_missing_condition_when_findings_name_no_open_items(
-    tmp_path: Path,
-) -> None:
-    from argus.life.context_packet import create_mission_context, record_reviewed_handoff
-
-    mission = create_mission_context(
-        life_dir=tmp_path / "state", mission_id="m", stage="develop",
-        objective="o", execution_workdir=str(tmp_path),
-    )
-    review = _reviewer_judgment("Totals are wrong.")
-    review.frontier_report = {"remaining_work": ["recount the totals"], "change": "bounded_regression"}
-    record_reviewed_handoff(
-        mission_context_path=mission, round_index=1, engineer_summary="done",
-        review=review, checkpoint_path=mission.parent / "CHECKPOINT.md",
-    )
-    kept = render_mission_brief(mission, include_previous_review=False)
-    dropped = render_mission_brief(
-        mission, include_previous_review=False, include_missing_condition=False,
-    )
-    assert "Totals are wrong." not in kept
-    assert "- Missing condition: recount the totals" in kept
-    assert "recount the totals" not in dropped
 
 
 # --- own thread only ----------------------------------------------------------
@@ -393,7 +339,7 @@ def test_brief_keeps_the_missing_condition_when_findings_name_no_open_items(
 
 def test_reviewer_never_resumes_the_current_engineer_thread(tmp_path: Path) -> None:
     backend, events, outcome = _run(
-        tmp_path, policy="mission", engineer_threads=("e1", "v1"),
+        tmp_path, resumable=True, engineer_threads=("e1", "v1"),
     )
 
     assert outcome.successful
@@ -410,7 +356,7 @@ def test_reviewer_never_resumes_an_earlier_engineer_thread(tmp_path: Path) -> No
     # Round 1's Engineer thread collides with the Reviewer's saved one; the
     # Engineer has since moved to another thread, and it is still refused.
     backend, events, outcome = _run(
-        tmp_path, policy="mission", engineer_threads=("v1", "e2"),
+        tmp_path, resumable=True, engineer_threads=("v1", "e2"),
     )
     assert outcome.successful
     assert _reviewer_resumes(backend) == [None, None]
@@ -426,16 +372,16 @@ def test_engineer_thread_history_survives_a_capsule_reload(tmp_path: Path) -> No
 
     def capsule() -> RoleSessionCapsule:
         return RoleSessionCapsule.open(
-            role="engineer", policy="mission", objective_revision="rev",
+            role="engineer", policy="rolling", objective_revision="rev",
             workdir=tmp_path, backend="memory", model="m",
             checkpoint_path=None, path=path,
         )
 
     first = capsule()
-    first.prepare(max_turns=0, max_input_tokens=0)
+    first.prepare()
     first.complete(type("R", (), {"thread_id": "e1"})())
-    first.rotate("turn_limit")
-    first.prepare(max_turns=0, max_input_tokens=0)
+    first.rotate("branch_changed")
+    first.prepare()
     first.complete(type("R", (), {"thread_id": "e2"})())
 
     assert capsule().seen_thread_ids == ["e1", "e2"]
@@ -448,7 +394,7 @@ def test_own_reviewer_thread_rejects_other_roles_threads() -> None:
 
 
 def test_mission_brief_can_omit_the_previous_review(tmp_path: Path) -> None:
-    _run(tmp_path, policy="mission")
+    _run(tmp_path, resumable=True)
     context = tmp_path / "state" / "handoffs" / "mission-1" / "mission.json"
     assert "All rows match." in render_mission_brief(context)
     assert "All rows match." not in render_mission_brief(
@@ -456,7 +402,7 @@ def test_mission_brief_can_omit_the_previous_review(tmp_path: Path) -> None:
     )
 
 
-def _engineer_capsule(tmp_path: Path, *, model: str = "m", policy: str = "mission"):
+def _engineer_capsule(tmp_path: Path, *, model: str = "m", policy: str = "rolling"):
     return RoleSessionCapsule.open(
         role="engineer", policy=policy, objective_revision="rev",
         workdir=tmp_path, backend="memory", model=model,
@@ -469,7 +415,7 @@ def test_thread_history_survives_a_context_change_and_ignores_a_bare_string(
     tmp_path: Path,
 ) -> None:
     first = _engineer_capsule(tmp_path)
-    first.prepare(max_turns=0, max_input_tokens=0)
+    first.prepare()
     first.complete(type("R", (), {"thread_id": "thr-abc"})())
     # A changed model rotates the capsule; the thread history stays.
     rotated = _engineer_capsule(tmp_path, model="other")
@@ -486,9 +432,9 @@ def test_thread_history_survives_a_context_change_and_ignores_a_bare_string(
     assert _engineer_capsule(tmp_path, model="other").seen_thread_ids == []
 
 
-def test_fresh_policy_still_records_engineer_threads(tmp_path: Path) -> None:
+def test_fresh_session_still_records_engineer_threads(tmp_path: Path) -> None:
     capsule = _engineer_capsule(tmp_path, policy="fresh")
-    capsule.prepare(max_turns=0, max_input_tokens=0)
+    capsule.prepare()
     capsule.complete(type("R", (), {"thread_id": "e-fresh"})())
     assert capsule.thread_id == ""
     assert capsule.seen_thread_ids == ["e-fresh"]

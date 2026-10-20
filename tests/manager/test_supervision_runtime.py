@@ -50,7 +50,7 @@ class EvidenceBackend:
             facts, _ = json.JSONDecoder().raw_decode(prompt[prompt.index('{"objective"'):])
             if any(task["pending_question"] for task in facts["tasks"]):
                 answer = {"action": "wait", "reason": "The author declaration is still missing; resume after the operator supplies it."}
-            elif facts["review"].get("status") == "continue":
+            elif facts["review"].get("status") in {"continue", "blocked"}:
                 answer = {"action": "steer", "reason": "The grouped-mean check fails; repair grouping before another review.",
                           "directive": "Repair the grouped mean while preserving the missing-value acceptance check."}
             else:
@@ -277,8 +277,8 @@ def test_running_review_schedules_supervision_before_the_mission_pipeline_finish
     try:
         with manager_pipeline_lock(tmp_path):
             supervisor.sink.handle_event({
-                "type": EventType.ROUND_REVIEW_COMPLETED, "item_id": item.id,
-                "status": "continue", "reason": "The grouped mean check failed", "round_index": 1,
+                "type": EventType.ROUND_REVIEW_COMPLETED, "item_id": item.id, "review_source": "engineer_handoff",
+                "status": "blocked", "reason": "The grouped mean check failed", "round_index": 1,
             })
             record = wait_for_receipt(tmp_path, "applied")
             assert record["decision"]["action"] == "steer"
@@ -308,13 +308,13 @@ def test_shutdown_bounds_an_uncooperative_backend_and_rejects_its_late_result(tm
 
     manager = Manager(tmp_path, runner=Uncooperative(), memory_maintenance_enabled=False)
     start_supervision(tmp_path)
-    assert schedule_supervision(manager, tmp_path, {"type": EventType.LIFE_MISSION_COMPLETED})
+    assert schedule_supervision(manager, tmp_path, {"type": EventType.LIFE_RUNTIME_INCIDENT_ESCALATED})
     try:
         assert entered.wait(1)
         started = time.monotonic()
         assert shutdown_supervision(tmp_path, timeout=0.02) == 1
         assert time.monotonic() - started < 0.25
-        assert not schedule_supervision(manager, tmp_path, {"type": EventType.LIFE_MISSION_COMPLETED})
+        assert not schedule_supervision(manager, tmp_path, {"type": EventType.LIFE_RUNTIME_INCIDENT_ESCALATED})
         release.set()
         wait_for_receipt(tmp_path, "superseded")
         assert not (tmp_path / "inbox.jsonl").exists()
@@ -325,7 +325,7 @@ def test_shutdown_bounds_an_uncooperative_backend_and_rejects_its_late_result(tm
 
 
 @pytest.mark.parametrize("remaining_work", ["none", "pending", "continuous", "issued"])
-def test_completed_finite_work_does_not_start_a_shutdown_bound_check(tmp_path, monkeypatch, remaining_work):
+def test_completed_work_only_delivers_an_issued_decision(tmp_path, monkeypatch, remaining_work):
     from argus.manager import supervision
 
     backlog, item = project(tmp_path)
@@ -344,7 +344,7 @@ def test_completed_finite_work_does_not_start_a_shutdown_bound_check(tmp_path, m
             "type": EventType.LIFE_MISSION_COMPLETED, "item_id": item.id,
             "success": True, "status": "done",
         })
-        assert admitted is (remaining_work != "none")
+        assert admitted is (remaining_work == "issued")
         assert bool(dispatched) is admitted
         assert manager.runner.calls == []
     finally:
@@ -471,10 +471,10 @@ def test_saturated_scheduler_retains_latest_evidence_for_the_waiting_project(tmp
         start_supervision(root)
     try:
         for number in range(2):
-            assert schedule_supervision(managers[number], roots[number], {"type": EventType.LIFE_MISSION_COMPLETED})
+            assert schedule_supervision(managers[number], roots[number], {"type": EventType.LIFE_RUNTIME_INCIDENT_ESCALATED})
         assert all(signal.wait(1) for signal in entered)
-        assert schedule_supervision(managers[2], roots[2], {"type": EventType.LIFE_MISSION_COMPLETED, "event_id": "obsolete"})
-        assert schedule_supervision(managers[2], roots[2], {"type": EventType.LIFE_MISSION_COMPLETED, "event_id": "latest"})
+        assert schedule_supervision(managers[2], roots[2], {"type": EventType.LIFE_RUNTIME_INCIDENT_ESCALATED, "event_id": "obsolete"})
+        assert schedule_supervision(managers[2], roots[2], {"type": EventType.LIFE_RUNTIME_INCIDENT_ESCALATED, "event_id": "latest"})
         assert managers[2].runner.calls == []
         release.set()
         record = wait_for_receipt(roots[2], "applied")
@@ -637,7 +637,7 @@ def role_loop(root, mission_id, backend):
         skills_dir=root / "skills", engineer_runner=backend, reviewer_runner=backend,
         config=SkillLoopConfig(
             engineer_model="fixture", reviewer_model="fixture", workflow_mode="direct",
-            active_vertical="software", role_session_policy="fresh", max_rounds=1,
+            active_vertical="software", max_rounds=1,
             require_independent_review=True, require_post_task_learning=False,
             wiki_enabled=False, auto_init_wiki=False, session_id=mission_id,
             operator_question_policy_root=root,
@@ -811,7 +811,7 @@ def test_background_delivery_retries_a_temporarily_busy_control_without_new_evid
 
     monkeypatch.setattr(supervision, "_apply", briefly_busy)
     supervision.start_supervision(tmp_path)
-    assert supervision.schedule_supervision(manager, tmp_path, {"type": EventType.LIFE_MISSION_COMPLETED})
+    assert supervision.schedule_supervision(manager, tmp_path, {"type": EventType.LIFE_RUNTIME_INCIDENT_ESCALATED})
     try:
         assert wait_for_receipt(tmp_path, "applied")["status"] == "applied"
         assert len(attempts) == 2 and len(backend.calls) == 1
@@ -835,7 +835,7 @@ def test_busy_control_is_not_reported_as_a_failure_on_every_attempt(tmp_path, mo
 
     monkeypatch.setattr(supervision, "_apply", always_busy)
     supervision.start_supervision(tmp_path)
-    assert supervision.schedule_supervision(manager, tmp_path, {"type": EventType.LIFE_MISSION_COMPLETED})
+    assert supervision.schedule_supervision(manager, tmp_path, {"type": EventType.LIFE_RUNTIME_INCIDENT_ESCALATED})
     try:
         deadline = time.monotonic() + 30
         while time.monotonic() < deadline and len(attempts) < 8:

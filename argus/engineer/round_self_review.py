@@ -1,4 +1,4 @@
-"""Round-loop progress bookkeeping and optional low-risk self-review."""
+"""Route an Engineer turn by its handoff, and settle optional low-risk self-review."""
 
 from __future__ import annotations
 
@@ -20,30 +20,9 @@ from .round_state import (
     control_continue_loop,
     control_proceed,
 )
-from .round_stop_signals import _runner_result_has_successful_work_signal
 
 if TYPE_CHECKING:
     from .runner import SupervisedConfig
-
-# Consecutive unjudged Engineer turns (NEXT_OWNER=engineer, or an unfinished
-# self-reviewed milestone) allowed before the Reviewer judges.
-ENGINEER_SELF_HANDOFF_LIMIT = 2
-
-
-def _unjudged_turns_capped(supervised_config: "SupervisedConfig") -> bool:
-    """Whether consecutive unjudged Engineer turns stop at the limit.
-
-    Where independent review is required they always do. Where it is not, a
-    positive ``max_rounds`` already ends the loop, so only an uncapped run
-    needs the count: its only other exit is a ``done`` the Engineer might
-    never write. That case is a stopgap until HO-12 hands an unchanged return
-    upward on what changed rather than on a count.
-    """
-    return (
-        supervised_config.require_independent_review
-        or supervised_config.max_rounds <= 0
-    )
-
 
 def _round_handoff(outcome: EngineerTurnOutcome) -> EngineerHandoff:
     """Who owns the work next, read from the decision the Engineer recorded.
@@ -136,7 +115,7 @@ def _record_stated_assumption(
 
 
 class RoundSelfReviewMixin:
-    """Update progress state and settle low-risk work without another model."""
+    """Route an Engineer turn and settle low-risk work without another model."""
 
     def _handle_progress_and_self_review(
         self,
@@ -147,7 +126,6 @@ class RoundSelfReviewMixin:
         outcome: EngineerTurnOutcome,
         state: RoundLoopState,
         review_completed_hook,
-        continue_adaptor,
         on_event: Callable[[dict], None] | None,
     ) -> RoundControl:
         state.backend_failure_streak = 0
@@ -158,15 +136,6 @@ class RoundSelfReviewMixin:
         # outage and open the hold on an isolated accident.
         state.backend_failure_signature = ""
         state.backend_failure_same_cause_streak = 0
-        successful_work = _runner_result_has_successful_work_signal(
-            outcome.engineer_result,
-            engineer_message=outcome.engineer_message,
-        )
-        if successful_work:
-            state.no_progress_streak = 0
-        else:
-            state.no_progress_streak += 1
-        milestone_done = _milestone_is_done(outcome)
         _record_stated_assumption(outcome, supervised_config)
         handoff = _round_handoff(outcome)
         if handoff.waits_for_operator:
@@ -212,7 +181,6 @@ class RoundSelfReviewMixin:
                 outcome=outcome,
                 state=state,
                 review_completed_hook=review_completed_hook,
-                continue_adaptor=continue_adaptor,
                 on_event=on_event,
             )
         if handoff.next_owner in {"planner", "manager"}:
@@ -220,17 +188,12 @@ class RoundSelfReviewMixin:
             # an obstacle only the Manager can remove goes to the Manager.
             # Neither accepts work, so no review stands in between.
             why = strip_handoff(outcome.engineer_message)[-1200:]
-            to_planner = handoff.next_owner == "planner"
             return self._settle_round(
                 review=ReviewDecision(
-                    status="replan_requested" if to_planner else "blocked",
+                    status="replan_requested" if handoff.next_owner == "planner" else "blocked",
                     reason=why or f"Engineer handed the work to the {handoff.next_owner}.",
                     next_action="",
                     review_source="engineer_handoff",
-                    planner_report=(
-                        {} if to_planner
-                        else {"manager_attention": "needed", "manager_attention_reason": why[:200]}
-                    ),
                 ),
                 round_index=round_index,
                 supervised_config=supervised_config,
@@ -238,7 +201,6 @@ class RoundSelfReviewMixin:
                 outcome=outcome,
                 state=state,
                 review_completed_hook=review_completed_hook,
-                continue_adaptor=continue_adaptor,
                 on_event=on_event,
             )
         if (
@@ -263,57 +225,32 @@ class RoundSelfReviewMixin:
                 outcome=outcome,
                 state=state,
                 review_completed_hook=review_completed_hook,
-                continue_adaptor=continue_adaptor,
                 on_event=on_event,
             )
-        if handoff.next_owner == "engineer" and not state.pending_external_wait_review:
-            # A self-handoff skips the Reviewer and, with it, every round guard
-            # (those are evaluated at settlement). Where the run is capped (see
-            # _unjudged_turns_capped), two in a row continue and the third goes
-            # to the Reviewer; a turn after rounds that produced nothing goes
-            # on too, so the Engineer cannot run unjudged or spin on itself.
-            stalled = (
-                supervised_config.no_progress_threshold > 0
-                and state.no_progress_streak >= supervised_config.no_progress_threshold
-            )
-            if not stalled and (
-                not _unjudged_turns_capped(supervised_config)
-                or state.engineer_self_handoffs < ENGINEER_SELF_HANDOFF_LIMIT
-            ):
-                state.engineer_self_handoffs += 1
+        if handoff.next_owner == "engineer":
+            # The Engineer keeps the work; the Reviewer judges when it hands over.
+            return control_continue_loop()
+        if not supervised_config.require_independent_review:
+            if not _milestone_is_done(outcome):
                 return control_continue_loop()
-            if supervised_config.require_independent_review:
-                return control_proceed()
-        if not supervised_config.require_independent_review and successful_work:
-            if milestone_done:
-                return self._settle_round(
-                    review=ReviewDecision(
-                        status="done",
-                        reason=(
-                            "Engineer reported the requested milestone complete; "
-                            "independent review was not required for this mission."
-                        ),
-                        next_action="",
-                        review_source="engineer_self_review",
+            return self._settle_round(
+                review=ReviewDecision(
+                    status="done",
+                    reason=(
+                        "Engineer reported the requested milestone complete; "
+                        "independent review was not required for this mission."
                     ),
-                    round_index=round_index,
-                    supervised_config=supervised_config,
-                    workdir=workdir,
-                    outcome=outcome,
-                    state=state,
-                    review_completed_hook=review_completed_hook,
-                    continue_adaptor=continue_adaptor,
-                    on_event=on_event,
-                )
-            # An unfinished self-reviewed milestone is the same unjudged
-            # continuation as a self-handoff and shares its cap; past it the
-            # Reviewer judges the turn and settlement's round guards apply.
-            if (
-                not _unjudged_turns_capped(supervised_config)
-                or state.engineer_self_handoffs < ENGINEER_SELF_HANDOFF_LIMIT
-            ):
-                state.engineer_self_handoffs += 1
-                return control_continue_loop()
+                    next_action="",
+                    review_source="engineer_self_review",
+                ),
+                round_index=round_index,
+                supervised_config=supervised_config,
+                workdir=workdir,
+                outcome=outcome,
+                state=state,
+                review_completed_hook=review_completed_hook,
+                on_event=on_event,
+            )
         return control_proceed()
 
 

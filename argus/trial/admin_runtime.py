@@ -10,7 +10,7 @@ from pathlib import Path
 
 import httpx
 
-from . import DEFAULT_UPSTREAM_MODEL, map_reasoning_knobs
+from . import DEFAULT_UPSTREAM_MODEL, light_reasoning_knobs
 from .copilot import BASE_URL, HEADERS, Copilot
 from .model_catalog import configured_model_ids
 from .secrets import Vault, write_private
@@ -46,12 +46,9 @@ def configure_provider(root: Path, agent_bin: Path, vault: Vault, *, tenant: str
         "ARGUS_SKILL_BACKEND_AUTH_MODE": "subscription_cli",
         "ARGUS_SKILL_PI_PROVIDER": "argus",
         "ARGUS_SKILL_COPILOT_TRIAL": "0",
-        **map_reasoning_knobs(),
+        **light_reasoning_knobs(),
         **{knob.name: DEFAULT_UPSTREAM_MODEL for knob in KNOBS if knob.name.endswith("_MODEL")},
     }
-    for role in ("ENGINEER", "REVIEWER", "PLANNER", "MANAGER", "SUPERVISOR", "CURATOR"):
-        knobs[f"ARGUS_SKILL_{role}_BACKEND"] = "pi"
-        knobs[f"ARGUS_SKILL_{role}_RUNNER_BIN"] = str(agent_bin)
     os.environ.update({
         **knobs,
         "PI_CODING_AGENT_DIR": str(agent_dir),

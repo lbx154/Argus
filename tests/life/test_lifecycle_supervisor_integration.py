@@ -635,7 +635,7 @@ def test_lifecycle_block_is_deduped_across_repeated_ticks(tmp_path: Path) -> Non
     assert len(block_events) == 1
 
 
-def test_planner_waiting_records_external_dependency_status(tmp_path: Path) -> None:
+def test_planner_operator_handoff_records_its_question(tmp_path: Path) -> None:
     from argus.core.models import RunnerResult
     from argus.life.memory import LifeMemory
     from argus.planner import PlannerConfig
@@ -649,17 +649,10 @@ def test_planner_waiting_records_external_dependency_status(tmp_path: Path) -> N
             payload = "\n".join(
                 [
                     "PROJECT_DONE=false",
-                    "REASON=provider image route is blocked",
-                    "WAITING=true",
-                    "WAITING_REASON=paper/figures/IMAGE2_OPERATOR_ACTION_REQUIRED.md "
+                    "REASON=paper/figures/IMAGE2_OPERATOR_ACTION_REQUIRED.md "
                     "documents the image generation unknown_model external capability "
                     "blocker; all local high-impact work is exhausted",
-                    "BLOCKER_FINGERPRINT=capability:image-generation",
-                    "RECHECK_CONDITION=the configured image route becomes available",
-                    "RECHECK_TOKEN=unknown-model-v1",
-                    "STAGE_RECONCILIATION_REQUIRED=false",
-                    "ALLOW_VERIFICATION_PROBE=false",
-                    "RECHECK_AFTER_SECONDS=0",
+                    "→ operator: Can you make the configured image route available?",
                 ]
             )
             return RunnerResult(
@@ -719,9 +712,12 @@ def test_planner_waiting_records_external_dependency_status(tmp_path: Path) -> N
     assert LifeSupervisor._plan_next_work(sup) == "awaiting_external"
 
     assert sup._idle_since is None
-    assert any(s.startswith("awaiting external dependency:") for s in statuses)
-    waiting_events = [
-        e for e in emitted if isinstance(e, dict) and e.get("type") == "life.planner.waiting"
+    assert any(s.startswith("planner: nothing new to start") for s in statuses)
+    idle_events = [
+        e for e in emitted if isinstance(e, dict) and e.get("type") == "life.planner.idle"
     ]
-    assert len(waiting_events) == 1
-    assert "IMAGE2_OPERATOR_ACTION_REQUIRED.md" in waiting_events[0]["reason"]
+    assert len(idle_events) == 1
+    assert idle_events[0]["handoff"] == "operator"
+    assert "IMAGE2_OPERATOR_ACTION_REQUIRED.md" in idle_events[0]["reason"]
+    [card] = [row for row in mem.backlog.active() if row.status == "paused_operator"]
+    assert card.pending_question == "Can you make the configured image route available?"

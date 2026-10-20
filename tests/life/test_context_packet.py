@@ -4,11 +4,8 @@ import json
 from pathlib import Path
 from types import SimpleNamespace
 
-import pytest
-
 from argus import SkillLoop, SkillLoopConfig
 from argus.adapters.memory_backend import CannedResponse, MemoryBackend
-from argus.core.file_facts import file_facts
 from argus.life.context_packet import (
     create_mission_context,
     record_engineer_handoff,
@@ -18,7 +15,6 @@ from argus.life.context_packet import (
 )
 from argus.life.memory import BacklogItem
 from argus.life.supervisor import LifeSupervisor
-from argus.planner.planner import hydrate_task_context_refs
 
 
 def test_context_packet_seals_engineer_and_reviewer_handoffs(tmp_path: Path) -> None:
@@ -89,11 +85,8 @@ def test_context_packet_seals_engineer_and_reviewer_handoffs(tmp_path: Path) -> 
         "path": str(checkpoint),
         "contract_version": 2,
     }
-    frontier_path = Path(mission_payload["frontier"]["path"])
-    frontier = json.loads(frontier_path.read_text(encoding="utf-8"))
-    assert frontier["objective"] == "Screen one candidate on public tasks."
-    assert frontier["current_hypothesis"].startswith("The candidate screen")
-    assert frontier["next_decision_point"].startswith("Replace the screen")
+    assert "frontier" not in mission_payload
+    assert not (mission.parent / "frontier.json").exists()
     assert (
         not {
             "stage",
@@ -123,14 +116,6 @@ def test_context_packet_seals_engineer_and_reviewer_handoffs(tmp_path: Path) -> 
             reason="Artifact verified.",
             next_action="Planner may choose the next frontier.",
             operator_question="",
-            frontier_report={
-                "change": "uncertainty_reduced",
-                "summary": "The screen eliminated one weak direction.",
-                "resolved_obligations": ["screen candidate"],
-                "remaining_work": ["choose the next candidate"],
-                "uncertainty": "One candidate is now ruled out.",
-                "next_decision_point": "Choose or stop based on remaining candidates.",
-            },
         ),
         checkpoint_path=checkpoint,
     )
@@ -146,12 +131,7 @@ def test_context_packet_seals_engineer_and_reviewer_handoffs(tmp_path: Path) -> 
         "reason",
         "next_action",
         "operator_question",
-        "frontier_transition",
-        "frontier_disposition",
     }
-    frontier = json.loads(frontier_path.read_text(encoding="utf-8"))
-    assert frontier["history"][-1]["change"] == "uncertainty_reduced"
-    assert reviewed_payload["review"]["frontier_disposition"] == "continue"
     assert reviewed_payload["engineer_summary"] == "Created the screen packet."
     assert "text" not in reviewed_payload["checkpoint"]
     rendered = render_mission_contract(mission)
@@ -240,13 +220,6 @@ def test_mission_brief_projects_only_named_authoritative_fields(tmp_path: Path) 
             reason="The focused check passed but one condition remains.",
             next_action="Exercise the public entry point.",
             operator_question="",
-            frontier_report={
-                "change": "artifact_improved",
-                "summary": "Focused behavior now works.",
-                "artifacts": ["argus/life/context_packet.py"],
-                "evidence": ["focused pytest"],
-                "remaining_work": ["public entry-point trial"],
-            },
         ),
         checkpoint_path=mission.parent / "CHECKPOINT.md",
     )
@@ -263,17 +236,14 @@ def test_mission_brief_projects_only_named_authoritative_fields(tmp_path: Path) 
         "- Owned paths (authoritative write boundary; Reviewer must not request "
         "edits outside it): argus/life/context_packet.py; "
         "tests/life/test_context_packet.py\n"
-        "- Changed surface: argus/life/context_packet.py\n"
         "- Tools/resources: tool: tools/native_check.py (public native verifier)\n"
         "- Native check: python -m pytest tests/life/test_context_packet.py\n"
         "- Last review: continue: The focused check passed but one condition remains.\n"
         "- Reviewed Engineer work: Implemented the focused behavior and ran its check.\n"
-        "- Missing condition: public entry-point trial\n"
         "- Next action: Exercise the public entry point."
     )
     assert "objective" not in brief.lower()
     assert "mission transcript must not appear" not in brief.lower()
-    assert "focused pytest" not in brief
 
 
 def test_mission_brief_accepts_legacy_sparse_mission_context(tmp_path: Path) -> None:
@@ -401,11 +371,7 @@ def test_refresh_rebinds_initial_contract_without_overwriting_checkpoint_or_hand
 
     create_mission_context(**args, objective="Science first; editable PPT", acceptance_check="strong accept")
 
-    frontier = json.loads((mission.parent / "frontier.json").read_text())
-    assert frontier["objective"] == "Science first; editable PPT"
-    assert frontier["invariants"] == ["strong accept"]
-    assert frontier["remaining_work"] == ["strong accept"]
-    assert frontier["transition_count"] == 0
+    assert json.loads(mission.read_text())["acceptance_check"] == "strong accept"
     assert checkpoint.read_text() == "Existing scientific evidence"
     assert handoff.read_bytes() == handoff_before
     assert json.loads((mission.parent / "latest.json").read_text())["handoff"]["path"] == str(handoff)
@@ -447,40 +413,6 @@ def test_invalid_optional_work_reference_does_not_break_the_brief(tmp_path: Path
     assert "awaiting review" not in brief
 
 
-def test_contract_refresh_preserves_reviewed_science(tmp_path: Path) -> None:
-    from argus.core.task_frontier import load_task_frontier, save_task_frontier
-
-    args = dict(life_dir=tmp_path, mission_id="learned-state", stage="review")
-    mission = create_mission_context(**args, objective="Earlier goal", acceptance_check="old minimum")
-    record_reviewed_handoff(
-        mission_context_path=mission, round_index=1, engineer_summary="Measured a meaningful change",
-        review=SimpleNamespace(
-            status="continue", reason="A mechanism is supported", next_action="Test generalization",
-            frontier_report={
-                "change": "information_gain", "summary": "A useful negative result",
-                "evidence": ["paired experiment"], "remaining_work": ["new scientific test", "old minimum"],
-                "resolved_obligations": ["numerical correctness"],
-            },
-        ),
-        checkpoint_path=mission.parent / "CHECKPOINT.md",
-    )
-    path = mission.parent / "frontier.json"
-    frontier = load_task_frontier(path)
-    frontier.invariants.append("valid scientific assumption")
-    save_task_frontier(path, frontier)
-    history = frontier.history.copy()
-
-    create_mission_context(**args, objective="Stronger goal", acceptance_check="new minimum")
-
-    current = load_task_frontier(path)
-    assert current.objective == "Stronger goal"
-    assert current.invariants == ["valid scientific assumption", "new minimum"]
-    assert current.remaining_work == ["new scientific test", "new minimum"]
-    assert current.evidence == ["paired experiment"]
-    assert current.resolved_obligations == ["numerical correctness"]
-    assert current.transition_count == 1 and current.history == history
-
-
 def _mission_brief_from_prompt(prompt: str) -> str:
     start = prompt.index("## MissionBrief")
     return prompt[start:].split("\n\n", 1)[0]
@@ -517,7 +449,6 @@ def test_public_skill_loop_brief_preserves_contract_and_advances_current_work(
                 max_rounds=1,
                 backend_failure_backoff_seconds=0,
                 context_packet_path=context_packet_path,
-                role_session_policy="fresh",
             ),
         ).run("Exercise the public SkillLoop entry point.", workdir=workdir)
         return outcome, backend.history
@@ -603,68 +534,3 @@ def test_attachment_context_ref_renders_structured_metadata() -> None:
     assert "integrity: 01234567 89abcdef" in rendered
 
 
-def test_planner_context_ref_hash_tracks_project_file_revision(tmp_path: Path) -> None:
-    artifact = tmp_path / "research" / "chem_playground" / "x" / "QUESTION.md"
-    artifact.parent.mkdir(parents=True)
-    artifact.write_text("first revision", encoding="utf-8")
-    refs = [{
-        "kind": "artifact",
-        "ref": "research/chem_playground/x/QUESTION.md",
-        "why": "candidate question",
-        "content_hash": "",
-    }]
-
-    first = hydrate_task_context_refs(refs, tmp_path)
-    artifact.write_text("the second revision", encoding="utf-8")
-    second = hydrate_task_context_refs(refs, tmp_path)
-
-    assert first[0]["content_hash"] != second[0]["content_hash"]
-    assert second[0]["content_hash"] == json.dumps(file_facts(artifact))
-    assert refs[0]["content_hash"] == ""
-
-
-def test_planner_context_ref_at_project_root_is_safe_but_not_hydrated(
-    tmp_path: Path,
-) -> None:
-    assert hydrate_task_context_refs(
-        [{
-            "kind": "workspace",
-            "ref": "./",
-            "why": "whole bounded workspace",
-            "content_hash": "",
-        }],
-        tmp_path,
-    ) == []
-
-
-def test_planner_context_refs_reject_project_escape(tmp_path: Path) -> None:
-    with pytest.raises(ValueError, match="escapes the project root"):
-        hydrate_task_context_refs(
-            [{
-                "kind": "artifact",
-                "ref": "../../outside.txt",
-                "why": "unsafe",
-                "content_hash": "",
-            }],
-            tmp_path,
-        )
-
-
-def test_planner_context_refs_normalize_local_absolute_and_drop_external(
-    tmp_path: Path,
-) -> None:
-    local = tmp_path / "notes.md"
-    local.write_text("grounded", encoding="utf-8")
-    external = tmp_path.parent / "external-handoff.json"
-    external.write_text("runtime", encoding="utf-8")
-
-    hydrated = hydrate_task_context_refs(
-        [
-            {"kind": "wiki", "ref": str(local), "why": "local grounding"},
-            {"kind": "handoff", "ref": str(external), "why": "runtime state"},
-        ],
-        tmp_path,
-        discard_external=True,
-    )
-
-    assert [ref["ref"] for ref in hydrated] == ["notes.md"]

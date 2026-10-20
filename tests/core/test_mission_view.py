@@ -16,7 +16,7 @@ def emit(root: Path, event_type: str, ts: float, **payload) -> dict:
     return update_mission_view_event(root, {"type": event_type, "ts": ts, **payload})
 
 
-def test_legacy_team_waiting_projects_as_planner_waiting(tmp_path: Path) -> None:
+def test_legacy_team_waiting_projects_as_planner_idle(tmp_path: Path) -> None:
     view = emit(
         tmp_path,
         "life.team.waiting",
@@ -25,12 +25,11 @@ def test_legacy_team_waiting_projects_as_planner_waiting(tmp_path: Path) -> None
     )
 
     planner = next(role for role in view["roles"] if role["role"] == "planner")
-    assert planner["status"] == "waiting"
-    assert planner["kind"] == "planner_waiting"
+    assert planner["kind"] == "planner_no_new_work"
     assert planner["label"] == (
-        "Waiting for work outside Argus to finish before planning further"
+        "No new work to start until someone hands the Planner something new."
     )
-    assert view["timeline"][-1]["kind"] == "planner_waiting"
+    assert view["timeline"][-1]["kind"] == "planner_no_new_work"
     assert view["timeline"][-1]["title"] == planner["label"]
 
 

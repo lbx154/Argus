@@ -48,7 +48,6 @@ _MAX_SIBLING_WIKIS = 8
 _MAX_SIBLING_WORKSPACES = 64
 _MAX_WORKSPACE_ENTRIES = 256
 _OBJECTIVE_EXCERPT_CHARS = 200
-_SIBLING_WIKIS_KNOB = "ARGUS_SKILL_RECALL_SIBLING_WIKIS"
 # Read through the knob resolver rather than the hosted-trial client: the
 # runtime layer may not import the delivery layer, and both read this switch.
 _HOSTED_TRIAL_KNOB = "ARGUS_SKILL_COPILOT_TRIAL"
@@ -355,13 +354,13 @@ def _bounded_wiki_roots(workspace: Path) -> list[Path]:
 
 
 def _sibling_wikis_enabled() -> bool:
-    """Other projects' Wikis are read only on a single-operator host that keeps the switch on."""
+    """Other projects' Wikis are read only on a single-operator host with learning on."""
     try:
-        from ..core.knobs import resolve_knob
+        from ..core.knobs import learning_enabled, resolve_knob
 
         if resolve_knob(_HOSTED_TRIAL_KNOB, "0").value.strip() == "1":
             return False
-        return resolve_knob(_SIBLING_WIKIS_KNOB, "1").value.strip() == "1"
+        return learning_enabled()
     except Exception:  # noqa: BLE001 - an unreadable switch means no cross-project reads
         return False
 

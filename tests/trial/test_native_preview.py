@@ -229,7 +229,7 @@ def test_all_auxiliary_model_routes_are_pinned(config, tmp_path):
                   meter_runtime=str(tmp_path / 'meter'), copilot_package=str(tmp_path / 'package'))
     config['tenants']['alice']['directory'] = str(tmp_path / 'alice')
     args = sandbox_command(config, 'alice')
-    for name in ('FRONTDOOR_MODEL', 'PLAN_PREVIEW_MODEL', 'BOUNDED_DAG_MODEL', 'REWRITE_MODEL'):
+    for name in ('LIGHT_MODEL', 'MANAGER_MODEL'):
         index = args.index('ARGUS_SKILL_' + name)
         assert args[index + 1] == MODEL
 

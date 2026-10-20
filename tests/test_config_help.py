@@ -40,13 +40,6 @@ def test_registry_is_well_formed() -> None:
     assert all(k.doc and k.default and k.group for k in KNOBS), "every knob needs doc/default/group"
 
 
-def test_reviewer_validation_image_documents_the_disabled_default() -> None:
-    name = "ARGUS_SKILL_REVIEWER_VALIDATION_IMAGE"
-    knob = next(knob for knob in KNOBS if knob.name == name)
-    assert knob.default == "(unset)"
-    assert f"{name}  (default: (unset))  (default)" in format_config_help(env={})
-
-
 def test_registry_covers_the_key_operator_knobs() -> None:
     names = {k.name for k in KNOBS}
     for must in (
@@ -57,21 +50,19 @@ def test_registry_covers_the_key_operator_knobs() -> None:
         "ARGUS_SKILL_MANAGER_REASONING_EFFORT",
         "ARGUS_SKILL_PLANNER_REASONING_EFFORT",
         "ARGUS_SKILL_SELF_REASONING_EFFORT",
-        "ARGUS_SKILL_PLAN_PREVIEW_MODEL",
-        "ARGUS_SKILL_PLAN_PREVIEW_REASONING_EFFORT",
+        "ARGUS_SKILL_LIGHT_MODEL",
+        "ARGUS_SKILL_LIGHT_REASONING_EFFORT",
         "ARGUS_SKILL_ENGINEER_REASONING_EFFORT",
-        "ARGUS_SKILL_ENGINEER_FULL_ROUND_POLICY",
         "ARGUS_SKILL_PROVIDER_TURN_CAP",
         "ARGUS_SKILL_SOURCE_ROOT",
         "ARGUS_SKILL_LETTER_INTERVAL_HOURS",
     ):
         assert must in names
-    # HAPI's per-role backend knobs are registered too (so they stop being invisible).
-    assert "ARGUS_SKILL_REVIEWER_BACKEND" in names
-    assert "ARGUS_SKILL_PLANNER_RUNNER_BIN" in names
-    assert "ARGUS_SKILL_SUPERVISOR_BACKEND" in names
-    assert "ARGUS_SKILL_SUPERVISOR_RUNNER_BIN" in names
-    assert "ARGUS_SKILL_SUPERVISOR_MODEL" in names
+    # Every role runs on the one shared backend.
+    assert "ARGUS_SKILL_RUNNER_BACKEND" in names
+    assert not [name for name in names if name.endswith(("_RUNNER_BIN", "_BACKEND"))
+                and name not in {"ARGUS_SKILL_RUNNER_BIN", "ARGUS_SKILL_RUNNER_BACKEND",
+                                 "ARGUS_SKILL_LIFE_BACKEND"}]
 
 
 def test_mission_round_default_is_unbounded_and_consistent() -> None:
@@ -98,25 +89,6 @@ def test_manager_planner_and_self_reasoning_defaults_are_high() -> None:
 def test_config_help_does_not_advertise_formal_vertical_override() -> None:
     assert all(k.name != "ARGUS_SKILL_VERTICAL" for k in KNOBS)
     assert "ARGUS_SKILL_VERTICAL" not in format_config_help(env={})
-
-
-def test_registry_covers_the_active_team_knobs() -> None:
-    """Expose the pool and result controls."""
-    names = {k.name for k in KNOBS}
-    for must in (
-        "ARGUS_TEAMMATE_PAPER_MISSION",
-        "ARGUS_TEAMMATE_TIMEOUT_S",
-        "ARGUS_TEAMMATE_MAX_ROUNDS",
-        "ARGUS_TEAM_MAX_WIDTH",
-        "ARGUS_TEAM_MAX_ACTIVE_CAMPAIGNS",
-        "ARGUS_TEAM_MAX_TASKS_PER_FORMATION",
-        "ARGUS_TEAM_MAX_TOTAL_IN_FLIGHT",
-        "ARGUS_SKILL_ALLOW_NESTED_TEAM",
-    ):
-        assert must in names, must
-    assert "ARGUS_SKILL_CURATOR_DISTILL_INTERVAL_S" not in names
-    assert "ARGUS_TEAMMATE_FORCE_RESEARCH" not in names
-    assert "ARGUS_TEAMMATE_FORCE_PROFILE" not in names
 
 
 def test_format_shows_default_when_unset() -> None:
@@ -152,25 +124,16 @@ def test_format_shows_persisted_value_when_env_is_unset() -> None:
 def test_cockpit_value_normalization_is_typed() -> None:
     assert normalize_cockpit_knob_value("ARGUS_SKILL_MAX_ACTIVE_DAEMONS", "4") == "4"
     assert normalize_cockpit_knob_value("ARGUS_SKILL_SAFE_MODE", "enabled") == "1"
-    assert normalize_cockpit_knob_value(
-        "ARGUS_SKILL_AUTONOMY_MODE", "PRAGMATIC"
-    ) == "pragmatic"
-    assert normalize_cockpit_knob_value("ARGUS_SKILL_ENGINEER_BACKEND", "COPILOT") == "copilot"
-    assert normalize_cockpit_knob_value("ARGUS_SKILL_ENGINEER_BACKEND", "CURSOR") == "cursor"
-    assert normalize_cockpit_knob_value("ARGUS_SKILL_ENGINEER_BACKEND", "opencod") == "opencode"
-    assert normalize_cockpit_knob_value("ARGUS_SKILL_ENGINEER_BACKEND", "PI") == "pi"
-    assert normalize_cockpit_knob_value("ARGUS_SKILL_ENGINEER_BACKEND", "GROK") == "grok"
-    assert normalize_cockpit_knob_value("ARGUS_SKILL_ENGINEER_BACKEND", "QODER") == "qoder"
-    assert normalize_cockpit_knob_value("ARGUS_SKILL_ENGINEER_BACKEND", "DSH") == "dsh"
+    for raw, backend in (("COPILOT", "copilot"), ("CURSOR", "cursor"), ("opencod", "opencode"),
+                         ("PI", "pi"), ("GROK", "grok"), ("QODER", "qoder"), ("DSH", "dsh")):
+        assert normalize_cockpit_knob_value("ARGUS_SKILL_RUNNER_BACKEND", raw) == backend
     with pytest.raises(
         ValueError,
         match="codex, claude, copilot, cursor, opencode, pi, grok, qoder, dsh",
     ):
-        normalize_cockpit_knob_value("ARGUS_SKILL_ENGINEER_BACKEND", "magic")
+        normalize_cockpit_knob_value("ARGUS_SKILL_RUNNER_BACKEND", "magic")
     with pytest.raises(ValueError, match="non-negative integer"):
         normalize_cockpit_knob_value("ARGUS_SKILL_MAX_ACTIVE_DAEMONS", "-1")
-    with pytest.raises(ValueError, match="cautious, pragmatic, or autonomous"):
-        normalize_cockpit_knob_value("ARGUS_SKILL_AUTONOMY_MODE", "reckless")
 
 
 def test_cockpit_path_knob_requires_an_absolute_path(tmp_path: Path) -> None:

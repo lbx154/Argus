@@ -73,7 +73,6 @@ def test_real_local_subprocess_can_recover_from_tool_error_and_complete(tmp_path
     monkeypatch.setenv("ARGUS_SKILL_HOME", str(tmp_path))
     monkeypatch.setenv("ARGUS_WORKBENCH_HOST_ROOT", str(tmp_path))
     monkeypatch.setenv(client.TRIAL_ENV, "0")
-    monkeypatch.setattr(AgentCliRunner, "_acp_enabled", lambda *a, **k: False)
     script = tmp_path / "synthetic_cli.py"
     events = [
         {"type": "tool.execution_complete", "data": {"success": False, "error": {"code": "failure", "message": "Recoverable fixture error"}}},

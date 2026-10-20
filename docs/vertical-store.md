@@ -20,7 +20,7 @@ Verticals may expose [named workflow profiles](workflow-profiles.md) for smaller
 task scopes while retaining an explicit full workflow. That contract describes
 framework compatibility and how existing projects keep their scope.
 
-Argus ships seven verticals. Additional providers live in the community repository
+Argus ships four verticals. The rest (math and kernel_engineering among them) live in the community repository
 [`Argus-AiTeam/argus-verticals`](https://github.com/Argus-AiTeam/argus-verticals),
 one directory each. The **Vertical Store** installs those directories into a
 user-level location, one vertical at a time, without `pip`: it reads the
@@ -45,7 +45,7 @@ framework capabilities. Supported names currently are:
 - `composable-workflow-profiles`: `VerticalContract.compose_workflow`.
 - `vertical-routing-paths`: the framework's routing-path validator.
 - `host-round-evidence`: the request/result types, provider registration and
-  collection API used to deliver host evidence to a read-only Reviewer.
+  collection API used to deliver host evidence to the Reviewer.
 
 The Store checks these known framework APIs and the vertical API version across
 the entire selected dependency closure before starting an install/update job.

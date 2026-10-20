@@ -23,7 +23,7 @@ from ..core.ports import RunnerBackend
 from ..core.run_gateway import run_exec as gateway_run_exec
 from ..core.stop_kinds import StopKind, normalize_stop_kind
 from ..core.workspace_snapshot import WorkspaceSnapshots
-from .tools import review_action_tools, reviewer_evidence_mode
+from .tools import review_action_tools
 
 log = logging.getLogger(__name__)
 
@@ -100,7 +100,7 @@ def _parallel_final_review_passes(
     pdf_seen = pdf_facts(workdir)
     pdf_only_visual = (workdir / "paper" / "main.pdf").is_file()
     common = (
-        "Read the current paper in read-only mode. Do not edit files. Start from "
+        "Read the current paper. Do not edit files. Start from "
         "paper/main.tex and its rendered output, then follow only direct references "
         "needed for this assigned pass. Return a concise pass/fail assessment with "
         "evidence-backed strengths, verified progress, and specific blocking findings "
@@ -195,7 +195,7 @@ def _parallel_final_review_passes(
     if pdf_only_visual:
         prompts["Visual"] = (
             "Read only paper/main.pdf and its host-rendered derivatives in this "
-            "isolated read-only workspace. Open every image in paper/pages/page-*.png; "
+            "isolated workspace. Open every image in paper/pages/page-*.png; "
             "these are the actual PDF pages, rendered by the host. paper/main.txt "
             "contains text extracted from the same PDF for navigation. Reading PDF "
             "binary bytes or extracted text alone is not visual inspection. "
@@ -377,10 +377,6 @@ def _parallel_final_review_passes(
                 )
         except (OSError, RuntimeError) as exc:
             workspace_stack.close()
-            for backend in pass_runners.values():
-                close = getattr(backend, "close_acp_clients", None)
-                if callable(close):
-                    close()
             return ReviewDecision(
                 status="blocked",
                 reason=f"Rendered paper review inputs are unavailable: {exc}",
@@ -396,10 +392,7 @@ def _parallel_final_review_passes(
             options=RunnerOptions(
                 model=config.model,
                 reasoning_effort=config.reasoning_effort,
-                dangerous_yolo=False,
-                full_auto=False,
-                sandbox_mode="read-only",
-                force_safe_mode=True,
+                **_engineer_access(config),
                 skip_git_repo_check=config.skip_git_repo_check,
                 extra_args=list(config.extra_args) if config.extra_args else None,
                 working_dir=str(working_dirs[label]),
@@ -407,11 +400,6 @@ def _parallel_final_review_passes(
             run_label=f"reviewer-{label.lower()}",
         )
 
-    created_runners = [
-        backend
-        for backend in pass_runners.values()
-        if backend is not runner
-    ]
     try:
         with ThreadPoolExecutor(
             max_workers=3,
@@ -429,10 +417,6 @@ def _parallel_final_review_passes(
                 except Exception as exc:  # provider boundary
                     errors[label] = exc
     finally:
-        for backend in created_runners:
-            close = getattr(backend, "close_acp_clients", None)
-            if callable(close):
-                close()
         workspace_stack.close()
 
     def total(field: str) -> int:
@@ -514,7 +498,7 @@ def _parallel_final_review_passes(
         return ReviewDecision(
             status="blocked",
             reason=f"{empty} review returned no assessment",
-            next_action="Retry the missing read-only review pass.",
+            next_action="Retry the missing review pass.",
             backend_unavailable=True,
             backend_stop_kind="backend_unavailable",
             premium_requests=premium_requests,
@@ -538,12 +522,7 @@ def _parallel_final_review_passes(
     )
 
 
-def _persist_research_review(
-    decision: ReviewDecision,
-    config: "ReviewerConfig",
-    *,
-    authored_text: str | None = None,
-) -> None:
+def _persist_research_review(decision: ReviewDecision, config: "ReviewerConfig") -> None:
     """Overwrite the one research review file at the Review stage."""
     workdir = Path(config.working_dir or ".").expanduser().resolve()
     artifact_root = Path(
@@ -603,7 +582,7 @@ def _persist_research_review(
     path = artifact_root / "paper" / "REVIEW.md"
     from ..manager.source_writeback import atomic_write
 
-    atomic_write(path, authored_text if authored_text is not None else text)
+    atomic_write(path, text)
 
     from ..core.pipeline_state import read_pipeline_state, write_pipeline_state
 
@@ -639,14 +618,38 @@ class ReviewerConfig:
     )
     # Standalone reviews discover persisted policy; mission callers supply theirs.
     workflow_mode: str | None = None
-    # Whether the Engineer's backend reports each command's exit code, so the
-    # host holds a record a read-only Reviewer can weigh.
+    # No longer read: the Reviewer reruns checks itself. Kept only because
+    # ``engineer/round_reviewer.py`` still sets it.
     engineer_records_commands: bool = False
     # Host-gathered for a mission's Reviewer (``round_reviewer.mission_grounding``):
     # the workspace's files as recorded when work on the objective began, the
     # files its packet names with their recorded state, and the acceptances
     # recorded for its item. What "impossible here" and an acceptance must match.
     mission_grounding: dict[str, Any] | None = field(default=None, repr=False, compare=False)
+
+
+def _engineer_access(config: ReviewerConfig) -> dict[str, Any]:
+    """The Engineer's access, so the Reviewer can run and fetch what it judges.
+
+    Worktree isolation stays the Engineer's: it hides the paths the Reviewer's
+    verdict tools and prompt-named records live on.
+    """
+    return {
+        "full_auto": config.full_auto,
+        "dangerous_yolo": config.dangerous_yolo,
+        "sandbox_mode": config.sandbox_mode,
+    }
+
+
+def _changed_during_review(snapshots: WorkspaceSnapshots | None) -> list[str]:
+    """Workspace paths that differ from the candidate the Reviewer was given.
+
+    Compared against the round's own ``candidate`` snapshot; with no snapshots,
+    or one that cannot be taken or compared, nothing is known and nothing is said.
+    """
+    if snapshots is None or not snapshots.take("reviewed"):
+        return []
+    return [change.path for change in snapshots.changes("candidate", "reviewed") or []]
 
 
 def _load_wiki_curator_skill_if_present(
@@ -663,26 +666,6 @@ def _verification_directive() -> str:
     from ..roles.prompts.reviewer import _verification_directive
 
     return _verification_directive()
-
-
-def _engineer_log_audit_block(
-    engineer_log_path: str,
-    *,
-    engineer_call_id: str = "",
-    round_index: int,
-    measured: bool,
-    compact: bool = False,
-) -> str:
-    """Compatibility wrapper for the prompt-module helper."""
-    from ..roles.prompts.reviewer import _engineer_log_audit_block
-
-    return _engineer_log_audit_block(
-        engineer_log_path,
-        engineer_call_id=engineer_call_id,
-        round_index=round_index,
-        measured=measured,
-        compact=compact,
-    )
 
 
 def _review_grounding(config: Any, *, task_parts: tuple[str, ...]) -> Any:
@@ -733,25 +716,6 @@ def _review_grounding(config: Any, *, task_parts: tuple[str, ...]) -> Any:
     )
 
 
-def _note_host_venue_rewrite(decision: ReviewDecision) -> None:
-    """Record, apart from the Reviewer's words, what venue enforcement changed."""
-    words = decision.reviewer_words or {}
-    changes: list[str] = []
-    before_status = words.get("status", "")
-    if decision.status != before_status:
-        changes.append(f"your `{before_status}` became `{decision.status}`")
-    if decision.reason != words.get("reason", "") or (
-        decision.next_action != words.get("next_action", "")
-    ):
-        changes.append("the host added its own guidance to the request")
-    if changes:
-        decision.host_notes = [
-            *decision.host_notes,
-            "the selected-venue acceptance check changed this judgment ("
-            + "; ".join(changes) + ")",
-        ]
-
-
 class Reviewer:
     """One independent judgment per round, with optional same-role resume."""
 
@@ -792,7 +756,6 @@ class Reviewer:
         prior_checkpoint: dict[str, Any] | None = None,
         checkpoint_path: str = "",
         background_context: str = "",
-        escalate_hint: str = "",
         engineer_log_path: str = "",
         engineer_call_id: str = "",
         preselected_skill_block: str | None = None,
@@ -862,7 +825,6 @@ class Reviewer:
             prior_checkpoint=prior_checkpoint,
             checkpoint_path=checkpoint_path,
             background_context=background_context,
-            escalate_hint=escalate_hint,
             engineer_log_path=engineer_log_path,
             engineer_call_id=engineer_call_id,
             preselected_skill_block=preselected_skill_block,
@@ -872,9 +834,6 @@ class Reviewer:
             workflow_mode=config.workflow_mode,
             snapshots=config.snapshots,
             previous_findings=previous_findings,
-            evidence_mode=reviewer_evidence_mode(
-                self.runner, engineer_records_commands=config.engineer_records_commands,
-            ),
         )
         venue_policy = ""
         if venue_required:
@@ -908,30 +867,8 @@ class Reviewer:
             "" if resume else static,
             (_REEVALUATE_HEADER + delta_base) if resume else delta_base,
         )
-        review_output = None
-        review_output_dir = None
-        authored_review = None
-        if venue_required and str(getattr(self.runner, "backend", "")).lower() == "copilot":
-            from tempfile import TemporaryDirectory
-
-            review_output_dir = TemporaryDirectory(prefix="argus-review-output-")
-            review_output = {
-                "path": str(Path(artifact_root).resolve() / "paper" / "REVIEW.md"),
-                "receipt": str(Path(review_output_dir.name) / "written.json"),
-            }
-            prompt += (
-                "\n\nYou own the single report paper/REVIEW.md and have explicit permission "
-                "to edit it through argus_review's read_review and write_review tools. "
-                "This is the sole exception to the read-only review instructions. "
-                "Read the preceding opinion when useful, then replace it with this round's "
-                "complete current assessment in natural prose. Confirm resolved issues and "
-                "give constructive next experiments that strengthen the contribution. "
-                "Do not create a second review report or modify the manuscript, code, "
-                "figures, or experiment data. Your written report is the authoritative "
-                "review text; after saving it, submit the corresponding review action "
-                "tool. Your final reply can simply confirm the update."
-            )
         result: RunnerResult | None = None
+        changed: list[str] = []
 
         def with_call_metadata(decision: ReviewDecision) -> ReviewDecision:
             if result is None:
@@ -948,6 +885,7 @@ class Reviewer:
             decision.static_fingerprint = static
             decision.session_resumed = bool(resume)
             decision.prompt_block_stats = prompt_block_stats
+            decision.changed_during_review = changed
             return decision
 
         read_dirs: list[str] | None = None
@@ -970,45 +908,33 @@ class Reviewer:
             ]))
 
         try:
-            with ExitStack() as output_cleanup:
-                if review_output_dir is not None:
-                    output_cleanup.callback(review_output_dir.cleanup)
-                with review_action_tools(
-                    self.runner,
-                    RunnerOptions(
-                        model=config.model,
-                        reasoning_effort=config.reasoning_effort,
-                        # Only its report is writable through review_output. The
-                        # independent judge must not repair evidence or checkpoints.
-                        dangerous_yolo=False,
-                        full_auto=False,
-                        sandbox_mode="read-only",
-                        isolate_workdir=False,
-                        skip_git_repo_check=config.skip_git_repo_check,
-                        extra_args=list(config.extra_args) if config.extra_args else None,
-                        review_output=review_output,
-                        add_dirs=read_dirs,
-                        skill_paths=native_skill_paths,
-                        working_dir=config.working_dir,
-                        # Search is available for the rare turn that proposes a
-                        # skill; ordinary review turns need not invoke it.
-                        live_search=True,
-                    ),
-                    venue=venue, venue_required=venue_required,
-                    grounding=_review_grounding(
-                        config,
-                        task_parts=(objective, original_objective or "", scope, planner_review_instruction),
-                    ),
-                ) as (actions, options):
-                    result = gateway_run_exec(
-                        self.runner, prompt=prompt, resume_thread_id=resume,
-                        options=options, run_label="reviewer",
-                    )
-                    decision = actions.decision
-                if review_output and result.exit_code == 0 and not getattr(result, "fatal_error", None):
-                    from .review_file import ReviewFileStore
-
-                    authored_review = ReviewFileStore(**review_output).authored_review()
+            with review_action_tools(
+                self.runner,
+                RunnerOptions(
+                    model=config.model,
+                    reasoning_effort=config.reasoning_effort,
+                    **_engineer_access(config),
+                    skip_git_repo_check=config.skip_git_repo_check,
+                    extra_args=list(config.extra_args) if config.extra_args else None,
+                    add_dirs=read_dirs,
+                    skill_paths=native_skill_paths,
+                    working_dir=config.working_dir,
+                    # Search is available for the rare turn that proposes a
+                    # skill; ordinary review turns need not invoke it.
+                    live_search=True,
+                ),
+                venue=venue, venue_required=venue_required,
+                grounding=_review_grounding(
+                    config,
+                    task_parts=(objective, original_objective or "", scope, planner_review_instruction),
+                ),
+            ) as (actions, options):
+                result = gateway_run_exec(
+                    self.runner, prompt=prompt, resume_thread_id=resume,
+                    options=options, run_label="reviewer",
+                )
+                decision = actions.decision
+            changed = _changed_during_review(config.snapshots)
             fatal = str(getattr(result, "fatal_error", "") or "").strip()
             backend_stop_kind = (
                 normalize_stop_kind(getattr(result, "stop_kind", None))
@@ -1070,10 +996,6 @@ class Reviewer:
                     backend_unavailable=True,
                     backend_stop_kind="backend_unavailable",
                 ))
-            if authored_review is not None:
-                decision.reason = authored_review
-                if decision.next_action:
-                    decision.next_action = authored_review
             decision = with_call_metadata(decision)
             decision.manuscript_snapshot = reviewed_manuscript_snapshot
             # Reviewer owns the scientific recommendation. The host enforces the
@@ -1089,10 +1011,9 @@ class Reviewer:
                     decision, venue=venue, before=venue_snapshot, artifact_root=artifact_root,
                     minimum=acceptance_minimum,
                 )
-                _note_host_venue_rewrite(decision)
                 if decision.backend_unavailable:
                     return decision
-            _persist_research_review(decision, config, authored_text=authored_review)
+            _persist_research_review(decision, config)
             return decision
         except Exception as exc:  # noqa: BLE001
             msg = f"Reviewer runner raised {type(exc).__name__}: {exc}"
@@ -1128,7 +1049,6 @@ class Reviewer:
         prior_checkpoint: dict[str, Any] | None = None,
         checkpoint_path: str = "",
         background_context: str = "",
-        escalate_hint: str = "",
         engineer_log_path: str = "",
         engineer_call_id: str = "",
         preselected_skill_block: str | None = None,
@@ -1138,7 +1058,6 @@ class Reviewer:
         workflow_mode: str | None = None,
         snapshots: WorkspaceSnapshots | None = None,
         previous_findings: str = "",
-        evidence_mode: str = "",
     ) -> tuple[str, str]:
         """F7: render the reviewer prompt as ``(static_preamble, round_delta)``.
 
@@ -1168,7 +1087,6 @@ class Reviewer:
             prior_checkpoint=prior_checkpoint,
             checkpoint_path=checkpoint_path,
             background_context=background_context,
-            escalate_hint=escalate_hint,
             engineer_log_path=engineer_log_path,
             engineer_call_id=engineer_call_id,
             preselected_skill_block=preselected_skill_block,
@@ -1178,7 +1096,6 @@ class Reviewer:
             workflow_mode=workflow_mode,
             snapshots=snapshots,
             previous_findings=previous_findings,
-            evidence_mode=evidence_mode,
         )
 
     def _build_prompt(self, **kwargs: Any) -> str:

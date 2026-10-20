@@ -102,9 +102,15 @@ class WorkspaceSnapshots:
             # Stored before, excluded now (a new ignore rule): no longer the work.
             dropped = self._paths("--cached", "--ignored")
             stored, large, skip = [], {}, set(dropped)
+            # A workspace that holds the state holds this repository: never record it.
+            store, work = self.store.resolve(), self.workdir.resolve()
+            own = store.relative_to(work).as_posix() + "/" if store.is_relative_to(work) else None
             for path in self._paths("--cached", "--others"):
                 # A trailing slash marks a nested repository: its files are its own.
                 if path in skip or path.endswith("/"):
+                    continue
+                if own and path.startswith(own):
+                    dropped.append(path)
                     continue
                 full = self.workdir / path
                 try:

@@ -22,7 +22,6 @@ def test_research_vertical_reexports_paper_specific_names() -> None:
         # vertical-owned stage contract
         "CHECKLIST_ITEMS",
         "STAGE_ORDER",
-        "WORKFLOW_MODE",
     }
     missing = expected - set(research.__all__)
     assert not missing, f"research vertical missing re-exports: {missing}"
@@ -40,7 +39,6 @@ def test_research_vertical_is_identity_reexport() -> None:
     assert research.ChainReport is legacy_chain.ChainReport
     assert research.STAGE_ORDER is stages.STAGE_ORDER
     assert research.CHECKLIST_ITEMS is stages.CHECKLIST_ITEMS
-    assert research.WORKFLOW_MODE == stages.WORKFLOW_MODE
 
 
 def test_vertical_namespace_exists_for_future_plugins() -> None:

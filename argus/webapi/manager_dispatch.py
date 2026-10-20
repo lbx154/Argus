@@ -21,7 +21,7 @@ from .manager_pending_question import (
     _emit_ui_turn,
     _resolve_pending_question_with_manager,
 )
-from .manager_state import _chat_state_for, _lock_for, _rotate_after, manager_control_generation
+from .manager_state import _chat_state_for, _lock_for, manager_control_generation
 
 _NO_DISPATCH_FALLBACK = (
     "[not dispatched] The Manager kept this request inline as instructed, but "
@@ -37,16 +37,6 @@ def _authorization_workdir(
     from ..manager.front_door import _operator_workspace
 
     return _operator_workspace(chat_state, life_dir)
-
-
-def _project_paths_overlap(left: object, right: object) -> bool:
-    left_path = Path(str(left or "").strip().replace("\\", "/"))
-    right_path = Path(str(right or "").strip().replace("\\", "/"))
-    return bool(
-        left_path == right_path
-        or left_path in right_path.parents
-        or right_path in left_path.parents
-    )
 
 
 @contextmanager
@@ -241,14 +231,14 @@ def _item_to_dict(item: Any, fallback_title: str) -> dict[str, Any] | None:
 
 
 def _build_handoff(life_dir: Any) -> str:
-    """A STRUCTURED handoff seeded as the first message of a fresh Manager
-    session when the old one's context fills. Minimal by design (the operator's
-    rule: don't pre-chew — give the identity + where the logs live, and let the
-    Manager read them itself): who it is, the project path, and the last few
-    turns for continuity. Everything else it self-serves.
+    """A STRUCTURED handoff seeded as the first message of the Manager session
+    a new web process starts for an existing conversation. Minimal by design
+    (the operator's rule: don't pre-chew — give the identity + where the logs
+    live, and let the Manager read them itself): who it is, the project path,
+    and the last few turns for continuity. Everything else it self-serves.
     """
     lines = [
-        "[SESSION HANDOFF — the previous Manager session filled its context and was rotated.",
+        "[SESSION HANDOFF — this Manager session starts after a restart.",
         "You are the Argus Manager for this project — the SINGLE interface between the operator",
         "and the autonomous research system (a black box to them). You reply to chat, dispatch",
         "real work to the planner/engineer/reviewer team, and answer 'what's happening' by",
@@ -634,8 +624,8 @@ def _handle_pending_question_turn(
 @dataclass
 class _ClassifyResult:
     """Outcome of the merged front-door classify call, plus the values later
-    manager_message phases need (the rotated ``send_body``/root task id, and
-    any inline greeting/failure the classifier already resolved)."""
+    manager_message phases need (the handoff-prefixed ``send_body``/root task
+    id, and any inline greeting/failure the classifier already resolved)."""
 
     intent: Any
     control: Any
@@ -667,7 +657,7 @@ def _classify_operator_turn(
     cancelled: Callable[[], bool],
     route_override: str = "",
 ) -> "_ClassifyResult | dict[str, Any]":
-    """Run rotation bookkeeping + the merged front-door classify call.
+    """Run turn bookkeeping + the merged front-door classify call.
 
     Returns a ``_ClassifyResult`` normally, or a terminal ``{"kind":
     "cancelled", ...}`` dict if the request was cancelled mid-classify — the
@@ -684,8 +674,8 @@ def _classify_operator_turn(
 
     forced_route = _FORCED_ROUTES.get(str(route_override or "").strip().lower())
 
-    # Emit the stage BEFORE the classifier call. Copilot ACP may produce no
-    # protocol events while the model is reasoning, so without this real
+    # Emit the stage BEFORE the classifier call. A tool-free classifier may
+    # produce no events while the model is reasoning, so without this real
     # transition the TUI can only show its generic rotating slogan.
 
     if forced_route == "simple":
@@ -701,35 +691,14 @@ def _classify_operator_turn(
             else "Understanding your request…"
         )
 
-    # Persistent Manager session with context-rotation: it stays alive (the
-    # codex/copilot thread is resumed via last_thread_id each turn) and is
-    # only ROTATED when its context fills — a fresh thread seeded with a
-    # STRUCTURED handoff (identity + project path + recent turns), so the
-    # operator never notices the seam. Turn count is a cheap proxy for "full".
+    # Persistent Manager session: the codex/copilot thread is resumed via
+    # last_thread_id each turn, and the backend compacts its own context.
     chat_state["turns"] = int(chat_state.get("turns", 0)) + 1
     dispatch_body = str(
         chat_state.pop("_frontdoor_dispatch_body", "") or body
     )
     handoff = startup_handoff
     root_task_id = BacklogItem.new_id()
-    if chat_state["turns"] > _rotate_after():
-        handoff = _build_handoff(life_dir)
-        chat_state["last_thread_id"] = None  # start a fresh session thread
-        # The cached runner keeps its OWN copy of the session id
-        # (``_next_seed_thread_id``); ``_simple_quick_reply`` falls back to it
-        # when ``seed_thread_id`` is None, so clearing only ``last_thread_id``
-        # here let the runner RESURRECT the just-rotated thread — rotation never
-        # took and the codex/copilot session grew unbounded (its resume cost
-        # climbing every turn). Reset the runner's memory too so the fresh
-        # thread is genuinely fresh.
-        _runner = chat_state.get("manager_runner")
-        if _runner is not None and hasattr(_runner, "reset_chat_session"):
-            try:
-                _runner.reset_chat_session()
-            except Exception:  # noqa: BLE001 — rotation must never break the turn
-                pass
-        chat_state["turns"] = 1
-        chat_state["rotations"] = int(chat_state.get("rotations", 0)) + 1
 
     # ONE merged front-door call decides config, control, route, TEAM
     # lifetime, title, and a strict pure-greeting token. A natural-language
@@ -740,7 +709,7 @@ def _classify_operator_turn(
     # message reaches the actual Manager model.
     # Classification is stateless. The caller normally passes only the current
     # message, but may attach a small, explicitly bounded transcript block when
-    # the turn is clearly referential. Never feed the full startup/rotation
+    # the turn is clearly referential. Never feed the full startup
     # handoff here: that can make a greeting look like a systems task.
     classify_kwargs: dict[str, Any] = (
         {"root_task_id": root_task_id}
@@ -762,13 +731,11 @@ def _classify_operator_turn(
             "_frontdoor_greeting_reply",
             "_frontdoor_failure",
             "_frontdoor_steering_directive",
-            "_frontdoor_operator_question_policy",
             "_frontdoor_authorization",
             "_frontdoor_intake",
             "_frontdoor_standing_notice",
             "_frontdoor_domain",
             "_frontdoor_skill_vertical",
-            "_frontdoor_lookup_subject",
             "_frontdoor_is_task",
         ):
             chat_state.pop(stale, None)
@@ -820,7 +787,7 @@ def _classify_operator_turn(
     ):
         # A stateless classifier cannot apply profile terminology/preferences or
         # prior conversation. Route follow-ups through the persistent SELF runner
-        # even when startup/rotation resets the in-memory turn count.
+        # even when a startup resets the in-memory turn count.
         fast_reply = ""
         self_mode = "inspect"
         chat_state["_frontdoor_self_mode"] = "inspect"
@@ -829,7 +796,7 @@ def _classify_operator_turn(
     ).strip()
     if greeting_reply and handoff:
         # A pure greeting does not need the persistent worker. Defer its
-        # restart/rotation handoff until a substantive turn actually uses it.
+        # restart handoff until a substantive turn actually uses it.
         chat_state["needs_startup_handoff"] = True
     frontdoor_failure = str(
         chat_state.pop("_frontdoor_failure", "") or ""
@@ -917,8 +884,8 @@ def _handle_authorization_control(
     turn_id: str,
     emitter: _TurnEmitter,
 ) -> dict[str, Any]:
-    """Record (or reject) an operator authorization against the current
-    campaign blocker. Always terminal — the merged classify call already
+    """Record (or reject) an operator authorization against the latest
+    Reviewer finding. Always terminal — the merged classify call already
     decided this turn is an authorization, so there is no fall-through to
     triage/dispatch after this.
     """
@@ -931,18 +898,15 @@ def _handle_authorization_control(
         )
         head = control_store.read_head()
         snapshot = control_store.read_snapshot(head)
-        active_wait = snapshot.get("active_wait") if snapshot else None
-        if head is None or not isinstance(active_wait, dict):
-            raise ValueError(
-                "no current Manager-bound blocker is awaiting authorization"
-            )
-        terminal_evidence = list(snapshot.get("terminal_evidence") or [])
+        terminal_evidence = list((snapshot or {}).get("terminal_evidence") or [])
         diagnosis = (
             terminal_evidence[-1]
             if terminal_evidence
             and isinstance(terminal_evidence[-1], dict)
             else {}
         )
+        if head is None or not diagnosis:
+            raise ValueError("no current Reviewer finding is awaiting authorization")
         validator_repair = "validator_repair" in authorization_actions
         if (
             validator_repair
@@ -953,14 +917,6 @@ def _handle_authorization_control(
             )
         repair_paths = list(diagnosis.get("repair_paths") or [])
         validator_id = str(diagnosis.get("validator_id") or "")
-        watched_paths = [
-            str(value)
-            for value in (active_wait.get("watched_paths") or [])
-            if not any(
-                _project_paths_overlap(value, repair_path)
-                for repair_path in repair_paths
-            )
-        ]
         identity = control_store.campaign_identity(
             campaign_epoch=head.campaign_epoch,
         )
@@ -971,14 +927,12 @@ def _handle_authorization_control(
             raise ValueError("active campaign identity changed")
         authorization = control_store.issue_authorization(
             identity=identity,
-            blocker_fingerprint=str(
-                active_wait.get("blocker_fingerprint") or ""
+            blocker_fingerprint=(
+                validator_id or str(diagnosis.get("failure_source") or "review")
             ),
             allowed_actions=authorization_actions,
             scope="active_blocker",
             allowed_write_paths=repair_paths,
-            evidence_paths=watched_paths,
-            forbidden_mutations=watched_paths,
             source_channel=source_channel,
             source_message_id=source_message_id or turn_id,
             validator_id=validator_id,
@@ -986,7 +940,6 @@ def _handle_authorization_control(
                 1 if validator_repair else 0
             ),
             expected_state_revision=head.state_revision,
-            expected_wait_id=str(active_wait.get("wait_id") or ""),
         )
         reply = (
             "Authorization saved for the current blocker. "
@@ -1015,7 +968,6 @@ def _handle_steer_control(
     from ..apps._inbox import queue_inbox_message
     from ..manager.directive import (
         active_manager_directive_message,
-        active_operator_question_policy,
         set_active_manager_directive,
     )
 
@@ -1035,20 +987,6 @@ def _handle_steer_control(
     from ..daemon.state import read_continuous_state
 
     current = read_continuous_state(life_dir)
-    operator_question_policy = str(
-        chat_state.pop(
-            "_frontdoor_operator_question_policy",
-            "unchanged",
-        )
-        or "unchanged"
-    ).strip().lower()
-    if operator_question_policy == "unchanged":
-        inherited_question_policy = active_operator_question_policy(
-            life_dir,
-            expected_objective=current.objective,
-        )
-        if inherited_question_policy != "unchanged":
-            operator_question_policy = inherited_question_policy
     lifetime = str(
         chat_state.pop("_frontdoor_lifetime", "") or ""
     ).strip().lower()
@@ -1079,7 +1017,6 @@ def _handle_steer_control(
         life_dir,
         manager_directive,
         source="manager.steer",
-        operator_question_policy=operator_question_policy,
         authorized_objective=standing_objective,
         scope_objective=current.objective,
     )
@@ -1152,7 +1089,6 @@ def _handle_pause_control(
     if pause_persisted and chat_state is not None:
         chat_state.setdefault("config", {})["continuous"] = False
         chat_state["continuous_objective"] = ""
-        chat_state.pop("_continuous_pending_manager_handoff", None)
 
     abort_requested, item_id = request_running_item_abort(
         life_dir,
@@ -1451,23 +1387,15 @@ def _dispatch_team_mission(
     reference_deps: list[str] | None = None,
     public_objective: str | None = None,
 ) -> tuple[Any, bool, int | None]:
-    """Apply the Manager's lifetime decision, resume a done lifecycle, and
-    enqueue the operator's TEAM mission. Raises on failure — the caller
-    catches it and turns it into a structured ``{"kind": "error"}`` reply."""
+    """Resume a done lifecycle and run the operator's TEAM mission in a
+    Planner-run campaign. Raises on failure — the caller catches it and turns
+    it into a structured ``{"kind": "error"}`` reply."""
     from ..core.operator_messages import uses_cjk
     from ..manager.dispatch import (
         enqueue_mission,
-        maybe_promote_to_continuous,
         resume_done_lifecycle_for_team_dispatch,
     )
     from ..manager.front_door import prepare_manager_execution_task
-
-    # Reject quarantined/archived projects and resume completed projects before
-    # paying for another Manager model call. Lifetime and workflow are separate
-    # axes only after the project lifecycle admits new work.
-    # A publication campaign has a finite finish line, but Manager may still
-    # require staged progression. Run the normal workflow decision once, use it
-    # to choose topology, then reuse the sealed handoff during commit.
 
     chinese = uses_cjk(body)
     emitter.phase(
@@ -1508,49 +1436,11 @@ def _dispatch_team_mission(
         else "Checking whether this project can resume…"
     )
     resume_done_lifecycle_for_team_dispatch(mem)
-    workflow_mode = str(
-        getattr(prepared.decision, "workflow_mode", "") or ""
+    emitter.phase(
+        "正在将任务写入待办…"
+        if chinese
+        else "Adding the task to the backlog…"
     )
-    prepared.lifetime = str(
-        chat_state.get("_frontdoor_lifetime", "bounded") or "bounded"
-    ).strip().lower()
-    try:
-        maybe_promote_to_continuous(
-            mem,
-            body,
-            chat_state,
-            root_task_id=root_task_id,
-            workflow_mode=workflow_mode,
-        )
-        prepared.continuous = bool(
-            chat_state.get("config", {}).get("continuous", False)
-        )
-        prepared.open_ended = bool(
-            chat_state.get("_continuous_open_ended", False)
-        )
-        if prepared.continuous:
-            prepared.lifetime = (
-                "standing" if prepared.open_ended else "bounded"
-            )
-    except Exception as exc:
-        prepared.failed(exc)
-        raise
-    if prepared.continuous:
-        emitter.phase(
-            "正在将长期工作写入待办…"
-            if chinese
-            else "Adding standing work to the backlog…"
-        )
-    else:
-        # Bounded dispatch now enters a real Planner call before persistence.
-        # Keep the stream on the role that is actually working instead of
-        # making that model latency look like a stalled Manager turn.
-        emitter.phase(
-            "Planner 正在拆分并签发任务…"
-            if chinese
-            else "Planner is decomposing and signing off the task…",
-            role="planner",
-        )
     return enqueue_mission(
         mem,
         body,

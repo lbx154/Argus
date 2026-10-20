@@ -2,8 +2,8 @@
 
 Argus's campaign switch (``continuous.json``), daemon stop/drain requests and
 daemon lifecycle commands decide whether the daemon keeps working. Role
-processes (the agent CLIs Argus launches for the Engineer, Reviewer, Planner,
-Manager and teammates, and the task commands those roles start) run as the same
+processes (the agent CLIs Argus launches for the Engineer, Reviewer, Planner
+and Manager, and the task commands those roles start) run as the same
 OS user. In one bounded run an Engineer imported Argus's own state API from the
 Argus interpreter it was given, set ``continuous.json`` to ``enabled=false``,
 and the daemon exited as if the campaign had finished.

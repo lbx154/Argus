@@ -1,9 +1,8 @@
-"""A Reviewer replan with an alternative routes through the runtime as on dev.
+"""A Reviewer replan with an alternative routes by the Reviewer's own label.
 
-This change routes operator *questions* by the raising role's own label, but
-leaves plan-challenge routing exactly as it was. These cases pin the outcome
-the runtime records for a replan that carries an alternative, with an
-operator present, to dev's.
+These cases pin the outcome the runtime records for a replan that carries an
+alternative, with an operator present: ``authority_impact`` decides, and words
+in the challenge or the alternative never do.
 """
 from __future__ import annotations
 
@@ -52,7 +51,6 @@ def _route(tmp_path: Path, report: dict, *, question: str = "") -> dict:
     }
 
 
-# Expected values are dev's (origin/dev before this change) for the same input.
 @pytest.mark.parametrize(
     ("report", "question", "expected"),
     [
@@ -81,11 +79,11 @@ def _route(tmp_path: Path, report: dict, *, question: str = "") -> dict:
             ("ask_operator", "operator"),
         ),
         (
-            # dev's own boundary check still guards an alternative.
+            # Alarming words in a technical alternative do not decide.
             {"authority_impact": "technical", "challenge": "the release is broken",
              "alternative": "Force-push the protected release branch."},
             "Should we fix the release?",
-            ("ask_operator", "operator"),
+            ("replace", "technical"),
         ),
     ],
 )
@@ -93,7 +91,6 @@ def test_replan_with_alternative_matches_dev_with_an_operator(
     tmp_path, monkeypatch, report, question, expected
 ) -> None:
     monkeypatch.setenv("ARGUS_SKILL_OPERATOR_AVAILABLE", "true")
-    monkeypatch.setenv("ARGUS_SKILL_AUTONOMY_MODE", "pragmatic")
     routed = _route(tmp_path, report, question=question)
     assert (routed["manager_action"], routed["authority_impact"]) == expected
     assert routed["alternative"] == report["alternative"]

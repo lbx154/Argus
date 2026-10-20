@@ -10,8 +10,7 @@ from argus.core import plugin_manager as pm
 def empty_host(tmp_path, monkeypatch):
     monkeypatch.setenv("ARGUS_SKILL_HOME", str(tmp_path / "host"))
     monkeypatch.setenv("ARGUS_WORKBENCH_HOST_ROOT", str(tmp_path / "host"))
-    for role in ("MANAGER", "PLANNER", "ENGINEER", "REVIEWER"):
-        monkeypatch.setenv("ARGUS_SKILL_" + role + "_BACKEND", "pi")
+    monkeypatch.setenv("ARGUS_SKILL_RUNNER_BACKEND", "pi")
     return tmp_path / "host"
 
 
@@ -152,20 +151,6 @@ def test_unsupported_primary_is_blocked_even_with_supported_roles(monkeypatch):
         pm.catalog()["crystalpilot"], env={"ARGUS_SKILL_RUNNER_BACKEND": "claude"}
     )
     assert not result["supported"] and result["unsupported_roles"] == {"default": "claude"}
-
-
-def test_auxiliary_backend_can_follow_role_instead_of_global(monkeypatch, empty_host):
-    from argus.adapters.agent_cli_backend import build_agent_cli_backend_from_env
-    from argus.agent_cli import runner_backend
-
-    monkeypatch.setattr(
-        runner_backend, "resolve_available_runner",
-        lambda backend, configured=None: (backend, configured or f"/test/{backend}"),
-    )
-    monkeypatch.setenv("ARGUS_SKILL_RUNNER_BACKEND", "pi")
-    monkeypatch.setenv("ARGUS_SKILL_ENGINEER_BACKEND", "codex")
-    assert build_agent_cli_backend_from_env(role="engineer").backend == "codex"
-    assert build_agent_cli_backend_from_env().backend == "pi"
 
 
 def test_python_falls_back_when_host_interpreter_is_incompatible(monkeypatch):

@@ -158,16 +158,10 @@ def observe_project(root: Path | str, *, event: dict[str, Any] | None = None) ->
             row["evidence"] = {key: latest[key] for key in (
                 "kind", "engineer_summary", "review",
             ) if key in latest}
-            frontier = read_source(packet.parent / "frontier.json")
-            row["frontier"] = {key: frontier[key] for key in (
-                "current_hypothesis", "artifacts", "evidence", "remaining_work", "active_regression",
-            ) if key in frontier}
             read_source(packet)
             refs.append({"path": str(packet.relative_to(root))})
             if handoff.is_file():
                 refs.append({"path": str(handoff.relative_to(root))})
-            if (packet.parent / "frontier.json").is_file():
-                refs.append({"path": str((packet.parent / "frontier.json").relative_to(root))})
         items.append(row)
     refs.append({"path": "backlog.jsonl"})
     refs.append({"path": "mission-view.json"})
@@ -215,7 +209,6 @@ def observe_project(root: Path | str, *, event: dict[str, Any] | None = None) ->
         "roles": {name: asdict(state) for name, state in role_activity(root).items()},
         "stage": view.get("stage", {}),
         "review": view.get("review", {}),
-        "frontier": view.get("frontier", {}),
         "delivery": view.get("delivery"),
         "recent_events": event_rows,
         "evidence_refs": refs,

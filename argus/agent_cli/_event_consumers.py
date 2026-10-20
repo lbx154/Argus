@@ -150,10 +150,9 @@ class EventConsumerMixin:
     def _event_has_tool_activity(event: dict) -> bool:
         """Detect tool use for every streamed CLI dialect.
 
-        The regular subprocess path previously never set
-        ``tool_activity_observed`` at all; only Copilot ACP did.  Inspect both
-        event names and nested content blocks so Claude ``tool_use``, Codex
-        command/file items, Copilot tool deltas, and OpenCode tool parts count.
+        Inspect both event names and nested content blocks so Claude
+        ``tool_use``, Codex command/file items, Copilot tool deltas, and
+        OpenCode tool parts count.
         """
 
         event_type = str(event.get("type") or "").strip().casefold()
@@ -240,8 +239,7 @@ class EventConsumerMixin:
         - codex: one ``item.completed`` per settled item; the reasoning item
           rides along with the same response as the message/tool item, so only
           non-reasoning items count.
-        - dsh: no per-turn events at all, so nothing ever counts (its calls
-          stay bounded by the wall-clock and idle watchdogs instead).
+        - dsh: no per-turn events at all, so nothing ever counts.
         """
         event_type = str(event.get("type") or "").strip()
         if self.backend == BACKEND_COPILOT:
@@ -788,12 +786,13 @@ class EventConsumerMixin:
         return parsed
 
     @staticmethod
-    def _retain_json_event(event: dict) -> bool:
+    def retain_json_event(event: dict) -> bool:
         """Keep semantic/final events, not high-frequency transport deltas.
 
         Every event is still consumed immediately and forwarded to the live
-        callback. This only bounds the post-turn ``AgentRunResult`` retained in
-        Python memory. Token-bearing deltas are kept for accounting.
+        callback. This bounds the post-turn ``AgentRunResult`` retained in
+        Python memory, and what the raw transcript saves. Token-bearing deltas
+        are kept for accounting.
         """
         data = event.get("data") if isinstance(event.get("data"), dict) else {}
         token_fields = {

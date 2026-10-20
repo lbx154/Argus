@@ -20,8 +20,6 @@ def main():
         if not os.environ.get("ARGUS_PLUGIN_CATALOG"):
             os.environ["ARGUS_PLUGIN_CATALOG"] = str(ROOT / "argus/plugin_catalog.json")
         os.environ["ARGUS_SKILL_RUNNER_BACKEND"] = "pi"
-        for role in ("MANAGER", "PLANNER", "ENGINEER", "REVIEWER"):
-            os.environ["ARGUS_SKILL_" + role + "_BACKEND"] = "pi"
         assert not manager.installed(root)
         manager.mutate("crystalpilot", "install", root)
         deadline = time.monotonic() + 10800

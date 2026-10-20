@@ -27,8 +27,6 @@ from ..core.secret_guard import known_secret_values, redact_secrets_text
 
 _REASON_LIMIT = 2000
 _ACTION_LIMIT = 1200
-# Same bounds the MissionBrief used for its item lists.
-_ITEMS = 6
 _ITEM_LIMIT = 400
 _EARLIER = 2
 _EARLIER_LIMIT = 300
@@ -55,7 +53,6 @@ class PreviousFindings:
 
     text: str = ""
     has_reviewer_findings: bool = False
-    has_open_items: bool = False
 
     def __bool__(self) -> bool:
         return bool(self.text)
@@ -100,29 +97,6 @@ def reviewer_words_of(review: ReviewDecision) -> tuple[str, str, str]:
     return status, reason, action
 
 
-def _items(frontier: object, key: str) -> tuple[list[str], int]:
-    if not isinstance(frontier, dict):
-        return [], 0
-    value = frontier.get(key)
-    if isinstance(value, str):
-        value = [value]
-    if not isinstance(value, list):
-        return [], 0
-    items = list(dict.fromkeys(
-        text for item in value if (text := _one_line(item, _ITEM_LIMIT))
-    ))
-    return items[:_ITEMS], max(0, len(items) - _ITEMS)
-
-
-def _item_lines(title: str, items: list[str], hidden: int) -> list[str]:
-    if not items:
-        return []
-    lines = [title, *(f"- {item}" for item in items)]
-    if hidden:
-        lines.append(f"- (+{hidden} more not shown)")
-    return lines
-
-
 def _earlier(records: Iterable[RoundRecord]) -> list[str]:
     earlier = list(records)[-_EARLIER:]
     if not earlier:
@@ -142,16 +116,6 @@ def _unjudged_line(record: RoundRecord) -> str:
     index = record.round_index
     if review.host_placeholder in _UNJUDGED:
         return f"Round {index} was not reviewed: {_UNJUDGED[review.host_placeholder]}."
-    if review.host_placeholder == "operator_question_policy":
-        line = (
-            f"Round {index}: the host replaced the review because operator "
-            "questions are not allowed in this mission."
-        )
-        if review.reviewer_words:
-            # Only the routing was replaced; the findings were still yours.
-            _, reason, _ = reviewer_words_of(review)
-            line += f" Your findings then: {_one_line(reason, _ITEM_LIMIT)}"
-        return line
     if (review.review_source or "reviewer") == "engineer_self_review":
         return f"Round {index} was checked only by the Engineer's self-review, not by you."
     return f"Round {index} has no judgment of yours; the host recorded it."
@@ -162,8 +126,8 @@ def _host_facts(rounds: Sequence[RoundRecord], latest: RoundRecord | None) -> li
     if latest is not None:
         facts.extend(
             f"After your round {latest.round_index} judgment, the host noted: "
-            + _one_line(note, _ITEM_LIMIT) + "."
-            for note in latest.review.host_notes if str(note or "").strip()
+            + _one_line(row.get("note"), _ITEM_LIMIT) + "."
+            for row in latest.review.interventions if str(row.get("note") or "").strip()
         )
     start = latest.round_index if latest is not None else 0
     facts.extend(
@@ -187,7 +151,6 @@ def render_previous_findings(
     reviewed = reviewer_authored_rounds(rounds)
     latest = reviewed[-1] if reviewed else None
     lines: list[str] = []
-    has_open_items = False
     if latest is not None:
         status, reason, action = reviewer_words_of(latest.review)
         lines += [
@@ -204,11 +167,6 @@ def render_previous_findings(
             action_text[:200]
         ):
             lines.append("What you asked for:\n" + action_text)
-        frontier = latest.review.frontier_report
-        lines += _item_lines("Evidence you cited:", *_items(frontier, "evidence"))
-        open_items, hidden = _items(frontier, "remaining_work")
-        has_open_items = bool(open_items)
-        lines += _item_lines("Open items you named:", open_items, hidden)
         lines += _earlier(reviewed[:-1])
     facts = _host_facts(rounds, latest)
     if facts:
@@ -226,7 +184,6 @@ def render_previous_findings(
     return PreviousFindings(
         text=text,
         has_reviewer_findings=latest is not None,
-        has_open_items=has_open_items,
     )
 
 

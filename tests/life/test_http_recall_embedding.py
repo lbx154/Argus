@@ -442,8 +442,7 @@ def test_scope_cancel_during_actual_prelude_skips_second_embedding_and_main_mode
         assert db.execute("SELECT SUM(requests) FROM budget").fetchone()[0] == 1
 
 
-@pytest.mark.parametrize("role", ["engineer", "planner"])
-def test_supervisor_stop_event_interrupts_both_current_memory_providers(tmp_path, embedding_server, role):
+def test_supervisor_stop_event_interrupts_the_current_memory_provider(tmp_path, embedding_server):
     from types import SimpleNamespace
 
     from argus.apps._runtime_backends import _Outcome
@@ -460,9 +459,8 @@ def test_supervisor_stop_event_interrupts_both_current_memory_providers(tmp_path
     observed = []
 
     class Runner:
-        def execute(self, *, prelude_context_provider=None, planner_context_provider=None, **_kwargs):
-            provider = prelude_context_provider if role == "engineer" else planner_context_provider
-            observed.append(provider())
+        def execute(self, *, prelude_context_provider=None, **_kwargs):
+            observed.append(prelude_context_provider())
             # The temporary stop scope must not leak into an unrelated call.
             assert current_run_interrupt_reason() is None
             assert current_file_lock_wait_budget() is None
@@ -488,7 +486,7 @@ def test_supervisor_stop_event_interrupts_both_current_memory_providers(tmp_path
             assert not embedding_server.gate.is_set()
             assert len(embedding_server.requests) == 1
             assert len(observed) == 1
-            assert ("ENGINEER_RUNTIME_ONLY" in observed[0]) == (role == "engineer")
+            assert "ENGINEER_RUNTIME_ONLY" in observed[0]
             for worker in workers:
                 worker.join(1)
             assert all(not worker.is_alive() for worker in workers)

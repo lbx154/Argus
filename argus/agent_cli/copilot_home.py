@@ -15,9 +15,9 @@ rather than the one chosen for Argus state.
 
 Pointing the workers at ``<ARGUS_SKILL_HOME>/copilot-home`` fixes both. Recent
 Copilot CLI releases also keep login tokens in ``config.json`` under that home,
-so an empty or stale isolated home can make ordinary one-shot workers report
-``No authentication information found`` while a warm ACP process using the
-operator home still works. Preparation therefore mirrors only the small set of
+so an empty or stale isolated home can make workers report
+``No authentication information found`` while the operator's own ``copilot``
+still works. Preparation therefore mirrors only the small set of
 authentication fields from the operator config; Argus-owned session state and
 all unrelated config fields remain isolated.
 
@@ -373,13 +373,6 @@ def copilot_runtime_redactions() -> tuple[str, ...]:
     return runtime_redactions()
 
 
-def copilot_uses_metered_provider() -> bool:
-    """Whether replaying a failed Copilot transport could double-charge a turn."""
-    from ..trial.client import trial_enabled
-
-    return trial_enabled()
-
-
 def apply_copilot_provider(env: dict[str, str]) -> None:
     """Reapply only the explicitly selected provider to an isolated child."""
     from ..trial.client import apply_trial_provider
@@ -417,7 +410,6 @@ __all__ = [
     "apply_copilot_home",
     "apply_copilot_provider",
     "copilot_runtime_redactions",
-    "copilot_uses_metered_provider",
     "copilot_log_dir",
     "argus_copilot_home",
     "prepare_copilot_home",

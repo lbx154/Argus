@@ -70,9 +70,6 @@ Argus 任务的优化，包括任务提示、PDF 阅读以及执行与重试状�
 Argus 作为 Driver 负责调度、角色分配和任务生命周期；Argus-Pi 作为 Harness
 专注于模型和工具执行。
 
-普通 Pi 任务现已接入[项目工具自进化](docs/pi-runtime-learning.md)：在当前任务中
-生成、验证并使用可复用的 JSON 处理工具，再把 Skill 和 Wiki 留给后续任务，沿用当前任务预算。
-
 **Harbor 评测：** Harbor Framework 可以把完整的有界 Argus
 Manager/Planner/Engineer/Reviewer 运行时作为自定义 Agent 直接调用。配置和边界见
 **[Harbor 接入说明](docs/harbor.md)**。
@@ -80,9 +77,8 @@ Manager/Planner/Engineer/Reviewer 运行时作为自定义 Agent 直接调用。
 **Code Agent 插件：** 可通过打包的 MCP bridge 和宿主 Skills 使用 Argus，不修改
 核心 runtime。参见 **[插件快速入门](docs/plugin.md)**。
 
-**反例研究：** 提供反例实验室、隔离的 Jacobian MCP bridge，
-以及工作台内安全更新源码的按钮。参见
-**[反例实验室与 Jacobian 配置](docs/counterexample-lab-jacobian.zh-CN.md)**。
+**反例研究：** 提供反例实验室，以及工作台内安全更新源码的按钮。参见
+**[反例实验室配置](docs/counterexample-lab.zh-CN.md)**。
 
 ## 微信群
 
@@ -161,8 +157,8 @@ node packages/coding-agent/dist/bundle/cli.js --list-models
 如果也想隔离 Pi 自身的配置，请在登录前及整个试用期间设置 `PI_CODING_AGENT_DIR`。
 
 **2. 配置当前试用终端。** 保持在刚才的源码目录根部，设置以下临时环境变量，将
-**`provider/model`** 替换为选好的模型。如果原来设置了每角色的 backend、model
-或 runner 环境覆盖，先在该终端清除，否则可能优先于通用配置。
+**`provider/model`** 替换为选好的模型。如果原来设置了每角色的 model
+环境覆盖，先在该终端清除，否则可能优先于通用配置。
 不要把这些试用设置写入 shell 启动文件或系统持久环境变量。
 
 macOS / Linux：
@@ -504,22 +500,11 @@ export ARGUS_SKILL_TELEGRAM_BOT_TOKEN=... ARGUS_SKILL_TELEGRAM_CHAT_ID=...
 
 Argus 的设计目标不是“只能配置”，而是“可以被你改变”。
 
-### 自主程度
+### 什么时候问你
 
-默认 `pragmatic` 模式会自行处理超时、失败测试、benchmark 规模和技术路线等可恢复问题；只有凭证、预算增加、不可逆操作、对外发布或改变你定义的验收边界时才会询问。
+Argus 会自行处理超时、失败测试、benchmark 规模和技术路线等可恢复问题；只有提问的角色判断需要凭证、预算增加、不可逆或对外操作、或改变你定义的范围时才会询问。
 
-```bash
-# 谨慎：每个明确问题都询问
-export ARGUS_SKILL_AUTONOMY_MODE=cautious
-
-# 务实（默认）：技术问题自动恢复，权威边界询问
-export ARGUS_SKILL_AUTONOMY_MODE=pragmatic
-
-# 主动：最大化可逆技术执行，仍保留凭证/金钱/不可逆边界
-export ARGUS_SKILL_AUTONOMY_MODE=autonomous
-```
-
-也可以从 Web 配置页或 `/config` 修改该选项。
+能不能问你只有一个开关：`ARGUS_SKILL_OPERATOR_AVAILABLE`。无人值守的运行用 `--no-operator`，只对这一次运行有效；对经理说“别问我”或“可以问我了”会保存这个开关，Web 配置页也能改。关掉时页面顶部会有提示和一键恢复按钮，经理代你做决定并逐条记录，供你事后查看。
 
 ### 改造整个运行时
 
@@ -539,8 +524,8 @@ export ARGUS_SKILL_AUTONOMY_MODE=autonomous
 
 ### Verticals
 
-Argus 本体内置 7 个 vertical：`research`、`software`、`argus_maintenance`、`kernel_engineering`、
-`math`、`math_synth`、`learning`。其余 17 个——`quant`、`speedrun`、`kernelbench`、`nanochat`、
+Argus 本体内置 4 个 vertical：`research`、`software`、`argus_maintenance`、`learning`。
+其余的——`math`、`kernel_engineering`、`math_synth`、`quant`、`speedrun`、`kernelbench`、`nanochat`、
 `nanogpt_speedrun`、`chip_design`、`digital_circuit`、`digital_circuit_benchmark`、`medical`、
 `materials`、`physics`、`ale_last_exam`、`fiction_writing`、`prose`、`modern_poetry`、
 `classical_poetry`、`literary_editor`——放在社区仓库
@@ -564,7 +549,7 @@ Argus 的 Python 环境（`pip install "argus-verticals @ git+https://github.com
 
 Vertical 可以为你的领域提供专属阶段、Skill、数据集、工具、证据要求、评测方法与完成标准。规划与审查将遵循该领域真正重要的规范，而不是一套通用流程。
 
-`math` vertical 是已实现的完整范例：三阶段流程、内容寻址的证据库、Lean 机械验证，以及"哪一类检查才有资格判定哪一类问题"的明确规则。详见 **[mathematical research](docs/research-mathematics.md)**（英文）。
+argus-verticals 里的 `math` vertical 是已实现的完整范例：三阶段流程、内容寻址的证据库、Lean 机械验证，以及"哪一类检查才有资格判定哪一类问题"的明确规则。详见它的 **[设计说明](https://github.com/Argus-AiTeam/argus-verticals/blob/main/argus_verticals/math/DESIGN.md)**（英文）。
 
 ### 让其他 Agent 成为外层入口
 
@@ -661,7 +646,7 @@ git -C "$HOME/Argus" pull --ff-only
 
 **保留一个发布周期。** `import argus_skill` 与 `import argus` 是同一个包对象(两文件别名,不是副本),
 `python -m argus_skill ...` 运行同样的模块,`argus-skill` 命令仍然存在(stderr 打一行弃用提示),
-旧名字启动的 teammate 与 trial 容器仍被识别,注册在旧 entry-point 组下的社区垂直仍会被发现(带 warning)。
+旧名字启动的 trial 容器仍被识别,注册在旧 entry-point 组下的社区垂直仍会被发现(带 warning)。
 
 **迁移已有安装。** 先卸载旧发行再装新发行,然后重启正在运行的守护进程或 `--web` 服务:
 
@@ -728,13 +713,13 @@ Linux 请先停止 Argus、保留所需工作，再删除 `$HOME/Argus` checkout
 ## 仓库布局
 
 - `argus/` —— Python 包本体；`argus`、`argus` 与守护进程运行的全部代码。
-- `argus/core/`、`proof_ledger/` —— 内核：模型、端口、契约、路径。目标是叶子：不得 import 任何更高层；今天残余的向上边钉在不变量测试（`tests/test_architecture_invariants.py`）里，第 1 阶段移除。
+- `argus/core/` —— 内核：模型、端口、契约、路径。目标是叶子：不得 import 任何更高层；今天残余的向上边钉在不变量测试（`tests/test_architecture_invariants.py`）里，第 1 阶段移除。
 - `argus/agent_cli/`、`adapters/`、`provider_integrations/`、`advisor/` —— 模型 CLI（codex、claude、copilot……）的驱动与外部顾问侧信道。
 - `argus/skills/`、`tools/`、`wiki/`、`cli/` —— 能力：Skill 库、操作者批准的工具、项目 Wiki、终端渲染。
 - `argus/verticals/`、`domains/`、`builtin_skills/` —— 领域知识：7 个内置垂直（另外 17 个由 `argus-verticals` 以 entry point 接入）、overlay、种子 Skill。
 - `argus/roles/`、`planner/`、`engineer/`、`reviewer/` —— 持久角色：提示词目录（`roles/`）加 Planner、Engineer、Reviewer 的代码（Manager 的代码在 `manager/`）。
 - `argus/life/`、`manager/`、`messaging/` —— 运行时：项目记忆、backlog、supervisor、Manager 控制面与跨项目消息。
-- `argus/daemon/`、`team/` —— 脱离终端的 7x24 worker 与 Agent Teams。
+- `argus/daemon/` —— 脱离终端的 7x24 worker。
 - `argus/apps/`、`webapi/`、`plugin/`、`maintenance/`、`trial/` —— 交付面：CLI、Web API、宿主插件、Doctor、托管试用。
 - `frontend/` —— Ink 终端 cockpit（`tui`）、React Web cockpit（`web`）、共享 TypeScript（`core`）。
 - `desktop-tauri/` —— Tauri 桌面壳（发布 Windows 版；CI 四个目标）；`plugins/` —— 可安装的宿主插件；`tests/` —— pytest 测试。

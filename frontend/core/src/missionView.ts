@@ -334,11 +334,11 @@ export function reduceMissionViewEvent(view: MissionView, event: EventMsg): Miss
     setRole(view, 'planner', 'done', label, ts);
     addTimeline(view, event, 'planner', label, S(event, 'reason'), projectDone ? 'success' : 'neutral');
     addRoleWork(view, event, 'planner', 'verdict', label, S(event, 'reason'), projectDone ? 'done' : 'planned');
-  } else if (type === EVENT_TYPES.LIFE_PLANNER_WAITING) {
-    setRole(view, 'planner', 'waiting', 'Waiting on external work', ts);
-    const detail = S(event, 'reason') || S(event, 'waiting_reason');
-    addTimeline(view, event, 'planner', 'Planner waiting', detail);
-    addRoleWork(view, event, 'planner', 'waiting', 'Planner waiting', detail, 'waiting');
+  } else if (type === EVENT_TYPES.LIFE_PLANNER_IDLE) {
+    setRole(view, 'planner', 'waiting', 'No new work to start', ts);
+    const detail = S(event, 'reason');
+    addTimeline(view, event, 'planner', 'Planner: nothing new to start', detail);
+    addRoleWork(view, event, 'planner', 'waiting', 'Planner: nothing new to start', detail, 'waiting');
   } else if (type === EVENT_TYPES.LIFE_MISSION_STARTED) {
     view.review = { status: '', reason: '', rejected_attempts: 0 };
     view.delivery = null;

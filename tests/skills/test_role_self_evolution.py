@@ -13,19 +13,16 @@ from argus.skills.role_memory import (
     profile_self_skill_dir,
     project_role_skill_dir,
     role_skill_maintenance_block,
-    role_skill_maintenance_enabled,
 )
 from argus.skills.store import SkillStore
 
 
 def test_global_role_self_evolution_ab_knob(monkeypatch) -> None:
-    monkeypatch.setenv("ARGUS_SKILL_REQUIRE_POST_TASK_LEARNING", "0")
-    assert role_skill_maintenance_enabled() is False
+    monkeypatch.setenv("ARGUS_SKILL_LEARNING", "0")
     assert Manager(memory_maintenance_enabled=None).memory_maintenance_enabled is False
     assert Planner(None, memory_maintenance_enabled=None).memory_maintenance_enabled is False
 
-    monkeypatch.setenv("ARGUS_SKILL_REQUIRE_POST_TASK_LEARNING", "1")
-    assert role_skill_maintenance_enabled() is True
+    monkeypatch.setenv("ARGUS_SKILL_LEARNING", "1")
     assert Manager(memory_maintenance_enabled=None).memory_maintenance_enabled is True
     assert Planner(None, memory_maintenance_enabled=None).memory_maintenance_enabled is True
 
@@ -100,7 +97,7 @@ def test_engineer_learning_targets_engineer_bucket(tmp_path) -> None:
     )
 
     assert f"Engineer Skill directory (project layer only): {skill_dir}" in prompt
-    assert 'Add no unrelated cleanup, hardening, or substitute outputs' in prompt
+    assert 'Deliver the requested outputs, not substitutes' in prompt
     assert "Keep only reusable role learning here" in prompt
     assert "route durable project facts" in prompt
     assert "never write shared/global layers" in prompt

@@ -15,7 +15,6 @@ dispatch, and pending-question operations from their owning modules.
 
 from __future__ import annotations
 
-import json
 import logging
 import threading
 import time
@@ -75,14 +74,14 @@ def _schedule_answer_learning(
     control, or a message-only reply with no observed work, there is nothing to
     learn and the paid learning call is not made.
     """
+    from ..core.knobs import learning_enabled
     from ..life.answer_learning import enqueue_answer
-    from ..life.reflection import answer_learning_enabled
 
-    if not answer_learning_enabled() or not str(reply or "").strip() or global_root is None:
+    if not learning_enabled() or not str(reply or "").strip() or global_root is None:
         return None
     if _frontdoor_says_nothing_to_learn(frontdoor):
         return None
-    state = _chat_state_for(sid, manager_activity=False)
+    state = _chat_state_for(sid)
     backend = getattr(state.get("manager_runner"), "_backend", None)
     vertical = ""
     from ..skills.vertical_select import resolve_project_vertical
@@ -121,31 +120,11 @@ def _frontdoor_says_nothing_to_learn(frontdoor: dict[str, Any] | None) -> bool:
     )
 
 
-def _answer_learning_evidence(steps: list[dict[str, Any]], workdir: str | None) -> str:
-    trace = "\n".join(str({
+def _answer_learning_evidence(steps: list[dict[str, Any]]) -> str:
+    return "\n".join(str({
         key: value for key, value in step.items()
         if key not in {"call_id", "started_ts", "ended_ts"}
     }) for step in steps)[-6000:]
-    if not workdir:
-        return trace
-    from ..tools.web_source import source_read_receipts
-
-    paths = []
-    for step in steps:
-        if step.get("tool") != "read" or step.get("status") != "completed":
-            continue
-        try:
-            detail = json.loads(step.get("detail", ""))
-            if isinstance(detail, dict) and isinstance(detail.get("path"), str):
-                paths.append(detail["path"])
-        except (TypeError, ValueError):
-            continue
-    receipts = source_read_receipts(paths, Path(workdir))
-    if not receipts:
-        return trace
-    return ("Source snapshots read during this turn (access evidence only; "
-            "NOT independent confirmation of their claims):\n"
-            + json.dumps(receipts, ensure_ascii=False) + "\n" + trace)
 
 
 def _recent_team_replay(
@@ -228,12 +207,13 @@ def _answer_inline(sid: str, life_dir: Any, question: str) -> str:
         prompt = build_quick_reply_prompt(objective=question)
         prompt = append_operator_context(prompt, operator_context)
         prompt += "\n\n" + observe_project(Path(life_dir)).render()
-        from ..core.knobs import resolve_manager_reply_model
+        from ..core.knobs import resolve_role_model
 
         result = gateway_run_exec(
             conversation_backend(runner),
             prompt=prompt,
-            options=RunnerOptions(model=resolve_manager_reply_model(), skip_git_repo_check=True,
+            options=RunnerOptions(model=resolve_role_model("manager", role_env="ARGUS_SKILL_MANAGER_MODEL"),
+                                 skip_git_repo_check=True,
                                  sandbox_mode="read-only", force_safe_mode=True, working_dir=str(
                 getattr(getattr(runner, "manager", None), "execution_workdir", life_dir)
             )),
@@ -432,9 +412,7 @@ def _manager_message(
             operator_text=operator_text,
             reply=reply,
             turn_id=turn_id,
-            evidence=_answer_learning_evidence(
-                turn_steps, _chat_state_for(sid).get("manager_runner_workdir"),
-            ),
+            evidence=_answer_learning_evidence(turn_steps),
             frontdoor=dict(frontdoor_class) or None,
         )
 
@@ -677,10 +655,10 @@ def _manager_message(
         chat_state["_frontdoor_contextual_text"] = body
         chat_state["_frontdoor_dispatch_body"] = routing_body
 
-        # A web-process restart necessarily loses the live ACP process. Resume
-        # seamlessly by opening one new warm conversation session with a
-        # structured handoff built from the transcript that existed BEFORE this
-        # operator turn. A deterministic status read must not consume this seam.
+        # A web-process restart loses the in-process conversation state. Resume
+        # seamlessly by opening one new conversation session with a structured
+        # handoff built from the transcript that existed BEFORE this operator
+        # turn. A deterministic status read must not consume this seam.
         if startup_handoff_pending:
             chat_state.pop("needs_startup_handoff", None)
             if startup_handoff:
@@ -806,21 +784,6 @@ def _manager_message(
         unparsed_config = str(chat_state.pop("_frontdoor_config_unparsed", "") or "").strip()
         if unparsed_config and intent is None:
             send_body = _with_unparsed_config(send_body, unparsed_config, life_dir)
-
-        subject = chat_state.pop("_frontdoor_lookup_subject", "")
-        if subject and not frontdoor_failure and control in {None, "no_dispatch"} and intent is None:
-            from ..manager.subject_lookup import lookup_subject
-
-            workdir = chat_state.get("manager_runner_workdir")
-            if workdir:
-                emitter.phase("正在查证研究对象与来源…" if uses_cjk(operator_text) else "Checking the research subject and sources…")
-                discovery = lookup_subject(subject, Path(workdir))
-                if _cancelled():
-                    return _cancelled_result()
-                send_body += discovery
-                routing_body += discovery
-                chat_state["_frontdoor_skill_vertical"] = ""
-                chat_state["_frontdoor_self_mode"] = "inspect"
 
         public_task = operator_text
         intake_before = None
@@ -1006,7 +969,7 @@ def _manager_plan(
     global_root: Path | str | None = None,
 ) -> dict[str, Any]:
     """Draft one bounded execution plan through the configured Planner role."""
-    from ..core.knobs import resolve_role_reasoning_effort
+    from ..core.knobs import resolve_light_effort, resolve_light_model
     from ..life.memory import MemoryBundle
     from ..manager.front_door import _ensure_manager_runner
     from ..manager.plan_mode import draft_plan
@@ -1027,11 +990,7 @@ def _manager_plan(
         state = _chat_state_for(sid)
         runner = _ensure_manager_runner(state, mem)
         backend = getattr(runner, "planner_backend", None) if runner is not None else None
-        model = _plan_preview_model()
-        effort = resolve_role_reasoning_effort(
-            "ARGUS_SKILL_PLAN_PREVIEW_REASONING_EFFORT",
-            default="low",
-        )
+        model, effort = resolve_light_model(), resolve_light_effort()
         cache_key = (body, model, effort, id(backend))
         cached = state.get("plan_preview_cache")
         if (
@@ -1107,48 +1066,6 @@ def _rewrite_project_context(mem: Any, sid: str) -> str:
     return "\n".join(lines)
 
 
-def _plan_preview_model() -> str:
-    """Resolve the interactive ``/plan`` preview route.
-
-    The preview is a fast sketch shown while the operator is still typing, so
-    it wants a compact model — but only a backend that actually serves the
-    OpenAI catalog can be handed an OpenAI id. See
-    ``core.knobs.resolve_cheap_route_model``.
-    """
-    from ..core.knobs import resolve_cheap_route_model
-
-    return resolve_cheap_route_model(
-        knob="ARGUS_SKILL_PLAN_PREVIEW_MODEL",
-        catalog_default="gpt-6.1-sol",
-        role="planner",
-        role_env="ARGUS_SKILL_PLAN_MODEL",
-    )
-
-
-def _rewrite_model_and_effort() -> tuple[str, str]:
-    """Resolve the interactive prompt-rewrite route independently of Manager chat."""
-    from ..core.knobs import (
-        resolve_cheap_route_model,
-        resolve_role_reasoning_effort,
-    )
-
-    model = resolve_cheap_route_model(
-        knob="ARGUS_SKILL_REWRITE_MODEL",
-        # Rewrite has always used the full default model here rather than
-        # the mini the other three cheap routes take; keep that on the
-        # backends where it resolves, and fall back to the Manager model
-        # elsewhere.
-        catalog_default="gpt-6.1-sol",
-        role="manager",
-        role_env="ARGUS_SKILL_MANAGER_MODEL",
-    )
-    effort = resolve_role_reasoning_effort(
-        "ARGUS_SKILL_REWRITE_REASONING_EFFORT",
-        default="high",
-    )
-    return model, effort
-
-
 def manager_rewrite(
     sid: str, text: str, *, global_root: Path | str | None = None,
 ) -> dict[str, Any]:
@@ -1197,8 +1114,10 @@ def _manager_rewrite(
             }
         state = _chat_state_for(sid)
         runner = _ensure_manager_runner(state, mem)
-        model, effort = _rewrite_model_and_effort()
+        from ..core.knobs import resolve_light_effort, resolve_light_model
         from ..core.operator_context import build_operator_context_block
+
+        model, effort = resolve_light_model(), resolve_light_effort()
 
         operator_context, operator_context_revision = build_operator_context_block(
             "manager", mem.project_root, consume_once=False

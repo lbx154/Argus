@@ -38,25 +38,8 @@ def test_checkpoint_handoff_discipline_present_for_paper_mission():
         paper_mission=True,
     )
     assert "## This turn" in out
-    assert 'reading must yield a written result or measurement' in out.lower()
-    assert "CHECKPOINT.md is the only file you maintain to carry context between rounds" in out
+    assert "CHECKPOINT.md carries your state from one round to the next" in out
     assert "one coherent, verifiable increment" not in out
-
-
-def test_turn_discipline_present_even_for_nonpaper_task():
-    # The bounded-progress contract is universal (it guards context growth for
-    # any mission), not gated on the paper-objective heuristic. Engineer used to
-    # be told not to spawn subagents, which -- next to a 24-call ceiling and no
-    # authority to re-plan -- left wide work with nowhere to go but its own
-    # context. Delegation is now the way that ceiling is respected.
-    out = _prompt("Refactor the data loader and add unit tests.")
-    assert "## This turn" in out
-    assert "do not write planning/spec/brief" in out.lower()
-    assert "initialize git" in out.lower()
-    assert "commit" in out.lower()
-    assert "planner owns the campaign plan" in out.lower()
-    assert "delegate wide" in out.lower()
-    assert "the answer, not the transcript" in out.lower()
 
 
 def test_long_experiment_protocol_is_in_every_engineer_turn():
@@ -69,12 +52,9 @@ def test_long_experiment_protocol_is_in_every_engineer_turn():
     )
 
     for out in (full, compact):
-        assert "argus.tools.subagent submit" in out
-        assert "--mode direct" in out
-        assert "--mode supervised" in out
-        assert "launch a supervised subagent" not in out
-        assert "session-owned background shell" in out.lower()
-        assert "do not poll in the foreground" in out.lower()
+        assert "setsid nohup" in out
+        assert "blocking calls" in out
+        assert "Never poll in short loops" in out
 
 
 def test_engineer_must_not_spawn_a_subagent_to_impersonate_reviewer():
@@ -103,11 +83,11 @@ def test_performance_claims_require_causal_attribution() -> None:
         assert "hot-path/live-resource evidence plus timing/profiling or controlled A/B" in out
 
 
-def test_engineer_does_not_create_extra_handoff_packets():
+def test_engineer_checkpoint_states_its_purpose_without_a_ban():
     out = _prompt("Continue the implementation across rounds.")
 
-    assert "only file you maintain to carry context between rounds" in out
-    assert 'do not create separate summaries or collections of evidence' in out
+    assert "CHECKPOINT.md carries your state from one round to the next" in out
+    assert "do not create separate summaries" not in out
     assert "compile/type-check" not in out
     assert "git ls-files --error-unmatch" not in out
 
@@ -128,9 +108,7 @@ def test_engineer_surfaces_operator_only_blockers_to_host():
         assert "parks the task" in out or "Never keep opening fresh rounds" in out
 
 
-@pytest.mark.parametrize("mode", ["progress-first", "standard", "strict"])
-def test_engineer_fixed_prompt_stays_token_efficient(monkeypatch, mode):
-    monkeypatch.setenv("ARGUS_SKILL_EVIDENCE_POLICY", mode)
+def test_engineer_fixed_prompt_stays_token_efficient():
     # The shared writing voice, durable accelerator admission, and recoverable
     # background-result contract are intentional fixed costs. Keep only modest
     # headroom for another static section.

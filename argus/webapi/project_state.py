@@ -720,16 +720,6 @@ def build_snapshot(
         diagnostics.append(diagnostic("mission_view", exc))
 
     try:
-        from .background_work import background_work
-
-        # What an open mission waits on, read once so the sidebar, the map and
-        # the conversation header describe the same wait with the same numbers.
-        waits = background_work(session.get("workdir") or session.get("cwd"), backlog)
-    except Exception as exc:  # noqa: BLE001
-        waits = []
-        diagnostics.append(diagnostic("background_work", exc))
-
-    try:
         global_spend = _cached_global_daily_usage_summary(root, nonblocking=compact)
         # A stale host cache must never report less usage than the project
         # currently being rendered. Refresh synchronously only on that
@@ -775,7 +765,6 @@ def build_snapshot(
         "daemon_commands": daemon_commands,
         "observability": observability,
         "mission_view": mission_view,
-        "background_work": waits,
     }
     admission = read_daemon_admission(life_dir, diagnostics=diagnostics)
     if admission is not None:

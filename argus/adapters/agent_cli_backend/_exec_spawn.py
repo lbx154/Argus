@@ -64,7 +64,7 @@ log = logging.getLogger(__name__)
 
 
 def log_start_record(backend: Any, ctx: "_ExecContext") -> None:
-    """Record the call's opening in the history log, and — in ``full`` mode —
+    """Record the call's opening in the history log, and
     its verbatim prompt in the raw transcript beside it.
 
     Split deliberately. ``events.jsonl`` is the authoritative history that the
@@ -87,30 +87,23 @@ def log_start_record(backend: Any, ctx: "_ExecContext") -> None:
         "provider_session_id": getattr(ctx, "provider_session_id", None),
         "ts": time.time(),
     }
-    if ctx.io_mode == "compact":
-        start_row["prompt_chars"] = len(ctx.prompt)
-        backend._log_agent_io(ctx.log_path, start_row)
-    else:
-        # Full prompts belong in the bounded raw I/O transcript, not the
-        # authoritative event history. Keep only size in events.jsonl;
-        # agent_io.jsonl retains the verbatim copy under ring rotation.
-        compact_row = dict(start_row)
-        compact_row["prompt_chars"] = len(ctx.prompt)
-        backend._log_agent_io(ctx.log_path, compact_row)
-
-        start_row["prompt"] = ctx.prompt
-        backend._log_agent_io(_raw_transcript_path(ctx.log_path), start_row)
+    # Full prompts belong in the bounded raw I/O transcript, not the
+    # authoritative event history. Keep only size in events.jsonl;
+    # agent_io.jsonl retains the verbatim copy under ring rotation.
+    backend._log_agent_io(ctx.log_path, {**start_row, "prompt_chars": len(ctx.prompt)})
+    start_row["prompt"] = ctx.prompt
+    backend._log_agent_io(_raw_transcript_path(ctx.log_path), start_row)
 
 
 def bind_provider_session(ctx: "_ExecContext", cli_options: Any) -> str | None:
     """Bind a NEW Copilot CLI session to this call before the process exists.
 
     Resumed calls keep their original identity and never receive a replacement.
-    The warm ACP path owns its own session, and a CLI whose help text lacks
-    ``--session-id`` cannot honour a pre-allocated identity; both leave the
-    binding unset and are reported, so nothing pretends to be durable. The
-    identity is written to the ``agent.io.start`` row and returned on every
-    exit path, including the ones with no terminal ``result`` (#129).
+    A CLI whose help text lacks ``--session-id`` cannot honour a pre-allocated
+    identity; it leaves the binding unset and is reported, so nothing pretends
+    to be durable. The identity is written to the ``agent.io.start`` row and
+    returned on every exit path, including the ones with no terminal
+    ``result`` (#129).
     """
     backend = ctx.backend
     if not backend._is_copilot or ctx.resume_thread_id:
@@ -122,9 +115,6 @@ def bind_provider_session(ctx: "_ExecContext", cli_options: Any) -> str | None:
             "installed runner options cannot carry a Copilot session identity; "
             "call %s is bound only by its terminal result", ctx.call_id,
         )
-        return None
-    acp_enabled = getattr(runner, "_acp_enabled", None)
-    if callable(acp_enabled) and acp_enabled(ctx.run_label, cli_options):
         return None
     executable = getattr(runner, "agent_bin", None) or "copilot"
     if not copilot_cli_supports_session_id(executable):

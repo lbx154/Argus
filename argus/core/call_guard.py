@@ -26,8 +26,6 @@ _FOREGROUND_LABELS = (
     "engineer-",
     "reviewer",
     "advisor.",
-    "research.",
-    "subagent:",
     "peer-message-response",
     "manager-frontdoor",
     "manager-classify",
@@ -48,7 +46,6 @@ PROGRESS_EVENTS = frozenset({
     EventType.ROUND_REVIEW_COMPLETED,
     EventType.LIFE_PLANNER_TASK_ADDED,
     EventType.LIFE_PLAN_REVISION_COMMITTED,
-    EventType.LIFE_PLANNER_WAITING_WOKEN,
     EventType.LIFE_PEER_MESSAGE_PROCESSED,
 })
 
@@ -78,9 +75,6 @@ def observe(event: dict[str, Any]) -> None:
     """A progress event restores the budget."""
     kind = event.get("type")
     if kind not in PROGRESS_EVENTS:
-        return
-    # A wait that merely ran out of time saw nothing new.
-    if kind == EventType.LIFE_PLANNER_WAITING_WOKEN and event.get("wake_reason") == "expired":
         return
     global _notified
     with _lock:

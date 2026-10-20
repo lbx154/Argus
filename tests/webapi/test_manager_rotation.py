@@ -1,19 +1,15 @@
-"""Persistent Manager session + context-rotation (webapi.manager_bridge).
+"""Persistent Manager session (webapi.manager_bridge).
 
-The Manager session stays alive across turns (its thread id is resumed) and is
-ROTATED only when its context fills — a fresh thread seeded with a STRUCTURED
-handoff. Here we stub the Manager triage so the test is offline and assert the
-rotation fires at the threshold: thread reset + handoff carrying the identity +
-project path is prepended to the first post-rotation turn.
+The Manager session stays alive across turns (its thread id is resumed); a new
+web process seeds it once with a STRUCTURED handoff. The Manager triage is
+stubbed so the tests stay offline.
 """
 
 from __future__ import annotations
 
 import json
-import threading
 import time
 from pathlib import Path
-from types import SimpleNamespace
 
 from argus.life.memory import BacklogItem, LifeMemory
 from argus.webapi import manager_bridge, manager_dispatch, manager_state
@@ -31,119 +27,6 @@ def _make_project(root: Path, sid: str = "s-rot00001") -> Path:
     return life
 
 
-def test_manager_prewarm_schedule_is_one_shot_after_success(
-    tmp_path: Path,
-    monkeypatch,
-) -> None:
-    manager_state._STATES.clear()
-    manager_state._MANAGER_PREWARMING.clear()
-    monkeypatch.setattr(manager_state, "_MANAGER_PREWARM_OWNER", None)
-    calls: list[tuple[str, Path | None]] = []
-
-    def fake_prewarm(sid: str, *, global_root=None) -> None:
-        calls.append((sid, Path(global_root) if global_root is not None else None))
-        manager_state._STATES.setdefault(sid, {})["_manager_acp_prewarmed"] = True
-
-    class InlineThread:
-        def __init__(self, *, target, name: str, daemon: bool) -> None:  # noqa: ANN001
-            self.target = target
-            self.name = name
-            self.daemon = daemon
-
-        def start(self) -> None:
-            self.target()
-
-    monkeypatch.setattr(manager_state, "_prewarm_manager_context", fake_prewarm)
-    monkeypatch.setattr(manager_state.threading, "Thread", InlineThread)
-
-    manager_state.schedule_manager_prewarm("s-prewarm01", global_root=tmp_path)
-    manager_state.schedule_manager_prewarm("s-prewarm01", global_root=tmp_path)
-
-    assert calls == [("s-prewarm01", tmp_path)]
-    assert manager_state._MANAGER_PREWARMING == set()
-
-
-def test_manager_prewarm_schedule_does_not_wait_for_busy_manager_turn(
-    tmp_path: Path,
-    monkeypatch,
-) -> None:
-    """A compact snapshot must not queue behind a long-running Manager call."""
-    sid = "s-prewarm-busy"
-    manager_state._STATES.clear()
-    manager_state._MANAGER_PREWARMING.clear()
-    monkeypatch.setattr(manager_state, "_MANAGER_PREWARM_OWNER", None)
-    lock_held = threading.Event()
-    release_lock = threading.Event()
-    schedule_returned = threading.Event()
-    prewarm_started = threading.Event()
-
-    def hold_manager_lock() -> None:
-        with manager_state.manager_context_lock(sid):
-            lock_held.set()
-            release_lock.wait(2)
-
-    def fake_prewarm(_sid: str, *, global_root=None) -> None:  # noqa: ANN001
-        prewarm_started.set()
-
-    holder = threading.Thread(target=hold_manager_lock)
-    holder.start()
-    assert lock_held.wait(1)
-    monkeypatch.setattr(manager_state, "_prewarm_manager_context", fake_prewarm)
-
-    def schedule() -> None:
-        manager_state.schedule_manager_prewarm(sid, global_root=tmp_path)
-        schedule_returned.set()
-
-    caller = threading.Thread(target=schedule)
-    caller.start()
-    try:
-        assert schedule_returned.wait(0.5), "prewarm scheduling blocked on the Manager lock"
-        assert prewarm_started.wait(0.5)
-    finally:
-        release_lock.set()
-        holder.join(timeout=1)
-        caller.join(timeout=1)
-
-
-def test_manager_prewarm_uses_manager_backend(
-    tmp_path: Path,
-    monkeypatch,
-) -> None:
-    sid = "s-prewarm-manager-backend"
-    _make_project(tmp_path, sid)
-    manager_state._STATES.clear()
-    monkeypatch.setattr(manager_state, "_MANAGER_PREWARM_OWNER", sid)
-    manager_state._STATES[sid] = {
-        "backend": "copilot",
-        "last_access_monotonic": time.monotonic(),
-    }
-    calls: list[tuple[str, bool]] = []
-
-    default_backend = SimpleNamespace(
-        prewarm_acp_client=lambda **kwargs: calls.append(
-            ("default", bool(kwargs["lean"]))
-        )
-    )
-    manager_backend = SimpleNamespace(
-        prewarm_acp_client=lambda **kwargs: calls.append(
-            ("manager", bool(kwargs["lean"]))
-        )
-    )
-    runner = SimpleNamespace(
-        _backend=default_backend,
-        manager_backend=manager_backend,
-    )
-    monkeypatch.setattr(
-        "argus.manager.front_door._ensure_manager_runner",
-        lambda _state, _memory: runner,
-    )
-
-    manager_state._prewarm_manager_context(sid, global_root=tmp_path)
-
-    assert calls == [("manager", True), ("default", False)]
-    assert manager_state._STATES[sid]["_manager_acp_prewarmed"] is True
-
-
 def test_warm_manager_contexts_are_bounded_and_oldest_is_closed(
     monkeypatch,
 ) -> None:
@@ -153,19 +36,12 @@ def test_warm_manager_contexts_are_bounded_and_oldest_is_closed(
     monkeypatch.setenv("ARGUS_SKILL_MANAGER_WARM_CONTEXT_IDLE_SECONDS", "99999")
     closed: list[str] = []
 
-    class Backend:
+    class Runner:
         def __init__(self, sid: str) -> None:
             self.sid = sid
 
-        def close_acp_clients(self) -> None:
-            closed.append(self.sid)
-
-    class Runner:
-        def __init__(self, sid: str) -> None:
-            self._backend = Backend(sid)
-
         def reset_chat_session(self) -> None:
-            pass
+            closed.append(self.sid)
 
     now = time.monotonic()
     manager_state._STATES.update({
@@ -198,132 +74,6 @@ def test_manager_shutdown_clears_control_generations() -> None:
     assert manager_state._CONTROL_GENERATIONS == {}
 
 
-def test_latest_explicit_project_becomes_prewarm_owner(monkeypatch) -> None:
-    monkeypatch.setattr(manager_state, "_MANAGER_PREWARM_OWNER", None)
-
-    manager_state._claim_manager_prewarm_owner("s-first")
-    assert manager_state._MANAGER_PREWARM_OWNER == "s-first"
-    manager_state._claim_manager_prewarm_owner("s-second")
-    assert manager_state._MANAGER_PREWARM_OWNER == "s-second"
-
-
-def test_manager_session_rotates_with_structured_handoff(tmp_path: Path, monkeypatch) -> None:
-    _make_project(tmp_path)
-    monkeypatch.setenv("ARGUS_SKILL_MANAGER_ROTATE_TURNS", "4")
-    manager_state._STATES.clear()
-
-    seen: list[str] = []
-    modes: list[str] = []
-
-    def _fake_triage(mem, body, chat_state, **kwargs):
-        seen.append(body)
-        modes.append(kwargs["self_mode"])
-        chat_state["last_thread_id"] = "thread-xyz"  # a live session accrues a thread
-        return "ok"
-
-    def _classify(mem, body, chat_state, **kwargs):
-        chat_state["_frontdoor_self_mode"] = "reply"
-        return None, "simple"
-
-    # Offline: stub the merged front-door classify (no real runner/LLM) + triage.
-    monkeypatch.setattr(
-        "argus.manager.config_intent._front_door_classify", _classify
-    )
-    monkeypatch.setattr("argus.manager.front_door.manager_triage", _fake_triage)
-
-    # Turns 1..4 stay on the same session (thread resumed, no handoff).
-    for _ in range(4):
-        r = manager_bridge.manager_message(
-            "s-rot00001",
-            "checking in",
-            global_root=tmp_path,
-        )
-        assert r["kind"] == "chat"
-    events = [
-        json.loads(line)
-        for line in (tmp_path / "projects" / "s-rot00001" / "events.jsonl")
-        .read_text(encoding="utf-8")
-        .splitlines()
-        if line.strip()
-    ]
-    assert [event["type"] for event in events if event["type"].startswith("ui.")] == [
-        event_type
-        for _ in range(4)
-        for event_type in ("ui.operator", "ui.argus")
-    ]
-    assert all("SESSION HANDOFF" not in b for b in seen)
-    assert modes == ["reply", "inspect", "inspect", "inspect"]
-    st = manager_state._STATES["s-rot00001"]
-    assert st["last_thread_id"] == "thread-xyz"
-
-    # Turn 5 crosses the threshold → rotate: fresh thread + handoff prepended.
-    manager_bridge.manager_message("s-rot00001", "still there?", global_root=tmp_path)
-    assert "SESSION HANDOFF" in seen[-1]
-    assert "s-rot00001" in seen[-1]  # handoff carries the project path
-    assert "checking in" in seen[-1]
-    assert modes[-1] == "inspect"
-    assert st["rotations"] == 1
-    assert st["turns"] == 1  # counter reset after rotation
-
-    manager_bridge.manager_message("s-rot00001", "next question", global_root=tmp_path)
-    assert "SESSION HANDOFF" not in seen[-1]
-    assert modes[-1] == "inspect"
-    assert st["rotations"] == 1
-    assert st["turns"] == 2
-
-
-def test_rotation_resets_cached_runner_seed(tmp_path: Path, monkeypatch) -> None:
-    """Rotation must clear the CACHED RUNNER's own session memory too.
-
-    ``_simple_quick_reply`` falls back to ``runner._next_seed_thread_id`` when the
-    caller passes ``seed_thread_id=None`` — so resetting only
-    ``chat_state["last_thread_id"]`` let the runner resurrect the just-rotated
-    thread. Rotation then never took and the session grew unbounded (its resume
-    cost climbing every turn). This pins that the bridge resets the runner too.
-    """
-    _make_project(tmp_path, sid="s-rot00003")
-    monkeypatch.setenv("ARGUS_SKILL_MANAGER_ROTATE_TURNS", "4")
-    manager_state._STATES.clear()
-
-    class _FakeRunner:
-        def __init__(self) -> None:
-            self._next_seed_thread_id = "old-thread"
-            self.last_thread_id = "old-thread"
-            self.reset_calls = 0
-
-        def reset_chat_session(self) -> None:
-            self.reset_calls += 1
-            self._next_seed_thread_id = None
-            self.last_thread_id = None
-
-    runner = _FakeRunner()
-
-    def _fake_triage(mem, body, chat_state, **_kw):
-        # Mirror the front-door: the runner is cached and accrues a thread id.
-        chat_state["manager_runner"] = runner
-        chat_state["last_thread_id"] = runner._next_seed_thread_id or "old-thread"
-        return "ok"
-
-    # Stub BOTH front-door steps so the test is offline (no real runner built).
-    monkeypatch.setattr(
-        "argus.manager.config_intent._front_door_classify", lambda *a, **k: (None, "simple")
-    )
-    monkeypatch.setattr("argus.manager.front_door.manager_triage", _fake_triage)
-
-    for _ in range(4):  # turns 1..4 — no rotation yet
-        manager_bridge.manager_message(
-            "s-rot00003",
-            "checking in",
-            global_root=tmp_path,
-        )
-    assert runner.reset_calls == 0
-    assert runner._next_seed_thread_id == "old-thread"
-
-    # Turn 5 crosses the threshold → rotation must reset the runner's seed so the
-    # next reply starts a FRESH thread instead of resurrecting the old one.
-    manager_bridge.manager_message("s-rot00003", "still there?", global_root=tmp_path)
-    assert runner.reset_calls == 1
-    assert runner._next_seed_thread_id is None
 
 
 def test_handoff_names_identity_and_path(tmp_path: Path) -> None:

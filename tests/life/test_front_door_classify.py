@@ -30,30 +30,6 @@ class _FakeResult:
         self.fatal_error = fatal_error
 
 
-def test_subject_lookup_overrides_speculative_domain_and_fast_reply():
-    domains, modes, replies = [], [], []
-    answer = """ROUTE: SELF
-SELF_MODE: REPLY
-REPLY: This must be a virus.
-DOMAIN_ACTION: OFFER
-SKILL_VERTICAL: medical
-LOOKUP_SUBJECT: Jev
-"""
-    decision = classify_front_door("调研一下 Jev", run_exec=_exec(answer),
-                                   domain_sink=domains.append, self_mode_sink=modes.append, reply_sink=replies.append)
-    assert decision == (None, None, "simple")
-    assert domains == [{"action": "none", "vertical": "", "lookup_subject": "Jev"}]
-    assert modes == ["inspect"] and replies == []
-
-
-def test_subject_lookup_cannot_silently_replace_the_user_spelling():
-    domains = []
-    classify_front_door("调研一下 Jev", run_exec=_exec("ROUTE: SELF\nDOMAIN_ACTION: NONE\nSKILL_VERTICAL: medical\nLOOKUP_SUBJECT: JEPA"),
-                        domain_sink=domains.append)
-    assert not any(row.get("lookup_subject") for row in domains)
-    assert not any(row.get("vertical") for row in domains)
-
-
 def _exec(answer: str, exit_code: int = 0, fatal_error: str | None = None):
     def run_exec(prompt: str):
         assert all(
@@ -126,7 +102,7 @@ def test_front_door_prompt_has_a_strict_token_efficiency_budget(tmp_path) -> Non
     assert "DEBUG" in prompt
     assert "REVIEW" in prompt
     assert "SYNTHESIZE" in prompt
-    assert "BOUNDED_INCREMENT" in prompt
+    assert "BOUNDED_INCREMENT" not in prompt
     assert "BOUNDED" in prompt
     assert "STANDING" in prompt
     assert "default BOUNDED" in prompt
@@ -300,7 +276,7 @@ def test_front_door_preserves_bounded_lifetime_for_team() -> None:
     assert lifetimes == ["bounded"]
 
 
-def test_front_door_preserves_explicit_bounded_increment_for_team() -> None:
+def test_front_door_reads_a_legacy_bounded_increment_as_bounded() -> None:
     lifetimes: list[str] = []
     decision = classify_front_door(
         "只完成 research 阶段，不要进入后续阶段",
@@ -312,7 +288,7 @@ def test_front_door_preserves_explicit_bounded_increment_for_team() -> None:
     )
 
     assert decision == (None, None, "complex")
-    assert lifetimes == ["bounded_increment"]
+    assert lifetimes == ["bounded"]
 
 
 def test_front_door_missing_lifetime_defaults_team_to_bounded() -> None:

@@ -13,9 +13,9 @@ from argus.skills import stage_machine
 from argus.skills.vertical_select import persist_vertical
 
 
-def test_a_vertical_that_cannot_be_read_still_requires_review(tmp_path, monkeypatch):
+def test_a_vertical_that_cannot_be_read_still_requires_review(tmp_path, monkeypatch, targeted_vertical):
     """"I cannot tell whether review is mandatory" is not "review is optional"."""
-    persist_vertical(tmp_path, "math", research_target_level="exploratory")
+    persist_vertical(tmp_path, targeted_vertical, research_target_level="exploratory")
     import argus.verticals._base as base
 
     def boom(*_a, **_k):
@@ -30,8 +30,8 @@ def test_an_unresolved_project_keeps_the_legacy_default(tmp_path):
     assert _independent_review_required_for_project_root(tmp_path) is False
 
 
-def test_the_math_vertical_requires_review(tmp_path):
-    persist_vertical(tmp_path, "math", research_target_level="exploratory")
+def test_a_review_requiring_vertical_requires_review(tmp_path):
+    persist_vertical(tmp_path, "argus_maintenance")
 
     assert _independent_review_required_for_project_root(tmp_path) is True
 
@@ -40,8 +40,8 @@ def test_the_math_vertical_requires_review(tmp_path):
 
 
 @pytest.fixture
-def project(tmp_path: Path, monkeypatch) -> Path:
-    persist_vertical(tmp_path, "math", research_target_level="exploratory")
+def project(tmp_path: Path, monkeypatch, targeted_vertical) -> Path:
+    persist_vertical(tmp_path, targeted_vertical, research_target_level="exploratory")
     monkeypatch.setattr(
         stage_machine, "_ensure_stage_completion", lambda *a, **k: None
     )

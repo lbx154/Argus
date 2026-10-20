@@ -31,7 +31,7 @@ The expensive thing is not any single gate. It is a loop:
 writes up to four artifacts per run (`RESULT.json`, `REVIEW.md`,
 `FAILURES.json`, `REPAIR_TASKS.md`), and `REPAIR_TASKS.md` is a set of
 instructions written back into the next round. Delete the loop and let the
-read-only Reviewer judge real evidence instead.
+independent Reviewer judge real evidence instead.
 
 ---
 
@@ -163,9 +163,10 @@ A runtime that cannot fail is a runtime that cannot tell you it is broken.
 
 ## What not to delete
 
-- **The independent read-only Reviewer.** `require_independent_review` defaults to
-  `True` (`engineer/round_config.py`) and the Reviewer runs read-only. This is the
-  load-bearing wall that makes unattended operation possible.
+- **The independent Reviewer.** `require_independent_review` defaults to
+  `True` (`engineer/round_config.py`); the Reviewer has the Engineer's access, and
+  the host records any workspace change it makes. This is the load-bearing wall
+  that makes unattended operation possible.
 - One canonical stage writer and atomic stage state.
 - Durable event and backlog history.
 - **Real** authority checks at irreversible-action boundaries — as opposed to

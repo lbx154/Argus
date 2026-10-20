@@ -130,16 +130,6 @@ def _base_event(event_type: EventType, index: int) -> dict[str, Any]:
         event.update({"status": "completed", "success": True})
     elif event_type == EventType.ROUND_REVIEW_COMPLETED:
         event.update({"status": "done", "reason": "focused checks passed"})
-    elif event_type == EventType.LIFE_RESEARCH_SECOND_READING:
-        event.update({
-            "agent_layer": "manager",
-            "stage": "experiment",
-            "refuted": "the speedup on the smallest worlds",
-            "supported": "the effect on the untouched worlds",
-            "next": "rerun the comparison at full scale",
-            "text": "A second reading of the evidence.",
-            "notes_path": "RESEARCH_NOTES.md",
-        })
     elif event_type == EventType.LIFE_LETTER_WRITTEN:
         event.update({
             "agent_layer": "manager",
@@ -179,15 +169,10 @@ def _corpus() -> dict[str, Any]:
             "type": "engineer.progress", "kind": "command_execution", "agent_layer": "engineer",
             "status": "failed", "text": "npm test", "action_summary": "run tests",
         }),
-        _fixture("life.planner.task_skipped.review-purchase-deferred", {
-            "type": "life.planner.task_skipped", "title": "Purchase another paper review",
-            "objective": "Repeat certification review", "skip_category": "paper_review_purchase_deferred",
-            "reason": "the current manuscript already has a completed independent review",
-        }),
-        _fixture("life.planner.waiting.waiting-resource", {
-            "type": "life.planner.waiting", "cycle": 2,
-            "reason": "subagent state waiting_resource is a healthy resource wait",
-            "waiting_contract": {"wait_id": "subagent-1", "recheck_condition": "state leaves waiting_resource", "wait_mode": "event", "wake_on": ["subagent_state"], "observed_revision": "waiting_resource"},
+        _fixture("life.planner.idle.handoff", {
+            "type": "life.planner.idle", "cycle": 2,
+            "reason": "the running evaluation decides the next step",
+            "handoff": "engineer",
         }),
     ]
     fixtures.extend(extras)

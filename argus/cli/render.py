@@ -1,7 +1,7 @@
 """ANSI terminal rendering for live headless-runtime events.
 
 The Ink/Web cockpit owns interactive UI. This module only decorates events
-written by ``LifeStderrSink`` and teammate processes; semantic event formatting
+written by ``LifeStderrSink``; semantic event formatting
 stays in :mod:`argus.cli.event_format`.
 """
 

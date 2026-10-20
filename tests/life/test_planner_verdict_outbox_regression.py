@@ -198,10 +198,8 @@ def test_all_filtered_planned_verdict_replays_plan_retry_not_false(
     monkeypatch.setattr(sup, "_resolve_vertical_once", lambda: None)
     monkeypatch.setattr(sup, "_wiki_collect_task_if_due_under_blocker", lambda: None)
     monkeypatch.setattr(sup, "_render_journal_for_planner", lambda: "")
-    monkeypatch.setattr(sup, "_recent_no_progress_failures", lambda: {})
-    monkeypatch.setattr(sup, "_recent_subagent_family_failures", lambda: {})
     monkeypatch.setattr(sup, "_effective_final_certification_gate", lambda *_a, **_k: False)
-    monkeypatch.setattr(sup, "_planner_runtime_with_idle_note", lambda: "")
+    monkeypatch.setattr(sup, "_planner_runtime_notes", lambda: "")
 
     # ── first pass ──────────────────────────────────────────────────────────
     # Planner runs, all 3 tasks deduplicated, verdict delivery fails → PLAN_RETRY.
@@ -437,9 +435,7 @@ def test_stale_outbox_discard_resumes_planning_and_enqueues_recovery_task(
     )
     monkeypatch.setattr(sup, "_wiki_collect_task_if_due_under_blocker", lambda: None)
     monkeypatch.setattr(sup, "_render_journal_for_planner", lambda: "")
-    monkeypatch.setattr(sup, "_recent_no_progress_failures", lambda: {})
-    monkeypatch.setattr(sup, "_recent_subagent_family_failures", lambda: {})
-    monkeypatch.setattr(sup, "_planner_runtime_with_idle_note", lambda: "")
+    monkeypatch.setattr(sup, "_planner_runtime_notes", lambda: "")
     monkeypatch.setattr(
         Planner,
         "_build_planner_prompt",

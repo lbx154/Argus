@@ -26,7 +26,7 @@ English version: [simplification-plan.md](simplification-plan.md)
 
 `skills/research_gates.py` 就是这个循环的单文件版：一次咨询性检查每轮最多写四份产物
 （`RESULT.json`、`REVIEW.md`、`FAILURES.json`、`REPAIR_TASKS.md`），而 `REPAIR_TASKS.md`
-是一组会被写回下一轮的指令。**删掉这个循环，让只读 Reviewer 去判真证据。**
+是一组会被写回下一轮的指令。**删掉这个循环，让独立的 Reviewer 去判真证据。**
 
 ---
 
@@ -142,8 +142,8 @@ Reviewer 管独立判断。
 
 ## 不能删的
 
-- **独立的只读 Reviewer。** `require_independent_review` 默认为 `True`
-  （`engineer/round_config.py`），且 Reviewer 只读运行。**这是让无人值守成为可能的承重墙。**
+- **独立的 Reviewer。** `require_independent_review` 默认为 `True`
+  （`engineer/round_config.py`）；Reviewer 拥有和 Engineer 一样的权限，它对工作区的任何改动都由宿主记录。**这是让无人值守成为可能的承重墙。**
 - 单一的阶段写入者与原子的阶段状态。
 - 持久的事件与 backlog 历史。
 - 不可逆操作边界上的**真实**权限检查——相对于"在摘要上跑正则"而言。

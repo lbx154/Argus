@@ -53,7 +53,7 @@ export const useProjectCosts = () =>
 export const useSnapshot = (sid: string | null) =>
   useQuery({
     queryKey: ['snapshot', sid],
-    queryFn: ({ signal }) => api.activeSnapshot(sid!, signal),
+    queryFn: ({ signal }) => api.snapshot(sid!, signal),
     enabled: !!sid,
     refetchInterval: (query) => snapshotPollInterval(query.state.data),
   });

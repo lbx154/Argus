@@ -29,11 +29,6 @@ class StageDecision:
     target_stage: str
     reason: str
     diagnostic: str = ""
-    # Planner-wait reconciliation only: an authoritative HOLD may keep the
-    # current stage while surfacing pre-existing operator authority or changed
-    # evidence that satisfies the Planner's declared recheck condition. Manager
-    # cannot create or expand operator authorization.
-    resolves_wait: bool = False
 
 
 _VALID_ACTIONS = ("advance", "hold", "rollback", "complete")
@@ -97,7 +92,6 @@ _STAGE_KEYS = (
     "ACTION",
     "TARGET_STAGE",
     "REASON",
-    "RESOLVES_WAIT",
     "LIVE_VIEW_PATHS",
     "LIVE_VIEW_TITLE",
     "LIVE_VIEW_REASON",
@@ -120,7 +114,6 @@ def stage_decision_fields(raw_text: str) -> tuple[Any, str]:
     for every run in progress.
     """
     from ..core.role_reply import (
-        read_bool,
         read_key_values,
         read_list,
         read_optional,
@@ -135,8 +128,6 @@ def stage_decision_fields(raw_text: str) -> tuple[Any, str]:
     for key in ("ACTION", "TARGET_STAGE", "REASON"):
         if key in values:
             fields[key.lower()] = read_optional(values, key)
-    if "RESOLVES_WAIT" in values:
-        fields["resolves_wait"] = read_bool(values, "RESOLVES_WAIT")
     paths = read_list(values, "LIVE_VIEW_PATHS")
     if paths:
         fields["live_view"] = {
@@ -191,7 +182,6 @@ def parse_stage_decision(
     if action not in _VALID_ACTIONS:
         return StageDecision("hold", cur, "manager held (default)", "unknown_action")
     reason = str(obj.get("reason") or "").strip()
-    resolves_wait = obj.get("resolves_wait") is True
     raw_target = obj.get("target_stage")
     target = _normalized_stage_label(raw_target)
 
@@ -201,7 +191,6 @@ def parse_stage_decision(
             cur,
             reason or "manager held",
             "intentional_hold",
-            resolves_wait,
         )
 
     if cur not in order:

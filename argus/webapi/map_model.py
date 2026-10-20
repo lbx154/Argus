@@ -1,4 +1,4 @@
-"""Map text generation through the front-door (Manager) runner at a light effort tier."""
+"""Map text generation through the front-door (Manager) runner on the light model."""
 
 from __future__ import annotations
 
@@ -10,7 +10,7 @@ import shutil
 import tempfile
 import time
 from collections.abc import Callable
-from dataclasses import dataclass, field, replace
+from dataclasses import dataclass
 from pathlib import Path
 from typing import Literal
 
@@ -18,9 +18,15 @@ from jsonschema import Draft202012Validator, ValidationError
 
 from ..adapters.agent_cli_backend import AgentCliBackend
 from ..agent_cli.runner_backend import default_runner_bin, normalize_runner_backend
-from ..core.knobs import normalize_cockpit_knob_value, resolve_knob, resolve_runner_bin_setting
+from ..core.knobs import (
+    normalize_cockpit_knob_value,
+    resolve_knob,
+    resolve_light_effort,
+    resolve_light_model,
+    resolve_runner_bin_setting,
+)
 from ..core.models import RunnerOptions, RunnerResult
-from ..core.role_config import RoleConfig, resolve_role_config
+from ..core.role_config import is_reasoning_model, resolve_role_config
 from ..core.run_gateway import run_exec
 from .map_view import facts
 
@@ -51,11 +57,6 @@ class MapModel:
     effort: str | None
     runner_bin: str
     extra_args: tuple[str, ...] = ()
-    review_effort: str | None = None
-    # Why a pinned map model was set aside for ``auto``; empty when the pin
-    # (or auto) is used as configured. Not part of the revision: the model
-    # that actually runs already is.
-    note: str = field(default="", compare=False)
 
     @property
     def available(self) -> bool:
@@ -63,100 +64,24 @@ class MapModel:
 
     @property
     def revision(self) -> str:
-        return facts([self.backend, self.model, self.effort, self.runner_bin, self.extra_args,
-                       self.review_effort or self.effort])
-
-    def for_review(self) -> MapModel:
-        return replace(self, effort=self.review_effort or self.effort, review_effort=None)
+        return facts([self.backend, self.model, self.effort, self.runner_bin, self.extra_args])
 
 
-# Map copy is read-time presentation, not research: opening a project must not
-# spend the engineer's deep-reasoning budget. ``auto`` follows the front-door
-# role (the lighter triage model) at a low drafting effort, with a medium
-# check pass; explicit operator settings still win.
-MAP_AUTO_EFFORT = "low"
-MAP_AUTO_REVIEW_EFFORT = "medium"
-MAP_AUTO_ROLE = "manager"
-
-
-MAP_MODEL_KNOB = "ARGUS_SKILL_MAP_MODEL"
-MAP_MODEL_BACKEND_KNOB = "ARGUS_SKILL_MAP_MODEL_BACKEND"
-
-
-def map_base_role() -> tuple[str, RoleConfig]:
-    """The role whose runner writes map text: the front door, else the engineer."""
-    base = resolve_role_config(MAP_AUTO_ROLE)
-    if base.backend == "memory":
-        # A front door without a real runner cannot write map text; the map
-        # keeps the research runner rather than going dark.
-        research = resolve_role_config("engineer")
-        if research.backend != "memory":
-            return "engineer", research
-    return MAP_AUTO_ROLE, base
-
-
-def pinned_map_model_unavailable(model: str, backend: str, *, global_root: Path | None = None) -> str:
-    """Why ``backend`` cannot run the pinned map ``model`` (empty when it can).
-
-    A pin is chosen from one backend's list; switching the runner keeps the
-    config entry but not its meaning. A backend that publishes its models
-    decides by its list. One that does not is trusted only with a model pinned
-    while it was the active backend, or one that has already answered
-    through it here.
-    """
-    from .mission_items import _seen_model_ids, backend_model_ids
-
-    try:
-        listed = backend_model_ids(backend, global_root)
-    except Exception:  # noqa: BLE001 - an unreachable list falls through to the history check
-        listed = []
-    if listed:
-        if model in listed:
-            return ""
-        return f"{model} is not in the {backend} model list"
-    recorded = resolve_knob(MAP_MODEL_BACKEND_KNOB, "").value.strip()
-    if recorded == backend:
-        return ""
-    try:
-        if model in _seen_model_ids(global_root, provider=backend):
-            return ""
-    except Exception:  # noqa: BLE001 - history is a hint, never a failure
-        pass
-    origin = f"while {recorded} was the runner" if recorded else "for another runner"
-    return f"{model} was chosen {origin} and has not answered through {backend}"
-
-
-def resolve_map_model(*, global_root: Path | None = None) -> MapModel:
-    role, base = map_base_role()
-    pinned = resolve_knob(MAP_MODEL_KNOB, "auto")
-    model, note = pinned.value, ""
-    # Every pin is vetted against the runner that will carry it, whatever its
-    # source: a saved choice outlives the runner it was picked for, a settings
-    # save in this process also lands in the environment (so the source alone
-    # cannot tell a user choice from a deployment default), and a deployment
-    # default is overridable rather than a guarantee the runner can serve it.
-    if model.lower() != "auto" and base.backend != "memory":
-        reason = pinned_map_model_unavailable(model, base.backend, global_root=global_root)
-        if reason:
-            note = f"Map model follows auto: {reason}."
-            logging.getLogger(__name__).warning(note)
-            model = "auto"
-    effort = resolve_knob("ARGUS_SKILL_MAP_REASONING_EFFORT", "auto").value
-    review_effort = resolve_knob("ARGUS_SKILL_MAP_REVIEW_REASONING_EFFORT", "auto").value
-    runner = resolve_runner_bin_setting(role, backend=base.backend)
-    if not runner and base.backend != "memory":
-        runner = default_runner_bin(normalize_runner_backend(base.backend))
-    reasoning = base.effort is not None or model.lower() != "auto"
-    auto_effort = MAP_AUTO_EFFORT if reasoning else None
-    auto_review = MAP_AUTO_REVIEW_EFFORT if reasoning else None
+def resolve_map_model() -> MapModel:
+    """Map copy is read-time presentation, not research: opening a project
+    must not spend the engineer's deep-reasoning budget, so it runs on the
+    shared runner with the light model and effort."""
+    backend = resolve_role_config("manager").backend
+    model = resolve_light_model(backend=backend)
+    runner = resolve_runner_bin_setting(backend=backend)
+    if not runner and backend != "memory":
+        runner = default_runner_bin(normalize_runner_backend(backend))
     return MapModel(
-        backend=base.backend,
-        model=base.model if model.lower() == "auto" else model,
-        effort=auto_effort if effort.lower() == "auto" else effort,
+        backend=backend,
+        model=model,
+        effort=resolve_light_effort() if is_reasoning_model(model) else None,
         runner_bin=runner,
         extra_args=tuple(shlex.split(os.environ.get("ARGUS_SKILL_RUNNER_EXTRA_ARGS", ""))),
-        review_effort=auto_review if review_effort.lower() == "auto" else review_effort,
-        note=note,
     )
 
 
@@ -269,34 +194,31 @@ def _run_map_turn(
     backend.set_usage_context(project_root=project_root, global_root=global_root)
     scratch = global_root / "map-presentation"
     scratch.mkdir(parents=True, exist_ok=True)
-    try:
-        # A separate, read-only turn cannot resume or edit the research conversation.
-        with tempfile.TemporaryDirectory(prefix="generation-", dir=scratch) as workdir:
-            if on_progress is not None:
-                on_progress(phase)
-            result = run_exec(
-                backend,
-                prompt=prompt,
-                options=RunnerOptions(
-                    model=config.model or None,
-                    reasoning_effort=config.effort,
-                    working_dir=workdir,
-                    skip_git_repo_check=True,
-                    sandbox_mode="read-only",
-                    force_safe_mode=True,
-                    disable_tools=True,
-                    output_schema=output_schema if config.backend in {"codex", "pi"} else None,
-                    external_interrupt_reason_provider=lambda: (
-                        "Map text generation timed out" if time.monotonic() >= deadline else None
-                    ),
+    # A separate, read-only turn cannot resume or edit the research conversation.
+    with tempfile.TemporaryDirectory(prefix="generation-", dir=scratch) as workdir:
+        if on_progress is not None:
+            on_progress(phase)
+        result = run_exec(
+            backend,
+            prompt=prompt,
+            options=RunnerOptions(
+                model=config.model or None,
+                reasoning_effort=config.effort,
+                working_dir=workdir,
+                skip_git_repo_check=True,
+                sandbox_mode="read-only",
+                force_safe_mode=True,
+                disable_tools=True,
+                output_schema=output_schema if config.backend in {"codex", "pi"} else None,
+                external_interrupt_reason_provider=lambda: (
+                    "Map text generation timed out" if time.monotonic() >= deadline else None
                 ),
-                run_label=run_label,
-            )
-            if on_result is not None:
-                # Preserve the real call receipt even when execution or output validation fails.
-                on_result(result)
-    finally:
-        backend.close_acp_clients()
+            ),
+            run_label=run_label,
+        )
+        if on_result is not None:
+            # Preserve the real call receipt even when execution or output validation fails.
+            on_result(result)
     if result.exit_code or result.fatal_error:
         reason = str(result.fatal_error or "").lower()
         code = (
