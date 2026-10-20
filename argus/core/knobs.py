@@ -101,12 +101,10 @@ KNOBS: tuple[Knob, ...] = (
     Knob("ARGUS_SKILL_PLANNER_RUNNER_BIN", "(=RUNNER_BIN)", "per-role CLI binary for the planner", "backend"),
     Knob("ARGUS_SKILL_MANAGER_RUNNER_BIN", "(=RUNNER_BIN)", "per-role CLI binary for the manager", "backend"),
     Knob("ARGUS_SKILL_SUPERVISOR_RUNNER_BIN", "(=RUNNER_BIN)", "per-role CLI binary for the subagent supervisor", "backend"),
-    # --- resident teammate pool, time-box, and deterministic leaderboard ---
+    # --- resident teammate pool and time-box ---
     Knob("ARGUS_TEAMMATE_PAPER_MISSION", "(inherit lead default)", "force the paper gates on|off for each teammate", "team"),
     Knob("ARGUS_TEAMMATE_TIMEOUT_S", "0", "optional teammate wall-clock cap; disabled by default", "team"),
     Knob("ARGUS_TEAMMATE_MAX_ROUNDS", "0", "optional teammate engineer-round cap; disabled by default", "team"),
-    Knob("ARGUS_TEAMMATE_RESULT_FILE", "(unset)", "path the mission writes {metric,mechanism} to → the leaderboard shard", "team"),
-    Knob("ARGUS_LEADERBOARD_LOWER_IS_BETTER", "off (higher-is-better)", "global leaderboard direction; a task's lower_is_better overrides it per target", "team"),
     Knob("ARGUS_TEAM_MAX_WIDTH", "64", "hard safety ceiling for one campaign's requested teammate width", "team"),
     Knob("ARGUS_TEAM_DEFAULT_WIDTH", "2", "default concurrent teammates, independent of candidate count", "team"),
     Knob("ARGUS_TEAM_MAX_ACTIVE_CAMPAIGNS", "8", "hard safety ceiling for active Team campaigns in one project", "team"),

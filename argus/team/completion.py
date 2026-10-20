@@ -9,7 +9,7 @@ from pathlib import Path
 from typing import Any, Callable
 
 from ..core.operator_messages import publish_operator_message
-from . import _store, leaderboard, roster, task_board
+from . import _store, roster, task_board
 
 log = logging.getLogger(__name__)
 _STATE_FILE = "completion_summary.json"
@@ -61,7 +61,6 @@ def _payload(root: Path, marker: dict[str, Any]) -> dict[str, Any] | None:
         "generation": float(marker.get("created_ts") or 0.0),
         "mission": str(manifest.get("mission_objective") or ""),
         "tasks": normalized_tasks,
-        "leaderboard": leaderboard.read(root),
     }
 
 
@@ -84,7 +83,7 @@ def _prompt(payload: dict[str, Any]) -> str:
         "every teammate process exited and every task is done, failed, or blocked. "
         "Write the final "
         "operator-facing chat summary in the mission's language. Use 5-10 concise lines. "
-        "State completed/failed/blocked counts, the strongest result or mechanism, important "
+        "State completed/failed/blocked counts, the strongest result, important "
         "artifacts, honest failures, and the most useful next step. Do not expose internal "
         "state paths unless they are result artifacts. Do not claim success for failed tasks.\n\n"
         f"TEAM FACTS:\n{facts}"
@@ -131,14 +130,6 @@ def _fallback(payload: dict[str, Any]) -> str:
         )
     if blocked:
         lines.append("Blocked: " + "; ".join(row["title"] for row in blocked[:4]))
-    board = payload.get("leaderboard") or {}
-    best = [
-        f"{target}: {entry['best'].get('mechanism') or '(unnamed)'}={entry['best'].get('metric')}"
-        for target, entry in sorted(board.items())
-        if isinstance(entry, dict) and isinstance(entry.get("best"), dict)
-    ]
-    if best:
-        lines.append("Best recorded: " + "; ".join(best[:4]))
     lines.append("The detailed task records and result shards remain available in the Team artifacts.")
     return "\n".join(lines)
 
