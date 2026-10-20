@@ -869,9 +869,9 @@ def test_a_bindable_web_port_is_accepted(value: str) -> None:
     assert args.web_port == int(value)
 
 
-def test_mission_width_accepts_a_count_or_auto() -> None:
+def test_mission_width_accepts_a_count_and_reads_retired_auto_as_default() -> None:
     parser = build_parser()
-    assert parser.parse_args(["--daemon", "--mission-width", "auto"]).mission_width == "auto"
+    assert parser.parse_args(["--daemon", "--mission-width", "auto"]).mission_width == 2
     assert parser.parse_args(["--daemon", "--mission-width", "3"]).mission_width == 3
     assert parser.parse_args(["--daemon"]).mission_width == 2
     with pytest.raises(SystemExit):

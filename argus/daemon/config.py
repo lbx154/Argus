@@ -2,34 +2,11 @@
 
 from __future__ import annotations
 
-import os
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
 
-AUTO_MISSION_WIDTH_MAX = 4
-
-
-def _usable_cpu_count() -> int:
-    try:
-        return len(os.sched_getaffinity(0))
-    except (AttributeError, OSError):
-        return os.cpu_count() or 1
-
-
-def resolve_auto_mission_width() -> int:
-    """The worker ceiling ``--mission-width auto`` stands for on this machine.
-
-    ``auto`` is an upper bound, not a target. How many missions actually run
-    together is decided at claim time: helpers only take ready, parallel-safe
-    items whose dependencies are met (the Planner's DAG), and a task that
-    declares GPUs waits for free cards. The bound is the cores
-    this process may use (a mission needs at least one), capped at four
-    because more workers share one provider session budget and one
-    operator's attention. GPU count does not set it: CPU-only campaigns are
-    common, and a card listing ignores ``CUDA_VISIBLE_DEVICES`` and load.
-    """
-    return max(1, min(AUTO_MISSION_WIDTH_MAX, _usable_cpu_count()))
+DEFAULT_MISSION_WIDTH = 2
 
 
 @dataclass
@@ -51,10 +28,10 @@ class LifeWorkerConfig:
     reviewer_model: str = "gpt-6.1-sol"
     engineer_reasoning_effort: str = "xhigh"
     reviewer_reasoning_effort: str = "high"
-    # An integer, or "auto": a ceiling of up to four workers bounded by the
-    # usable cores, resolved when the config is built; the ready DAG and free
-    # GPUs decide how many of them run at once.
-    mission_width: int | str = 2
+    # A ceiling on concurrent mission workers; the ready DAG and free GPUs
+    # decide how many of them run at once. A retired ``auto`` reads as the
+    # default.
+    mission_width: int | str = DEFAULT_MISSION_WIDTH
     poll_interval: float = 5.0
     log_path: Path | None = None  # defaults to <life_dir>/daemon.log
     project_workdir: Path | None = None
@@ -90,7 +67,7 @@ class LifeWorkerConfig:
 
     def __post_init__(self) -> None:
         if isinstance(self.mission_width, str) and self.mission_width.strip().lower() == "auto":
-            self.mission_width = resolve_auto_mission_width()
+            self.mission_width = DEFAULT_MISSION_WIDTH
         self.mission_width = int(self.mission_width)
         if self.mission_width < 0:
             raise ValueError("mission_width must be zero or a positive integer")
@@ -180,7 +157,7 @@ def config_from_payload(data: dict[str, Any]) -> LifeWorkerConfig:
         reviewer_reasoning_effort=str(
             data.get("reviewer_reasoning_effort") or "high"
         ),
-        mission_width=int(data.get("mission_width", 2)),
+        mission_width=data.get("mission_width", DEFAULT_MISSION_WIDTH),
         poll_interval=float(data.get("poll_interval") or 5.0),
         log_path=Path(log_path).expanduser() if log_path else None,
         continuous=bool(data.get("continuous")),

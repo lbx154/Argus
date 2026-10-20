@@ -225,17 +225,7 @@ def test_daemon_source_ownership_requires_same_installation(
     assert daemon_runtime_owned_by_current_source(foreign) is False
 
 
-def test_mission_width_auto_is_a_ceiling_from_usable_cores_not_gpu_count(
-    tmp_path: Path, monkeypatch,
-) -> None:
-    """``auto`` only bounds how many mission workers may run; how many actually
-    run is decided by which tasks the plan makes ready together and by free
-    GPUs per task. GPU count must not set it (CPU-only campaigns are
-    common, and the visible card list ignores CUDA_VISIBLE_DEVICES)."""
-    from argus.daemon import config as config_mod
-
-    for cores, expected in ((1, 1), (2, 2), (3, 3), (64, 4)):
-        monkeypatch.setattr(config_mod, "_usable_cpu_count", lambda cores=cores: cores)
-        config = LifeWorkerConfig(life_dir=tmp_path, backend="memory", mission_width="auto")
-        assert config.mission_width == expected
-        assert config_from_payload(config_payload(config)).mission_width == expected
+def test_a_retired_auto_mission_width_reads_as_the_default(tmp_path: Path) -> None:
+    config = LifeWorkerConfig(life_dir=tmp_path, backend="memory", mission_width="auto")
+    assert config.mission_width == 2
+    assert config_from_payload({**config_payload(config), "mission_width": "auto"}).mission_width == 2

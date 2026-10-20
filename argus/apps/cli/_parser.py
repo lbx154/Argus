@@ -53,15 +53,17 @@ class _ArgusArgumentParser(argparse.ArgumentParser):
         return _PUBLIC_HELP
 
 
-def _mission_width(value: str) -> int | str:
+def _mission_width(value: str) -> int:
+    from ...daemon.config import DEFAULT_MISSION_WIDTH
+
     text = str(value or "").strip().lower()
-    if text == "auto":
-        return "auto"
+    if text == "auto":  # retired; old scripts get the default
+        return DEFAULT_MISSION_WIDTH
     try:
         width = int(text)
     except ValueError as exc:
         raise argparse.ArgumentTypeError(
-            "mission width must be a whole number or 'auto'"
+            "mission width must be a whole number"
         ) from exc
     if width < 0:
         raise argparse.ArgumentTypeError("mission width must be zero or more")
@@ -283,9 +285,8 @@ def build_parser() -> argparse.ArgumentParser:
         type=_mission_width,
         default=2,
         help="concurrent mission workers: 0 pauses, 1 is serial, N enables "
-             "path-disjoint parallel Planner tasks, auto is a ceiling of up to "
-             "4 bounded by usable cores; ready tasks and free GPUs decide how "
-             "many run (default: 2)",
+             "path-disjoint parallel Planner tasks; ready tasks and free GPUs "
+             "decide how many run (default: 2)",
     )
 
     cockpit_grp = parser.add_argument_group("cockpit")
