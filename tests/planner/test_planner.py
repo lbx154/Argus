@@ -146,7 +146,7 @@ def test_long_settle_value_parses_in_linear_time() -> None:
     assert verdict.settled_instructions == (1,)
 
 
-def test_settled_instructions_come_from_the_footer_including_after_plan_update() -> None:
+def test_settled_instructions_use_only_the_footer_before_plan_update() -> None:
     verdict = parse_planner_text(
         "SETTLE_INSTRUCTION=3\n"
         "Decision:\nPROJECT_DONE=false\nREASON=Evaluate the parser.\n"
@@ -157,7 +157,7 @@ def test_settled_instructions_come_from_the_footer_including_after_plan_update()
         "SETTLE_INSTRUCTION=8"
     )
 
-    assert verdict.settled_instructions == (5, 8)
+    assert verdict.settled_instructions == (5,)
     assert [task.title for task in verdict.new_tasks] == ["Evaluate parser"]
 
 
@@ -1715,3 +1715,35 @@ def test_repair_prompt_asks_to_repeat_settlements_only_when_present() -> None:
 
     assert "Repeat each `SETTLE_INSTRUCTION` line" in with_settle
     assert "Repeat each `SETTLE_INSTRUCTION` line" not in without
+
+
+def test_plan_update_keeps_a_quoted_settle_line_as_plan_text(tmp_path) -> None:
+    from types import SimpleNamespace
+
+    from argus.life.research_plan import research_plan_path
+    from argus.life.supervisor._planner_rendering import PlannerRenderingMixin
+
+    class _Probe(PlannerRenderingMixin):
+        def __init__(self) -> None:
+            self.memory = SimpleNamespace(root=tmp_path)
+            self.events: list[dict] = []
+
+        def _emit(self, event: dict) -> None:
+            self.events.append(event)
+
+    plan = (
+        "# Research plan\nShip the faster parser.\n"
+        "## Central hypotheses\n- The parser is the bottleneck.\n"
+        "## Experiment program\n- Compare both parsers.\n"
+        "SETTLE_INSTRUCTION=7\n"
+        "## Established results\n- None yet.\n"
+        "## Dead ends\n- None yet.\n"
+        "## Next milestone\n- Parser comparison recorded."
+    )
+
+    assert _Probe()._apply_research_plan_update(
+        "Decision:\nPROJECT_DONE=false\nREASON=Plan the comparison.\nPLAN_UPDATE=" + plan
+    )
+    saved = research_plan_path(tmp_path).read_text(encoding="utf-8")
+    assert "## Next milestone" in saved
+    assert "SETTLE_INSTRUCTION=7" in saved
