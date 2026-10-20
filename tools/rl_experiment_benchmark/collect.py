@@ -13,7 +13,7 @@ from pathlib import Path
 import portalocker
 
 ROLE_EVENTS = {
-    "agent.io.start", "agent.io.complete", "usage.recorded", "life.mission.started",
+    "agent.io.start", "agent.io.complete", "life.mission.started",
     "life.mission.completed", "round.review.completed", "round.external_work_review.required",
     "round.external_work_review.completed", "life.plan.generated", "life.planner.waiting",
     "engineer.progress",
@@ -134,6 +134,14 @@ def collect(root):
                 payload["target_paths"] = re.findall(r'"(?:path|file_path)"\s*:\s*"([^"\n]+)"', row.get("text", ""))
             append("role_event", session / "events.jsonl", payload, row["ts"])
             events.append(payload)
+    # Each model call's usage lives in the call ledger, not the event log.
+    for row in jsonl(session / "usage.jsonl"):
+        if row.get("completed_at", 0) < start:
+            continue
+        payload = {k: v for k, v in {**row, "type": "usage.recorded", "ts": row["completed_at"]}.items()
+                   if k in EVENT_FIELDS}
+        append("role_event", session / "usage.jsonl", payload, payload["ts"])
+        events.append(payload)
 
     jobs = []
     for path in sorted((workspace / ".argus_subagents").glob("*.json")):

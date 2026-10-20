@@ -17,7 +17,6 @@ from argus.core.usage import (
     ensure_project_events_standardized,
     format_usage_cost,
     project_usage_summary,
-    usage_recorded_event,
 )
 from argus.life.supervisor import global_daily_spend
 from argus.life.supervisor._cost import _CostTrackingSink
@@ -434,7 +433,8 @@ def test_policy_error_after_metered_work_preserves_billing(
     assert reread.cost_usd == record.cost_usd
 
 
-def test_usage_recorded_event_v2_is_self_contained(tmp_path: Path) -> None:
+def test_the_usage_ledger_keeps_the_whole_call_record(tmp_path: Path) -> None:
+    """usage.jsonl is the only copy of a call's usage; the event log no longer repeats it."""
     project = tmp_path / "projects" / "p1"
     record = _record(
         call_id="call-1",
@@ -458,21 +458,11 @@ def test_usage_recorded_event_v2_is_self_contained(tmp_path: Path) -> None:
         }],
     )
 
-    event = usage_recorded_event(record)
-
-    assert event["schema_version"] == 2
-    assert event["project_id"] == "p1"
-    assert event["thread_id"] == "thread-1"
-    assert event["duration_ms"] == 1250
-    assert event["usage"]["input_tokens"] == event["input_tokens"] == 100
-    assert event["usage"]["models"][0]["model"] == "gpt-5.6-sol"
-    assert event["pricing"]["cost_basis"] == event["cost_basis"] == "token"
-    assert event["pricing"]["cost_usd"] == pytest.approx(0.02)
-
     ledger = UsageLedger(project, migrate_legacy=False)
     assert ledger.append(record) is True
     stored = ledger.records()[0]
-    assert stored.thread_id == "thread-1"
+    assert (stored.project_id, stored.thread_id) == ("p1", "thread-1")
+    assert stored.cost_basis == "token" and stored.cost_usd == pytest.approx(0.02)
     assert stored.duration_ms == 1250
     assert stored.model_usage[0]["total_nano_aiu"] == 2_000_000_000
     assert stored.model_usage[0]["usage_event_id"] == 7
@@ -1221,16 +1211,16 @@ def test_copilot_reconcile_prices_a_pending_turn_from_the_session_event_log(
 
 def _interrupt_receipt(for_call: str, **overrides) -> dict:
     receipt = {
-        "type": "agent.io.complete", "io_kind": "complete", "call_id": for_call,
+        "type": "agent.io.complete", "call_id": for_call,
         "run_label": "manager-supervision", "backend": "copilot", "model": "gpt-5.6-sol",
-        "exit_code": -15, "thread_id": "acp-b4c1", "provider_session_id": "acp-b4c1",
+        "exit_code": -15, "thread_id": "acp-b4c1",
         "turn_completed": False, "turn_failed": True,
         "fatal_error": "External interrupt: Manager supervision superseded",
         "tool_activity_observed": False, "input_tokens": 0, "cached_input_tokens": 0,
         "cache_write_tokens": 0, "output_tokens": 0, "reasoning_output_tokens": 0,
         "premium_requests": None, "premium_requests_present": False, "total_nano_aiu": None,
         "agent_message_count": 0, "agent_message_chars": 0, "stdout_line_count": 0,
-        "stderr_line_count": 0, "json_event_count": 0,
+        "json_event_count": 0,
     }
     receipt.update(overrides)
     return receipt

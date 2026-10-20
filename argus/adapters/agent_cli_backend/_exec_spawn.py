@@ -76,23 +76,25 @@ def log_start_record(backend: Any, ctx: "_ExecContext") -> None:
     """
     start_row: dict[str, Any] = {
         "type": EventType.AGENT_IO_START,
-        "io_kind": "start",
         "call_id": ctx.call_id,
         "run_label": ctx.run_label,
         "backend": backend._runner.backend,
         "model": ctx.options.model,
         "reasoning_effort": ctx.options.reasoning_effort,
-        "working_dir": ctx.options.working_dir,
-        "resume_thread_id": ctx.resume_thread_id,
-        "provider_session_id": getattr(ctx, "provider_session_id", None),
         "ts": time.time(),
     }
     # Full prompts belong in the bounded raw I/O transcript, not the
     # authoritative event history. Keep only size in events.jsonl;
-    # agent_io.jsonl retains the verbatim copy under ring rotation.
+    # agent_io.jsonl retains the verbatim copy under ring rotation, with the
+    # directory and session the call was bound to before the process exists.
     backend._log_agent_io(ctx.log_path, {**start_row, "prompt_chars": len(ctx.prompt)})
-    start_row["prompt"] = ctx.prompt
-    backend._log_agent_io(_raw_transcript_path(ctx.log_path), start_row)
+    backend._log_agent_io(_raw_transcript_path(ctx.log_path), {
+        **start_row,
+        "working_dir": ctx.options.working_dir,
+        "resume_thread_id": ctx.resume_thread_id,
+        "provider_session_id": getattr(ctx, "provider_session_id", None),
+        "prompt": ctx.prompt,
+    })
 
 
 def bind_provider_session(ctx: "_ExecContext", cli_options: Any) -> str | None:
@@ -207,7 +209,6 @@ def spawn_and_finish(ctx: "_ExecContext", cli_options: Any) -> RunnerResult:
         )
         backend._log_agent_io(ctx.log_path, {
             "type": EventType.AGENT_IO_ERROR,
-            "io_kind": "error",
             "call_id": ctx.call_id,
             "run_label": ctx.run_label,
             "backend": getattr(backend._runner, "backend", ""),
@@ -240,7 +241,6 @@ def spawn_and_finish(ctx: "_ExecContext", cli_options: Any) -> RunnerResult:
         )
         backend._log_agent_io(ctx.log_path, {
             "type": EventType.AGENT_IO_ERROR,
-            "io_kind": "error",
             "call_id": ctx.call_id,
             "run_label": ctx.run_label,
             "backend": getattr(backend._runner, "backend", ""),
@@ -261,7 +261,6 @@ def spawn_and_finish(ctx: "_ExecContext", cli_options: Any) -> RunnerResult:
         log.exception("codex runner raised")
         backend._log_agent_io(ctx.log_path, {
             "type": EventType.AGENT_IO_ERROR,
-            "io_kind": "error",
             "call_id": ctx.call_id,
             "run_label": ctx.run_label,
             "backend": getattr(backend._runner, "backend", ""),
@@ -410,15 +409,12 @@ def spawn_and_finish(ctx: "_ExecContext", cli_options: Any) -> RunnerResult:
     # ------------------------------------------------------------------ #
     complete_row: dict[str, Any] = {
         "type": EventType.AGENT_IO_COMPLETE,
-        "io_kind": "complete",
         "call_id": ctx.call_id,
         "run_label": ctx.run_label,
         "backend": getattr(backend._runner, "backend", ""),
         "model": translated.usage_model or ctx.options.model,
         "exit_code": getattr(cli_result, "exit_code", None),
         "thread_id": bound_session_id,
-        "provider_session_id": ctx.provider_session_id,
-        "session_identity_conflict": ctx.session_identity_conflict,
         "turn_completed": getattr(cli_result, "turn_completed", None),
         "turn_failed": getattr(cli_result, "turn_failed", None),
         "fatal_error": redact_secrets_text(
@@ -444,34 +440,22 @@ def spawn_and_finish(ctx: "_ExecContext", cli_options: Any) -> RunnerResult:
         ),
         "premium_requests_present": translated.premium_requests_present,
         "total_nano_aiu": translated.total_nano_aiu,
-        "usage_model": translated.usage_model,
         "ts": time.time(),
     }
     messages = list(getattr(cli_result, "agent_messages", []) or [])
-    retained_stdout = list(getattr(cli_result, "stdout_lines", []) or [])
-    retained_stderr = list(getattr(cli_result, "stderr_lines", []) or [])
-    retained_events = list(getattr(cli_result, "json_events", []) or [])
     stdout_count = int(
         getattr(cli_result, "stdout_line_count", 0)
-        or len(retained_stdout)
-    )
-    stderr_count = int(
-        getattr(cli_result, "stderr_line_count", 0)
-        or len(retained_stderr)
+        or len(getattr(cli_result, "stdout_lines", []) or [])
     )
     event_count = int(
         getattr(cli_result, "json_event_count", 0)
-        or len(retained_events)
+        or len(getattr(cli_result, "json_events", []) or [])
     )
     complete_row.update({
         "agent_message_count": len(messages),
         "agent_message_chars": sum(len(str(message)) for message in messages),
         "stdout_line_count": stdout_count,
-        "stderr_line_count": stderr_count,
         "json_event_count": event_count,
-        "stdout_capture_truncated": stdout_count > len(retained_stdout),
-        "stderr_capture_truncated": stderr_count > len(retained_stderr),
-        "json_event_capture_truncated": event_count > len(retained_events),
         "command": _command_metadata(
             getattr(cli_result, "command", []) or []
         ),
