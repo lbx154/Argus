@@ -120,6 +120,18 @@ def _execute_spec_collection(tree: ast.Module) -> tuple[dict, list[tuple[str, st
     return namespace, calls
 
 
+@pytest.fixture
+def native_adapter(monkeypatch) -> Path:
+    """Collection-only tests do not require a previous Windows build in the checkout.
+
+    The actual spec still refuses a missing adapter, as tested separately below.
+    """
+    native = ROOT / "argus/_native/platon-headless.exe"
+    original = Path.is_file
+    monkeypatch.setattr(Path, "is_file", lambda path: path == native or original(path))
+    return native
+
+
 def test_windows_signal_zero_guard_never_delegates_to_terminate_process(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
@@ -180,6 +192,7 @@ def test_embedded_frozen_package_is_explicit_and_boundary_scoped(monkeypatch, ca
     assert len(calls) == 1
 
 
+@pytest.mark.usefixtures("native_adapter")
 def test_frozen_build_hook_extends_existing_payload(monkeypatch):
     import types
 
@@ -439,16 +452,11 @@ def test_pyinstaller_spec_rejects_a_missing_native_adapter(monkeypatch) -> None:
         _execute_spec_collection(tree)
 
 
-def test_pyinstaller_spec_collects_registered_stage_and_overlay_modules(monkeypatch) -> None:
+def test_pyinstaller_spec_collects_registered_stage_and_overlay_modules(native_adapter) -> None:
     tree = ast.parse(SPEC_PATH.read_text(encoding="utf-8"), filename=str(SPEC_PATH))
-    native = ROOT / "argus/_native/platon-headless.exe"
-    original = Path.is_file
-    # Collection-only unit test: do not require a previous build in the checkout.
-    # The actual spec still refuses missing payloads, as tested separately above.
-    monkeypatch.setattr(Path, "is_file", lambda path: True if path == native else original(path))
     namespace, calls = _execute_spec_collection(tree)
     if sys.platform == "win32":
-        assert (str(native), "argus/_native") in namespace["datas"]
+        assert (str(native_adapter), "argus/_native") in namespace["datas"]
     expected_verticals = [load_vertical(name).__name__ for name in VERTICALS]
     expected_domains = [load_domain(name).__name__ for name in BUILTIN_DOMAINS]
 
