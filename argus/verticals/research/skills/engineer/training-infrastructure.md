@@ -22,15 +22,14 @@ recommendation. The current answer is produced at project time from live
 sources and local measurement, and written as a dated project skill,
 `engineer/<task-class>-infrastructure-decision.md` (the round prompt describes
 its shape), so that the Reviewer can check every date and number against a
-cached source or a run log, and a later project on the same task class and
+cited source or a run log, and a later project on the same task class and
 hardware can start from the record instead of repeating the work. When such a
 record exists and its stated re-verify date has not passed, start from it; when
 the task class or the hardware changed, it no longer applies.
 
 ## Survey the landscape from live sources
 
-Fetch every page with `python -m argus.tools.web_source <URL>`; it stores the
-text under `.argus/sources/` with an access date, and that cached path is cited
+Fetch every page with your own web tools, and cite its URL and access date
 beside every fact taken from it. A date asserted from memory has nothing
 behind it and cannot be re-verified. Sources, roughly in order of how much they
 tell you:
@@ -62,7 +61,7 @@ as an automatic exclusion: a small stable library that finished its job is a
 different case from an abandoned one.
 
 Write one evidence card per candidate, rejected ones included: official and
-documentation URLs with access dates and cached paths; release and last-commit
+documentation URLs with access dates; release and last-commit
 dates; supported algorithms for this task class; native multi-turn or agentic
 rollout support against the custom loop you would otherwise write; integrated
 inference engines and whether they colocate with the trainer; support for the

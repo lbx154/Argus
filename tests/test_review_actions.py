@@ -149,17 +149,15 @@ def test_tool_transport_preserves_readonly_and_keeps_capability_out_of_argv(back
         assert not actions.decision.backend_unavailable
 
 
-def test_action_preserves_explicit_session_and_frontier_signals():
+def test_action_preserves_explicit_session_signal():
     actions = ReviewActions()
     signal = {"kind": "quality_degradation", "target": "engineer", "detail": "Repeated an obsolete repair."}
-    frontier = {"change": "risk_reduced", "resolved_obligations": ["bounded check"]}
     actions.dispatch("revise_review", {
-        "review": "Use the current evidence.", "session_signal": signal,
-        "frontier_report": frontier, "forward_progress": False,
+        "review": "Use the current evidence.", "session_signal": signal, "forward_progress": False,
     })
     assert actions.decision.session_signal == signal
-    assert actions.decision.frontier_report == frontier
     assert actions.decision.planner_report["forward_progress"] is False
+    assert all("frontier_report" not in tool["inputSchema"]["properties"] for tool in actions.tools)
 
 
 def test_pi_extension_invokes_the_host_action():

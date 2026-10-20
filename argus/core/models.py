@@ -219,9 +219,7 @@ class ReviewDecision:
     # A round may be correctly ``done`` yet still fail to move the operator's
     # objective; LifeSupervisor uses this signal to surface repeated hollow work.
     planner_report: dict[str, Any] = field(default_factory=dict)
-    # Runtime-owned semantic transition and explicit role-session signal. The
-    # Reviewer supplies these through its native review action.
-    frontier_report: dict[str, Any] = field(default_factory=dict)
+    # Explicit role-session signal, supplied through the native review action.
     session_signal: dict[str, str] = field(default_factory=dict)
     # The Reviewer's own judgment that the fact it disputes cannot be observed
     # through any view it has (a masked display, for example), so repeating the
@@ -346,11 +344,6 @@ class ReviewDecision:
             value = str(report.get(source_key) or "").strip()
             if value:
                 payload[event_key] = value
-        frontier = self.frontier_report if isinstance(self.frontier_report, dict) else {}
-        frontier_change = str(frontier.get("change") or "").strip()
-        if frontier_change:
-            payload["frontier_change"] = frontier_change
-            payload["frontier_summary"] = str(frontier.get("summary") or "")[:2000]
         signal = self.session_signal if isinstance(self.session_signal, dict) else {}
         if str(signal.get("kind") or "").strip():
             payload["session_signal"] = dict(signal)

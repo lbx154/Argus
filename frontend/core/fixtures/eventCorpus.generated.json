@@ -638,8 +638,6 @@
         "failure_cause": "failure cause",
         "failure_kind": "failure kind",
         "forward_progress": true,
-        "frontier_change": "frontier change",
-        "frontier_summary": "frontier summary",
         "input_tokens": 1,
         "learning": "worth_reflecting",
         "learning_reason": "learning reason",

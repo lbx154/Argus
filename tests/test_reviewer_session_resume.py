@@ -154,7 +154,6 @@ def test_matching_resume_request_sends_delta_only() -> None:
     assert _REEVALUATE in r2
     assert _DELTA_HEADER in r2
     assert "ROUND TWO WORK" in r2
-    assert "settled context" in r2
     assert "ONLY evidence" not in r2
     assert "from scratch" not in r2
     resumes = [t for label, t in backend.resume_history if label == "reviewer"]
@@ -347,7 +346,7 @@ def test_reviewer_is_fresh_across_rounds(tmp_path: Path) -> None:
     assert "previous_review_summary" not in reviewer_prompts[0]
     assert "## Incremental re-review boundary" in reviewer_prompts[1]
     assert "Your judgment in round 1 (`continue`):\nr" in reviewer_prompts[1]
-    assert "do not invent a new unrelated repair round" in reviewer_prompts[1]
+    assert "The previous Reviewer judgment below is not fact" in reviewer_prompts[1]
 
 
 def test_previous_review_summary_keeps_only_last_three_one_line_verdicts() -> None:

@@ -460,13 +460,6 @@ def _reduce_review_completed(
         view["review"]["manuscript_snapshot"] = dict(
             event["manuscript_snapshot"]
         )
-    frontier_change = _text(event, "frontier_change")
-    if frontier_change:
-        view["frontier"] = {
-            "change": frontier_change,
-            "summary": _text(event, "frontier_summary", 2000),
-            "updated_at": ts,
-        }
     if review_skipped:
         cause, stop_kind = _skipped_round_cause(event)
         _named_kind, named_line = _named_failure(event)

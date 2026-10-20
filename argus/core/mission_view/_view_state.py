@@ -94,7 +94,6 @@ def empty_mission_view() -> dict[str, Any]:
         },
         "achievement": None,
         "review": {"status": "", "reason": "", "rejected_attempts": 0},
-        "frontier": {"change": "", "summary": "", "updated_at": 0.0},
         # One structured receipt links completion, chat, and the right-side
         # result surface.  It is null until a successful mission settles.
         "delivery": None,
@@ -159,7 +158,6 @@ def _read_unlocked(root: Path) -> dict[str, Any]:
     payload.setdefault("language", "")
     payload.setdefault("learned_wiki_pages", [])
     payload.setdefault("role_work", [])
-    payload.setdefault("frontier", {"change": "", "summary": "", "updated_at": 0.0})
     payload.setdefault("delivery", None)
     payload.setdefault("outcome", {})
     routing = payload.setdefault("routing", {})

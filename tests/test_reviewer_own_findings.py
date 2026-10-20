@@ -329,45 +329,8 @@ def test_findings_are_framed_as_correctable_earlier_words() -> None:
         round_index=2, session_id=None, main_summary="S", main_error=None,
         prev_review_summary="Round 1 — continue: x",
     )
-    assert "settled context" in boundary
+    assert "not fact" in boundary
     assert "If current evidence shows your earlier judgment was wrong" in boundary
-
-
-def test_open_items_are_bounded_and_say_when_truncated() -> None:
-    judgment = _reviewer_judgment("Fix the totals.")
-    judgment.frontier_report = {
-        "remaining_work": [f"item {index} " + "x" * 500 for index in range(8)],
-    }
-    findings = render_previous_findings([_record(1, judgment)], round_index=2)
-    assert findings.has_open_items
-    items = [line for line in findings.text.splitlines() if line.startswith("- item")]
-    assert len(items) == 6
-    assert all(len(line) <= 402 for line in items)
-    assert "- (+2 more not shown)" in findings.text
-
-
-def test_brief_keeps_the_missing_condition_when_findings_name_no_open_items(
-    tmp_path: Path,
-) -> None:
-    from argus.life.context_packet import create_mission_context, record_reviewed_handoff
-
-    mission = create_mission_context(
-        life_dir=tmp_path / "state", mission_id="m", stage="develop",
-        objective="o", execution_workdir=str(tmp_path),
-    )
-    review = _reviewer_judgment("Totals are wrong.")
-    review.frontier_report = {"remaining_work": ["recount the totals"], "change": "bounded_regression"}
-    record_reviewed_handoff(
-        mission_context_path=mission, round_index=1, engineer_summary="done",
-        review=review, checkpoint_path=mission.parent / "CHECKPOINT.md",
-    )
-    kept = render_mission_brief(mission, include_previous_review=False)
-    dropped = render_mission_brief(
-        mission, include_previous_review=False, include_missing_condition=False,
-    )
-    assert "Totals are wrong." not in kept
-    assert "- Missing condition: recount the totals" in kept
-    assert "recount the totals" not in dropped
 
 
 # --- own thread only ----------------------------------------------------------

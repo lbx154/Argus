@@ -214,3 +214,17 @@ def test_interrupted_learning_resumes_and_failed_learning_can_retry(home: Path, 
     answer_learning.resume_learning(home).join(timeout=5)
     assert len(captured) == 2
     assert answer_learning.learning_status(home, SID)["jobs"][0]["attempts"] == 3
+
+
+def test_learning_trace_keeps_observations_instead_of_runtime_identifiers():
+    evidence = manager_bridge._answer_learning_evidence([{
+        "tool": "web_fetch", "status": "failed",
+        "detail": "Original table was not accessible; only the abstract was read.",
+        "result": "A source-specific limitation",
+        "call_id": "transport-only-identity", "started_ts": 12345, "ended_ts": 12346,
+    }])
+    assert "Original table was not accessible" in evidence
+    assert "A source-specific limitation" in evidence
+    assert "'status': 'failed'" in evidence
+    assert "transport-only-identity" not in evidence
+    assert "12345" not in evidence and "12346" not in evidence

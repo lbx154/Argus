@@ -23,17 +23,6 @@ from ..core.venue_review import normalize_venue_review
 _STATUSES = {"done", "continue", "blocked", "replan_requested"}
 _PLAN_SIGNALS = {"continue", "reconsider"}
 _AUTHORITY_IMPACTS = {"technical", "manager_contract", "operator"}
-_FRONTIER_CHANGES = {
-    "artifact_improved",
-    "risk_reduced",
-    "uncertainty_reduced",
-    "information_gain",
-    "bounded_regression",
-    "recovered",
-    "unchanged_failure",
-    "expanding_regression",
-    "unexplained_regression",
-}
 _SESSION_SIGNALS = {
     "repeated_contradiction",
     "reviewer_confusion",
@@ -100,45 +89,6 @@ def _planner_report_from_payload(parsed: Mapping[str, Any]) -> dict[str, Any]:
     )
 
 
-def _frontier_report(value: Any) -> dict[str, Any]:
-    if not isinstance(value, dict):
-        return {}
-    change = str(value.get("change") or "").strip().lower()
-    if change not in _FRONTIER_CHANGES:
-        return {}
-    report: dict[str, Any] = {
-        "change": change,
-        "summary": str(value.get("summary") or "").strip()[:2000],
-    }
-    for key in (
-        "resolved_obligations",
-        "new_obligations",
-        "regressed_obligations",
-        "remaining_work",
-        "proxy_changes",
-        "artifacts",
-        "evidence",
-    ):
-        raw = value.get(key)
-        if isinstance(raw, list):
-            report[key] = [
-                text for item in raw[:40] if (text := str(item or "").strip())
-            ]
-    for key in ("hypothesis", "uncertainty", "next_decision_point"):
-        text = str(value.get(key) or "").strip()
-        if text:
-            report[key] = text[:2000]
-    regression = value.get("regression")
-    if isinstance(regression, dict):
-        report["regression"] = {}
-        for key in ("cause", "scope", "budget", "recovery_test", "exit_trigger"):
-            text = str(regression.get(key) or "").strip()
-            report["regression"][key] = (
-                "" if text.casefold() in {"none", "null", "n/a", "na", "-"} else text[:1000]
-            )
-    return report
-
-
 def _tagged_values(raw: str) -> dict[str, str]:
     """Parse compact ``name::value|name::value`` handoff fields."""
     tagged: dict[str, str] = {}
@@ -147,13 +97,6 @@ def _tagged_values(raw: str) -> dict[str, str]:
         if separator and name.strip() and value.strip():
             tagged[name.strip().lower()] = value.strip()
     return tagged
-
-
-def _tagged_items(value: str) -> list[str]:
-    text = str(value or "").strip()
-    if text.casefold() in {"", "none", "null", "n/a", "na", "-"}:
-        return []
-    return [item.strip() for item in text.split(";") if item.strip()]
 
 
 def _session_signal(value: Any) -> dict[str, str]:
@@ -213,24 +156,6 @@ def _apply_model_judgment_policy(decision: ReviewDecision) -> ReviewDecision:
         # covers a non-blocked verdict whose entire rationale was an opaque
         # integrity assertion.
         decision.reason = sanitize_model_visible_text(original_reason).strip()
-    frontier = decision.frontier_report
-    if isinstance(frontier, dict):
-        change = str(frontier.get("change") or "")
-        regression = frontier.get("regression")
-        regression = regression if isinstance(regression, dict) else {}
-        envelope_complete = all(
-            str(regression.get(key) or "").strip()
-            for key in ("cause", "scope", "budget", "recovery_test", "exit_trigger")
-        )
-        if change == "bounded_regression" and not envelope_complete:
-            decision.reason += (
-                " Note: the bounded-regression report omitted one or more of cause, "
-                "scope, budget, recovery test, and exit trigger."
-            )
-        elif change == "expanding_regression" and decision.status == "done":
-            decision.reason += (
-                " Note: the same judgment reports an expanding regression."
-            )
     return decision
 
 
@@ -334,16 +259,14 @@ def decision_from_payload(payload: Mapping[str, Any]) -> ReviewDecision | None:
             ),
             venue_review=normalize_venue_review(payload.get("venue_review")),
             planner_report=_planner_report_from_payload(payload),
-            frontier_report=_frontier_report(payload.get("frontier_report")),
             session_signal=_session_signal(payload.get("session_signal")),
         )
     )
 
 
-# Compatibility reader, not a prompt schema. Several older sessions emitted
-# frontier/session bookkeeping; accepting it is cheap, but the current prompt
-# only asks for fields that affect settlement, operator routing, research
-# certification, or Manager plan adjudication.
+# Compatibility reader, not a prompt schema. Older sessions also emitted
+# FRONTIER_* and REGRESSION_ENVELOPE lines; they stay listed only so they end
+# the block before them, and are otherwise ignored.
 _VERDICT_KEYS = (
     "STATUS",
     "REASON",
@@ -437,9 +360,6 @@ def _parse_named_verdict(text: str) -> ReviewDecision | None:
     reason = read_block(text, "REASON", _VERDICT_KEYS)
     if not reason.strip():
         return None
-    obligations = _tagged_values(read_optional(values, "FRONTIER_OBLIGATIONS"))
-    evidence = _tagged_values(read_optional(values, "FRONTIER_EVIDENCE"))
-    regression = _tagged_values(read_optional(values, "REGRESSION_ENVELOPE"))
     signal = _tagged_values(read_optional(values, "SESSION_SIGNAL"))
     raw_research_result = _load_json(read_optional(values, "RESEARCH_RESULT"))
     if raw_research_result is None:
@@ -478,29 +398,6 @@ def _parse_named_verdict(text: str) -> ReviewDecision | None:
                 alternative=read_block(text, "PLAN_ALTERNATIVE", _VERDICT_KEYS),
                 authority_impact=read_optional(values, "AUTHORITY_IMPACT"),
             ),
-            frontier_report=_frontier_report({
-                "change": read_optional(values, "FRONTIER_CHANGE"),
-                "summary": read_block(text, "FRONTIER_SUMMARY", _VERDICT_KEYS),
-                "hypothesis": evidence.get("hypothesis", ""),
-                "resolved_obligations": _tagged_items(obligations.get("resolved", "")),
-                "new_obligations": _tagged_items(obligations.get("new", "")),
-                "regressed_obligations": _tagged_items(obligations.get("regressed", "")),
-                "remaining_work": _tagged_items(obligations.get("remaining", "")),
-                "artifacts": _tagged_items(evidence.get("artifacts", "")),
-                "evidence": _tagged_items(evidence.get("evidence", "")),
-                "proxy_changes": _tagged_items(evidence.get("proxies", "")),
-                "uncertainty": evidence.get("uncertainty", ""),
-                "next_decision_point": read_block(
-                    text, "NEXT_DECISION_POINT", _VERDICT_KEYS
-                ),
-                "regression": {
-                    "cause": regression.get("cause", ""),
-                    "scope": regression.get("scope", ""),
-                    "budget": regression.get("budget", ""),
-                    "recovery_test": regression.get("recovery", ""),
-                    "exit_trigger": regression.get("exit", ""),
-                },
-            }),
             session_signal=_session_signal(signal),
         )
     )

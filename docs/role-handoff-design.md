@@ -83,9 +83,9 @@ production instance and the current trial.
   still sealed with `producer_role=reviewer`.
 - `RoundLoopState.reviewer_next_action`, which the next Engineer prompt is
   built from, has five writers.
-- `events.jsonl` is the only append-only record. `latest.json`, `frontier.json`,
-  the mission brief, and Backlog outcome fields are projections, but several
-  are written directly rather than derived.
+- `events.jsonl` is the only append-only record. `latest.json`, the mission
+  brief, and Backlog outcome fields are projections, but several are written
+  directly rather than derived.
 
 ### The host makes semantic judgments
 
@@ -176,8 +176,8 @@ handoff ends, four classes of defect appear:
 - **Effective outcome**: settlement computes it from the verdict and the
   interventions. It is a derived value, recorded with the inputs it was derived
   from.
-- **Projections**: `latest.json`, the frontier, the mission brief, and Backlog
-  outcome fields are rebuilt from records. `CHECKPOINT.md` remains the
+- **Projections**: `latest.json`, the mission brief, and Backlog outcome
+  fields are rebuilt from records. `CHECKPOINT.md` remains the
   Engineer's own working note; it is not acceptance evidence.
 
 A record without a known author is a defect, not a Reviewer verdict.
