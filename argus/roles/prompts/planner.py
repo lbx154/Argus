@@ -259,9 +259,7 @@ def build_continuous_prompt(
         except Exception:  # noqa: BLE001 - stage is advisory here
             _stage = ""
         _policy = resolve_policy(
-            _proot,
             stage=_stage,
-            target_level=_research_target_level,
             stage_profiles=prompt_context.verification_stage_profiles,
         )
         if _research_target_level is not None:
@@ -269,7 +267,7 @@ def build_continuous_prompt(
                 "## Research target\n"
                 f"Preserve `research_target_level={_research_target_level}` from "
                 "`.argus/PIPELINE_STATE.json`; it sets `PROJECT_DONE`, not this "
-                f"round (`{_policy.profile}`/{_policy.posture}). At "
+                f"round (`{_policy.profile}`). At "
                 "`publishable`/`doctoral`, require technical depth, verified originality, "
                 "formal/causal grounding, and field significance. Literature reviews instead "
                 "need independent checks of scope, coverage, synthesis, claims, and writing "

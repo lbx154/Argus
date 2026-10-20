@@ -111,14 +111,15 @@ def test_vertical_validator_can_defer_checks_by_verification_profile(
 
     assert contract.completion_issues("propose", tmp_path) == ()
     assert contract.completion_issues("final", tmp_path) == ("certify now",)
+    # A profile saved by an older version is ignored: the stage decides.
     state_root = tmp_path / "state"
     write_pipeline_state(state_root, {"verification_profile": "certify"})
     assert contract.completion_issues(
         "propose",
         tmp_path,
         state_root=state_root,
-    ) == ("certify now",)
-    assert seen == ["explore", "certify", "certify"]
+    ) == ()
+    assert seen == ["explore", "certify", "explore"]
 
 
 def test_non_callable_completion_validator_fails_visibly() -> None:

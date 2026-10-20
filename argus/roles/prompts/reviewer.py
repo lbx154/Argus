@@ -461,11 +461,8 @@ def render_reviewer_prompt(
         except Exception:  # noqa: BLE001 - stage is advisory here
             _stage = ""
         _policy = resolve_policy(
-            _proot,
             scope=scope_normalized,
             stage=_stage,
-            vertical=_persisted_vertical(_proot),
-            target_level=_research_target_level,
             stage_profiles=prompt_context.verification_stage_profiles,
         )
         verification_instruction = (

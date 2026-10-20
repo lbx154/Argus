@@ -370,10 +370,8 @@ class VerticalContract:
                 else None
             )
             policy = resolve_policy(
-                state_root if state_root is not None else project_root,
                 scope=final_scope,
                 stage=stage,
-                vertical=self.name,
                 stage_profiles=self.verification_stage_profiles,
             )
             kwargs["verification_profile"] = policy.profile
