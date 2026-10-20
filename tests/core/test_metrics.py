@@ -283,3 +283,44 @@ def test_legacy_provider_overrun_metric_is_ignored(tmp_path: Path) -> None:
     assert snapshot["slo"]["status"] == "healthy"
     prometheus = render_prometheus(snapshot)
     assert "budget_overrun" not in prometheus
+
+
+def test_cost_per_passed_task_counts_all_spend_over_passed_tasks(tmp_path: Path) -> None:
+    """CE-1: failed attempts and overhead are part of what a passed task cost."""
+    for index, cost in enumerate((1.0, 2.0, 3.0)):
+        record_metric(
+            tmp_path,
+            "provider.call",
+            labels={"provider": "copilot", "status": "completed"},
+            fields={"call_id": f"c{index}", "duration_ms": 10, "cost_usd": cost},
+            timestamp=100.0 + index,
+        )
+    for item, accepted in (("m1", True), ("m2", False)):
+        record_metric(
+            tmp_path,
+            "goal.mission",
+            fields={"project_id": "p1", "item_id": item, "accepted": accepted},
+            timestamp=110.0,
+        )
+
+    snapshot = metrics_snapshot(root=tmp_path, now=200.0)
+
+    assert snapshot["cost"] == {"total_usd": 6.0, "passed_tasks": 1, "per_passed_task_usd": 6.0}
+    assert "argus_cost_per_passed_task_usd 6.0" in render_prometheus(snapshot)
+
+
+def test_cost_per_passed_task_is_unset_until_a_task_passes(tmp_path: Path) -> None:
+    record_metric(
+        tmp_path,
+        "provider.call",
+        labels={"provider": "copilot", "status": "completed"},
+        fields={"call_id": "c1", "duration_ms": 10, "cost_usd": 2.5},
+        timestamp=100.0,
+    )
+
+    snapshot = metrics_snapshot(root=tmp_path, now=200.0)
+
+    assert snapshot["cost"]["per_passed_task_usd"] is None
+    prometheus = render_prometheus(snapshot)
+    assert "argus_cost_usd_total 2.5" in prometheus
+    assert "argus_cost_per_passed_task_usd" not in prometheus

@@ -25,6 +25,7 @@ from typing import Any, Iterable, Iterator
 from ..core.event_catalog import canonical_event_type
 from ..core.json_codec import loads_finite_json
 from ..core.jsonl_reader import retained_jsonl_paths
+from ..core.metrics import cost_per_passed_task
 
 ROLES = ("planner", "reviewer", "engineer", "manager")
 TOKENS = ("input_tokens", "cached_input_tokens", "cache_write_tokens", "output_tokens")
@@ -155,6 +156,9 @@ def efficiency_report(life_dir: Path | str) -> dict[str, Any]:
                 of_calls=len(supervisions), avoided=0,
             ),
         },
+        "cost_per_passed_task": cost_per_passed_task(
+            total["cost_usd"], sum(passed.values()),
+        ),
         "passed_tasks": [
             {
                 "task": task,
@@ -193,7 +197,12 @@ def render(report: dict[str, Any]) -> str:
     total = report["total"]
     usage = ("calls", *TOKENS, "cost_usd")
     usage_header = ["calls", "input", "cache read", "cache write", "output", "cost $"]
-    lines = [f"{report['project']}: {total['calls']:,} calls, ${total['cost_usd']:,.2f}", ""]
+    per_task = report["cost_per_passed_task"]
+    lines = [
+        f"{report['project']}: {total['calls']:,} calls, ${total['cost_usd']:,.2f}",
+        "cost per passed task: " + (f"${per_task:,.2f}" if per_task is not None else "no task passed yet"),
+        "",
+    ]
     lines += _table("By role", ["role", *usage_header, "share"], [
         [role, *(tally[key] for key in usage), f"{tally['cost_share']:.1%}"] for role, tally in report["roles"].items()
     ])

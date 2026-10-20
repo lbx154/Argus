@@ -695,11 +695,17 @@ visible on the web page and can have a budget; you pay for multiple roles only w
 #### CE-1 Cost per passed task as a core metric
 `0.2` · `S` · Depends on: none · good first issue
 - Do: add "cost per passed task" to `core/metrics.py`, and output it in the HO-1 report.
+- Status: done (`b5578571`): `cost.per_passed_task_usd` in the metrics snapshot, the Prometheus gauge
+  `argus_cost_per_passed_task_usd`, and the same figure in `efficiency_report`.
 
 #### CE-2 Recheck the Planner idling
 `0.2` · `S` · Depends on: none · good first issue
 - Do: break down Planner calls by reason, and confirm that idling actually went down after `fix/planner-idle-spin` was
   merged.
+- Status: done (a check only, no code change). `efficiency_report` on real runs: before the fix, the Planner was 52% of
+  spend in argus-trial and 163 of its 175 calls brought no new work; in the six-task run of 10/19, 4 tasks had none and
+  only 02-ecc had 26 (it was stuck on a deadlock and still ran the old recheck code); projects on 10/20 had 1–6 each,
+  mostly calls made while a slot was free.
 
 #### CE-3 Find out where simple tasks lose time
 `0.4` · `M` · Depends on: none
@@ -709,6 +715,13 @@ visible on the web page and can have a budget; you pay for multiple roles only w
 #### CE-4 Cut the three most re-injected blocks of context
 `0.4` · `M` · Depends on: none
 - Do: use the existing `prompt_block_stats` to count tokens per block, and cut the three biggest.
+- Status: done. Counted per block, the most repeated injection is the tool definitions sent on every turn (38% of the
+  Planner's input, 27% of the Reviewer's, 20% of the Engineer's); every prompt section is at most 0.5K tokens except the
+  Reviewer's change diff at 2.1K, which is not worth cutting. So the cut is the tools the three reading roles never used
+  (sub-agents, workflows, the session store, semantic search): Planner and Observer (`8a74975e`, the Planner's tool
+  definitions per turn went from 10K to 3.9K tokens) and Reviewer (`5be8781d`, fixed input per turn went from 21.2K to
+  15.7K in a live run, and its review actions still work). The Engineer is unchanged: it is the role that edits code,
+  so cutting its tools could cost ability and needs its own A/B.
 
 #### CE-5 Separate "real work" from "management overhead"
 `0.4` · `M` · Depends on: none
@@ -722,6 +735,11 @@ visible on the web page and can have a budget; you pay for multiple roles only w
 #### CE-7 Can small models do the Reviewer's and Planner's jobs
 `0.4` · `M` · Depends on: SC-7, EV-1
 - Do: A/B test quality and cost when a small model acts as Reviewer or Planner.
+- Status: on hold until SC-7 and EV-1. The cost half can be measured today, the quality half cannot: with no
+  injected-defect set (SC-7) there is no way to say how many defects a small-model Reviewer misses, and with no fixed
+  task set (EV-1) no way to say how much a small-model Planner lowers the success rate. Token use for the same input
+  varies by about ±40% between live runs, so without a fixed task set each side needs 10 or more runs to show a
+  difference.
 
 #### CE-8 Check login status without spending money
 `0.4` · `S` · Depends on: none · good first issue

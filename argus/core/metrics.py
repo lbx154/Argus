@@ -382,6 +382,16 @@ def _goal_progress_snapshot(
     }
 
 
+def cost_per_passed_task(cost_usd: float, passed_tasks: int) -> float | None:
+    """All spend over the tasks that passed: what one delivered task cost.
+
+    Failed attempts, idle Planner turns and supervision count too, because
+    they are part of what delivering the passed tasks took. None until a task
+    has passed.
+    """
+    return round(float(cost_usd) / passed_tasks, 4) if passed_tasks > 0 else None
+
+
 def metrics_snapshot(
     *,
     root: Path | str,
@@ -438,6 +448,9 @@ def metrics_snapshot(
         for row in _metric_rows(rows, "event.validation_failure")
     ))
     goal = _goal_progress_snapshot(rows, now=timestamp)
+    spend_usd = sum(
+        float(row.get("fields", {}).get("cost_usd") or 0.0) for row in provider
+    )
     violations: list[str] = []
     if provider_attempts >= 5 and provider_success_rate < 0.95:
         violations.append(
@@ -476,6 +489,11 @@ def metrics_snapshot(
         },
         "event_validation_failures": validation_failures,
         "goal": goal,
+        "cost": {
+            "total_usd": round(spend_usd, 4),
+            "passed_tasks": goal["accepted"],
+            "per_passed_task_usd": cost_per_passed_task(spend_usd, goal["accepted"]),
+        },
         "slo": {
             "status": "healthy" if not violations else "degraded",
             "violations": violations,
@@ -515,6 +533,16 @@ def render_prometheus(snapshot: dict[str, Any]) -> str:
         "# TYPE argus_goal_duplicate_work_ratio gauge",
         f'argus_goal_duplicate_work_ratio {goal.get("duplicate_work_rate", 0)}',
     ]
+    cost = snapshot.get("cost", {})
+    lines += [
+        "# TYPE argus_cost_usd_total gauge",
+        f'argus_cost_usd_total {cost.get("total_usd", 0)}',
+    ]
+    if cost.get("per_passed_task_usd") is not None:
+        lines += [
+            "# TYPE argus_cost_per_passed_task_usd gauge",
+            f'argus_cost_per_passed_task_usd {cost["per_passed_task_usd"]}',
+        ]
     return "\n".join(lines) + "\n"
 
 
@@ -522,6 +550,7 @@ __all__ = [
     "METRICS_FILE",
     "METRICS_LOCK_FILE",
     "METRICS_SCHEMA_VERSION",
+    "cost_per_passed_task",
     "http_route_template",
     "metrics_root_for_project",
     "metrics_snapshot",

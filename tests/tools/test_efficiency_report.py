@@ -96,6 +96,8 @@ def test_report_counts_a_fixed_log(project: Path) -> None:
 
     assert report["total"]["calls"] == 17
     assert report["total"]["cost_usd"] == 17.5
+    # CE-1: all spend over the two passed tasks.
+    assert report["cost_per_passed_task"] == 8.75
     assert list(report["roles"]) == ["engineer", "planner", "reviewer", "manager", "curator"]
     assert report["roles"]["planner"] == {
         "calls": 4, "input_tokens": 950, "cached_input_tokens": 80, "cache_write_tokens": 20,
@@ -130,7 +132,7 @@ def test_report_counts_a_fixed_log(project: Path) -> None:
 def test_cli_prints_a_table_or_json(project: Path, capsys: pytest.CaptureFixture[str]) -> None:
     assert main([str(project)]) == 0
     table = capsys.readouterr().out
-    assert table.startswith(f"{project}: 17 calls, $17.50")
+    assert table.startswith(f"{project}: 17 calls, $17.50\ncost per passed task: $8.75")
     assert "planner no new work      2   4    2.00        2" in table
 
     assert main([str(project), "--json"]) == 0

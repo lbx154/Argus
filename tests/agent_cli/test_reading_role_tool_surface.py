@@ -90,3 +90,33 @@ def test_observer_look_drops_the_tools_it_never_uses(tmp_path, monkeypatch) -> N
     assert not excluded & _READING
     index = command.index("--disable-mcp-server")
     assert command[index + 1] == "github-mcp-server"
+
+
+class _ReviewRecorder(_Recorder):
+    backend = "copilot"
+
+    def run_exec(self, *, prompt, options, run_label=None, resume_thread_id=None, **_):  # noqa: ANN001
+        self.options.append(options)
+        return RunnerResult(exit_code=1, fatal_error="stub: no verdict")
+
+
+def test_reviewer_request_drops_the_tools_it_never_uses(tmp_path, monkeypatch) -> None:
+    """66 Reviewer threads used view/rg/glob/bash and their review actions only."""
+    from argus.reviewer import Reviewer, ReviewerConfig
+
+    runner = _ReviewRecorder("")
+    Reviewer(runner=runner).evaluate(
+        objective="check the change",
+        round_index=1,
+        session_id=None,
+        main_summary="engineer done",
+        main_error=None,
+        config=ReviewerConfig(model="m", working_dir=str(tmp_path)),
+    )
+
+    command = _copilot_command(runner.options[-1], monkeypatch, safe_mode=False)
+    excluded = _excluded(command)
+    assert set(READING_ROLE_UNUSED_COPILOT_TOOLS) <= excluded
+    # Literature and source checks keep GitHub/web search; scripts keep bash.
+    assert not excluded & (_READING | {"apply_patch", "web_fetch"})
+    assert "--disable-mcp-server" not in command

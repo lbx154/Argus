@@ -18,7 +18,12 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any, TypedDict
 
-from ..core.models import ReviewDecision, RunnerOptions, RunnerResult
+from ..core.models import (
+    READING_ROLE_UNUSED_COPILOT_TOOLS,
+    ReviewDecision,
+    RunnerOptions,
+    RunnerResult,
+)
 from ..core.operator_messages import uses_cjk
 from ..core.ports import RunnerBackend
 from ..core.run_gateway import run_exec as gateway_run_exec
@@ -912,6 +917,10 @@ class Reviewer:
                     # Search is available for the rare turn that proposes a
                     # skill; ordinary review turns need not invoke it.
                     live_search=True,
+                    # Sub-agent, workflow, session-store and semantic-search
+                    # tools no Reviewer thread used stay out of every turn.
+                    lean_tool_surface=True,
+                    excluded_tools=READING_ROLE_UNUSED_COPILOT_TOOLS,
                 ),
                 venue=venue, venue_required=venue_required,
                 grounding=_review_grounding(
