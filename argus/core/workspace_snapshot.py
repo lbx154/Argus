@@ -9,6 +9,7 @@ commit message, so a change to it still shows, by size.
 """
 from __future__ import annotations
 
+import contextlib
 import json
 import os
 import re
@@ -21,6 +22,9 @@ from .file_facts import file_facts
 from .workspace_facts import IGNORED_NAMES, fact_text
 
 LARGE_FILE_BYTES = 1 << 20
+# A git that has not finished by then (a stale lock, a hung mount, a first
+# snapshot of a huge tree) leaves the review without a diff, never waiting.
+GIT_TIMEOUT_SECONDS = 60.0
 _EXCLUDES = "".join(f"{name}\n" for name in sorted({*IGNORED_NAMES, "*.egg-info"}))
 _IDENTITY = {
     "GIT_AUTHOR_NAME": "Argus",
@@ -70,7 +74,7 @@ class WorkspaceSnapshots:
             env["GIT_WORK_TREE"] = str(self.workdir)
         return subprocess.run(
             ["git", "-c", "core.fsmonitor=false", "-c", "commit.gpgSign=false", *args],
-            input=stdin, env=env, capture_output=True, check=check,
+            input=stdin, env=env, capture_output=True, check=check, timeout=GIT_TIMEOUT_SECONDS,
         ).stdout
 
     def _paths(self, *args: str) -> list[str]:
@@ -123,6 +127,9 @@ class WorkspaceSnapshots:
             self._git("gc", "--auto", "--quiet", check=False)
             return True
         except (OSError, subprocess.SubprocessError):
+            # A git stopped mid-write leaves its index lock; the next try needs it gone.
+            with contextlib.suppress(OSError):
+                (self.store / "indexes" / f"{self._name}.lock").unlink(missing_ok=True)
             return False
 
     def _large(self, label: str) -> dict[str, list[int]]:

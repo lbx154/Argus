@@ -160,3 +160,16 @@ def test_a_kept_baseline_stays_and_a_broken_store_reports_failure(tmp_path):
     broken = WorkspaceSnapshots(blocked, work, "line")
     assert broken.take("baseline") is False
     assert broken.changes("baseline", "candidate") is None
+
+
+def test_a_git_stopped_mid_write_does_not_block_the_next_snapshot(tmp_path):
+    work = tmp_path / "work"
+    _write(work, "train.py")
+    snapshots = _snapshots(tmp_path, work)
+    assert snapshots.take("baseline")
+    lock = snapshots.store / "indexes" / "node_train_eval.lock"
+    lock.write_text("")  # what a git killed by the timeout leaves behind
+
+    assert not snapshots.take("candidate")
+    assert not lock.exists()
+    assert snapshots.take("candidate")
