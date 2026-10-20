@@ -10,7 +10,6 @@ VERIFICATION_STAGE_PROFILES = {
     "change": "develop",
     "verify": "certify",
 }
-MISSION_KIND = "software"
 GROUND_BEFORE_HANDOFF = True
 REQUIRE_INDEPENDENT_REVIEW = True
 completion_gate = "none"

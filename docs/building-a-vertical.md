@@ -38,7 +38,6 @@ The names the contract reads:
 | `completion_gate` | yes | `"none"`, `"metric"` or `"certified"` |
 | `CHECKLIST_OPTIONAL_STAGES` | no | stages that may have no checklist |
 | `STAGE_ALIASES` | no | `{"experiment": "measure"}`: other names the Manager may use for a stage |
-| `MISSION_KIND` | no | `"custom"`, `"optimize"`, `"research"` or `"software"` |
 | `REQUIRE_INDEPENDENT_REVIEW` | no | defaults to `True` |
 | `role_banner(role)` | no | a paragraph each role reads before its task |
 | `render_role_prompt_fragment`, `render_role_prompt_context`, `stage_completion_issues`, `prepare_mission`, `LIBRARY_PREPARER`, `EVIDENCE_SCHEMA`, `WORKFLOW_PROFILES` | no | hooks the larger built-ins use; not needed for a first vertical |
@@ -73,7 +72,6 @@ STAGE_ORDER = ["delivery"]
 CHECKLIST_STAGE_ORDER = tuple(STAGE_ORDER)
 CHECKLIST_OPTIONAL_STAGES: tuple[str, ...] = ()
 completion_gate = "none"
-MISSION_KIND = "software"
 
 PROTECTED_ITEM_IDS = frozenset({"delivery.builds", "delivery.tests-executed"})
 ```
@@ -140,7 +138,6 @@ CHECKLIST_OPTIONAL_STAGES: tuple[str, ...] = ()
 STAGE_ALIASES = {"experiment": "measure", "writeup": "report"}
 
 completion_gate = "none"
-MISSION_KIND = "custom"
 REQUIRE_INDEPENDENT_REVIEW = True
 
 CHECKLIST_ITEMS: dict[str, tuple[ChecklistItem, ...]] = {
@@ -201,9 +198,6 @@ Why these particular choices:
   the task against its own requirements, so your checklist ids are not in the
   prompt and cannot show up in the verdict. Your `role_banner` and skills still
   apply in both modes; the checklist only governs staged runs.
-- `MISSION_KIND = "custom"` because the other three values switch on
-  behaviour written for optimization loops, research campaigns and repository
-  changes.
 - The `role_banner` says one thing, in the field's own terms. It is read by
   every role, so it is the place for the rule that ties the stages together.
 

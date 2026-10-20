@@ -1067,7 +1067,6 @@ def _bounded_handoff_division(
     return Division(
         task=prepared.body,
         vertical=vertical,
-        kind=prepared.manager._kind_for(vertical),
         stages=list(prepared.manager.plan_stages(vertical)),
         workflow_mode=resolve_workflow_mode(project_root),
         execution_task=prepared.execution_task,

@@ -2373,7 +2373,6 @@
         "item_id",
         "objective",
         "vertical",
-        "kind",
         "stages"
       ],
       "properties": {
@@ -2389,9 +2388,6 @@
           "type": "string"
         },
         "vertical": {
-          "type": "string"
-        },
-        "kind": {
           "type": "string"
         },
         "stages": {

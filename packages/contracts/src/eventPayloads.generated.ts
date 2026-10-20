@@ -682,7 +682,6 @@ export interface LifeManagerIntentCompletedEvent extends EventMsg {
   "item_id": string;
   "objective": string;
   "vertical": string;
-  "kind": string;
   "stages": Array<string>;
   "route"?: string;
   "workflow_mode"?: string;

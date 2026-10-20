@@ -242,7 +242,6 @@ def optimize_vertical(monkeypatch: pytest.MonkeyPatch) -> Iterator[str]:
         CHECKLIST_STAGE_ORDER=base.stage_order,
         CHECKLIST_ITEMS=base.checklist_items,
         completion_gate="metric",
-        MISSION_KIND="optimize",
         role_banner=lambda role: f"optimize_lab {role} banner",
     )
 

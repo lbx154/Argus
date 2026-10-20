@@ -614,7 +614,6 @@ class LifeWorkerBootMixin:
                             target_enabled and rf_state.cfg.continuous_open_ended
                         ),
                         "domain": getattr(division, "domain", ""),
-                        "kind": getattr(division, "kind", ""),
                         "learned_vertical_status": getattr(
                             division,
                             "learned_vertical_status",

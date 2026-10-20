@@ -50,10 +50,6 @@ def _direct_manager(monkeypatch) -> None:
         def commit_vertical_decision(self, body, decision, **kwargs):
             return decision
 
-        # A running campaign keeps its route; the supplemental Division reads it.
-        def _kind_for(self, vertical):
-            return vertical
-
         def plan_stages(self, vertical):
             return []
 

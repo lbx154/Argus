@@ -255,7 +255,6 @@ def test_manager_treats_an_installed_plugin_as_a_vertical_not_a_data_domain(
     assert division.vertical == "external_lab"
     assert division.learned_vertical_status == ""  # the plugin wins; no domain status is read
     assert division.stages == ["work", "deliver"]  # the plugin's stages, not the domain's
-    assert Manager._kind_for("external_lab") == "custom"
 
 
 # --- registry hardening: third-party declarations fail in any shape ---

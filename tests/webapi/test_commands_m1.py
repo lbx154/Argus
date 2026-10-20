@@ -187,11 +187,6 @@ def test_post_task_preserves_active_continuous_campaign_governance(
             assert vertical == targeted_vertical
             return ["scope", "solve", "review"]
 
-        @staticmethod
-        def _kind_for(vertical):
-            assert vertical == targeted_vertical
-            return "research"
-
     manager_state._STATES.clear()
     monkeypatch.setattr(
         front_door,

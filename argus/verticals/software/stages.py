@@ -22,7 +22,6 @@ CHECKLIST_STAGE_ORDER = tuple(STAGE_ORDER)
 # non-compiling work be certified `done`.
 CHECKLIST_OPTIONAL_STAGES: tuple[str, ...] = ()
 completion_gate = "none"
-MISSION_KIND = "software"
 GROUND_BEFORE_HANDOFF = True
 COMPLETION_CONTRACT_VERSION = 1
 

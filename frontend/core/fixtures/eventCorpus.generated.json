@@ -1198,7 +1198,6 @@
         "continuous": true,
         "intent_id": "intent-1",
         "item_id": "task-1",
-        "kind": "agent_message",
         "lifetime": "bounded",
         "objective": "Implement the shared semantic event renderer",
         "open_ended": false,

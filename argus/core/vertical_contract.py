@@ -13,7 +13,6 @@ from typing import Any, Callable, Protocol
 
 VERTICAL_CONTRACT_VERSION = 1
 _COMPLETION_GATES = frozenset({"none", "metric", "certified"})
-_MISSION_KINDS = frozenset({"custom", "optimize", "research", "software"})
 _VERIFICATION_PROFILES = frozenset({"explore", "develop", "certify"})
 
 
@@ -155,7 +154,6 @@ class VerticalContract:
     stage_order: tuple[str, ...]
     checklist_items: dict[str, Any]
     completion_gate: str
-    mission_kind: str = "custom"
     paper_mission: bool = False
     ground_before_handoff: bool = False
     role_guidance: Callable[[str], str] | None = None
@@ -647,13 +645,6 @@ def vertical_contract(name: str, provider: Any) -> VerticalContract:
         raise VerticalContractError(
             f"vertical {name!r} ALLOW_STAGE_ROLLBACK must be a boolean"
         )
-    mission_kind = str(
-        getattr(provider, "MISSION_KIND", "custom") or "custom"
-    ).strip().lower()
-    if mission_kind not in _MISSION_KINDS:
-        raise VerticalContractError(
-            f"vertical {name!r} has unsupported mission kind {mission_kind!r}"
-        )
     aliases = getattr(provider, "STAGE_ALIASES", {})
     aliases = {
         str(source).strip().lower(): str(target).strip().lower()
@@ -775,7 +766,6 @@ def vertical_contract(name: str, provider: Any) -> VerticalContract:
         stage_order=stage_order,
         checklist_items=checklist_items,
         completion_gate=gate,
-        mission_kind=mission_kind,
         paper_mission=bool(getattr(provider, "PAPER_MISSION", False)),
         ground_before_handoff=bool(
             getattr(provider, "GROUND_BEFORE_HANDOFF", False)

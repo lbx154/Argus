@@ -29,7 +29,6 @@ class Division:
     """The Manager's verdict on how to divide a Task."""
     task: str
     vertical: str            # research | software | … | an installed plugin vertical | a Manager-authored data domain
-    kind: str                # research | optimize | software | custom
     stages: list[str]        # the vertical's Stage template (engine advances current_stage)
     domain: str = ""         # optional built-in overlay, currently for research
     workflow_mode: str = "staged"
@@ -52,9 +51,8 @@ class Division:
             return (f"[manager] no preset vertical fit → PROPOSED new domain "
                     f"`{self.vertical}` ({len(self.stages)} stage(s): "
                     f"{' → '.join(self.stages)}) — awaiting confirmation")
-        label = "custom domain" if self.kind == "custom" else f"{self.kind} task"
         domain = f", domain={self.domain}" if self.domain else ""
-        return (f"[manager] {label} → vertical={self.vertical}{domain}, "
+        return (f"[manager] vertical={self.vertical}{domain}, "
                 f"workflow={self.workflow_mode}, "
                 f"{len(self.stages)} stage(s): {' → '.join(self.stages)}"
                 + (f"\n{self.workflow_summary}" if self.workflow_summary else ""))

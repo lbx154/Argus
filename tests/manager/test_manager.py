@@ -337,16 +337,14 @@ def test_divide_existing_research(tmp_path):
         runner=_existing("research"),
     ).divide("write a paper on retrieval for EMNLP and prepare the submission")
     assert division.vertical == "research"
-    assert division.kind == "research"
 
 
-def test_divide_existing_optimize_vertical_is_optimize(tmp_path, optimize_vertical):
+def test_divide_existing_optimize_vertical(tmp_path, optimize_vertical):
     division = Manager(
         project_root=tmp_path,
         runner=_existing(optimize_vertical),
     ).divide("maximize the pass@4-minus-pass@1 gap of the synthesized set")
     assert division.vertical == optimize_vertical
-    assert division.kind == "optimize"
 
 
 def test_environment_cannot_force_vertical(tmp_path, monkeypatch) -> None:
@@ -514,7 +512,7 @@ def test_divide_commits_vertical_so_supervisor_trusts_it(tmp_path, optimize_vert
     mgr = Manager(project_root=tmp_path, runner=_existing(optimize_vertical))
     d = mgr.divide("maximize the pass-gap of the synthesized problem set")
     assert isinstance(d, Division)
-    assert d.vertical == optimize_vertical and d.kind == "optimize"
+    assert d.vertical == optimize_vertical
     # persisted into PIPELINE_STATE.json — the supervisor reads & trusts this
     state = json.loads((tmp_path / ".argus" / "PIPELINE_STATE.json").read_text())
     assert state["vertical"] == optimize_vertical
@@ -851,7 +849,7 @@ def test_divide_research_persists_and_lists_8_stages(tmp_path):
     )
     assert d.vertical == "research"
     assert d.stages == list(RESEARCH_STAGES)
-    assert "research task" in d.headline()
+    assert "vertical=research" in d.headline()
     state = json.loads((tmp_path / ".argus" / "PIPELINE_STATE.json").read_text())
     assert state["vertical"] == "research"
 
@@ -1026,24 +1024,6 @@ wire_api = "responses"
     assert decision.vertical == "research"
     assert runner.last_options.model == ""
     assert runner.last_options.model != "<backend default>"
-
-
-def test_software_planner_requirement_overrides_direct_route(
-    tmp_path,
-    monkeypatch,
-) -> None:
-    monkeypatch.setenv("ARGUS_SKILL_SOFTWARE_REQUIRE_PLANNER", "1")
-    runner = _existing("direct")
-
-    decision = Manager(project_root=tmp_path, runner=runner).decide_vertical(
-        "Fix one failing repository test and return the patch."
-    )
-
-    assert decision.vertical == "software"
-    assert decision.workflow_mode == "staged"
-    assert [call["run_label"] for call in runner.calls] == [
-        "manager-classify-fast"
-    ]
 
 
 def test_argus_maintenance_skips_duplicate_manager_grounding_by_default(
