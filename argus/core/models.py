@@ -8,15 +8,7 @@ from typing import Any, Callable, Literal
 from .event_catalog import EventType
 from .stop_kinds import StopKind
 
-ReviewStatus = Literal[
-    "done",
-    "continue",
-    "blocked",
-    "replan_requested",
-    "research_incomplete",
-    "paused_no_breakthrough",
-    "exhausted_current_methods",
-]
+ReviewStatus = Literal["done", "continue", "blocked", "replan_requested"]
 LoopStatus = Literal[
     "done",
     "max_rounds",
