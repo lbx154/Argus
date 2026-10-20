@@ -68,8 +68,8 @@ replaceable context, not project or mission authority. Role capsules persist
 compact metadata such as role, policy, objective revision, workdir, backend,
 model, thread id, turn count, inspected paths, and decisive output
 [`argus/core/role_session.py:23-155`].
-Role-session prompts point back to the capsule, mission contract, latest handoff,
-and frontier while warning that project artifacts remain authoritative. Rolling
+Role-session prompts point back to the capsule, mission contract and latest
+handoff while warning that project artifacts remain authoritative. Rolling
 sessions resume until branch, turn, token, or quality signals rotate them; a
 fresh policy intentionally clears the provider thread. Each Role may use one or more provider sessions or turns over time.
 
@@ -142,7 +142,7 @@ projects that consume it.
 | Project state directory / `life_dir` | `~/.argus-skill/projects/<project-id>/`, also called session state by code and used as the root for project-owned runtime files. |
 | Backlog and mission state | `backlog.jsonl` for live mission rows plus `backlog.archive.jsonl` for terminal rows. |
 | Events | `events.jsonl` and retained rollovers under `life_dir`; this is the durable replay surface for supervisor/runtime events. |
-| Handoffs | `handoffs/<mission-id>/` contains `mission.json`, `CHECKPOINT.md`, `frontier.json`, `latest.json`, and round handoffs [`argus/life/context_packet.py:17-344`]. |
+| Handoffs | `handoffs/<mission-id>/` contains `mission.json`, `CHECKPOINT.md`, `latest.json`, and round handoffs [`argus/life/context_packet.py:17-344`]. |
 | Role sessions | `role-sessions/<role>.json` capsules, including Planner, Engineer, and Reviewer state where a role has a durable provider context. |
 | Operator context | `operator_context.jsonl` ledger plus `operator_context.json` projection and lock under the caller-selected project or shared global root. |
 

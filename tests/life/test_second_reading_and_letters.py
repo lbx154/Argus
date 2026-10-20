@@ -5,10 +5,7 @@ import json
 import time
 from pathlib import Path
 
-from argus.core.operator_presence import (
-    UNATTENDED_AFTER_SECONDS,
-    operator_presence,
-)
+from argus.core.operator_presence import operator_presence
 from argus.roles.prompts.letter import build_letter_prompt
 from argus.verticals.research.notes import (
     RESEARCH_NOTES_FILENAME,
@@ -104,18 +101,14 @@ def test_presence_reads_the_operator_silence_from_transcript_and_inbox(tmp_path:
     presence = operator_presence(tmp_path, now=now)
     assert presence.silence_seconds is not None
     assert abs(presence.silence_seconds - 5 * 3600) < 5
-    assert presence.unattended is True
-    assert "hours ago" in presence.describe()
-    assert presence.guidance()
+    assert "5.0 hours ago" in presence.describe()
 
     (tmp_path / "inbox.jsonl").write_text(
         json.dumps({"ts": now - 600, "text": "note"}) + "\n", encoding="utf-8"
     )
     presence = operator_presence(tmp_path, now=now)
     assert presence.silence_seconds is not None and presence.silence_seconds < 700
-    assert presence.unattended is False
-    assert presence.guidance() == ""
-    assert UNATTENDED_AFTER_SECONDS > 3600
+    assert "10 minutes ago" in presence.describe()
 
 
 def test_the_letter_prompt_speaks_the_operator_language_and_uses_only_facts() -> None:

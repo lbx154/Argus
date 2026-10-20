@@ -37,10 +37,8 @@ from ._env import (
     _DEFAULT_STREAM_QUEUE_LINES,
     _STREAM_QUEUE_LINES_ENV,
     _incomplete_turn_error,
-    _is_manager_turn_label,
     _positive_env_int,
     _provider_turn_cap,
-    _turn_wall_clock_seconds,
 )
 from ._event_consumers import _CopilotWriteState, _OpenCodeWriteState
 from ._idle_watchdog import (
@@ -484,8 +482,6 @@ class RunExecMixin:
             terminate_seconds=hard_idle,
         )
         last_activity_at = time.monotonic()
-        turn_started_at = last_activity_at
-        turn_wall_clock_seconds = _turn_wall_clock_seconds(run_label)
         provider_turn_cap = _provider_turn_cap(run_label)
         last_soft_check_at = last_activity_at
         cpu_seconds = process_tree_cpu_seconds(getattr(process, "pid", None))
@@ -558,36 +554,6 @@ class RunExecMixin:
             state.watchdog_terminated = True
             return True
 
-        def check_wall_clock_limit() -> bool:
-            if (
-                state.watchdog_terminated
-                or process.poll() is not None
-                or turn_wall_clock_seconds <= 0
-                or time.monotonic() - turn_started_at < turn_wall_clock_seconds
-            ):
-                return False
-            normalized_label = str(run_label or "").strip().lower()
-            if _is_manager_turn_label(normalized_label):
-                subject = "Manager turn"
-            elif normalized_label == "scientist.skill_distill":
-                subject = "scientist skill distill"
-            else:
-                subject = "engineer turn"
-            state.watchdog_reason = (
-                f"External interrupt: {subject} wall-clock limit reached after "
-                f"{turn_wall_clock_seconds}s; yield for review/steering"
-            )
-            self._emit(
-                self._stream_name("stderr", run_label),
-                f"[watchdog] {state.watchdog_reason}",
-            )
-            self._terminate_process(
-                process,
-                include_detached_children=self.backend == BACKEND_OPENCODE,
-            )
-            state.watchdog_terminated = True
-            return True
-
         def check_idle_deadlines() -> None:
             """Escalate when the turn stops progressing; a no-op once the run is over.
 
@@ -607,7 +573,6 @@ class RunExecMixin:
             idle_seconds = now - last_activity_at
 
             check_external_interrupt()
-            check_wall_clock_limit()
             if state.watchdog_terminated:
                 return
 
@@ -732,7 +697,6 @@ class RunExecMixin:
                         if line_queue.empty():
                             break
                 check_external_interrupt()
-                check_wall_clock_limit()
                 try:
                     stream_name, text = line_queue.get(timeout=0.25)
                 except KeyboardInterrupt:

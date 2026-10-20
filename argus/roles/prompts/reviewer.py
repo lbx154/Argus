@@ -30,8 +30,6 @@ _REEVALUATE_HEADER = (
     "## NEW ROUND — RE-EVALUATE INDEPENDENTLY (resumed reviewer)\n"
     "You are resuming your own thread to retain the review standards. Reach a fresh "
     "judgment on this round's changes; do not merely repeat your previous conclusion. "
-    "Previously confirmed evidence remains settled context. Recheck only changed "
-    "inputs, stale or contradictory evidence, and gaps the prior review left open. "
     "The role, standards, and decision rules still apply.\n\n"
 )
 
@@ -41,22 +39,10 @@ _REEVALUATE_HEADER = (
 # for ninety reviews without once returning `incorrect`.
 _INCREMENTAL_REREVIEW_BOUNDARY = (
     "## Incremental re-review boundary\n"
-    "The previous Reviewer judgment below is settled context for this mission: "
-    "you need not redo its work, but it is not proven true. If current evidence "
-    "shows your earlier judgment was wrong, say so and correct it. "
-    "Inspect the prior `next_action`, the current Engineer summary, the "
-    "files changed to satisfy that action, and the relevant "
-    "checks. Do not restart repository research, reopen established findings, or "
-    "repeat unchanged online/source checks. Repeat a broader check only when "
-    "the current changes affected its input, the previous judgment explicitly left "
-    "it unresolved, or a named contradiction/security/authority issue requires "
-    "it. Prior agreement never establishes the truth of a number the paper will "
-    "stand on when nothing outside this harness has confirmed it. A favorable "
-    "review is not evidence that it is true, and a harness reproduces its own broken "
-    "baseline every round it is asked. If the requested change now holds and no "
-    "such contradiction exists, close the local repair; do not invent a new unrelated "
-    "repair round. For final paper review, the separate selected-venue acceptance "
-    "threshold still governs `done`: fixing the last edit alone is insufficient.\n"
+    "The previous Reviewer judgment below is not fact. If current evidence shows "
+    "your earlier judgment was wrong, say so and correct it. For final paper "
+    "review, the separate selected-venue acceptance threshold still governs "
+    "`done`: fixing the last edit alone is insufficient.\n"
     "A prior finding that the Engineer's account disputes with its own labeled, "
     "reproducible measurement is not settled: conflicting values for the same "
     "checkable fact are a dispute to resolve. Before repeating the request, "
@@ -332,7 +318,6 @@ def render_reviewer_prompt(
         _persisted_vertical,
         resolve_workflow_mode,
     )
-    from ...tools.web_source import REVIEWER_SOURCE_HANDOFF
     from .registry import resolve_role_prompt
 
     error_text = sanitize_model_visible_text(main_error or "none")
@@ -411,7 +396,7 @@ def render_reviewer_prompt(
                 else ChecklistMode.AUTO
             ),
             operation=operation,
-            # The vertical's live facts (research notes, GPU memory in use)
+            # The vertical's live facts (the research notes)
             # belong to the round delta, never to the fingerprinted static.
             include_role_context=operation == EVALUATE,
         )
@@ -655,16 +640,6 @@ def render_reviewer_prompt(
     # training split; given the artifacts, they caught it. The diff comes first,
     # then the recorded commands, and the account last.
     change_block = _change_block(snapshots)
-    # Source handoff is a workspace fact, not another unconditional role rule.
-    # Keep ordinary reviews small and the static prefix stable across projects.
-    source_block = ""
-    source_cache = Path(working_dir or Path.cwd()).expanduser() / ".argus" / "sources"
-    if source_cache.is_dir():
-        source_block = (
-            "\nWeb source cache: "
-            + sanitize_model_visible_text(str(source_cache.resolve()))
-            + "\n" + REVIEWER_SOURCE_HANDOFF + "\n"
-        )
     background_block = (
         "\n" + sanitize_model_visible_text(background_context.strip()) + "\n"
         if background_context.strip()
@@ -845,7 +820,6 @@ def render_reviewer_prompt(
         + "## Engineer's account of this round\n"
         + engineer_account
         + "\n\n"
-        + source_block
         # OperatorContext is intentionally the final live-facts block: this
         # preserves the static cache prefix and improves steering recency.
         + "Operator messages:\n"
@@ -874,7 +848,6 @@ def render_reviewer_prompt(
             "main_summary": main_summary,
             "raw_evidence": evidence_block,
             "workspace_changes": change_block,
-            "web_sources": source_block,
         }
     )
     return static, delta

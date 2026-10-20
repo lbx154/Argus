@@ -417,7 +417,6 @@ def test_clean_acceptance_with_operator_question_uses_manager(tmp_path) -> None:
             operator_question="",
         ),
         _review(planner_report=["not", "a", "mapping"]),
-        _review(frontier_report={"change": 42}),
     ],
 )
 def test_unparseable_or_absent_review_fields_use_manager(tmp_path, review) -> None:
@@ -453,7 +452,6 @@ def test_unparseable_or_absent_review_fields_use_manager(tmp_path, review) -> No
         ({"status": "replan_requested", "next_action": "Choose a new route."}, "bounded"),
         ({"next_action": "Implement the remaining stage work."}, "bounded"),
         ({"planner_report": {"authority_impact": "operator"}}, "bounded"),
-        ({"frontier_report": {"change": "unexplained_regression"}}, "bounded"),
         ({"review_source": "engineer_self_review"}, "bounded"),
     ],
 )

@@ -87,7 +87,6 @@ def efficiency_report(life_dir: Path | str) -> dict[str, Any]:
     planner_skipped = 0
     supervisions: dict[str, tuple[str, str]] = {}  # supervision_id -> (call_id, action)
     applied: set[str] = set()
-    reasons: Counter[str] = Counter()
     tasks: defaultdict[str, Counter[str]] = defaultdict(Counter)
     passed: dict[str, bool] = {}
     elapsed: defaultdict[str, float] = defaultdict(float)
@@ -117,7 +116,6 @@ def efficiency_report(life_dir: Path | str) -> dict[str, Any]:
         elif kind == "round.review.completed":
             if event.get("status") == "continue":
                 tasks[task]["continue"] += 1
-                reasons[str(event.get("frontier_change") or "unspecified")] += 1
         elif kind == "life.mission.completed":
             elapsed[task] += float(event.get("elapsed_seconds") or 0)
             passed[task] = event.get("success") is True
@@ -167,7 +165,6 @@ def efficiency_report(life_dir: Path | str) -> dict[str, Any]:
             }
             for task, success in passed.items() if success
         ],
-        "continue_reasons": dict(reasons.most_common()),
         "context": {role: _context(by_role[role], session_turns[role]) for role, _ in roles},
         "failures": {
             "failed": _tally(row for row in calls.values() if row.get("status") != "completed"),
@@ -210,7 +207,6 @@ def render(report: dict[str, Any]) -> str:
                               "calls", "input_tokens", "output_tokens", "cost_usd")]
         for row in report["passed_tasks"]
     ])
-    lines += _table("Continue reasons", ["reason", "count"], [list(pair) for pair in report["continue_reasons"].items()])
     lines += _table("Context: input tokens per call; mean by turn on session", [
         "role", "p50", "p90", "max", *(f"turn {name}" for _, name in TURN_BUCKETS),
     ], [

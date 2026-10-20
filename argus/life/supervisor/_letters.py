@@ -341,14 +341,6 @@ class LettersMixin:
         except Exception:  # noqa: BLE001
             pass
 
-        machine = ""
-        try:
-            from ...verticals.research_bridge import local_gpu_lines
-
-            machine = "\n".join(local_gpu_lines())
-        except Exception:  # noqa: BLE001
-            machine = ""
-
         hours_window = max(0.0, (now - since) / 3600.0)
         cost_line = f"About ${cost:.2f} of model use across {len(missions)} finished missions in {hours_window:.1f} hours."
         silence = presence.silence_seconds
@@ -366,7 +358,6 @@ class LettersMixin:
             "planned": "\n".join(planned[:12]),
             "questions": "\n".join(questions[:6]),
             "cost": cost_line,
-            "machine": machine,
             "hours_since_operator_wrote": (silence / 3600.0) if silence is not None else None,
             "hours_since_last_letter": hours_window,
         }

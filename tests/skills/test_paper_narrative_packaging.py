@@ -24,11 +24,6 @@ from argus.roles.prompts.reviewer import (
 )
 from argus.skills.vertical_select import persist_vertical
 from argus.verticals._base import load_vertical_contract
-from argus.verticals.research.academic_language_review import (
-    _abstract_quality_issue_specs,
-    _neutral_language_facts,
-    generate_academic_language_review,
-)
 from argus.verticals.research.prompt_policy import render_role_prompt_fragment
 from argus.verticals.research.stages import STAGE_CHECKLISTS
 
@@ -410,54 +405,3 @@ def test_readable_review_workspace_renders_every_page_from_only_the_current_pdf(
     assert not isolated.exists()
     assert not (paper / "pages").exists()
     assert not (paper / "main.txt").exists()
-
-
-def test_narrative_measurements_are_candidates_not_repetition_penalties() -> None:
-    tex = r"""
-    \begin{abstract}The score is 0.970.\end{abstract}
-    A claim-bearing validation gate passed all checks. The control, ablation,
-    positive control, and robustness check support the alternative explanation.
-    Results are 0.970, 0.925, 0.708, and 39.8.
-    \caption{Accuracy is 0.970, which supports the main inference.}
-    """
-    facts = _neutral_language_facts(tex)["narrative_packaging"]
-
-    assert facts["audit_language_count"] >= 1
-    assert facts["control_checklist_candidates"]
-    assert facts["dense_numeric_sentence_candidates"]
-    assert facts["numerical_caption_count"] == 1
-    assert "not defects" in facts["interpretation"]
-
-
-def test_language_review_persistence_is_explicit_opt_in() -> None:
-    assert generate_academic_language_review.__kwdefaults__["write"] is False
-
-
-def test_abstract_shape_and_word_floor_are_reviewer_judgment() -> None:
-    venue = SimpleNamespace(reviewer_persona="Test venue")
-    short_five = " ".join(
-        f"Sentence {index} has selected evidence and meaning."
-        for index in range(1, 6)
-    )
-    long_six = " ".join(
-        ("Evidence " * 30).strip() + f" supports claim {index}."
-        for index in range(1, 7)
-    )
-
-    short_codes = {
-        code
-        for code, _message, _penalty, _cap in _abstract_quality_issue_specs(
-            short_five, venue=venue
-        )
-    }
-    long_codes = {
-        code
-        for code, _message, _penalty, _cap in _abstract_quality_issue_specs(
-            long_six, venue=venue
-        )
-    }
-
-    assert "thin_abstract" not in short_codes
-    assert "weak_abstract_shape" not in short_codes
-    assert "weak_abstract_shape" not in long_codes
-    assert "thin_abstract" not in long_codes

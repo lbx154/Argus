@@ -115,7 +115,7 @@ class RolePromptCatalog:
                 for part in (vertical_banner.strip(), vertical_fragment.strip())
                 if part
             )
-        # What changes between turns (research notes, GPU memory in use) is
+        # What changes between turns (the research notes) is
         # rendered by the vertical's context provider, never by its fragment,
         # so the banner above can sit in the provider-cacheable prefix.
         role_context = ""

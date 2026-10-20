@@ -434,8 +434,8 @@ def should_clear_thread_id_after_outcome(
     )
 
 
-# Argus stopped the turn: past the opt-in hard idle limit, or because the
-# Manager decided to restart a turn that stopped progressing.
+# Argus stopped the turn because the Manager decided to restart a turn that
+# stopped progressing.
 _IDLE_TERMINATION_MARKER = "forced restart after"
 _RUNNING_TOOL_MARKER = "running tool: "
 
@@ -469,10 +469,9 @@ def idle_termination_review_decision(
     """The skipped-review record for a turn Argus stopped for making no progress.
 
     Unlike a backend failure, nothing broke on the provider's side: a
-    command made no progress until the Manager decided to restart the turn
-    (or the opt-in idle limit passed). The next round must not repeat it as
-    it was, so the sentence names the command when the transport recorded it
-    and says what to do instead.
+    command made no progress until the Manager decided to restart the turn.
+    The next round must not repeat it as it was, so the sentence names the
+    command when the transport recorded it and says what to do instead.
     """
     error_text = str(fatal_error or f"exit={exit_code}").strip()
     tool = idle_termination_running_tool(fatal_error)

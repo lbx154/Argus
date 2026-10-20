@@ -240,8 +240,7 @@ class EventConsumerMixin:
         - codex: one ``item.completed`` per settled item; the reasoning item
           rides along with the same response as the message/tool item, so only
           non-reasoning items count.
-        - dsh: no per-turn events at all, so nothing ever counts (its calls
-          stay bounded by the wall-clock and idle watchdogs instead).
+        - dsh: no per-turn events at all, so nothing ever counts.
         """
         event_type = str(event.get("type") or "").strip()
         if self.backend == BACKEND_COPILOT:

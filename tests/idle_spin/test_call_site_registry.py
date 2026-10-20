@@ -61,15 +61,6 @@ REGISTRY: tuple[Site, ...] = (
         ("advisor.engineer.math",),
     ),
     Site(
-        r"research\.(academic_language_review|paper_infrastructure_review)", FOREGROUND,
-        "A research-vertical review pass that runs as part of a mission round.",
-        (
-            "argus/verticals/research/academic_language_review.py:681",
-            "argus/verticals/research/paper_infrastructure_review.py:236",
-        ),
-        ("research.academic_language_review", "research.paper_infrastructure_review"),
-    ),
-    Site(
         r"peer-message-response", FOREGROUND,
         "Answers one message another project sent; at most MAX_ATTEMPTS tries per message, "
         "then the sender gets a host notice. Replies are filed without a call.",
@@ -353,10 +344,6 @@ PASS_THROUGH = {
     ("argus/manager/plan_mode.py", "draft_plan", "run_label"),
     ("argus/manager/prompt_rewrite.py", "_resolve_run_exec._call", "run_label"),
     ("argus/manager/prompt_rewrite.py", "rewrite_prompt", "run_label"),
-    (
-        "argus/verticals/research/_reviewer_runner_fallback.py",
-        "run_reviewer_prompt_via_runner", "run_label",
-    ),
     ("argus/webapi/map_model.py", "_run_map_turn", "run_label"),
     ("argus/webapi/map_model.py", "run_map_model", "run_label"),
     # The reader's provenance record carries the literal "reader-foundation".

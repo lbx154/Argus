@@ -37,6 +37,10 @@ _OPENCODE_READ_ONLY_AGENT = "argus-read-only"
 _OPENCODE_FULL_ACCESS_AGENT = "argus-full-access"
 _OPENCODE_NO_TOOLS_AGENT = "argus-no-tools"
 _COPILOT_NO_TOOLS_SENTINEL = "__argus_no_tools__"
+# One empty ``write_stdin`` poll waits at most this long (Codex default: five
+# minutes). TOML's largest integer is the largest value Codex accepts, so a
+# single poll can wait out a whole background job.
+CODEX_MAX_BACKGROUND_TERMINAL_TIMEOUT_MS = 2**63 - 1
 _OPENCODE_OX_ALPHA_MODEL = "opencode/x-preview-f-free"
 _OPENCODE_OX_ALPHA_WARNED = False
 
@@ -434,6 +438,10 @@ class CommandBuilderMixin:
         # it only for this child invocation; the operator's config.toml is never
         # modified, and later explicit extra args may still opt back in.
         command.extend(["-c", "notify=[]"])
+        command.extend([
+            "-c",
+            f"background_terminal_max_timeout={CODEX_MAX_BACKGROUND_TERMINAL_TIMEOUT_MS}",
+        ])
         if options.disable_tools:
             import dataclasses
             options = dataclasses.replace(options, sandbox_mode="read-only", dangerous_yolo=False,

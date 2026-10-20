@@ -47,8 +47,6 @@ def test_manager_engineer_and_planner_share_direct_wiki_contract(
 
     assert "Check primary sources only when an external technical claim matters" in manager
     assert "Use primary sources when external behavior matters" in engineer
-    assert "If repeated attempts fail" in engineer
-    assert "recheck the underlying assumption" in engineer
     assert "When durable declarative knowledge changes" in engineer
     assert "support/limitation matrices" in engineer
     assert "Procedures and checklists belong in Skills" in engineer

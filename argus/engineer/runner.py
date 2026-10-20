@@ -496,11 +496,9 @@ class SupervisedEngineer(
         supervised_config: SupervisedConfig | None = None,
         on_event: Callable[[dict], None] | None = None,
     ) -> tuple[RunnerResult, int]:
-        hard_idle_seconds: int | None = None
         stalled_idle_seconds: int | None = None
         stall_watch: TurnStallWatch | None = None
         if supervised_config is not None:
-            hard_idle_seconds = int(supervised_config.runner_hard_idle_seconds or 0)
             stalled_idle_seconds = int(supervised_config.runner_stalled_idle_seconds or 0)
             if stalled_idle_seconds > 0:
                 stall_watch = TurnStallWatch(
@@ -542,7 +540,6 @@ class SupervisedEngineer(
                     inactivity_callback=stall_watch,
                     watchdog_soft_idle_seconds=LOOK_SECONDS if stall_watch else None,
                     watchdog_stalled_idle_seconds=stalled_idle_seconds,
-                    watchdog_hard_idle_seconds=hard_idle_seconds,
                     extension_env=(
                         {
                             "ARGUS_PLUGIN_PARENT_MISSION_ID": str(

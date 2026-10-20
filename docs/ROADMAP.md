@@ -260,7 +260,7 @@ not guess on the model's behalf whether there is progress. The full design is in
 
 #### HO-14 Every summary file can be rebuilt from the records
 `0.7` · `M` · Depends on: HO-8
-- Today: `latest.json`, the frontier, the task brief, and the Backlog result fields are each written directly, and can
+- Today: `latest.json`, the task brief, and the Backlog result fields are each written directly, and can
   disagree with the facts.
 - Do: derive all of them from the records, continuing the `MISSION.md` plan in
   [architecture-simplification-plan.md](architecture-simplification-plan.md).

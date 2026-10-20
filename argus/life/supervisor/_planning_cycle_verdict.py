@@ -126,8 +126,6 @@ class PlanningCycleVerdictMixin:
         operator cannot be asked, like any parked question. Returns False when
         the same question is already open.
         """
-        if state is not None:
-            state.planner_asked_operator = True
         item = None
         revision = getattr(state, "revision_request", None) or {}
         item_id = str(revision.get("item_id") or "")

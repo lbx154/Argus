@@ -13,7 +13,7 @@ Execution memory  — what happened
 
 **Execution memory** is the project’s observable event history: lifecycle events, selected progress, role outputs, verdicts, costs, and provider I/O when enabled (`life/event_log.py`). Hidden provider reasoning is unavailable. In the default `signal` mode, Argus retains selected high-value events rather than every progress message.
 
-**Working memory** is the resumable state of projects and missions: backlog, frontier, checkpoint, reviewed handoffs, and role-session capsules (`life/context_packet.py`, `core/role_session.py`). It lets a later role continue from the current frontier without replaying the full trajectory.
+**Working memory** is the resumable state of projects and missions: backlog, checkpoint, reviewed handoffs, and role-session capsules (`life/context_packet.py`, `core/role_session.py`). It lets a later role continue from the current state without replaying the full trajectory.
 
 **Curated memory** is knowledge selected for reuse: Wiki pages hold declarative project knowledge, Skills hold procedures, and experience capsules preserve bounded observations from settled missions (`wiki/store.py`, `skills/layered.py`, `life/failure_experience.py`). Its scope may be project, vertical, or shared profile. A successful runtime verdict records its original verdict source and scope; it is not automatically a verified causal lesson or a shared fact.
 
@@ -30,12 +30,12 @@ Manager supervision is separate project advice within operator constraints. The 
 ```text
 execution
   → observable events
-  → frontier, checkpoint, and handoffs
+  → checkpoint and handoffs
   → post-mission curation
   → retrieval by later roles
 ```
 
-While roles work, Argus records observable events. At execution boundaries, it compresses current state into the frontier, checkpoint, handoffs, and role capsules. After settlement, stable facts can enter the Wiki, reusable procedures can enter Skills, and bounded success or failure observations can become project experience. Later roles retrieve each layer according to project, mission, role, and authority.
+While roles work, Argus records observable events. At execution boundaries, it compresses current state into the checkpoint, handoffs, and role capsules. After settlement, stable facts can enter the Wiki, reusable procedures can enter Skills, and bounded success or failure observations can become project experience. Later roles retrieve each layer according to project, mission, role, and authority.
 
 Experiences retain stable identities, revisions, evidence references and bounded revision history. Manager, Planner and Engineer can inspect, correct or retract their own project's capsules through call-bound tools. Reviewer can inspect but cannot mutate them. A correction requires the current revision, new evidence and a reason. The tool accepts up to 16 existing relative `workspace:` or `state:` text files, at most 32 KiB combined; nonexistent, out-of-scope, credential/private and truncated files are rejected. It reuses the Advisor's bounded evidence reader and records source-byte hashes plus redacted-text hashes in the receipt. Revision references retain the source hashes without copying the evidence body into memory. This verifies which bytes were read, not whether the agent's interpretation is true; arbitrary receipt-like strings cannot stand in for files. Concurrent stale writes fail; retracting an interpretation removes it from future recall. The host binds the project and role; tool callers cannot supply a different root or role. These tools do not change OperatorContext or grant workspace write permission. Pi exposes native experience tools; backends with an existing shell use `python -m argus.tools.experience` during a live role call. No shell is added to a read-only backend.
 

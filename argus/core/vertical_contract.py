@@ -9,7 +9,7 @@ from __future__ import annotations
 import inspect
 from dataclasses import dataclass, field, replace
 from pathlib import Path
-from typing import Any, Callable, Iterable, Protocol
+from typing import Any, Callable, Protocol
 
 from .round_policy import RoundPolicy, RoundPolicyError, parse_round_policy
 
@@ -129,13 +129,6 @@ class IterationAssessment:
 
 
 @dataclass(frozen=True)
-class PlannerReviewPurchaseDecision:
-    """A vertical-owned decision about a proposed review purchase."""
-
-    defer_reason: str = ""
-
-
-@dataclass(frozen=True)
 class VerticalLibraryContext:
     """Core-owned inputs for optional provider-owned Skill preparation."""
 
@@ -183,7 +176,6 @@ class VerticalContract:
     mission_prelude: MissionPrelude | None = None
     library_preparer: Callable[[VerticalLibraryContext], None] | None = None
     stage_completion_validator: Callable[..., object] | None = None
-    review_purchase_policy: Callable[..., PlannerReviewPurchaseDecision] | None = None
     iteration_assessor: IterationAssessmentHook | None = None
     # Optional: records the operator's stated objective at project setup, for a
     # vertical that cannot pick a completion bar on its own. See
@@ -411,29 +403,6 @@ class VerticalContract:
             raise VerticalContractError(
                 f"vertical {self.name!r} completion validator returned a non-iterable"
             ) from exc
-
-    def review_purchase(
-        self,
-        *,
-        project_root: Path,
-        task: Any,
-        existing_items: Iterable[Any],
-        semantic_duplicate: Any | None,
-    ) -> PlannerReviewPurchaseDecision | None:
-        if self.review_purchase_policy is None:
-            return None
-        value = self.review_purchase_policy(
-            project_root=project_root,
-            task=task,
-            existing_items=existing_items,
-            semantic_duplicate=semantic_duplicate,
-        )
-        if isinstance(value, PlannerReviewPurchaseDecision):
-            return value
-        raise VerticalContractError(
-            f"vertical {self.name!r} review purchase policy returned "
-            f"{type(value).__name__}, expected PlannerReviewPurchaseDecision"
-        )
 
     def assess_iteration(
         self,
@@ -716,11 +685,6 @@ def vertical_contract(name: str, provider: Any) -> VerticalContract:
         raise VerticalContractError(
             f"vertical {name!r} has a non-callable stage completion validator"
         )
-    review_purchase_policy = getattr(provider, "review_purchase_policy", None)
-    if review_purchase_policy is not None and not callable(review_purchase_policy):
-        raise VerticalContractError(
-            f"vertical {name!r} has a non-callable review purchase policy"
-        )
     iteration_assessor = getattr(provider, "iteration_assessment", None)
     if iteration_assessor is not None and not callable(iteration_assessor):
         raise VerticalContractError(
@@ -883,7 +847,6 @@ def vertical_contract(name: str, provider: Any) -> VerticalContract:
             else None
         ),
         stage_completion_validator=stage_completion_validator,
-        review_purchase_policy=review_purchase_policy,
         iteration_assessor=iteration_assessor,
         operator_objective_adopter=operator_objective_adopter,
         legacy_state_importer=legacy_state_importer,
@@ -899,7 +862,6 @@ __all__ = [
     "MissionPrelude",
     "IterationAssessment",
     "IterationAssessmentHook",
-    "PlannerReviewPurchaseDecision",
     "RolePromptFragment",
     "VerticalContract",
     "VerticalContractError",

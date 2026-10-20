@@ -234,6 +234,8 @@ def test_build_codex_command_disables_interactive_notify_hook_per_turn():
 
     pairs = list(zip(cmd, cmd[1:]))
     assert ("-c", "notify=[]") in pairs
+    # One empty ``write_stdin`` may wait as long as Codex accepts (TOML's i64).
+    assert ("-c", f"background_terminal_max_timeout={2**63 - 1}") in pairs
 
 
 def test_build_codex_no_tools_keeps_provider_config_but_skips_tool_startup():

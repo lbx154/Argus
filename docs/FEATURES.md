@@ -229,9 +229,13 @@ diagnostic evidence, not a universal latency promise.
 
 - A command expected to run for more than two minutes is started detached
   (`setsid nohup` on POSIX, `Start-Process` on native Windows) with its own log
-  and exit-code file, and the Engineer waits for it inside its own turn with the
-  backend's longest blocking call (Copilot about ten minutes, Codex about five).
-  Argus keeps no waiting state and watches no job on the Engineer's behalf.
+  and exit-code file, and the Engineer waits for it in one wait: Codex with one
+  `write_stdin` whose `yield_time_ms` outlasts the job, Copilot with an `async`
+  shell that resumes the turn when it exits. Argus launches Codex with
+  `background_terminal_max_timeout` at its largest accepted value (2^63-1 ms)
+  and Copilot with `COPILOT_TASK_WAIT_TIMEOUT_SECONDS=2147483.647` (its ceiling,
+  about 24.8 days; neither has an unlimited setting). Argus keeps no waiting
+  state and watches no job on the Engineer's behalf.
 
 ## 4. Verticals and workflows
 

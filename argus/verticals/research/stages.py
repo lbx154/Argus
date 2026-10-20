@@ -16,7 +16,6 @@ from ...skills.stage_machine import ChecklistItem
 from . import library_preparation
 from .mission_brief import prepare_mission
 from .prompt_policy import render_role_prompt_context, render_role_prompt_fragment
-from .review_purchase import review_purchase_policy
 from .task_routes import (
     model_route_for_task,  # noqa: F401 - the host reads this hook off the vertical module
 )
@@ -726,7 +725,6 @@ __all__ = [
     "search_altitude_context",
     "render_role_prompt_fragment",
     "render_role_prompt_context",
-    "review_purchase_policy",
     "stage_completion_issues",
     "iteration_assessment",
     "completion_gate",

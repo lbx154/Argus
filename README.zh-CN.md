@@ -80,9 +80,8 @@ Manager/Planner/Engineer/Reviewer 运行时作为自定义 Agent 直接调用。
 **Code Agent 插件：** 可通过打包的 MCP bridge 和宿主 Skills 使用 Argus，不修改
 核心 runtime。参见 **[插件快速入门](docs/plugin.md)**。
 
-**反例研究：** 提供反例实验室、隔离的 Jacobian MCP bridge，
-以及工作台内安全更新源码的按钮。参见
-**[反例实验室与 Jacobian 配置](docs/counterexample-lab-jacobian.zh-CN.md)**。
+**反例研究：** 提供反例实验室，以及工作台内安全更新源码的按钮。参见
+**[反例实验室配置](docs/counterexample-lab.zh-CN.md)**。
 
 ## 微信群
 

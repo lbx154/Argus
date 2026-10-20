@@ -61,11 +61,11 @@ npm run build
 在源码根目录运行：
 
 ```bash
-python -m argus.verticals.research.timeline \
-  --input argus/verticals/research/timeline_example.json
+python -m argus.core.timeline \
+  --input argus/core/timeline_example.json
 ```
 
-[完整示例](../argus/verticals/research/timeline_example.json)包括实现难度、idea 验证、主实验、
+[完整示例](../argus/core/timeline_example.json)包括实现难度、idea 验证、主实验、
 消融、held-out 确认、分析、写作与审阅，以及一个备选 proposal。
 所有示例数字均为演示估计，不是该模型或研究方法的实测工期。
 
@@ -141,7 +141,7 @@ CLI/API 调用者同样应把选中行的 `duration_hours`、`resources`、`exec
 把计划输入保存在目标项目 `.argus/timeline/proposal.json`，首次记录：
 
 ```bash
-python -m argus.verticals.research.timeline \
+python -m argus.core.timeline \
   --input /path/to/project/.argus/timeline/proposal.json \
   --project-root /path/to/project --expected-version 0 --reason '初版 proposal'
 ```

@@ -197,7 +197,7 @@
 
 #### HO-14 摘要文件都能从记录重建
 `0.7` · `M` · 依赖：HO-8
-- 现在：`latest.json`、frontier、任务简报、Backlog 的结果字段各自被直接写入，可能和事实不一致。
+- 现在：`latest.json`、任务简报、Backlog 的结果字段各自被直接写入，可能和事实不一致。
 - 要做：全部改为由记录派生，延续 [architecture-simplification-plan.md](architecture-simplification-plan.md) 中的 `MISSION.md` 方案。
 - 做完的样子：测试里删掉这些文件再重建，内容完全一致。
 

@@ -117,7 +117,7 @@ class RoundPromptMixin:
         supervised_config: "SupervisedConfig",
         workdir: Path,
     ) -> str:
-        """The active vertical's per-turn facts (research notes, GPU memory in use).
+        """The active vertical's per-turn facts (the research notes).
 
         Resolved with the same vertical, state root, stage and operation the
         static banner was resolved with, so the facts match the policy; placed

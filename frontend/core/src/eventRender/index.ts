@@ -337,13 +337,8 @@ export function renderEvent(event: TypedArgusEvent, context: RenderContext): Ren
     }
     case 'life.planner.task_added':
       return model('planner', 'role.planner', '＋', `${localized(context, 'added a task', '新增任务')} · ${clean(stringField(event, 'title') || stringField(event, 'objective'), context.density === 'full' ? 160 : 140)}`, 'accent');
-    case 'life.planner.task_skipped': {
-      const reviewDeferred = stringField(event, 'skip_category') === 'paper_review_purchase_deferred';
-      const prefix = reviewDeferred
-        ? localized(context, 'put off another paper review', '推迟了再买一次评审')
-        : localized(context, 'skipped a task already planned', '跳过了已在计划中的任务');
-      return model('planner', 'role.planner', '⏭', `${prefix} ${clean(stringField(event, 'title'), context.density === 'full' ? 140 : 120)}`, 'dim');
-    }
+    case 'life.planner.task_skipped':
+      return model('planner', 'role.planner', '⏭', `${localized(context, 'skipped a task already planned', '跳过了已在计划中的任务')} ${clean(stringField(event, 'title'), context.density === 'full' ? 140 : 120)}`, 'dim');
     case 'life.planner.preview_skipped':
       return model('planner', 'role.planner', '⏭', localized(context, 'skipped the plan preview: the research Planner owns the campaign plan', '跳过了计划预览:研究规划师负责整个计划'), 'dim');
     case 'life.planner.normalized':

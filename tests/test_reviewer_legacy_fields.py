@@ -24,48 +24,20 @@ SESSION_SIGNAL=kind::quality_degradation|target::engineer|detail::The resumed En
 """
 
 
-def test_named_reviewer_verdict_carries_frontier_and_explicit_session_signal() -> None:
+def test_legacy_frontier_lines_are_ignored_and_session_signal_is_read() -> None:
     decision = parse_decision_text(_BASE)
 
     assert decision is not None
     assert decision.status == "continue"
-    assert decision.frontier_report["change"] == "bounded_regression"
-    assert decision.frontier_report["new_obligations"] == [
-        "repair adapter A",
-        "repair adapter B",
-    ]
-    assert decision.frontier_report["regression"]["exit_trigger"].startswith("Rollback")
+    assert decision.reason == (
+        "The shared abstraction improved, with a bounded adapter repair cluster."
+    )
+    assert not hasattr(decision, "frontier_report")
     assert decision.session_signal == {
         "kind": "quality_degradation",
         "target": "engineer",
         "detail": "The resumed Engineer repeated an obsolete repair twice.",
     }
-
-
-def test_missing_regression_envelope_is_not_allowed_to_override_status() -> None:
-    decision = parse_decision_text(_BASE.replace(
-        "|exit::Rollback if a third subsystem regresses.",
-        "|exit::none",
-    ))
-
-    assert decision is not None
-    assert decision.status == "continue"
-    assert "omitted one or more" in decision.reason
-    assert decision.frontier_report["regression"]["exit_trigger"] == ""
-    assert decision.planner_report["plan_signal"] == "continue"
-
-
-def test_expanding_regression_does_not_override_done_status() -> None:
-    decision = parse_decision_text(
-        _BASE.replace("STATUS=continue", "STATUS=done").replace(
-            "FRONTIER_CHANGE=bounded_regression",
-            "FRONTIER_CHANGE=expanding_regression",
-        )
-    )
-
-    assert decision is not None
-    assert decision.status == "done"
-    assert "reports an expanding regression" in decision.reason
 
 
 def test_legacy_json_skill_ops_fixture_is_readable_but_field_is_retired(tmp_path) -> None:

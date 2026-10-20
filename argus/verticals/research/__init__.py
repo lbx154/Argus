@@ -5,10 +5,6 @@ assumes the project is producing a research paper:
 
 * the four forward-only paper-pipeline stages (idea → experiment →
   paper → review), defined in ``stages.py``;
-* the model-/vision-backed review passes used in the Review stage:
-  ``academic_language_review``, ``paper_layout_review``,
-  ``paper_infrastructure_review``, plus their shared
-  ``_review_contract_constants``;
 * supporting facilities such as ``method_differentiation`` and
   ``method_freeze``.
 
@@ -16,7 +12,7 @@ Quality judgment belongs to the Reviewer reading the actual paper, code and
 raw results — not to deterministic validators; ``figure_lint`` is an advisory
 tool that lists mechanical figure defects for that judgment. Submodules are imported
 directly (e.g. ``from argus.verticals.research import
-academic_language_review``), and the most-used public symbols are re-exported
+figure_lint``), and the most-used public symbols are re-exported
 here for callers that want one import site.
 """
 
@@ -35,28 +31,6 @@ from ...skills.evidence_chain import (
 # on import.
 # ---------------------------------------------------------------------------
 from . import round_log  # noqa: F401
-
-# ---------------------------------------------------------------------------
-# Shared review-contract constants / helpers
-# ---------------------------------------------------------------------------
-from ._review_contract_constants import (
-    ACADEMIC_LANGUAGE_REVIEW_GENERATED_BY,
-    ACADEMIC_LANGUAGE_REVIEW_HISTORY_PATH,
-    LAYOUT_REVIEW_GENERATED_BY,
-    LAYOUT_REVIEW_HISTORY_PATH,
-    PAPER_INFRASTRUCTURE_REVIEW_GENERATED_BY,
-    PAPER_INFRASTRUCTURE_REVIEW_HISTORY_PATH,
-)
-
-# ---------------------------------------------------------------------------
-# Model-/vision-backed review generators
-# ---------------------------------------------------------------------------
-from .academic_language_review import (
-    ACADEMIC_LANGUAGE_REVIEW_JSON_PATH,
-    ACADEMIC_LANGUAGE_REVIEW_MD_PATH,
-    AcademicLanguageReviewError,
-    generate_academic_language_review,
-)
 
 # ---------------------------------------------------------------------------
 # Advisory figure checks
@@ -79,19 +53,6 @@ from .method_freeze import (
 # Per-mission task brief (the vertical's ``prepare_mission`` hook)
 # ---------------------------------------------------------------------------
 from .mission_brief import prepare_mission
-from .paper_infrastructure_review import (
-    PAPER_INFRASTRUCTURE_REVIEW_JSON_PATH,
-    PAPER_INFRASTRUCTURE_REVIEW_MD_PATH,
-    PaperInfrastructureReviewError,
-    generate_paper_infrastructure_review,
-)
-from .paper_layout_review import (
-    LAYOUT_REVIEW_JSON_PATH,
-    LAYOUT_REVIEW_MD_PATH,
-    LAYOUT_REVIEW_PAGE_DIR,
-    LayoutReviewError,
-    generate_layout_review,
-)
 
 # ---------------------------------------------------------------------------
 # Paper-specific pipeline (stage definitions + checks)
@@ -106,29 +67,6 @@ from .stages import (
 __all__ = [
     # mission_brief
     "prepare_mission",
-    # _review_contract_constants
-    "ACADEMIC_LANGUAGE_REVIEW_GENERATED_BY",
-    "ACADEMIC_LANGUAGE_REVIEW_HISTORY_PATH",
-    "LAYOUT_REVIEW_GENERATED_BY",
-    "LAYOUT_REVIEW_HISTORY_PATH",
-    "PAPER_INFRASTRUCTURE_REVIEW_GENERATED_BY",
-    "PAPER_INFRASTRUCTURE_REVIEW_HISTORY_PATH",
-    # academic_language_review
-    "ACADEMIC_LANGUAGE_REVIEW_JSON_PATH",
-    "ACADEMIC_LANGUAGE_REVIEW_MD_PATH",
-    "AcademicLanguageReviewError",
-    "generate_academic_language_review",
-    # paper_infrastructure_review
-    "PAPER_INFRASTRUCTURE_REVIEW_JSON_PATH",
-    "PAPER_INFRASTRUCTURE_REVIEW_MD_PATH",
-    "PaperInfrastructureReviewError",
-    "generate_paper_infrastructure_review",
-    # paper_layout_review
-    "LAYOUT_REVIEW_JSON_PATH",
-    "LAYOUT_REVIEW_MD_PATH",
-    "LAYOUT_REVIEW_PAGE_DIR",
-    "LayoutReviewError",
-    "generate_layout_review",
     # method_differentiation
     "ConditionRun",
     "MethodDifferentiationReport",

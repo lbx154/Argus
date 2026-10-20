@@ -228,10 +228,6 @@ class _RunnerConstructionMixin:
                 "ARGUS_SKILL_RUNNER_STALLED_IDLE_SECONDS",
                 30 * 60,
             ),
-            default_watchdog_hard_idle_seconds=_env_int(
-                "ARGUS_SKILL_RUNNER_HARD_IDLE_SECONDS",
-                0,
-            ),
             event_callback=_trampoline,
         )
         # Expose the underlying backend so the LifeSupervisor's
@@ -306,10 +302,6 @@ class _RunnerConstructionMixin:
                 default_watchdog_stalled_idle_seconds=_env_int(
                     "ARGUS_SKILL_RUNNER_STALLED_IDLE_SECONDS",
                     30 * 60,
-                ),
-                default_watchdog_hard_idle_seconds=_env_int(
-                    "ARGUS_SKILL_RUNNER_HARD_IDLE_SECONDS",
-                    0,
                 ),
                 event_callback=_trampoline,
             )

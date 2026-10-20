@@ -1,8 +1,8 @@
 """Heterogeneous resource probes with explicit failure states.
 
-Adapters own every vendor-specific command and field.  The ledger consumes only
-the normalized device facts produced here; it never guesses device counts or
-turns failed telemetry into capacity.
+Adapters own every vendor-specific command and field; callers see only the
+normalized device facts produced here. Device counts are never guessed and
+failed telemetry never reads as capacity.
 """
 from __future__ import annotations
 

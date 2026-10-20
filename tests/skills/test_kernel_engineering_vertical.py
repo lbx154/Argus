@@ -35,7 +35,7 @@ def test_kernel_engineering_banner_prioritizes_direct_measured_work() -> None:
     assert "maximize the real kernel" in engineer
     assert "one coherent implementation" in engineer
     assert "Treat unattended benchmark and profiler runs as long jobs" in engineer
-    assert "blocking calls rather than short status checks" in engineer
+    assert "not with short status checks" in engineer
     assert "fill spare mission slots" in planner
     assert "`parallel_safe=true`" in planner
     assert "`owns_paths` disjoint" in planner

@@ -6,13 +6,6 @@
     "source": "argus/builtin_skills/engineer/minimal-coding-agent.md",
     "sourceBytes": 2672
   },
-  "global/engineer/pdf-chat.md": {
-    "title": "分段阅读 PDF",
-    "summary": "按页或章节阅读并核对版本、页码；图片和版式需查看实际页面，回答只依据相关证据。",
-    "originalName": "Progressive PDF Reading",
-    "source": "argus/builtin_skills/engineer/pdf-chat.md",
-    "sourceBytes": 2101
-  },
   "global/engineer/presentation-master.md": {
     "title": "可编辑演示文稿",
     "summary": "使用已有 PPT Master 工具制作或修改可编辑演示文稿和原生 PPT 图，经指定解释器运行并核对导出效果；科研绘图路线由科研垂域决定。",
@@ -32,7 +25,7 @@
     "summary": "为软件、产品、接口和基准等现实信息寻找并保留一手来源，让重要结论能够追溯。",
     "originalName": "Web Primary-Source Evidence",
     "source": "argus/builtin_skills/engineer/web-primary-source-evidence.md",
-    "sourceBytes": 1625
+    "sourceBytes": 1297
   },
   "global/manager/evidence-based-stage-decision.md": {
     "title": "经理的职责与阶段决定",
@@ -81,7 +74,7 @@
     "summary": "核对实际取得的来源与重要现实信息声明是否一致，不把有链接等同于已经证实。",
     "originalName": "Web Source-Evidence Audit",
     "source": "argus/builtin_skills/reviewer/web-source-evidence-audit.md",
-    "sourceBytes": 1212
+    "sourceBytes": 1124
   },
   "global/stale-blocker-verification-probe.md": {
     "title": "核实旧阻塞与易变的外部事实",
@@ -599,7 +592,7 @@
     "summary": "忠实保留命题与范围，诚实区分结果类别；需要 Lean 证据时实际编译，不虚构证明。",
     "originalName": "Math Research Execution",
     "source": "argus/verticals/math/skills/engineer/math-research-execution.md",
-    "sourceBytes": 16237
+    "sourceBytes": 15683
   },
   "vertical/math/manager/math-research-manager.md": {
     "title": "数学研究任务协调",
@@ -620,7 +613,7 @@
     "summary": "检查正确性、新意、意义、命题忠实性和真实形式化证据，不以叙述代替证明。",
     "originalName": "Math Research Review",
     "source": "argus/verticals/math/skills/reviewer/math-research-review.md",
-    "sourceBytes": 7408
+    "sourceBytes": 6811
   },
   "vertical/math/scientist/math-research-adaptation.md": {
     "title": "改进数学研究方法",
@@ -704,14 +697,14 @@
     "summary": "把稿件中的论断对回支撑它的证据，把引用对回被引的原文，并用 Semantic Scholar 核对版本；补充全局的一手来源技能，不另起一轮整篇审阅。",
     "originalName": "Checking claims and citations against their sources",
     "source": "argus/verticals/research/skills/engineer/sources-and-citations.md",
-    "sourceBytes": 7027
+    "sourceBytes": 6954
   },
   "vertical/research/engineer/training-infrastructure.md": {
     "title": "训练基础设施的选择、搭建与调参",
     "summary": "训练或大规模推理需要框架时，用实时来源调查候选、在隔离环境中试装并剖析一步真实更新、以官方配方为锚每次只改一个因素，并把结论写成带日期的项目决策记录；评测证据完整保留，训练流按种子/索引、标量和抽样输入保存并验证可再生，开跑前估算磁盘占用。",
     "originalName": "Training infrastructure: choosing, standing up and tuning it",
     "source": "argus/verticals/research/skills/engineer/training-infrastructure.md",
-    "sourceBytes": 12455
+    "sourceBytes": 12354
   },
   "vertical/research/engineer/venue-format-preflight.md": {
     "title": "投稿前的编译与泄露检查",
@@ -739,7 +732,7 @@
     "summary": "忠实实现已选想法，先跑通一个小而完整、记录了耗时与算力的闭环，再通过适应性实验形成足以支撑论文的证据；经独立审核的阶段成果可以先作为阶段包交付。",
     "originalName": "Developing an idea through experiments",
     "source": "argus/verticals/research/skills/research-experiment-playbook.md",
-    "sourceBytes": 34251
+    "sourceBytes": 34271
   },
   "vertical/research/research-idea-playbook.md": {
     "title": "寻找并选择研究想法",
@@ -781,7 +774,7 @@
     "summary": "亲自读代码、配置、评测器和原始行，判断证据对当前声明的支持与缺口；低于基线的结果在阶梯未走完前是修复请求；训练类实验另核对基础设施决策记录。",
     "originalName": "What the experiments establish",
     "source": "argus/verticals/research/skills/reviewer/experiment-results-review.md",
-    "sourceBytes": 10424
+    "sourceBytes": 10413
   },
   "vertical/research/reviewer/strongest-argument-against.md": {
     "title": "寻找最有力的科学反对意见",

@@ -65,7 +65,6 @@ def build_letter_prompt(*, facts: Mapping[str, Any]) -> str:
         + section("Historical decisions taken", "decisions")
         + section("Planned next", "planned")
         + section("Cost and time in this window", "cost")
-        + section("The machine", "machine")
         + "\nWrite the letter now."
     )
 

@@ -63,10 +63,10 @@ def test_patching_through_the_legacy_name_patches_the_runtime(monkeypatch) -> No
 def test_a_legacy_submodule_imported_first_is_still_the_canonical_module() -> None:
     """Order must not matter: importing the old name first cannot create a second copy."""
     code = (
-        "import argus_skill.tools.pdf_chat as legacy, sys; "
-        "import argus.tools.pdf_chat as canonical; "
+        "import argus_skill.core.json_codec as legacy, sys; "
+        "import argus.core.json_codec as canonical; "
         "assert legacy is canonical, (legacy, canonical); "
-        "assert sys.modules['argus_skill.tools.pdf_chat'] is canonical; "
+        "assert sys.modules['argus_skill.core.json_codec'] is canonical; "
         "print(canonical.__spec__.name)"
     )
     probe = subprocess.run(
@@ -75,7 +75,7 @@ def test_a_legacy_submodule_imported_first_is_still_the_canonical_module() -> No
     )
 
     assert probe.returncode == 0, probe.stderr
-    assert probe.stdout.strip() == "argus.tools.pdf_chat"
+    assert probe.stdout.strip() == "argus.core.json_codec"
 
 
 def test_legacy_import_emits_one_deprecation_warning() -> None:

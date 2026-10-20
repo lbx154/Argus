@@ -7,8 +7,8 @@ A Skill is a markdown document with two frontmatter fields (``name``,
 ``layered.py``); the runtime hands agents library paths and never parses the
 body. Also present today, pending phases 2-3 (see docs/LAYOUT.md): the stage
 machine and vertical selection (``stage_machine``, ``vertical_select``,
-``checklist_store``), the RL research gates (``run_contract``,
-``rl_training_*``, ``anti_mediocrity``, ``evidence_chain``), and the SkillLoop
+``checklist_store``), the RL research gates (``rl_training_*``,
+``anti_mediocrity``, ``evidence_chain``), and the SkillLoop
 mixins (``loop_*``).
 
 Does not belong here (and where it goes): pipeline state and vertical

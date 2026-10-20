@@ -35,12 +35,6 @@ def test_minimal_non_research_vertical_implements_only_documented_contract() -> 
     assert contract.banner("engineer") == ""
     assert contract.role_prompt_context is None
     assert contract.evidence_schema is None
-    assert contract.review_purchase(
-        project_root=Path("."),
-        task=object(),
-        existing_items=(),
-        semantic_duplicate=None,
-    ) is None
 
 
 @pytest.mark.parametrize("value", [None, "false", "true", 0, 1, [], {}])

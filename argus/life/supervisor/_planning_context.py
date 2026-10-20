@@ -25,6 +25,7 @@ from ._constants import (
     STALL_ESCALATION_AFTER_NO_PROGRESS_MISSIONS,
 )
 from ._helpers import _operator_only_external_blocker_wait_reason_for_project
+from ._planner_failure_backoff import planner_failure_kind
 
 log = logging.getLogger(__name__)
 
@@ -1019,26 +1020,27 @@ class PlanningContextMixin:
             # reads an older record and may call the Planner once more.
             log.exception("failed to persist the Planner's last turn")
 
-    def _arm_unchanged_planner_skip(self, state: Any, result: Any) -> None:
+    def _arm_unchanged_planner_skip(self, state: Any) -> None:
         """Record or clear the unchanged-input skip after a real Planner call.
 
-        Armed only when the model was actually called this cycle and added no
-        work, naming who acts next: that is the one outcome a byte-identical
-        input state is guaranteed to reproduce. Every other invoked outcome —
-        tasks enqueued, retirements, completion, errors (which may be
-        transient) — clears the record. Cycles that never reached the model,
-        including the skip itself, leave the record untouched so consecutive
-        unchanged cycles keep skipping until an input changes.
+        Armed when the model answered this cycle without proposing work,
+        whatever it said: the same inputs would only buy the same answer
+        again, so the Planner is asked next when something it reads changes.
+        Proposed work (enqueued or not), a completion accepted, or a failed
+        backend call (which may be transient) clears the record. Cycles that
+        never reached the model, including the skip itself, leave the record
+        untouched so consecutive unchanged cycles keep skipping until an input
+        changes.
         """
         if not bool(getattr(state, "planner_invoked", False)):
             return
         verdict = state.verdict
         if (
-            result == PLAN_AWAITING
-            and str(getattr(state, "planner_input_signature", "") or "")
+            str(getattr(state, "planner_input_signature", "") or "")
             and verdict is not None
-            and not getattr(verdict, "error", "")
-            and getattr(verdict, "handoff", "")
+            and not planner_failure_kind(verdict)
+            and not getattr(verdict, "new_tasks", None)
+            and not state.completion_accepted
         ):
             self._planner_unchanged_skip_signature = state.planner_input_signature
         else:

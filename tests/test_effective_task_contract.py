@@ -22,9 +22,10 @@ def test_effective_task_contract_is_compact() -> None:
     assert len(contract) <= 600
     assert 'operator>objective>mission>preregistration' in contract
     assert "preregistration" in contract
-    assert 'Limit output' in contract
-    assert 'no `.git` or Git retries' in contract
+    assert "not substitutes" in contract
     assert "ambiguous_objective" in contract
+    for ban in ("unrelated cleanup", "never unchanged work", "Limit output", "Git retries"):
+        assert ban not in contract
 
 
 def test_engineer_prompt_includes_shared_effective_task_contract() -> None:

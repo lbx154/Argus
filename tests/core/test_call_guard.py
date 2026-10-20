@@ -44,7 +44,7 @@ def test_progress_restores_the_budget_and_a_new_trip_is_told_again():
 
 @pytest.mark.parametrize("label", [
     "engineer-r4", "engineer-r4.winddown", "reviewer", "reviewer-correctness",
-    "advisor.engineer.math", "research.academic_language_review",
+    "advisor.engineer.math",
     "peer-message-response", "manager-frontdoor-classify",
 ])
 def test_mission_work_and_answers_to_one_input_are_never_counted(label):

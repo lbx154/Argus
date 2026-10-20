@@ -229,13 +229,11 @@ def test_mission_width_auto_is_a_ceiling_from_usable_cores_not_gpu_count(
     tmp_path: Path, monkeypatch,
 ) -> None:
     """``auto`` only bounds how many mission workers may run; how many actually
-    run is decided by which tasks the plan makes ready together and by the
-    resource ledger per job. GPU count must not set it (CPU-only campaigns are
+    run is decided by which tasks the plan makes ready together and by free
+    GPUs per task. GPU count must not set it (CPU-only campaigns are
     common, and the visible card list ignores CUDA_VISIBLE_DEVICES)."""
     from argus.daemon import config as config_mod
-    from argus.tools import gpu_lease
 
-    monkeypatch.setattr(gpu_lease, "gpu_snapshot", lambda: [])
     for cores, expected in ((1, 1), (2, 2), (3, 3), (64, 4)):
         monkeypatch.setattr(config_mod, "_usable_cpu_count", lambda cores=cores: cores)
         config = LifeWorkerConfig(life_dir=tmp_path, backend="memory", mission_width="auto")

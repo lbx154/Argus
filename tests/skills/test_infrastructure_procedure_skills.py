@@ -48,7 +48,7 @@ def test_survey_teaches_successor_discovery_and_evidence_cards() -> None:
     survey = _flat(GUIDE)
     assert "successor discovery" in survey
     assert "evidence card" in survey
-    assert "argus.tools.web_source" in survey
+    assert "your own web tools" in survey
     assert "sources-and-citations.md" in survey
     assert "no material update found" in survey
     assert "exclusion reason" in survey

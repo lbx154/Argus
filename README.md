@@ -89,9 +89,8 @@ Manager/Planner/Engineer/Reviewer runtime as a custom agent. See
 **Coding-agent plugin:** use the packaged MCP bridge and host-specific Skills
 without changing the core runtime. See **[Plugin quick start](docs/plugin.md)**.
 
-**Counterexample research:** use a live
-Counterexample Lab, an isolated Jacobian MCP bridge, and safe in-app source
-updates. See **[Counterexample Lab and Jacobian setup](docs/counterexample-lab-jacobian.md)**.
+**Counterexample research:** use a live Counterexample Lab and safe in-app
+source updates. See **[Counterexample Lab setup](docs/counterexample-lab.md)**.
 
 ## WeChat community
 

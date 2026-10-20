@@ -440,9 +440,6 @@ class _PlanCycleState:
         self.completion_accepted = False
         self.certified_operator_wait = False
 
-        # Set when this cycle turned an unusable Planner answer into an
-        # operator question; the next Planner call then waits for a change.
-        self.planner_asked_operator: bool = False
         # Set when the turn ended in something other than a Planner failure
         # (the Manager reconciled an empty plan), so it does not count.
         self.planner_turn_not_failed: bool = False
@@ -462,8 +459,6 @@ class _PlanCycleState:
         # for tasks that actually commit, so dedup-skipped proposals do not
         # spam the journal on replan loops.
         self.dropped_parallel: list[tuple[str, str]] = []
-        self.skipped_certification_reproposal_titles: list[str] = []
-        self.skipped_certification_reproposal_reasons: list[str] = []
         self.skipped_task_feedback: list[dict[str, str]] = []
         self.new_plan_id: str = ""
         self.new_plan_version: int = 1

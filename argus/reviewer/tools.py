@@ -249,33 +249,6 @@ class ReviewActions:
                     "required": ["kind", "target", "detail"],
                     "additionalProperties": False,
                 },
-                "frontier_report": {
-                    "type": "object",
-                    "description": "Optional evidence of how the remaining work changed this round.",
-                    "properties": {
-                        "change": {"enum": [
-                            "artifact_improved", "risk_reduced", "uncertainty_reduced",
-                            "information_gain", "bounded_regression", "recovered",
-                            "unchanged_failure", "expanding_regression", "unexplained_regression",
-                        ]},
-                        **{key: {"type": "string"} for key in (
-                            "summary", "hypothesis", "uncertainty", "next_decision_point",
-                        )},
-                        **{key: {"type": "array", "items": {"type": "string"}} for key in (
-                            "resolved_obligations", "new_obligations", "regressed_obligations",
-                            "remaining_work", "proxy_changes", "artifacts", "evidence",
-                        )},
-                        "regression": {
-                            "type": "object",
-                            "properties": {key: {"type": "string"} for key in (
-                                "cause", "scope", "budget", "recovery_test", "exit_trigger",
-                            )},
-                            "additionalProperties": False,
-                        },
-                    },
-                    "required": ["change"],
-                    "additionalProperties": False,
-                },
             }
             # Only where the host uses them: attention on verdicts that do not
             # already reach the Manager, learning on the accepting verdict.
@@ -289,14 +262,7 @@ class ReviewActions:
                 fields["unverifiable"] = {
                     "type": "string",
                     "description": (
-                        "Only when a decisive check cannot happen in this environment, "
-                        "so repeating the finding cannot settle it: the fact is hidden "
-                        "from every view you have (e.g. masked or redacted display), or "
-                        "the task, packet or environment says the check needs a resource "
-                        "that exists only at grading or deploy time (quote it in "
-                        "impossible_because). Name the check, the best evidence you can "
-                        "reach instead (a rerunnable check, or a test fixture), and the "
-                        "risk left. " + FIXTURE_EVIDENCE_RULE + " " + (
+                        "A decisive check that cannot happen here, and the risk left. " + (
                             "Leaving it unverified is the operator's decision: ask them "
                             "with request_review_decision (operator_need "
                             "scope_or_authority, accept_risk)."
@@ -461,7 +427,6 @@ class ReviewActions:
             research_result=research,
             planner_report={"plan_signal": "continue"},
             session_signal=payload.get("session_signal", {}),
-            frontier_report=payload.get("frontier_report", {}),
         )
         if "forward_progress" in payload:
             decision.planner_report["forward_progress"] = payload["forward_progress"]

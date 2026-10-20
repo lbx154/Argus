@@ -27,8 +27,6 @@ from ..core.secret_guard import known_secret_values, redact_secrets_text
 
 _REASON_LIMIT = 2000
 _ACTION_LIMIT = 1200
-# Same bounds the MissionBrief used for its item lists.
-_ITEMS = 6
 _ITEM_LIMIT = 400
 _EARLIER = 2
 _EARLIER_LIMIT = 300
@@ -55,6 +53,8 @@ class PreviousFindings:
 
     text: str = ""
     has_reviewer_findings: bool = False
+    # Always False: the Reviewer no longer names open items. Kept until
+    # engineer/round_reviewer stops reading it.
     has_open_items: bool = False
 
     def __bool__(self) -> bool:
@@ -98,29 +98,6 @@ def reviewer_words_of(review: ReviewDecision) -> tuple[str, str, str]:
     reason = str(words.get("reason", review.reason) or "")
     action = str(words.get("next_action", review.next_action) or "")
     return status, reason, action
-
-
-def _items(frontier: object, key: str) -> tuple[list[str], int]:
-    if not isinstance(frontier, dict):
-        return [], 0
-    value = frontier.get(key)
-    if isinstance(value, str):
-        value = [value]
-    if not isinstance(value, list):
-        return [], 0
-    items = list(dict.fromkeys(
-        text for item in value if (text := _one_line(item, _ITEM_LIMIT))
-    ))
-    return items[:_ITEMS], max(0, len(items) - _ITEMS)
-
-
-def _item_lines(title: str, items: list[str], hidden: int) -> list[str]:
-    if not items:
-        return []
-    lines = [title, *(f"- {item}" for item in items)]
-    if hidden:
-        lines.append(f"- (+{hidden} more not shown)")
-    return lines
 
 
 def _earlier(records: Iterable[RoundRecord]) -> list[str]:
@@ -187,7 +164,6 @@ def render_previous_findings(
     reviewed = reviewer_authored_rounds(rounds)
     latest = reviewed[-1] if reviewed else None
     lines: list[str] = []
-    has_open_items = False
     if latest is not None:
         status, reason, action = reviewer_words_of(latest.review)
         lines += [
@@ -204,11 +180,6 @@ def render_previous_findings(
             action_text[:200]
         ):
             lines.append("What you asked for:\n" + action_text)
-        frontier = latest.review.frontier_report
-        lines += _item_lines("Evidence you cited:", *_items(frontier, "evidence"))
-        open_items, hidden = _items(frontier, "remaining_work")
-        has_open_items = bool(open_items)
-        lines += _item_lines("Open items you named:", open_items, hidden)
         lines += _earlier(reviewed[:-1])
     facts = _host_facts(rounds, latest)
     if facts:
@@ -226,7 +197,6 @@ def render_previous_findings(
     return PreviousFindings(
         text=text,
         has_reviewer_findings=latest is not None,
-        has_open_items=has_open_items,
     )
 
 
