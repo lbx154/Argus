@@ -649,10 +649,15 @@ class CommandBuilderMixin:
         )
         if lean:
             # A denylist, so a tool the CLI ships later stays available.
-            # Built-in MCP servers (GitHub access) stay attached.
-            command.append(
-                f"--excluded-tools={','.join(_COPILOT_LEAN_EXCLUDED_TOOLS)}"
+            # Built-in MCP servers (GitHub access) stay attached unless the
+            # role names them.
+            excluded = (
+                *_COPILOT_LEAN_EXCLUDED_TOOLS,
+                *(getattr(options, "excluded_tools", ()) or ()),
             )
+            command.append(f"--excluded-tools={','.join(excluded)}")
+            for server in getattr(options, "disabled_mcp_servers", ()) or ():
+                command.extend(["--disable-mcp-server", server])
         if options.disable_tools:
             command.append(f"--available-tools={_COPILOT_NO_TOOLS_SENTINEL}")
         elif options.sandbox_mode == "read-only":
