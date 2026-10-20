@@ -27,10 +27,10 @@ LoopStatus = Literal[
 ]
 
 # Copilot CLI tools for sub-agents, dynamic workflows, the session store and
-# semantic code search. No Planner or Observer thread called one in the October
-# 2026 six-task, trial and experiment logs, and nothing tells these roles to; on
-# the full tool surface their schemas rode along on every request (10K tool
-# tokens per Planner turn, 3.9K without them).
+# semantic code search. No Planner, Reviewer or Observer thread called one in
+# the October 2026 six-task, trial and experiment logs, and nothing tells these
+# roles to; on the full tool surface their schemas rode along on every request
+# (10K tool tokens per Planner turn, 3.9K without them).
 READING_ROLE_UNUSED_COPILOT_TOOLS = (
     "task",
     "read_agent",
