@@ -116,26 +116,6 @@ def test_done_verdict_keeps_plan_challenge_advisory() -> None:
     assert routed.alternative == ""
 
 
-def test_an_operator_owned_challenge_still_goes_back_to_the_operator() -> None:
-    """Reading the flat shape must not let the Reviewer overrule the operator."""
-    decision = parse_decision_text(json.dumps({
-        "status": "replan_requested",
-        "reason": "The exhaustive sweep the operator required is what costs the time.",
-        "next_action": "Ask whether a narrower sweep is acceptable.",
-        "plan_signal": "reconsider",
-        "plan_challenge": "Exhaustive execution dominates the budget.",
-        "operator_question": "May we narrow the sweep?",
-        "authority_impact": "operator",
-    }))
-
-    assert decision is not None
-    routed = adjudicate_plan_challenge(
-        decision.planner_report,
-        reviewer_status=decision.status,
-    )
-    assert routed.action == "ask_operator"
-
-
 def test_the_nested_shape_still_parses() -> None:
     """Output already in flight against the older schema must keep working."""
     decision = parse_decision_text(json.dumps({

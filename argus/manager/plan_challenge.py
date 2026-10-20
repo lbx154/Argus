@@ -1,10 +1,9 @@
 """Manager-owned routing for evidence-backed mission challenges.
 
-This module does not judge whether the Reviewer's technical claim is true. It
-keeps the authority boundary explicit: operator-owned changes go back to the
-operator, while technical alternatives may revise or replace the Planner's
-working plan. The Planner still inspects the evidence and authors any replacement
-DAG.
+This module does not judge whether the Reviewer's technical claim is true. A
+challenge with a concrete alternative may replace the Planner's working plan;
+any other revises it. The Planner still inspects the evidence and authors any
+replacement DAG.
 """
 from __future__ import annotations
 
@@ -16,7 +15,7 @@ _AUTHORITY_IMPACTS = frozenset({"technical", "manager_contract", "operator"})
 
 @dataclass(frozen=True)
 class PlanChallengeDecision:
-    action: str  # keep | revise | replace | ask_operator
+    action: str  # keep | revise | replace
     reason: str
     challenge: str = ""
     alternative: str = ""
@@ -47,15 +46,6 @@ def adjudicate_plan_challenge(
             challenge=challenge,
             alternative=alternative,
             authority_impact=authority,
-        )
-    if authority == "operator":
-        # The Reviewer's own label decides; words in the challenge never do.
-        return PlanChallengeDecision(
-            action="ask_operator",
-            reason="Reviewer marked an operator-owned decision",
-            challenge=challenge,
-            alternative=alternative,
-            authority_impact="operator",
         )
     if alternative:
         return PlanChallengeDecision(

@@ -712,7 +712,7 @@ export interface LifeManagerPlanChallengeDecidedEvent extends EventMsg {
   type: "life.manager.plan_challenge.decided";
   payload_schema_version?: 1;
   "item_id": string;
-  "manager_action": "keep" | "revise" | "replace" | "ask_operator";
+  "manager_action": "keep" | "revise" | "replace";
   "manager_reason"?: string;
   "challenge": string;
   "alternative"?: string;

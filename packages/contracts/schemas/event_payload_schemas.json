@@ -2501,8 +2501,7 @@
           "enum": [
             "keep",
             "revise",
-            "replace",
-            "ask_operator"
+            "replace"
           ]
         },
         "manager_reason": {

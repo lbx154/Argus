@@ -29,7 +29,6 @@ from pathlib import Path
 import pytest
 
 from argus.adapters.memory_backend import CannedResponse, MemoryBackend
-from argus.core.autonomy import AUTONOMOUS_ASSUMPTION_INSTRUCTION
 from argus.engineer.runner import EngineerConfig, SupervisedConfig, SupervisedEngineer
 from argus.reviewer import Reviewer, ReviewerConfig
 from argus.reviewer.tools import ReviewActions
@@ -178,9 +177,6 @@ def test_a_no_operator_interpretation_never_drops_a_stated_symptom(tmp_path, mon
         flat = _flat(rendered)
         assert "may settle ambiguity between requirements" in flat
         assert expected in flat
-    flat = _flat(AUTONOMOUS_ASSUMPTION_INSTRUCTION)
-    assert "may settle ambiguity between requirements" in flat
-    assert expected in flat
 
 
 def test_with_an_operator_the_no_operator_rule_is_not_sent(tmp_path, monkeypatch) -> None:

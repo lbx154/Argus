@@ -35,19 +35,6 @@ def test_explicit_replan_with_alternative_replaces_working_plan() -> None:
     assert "no-gap" in decision.alternative
 
 
-def test_operator_owned_change_routes_back_to_operator() -> None:
-    decision = adjudicate_plan_challenge(
-        {
-            "plan_signal": "reconsider",
-            "challenge": "The requested trust boundary would need to expand.",
-            "authority_impact": "operator",
-        },
-        reviewer_status="replan_requested",
-    )
-
-    assert decision.action == "ask_operator"
-
-
 def test_technical_question_uses_the_available_alternative() -> None:
     decision = adjudicate_plan_challenge(
         {

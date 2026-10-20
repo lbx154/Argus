@@ -58,24 +58,6 @@ def outcome_manuscript_binding(outcome: object) -> dict[str, Any] | None:
     return None
 
 
-
-def _operator_classification(outcome: Any) -> dict[str, str]:
-    report = getattr(outcome, "final_planner_report", None)
-    report = report if isinstance(report, dict) else {}
-    from ...core.autonomy import normalize_operator_need
-
-    fields: dict[str, str] = {}
-    need = normalize_operator_need(report.get("operator_need"))
-    if need:
-        fields["operator_need"] = need
-    authority = str(report.get("authority_impact") or "").strip().lower()
-    if authority:
-        fields["authority_impact"] = authority
-    next_action = str(getattr(outcome, "final_review_next_action", "") or "").strip()
-    if next_action and not bool(getattr(outcome, "success", False)):
-        fields["next_action"] = next_action[:1200]
-    return fields
-
 class MissionExecutionSettlementMixin:
     """Repair settlement, stage guard, final status, and journal emission."""
 
@@ -1082,9 +1064,9 @@ class MissionExecutionSettlementMixin:
             "operator_question": str(
                 getattr(outcome, "operator_question", "") or ""
             ).strip(),
-            # The raising role's own classification travels with the outcome
-            # so the operator-facing message can say whose decision this is.
-            **_operator_classification(outcome),
+            "next_action": "" if success else str(
+                getattr(outcome, "final_review_next_action", "") or ""
+            ).strip()[:1200],
             "agent_layer": "engineer",
             "engineer_model": self.engineer_model,
             "reviewer_model": self.reviewer_model,

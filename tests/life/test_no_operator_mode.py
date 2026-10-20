@@ -13,10 +13,8 @@ from typing import Any
 
 import pytest
 
-from argus.core.event_catalog import EventType
 from argus.life.memory import BacklogItem, LifeMemory
 from argus.life.supervisor import LifeBudget, LifeSupervisor, LifeSupervisorConfig
-from argus.life.supervisor._planning_cycle_helpers import _render_revision_request
 
 
 @pytest.fixture(autouse=True)
@@ -48,21 +46,14 @@ class _Outcome:
     research_result: dict[str, Any] | None = None
 
 
-class _ClassifiedQuestionRunner:
-    def __init__(self, need: str) -> None:
-        self.need = need
-
+class _QuestionRunner:
     def execute(self, **_kwargs: Any) -> _Outcome:
         outcome = _Outcome(
             operator_question="Which of the two conflicting release rules wins?",
         )
         outcome.final_review_reason = "Two requirements conflict."
         outcome.final_review_next_action = ""
-        outcome.final_planner_report = {
-            "plan_signal": "reconsider",
-            "authority_impact": "operator",
-            "operator_need": self.need,
-        }
+        outcome.final_planner_report = {"plan_signal": "continue"}
         return outcome
 
 
@@ -80,113 +71,12 @@ def _supervisor(tmp_path, runner: Any) -> tuple[LifeSupervisor, _Sink]:
     return supervisor, sink
 
 
-def _conflict_outcome(item_id: str, **report: Any) -> dict[str, Any]:
-    return {
-        "item_id": item_id,
-        "status": "replan_requested",
-        "review_status": "replan_requested",
-        "review_reason": "The mandatory work order is held by an unreleased gate.",
-        "planner_report": {
-            "plan_signal": "reconsider",
-            "challenge": "The mandatory work order is held by an unreleased gate.",
-            "authority_impact": "operator",
-            **report,
-        },
-    }
-
-
-def test_operator_available_still_asks_for_an_operator_owned_conflict(
-    tmp_path, monkeypatch
-) -> None:
-    monkeypatch.setenv("ARGUS_SKILL_OPERATOR_AVAILABLE", "true")
-    supervisor, sink = _supervisor(tmp_path, runner=object())
-    item = supervisor.memory.backlog.add(
-        BacklogItem.new(title="Plan production", objective="plan production")
-    )
-
-    action = supervisor._adjudicate_mission_challenge(_conflict_outcome(item.id))
-
-    assert action == "ask_operator"
-    stored = next(row for row in supervisor.memory.backlog.all() if row.id == item.id)
-    assert stored.status == "parked"
-    assert stored.pending_question
-    assert any(
-        event["type"] == EventType.LIFE_OPERATOR_QUESTION_PENDING
-        for event in sink.events
-    )
-
-
-def test_no_operator_settles_the_conflict_on_a_recorded_assumption(
-    tmp_path, monkeypatch
-) -> None:
-    monkeypatch.setenv("ARGUS_SKILL_OPERATOR_AVAILABLE", "false")
-    supervisor, sink = _supervisor(tmp_path, runner=object())
-    item = supervisor.memory.backlog.add(
-        BacklogItem.new(title="Plan production", objective="plan production")
-    )
-    outcome = _conflict_outcome(item.id)
-
-    action = supervisor._adjudicate_mission_challenge(outcome)
-
-    assert action == "revise"
-    stored = next(row for row in supervisor.memory.backlog.all() if row.id == item.id)
-    assert stored.status != "parked"
-    assert not stored.pending_question
-    assert not any(
-        event["type"] == EventType.LIFE_OPERATOR_QUESTION_PENDING
-        for event in sink.events
-    )
-    challenge = outcome["plan_challenge"]
-    assert challenge["autonomous_assumption"] is True
-    assert "The operator cannot be asked" in challenge["manager_reason"]
-    # The Planner is told to decide, record the assumption, and not wait.
-    rendered = _render_revision_request(outcome, [])
-    assert "manager_instruction:" in rendered
-    assert "do not wait" in rendered
-    # An assumption settles meaning only; it is recorded outside graded output.
-    assert "Never assume facts, data, measurements, or results" in rendered
-    assert "placeholder credentials or mocked services" in rendered
-    assert "CHECKPOINT.md and the run report" in rendered
-    # The assumption is recorded for the report and announced as an event.
-    from argus.core.autonomy import read_autonomous_assumptions
-
-    recorded = read_autonomous_assumptions(supervisor.memory.root)
-    assert recorded and "unreleased gate" in recorded[-1]["conflict"]
-    decided = [
-        event for event in sink.events
-        if event["type"] == EventType.LIFE_MANAGER_PLAN_CHALLENGE_DECIDED
-    ]
-    assert decided[-1]["autonomous_assumption"] is True
-
-
-@pytest.mark.parametrize("need", ["credentials", "spending", "irreversible_or_external"])
-def test_no_operator_parks_an_action_for_the_manager_to_decide(
-    tmp_path, monkeypatch, need
-) -> None:
-    monkeypatch.setenv("ARGUS_SKILL_OPERATOR_AVAILABLE", "false")
-    supervisor, _sink = _supervisor(tmp_path, runner=object())
-    item = supervisor.memory.backlog.add(
-        BacklogItem.new(title="Publish the build", objective="publish the build")
-    )
-
-    action = supervisor._adjudicate_mission_challenge(
-        _conflict_outcome(item.id, operator_need=need)
-    )
-
-    assert action == "ask_operator"
-    stored = next(row for row in supervisor.memory.backlog.all() if row.id == item.id)
-    assert stored.status == "parked"
-    assert stored.operator_decision["status"] == "pending"
-
-
 def test_no_operator_mission_question_parks_for_the_manager(
     tmp_path, monkeypatch
 ) -> None:
     """A role handed the work to the operator; with none, the Manager decides the card."""
     monkeypatch.setenv("ARGUS_SKILL_OPERATOR_AVAILABLE", "false")
-    supervisor, _sink = _supervisor(
-        tmp_path, runner=_ClassifiedQuestionRunner("scope_or_authority")
-    )
+    supervisor, _sink = _supervisor(tmp_path, runner=_QuestionRunner())
     item = supervisor.memory.backlog.add(
         BacklogItem.new(title="Plan production", objective="plan production")
     )
@@ -201,9 +91,7 @@ def test_no_operator_mission_question_parks_for_the_manager(
 
 def test_operator_available_mission_question_still_parks(tmp_path, monkeypatch) -> None:
     monkeypatch.setenv("ARGUS_SKILL_OPERATOR_AVAILABLE", "true")
-    supervisor, _sink = _supervisor(
-        tmp_path, runner=_ClassifiedQuestionRunner("scope_or_authority")
-    )
+    supervisor, _sink = _supervisor(tmp_path, runner=_QuestionRunner())
     item = supervisor.memory.backlog.add(
         BacklogItem.new(title="Plan production", objective="plan production")
     )
@@ -262,25 +150,6 @@ def test_plan_alternatives_route_exactly_as_on_dev_with_an_operator(
         reviewer_status="replan_requested",
     )
     assert decision.action == "replace"
-
-
-def test_no_operator_irreversible_alternative_parks_for_the_manager(
-    tmp_path, monkeypatch
-) -> None:
-    monkeypatch.setenv("ARGUS_SKILL_OPERATOR_AVAILABLE", "false")
-    supervisor, _sink = _supervisor(tmp_path, runner=object())
-    item = supervisor.memory.backlog.add(
-        BacklogItem.new(title="Ship the fix", objective="ship the fix")
-    )
-    outcome = _conflict_outcome(
-        item.id,
-        authority_impact="operator",
-        operator_need="irreversible_or_external",
-        alternative="Force-push the protected release branch.",
-    )
-    assert supervisor._adjudicate_mission_challenge(outcome) == "ask_operator"
-    stored = next(row for row in supervisor.memory.backlog.all() if row.id == item.id)
-    assert stored.status == "parked"
 
 
 class _ProxyManager:
@@ -443,51 +312,6 @@ def test_bounded_completion_summary_names_the_assumptions(tmp_path) -> None:
     assert "Two release rules conflict." in text
 
 
-def test_a_reviewer_credential_request_parks(
-    tmp_path, monkeypatch
-) -> None:
-    monkeypatch.setenv("ARGUS_SKILL_OPERATOR_AVAILABLE", "true")
-    supervisor, _sink = _supervisor(tmp_path, runner=_ClassifiedQuestionRunner("credentials"))
-    item = supervisor.memory.backlog.add(
-        BacklogItem.new(title="Deploy staging", objective="deploy staging")
-    )
-
-    supervisor.tick()
-
-    stored = next(row for row in supervisor.memory.backlog.all() if row.id == item.id)
-    assert stored.status == "parked"
-
-
-# --- interactive escalation stays at dev's rate ------------------------------
-_EVERYDAY_QUESTIONS = (
-    "pandas or polars?",
-    "reduce dataset size?",
-    "which spec line wins?",
-)
-
-
-@pytest.mark.parametrize("question", _EVERYDAY_QUESTIONS)
-def test_everyday_unclassified_questions_never_reach_the_operator(
-    monkeypatch, question
-) -> None:
-    """dev escalated none of these (no keyword matched); neither may we."""
-    from argus.core.autonomy import assess_operator_intervention
-    from argus.manager.plan_challenge import adjudicate_plan_challenge
-
-    monkeypatch.setenv("ARGUS_SKILL_OPERATOR_AVAILABLE", "true")
-    # A Reviewer or runner question nobody classified.
-    assert assess_operator_intervention(question=question).required is False
-    # A Reviewer request the Reviewer itself marked as the team's.
-    assert assess_operator_intervention(
-        question=question, operator_need="none"
-    ).required is False
-    # A technical replan carrying the question.
-    assert adjudicate_plan_challenge(
-        {"authority_impact": "technical", "challenge": question},
-        reviewer_status="replan_requested",
-    ).action != "ask_operator"
-
-
 # --- --no-operator lasts one run ---------------------------------------------
 def test_no_operator_flag_is_not_persisted_with_the_project(tmp_path, monkeypatch) -> None:
     import argus.core.autonomy as autonomy
@@ -580,12 +404,10 @@ def test_task_completed_message_lists_the_assumptions(tmp_path, monkeypatch) -> 
 
 
 def test_assumption_wording_never_targets_graded_deliverables(monkeypatch, tmp_path) -> None:
-    from argus.core.autonomy import AUTONOMOUS_ASSUMPTION_INSTRUCTION
     from argus.core.operator_context import build_operator_context_block
 
     monkeypatch.setenv("ARGUS_SKILL_OPERATOR_AVAILABLE", "false")
     (tmp_path / "life").mkdir()
     block, _ = build_operator_context_block("engineer", tmp_path / "life")
-    for text in (AUTONOMOUS_ASSUMPTION_INSTRUCTION, block):
-        assert "CHECKPOINT.md and the run report" in text
-        assert "in the deliverable" not in text
+    assert "CHECKPOINT.md and the run report" in block
+    assert "in the deliverable" not in block

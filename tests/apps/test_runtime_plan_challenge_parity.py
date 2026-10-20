@@ -1,8 +1,8 @@
-"""A Reviewer replan with an alternative routes by the Reviewer's own label.
+"""A Reviewer replan with an alternative replaces the plan.
 
 These cases pin the outcome the runtime records for a replan that carries an
-alternative, with an operator present: ``authority_impact`` decides, and words
-in the challenge or the alternative never do.
+alternative, with an operator present: words in the challenge or the
+alternative never route it elsewhere.
 """
 from __future__ import annotations
 
@@ -71,12 +71,6 @@ def _route(tmp_path: Path, report: dict, *, question: str = "") -> dict:
              "alternative": "Follow the spec line in section 2."},
             "which spec line wins?",
             ("replace", "technical"),
-        ),
-        (
-            {"authority_impact": "operator", "challenge": "acceptance would change",
-             "alternative": "Relax the acceptance threshold."},
-            "",
-            ("ask_operator", "operator"),
         ),
         (
             # Alarming words in a technical alternative do not decide.
