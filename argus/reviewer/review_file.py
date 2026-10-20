@@ -76,7 +76,11 @@ def main() -> None:
 
     @server.tool()
     def read_review() -> str:
-        """Read your current paper/REVIEW.md before updating this round's opinion."""
+        """Read your current paper/REVIEW.md before updating this round's opinion.
+
+        Skip this when your prompt already shows its full text under Active
+        research context: that copy is the current file.
+        """
         return store.read_review()
 
     @server.tool()

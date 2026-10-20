@@ -59,6 +59,9 @@ def test_mcp_tool_revises_the_same_file_without_a_review_schema(tmp_path: Path):
             await session.initialize()
             tools = {tool.name: tool for tool in (await session.list_tools()).tools}
             assert set(tools) == {"read_review", "write_review"}
+            # A Review-stage prompt already carries the report; the tool must
+            # not ask for a second copy of it.
+            assert "already shows its full text" in tools["read_review"].description
             assert set(tools["write_review"].inputSchema["properties"]) == {"text"}
             for prose in ["这项对照有价值，请补充未见种子实验。", "新增实验已经解决该问题，当前建议 weak accept。"]:
                 result = await session.call_tool("write_review", {"text": prose})
