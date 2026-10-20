@@ -10,6 +10,7 @@ a new thread of context.
 
 from __future__ import annotations
 
+from dataclasses import replace
 from pathlib import Path
 
 from argus.core.models import RunnerResult
@@ -151,3 +152,79 @@ def test_resumed_session_repeats_settle_reminder_on_every_offering_turn(
     for prompt in prompts[:3]:
         assert prompt.endswith("omit the line when none does.")
     assert "SETTLE_INSTRUCTION" not in prompts[3]
+
+
+class _PrunedThreadRunner(_RecordingRunner):
+    """The provider has lost ``planner-thread``: resuming it fails at startup."""
+
+    def __init__(self) -> None:
+        super().__init__()
+        self.fresh_threads = 0
+
+    def run_exec(self, **kwargs):  # noqa: ANN003
+        if kwargs.get("resume_thread_id") == "planner-thread":
+            self.calls.append(kwargs)
+            return RunnerResult(
+                exit_code=1,
+                fatal_error="Error: No session, task, or name matched 'planner-thread'.",
+            )
+        result = super().run_exec(**kwargs)
+        if kwargs.get("resume_thread_id") is None:
+            self.fresh_threads += 1
+            result.thread_id = f"fresh-thread-{self.fresh_threads}"
+        else:
+            result.thread_id = kwargs["resume_thread_id"]
+        return result
+
+
+def test_lost_provider_thread_restarts_with_the_full_prompt(tmp_path: Path) -> None:
+    """A pruned Copilot session must not leave the Planner on a delta-only thread.
+
+    Copilot sessions idle past the retention window are deleted. Resuming one
+    used to continue in a fresh thread with only the resume delta, so that
+    thread never received the Planner contract or the older journal.
+    """
+    persist_vertical(tmp_path, "software")
+    Planner(_RecordingRunner()).plan_next(
+        continuous_objective="improve the solver",
+        journal_tail="FULL JOURNAL BODY ALPHA",
+        research_plan="PLAN BODY ALPHA",
+        config=_config(tmp_path),
+    )
+
+    runner = _PrunedThreadRunner()
+    planner = Planner(runner)
+    events: list[dict] = []
+    verdict = planner.plan_next(
+        continuous_objective="improve the solver",
+        journal_tail="FULL JOURNAL BODY ALPHA BETA",
+        research_plan="PLAN BODY ALPHA",
+        journal_delta="- mission_complete: DELTA ONLY BETA",
+        research_plan_unchanged=True,
+        config=replace(_config(tmp_path), on_event=events.append),
+    )
+
+    assert verdict.error == ""
+    assert [call["resume_thread_id"] for call in runner.calls] == ["planner-thread", None]
+    fresh = runner.calls[1]["prompt"]
+    assert "## Reality check" in fresh and "## Assigning work" in fresh
+    assert "FULL JOURNAL BODY ALPHA BETA" in fresh
+    assert "PLAN BODY ALPHA" in fresh
+    assert "Continued Planner cycle" not in fresh
+    turn = events[-1]
+    assert (turn["action"], turn["rotation_reason"]) == ("rotated", "missing_provider_session")
+    assert turn["session_id"] == "fresh-thread-1"
+
+    planner.plan_next(
+        continuous_objective="improve the solver",
+        journal_tail="FULL JOURNAL BODY ALPHA BETA GAMMA",
+        research_plan="PLAN BODY ALPHA",
+        journal_delta="- mission_complete: DELTA ONLY GAMMA",
+        research_plan_unchanged=True,
+        config=_config(tmp_path),
+    )
+    assert runner.calls[2]["resume_thread_id"] == "fresh-thread-1"
+    resumed = runner.calls[2]["prompt"]
+    assert "DELTA ONLY GAMMA" in resumed
+    # The fresh thread's full prompt is the record the next delta elides against.
+    assert "## Unchanged since your previous turn" in resumed
