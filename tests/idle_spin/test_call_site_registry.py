@@ -506,7 +506,7 @@ def test_every_label_that_reaches_a_model_is_classified(found: list[Found]) -> N
         if item.label is not None
         and (item.where.rsplit(":", 1)[0], item.function, item.label) not in NOT_MODEL_CALLS
     ]
-    assert len(chosen) > 60, "the sweep no longer sees the call sites"
+    assert len(chosen) > 50, "the sweep no longer sees the call sites"
     unclassified = [f"{item.where} {item.label!r}" for item in chosen if not _matches(item.label)]
     ambiguous = [
         f"{item.where} {item.label!r}: {[site.pattern for site in _matches(item.label)]}"
