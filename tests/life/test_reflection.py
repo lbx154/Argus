@@ -131,7 +131,7 @@ class _Roots:
         self.life = self.home / "projects" / SID
         self.vertical_root = self.home / "wiki" / "_shared_verticals" / VERTICAL
         self.project_wiki = self.workspace / ".autors" / SID / "wiki"
-        self.skills = self.life / "skills" / "engineer"
+        self.skills = self.workspace / ".agents" / "skills"
         self.workspace.mkdir(parents=True)
         self.life.mkdir(parents=True)
         self.events: list[dict[str, Any]] = []
@@ -228,14 +228,14 @@ def test_lesson_page_is_indexed_journaled_announced_and_receipted(roots: _Roots)
     assert result["updated"] == []
     assert result["failure"] == ""
 
-    # The call: the workspace is the working directory, the vertical root and
-    # the project Skill layer are opened for writing, nothing else is loaded.
+    # The call: the workspace (with its Agent Skills) is the working directory,
+    # the vertical root is opened for writing, nothing else is loaded.
     call = backend.calls[0]
     options = call["options"]
     assert call["run_label"] == "reflection"
     assert options.working_dir == str(roots.workspace)
-    assert str(roots.vertical_root) in options.add_dirs
-    assert str(roots.life / "skills") in options.add_dirs
+    assert options.add_dirs == [str(roots.vertical_root), str(roots.home / "operator")]
+    assert f"{roots.skills}/<slug>/SKILL.md" in call["prompt"]
     assert options.sandbox_mode == "workspace-write"
     assert options.skip_git_repo_check is True
     assert options.skill_paths == []
@@ -327,7 +327,7 @@ def test_a_lesson_without_a_vertical_goes_to_the_global_wiki(roots: _Roots) -> N
 def test_fact_page_and_procedure_are_recorded_and_the_fact_is_shared(roots: _Roots) -> None:
     roots.with_project_wiki()
     fact_path = roots.project_wiki / "pages" / "env" / "torch.md"
-    skill_path = roots.skills / "check-venv.md"
+    skill_path = roots.skills / "check-venv" / "SKILL.md"
     backend = _Backend([(fact_path, FACT), (skill_path, SKILL)])
 
     result = roots.reflect(backend)
@@ -345,7 +345,7 @@ def test_fact_page_and_procedure_are_recorded_and_the_fact_is_shared(roots: _Roo
     skill_events = _learned(roots.events, kind="learned", page_kind="skill")
     assert len(skill_events) == 1
     assert skill_events[0]["scope"] == "project"
-    assert skill_events[0]["path"] == "skills/engineer/check-venv.md"
+    assert skill_events[0]["path"] == ".agents/skills/check-venv/SKILL.md"
 
     # audience: vertical after an accepted review — copied into the shared tier.
     shared_copy = roots.vertical_root / "pages" / "env" / "torch.md"

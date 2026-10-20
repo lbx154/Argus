@@ -20,7 +20,7 @@ against local drivers, and the project that migrated away from a stack last
 quarter is invisible to recollection. So no name in this skill or in memory is a
 recommendation. The current answer is produced at project time from live
 sources and local measurement, and written as a dated project skill,
-`engineer/<task-class>-infrastructure-decision.md` (the round prompt describes
+`<task-class>-infrastructure-decision/SKILL.md` (the round prompt describes
 its shape), so that the Reviewer can check every date and number against a
 cited source or a run log, and a later project on the same task class and
 hardware can start from the record instead of repeating the work. When such a

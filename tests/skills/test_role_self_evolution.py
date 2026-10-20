@@ -86,17 +86,19 @@ def test_role_maintenance_block_has_a_clean_ab_switch(tmp_path) -> None:
     assert "`version`" not in treatment
 
 
-def test_engineer_learning_targets_engineer_bucket(tmp_path) -> None:
-    skill_dir = tmp_path / "skills" / "engineer"
+def test_engineer_learning_stays_inside_the_workspace(tmp_path) -> None:
     prompt = build_mission_prompt(
         task="repair the parser",
         skill_text="",
         next_action=None,
         require_post_task_learning=True,
-        project_skill_dir=skill_dir,
+        project_root=tmp_path,
     )
 
+    skill_dir = tmp_path / ".agents" / "skills"
     assert f"Engineer Skill directory (project layer only): {skill_dir}" in prompt
+    assert "Write each Skill as `<name>/SKILL.md`" in prompt
+    assert "keep the script you ran beside it" in prompt
     assert 'Deliver the requested outputs, not substitutes' in prompt
     assert "Keep only reusable role learning here" in prompt
     assert "route durable project facts" in prompt

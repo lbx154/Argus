@@ -47,7 +47,7 @@ def hosted_engineer_prompt(task):
                                  path=Path(HANDOFF + "/role-sessions/engineer.json"))
     base = build_mission_prompt(task=task, skill_text=libraries, next_action=None,
                                role_banner=banner, require_post_task_learning=True,
-                               project_root=Path(WORKSPACE), project_skill_dir=roots[0] + "/engineer",
+                               project_root=Path(WORKSPACE),
                                compact_team=True, operator_context="Carry out only the current task and verify its public result.")
     return assemble_round_prompt(base, checkpoint_block="\n\n".join((
         f"## MissionBrief\n- Workdir: `{WORKSPACE}`\n- Stage: delivery",
@@ -89,7 +89,6 @@ def test_actual_checkpoint_and_role_capsule_prompt_literals_preserve_bytes():
     HANDOFF + "/CHECKPOINT.md", HANDOFF + "/role-sessions/engineer.json",
     HANDOFF + "/role-sessions/reviewer.json",
     f"/tenant/home/.argus-skill/projects/{SID}/skills",
-    f"/tenant/home/.argus-skill/projects/{SID}/skills/engineer",
     "/tenant/home/.argus-skill/skills", "/tenant/home/.argus-skill/skills/_shared_verticals/software",
     "/tenant/home/.argus-skill",
 ])
@@ -109,6 +108,7 @@ def test_current_bound_generated_path_literals_are_public(path):
     f"/tenant/home/.argus-skill/projects/{SID}/agent_io.jsonl",
     "/home/alice/private", "/root/private", "/data/private", "/tenant/home/.ssh/id_rsa",
     f"/tenant/home/.argus-skill/projects/{SID}/skills/private.md",
+    f"/tenant/home/.argus-skill/projects/{SID}/skills/engineer",
     f"/tenant/home/.argus-skill/projects/{SID}/skills/engineer/private.md",
     "/tenant/home/.argus-skill/skills/private.md", "/tenant/home/.argus-skill/skills/../private",
     "/tenant/home/.argus-skill/skills/_shared_verticals/custom-private",

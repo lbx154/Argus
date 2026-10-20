@@ -713,6 +713,13 @@ class SkillLoopExecuteMixin:
         config_kwargs["engineer_log_path"] = (
             str(_project_state_dir / "events.jsonl") if _project_state_dir is not None else ""
         )
+        from ..life.knowledge_recall import knowledge_read_dirs
+
+        # The Engineer's recalled knowledge points at libraries outside its
+        # workdir; a sandboxed backend reads them only when they are given.
+        config_kwargs["read_dirs"] = knowledge_read_dirs(
+            _project_state_dir, getattr(args, "global_root", None), workdir,
+        ) or None
         from ..core.autonomy import operator_questions_can_be_asked
 
         explicit_operator_root = str(getattr(args, "operator_context_dir", "") or "").strip()

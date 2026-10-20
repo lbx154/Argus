@@ -3,6 +3,7 @@ from __future__ import annotations
 
 import datetime as dt
 import json
+import os
 import sys
 import types
 from pathlib import Path
@@ -16,6 +17,7 @@ from argus.core.pipeline_state import write_pipeline_state
 from argus.life.knowledge_recall import (
     KnowledgeRoot,
     MarkdownKnowledgeRecall,
+    knowledge_read_dirs,
     knowledge_recall_for_memory,
     render_memory_recall,
 )
@@ -46,6 +48,17 @@ def workspace_with_vertical(root: Path, vertical: str) -> Path:
     root.mkdir(parents=True, exist_ok=True)
     write_pipeline_state(root, {"vertical": vertical})
     return root
+
+
+def earlier_project(tenant: Path, sid: str, vertical: str, workspace: Path) -> Path:
+    """A project as the host keeps it: the Manager's state under ``projects/<sid>``,
+    the work in the workspace its session names (anywhere on disk)."""
+    state = tenant / "projects" / sid
+    workspace.mkdir(parents=True, exist_ok=True)
+    write(state / "session.json", json.dumps({"id": sid, "workdir": str(workspace)}))
+    if vertical:
+        write_pipeline_state(state, {"vertical": vertical})
+    return state
 
 
 @pytest.fixture
@@ -92,14 +105,17 @@ def root_kinds(recall: MarkdownKnowledgeRecall) -> list[str]:
     return [root.kind for root in recall.roots]
 
 
-def test_roots_include_shared_tiers_principles_and_same_vertical_siblings_only(tenant):
+def test_roots_include_shared_tiers_principles_and_every_earlier_project(tenant, tmp_path):
     workspace = workspace_with_vertical(tenant / "workspaces" / "current", VERTICAL)
-    same = workspace_with_vertical(tenant / "workspaces" / "earlier-same", VERTICAL)
-    other = workspace_with_vertical(tenant / "workspaces" / "earlier-other", OTHER_VERTICAL)
-    undecided = tenant / "workspaces" / "undecided"
-    project_wiki(same, "s-same", "notes.md", page("Same", "same vertical", "quartz same"))
-    project_wiki(other, "s-other", "notes.md", page("Other", "other vertical", "quartz other"))
-    project_wiki(undecided, "s-none", "notes.md", page("None", "no state", "quartz none"))
+    same = tmp_path / "work" / "earlier-same"
+    other = tmp_path / "work" / "earlier-other"
+    undecided = tmp_path / "work" / "undecided"
+    earlier_project(tenant, "s-same", VERTICAL, same)
+    earlier_project(tenant, "s-other", OTHER_VERTICAL, other)
+    earlier_project(tenant, "s-none", "", undecided)
+    project_wiki(same, "same", "notes.md", page("Same", "same vertical", "quartz same"))
+    project_wiki(other, "other", "notes.md", page("Other", "other vertical", "quartz other"))
+    project_wiki(undecided, "none", "notes.md", page("None", "no state", "quartz none"))
     project_wiki(workspace, "s-current", "notes.md", page("Current", "this project", "quartz current"))
     vertical_root = shared_vertical_wiki_root(VERTICAL, tenant)
     write(vertical_root / "pages" / "lessons" / "20260917-quartz.md", page("Lesson", "d", "quartz lesson"))
@@ -117,50 +133,151 @@ def test_roots_include_shared_tiers_principles_and_same_vertical_siblings_only(t
     assert by_kind["principles"].path == vertical_root / "principles.md"
     assert by_kind["shared knowledge"].path == global_wiki_root(tenant) / "pages"
     assert by_kind["shared knowledge"].scope == "global"
-    siblings = [root for root in recall.roots if root.kind.startswith("earlier project Wiki")]
-    assert [root.kind for root in siblings] == ["earlier project Wiki (s-same)"]
-    assert siblings[0].path == same / ".autors" / "s-same" / "wiki" / "pages"
-    assert siblings[0].source == "s-same" and siblings[0].scope == "project"
-    assert all(str(other) not in str(root.path) for root in recall.roots)
-    assert all(str(undecided) not in str(root.path) for root in recall.roots)
+    siblings = {root.kind: root for root in recall.roots if root.kind.startswith("earlier project")}
+    assert set(siblings) == {f"earlier project Wiki ({sid})" for sid in ("s-same", "s-other", "s-none")}
+    assert siblings["earlier project Wiki (s-other)"].path == other / ".autors" / "other" / "wiki" / "pages"
+    assert {(root.source, root.scope) for root in siblings.values()} == {
+        ("s-same", "project"), ("s-other", "project"), ("s-none", "project")}
     assert [root.kind for root in recall.roots if str(root.path).startswith(str(workspace))] == [
         "project Wiki", "native project Skill",
     ]
     context = recall.render_context("quartz")
-    assert "earlier project Wiki (s-same)" in context and "quartz same" not in context
-    assert str(other) not in context
+    assert "earlier project Wiki (s-" in context and "quartz same" not in context
+
+
+def test_earlier_projects_are_found_where_the_host_keeps_them(tenant, tmp_path):
+    """The Manager writes a project's pipeline state into its state directory and the
+    session names a workspace anywhere on disk; neither sits under ``workspaces/``."""
+    workspace = tmp_path / "work" / "current"
+    state = earlier_project(tenant, "s-current", VERTICAL, workspace)
+    earlier = tmp_path / "work" / "earlier"
+    earlier_state = earlier_project(tenant, "s-earlier", VERTICAL, earlier)
+    project_wiki(earlier, "earlier", "engine.md", page("Engine", "how the engine schedules", "quartz engine"))
+    write(earlier / ".agents" / "skills" / "quartz-check" / "SKILL.md",
+          "---\nname: quartz-check\ndescription: check quartz\n---\n\nquartz procedure\n")
+    write(earlier_state / "skills" / "engineer" / "quartz-reflection.md",
+          "---\nname: quartz-reflection\ndescription: quartz reflected\n---\n\nquartz\n")
+    write(earlier_state / "skills" / "self" / "operator-taste.md",
+          "---\nname: operator-taste\ndescription: quartz preference\n---\n\nquartz\n")
+    memory = MemoryBundle.for_cwd(workspace, global_root=tenant, fingerprint=state.name)
+
+    recall = knowledge_recall_for_memory(memory)
+
+    siblings = {root.path: root.kind for root in recall.roots if root.kind.startswith("earlier project")}
+    assert siblings == {
+        earlier / ".autors" / "earlier" / "wiki" / "pages": "earlier project Wiki (s-earlier)",
+        earlier_state / "skills" / "engineer": "earlier project Skill (s-earlier)",
+        earlier / ".agents" / "skills": "earlier project Skill (s-earlier)",
+    }
+    context = recall.render_context("quartz")
+    assert str(earlier / ".autors" / "earlier" / "wiki" / "pages" / "engine.md") in context
+    assert "operator-taste" not in context
+
+
+def test_what_a_learning_project_kept_is_recalled_in_every_vertical(tenant, tmp_path):
+    learned = tmp_path / "work" / "learn"
+    earlier_project(tenant, "s-learned", "learning", learned)
+    project_wiki(learned, "learn", "engine-scheduler.md",
+                 page("Engine scheduler", "how the engine schedules prefill", "quartz scheduler prefill"))
+    write(learned / ".agents" / "skills" / "dependency-closed-check" / "SKILL.md",
+          "---\nname: dependency-closed-check\ndescription: validate quartz modules\n---\n\nquartz\n")
+    write(shared_vertical_wiki_root("learning", tenant) / "pages" / "lessons" / "20261020-narrow.md",
+          page("Narrow the check", "narrow quartz checks", "quartz lesson", kind="lesson"))
+    write(shared_vertical_wiki_root("learning", tenant) / "principles.md",
+          "---\ntitle: P\ndescription: d\nkind: principles\n---\n\n1. Learning rule.\n")
+
+    for sid, vertical in (("s-software", VERTICAL), ("s-undecided", "")):
+        workspace = tmp_path / "work" / sid
+        earlier_project(tenant, sid, vertical, workspace)
+        memory = MemoryBundle.for_cwd(workspace, global_root=tenant, fingerprint=sid)
+
+        result = knowledge_recall_for_memory(memory).recall("quartz scheduler")
+
+        shown = {hit.document.path for hit in result.hits}
+        assert learned / ".autors" / "learn" / "wiki" / "pages" / "engine-scheduler.md" in shown, vertical
+        assert any(hit.document.vertical == "learning" and hit.document.meta.page_kind == "lesson"
+                   for hit in result.hits)
+        # Another vertical's principles govern its own missions, not this one.
+        assert "Learning rule" not in result.text
+
+
+def test_a_role_is_given_the_directories_recall_points_at_outside_its_workspace(tenant, tmp_path):
+    workspace = tmp_path / "work" / "current"
+    state = earlier_project(tenant, "s-current", VERTICAL, workspace)
+    project_wiki(workspace, "current", "own.md", page("Own", "d", "quartz"))
+    write(workspace / ".agents" / "skills" / "own" / "SKILL.md", "---\nname: own\ndescription: d\n---\n")
+    earlier = tmp_path / "work" / "earlier"
+    earlier_state = earlier_project(tenant, "s-earlier", OTHER_VERTICAL, earlier)
+    project_wiki(earlier, "earlier", "engine.md", page("Engine", "d", "quartz"))
+    write(earlier / ".agents" / "skills" / "check" / "SKILL.md", "---\nname: check\ndescription: d\n---\n")
+    write(earlier_state / "skills" / "engineer" / "old.md", "---\nname: old\ndescription: d\n---\n")
+    write(tenant / "skills" / "_shared_verticals" / VERTICAL / "engineer" / "shared.md", "shared\n")
+    write(shared_vertical_wiki_root(OTHER_VERTICAL, tenant) / "pages" / "lesson.md", page("L", "d", "quartz"))
+    write(tenant / "operator" / "profile.md", "---\ntitle: Me\ndescription: d\n---\n")
+
+    dirs = knowledge_read_dirs(state, tenant, workspace)
+
+    assert set(dirs) == {
+        str(tenant / "skills"),
+        str(shared_vertical_wiki_root(OTHER_VERTICAL, tenant)),
+        str(earlier / ".autors" / "earlier" / "wiki"),
+        str(earlier / ".agents" / "skills"),
+        str(earlier_state / "skills" / "engineer"),
+    }, "the operator's private memory is recalled, never handed to a backend"
+    assert knowledge_read_dirs(None, tenant, workspace) == []
+
+
+def test_a_sandboxed_engineer_is_given_the_directories_recall_points_at(tmp_path):
+    from argus.core.models import RunnerResult
+    from argus.loop import SkillLoop, SkillLoopConfig
+
+    class Capture:
+        options = None
+
+        def run_exec(self, *, prompt, options, run_label, resume_thread_id=None):
+            Capture.options = options
+            return RunnerResult(exit_code=0, agent_messages=["done"])
+
+    loop = SkillLoop(skills_dir=tmp_path / "skills", engineer_runner=Capture(),
+                     config=SkillLoopConfig(read_dirs=["/elsewhere/wiki"]))
+    loop.supervised._run_engineer(prompt="work", workdir=tmp_path, run_label="engineer-r1")
+
+    assert Capture.options.add_dirs == ["/elsewhere/wiki"]
 
 
 @pytest.mark.parametrize("switch", [("ARGUS_SKILL_COPILOT_TRIAL", "1"), ("ARGUS_SKILL_LEARNING", "0")])
-def test_hosted_trial_or_switched_off_recall_never_reads_other_workspaces(tenant, monkeypatch, switch):
+def test_hosted_trial_or_switched_off_recall_never_reads_other_workspaces(tenant, tmp_path, monkeypatch, switch):
     workspace = workspace_with_vertical(tenant / "workspaces" / "current", VERTICAL)
-    same = workspace_with_vertical(tenant / "workspaces" / "earlier-same", VERTICAL)
-    project_wiki(same, "s-same", "notes.md", page("Same", "d", "quartz same"))
+    same = tmp_path / "work" / "earlier-same"
+    earlier_project(tenant, "s-same", VERTICAL, same)
+    project_wiki(same, "same", "notes.md", page("Same", "d", "quartz same"))
     write(shared_vertical_wiki_root(VERTICAL, tenant) / "pages" / "shared.md", page("Shared", "d", "quartz shared"))
     monkeypatch.setenv(*switch)
 
     recall = knowledge_recall_for_memory(bundle(tenant, workspace))
 
-    assert not any(root.kind.startswith("earlier project Wiki") for root in recall.roots)
+    assert not any(root.kind.startswith("earlier project") for root in recall.roots)
     assert f"{VERTICAL} knowledge" in root_kinds(recall) and "shared knowledge" in root_kinds(recall)
 
 
-def test_sibling_wikis_are_capped_newest_first_and_roots_stay_bounded(tenant):
+def test_earlier_projects_are_capped_newest_first_and_roots_stay_bounded(tenant, tmp_path):
     workspace = workspace_with_vertical(tenant / "workspaces" / "current", VERTICAL)
-    for number in range(12):
-        sibling = workspace_with_vertical(tenant / "workspaces" / f"earlier-{number:02d}", VERTICAL)
-        project_wiki(sibling, f"s-{number:02d}", "notes.md", page("P", "d", f"quartz {number}"))
-        state = sibling / ".argus" / "PIPELINE_STATE.json"
+    for number in range(16):
+        sibling = tmp_path / "work" / f"earlier-{number:02d}"
+        state = earlier_project(tenant, f"s-{number:02d}", VERTICAL, sibling)
+        if number % 2:
+            project_wiki(sibling, f"w-{number:02d}", "notes.md", page("P", "d", f"quartz {number}"))
+            write(sibling / ".agents" / "skills" / "check" / "SKILL.md", "---\nname: check\ndescription: d\n---\n")
         stamp = dt.datetime(2026, 9, 1, tzinfo=dt.timezone.utc).timestamp() + number * 3600
-        import os
-
         os.utime(state, (stamp, stamp))
 
     recall = knowledge_recall_for_memory(bundle(tenant, workspace))
-    siblings = [root.kind for root in recall.roots if root.kind.startswith("earlier project Wiki")]
+    siblings = [root.source for root in recall.roots if root.kind.startswith("earlier project")]
 
-    assert len(siblings) == 8
-    assert siblings[0] == "earlier project Wiki (s-11)" and siblings[-1] == "earlier project Wiki (s-04)"
+    # Eight projects that kept something, each with its Wiki and its Skills;
+    # a project that kept nothing does not use up a place.
+    assert list(dict.fromkeys(siblings)) == [f"s-{number:02d}" for number in range(15, 0, -2)]
+    assert len(siblings) == 16
     assert len(recall.roots) <= 32
 
 
@@ -196,6 +313,7 @@ def test_rendering_describes_each_page_and_appends_the_vertical_principles(tenan
 
     assert lines[0] == "### What Argus already knows (advisory)"
     assert "Current Wiki and Skill pointers" not in context
+    assert "Code listed" not in context
     lesson_line = next(line for line in lines if str(lesson) in line)
     assert lesson_line.startswith(f"- {VERTICAL} knowledge: `{lesson}` — Read the installed torch version's docs before writing a kernel. (lesson; s-fb4716b7/cf2c076f939e; 2026-09-17)")
     assert lesson_line.endswith("2026-09-17)"), "a lexical hit carries no channel tag"
@@ -315,3 +433,31 @@ def test_nothing_is_recorded_when_recall_is_empty(tenant, journal):
     assert memory.render_recall_context("quartz") == ""
     assert journal(tenant) == []
     assert not (memory.project_root / "events.jsonl").exists() or "knowledge" not in (memory.project_root / "events.jsonl").read_text(encoding="utf-8")
+
+
+def test_a_page_names_the_code_it_carries_and_not_the_material_it_cites(tmp_path):
+    skills = tmp_path / "skills"
+    write(skills / "cpu-check" / "SKILL.md",
+          "---\nname: cpu-check\ndescription: quartz check\n---\n\nRun `python check.py <module>`.\n")
+    write(skills / "cpu-check" / "check.py", "print('ok')\n")
+    write(skills / "cpu-check" / "templates" / "case.rs", "fn main() {}\n")
+    wiki = tmp_path / "wiki"
+    write(wiki / "checks" / "default_max_tokens.py", "assert True\n")
+    write(tmp_path / "repo" / "sampling_params.py", "max_tokens = 16\n")
+    write(wiki / "pages" / "defaults.md", page(
+        "Defaults", "quartz defaults",
+        "A placeholder in [the source](../../repo/sampling_params.py); "
+        "rerun [the check](../checks/default_max_tokens.py) on another version.",
+    ))
+    recall = MarkdownKnowledgeRecall(tmp_path / "index.sqlite3", [
+        KnowledgeRoot("native project Skill", skills, tmp_path),
+        KnowledgeRoot("project Wiki", wiki / "pages", tmp_path, library=wiki),
+    ])
+
+    lines = recall.recall("quartz").text.splitlines()
+
+    assert lines[1].endswith("Code listed with a page is relative to it; the page says how to run it.")
+    assert next(line for line in lines if "SKILL.md" in line).endswith(
+        "code: `check.py`, `templates/case.rs`")
+    assert next(line for line in lines if "defaults.md" in line).endswith(
+        "code: `../checks/default_max_tokens.py`")

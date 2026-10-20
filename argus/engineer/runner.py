@@ -442,6 +442,7 @@ class SupervisedEngineer(
                         else self.engineer_config.reasoning_effort
                     ),
                     extra_args=self.engineer_config.extra_args,
+                    add_dirs=self.engineer_config.add_dirs,
                     skill_paths=self.engineer_config.skill_paths,
                     full_auto=self.engineer_config.full_auto,
                     skip_git_repo_check=self.engineer_config.skip_git_repo_check,
