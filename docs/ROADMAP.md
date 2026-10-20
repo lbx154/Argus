@@ -308,7 +308,8 @@ not guess on the model's behalf whether there is progress. The full design is in
   Nothing writes `operator_need` or `authority_impact` any more, so both, the plan challenge's `ask_operator` route,
   the Reviewer statuses no verdict produces (`research_incomplete`, `paused_no_breakthrough`,
   `exhausted_current_methods`) and the Reviewer's prose verdict parser (`reviewer/_parsing.py`, the `STATUS=` footer)
-  are deleted; old rows and events that carry them still read.
+  are deleted, and a planner report carries only what `submit_review` writes (`plan_signal`, `learning`,
+  `learning_reason`); old rows and events that carry the removed fields still read.
   Every writer writes `parked` with the reason in the task's `outcome.park.reason` and the
   completion event's `park_reason`; `paused_external_work`, `research_incomplete` and `exhausted_current_methods` have
   no writer left and are only read. Resuming is one path driven by new facts: the daemon's next pass ends its own

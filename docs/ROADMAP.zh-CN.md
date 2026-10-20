@@ -231,7 +231,8 @@
   （它结束的任务失败了或被送回重跑）不再沿用，越过 Reviewer 往上交。
   已没有任何来源写 `operator_need` 和 `authority_impact`，这两个字段、计划挑战的 `ask_operator` 路径、没有判决会产生的三个
   Reviewer 状态（`research_incomplete`、`paused_no_breakthrough`、`exhausted_current_methods`）以及 Reviewer 的文字判决解析器
-  （`reviewer/_parsing.py`，即 `STATUS=` 页脚）已删除；带这些字段的旧行和旧事件照常读取。
+  （`reviewer/_parsing.py`，即 `STATUS=` 页脚）已删除；planner report 里只剩 `submit_review` 写入的
+  `plan_signal`、`learning`、`learning_reason`。带已删字段的旧行和旧事件照常读取。
   所有写入方只写 `parked`，原因记在任务的 `outcome.park.reason` 和完成事件的 `park_reason`；
   `paused_external_work`、`research_incomplete`、`exhausted_current_methods` 已没有写入方，只留读取。
   恢复按新事实合并成一个入口：守护进程的下一轮恢复它自己的挂起（停机、限流），操作员显式点“运行”恢复只有操作员或外部能解除的挂起，
