@@ -142,14 +142,6 @@ KNOBS: tuple[Knob, ...] = (
         cockpit=True,
     ),
     Knob(
-        "ARGUS_SKILL_EVIDENCE_POLICY",
-        "standard",
-        "evidence depth: progress-first | standard | strict; progress-first favors "
-        "targeted development checks, never weaker correctness",
-        "mission",
-        cockpit=True,
-    ),
-    Knob(
         "ARGUS_SKILL_OPERATOR_AVAILABLE",
         "true",
         "false declares that nobody can answer questions: the Manager holds the operator's authority, settles questions of meaning itself and decides every parked operator question in their place, recording each decision for the run report. Prefer --no-operator, which lasts for one run; a saved off value applies to every run until switched back on",
@@ -379,16 +371,6 @@ def resolve_runner_bin_setting(
     return ""
 
 
-def resolve_evidence_policy(
-    *,
-    env: Mapping[str, str] | None = None,
-    persisted: Mapping[str, str] | None = None,
-) -> str:
-    name = "ARGUS_SKILL_EVIDENCE_POLICY"
-    value = resolve_knob(name, "standard", env=env, persisted=persisted).value
-    return normalize_cockpit_knob_value(name, value)
-
-
 def normalize_cockpit_knob_value(name: str, value: str) -> str:
     """Validate and canonicalize a value before persisting it from the cockpit."""
     raw = str(value or "").strip()
@@ -416,11 +398,6 @@ def normalize_cockpit_knob_value(name: str, value: str) -> str:
             raise ValueError(
                 f"{name} must be cautious, pragmatic, or autonomous"
             )
-        return mode
-    if name == "ARGUS_SKILL_EVIDENCE_POLICY":
-        mode = raw.lower()
-        if mode not in {"progress-first", "standard", "strict"}:
-            raise ValueError(f"{name} must be progress-first, standard, or strict")
         return mode
     if name in _NON_NEGATIVE_INT_KNOBS:
         try:

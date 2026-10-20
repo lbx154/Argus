@@ -14,7 +14,7 @@ from ...core.model_visible_text import (
 from ...core.workspace_snapshot import WorkspaceSnapshots
 from ..task_contract import (
     EFFECTIVE_TASK_CONTRACT,
-    experiment_evidence_contract,
+    EXPERIMENT_EVIDENCE_CONTRACT,
     native_shell_summary,
 )
 from .types import ChecklistMode, RoleName, RolePromptRequest
@@ -761,7 +761,7 @@ def render_reviewer_prompt(
             or reviewer_evidence_mode(getattr(owner, "runner", None), engineer_records_commands=False)
         )
         + "\n\n"
-        + experiment_evidence_contract() + "\n\n"
+        + EXPERIMENT_EVIDENCE_CONTRACT + "\n\n"
         + "Check actual input changes, not rerun reasons; producer logs cannot replace external observation.\n\n"
         + RESEARCHER_VOICE + "\n\n"
         + decision_policy

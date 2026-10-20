@@ -12,7 +12,7 @@ from ...core.model_visible_text import (
     sanitize_model_visible_text,
 )
 from ...core.role_decision import decision_footer_instruction
-from ..task_contract import experiment_evidence_contract, format_native_shell_command
+from ..task_contract import EXPERIMENT_EVIDENCE_CONTRACT, format_native_shell_command
 from .types import ChecklistMode, RoleName, RolePromptRequest
 from .voice import RESEARCHER_VOICE, RESEARCHER_VOICE_BRIEF
 
@@ -935,7 +935,7 @@ def build_stage_decision_prompt(
         if continuous_objective.strip()
         else ""
     )
-    objective_block += experiment_evidence_contract() + "\n\n"
+    objective_block += EXPERIMENT_EVIDENCE_CONTRACT + "\n\n"
 
     harness_control = getattr(review, "harness_control", None)
     mission_scope_change = bool(

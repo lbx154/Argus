@@ -9,7 +9,7 @@ from typing import Any
 from ...core.model_visible_text import sanitize_model_visible_text
 from ...core.role_decision import decision_footer_instruction
 from ..task_contract import (
-    experiment_evidence_contract,
+    EXPERIMENT_EVIDENCE_CONTRACT,
     native_shell_summary,
 )
 from .types import ChecklistMode, RoleName, RolePromptRequest
@@ -231,7 +231,7 @@ def build_continuous_prompt(
     # Vertical-owned policy arrives through the prompt catalog; this module
     # contributes only role-wide planning behavior.
     optimize_banner = prompt_context.role_banner
-    planner_core_contract = _PLANNER_CORE_CONTRACT + "\n" + experiment_evidence_contract()
+    planner_core_contract = _PLANNER_CORE_CONTRACT + "\n" + EXPERIMENT_EVIDENCE_CONTRACT
     research_plan_context = (
         _RESEARCH_PLAN_CONTRACT
         + sanitize_model_visible_text(

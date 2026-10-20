@@ -80,9 +80,7 @@ def _without_host_shell_guidance(prompt: str) -> str:
     return prompt
 
 
-@pytest.mark.parametrize("policy", ["standard", "progress-first", "strict"])
-def test_direct_team_prompt_uses_one_mission_contract(monkeypatch, policy) -> None:
-    monkeypatch.setenv("ARGUS_SKILL_EVIDENCE_POLICY", policy)
+def test_direct_team_prompt_uses_one_mission_contract() -> None:
     marker = "DIRECT_TEAM_CONTRACT_17"
     prompt = build_mission_prompt(
         task=f"## Mission contract\nDeliver {marker}.\n\nAcceptance:\ncheck it once",

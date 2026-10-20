@@ -86,28 +86,13 @@ worker keeps proposing follow-up work after the project is declared done.
 
 ## Avoiding unproductive experiment reruns
 
-### Choose evidence depth, not a weaker success criterion
+### Evidence, not a weaker success criterion
 
-Set `ARGUS_SKILL_EVIDENCE_POLICY` for a run, or save it in the existing
-cockpit configuration:
-
-| Policy | Evidence handling |
-|---|---|
-| `progress-first` | Fix the smallest failing step, reuse accepted checks whose inputs have not changed, and keep incidental logs or formatting issues advisory. |
-| `standard` (default) | Require relevant source, input and result evidence without unrelated documentation demands. |
-| `strict` | Additionally check the relevant execution and review archive. |
-
-Manager, Planner, Engineer and Reviewer receive the same contract. Development
-readiness is not scientific acceptance: no mode waives required independent
-validation, numerical thresholds, prerequisite checks, or actual failures.
-These settings do not certify complete provider telemetry or retrospectively
-accept previous failed runs.
-
-No mode adds a round limit, retry loop, automatic replay, or evidence ledger.
-
-An explicit environment value overrides a saved setting. Invalid policy names
-are errors, not silent fallbacks. Use a new mission for a changed policy;
-changing a setting does not revise an already running mission's round controls.
+Manager, Planner, Engineer and Reviewer share one evidence contract: require
+the relevant source, input and result evidence, without unrelated
+documentation demands. Development readiness is not scientific acceptance:
+nothing waives required independent validation, numerical thresholds,
+prerequisite checks, or actual failures.
 
 Start with the cheapest check that can actually reject an unready experiment:
 the required tool must work in the execution environment, inputs must exist,

@@ -11,7 +11,7 @@ from ...core.model_visible_text import (
 )
 from ..task_contract import (
     EFFECTIVE_TASK_CONTRACT,
-    experiment_evidence_contract,
+    EXPERIMENT_EVIDENCE_CONTRACT,
     native_shell_contract,
     native_shell_summary,
 )
@@ -112,7 +112,7 @@ def _long_experiment_rule() -> str:
         else _POSIX_LONG_EXPERIMENT_RULE
     )
     return " ".join((
-        shell_rule, _EXPERIMENT_PREREQUISITE_RULE, experiment_evidence_contract(),
+        shell_rule, _EXPERIMENT_PREREQUISITE_RULE, EXPERIMENT_EVIDENCE_CONTRACT,
     ))
 
 

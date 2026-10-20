@@ -74,13 +74,10 @@ def _build_scope_prompt(
     return prompt, objective
 
 
-@pytest.mark.parametrize("policy", ["standard", "progress-first", "strict"])
 def test_scope_prompt_is_compact_and_deduplicated(
     tmp_path,
     monkeypatch,
-    policy,
 ) -> None:
-    monkeypatch.setenv("ARGUS_SKILL_EVIDENCE_POLICY", policy)
     prompt, objective = _build_scope_prompt(tmp_path, monkeypatch)
 
     assert len(_without_host_shell_guidance(prompt)) < SCOPE_BUDGET, (
