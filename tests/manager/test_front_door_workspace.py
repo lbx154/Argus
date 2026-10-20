@@ -73,6 +73,9 @@ def test_manager_runner_uses_persisted_workdir_without_moving_state_root(
     assert args.reviewer_model == "gpt-6.1-sol"
     assert args.skills_dir == str(root / "skills")
     assert args.manager_memory is memory
+    # The Manager's own recall reads the project's Wiki and Skills from its
+    # workspace, not from the directory the server happened to start in.
+    assert memory.project_worktree == workspace.resolve()
 
 
 def test_manager_runner_falls_back_when_launch_cwd_is_missing(

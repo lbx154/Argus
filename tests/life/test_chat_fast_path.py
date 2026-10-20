@@ -570,6 +570,28 @@ def test_local_worker_modes_get_narrow_tools_and_prompts(
     assert prompt_fragment in call["options"].extra_args[-1]
 
 
+def test_local_worker_mode_reads_what_argus_already_knows() -> None:
+    backend = _FakeBackend(response_message="done")
+    runner = _make_runner(backend)
+    asked: list[str] = []
+
+    def recall(objective: str) -> str:
+        asked.append(objective)
+        return "### What Argus already knows (advisory)\n- page: `/wiki/pages/scheduler.md`"
+
+    runner._args.manager_memory = SimpleNamespace(render_recall_context=recall)
+
+    runner._simple_quick_reply(
+        objective="design the scheduler", sink=_RecordingSink(), execute_mode="implement",
+    )
+
+    assert asked == ["design the scheduler"]
+    assert backend.calls[-1]["prompt"] == (
+        "### What Argus already knows (advisory)\n- page: `/wiki/pages/scheduler.md`"
+        "\n\ndesign the scheduler"
+    )
+
+
 def test_manager_self_effort_can_be_overridden(monkeypatch) -> None:
     monkeypatch.setenv("ARGUS_SKILL_SELF_REASONING_EFFORT", "high")
     backend = _FakeBackend(response_message="grounded")
