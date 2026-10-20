@@ -7,12 +7,10 @@ failed telemetry never reads as capacity.
 from __future__ import annotations
 
 import json
-import os
 import shutil
 import subprocess
 import time
 from collections.abc import Callable, Sequence
-from pathlib import Path
 from typing import Any
 
 from ...agent_cli._process_control import windows_hidden_subprocess_kwargs
@@ -233,117 +231,20 @@ class RocmAdapter:
         }
 
 
-def _read_first(paths: Sequence[Path]) -> tuple[str | None, str]:
-    for path in paths:
-        try:
-            return path.read_text(encoding="utf-8").strip(), str(path)
-        except OSError:
-            continue
-    return None, ""
-
-
-def _parse_cpu_set(value: str) -> set[int]:
-    cpu_ids: set[int] = set()
-    for part in value.split(","):
-        bounds = part.strip().split("-", 1)
-        if not bounds[0]:
-            continue
-        start = int(bounds[0])
-        end = int(bounds[-1])
-        if end < start:
-            raise ValueError(value)
-        cpu_ids.update(range(start, end + 1))
-    return cpu_ids
-
-
-def _cpu_memory_snapshot(cgroup_root: Path = Path("/sys/fs/cgroup")) -> dict[str, Any]:
-    details: list[str] = []
-    try:
-        cpu_ids = sorted(os.sched_getaffinity(0))
-    except (AttributeError, OSError):
-        cpu_ids = list(range(os.cpu_count() or 0))
-        details.append("CPU affinity is unavailable")
-    cpuset_value, cpuset_path = _read_first([
-        cgroup_root / "cpuset.cpus.effective",
-        cgroup_root / "cpuset" / "cpuset.cpus",
-    ])
-    if cpuset_value:
-        try:
-            cgroup_ids = _parse_cpu_set(cpuset_value)
-            cpu_ids = sorted(set(cpu_ids) & cgroup_ids) if cpu_ids else sorted(cgroup_ids)
-        except ValueError:
-            details.append(f"invalid cgroup CPU set: {cpuset_value!r}")
-    memory_current, current_path = _read_first([
-        cgroup_root / "memory.current",
-        cgroup_root / "memory" / "memory.usage_in_bytes",
-    ])
-    memory_limit, limit_path = _read_first([
-        cgroup_root / "memory.max",
-        cgroup_root / "memory" / "memory.limit_in_bytes",
-    ])
-
-    def _bytes(value: str | None) -> int | None:
-        if value in (None, "", "max"):
-            return None
-        try:
-            return int(value)
-        except ValueError:
-            details.append(f"invalid cgroup memory value: {value!r}")
-            return None
-
-    return {
-        "status": "degraded" if details else "available",
-        "visible_cpu_ids": cpu_ids,
-        "visible_cpu_count": len(cpu_ids),
-        "cpu_set_source": cpuset_path,
-        "memory_used_bytes": _bytes(memory_current),
-        "memory_limit_bytes": _bytes(memory_limit),
-        "memory_current_source": current_path,
-        "memory_limit_source": limit_path,
-        "detail": "; ".join(details),
-    }
-
-
-class CpuNoneAdapter:
-    """The always-present no-accelerator path plus visible CPU/memory facts."""
-
-    kind = "none"
-    visibility_env = ""
-
-    def __init__(self, *, cgroup_root: Path = Path("/sys/fs/cgroup")) -> None:
-        self._cgroup_root = cgroup_root
-
-    def probe(self) -> dict[str, Any]:
-        cpu_memory = _cpu_memory_snapshot(self._cgroup_root)
-        return {
-            "kind": self.kind,
-            "status": cpu_memory["status"],
-            "visibility_env": "",
-            "devices": [],
-            "detail": cpu_memory.get("detail", ""),
-            "cpu_memory": cpu_memory,
-        }
-
-
 class ResourceProbe:
-    """Collect normalized accelerator and cgroup-visible host facts."""
+    """Collect normalized accelerator facts."""
 
     def __init__(
         self,
         adapters: Sequence[Any] | None = None,
         *,
         clock: Callable[[], float] = time.time,
-        cgroup_root: Path = Path("/sys/fs/cgroup"),
     ) -> None:
-        self.adapters = tuple(
-            adapters or (NvidiaAdapter(), RocmAdapter(), CpuNoneAdapter(cgroup_root=cgroup_root))
-        )
+        self.adapters = tuple(adapters or (NvidiaAdapter(), RocmAdapter()))
         self._clock = clock
-        self._cgroup_root = cgroup_root
 
     def snapshot(self) -> dict[str, Any]:
         accelerators: list[dict[str, Any]] = []
-        cpu_memory = _cpu_memory_snapshot(self._cgroup_root)
         for adapter in self.adapters:
             try:
                 result = adapter.probe()
@@ -355,10 +256,7 @@ class ResourceProbe:
                     "devices": [],
                     "detail": f"adapter failed: {type(exc).__name__}: {exc}",
                 }
-            if result.get("kind") == "none" and isinstance(result.get("cpu_memory"), dict):
-                cpu_memory = result["cpu_memory"]
-            else:
-                accelerators.append(result)
+            accelerators.append(result)
         unsafe = any(
             item.get("status") in {"inaccessible", "degraded"}
             for item in accelerators
@@ -367,15 +265,10 @@ class ResourceProbe:
             "captured_at": self._clock(),
             "enforcement": "advisory" if unsafe else "strict",
             "accelerators": accelerators,
-            "cpu_memory": cpu_memory,
         }
 
 
-CpuAdapter = CpuNoneAdapter
-
 __all__ = [
-    "CpuAdapter",
-    "CpuNoneAdapter",
     "NvidiaAdapter",
     "ResourceProbe",
     "RocmAdapter",

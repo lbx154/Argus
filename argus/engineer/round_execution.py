@@ -78,10 +78,6 @@ log = logging.getLogger(__name__)
 # stop and abort signals. The hold itself can grow to the hour scale; a
 # shutdown or an abort must not wait behind it.
 _BACKEND_FAILURE_HOLD_SLICE_SECONDS = 0.2
-# Consecutive silence stops, across different commands, after which the round
-# fails even though no single command hung twice: each stop already cost one
-# full idle limit.
-_IDLE_TERMINATION_ANY_COMMAND_LIMIT = 4
 
 
 def _engineer_decision_message(payload: dict) -> str:
@@ -717,8 +713,7 @@ class RoundExecutionMixin:
             # hung again; a different command (or the model itself) is a new
             # attempt that already received the guidance. A stop whose
             # transport did not name the command cannot be told apart from a
-            # different one, so it never counts as a repeat: those stops are
-            # bounded only by ``_IDLE_TERMINATION_ANY_COMMAND_LIMIT``.
+            # different one, so it never counts as a repeat.
             if running_tool:
                 signature = "idle termination: " + " ".join(running_tool.split())
             elif watchdog_failure:
@@ -809,13 +804,8 @@ class RoundExecutionMixin:
                     )
                 # A long command that is legitimately silent (a build, a
                 # download, a training step) gets one stop with guidance. The
-                # round fails when the SAME command hangs again after it, or
-                # when silence stops pile up across different commands.
-                budget_exhausted = (
-                    state.backend_failure_same_cause_streak >= threshold
-                    or state.backend_failure_streak
-                    >= max(configured_threshold, _IDLE_TERMINATION_ANY_COMMAND_LIMIT)
-                )
+                # round fails when the SAME command hangs again after it.
+                budget_exhausted = state.backend_failure_same_cause_streak >= threshold
             else:
                 budget_exhausted = (
                     state.backend_failure_streak >= threshold and not same_cause_hold

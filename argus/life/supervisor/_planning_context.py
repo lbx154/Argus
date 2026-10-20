@@ -14,7 +14,6 @@ from ...core.event_catalog import EventType
 from ...core.operator_context import operator_context_state_root
 from ...core.planner_verdict import PlannerVerdictStatus
 from ...core.workspace_facts import fact_text
-from ...engineer.change_facts import held_facts, lineage_ledger, record_holder
 from ..memory import BacklogItem
 from ._constants import (
     PLAN_AWAITING,
@@ -25,6 +24,7 @@ from ._constants import (
 )
 from ._helpers import _operator_only_external_blocker_wait_reason_for_project
 from ._planner_failure_backoff import planner_failure_kind
+from ._planner_ledger import held_facts, lineage_ledger, record_holder
 
 log = logging.getLogger(__name__)
 

@@ -28,7 +28,6 @@ from ..core.secret_guard import (
 )
 from ..core.workspace_snapshot import WorkspaceSnapshots
 from ..reviewer import Reviewer, ReviewerConfig
-from .change_facts import mission_lineage
 from .checkpoint import resolve_shared_checkpoint
 
 log = logging.getLogger(__name__)
@@ -177,7 +176,7 @@ class SupervisedEngineer(
             on_event = _redacted_on_event
         state = RoundLoopState()
         from ..core.grounding_baseline import objective_baseline
-        from .round_reviewer import mission_item_id, mission_state_root
+        from .round_reviewer import mission_item_id, mission_lineage, mission_state_root
 
         state.state_root = mission_state_root(supervised_config)
         state.mission_item_id = mission_item_id(supervised_config)
@@ -192,7 +191,7 @@ class SupervisedEngineer(
         except Exception:  # noqa: BLE001 - without it, no workspace file grounds
             log.debug("grounding baseline unavailable", exc_info=True)
             state.grounding_baseline = None
-        lineage = mission_lineage(supervised_config.context_packet_path) or state.mission_ref
+        lineage = mission_lineage(supervised_config) or state.mission_ref
         if state.state_root is not None and lineage:
             snapshots = WorkspaceSnapshots(
                 state.state_root / "snapshots.git", Path(workdir).resolve(), lineage,
@@ -449,9 +448,9 @@ class SupervisedEngineer(
                     dangerous_yolo=self.engineer_config.dangerous_yolo,
                     sandbox_mode=self.engineer_config.sandbox_mode,
                     isolate_workdir=self.engineer_config.isolate_workdir,
-                    lean_tool_surface=getattr(
-                        self.engineer_config, "lean_tool_surface", False
-                    ),
+                    # The Engineer keeps its state in CHECKPOINT.md, so the
+                    # agent CLI's own tools it never uses stay out of requests.
+                    lean_tool_surface=True,
                     working_dir=str(workdir),
                     live_search=_engineer_live_search(
                         self.engineer_config.vertical_state_root or workdir,

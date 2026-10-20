@@ -188,17 +188,12 @@ class RoundSelfReviewMixin:
             # an obstacle only the Manager can remove goes to the Manager.
             # Neither accepts work, so no review stands in between.
             why = strip_handoff(outcome.engineer_message)[-1200:]
-            to_planner = handoff.next_owner == "planner"
             return self._settle_round(
                 review=ReviewDecision(
-                    status="replan_requested" if to_planner else "blocked",
+                    status="replan_requested" if handoff.next_owner == "planner" else "blocked",
                     reason=why or f"Engineer handed the work to the {handoff.next_owner}.",
                     next_action="",
                     review_source="engineer_handoff",
-                    planner_report=(
-                        {} if to_planner
-                        else {"manager_attention": "needed", "manager_attention_reason": why[:200]}
-                    ),
                 ),
                 round_index=round_index,
                 supervised_config=supervised_config,

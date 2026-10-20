@@ -53,9 +53,6 @@ class PreviousFindings:
 
     text: str = ""
     has_reviewer_findings: bool = False
-    # Always False: the Reviewer no longer names open items. Kept until
-    # engineer/round_reviewer stops reading it.
-    has_open_items: bool = False
 
     def __bool__(self) -> bool:
         return bool(self.text)

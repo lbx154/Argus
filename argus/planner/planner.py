@@ -11,7 +11,6 @@ from pathlib import Path
 from typing import Any
 
 from ..core.event_catalog import EventType
-from ..core.file_facts import file_facts
 from ..core.models import RunnerOptions
 from ..core.ports import RunnerBackend
 from ..core.role_decision import (
@@ -728,49 +727,6 @@ def _with_planner_diagnostic(
     if diagnostic in verdict.diagnostics:
         return verdict
     return replace(verdict, diagnostics=(*verdict.diagnostics, diagnostic))
-
-
-def hydrate_task_context_refs(
-    context_refs: list[dict[str, str]],
-    project_root: Path | str,
-    *,
-    discard_external: bool = False,
-) -> list[dict[str, str]]:
-    """Validate project-local refs and record the ``file_facts`` of existing files as JSON."""
-    root = Path(project_root).expanduser().resolve()
-    hydrated: list[dict[str, str]] = []
-    for raw_ref in context_refs:
-        if not isinstance(raw_ref, dict):
-            raise ValueError("Planner context refs must be objects")
-        ref = {str(key): str(value) for key, value in raw_ref.items()}
-        target = str(ref.get("ref") or "").strip()
-        if not target:
-            raise ValueError("Planner context refs must be project-relative file paths")
-        target_path = Path(target).expanduser()
-        resolved = (
-            target_path.resolve()
-            if target_path.is_absolute()
-            else (root / target_path).resolve()
-        )
-        if resolved != root and root not in resolved.parents:
-            if discard_external:
-                continue
-            raise ValueError(f"Planner context ref escapes the project root: {target}")
-        if target_path.is_absolute():
-            if not discard_external:
-                raise ValueError(
-                    "Planner context refs must be project-relative file paths"
-                )
-            target = resolved.relative_to(root).as_posix()
-            ref["ref"] = target
-        if not resolved.is_file():
-            continue
-        try:
-            ref["content_hash"] = json.dumps(file_facts(resolved))
-        except OSError as exc:
-            raise ValueError(f"Planner context ref cannot be read: {target}") from exc
-        hydrated.append(ref)
-    return hydrated
 
 
 def _parse_completion_bool(values: dict[str, str]) -> bool | None:
