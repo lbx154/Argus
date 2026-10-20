@@ -150,6 +150,16 @@ def test_a_stalled_turn_reaches_the_manager_with_its_choices(admitted):
     assert "CONTINUE keeps waiting on that turn, STEER stops it" in event["consult_reason"]
 
 
+def test_newer_evidence_does_not_drop_a_pending_stall_report(admitted, tmp_path):
+    """The stall is sent once; the event that replaces it in the queue asks for both."""
+    key = str(tmp_path.resolve())
+    supervision._PENDING[key] = (None, tmp_path, {**_TURN_STALL, "consult_reason": "stalled"})
+    supervision._admit(None, tmp_path, _review(4, consult_reason="review"))
+    merged = supervision._PENDING.pop(key)[2]
+    assert merged["type"] == EventType.ROUND_REVIEW_COMPLETED and merged["stall_reason"] == "turn_stalled"
+    assert merged["consult_reason"] == "stalled; review"
+
+
 def test_a_stalled_turn_is_judged_even_when_the_project_files_are_unchanged(tmp_path):
     """The stall is the news: an applied look at the same files does not answer it."""
     write_continuous_config(tmp_path, enabled=True, objective="Produce a validated grouped summary")

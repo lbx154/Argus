@@ -1249,9 +1249,23 @@ def _admit(manager: Any, root: Path | str, event: dict[str, Any]) -> bool:
             return False
         if key not in _PENDING and key not in _WORKERS and len(_PENDING) >= MAX_PENDING_PROJECTS:
             return False
-        _PENDING[key] = (manager, root, dict(event))
+        earlier = _PENDING.get(key, (None, None, {}))[2]
+        _PENDING[key] = (manager, root, _carry_stall(earlier, event))
         _dispatch_pending()
     return True
+
+
+def _carry_stall(earlier: dict[str, Any], event: dict[str, Any]) -> dict[str, Any]:
+    """``event``, still asking about a stalled turn whose pending report it replaces.
+
+    A stall is reported once, so newer evidence must not drop it: one look
+    answers both.
+    """
+    event = dict(event)
+    if earlier.get("stall_reason") == "turn_stalled" and event.get("stall_reason") != "turn_stalled":
+        reasons = (earlier.get("consult_reason"), event.get("consult_reason"))
+        event.update(stall_reason="turn_stalled", consult_reason="; ".join(r for r in reasons if r))
+    return event
 
 
 def recover_issued_supervision(manager: Any, root: Path | str) -> bool:
