@@ -806,6 +806,28 @@ _MANAGER_HANDOFF = "\n".join([
 ])
 
 
+def test_a_handoff_the_managers_backend_left_unanswered_is_retried_as_a_failed_turn(
+    tmp_path: Path, monkeypatch,
+) -> None:
+    """The Manager's backend gave no answer to the Planner's handoff. Argus
+    launched that backend, so the turn failed: the Planner's failure streak
+    paces the retry instead of the handoff hanging until something changes."""
+    project = _project(tmp_path, monkeypatch)
+    planner = _PlannerBackend([_MANAGER_HANDOFF] * 2)
+    supervisor = _supervisor(project, tmp_path / "life", planner)
+    manager = _StageManager(_stage_decision(source="failsafe_hold", diagnostic="exception"))
+    supervisor._bound_manager = lambda: manager  # type: ignore[method-assign]
+
+    supervisor._plan_next_work()
+    assert supervisor._load_planner_failure_state()["kind"] == "backend"
+
+    manager.decision = _stage_decision()
+    assert supervisor._plan_next_work() == PLAN_RETRY
+    assert len(planner.calls) == 2 and len(manager.calls) == 2
+    assert supervisor._load_planner_failure_state() == {}
+    assert supervisor._load_manager_planner_feedback()["reason"] == "The stage still owes its review."
+
+
 @pytest.mark.parametrize("open_ended", [False, True])
 def test_an_unchanged_handoff_costs_no_more_calls_than_the_ladder_is_high(
     tmp_path: Path, monkeypatch, open_ended: bool,

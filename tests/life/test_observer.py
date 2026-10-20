@@ -19,7 +19,7 @@ from argus.core.event_catalog import EventType
 from argus.core.models import RunnerResult
 from argus.life import observer
 from argus.life.event_log import JsonlEventSink
-from argus.life.memory import LifeMemory
+from argus.life.memory import BacklogItem, LifeMemory
 from argus.life.observer import remarks
 from argus.life.supervisor import LifeSupervisor, LifeSupervisorConfig
 from argus.manager import supervision
@@ -120,6 +120,30 @@ def test_each_turn_another_role_ends_is_looked_at_once(team):
     engineer, _, planner = (call["prompt"] for call in team.backend.calls)
     assert "- the Engineer, on task `m-1`, at " in engineer
     assert "- the Planner, planning for the whole project, at " in planner
+
+
+def _skipped(team) -> None:
+    """The Planner's call is skipped: nothing it reads has changed."""
+    team.supervisor._emit({"type": EventType.LIFE_PLANNER_IDLE, "reason": "unchanged", "model_call_skipped": True})
+    _settle(team)
+
+
+def test_a_team_that_goes_still_is_looked_at_once_each_time(team):
+    """A still team writes nothing more, so no ended turn would ever wake the Observer."""
+    _skipped(team)
+    _skipped(team)
+    assert len(team.backend.calls) == 1
+    assert "then the team went still: nothing runs and the Planner was not called" in team.backend.calls[0]["prompt"]
+    _turn(team, "planner")
+    _skipped(team)
+    assert len(team.backend.calls) == 3
+
+
+def test_a_skipped_planner_beside_running_work_is_not_stillness(team):
+    backlog = team.supervisor.memory.backlog
+    backlog.update(backlog.add(BacklogItem.new(title="Train", objective="Train the model")).id, status="running")
+    _skipped(team)
+    assert team.backend.calls == []
 
 
 def test_only_the_engineer_reviewer_and_planner_wake_it(team):

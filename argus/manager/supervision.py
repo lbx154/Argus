@@ -563,8 +563,9 @@ def _apply(
                 or _owns_reserved_control(root, record)
             ):
                 raise SupervisionSuperseded("newer project control")
-            if observation.evidence_revision != record["evidence_revision"]:
-                raise SupervisionSuperseded("newer project evidence")
+            # Work that moved on while the Manager decided does not void its
+            # decision; voided, the decision was lost and nobody asked again.
+            record["evidence_moved"] = observation.evidence_revision != record["evidence_revision"]
             if decision["action"] == "wait" and not any(
                 item.get("pending_question") for item in observation.facts["tasks"]
             ):

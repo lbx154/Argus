@@ -44,7 +44,7 @@ from ...core.autonomy import AUTOMATIC_RETRY_WINDOW_SECONDS
 from ...core.event_catalog import EventType
 from ...core.file_facts import file_facts
 from ...core.workspace_facts import fact_text
-from ._constants import PLAN_AWAITING
+from ._constants import PLAN_AWAITING, PLAN_RETRY
 
 log = logging.getLogger(__name__)
 
@@ -62,6 +62,9 @@ FAILURE_KIND_BACKEND = "backend"
 # the model is at fault.
 FAILURE_KIND_INTERNAL = "internal"
 _FAILURE_KINDS = frozenset({FAILURE_KIND_BACKEND, FAILURE_KIND_INTERNAL})
+# The Planner handed its turn to the Manager, whose backend gave no answer: the
+# turn is not over, and only Argus can ask again.
+MANAGER_HANDOFF_UNANSWERED = "manager backend gave no answer to the planner handoff"
 _CREDENTIAL_PARTS = ("AUTH", "KEY", "TOKEN", "SECRET", "PASSWORD", "CREDENTIAL")
 
 # A clock that stepped back can leave recorded times in the future; anything
@@ -115,7 +118,7 @@ def planner_failure_kind(verdict: Any) -> str:
     error = str(getattr(verdict, "error", "") or "").strip()
     if reason.startswith("planner backend raised") and _INTERNAL_EXCEPTIONS.match(error):
         return FAILURE_KIND_INTERNAL
-    if reason.startswith(("planner backend", "planner execution host")):
+    if reason.startswith(("planner backend", "planner execution host", MANAGER_HANDOFF_UNANSWERED)):
         return FAILURE_KIND_BACKEND
     return ""
 
@@ -320,10 +323,11 @@ class PlannerFailureBackoffMixin:
         if getattr(state, "added_titles", None) or getattr(state, "completion_accepted", False):
             return True
         verdict = getattr(state, "verdict", None)
-        # A handoff without new work is a decision, not a failure; the
-        # unchanged-input skip already keeps it from being re-bought at model price.
+        # A handoff without new work is a decision, not a failure, whether it
+        # waits or the Manager's answer sends it back to plan; the
+        # unchanged-input skip keeps it from being re-bought at model price.
         return bool(
-            result == PLAN_AWAITING
+            result in {PLAN_AWAITING, PLAN_RETRY}
             and verdict is not None
             and not getattr(verdict, "error", "")
             and getattr(verdict, "handoff", "")
@@ -583,6 +587,7 @@ class PlannerFailureBackoffMixin:
 __all__ = [
     "FAILURE_KIND_BACKEND",
     "FAILURE_KIND_INTERNAL",
+    "MANAGER_HANDOFF_UNANSWERED",
     "PLANNER_FAILURE_ALERT_AFTER_SECONDS",
     "PLANNER_FAILURE_BACKOFF_BASE_SECONDS",
     "PLANNER_FAILURE_BACKOFF_CAP_SECONDS",
