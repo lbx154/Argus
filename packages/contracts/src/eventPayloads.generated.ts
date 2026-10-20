@@ -463,7 +463,6 @@ export interface RoundReviewCompletedEvent extends EventMsg {
   "plan_signal"?: string;
   "plan_challenge"?: string;
   "plan_alternative"?: string;
-  "authority_impact"?: string;
   "session_signal"?: Record<string, unknown>;
   "text"?: string;
   "review_skipped"?: boolean;
@@ -716,7 +715,6 @@ export interface LifeManagerPlanChallengeDecidedEvent extends EventMsg {
   "manager_reason"?: string;
   "challenge": string;
   "alternative"?: string;
-  "authority_impact"?: string;
   "raised_at"?: number;
   "adjudicated_at": number;
   "revision_latency_seconds"?: number;

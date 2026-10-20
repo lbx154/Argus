@@ -318,7 +318,6 @@ class ReviewDecision:
         for source_key, event_key in (
             ("challenge", "plan_challenge"),
             ("alternative", "plan_alternative"),
-            ("authority_impact", "authority_impact"),
             ("learning", "learning"),
             ("learning_reason", "learning_reason"),
         ):

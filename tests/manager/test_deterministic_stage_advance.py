@@ -126,7 +126,6 @@ def test_stage_closing_bounded_direct_done_with_advice_completes_current_stage(
                 "plan_signal": "reconsider",
                 "challenge": "A broader causal claim needs implementation evidence.",
                 "alternative": "Compare executed configurations before expanding it.",
-                "authority_impact": "technical",
             }
         ),
         project_root=state_root,
@@ -452,7 +451,6 @@ def test_unparseable_or_absent_review_fields_use_manager(tmp_path, review) -> No
         ({"status": "blocked", "next_action": "Diagnose the blocker."}, "bounded"),
         ({"status": "replan_requested", "next_action": "Choose a new route."}, "bounded"),
         ({"next_action": "Implement the remaining stage work."}, "bounded"),
-        ({"planner_report": {"authority_impact": "operator"}}, "bounded"),
         ({"review_source": "engineer_self_review"}, "bounded"),
     ],
 )

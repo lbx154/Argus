@@ -632,7 +632,6 @@
     },
     {
       "event": {
-        "authority_impact": "authority impact",
         "backend_unavailable": true,
         "cached_input_tokens": 1,
         "changed_during_review": [
@@ -1281,7 +1280,6 @@
       "event": {
         "adjudicated_at": 1.25,
         "alternative": "alternative",
-        "authority_impact": "authority impact",
         "challenge": "challenge",
         "item_id": "task-1",
         "manager_action": "keep",

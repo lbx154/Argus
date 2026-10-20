@@ -1190,7 +1190,6 @@ class SkillLoopExecuteMixin:
                         "manager_reason": challenge_decision.reason,
                         "challenge": challenge_decision.challenge,
                         "alternative": challenge_decision.alternative,
-                        "authority_impact": challenge_decision.authority_impact,
                         "source": challenge_decision.source,
                         "raised_at": time.time(),
                     }

@@ -1680,9 +1680,6 @@
         "plan_alternative": {
           "type": "string"
         },
-        "authority_impact": {
-          "type": "string"
-        },
         "session_signal": {
           "type": "object"
         },
@@ -2511,9 +2508,6 @@
           "type": "string"
         },
         "alternative": {
-          "type": "string"
-        },
-        "authority_impact": {
           "type": "string"
         },
         "raised_at": {

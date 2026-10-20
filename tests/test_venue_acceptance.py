@@ -152,7 +152,6 @@ def test_a_final_reviews_own_routing_stands(paper):
     report = {
         "plan_signal": "reconsider", "challenge": "Unequal useful work invalidates the speed comparison.",
         "alternative": "Hold accepted token yield fixed, run matched-budget controls, and report throughput.",
-        "authority_impact": "technical",
     }
     review = ReviewDecision(
         status="replan_requested", reason="The baseline processes fewer positions.",

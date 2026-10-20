@@ -47,44 +47,40 @@ def _route(tmp_path: Path, report: dict, *, question: str = "") -> dict:
     _Harness()._extract_execute_outcome_fields(state)
     return {
         key: state.plan_challenge.get(key)
-        for key in ("manager_action", "alternative", "authority_impact", "source")
+        for key in ("manager_action", "alternative", "source")
     }
 
 
 @pytest.mark.parametrize(
-    ("report", "question", "expected"),
+    ("report", "question"),
     [
         (
-            {"authority_impact": "technical", "challenge": "pandas is slow here",
+            {"challenge": "pandas is slow here",
              "alternative": "Load the data with polars instead of pandas."},
             "pandas or polars?",
-            ("replace", "technical"),
         ),
         (
-            {"authority_impact": "technical", "challenge": "the run is too big",
+            {"challenge": "the run is too big",
              "alternative": "Reduce the dataset size to the first 10k rows."},
             "reduce dataset size?",
-            ("replace", "technical"),
         ),
         (
-            {"authority_impact": "technical", "challenge": "two spec lines conflict",
+            {"challenge": "two spec lines conflict",
              "alternative": "Follow the spec line in section 2."},
             "which spec line wins?",
-            ("replace", "technical"),
         ),
         (
             # Alarming words in a technical alternative do not decide.
-            {"authority_impact": "technical", "challenge": "the release is broken",
+            {"challenge": "the release is broken",
              "alternative": "Force-push the protected release branch."},
             "Should we fix the release?",
-            ("replace", "technical"),
         ),
     ],
 )
 def test_replan_with_alternative_matches_dev_with_an_operator(
-    tmp_path, monkeypatch, report, question, expected
+    tmp_path, monkeypatch, report, question
 ) -> None:
     monkeypatch.setenv("ARGUS_SKILL_OPERATOR_AVAILABLE", "true")
     routed = _route(tmp_path, report, question=question)
-    assert (routed["manager_action"], routed["authority_impact"]) == expected
+    assert routed["manager_action"] == "replace"
     assert routed["alternative"] == report["alternative"]

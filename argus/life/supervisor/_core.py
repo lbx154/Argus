@@ -476,7 +476,6 @@ class LifeSupervisor(
                 "manager_reason": decision.reason,
                 "challenge": decision.challenge,
                 "alternative": decision.alternative,
-                "authority_impact": decision.authority_impact,
                 "source": decision.source,
                 "raised_at": time.time(),
             }

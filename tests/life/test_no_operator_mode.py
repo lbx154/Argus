@@ -146,7 +146,7 @@ def test_plan_alternatives_route_exactly_as_on_dev_with_an_operator(
 
     monkeypatch.setenv("ARGUS_SKILL_OPERATOR_AVAILABLE", "true")
     decision = adjudicate_plan_challenge(
-        {"authority_impact": "technical", "challenge": "c", "alternative": alternative},
+        {"challenge": "c", "alternative": alternative},
         reviewer_status="replan_requested",
     )
     assert decision.action == "replace"
