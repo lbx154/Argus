@@ -38,7 +38,7 @@ describe("task submap evidence", () => {
       event("e2", "round.start", { round_index: 1 }),
       event("e3", "round.main.completed", { round_index: 1, text: "Requirements conflict.\n→ manager" }),
       event("e4", "round.review.completed", { round_index: 1, role: "engineer", status: "blocked",
-        review_source: "engineer_handoff", text: "Requirements conflict." }),
+        text: "Requirements conflict." }),
     ], true);
     expect(rows.some((row) => row.kind === "review")).toBe(false);
     const round = rows.find((row) => row.round === 1)!;
