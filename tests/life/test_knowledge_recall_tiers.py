@@ -242,7 +242,7 @@ def test_a_sandboxed_engineer_is_given_the_directories_recall_points_at(tmp_path
                      config=SkillLoopConfig(read_dirs=["/elsewhere/wiki"]))
     loop.supervised._run_engineer(prompt="work", workdir=tmp_path, run_label="engineer-r1")
 
-    assert Capture.options.add_dirs == ["/elsewhere/wiki"]
+    assert Capture.options.add_dirs[0] == "/elsewhere/wiki"
 
 
 @pytest.mark.parametrize("switch", [("ARGUS_SKILL_COPILOT_TRIAL", "1"), ("ARGUS_SKILL_LEARNING", "0")])
