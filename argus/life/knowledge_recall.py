@@ -617,6 +617,10 @@ class MarkdownKnowledgeRecall:
     def _line(document: KnowledgeDocument, channel: str) -> str:
         meta = document.meta
         details = [meta.page_kind, document.origin]
+        root = document.root
+        if root is not None and root.source and root.library is not None:
+            # An earlier project's page names its sources relative to its own workspace.
+            details.append(f"workspace `{root.boundary}`")
         if meta.created:
             details.append(meta.created)
         if meta.corrected:
@@ -810,6 +814,30 @@ def knowledge_roots(state: Path, global_root: Path | None, workspace: Path | Non
     return roots
 
 
+def _cited_source_dirs(root: KnowledgeRoot) -> set[Path]:
+    """Top-level directories of an earlier project's workspace that its Wiki pages link into.
+
+    Those pages cite the project's own sources (``repos/<name>/...``); a role
+    shown them reads those directories, never the rest of that workspace.
+    """
+    from ..wiki.promote import linked_files
+
+    workspace, library = root.boundary.absolute(), (root.library or root.path).absolute()
+    found: set[Path] = set()
+    for page in islice(root.path.rglob("*.md"), _MAX_CODE_SCAN):
+        try:
+            text = _read_current_file(page, 32_768).decode("utf-8", "replace")
+        except (OSError, ValueError):
+            continue
+        for target in linked_files(page, text, workspace):
+            if target.is_relative_to(library):
+                continue
+            top = workspace / target.relative_to(workspace).parts[0]
+            if not top.name.startswith(".") and top.is_dir() and _contained(top, workspace):
+                found.add(top)
+    return found
+
+
 def knowledge_read_dirs(state: Path | None, global_root: Path | None, workspace: Path | None) -> list[str]:
     """The directories recall can point a role at outside its workspace.
 
@@ -820,8 +848,11 @@ def knowledge_read_dirs(state: Path | None, global_root: Path | None, workspace:
     if state is None:
         return []
     inside = Path(workspace).absolute() if workspace is not None else None
-    libraries = {(root.library or root.path).absolute()
-                 for root in knowledge_roots(state, global_root, workspace) if root.scope != "private"}
+    roots = [root for root in knowledge_roots(state, global_root, workspace) if root.scope != "private"]
+    libraries = {(root.library or root.path).absolute() for root in roots}
+    for root in roots:
+        if root.source and root.library is not None:
+            libraries |= _cited_source_dirs(root)
     found: list[Path] = []
     for library in sorted(libraries, key=lambda path: (len(path.parts), str(path))):
         if (library.is_dir() and not any(library.is_relative_to(path) for path in found)
