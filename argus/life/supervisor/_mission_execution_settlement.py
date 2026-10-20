@@ -1550,10 +1550,13 @@ class MissionExecutionSettlementMixin:
             if isinstance(manager_decision, dict):
                 vertical = str(manager_decision.get("vertical") or "").strip()
             if not vertical:
-                from ...skills.vertical_select import resolve_skill_scope
+                from ...skills.vertical_select import resolve_project_vertical
+                from ._evolution import _project_state_root
 
                 try:
-                    vertical = resolve_skill_scope(workspace)
+                    vertical = resolve_project_vertical(
+                        workspace, life_dir=_project_state_root(self.memory) or workspace,
+                    )
                 except Exception:  # noqa: BLE001 - an undecided vertical only skips the vertical tier
                     vertical = ""
             promoted = promote_wiki_pages(
@@ -1564,12 +1567,11 @@ class MissionExecutionSettlementMixin:
         except OSError:
             log.exception("life supervisor: shared knowledge could not be updated")
             return
-        for scope, pages in promoted.items():
-            if pages:
-                log.info(
-                    "life supervisor: %d wiki page(s) shared with the %s knowledge (%s): %s",
-                    len(pages), scope, vertical or "-", ", ".join(pages),
-                )
+        for target, pages in promoted.items():
+            log.info(
+                "life supervisor: %d wiki page(s) shared with the %s knowledge: %s",
+                len(pages), target, ", ".join(pages),
+            )
 
 
 __all__ = ["MissionExecutionSettlementMixin"]

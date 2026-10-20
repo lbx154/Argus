@@ -911,13 +911,14 @@ def _promote_fact_pages(
         log.warning("reflection: sharing fact pages failed", exc_info=True)
         return []
     listed: list[str] = []
-    for audience, pages in promoted.items():
+    for target, pages in promoted.items():
         for relative in pages:
             path = f"pages/{relative}"
             listed.append(path)
             _record_learned(
-                emit=emit, global_root=global_root, kind="promoted", scope=audience,
-                vertical=vertical if audience == "vertical" else "", relative=path,
+                emit=emit, global_root=global_root, kind="promoted",
+                scope="global" if target == "global" else "vertical",
+                vertical="" if target == "global" else target, relative=path,
                 title=Path(relative).stem.replace("-", " "), source_project=project_id,
                 mission_id=mission_id, role="reflection", page_kind="fact",
                 note="copied into the shared knowledge after an accepted review",

@@ -108,8 +108,10 @@ project takes the checks it links to along. Nothing imports these files: roles
 of the same project discover them, the project's mission view lists them,
 recall shows them to later projects of any vertical (as pointers that name the
 code), and the post-mission review offers them for the vertical's shared
-library, with their code. Engineer procedures an older release kept in the
-project state (`skills/engineer`) are still read, never written.
+library, with their code. A page or Skill whose front matter names another
+vertical this host knows (`vertical: <name>`) is shared into that vertical
+instead. Engineer procedures an older release kept in the project state
+(`skills/engineer`) are still read, never written.
 
 Quality checks cover a changed factual conclusion reaching the next recall,
 unrelated English/Chinese questions, repeated findings and methods, partially

@@ -14,6 +14,7 @@ from ..core.models import RunnerOptions
 from ..core.run_gateway import run_exec as gateway_run_exec
 from ..skills.layered import shared_skill_scope_dir
 from ..skills.vertical_select import resolve_skill_scope
+from ..wiki.promote import declared_vertical
 from .source_writeback import atomic_write
 
 log = logging.getLogger(__name__)
@@ -395,11 +396,24 @@ def propagate_after_mission(
     mission_result: str = "",
     on_event: Any = None,
 ) -> dict[str, int]:
-    """Run one isolated, agent-native TEAM learning review after success."""
+    """Run one isolated, agent-native TEAM learning review after success.
+
+    A candidate whose front matter names a vertical this host knows
+    (``vertical: <name>``) is reviewed into that vertical's library; the rest
+    into the project's own.
+    """
     counts = dict(_ZERO_SHARED)
     backend = _backend_for(runner)
     if backend is None:
         log.debug("TEAM learning review skipped: no runner backend")
+        return counts
+    if not mission_success:
+        _emit(on_event, {
+            "type": "team.learning.review.skipped",
+            "agent_layer": "manager",
+            "mission_success": mission_success,
+            "reason": "mission failed",
+        })
         return counts
 
     state = (
@@ -421,31 +435,56 @@ def propagate_after_mission(
     scope = resolve_skill_scope(state or project_root)
     if not scope and state is not None:
         scope = resolve_skill_scope(project_root)
+    by_vertical: dict[str, dict[str, Path]] = {}
+    for key, path in _project_skill_files(project_skills, Path(project_root)).items():
+        try:
+            vertical = declared_vertical(path.read_text(encoding="utf-8", errors="replace"), scope)
+        except OSError:
+            vertical = scope
+        by_vertical.setdefault(vertical, {})[key] = path
+    for vertical, files in (by_vertical or {scope: {}}).items():
+        for name, value in _review_into_vertical(
+            vertical, files, backend=backend, state=state, global_skills=global_skills,
+            mission_objective=mission_objective, mission_result=mission_result,
+            on_event=on_event,
+        ).items():
+            counts[name] += value
+    return counts
+
+
+def _review_into_vertical(
+    scope: str,
+    files: dict[str, Path],
+    *,
+    backend: Any,
+    state: Path | None,
+    global_skills: Path,
+    mission_objective: str,
+    mission_result: str,
+    on_event: Any,
+) -> dict[str, int]:
+    """Review ``files`` for the shared library of the vertical ``scope``."""
+    counts = dict(_ZERO_SHARED)
     vertical_root = shared_skill_scope_dir(global_skills, scope)
     shared = vertical_root.resolve() if vertical_root is not None else global_skills
-    files = _project_skill_files(project_skills, Path(project_root))
     candidates = _unshared_project_skills(files, shared)
     reviewed = _reviewed_project_skills(state)
     pending_paths = frozenset(
         path for path, facts in candidates.items() if reviewed.get(path) != facts
     )
-    if not mission_success or not pending_paths:
+    if not pending_paths:
         _emit(on_event, {
             "type": "team.learning.review.skipped",
             "agent_layer": "manager",
-            "mission_success": mission_success,
-            "reason": (
-                "mission failed"
-                if not mission_success
-                else "no project skill delta"
-            ),
+            "mission_success": True,
+            "reason": "no project skill delta",
         })
         return counts
     if vertical_root is None or not shared.is_relative_to(global_skills / "_shared_verticals"):
         counts["stayed"] = len(pending_paths)
         _emit(on_event, {
             "type": "team.learning.review.skipped", "agent_layer": "manager",
-            "mission_success": mission_success,
+            "mission_success": True,
             "reason": "no resolved vertical; candidates stay in project, not global",
         })
         return counts
@@ -456,14 +495,14 @@ def propagate_after_mission(
         shared_root=shared,
         scope=scope,
         mission_objective=mission_objective,
-        mission_success=mission_success,
+        mission_success=True,
         mission_result=mission_result,
     )
     if not presented_paths:
         _emit(on_event, {
             "type": "team.learning.review.skipped",
             "agent_layer": "manager",
-            "mission_success": mission_success,
+            "mission_success": True,
             "reason": "no readable project skill delta",
         })
         return counts
@@ -472,7 +511,7 @@ def propagate_after_mission(
         "type": "team.learning.review.started",
         "agent_layer": "manager",
         "mission_objective": mission_objective[:500],
-        "mission_success": mission_success,
+        "mission_success": True,
         "scope": "vertical", "vertical": scope,
     })
 
@@ -503,7 +542,7 @@ def propagate_after_mission(
         _emit(on_event, {
             "type": "team.learning.review.failed",
             "agent_layer": "manager",
-            "mission_success": mission_success,
+            "mission_success": True,
             "error": f"{type(exc).__name__}: {exc}",
         })
         return counts
@@ -516,7 +555,7 @@ def propagate_after_mission(
         _emit(on_event, {
             "type": "team.learning.review.failed",
             "agent_layer": "manager",
-            "mission_success": mission_success,
+            "mission_success": True,
             "error": str(getattr(result, "fatal_error", "") or ""),
         })
         return counts
@@ -548,7 +587,7 @@ def propagate_after_mission(
     _emit(on_event, {
         "type": "team.learning.review.completed",
         "agent_layer": "manager",
-        "mission_success": mission_success,
+        "mission_success": True,
         "created": len(created),
         "updated": len(updated),
         "quarantined": len(quarantined),

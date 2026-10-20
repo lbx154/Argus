@@ -60,7 +60,8 @@ def render_knowledge_wiki_block(
             f"{shared_lines}\n\n"
             "A page useful beyond this project carries `audience: vertical` (or "
             "`audience: global`) in its front matter; after a passing review the host "
-            "copies it into the shared knowledge of this vertical, which later projects read."
+            "copies it into the shared knowledge of this vertical, which later projects read. "
+            "A page that belongs to another vertical also names it: `vertical: <name>`."
         )
     return (
         "## Shared project Wiki\n"

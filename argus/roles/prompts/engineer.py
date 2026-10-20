@@ -219,7 +219,9 @@ def _post_task_learning_section(
         "project skill directory before you finish this task.\n"
         + rules
         + "\nWrite each Skill as `<name>/SKILL.md`. When a step is better run than "
-        "read, keep the script you ran beside it and say in SKILL.md how to run it."
+        "read, keep the script you ran beside it and say in SKILL.md how to run it. "
+        "A Skill that belongs to another vertical names it in its front matter: "
+        "`vertical: <name>`."
         "\nDo not turn task-specific hypotheses, causal attributions, failed "
         "attempts, or replacement recommendations into Skills unless phase "
         "attribution/profiling or a controlled comparison verified the causal rule. "

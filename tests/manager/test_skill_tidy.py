@@ -463,6 +463,28 @@ def test_a_workspace_skill_is_offered_with_the_code_beside_it(tmp_path: Path) ->
     assert call["options"].add_dirs == [str(skill.resolve())]
 
 
+def test_a_skill_naming_another_vertical_is_reviewed_into_that_vertical(tmp_path: Path) -> None:
+    project = tmp_path / "workspace"
+    state = tmp_path / "session-state"
+    global_root = tmp_path / "profile-skills"
+    for name, vertical in (("serving-check", "research"), ("build-check", "no-such")):
+        (project / ".agents" / "skills" / name).mkdir(parents=True)
+        (project / ".agents" / "skills" / name / "SKILL.md").write_text(
+            f"---\nname: {name}\ndescription: A reusable check\nvertical: {vertical}\n---\n",
+            encoding="utf-8",
+        )
+    backend = _SilentBackend()
+
+    propagate_after_mission(project, backend, project_state_dir=state, shared_root=global_root)
+
+    by_root = {call["options"].working_dir: call["prompt"] for call in backend.calls}
+    research = str((global_root / "_shared_verticals" / "research").resolve())
+    software = str((global_root / "_shared_verticals" / "software").resolve())
+    assert sorted(by_root) == sorted([research, software])
+    assert "serving-check" in by_root[research] and "build-check" not in by_root[research]
+    assert "build-check" in by_root[software], "an unknown vertical keeps the project's own"
+
+
 def test_unseen_candidate_batch_remains_pending_for_next_success(
     tmp_path: Path,
 ) -> None:
