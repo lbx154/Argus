@@ -1,7 +1,7 @@
 """Daemon-resident Curator: the persistent owner of the teammate pool.
 
 The Curator is a managed component/thread inside the daemon process. It keeps N
-teammates in flight, is the single reaper, and maintains the leaderboard. Its
+teammates in flight and is the single reaper. Its
 lifetime is tied to the daemon rather than to a lead mission.
 
 Ownership model (load-bearing): the Curator is a *thread* of the daemon, so it
@@ -36,7 +36,7 @@ import time
 from pathlib import Path
 from typing import Any, Callable
 
-from . import completion, leaderboard, pool, registry, roster, task_board
+from . import completion, pool, registry, roster, task_board
 
 log = logging.getLogger(__name__)
 _SYNCHRONIZE = 0x00100000
@@ -308,7 +308,6 @@ class Curator:
         self._campaign_reconcile_fn = campaign_reconcile_fn
         self._children: dict[tuple[str, str], TrackedTeammate] = {}
         self._adopted_roots: set[str] = set()  # roots whose roster orphans were adopted
-        self._fold_mtime: dict[str, float] = {}  # per-root shards mtime at last fold
         self._stop = threading.Event()
         self._spawn_lock = threading.Lock()
         self._thread: threading.Thread | None = None
@@ -791,8 +790,8 @@ class Curator:
         now: float,
         spawn_budget: int | None = None,
     ) -> None:
-        """Maintain ONE campaign for this tick: adopt prior-daemon orphans, fold
-        the leaderboard, then refill the pool (or wind a draining campaign down).
+        """Maintain ONE campaign for this tick: adopt prior-daemon orphans, then
+        refill the pool (or wind a draining campaign down).
 
         Split out of :meth:`_tick` so every campaign is processed inside its OWN
         try-boundary — a failure here (a vanished cwd, a corrupt pool file, …)
@@ -801,13 +800,8 @@ class Curator:
         root = Path(marker["team_root"])
         cwd = Path(marker.get("cwd") or root)
         self._adopt_orphans(root, now=now)  # reclaim prior-daemon teammates first
-        task_board.resume_finished_external_waits(
-            root,
-            default_workdir=cwd,
-        )
         if self._campaign_reconcile_fn is not None:
             self._campaign_reconcile_fn(marker)
-        self._maybe_fold(root)
         if task_board.count_in_flight(root) == 0 and not self.live_owner_ids(root):
             completion.publish_if_complete(
                 root,
@@ -839,30 +833,6 @@ class Curator:
             now=now,
             spawn_budget=spawn_budget,
         )
-
-    def _maybe_fold(self, root: Path) -> None:
-        """Deterministically re-fold the leaderboard when shards have changed.
-
-        Pure code with no model call. The shards-directory mtime guards against
-        re-reading thousands of shards every tick
-        on a large campaign; we only fold when a new shard has landed."""
-        sd = Path(root) / "shards"
-        try:
-            mtime = sd.stat().st_mtime if sd.exists() else 0.0
-        except OSError:
-            return
-        key = str(root)
-        if mtime and mtime != self._fold_mtime.get(key):
-            try:
-                leaderboard.fold(root)
-            except Exception:  # noqa: BLE001 — leaderboard upkeep must never break the tick
-                log.exception("curator: leaderboard fold failed for %s", root)
-                # Leave _fold_mtime UNCHANGED on failure: advancing it here would
-                # record the (poison) shard-dir state as permanently processed, so
-                # fold would never retry until a new shard bumps the mtime — and
-                # then re-raise. Not advancing means the next tick retries.
-                return
-            self._fold_mtime[key] = mtime
 
     def _run(self) -> None:
         while not self._stop.is_set():

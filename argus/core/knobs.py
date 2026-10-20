@@ -95,18 +95,14 @@ KNOBS: tuple[Knob, ...] = (
     Knob("ARGUS_SKILL_REVIEWER_BACKEND", "(=RUNNER_BACKEND)", "per-role backend override for the reviewer", "backend", cockpit=True),
     Knob("ARGUS_SKILL_PLANNER_BACKEND", "(=RUNNER_BACKEND)", "per-role backend override for the planner", "backend", cockpit=True),
     Knob("ARGUS_SKILL_MANAGER_BACKEND", "(=RUNNER_BACKEND)", "per-role backend override for the manager", "backend", cockpit=True),
-    Knob("ARGUS_SKILL_SUPERVISOR_BACKEND", "(=RUNNER_BACKEND)", "per-role backend override for the subagent supervisor", "backend", cockpit=True),
     Knob("ARGUS_SKILL_ENGINEER_RUNNER_BIN", "(=RUNNER_BIN)", "per-role CLI binary for the engineer", "backend"),
     Knob("ARGUS_SKILL_REVIEWER_RUNNER_BIN", "(=RUNNER_BIN)", "per-role CLI binary for the reviewer", "backend"),
     Knob("ARGUS_SKILL_PLANNER_RUNNER_BIN", "(=RUNNER_BIN)", "per-role CLI binary for the planner", "backend"),
     Knob("ARGUS_SKILL_MANAGER_RUNNER_BIN", "(=RUNNER_BIN)", "per-role CLI binary for the manager", "backend"),
-    Knob("ARGUS_SKILL_SUPERVISOR_RUNNER_BIN", "(=RUNNER_BIN)", "per-role CLI binary for the subagent supervisor", "backend"),
-    # --- resident teammate pool, time-box, and deterministic leaderboard ---
+    # --- resident teammate pool and time-box ---
     Knob("ARGUS_TEAMMATE_PAPER_MISSION", "(inherit lead default)", "force the paper gates on|off for each teammate", "team"),
     Knob("ARGUS_TEAMMATE_TIMEOUT_S", "0", "optional teammate wall-clock cap; disabled by default", "team"),
     Knob("ARGUS_TEAMMATE_MAX_ROUNDS", "0", "optional teammate engineer-round cap; disabled by default", "team"),
-    Knob("ARGUS_TEAMMATE_RESULT_FILE", "(unset)", "path the mission writes {metric,mechanism} to → the leaderboard shard", "team"),
-    Knob("ARGUS_LEADERBOARD_LOWER_IS_BETTER", "off (higher-is-better)", "global leaderboard direction; a task's lower_is_better overrides it per target", "team"),
     Knob("ARGUS_TEAM_MAX_WIDTH", "64", "hard safety ceiling for one campaign's requested teammate width", "team"),
     Knob("ARGUS_TEAM_DEFAULT_WIDTH", "2", "default concurrent teammates, independent of candidate count", "team"),
     Knob("ARGUS_TEAM_MAX_ACTIVE_CAMPAIGNS", "8", "hard safety ceiling for active Team campaigns in one project", "team"),
@@ -126,13 +122,12 @@ KNOBS: tuple[Knob, ...] = (
     Knob("ARGUS_SKILL_MAP_BATCH_SIZE", "2", "maximum cards per map generation (1-8)", "map", cockpit=True),
     Knob("ARGUS_SKILL_MAP_RETRY_SECONDS", "300", "cross-tab cooldown after a failed map generation (1-3600 seconds)", "map", cockpit=True),
     Knob("ARGUS_SKILL_REVIEWER_MODEL", "auto", "model for the L2 reviewer; auto uses the selected backend's default", "models", cockpit=True),
-    Knob("ARGUS_SKILL_SUPERVISOR_MODEL", "auto", "model for supervised subagent health decisions; auto uses the selected backend's default", "models", cockpit=True),
-    Knob("ARGUS_SKILL_OBSERVER_MODEL", "auto", "model for the Observer, who watches how the team works and speaks up when something is off; auto follows the Reviewer model", "models", cockpit=True),
+    Knob("ARGUS_SKILL_OBSERVER_MODEL", "auto", "model for the Observer, who watches whether the work flows and tells the Manager when it does not; auto follows the Reviewer model", "models", cockpit=True),
     Knob("ARGUS_SKILL_PLAN_MODEL", "auto", "model for the L4 planner; auto uses the selected backend's default", "models", cockpit=True),
-    Knob("ARGUS_SKILL_PLAN_PREVIEW_MODEL", "auto", "interactive /plan model: gpt-5.4-mini on copilot (follows an environment model of auto), planner model otherwise; set an id to override", "models"),
+    Knob("ARGUS_SKILL_PLAN_PREVIEW_MODEL", "auto", "interactive /plan model: gpt-6.1-sol on copilot (follows an environment model of auto), planner model otherwise; set an id to override", "models"),
     Knob("ARGUS_SKILL_REWRITE_MODEL", "auto", "interactive prompt rewrite model: gpt-5.5 on copilot (follows an environment model of auto), Manager model otherwise; set an id to override", "models"),
     Knob("ARGUS_SKILL_MANAGER_REPLY_MODEL", "inherit", "operator-facing Manager SELF model; inherit uses the configured Manager/shared route model", "models", cockpit=True),
-    Knob("ARGUS_SKILL_FRONTDOOR_MODEL", "auto", "cheap front-door classification model: gpt-5.4-mini on copilot (follows an environment model of auto), Manager model otherwise", "models"),
+    Knob("ARGUS_SKILL_FRONTDOOR_MODEL", "auto", "front-door classification model: gpt-6.1-sol on copilot (follows an environment model of auto), Manager model otherwise", "models"),
     Knob("ARGUS_SKILL_FRONTDOOR_CLASSIFY_EFFORT", "low", "reasoning effort for the LLM-only front-door and STEER confirmation", "models"),
     # --- reasoning effort ---
     Knob("ARGUS_SKILL_MANAGER_REASONING_EFFORT", "high", "manager reasoning effort", "reasoning", cockpit=True),
@@ -143,14 +138,11 @@ KNOBS: tuple[Knob, ...] = (
     Knob("ARGUS_SKILL_ENGINEER_INITIAL_REASONING_EFFORT", "high", "direct-task first-round Engineer effort; later rounds use the Engineer effort", "reasoning", cockpit=True),
     Knob("ARGUS_SKILL_ENGINEER_REASONING_EFFORT", "xhigh", "engineer reasoning effort: low|medium|high|xhigh", "reasoning", cockpit=True),
     Knob("ARGUS_SKILL_REVIEWER_REASONING_EFFORT", "high", "reviewer reasoning effort", "reasoning", cockpit=True),
-    Knob("ARGUS_SKILL_SUPERVISOR_REASONING_EFFORT", "low", "subagent supervisor reasoning effort", "reasoning", cockpit=True),
     # Capacity limits are explicit resource admission, not work clocks.
     # --- budget ---
     Knob("ARGUS_SKILL_PROVIDER_MAX_CONCURRENCY", "0", "concurrent provider processes across all backends and projects; 0 disables", "budget"),
     Knob("ARGUS_SKILL_PROVIDER_SLOT_WAIT_SECONDS", "45", "seconds a provider call queues for a busy concurrency slot before it is refused; 0 refuses at once", "budget"),
     Knob("ARGUS_SKILL_MAX_ACTIVE_DAEMONS", str(DEFAULT_MAX_ACTIVE_DAEMONS), "host-wide active daemon cap", "budget", cockpit=True),
-    Knob("ARGUS_SKILL_SUBAGENT_FAMILY_FAILURE_STREAK_LIMIT", "3", "consecutive unresolved subagent-job failures (same experiment family) before the L4 planner circuit-breaks further retries", "budget"),
-    Knob("ARGUS_SKILL_SUBAGENT_FAMILY_FAILURE_WINDOW_HOURS", "72.0", "trailing window (hours) the subagent family failure streak is computed over", "budget"),
     # --- mission / lifecycle ---
     Knob("ARGUS_SKILL_MANAGER_HANDOFF_WAIT_SECONDS", "900", "foreground Manager wait for a safe task boundary (1-3600 seconds); never interrupts provider work", "mission", cockpit=True),
     Knob(
@@ -199,13 +191,10 @@ KNOBS: tuple[Knob, ...] = (
     Knob("ARGUS_SKILL_SOFT_ROUND_LIMIT", "(vertical)", "round after which two verdicts without forward progress end a mission; overrides every vertical's round_policy; 0 disables; 'vertical' hands control back", "mission", cockpit=True),
     Knob("ARGUS_SKILL_HARD_ESCALATE_ROUNDS", "(vertical)", "round from which a missing Reviewer progress judgement ends a mission; overrides every vertical's round_policy; 0 disables; 'vertical' hands control back", "mission", cockpit=True),
     Knob("ARGUS_SKILL_REVIEWER_READ_DIRS", "[]", "JSON array of absolute input directories for scoped Reviewer reads", "mission"),
-    Knob("ARGUS_SKILL_REVIEW_BACKGROUND_LAUNCHES", "off", "opt in to reviewing background launches before their results return; final independent review remains required", "mission"),
     Knob("ARGUS_SKILL_REVIEWER_VALIDATION_IMAGE", "(unset)", "local Docker image for opt-in read-only Reviewer command checks; empty disables", "mission"),
     Knob("ARGUS_SKILL_ROUND_CHECKPOINT", "off", "record private git refs for Reviewer-recommended round checkpoints", "mission"),
-    Knob("ARGUS_RESEARCH_SPEC_CHECKS", "on", "research vertical: after each Engineer round the host runs the project's own tests/spec (and tests/parity) suite with zero model tokens and shows the outcome to the Reviewer and next Engineer round as evidence, never as a gate; off disables", "mission"),
-    Knob("ARGUS_RESEARCH_SPEC_CHECK_TIMEOUT_SECONDS", "1800", "research vertical: seconds a host-run spec check may make no progress (no CPU time) before its process group is killed and the stop reported to the Reviewer as evidence (at least 30; 0 never stops it); a check that keeps working is never stopped", "mission"),
     Knob("ARGUS_SKILL_REQUIRE_POST_TASK_LEARNING", "1", "enable selective project-layer Skill maintenance for all four roles (default ON)", "mission"),
-    Knob("ARGUS_SKILL_BOUNDED_DAG_MODEL", "auto", "compact model for decomposing Manager bounded tasks into backlog DAG nodes: gpt-5.4-mini on copilot (follows an environment model of auto), planner model otherwise", "mission"),
+    Knob("ARGUS_SKILL_BOUNDED_DAG_MODEL", "auto", "model for decomposing Manager bounded tasks into backlog DAG nodes: gpt-6.1-sol on copilot (follows an environment model of auto), planner model otherwise", "mission"),
     Knob("ARGUS_SKILL_BOUNDED_DAG_REASONING_EFFORT", "low", "reasoning effort for bounded DAG decomposition", "mission"),
     Knob("ARGUS_SKILL_ENGINEER_TURN_MAX_SECONDS", "0", "optional wall-clock cap for one Engineer turn; disabled by default", "mission"),
     Knob("ARGUS_SKILL_PROVIDER_TURN_CAP", "0", "optional per-call interaction allowance for Engineer/Reviewer; disabled by default (0). If explicitly enabled, save a checkpoint and continue in a fresh session", "mission"),
@@ -242,7 +231,7 @@ KNOBS: tuple[Knob, ...] = (
     Knob("ARGUS_SKILL_ANSWER_LEARNING", "1", "after a researched chat answer, keep a survey page with its sources and a date to re-verify", "learning"),
     Knob("ARGUS_SKILL_CONSOLIDATE_INTERVAL_S", "3600", "seconds between passes that rebuild a vertical's shared knowledge index and recompile its principles from repeated lessons", "learning"),
     Knob("ARGUS_SKILL_RECALL_SIBLING_WIKIS", "1", "let knowledge recall read the shared vertical tier and other projects' Wikis on this host; ignored on multi-tenant hosts", "learning"),
-    Knob("ARGUS_SKILL_ENGINEER_SANDBOX", "off", "codex sandbox for builder roles (engineer/reviewer/planner/subagent): set 'workspace-write' to confine writes to the project workdir + a writable allowlist (excludes ~/.argus-skill, the package, ~/.codex) and scrub VCS creds, instead of --dangerously-bypass. Default OFF — verify required network, cache, and remote accelerator access before enabling", "lifecycle"),
+    Knob("ARGUS_SKILL_ENGINEER_SANDBOX", "off", "codex sandbox for builder roles (engineer/reviewer/planner): set 'workspace-write' to confine writes to the project workdir + a writable allowlist (excludes ~/.argus-skill, the package, ~/.codex) and scrub VCS creds, instead of --dangerously-bypass. Default OFF — verify required network, cache, and remote accelerator access before enabling", "lifecycle"),
     Knob("ARGUS_SKILL_MEASURED_MODE", "off", "measured-mode evaluation gating", "lifecycle"),
     Knob("ARGUS_SKILL_SKIP_VAULT_PREFLIGHT", "off", "bypass the capability-vault preflight on daemon start", "lifecycle"),
     Knob("ARGUS_SKILL_SOURCE_ROOT", "(unset)", "expected deployment source root: when set, daemon/WebAPI startup refuses a process whose loaded package resolves to a different checkout (rewritten-launcher guard)", "lifecycle"),
@@ -279,7 +268,6 @@ _BACKEND_KNOBS = frozenset(
         "ARGUS_SKILL_REVIEWER_BACKEND",
         "ARGUS_SKILL_PLANNER_BACKEND",
         "ARGUS_SKILL_MANAGER_BACKEND",
-        "ARGUS_SKILL_SUPERVISOR_BACKEND",
     }
 )
 _EFFORT_KNOBS = frozenset(
@@ -290,7 +278,6 @@ _EFFORT_KNOBS = frozenset(
         "ARGUS_SKILL_PLAN_PREVIEW_REASONING_EFFORT",
         "ARGUS_SKILL_ENGINEER_REASONING_EFFORT",
         "ARGUS_SKILL_REVIEWER_REASONING_EFFORT",
-        "ARGUS_SKILL_SUPERVISOR_REASONING_EFFORT",
     }
 )
 _TOGGLE_KNOBS = frozenset(
@@ -1022,10 +1009,10 @@ def resolve_manager_classify_model(
     backend: str | None = None,
     env: Mapping[str, str] | None = None,
 ) -> str:
-    """Resolve the cheap stateless front-door classification model."""
+    """Resolve the stateless front-door classification model."""
     return resolve_cheap_route_model(
         knob="ARGUS_SKILL_FRONTDOOR_MODEL",
-        catalog_default="gpt-5.4-mini",
+        catalog_default="gpt-6.1-sol",
         role="manager",
         role_env="ARGUS_SKILL_MANAGER_MODEL",
         backend=backend,

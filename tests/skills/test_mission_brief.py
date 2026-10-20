@@ -76,17 +76,6 @@ NOTES_MD = """# Research notes
 - Selected route: route-02, gated residual attention at half the FLOPs.
 """
 
-LATEST_CHECKS = {
-    "round_index": 2,
-    "ran_at": 2.0,
-    "exit_code": 1,
-    "counts": {"PASSED": 1, "FAILED": 1},
-    "outcomes": {
-        "tests/spec/test_knockouts.py::test_gate": "PASSED",
-        "tests/spec/test_knockouts.py::test_sparse": "FAILED",
-    },
-}
-
 SPEC_COMPONENTS = {
     "generated_at": 1.0,
     "items": {
@@ -137,10 +126,8 @@ def project(tmp_path: Path) -> Path:
     (clone / "rpc").mkdir(parents=True)
     (clone / "rpc" / "__init__.py").write_text("def attention(x):\n    return x\n", encoding="utf-8")
     _init_repo(clone, "reference clone")
-    argus_dir = root / ".argus" / "round-checks"
-    argus_dir.mkdir(parents=True)
+    (root / ".argus").mkdir()
     (root / ".argus" / "spec_components.json").write_text(json.dumps(SPEC_COMPONENTS), encoding="utf-8")
-    (argus_dir / "latest.json").write_text(json.dumps(LATEST_CHECKS), encoding="utf-8")
     _init_repo(root, "method card, spec and clone")
     (root / "src" / "scratch.py").write_text("x = 1\n", encoding="utf-8")  # untracked since
     return root
@@ -191,13 +178,12 @@ def test_components_point_at_their_code_anchors(project: Path, tmp_path: Path) -
     lines = brief.splitlines()
 
     gate = next(line for line in lines if line.startswith("- residual gate:"))
-    assert "proven" in gate and "src/model.py:7 (gate)" in gate
+    assert gate.startswith("- residual gate: 1 knockout") and "src/model.py:7 (gate)" in gate
     sparse = next(line for line in lines if line.startswith("- sparse attention:"))
-    assert "contradicted (simplified)" in sparse
+    assert "(simplified)" in sparse
     assert "src/model.py:13 (sparse)" in sparse
-    assert "failing: tests/spec/test_knockouts.py::test_sparse" in sparse
     warmup = next(line for line in lines if line.startswith("- curriculum warmup:"))
-    assert "untested" in warmup and "no `# @component` anchor" in warmup
+    assert "no test carries its marker" in warmup and "no `# @component` anchor" in warmup
 
 
 def test_environment_describes_the_tree_as_it_is(project: Path, tmp_path: Path) -> None:
@@ -211,9 +197,7 @@ def test_environment_describes_the_tree_as_it_is(project: Path, tmp_path: Path) 
     assert "x @ " in clones and "no git revision" not in clones
     data = next(line for line in lines if line.startswith("- data/:"))
     assert "2.0 KB" in data and "wikitext/" in data
-    checks = next(line for line in lines if line.startswith("- Last host-run tests/spec:"))
-    assert "round 2, exit 1" in checks and "1 failed, 1 passed" in checks
-    assert "contradicted: sparse attention" in checks
+    assert not any("host-run" in line for line in lines)
     packages = next(line for line in lines if line.startswith("- Packages:"))
     assert "numpy" in packages
 
@@ -358,6 +342,7 @@ def test_project_with_nothing_yields_nothing(tmp_path: Path) -> None:
 
 
 def test_broken_project_never_raises(project: Path, tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    (project / ".argus" / "round-checks").mkdir()
     (project / ".argus" / "round-checks" / "latest.json").write_text("{not json", encoding="utf-8")
     (project / "src" / "bad.py").write_bytes(b"\xff\xfe# @component \xff\n")
     unreadable = project / "METHOD.md"

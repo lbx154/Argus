@@ -145,10 +145,10 @@ def role_banner(role: str) -> str:
     if role == "engineer":
         return (
             common
-            + " Treat unattended benchmark and profiler runs as asynchronous work: "
-            "leave durable status, then use the wait window for independent hot-path "
-            "reading or implementation within the mission's owned paths. Do not "
-            "foreground-poll or spend a round only checking status. When source-first "
+            + " Treat unattended benchmark and profiler runs as long jobs: start them "
+            "detached, use the time they run for independent hot-path reading or "
+            "implementation within the mission's owned paths, then wait for them with "
+            "blocking calls rather than short status checks. When source-first "
             "research is intended to guide later engineering, inspect current primary "
             "sources rather than "
             "generic summaries, follow surprising leads, compare genuinely different "

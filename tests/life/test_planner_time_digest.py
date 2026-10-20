@@ -171,36 +171,3 @@ def test_split_memory_daemon_reads_project_creation_from_the_project(
     line = next(row for row in note.splitlines() if row.startswith("- time:"))
     assert "project started 48.0h ago" in line
 
-
-def test_finished_background_jobs_are_measured_separately(tmp_path: Path) -> None:
-    import json
-
-    project = tmp_path / "project"
-    project.mkdir()
-    supervisor = _supervisor(project, tmp_path / "life")
-    registry = project / ".argus_external_work"
-    registry.mkdir()
-    now = time.time()
-    for name, hours, outcome in (
-        ("a", 10.0, "completed"),
-        ("b", 14.0, "completed"),
-        ("c", 0.01, "failed: out of memory"),
-    ):
-        (registry / f"{name}.json").write_text(
-            json.dumps(
-                {
-                    "version": 1,
-                    "work_id": name,
-                    "state": "terminal",
-                    "outcome": outcome,
-                    "started_at": now - hours * 3600 - 60,
-                    "heartbeat_at": now - 60,
-                }
-            ),
-            encoding="utf-8",
-        )
-
-    note = supervisor._planner_current_reality_note()
-
-    line = next(row for row in note.splitlines() if row.startswith("- time:"))
-    assert "finished background jobs: median 12.0h over 2" in line

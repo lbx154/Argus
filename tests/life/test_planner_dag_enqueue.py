@@ -128,7 +128,7 @@ def test_commit_resolves_dependency_from_prior_planning_cycle(tmp_path: Path) ->
     assert persisted.deps == [implementation.id]
 
 
-def test_planner_dedup_index_includes_archived_completed_signature(
+def test_planner_dedup_index_leaves_completed_work_to_the_planner(
     tmp_path: Path,
 ) -> None:
     backlog = Backlog(tmp_path / "backlog.jsonl")
@@ -158,14 +158,10 @@ def test_planner_dedup_index_includes_archived_completed_signature(
         def _item_skips_stage_transition(_item):
             return False
 
-        @staticmethod
-        def _recent_no_progress_failures():
-            return {}
-
     state = _PlanCycleState(None)
     assert Harness()._pc_build_dedupe_index(state) is None
 
-    assert completed.id in {item.id for item in state.seen_signatures.values()}
+    assert completed.id not in {item.id for item in state.seen_signatures.values()}
 
 
 def test_planner_dedup_index_maps_active_planner_node_key(tmp_path: Path) -> None:
@@ -194,10 +190,6 @@ def test_planner_dedup_index_maps_active_planner_node_key(tmp_path: Path) -> Non
         @staticmethod
         def _item_skips_stage_transition(_item):
             return False
-
-        @staticmethod
-        def _recent_no_progress_failures():
-            return {}
 
     state = _PlanCycleState(None)
     Harness()._pc_build_dedupe_index(state)
@@ -250,79 +242,13 @@ def test_commit_resolves_dependency_from_existing_backlog_item_id(
     assert persisted.deps == [implementation.id]
 
 
-def test_commit_releases_dependency_on_durable_background_job(
-    monkeypatch: pytest.MonkeyPatch,
-    tmp_path: Path,
-) -> None:
-    """A planner dependency naming a durable background job must not poison
-    the verdict: the key is not a backlog dependency, so the task is enqueued
-    without it and the mission coordinates with the job directly through the
-    external-work protocol."""
-    from argus.engineer import external_work
-
-    backlog = Backlog(tmp_path / "backlog.jsonl")
-    events: list[dict[str, object]] = []
-
-    class Harness(PlanningCycleEnqueueMixin):
-        _planning_cycles = 3
-        _suggested_sleep_s = 0.0
-        memory = SimpleNamespace(backlog=backlog)
-
-        def _project_workdir(self) -> Path:
-            return tmp_path
-
-        def _emit(self, event: dict[str, object]) -> None:
-            events.append(event)
-
-        def _emit_status(self, _text: str) -> None:
-            return None
-
-        def _enter_idle_backoff(self) -> float:
-            raise AssertionError("a running durable job is not a planner error")
-
-    state = _PlanCycleState(None)
-    state.existing_items = backlog.all()
-    state.manager_intent = {}
-    adjudicate = BacklogItem.new(
-        title="Adjudicate the frozen confirmation results",
-        objective="Judge the finalized method set once confirmation lands.",
-        node_key="adjudicate-confirmation",
-    )
-    task = SimpleNamespace(
-        deps=["confirm-finalize-methodset-v2"],
-        impact_score=0,
-        impact_area="",
-    )
-    state.pending_items = [(task, adjudicate)]
-
-    monkeypatch.setattr(
-        external_work,
-        "inspect_external_work",
-        lambda _workdir, _key: SimpleNamespace(waitable=True),
-    )
-
-    harness = Harness()
-    assert harness._pc_commit_pending_items(state) is None
-    persisted = next(iter(backlog.all()))
-    assert persisted.title == "Adjudicate the frozen confirmation results"
-    assert persisted.deps == []
-    added = next(
-        event
-        for event in events
-        if event["type"] == EventType.LIFE_PLANNER_TASK_ADDED
-    )
-    assert added["external_work_deps"] == ["confirm-finalize-methodset-v2"]
-
-
 def test_commit_drops_unknown_dependency_keys_and_tells_the_planner(
     monkeypatch: pytest.MonkeyPatch,
     tmp_path: Path,
 ) -> None:
-    """A dependency key that is neither a backlog node nor a durable job is
-    dropped: the task is enqueued without it, an event records the dropped
+    """A dependency key that names no backlog node is dropped: the task is enqueued without it, an event records the dropped
     keys, and the next planner prompt carries the correction once. Rejecting
     the whole plan used to repeat the identical error for dozens of cycles."""
-    from argus.engineer import external_work
     from argus.life.supervisor._planning_context import (
         PlanningContextMixin,
     )
@@ -362,12 +288,6 @@ def test_commit_drops_unknown_dependency_keys_and_tells_the_planner(
         impact_area="",
     )
     state.pending_items = [(task, select)]
-
-    monkeypatch.setattr(
-        external_work,
-        "inspect_external_work",
-        lambda _workdir, _key: None,
-    )
 
     harness = Harness()
     assert harness._pc_commit_pending_items(state) is None
@@ -646,6 +566,7 @@ def test_all_filtered_tasks_persist_feedback_for_next_planner_cycle() -> None:
         new_tasks=[SimpleNamespace(title="Refresh paper review")],
         project_done=False,
         reason="the existing review is stale",
+        retire_tasks=[],
     )
     state.skipped_certification_reproposal_titles = ["Refresh paper review"]
     state.skipped_certification_reproposal_reasons = [
@@ -653,7 +574,7 @@ def test_all_filtered_tasks_persist_feedback_for_next_planner_cycle() -> None:
     ]
     state.skipped_task_feedback = [{
         "title": "Refresh paper review",
-        "category": "stage_closing_requires_intervening_repair",
+        "category": "paper_review_purchase_deferred",
         "reason": "manuscript is unfrozen; staleness is a planning fact",
     }]
 
@@ -662,12 +583,8 @@ def test_all_filtered_tasks_persist_feedback_for_next_planner_cycle() -> None:
         "stage": "analysis",
         "reason": (
             "Supervisor filtered every task in the previous Planner proposal:\n"
-            "- [stage_closing_requires_intervening_repair] Refresh paper review: "
-            "manuscript is unfrozen; staleness is a planning fact\n"
-            "Return a materially different executable plan that addresses these "
-            "reasons; do not repeat an unchanged filtered proposal. If nothing is "
-            "startable because pending tasks depend on in-flight work, return "
-            "waiting=true with a waiting contract naming that work and no new tasks."
+            "- [paper_review_purchase_deferred] Refresh paper review: "
+            "manuscript is unfrozen; staleness is a planning fact"
         ),
         "diagnostic": "planner_tasks_filtered",
     }]

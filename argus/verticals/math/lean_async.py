@@ -438,20 +438,8 @@ def _write_run(run_dir: Path, record: dict[str, Any]) -> None:
 def _launch_worker(run_dir: Path) -> int:
     """Start the compile in its own session so it outlives this process.
 
-    ``argus.tools.subagent._registry._launch_durable_command`` does the
-    same job and is better tested, and it is not reused here for three reasons
-    that are all about it being the *subagent* launcher rather than a generic
-    one: its exit sidecar goes to ``Path(".argus_subagents")``, a path relative
-    to the caller's working directory, so a ``reclaim`` run from a different
-    directory would look for it somewhere else; it runs its command through
-    ``bash -lc`` on a single string, which would put every path here through
-    shell quoting for no gain; and the records that make it observable live in
-    the directory ``scan_external_work`` reads, where a Lean compile would
-    surface in the Engineer's external-work advisory as a subagent needing
-    attention. A compile is not delegated work and has no supervisor to answer
-    for it. The one idea worth borrowing — a terminal record written by the
-    child itself, so the answer survives losing its owner — is what
-    ``outcome.json`` is.
+    The child writes its own terminal record, ``outcome.json``, so the answer
+    survives losing its owner.
     """
     package_root = Path(__file__).resolve().parents[3]
     env = os.environ.copy()

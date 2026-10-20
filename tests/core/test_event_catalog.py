@@ -150,20 +150,19 @@ def test_project_completion_events_are_typed_cross_component_signals() -> None:
     assert EventType.PROJECT_COMPLETION_REFUSED.value in SIGNAL_EVENT_TYPES
 
 
-def test_planner_wait_family_events_accept_cycle_zero_from_a_fresh_boot() -> None:
-    # A daemon that resumes a durable wait, or restores an already delivered
-    # terminal conclusion from the outbox, emits these before any planning
-    # cycle has run in the new process. There, cycle == 0 is the honest count
-    # of cycles completed so far -- the same convention life.planner.start
-    # already allows.
-    waiting = normalize_event_envelope({
-        "type": EventType.LIFE_PLANNER_WAITING,
+def test_planner_idle_family_events_accept_cycle_zero_from_a_fresh_boot() -> None:
+    # A daemon that skips an unchanged Planner turn, or restores an already
+    # delivered terminal conclusion from the outbox, emits these before any
+    # planning cycle has run in the new process. There, cycle == 0 is the
+    # honest count of cycles completed so far -- the same convention
+    # life.planner.start already allows.
+    idle = normalize_event_envelope({
+        "type": EventType.LIFE_PLANNER_IDLE,
         "cycle": 0,
-        "reason": "awaiting declared event",
+        "reason": "nothing the Planner reads has changed",
         "model_call_skipped": True,
-        "wait_mode": "event",
     })
-    assert "event_validation" not in waiting
+    assert "event_validation" not in idle
 
     terminal_idle = normalize_event_envelope({
         "type": EventType.LIFE_PLANNER_TERMINAL_IDLE,
@@ -176,7 +175,7 @@ def test_planner_wait_family_events_accept_cycle_zero_from_a_fresh_boot() -> Non
 
     # A negative cycle is still a defect, never a boot-time value.
     negative = validate_event_envelope({
-        "type": "life.planner.waiting",
+        "type": "life.planner.idle",
         "cycle": -1,
     })
     assert negative.valid is False
@@ -188,7 +187,8 @@ def test_unknown_vertical_events_remain_extensible_and_legacy_aliases_are_explic
     assert unknown.valid is True
     assert unknown.known is False
     assert canonical_event_type("mission.started") == "life.mission.started"
-    assert canonical_event_type("life.team.waiting") == "life.planner.waiting"
+    assert canonical_event_type("life.team.waiting") == "life.planner.idle"
+    assert canonical_event_type("life.planner.waiting") == "life.planner.idle"
     aliased = normalize_event_envelope({"type": "mission.started"})
     assert aliased["canonical_type"] == "life.mission.started"
 

@@ -33,7 +33,6 @@ from ..core.stop_kinds import (
 )
 from ..life.context_packet import render_mission_brief
 from ..life.memory import Backlog
-from .external_work import parse_external_wait_request, render_external_work_advisory
 from .reviewer_findings import (
     own_reviewer_thread,
     render_previous_findings,
@@ -75,32 +74,6 @@ def _no_reviewer_judgment(review: ReviewDecision) -> ReviewDecision:
         review,
         review_source="reviewer_unavailable",
         host_placeholder="reviewer_unavailable",
-    )
-
-
-def _background_launch_block(state: RoundLoopState, engineer_message: str) -> str:
-    """Tell the Reviewer it is judging a launch, not waiting on one.
-
-    The Engineer's account of such a round ends on the wait line it wrote for
-    the host. Shown without comment, the Reviewer took that line as the shape
-    of a reply and closed on it too, so no judgment was read (trial project
-    s-fb4716b7, task 4). Name what is under review and whose line that is.
-    """
-    if not state.pending_external_wait_review:
-        return ""
-    request = parse_external_wait_request(engineer_message)
-    work_id = request[1] if request else "the background run"
-    return (
-        "## This round sent work to the background\n"
-        f"The Engineer's account ends by asking the host to wait for `{work_id}`; "
-        "the host is already waiting. You are judging what was launched: the code "
-        "that will produce the result, its configuration, the launch itself, and "
-        "what the numbers will decide once they arrive. Give that judgment in the "
-        "native review action tool, with your explanation in ordinary prose. "
-        "Use defer_review if the judgment depends on the pending result. "
-        "The closing wait line is the Engineer's request to the host, not a judgment "
-        "or a template for your reply; do not repeat it and do not wait yourself. "
-        "The mission finishes only after the result is read, whatever you decide here."
     )
 
 
@@ -333,15 +306,6 @@ class RoundReviewerMixin:
         )
         from ..core.operator_context import operator_context_revision_from_text
 
-        external_work_context = ""
-        if supervised_config.background_subagent_advisory:
-            try:
-                external_work_context = render_external_work_advisory(
-                    workdir,
-                    include_subagents=True,
-                )
-            except Exception:  # noqa: BLE001 — advisory is non-critical context
-                log.debug("reviewer subagent advisory refresh failed", exc_info=True)
         reviewer_session = state.reviewer_session
         reviewer_resume_id = (
             reviewer_session.prepare(
@@ -400,10 +364,9 @@ class RoundReviewerMixin:
             rotation_block,
             *state.pending_secret_guard_notes,
             process_ownership_note,
-            _background_launch_block(state, engineer_message),
         )
         reviewer_background_context = "\n\n".join(
-            part for part in (*shared_context_parts, external_work_context) if part
+            part for part in shared_context_parts if part
         )
         from ..reviewer._core import _parallel_final_review_passes
 
@@ -434,18 +397,8 @@ class RoundReviewerMixin:
             if preliminary_review.backend_unavailable and enforcement == "blocking":
                 return preliminary_review
             # Specialist passes can take minutes. The integrated Reviewer must
-            # receive instructions and job states that changed during that work.
+            # receive instructions that changed during that work.
             operator_messages = _active_manager_directive_for_reviewer(supervised_config)
-            if supervised_config.background_subagent_advisory:
-                try:
-                    external_work_context = render_external_work_advisory(
-                        workdir, include_subagents=True,
-                    )
-                except Exception:  # noqa: BLE001 — retain the prior observation
-                    log.debug("post-pass external-work refresh failed", exc_info=True)
-            reviewer_background_context = "\n\n".join(
-                part for part in (*shared_context_parts, external_work_context) if part
-            )
             authority_note = (
                 "Shadow calibration only: these new semantic-loss and cold-read signals "
                 "cannot be the sole reason to rule that the work does not hold. "
@@ -510,9 +463,8 @@ class RoundReviewerMixin:
                     mission_grounding=_mission_grounding(supervised_config, state),
                 ),
                 prev_review_summary=_previous_review_summary(state),
-                # Host-gathered round evidence (e.g. a vertical's spec checks):
-                # facts the Reviewer weighs, rendered as raw evidence rather
-                # than as supervised-subagent chatter.
+                # Host-gathered round evidence (e.g. the research round log):
+                # facts the Reviewer weighs, rendered as raw evidence.
                 raw_evidence="\n\n".join(state.pending_round_evidence),
                 scope=scope,
                 checkpoint_path=str(checkpoint_path or ""),

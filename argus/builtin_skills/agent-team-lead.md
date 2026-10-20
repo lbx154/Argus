@@ -46,7 +46,7 @@ is not a way around the shared budget or a failed admission.
 Use `python -m argus.tools.team`.
 
 1. Write one JSON object per line in `tasks.jsonl`:
-   `{task_id, title, objective, acceptance_check, owns_paths, deps?, priority?, timeout_s?, target?, lower_is_better?, cwd?}`.
+   `{task_id, title, objective, acceptance_check, owns_paths, deps?, priority?, timeout_s?, target?, cwd?}`.
    Lower `priority` runs first. Prefix task IDs with the team ID. A task-specific `cwd` wins; otherwise the campaign `--cwd` is used. Set `cwd` only for a task that is its own project tree — a task working inside the campaign tree keeps the campaign `cwd` and takes its private directory through `owns_paths`, or it is cut off from the project state the campaign shares.
    Use `timeout_s` for work with a known finite duration; the Curator and teammate runner
    both enforce it, while omitted/zero retains the campaign default.
@@ -58,7 +58,7 @@ Use `python -m argus.tools.team`.
    limit the lead keeps one slot for its own reading, synthesis and review, so
    the pool can never take the whole limit; asking for more than the remainder
    grants the remainder.
-4. Inspect progress with `status --root <team_root>` and read landed `shards/*.jsonl` plus `leaderboard.json`.
+4. Inspect progress with `status --root <team_root>` and read landed `shards/*.jsonl`.
 5. A task waiting on a real operator-owned decision is `blocked`, retains its owner and question, and is not retried. After the operator answers, run `resume --root <team_root> --task-id <task_id> --answer "<answer>"` to requeue it with that answer.
 6. Refresh or extend the backlog with `form`. Re-forming claimed, running, or blocked work preserves its lifecycle state; re-forming a done or failed task deliberately reopens it.
 7. Once the required results are ready, set `pool-set --state draining`, read
@@ -72,7 +72,7 @@ Use `python -m argus.tools.team`.
    cleanup does not block review. Reviewer validates the durable project
    files and does not need a live Team runtime.
 
-The lead never manually spawns, claims, waits for, reassigns, or kills teammates. Those are Curator responsibilities.
+The lead never manually spawns, claims, reassigns, or kills teammates. Those are Curator responsibilities. It waits for their results in its own turn: between status checks it blocks with `sleep 590`, never short polls.
 
 ## Task-objective contract
 Every task must state:
@@ -83,12 +83,12 @@ Every task must state:
 - the real measurement or verification command;
 - anti-fraud and resource constraints relevant to the task.
 
-A teammate runs one normal Engineer→Reviewer mission and exits. The Curator then refills the freed slot; a teammate does not claim a second task itself. Fresh teammates receive the deterministic leaderboard block when available.
+A teammate runs one normal Engineer→Reviewer mission and exits. The Curator then refills the freed slot; a teammate does not claim a second task itself.
 
 ## Result and synthesis rules
 
-- Teammates emit task-local outputs and one shard; they never write the shared leaderboard or the lead's canonical merged result.
-- The Curator is the single writer for pool lifecycle and deterministic leaderboard folding.
+- Teammates emit task-local outputs and one shard; they never write the lead's canonical merged result.
+- The Curator is the single writer for pool lifecycle.
 - The lead accepts measured, task-valid results only and is the single writer of the canonical synthesis.
 - Every teammate result passes its own Reviewer; the final synthesis still passes the mission Reviewer.
 
@@ -98,5 +98,5 @@ A teammate runs one normal Engineer→Reviewer mission and exits. The Curator th
 - Overlapping writable paths or sharing one mutable output file.
 - Treating `owns_paths` as mechanically enforced isolation.
 - Manually launching teammate processes beside the Curator.
-- Ranking an unverified number or treating a failed shard as a valid best result.
+- Treating a failed shard as a valid result.
 - Letting coordination bookkeeping replace the requested engineering work.

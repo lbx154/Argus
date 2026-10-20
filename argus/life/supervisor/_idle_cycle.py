@@ -29,7 +29,6 @@ log = logging.getLogger(__name__)
 _CANARY_IN_FLIGHT_STATUSES = frozenset({
     "pending",
     "running",
-    "paused_external_work",
     "paused_provider_cooldown",
     "paused_daemon_shutdown",
     "paused_budget",
@@ -784,9 +783,8 @@ class IdleCycleMixin:
         """Open operator questions when they are the only thing left, else ``None``.
 
         True of a backlog whose live items are all parked on an operator answer
-        (``paused_operator``), or pending behind such an item, with nothing
-        running, claimable, or waiting on a background job. With an empty
-        backlog it is true of a Planner wait that only the operator can end.
+        (``paused_operator``) -- the Planner's own question included -- or
+        pending behind such an item, with nothing running or claimable.
         An unreadable backlog is not evidence of anything, so it answers
         ``None``.
         """
@@ -808,25 +806,12 @@ class IdleCycleMixin:
                 ):
                     blocked.add(item.id)
                     grew = True
-        if any(item.id not in blocked for item in others):
+        if any(item.id not in blocked for item in others) or not parked:
             return None
-        if parked:
-            return [
-                str(getattr(item, "pending_question", "") or item.title or "").strip()
-                for item in parked
-            ]
-        loader = getattr(self, "_load_planner_waiting_contract_state", None)
-        try:
-            contract = loader() if callable(loader) else None
-        except Exception:  # noqa: BLE001 - an unreadable wait is not a wait
-            contract = None
-        if (
-            isinstance(contract, dict)
-            and contract.get("active")
-            and contract.get("operator_action_required")
-        ):
-            return [str(contract.get("recheck_condition") or "").strip()]
-        return None
+        return [
+            str(getattr(item, "pending_question", "") or item.title or "").strip()
+            for item in parked
+        ]
 
     def _maybe_idle_timeout(self) -> str:
         """``"idle_timeout"`` once a continuous daemon has been idle too long.

@@ -87,9 +87,9 @@ _SENTENCES: dict[str, tuple[str, str]] = {
         "The task is complete and its result has been delivered.",
         "任务已完成，结果已交付。",
     ),
-    "planner_waiting": (
-        "Waiting for work outside Argus to finish before planning further",
-        "等待 Argus 之外的工作完成后再继续规划",
+    "planner_no_new_work": (
+        "No new work to start until someone hands the Planner something new.",
+        "暂时没有新的工作要开始，等有新情况交给规划者时再规划。",
     ),
     "planner_idle": (
         "Nothing is left to plan for now.",

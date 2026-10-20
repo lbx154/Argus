@@ -121,43 +121,12 @@ and shared preparation must succeed. A readiness pass is not a scientific
 result. Keep dependencies inside an existing script or Make target where
 possible, and propagate failures instead of launching their dependents.
 
-Non-authorization event waits also watch the current planning stage. When an
-accepted review moves that stage, the Planner wakes even if its watched job
-has already finished. A failed wake-state write is reported and retried before
-planning; it cannot consume the transition. A HOLD without a stage change does
-not wake the wait. Operator-action and authorization waits still require their
-declared input; a stage change does not grant permission or rerun a job.
-
-When preparation is already a background job, a dependent submission can bind
-its successful receipt:
-
-```bash
-python -m argus.tools.subagent submit --task-id experiment \
-  --command "python run_experiment.py" --depends-on preparation
-```
-
-Replace the command and prerequisite with those of your project. The
-prerequisite must already be `done` with an actual exit code of zero in the
-same project's task registry. Missing, running, or failed prerequisites cause
-submission to return exit code 1 with `state: blocked`; no dependent job is
-created. This is not a queue that starts automatically when preparation
-finishes. The worker checks the recorded prerequisite `run_id` again before
-execution, including after resource admission. A replaced prerequisite is
-rejected. The final check and launch share the submission admission lock;
-subsequent reruns do not cancel an already-started dependent.
-`--no-preflight` cannot disable this dependency check.
-
-Resubmitting the same task with the same command requires
-`--rerun-reason "what changed, or why an independent replay is necessary"`.
-The new receipt and report retain that explanation and the previous
-`run_id`. A changed command is recorded as such without another explanation.
-Neither a reason string nor a different task name proves that the inputs
-changed. Reuse accepted evidence whose inputs are unchanged, and preserve
-failed attempts instead of overwriting them.
-
-Argus keeps its job logs and receipts per run; arbitrary output files written
-by your command still need separate attempt directories. The runtime does not
-infer hidden dependencies inside scripts or certify their numerical results.
+Long jobs are started detached and waited for inside the Engineer's own turn
+with the backend's blocking commands. Run a dependent job only after its
+preparation has exited with code zero, and keep each attempt's outputs in its
+own directory. Reuse accepted evidence whose inputs are unchanged, and preserve
+failed attempts instead of overwriting them. The runtime does not infer hidden
+dependencies inside scripts or certify their numerical results.
 Engineer and Reviewer share the distinction between readiness and validation;
 producer-written logs cannot replace an independent checker or external
 observation required by the acceptance contract.
@@ -275,7 +244,7 @@ a file you can attach to a report.
 | `ARGUS_SKILL_<ROLE>_BACKEND` | inherits | `ENGINEER`, `REVIEWER`, `PLANNER`, `MANAGER`, `SUPERVISOR` |
 | `ARGUS_SKILL_MODEL` | `auto` | a bare model id (`gpt-5.6-sol`, `copilot/opus-5`); free text reaches the CLI verbatim and every call then fails |
 | `ARGUS_SKILL_<ROLE>_MODEL` | `auto` | `ENGINEER`, `REVIEWER`, `PLAN`, `MANAGER`, `SUPERVISOR` |
-| `ARGUS_SKILL_FRONTDOOR_MODEL` | `auto` | the cheap classifier that reads every message (`gpt-5.4-mini` on Copilot) |
+| `ARGUS_SKILL_FRONTDOOR_MODEL` | `auto` | the classifier that reads every message (`gpt-6.1-sol` on Copilot) |
 | `ARGUS_SKILL_<ROLE>_REASONING_EFFORT` | Engineer `xhigh`, others `high`, Supervisor `low` | `low`, `medium`, `high`, `xhigh`, `max` |
 | `ARGUS_SKILL_PI_PROVIDER` / `ARGUS_SKILL_OPENCODE_PROVIDER` | unset | provider prefix for bare model ids on those two backends; on OpenCode the model is dropped without it |
 

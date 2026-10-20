@@ -38,16 +38,6 @@ def test_continuation_keyed_by_origin_id_is_excluded(tmp_path: Path) -> None:
     assert backlog.claim_next(owner="worker-2") is None
 
 
-def test_paused_external_origin_still_holds_the_claim(tmp_path: Path) -> None:
-    backlog = _backlog(tmp_path)
-    origin = backlog.add(BacklogItem.new(title="a", objective="o", node_key="eval"))
-    backlog.claim_next(owner="primary")
-    backlog.update(origin.id, status="paused_external_work")
-    backlog.add(BacklogItem.new(title="a", objective="o", node_key="eval"))
-
-    assert backlog.claim_next(owner="worker-2") is None
-
-
 def test_unrelated_and_settled_items_remain_claimable(tmp_path: Path) -> None:
     backlog = _backlog(tmp_path)
     origin = backlog.add(BacklogItem.new(title="a", objective="o", node_key="train"))

@@ -41,7 +41,7 @@ def build_observer_prompt(
         "- turns: `agent.io.start` and `agent.io.complete` begin and end a model call, whose "
         "`run_label` names the role; `role.session.turn` ends a turn, with `duration_ms`;\n"
         "- cost: `usage.recorded`, with `run_label` and `cost_usd`;\n"
-        "- planning: `life.planner.start`, `life.planner.waiting`, `life.planner.verdict`.\n\n"
+        "- planning: `life.planner.start`, and `life.planner.verdict` with what it decided.\n\n"
         "## Reply\n"
         "When the flow is fine, say so in a few words and write no arrow line.\n"
         "When it is off, write one line for the Manager, who decides what to do:\n"

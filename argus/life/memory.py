@@ -468,7 +468,7 @@ class EventJournal:
         EventType.LIFE_MISSION_COMPLETED,
         EventType.LIFE_PLANNER_VERDICT,
         EventType.LIFE_PLANNER_ERROR,
-        EventType.LIFE_PLANNER_WAITING,
+        EventType.LIFE_PLANNER_IDLE,
         EventType.LIFE_BUDGET_PAUSE,
         EventType.LIFE_LIFECYCLE_BLOCK,
         "user.note",
@@ -558,7 +558,7 @@ class EventJournal:
                 ),
                 EventType.LIFE_PLANNER_VERDICT: "planner_cycle",
                 EventType.LIFE_PLANNER_ERROR: "planner_error",
-                EventType.LIFE_PLANNER_WAITING: "planner_waiting",
+                EventType.LIFE_PLANNER_IDLE: "planner_idle",
                 EventType.LIFE_BUDGET_PAUSE: "budget_pause",
                 EventType.LIFE_LIFECYCLE_BLOCK: "lifecycle_block",
                 "user.note": "user_note",
@@ -667,15 +667,11 @@ class EventJournal:
     ) -> list[JournalEntry]:
         """Last ``n`` mission-settlement entries across the whole journal.
 
-        Only ``life.mission.completed`` events occupy window slots: the
-        planner failure quarantine reasons over mission settlements, and its
-        lookback must not shrink because journal-level chatter (planner
+        Only ``life.mission.completed`` events occupy window slots, so the
+        lookback does not shrink because journal-level chatter (planner
         cycles, waiting heartbeats) landed in between. When ``kinds`` is
         given, only settlements whose projected :class:`JournalEntry` ``kind``
-        is in it occupy window slots — the failure quarantine passes exactly
-        its quarantine-or-release kinds so neutral settlements (budget or
-        provider pauses, iteration requeues) cannot evict an older failure
-        out of a threshold-sized window. Spans every retained rollover
+        is in it occupy window slots. Spans every retained rollover
         generation and covers both the canonical spelling and the legacy
         ``mission.completed`` alias.
         """
@@ -702,60 +698,6 @@ class EventJournal:
             predicate=_is_settlement,
             raw_markers=self._SETTLEMENT_RAW_MARKERS,
             rg_pattern=self._SETTLEMENT_RG_PATTERN,
-        )
-        return [
-            entry for row in events
-            if (entry := self._entry_from_event(row)) is not None
-        ]
-
-    def tail_for_item(
-        self,
-        item_id: str,
-        n: int,
-        *,
-        kinds: Iterable[str] | None = None,
-    ) -> list[JournalEntry]:
-        """Last ``n`` mission-settlement entries journaled for one backlog item.
-
-        Only ``life.mission.completed`` events count: those are the entries the
-        replan-streak guard reasons about, and a per-item tail must not shrink
-        just because unrelated journal-level traffic (planner cycles, parallel
-        missions) landed in between. When ``kinds`` is given, only settlements
-        whose projected :class:`JournalEntry` ``kind`` is in it occupy window
-        slots — the replan-streak guard passes exactly its count-or-break kinds
-        so neutral settlements (budget/provider/research pauses) cannot evict
-        an older replan out of a threshold-sized window. Spans every retained
-        rollover generation.
-        """
-        item_id = str(item_id or "")
-        if n <= 0 or not item_id:
-            return []
-        raw_marker = item_id.encode("utf-8")
-        wanted = None if kinds is None else frozenset(kinds)
-
-        def _is_item_settlement(row: dict[str, Any]) -> bool:
-            etype = canonical_event_type(
-                row.get("canonical_type") or row.get("type")
-            )
-            if etype != EventType.LIFE_MISSION_COMPLETED:
-                return False
-            if str(row.get("item_id") or row.get("id") or "") != item_id:
-                return False
-            if wanted is None:
-                return True
-            # Derive the same kind projection the returned entries carry, so
-            # the filter and the caller reason about identical labels.
-            entry = self._entry_from_event(row)
-            return entry is not None and entry.kind in wanted
-
-        events = _read_jsonl_tail_history(
-            self.path,
-            n,
-            predicate=_is_item_settlement,
-            raw_predicate=lambda raw: raw_marker in raw,
-            # Item ids are plain uuid hex (``BacklogItem.new_id``), so the id
-            # itself is a regex-safe ripgrep pattern for sparse per-item rows.
-            rg_pattern=item_id,
         )
         return [
             entry for row in events
@@ -822,11 +764,8 @@ def park_reason(item: Any) -> str | None:
 
 
 def _holds_resources(item: Any) -> bool:
-    """Running work, and a park that keeps its reservations, holds GPUs and paths."""
-    if getattr(item, "status", "") == "running":
-        return True
-    reason = park_reason(item)
-    return reason is not None and park_rule(reason).holds_resources
+    """Running work holds its GPUs and paths; parked work holds nothing."""
+    return getattr(item, "status", "") == "running"
 
 
 def planner_may_retire_park(item: Any) -> bool:
@@ -926,7 +865,7 @@ def _gpu_cards() -> tuple[tuple[int, bool], ...] | None:
 
 
 def gpu_reservation(items: Iterable[Any]) -> int:
-    """GPUs held by running tasks and by tasks parked on their own jobs."""
+    """GPUs held by running tasks."""
     return sum(
         max(0, int(getattr(item, "gpu_count", 0) or 0))
         for item in items
@@ -983,7 +922,7 @@ def task_cpu_count(item: Any, usable: int) -> int:
 
 
 def cpu_reservation(items: Iterable[Any], usable: int) -> int:
-    """Cores declared by running tasks and by tasks parked on their own jobs."""
+    """Cores declared by running tasks."""
     return sum(
         task_cpu_count(item, usable)
         for item in items
@@ -1098,10 +1037,6 @@ class BacklogItem:
     plan_version: int = 0
     node_key: str = ""
     context_refs: list[dict[str, str]] = field(default_factory=list)
-    # Stable Planner-authored identity for a known blocker. It deliberately
-    # excludes display prose so terminal blockers cannot be retried by renaming
-    # the task.
-    blocker_fingerprint: str = ""
     # Canonical Planner→Engineer handoff fields. ``objective`` says what to do;
     # these fields bound completion and prevent a fresh session from reopening
     # unrelated project history.
@@ -1113,8 +1048,6 @@ class BacklogItem:
     non_goals: list[str] = field(default_factory=list)
     superseded_by_plan_id: str = ""
     superseded_reason: str = ""
-    # Persisted so daemon restarts cannot reset a filtered-replan livelock.
-    replan_rejections: int = 0
     # Consecutive provider-cooldown pauses of this item whose stop reason
     # normalized to the same signature. Persisted so daemon restarts cannot
     # reset the count; at the limit a model-configuration failure is treated
@@ -1125,12 +1058,6 @@ class BacklogItem:
     # When the current run of provider-cooldown pauses without progress began;
     # auto-resume stops after the automatic-retry window.
     provider_cooldown_since: float = 0.0
-    # Persisted so a configurable convergence threshold is not bounded by the
-    # finite journal tail used only to migrate older backlog rows.
-    consecutive_replans: int = 0
-    # Distinguishes an authoritative zero after forward progress from a legacy
-    # row whose pre-upgrade streak still needs reconstruction from the journal.
-    replan_streak_tracked: bool = False
     authorization_id: str = ""
     authorization_action: str = ""
     # Optional execution root. Framework maintenance may use an isolated
@@ -1180,7 +1107,6 @@ class BacklogItem:
         plan_version: int = 0,
         node_key: str = "",
         context_refs: list[dict[str, str]] | None = None,
-        blocker_fingerprint: str = "",
         authorization_id: str = "",
         authorization_action: str = "",
         execution_workdir: str = "",
@@ -1220,7 +1146,6 @@ class BacklogItem:
                 for ref in (context_refs or [])
                 if isinstance(ref, dict)
             ],
-            blocker_fingerprint=str(blocker_fingerprint or "").strip(),
             authorization_id=str(authorization_id),
             authorization_action=str(authorization_action),
             execution_workdir=str(execution_workdir),
@@ -1302,7 +1227,6 @@ class BacklogItem:
                 for ref in (row.get("context_refs", []) or [])
                 if isinstance(ref, dict)
             ],
-            blocker_fingerprint=str(row.get("blocker_fingerprint", "")),
             acceptance_check=str(row.get("acceptance_check", "")),
             plan_hypothesis=str(row.get("plan_hypothesis", "")),
             goal_contribution=str(row.get("goal_contribution", "")),
@@ -1315,7 +1239,6 @@ class BacklogItem:
             ],
             superseded_by_plan_id=str(row.get("superseded_by_plan_id", "")),
             superseded_reason=str(row.get("superseded_reason", "")),
-            replan_rejections=max(0, int(row.get("replan_rejections", 0) or 0)),
             provider_cooldown_streak=max(
                 0,
                 int(row.get("provider_cooldown_streak", 0) or 0),
@@ -1327,11 +1250,6 @@ class BacklogItem:
                 0.0,
                 float(row.get("provider_cooldown_since", 0.0) or 0.0),
             ),
-            consecutive_replans=max(
-                0,
-                int(row.get("consecutive_replans", 0) or 0),
-            ),
-            replan_streak_tracked=bool(row.get("replan_streak_tracked", False)),
             authorization_id=str(row.get("authorization_id", "")),
             authorization_action=str(row.get("authorization_action", "")),
             execution_workdir=str(row.get("execution_workdir", "")),
@@ -1728,8 +1646,7 @@ class Backlog:
 
         A continuation that keeps the origin's ``node_key``, or uses the
         origin's id as its node key, is the same unit of campaign work. While
-        any such row is running or parked on external work, a second worker
-        must not start it in parallel; it becomes claimable once the active
+        any such row is running, a second worker must not start it in parallel; it becomes claimable once the active
         row settles. (Same-origin claim exclusion from #133.)
         """
         aliases = {candidate.id, str(candidate.node_key or "").strip()} - {""}
@@ -1795,16 +1712,11 @@ class Backlog:
         if tags & forbidden:
             return False
         running = [item for item in items if item.status == "running"]
-        parked = [
-            item for item in items if item.status != "running" and _holds_resources(item)
-        ]
         if any(not item.parallel_safe or not item.owns_paths for item in running):
-            return False
-        if any(not item.owns_paths for item in parked):
             return False
         return not any(
             cls._paths_overlap(candidate_path, active_path)
-            for item in (*running, *parked)
+            for item in running
             for candidate_path in candidate.owns_paths
             for active_path in item.owns_paths
         )
@@ -2007,9 +1919,6 @@ class Backlog:
             duplicate = next((item_id for item_id in ids if item_id in existing), None)
             if duplicate is not None:
                 raise ValueError(f"backlog item already exists: {duplicate}")
-            for item in batch:
-                # Same as add(): new rows never need journal migration.
-                item.replan_streak_tracked = True
             items.extend(batch)
             self._validate_no_dependency_cycles(items)
             self._save(items)
@@ -2230,11 +2139,6 @@ class Backlog:
                 archived.superseded_reason = reason
                 terminal_updates.append(archived)
             items.extend(terminal_updates)
-            for item in replacements:
-                # Same as Backlog.add(): a freshly inserted replacement row has
-                # no journal history to migrate, so its zero replan streak is
-                # authoritative and the first settlement skips the journal scan.
-                item.replan_streak_tracked = True
             items.extend(replacements)
             self._save(items)
 
@@ -2632,10 +2536,6 @@ class Backlog:
                 # Append the resolved terminal revision; history() selects the
                 # latest row for this stable id.
                 items.append(blocked)
-            # Same as Backlog.add(): the continuation is a brand-new row with
-            # no journal history, so its zero replan streak is authoritative
-            # and the first settlement skips the journal migration scan.
-            continuation.replan_streak_tracked = True
             items.append(continuation)
             self._validate_no_dependency_cycles(items)
             self._save(items)
@@ -2768,8 +2668,6 @@ class Backlog:
             holder.last_error = source.last_error
             holder.pending_question = question
             holder.operator_decision = dict(operator_decision)
-            # Same as Backlog.add(): a brand-new row has no journal history.
-            holder.replan_streak_tracked = True
             for row in items if source.status != "done" else ():
                 if row.status in _TERMINAL_STATUSES or source.id not in row.deps:
                     continue
@@ -2928,11 +2826,6 @@ class Backlog:
                     it.started_ts = None
                     it.finished_ts = None
                     it.last_error = ""
-                    # An accepted cycle re-armed the item, which the settlement
-                    # journals as mission_iterated — forward progress, so the
-                    # replan streak restarts from an authoritative zero.
-                    it.consecutive_replans = 0
-                    it.replan_streak_tracked = True
                     out = it
                     break
             if out is not None:

@@ -34,8 +34,8 @@ Artifacts:
   rather than inapplicable reward/advantage fields.
 
 A ``scale=full`` training launch must declare the curriculum it consumes and
-cite a valid packet; the :mod:`argus.tools.subagent` pre-launch interlock
-refuses applicable launches otherwise (see :func:`check_full_run_launch`).
+cite a valid packet; ``check-launch`` refuses applicable launches otherwise
+(see :func:`check_full_run_launch`).
 
 CLI::
 
@@ -723,7 +723,7 @@ def _validate_supervised_packet(
 
 
 # ---------------------------------------------------------------------------
-# Launch interlock (called by argus.tools.subagent)
+# Launch interlock (the ``check-launch`` command)
 # ---------------------------------------------------------------------------
 
 

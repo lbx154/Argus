@@ -39,16 +39,6 @@ def _authorization_workdir(
     return _operator_workspace(chat_state, life_dir)
 
 
-def _project_paths_overlap(left: object, right: object) -> bool:
-    left_path = Path(str(left or "").strip().replace("\\", "/"))
-    right_path = Path(str(right or "").strip().replace("\\", "/"))
-    return bool(
-        left_path == right_path
-        or left_path in right_path.parents
-        or right_path in left_path.parents
-    )
-
-
 @contextmanager
 def _manager_request_scope(sid: str, generation: int | None = None) -> Iterator[Callable[[], bool]]:
     from ..core.run_gateway import run_interrupt_scope
@@ -917,8 +907,8 @@ def _handle_authorization_control(
     turn_id: str,
     emitter: _TurnEmitter,
 ) -> dict[str, Any]:
-    """Record (or reject) an operator authorization against the current
-    campaign blocker. Always terminal — the merged classify call already
+    """Record (or reject) an operator authorization against the latest
+    Reviewer finding. Always terminal — the merged classify call already
     decided this turn is an authorization, so there is no fall-through to
     triage/dispatch after this.
     """
@@ -931,18 +921,15 @@ def _handle_authorization_control(
         )
         head = control_store.read_head()
         snapshot = control_store.read_snapshot(head)
-        active_wait = snapshot.get("active_wait") if snapshot else None
-        if head is None or not isinstance(active_wait, dict):
-            raise ValueError(
-                "no current Manager-bound blocker is awaiting authorization"
-            )
-        terminal_evidence = list(snapshot.get("terminal_evidence") or [])
+        terminal_evidence = list((snapshot or {}).get("terminal_evidence") or [])
         diagnosis = (
             terminal_evidence[-1]
             if terminal_evidence
             and isinstance(terminal_evidence[-1], dict)
             else {}
         )
+        if head is None or not diagnosis:
+            raise ValueError("no current Reviewer finding is awaiting authorization")
         validator_repair = "validator_repair" in authorization_actions
         if (
             validator_repair
@@ -953,14 +940,6 @@ def _handle_authorization_control(
             )
         repair_paths = list(diagnosis.get("repair_paths") or [])
         validator_id = str(diagnosis.get("validator_id") or "")
-        watched_paths = [
-            str(value)
-            for value in (active_wait.get("watched_paths") or [])
-            if not any(
-                _project_paths_overlap(value, repair_path)
-                for repair_path in repair_paths
-            )
-        ]
         identity = control_store.campaign_identity(
             campaign_epoch=head.campaign_epoch,
         )
@@ -971,14 +950,13 @@ def _handle_authorization_control(
             raise ValueError("active campaign identity changed")
         authorization = control_store.issue_authorization(
             identity=identity,
-            blocker_fingerprint=str(
-                active_wait.get("blocker_fingerprint") or ""
+            blocker_fingerprint=(
+                validator_id or str(diagnosis.get("failure_source") or "review")
             ),
             allowed_actions=authorization_actions,
             scope="active_blocker",
             allowed_write_paths=repair_paths,
-            evidence_paths=watched_paths,
-            forbidden_mutations=watched_paths,
+            evidence_paths=(),
             source_channel=source_channel,
             source_message_id=source_message_id or turn_id,
             validator_id=validator_id,
@@ -986,7 +964,6 @@ def _handle_authorization_control(
                 1 if validator_repair else 0
             ),
             expected_state_revision=head.state_revision,
-            expected_wait_id=str(active_wait.get("wait_id") or ""),
         )
         reply = (
             "Authorization saved for the current blocker. "

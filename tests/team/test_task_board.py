@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 import json
-import time
 from pathlib import Path
 
 import pytest
@@ -84,75 +83,24 @@ def test_retry_terminal_returns_task_to_pending(
     assert tb.retry_terminal(tmp_path, "a") is False
 
 
-def test_external_wait_is_durable_unclaimable_and_resumes_once(tmp_path: Path) -> None:
+def test_an_old_external_wait_reads_as_runnable_again(tmp_path: Path) -> None:
+    """An older runtime parked a task on a background job it watched; a
+    teammate now waits in its own turn, so the old record is simply pending."""
     _form(tmp_path)
     tb.claim_top(tmp_path, "tm-1", now=1.0)
-    registry = tmp_path / ".argus_external_work"
-    registry.mkdir()
-    record = registry / "job-1.json"
-    record.write_text(
-        json.dumps({
-            "version": 1,
-            "work_id": "job-1",
-            "state": "running_healthy",
-            "heartbeat_at": time.time(),
-            "stale_after_seconds": 60,
-        }),
-        encoding="utf-8",
-    )
-
-    tb.wait_for_external_work(
-        tmp_path,
-        "a",
-        kind="external_work",
-        work_id="job-1",
-        workdir=str(tmp_path),
-        reason="still running",
+    path = tb._path(tmp_path, "a")
+    record = json.loads(path.read_text(encoding="utf-8"))
+    record.update(
+        state="waiting_external",
+        external_wait={"kind": "subagent", "work_id": "worker-1"},
         last_thread_id="thread-1",
     )
-    waiting = {task["task_id"]: task for task in tb.snapshot(tmp_path)}["a"]
-    assert waiting["state"] == "waiting_external"
-    assert waiting["last_thread_id"] == "thread-1"
-    assert tb.count_in_flight(tmp_path) == 0
-    assert tb.claim_top(tmp_path, "tm-2", now=2.0) is None
-    assert tb.resume_finished_external_waits(
-        tmp_path,
-        default_workdir=tmp_path,
-    ) == []
-
-    payload = json.loads(record.read_text(encoding="utf-8"))
-    payload["state"] = "terminal"
-    record.write_text(json.dumps(payload), encoding="utf-8")
-    assert tb.resume_finished_external_waits(
-        tmp_path,
-        default_workdir=tmp_path,
-    ) == ["a"]
-    assert tb.resume_finished_external_waits(
-        tmp_path,
-        default_workdir=tmp_path,
-    ) == []
-    resumed = {task["task_id"]: task for task in tb.snapshot(tmp_path)}["a"]
-    assert resumed["state"] == "pending"
-    assert resumed["external_wait"]["resume_state"] == "terminal"
-    assert tb.claim_top(tmp_path, "tm-2", now=3.0)["task_id"] == "a"
-
-
-def test_reform_preserves_external_wait(tmp_path: Path) -> None:
-    _form(tmp_path)
-    tb.claim_top(tmp_path, "tm-1", now=1.0)
-    tb.wait_for_external_work(
-        tmp_path,
-        "a",
-        kind="subagent",
-        work_id="worker-1",
-        workdir=str(tmp_path),
-    )
-
-    _form(tmp_path)
+    path.write_text(json.dumps(record), encoding="utf-8")
 
     task = {row["task_id"]: row for row in tb.snapshot(tmp_path)}["a"]
-    assert task["state"] == "waiting_external"
-    assert task["external_wait"]["work_id"] == "worker-1"
+    assert task["state"] == "pending"
+    assert task["last_thread_id"] == "thread-1"
+    assert tb.claim_top(tmp_path, "tm-2", now=2.0)["task_id"] == "a"
 
 
 @pytest.mark.parametrize("task_id", ["", ".", "..", "../escape", "nested/task", r"nested\task"])

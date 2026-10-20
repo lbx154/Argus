@@ -80,13 +80,15 @@ def _authorized_repair(tmp_path):  # noqa: ANN001
     validator.write_text("def test_contract(): assert False\n", encoding="utf-8")
     store = CampaignControlStore(life, project_root=workdir)
     identity = store.campaign_identity()
-    store.clear_wait_for_new_evidence(
+    store.commit_revision(
         identity=identity,
-        terminal_evidence=[{
-            "failure_source": "validator_defect",
-            "validator_id": "terminal-contract",
-            "repair_paths": ["tests/test_terminal_contract.py"],
-        }],
+        updates={
+            "terminal_evidence": [{
+                "failure_source": "validator_defect",
+                "validator_id": "terminal-contract",
+                "repair_paths": ["tests/test_terminal_contract.py"],
+            }],
+        },
         reason="Reviewer diagnosed validator defect",
     )
     authorization = store.issue_authorization(

@@ -212,20 +212,16 @@ export interface KnowledgeFeed {
   events: KnowledgeEvent[];
 }
 
-/** Status the host derived for one method component from the spec tests carrying its marker. */
-export type ResearchMethodComponentStatus = 'proven' | 'contradicted' | 'partial' | 'untested' | 'unchecked';
-/** One spec test joined to a component through its marker; outcome is null until the host has run it. */
+/** One spec test joined to a component through its marker. */
 export interface ResearchMethodTest {
   id: string;
   kind: string;
-  outcome: string | null;
 }
-/** One component of the hand-written card; component/prescribes/notes are the agent's text, status/tests are derived. */
+/** One component of the hand-written card; component/prescribes/notes are the agent's text, tests are derived. */
 export interface ResearchMethodComponent {
   component: string;
   prescribes: string;
   notes: string;
-  status: ResearchMethodComponentStatus;
   tests: ResearchMethodTest[];
 }
 /** A third_party/ clone or installed package the project's own code imports, found by the host's import scan. */
@@ -252,13 +248,6 @@ export interface ResearchMethodChange {
   summary: string;
   files: string[];
 }
-/** The latest host-run check round joined into the card. */
-export interface ResearchMethodChecks {
-  round_index: number;
-  ran_at: number;
-  exit_code: number | null;
-  counts: Record<string, number>;
-}
 /**
  * A research project's method card: the hand-written METHOD.md plus what the
  * host derived from code, tests, config files and git at zero model cost.
@@ -283,7 +272,6 @@ export type ResearchMethod =
     reused_code: ResearchMethodReusedCode[];
     hyperparameters: ResearchMethodHyperparameter[];
     change_log: ResearchMethodChange[];
-    checks: ResearchMethodChecks | null;
   };
 
 export interface JournalEntry {

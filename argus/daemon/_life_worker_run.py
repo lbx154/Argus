@@ -74,30 +74,6 @@ def _backlog_fingerprint(supervisor: Any) -> tuple | None:
             continue
         marks.append((stat.st_ino, stat.st_mtime_ns, stat.st_size))
     return tuple(marks)
-_SUBAGENT_INFLIGHT_STATES = frozenset({
-    "discussing",
-    "preflight",
-    "running",
-    "starting",
-    "waiting_resource",
-})
-# Every state a subagent writer settles on. ``early_stopped`` (the parked
-# discussion's exit, tools/subagent/_discuss_run.py) and ``crashed`` (the
-# exit-sidecar reconciler, tools/subagent/_registry.py) were missing, so a
-# parent whose job ended that way failed as "unknown state" instead of being
-# requeued; ``early_stop`` stays for records an older release wrote.
-_SUBAGENT_TERMINAL_STATES = frozenset({
-    "cancelled",
-    "canceled",
-    "crashed",
-    "done",
-    "early_stop",
-    "early_stopped",
-    "error",
-    "failed",
-    "stopped",
-    "timeout",
-})
 
 
 def _maybe_consolidate(rf_state: Any, config: Any) -> None:
@@ -158,47 +134,6 @@ class LifeWorkerRunMixin:
     config: Any
 
     @staticmethod
-    def _owned_subagents(
-        rf_state: _RunForeverState,
-        mission_id: str,
-    ) -> list[tuple[float, str, str]]:
-        def timestamp(value: object) -> float:
-            try:
-                return float(value or 0.0)
-            except (TypeError, ValueError):
-                return 0.0
-
-        workdir = getattr(getattr(rf_state, "cfg", None), "project_workdir", None)
-        if not workdir:
-            return None
-        registry = Path(workdir) / ".argus_subagents"
-        if not registry.is_dir():
-            return None
-        owned: list[tuple[float, str, str]] = []
-        for path in registry.glob("*.json"):
-            try:
-                import json
-
-                record = json.loads(path.read_text(encoding="utf-8"))
-            except (OSError, ValueError):
-                continue
-            if not isinstance(record, dict):
-                continue
-            if str(record.get("owner_mission_id") or "").strip() != mission_id:
-                continue
-            task_id = str(record.get("task_id") or path.stem).strip()
-            state = str(record.get("state") or "").strip().lower()
-            if not task_id or not state:
-                continue
-            observed_at = max(
-                timestamp(record.get("submitted_at")),
-                timestamp(record.get("started_at")),
-                timestamp(record.get("completed_at")),
-            )
-            owned.append((observed_at, task_id, state))
-        return sorted(owned, reverse=True)
-
-    @staticmethod
     def _backlog_item(rf_state: _RunForeverState, item_id: str) -> Any | None:
         return next(
             (
@@ -257,174 +192,8 @@ class LifeWorkerRunMixin:
                 item.id,
             )
 
-    def _recover_stalled_external_mission(
-        self,
-        rf_state: _RunForeverState,
-        item: Any,
-        *,
-        now: float,
-    ) -> bool:
-        owned = self._owned_subagents(rf_state, str(item.id))
-        if not owned:
-            return False
-        observed_work = [
-            {"task_id": task_id, "state": state, "observed_at": observed_at}
-            for observed_at, task_id, state in owned
-        ]
-        inflight = [row for row in owned if row[2] in _SUBAGENT_INFLIGHT_STATES]
-        terminal = [row for row in owned if row[2] in _SUBAGENT_TERMINAL_STATES]
-        if not inflight and len(terminal) != len(owned):
-            from ..core.runtime_incidents import (
-                RuntimeIncidentStore,
-                drain_runtime_incident_events,
-            )
-
-            try:
-                store = RuntimeIncidentStore(rf_state.runtime_root)
-                store.record_unresolved(
-                    detector="running_stall_watchdog",
-                    invariant="owned_subagents_have_known_states",
-                    subject_kind="mission",
-                    subject_id=str(item.id),
-                    severity="error",
-                    observed={
-                        "backlog_status": item.status,
-                        "owned_work": observed_work,
-                    },
-                    reason="owned subagent state is neither in-flight nor terminal",
-                )
-                drain_runtime_incident_events(
-                    rf_state.runtime_root,
-                    rf_state.sink.handle_event,
-                )
-            except Exception:  # noqa: BLE001 - fallback failure remains available
-                log.exception(
-                    "daemon: failed to record unknown subagent state for mission %s",
-                    item.id,
-                )
-            return False
-        _observed_at, task_id, subagent_state = (
-            inflight[0] if inflight else owned[0]
-        )
-        workdir = Path(rf_state.cfg.project_workdir)
-        external_wait = {
-            "kind": "subagent",
-            "work_id": task_id,
-            "workdir": str(workdir),
-        }
-        if inflight:
-            from ..life.mission_outcome import mission_outcome_dimensions
-
-            outcome = mission_outcome_dimensions(
-                status="paused_external_work",
-                success=False,
-                review_status="",
-                stop_kind=None,
-                resumable=True,
-            )
-            outcome["external_wait"] = external_wait
-            rf_state.mem.backlog.update(
-                item.id,
-                status="paused_external_work",
-                started_ts=None,
-                finished_ts=now,
-                running_owner="",
-                last_error=_RUNNING_STALL_ERROR,
-                outcome=outcome,
-            )
-            rf_state.sink.handle_event({
-                "type": "life.mission.completed",
-                "item_id": item.id,
-                "title": item.title,
-                "success": False,
-                "status": "paused_external_work",
-                "recoverable": True,
-                "external_wait": external_wait,
-                "outcome": outcome,
-            })
-            settled = self._backlog_item(rf_state, str(item.id))
-            self._record_runtime_recovery(
-                rf_state,
-                detector="running_stall_watchdog",
-                invariant="running_requires_live_executor",
-                item=item,
-                observed={
-                    "backlog_status": "running",
-                    "executor_alive": False,
-                    "owned_work": observed_work,
-                },
-                action="park_parent_on_owned_external_work",
-                expected_postcondition=(
-                    "parent is paused_external_work and references an in-flight "
-                    "owned subagent"
-                ),
-                recovered=bool(
-                    settled is not None
-                    and settled.status == "paused_external_work"
-                    and isinstance(settled.outcome, dict)
-                    and settled.outcome.get("external_wait", {}).get("work_id")
-                    == task_id
-                ),
-                verification={
-                    "backlog_status": getattr(settled, "status", ""),
-                    "wait_id": (
-                        settled.outcome.get("external_wait", {}).get("work_id")
-                        if settled is not None
-                        and isinstance(settled.outcome, dict)
-                        else ""
-                    ),
-                    "owned_work": observed_work,
-                },
-            )
-            log.warning(
-                "daemon: parked stalled mission %s on owned subagent %s",
-                item.id,
-                task_id,
-            )
-            return True
-        rf_state.mem.backlog.update(
-            item.id,
-            status="pending",
-            attempt=max(1, int(item.attempt or 1)) + 1,
-            started_ts=None,
-            finished_ts=None,
-            running_owner="",
-            last_error=(
-                f"{_RUNNING_STALL_ERROR}; owned subagent {task_id} "
-                f"is already {subagent_state}"
-            ),
-            outcome={"external_wait": external_wait},
-        )
-        settled = self._backlog_item(rf_state, str(item.id))
-        self._record_runtime_recovery(
-            rf_state,
-            detector="running_stall_watchdog",
-            invariant="terminal_subagent_resumes_parent",
-            item=item,
-            observed={
-                "backlog_status": "running",
-                "executor_alive": False,
-                "owned_work": observed_work,
-            },
-            action="requeue_parent_after_owned_work_terminal",
-            expected_postcondition="parent mission is pending and claimable",
-            recovered=bool(settled is not None and settled.status == "pending"),
-            verification={
-                "backlog_status": getattr(settled, "status", ""),
-                "owned_work": observed_work,
-            },
-        )
-        log.warning(
-            "daemon: requeued stalled mission %s after all owned subagents became terminal "
-            "(latest=%s:%s)",
-            item.id,
-            task_id,
-            subagent_state,
-        )
-        return True
-
     def _recover_stalled_running_items(self, rf_state: _RunForeverState) -> list[str]:
-        """Requeue (or park on owned work) running claims whose executor thread died.
+        """Requeue running claims whose executor thread died.
 
         A dead executor says nothing about the mission itself, so the item keeps
         its workspace and goes back to the queue for the next free worker.
@@ -448,13 +217,6 @@ class LifeWorkerRunMixin:
             executor_thread = executor_threads.get(owner)
             if executor_thread is None or executor_thread.is_alive():
                 continue
-            if self._recover_stalled_external_mission(
-                rf_state,
-                item,
-                now=now,
-            ):
-                recovered.append(item.id)
-                continue
             if rf_state.mem.backlog.update(
                 item.id,
                 status="pending",
@@ -471,12 +233,8 @@ class LifeWorkerRunMixin:
                 detector="running_stall_watchdog",
                 invariant="running_requires_live_executor",
                 item=item,
-                observed={
-                    "backlog_status": "running",
-                    "executor_alive": False,
-                    "owned_work": [],
-                },
-                action="requeue_parent_without_owned_external_work",
+                observed={"backlog_status": "running", "executor_alive": False},
+                action="requeue_running_item",
                 expected_postcondition="parent mission is pending and claimable",
                 recovered=bool(settled is not None and settled.status == "pending"),
                 verification={"backlog_status": getattr(settled, "status", "")},

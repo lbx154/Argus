@@ -50,20 +50,12 @@ DERIVED = {
             "component": "Encoder",
             "prescribes": "a ResNet-50 backbone with a two-layer projection head",
             "notes": "",
-            "status": "proven",
-            "tests": [
-                {
-                    "id": "tests/spec/test_knockouts.py::test_encoder",
-                    "kind": "knockout",
-                    "outcome": "PASSED",
-                }
-            ],
+            "tests": [{"id": "tests/spec/test_knockouts.py::test_encoder", "kind": "knockout"}],
         },
         {
             "component": "Queue",
             "prescribes": "65536 negatives",
             "notes": "",
-            "status": "untested",
             "tests": [],
         },
     ],
@@ -90,12 +82,6 @@ DERIVED = {
         }
     ],
     "change_log": [{"when": "2026-09-16", "summary": "Add the queue", "files": ["src/queue.py"]}],
-    "checks": {
-        "round_index": 3,
-        "ran_at": 1_700_000_100.0,
-        "exit_code": 0,
-        "counts": {"PASSED": 1},
-    },
 }
 
 
@@ -205,6 +191,10 @@ def test_method_route_serves_the_real_derivation_end_to_end(tmp_path):
         "vertical must expose derive_method_card"
     )
     client, workspace, headers = _client(tmp_path, method=METHOD)
+    # A record the host's retired per-round test run left behind is ignored.
+    old_checks = workspace / ".argus" / "round-checks"
+    old_checks.mkdir(parents=True)
+    (old_checks / "latest.json").write_text('{"round_index": 3, "counts": {"FAILED": 1}}', encoding="utf-8")
     response = client.get("/api/projects/demo/research/method", headers=headers)
     assert response.status_code == 200, response.text
     body = response.json()
@@ -220,12 +210,11 @@ def test_method_route_serves_the_real_derivation_end_to_end(tmp_path):
     assert updated == pytest.approx((workspace / "METHOD.md").stat().st_mtime, abs=1.0)
     for key in ("components", "reused_code", "hyperparameters", "change_log"):
         assert isinstance(body[key], list), key
-    assert body["checks"] is None or isinstance(body["checks"], dict)
+    assert "checks" not in body
     assert isinstance(body["protocol"], str) and isinstance(body["falsifiers"], str)
     for row in body["components"]:
-        assert {"component", "prescribes", "notes", "status", "tests"} <= set(row)
-        assert row["status"] in {"proven", "contradicted", "partial", "untested", "unchecked"}
-        assert row["tests"] == []  # no spec tests were ever run in this workspace
+        assert {"component", "prescribes", "notes", "tests"} <= set(row)
+        assert row["tests"] == []  # no spec tests were ever collected in this workspace
     # A read must not leave anything visible behind in the project (a hidden .argus/ cache is tolerated).
     assert sorted(p.name for p in workspace.iterdir() if not p.name.startswith(".")) == [
         "METHOD.md"

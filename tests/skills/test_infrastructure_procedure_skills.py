@@ -63,7 +63,7 @@ def test_stand_up_pilot_profiles_a_real_step_and_measures_engine_agreement() -> 
     assert "phase table" in pilot
     assert "log-prob" in pilot
     assert "engine on and off" in pilot
-    assert "--intent 'stand-up pilot: <candidate>@<sha>'" in pilot
+    assert "exit-code file named after the candidate (`<candidate>@<sha>`)" in pilot
     assert "gpu-hours per valid update" in pilot
 
 

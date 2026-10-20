@@ -140,11 +140,10 @@ def stop_kind_clause(value: Any, *, chinese: bool = False) -> str:
 
 @dataclass(frozen=True)
 class ParkRule:
-    """Who ends a park, and what the parked item keeps while it waits."""
+    """Who ends a park."""
 
     holder: Literal["operator", "planner", "runtime", "world"]
     auto_resume: bool = False  # the runtime rechecks the condition by itself
-    holds_resources: bool = False  # keeps its GPU and path reservations
 
 
 # Why a backlog item is parked: a stop kind, or a park no backend stop
@@ -155,7 +154,8 @@ _PARK_RULES: dict[str, ParkRule] = {
     "cost_unreconciled": ParkRule("runtime", auto_resume=True),
     "daemon_shutdown": ParkRule("runtime", auto_resume=True),
     "provider_cooldown": ParkRule("world", auto_resume=True),
-    "external_work": ParkRule("world", auto_resume=True, holds_resources=True),
+    # An older release parked work on a job it watched; it resumes at once.
+    "external_work": ParkRule("runtime", auto_resume=True),
     "provider_fence": ParkRule("operator"),
     "operator_pause": ParkRule("operator"),
     "operator_question": ParkRule("operator"),

@@ -96,10 +96,8 @@ from full-loop performance. Start with a meaningful pilot of that interface.
    configuration's logical index to it. Merely writing that environment prefix
    in a saved command or example does not apply it. Confirm and retain the
    actual device mapping with the run command before a long execution.
-   A prompt's machine inventory is a snapshot, not a reservation. Launch long
-   GPU jobs through the durable runner with its accelerator/count/peak-memory/
-   duration/intent flags so other cooperating projects share the same resource
-   queue. Honor the assigned visibility mask inside the command. Inspect
+   A prompt's machine inventory is a snapshot, not a reservation. Honor the
+   assigned visibility mask inside the command. Inspect
    unmanaged device processes too: available memory and momentary zero GPU
    utilization do not establish an uncontended measurement window.
 4. Implement against `tests/spec`. Write the method card and the executable
@@ -203,14 +201,14 @@ confirm that every producer for its output has exited; use a separate attempt
 directory and preserve the old observations. Low GPU utilization while the CPU
 is working, or output buffered until completion, does not establish failure.
 Let healthy attempts finish before applying optional performance optimizations.
-Launch long CPU analyses as well as GPU experiments through the available Argus
-durable job interface, with an actual task record, project environment, explicit
-command and separate attempt output. A provider's native background shell can
-be owned by that CLI invocation; its promise of a completion notification does
-not ensure survival after the model call ends. While the durable job runs,
-continue independent scientific work and preserve its task identity in the
-existing checkpoint. Check the real producer and completed outputs at the next
-decision point. A wait response or an empty model answer does not make the
+Launch long CPU analyses as well as GPU experiments detached, with the project
+environment, an explicit command, its exit code and a separate attempt output,
+so they survive the model call. A provider's native background shell can be
+owned by that CLI invocation; its promise of a completion notification does
+not ensure survival after the model call ends. While the job runs, continue
+independent scientific work and record it in the existing checkpoint; then
+wait for it in the turn with blocking calls, never short polls, and check the
+real producer and completed outputs. An empty model answer does not make the
 scientific batch ready for review.
 When promoting a new result, validate the whole attempt first and switch the
 canonical reference together, rather than mixing raw rows, summaries, and
@@ -424,12 +422,11 @@ before method code. It holds the one-paragraph statement, a `Components`
 table (`Component | The idea prescribes | Notes`: the route quoted, and a
 note only for a deliberate simplification), the `Protocol` copied from the
 route with every deviation named, and what would falsify the claim. It is
-touched again only when the method itself changes. Implementation status
-per component, the tests that prove it, reused code with pinned revisions,
-hyperparameters with their `# why:` reasons, and the change history are not
-written by hand: the host derives them from the code, the
-`@pytest.mark.component` markers on `tests/spec`, the config files and git,
-and shows them beside the card in Atlas and to the Reviewer. It is a work
+touched again only when the method itself changes. The tests behind each
+component, reused code with pinned revisions, hyperparameters with their
+`# why:` reasons, and the change history are not written by hand: the host
+derives them from the code, the `@pytest.mark.component` markers on
+`tests/spec`, the config files and git, and shows them beside the card in Atlas and to the Reviewer. It is a work
 product shown to human readers, the one named exception to the rule against
 extra files; the Reviewer reads it before the code and before the Engineer's
 account. `engineer/method-card.md` gives the procedure and, in its last
@@ -437,9 +434,9 @@ section, the body.
 
 ## Executable spec
 
-`tests/spec` is what the method must do, in code the host runs after every
-round without a model and shows to the Reviewer and the Engineer as Raw
-verification evidence. It is written before the first claim-bearing run:
+`tests/spec` is what the method must do, in code that runs without a model;
+whoever needs its result runs it and puts the command and result in their
+evidence. It is written before the first claim-bearing run:
 an oracle transcribed from the route's equations (slow, `float64`, one
 function per equation), differential tests of the implementation against
 the oracle and against the `third_party/` reference, one knockout per
@@ -448,8 +445,7 @@ output must change), and claim-shaped tests for complexity, memory and
 throughput claims, each tagged with the component it exercises.
 Outcome-shaped tests that assert the headline number prove nothing and do
 not belong here. Nothing blocks on the result; a
-failing test, an unexplained skip, or a test that was collected last round
-and is missing now is a repair the Reviewer names. Templates and the
+failing test or an unexplained skip is a repair the Reviewer names. Templates and the
 procedure are in `engineer/method-card.md`.
 
 ## When the evidence is ready for Paper

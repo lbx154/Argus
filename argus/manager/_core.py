@@ -81,9 +81,6 @@ class StageTransition:
     source: str = "manager_llm"
     # Non-secret parser/runtime code for log triage (never raw model output).
     diagnostic: str = ""
-    # True only when an authoritative Manager HOLD satisfies a persisted
-    # Planner waiting condition and requests immediate replanning.
-    resolves_wait: bool = False
 
 
 # ---------------------------------------------------------------------------

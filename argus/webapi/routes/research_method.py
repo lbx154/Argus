@@ -1,7 +1,7 @@
 """Read-only view of a research project's method card for human readers.
 
 The hand-written METHOD.md lives at the project root and is written once by
-the agent. Everything volatile next to it (per-component test status, reused
+the agent. Everything volatile next to it (per-component tests, reused
 code, hyperparameters, change log) is derived by the research vertical at zero
 model cost; this route only resolves the workspace safely and hands the
 derivation result to the Atlas web UI. Nothing here gates a stage or admits a

@@ -253,7 +253,7 @@ def test_direct_engineer_and_reviewer_keep_selected_vertical_banners(
     )
 
     assert "## Active vertical role" in engineer_prompt
-    assert "Treat unattended benchmark and profiler runs as asynchronous" in (
+    assert "Treat unattended benchmark and profiler runs as long jobs" in (
         engineer_prompt
     )
     assert "never fail work merely because" in reviewer_prompt

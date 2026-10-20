@@ -303,23 +303,6 @@ def _progress_review(forward_progress: bool | None) -> ReviewDecision:
     )
 
 
-def test_classify_never_ends_on_counts_while_progress_is_reported() -> None:
-    status, reason = RoundSettlementMixin._classify(
-        blocked_on_healthy_work=True,
-        review=_progress_review(True),
-        no_progress_streak=50,
-        no_progress_threshold=2,
-        semantic_stall_streak=0,
-        stall_threshold=4,
-        round_index=500,
-        max_rounds=0,
-        hard_escalate_rounds=24,
-        soft_limit_stalled=False,
-        soft_round_limit=12,
-    )
-    assert (status, reason) == (None, "")
-
-
 def test_empty_turns_still_end_a_mission_without_reported_progress() -> None:
     for forward_progress in (None, False):
         status, _reason = RoundSettlementMixin._classify(
@@ -392,14 +375,13 @@ def test_progressing_mission_runs_past_every_round_guard(tmp_path) -> None:
     assert len(rounds) == total
 
 
-def test_progress_claim_without_running_work_does_not_excuse_empty_turns() -> None:
+def test_a_progress_claim_does_not_excuse_empty_turns() -> None:
     status, _reason = RoundSettlementMixin._classify(
         review=_progress_review(True),
         no_progress_streak=2,
         no_progress_threshold=2,
         round_index=3,
         max_rounds=0,
-        blocked_on_healthy_work=False,
     )
     assert status == "no_progress"
 
@@ -425,28 +407,12 @@ def _empty_engineer_run(tmp_path, *, rounds: int, final_done: bool):
         supervised_config=SupervisedConfig(
             no_progress_threshold=2,
             decision_progress_timeout_seconds=0,
-            background_subagent_advisory=False,
         ),
         workdir=tmp_path,
     )
 
 
-def test_empty_engineer_with_healthy_background_work_keeps_running(
-    monkeypatch, tmp_path
-) -> None:
-    from argus.engineer import external_work
-    from argus.engineer.external_work import ExternalWorkState, ExternalWorkStatus
-
-    healthy = ExternalWorkStatus(work_id="verify", state=ExternalWorkState.RUNNING_HEALTHY)
-    monkeypatch.setattr(external_work, "scan_external_work", lambda *_a, **_k: [healthy])
-
-    status, rounds, *_rest = _empty_engineer_run(tmp_path, rounds=5, final_done=True)
-
-    assert status == "done"
-    assert len(rounds) == 5
-
-
-def test_empty_engineer_without_background_work_ends_despite_progress_claims(
+def test_empty_engineer_ends_despite_progress_claims(
     tmp_path,
 ) -> None:
     status, rounds, _final, reason, _thread = _empty_engineer_run(

@@ -1119,7 +1119,7 @@ def _plan_preview_model() -> str:
 
     return resolve_cheap_route_model(
         knob="ARGUS_SKILL_PLAN_PREVIEW_MODEL",
-        catalog_default="gpt-5.4-mini",
+        catalog_default="gpt-6.1-sol",
         role="planner",
         role_env="ARGUS_SKILL_PLAN_MODEL",
     )

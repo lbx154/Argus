@@ -108,9 +108,6 @@ class TaskSpec:
     acceptance_check: str = ""
     non_goals: list[str] = field(default_factory=list)
     context_refs: list[dict[str, str]] = field(default_factory=list)
-    # Durable identity for a known blocking condition. Unlike title/objective,
-    # this must remain unchanged when the task is merely reworded.
-    blocker_fingerprint: str = ""
     scope: str = TASK_SCOPE_BOUNDED
     # A mission expected to satisfy the current-stage gate must receive an
     # independent Reviewer verdict so the Manager gets per-item evidence.
@@ -128,10 +125,6 @@ class TaskSpec:
     authorization_action: str = ""
     require_independent_review: bool = True
     skip_stage_transition: bool = False
-    # Host-authored recovery work after a Manager HOLD or approved revision.
-    # This bypasses certification-churn suppression because the task includes
-    # the substantive repair and its independent recertification in one unit.
-    stage_repair: bool = False
     allow_skill_changes: bool = False
     parallel_safe: bool = False
     owns_paths: list[str] = field(default_factory=list)
@@ -148,47 +141,21 @@ class TaskSpec:
 
 
 @dataclass(frozen=True)
-class WaitingContract:
-    """What the Planner waits for, and the source the host watches for it.
-
-    The Planner writes only ``recheck_condition`` -- its ``WAIT`` sentence --
-    and the two authority flags. Everything below them is the host's binding,
-    read from facts it observes (see ``_bind_planner_wait``).
-    """
-
-    recheck_condition: str
-    stage_reconciliation_required: bool = False
-    # True when only fresh operator input can change the blocker (for example,
-    # new credentials, a scope choice, or authorization for an additional
-    # mission/thesis).  Manager owns stage transitions, not operator scope.
-    operator_action_required: bool = False
-    blocker_fingerprint: str = ""
-    recheck_token: str = ""
-    wake_on: tuple[str, ...] = ()
-    watched_paths: tuple[str, ...] = ()
-    expires_at: float = 0.0
-    observed_revision: str = ""
-    # A registered external-work id the binding resolved, if any.
-    wait_id: str = ""
-
-
-@dataclass(frozen=True)
 class PlannerVerdict:
-    """Planner decision: new work, task retirements, a wait, or project done."""
+    """Planner decision: new work, task retirements, a handoff, or project done."""
 
     project_done: bool
     reason: str
     new_tasks: list[TaskSpec] = field(default_factory=list)
     raw_text: str = ""
     error: str = ""
-    # ``waiting`` is a first-class, intentional idle outcome: the project is
-    # correctly blocked on a live, nonterminal external long-running job (e.g.
-    # a training run) and there is no genuinely new high-impact work to queue.
-    # It is NOT an error and NOT make-work — the host backs off and re-checks
-    # later. ``project_done`` stays False; ``new_tasks`` stays empty.
-    waiting: bool = False
-    waiting_reason: str = ""
-    waiting_contract: WaitingContract | None = None
+    # The holder the Planner's baton line names (docs/role-handoff-design.md):
+    # ``engineer`` -- the work in flight goes on and nothing new starts now;
+    # ``manager`` -- the stage blocks the plan; ``operator`` -- only the
+    # operator can unblock it, asked ``operator_question``. Empty without one.
+    # The Planner is called again when something new is handed to it.
+    handoff: str = ""
+    operator_question: str = ""
     advance_to_stage: str = ""
     # Host-visible, non-error parser degradations. The Supervisor emits these
     # separately so malformed formality fields never masquerade as a failed
@@ -615,11 +582,6 @@ _GLOBAL_KEY_VALUE_KEYS = (
     "SUMMARY",
     "ADVANCE_TO_STAGE",
     "RETIRE_TASK",
-    "WAITING",
-    "WAITING_REASON",
-    "WAIT",
-    "STAGE_RECONCILIATION_REQUIRED",
-    "OPERATOR_ACTION_REQUIRED",
     "PLAN_UPDATE",
 )
 _TASK_KEY_VALUE_FIELDS = (
@@ -666,10 +628,11 @@ _NUMBERED_TASK_KEY = re.compile(
 # the objective therefore belong to it until the next field starts; the stop
 # pattern names every field shape (known or not) so an unrecognised
 # ``TASK_STAGE_CLOSING=false`` never becomes the brief's last paragraph.
+# A field or the closing baton line ends an objective that runs on.
 _OBJECTIVE_CONTINUATION_STOP = re.compile(
-    r"^(?:[-*]\s*)?(?:ARGUS_)?(?:TASK(?:_\d+)?_[A-Z0-9_]+|PLAN_[A-Z0-9_]+|"
+    r"^(?:[-*]\s*)?(?:→|->|=>|(?:ARGUS_)?(?:TASK(?:_\d+)?_[A-Z0-9_]+|PLAN_[A-Z0-9_]+|"
     + "|".join(_GLOBAL_KEY_VALUE_KEYS)
-    + r")\s*[:=]",
+    + r")\s*[:=])",
     re.IGNORECASE,
 )
 #: Longest objective the reader keeps assembling; past it the rest is dropped.
@@ -871,25 +834,21 @@ def _build_no_task_repair_prompt(
 ) -> str:
     completion_rule = (
         "- This is a standing objective. Do not set `project_done=true`. A "
-        "certified increment may hand off to Manager reporting and wait for new "
-        "explicit operator direction without closing the standing objective. "
+        "certified increment may hand off to the operator for new direction "
+        "without closing the standing objective. "
         "Use this handoff only when current final certification is accepted, the "
-        "final stage is complete, no active backlog or live subagent work remains, "
+        "final stage is complete, no active backlog or live background work remains, "
         "and the latest explicit operator instructions call for reporting and "
-        "waiting rather than new work. Preserve report-only/no-new-work instructions; "
-        "do not revive old tasks, repeat certification or invent research to satisfy "
-        "the repair. Uncertified work or a generic empty response does not qualify "
-        "for this handoff; otherwise delegate justified, authorized work or declare "
-        "a real external blocker.\n"
-        "- For the certified handoff, emit the structured waiting footer below, "
-        "with no TASK_*, RETIRE_TASK or ADVANCE_TO_STAGE fields. "
-        "State acceptance of the current certification and explicitly end REASON "
-        "with waiting for new operator direction (in the operator's language):\n"
-        "PROJECT_DONE=false\nWAITING=true\n"
-        "REASON=Current final certification is accepted; waiting for new explicit "
-        "operator direction.\n"
-        "WAIT=New explicit operator instruction arrives\n"
-        "OPERATOR_ACTION_REQUIRED=true\n"
+        "awaiting direction rather than new work. Preserve report-only/no-new-work "
+        "instructions; do not revive old tasks, repeat certification or invent "
+        "research to satisfy the repair. Uncertified work or a generic empty "
+        "response does not qualify for this handoff; otherwise delegate justified, "
+        "authorized work or name who must act.\n"
+        "- For the certified handoff, use the footer below with no TASK_*, "
+        "RETIRE_TASK or ADVANCE_TO_STAGE fields, in the operator's language:\n"
+        "PROJECT_DONE=false\n"
+        "REASON=Current final certification is accepted.\n"
+        "→ operator: What should the campaign take on next?\n"
         if open_ended
         else "- Set `project_done=true` only when the operator objective is complete.\n"
     )
@@ -906,15 +865,14 @@ def _build_no_task_repair_prompt(
         "- If work can start now, include concrete tasks only when authorized by "
         "the latest operator instructions; repeat only for independent actions. "
         "Parallel tasks require disjoint owns_paths.\n"
-        "- If the project is intentionally blocked on a live external condition, "
-        "including background work launched by Argus, return `PROJECT_DONE=false`, "
-        "`WAITING=true`, no `TASK_*` blocks and `WAIT=<what must happen>`, naming "
-        "the live work id for in-flight subagent work; a WAIT sentence alone does "
-        "not declare waiting. Do not invent dependent tasks while waiting for "
-        "that work.\n"
+        "- If nothing new should start, return `PROJECT_DONE=false`, no `TASK_*` "
+        "blocks and one closing line naming who acts next: `→ engineer` (the work "
+        "in flight decides what comes next), `→ manager` (the stage blocks you) "
+        "or `→ operator: <one question>`. Do not invent tasks that depend on "
+        "results still in flight.\n"
         "- Do not repeat the rejected launch slogan. Say what failed, why, and what "
         "should happen next.\n\n"
-        "For authorized work, use a task footer instead of the waiting footer:\n"
+        "For authorized work, use a task footer:\n"
         + decision_footer_instruction(
             "PROJECT_DONE=false\n"
             "REASON=why\n"
@@ -1000,32 +958,6 @@ def parse_planner_payload(payload: Mapping[str, Any]) -> PlannerVerdict:
             raise TypeError("project_done must be true or false")
         reason = text(payload, "reason")
         advance_to_stage = text(payload, "advance_to_stage").strip().lower()
-
-        waiting_value = payload.get("waiting", False)
-        if isinstance(waiting_value, Mapping):
-            waiting = True
-            waiting_fields = waiting_value
-        elif isinstance(waiting_value, bool):
-            waiting = waiting_value
-            waiting_fields = payload
-        else:
-            raise TypeError("waiting must be true, false, or an object")
-        waiting_reason = text(waiting_fields, "waiting_reason")
-        waiting_contract = None
-        if waiting:
-            # Only the sentence and the two authority flags are the Planner's;
-            # any other wait field an older prompt taught it is ignored.
-            waiting_contract = WaitingContract(
-                recheck_condition=(
-                    text(waiting_fields, "wait") or waiting_reason or reason
-                ).strip(),
-                stage_reconciliation_required=boolean(
-                    waiting_fields, "stage_reconciliation_required"
-                ),
-                operator_action_required=boolean(
-                    waiting_fields, "operator_action_required"
-                ),
-            )
 
         raw_tasks = payload.get("tasks", payload.get("new_tasks", []))
         if not isinstance(raw_tasks, list):
@@ -1150,9 +1082,6 @@ def parse_planner_payload(payload: Mapping[str, Any]) -> PlannerVerdict:
         project_done=project_done,
         reason=reason,
         advance_to_stage=advance_to_stage,
-        waiting=waiting,
-        waiting_reason=waiting_reason,
-        waiting_contract=waiting_contract,
         new_tasks=new_tasks,
         diagnostics=tuple(diagnostics),
         retire_tasks=tuple(retire_tasks),
@@ -1184,7 +1113,7 @@ def _planner_payload_from_text(text: str) -> dict[str, Any] | None:
         return dict(candidate["payload"])
     if any(
         key in candidate
-        for key in ("project_done", "waiting", "reason", "tasks")
+        for key in ("project_done", "reason", "tasks")
     ):
         return candidate
     return None
@@ -1223,22 +1152,16 @@ def _planner_verdict_from_fields(
             raw_text=text,
             error="planner missing key-value completion marker",
         )
-    waiting = _key_value_bool(values.get("WAITING", ""))
-    waiting_contract = None
-    if waiting:
-        waiting_contract = WaitingContract(
-            recheck_condition=(
-                values.get("WAIT")
-                or values.get("WAITING_REASON")
-                or reason
-            ).strip(),
-            stage_reconciliation_required=_key_value_bool(
-                values.get("STAGE_RECONCILIATION_REQUIRED", "")
-            ),
-            operator_action_required=_key_value_bool(
-                values.get("OPERATOR_ACTION_REQUIRED", "")
-            ),
-        )
+    from ..core.role_handoff import read_baton_line
+
+    baton = read_baton_line(text)
+    handoff = (
+        baton.next_owner
+        if baton is not None
+        and baton.source == "structured"
+        and baton.next_owner in {"engineer", "manager", "operator"}
+        else ""
+    )
 
     new_tasks: list[TaskSpec] = []
     for task_index, row in enumerate(task_rows):
@@ -1340,9 +1263,8 @@ def _planner_verdict_from_fields(
         project_done=project_done,
         reason=reason,
         advance_to_stage=advance_to_stage,
-        waiting=waiting,
-        waiting_reason=values.get("WAITING_REASON", ""),
-        waiting_contract=waiting_contract,
+        handoff=handoff,
+        operator_question=baton.operator_question if handoff == "operator" else "",
         new_tasks=new_tasks,
         diagnostics=tuple(diagnostics),
         retire_tasks=retire_tasks,
@@ -1355,36 +1277,19 @@ def _finish_planner_verdict(
     project_done: bool,
     reason: str,
     advance_to_stage: str,
-    waiting: bool,
-    waiting_reason: str,
-    waiting_contract: WaitingContract | None,
     new_tasks: list[TaskSpec],
+    handoff: str = "",
+    operator_question: str = "",
     diagnostics: tuple[str, ...] = (),
     retire_tasks: tuple[tuple[str, str], ...] = (),
 ) -> PlannerVerdict:
-    if waiting and not project_done and new_tasks:
+    if handoff and project_done:
         return PlannerVerdict(
             project_done=False,
-            reason=reason or waiting_reason or "planner waiting with runnable tasks",
-            new_tasks=new_tasks,
-            raw_text=text,
-            waiting=True,
-            waiting_reason=waiting_reason or reason,
-            waiting_contract=waiting_contract,
-            advance_to_stage=advance_to_stage,
-            retire_tasks=retire_tasks,
-            diagnostics=(
-                *diagnostics,
-                "waiting declared with tasks; preserving both for Supervisor handling",
-            ),
-        )
-    if waiting and project_done:
-        return PlannerVerdict(
-            project_done=False,
-            reason="planner waiting marker conflicts with completion",
+            reason="planner handoff conflicts with completion",
             new_tasks=[],
             raw_text=text,
-            error="planner waiting marker conflicts with completion",
+            error="planner handoff conflicts with completion",
             diagnostics=diagnostics,
         )
     if project_done and new_tasks:
@@ -1395,15 +1300,15 @@ def _finish_planner_verdict(
             error="planner completion marker conflicts with task blocks",
             diagnostics=diagnostics,
         )
-    if waiting:
+    if handoff:
         return PlannerVerdict(
             project_done=False,
-            reason=reason or waiting_reason or "planner waiting",
-            new_tasks=[],
+            reason=reason or operator_question or f"planner handed off to {handoff}",
+            new_tasks=new_tasks,
             raw_text=text,
-            waiting=True,
-            waiting_reason=waiting_reason or reason,
-            waiting_contract=waiting_contract,
+            handoff=handoff,
+            operator_question=operator_question,
+            advance_to_stage=advance_to_stage,
             diagnostics=diagnostics,
             retire_tasks=retire_tasks,
         )

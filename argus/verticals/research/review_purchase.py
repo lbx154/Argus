@@ -119,32 +119,6 @@ def _timestamp(value: Any) -> float:
         return 0.0
 
 
-def completed_review_predates_freeze(
-    item: Any,
-    *,
-    vertical: str,
-    project_root: Path | str,
-) -> bool:
-    """Whether a completed semantic duplicate belongs to pre-freeze exploration."""
-    if str(getattr(item, "status", "") or "") != "done":
-        return False
-    if not is_paper_wide_review_task(item, vertical=vertical):
-        return False
-    freeze = load_method_freeze(project_root)
-    if freeze is None:
-        return False
-    frozen_at = _timestamp(freeze.get("frozen_at"))
-    finished_at = _timestamp(
-        getattr(item, "finished_ts", 0.0) or getattr(item, "ts", 0.0)
-    )
-    return bool(frozen_at and finished_at and finished_at < frozen_at)
-
-
-def method_freeze_timestamp(project_root: Path | str) -> float:
-    freeze = load_method_freeze(project_root)
-    return _timestamp((freeze or {}).get("frozen_at"))
-
-
 def paper_review_purchase_defer_reason(
     task: Any,
     *,
@@ -234,36 +208,20 @@ def review_purchase_policy(
     task: Any,
     existing_items: Iterable[Any],
     semantic_duplicate: Any | None,
-    stage_reviewed_at: float | None,
 ) -> PlannerReviewPurchaseDecision:
-    release_stage_closing_blocker = (
-        stage_reviewed_at is not None
-        and method_freeze_timestamp(project_root) > stage_reviewed_at
-    )
-    if stage_reviewed_at is not None and not release_stage_closing_blocker:
-        return PlannerReviewPurchaseDecision()
-    discard_duplicate = completed_review_predates_freeze(
-        semantic_duplicate,
-        vertical="research",
-        project_root=project_root,
-    )
     return PlannerReviewPurchaseDecision(
         defer_reason=paper_review_purchase_defer_reason(
             task,
             vertical="research",
             project_root=project_root,
             existing_items=existing_items,
-            semantic_duplicate=None if discard_duplicate else semantic_duplicate,
+            semantic_duplicate=semantic_duplicate,
         ),
-        discard_semantic_duplicate=discard_duplicate,
-        release_stage_closing_blocker=release_stage_closing_blocker,
     )
 
 
 __all__ = [
     "is_paper_wide_review_task",
-    "completed_review_predates_freeze",
-    "method_freeze_timestamp",
     "paper_review_purchase_defer_reason",
     "review_purchase_policy",
 ]

@@ -7,21 +7,6 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
 
-
-def _default_subagent_family_failure_streak_limit() -> int:
-    # Function-level import: life.supervisor.__init__ pulls in _core, which
-    # would create an import cycle at module load time.
-    from ..life.supervisor._config import LifeSupervisorConfig
-
-    return LifeSupervisorConfig.subagent_family_failure_streak_limit
-
-
-def _default_subagent_family_failure_window_hours() -> float:
-    from ..life.supervisor._config import LifeSupervisorConfig
-
-    return LifeSupervisorConfig.subagent_family_failure_window_hours
-
-
 AUTO_MISSION_WIDTH_MAX = 4
 
 
@@ -71,15 +56,6 @@ class LifeWorkerConfig:
     # resource ledger decide how many of them run at once.
     mission_width: int | str = 2
     planner_task_iteration_max_cycles: int = 0
-    # See LifeSupervisorConfig.subagent_family_failure_streak_limit /
-    # ..._window_hours (life/supervisor/_config.py) for the circuit breaker
-    # this configures; that class is the single source of the defaults.
-    subagent_family_failure_streak_limit: int = field(
-        default_factory=_default_subagent_family_failure_streak_limit
-    )
-    subagent_family_failure_window_hours: float = field(
-        default_factory=_default_subagent_family_failure_window_hours
-    )
     poll_interval: float = 5.0
     log_path: Path | None = None  # defaults to <life_dir>/daemon.log
     project_workdir: Path | None = None
@@ -133,8 +109,6 @@ def config_payload(config: LifeWorkerConfig) -> dict[str, Any]:
         "reviewer_reasoning_effort": config.reviewer_reasoning_effort,
         "mission_width": config.mission_width,
         "planner_task_iteration_max_cycles": config.planner_task_iteration_max_cycles,
-        "subagent_family_failure_streak_limit": config.subagent_family_failure_streak_limit,
-        "subagent_family_failure_window_hours": config.subagent_family_failure_window_hours,
         "poll_interval": config.poll_interval,
         "log_path": str(config.log_path) if config.log_path is not None else "",
         "project_workdir": str(config.project_workdir) if config.project_workdir is not None else "",
@@ -211,19 +185,6 @@ def config_from_payload(data: dict[str, Any]) -> LifeWorkerConfig:
         mission_width=int(data.get("mission_width", 2)),
         planner_task_iteration_max_cycles=int(
             data.get("planner_task_iteration_max_cycles", 0) or 0
-        ),
-        # ``is None`` (via _number), not ``or``: an explicit 0 disables the F6
-        # breaker (see _planner_orchestration) and must survive a payload round
-        # trip instead of silently reverting to the default.
-        subagent_family_failure_streak_limit=int(
-            _number(
-                "subagent_family_failure_streak_limit",
-                _default_subagent_family_failure_streak_limit(),
-            )
-        ),
-        subagent_family_failure_window_hours=_number(
-            "subagent_family_failure_window_hours",
-            _default_subagent_family_failure_window_hours(),
         ),
         poll_interval=float(data.get("poll_interval") or 5.0),
         log_path=Path(log_path).expanduser() if log_path else None,

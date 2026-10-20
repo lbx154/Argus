@@ -819,13 +819,8 @@ class CopilotAcpClient:
         if not sid:
             raise RuntimeError("session/new returned no sessionId")
         sid = str(sid)
+        # The session runs on whatever model Copilot selected; usage records it.
         self._remember_session(sid, resp.get("result") or {})
-        selected_model = self._session_models.get(sid, "")
-        if self._model and selected_model and selected_model != self._model:
-            self._invalidate_session(sid)
-            raise RuntimeError(
-                f"session/new selected {selected_model!r}, expected {self._model!r}"
-            )
         return sid
 
     def _session_for(

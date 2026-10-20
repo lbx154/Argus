@@ -93,14 +93,6 @@ class TeammateMissionResult:
             "paused_operator",
         }
 
-    @property
-    def external_wait(self) -> tuple[str, str] | None:
-        if self.status != "paused_external_work":
-            return None
-        from ..engineer.external_work import parse_external_wait_request
-
-        return parse_external_wait_request(self.final_message)
-
     def __bool__(self) -> bool:
         return self.success
 
@@ -398,46 +390,6 @@ def _heartbeat_loop(root: Path, task_id: str, stop: threading.Event) -> None:
         task_board.heartbeat(root, task_id, now=time.time())
 
 
-def _read_optional_result(expected_target: str | None = None) -> dict:
-    """Read an optional ``{metric, mechanism}`` the teammate's mission left at
-    ``ARGUS_TEAMMATE_RESULT_FILE`` (operator-wired into the objective). General —
-    no metric source is baked into the library; absent/corrupt → empty, so the
-    shard records a null metric and the leaderboard simply doesn't rank it.
-
-    Anti-forge (opt-in): when ``ARGUS_TEAMMATE_RESULT_VERIFY_KEY`` is set, the file
-    MUST carry a valid Ed25519 signature from the isolated scorer over its result
-    fields AND ``correct is True`` — and, when ``expected_target`` is given, its
-    signed ``target`` must match it (so a signed result for one kernel cannot be
-    replayed as another's). Otherwise it is rejected and NOT banked, so an
-    unsandboxed engineer cannot forge its own metric. Off by default → unchanged
-    for fleets that have not wired signing (see ``team.result_provenance``)."""
-    path = os.environ.get("ARGUS_TEAMMATE_RESULT_FILE", "").strip()
-    if not path:
-        return {}
-    try:
-        data = json.loads(Path(path).read_text(encoding="utf-8"))
-    except (OSError, json.JSONDecodeError):
-        return {}
-    if not isinstance(data, dict):
-        return {}
-    verify_key = os.environ.get("ARGUS_TEAMMATE_RESULT_VERIFY_KEY", "").strip()
-    if verify_key:
-        from . import result_provenance as _rp
-        ok = (
-            data.get("correct") is True
-            and (expected_target is None or data.get("target") == expected_target)
-            and _rp.verify_result(data, _rp.read_key(verify_key))
-        )
-        if not ok:
-            sys.stderr.write(
-                "teammate_entry: result.json failed provenance verification "
-                "(bad/missing signature, correct!=true, or target mismatch) — "
-                "NOT banking its metric\n"
-            )
-            return {}
-    return data
-
-
 def _vertical_prelude(task: dict, *, cwd: str, state_root: Path) -> str:
     """The active vertical's per-mission block for the board task this teammate owns.
 
@@ -527,13 +479,6 @@ def main(argv: list[str] | None = None) -> int:
     task_id = task["task_id"]
     objective = task.get("objective", "")
     cwd = args.cwd or os.getcwd()
-    # Tell a fresh teammate what has already been tried on this target. This is
-    # a no-op until the deterministic leaderboard has at least one attempt.
-    from . import leaderboard as _lb
-
-    lb_block = _lb.objective_block(root, task.get("target") or task_id)
-    if lb_block:
-        objective = lb_block + objective
     objective = _with_reopen_reason(objective, task)
     operator_answer = str(task.get("operator_answer") or "").strip()
     if operator_answer:
@@ -542,14 +487,6 @@ def main(argv: list[str] | None = None) -> int:
             + "\n\nThe operator answered the prior blocking question:\n"
             + operator_answer
             + "\nContinue the same task from its persisted artifacts."
-        )
-    external_wait = task.get("external_wait")
-    if isinstance(external_wait, dict) and external_wait.get("resume_state"):
-        objective = (
-            objective
-            + "\n\nThe external work previously requested by this task is no longer "
-            "running. Inspect its durable record and continue from persisted artifacts:\n"
-            + json.dumps(external_wait, sort_keys=True)
         )
     member_safe = args.member_id.replace(":", "_")
 
@@ -579,17 +516,13 @@ def main(argv: list[str] | None = None) -> int:
         )
 
     stop.set()
-    _result = _read_optional_result(expected_target=task.get("target") or task_id)
+    # The shard is the task's durable completion record: the lead's selection
+    # and the vertical's reopen checks read ``success`` from it.
     _rec = {
         "member_id": args.member_id, "task_id": task_id,
         "target": task.get("target") or task_id, "success": mission.success,
         "status": mission.status,
-        "metric": _result.get("metric"), "mechanism": _result.get("mechanism", ""),
     }
-    # Carry the target's optimization direction so the leaderboard ranks per-target;
-    # omit when the task didn't set it → the leaderboard uses its global default.
-    if task.get("lower_is_better") is not None:
-        _rec["lower_is_better"] = bool(task["lower_is_better"])
     shard.write_text(json.dumps(_rec) + "\n", encoding="utf-8")
     if mission.success:
         task_board.complete(root, task_id, shard=str(shard))
@@ -600,17 +533,6 @@ def main(argv: list[str] | None = None) -> int:
             question=mission.operator_question,
             options=list(mission.operator_options),
             reason=mission.reason or "teammate mission is waiting for an operator decision",
-            last_thread_id=mission.last_thread_id,
-        )
-    elif mission.external_wait is not None:
-        wait_kind, work_id = mission.external_wait
-        task_board.wait_for_external_work(
-            root,
-            task_id,
-            kind=wait_kind,
-            work_id=work_id,
-            workdir=cwd,
-            reason=mission.reason or "teammate mission is waiting for external work",
             last_thread_id=mission.last_thread_id,
         )
     elif mission.paused_externally:
@@ -649,7 +571,6 @@ def main(argv: list[str] | None = None) -> int:
     return 0 if (
         mission.success
         or mission.waits_for_operator
-        or mission.external_wait is not None
         or mission.paused_externally
     ) else 1
 

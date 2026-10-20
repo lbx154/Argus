@@ -45,8 +45,6 @@ class _PlannerIntake(PlanningCycleIntakeMixin):
     def _emit(self, event: dict) -> None:
         self.events.append(event)
 
-    def _deactivate_planner_waiting_contract(self) -> None:
-        return None
 
     def _clear_manager_planner_feedback(self) -> None:
         return None
