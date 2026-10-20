@@ -737,3 +737,21 @@ def test_copilot_wrapper_exposes_real_nvm_binary(
     monkeypatch.setenv("HOME", str(home))
 
     assert sandbox._backend_support_executables(wrapper) == [real.resolve()]
+
+
+def test_a_sandboxed_engineer_may_read_the_skill_libraries_its_prompt_names(tmp_path):
+    """2026-10-20: a safe-mode Engineer was denied the Skill libraries its own
+    prompt told it to search, the packaged ones included."""
+    from argus import SkillLoop, SkillLoopConfig
+    from argus.skills.builtins import builtin_skill_source_path
+
+    handoffs = str(tmp_path / "handoffs")
+    loop = SkillLoop(
+        skills_dir=tmp_path / "skills", engineer_runner=object(),
+        config=SkillLoopConfig(read_dirs=[handoffs]),
+    )
+
+    roots = [str(path) for path in loop.engineer_mission.libraries().library_roots]
+    add_dirs = loop.supervised.engineer_config.add_dirs
+    assert add_dirs == list(dict.fromkeys([handoffs, *roots]))
+    assert str(builtin_skill_source_path().resolve()) in add_dirs
