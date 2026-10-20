@@ -1,10 +1,11 @@
 """The Observer glances at how the work flows and speaks up only when it does not.
 
 Each time another role ends a turn it reads the task's events with the
-Engineer's tools, in a fresh session, says nothing when the flow is fine, and otherwise
-gives the Manager one remark through its supervision; with no Manager, or once
-the task is delivered, the operator gets an alert. A look that fails is skipped
-and never holds up the work.
+Engineer's tools, resuming the task's session and reading only what is new,
+says nothing when the flow is fine, and otherwise gives the Manager one remark
+on that task through its supervision; with no Manager, or once the task is
+delivered, the operator gets an alert. A look that fails is skipped and never
+holds up the work.
 """
 from __future__ import annotations
 
@@ -150,12 +151,34 @@ def test_a_look_reads_the_events_with_the_engineer_s_access_at_low_effort(team, 
     assert team.backend.calls[1]["options"].model == "observer-model"
 
 
-def test_each_look_is_a_fresh_session(team):
+def test_a_task_keeps_one_session_that_reads_only_what_is_new_and_ends_with_it(team):
+    """2026-10-20: every look opened a fresh session and read the task from its
+    start again, paying for the same events at each turn."""
     team.backend.backend = "codex"
     _turn(team)
+    first = time.time()
     _turn(team, "reviewer")
+    _turn(team, "engineer", "m-2")
+    team.feed.log.handle_event({"type": EventType.LIFE_MISSION_COMPLETED, "item_id": "m-1", "status": "done"})
+    _turn(team, "reviewer")
+    _turn(team)
+
+    calls = team.backend.calls
+    assert [call["resume"] for call in calls] == [None, "thread-1", None, "thread-2", None]
+    assert "## Where the record is" in calls[0]["prompt"]
+    again = calls[1]["prompt"]
+    assert again.startswith("## Another look") and "## Where the record is" not in again
+    since = int(again.split("began at ts ", 1)[1].split(".", 1)[0])
+    assert since <= first and "the Reviewer, on task `m-1`" in again
+    # Once its task is delivered, the look after the last resumed one starts afresh.
+    assert "## Where the record is" in calls[4]["prompt"]
+
+
+def test_planning_belongs_to_no_task_and_is_looked_at_afresh(team):
+    team.backend.backend = "codex"
+    _turn(team, "planner")
+    _turn(team, "planner")
     assert [call["resume"] for call in team.backend.calls] == [None, None]
-    assert all("## Where the record is" in call["prompt"] for call in team.backend.calls)
 
 
 def test_it_speaks_the_operator_s_language(team):
@@ -188,8 +211,15 @@ def test_a_remark_goes_to_the_manager_s_supervision(team):
     _turn(team, "planner")
     (note,) = team.feed.notes()
     assert (note["to"], note["agent_layer"], note["text"]) == ("manager", "observer", SPIN.split(": ", 1)[1])
-    assert "operator_alert" not in note
+    assert "operator_alert" not in note and "item_id" not in note
     assert _asked(team).endswith("says: " + note["text"])
+
+
+def test_a_remark_names_the_task_it_was_about(team):
+    team.backend.replies = [SPIN]
+    _turn(team, "engineer", "m-7")
+    (note,) = team.feed.notes()
+    assert note["item_id"] == "m-7"
 
 
 @pytest.mark.parametrize("delivered", [False, True])
@@ -237,9 +267,10 @@ def test_turns_that_end_during_a_look_wait_for_the_next_one_without_holding_up_t
     assert len(team.backend.calls) <= 1
     team.backend.release.set()
     _settle(team)
-    assert len(team.backend.calls) == 2
+    # One look per task: the Reviewer's turn in m-1's session, then planning's.
+    assert len(team.backend.calls) == 3
     assert "the Reviewer, on task" in team.backend.calls[1]["prompt"]
-    assert "the Planner, planning" in team.backend.calls[1]["prompt"]
+    assert "the Planner, planning" in team.backend.calls[2]["prompt"]
 
 
 def test_one_observer_per_project_however_many_supervisors_run_its_missions(team, tmp_path):

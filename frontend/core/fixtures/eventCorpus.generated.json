@@ -248,6 +248,7 @@
     {
       "event": {
         "agent_layer": "observer",
+        "item_id": "task-1",
         "operator_alert": true,
         "payload_schema_version": 1,
         "text": "Renderer event detail",

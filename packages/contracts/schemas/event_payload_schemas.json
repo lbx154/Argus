@@ -741,6 +741,10 @@
           "type": "string",
           "const": "observer"
         },
+        "item_id": {
+          "type": "string",
+          "minLength": 1
+        },
         "to": {
           "type": "string",
           "enum": [

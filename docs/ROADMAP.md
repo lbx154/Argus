@@ -330,17 +330,21 @@ not guess on the model's behalf whether there is progress. The full design is in
 - Do: an Observer role (`observer` in code, shown as 监督者) on the same backends as the others, with the Engineer's
   tools and low reasoning effort. It watches only whether the work flows; whether the work is right stays
   the Reviewer's to judge. Each time the Engineer, Reviewer or Planner ends a turn (each model call of theirs ends
-  one; a delivery ends a turn, so it is covered) it looks once, in a fresh session, at how that task has flowed so
+  one; a delivery ends a turn, so it is covered) it looks once at how that task has flowed so
   far: who held the baton and whom it passed to, how long each turn took and what it cost, a role called again and
   again with nothing new, idling, and drift from the task. Its own turns end none. Its prompt gives only where
   `events.jsonl` is, the task id of each turn that just ended, the event types that carry the flow, and its earlier
-  remarks; it takes the task's events itself with rg and reads nothing else. When the flow is fine it says nothing
+  remarks; it takes the task's events itself with rg and reads nothing else. Within a task it resumes one session,
+  through each backend's own session resume, and each later look gives only the turns since and when the last look
+  began, so it reads only the new events and the rest stays in the cache; the session ends with the task, and
+  planning, which belongs to no task, is looked at afresh. When the flow is fine it says nothing
   and writes no event. Otherwise it writes `→ manager: <one sentence and where it saw it>`, in the operator's
-  language, as one `life.observer.note` event: the Manager hears it through its supervision and decides what to
+  language, as one `life.observer.note` event naming its task: the Manager hears it through its supervision and decides what to
   do; with no Manager, or once the task is delivered, the operator gets it as an alert. It never makes a remark
   twice. A delivery does not wait for it, but a bounded daemon waits for its look at the last turns before it exits.
   Its model is `ARGUS_SKILL_OBSERVER_MODEL`, by default the Reviewer's.
-- Done when: tests show it looks once at each ended turn and never at its own, in a fresh session, reads only the
+- Done when: tests show it looks once at each ended turn and never at its own, resumes the task's session at its
+  second look with a prompt carrying only the new event range, starts afresh once the task ends, reads only the
   events, stays silent when the flow is fine, gives a remark to the Manager's supervision or else alerts the
   operator, never repeats one, and that a failed look leaves the work running.
 - Known gaps: the Manager's turns are not watched yet.
