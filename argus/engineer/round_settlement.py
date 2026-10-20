@@ -10,7 +10,7 @@ from typing import TYPE_CHECKING, Any, Callable
 
 from ..core.event_catalog import EventType
 from ..core.models import LoopStatus, ReviewDecision, RoundRecord, without_routing_judgments
-from .change_facts import change_facts, held_facts, mission_ledger, record_holder
+from .change_facts import change_facts, holds_unchanged, mission_ledger, record_holder
 from .checkpoint import resolve_shared_checkpoint
 from .reviewer_findings import reviewer_authored_rounds
 from .round_config import (
@@ -413,7 +413,7 @@ def _manager_consult(
     ledger = mission_ledger(config.context_packet_path)
     try:
         facts = change_facts(workdir, state_root=config.operator_question_policy_root)
-        if facts == held_facts(ledger, "manager"):
+        if holds_unchanged(ledger, "manager", facts):
             return ""
         record_holder(ledger, "manager", facts, round=round_index, reason=reason)
     except Exception:  # noqa: BLE001 - an unreadable ledger asks rather than stalls

@@ -120,14 +120,21 @@ def test_a_stall_reaches_the_manager_only_when_the_round_loop_asks(admitted):
     assert event["consult_reason"] == "2 rounds without forward progress"
 
 
-def test_the_periodic_check_skips_facts_the_manager_already_holds(admitted, tmp_path):
+def _facts(size: int) -> dict:
+    return {"workspace": [["solver.py", size, 1.0]], "external": [], "operator_revision": 0}
+
+
+@pytest.mark.parametrize(("attention", "first"), [(_not_needed(), 3), ({}, 1)])
+def test_a_look_on_facts_the_manager_already_holds_is_skipped(admitted, tmp_path, attention, first):
+    """The periodic look, and a Reviewer that did not say, ask once per set of facts."""
     ledger = tmp_path / "handoffs" / "lineage-grouped" / "holders.json"
-    record_holder(ledger, "reviewer", {"workspace": [["solver.py", 10, 1.0]]})
-    review = lambda round_index: _review(round_index, holder_ledger=str(ledger), **_not_needed())  # noqa: E731
-    asked = [round_index for round_index in range(1, 11) if admitted(review(round_index))]
-    assert asked == [3]  # the first look; nothing changed after it
-    record_holder(ledger, "reviewer", {"workspace": [["solver.py", 12, 2.0]]})
+    record_holder(ledger, "reviewer", _facts(10))
+    review = lambda round_index: _review(round_index, holder_ledger=str(ledger), **attention)  # noqa: E731
+    assert [round_index for round_index in range(1, 11) if admitted(review(round_index))] == [first]
+    record_holder(ledger, "reviewer", _facts(12))
     assert [round_index for round_index in range(11, 16) if admitted(review(round_index))] == [11]
+    record_holder(ledger, "reviewer", {**_facts(12), "operator_revision": -1})  # unreadable: ask
+    assert admitted(review(16)) is not None
 
 
 def test_a_failed_check_does_not_count_as_the_manager_having_looked(tmp_path):

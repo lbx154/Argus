@@ -20,7 +20,7 @@ from ..core.models import RunnerOptions
 from ..core.run_gateway import run_exec, run_interrupt_scope
 from ..core.workspace_facts import fact_text
 from ..daemon.state import _fsync_directory, compare_and_swap_continuous_config
-from ..engineer.change_facts import held_facts, record_holder
+from ..engineer.change_facts import held_facts, holds_unchanged, record_holder
 from ._helpers import _manager_backend_failure
 from ._session_ops import (
     _ManagerSession,
@@ -1102,7 +1102,10 @@ def _attention_reason(event: dict[str, Any]) -> str:
     if attention == "needed":
         why = " ".join(str(event.get("manager_attention_reason") or "").split())[:200]
         return f"reviewer asks for the Manager: {why}" if why else "reviewer asks for the Manager"
-    return "reviewer did not say whether the Manager is needed"
+    return _UNSTATED_ATTENTION
+
+
+_UNSTATED_ATTENTION = "reviewer did not say whether the Manager is needed"
 
 
 def _review_consult_reason(root: Path, event: dict[str, Any]) -> str:
@@ -1116,6 +1119,9 @@ def _review_consult_reason(root: Path, event: dict[str, Any]) -> str:
     a missing or unusable verdict, and a pending Manager decision. A run of
     no-progress verdicts reaches the Manager through ``round.stall``, and the
     Manager judges at least every ``REVIEW_CHECKPOINT_ROUNDS`` reviewed rounds.
+    A Reviewer that did not say, and the periodic look, ask only on facts the
+    Manager has not yet been asked on: on the same facts it could only repeat
+    its last ruling.
     """
     if event.get("status") == "blocked":
         return "blocked review"
@@ -1124,6 +1130,10 @@ def _review_consult_reason(root: Path, event: dict[str, Any]) -> str:
     if _flag(event.get("review_skipped")) or _flag(event.get("backend_unavailable")):
         return "review verdict unavailable"
     reason = _safety_net(root) or _attention_reason(event)
+    if reason and reason != _UNSTATED_ATTENTION:
+        return reason
+    if not _reviewed_facts_are_news(event):
+        return ""
     if reason:
         return reason
     # A sparse check that does not depend on the Reviewer being right: within a
@@ -1132,7 +1142,7 @@ def _review_consult_reason(root: Path, event: dict[str, Any]) -> str:
     round_index = _round(event.get("round_index"))
     item_id = str(event.get("item_id") or "")
     last = _last_look(root, item_id, attempt=_attempt_key(root, item_id), round_index=round_index)
-    if round_index - last >= REVIEW_CHECKPOINT_ROUNDS and _reviewed_facts_are_news(event):
+    if round_index - last >= REVIEW_CHECKPOINT_ROUNDS:
         return "periodic checkpoint"
     return ""
 
@@ -1146,8 +1156,10 @@ def _reviewed_facts_are_news(event: dict[str, Any]) -> bool:
     ledger = str(event.get("holder_ledger") or "")
     if not ledger:
         return True
-    reviewed = held_facts(Path(ledger), "reviewer")
-    return reviewed is None or reviewed != held_facts(Path(ledger), "manager")
+    try:
+        return not holds_unchanged(Path(ledger), "manager", held_facts(Path(ledger), "reviewer"))
+    except (KeyError, TypeError):  # no readable reviewed facts: unknown, so ask
+        return True
 
 
 def _hold_reviewed_facts(ledger: Path, event: dict[str, Any]) -> None:
