@@ -6,20 +6,23 @@ The index stores lexical terms/vectors, never an authoritative copy of the prose
 
 Recall reads four tiers of knowledge: this project's Wiki and Skills, the
 shared Wiki of the project's vertical (with its ``principles.md``), the
-host-wide shared Wiki, and -- on a single-operator host -- the Wikis of earlier
-projects of the same vertical. Every shown page is described (title,
-description, kind, source, date) so a role can decide whether to open it, and
-every recall is noted in the knowledge journal and the project event stream.
+host-wide shared Wiki, and -- on a single-operator host -- the Wikis and
+Skills of earlier projects of the same vertical. Every shown page is described
+(title, description, kind, source, date) so a role can decide whether to open
+it, and every recall is noted in the knowledge journal and the project event
+stream.
 """
 from __future__ import annotations
 
 import datetime as _dt
+import json
 import logging
 import os
 import re
 from collections import Counter
 from collections.abc import Callable
 from dataclasses import dataclass
+from itertools import islice
 from pathlib import Path
 from typing import Any
 
@@ -44,9 +47,9 @@ _PAGE_KINDS = ("fact", "lesson", "survey", "principles", "note", "profile", "pag
 _SCOPES = ("project", "vertical", "global")
 _DESCRIPTION_CHARS = 160
 _FRONT_MATTER_CHARS = 4000
-_MAX_SIBLING_WIKIS = 8
-_MAX_SIBLING_WORKSPACES = 64
-_MAX_WORKSPACE_ENTRIES = 256
+_MAX_SIBLING_ROOTS = 12
+_MAX_SIBLING_PROJECTS = 64
+_MAX_PROJECT_ENTRIES = 256
 _OBJECTIVE_EXCERPT_CHARS = 200
 # Read through the knob resolver rather than the hosted-trial client: the
 # runtime layer may not import the delivery layer, and both read this switch.
@@ -354,7 +357,7 @@ def _bounded_wiki_roots(workspace: Path) -> list[Path]:
 
 
 def _sibling_wikis_enabled() -> bool:
-    """Other projects' Wikis are read only on a single-operator host with learning on."""
+    """Other projects' Wikis and Skills are read only on a single-operator host with learning on."""
     try:
         from ..core.knobs import learning_enabled, resolve_knob
 
@@ -372,49 +375,61 @@ def _same_path(left: Path, right: Path) -> bool:
         return False
 
 
-def _sibling_wiki_roots(global_root: Path, workspace: Path, vertical: str) -> list[tuple[str, Path]]:
-    """Wikis of earlier workspaces whose persisted state names the same vertical, newest first."""
-    if not vertical:
-        return []
-    workspaces = global_root / "workspaces"
-    if not _contained(workspaces, global_root) or not workspaces.is_dir():
+def _sibling_roots(global_root: Path, state: Path, workspace: Path, vertical: str) -> list[KnowledgeRoot]:
+    """Wikis and Skills of earlier projects of ``vertical``, newest first.
+
+    A project is read where the host keeps it: the Manager's pipeline state
+    and record in its state directory under ``projects/``, its Wikis and Agent
+    Skills in the workspace its session names. Of the state directory only the
+    Engineer procedures are read; a project's SELF and Manager Skills hold its
+    operator's preferences and stay in it.
+    """
+    projects = global_root / "projects"
+    if not vertical or not _contained(projects, global_root) or not projects.is_dir():
         return []
     candidates: list[tuple[float, Path]] = []
     try:
-        with os.scandir(workspaces) as entries:
-            for _ in range(_MAX_WORKSPACE_ENTRIES):
-                try:
-                    entry = next(entries)
-                except StopIteration:
-                    break
+        with os.scandir(projects) as entries:
+            for entry in islice(entries, _MAX_PROJECT_ENTRIES):
                 if entry.name.startswith(".") or entry.is_symlink() or not entry.is_dir(follow_symlinks=False):
                     continue
-                candidate = workspaces / entry.name
-                if _same_path(candidate, workspace):
+                candidate = projects / entry.name
+                if _same_path(candidate, state):
                     continue
-                state = candidate / ".argus" / "PIPELINE_STATE.json"
                 try:
-                    if state.is_symlink() or not state.is_file():
-                        continue
-                    modified = state.stat().st_mtime
+                    candidates.append((entry.stat(follow_symlinks=False).st_mtime, candidate))
                 except OSError:
                     continue
-                candidates.append((modified, candidate))
     except OSError:
         return []
     candidates.sort(key=lambda row: (-row[0], str(row[1])))
-    from ..skills.vertical_select import resolve_skill_scope
+    from ..core.session import SESSION_META_FILE, SessionMeta, resolve_session_workdir
 
-    roots: list[tuple[str, Path]] = []
-    for _modified, candidate in candidates[:_MAX_SIBLING_WORKSPACES]:
+    roots: list[KnowledgeRoot] = []
+    for _modified, candidate in candidates[:_MAX_SIBLING_PROJECTS]:
+        sid = candidate.name
         try:
-            if resolve_skill_scope(candidate) != vertical:
-                continue
-        except Exception:  # noqa: BLE001 - another project's state is read, never repaired
+            meta: SessionMeta | None = SessionMeta.from_dict(
+                json.loads((candidate / SESSION_META_FILE).read_text(encoding="utf-8")))
+        except (OSError, ValueError, AttributeError):
+            meta = None
+        try:
+            # Another project's state is read, never repaired.
+            sibling = resolve_session_workdir(meta, state_dir=candidate)
+        except (OSError, RuntimeError, ValueError):
             continue
-        for wiki in _bounded_wiki_roots(candidate):
-            roots.append((wiki.parent.name, wiki))
-            if len(roots) >= _MAX_SIBLING_WIKIS:
+        if _resolve_vertical(sibling, candidate) != vertical or _same_path(sibling, workspace):
+            continue
+        found = [(f"earlier project Wiki ({sid})", wiki / "pages", sibling, wiki)
+                 for wiki in _bounded_wiki_roots(sibling)]
+        found += [(f"earlier project Skill ({sid})", path, boundary, None)
+                  for path, boundary in ((candidate / "skills" / "engineer", candidate),
+                                         (sibling / ".agents" / "skills", sibling))
+                  if path.is_dir()]
+        for kind, path, boundary, library in found:
+            roots.append(KnowledgeRoot(kind, path, boundary, scope="project", vertical=vertical,
+                                       library=library, source=sid))
+            if len(roots) >= _MAX_SIBLING_ROOTS:
                 return roots
     return roots
 
@@ -748,11 +763,7 @@ def knowledge_recall_for_memory(memory: Any, *, worktree: Path | None = None,
         # should fit the person before it fits the field.
         roots[0:0] = _operator_roots(global_root)
         if workspace is not None and vertical and _sibling_wikis_enabled():
-            for sid, wiki in _sibling_wiki_roots(global_root, workspace, vertical):
-                roots.append(KnowledgeRoot(
-                    f"earlier project Wiki ({sid})", wiki / "pages", global_root,
-                    scope="project", vertical=vertical, library=wiki, source=sid,
-                ))
+            roots.extend(_sibling_roots(global_root, state, workspace, vertical))
     # A subordinate can keep its derived index isolated while using the same
     # explicit canonical source and embedding policy/budget as its parent.
     from .recall_embedding import configured_embedder
