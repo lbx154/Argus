@@ -21,6 +21,7 @@ from collections.abc import Mapping
 from dataclasses import dataclass
 from typing import Any, Literal, Sequence
 
+from ..core.role_handoff import read_baton_line
 from ..roles.prompts.manager import (
     build_research_target_prompt,
     build_vertical_decision_prompt,
@@ -540,6 +541,9 @@ class VerticalDecision:
     session_title: str = ""
     workflow_profile: str = ""
     workflow_requested_stages: tuple[str, ...] = ()
+    # ``→ operator: <question>``: the operator decides before any work starts,
+    # so the task waits on this question instead of being dispatched.
+    operator_question: str = ""
 
 
 @dataclass(frozen=True)
@@ -959,6 +963,8 @@ def parse_vertical_decision(
     live_view_decided = "live_view" in obj and (
         obj.get("live_view") is None or parsed_live_view is not None
     )
+    handoff = read_baton_line(raw_text) if isinstance(raw_text, str) else None
+    operator_question = handoff.question if handoff is not None else ""
     choice = str(obj.get("choice") or "").strip().lower()
     if choice == "existing":
         identity = _resolve_existing_identity(
@@ -1048,6 +1054,7 @@ def parse_vertical_decision(
                 precise_constraints=stated,
                 exclusions=exclusions,
                 ambiguities=ambiguities,
+                operator_question=operator_question,
             )
         return None
     if choice == "new":
@@ -1087,5 +1094,6 @@ def parse_vertical_decision(
             precise_constraints=stated,
             exclusions=exclusions,
             ambiguities=ambiguities,
+            operator_question=operator_question,
         )
     return None

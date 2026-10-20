@@ -1559,6 +1559,12 @@ def test_dispatch_ack_names_the_task_in_the_operator_language(tmp_path: Path) ->
     text = record_task_dispatch_ack("s-ack", result, global_root=tmp_path)
     assert text == "Queued; waiting for the executor to pick it up: Write the release notes"
 
+    result = {"kind": "task", "daemon_alive": True, "daemon": None,
+              "item": {"id": "t3", "title": "改 truncate", "status": "parked",
+                       "pending_question": "选 A 还是 B？"}}
+    text = record_task_dispatch_ack("s-ack", result, global_root=tmp_path)
+    assert text == "开始之前需要你决定：改 truncate\n选 A 还是 B？"
+
 
 @pytest.mark.parametrize("planner_pending", [False, True])
 def test_dispatch_ack_uses_operator_language_when_manager_rewrites_the_title(tmp_path, planner_pending):

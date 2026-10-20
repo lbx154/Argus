@@ -569,7 +569,11 @@ def build_vertical_decision_prompt(
             "RATIONALE=brief reason"
         )
         + "\n"
-        "Do not invent constraints or missing numbers; report uncertainty.\n\n"
+        "Do not invent constraints or missing numbers; report uncertainty.\n"
+        "If the operator must decide something before any work can start, such as "
+        "a choice they reserved or requirements that contradict each other, end "
+        "with `→ operator: <one question>`: the task then waits for their answer "
+        "instead of starting.\n\n"
         "## Built-in verticals\n"
         f"{menu}\n\n"
         "## Optional research domains\n"

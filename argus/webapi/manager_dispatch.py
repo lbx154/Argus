@@ -227,6 +227,7 @@ def _item_to_dict(item: Any, fallback_title: str) -> dict[str, Any] | None:
             "id": getattr(item, "id", None),
             "title": getattr(item, "title", fallback_title),
             "status": getattr(item, "status", "pending"),
+            "pending_question": getattr(item, "pending_question", ""),
         }
 
 

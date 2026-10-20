@@ -334,6 +334,22 @@ def enqueue_mission(
             original_objective=execution_body,
             manager_decision=manager_decision,
         )
+        question = str(getattr(prepared_handoff.decision, "operator_question", "") or "")
+        if question:
+            # Only the operator can decide before this work starts: it waits on
+            # their answer, which continues it like any parked question.
+            from ..core.operator_decision import build_operator_decision
+            from ..life.memory import _park
+
+            item.pending_question = question
+            item.operator_decision = build_operator_decision(
+                item_id=item.id,
+                title=item.title,
+                reason=str(getattr(prepared_handoff.decision, "adaptation_reason", "") or question),
+                question=question,
+                project_id=life_dir.name,
+            )
+            _park(item, "operator_question")
         try:
             mem.backlog.add(item)
         except OSError as exc:
@@ -357,7 +373,16 @@ def enqueue_mission(
             }
             if not direct:
                 event["operator_priority"] = True
-            JsonlEventSink(None, life_dir=life_dir).append(event)
+            sink = JsonlEventSink(None, life_dir=life_dir)
+            sink.append(event)
+            if question:
+                sink.append({
+                    "type": "life.operator_question.pending",
+                    "item_id": item.id,
+                    "title": item.title,
+                    "question": question,
+                    "agent_layer": "manager",
+                })
         except Exception:  # noqa: BLE001 - backlog persistence is authoritative
             pass
         return item
