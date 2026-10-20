@@ -92,8 +92,24 @@ class OperatorDeliveryCapacityError(OperatorContextCapacityError):
     """Replay metadata is full; the source must retain its pending delivery."""
 
 
-# Heading of tools/subagent/_reporting.py completion reports.
+# Heading of tools/subagent/_reporting.py completion reports. They reach the
+# inbox as ephemeral host reports since db79822a, so only an idle copy stored
+# before then is one the ledger kept on Argus's own behalf; a later one is text
+# the operator pasted, possibly with an instruction after it.
 _LEGACY_SUBAGENT_REPORT_PREFIX = "## Subagent Report:"
+_HOST_REPORTS_EPHEMERAL_SINCE = datetime(2026, 9, 30, 9, 58, 20, tzinfo=timezone.utc)
+
+
+def _legacy_subagent_report(record: DirectiveRecord) -> bool:
+    if not record.text.startswith(_LEGACY_SUBAGENT_REPORT_PREFIX):
+        return False
+    try:
+        created = datetime.fromisoformat(str(record.created_at).replace("Z", "+00:00"))
+    except ValueError:
+        return False
+    if created.tzinfo is None:
+        created = created.replace(tzinfo=timezone.utc)
+    return created < _HOST_REPORTS_EPHEMERAL_SINCE
 
 
 def operator_context_state_root(memory: Any) -> Path:
@@ -819,11 +835,10 @@ class OperatorContextStore:
                             # Planner declares the increment that handles it.
                             if record.revision in settled:
                                 continue
-                            # Subagent reports reach the inbox as ephemeral host
-                            # reports now (apps/_inbox_delivery.py); one stored here
-                            # predates that, was delivered long ago, and no Planner
+                            # A report stored before host reports became
+                            # ephemeral was delivered long ago, and no Planner
                             # decision ever settles a report another job wrote.
-                            if record.text.startswith(_LEGACY_SUBAGENT_REPORT_PREFIX):
+                            if _legacy_subagent_report(record):
                                 continue
                             idle_revisions.add(record.revision)
                     if record.lifetime == "once" and consume_once:
