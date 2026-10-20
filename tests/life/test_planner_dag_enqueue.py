@@ -640,14 +640,10 @@ def test_all_filtered_tasks_persist_feedback_for_next_planner_cycle() -> None:
         reason="the existing review is stale",
         retire_tasks=[],
     )
-    state.skipped_certification_reproposal_titles = ["Refresh paper review"]
-    state.skipped_certification_reproposal_reasons = [
-        "manuscript is unfrozen; staleness is a planning fact"
-    ]
     state.skipped_task_feedback = [{
         "title": "Refresh paper review",
-        "category": "paper_review_purchase_deferred",
-        "reason": "manuscript is unfrozen; staleness is a planning fact",
+        "category": "vertical_task_policy",
+        "reason": "the task names no stage deliverable",
     }]
 
     assert Harness()._pc_emit_final_verdict(state) == PLAN_RETRY
@@ -655,8 +651,8 @@ def test_all_filtered_tasks_persist_feedback_for_next_planner_cycle() -> None:
         "stage": "analysis",
         "reason": (
             "Supervisor filtered every task in the previous Planner proposal:\n"
-            "- [paper_review_purchase_deferred] Refresh paper review: "
-            "manuscript is unfrozen; staleness is a planning fact"
+            "- [vertical_task_policy] Refresh paper review: "
+            "the task names no stage deliverable"
         ),
         "diagnostic": "planner_tasks_filtered",
     }]

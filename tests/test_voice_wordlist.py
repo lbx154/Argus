@@ -61,7 +61,6 @@ VOICE_CLEAN_FILES: tuple[str, ...] = (
     "argus/verticals/research/paper_layout_review.py",
     "argus/verticals/research/pipeline_figure.py",
     "argus/verticals/research/prompt_policy.py",
-    "argus/verticals/research/review_purchase.py",
     "argus/verticals/research/venue_profiles.py",
     "argus/verticals/math/citation_check.py",
     "argus/verticals/math/context_projection.py",

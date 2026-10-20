@@ -24,9 +24,6 @@ from argus.life.supervisor._planning_cycle_helpers import (
 from argus.life.terminal_state import build_project_state_signature
 from argus.planner import PlannerVerdict
 from argus.skills.vertical_select import persist_vertical
-from argus.verticals.research.review_purchase import (
-    paper_review_purchase_defer_reason,
-)
 
 
 class _CompletingManager:
@@ -290,11 +287,11 @@ def test_completion_uses_separate_execution_workdir(
 
 
 @pytest.mark.parametrize("changed_path", ["paper/main.tex", "paper/main.pdf"])
-def test_existing_final_review_closes_gate_without_repurchase(
+def test_existing_final_review_closes_gate(
     tmp_path: Path,
     changed_path: str,
 ) -> None:
-    supervisor, project, item = _make_final_review(
+    supervisor, project, _item = _make_final_review(
         tmp_path,
         scope="final_submission",
     )
@@ -302,19 +299,6 @@ def test_existing_final_review_closes_gate_without_repurchase(
     assert _research_project_done_issue(
         project, supervisor.memory.journal.all()
     ) == "missing_exploratory_reviewer_certification"
-    assert "prior paper-wide review task already completed" in (
-        paper_review_purchase_defer_reason(
-            SimpleNamespace(
-                title="Final paper review",
-                objective="Run the final submission review.",
-                acceptance_check="Independent Reviewer returns done.",
-            ),
-            vertical="research",
-            project_root=project,
-            existing_items=[item],
-        )
-    )
-
     assert supervisor._reconcile_reviewed_stage_empty_plan(None) == "complete"
     assert _research_project_done_issue(
         project, supervisor.memory.journal.all()

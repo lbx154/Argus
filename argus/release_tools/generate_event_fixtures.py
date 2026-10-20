@@ -179,11 +179,6 @@ def _corpus() -> dict[str, Any]:
             "type": "engineer.progress", "kind": "command_execution", "agent_layer": "engineer",
             "status": "failed", "text": "npm test", "action_summary": "run tests",
         }),
-        _fixture("life.planner.task_skipped.review-purchase-deferred", {
-            "type": "life.planner.task_skipped", "title": "Purchase another paper review",
-            "objective": "Repeat certification review", "skip_category": "paper_review_purchase_deferred",
-            "reason": "the current manuscript already has a completed independent review",
-        }),
         _fixture("life.planner.waiting.waiting-resource", {
             "type": "life.planner.waiting", "cycle": 2,
             "reason": "subagent state waiting_resource is a healthy resource wait",

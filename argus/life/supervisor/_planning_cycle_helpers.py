@@ -468,8 +468,6 @@ class _PlanCycleState:
         # for tasks that actually commit, so dedup-skipped proposals do not
         # spam the journal on replan loops.
         self.dropped_parallel: list[tuple[str, str]] = []
-        self.skipped_certification_reproposal_titles: list[str] = []
-        self.skipped_certification_reproposal_reasons: list[str] = []
         self.skipped_subagent_family_failure_titles: list[str] = []
         self.skipped_task_feedback: list[dict[str, str]] = []
         self.new_plan_id: str = ""
