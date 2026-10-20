@@ -335,6 +335,34 @@ role names in the operator's language, and Markdown decoration do not matter. A
 missing or unreadable line never ends a mission and never means `done`. A
 changed candidate goes to the Reviewer, and an unchanged one climbs.
 
+### The Observer
+
+The baton moves between the four roles, the operator, and the world. The Observer
+never holds it. It is the person who used to sit beside the screen: it watches how
+the holders work, and when something is off (a role going round in circles, a
+claim the record does not bear out, a wait on something already gone, a course
+drifting from the task, spending that outruns change) it says one sentence to
+whoever can act on it. It decides nothing: the Reviewer still accepts
+candidates, and stopping a mission is still the Manager's or the operator's.
+
+A remark is written like a baton line,
+`→ engineer|planner|reviewer|manager|operator: <sentence and where it was seen>`,
+but it moves nothing. It enters the handoff as input for whoever it names:
+
+- the Engineer, Planner, or Reviewer reads it in its next prompt, brought by the
+  operator's channel and marked as the Observer's, not as an operator
+  instruction; it weighs the remark like any other evidence;
+- the Manager hears it through its supervision, as news reported once, like a
+  stalled turn, and decides whether to steer, pause, or stop;
+- the operator gets an alert.
+
+Each remark is one `life.observer.note` event; when all is well there is none.
+A remark advances the operator context, so under invariant 3 it is new operator
+input and the holder is asked once more; it never counts as a change of the
+candidate. The
+Observer is woken only by the other roles' calls and spending and never repeats
+a remark, so it cannot keep a handoff going on its own.
+
 ## What is deleted
 
 Removed once the replacement is in place, each in its own roadmap item:

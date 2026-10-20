@@ -199,6 +199,15 @@ export interface LifeManagerSupervisionFailedEvent extends EventMsg {
   "backend_exit_code"?: number;
 }
 
+export interface LifeObserverNoteEvent extends EventMsg {
+  type: "life.observer.note";
+  payload_schema_version?: 1;
+  "agent_layer": "observer";
+  "to": "engineer" | "planner" | "reviewer" | "manager" | "operator";
+  "text": string;
+  "operator_alert"?: boolean;
+}
+
 export interface AgentIoStartEvent extends EventMsg {
   type: "agent.io.start";
   payload_schema_version?: 1;
@@ -2147,6 +2156,7 @@ export interface EventPayloadByType {
   "life.manager.supervision.issued": LifeManagerSupervisionIssuedEvent;
   "life.manager.supervision.applied": LifeManagerSupervisionAppliedEvent;
   "life.manager.supervision.failed": LifeManagerSupervisionFailedEvent;
+  "life.observer.note": LifeObserverNoteEvent;
   "agent.io.start": AgentIoStartEvent;
   "agent.io.stream": AgentIoStreamEvent;
   "agent.io.complete": AgentIoCompleteEvent;

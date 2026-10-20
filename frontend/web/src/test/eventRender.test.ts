@@ -32,6 +32,12 @@ describe('the web feed line', () => {
     expect(line({ ...proposal, type: 'life.manager.supervision.applied' })?.text).toBe(proposal.summary);
     expect(line({ ...proposal, type: 'life.manager.supervision.failed', status: 'superseded' })?.text).not.toContain('Repeat both runs');
   });
+  it('shows a remark of the Observer with whom it is for, under its own name', () => {
+    const remark = { type: 'life.observer.note', agent_layer: 'observer', to: 'planner', text: 'you woke 14 times on the same running job' };
+    expect(zh(remark)).toMatchObject({ role: 'observer', label: '监督者', text: '对Planner：you woke 14 times on the same running job' });
+    expect(line({ ...remark, to: 'operator', operator_alert: true })).toMatchObject({ label: 'Observer', text: 'to You: you woke 14 times on the same running job' });
+    expect(activeGuardianAlert([{ ...remark, to: 'operator', operator_alert: true } as EventMsg])?.tone).toBe('block');
+  });
   it('hides raw CLI framing, telemetry and unknown types (the noise)', () => {
     expect(line({ type: 'agent.io.stream', text: 'raw' })).toBeNull();
     expect(line({ type: 'agent.io.start' })).toBeNull();

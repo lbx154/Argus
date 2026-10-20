@@ -51,6 +51,7 @@ class EventType(StrEnum):
     LIFE_MANAGER_SUPERVISION_ISSUED = "life.manager.supervision.issued"
     LIFE_MANAGER_SUPERVISION_APPLIED = "life.manager.supervision.applied"
     LIFE_MANAGER_SUPERVISION_FAILED = "life.manager.supervision.failed"
+    LIFE_OBSERVER_NOTE = "life.observer.note"
     LIFE_PEER_MESSAGE_PROCESSED = "life.peer.message.processed"
     LIFE_CONFIG_PARSE_FAILED = "life.config.parse_failed"
     AGENT_IO_START = "agent.io.start"
@@ -262,6 +263,7 @@ SIGNAL_EVENT_TYPES: frozenset[str] = frozenset({
     EventType.ADVISOR_CONSULTATION_MODEL_MISMATCH,
     EventType.LIFE_MANAGER_SUPERVISION_APPLIED,
     EventType.LIFE_MANAGER_SUPERVISION_FAILED,
+    EventType.LIFE_OBSERVER_NOTE,
     EventType.LIFE_PEER_MESSAGE_PROCESSED,
     EventType.LIFE_CONFIG_PARSE_FAILED,
     # One line per role per boot, and the exact line an operator needs when a

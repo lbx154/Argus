@@ -136,7 +136,9 @@ class LifeSupervisor(
 
         # Roles this supervisor starts may not change this project's control state.
         orchestrate_state_root(getattr(self.memory, "project_root", None) or getattr(self.memory, "root", None))
-        self.sink = SupervisionSink(sink, self)
+        from ..observer import ObserverSink
+
+        self.sink = ObserverSink(SupervisionSink(sink, self), self)
         self.config = config or LifeSupervisorConfig()
         self.engineer_model = engineer_model
         self.reviewer_model = reviewer_model

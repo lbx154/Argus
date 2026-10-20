@@ -161,6 +161,18 @@ def decision_engineer_handoff(payload: Mapping[str, object]) -> EngineerHandoff:
     )
 
 
+def baton_lines(text: str) -> list[tuple[str, str]]:
+    """Every ``→ <holder>[: <argument>]`` line of ``text``, in order.
+
+    The holder is normalized, and "" when it is not one of the seven.
+    """
+    return [
+        (_HOLDERS.get(match["owner"].casefold(), ""), (match["arg"] or "").strip())
+        for match in map(_baton, str(text or "").splitlines())
+        if match
+    ]
+
+
 def read_baton_line(text: str) -> EngineerHandoff | None:
     """The handoff a closing ``→ <holder>`` line names, or ``None`` without one.
 
@@ -176,11 +188,7 @@ def read_baton_line(text: str) -> EngineerHandoff | None:
     lines = [line for line in footer.splitlines() if line.strip()]
     if footer == str(text or ""):
         lines = lines[-5:]
-    named = {
-        (_HOLDERS.get(match["owner"].casefold(), ""), (match["arg"] or "").strip())
-        for match in map(_baton, lines)
-        if match
-    }
+    named = set(baton_lines("\n".join(lines)))
     if not named:
         return None
     fallback = EngineerHandoff("reviewer", source="default")
@@ -242,6 +250,7 @@ __all__ = [
     "FOOTER_KEYS",
     "EngineerHandoff",
     "HandoffOwner",
+    "baton_lines",
     "decision_engineer_handoff",
     "parse_engineer_handoff",
     "read_baton_line",

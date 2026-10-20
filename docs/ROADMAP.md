@@ -65,7 +65,7 @@ To be honest: Argus can already do a lot, but it is still a good distance from t
 | --- | --- | --- | --- |
 | **0.2** | Stop making mistakes first | We have a baseline to measure everything; the most wasteful reviews and the most dangerous hole are closed first; CI no longer lets type and frontend problems through | HO-1–6, HO-15, SE-1–2, CI-1–2, CO-1, CO-3, CE-1–2, EV-4, LE-5, RL-4, SC-14 |
 | **0.3** | Results you can trust | The Reviewer looks at the real change and judges against acceptance criteria; who said what is on record; research numbers are checked by the host; we can measure how many errors the Reviewer lets through | HO-7–11, SC-1–5, SC-7–9, SC-11, EV-3 |
-| **0.4** | Fast, cheap, and provably so | A public comparison table against using an Agent directly; cost is visible and budgets can be set; review happens only when work is handed in | HO-12–13, HO-16, CE-3–8, EV-1–2, EV-5–6, CI-8 |
+| **0.4** | Fast, cheap, and provably so | A public comparison table against using an Agent directly; cost is visible and budgets can be set; review happens only when work is handed in | HO-12–13, HO-16–17, CE-3–8, EV-1–2, EV-5–6, CI-8 |
 | **0.5** | Anyone can get started | A new machine on any of the three platforms gets a result in 10 minutes; Windows works natively; interrupted uploads resume | UX-1–4, UX-6, CI-4–7, CI-10 |
 | **0.6** | Safe for many users | Accounts, project isolation, a fixed address, data that can be exported and deleted; nothing is lost when you switch devices; passes the security review | SE-3–6, SE-8, UX-5, UX-7–9, UX-11, UX-13 |
 | **0.7** | An ecosystem you can rely on | The code structure makes sense; the domain SDK has a public version; old data upgrades | CO-4–13, EC-1–2, EC-4–6, EC-10–11, RA-10–11, RL-1–2, HO-14 |
@@ -292,6 +292,27 @@ not guess on the model's behalf whether there is progress. The full design is in
   of model calls made without a change never exceeds the height of the ladder.
 - Can be split into: HO-16a read the line leniently (an unreadable line never means done); HO-16b merge the pause
   states; HO-16c host-supplied wait deadlines; HO-16d unchanged return climbs; HO-16e delete the old footers and states.
+
+#### HO-17 The Observer: watching in the person's place
+`0.4` · `M` · Depends on: HO-16
+- Today: nobody notices when a role goes round in circles, reports a test it never ran, waits on a job that already
+  died, drifts off the task, or spends too fast, unless someone happens to read the project logs. On the live trial
+  that someone was Claude Code, which found the Planner idling every five minutes.
+- Do: an Observer role (`observer` in code, shown as 监督者) on the same backends as the others, with the Reviewer's
+  read-only tools. It wakes only for work: after `ARGUS_SKILL_OBSERVER_CALLS` (10) model calls or
+  `ARGUS_SKILL_OBSERVER_SPEND_USD` ($2) of spending by the other roles since its last look, counted from
+  `usage.jsonl`, and once more when a result is delivered. Its own calls never count; with nothing new it never
+  wakes. Its prompt gives only where the record is (`events.jsonl`, `agent_io.jsonl`, `usage.jsonl`), where it
+  stopped and why it is called; it searches the rest itself and checks what the roles said against what they did.
+  Its persistent role session lets it read on from where it stopped. When all is well it says nothing and writes no
+  event. Otherwise it writes `→ engineer|planner|reviewer|manager|operator: <one sentence and where it saw it>`: a
+  role reads it in its next prompt through the operator's channel, marked as the Observer's; the Manager hears it
+  through its supervision and decides whether to pause; the operator gets an alert. Each remark is one
+  `life.observer.note` event and is never made twice. Its model is `ARGUS_SKILL_OBSERVER_MODEL`, by default the
+  Reviewer's.
+- Done when: tests show it does not wake without new work, wakes once at a threshold, stays silent when all is well,
+  delivers a remark marked as its own, never repeats one, and that a failed look leaves the work running.
+- Status: implemented on `feat/observer`; not yet merged or run on a live project.
 ---
 
 ### Theme CO: Reliability and the core — failures you can see, a structure you can follow

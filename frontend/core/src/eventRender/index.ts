@@ -296,6 +296,11 @@ export function renderEvent(event: TypedArgusEvent, context: RenderContext): Ren
       return model('manager', 'role.manager', '🧭', stringField(event, 'summary') || stringField(event, 'reason'), 'info', { expandable: true, rule: true });
     case 'life.peer.message.processed':
       return model('manager', 'role.peer', '↔', stringField(event, 'text'), 'info', { expandable: true });
+    case 'life.observer.note': {
+      const to = renderLabel(`role.${stringField(event, 'to')}`, context.locale);
+      const text = stringField(event, 'text');
+      return model('observer', 'role.observer', '👁', localized(context, `to ${to}: ${text}`, `对${to}：${text}`), 'warn', { expandable: true });
+    }
     case 'life.manager.supervision.failed': {
       const failure = supervisionFailure(event, context);
       return model('manager', 'role.manager', '🧭', failure.text, failure.tone, { expandable: true });
@@ -671,6 +676,7 @@ const LABELS: Record<string, [english: string, chinese: string]> = {
   'role.engineer': ['Engineer', 'Engineer'],
   'role.reviewer': ['Reviewer', 'Reviewer'],
   'role.advisor': ['Advisor', '顾问'],
+  'role.observer': ['Observer', '监督者'],
   'role.peer': ['Project exchange', '项目交流'],
   'role.critic': ['Critic', 'Critic'],
   'role.system': ['Argus', 'Argus'],

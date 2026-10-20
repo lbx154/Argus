@@ -127,6 +127,7 @@ KNOBS: tuple[Knob, ...] = (
     Knob("ARGUS_SKILL_MAP_RETRY_SECONDS", "300", "cross-tab cooldown after a failed map generation (1-3600 seconds)", "map", cockpit=True),
     Knob("ARGUS_SKILL_REVIEWER_MODEL", "auto", "model for the L2 reviewer; auto uses the selected backend's default", "models", cockpit=True),
     Knob("ARGUS_SKILL_SUPERVISOR_MODEL", "auto", "model for supervised subagent health decisions; auto uses the selected backend's default", "models", cockpit=True),
+    Knob("ARGUS_SKILL_OBSERVER_MODEL", "auto", "model for the Observer, who watches how the team works and speaks up when something is off; auto follows the Reviewer model", "models", cockpit=True),
     Knob("ARGUS_SKILL_PLAN_MODEL", "auto", "model for the L4 planner; auto uses the selected backend's default", "models", cockpit=True),
     Knob("ARGUS_SKILL_PLAN_PREVIEW_MODEL", "auto", "interactive /plan model: gpt-5.4-mini on copilot (follows an environment model of auto), planner model otherwise; set an id to override", "models"),
     Knob("ARGUS_SKILL_REWRITE_MODEL", "auto", "interactive prompt rewrite model: gpt-5.5 on copilot (follows an environment model of auto), Manager model otherwise; set an id to override", "models"),
@@ -187,6 +188,8 @@ KNOBS: tuple[Knob, ...] = (
         "mission",
     ),
     Knob("ARGUS_SKILL_MAX_ROUNDS", "0", "optional engineer-round cap per mission; disabled by default", "mission"),
+    Knob("ARGUS_SKILL_OBSERVER_CALLS", "10", "model calls by the other roles since the Observer last looked that wake it to look again; 0 turns this trigger off", "mission"),
+    Knob("ARGUS_SKILL_OBSERVER_SPEND_USD", "2", "spend in USD by the other roles since the Observer last looked that wakes it; 0 turns this trigger off, and with both at 0 the Observer never looks", "mission"),
     Knob(
         "ARGUS_SKILL_VENUE_REVIEW_MAX_ROUNDS",
         "6",

@@ -729,6 +729,37 @@
         }
       }
     },
+    "life.observer.note": {
+      "version": 1,
+      "required": [
+        "agent_layer",
+        "to",
+        "text"
+      ],
+      "properties": {
+        "agent_layer": {
+          "type": "string",
+          "const": "observer"
+        },
+        "to": {
+          "type": "string",
+          "enum": [
+            "engineer",
+            "planner",
+            "reviewer",
+            "manager",
+            "operator"
+          ]
+        },
+        "text": {
+          "type": "string",
+          "minLength": 1
+        },
+        "operator_alert": {
+          "type": "boolean"
+        }
+      }
+    },
     "agent.io.start": {
       "version": 1,
       "required": [
