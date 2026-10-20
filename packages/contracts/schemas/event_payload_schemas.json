@@ -4563,36 +4563,6 @@
         }
       }
     },
-    "life.research.second_reading": {
-      "version": 1,
-      "properties": {
-        "stage": {
-          "type": "string"
-        },
-        "refuted": {
-          "type": "string"
-        },
-        "supported": {
-          "type": "string"
-        },
-        "next": {
-          "type": "string"
-        },
-        "text": {
-          "type": "string"
-        },
-        "notes_path": {
-          "type": "string"
-        },
-        "signals": {
-          "type": "integer",
-          "minimum": 0
-        },
-        "agent_layer": {
-          "type": "string"
-        }
-      }
-    },
     "life.letter.written": {
       "version": 1,
       "properties": {

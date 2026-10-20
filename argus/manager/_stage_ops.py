@@ -358,8 +358,7 @@ class _StageDecisionMixin:
     ) -> str:
         """The prose of one Manager turn (:meth:`run_turn`), footer removed.
 
-        This is how the Manager writes for a person: a letter to the operator,
-        or a second reading of the evidence.
+        This is how the Manager writes for a person: a letter to the operator.
         """
         raw = self.run_turn(
             prompt, on_event=on_event, run_label=run_label, root_task_id=root_task_id,
