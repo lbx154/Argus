@@ -43,9 +43,8 @@ def _render_revision_request(
     challenge = revision_request.get("plan_challenge")
     challenge = challenge if isinstance(challenge, dict) else {}
     lines = [
-        "DYNAMIC PLAN REVISION REQUEST (Reviewer evidence; Manager already routed authority):",
+        "DYNAMIC PLAN REVISION REQUEST (Reviewer evidence; Manager already chose the action):",
         "- manager_action: " + str(challenge.get("manager_action") or "revise"),
-        "- authority_impact: " + str(challenge.get("authority_impact") or "technical"),
         "- reason: "
         + (
             _revision_reason(revision_request)
@@ -57,9 +56,6 @@ def _render_revision_request(
         "- proposed_alternative: "
         + str(challenge.get("alternative") or "none; inspect evidence before choosing"),
     ]
-    instruction = str(challenge.get("manager_instruction") or "").strip()
-    if instruction:
-        lines.append("- manager_instruction: " + instruction)
     lines.append("- remaining active nodes:")
     lines.extend(
         f"  - {item.node_key or item.id}: [{item.status}] {item.title}" for item in active_items

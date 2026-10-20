@@ -1674,15 +1674,6 @@
         "plan_signal": {
           "type": "string"
         },
-        "plan_challenge": {
-          "type": "string"
-        },
-        "plan_alternative": {
-          "type": "string"
-        },
-        "authority_impact": {
-          "type": "string"
-        },
         "session_signal": {
           "type": "object"
         },
@@ -2501,8 +2492,7 @@
           "enum": [
             "keep",
             "revise",
-            "replace",
-            "ask_operator"
+            "replace"
           ]
         },
         "manager_reason": {
@@ -2512,9 +2502,6 @@
           "type": "string"
         },
         "alternative": {
-          "type": "string"
-        },
-        "authority_impact": {
           "type": "string"
         },
         "raised_at": {

@@ -460,11 +460,9 @@ class LifeSupervisor(
         """Persist the Manager authority decision before Planner sees a challenge."""
         from ...manager import adjudicate_plan_challenge
 
-        report = outcome.get("planner_report")
         challenge = dict(outcome.get("plan_challenge") or {})
         if not challenge:
             decision = adjudicate_plan_challenge(
-                report if isinstance(report, dict) else {},
                 reviewer_status=str(
                     outcome.get("review_status") or outcome.get("status") or ""
                 ),
@@ -476,7 +474,6 @@ class LifeSupervisor(
                 "manager_reason": decision.reason,
                 "challenge": decision.challenge,
                 "alternative": decision.alternative,
-                "authority_impact": decision.authority_impact,
                 "source": decision.source,
                 "raised_at": time.time(),
             }
@@ -488,70 +485,8 @@ class LifeSupervisor(
         challenge["adjudicated_at"] = now
         challenge["revision_latency_seconds"] = max(0.0, now - raised_at)
         action = str(challenge.get("manager_action") or "revise").strip().lower()
-        if action not in {"keep", "revise", "replace", "ask_operator"}:
+        if action not in {"keep", "revise", "replace"}:
             action = "revise"
-        if action == "ask_operator":
-            from ...core.autonomy import operator_questions_can_be_asked
-
-            if not operator_questions_can_be_asked():
-                from ...core.autonomy import (
-                    AUTONOMOUS_ASSUMPTION_INSTRUCTION,
-                    OPERATOR_ACTION_NEEDS,
-                    normalize_operator_need,
-                    record_autonomous_assumption,
-                )
-
-                need = normalize_operator_need(
-                    challenge.get("operator_need")
-                    or (report.get("operator_need") if isinstance(report, dict) else "")
-                )
-                # The operator cannot be asked, so the Manager holds their
-                # authority. An action only they could approve stays a
-                # question that the Manager decides in their place once it is
-                # parked. Anything else the Manager settles here, on the most
-                # defensible reading.
-                if need not in OPERATOR_ACTION_NEEDS:
-                    action = "revise"
-                    challenge["manager_reason"] = (
-                        "The operator cannot be asked, so the Manager settles the "
-                        "open decision itself: the Planner revises within existing "
-                        "authority on the most defensible interpretation and "
-                        "records that assumption."
-                    )
-                    challenge["manager_instruction"] = AUTONOMOUS_ASSUMPTION_INSTRUCTION
-                    challenge["autonomous_assumption"] = True
-                    conflict = str(
-                        challenge.get("challenge")
-                        or outcome.get("review_reason")
-                        or ""
-                    ).strip()
-                    record_autonomous_assumption(
-                        self._project_state_root(),
-                        item_id=str(outcome.get("item_id") or ""),
-                        conflict=conflict,
-                        source="mission_challenge",
-                    )
-                    self._emit_status(
-                        "Decided without asking the operator (assumption recorded "
-                        f"for the report): {conflict[:240]}"
-                    )
-                    challenge["authority_impact"] = "operator"
-                    challenge["alternative"] = ""
-                    challenge["operator_question"] = ""
-                    challenge["operator_options"] = []
-                    challenge.pop("pending_question", None)
-                    challenge.pop("operator_decision", None)
-                    outcome["operator_question"] = ""
-                    outcome["operator_options"] = []
-                    outcome.pop("pending_question", None)
-                    outcome.pop("operator_decision", None)
-                    if isinstance(report, dict):
-                        report = dict(report)
-                        report["authority_impact"] = "operator"
-                        report.pop("alternative", None)
-                        report.pop("operator_question", None)
-                        report.pop("operator_options", None)
-                        outcome["planner_report"] = report
         challenge["manager_action"] = action
         outcome["plan_challenge"] = challenge
         item_id = str(outcome.get("item_id") or "")
@@ -564,79 +499,6 @@ class LifeSupervisor(
                 f"{str(challenge.get('challenge') or '')[:240]}"
             ),
         })
-        if action == "ask_operator" and item_id:
-            try:
-                from ...core.operator_decision import build_operator_decision
-
-                question = (
-                    "Please decide whether this operator-owned constraint may change: "
-                    + str(challenge.get("challenge") or outcome.get("review_reason") or "")
-                ).strip()
-                project_id = self.memory.root.name
-                item = next(
-                    (row for row in self.memory.backlog.active() if row.id == item_id),
-                    None,
-                )
-                if item is not None and item.status not in {
-                    "done", "failed", "aborted", "skipped", "superseded",
-                }:
-                    card = build_operator_decision(
-                        item_id=item.id,
-                        title=item.title,
-                        reason=str(challenge.get("manager_reason") or ""),
-                        question=question,
-                        project_id=project_id,
-                        previous_decision=item.operator_decision,
-                    )
-                    self.memory.backlog.update(
-                        item.id,
-                        park_reason="operator_question",
-                        pending_question=question,
-                        operator_decision=card,
-                    )
-                else:
-                    # A replan that made forward progress (or a stage-reconciled
-                    # one) has already failed and archived its row, so the
-                    # lookup above used to raise and the question was lost while
-                    # the run still stopped for it. Park it on a holder row the
-                    # operator answer path resolves.
-                    source = next(
-                        (
-                            row
-                            for row in reversed(self.memory.backlog.history())
-                            if row.id == item_id
-                        ),
-                        None,
-                    )
-                    item = None
-                    if source is not None:
-                        holder_id = BacklogItem.new_id()
-                        card = build_operator_decision(
-                            item_id=holder_id,
-                            title=source.title,
-                            reason=str(challenge.get("manager_reason") or ""),
-                            question=question,
-                            project_id=project_id,
-                        )
-                        item = self.memory.backlog.park_terminal_operator_question(
-                            item_id,
-                            holder_id=holder_id,
-                            question=question,
-                            operator_decision=card,
-                        )
-                    if item is None:
-                        raise LookupError(
-                            f"no ended backlog item {item_id} to hold the question"
-                        )
-                self._emit({
-                    "type": EventType.LIFE_OPERATOR_QUESTION_PENDING,
-                    "item_id": item.id,
-                    "title": item.title,
-                    "question": question,
-                    "agent_layer": "manager",
-                })
-            except Exception:  # noqa: BLE001 - stop path still fails closed
-                log.exception("failed to persist operator-owned plan challenge")
         return action
 
     def run(self) -> dict[str, Any]:
@@ -902,19 +764,6 @@ class LifeSupervisor(
                         "Manager retained the current plan after reviewing the challenge"
                     )
                     continue
-                if manager_action == "ask_operator":
-                    self._emit_status(
-                        "Manager held the challenged plan for an operator-owned decision"
-                    )
-                    stopped_by = "operator_decision_required"
-                    break
-                if manager_action == "blocked":
-                    self._emit_status(
-                        "Manager preserved the operator authority boundary and blocked "
-                        "without asking"
-                    )
-                    stopped_by = "operator_authority_blocked"
-                    break
                 gate_reason = self._planner_cycle_gate_reason()
                 if gate_reason:
                     self._emit({
@@ -1890,32 +1739,7 @@ class LifeSupervisor(
                 operator_question = str(
                     event.get("operator_question") or ""
                 ).strip()
-                from ...core.autonomy import assess_operator_intervention
-
                 park = str(event.get("park_reason") or "") if status == "parked" else ""
-                on_operator = park in {"operator_question", "operator_pause"}
-                intervention = assess_operator_intervention(
-                    question=(
-                        operator_question
-                        or next_action
-                        if status == "blocked" or on_operator
-                        else ""
-                    ),
-                    reason=reason,
-                    next_action=next_action,
-                    planner_report={
-                        "authority_impact": (
-                            "operator"
-                            if on_operator
-                            else str(event.get("authority_impact") or "")
-                        ),
-                        "operator_need": event.get("operator_need") or "",
-                    },
-                    # This only describes an outcome; it routes no question,
-                    # so an unclassified blocker is not presented as the
-                    # operator's decision.
-                    unclassified_requires_operator=False,
-                )
                 if operator_question:
                     publish_operator_message(
                         life_dir,
@@ -1940,7 +1764,8 @@ class LifeSupervisor(
                     park_reason=park,
                     reason=reason,
                     next_action=next_action,
-                    user_action_required=intervention.required,
+                    # Only work parked on the operator waits for their decision.
+                    user_action_required=park in {"operator_question", "operator_pause"},
                     language_hint=language_hint,
                 )
                 publish_operator_message(

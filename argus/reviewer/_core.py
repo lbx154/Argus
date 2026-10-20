@@ -541,21 +541,11 @@ def _persist_research_review(decision: ReviewDecision, config: "ReviewerConfig")
 
     if current_stage(state_root) != "review" and not decision.venue_review_required:
         return
-    report = decision.planner_report if isinstance(decision.planner_report, dict) else {}
-    accept_case = str(
-        report.get("accept_case")
-        or report.get("strongest_accept_case")
-        or ""
-    ).strip()
-    challenge = str(
-        report.get("challenge")
-        or report.get("plan_challenge")
-        or ""
-    ).strip()
+    issues = ""
     if decision.venue_review is not None:
         from ..core.venue_review import UNSELECTED_VENUE
 
-        challenge = "\n".join(f"- {issue}" for issue in decision.venue_review["blocking_issues"])
+        issues = "\n".join(f"- {issue}" for issue in decision.venue_review["blocking_issues"])
     text = (
         "# Authoritative review\n\n"
         + (
@@ -569,10 +559,9 @@ def _persist_research_review(decision: ReviewDecision, config: "ReviewerConfig")
         f"{decision.reason or 'Not assessed.'}\n\n"
     )
     # Natural reviews already carry strengths, concerns, and revision guidance.
-    # Preserve the complete review once; add only distinct legacy details.
+    # Preserve the complete review once; add only details it does not repeat.
     for heading, content in (
-        ("Strongest accept case", accept_case),
-        ("Reject-level issues", challenge),
+        ("Reject-level issues", issues),
         ("Next action", str(decision.next_action or "").strip()),
     ):
         if content and not all(

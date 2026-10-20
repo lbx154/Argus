@@ -147,6 +147,7 @@ not guess on the model's behalf whether there is progress. The full design is in
   `reviewer/_parsing.py` that nothing calls anymore.
 - Done when: in tests, prose only the first time and a normal submission the second time lets the task continue instead
   of failing.
+- Status: the prose-parsing code is deleted with HO-16e (`reviewer/_parsing.py` is gone); the retry message is not done.
 
 #### HO-5 A Manager "hold on" must not throw away a result that already passed
 `0.2` · `M` · Depends on: none
@@ -298,11 +299,17 @@ not guess on the model's behalf whether there is progress. The full design is in
 - Can be split into: HO-16a read the line leniently (an unreadable line never means done); HO-16b merge the pause
   states; HO-16c (dropped: waits stay in the holder's turn, no `wait:` line); HO-16d unchanged return climbs; HO-16e
   delete the old footers and states.
-- Status: HO-16a, HO-16b, HO-16d and the footer half of HO-16e are done. The Engineer and the Reviewer are read only
+- Status: HO-16a, HO-16b, HO-16d and HO-16e are done. The Engineer and the Reviewer are read only
   by their handoff line, and the Reviewer's five actions are one `submit_review`; the seven footer keys and the
   Engineer's decision event are no longer read. An unchanged return, judged from workspace snapshots and outside
   inputs and counted per lineage, climbs one rung at a time; a review the Engineer has not yet seen counts as new
-  input, and a candidate identical to one already passed, with no new input, keeps that pass without a model call.
+  input, and a candidate identical to one already passed, with no new input, keeps that pass without a model call
+  unless the host refused it (the task it ended failed or was sent back), in which case it climbs past the Reviewer.
+  Nothing writes `operator_need` or `authority_impact` any more, so both, the plan challenge's `ask_operator` route,
+  the Reviewer statuses no verdict produces (`research_incomplete`, `paused_no_breakthrough`,
+  `exhausted_current_methods`) and the Reviewer's prose verdict parser (`reviewer/_parsing.py`, the `STATUS=` footer)
+  are deleted, and a planner report carries only what `submit_review` writes (`plan_signal`, `learning`,
+  `learning_reason`); old rows and events that carry the removed fields still read.
   Every writer writes `parked` with the reason in the task's `outcome.park.reason` and the
   completion event's `park_reason`; `paused_external_work`, `research_incomplete` and `exhausted_current_methods` have
   no writer left and are only read. Resuming is one path driven by new facts: the daemon's next pass ends its own

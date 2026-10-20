@@ -117,6 +117,7 @@
 - 现在：Reviewer 用文字给了结论但没调用审阅动作，被当成后端故障，连续两次任务直接报错结束。
 - 要做：重试时明确告诉它"你没有提交判决"；删掉 `reviewer/_parsing.py` 里已经没人调用的文字解析救援代码。
 - 做完的样子：测试中第一次只写文字、第二次正常提交，任务继续而不是报错。
+- 状态：文字解析代码已随 HO-16e 删除（`reviewer/_parsing.py` 已不存在）；重试提示还没做。
 
 #### HO-5 Manager 的"等一下"不能把已经通过的结果作废
 `0.2` · `M` · 依赖：无
@@ -223,10 +224,15 @@
   候选没变化的退回由宿主往上交，不再调用同一个模型。
 - 做完的样子：架构测试确认只剩这一种交接格式和一种挂起状态；HO-1 显示没有变化的模型调用数不超过权限梯的高度。
 - 可拆成：HO-16a 解析交接行（宽松读取，读不出不算完成）；HO-16b 合并暂停状态；HO-16c（取消：等待留在回合里，没有 `wait:` 行）；HO-16d 原样退回即上交；HO-16e 删除旧页脚和旧状态。
-- 状态：HO-16a、HO-16b、HO-16d 和 HO-16e 的页脚部分已完成。Engineer 和 Reviewer 都只认交接行，
+- 状态：HO-16a、HO-16b、HO-16d 和 HO-16e 已完成。Engineer 和 Reviewer 都只认交接行，
   Reviewer 的五个动作合成一个 `submit_review`；七个页脚键和 Engineer 的决策事件不再读取。
   没变化的退回按工作区快照和外部输入判断、按任务谱系计数，逐级上交；Engineer 还没看过的审阅意见算新输入；
-  候选和上次通过时完全一样、也没有新输入时，沿用那次通过，不再调用模型。
+  候选和上次通过时完全一样、也没有新输入时，沿用那次通过，不再调用模型；宿主拒收过的通过
+  （它结束的任务失败了或被送回重跑）不再沿用，越过 Reviewer 往上交。
+  已没有任何来源写 `operator_need` 和 `authority_impact`，这两个字段、计划挑战的 `ask_operator` 路径、没有判决会产生的三个
+  Reviewer 状态（`research_incomplete`、`paused_no_breakthrough`、`exhausted_current_methods`）以及 Reviewer 的文字判决解析器
+  （`reviewer/_parsing.py`，即 `STATUS=` 页脚）已删除；planner report 里只剩 `submit_review` 写入的
+  `plan_signal`、`learning`、`learning_reason`。带已删字段的旧行和旧事件照常读取。
   所有写入方只写 `parked`，原因记在任务的 `outcome.park.reason` 和完成事件的 `park_reason`；
   `paused_external_work`、`research_incomplete`、`exhausted_current_methods` 已没有写入方，只留读取。
   恢复按新事实合并成一个入口：守护进程的下一轮恢复它自己的挂起（停机、限流），操作员显式点“运行”恢复只有操作员或外部能解除的挂起，

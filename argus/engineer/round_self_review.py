@@ -15,6 +15,7 @@ from typing import TYPE_CHECKING, Callable
 
 from ..core.models import ReviewDecision, RunnerResult
 from ..core.role_handoff import HANDOFF_STATUS, LADDER, read_baton_line, strip_handoff
+from .round_reviewer import backlog_history
 from .round_state import (
     EngineerTurnOutcome,
     RoundControl,
@@ -72,9 +73,19 @@ def returned_unchanged(holder: str, state: RoundLoopState, label: str) -> bool:
 
 
 def accepted_as_is(state: RoundLoopState, label: str) -> bool:
-    """Whether the Reviewer accepted the work as snapshot ``label`` shows it, with nothing new since."""
-    return returned_unchanged("reviewer", state, label) and bool(
-        state.snapshots is not None and state.snapshots.held_verdict("reviewer")
+    """Whether the Reviewer accepted the work as snapshot ``label`` shows it, with nothing new since.
+
+    The host refusing that acceptance is new: once the task it ended is
+    anything but done in the backlog (failed, or sent back to run again), the
+    acceptance no longer stands, and the unchanged work climbs past the
+    Reviewer like any unchanged return. An unreadable backlog keeps nothing.
+    """
+    verdict = state.snapshots.held_verdict("reviewer") if state.snapshots is not None else None
+    if not verdict or not returned_unchanged("reviewer", state, label):
+        return False
+    rows = backlog_history(state.state_root)
+    return rows is not None and not any(
+        row.id == verdict["mission"] and row.status != "done" for row in rows
     )
 
 

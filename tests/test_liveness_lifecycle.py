@@ -449,21 +449,11 @@ def test_rows_derived_from_a_canary_do_not_inherit_its_tag(tmp_path: Path) -> No
     asked = BacklogItem.new(title="asked", objective="a", tags=["planner", CANARY_TAG])
     backlog.add(asked)
     backlog.update(asked.id, status="paused_operator", pending_question="Go on?")
-    ended = BacklogItem.new(title="ended", objective="b", tags=["planner", CANARY_TAG])
-    backlog.add(ended)
-    backlog.mark_failed(ended.id, error="replan after progress")
 
     _blocked, continuation = backlog.continue_with_operator_reply(asked.id, "Yes.")
-    holder = backlog.park_terminal_operator_question(
-        ended.id,
-        holder_id=BacklogItem.new_id(),
-        question="May the gate change?",
-        operator_decision={},
-    )
 
-    assert continuation is not None and holder is not None
+    assert continuation is not None
     assert CANARY_TAG not in continuation.tags and "planner" in continuation.tags
-    assert CANARY_TAG not in holder.tags and "planner" in holder.tags
 
 
 # Lossy handoffs.
@@ -621,92 +611,6 @@ def test_child_of_a_filtered_in_batch_parent_is_held_not_run_without_it(
     assert sorted(event["title"] for event in held) == [
         "Report the parse", "Use the parser",
     ]
-
-
-def test_operator_question_on_an_ended_node_is_held_and_answerable(
-    tmp_path: Path, monkeypatch,
-) -> None:
-    monkeypatch.setenv("ARGUS_SKILL_OPERATOR_AVAILABLE", "true")
-    project = _project(tmp_path, monkeypatch)
-    supervisor = _supervisor(project, tmp_path / "life")
-    backlog = supervisor.memory.backlog
-    source = backlog.add(BacklogItem.new(title="Plan production", objective="plan"))
-    dependent = backlog.add(
-        BacklogItem.new(title="Ship", objective="ship", deps=[source.id])
-    )
-    backlog.mark_failed(source.id, error="completed work requires a new plan")
-    assert all(item.id != source.id for item in backlog.active())
-
-    action = supervisor._adjudicate_mission_challenge({
-        "item_id": source.id,
-        "status": "replan_requested",
-        "plan_challenge": {
-            "manager_action": "ask_operator",
-            "challenge": "The work order is held by an unreleased gate.",
-        },
-    })
-
-    assert action == "ask_operator"
-    holder = next(
-        item for item in backlog.active() if item.status == "parked"
-    )
-    assert holder.id != source.id and holder.title == source.title
-    assert "unreleased gate" in holder.pending_question
-    assert holder.operator_decision["item_id"] == holder.id
-    rewired = next(item for item in backlog.active() if item.id == dependent.id)
-    assert rewired.deps == [holder.id]
-    backlog.next_pending()
-    assert next(
-        item for item in backlog.history() if item.id == dependent.id
-    ).status == "pending", "the dependent waits for the answer, not the cascade"
-
-    blocked, continuation = backlog.continue_with_operator_reply(holder.id, "Yes.")
-    assert blocked is not None and blocked.status == "failed"
-    assert continuation is not None and continuation.status == "pending"
-
-
-def test_a_question_about_finished_work_neither_holds_nor_skips_its_dependents(
-    tmp_path: Path,
-) -> None:
-    backlog = LifeMemory.open(tmp_path / "life").backlog
-    source = backlog.add(BacklogItem.new(title="Build", objective="build"))
-    dependent = backlog.add(
-        BacklogItem.new(title="Ship", objective="ship", deps=[source.id])
-    )
-    backlog.update(source.id, status="done", finished_ts=time.time())
-
-    holder = backlog.park_terminal_operator_question(
-        source.id,
-        holder_id=BacklogItem.new_id(),
-        question="May the gate change?",
-        operator_decision={},
-    )
-
-    assert holder is not None and holder.status == "parked"
-    row = next(item for item in backlog.active() if item.id == dependent.id)
-    assert row.deps == [source.id]
-    assert backlog.stop_for_operator_decision(holder.id) is not None
-    assert backlog.next_pending().id == dependent.id
-
-
-def test_a_question_whose_mission_left_no_row_does_not_raise(
-    tmp_path: Path, monkeypatch,
-) -> None:
-    monkeypatch.setenv("ARGUS_SKILL_OPERATOR_AVAILABLE", "true")
-    project = _project(tmp_path, monkeypatch)
-    supervisor = _supervisor(project, tmp_path / "life")
-
-    action = supervisor._adjudicate_mission_challenge({
-        "item_id": "never-existed",
-        "status": "replan_requested",
-        "plan_challenge": {
-            "manager_action": "ask_operator",
-            "challenge": "The work order is held by an unreleased gate.",
-        },
-    })
-
-    assert action == "ask_operator"
-    assert supervisor.memory.backlog.active() == []
 
 
 def test_structured_planner_decision_carries_retirements() -> None:

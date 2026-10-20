@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from argus.reviewer import Reviewer, parse_decision_text
+from argus.reviewer import Reviewer
 
 
 def _prompt(checkpoint_path: str = "/tmp/project/CHECKPOINT.md") -> str:
@@ -72,20 +72,3 @@ def test_reviewer_handoff_uses_actions():
     ):
         assert field in p
     assert "STATUS=" not in p
-
-
-def test_reviewer_output_without_confidence_parses_into_verdict():
-    # The reviewer no longer self-reports a confidence. A structured output that
-    # omits ``confidence`` entirely must still parse into a full verdict — the
-    # parser must not depend on a confidence field to render a decision.
-    raw = (
-        '{"status": "done", "reason": "objective met with verified evidence", '
-        '"next_action": "No further action needed.", '
-        '"operator_question": null}'
-    )
-    decision = parse_decision_text(raw)
-    assert decision is not None
-    assert decision.status == "done"
-    assert decision.reason == "objective met with verified evidence"
-    # The parsed verdict carries no confidence attribute at all.
-    assert not hasattr(decision, "confidence")

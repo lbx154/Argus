@@ -31,7 +31,6 @@ import pytest
 
 from argus.adapters.memory_backend import CannedResponse, MemoryBackend
 from argus.cli.event_format import format_event_message
-from argus.core.autonomy import AUTONOMOUS_ASSUMPTION_INSTRUCTION
 from argus.core.event_catalog import EventType, validate_event_envelope
 from argus.core.file_facts import file_facts
 from argus.core.grounding_baseline import snapshot
@@ -489,7 +488,7 @@ def test_every_fixture_rule_names_the_three_faithfulness_conditions(tmp_path, mo
 
     for text in (
         risk_description, accepted,
-        " ".join(rendered.split()), AUTONOMOUS_ASSUMPTION_INSTRUCTION,
+        " ".join(rendered.split()),
         " ".join(supervision._prompt(_Observation()).split()),
     ):
         for condition in _FIXTURE_CONDITIONS:
@@ -497,28 +496,16 @@ def test_every_fixture_rule_names_the_three_faithfulness_conditions(tmp_path, mo
     assert "the Engineer's cited claim alone is not evidence" in REVIEW_EVIDENCE_RULE
     assert "impossible, not missing, only if the task, packet or environment says" in REVIEW_EVIDENCE_RULE
     # What stays: no assumed facts, no mocks in what ships.
-    for text in (AUTONOMOUS_ASSUMPTION_INSTRUCTION, " ".join(rendered.split())):
-        assert "Never assume facts, data" in text
-        assert "mocked services in what is delivered" in text
-        assert "it never ships in what is delivered" in text
+    text = " ".join(rendered.split())
+    assert "Never assume facts, data" in text
+    assert "mocked services in what is delivered" in text
+    assert "it never ships in what is delivered" in text
 
 
 def _accepted_store(root: Path) -> Path:
     accept_residual_risk(root, check="Live feed", risk="unverified", accepted_by="operator", source_ref="operator:q",
                          item_id="feed-task")
     return root
-
-
-def test_the_manager_no_operator_path_carries_the_carve_out() -> None:
-    import inspect
-
-    from argus.life.supervisor import _core
-
-    # The path hands AUTONOMOUS_ASSUMPTION_INSTRUCTION itself to the role, so
-    # the carve-out and its faithfulness clause reach the Manager.
-    assert "AUTONOMOUS_ASSUMPTION_INSTRUCTION" in inspect.getsource(_core)
-    assert "is test evidence, not a substitute, and counts only if it" in AUTONOMOUS_ASSUMPTION_INSTRUCTION
-    assert "does not say it arrives only at grading or deploy time" in AUTONOMOUS_ASSUMPTION_INSTRUCTION
 
 
 # --- 4. The Manager accepts only with an explicit ACCEPT_RISK: yes ---------

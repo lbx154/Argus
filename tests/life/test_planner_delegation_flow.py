@@ -683,18 +683,12 @@ def test_0d3_later_no_gap_evidence_replaces_skip_zero_plan(
         "review_reason": "The no-gap validator dominates the preselected candidate.",
         "expected_plan_id": "plan-old",
         "expected_plan_version": 1,
-        "planner_report": {
-            "plan_signal": "reconsider",
-            "challenge": "The preselected skip-zero candidate is unnecessary.",
-            "alternative": "Use the no-gap validator alternative.",
-            "authority_impact": "technical",
-        },
+        "planner_report": {"plan_signal": "reconsider"},
         "plan_challenge": {
             "manager_action": "replace",
             "manager_reason": "Later evidence supports a concrete alternative.",
             "challenge": "The preselected skip-zero candidate is unnecessary.",
             "alternative": "Use the no-gap validator alternative.",
-            "authority_impact": "technical",
             "source": "manager_authority_policy",
             "raised_at": time.time() - 2,
         },
@@ -749,18 +743,12 @@ def _assert_replan_replace_commits_after_source_terminalized(
                 final_review_reason=(
                     "The source node completed enough evidence to refute itself."
                 ),
-                final_planner_report={
-                    "plan_signal": "reconsider",
-                    "challenge": "The source route is now worse than the replacement.",
-                    "alternative": "Commit the replacement route.",
-                    "authority_impact": "technical",
-                },
+                final_planner_report={"plan_signal": "reconsider"},
                 plan_challenge={
                     "manager_action": "replace",
                     "manager_reason": "Later evidence supports a replacement.",
                     "challenge": "The source route is now worse than the replacement.",
                     "alternative": "Commit the replacement route.",
-                    "authority_impact": "technical",
                     "source": "manager_authority_policy",
                     "raised_at": time.time() - 2,
                 },
@@ -860,130 +848,6 @@ def test_replan_replace_commits_after_version_zero_source_terminalized(
         plan_version=0,
         expected_replacement_version=1,
     )
-
-
-def test_forbidden_questions_request_revision_within_existing_authority(
-    tmp_path: Path,
-) -> None:
-    from argus.core.knob_store import write_persisted_knob
-
-    project = tmp_path / "project"
-    project.mkdir()
-    supervisor = _supervisor(project, tmp_path / "life", _PlannerBackend([]))
-    item = supervisor.memory.backlog.add(BacklogItem.new(
-        title="Repair the environment",
-        objective="Resolve the reversible environment issue.",
-    ))
-    write_persisted_knob("ARGUS_SKILL_OPERATOR_AVAILABLE", "0")
-    outcome = {
-        "item_id": item.id,
-        "status": "replan_requested",
-        "operator_question": "Choose the environment route.",
-        "operator_options": [{"id": "yes"}],
-        "planner_report": {
-            "plan_signal": "reconsider",
-            "challenge": "The current environment path failed.",
-            "alternative": "Use the available local toolchain.",
-            "authority_impact": "operator",
-            "operator_question": "Choose the environment route.",
-        },
-        "plan_challenge": {
-            "manager_action": "ask_operator",
-            "manager_reason": "The Reviewer assigned this to the operator.",
-            "challenge": "The current environment path failed.",
-            "alternative": "Use the available local toolchain.",
-            "authority_impact": "operator",
-            "operator_question": "Choose the environment route.",
-            "operator_options": [{"id": "yes"}],
-            "raised_at": time.time(),
-        },
-    }
-
-    action = supervisor._adjudicate_mission_challenge(outcome)
-
-    assert action == "revise"
-    assert outcome["operator_question"] == ""
-    assert outcome["operator_options"] == []
-    assert outcome["planner_report"]["authority_impact"] == "operator"
-    assert "alternative" not in outcome["planner_report"]
-    challenge = outcome["plan_challenge"]
-    assert challenge["manager_action"] == "revise"
-    assert challenge["authority_impact"] == "operator"
-    assert challenge["alternative"] == ""
-    assert challenge["operator_question"] == ""
-    assert challenge["operator_options"] == []
-    persisted = next(
-        row for row in supervisor.memory.backlog.all() if row.id == item.id
-    )
-    assert persisted.status == "pending"
-    assert persisted.pending_question == ""
-    events = [
-        json.loads(line)
-        for line in (supervisor.memory.root / "events.jsonl").read_text().splitlines()
-    ]
-    assert not any(
-        event["type"] == "life.operator_question.pending" for event in events
-    )
-
-
-@pytest.mark.parametrize(
-    ("alternative", "need"),
-    [
-        ("Use the operator's API credentials.", "credentials"),
-        ("Purchase additional compute capacity.", "spending"),
-        ("Force-push the protected release branch.", "irreversible_or_external"),
-    ],
-    ids=["credentials", "spending", "irreversible"],
-)
-def test_forbidden_questions_park_an_out_of_scope_alternative_for_the_manager(
-    tmp_path: Path,
-    alternative: str,
-    need: str,
-) -> None:
-    from argus.core.knob_store import write_persisted_knob
-
-    project = tmp_path / "project"
-    project.mkdir()
-    supervisor = _supervisor(project, tmp_path / "life", _PlannerBackend([]))
-    item = supervisor.memory.backlog.add(BacklogItem.new(
-        title="Operator-owned boundary",
-        objective="Proceed only within existing authority.",
-    ))
-    write_persisted_knob("ARGUS_SKILL_OPERATOR_AVAILABLE", "0")
-    outcome = {
-        "item_id": item.id,
-        "status": "replan_requested",
-        "operator_question": "Choose the requested operator-owned action.",
-        "operator_options": [{"id": "approve"}],
-        "planner_report": {
-            "plan_signal": "reconsider",
-            "challenge": "The current plan reaches an operator-owned boundary.",
-            "alternative": alternative,
-            "authority_impact": "operator",
-            "operator_need": need,
-        },
-        "plan_challenge": {
-            "manager_action": "ask_operator",
-            "manager_reason": "The alternative requires operator authority.",
-            "challenge": "The current plan reaches an operator-owned boundary.",
-            "alternative": alternative,
-            "authority_impact": "operator",
-            "operator_question": "Choose the requested operator-owned action.",
-            "operator_options": [{"id": "approve"}],
-            "raised_at": time.time(),
-        },
-    }
-
-    action = supervisor._adjudicate_mission_challenge(outcome)
-
-    # Questions are forbidden, so the Manager holds the operator's authority:
-    # the alternative parks as a question it decides in their place.
-    assert action == "ask_operator"
-    persisted = next(
-        row for row in supervisor.memory.backlog.all() if row.id == item.id
-    )
-    assert persisted.status == "parked"
-    assert persisted.operator_decision["status"] == "pending"
 
 
 def test_new_continuous_generation_interrupts_obsolete_planner(tmp_path: Path) -> None:

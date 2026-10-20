@@ -237,6 +237,16 @@ def _active_manager_directive_for_reviewer(
     return []
 
 
+def backlog_history(root: Path | None) -> list[Any] | None:
+    """Every backlog row under ``root``: none when it has no backlog, ``None`` when it cannot be read."""
+    if root is None or not (Path(root) / "backlog.jsonl").is_file():
+        return []
+    try:
+        return Backlog(Path(root) / "backlog.jsonl").history()
+    except Exception:  # noqa: BLE001 - the caller decides what unreadable means
+        return None
+
+
 def operator_risk_decisions(root: Path | None, item_id: str) -> list[dict[str, Any]]:
     """Resolved operator decision cards on this item and the items it continues.
 
@@ -244,11 +254,9 @@ def operator_risk_decisions(root: Path | None, item_id: str) -> list[dict[str, A
     work as a new item, so the card that answers this mission's question sits
     on the item it continues.
     """
-    if root is None or not item_id or not (Path(root) / "backlog.jsonl").is_file():
-        return []
-    try:
-        items = Backlog(Path(root) / "backlog.jsonl").history()
-    except Exception:  # noqa: BLE001 - an unreadable backlog accepts nothing
+    # An unreadable backlog accepts nothing.
+    items = backlog_history(root) if item_id else []
+    if not items:
         return []
     continued = {
         str((item.operator_decision or {}).get("continuation_item_id") or ""): item for item in items
