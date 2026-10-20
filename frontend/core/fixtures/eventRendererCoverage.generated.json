@@ -96,7 +96,6 @@
     "life.planner.normalized",
     "life.planner.parallel_dropped",
     "life.planner.preview_skipped",
-    "life.planner.stall_escalation",
     "life.planner.start",
     "life.planner.superseded",
     "life.planner.task_added",
@@ -138,7 +137,6 @@
     "round.backend_failure.hold_interrupted",
     "round.checkpoint.failed",
     "round.checkpoint.recorded",
-    "round.escalated",
     "round.main.completed",
     "round.model_configuration_error",
     "round.orphan_process_group",
@@ -191,7 +189,7 @@
       "counts": {
         "handled": 22,
         "hidden": 0,
-        "missing": 163
+        "missing": 161
       },
       "fallback": "greppable",
       "handled": [
@@ -305,7 +303,6 @@
         "life.planner.normalized",
         "life.planner.parallel_dropped",
         "life.planner.preview_skipped",
-        "life.planner.stall_escalation",
         "life.planner.superseded",
         "life.planner.terminal_idle",
         "life.planner.verdict.discarded",
@@ -340,7 +337,6 @@
         "round.backend_failure.hold_interrupted",
         "round.checkpoint.failed",
         "round.checkpoint.recorded",
-        "round.escalated",
         "round.model_configuration_error",
         "round.orphan_process_group",
         "round.provider_turn_cap.restart",
@@ -387,7 +383,7 @@
     },
     "tui": {
       "counts": {
-        "handled": 95,
+        "handled": 93,
         "hidden": 90,
         "missing": 0
       },
@@ -446,7 +442,6 @@
         "life.planner.idle",
         "life.planner.normalized",
         "life.planner.preview_skipped",
-        "life.planner.stall_escalation",
         "life.planner.start",
         "life.planner.superseded",
         "life.planner.task_added",
@@ -465,7 +460,6 @@
         "provider.request.denied",
         "round.backend_failure.backoff",
         "round.backend_failure.hold_interrupted",
-        "round.escalated",
         "round.main.completed",
         "round.model_configuration_error",
         "round.orphan_process_group",
@@ -585,7 +579,7 @@
     },
     "web": {
       "counts": {
-        "handled": 95,
+        "handled": 93,
         "hidden": 90,
         "missing": 0
       },
@@ -644,7 +638,6 @@
         "life.planner.idle",
         "life.planner.normalized",
         "life.planner.preview_skipped",
-        "life.planner.stall_escalation",
         "life.planner.start",
         "life.planner.superseded",
         "life.planner.task_added",
@@ -663,7 +656,6 @@
         "provider.request.denied",
         "round.backend_failure.backoff",
         "round.backend_failure.hold_interrupted",
-        "round.escalated",
         "round.main.completed",
         "round.model_configuration_error",
         "round.orphan_process_group",

@@ -240,7 +240,6 @@ def test_capsules_restore_same_mission_after_process_restart(tmp_path: Path) -> 
     first.queue("reviewer", CannedResponse(review_action=_review("continue"), thread_id="v1"))
     first_loop = _loop(first, tmp_path, context, checkpoint, policy="mission")
     first_loop.config.max_rounds = 1
-    first_loop.config.hard_escalate_rounds = 0
     interrupted = first_loop.run("same objective", workdir=tmp_path)
 
     assert interrupted.status == "max_rounds"

@@ -13,7 +13,6 @@ from argus.core.knobs import (
     normalize_cockpit_knob_value,
     resolve_evidence_policy,
 )
-from argus.core.round_policy import RoundPolicy, explain_round_policy
 from argus.reviewer import Reviewer
 from argus.roles.prompts.engineer import build_mission_prompt
 from argus.roles.prompts.manager import build_stage_decision_prompt
@@ -79,33 +78,11 @@ def test_invalid_policy_fails_explicitly(bad):
         normalize_cockpit_knob_value(KNOB, bad)
     with pytest.raises(ValueError, match="progress-first, standard, or strict"):
         resolve_evidence_policy(env={KNOB: bad}, persisted={})
-    with pytest.raises(ValueError, match="progress-first, standard, or strict"):
-        explain_round_policy(env={}, persisted={KNOB: bad})
 
 
-def test_profile_preserves_disabled_guards_and_explicit_choices():
-    policy, sources = explain_round_policy(
-        RoundPolicy(stall_threshold=10, soft_round_limit=0, hard_escalate_rounds=100),
-        env={KNOB: "progress-first"}, persisted={},
-    )
-    assert policy == RoundPolicy(2, 2, 0, 100)
-    assert sources["stall_threshold"] == "evidence policy progress-first"
-    policy, sources = explain_round_policy(
-        explicit=RoundPolicy(stall_threshold=5, soft_round_limit=8),
-        env={KNOB: "progress-first", "ARGUS_SKILL_STALL_THRESHOLD": "0"}, persisted={},
-    )
-    assert policy.stall_threshold == 0
-    assert policy.soft_round_limit == 8
-    assert sources["soft_round_limit"] == "mission loop config"
-    assert sources["stall_threshold"].endswith("(env)")
-
-
-@pytest.mark.parametrize(("mode", "progress", "expected_rounds"), [
-    ("progress-first", False, 2), ("standard", False, 4), ("strict", False, 4),
-    ("progress-first", True, 6),
-])
-def test_saved_policy_controls_real_skill_loop_without_accepting_failed_work(
-    monkeypatch, tmp_path, mode, progress, expected_rounds,
+@pytest.mark.parametrize("mode", ["progress-first", "standard", "strict"])
+def test_saved_policy_reaches_the_real_skill_loop_without_changing_its_rounds(
+    monkeypatch, tmp_path, mode,
 ):
     monkeypatch.setenv("ARGUS_SKILL_HOME", str(tmp_path / "config"))
     monkeypatch.delenv(KNOB, raising=False)
@@ -113,11 +90,10 @@ def test_saved_policy_controls_real_skill_loop_without_accepting_failed_work(
     backend = MemoryBackend()
     for index in range(1, 7):
         backend.queue(f"engineer-r{index}", CannedResponse(message=f"Setup step result {index}."))
-        done = progress and index == 6
+        done = index == 6
         backend.queue("reviewer", CannedResponse(review_action=(
             "approve_review" if done else "revise_review",
-            {"review": "Setup accepted." if done else "The same setup error remains.",
-             "forward_progress": progress},
+            {"review": "Setup accepted." if done else "The same setup error remains."},
         )))
     loop = SkillLoop(
         skills_dir=tmp_path / "skills", engineer_runner=backend, reviewer_runner=backend,
@@ -130,9 +106,7 @@ def test_saved_policy_controls_real_skill_loop_without_accepting_failed_work(
         ),
     )
     result = loop.run("Repair the setup error, then check the affected step.", workdir=tmp_path)
-    assert result.successful is progress
+    assert result.successful
     turns = [(label, prompt) for label, prompt, _ in backend.history if label.startswith("engineer-r")]
-    assert len(turns) == expected_rounds
+    assert len(turns) == 6
     assert f"Evidence policy {mode}:" in turns[0][1]
-    if not progress:
-        assert result.status == "no_progress"

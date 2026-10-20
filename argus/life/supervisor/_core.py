@@ -194,10 +194,6 @@ class LifeSupervisor(
         self._last_planner_idle_sig: str | None = None
         self._last_planner_idle_at = 0.0
         self._last_planner_handoff_key: tuple[str, str] | None = None
-        # Consecutive missions that COMPLETED with the reviewer judging
-        # forward_progress=false; when it crosses the threshold the harness
-        # escalates to the operator (surface, don't loop invisibly).
-        self._consecutive_no_progress_missions = 0
         self._reap_orphans_on_startup()
         if self.manager is not None:
             from ...manager.supervision import recover_issued_supervision
@@ -700,8 +696,6 @@ class LifeSupervisor(
                 stopped_by = "mission_delivery_pending"
                 self._suggested_sleep_s = 1.0
                 break
-            if self._decide_overdue_venue_stalls():
-                continue
             yield_provider = getattr(
                 self.config,
                 "manager_pipeline_yield_provider",

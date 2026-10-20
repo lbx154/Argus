@@ -423,10 +423,6 @@ export function renderEvent(event: TypedArgusEvent, context: RenderContext): Ren
     }
     case 'round.stall':
       return model('system', 'event.notice', context.density === 'full' ? '👁' : '!', clean(stringField(event, 'text') || localized(context, context.density === 'full' ? 'no progress this round — keeping a close eye on it' : 'no progress this round', '这一轮没有进展'), 170), 'warn');
-    case 'round.escalated':
-      return model('system', 'event.notice', context.density === 'full' ? '👁' : '!', clean(stringField(event, 'text') || localized(context, 'many rounds without a finish — raising what is blocking the work', '轮次已经很多还没做完 — 把外部阻碍提出来'), 170), 'warn');
-    case 'life.planner.stall_escalation':
-      return model('system', 'event.notice', context.density === 'full' ? '👁' : '!', `${localized(context, 'the Planner is stuck', '规划者卡住了')} — ${clean(stringField(event, 'reason') || stringField(event, 'text'), 150)}`, 'warn');
     case 'life.budget.pause':
       if (stringField(event, 'stop_kind') === 'cost_unreconciled' || stringField(event, 'reason').startsWith('unresolved provider cost'))
         return model('system', 'event.budget', '$', localized(context, 'Provider usage awaits reconciliation — not budget exhaustion', '调用费用待对账 — 并非预算耗尽'), 'warn');

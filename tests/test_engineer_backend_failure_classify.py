@@ -12,6 +12,7 @@ from pathlib import Path
 import pytest
 
 from argus.core.models import RunnerResult
+from argus.engineer.round_config import QUESTION_POLICY
 from argus.engineer.round_stop_signals import (
     authentication_review_decision,
     backend_failure_cause,
@@ -219,7 +220,7 @@ def test_oauth_failure_pauses_once_without_opening_a_new_round(tmp_path: Path) -
     assert reason == "github-copilot: OAuth refresh failed: timeout"
 
 
-def test_forbidden_policy_strips_stop_kind_operator_question(
+def test_forbidden_policy_withholds_a_stop_kind_operator_question(
     tmp_path: Path,
 ) -> None:
     from argus.manager.directive import set_active_manager_directive
@@ -248,8 +249,12 @@ def test_forbidden_policy_strips_stop_kind_operator_question(
     )
 
     assert status == "blocked"
-    assert rounds[0].review.operator_question == ""
-    assert rounds[0].review.operator_options == []
+    # The record keeps the host's question; the intervention beside it says
+    # it was not sent, and the outcome reads that.
+    assert rounds[0].review.operator_question.startswith("Authentication blocked")
+    [intervention] = rounds[0].review.interventions
+    assert intervention["policy"] == QUESTION_POLICY
+    assert intervention["action"] == "not_sent"
     assert rounds[0].review.backend_stop_kind == "permanent_error"
     assert rounds[0].stop_kind == "permanent_error"
 

@@ -577,7 +577,6 @@ class MissionExecutionSettlementMixin:
                         ),
                     )
                     planner_report.update({
-                        "forward_progress": False,
                         "plan_signal": "reconsider",
                         "challenge": str(
                             planner_report.get("challenge")
@@ -623,7 +622,6 @@ class MissionExecutionSettlementMixin:
                     # question, which the Manager decides in the operator's
                     # place once it is parked.
                     planner_report.update({
-                        "forward_progress": False,
                         "plan_signal": "reconsider",
                         "challenge": str(
                             planner_report.get("challenge") or operator_question
@@ -950,10 +948,6 @@ class MissionExecutionSettlementMixin:
                 project_id=decision_root.name,
                 previous_decision=item.operator_decision,
             )
-            if str(getattr(outcome, "final_review_source", "") or "") == "venue_stall":
-                # Left unanswered for VENUE_STALL_DECISION_SECONDS, the Manager
-                # decides it (_decide_overdue_venue_stalls).
-                decision_card["decision_kind"] = "venue_stall"
             # Status and the authority-bearing question must reach disk in one
             # backlog transaction. Keep the row nonterminal so dependency
             # reconciliation cannot cascade-skip its downstream plan while the
@@ -980,15 +974,6 @@ class MissionExecutionSettlementMixin:
                     f"{stage_transition.get('target_stage') or 'another stage'} "
                     "after Reviewer identified an upstream stage defect"
                 ),
-                outcome=outcome_dimensions,
-            )
-        elif replan_requested and bool(
-            (getattr(outcome, "final_planner_report", None) or {}).get(
-                "forward_progress"
-            )
-        ):
-            fail(
-                error=state.stop_reason or "completed work requires a replacement plan",
                 outcome=outcome_dimensions,
             )
         elif replan_requested:
@@ -1363,24 +1348,10 @@ class MissionExecutionSettlementMixin:
         outcome = state.outcome
         success = state.success
         status = state.status
-        kind = (
-            "mission_iterated" if state.iteration_requeued
-            else "mission_complete" if success
-            else "mission_replan_requested" if state.replan_requested or status == "stage_continues"
-            else "mission_aborted" if state.intentional_abort else "mission_failed"
-        )
-        self._update_no_progress_streak(
-            kind=kind,
-            report=getattr(outcome, "final_planner_report", {}) or {},
-        )
-
         planner_report = dict(getattr(outcome, "final_planner_report", {}) or {})
         try:
             from ...core.metrics import metrics_root_for_project, record_metric
 
-            forward_progress = planner_report.get("forward_progress")
-            if not isinstance(forward_progress, bool) and success and status == "done":
-                forward_progress = True
             record_metric(
                 metrics_root_for_project(self.memory.root),
                 "goal.mission",
@@ -1389,11 +1360,6 @@ class MissionExecutionSettlementMixin:
                     "project_id": self.memory.root.name,
                     "item_id": item.id,
                     "accepted": bool(success),
-                    "forward_progress": (
-                        forward_progress
-                        if isinstance(forward_progress, bool)
-                        else None
-                    ),
                     "replan_requested": bool(state.replan_requested),
                     "plan_signal": str(planner_report.get("plan_signal") or ""),
                     "elapsed_seconds": float(state.elapsed or 0.0),

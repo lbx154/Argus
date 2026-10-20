@@ -82,14 +82,3 @@ class SkillLibraryMixin:
             tuple(dict.fromkeys(required_skill_paths)),
             tuple(dict.fromkeys(prompt_blocks)),
         )
-
-    def _adapt_after_rejections(
-        self,
-        mission: MissionContext,
-        state: SkillLibraryState,
-        rounds: list[object],
-    ) -> str:
-        _ = (mission, state, rounds)
-        # The Engineer may independently revisit the library after Reviewer
-        # feedback. The runtime does not select or inject an alternative.
-        return ""

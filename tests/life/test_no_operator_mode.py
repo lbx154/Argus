@@ -60,7 +60,6 @@ class _ClassifiedQuestionRunner:
         outcome.final_review_reason = "Two requirements conflict."
         outcome.final_review_next_action = ""
         outcome.final_planner_report = {
-            "forward_progress": False,
             "plan_signal": "reconsider",
             "authority_impact": "operator",
             "operator_need": self.need,
@@ -473,7 +472,7 @@ def test_reviewer_decision_request_carries_its_classification() -> None:
 @pytest.mark.parametrize("need", ["credentials", "spending", "irreversible_or_external"])
 def test_no_operator_reviewer_action_need_stays_a_question(tmp_path, monkeypatch, need) -> None:
     from argus.core.models import ReviewDecision
-    from argus.engineer.round_settlement import _enforce_operator_question_policy
+    from argus.engineer.round_settlement import _apply_operator_question_policy
 
     monkeypatch.setenv("ARGUS_SKILL_OPERATOR_AVAILABLE", "false")
     review = ReviewDecision(
@@ -484,7 +483,7 @@ def test_no_operator_reviewer_action_need_stays_a_question(tmp_path, monkeypatch
         planner_report={"operator_need": need},
     )
     config = SimpleNamespace(operator_question_policy_root=None, operator_questions_allowed=True)
-    settled = _enforce_operator_question_policy(
+    settled = _apply_operator_question_policy(
         review, supervised_config=config, state=SimpleNamespace(rounds=[])
     )
     assert settled is review
@@ -795,7 +794,7 @@ def test_round_level_forbid_records_a_question_of_meaning_and_keeps_an_action(
 ) -> None:
     from argus.core.autonomy import read_autonomous_assumptions, start_autonomy_run
     from argus.core.models import ReviewDecision
-    from argus.engineer.round_settlement import _enforce_operator_question_policy
+    from argus.engineer.round_settlement import _apply_operator_question_policy
 
     monkeypatch.setenv("ARGUS_SKILL_OPERATOR_AVAILABLE", "false")
     start_autonomy_run()
@@ -805,14 +804,14 @@ def test_round_level_forbid_records_a_question_of_meaning_and_keeps_an_action(
         operator_question="Which spec line wins?",
         planner_report={"operator_need": "scope_or_authority"},
     )
-    _enforce_operator_question_policy(scope, supervised_config=config, state=SimpleNamespace(rounds=[]))
+    _apply_operator_question_policy(scope, supervised_config=config, state=SimpleNamespace(rounds=[]))
     assert read_autonomous_assumptions(tmp_path)[-1]["conflict"] == "Which spec line wins?"
     cred = ReviewDecision(
         status="blocked", reason="r", next_action="",
         operator_question="Provide the production key?",
         planner_report={"operator_need": "credentials"},
     )
-    kept = _enforce_operator_question_policy(
+    kept = _apply_operator_question_policy(
         cred, supervised_config=config, state=SimpleNamespace(rounds=[])
     )
     assert kept is cred

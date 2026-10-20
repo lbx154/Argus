@@ -22,7 +22,6 @@ def test_named_reviewer_verdict_preserves_planner_report() -> None:
     assert decision is not None
     assert decision.status == "done"
     assert decision.planner_report == {
-        "forward_progress": False,
         "plan_signal": "reconsider",
         "challenge": "The skip-zero candidate is no longer required.",
         "alternative": "Use the no-gap validator.",
@@ -41,7 +40,8 @@ def test_legacy_json_reviewer_verdict_preserves_planner_report() -> None:
     )
 
     assert decision is not None
-    assert decision.planner_report["forward_progress"] is True
+    # The retired progress field is read and ignored.
+    assert decision.planner_report == {"plan_signal": "continue"}
 
 
 def _mixed_payload(nested):
@@ -50,7 +50,6 @@ def _mixed_payload(nested):
         "reason": "The bounded result is correct; the next phase needs a new comparison.",
         "next_action": "",
         "planner_report": nested,
-        "forward_progress": True,
         "plan_signal": "reconsider",
         "plan_challenge": "The current plan cannot answer the original question.",
         "plan_alternative": "Run the matched causal comparison.",
@@ -64,7 +63,6 @@ def test_missing_nested_fields_preserve_the_flat_plan_challenge(nested) -> None:
 
     assert decision is not None
     assert decision.planner_report == {
-        "forward_progress": False if nested else True,
         "plan_signal": "reconsider",
         "challenge": "The current plan cannot answer the original question.",
         "alternative": "Run the matched causal comparison.",
@@ -79,7 +77,6 @@ def test_missing_nested_fields_preserve_the_flat_plan_challenge(nested) -> None:
 @pytest.mark.parametrize("use_aliases", [False, True])
 def test_explicit_nested_empty_values_do_not_restore_flat_advice(empty, use_aliases) -> None:
     nested = {
-        "forward_progress": False,
         "plan_signal": None,
         "plan_challenge" if use_aliases else "challenge": empty,
         "plan_alternative" if use_aliases else "alternative": empty,
@@ -88,14 +85,7 @@ def test_explicit_nested_empty_values_do_not_restore_flat_advice(empty, use_alia
     decision = decision_from_payload(_mixed_payload(nested))
 
     assert decision is not None
-    assert decision.planner_report == {"forward_progress": False}
-
-
-def test_nested_none_progress_does_not_restore_flat_true() -> None:
-    decision = decision_from_payload(_mixed_payload({"forward_progress": None}))
-    assert decision is not None
-    assert "forward_progress" not in decision.planner_report
-    assert decision.planner_report["plan_signal"] == "reconsider"
+    assert decision.planner_report == {}
 
 
 def test_loop_outcome_exposes_final_reviewer_planner_report() -> None:
@@ -120,6 +110,5 @@ def test_loop_outcome_exposes_final_reviewer_planner_report() -> None:
     )
 
     assert outcome.final_planner_report == {
-        "forward_progress": False,
         "plan_signal": "reconsider",
     }

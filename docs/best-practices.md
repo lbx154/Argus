@@ -103,13 +103,7 @@ validation, numerical thresholds, prerequisite checks, or actual failures.
 These settings do not certify complete provider telemetry or retrospectively
 accept previous failed runs.
 
-`progress-first` also uses the existing round controls: it caps enabled
-no-progress streak thresholds at two and enabled soft-round thresholds at three.
-After that soft threshold, the existing two-verdict progress window applies;
-productive work can continue. A disabled guard stays disabled, and explicit
-mission or individual guard settings still take precedence. Standard and strict
-leave the existing vertical thresholds unchanged. There is no new retry loop,
-automatic replay, or evidence ledger.
+No mode adds a round limit, retry loop, automatic replay, or evidence ledger.
 
 An explicit environment value overrides a saved setting. Invalid policy names
 are errors, not silent fallbacks. Use a new mission for a changed policy;

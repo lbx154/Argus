@@ -121,7 +121,6 @@ def test_stage_closing_bounded_direct_done_with_advice_completes_current_stage(
     decision = manager.decide_stage_transition(
         review=_review(
             planner_report={
-                "forward_progress": True,
                 "plan_signal": "reconsider",
                 "challenge": "A broader causal claim needs implementation evidence.",
                 "alternative": "Compare executed configurations before expanding it.",

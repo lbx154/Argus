@@ -37,19 +37,6 @@ def _payload(entry: Any) -> dict[str, Any]:
     return extra if isinstance(extra, dict) else {}
 
 
-def _forward_progress(entry: Any) -> bool | None:
-    """Return the Reviewer's own objective-level verdict, if it recorded one.
-
-    A mission can close as ``mission_complete`` because the round was correct
-    while the Reviewer still judged that the operator's objective did not move.
-    That distinction is the whole point of the field, and it is invisible in the
-    kind counts.
-    """
-    report = _payload(entry).get("planner_report")
-    value = report.get("forward_progress") if isinstance(report, dict) else None
-    return value if isinstance(value, bool) else None
-
-
 def _amount(value: Any) -> float:
     """Coerce one recorded cost/duration to a non-negative float."""
     try:
@@ -154,16 +141,6 @@ class PlannerRenderingMixin:
                 for kind in _PLANNER_TALLY_KINDS
             )
         ]
-        judged = [
-            verdict
-            for entry in missions
-            if (verdict := _forward_progress(entry)) is not None
-        ]
-        if flat := judged.count(False):
-            facts.append(
-                f"{flat} of {len(judged)} reviewed missions reported no "
-                "objective-level progress"
-            )
         if not counts["mission_replan_requested"]:
             facts.append(
                 f"no replacement plan requested in the last {len(missions)} "

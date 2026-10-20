@@ -81,7 +81,6 @@ class EventType(StrEnum):
     ROUND_CHECKPOINT_RECORDED = "round.checkpoint.recorded"
     ROUND_CHECKPOINT_FAILED = "round.checkpoint.failed"
     ROUND_SECRET_REDACTED = "round.secret_redacted"
-    ROUND_ESCALATED = "round.escalated"
     ROUND_STALL = "round.stall"
     ROUND_REVIEWER_BACKEND_FAILURE = "round.reviewer_backend_failure"
     ROUND_REVIEWER_BACKEND_FAILURE_BACKOFF = "round.reviewer_backend_failure.backoff"
@@ -146,7 +145,6 @@ class EventType(StrEnum):
     LIFE_PLANNER_IDLE = "life.planner.idle"
     LIFE_PLANNER_TERMINAL_IDLE = "life.planner.terminal_idle"
     LIFE_PLANNER_VERIFICATION_PROBE = "life.planner.verification_probe"
-    LIFE_PLANNER_STALL_ESCALATION = "life.planner.stall_escalation"
     LIFE_PLANNER_DEPENDENCY_DROPPED = "life.planner.dependency_dropped"
     LIFE_PLANNER_PARALLEL_DROPPED = "life.planner.parallel_dropped"
     LIFE_PLANNER_ERROR = "life.planner.error"
@@ -274,7 +272,6 @@ SIGNAL_EVENT_TYPES: frozenset[str] = frozenset({
     EventType.ROUND_CHECKPOINT_RECORDED,
     EventType.ROUND_CHECKPOINT_FAILED,
     EventType.ROUND_SECRET_REDACTED,
-    EventType.ROUND_ESCALATED,
     EventType.ROUND_STALL,
     EventType.ROUND_REVIEWER_BACKEND_FAILURE,
     EventType.ENGINEER_SKILL_MAINTENANCE_COMPLETED,
@@ -317,7 +314,6 @@ SIGNAL_EVENT_TYPES: frozenset[str] = frozenset({
     EventType.LIFE_PLANNER_IDLE,
     EventType.LIFE_PLANNER_TERMINAL_IDLE,
     EventType.LIFE_PLANNER_VERIFICATION_PROBE,
-    EventType.LIFE_PLANNER_STALL_ESCALATION,
     EventType.LIFE_RUNTIME_FAILURE_CIRCUIT_OPENED,
     EventType.LIFE_RUNTIME_FAILURE_CIRCUIT_BLOCKED,
     EventType.LIFE_RUNTIME_FAILURE_CANARY_PASSED,

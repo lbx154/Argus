@@ -1013,9 +1013,7 @@ class SelfReplyMixin:
         success = result.exit_code == 0 and not fatal and bool(last_msg)
         new_thread_id = getattr(result, "thread_id", None)
         round_thread_id = new_thread_id or seed
-        result_status = "done" if success else "error"
         if should_clear_thread_id_after_outcome(
-            status=result_status,
             fatal_error=str(getattr(result, "fatal_error", "") or ""),
         ):
             self.last_thread_id = None

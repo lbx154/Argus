@@ -153,10 +153,9 @@ def test_action_preserves_explicit_session_signal():
     actions = ReviewActions()
     signal = {"kind": "quality_degradation", "target": "engineer", "detail": "Repeated an obsolete repair."}
     actions.dispatch("revise_review", {
-        "review": "Use the current evidence.", "session_signal": signal, "forward_progress": False,
+        "review": "Use the current evidence.", "session_signal": signal,
     })
     assert actions.decision.session_signal == signal
-    assert actions.decision.planner_report["forward_progress"] is False
     assert all("frontier_report" not in tool["inputSchema"]["properties"] for tool in actions.tools)
 
 
@@ -348,7 +347,7 @@ def test_judgments_do_not_break_the_reviewer_acceptance_shortcut():
 
     actions = ReviewActions()
     actions.dispatch("approve_review", {
-        "review": "Complete with evidence.", "forward_progress": True,
+        "review": "Complete with evidence.",
         "manager_attention": {"verdict": "needed", "reason": "Worth a final look."},
         "learning": {"verdict": "nothing_new", "reason": "Routine."},
     })

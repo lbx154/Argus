@@ -215,18 +215,6 @@ def active_residual_risks(root: Path | str, *, item_id: str = "", mission_ref: s
     ]
 
 
-def last_decision_at(root: Path | str) -> float:
-    """When an acceptance was last made or revoked here, or 0."""
-    latest = 0.0
-    for row in _read(root):
-        for key in ("accepted_at", "revoked_at"):
-            try:
-                latest = max(latest, float(row.get(key) or 0))
-            except (TypeError, ValueError):
-                continue
-    return latest
-
-
 def describe(row: dict[str, Any]) -> str:
     who = "the operator" if row.get("accepted_by") == "operator" else "the Manager"
     return f"{row.get('check')}: {row.get('risk')} (accepted by {who})"
@@ -257,7 +245,7 @@ def reviewer_block(root: Path | str, *, item_id: str = "", mission_ref: str = ""
 
 __all__ = [
     "ACCEPTERS", "ACCEPT_OPTION_ID", "ACCEPT_OPTION_LABEL", "FILENAME", "KEEP_OPTION_ID", "REVIEWER_BLOCK_PROSE",
-    "accept_residual_risk", "acceptance_options", "active_residual_risks", "describe", "last_decision_at",
+    "accept_residual_risk", "acceptance_options", "active_residual_risks", "describe",
     "operator_accepted", "residual_risk_records", "reviewer_block", "revoke_residual_risk",
     "same_check", "sanitize_text", "store_path",
 ]

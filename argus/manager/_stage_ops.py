@@ -184,7 +184,6 @@ class _StageDecisionMixin:
             return False
 
         allowed_plan_fields = {
-            "forward_progress",
             "plan_signal",
             "challenge",
             "alternative",
@@ -200,10 +199,6 @@ class _StageDecisionMixin:
             return False
         for name in ("manager_attention", "manager_attention_reason", "learning", "learning_reason"):
             if name in planner_report and not isinstance(planner_report[name], str):
-                return False
-        if "forward_progress" in planner_report:
-            progress = planner_report["forward_progress"]
-            if not isinstance(progress, bool) or not progress:
                 return False
         if "plan_signal" in planner_report:
             signal = planner_report["plan_signal"]

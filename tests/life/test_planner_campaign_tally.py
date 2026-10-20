@@ -48,13 +48,10 @@ def _entry(
     title: str = "t",
     summary: str = "s",
     *,
-    forward_progress: bool | None = None,
     cost_usd: float = 0.0,
     elapsed_seconds: float = 0.0,
 ):
     extra: dict = {"elapsed_seconds": elapsed_seconds}
-    if forward_progress is not None:
-        extra["planner_report"] = {"forward_progress": forward_progress}
     return SimpleNamespace(
         kind=kind,
         title=title,
@@ -104,7 +101,7 @@ def test_tally_is_silent_on_a_fresh_campaign() -> None:
 def test_tally_states_facts_and_never_a_recommendation() -> None:
     """The harness reports counts; the Planner decides what they mean."""
     entries = [
-        _entry("mission_complete", forward_progress=False, cost_usd=9.0, elapsed_seconds=3600)
+        _entry("mission_complete", cost_usd=9.0, elapsed_seconds=3600)
         for _ in range(200)
     ]
     line = _renderer(entries)._render_campaign_tally().lower()
@@ -157,35 +154,6 @@ def test_tally_keeps_absolute_claims_below_the_window() -> None:
     line = _renderer(entries)._render_campaign_tally()
     assert f"({_TALLY_WINDOW_MISSIONS - 1} terminal missions)" in line
     assert "no mission has ever requested a replacement plan" in line
-
-
-def test_tally_shows_a_stalled_objective_behind_locally_complete_missions() -> None:
-    """The counts alone cannot express the failure that motivated this.
-
-    A run can end ``mission_complete`` because the round was correct while the
-    Reviewer judged that the operator's objective did not move. Four such
-    missions read as an unbroken success streak unless that verdict is carried
-    up with them.
-    """
-    entries = [_entry("mission_complete", forward_progress=False) for _ in range(4)]
-    line = _renderer(entries)._render_campaign_tally()
-    assert "complete=4" in line
-    assert "4 of 4 reviewed missions reported no objective-level progress" in line
-
-
-def test_tally_counts_only_the_missions_a_reviewer_actually_judged() -> None:
-    entries = [
-        _entry("mission_complete", forward_progress=True),
-        _entry("mission_complete", forward_progress=False),
-        _entry("mission_complete"),
-    ]
-    line = _renderer(entries)._render_campaign_tally()
-    assert "1 of 2 reviewed missions" in line
-
-
-def test_tally_is_silent_about_progress_when_every_mission_moved_the_goal() -> None:
-    entries = [_entry("mission_complete", forward_progress=True) for _ in range(6)]
-    assert "objective-level progress" not in _renderer(entries)._render_campaign_tally()
 
 
 def test_tally_reports_what_the_campaign_has_already_spent() -> None:

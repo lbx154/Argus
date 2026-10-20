@@ -73,7 +73,6 @@ def test_a_flat_decision_event_carries_the_challenge_to_the_manager() -> None:
         "status": "replan_requested",
         "reason": "Each round repairs a different symptom of one cohort protocol.",
         "next_action": "Certify per cell instead of per cohort.",
-        "forward_progress": False,
         "plan_signal": "reconsider",
         "plan_challenge": "The all-or-nothing cohort rule is self-imposed.",
         "plan_alternative": "Certify admissible cells and narrow the claim.",
@@ -82,7 +81,6 @@ def test_a_flat_decision_event_carries_the_challenge_to_the_manager() -> None:
 
     assert decision is not None
     assert decision.planner_report["plan_signal"] == "reconsider"
-    assert decision.planner_report["forward_progress"] is False
     routed = adjudicate_plan_challenge(
         decision.planner_report,
         reviewer_status=decision.status,
@@ -96,7 +94,6 @@ def test_done_verdict_keeps_plan_challenge_advisory() -> None:
         "status": "done",
         "reason": "The new result lowers the current plan's expected value.",
         "next_action": "Reassess the remaining route from the new evidence.",
-        "forward_progress": True,
         "plan_signal": "reconsider",
         "plan_challenge": "The current mechanism no longer explains the result.",
         "authority_impact": "technical",
@@ -138,12 +135,11 @@ def test_the_nested_shape_still_parses() -> None:
         "status": "done",
         "reason": "complete",
         "next_action": "",
-        "planner_report": {"forward_progress": True, "plan_signal": "continue"},
+        "planner_report": {"plan_signal": "continue"},
     }))
 
     assert decision is not None
     assert decision.planner_report == {
-        "forward_progress": True,
         "plan_signal": "continue",
     }
 

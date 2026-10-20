@@ -748,7 +748,6 @@ def _assert_replan_replace_commits_after_source_terminalized(
                     "The source node completed enough evidence to refute itself."
                 ),
                 final_planner_report={
-                    "forward_progress": True,
                     "plan_signal": "reconsider",
                     "challenge": "The source route is now worse than the replacement.",
                     "alternative": "Commit the replacement route.",
@@ -807,7 +806,8 @@ def _assert_replan_replace_commits_after_source_terminalized(
     outcome = supervisor._run_one(trigger)
 
     rows_after_run = {item.id: item for item in supervisor.memory.backlog.all()}
-    assert rows_after_run["source-route"].status == "failed"
+    # The Manager's ruling on the challenge, not a progress bit, retires it.
+    assert rows_after_run["source-route"].status == "pending"
     assert outcome["status"] == "replan_requested"
     assert outcome["plan_revision_witness"]["active_item_ids"] == [
         "source-route",

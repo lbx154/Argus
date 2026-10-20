@@ -3,9 +3,9 @@
 A credential-building line can be masked in every role's view. A Reviewer
 that cannot see the line repeats its finding and an Engineer that cannot see it
 repeats its fix; more rounds cannot change that. The Reviewer may say so
-through its native action, and the loop then labels the stall apart from an
-ordinary lack of progress so the Manager can steer. Nothing here decides the
-review: the status, the stall counter and the round budget are unchanged.
+through its native action, and its review event carries the obstacle by name
+so the Manager can steer. Nothing here decides the review: the status and the
+round budget are unchanged.
 """
 
 from __future__ import annotations
@@ -48,35 +48,29 @@ def test_continuing_and_replanning_actions_offer_the_obstacle_field() -> None:
         assert "unverifiable" not in tools[name]["inputSchema"]["properties"]
 
 
-def test_reviewer_obstacle_is_carried_on_review_and_stall_events(tmp_path) -> None:
+def test_reviewer_obstacle_is_carried_on_the_review_event(tmp_path) -> None:
     backend = MemoryBackend()
-    _queue(backend, 1, {"review": "Header still unverified.", "forward_progress": False,
+    _queue(backend, 1, {"review": "Header still unverified.",
                         "unverifiable": _OBSTACLE})
-    _queue(backend, 2, {"review": "Header still unverified.", "forward_progress": False})
+    _queue(backend, 2, {"review": "Header still unverified."})
     events: list[dict] = []
 
     status, rounds, _final, _reason, _thread = _engineer(backend).run(
         objective="Send the configured credential.",
         engineer_prompt_builder=lambda _next, _static=True: "Do the task.",
-        # max_rounds=0 is the unbounded default the incident ran under.
-        supervised_config=SupervisedConfig(max_rounds=0, stall_threshold=2,
-                                           decision_progress_timeout_seconds=0),
+        supervised_config=SupervisedConfig(max_rounds=2),
         workdir=tmp_path,
         on_event=events.append,
     )
 
     # The obstacle neither ends nor extends the loop by itself.
-    assert status == "no_progress"
+    assert status == "max_rounds"
     assert [row.review.status for row in rounds] == ["continue", "continue"]
     reviews = [e for e in events if e.get("type") == "round.review.completed"]
     assert reviews[0]["verification_obstacle"] == _OBSTACLE
     assert "verification_obstacle" not in reviews[1]
-    stalls = [e for e in events if e.get("type") == "round.stall"]
-    assert [e["stall_reason"] for e in stalls] == [
-        "unverifiable_through_view", "no_forward_progress",
-    ]
-    for event in (*reviews, *stalls):
-        assert event["round_max"] == 0
+    assert not [e for e in events if e.get("type") == "round.stall"]
+    for event in reviews:
         assert validate_event_envelope(event).errors == ()
 
 
