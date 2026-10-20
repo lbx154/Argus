@@ -15,6 +15,7 @@ from __future__ import annotations
 import json
 import time
 from pathlib import Path
+from types import SimpleNamespace
 
 import pytest
 
@@ -25,7 +26,7 @@ from argus.life.memory import BacklogItem, LifeMemory
 from argus.life.supervisor import LifeBudget, LifeSupervisor, LifeSupervisorConfig
 from argus.life.supervisor._constants import PLAN_AWAITING, PLAN_ERROR
 from argus.messaging.inbox import PeerAwareInbox
-from argus.planner import PlannerVerdict
+from argus.planner import PlannerVerdict, TaskSpec
 from argus.skills.vertical_select import persist_vertical
 
 
@@ -157,6 +158,59 @@ def test_new_settled_mission_calls_the_planner_again(
 
     assert supervisor._plan_next_work() == PLAN_AWAITING
     assert calls["count"] == 2, "a settled mission is new evidence for the Planner"
+
+
+def test_a_manager_hold_wakes_the_planner_to_plan_the_next_step(
+    tmp_path: Path, monkeypatch
+) -> None:
+    """Step 1 settled, and the Planner handed the stage to the Manager instead
+    of planning step 2. The Manager's HOLD and its reason are new to the
+    Planner, so it is asked again and plans step 2 rather than both waiting on
+    each other (2026-10-20: the HOLD was dropped and the project went silent).
+    """
+    project = tmp_path / "project"
+    project.mkdir()
+    life = tmp_path / "life"
+    calls = _install_planner(monkeypatch, [
+        PlannerVerdict(
+            project_done=False,
+            reason="Step 1 passed review; the original task has ended.",
+            handoff="manager",
+        ),
+        PlannerVerdict(
+            project_done=False,
+            reason="Step 2 is next.",
+            new_tasks=[TaskSpec(title="Step 2: to_camel", objective="Add to_camel(s) with tests.")],
+        ),
+    ])
+    supervisor = _supervisor(project, life)
+    held: list[dict] = []
+
+    class _Manager:
+        def decide_stage_transition(self, **kwargs):  # noqa: ANN003
+            held.append(kwargs)
+            return SimpleNamespace(
+                action="hold", target_stage="", reason="Step 1 is done; plan step 2 now.",
+                current_stage="", source="manager_llm", diagnostic="intentional_hold",
+            )
+
+    supervisor._bound_manager = lambda: _Manager()  # type: ignore[method-assign]
+    supervisor.sink.handle_event({
+        "type": "life.mission.completed",
+        "item_id": "step-1",
+        "title": "Step 1: to_snake",
+        "objective": "Add to_snake(s) with tests.",
+        "success": True,
+        "status": "done",
+        "summary": "to_snake passes review.",
+    })
+
+    supervisor._plan_next_work()
+    supervisor._plan_next_work()
+
+    assert len(held) == 1
+    assert calls["count"] == 2, "the Manager's answer is new evidence for the Planner"
+    assert [item.title for item in supervisor.memory.backlog.pending()] == ["Step 2: to_camel"]
 
 
 def test_elapsed_time_alone_never_buys_a_planner_call(
