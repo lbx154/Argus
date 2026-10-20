@@ -788,9 +788,7 @@ def experience_from_settled_mission(
     factual_outcome: str,
     final_message: str = "",
     review_reason: str = "",
-    planner_report: dict[str, Any] | None = None,
     stop_kind: str = "",
-    recoverable: bool = False,
     concepts: list[str] | None = None,
     artifact_refs: list[str] | None = None,
     non_goals: list[str] | None = None,
@@ -803,20 +801,6 @@ def experience_from_settled_mission(
     if created_at is None:
         raise ValueError("settled experience requires its original stable creation timestamp")
     birth = float(created_at)
-    report = planner_report if isinstance(planner_report, dict) else {}
-    transfer = _clean_list(
-        [
-            report.get("next_action"),
-            report.get("recommendation"),
-            report.get("reason"),
-        ]
-    )
-    retry = _clean_list(
-        [
-            report.get("retry_condition"),
-            report.get("next_action") if recoverable else "",
-        ]
-    )
     boundaries = [
         ("This successful runtime verdict records one bounded mission observation, not a general causal rule. "
          "Reuse requires checking the original conditions and supporting evidence."
@@ -828,7 +812,6 @@ def experience_from_settled_mission(
             "Recorded verdict source: " + (_clean_text(reviewer_source, limit=200) or "unspecified")
             + ". This capsule does not independently verify the claim or promote it to shared knowledge."
         )
-    causes = _clean_list([stop_kind, report.get("diagnosis"), report.get("cause")])
     source_identity = f"mission:{mission_id}/attempt:{attempt_id or 'default'}"
     return FailureExperience.new(
         experience_id=f"exp:{birth.hex()}:{source_identity}",
@@ -841,13 +824,11 @@ def experience_from_settled_mission(
         status=status,
         factual_outcome=factual_outcome,
         research_narrative=final_message,
-        lessons=_clean_list([review_reason, report.get("reason")]),
-        transfer_insights=transfer,
+        lessons=_clean_list([review_reason]),
         claim_boundaries=boundaries,
-        retry_conditions=retry,
         artifact_refs=artifact_refs,
         concepts=concepts,
-        causes=causes,
+        causes=_clean_list([stop_kind]),
     )
 
 

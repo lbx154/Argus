@@ -460,11 +460,9 @@ class LifeSupervisor(
         """Persist the Manager authority decision before Planner sees a challenge."""
         from ...manager import adjudicate_plan_challenge
 
-        report = outcome.get("planner_report")
         challenge = dict(outcome.get("plan_challenge") or {})
         if not challenge:
             decision = adjudicate_plan_challenge(
-                report if isinstance(report, dict) else {},
                 reviewer_status=str(
                     outcome.get("review_status") or outcome.get("status") or ""
                 ),

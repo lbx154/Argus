@@ -149,10 +149,7 @@ def test_manuscript_change_during_review_cannot_be_certified(paper):
 
 
 def test_a_final_reviews_own_routing_stands(paper):
-    report = {
-        "plan_signal": "reconsider", "challenge": "Unequal useful work invalidates the speed comparison.",
-        "alternative": "Hold accepted token yield fixed, run matched-budget controls, and report throughput.",
-    }
+    report = {"plan_signal": "reconsider"}
     review = ReviewDecision(
         status="replan_requested", reason="The baseline processes fewer positions.",
         next_action="Measure latency and accepted tokens under the same speculative budget.",

@@ -312,18 +312,10 @@ class ReviewDecision:
             payload["venue_review_passed"] = self.venue_review_passed
             payload["venue_review_snapshot"] = self.venue_review_snapshot
         report = self.planner_report if isinstance(self.planner_report, dict) else {}
-        plan_signal = str(report.get("plan_signal") or "").strip()
-        if plan_signal:
-            payload["plan_signal"] = plan_signal
-        for source_key, event_key in (
-            ("challenge", "plan_challenge"),
-            ("alternative", "plan_alternative"),
-            ("learning", "learning"),
-            ("learning_reason", "learning_reason"),
-        ):
-            value = str(report.get(source_key) or "").strip()
+        for key in ("plan_signal", "learning", "learning_reason"):
+            value = str(report.get(key) or "").strip()
             if value:
-                payload[event_key] = value
+                payload[key] = value
         signal = self.session_signal if isinstance(self.session_signal, dict) else {}
         if str(signal.get("kind") or "").strip():
             payload["session_signal"] = dict(signal)

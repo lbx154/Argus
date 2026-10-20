@@ -659,8 +659,6 @@
         "operator_question": "operator question",
         "output_tokens": 1,
         "payload_schema_version": 1,
-        "plan_alternative": "plan alternative",
-        "plan_challenge": "plan challenge",
         "plan_signal": "plan signal",
         "premium_requests": 1.25,
         "prompt_block_stats": {

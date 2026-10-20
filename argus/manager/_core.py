@@ -183,8 +183,8 @@ class Manager(
     ):
         return manager_pipeline_lock(self.manager_session_root, timeout=timeout, cancelled=cancelled)
 
-    def adjudicate_plan_challenge(self, planner_report: Any, **context: Any):
+    def adjudicate_plan_challenge(self, **context: Any):
         """Route a Reviewer challenge through the Manager authority boundary."""
         from .plan_challenge import adjudicate_plan_challenge
 
-        return adjudicate_plan_challenge(planner_report, **context)
+        return adjudicate_plan_challenge(**context)

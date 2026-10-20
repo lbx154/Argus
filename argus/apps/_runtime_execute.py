@@ -1166,7 +1166,6 @@ class SkillLoopExecuteMixin:
                 manager = getattr(self, "manager", None)
                 if manager is not None:
                     challenge_decision = manager.adjudicate_plan_challenge(
-                        final_planner_report,
                         reviewer_status=final_review_status,
                         review_reason=str(
                             getattr(_final_review, "reason", "") or ""
@@ -1177,7 +1176,6 @@ class SkillLoopExecuteMixin:
                     from ..manager import adjudicate_plan_challenge
 
                     challenge_decision = adjudicate_plan_challenge(
-                        final_planner_report,
                         reviewer_status=final_review_status,
                         review_reason=str(
                             getattr(_final_review, "reason", "") or ""

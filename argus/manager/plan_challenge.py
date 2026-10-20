@@ -8,7 +8,6 @@ replacement DAG.
 from __future__ import annotations
 
 from dataclasses import dataclass
-from typing import Any, Mapping
 
 
 @dataclass(frozen=True)
@@ -21,17 +20,15 @@ class PlanChallengeDecision:
 
 
 def adjudicate_plan_challenge(
-    planner_report: Mapping[str, Any] | None,
     *,
     reviewer_status: str = "",
     review_reason: str = "",
     next_action: str = "",
 ) -> PlanChallengeDecision:
     """Route a Reviewer challenge without promoting Planner prose to authority."""
-    report = planner_report if isinstance(planner_report, Mapping) else {}
     status = str(reviewer_status or "").strip().lower()
-    challenge = str(report.get("challenge") or review_reason or "").strip()
-    alternative = str(report.get("alternative") or next_action or "").strip()
+    challenge = str(review_reason or "").strip()
+    alternative = str(next_action or "").strip()
 
     if status != "replan_requested":
         return PlanChallengeDecision(

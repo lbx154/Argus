@@ -185,8 +185,6 @@ class _StageDecisionMixin:
 
         allowed_plan_fields = {
             "plan_signal",
-            "challenge",
-            "alternative",
             # The reflection judgment says nothing about whether the stage is accepted.
             "learning",
             "learning_reason",
@@ -203,11 +201,6 @@ class _StageDecisionMixin:
             signal = signal.strip().lower()
             if signal not in {"", "continue", "reconsider"}:
                 return False
-        for name in ("challenge", "alternative"):
-            if name in planner_report:
-                value = planner_report[name]
-                if not isinstance(value, str):
-                    return False
         return True
 
     def _gather_stage_context(

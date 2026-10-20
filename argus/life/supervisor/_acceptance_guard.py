@@ -42,10 +42,6 @@ def _stopped(
         final_review_next_action=operator_question if contract_blocked else "",
         operator_question=operator_question if contract_blocked else "",
         operator_options=[], final_message=reason, summary=reason,
-        final_planner_report=(
-            {"acceptance_dependency_assessment": assessment}
-            if contract_blocked else {}
-        ),
     )
 
 

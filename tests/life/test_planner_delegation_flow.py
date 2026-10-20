@@ -683,11 +683,7 @@ def test_0d3_later_no_gap_evidence_replaces_skip_zero_plan(
         "review_reason": "The no-gap validator dominates the preselected candidate.",
         "expected_plan_id": "plan-old",
         "expected_plan_version": 1,
-        "planner_report": {
-            "plan_signal": "reconsider",
-            "challenge": "The preselected skip-zero candidate is unnecessary.",
-            "alternative": "Use the no-gap validator alternative.",
-        },
+        "planner_report": {"plan_signal": "reconsider"},
         "plan_challenge": {
             "manager_action": "replace",
             "manager_reason": "Later evidence supports a concrete alternative.",
@@ -747,11 +743,7 @@ def _assert_replan_replace_commits_after_source_terminalized(
                 final_review_reason=(
                     "The source node completed enough evidence to refute itself."
                 ),
-                final_planner_report={
-                    "plan_signal": "reconsider",
-                    "challenge": "The source route is now worse than the replacement.",
-                    "alternative": "Commit the replacement route.",
-                },
+                final_planner_report={"plan_signal": "reconsider"},
                 plan_challenge={
                     "manager_action": "replace",
                     "manager_reason": "Later evidence supports a replacement.",

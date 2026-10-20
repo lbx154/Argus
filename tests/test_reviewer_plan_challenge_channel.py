@@ -47,7 +47,6 @@ def test_a_plan_challenge_is_the_reviewers_line_to_the_planner(tmp_path) -> None
     assert actions.decision.status == "replan_requested"
     assert actions.decision.planner_report["plan_signal"] == "reconsider"
     routed = adjudicate_plan_challenge(
-        actions.decision.planner_report,
         reviewer_status=actions.decision.status,
         review_reason=actions.decision.reason,
         next_action=actions.decision.next_action,
