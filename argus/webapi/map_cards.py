@@ -38,18 +38,23 @@ def cards_source(dataset_id: str, locale: str) -> str:
     return f"{dataset_id}:{locale}:card-words"
 
 
-_RECORDS = ("life.mission.completed", "round.main.completed", "round.review.completed")
+_RECORDS = ("life.mission.completed", "round.main.completed", "round.review.completed",
+            "life.operator_question.answered")
 
 
 def _last_records(dataset: dict) -> dict[str, str]:
     """What each task's own record last said: what the work found is in the
-    record its last round left."""
-    last: dict[str, tuple[float, str]] = {}
-    for event in dataset.get("events", []):
+    record its last round left, and a question's in the answer it got. A
+    review's verdict is the last word on the report it judged: the mission's
+    settlement only repeats that report, written before the review."""
+    last: dict[str, tuple[str, str]] = {}
+    for event in sorted(dataset.get("events", []), key=lambda event: float(event.get("ts") or 0)):
         said = text(event.get("text"), 700).strip()
-        owner = event.get("item_id")
-        if event.get("type") in _RECORDS and owner and said and float(event.get("ts") or 0) >= last.get(owner, (0.0, ""))[0]:
-            last[owner] = (float(event.get("ts") or 0), said)
+        owner, kind = event.get("item_id"), event.get("type")
+        if kind in _RECORDS and owner and said and not (
+            kind == "life.mission.completed" and last.get(owner, ("", ""))[0] == "round.review.completed"
+        ):
+            last[owner] = (kind, said)
     return {owner: said for owner, (_, said) in last.items()}
 
 
