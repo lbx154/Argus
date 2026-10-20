@@ -138,8 +138,11 @@ def test_a_new_mission_on_the_same_work_does_not_reset_the_count(tmp_path: Path)
 
     assert labels == ["reviewer"]
     assert status == "blocked"
-    assert rounds[-1].review.review_source == "unchanged_return"
-    assert "planner" in rounds[-1].review.reason and "manager" in rounds[-1].review.reason
+    # One handoff, one record: the Reviewer's words stay beside the climb.
+    (record,) = rounds
+    assert record.review.review_source == "unchanged_return"
+    assert "planner" in record.review.reason and "manager" in record.review.reason
+    assert record.review.reviewer_words["status"] == "replan_requested"
 
 
 def test_the_top_rung_is_the_operator(tmp_path: Path) -> None:

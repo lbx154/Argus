@@ -332,10 +332,13 @@ class SupervisedEngineer(
             if control.action == "continue_loop":
                 continue
             review = control.payload
-            reviewed = state.snapshots is not None and state.snapshots.take("reviewed")
-            if reviewed:
+            if state.snapshots is not None and state.snapshots.take("reviewed"):
                 # The Reviewer holds the work as its verdict leaves it.
                 state.snapshots.hold("reviewer", "reviewed", state.handed_inputs)
+                wanted = {"replan_requested": "planner", "blocked": "manager"}.get(review.status, "")
+                if wanted and not review.operator_question and not review.backend_unavailable:
+                    holder, passed = self._deliver(wanted, state=state, label="reviewed")
+                    review = climb_record(passed, holder, handed=review) if passed else review
             control = self._settle_round(
                 review=review,
                 round_index=round_index,
@@ -346,20 +349,6 @@ class SupervisedEngineer(
                 review_completed_hook=review_completed_hook,
                 on_event=on_event,
             )
-            wanted = {"replan_requested": "planner", "blocked": "manager"}.get(review.status, "")
-            if reviewed and control.action == "return" and wanted and not review.operator_question:
-                holder, passed = self._deliver(wanted, state=state, label="reviewed")
-                if passed:
-                    control = self._settle_round(
-                        review=climb_record(passed, holder),
-                        round_index=round_index,
-                        supervised_config=supervised_config,
-                        workdir=workdir,
-                        outcome=outcome,
-                        state=state,
-                        review_completed_hook=review_completed_hook,
-                        on_event=on_event,
-                    )
             if control.action == "return":
                 return control.terminal
             if control.action == "continue_loop":

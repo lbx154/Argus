@@ -9,6 +9,7 @@ instead of calling that model again.
 from __future__ import annotations
 
 import time
+from dataclasses import replace
 from pathlib import Path
 from typing import TYPE_CHECKING, Callable
 
@@ -102,15 +103,24 @@ def no_turn(state: RoundLoopState) -> EngineerTurnOutcome:
     )
 
 
-def climb_record(passed: list[str], holder: str) -> ReviewDecision:
-    """The host's record that unchanged work climbed past ``passed`` to ``holder``."""
+def climb_record(passed: list[str], holder: str, *, handed: ReviewDecision | None = None) -> ReviewDecision:
+    """The host's record that unchanged work climbed past ``passed`` to ``holder``.
+
+    When the Reviewer's verdict ``handed`` it on, the round keeps that one
+    record: the verdict's findings stay, its own words in ``reviewer_words``,
+    and where the work went is the host's.
+    """
     who = " and the ".join(passed)
-    return ReviewDecision(
+    reason = (
+        f"Nothing changed since the {who} last held this work, and nothing new "
+        f"arrived from outside, so it went one rung up, to the {holder}."
+    )
+    if handed is not None:
+        reason += f" The Reviewer had handed it to the {passed[0]}: {handed.reason}"
+    return replace(
+        handed or ReviewDecision(status="continue", reason="", next_action=""),
         status=HANDOFF_STATUS[holder],
-        reason=(
-            f"Nothing changed since the {who} last held this work, and nothing new "
-            f"arrived from outside, so it went one rung up, to the {holder}."
-        ),
+        reason=reason,
         next_action="",
         operator_question=(
             f"Nothing changed since the {who} last held this work. How should it go on?"
@@ -118,6 +128,10 @@ def climb_record(passed: list[str], holder: str) -> ReviewDecision:
         ),
         review_source="unchanged_return",
         host_placeholder="unchanged_return",
+        reviewer_authored=False,
+        reviewer_words=None if handed is None else handed.reviewer_words or {
+            "status": handed.status, "reason": handed.reason, "next_action": handed.next_action,
+        },
     )
 
 
