@@ -1,5 +1,5 @@
-"""Structural enrichment of the map projection: plan-identity task fields,
-plan supersede events, and portfolio formation visibility."""
+"""Structural enrichment of the map projection: plan-identity task fields and
+plan supersede events."""
 
 from __future__ import annotations
 
@@ -8,7 +8,6 @@ from pathlib import Path
 
 from argus.core.session import SessionMeta, write_session_meta
 from argus.life.memory import BacklogItem, LifeMemory
-from argus.team import task_board
 from argus.webapi.map_feed import MapFeed
 from argus.webapi.map_view import normalize_events, read_map
 
@@ -25,32 +24,6 @@ def plain_session(root: Path, sid: str = "s-structure"):
     life = root / "projects" / sid
     memory = LifeMemory.open(life)
     return sid, life, memory
-
-
-def team_sample(root: Path, sid: str = "s-structure-team"):
-    workdir = root / "workspaces" / sid
-    workdir.mkdir(parents=True)
-    write_session_meta(root, SessionMeta(id=sid, workdir=str(workdir), created=1))
-    life = root / "projects" / sid
-    memory = LifeMemory.open(life)
-    memory.backlog.add(BacklogItem(
-        id="parent", ts=1, title="Choose a research idea",
-        objective="Compare routes", status="running",
-    ))
-    board = workdir / ".argus" / "teams" / "research-team"
-    task_board.form(board, [
-        {"task_id": "route-01", "role": "idea-route", "title": "Investigate route one",
-         "objective": "Read primary sources for route one."},
-    ])
-    append(life, {"type": "life.mission.started", "item_id": "parent", "ts": 2})
-    append(life, {"type": "idea.portfolio.formed", "item_id": "parent",
-                  "team_root": str(board), "ts": 10, "width": 12, "route_count": 12,
-                  "task_count": 24})
-    return sid, life, board
-
-
-def formations(value: dict) -> list[dict]:
-    return [e for e in value["events"] if e["type"] == "idea.portfolio.formed"]
 
 
 def test_tasks_carry_plan_structure_fields_redacted_and_clipped(redact_secrets_on, tmp_path: Path) -> None:
@@ -108,44 +81,21 @@ def test_supersede_event_reaches_the_live_feed(tmp_path: Path) -> None:
     assert matching[0]["superseded_by_plan_id"] == "plan-9"
 
 
-def test_portfolio_formation_is_forwarded_once_with_stable_identity(tmp_path: Path) -> None:
-    sid, life, board = team_sample(tmp_path)
-    value = read_map(sid, tmp_path, life)
-    formed = formations(value)
-    assert len(formed) == 1
-    event = formed[0]
-    assert event["item_id"] == "parent"
-    assert event["ts"] == 10
-    assert event["team_id"] == "research-team"
-    assert event["width"] == 12
-    assert event["text"] == ""
-    # Formation is journal history: it must never be broadcast as removable,
-    # so its id must stay outside map_feed's "team:" removability namespace.
-    assert not event["id"].startswith("team:")
-    again = formations(read_map(sid, tmp_path, life))[0]
-    assert again["id"] == event["id"]
-    assert again["revision"] == event["revision"]
-
-
-def test_formation_survives_incremental_reads_without_duplication(tmp_path: Path) -> None:
-    sid, life, board = team_sample(tmp_path)
-    feed = MapFeed()
-    first = feed.read(sid, tmp_path, life)
-    assert len(formations(first)) == 1
-    # Team-side progress invalidates the projection but must not resend or
-    # remove the unchanged formation observation.
-    task_board.claim_top(board, "worker-1", now=20)
-    incremental = feed.read(sid, tmp_path, life, first["cursor"])
-    assert incremental["incremental"] is True
-    assert formations(incremental) == []
-    assert incremental["removed_event_ids"] == []
-    # Journal-side progress must not resend it either.
-    append(life, {"type": "round.start", "item_id": "parent", "ts": 30})
-    tail = feed.read(sid, tmp_path, life, incremental["cursor"])
-    assert tail["incremental"] is True
-    assert formations(tail) == []
-    # A repeated formation record for the same parent keeps one observation.
+def test_an_old_team_board_and_formation_record_read_as_plain_history(tmp_path: Path) -> None:
+    sid = "s-old-team"
+    workdir = tmp_path / "workspaces" / sid
+    board = workdir / ".argus" / "teams" / "research-team" / "tasks"
+    board.mkdir(parents=True)
+    (board / "route-01.json").write_text('{"task_id": "route-01"}', encoding="utf-8")
+    write_session_meta(tmp_path, SessionMeta(id=sid, workdir=str(workdir), created=1))
+    life = tmp_path / "projects" / sid
+    LifeMemory.open(life).backlog.add(BacklogItem(
+        id="parent", ts=1, title="Choose a research idea", objective="Compare routes",
+    ))
     append(life, {"type": "idea.portfolio.formed", "item_id": "parent",
-                  "team_root": str(board), "ts": 40, "width": 12})
-    repeated = feed.read(sid, tmp_path, life)
-    assert [e["id"] for e in formations(repeated)] == [e["id"] for e in formations(first)]
+                  "team_root": str(board.parent), "ts": 10, "route_count": 3})
+
+    value = MapFeed().read(sid, tmp_path, life)
+
+    assert [task["id"] for task in value["tasks"]] == ["parent"]
+    assert not any(event["type"] == "team.task" for event in value["events"])

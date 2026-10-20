@@ -61,7 +61,6 @@
   box-shadow: 0 12px 40px #1834541a;
 }
 .map-more-menu .map-scope-button { margin-left: 0; text-align: left; }
-.map-more-menu .map-team-progress { padding: 2px 0 6px; border-bottom: 1px solid rgb(var(--line) / .6); }
 /* Entries that only matter where the canvas legend is hidden. */
 .map-narrow-only { display: none; }
 .map-status-row {
@@ -137,18 +136,6 @@
   font-size: 11px;
   color: rgb(var(--ink-faint));
 }
-/* The subtask tally, one compact line inside the options menu. */
-.map-team-progress {
-  display: flex;
-  flex-wrap: wrap;
-  align-items: center;
-  gap: 6px 14px;
-  color: rgb(var(--ink-faint));
-  font-size: 12px;
-}
-.map-team-progress > span { display: inline-flex; align-items: center; gap: 5px; }
-.map-team-progress strong, .map-team-progress b { color: rgb(var(--ink-dim)); font-weight: 550; font-variant-numeric: tabular-nums; }
-.map-card-team-summary { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .map-workspace {
   display: flex;
   flex: 1;
@@ -754,22 +741,6 @@
 .map-macro.map-state-superseded .map-card:hover {
   opacity: 0.95;
   filter: none;
-}
-/* Sub-task completion at a glance, right above the card footer. */
-.map-card-teambar {
-  display: block;
-  height: 3px;
-  margin: 0 16px 8px;
-  border-radius: 2px;
-  background: rgb(var(--line) / 0.55);
-  overflow: hidden;
-}
-.map-card-teambar i {
-  display: block;
-  height: 100%;
-  border-radius: 2px;
-  background: color-mix(in srgb, var(--state) 75%, transparent);
-  transition: width 0.4s ease-out;
 }
 /* --- Frame-rate work: cull invisible paint, animate on the compositor. --- */
 /* An unfocused card's inner submap is opacity:0 by design, yet its whole

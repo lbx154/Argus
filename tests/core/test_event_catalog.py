@@ -336,7 +336,6 @@ _NON_EVENT_MODULES = frozenset({
     # repairs/history.jsonl, the doctor's own audit ledger.
     "maintenance/repair.py",
     # Map observation nodes projected from events for the web map.
-    "webapi/map_team.py",
     "webapi/map_view.py",
 })
 

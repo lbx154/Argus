@@ -25,13 +25,13 @@ def test_sanitize_planner_task_text_removes_generic_legacy_deployment_paths() ->
 def test_sanitize_planner_task_text_rewrites_the_pre_rename_module_and_checkout() -> None:
     text = (
         "Run PYTHONPATH=/home/legacy-user/argus-skill "
-        "/usr/bin/python3 -m argus_skill.tools.team status --root t1, "
+        "/usr/bin/python3 -m argus_skill.tools.gpu_lease status --root t1, "
         "then read `/home/legacy-user/research.md`."
     )
 
     sanitized = _sanitize_planner_task_text(text)
 
-    assert '"${ARGUS_SKILL_PYTHON:-python}" -m argus.tools.team status --root t1' in sanitized
+    assert '"${ARGUS_SKILL_PYTHON:-python}" -m argus.tools.gpu_lease status --root t1' in sanitized
     assert "argus_skill" not in sanitized
     assert "/home/legacy-user" not in sanitized
     assert "operator-provided research playbook" in sanitized

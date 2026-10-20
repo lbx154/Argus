@@ -141,7 +141,7 @@ def vertical_mission_prelude(
     stage: str,
     mission: object,
 ) -> str:
-    """Build the same mission prelude for daemon and dispatched teammate calls.
+    """Build the vertical's mission prelude for one claimed mission.
 
     ``vertical_root`` owns the persisted pipeline decision; ``project_root``
     is the execution worktree. Keep both roots and forward the claimed mission

@@ -23,7 +23,7 @@ An old project-ledger preference labelled `global` remains local compatibility d
 
 OperatorContext compacts into an atomic, checksummed checkpoint in its existing JSONL file. Original revisions, the closed history prefix, role acknowledgements, one-shot consumption and mission bindings survive cache deletion and restart. Old tails cannot reintroduce discarded revisions. A fixed ownership marker prevents a missing established source from being treated as a fresh legacy import or revision zero. Revoked, consumed and superseded preference history can be removed; active operator constraints are preserved. The default limits are 256 retained records and 1 MB. If still-active authority cannot fit after compaction, a new write fails explicitly rather than silently dropping an instruction. Legacy one-shot input whose consumption cache is already missing is withheld because replay cannot be justified. Processes must use the checkpoint-aware runtime before writing or reading migrated state.
 
-Manager supervision is separate project advice within operator constraints. The current Manager direction reaches subsequent Planner/Engineer/teammate prompts without becoming a new operator authorization or an append-only preference.
+Manager supervision is separate project advice within operator constraints. The current Manager direction reaches subsequent Planner/Engineer prompts without becoming a new operator authorization or an append-only preference.
 
 ## How Memory Is Produced
 

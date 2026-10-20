@@ -551,10 +551,8 @@ def turn_records(
 
 def read_map(
     sid: str, root: Path, life_dir: Path, *, event_state: dict | None = None,
-    include_events: bool = True, team_sources: tuple | None = None,
+    include_events: bool = True,
 ) -> dict:
-    from .map_team import previous_formations, project_team_events, remember_formations
-
     memory = LifeMemory.open(life_dir)
     tasks = []
     for item in memory.backlog.history():
@@ -614,10 +612,6 @@ def read_map(
                 segments = state.get("segments") or {}
                 turns = dict(state.get("turns") or {})
                 asks = dict(state.get("turn_asks") or {})
-            bindings = dict(state.get("team_bindings", {})) if append or retained_previous else {}
-            binding_truncated = bool(state.get("team_bindings_truncated")) if append or retained_previous else False
-            if not append:
-                binding_truncated |= remember_formations(previous_formations(life_dir), task_ids, bindings)
             start = max(0, size - 8 * 1024 * 1024)
             if append:
                 start = max(start, offset)
@@ -649,16 +643,11 @@ def read_map(
                 *normalize_events(rows, task_ids, active, segments, workspace),
                 *(event for turn in turns.values() for event in turn["events"]),
             ]}.values())
-            binding_truncated |= remember_formations(rows, task_ids, bindings)
-            bindings = {path: binding for path, binding in bindings.items()
-                        if binding["item_id"] in task_ids}
             f.seek(max(0, consumed - 128))
             state.update(
                 identity=identity, offset=consumed, anchor=f.read(min(128, consumed)),
                 task_ids=task_ids, events=events[-2000:], active=active,
                 segments=segments, turns=turns, turn_asks=asks,
-                team_bindings=bindings,
-                team_bindings_truncated=binding_truncated,
                 truncated=truncated or len(events) > 2000,
                 reset=bool(state) and not append and not retained_previous
                 and state.get("task_ids") == task_ids,
@@ -674,16 +663,7 @@ def read_map(
         tasks.append(card)
     tasks.sort(key=lambda t: (t.get("ts") or 0, t["id"]))
     meta = read_session_meta(root, sid)
-    bindings = state.get("team_bindings", {})
-    # team_sources is a (bindings, traversal) pair captured by the caller
-    # before this read; it is only reusable while that evidence is unchanged.
-    team_events, team_truncated, team_signature = project_team_events(
-        sid, root, life_dir, bindings,
-        sources=team_sources[1]
-        if team_sources is not None and team_sources[0] == bindings else None,
-    ) if include_events else ([], False, ())
-    state["team_signature"] = team_signature
-    visible_events = [*events[-2000:], *team_events]
+    visible_events = events[-2000:]
     tasks = project_map_outcomes(tasks, visible_events)
     for task in tasks:
         # An outcome binding can change when a lifecycle event arrives even if
@@ -697,6 +677,5 @@ def read_map(
         "read_only": False,
         "tasks": tasks,
         "events": visible_events,
-        "coverage": {"truncated": truncated or len(events) > 2000 or team_truncated
-                     or bool(state.get("team_bindings_truncated"))},
+        "coverage": {"truncated": truncated or len(events) > 2000},
     })

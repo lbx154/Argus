@@ -360,7 +360,7 @@ def test_no_framework_package_imports_a_named_vertical() -> None:
     """
     offenders = _concrete_vertical_imports(_python_files(
         "core", "life", "engineer", "reviewer", "planner", "manager",
-        "roles", "skills", "daemon", "team", "webapi", "wiki",
+        "roles", "skills", "daemon", "webapi", "wiki",
         "tools", "adapters", "agent_cli", "provider_integrations", "plugin",
         "maintenance", "trial", "release_tools", "cli", "integrations",
     ))
@@ -921,7 +921,7 @@ LAYERS: dict[str, tuple[str, ...]] = {
     "domain": ("verticals", "domains", "builtin_skills"),
     "roles": ("roles", "planner", "engineer", "reviewer"),
     "runtime": ("life", "manager", "messaging"),
-    "process": ("daemon", "team"),
+    "process": ("daemon",),
     "delivery": (
         "apps", "webapi", "plugin", "maintenance", "trial", "integrations", "release_tools",
     ),
@@ -1039,8 +1039,6 @@ MODULE_LEVEL_UPWARD_ALLOWLIST: frozenset[str] = frozenset({
     "tools/manager_live_view.py -> life",
     "tools/manager_live_view.py -> manager",
     "tools/peer.py -> messaging",
-    "tools/team.py -> team",
-    "verticals/research/idea_portfolio.py -> team",
     # The research vertical registers its round-log evidence provider with
     # the vertical-blind registry when the package loads; the engineer
     # itself never names the vertical.
@@ -1127,7 +1125,6 @@ FUNCTION_BODY_UPWARD_ALLOWLIST: frozenset[str] = frozenset({
     "skills/stage_machine.py -> verticals",
     "skills/vertical_select.py -> domains",
     "skills/vertical_select.py -> verticals",
-    "team/teammate_entry.py -> apps",
     "tools/setup.py -> trial",
     "verticals/research/idea_portfolio.py -> manager",
 })
@@ -1199,10 +1196,6 @@ PRIVATE_IMPORT_ALLOWLIST: frozenset[str] = frozenset({
     "skills -> argus.verticals._base",
     "skills -> argus.verticals._data_domain",
     "skills -> argus.verticals._registry",
-    "team -> argus.apps._runtime",
-    "team -> argus.apps._runtime_supervisor",
-    "team -> argus.daemon.state._terminate_windows_process_tree",
-    "team -> argus.verticals._base",
     "tools -> argus.agent_cli._process_control",
     "trial -> argus.agent_cli.copilot_home._read_managed_config",
     "trial -> argus.tools.setup._verify_setup_smoke",
@@ -1576,13 +1569,13 @@ def test_file_name_exemption_keeps_dotted_modules_checked() -> None:
     assert scan("see argus.plugin.service and argus.advisor.service") == [
         "argus.plugin.service", "argus.advisor.service",
     ]
-    assert scan("python -m argus_skill.tools.team") == ["argus_skill.tools.team"]
+    assert scan("python -m argus_skill.tools.peer") == ["argus_skill.tools.peer"]
 
 
 def test_module_paths_cited_by_prompts_and_skills_resolve() -> None:
     """A path the model is told to run must be a path that exists.
 
-    Skills and role prompts say ``python -m argus.tools.team`` and
+    Skills and role prompts say ``python -m argus.tools.capability_vault`` and
     ``argus.verticals.math.citation_check`` in prose the runtime never
     parses. When a module moves, nothing fails at import time -- the Engineer
     fails at mission time, after burning a round on ``No module named``, and
@@ -1607,7 +1600,6 @@ def test_module_paths_cited_by_prompts_and_skills_resolve() -> None:
 # Module paths that appear on a ``python -m`` / argv line somewhere in the tree
 # and are therefore matched back by string in a *different* process.
 SUBPROCESS_REENTRY_MODULES = (
-    "argus.team.teammate_entry",
     "argus.daemon.spawn_helper",
     "argus.reviewer.review_file",
     "argus.tools.manager_live_view",
@@ -1618,7 +1610,7 @@ SUBPROCESS_REENTRY_MODULES = (
 
 
 # The same names as processes started before the 2026-09-14 rename spell them
-# (``argus_skill`` was the package): teammates, trial containers and seeded
+# (``argus_skill`` was the package): trial containers and seeded
 # Skill copies still carry these on their command lines. The alias package
 # ``argus_skill/`` must resolve every one for one release.
 LEGACY_SUBPROCESS_REENTRY_MODULES = tuple(
@@ -1629,9 +1621,8 @@ LEGACY_SUBPROCESS_REENTRY_MODULES = tuple(
 def test_subprocess_reentry_module_paths_stay_importable() -> None:
     """These names cross a process boundary as strings, so a move is invisible to Python.
 
-    The daemon spawns ``python -m argus.daemon.spawn_helper``; teammates
-    re-enter through ``team.teammate_entry``; liveness checks match those same
-    strings against ``argv`` of running processes. Rename one and the
+    The daemon spawns ``python -m argus.daemon.spawn_helper``; liveness checks
+    match those same strings against ``argv`` of running processes. Rename one and the
     importer-side tests stay green while the live system either fails to
     spawn or -- worse -- stops recognising its own workers as its own.
     """
@@ -1646,7 +1637,7 @@ def test_subprocess_reentry_module_paths_stay_importable() -> None:
 def test_pre_rename_subprocess_reentry_module_paths_still_resolve() -> None:
     """A daemon or Skill copy from before the rename must still find its modules.
 
-    ``python -m argus_skill.tools.team`` is what an operator-edited Skill
+    ``python -m argus_skill.tools.capability_vault`` is what an operator-edited Skill
     copy under ``~/.argus-skill/skills`` says today, and the old daemon's
     handoff spawns ``-c "from argus_skill.daemon.life_worker import ..."``
     into the new tree. Resolving these through ``find_spec`` proves the
@@ -1719,7 +1710,7 @@ _STAGE_WRITERS = frozenset({"advance_stage", "rollback_stage", "complete_final_s
 # as a callback. One statement that imports and calls once is therefore 2.
 STAGE_WRITER_REFERENCES_OUTSIDE_MANAGER: dict[str, int] = {
     "life/supervisor/_mission_execution_settlement.py": 2,
-    "life/supervisor/_planning_cycle_enqueue.py": 6,
+    "life/supervisor/_planning_cycle_enqueue.py": 4,
     "skills/vertical_select.py": 2,
 }
 

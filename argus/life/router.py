@@ -652,7 +652,7 @@ def classify_front_door(
             dict.fromkeys(
                 role.strip()
                 for role in raw_roles.split(",")
-                if role.strip() in {"manager", "planner", "engineer", "reviewer", "teammate"}
+                if role.strip() in {"manager", "planner", "engineer", "reviewer"}
             )
         ) or "all"
     preference_kind = fields["preference_kind"].strip().lower()

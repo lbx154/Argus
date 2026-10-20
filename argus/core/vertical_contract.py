@@ -110,18 +110,6 @@ class IterationAssessmentHook(Protocol):
     ) -> "IterationAssessment | None": ...
 
 
-class BackgroundReconciler(Protocol):
-    """Optional vertical-owned upkeep for daemon-resident campaign state."""
-
-    def __call__(
-        self,
-        *,
-        project_root: Path,
-        state_root: Path,
-        marker: dict[str, Any],
-    ) -> None: ...
-
-
 @dataclass(frozen=True)
 class IterationAssessment:
     """A vertical's domain-specific reason to continue or stop iteration.
@@ -149,7 +137,6 @@ class VerticalLibraryContext:
     direction: str
     workflow_mode: str
     paper_mission: bool
-    team_task_id: str | None
     runner: Any
     model: str | None
     emit: Callable[[dict], None]
@@ -186,10 +173,7 @@ class VerticalContract:
     search_altitude: Callable[[object], str] | None = None
     mission_prelude: MissionPrelude | None = None
     library_preparer: Callable[[VerticalLibraryContext], None] | None = None
-    background_reconciler: BackgroundReconciler | None = None
     stage_completion_validator: Callable[..., object] | None = None
-    automatic_stage_completion: Callable[..., bool] | None = None
-    planner_task_validator: Callable[[str, Path, Any], object] | None = None
     iteration_assessor: IterationAssessmentHook | None = None
     # Optional: records the operator's stated objective at project setup, for a
     # vertical that cannot pick a completion bar on its own. See
@@ -414,30 +398,6 @@ class VerticalContract:
             raise VerticalContractError(
                 f"vertical {self.name!r} completion validator returned a non-iterable"
             ) from exc
-
-    def automatic_stage_completion_ready(
-        self, *, stage: str, project_root: Path, state_root: Path,
-    ) -> bool:
-        """Only an explicit boolean from the provider permits automatic close."""
-        if self.automatic_stage_completion is None:
-            return False
-        ready = self.automatic_stage_completion(
-            stage=stage, project_root=project_root, state_root=state_root,
-        )
-        if not isinstance(ready, bool):
-            raise VerticalContractError(
-                f"vertical {self.name!r} automatic stage completion hook returned a non-boolean"
-            )
-        return ready
-
-    def planner_task_issues(self, stage: str, project_root: Path, task: Any) -> tuple[str, ...]:
-        if self.planner_task_validator is None:
-            return ()
-        return tuple(
-            str(issue).strip()
-            for issue in self.planner_task_validator(stage, project_root, task)
-            if str(issue).strip()
-        )
 
     def assess_iteration(
         self,
@@ -720,20 +680,6 @@ def vertical_contract(name: str, provider: Any) -> VerticalContract:
         raise VerticalContractError(
             f"vertical {name!r} has a non-callable stage completion validator"
         )
-    automatic_stage_completion = getattr(
-        provider, "automatic_stage_completion_ready", None
-    )
-    if automatic_stage_completion is not None and not callable(
-        automatic_stage_completion
-    ):
-        raise VerticalContractError(
-            f"vertical {name!r} has a non-callable automatic stage completion hook"
-        )
-    planner_task_validator = getattr(provider, "planner_task_issues", None)
-    if planner_task_validator is not None and not callable(planner_task_validator):
-        raise VerticalContractError(
-            f"vertical {name!r} has a non-callable planner task validator"
-        )
     iteration_assessor = getattr(provider, "iteration_assessment", None)
     if iteration_assessor is not None and not callable(iteration_assessor):
         raise VerticalContractError(
@@ -889,14 +835,7 @@ def vertical_contract(name: str, provider: Any) -> VerticalContract:
             if callable(getattr(provider, "LIBRARY_PREPARER", None))
             else None
         ),
-        background_reconciler=(
-            getattr(provider, "BACKGROUND_RECONCILER")
-            if callable(getattr(provider, "BACKGROUND_RECONCILER", None))
-            else None
-        ),
         stage_completion_validator=stage_completion_validator,
-        automatic_stage_completion=automatic_stage_completion,
-        planner_task_validator=planner_task_validator,
         iteration_assessor=iteration_assessor,
         operator_objective_adopter=operator_objective_adopter,
         legacy_state_importer=legacy_state_importer,

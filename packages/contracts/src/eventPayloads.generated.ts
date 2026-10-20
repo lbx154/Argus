@@ -1115,14 +1115,6 @@ export interface LifeReviewerBackendResolvedEvent extends EventMsg {
   "source": string;
 }
 
-export interface LifeCuratorBackendResolvedEvent extends EventMsg {
-  type: "life.curator.backend_resolved";
-  payload_schema_version?: 1;
-  "role": string;
-  "backend": string;
-  "source": string;
-}
-
 export interface CodexUtilCompletedEvent extends EventMsg {
   type: "codex.util.completed";
   payload_schema_version?: 1;
@@ -1843,25 +1835,6 @@ export interface LifeDaemonDegradedEvent extends EventMsg {
   "text"?: string;
 }
 
-export interface IdeaPortfolioFormedEvent extends EventMsg {
-  type: "idea.portfolio.formed";
-  payload_schema_version?: 1;
-  "team_root"?: string;
-  "width"?: number;
-  "route_count": number;
-  "task_count"?: number;
-  "selection"?: Record<string, unknown>;
-  "policy"?: string;
-  "text"?: string;
-}
-
-export interface IdeaPortfolioNestedSkippedEvent extends EventMsg {
-  type: "idea.portfolio.nested_skipped";
-  payload_schema_version?: 1;
-  "team_task_id": string;
-  "text"?: string;
-}
-
 export interface TeamLearningReviewStartedEvent extends EventMsg {
   type: "team.learning.review.started";
   payload_schema_version?: 1;
@@ -2101,7 +2074,6 @@ export interface EventPayloadByType {
   "life.planner.backend_resolved": LifePlannerBackendResolvedEvent;
   "life.engineer.backend_resolved": LifeEngineerBackendResolvedEvent;
   "life.reviewer.backend_resolved": LifeReviewerBackendResolvedEvent;
-  "life.curator.backend_resolved": LifeCuratorBackendResolvedEvent;
   "codex.util.completed": CodexUtilCompletedEvent;
   "loop.start": LoopStartEvent;
   "loop.done": LoopDoneEvent;
@@ -2181,8 +2153,6 @@ export interface EventPayloadByType {
   "round.orphan_process_group": RoundOrphanProcessGroupEvent;
   "life.daemon.ready": LifeDaemonReadyEvent;
   "life.daemon.degraded": LifeDaemonDegradedEvent;
-  "idea.portfolio.formed": IdeaPortfolioFormedEvent;
-  "idea.portfolio.nested_skipped": IdeaPortfolioNestedSkippedEvent;
   "team.learning.review.started": TeamLearningReviewStartedEvent;
   "team.learning.review.skipped": TeamLearningReviewSkippedEvent;
   "team.learning.review.completed": TeamLearningReviewCompletedEvent;

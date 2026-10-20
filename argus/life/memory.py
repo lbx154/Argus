@@ -1496,7 +1496,7 @@ class Backlog:
         Only ``done`` counts as a satisfied dependency. ``failed`` /
         ``skipped`` are terminal but *not* satisfied — a dependent of a
         failed item can never run and is cascade-skipped (see
-        :meth:`_cascade_blocked`). Mirrors ``team/task_board._done_ids``.
+        :meth:`_cascade_blocked`).
         """
         return {it.id for it in items if it.status == "done"}
 

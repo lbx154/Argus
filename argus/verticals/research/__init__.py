@@ -5,8 +5,8 @@ assumes the project is producing a research paper:
 
 * the four forward-only paper-pipeline stages (idea → experiment →
   paper → review), defined in ``stages.py``;
-* supporting facilities such as ``method_differentiation``, ``method_freeze``
-  and the idea portfolio.
+* supporting facilities such as ``method_differentiation`` and
+  ``method_freeze``.
 
 Quality judgment belongs to the Reviewer reading the actual paper, code and
 raw results — not to deterministic validators; ``figure_lint`` is an advisory

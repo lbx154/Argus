@@ -54,7 +54,7 @@ def test_docs_detection_requires_conventional_names_or_directories() -> None:
     assert is_docs_path("plugins/argus/README.md")
     assert is_docs_path("README.zh-CN.md")
     assert is_docs_path("CHANGELOG.md")
-    assert not is_docs_path("argus/builtin_skills/agent-team-lead.md")
+    assert not is_docs_path("argus/builtin_skills/project-venv-package-management.md")
     assert not is_docs_path("plugins/argus/skills/argus-run/SKILL.md")
     assert not is_docs_path("desktop/src/main/security.ts")
     assert not is_docs_path("src/readme_parser.py")

@@ -1,7 +1,6 @@
 """Liveness of concurrent handoffs: every wait has a deadline and a fallback.
 
-Regression tests for the concurrency audit: blue/green daemon handoff, the
-team-task orphan budget, and the Curator's stop/tick race.
+Regression tests for the concurrency audit: blue/green daemon handoff.
 """
 from __future__ import annotations
 
@@ -19,8 +18,6 @@ import argus.daemon.life_worker as life_worker_mod
 from argus.core import process_stop
 from argus.daemon.config import config_payload as _config_payload
 from argus.daemon.life_worker import LifeWorker, LifeWorkerConfig
-from argus.team import curator as cur
-from argus.team import task_board
 
 # ---------------------------------------------------------------------------
 # R1 — blue/green handoff leaves exactly one live daemon
@@ -247,114 +244,3 @@ def test_rollback_that_cannot_start_tells_the_operator(
 
     alerts = _operator_alerts(tmp_path / "life")
     assert [alert["reason"] for alert in alerts] == ["daemon_handoff_rollback_failed"]
-
-
-# ---------------------------------------------------------------------------
-# R4 — a teammate that keeps dying exhausts the mission orphan budget
-# ---------------------------------------------------------------------------
-
-
-def test_team_task_fails_after_the_orphan_budget(tmp_path: Path) -> None:
-    task_board.form(tmp_path, [{"task_id": "a", "objective": "x"}])
-    now = 0.0
-    for orphaning in range(1, task_board.ORPHAN_RETRY_BUDGET + 1):
-        now += 1_000.0
-        assert task_board.claim_top(tmp_path, f"w{orphaning}", now=now) is not None
-        assert task_board.reassign_stale(tmp_path, ttl=180.0, now=now + 500.0) == ["a"]
-        task = task_board.snapshot(tmp_path)[0]
-        assert task["state"] == "pending" and task["orphan_retries"] == orphaning
-
-    task_board.claim_top(tmp_path, "w-last", now=now + 1_000.0)
-    assert task_board.reassign_stale(tmp_path, ttl=180.0, now=now + 1_500.0) == ["a"]
-
-    task = task_board.snapshot(tmp_path)[0]
-    assert task["state"] == "failed"
-    assert "orphan budget 3" in task["reason"]
-    assert task_board.claim_top(tmp_path, "w-again", now=now + 2_000.0) is None
-
-
-def test_clean_stop_requeue_and_lead_retry_do_not_spend_the_orphan_budget(
-    tmp_path: Path,
-) -> None:
-    task_board.form(tmp_path, [{"task_id": "a", "objective": "x"}])
-    for round_index in range(5):
-        task_board.claim_top(tmp_path, f"w{round_index}", now=float(round_index))
-        task_board.reassign_stale(
-            tmp_path, ttl=-1.0, now=float(round_index), orphan_budget=None,
-        )
-    task = task_board.snapshot(tmp_path)[0]
-    assert task["state"] == "pending" and task["orphan_retries"] == 0
-
-    task_board._mutate(tmp_path, "a", state="failed", orphan_retries=4)
-    assert task_board.retry_terminal(tmp_path, "a", reason="redo")
-    assert task_board.snapshot(tmp_path)[0]["orphan_retries"] == 0
-
-
-# ---------------------------------------------------------------------------
-# R6 — nothing is spawned once the Curator is stopping
-# ---------------------------------------------------------------------------
-
-
-class _FakeProc:
-    pid = 91_000
-
-    def poll(self) -> int | None:
-        return None
-
-    def wait(self, timeout: float | None = None) -> int:
-        return 0
-
-
-def test_curator_spawns_nothing_after_stop_is_requested(tmp_path: Path) -> None:
-    made: list[str] = []
-    curator = cur.Curator(
-        project_root=tmp_path,
-        make_proc=lambda _root, member_id, *_a: made.append(member_id) or _FakeProc(),
-    )
-    curator._stop.set()
-
-    assert curator._spawn_tracked(tmp_path, member_id="w1", task_id="a", cwd=tmp_path) == 0
-    assert made == [] and curator._children == {}
-
-
-def test_curator_adopts_nothing_after_stop_is_requested(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    root = tmp_path / "team"
-    cur.roster.add_member(root, {"id": "w1", "pid": 4242, "cwd": str(tmp_path),
-                                 "task_id": "a", "status": "running"})
-    monkeypatch.setattr(cur, "_pid_is_teammate", lambda pid, _mid, _root=None: pid == 4242)
-    curator = cur.Curator(project_root=tmp_path, make_proc=lambda *_a: _FakeProc())
-    # stop() already tore ``_children`` down; an adoption now would leave the
-    # teammate owned by nobody, so the next daemon's Curator adopts it instead.
-    curator._stop.set()
-
-    assert curator._adopt_orphans(root, now=100.0) == []
-    assert curator._children == {}
-
-
-def test_claim_raced_by_stop_is_handed_back(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    root = tmp_path / "team"
-    task_board.form(root, [{"task_id": "a", "objective": "x"}])
-    made: list[str] = []
-    curator = cur.Curator(
-        project_root=tmp_path,
-        make_proc=lambda _root, member_id, *_a: made.append(member_id) or _FakeProc(),
-    )
-    real_claim = task_board.claim_top
-
-    def claim_then_stop(*args: Any, **kwargs: Any) -> Any:
-        claimed = real_claim(*args, **kwargs)
-        curator._stop.set()  # stop() lands while the tick holds the claim
-        return claimed
-
-    monkeypatch.setattr(cur.task_board, "claim_top", claim_then_stop)
-
-    result = curator._refill(root, width=2, cwd=tmp_path, now=100.0)
-
-    assert result["spawned"] == [] and made == []
-    task = task_board.snapshot(root)[0]
-    assert task["state"] == "pending" and task["owner"] == ""
-    assert float(task["retry_after_ts"]) <= 100.0

@@ -79,38 +79,6 @@ def _stage_closing_forced() -> bool:
     ).strip().casefold() in {"1", "true", "yes", "on"}
 
 
-def _automatic_stage_target(
-    *,
-    state_root: Path,
-    evidence_root: Path,
-) -> str:
-    """Return the next stage when the active vertical certifies auto-completion."""
-    try:
-        from ...core.pipeline_state import read_pipeline_state
-        from ...verticals._base import load_vertical_contract
-
-        pipeline = read_pipeline_state(state_root)
-        if not isinstance(pipeline, dict):
-            return ""
-        vertical = str(pipeline.get("vertical") or "").strip()
-        current = str(pipeline.get("current_stage") or "").strip()
-        if not vertical or not current:
-            return ""
-        contract = load_vertical_contract(vertical, project_root=state_root)
-        order = tuple(contract.stage_order)
-        if current not in order or order.index(current) + 1 >= len(order):
-            return ""
-        if not contract.automatic_stage_completion_ready(
-            stage=current,
-            project_root=evidence_root,
-            state_root=state_root,
-        ):
-            return ""
-        return order[order.index(current) + 1]
-    except Exception:  # noqa: BLE001 - automatic closing is fail-open to normal planning
-        return ""
-
-
 def _apply_planner_stage_request(
     *,
     state_root: Path,
@@ -310,25 +278,6 @@ class PlanningCycleEnqueueMixin:
                     return PLAN_ERROR
                 self._reset_idle_backoff()
                 return PLAN_RETRY
-        automatic_stage_target = _automatic_stage_target(
-            state_root=Path(state_root),
-            evidence_root=Path(context_root).resolve(),
-        )
-        if automatic_stage_target:
-            try:
-                from ...skills.stage_machine import advance_stage
-
-                advance_stage(
-                    state_root,
-                    target_stage=automatic_stage_target,
-                    reason="the active vertical certified automatic stage completion",
-                    advanced_by="manager:auto_completion",
-                    evidence_root=Path(context_root).resolve(),
-                )
-                # Tasks were authored under the prior stage context.
-                return PLAN_RETRY
-            except Exception:  # noqa: BLE001 - normal Manager planning remains available
-                log.debug("automatic stage advance failed", exc_info=True)
         for task_index, task in enumerate(planned_tasks):
             task = replace(task, context_refs=[], execution_workdir="")
             sanitized_title = _sanitize_planner_task_text(task.title)
@@ -449,22 +398,15 @@ class PlanningCycleEnqueueMixin:
                 gpu_count=max(0, int(getattr(task, "gpu_count", 0) or 0)),
                 cpu_count=max(1, int(getattr(task, "cpu_count", 1) or 1)),
             )
-            from ...skills.stage_machine import current_stage
             from ...skills.vertical_select import resolve_vertical
             from ...verticals._base import load_vertical_contract
 
-            policy_root = Path(context_root or self._project_workdir()).resolve()
-            policy_stage = current_stage(state_root)
-            campaign_vertical = resolve_vertical(state_root)
             policy_vertical = (
                 str(getattr(task, "vertical", "") or "").strip()
-                or campaign_vertical
+                or resolve_vertical(state_root)
             )
             try:
-                policy_contract = load_vertical_contract(
-                    policy_vertical,
-                    project_root=state_root,
-                )
+                load_vertical_contract(policy_vertical, project_root=state_root)
             except LookupError:
                 _record_filtered_task(
                     state,
@@ -479,27 +421,6 @@ class PlanningCycleEnqueueMixin:
                     "objective": task.objective,
                     "skip_category": "unknown_task_vertical",
                     "reason": f"unknown Planner task vertical: {policy_vertical}",
-                })
-                continue
-            policy_issues = policy_contract.planner_task_issues(
-                policy_stage,
-                policy_root,
-                task,
-            )
-            if policy_issues:
-                _record_filtered_task(
-                    state,
-                    title=task.title,
-                    category="vertical_task_policy",
-                    reason="; ".join(policy_issues),
-                )
-                self._emit({
-                    "type": EventType.LIFE_PLANNER_TASK_SKIPPED,
-                    "cycle": self._planning_cycles,
-                    "title": task.title,
-                    "objective": task.objective,
-                    "skip_category": "vertical_task_policy",
-                    "reason": "; ".join(policy_issues),
                 })
                 continue
 

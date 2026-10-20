@@ -387,8 +387,8 @@ def test_research_planner_prompt_keeps_proportional_stage_checklist(tmp_path) ->
         state_root=tmp_path,
     )
 
-    assert "idea.portfolio" in prompt
-    assert "idea.portfolio" in resume_prompt
+    assert "idea.selection" in prompt
+    assert "idea.selection" in resume_prompt
 
 
 def test_planner_surfaces_reviewed_facts_path_without_injecting_body(

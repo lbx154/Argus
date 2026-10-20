@@ -143,14 +143,9 @@ def test_minimal_coding_agent_skill_is_packaged() -> None:
     assert "答不出来就不要添加" in body
 
 
-def test_agent_team_lead_is_a_common_builtin() -> None:
-    common = dict(iter_common_builtin_skill_texts())
-    packaged = dict(iter_builtin_skill_texts())
-
-    assert "agent-team-lead.md" in common
-    assert "engineer/agent-team-lead.md" not in packaged
-    assert "Every role may discover this Skill" in common["agent-team-lead.md"]
-    assert "Return the completed work to the normal mission" in common["agent-team-lead.md"]
+def test_agent_team_lead_seed_is_retired() -> None:
+    assert "agent-team-lead.md" not in dict(iter_common_builtin_skill_texts())
+    assert "agent-team-lead.md" in _RETIRED_BUILTIN_SEEDS
 
 
 def test_machine_specific_nanochat_playbook_seeds_stay_retired() -> None:

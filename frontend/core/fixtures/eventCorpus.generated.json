@@ -1430,23 +1430,12 @@
     },
     {
       "event": {
-        "backend": "codex",
-        "payload_schema_version": 1,
-        "role": "engineer",
-        "source": "daemon",
-        "ts": 1700000087,
-        "type": "life.curator.backend_resolved"
-      },
-      "id": "life.curator.backend_resolved"
-    },
-    {
-      "event": {
         "cycle": 1,
         "manager_intent": {
           "value": "recorded"
         },
         "payload_schema_version": 1,
-        "ts": 1700000088,
+        "ts": 1700000087,
         "type": "life.planner.start"
       },
       "id": "life.planner.start"
@@ -1456,7 +1445,7 @@
         "agent_layer": "engineer",
         "payload_schema_version": 1,
         "text": "Renderer event detail",
-        "ts": 1700000089,
+        "ts": 1700000088,
         "type": "life.planner.preview_skipped",
         "vertical": "software"
       },
@@ -1467,7 +1456,7 @@
         "cycle": 1,
         "diagnostic": "removed duplicate planner task",
         "payload_schema_version": 1,
-        "ts": 1700000090,
+        "ts": 1700000089,
         "type": "life.planner.normalized"
       },
       "id": "life.planner.normalized"
@@ -1486,7 +1475,7 @@
         "payload_schema_version": 1,
         "priority": 1,
         "title": "Shared event renderer",
-        "ts": 1700000091,
+        "ts": 1700000090,
         "type": "life.planner.task_added"
       },
       "id": "life.planner.task_added"
@@ -1497,7 +1486,7 @@
         "payload_schema_version": 1,
         "reason": "the current operation needs attention",
         "title": "Shared event renderer",
-        "ts": 1700000092,
+        "ts": 1700000091,
         "type": "life.planner.task_skipped"
       },
       "id": "life.planner.task_skipped"
@@ -1523,7 +1512,7 @@
         "success": true,
         "summary": "Implemented and verified the requested change.",
         "tasks_added": 1,
-        "ts": 1700000093,
+        "ts": 1700000092,
         "type": "life.planner.verdict"
       },
       "id": "life.planner.verdict"
@@ -1538,7 +1527,7 @@
         "payload_schema_version": 1,
         "reason": "the current operation needs attention",
         "suggested_sleep_s": 1.25,
-        "ts": 1700000094,
+        "ts": 1700000093,
         "type": "life.planner.idle"
       },
       "id": "life.planner.idle"
@@ -1550,7 +1539,7 @@
         "payload_schema_version": 1,
         "reason": "the current operation needs attention",
         "suggested_sleep_s": 1.25,
-        "ts": 1700000095,
+        "ts": 1700000094,
         "type": "life.planner.terminal_idle"
       },
       "id": "life.planner.terminal_idle"
@@ -1561,7 +1550,7 @@
         "idle_cycles": 1,
         "payload_schema_version": 1,
         "reason": "the current operation needs attention",
-        "ts": 1700000096,
+        "ts": 1700000095,
         "type": "life.planner.verification_probe",
         "waiting_contract": {
           "value": "recorded"
@@ -1578,7 +1567,7 @@
         "payload_schema_version": 1,
         "text": "Renderer event detail",
         "title": "Shared event renderer",
-        "ts": 1700000097,
+        "ts": 1700000096,
         "type": "life.planner.dependency_dropped"
       },
       "id": "life.planner.dependency_dropped"
@@ -1589,7 +1578,7 @@
         "payload_schema_version": 1,
         "text": "Renderer event detail",
         "title": "Shared event renderer",
-        "ts": 1700000098,
+        "ts": 1700000097,
         "type": "life.planner.parallel_dropped"
       },
       "id": "life.planner.parallel_dropped"
@@ -1599,7 +1588,7 @@
         "error": "provider request failed",
         "payload_schema_version": 1,
         "reason": "the current operation needs attention",
-        "ts": 1700000099,
+        "ts": 1700000098,
         "type": "life.planner.error"
       },
       "id": "life.planner.error"
@@ -1609,7 +1598,7 @@
         "agent_layer": "engineer",
         "payload_schema_version": 1,
         "reason": "the current operation needs attention",
-        "ts": 1700000100,
+        "ts": 1700000099,
         "type": "life.planner.deferred"
       },
       "id": "life.planner.deferred"
@@ -1619,7 +1608,7 @@
         "cycle": 1,
         "payload_schema_version": 1,
         "reason": "the current operation needs attention",
-        "ts": 1700000101,
+        "ts": 1700000100,
         "type": "life.planner.superseded"
       },
       "id": "life.planner.superseded"
@@ -1630,7 +1619,7 @@
         "delivery_id": "delivery id",
         "payload_schema_version": 1,
         "reason": "the current operation needs attention",
-        "ts": 1700000102,
+        "ts": 1700000101,
         "type": "life.planner.verdict.discarded"
       },
       "id": "life.planner.verdict.discarded"
@@ -1642,7 +1631,7 @@
         "payload_schema_version": 1,
         "reason": "the current operation needs attention",
         "title": "Shared event renderer",
-        "ts": 1700000103,
+        "ts": 1700000102,
         "type": "life.planner.final_submission_skipped"
       },
       "id": "life.planner.final_submission_skipped"
@@ -1653,7 +1642,7 @@
         "payload_schema_version": 1,
         "reason": "the current operation needs attention",
         "suggested_sleep_s": 1.25,
-        "ts": 1700000104,
+        "ts": 1700000103,
         "type": "life.planner.continuation_required"
       },
       "id": "life.planner.continuation_required"
@@ -1664,7 +1653,7 @@
         "payload_schema_version": 1,
         "reason": "the current operation needs attention",
         "stage": "implementation",
-        "ts": 1700000105,
+        "ts": 1700000104,
         "type": "life.planner.completion_rejected"
       },
       "id": "life.planner.completion_rejected"
@@ -1679,7 +1668,7 @@
         "stage": "implementation",
         "text": "Renderer event detail",
         "threshold": 1,
-        "ts": 1700000106,
+        "ts": 1700000105,
         "type": "life.planner.completion_circuit_opened"
       },
       "id": "life.planner.completion_circuit_opened"
@@ -1691,7 +1680,7 @@
         "payload_schema_version": 1,
         "reason": "the current operation needs attention",
         "suggested_sleep_s": 1.25,
-        "ts": 1700000107,
+        "ts": 1700000106,
         "type": "life.planner.completion_circuit_holding"
       },
       "id": "life.planner.completion_circuit_holding"
@@ -1700,7 +1689,7 @@
       "event": {
         "error": "provider request failed",
         "payload_schema_version": 1,
-        "ts": 1700000108,
+        "ts": 1700000107,
         "type": "life.planner.completion_circuit.notify_failed"
       },
       "id": "life.planner.completion_circuit.notify_failed"
@@ -1709,7 +1698,7 @@
       "event": {
         "objective": "Implement the shared semantic event renderer",
         "payload_schema_version": 1,
-        "ts": 1700000109,
+        "ts": 1700000108,
         "type": "plan.draft.start"
       },
       "id": "plan.draft.start"
@@ -1719,7 +1708,7 @@
         "notes": 1,
         "payload_schema_version": 1,
         "steps": 1,
-        "ts": 1700000110,
+        "ts": 1700000109,
         "type": "plan.draft.done"
       },
       "id": "plan.draft.done"
@@ -1728,7 +1717,7 @@
       "event": {
         "payload_schema_version": 1,
         "reason": "the current operation needs attention",
-        "ts": 1700000111,
+        "ts": 1700000110,
         "type": "plan.draft.failed"
       },
       "id": "plan.draft.failed"
@@ -1747,7 +1736,7 @@
         "runtime_identity": {
           "value": "recorded"
         },
-        "ts": 1700000112,
+        "ts": 1700000111,
         "type": "life.runtime_failure.circuit_opened"
       },
       "id": "life.runtime_failure.circuit_opened"
@@ -1766,7 +1755,7 @@
         "runtime_identity": {
           "value": "recorded"
         },
-        "ts": 1700000113,
+        "ts": 1700000112,
         "type": "life.runtime_failure.circuit_blocked"
       },
       "id": "life.runtime_failure.circuit_blocked"
@@ -1776,7 +1765,7 @@
         "circuit_cleared": true,
         "item_id": "task-1",
         "payload_schema_version": 1,
-        "ts": 1700000114,
+        "ts": 1700000113,
         "type": "life.runtime_failure.canary_passed"
       },
       "id": "life.runtime_failure.canary_passed"
@@ -1795,7 +1784,7 @@
         "status": "detected",
         "subject_id": "subject id",
         "subject_kind": "subject kind",
-        "ts": 1700000115,
+        "ts": 1700000114,
         "type": "life.runtime.incident.detected"
       },
       "id": "life.runtime.incident.detected"
@@ -1817,7 +1806,7 @@
         "status": "recovered",
         "subject_id": "subject id",
         "subject_kind": "subject kind",
-        "ts": 1700000116,
+        "ts": 1700000115,
         "type": "life.runtime.incident.recovered",
         "verification": {
           "value": "recorded"
@@ -1843,7 +1832,7 @@
         "status": "escalated",
         "subject_id": "subject id",
         "subject_kind": "subject kind",
-        "ts": 1700000117,
+        "ts": 1700000116,
         "type": "life.runtime.incident.escalated",
         "verification": {
           "value": "recorded"
@@ -1861,7 +1850,7 @@
         "payload_schema_version": 1,
         "reason": "the current operation needs attention",
         "trigger_item_id": "trigger item id",
-        "ts": 1700000118,
+        "ts": 1700000117,
         "type": "life.plan.revision.proposed"
       },
       "id": "life.plan.revision.proposed"
@@ -1876,7 +1865,7 @@
         "reason": "the current operation needs attention",
         "terminal": true,
         "trigger_status": "trigger status",
-        "ts": 1700000119,
+        "ts": 1700000118,
         "type": "life.plan.revision.rejected"
       },
       "id": "life.plan.revision.rejected"
@@ -1898,7 +1887,7 @@
         "superseded_item_ids": [
           "superseded item id"
         ],
-        "ts": 1700000120,
+        "ts": 1700000119,
         "type": "life.plan.revision.committed"
       },
       "id": "life.plan.revision.committed"
@@ -1912,7 +1901,7 @@
         "reason": "the current operation needs attention",
         "source": "daemon",
         "superseded_by_plan_id": "superseded by plan id",
-        "ts": 1700000121,
+        "ts": 1700000120,
         "type": "life.plan.node.superseded"
       },
       "id": "life.plan.node.superseded"
@@ -1926,7 +1915,7 @@
         "superseded_item_ids": [
           "superseded item id"
         ],
-        "ts": 1700000122,
+        "ts": 1700000121,
         "type": "life.plan.revision.rolled_back"
       },
       "id": "life.plan.revision.rolled_back"
@@ -1940,7 +1929,7 @@
         "payload_schema_version": 1,
         "stage": "experiment",
         "text": "A letter about how the work has gone since the last one.",
-        "ts": 1700000123,
+        "ts": 1700000122,
         "type": "life.letter.written"
       },
       "id": "life.letter.written"
@@ -1953,7 +1942,7 @@
         "reason": "the current operation needs attention",
         "text": "Renderer event detail",
         "title": "Shared event renderer",
-        "ts": 1700000124,
+        "ts": 1700000123,
         "type": "life.budget.pause"
       },
       "id": "life.budget.pause"
@@ -1967,7 +1956,7 @@
         "reason": "the current operation needs attention",
         "text": "Renderer event detail",
         "title": "Shared event renderer",
-        "ts": 1700000125,
+        "ts": 1700000124,
         "type": "life.lifecycle.block"
       },
       "id": "life.lifecycle.block"
@@ -1979,7 +1968,7 @@
         "payload_schema_version": 1,
         "reason": "the current operation needs attention",
         "to_state": "complete",
-        "ts": 1700000126,
+        "ts": 1700000125,
         "type": "life.lifecycle.transition"
       },
       "id": "life.lifecycle.transition"
@@ -1990,7 +1979,7 @@
         "source": "daemon",
         "stage": "implementation",
         "text": "Renderer event detail",
-        "ts": 1700000127,
+        "ts": 1700000126,
         "type": "life.inbox.queued"
       },
       "id": "life.inbox.queued"
@@ -2002,7 +1991,7 @@
           "message"
         ],
         "payload_schema_version": 1,
-        "ts": 1700000128,
+        "ts": 1700000127,
         "type": "life.inbox.drained"
       },
       "id": "life.inbox.drained"
@@ -2014,7 +2003,7 @@
         "payload_schema_version": 1,
         "question": "question",
         "title": "Shared event renderer",
-        "ts": 1700000129,
+        "ts": 1700000128,
         "type": "life.operator_question.pending"
       },
       "id": "life.operator_question.pending"
@@ -2032,7 +2021,7 @@
         "payload_schema_version": 1,
         "question": "question",
         "stopped": true,
-        "ts": 1700000130,
+        "ts": 1700000129,
         "type": "life.operator_question.answered"
       },
       "id": "life.operator_question.answered"
@@ -2043,7 +2032,7 @@
         "idle_seconds": 1.25,
         "payload_schema_version": 1,
         "text": "Renderer event detail",
-        "ts": 1700000131,
+        "ts": 1700000130,
         "type": "life.daemon.idle_timeout"
       },
       "id": "life.daemon.idle_timeout"
@@ -2051,7 +2040,7 @@
     {
       "event": {
         "payload_schema_version": 1,
-        "ts": 1700000132,
+        "ts": 1700000131,
         "type": "life.daemon.ready"
       },
       "id": "life.daemon.ready"
@@ -2063,7 +2052,7 @@
         "objective_dispatched": true,
         "payload_schema_version": 1,
         "text": "Renderer event detail",
-        "ts": 1700000133,
+        "ts": 1700000132,
         "type": "life.daemon.degraded"
       },
       "id": "life.daemon.degraded"
@@ -2078,7 +2067,7 @@
         "payload_schema_version": 1,
         "required_gate": "required gate",
         "source": "daemon",
-        "ts": 1700000134,
+        "ts": 1700000133,
         "type": "project.completed",
         "vertical": "software"
       },
@@ -2091,7 +2080,7 @@
         "reason": "the current operation needs attention",
         "required_gate": "required gate",
         "source": "daemon",
-        "ts": 1700000135,
+        "ts": 1700000134,
         "type": "project.completion_refused",
         "vertical": "software"
       },
@@ -2103,7 +2092,7 @@
         "previous_pid": 1,
         "replaced_by": "replaced by",
         "state_preserved": true,
-        "ts": 1700000136,
+        "ts": 1700000135,
         "type": "daemon.parked",
         "unfinished_tasks": 1
       },
@@ -2116,7 +2105,7 @@
         "operation": "replace",
         "payload_schema_version": 1,
         "revision": 1,
-        "ts": 1700000137,
+        "ts": 1700000136,
         "type": "daemon.command.submitted"
       },
       "id": "daemon.command.submitted"
@@ -2132,7 +2121,7 @@
         },
         "revision": 1,
         "status": "applied",
-        "ts": 1700000138,
+        "ts": 1700000137,
         "type": "daemon.command.completed"
       },
       "id": "daemon.command.completed"
@@ -2145,7 +2134,7 @@
         "payload_schema_version": 1,
         "revision": 1,
         "status": "rejected",
-        "ts": 1700000139,
+        "ts": 1700000138,
         "type": "daemon.command.rejected"
       },
       "id": "daemon.command.rejected"
@@ -2154,7 +2143,7 @@
       "event": {
         "payload_schema_version": 1,
         "text": "Renderer event detail",
-        "ts": 1700000140,
+        "ts": 1700000139,
         "type": "idea.search.started"
       },
       "id": "idea.search.started"
@@ -2164,7 +2153,7 @@
         "count": 1,
         "payload_schema_version": 1,
         "text": "Renderer event detail",
-        "ts": 1700000141,
+        "ts": 1700000140,
         "type": "idea.search.completed"
       },
       "id": "idea.search.completed"
@@ -2174,7 +2163,7 @@
         "payload_schema_version": 1,
         "reason": "the current operation needs attention",
         "text": "Renderer event detail",
-        "ts": 1700000142,
+        "ts": 1700000141,
         "type": "idea.search.skipped"
       },
       "id": "idea.search.skipped"
@@ -2182,35 +2171,8 @@
     {
       "event": {
         "payload_schema_version": 1,
-        "policy": "policy",
-        "route_count": 1,
-        "selection": {
-          "value": "recorded"
-        },
-        "task_count": 1,
-        "team_root": "team root",
         "text": "Renderer event detail",
-        "ts": 1700000143,
-        "type": "idea.portfolio.formed",
-        "width": 1
-      },
-      "id": "idea.portfolio.formed"
-    },
-    {
-      "event": {
-        "payload_schema_version": 1,
-        "team_task_id": "team task id",
-        "text": "Renderer event detail",
-        "ts": 1700000144,
-        "type": "idea.portfolio.nested_skipped"
-      },
-      "id": "idea.portfolio.nested_skipped"
-    },
-    {
-      "event": {
-        "payload_schema_version": 1,
-        "text": "Renderer event detail",
-        "ts": 1700000145,
+        "ts": 1700000142,
         "type": "venue.research.started"
       },
       "id": "venue.research.started"
@@ -2220,7 +2182,7 @@
         "ok": true,
         "payload_schema_version": 1,
         "text": "Renderer event detail",
-        "ts": 1700000146,
+        "ts": 1700000143,
         "type": "venue.research.completed"
       },
       "id": "venue.research.completed"
@@ -2236,7 +2198,7 @@
         "reviewer_certified": true,
         "summary": "Implemented and verified the requested change.",
         "title": "Shared event renderer",
-        "ts": 1700000147,
+        "ts": 1700000144,
         "type": "research.achievement.certified"
       },
       "id": "research.achievement.certified"
@@ -2262,7 +2224,7 @@
         ],
         "role": "engineer",
         "text": "Renderer event detail",
-        "ts": 1700000148,
+        "ts": 1700000145,
         "type": "skill.library.available"
       },
       "id": "skill.library.available"
@@ -2275,7 +2237,7 @@
         "scope": "frontend/core",
         "skill_id": "skill id",
         "text": "Renderer event detail",
-        "ts": 1700000149,
+        "ts": 1700000146,
         "type": "skill.created",
         "version": 1
       },
@@ -2289,7 +2251,7 @@
         "scope": "frontend/core",
         "skill_id": "skill id",
         "text": "Renderer event detail",
-        "ts": 1700000150,
+        "ts": 1700000147,
         "type": "skill.updated",
         "version": 1
       },
@@ -2304,7 +2266,7 @@
         "scope": "frontend/core",
         "skill_id": "skill id",
         "text": "Renderer event detail",
-        "ts": 1700000151,
+        "ts": 1700000148,
         "type": "skill.archived",
         "version": 1
       },
@@ -2317,7 +2279,7 @@
         "payload_schema_version": 1,
         "placement": "global",
         "text": "Renderer event detail",
-        "ts": 1700000152,
+        "ts": 1700000149,
         "type": "skill.tidied",
         "vertical": "software"
       },
@@ -2336,7 +2298,7 @@
         "payload_schema_version": 1,
         "text": "Renderer event detail",
         "truncated": true,
-        "ts": 1700000153,
+        "ts": 1700000150,
         "type": "skill.history.compressed"
       },
       "id": "skill.history.compressed"
@@ -2358,7 +2320,7 @@
         "project_skill_dir": "project skill dir",
         "rejected": 1,
         "text": "Renderer event detail",
-        "ts": 1700000154,
+        "ts": 1700000151,
         "type": "skill.evolution.completed",
         "updated": 1
       },
@@ -2371,7 +2333,7 @@
         "mission_success": true,
         "payload_schema_version": 1,
         "scope": "vertical",
-        "ts": 1700000155,
+        "ts": 1700000152,
         "type": "team.learning.review.started",
         "vertical": "software"
       },
@@ -2383,7 +2345,7 @@
         "mission_success": true,
         "payload_schema_version": 1,
         "reason": "the current operation needs attention",
-        "ts": 1700000156,
+        "ts": 1700000153,
         "type": "team.learning.review.skipped"
       },
       "id": "team.learning.review.skipped"
@@ -2399,7 +2361,7 @@
         "payload_schema_version": 1,
         "quarantined": 1,
         "scope": "vertical",
-        "ts": 1700000157,
+        "ts": 1700000154,
         "type": "team.learning.review.completed",
         "updated": 1,
         "vertical": "software"
@@ -2412,7 +2374,7 @@
         "error": "provider request failed",
         "mission_success": true,
         "payload_schema_version": 1,
-        "ts": 1700000158,
+        "ts": 1700000155,
         "type": "team.learning.review.failed"
       },
       "id": "team.learning.review.failed"
@@ -2425,7 +2387,7 @@
         "path": "path",
         "payload_schema_version": 1,
         "reason": "the current operation needs attention",
-        "ts": 1700000159,
+        "ts": 1700000156,
         "type": "team.learning.promotion.quarantined"
       },
       "id": "team.learning.promotion.quarantined"
@@ -2435,7 +2397,7 @@
         "agent_layer": "engineer",
         "operator_turn_count": 1,
         "payload_schema_version": 1,
-        "ts": 1700000160,
+        "ts": 1700000157,
         "type": "self.learning.review.started"
       },
       "id": "self.learning.review.started"
@@ -2453,7 +2415,7 @@
         "removed": [
           "removed"
         ],
-        "ts": 1700000161,
+        "ts": 1700000158,
         "type": "self.learning.review.completed",
         "updated": [
           "updated"
@@ -2467,7 +2429,7 @@
         "error": "provider request failed",
         "operator_turn_count": 1,
         "payload_schema_version": 1,
-        "ts": 1700000162,
+        "ts": 1700000159,
         "type": "self.learning.review.failed"
       },
       "id": "self.learning.review.failed"
@@ -2476,7 +2438,7 @@
       "event": {
         "payload_schema_version": 1,
         "text": "Renderer event detail",
-        "ts": 1700000163,
+        "ts": 1700000160,
         "type": "domain.promotion"
       },
       "id": "domain.promotion"
@@ -2488,7 +2450,7 @@
         "payload_schema_version": 1,
         "project": "project",
         "text": "Renderer event detail",
-        "ts": 1700000164,
+        "ts": 1700000161,
         "type": "wiki.initialized"
       },
       "id": "wiki.initialized"
@@ -2499,7 +2461,7 @@
         "operation": "replace",
         "payload_schema_version": 1,
         "text": "Renderer event detail",
-        "ts": 1700000165,
+        "ts": 1700000162,
         "type": "wiki.hook.warning"
       },
       "id": "wiki.hook.warning"
@@ -2513,7 +2475,7 @@
         "status": "completed",
         "text": "Renderer event detail",
         "title": "Shared event renderer",
-        "ts": 1700000166,
+        "ts": 1700000163,
         "type": "wiki.created"
       },
       "id": "wiki.created"
@@ -2527,7 +2489,7 @@
         "status": "completed",
         "text": "Renderer event detail",
         "title": "Shared event renderer",
-        "ts": 1700000167,
+        "ts": 1700000164,
         "type": "wiki.updated"
       },
       "id": "wiki.updated"
@@ -2539,7 +2501,7 @@
         "payload_schema_version": 1,
         "reason": "the current operation needs attention",
         "text": "Renderer event detail",
-        "ts": 1700000168,
+        "ts": 1700000165,
         "type": "wiki.retired"
       },
       "id": "wiki.retired"
@@ -2555,7 +2517,7 @@
         "successful_references": 1,
         "text": "Renderer event detail",
         "to_status": "to status",
-        "ts": 1700000169,
+        "ts": 1700000166,
         "type": "wiki.promotion.promoted"
       },
       "id": "wiki.promotion.promoted"
@@ -2571,7 +2533,7 @@
         "successful_references": 1,
         "text": "Renderer event detail",
         "to_status": "to status",
-        "ts": 1700000170,
+        "ts": 1700000167,
         "type": "wiki.promotion.demoted"
       },
       "id": "wiki.promotion.demoted"
@@ -2589,7 +2551,7 @@
         "payload_schema_version": 1,
         "text": "Renderer event detail",
         "truncated": true,
-        "ts": 1700000171,
+        "ts": 1700000168,
         "type": "wiki.retired.compressed"
       },
       "id": "wiki.retired.compressed"
@@ -2615,7 +2577,7 @@
         "skipped": 1,
         "sources": 1,
         "text": "Renderer event detail",
-        "ts": 1700000172,
+        "ts": 1700000169,
         "type": "wiki.evolution.completed",
         "updated": 1,
         "wiki_count": 1
@@ -2633,7 +2595,7 @@
         "source_project": "source project",
         "text": "Renderer event detail",
         "title": "Shared event renderer",
-        "ts": 1700000173,
+        "ts": 1700000170,
         "type": "knowledge.learned",
         "vertical": "software"
       },
@@ -2655,7 +2617,7 @@
           "vertical": 1
         },
         "text": "Renderer event detail",
-        "ts": 1700000174,
+        "ts": 1700000171,
         "type": "knowledge.recalled"
       },
       "id": "knowledge.recalled"
@@ -2666,7 +2628,7 @@
         "payload_schema_version": 1,
         "reason": "the current operation needs attention",
         "text": "Renderer event detail",
-        "ts": 1700000175,
+        "ts": 1700000172,
         "type": "operator_alert"
       },
       "id": "operator_alert"
@@ -2683,7 +2645,7 @@
         "source": "daemon",
         "text": "Renderer event detail",
         "title": "Shared event renderer",
-        "ts": 1700000176,
+        "ts": 1700000173,
         "type": "manager.live_view.updated"
       },
       "id": "manager.live_view.updated"
@@ -2693,7 +2655,7 @@
         "error": "provider request failed",
         "payload_schema_version": 1,
         "text": "Renderer event detail",
-        "ts": 1700000177,
+        "ts": 1700000174,
         "type": "manager.live_view.rejected"
       },
       "id": "manager.live_view.rejected"
@@ -2703,7 +2665,7 @@
         "message_id": "message id",
         "payload_schema_version": 1,
         "text": "Renderer event detail",
-        "ts": 1700000178,
+        "ts": 1700000175,
         "turn_kind": "qa",
         "type": "manager.turn.started"
       },
@@ -2713,7 +2675,7 @@
       "event": {
         "message_id": "message id",
         "payload_schema_version": 1,
-        "ts": 1700000179,
+        "ts": 1700000176,
         "type": "manager.turn.cancelled"
       },
       "id": "manager.turn.cancelled"
@@ -2728,7 +2690,7 @@
         ],
         "text": "Renderer event detail",
         "title": "Shared event renderer",
-        "ts": 1700000180,
+        "ts": 1700000177,
         "type": "user.note"
       },
       "id": "user.note"
@@ -2739,7 +2701,7 @@
         "message_id": "message id",
         "payload_schema_version": 1,
         "text": "Renderer event detail",
-        "ts": 1700000181,
+        "ts": 1700000178,
         "type": "ui.operator"
       },
       "id": "ui.operator"
@@ -2755,7 +2717,7 @@
           }
         ],
         "text": "Renderer event detail",
-        "ts": 1700000182,
+        "ts": 1700000179,
         "turn_kind": "qa",
         "type": "ui.argus"
       },

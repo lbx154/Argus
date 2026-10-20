@@ -1267,8 +1267,8 @@ def reset_stage_for_new_intent(
             generation = 1
         payload["research_intent_generation"] = generation + 1
         # A replacement intent is never an initial migration. Permanently
-        # consume the legacy-import opportunity before the fresh portfolio is
-        # formed, even if no earlier runtime reached library preparation.
+        # consume the legacy-import opportunity before the new Idea stage
+        # starts, even if no earlier runtime reached library preparation.
         payload["legacy_selection_consumed"] = True
         if not retain_research_context:
             payload.pop("idea_portfolio", None)

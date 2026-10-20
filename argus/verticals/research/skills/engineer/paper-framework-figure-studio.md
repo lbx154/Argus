@@ -357,11 +357,7 @@ and scientific work can continue independently, delegate the drawing in
 parallel and keep going. A provider's native subtask can draw one candidate in
 a private working directory, or return a full design and editable source
 inline when the delegate is read-only, in which case the lead persists it (a
-path-only acknowledgement is not a result). For independent Engineer-Reviewer
-work, prepare one figure-only Team task per candidate as `agent-team-lead.md`
-in the global library describes, each with its own working directory and local
-task state and `owns_paths` naming only its output directory, registered with
-the running project so its Curator can execute them. Give each worker the
+path-only acknowledgement is not a result). Give each worker the
 scientific meaning, copied input excerpts and data, the authoritative source
 locations, the final column width and the paper's palette; keep candidates
 under an internal directory such as
@@ -369,13 +365,12 @@ under an internal directory such as
 edits to the parent manuscript, evidence, figures, research notes and
 `paper/REVIEW.md`. An ordinary brief in that directory is enough; do not
 create another project-visible planning or review document, and do not
-fabricate a beauty score for a leaderboard. If independent task state cannot
-be prepared, use the native subtask route or draw locally while scientific jobs
-run.
+fabricate a beauty score for a leaderboard. If no subtask is available, draw
+locally while scientific jobs run.
 
 A candidate worker checks only its own candidate against the brief, for
 scientific fidelity, a readable render, and editable source and final included
-export; it never judges the whole paper, merges itself or starts more teams.
+export; it never judges the whole paper, merges itself or starts more workers.
 The lead selects a completed, locally checked candidate as soon as one is
 suitable, without waiting for optional alternatives, promotes its source and
 matching exports to `paper/figures/`, updates the caption and manuscript, and

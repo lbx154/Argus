@@ -218,13 +218,12 @@ def test_final_submission_is_stage_eligible_without_bounded_flag() -> None:
 
 
 def test_worker_without_stage_authority_never_reaches_the_stage_writer() -> None:
-    """A dispatched teammate runs in the project root and must not write its stage.
+    """A parallel worker runs in the project root and must not write its stage.
 
-    The shape a teammate actually presents: no bounded scope (it is handed one
-    task, not a Planner node), a vertical that does not require independent
-    review, and a Reviewer verdict — which is exactly the combination the
-    legacy tail of the guard lets through. N of them run concurrently against
-    one ``.argus/PIPELINE_STATE.json``.
+    The shape that matters: no bounded scope, a vertical that does not require
+    independent review, and a Reviewer verdict — which is exactly the
+    combination the legacy tail of the guard lets through. Several of them run
+    concurrently against one ``.argus/PIPELINE_STATE.json``.
     """
     kwargs = dict(
         mission_scope="",
@@ -356,23 +355,3 @@ def test_bounded_direct_runtime_path_retains_manager_adjudication(tmp_path) -> N
 
     assert decision["action"] == "hold"
     assert decision["source"] == "manager_llm"
-
-
-def test_teammate_entry_withholds_stage_authority_from_its_mission() -> None:
-    """The flag is only worth having if the teammate actually passes it.
-
-    Asserted against the real ``execute`` signature rather than a stub, because
-    the previous attempt at this fix passed a keyword the runner accepted and
-    then ignored — the failure mode is silent, so a hand-written double would
-    have reproduced the bug rather than caught it.
-    """
-    import inspect
-
-    from argus.apps._runtime_execute import SkillLoopExecuteMixin
-    from argus.team import teammate_entry
-
-    assert "holds_stage_authority" in inspect.signature(
-        SkillLoopExecuteMixin.execute
-    ).parameters
-    source = inspect.getsource(teammate_entry.run_one_engineer_mission)
-    assert "holds_stage_authority=False" in source

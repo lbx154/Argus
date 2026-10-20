@@ -14,8 +14,7 @@ CLI adapter 在构造时直接导入仓库内的 `AgentCliRunner`，使用真实
 
 领域调用先取 `load_vertical_contract(name, project_root=...)`，随后直接读取
 `stage_order`、`completion_gate` 等字段，或调用 `completion_issues()`、
-`assess_iteration()`、`automatic_stage_completion_ready()`。同一操作复用合同对象，
-自动阶段关闭仍要求 provider 明确返回布尔值。`argus-verticals` 已使用的旧访问入口
+`assess_iteration()`。同一操作复用合同对象。`argus-verticals` 已使用的旧访问入口
 保留兼容；已移除的其余逐字段包装入口应改为对应合同属性或方法。
 
 内部调用直接访问实现所在模块，runtime 门面只保留实际跨包入口和社区插件

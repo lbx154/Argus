@@ -97,25 +97,6 @@ def test_config_help_does_not_advertise_formal_vertical_override() -> None:
     assert "ARGUS_SKILL_VERTICAL" not in format_config_help(env={})
 
 
-def test_registry_covers_the_active_team_knobs() -> None:
-    """Expose the pool and result controls."""
-    names = {k.name for k in KNOBS}
-    for must in (
-        "ARGUS_TEAMMATE_PAPER_MISSION",
-        "ARGUS_TEAMMATE_TIMEOUT_S",
-        "ARGUS_TEAMMATE_MAX_ROUNDS",
-        "ARGUS_TEAM_MAX_WIDTH",
-        "ARGUS_TEAM_MAX_ACTIVE_CAMPAIGNS",
-        "ARGUS_TEAM_MAX_TASKS_PER_FORMATION",
-        "ARGUS_TEAM_MAX_TOTAL_IN_FLIGHT",
-        "ARGUS_SKILL_ALLOW_NESTED_TEAM",
-    ):
-        assert must in names, must
-    assert "ARGUS_SKILL_CURATOR_DISTILL_INTERVAL_S" not in names
-    assert "ARGUS_TEAMMATE_FORCE_RESEARCH" not in names
-    assert "ARGUS_TEAMMATE_FORCE_PROFILE" not in names
-
-
 def test_format_shows_default_when_unset() -> None:
     out = format_config_help(env={})
     assert "ARGUS_SKILL_LIFE_BACKEND" in out

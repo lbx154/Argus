@@ -176,14 +176,6 @@ def test_stage_checklist_and_banners_name_the_card_as_the_named_exception() -> N
     assert "work product, not a report" in role_banner("engineer")
 
 
-def test_team_worker_reads_the_card_and_leaves_editing_to_the_lead(monkeypatch) -> None:
-    monkeypatch.setenv("ARGUS_SKILL_TEAM_TASK_ID", "worker-1")
-    banner = role_banner("engineer")
-
-    assert "METHOD.md" in banner
-    assert "only the lead edits it" in banner
-
-
 def test_skill_documents_and_templates_exist() -> None:
     for name in ("method-card.md",):
         assert (ENGINEER / name).is_file(), name

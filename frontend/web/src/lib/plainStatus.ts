@@ -113,7 +113,6 @@ export const PLAIN_BY_KIND: Record<string, Pair> = {
   'event.task.started': ['开始执行任务', 'Task execution started'],
   'event.task.ended': ['任务执行结束', 'Task execution ended'],
   'event.skills.ready': ['技能库已就绪', 'Skill library ready'],
-  'event.routes.formed': ['已形成候选路线组合', 'Candidate route portfolio formed'],
   'event.lessons.skipped': ['本次没有总结经验', 'No lessons recorded this time'],
   'event.argus.reply': ['Argus 的回复', 'Reply from Argus'],
 };
@@ -256,7 +255,6 @@ const EVENT_TYPES: Record<string, string> = {
   'loop.start': 'event.task.started',
   'loop.done': 'event.task.ended',
   'skill.library.available': 'event.skills.ready',
-  'idea.portfolio.formed': 'event.routes.formed',
   'team.learning.review.skipped': 'event.lessons.skipped',
   'ui.argus': 'event.argus.reply',
 };

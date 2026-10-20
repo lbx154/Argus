@@ -388,7 +388,7 @@ def test_frozen_python_compat_dispatches_daemon_spawn_helper(monkeypatch) -> Non
     [
         ("argus_skill", "argus"),
         ("argus_skill.daemon.spawn_helper", "argus.daemon.spawn_helper"),
-        ("argus_skill.tools.team", "argus.tools.team"),
+        ("argus_skill.tools.peer", "argus.tools.peer"),
     ],
 )
 def test_frozen_python_compat_accepts_the_pre_rename_module_spelling(

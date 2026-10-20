@@ -9,9 +9,14 @@ from fastapi.testclient import TestClient
 from argus.core.session import SessionMeta, write_session_meta
 from argus.core.transcript import read_turns
 from argus.manager import config_intent, front_door
-from argus.team._store import atomic_write_json, read_json
 from argus.webapi import manager_state, server
-from argus.webapi.deferred_messages import DeferredMessages
+from argus.webapi.deferred_messages import DeferredMessages, _write_record
+from argus.webapi.deferred_messages import _read_record as read_json
+
+
+def atomic_write_json(path, record):
+    path.parent.mkdir(parents=True, exist_ok=True)
+    _write_record(path, record)
 
 
 def wait_for(predicate, timeout=8):
