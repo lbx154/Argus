@@ -98,7 +98,7 @@ def test_several_waiting_missions_must_be_disambiguated(_project) -> None:
     assert _core._cmd_answer(_args(_project, answer="ok", answer_item="bbb")) == 0
     by_id = {i.id: i for i in backlog.all()}
     assert not by_id["bbb"].pending_question
-    assert by_id["aaa"].status == "paused_operator"
+    assert by_id["aaa"].status == "parked"
     assert by_id["aaa"].pending_question == "question one?"
 
 
@@ -107,7 +107,7 @@ def test_an_unknown_item_is_refused(_project) -> None:
     _paused(backlog, "aaa", "question?")
 
     assert _core._cmd_answer(_args(_project, answer="ok", answer_item="zzz")) == 1
-    assert next(i for i in backlog.all() if i.id == "aaa").status == "paused_operator"
+    assert next(i for i in backlog.all() if i.id == "aaa").status == "parked"
 
 
 def test_framework_deployment_answer_uses_the_decision_boundary(

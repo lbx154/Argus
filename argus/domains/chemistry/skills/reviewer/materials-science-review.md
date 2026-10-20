@@ -32,13 +32,13 @@ review Skills.
 
 ## Rejection conditions
 
-Return `replan_requested` when identity or process history is ambiguous,
+Hand the work to the Planner (`→ planner`) when identity or process history is ambiguous,
 comparisons mix incompatible specimens or methods, evaluation leaks related
 materials, rankings lack a meaningful baseline, effects are within uncertainty,
 or computed/predicted values are presented as physical validation.
 
 ## Done standard
 
-Return `done` only for the stated material family, process window, specimen form,
+Hand off `→ done` only for the stated material family, process window, specimen form,
 conditions, and evidence level. A candidate list can complete a screening task;
 it cannot complete a synthesis or measured-property objective.

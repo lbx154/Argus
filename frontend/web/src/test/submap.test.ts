@@ -292,7 +292,7 @@ it("keeps late unnumbered observations moving right without crossing earlier rou
 it("shows the result prose without runner-control fields", () => {
   expect(
     readableRecord(
-      "Decision:\nMILESTONE_STATUS=done\nRESULT=完成 200 个独立种子。\nNEXT_OWNER=reviewer",
+      "Decision:\nRESULT=完成 200 个独立种子。\n→ reviewer",
     ),
   ).toBe("完成 200 个独立种子。");
   expect(readableRecord("完成 200 个独立种子。\n→ reviewer")).toBe("完成 200 个独立种子。");
@@ -546,13 +546,13 @@ describe("where the task stands", () => {
     expect(new Set(scene.cards.map((card) => card.conclusion))).toEqual(new Set([taskConclusion(steps, true)]));
   });
 
-  it("describes a mission parked on background work as waiting, not paused", () => {
-    const rows = buildSubmap({ ...parent, status: "paused_external_work" }, [
+  it.each(["paused_external_work", "parked"])("describes a %s mission as paused", (status) => {
+    const rows = buildSubmap({ ...parent, status }, [
       { id: "s", item_id: "m", type: "life.mission.started", ts: 20, text: "" },
-      { id: "p", item_id: "m", type: "life.mission.completed", ts: 30, text: "", status: "paused_external_work", success: false },
+      { id: "p", item_id: "m", type: "life.mission.completed", ts: 30, text: "", status, park_reason: "operator_pause", success: false },
     ], true);
     const result = rows.find((row) => row.kind === "result")!;
-    expect(result.title).toBe("等待后台任务");
-    expect(result.detail).toBe("这项任务在等待后台任务的结果；结果就绪后会自动继续。");
+    expect(result.title).toBe("执行结果");
+    expect(result.detail).toBe("这项任务的工作暂停了。");
   });
 });

@@ -8,7 +8,6 @@ from argus.core.role_decision import (
     encode_role_decision,
     extract_role_decisions,
 )
-from argus.engineer.round_execution import _engineer_decision_message
 
 
 def test_does_not_extract_decision_from_nested_tool_result() -> None:
@@ -81,13 +80,3 @@ def test_adapter_does_not_promote_tool_stdout_to_role_decision() -> None:
 
     assert result.agent_messages == []
     assert result.role_decisions == []
-
-
-def test_engineer_process_decision_drives_existing_handoff() -> None:
-    message = _engineer_decision_message({
-        "status": "done",
-        "result": "Implemented the fix and the focused test passed.",
-        "next_owner": "reviewer",
-    })
-
-    assert message == "Implemented the fix and the focused test passed.\n→ done"

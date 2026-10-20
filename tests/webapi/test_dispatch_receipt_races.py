@@ -90,7 +90,7 @@ def test_cancel_during_receipt_io_suppresses_late_delivery(
 
 
 @pytest.mark.parametrize("streaming", [False, True])
-@pytest.mark.parametrize("status,expected", [("done", "已完成"), ("paused_operator", "已暂停")])
+@pytest.mark.parametrize("status,expected", [("done", "已完成"), ("parked", "已暂停")])
 def test_duplicate_without_pending_work_ignores_unrelated_control_lock(
     tmp_path, monkeypatch, streaming, status, expected,
 ):

@@ -17,6 +17,7 @@ from __future__ import annotations
 
 import logging
 import time
+from dataclasses import replace
 from pathlib import Path
 from typing import TYPE_CHECKING, Callable
 
@@ -24,16 +25,13 @@ from ..core import command_record
 from ..core.autonomy import AUTOMATIC_RETRY_WINDOW_SECONDS, RETRY_WINDOW_SPENT_REASON
 from ..core.event_catalog import EventType
 from ..core.models import LoopStatus, ReviewDecision, RoundRecord
-from ..core.role_decision import latest_role_decision
-from ..core.role_handoff import decision_engineer_handoff
 from ..core.runner_errors import is_execution_host_startup_error
 from ..core.runner_receipts import is_provider_background_wait_receipt
 from ..core.secret_guard import known_secret_values, redact_secrets_text
 from ..core.stop_kinds import (
-    NON_FAILURE_STOP_KINDS,
     normalize_stop_kind,
-    pause_status_for_stop_kind,
     stop_kind_from_external_interrupt,
+    stop_park_reason,
 )
 from .round_signals import _apply_round_secret_guard, _review_event_payload
 from .round_state import (
@@ -78,37 +76,6 @@ log = logging.getLogger(__name__)
 # stop and abort signals. The hold itself can grow to the hour scale; a
 # shutdown or an abort must not wait behind it.
 _BACKEND_FAILURE_HOLD_SLICE_SECONDS = 0.2
-
-
-def _engineer_decision_message(payload: dict) -> str:
-    """Render a decision event as the baton handoff the round loop acts on.
-
-    The prose, then one line naming the holder control hands the work to
-    (``round_self_review`` reads the same payload), so the Reviewer, the
-    journal and the context packet never read a different holder than the
-    loop used. A question keeps its need and options, which build the card.
-    """
-    result = str(payload.get("result", payload.get("summary", "")) or "").strip()
-    handoff = decision_engineer_handoff(payload)
-    if handoff.waits_for_operator:
-        lines = [result, f"→ operator: {handoff.operator_question}"]
-        if handoff.operator_need:
-            lines.append(f"OPERATOR_NEED={handoff.operator_need}")
-        if handoff.operator_options:
-            # The format the Engineer writes and ``parse_agent_operator_options`` reads.
-            lines.append("OPERATOR_OPTIONS=" + "; ".join(
-                "::".join(str(option.get(field, "") or "").strip()
-                          for field in ("id", "label", "description"))
-                for option in handoff.operator_options
-            ))
-        return "\n".join(line for line in lines if line)
-    done = (
-        str(payload.get("status", "") or "").strip().lower() == "done"
-        and handoff.next_owner == "reviewer"
-    )
-    return "\n".join(
-        line for line in (result, f"→ {'done' if done else handoff.next_owner}") if line
-    )
 
 
 # Longest host-evidence note appended to the next Engineer prompt.
@@ -237,12 +204,7 @@ class RoundExecutionMixin:
             engineer_result.stop_kind
         ) or stop_kind_from_external_interrupt(fatal_error)
         round_thread_id = new_tid
-        process_decision = latest_role_decision(engineer_result, "engineer")
-        raw_engineer_message = (
-            _engineer_decision_message(process_decision)
-            if process_decision is not None
-            else (engineer_result.last_agent_message or "")
-        )
+        raw_engineer_message = engineer_result.last_agent_message or ""
         engineer_message = redact_secrets_text(
             raw_engineer_message,
             known_values=known_secret_values(),
@@ -366,7 +328,6 @@ class RoundExecutionMixin:
             engineer_message=engineer_message,
             process_ownership_note=process_ownership_note,
             round_started_at=round_started_at,
-            decision=process_decision,
         )
 
     def _handle_stop_kind_shortcircuit(
@@ -421,7 +382,7 @@ class RoundExecutionMixin:
                 stop_kind="daemon_shutdown",
             ))
             return control_return((
-                "paused_daemon_shutdown",
+                "parked",
                 state.rounds,
                 state.last_engineer_message,
                 review.reason,
@@ -484,7 +445,7 @@ class RoundExecutionMixin:
                 stop_kind="backend_unavailable",
             ))
             return control_return((
-                "infra_blocked",
+                "parked",
                 state.rounds,
                 state.last_engineer_message,
                 str(fatal_error or ""),
@@ -535,15 +496,14 @@ class RoundExecutionMixin:
                 stop_kind="provider_cooldown",
             ))
             return control_return((
-                "paused_provider_cooldown",
+                "parked",
                 state.rounds,
                 state.last_engineer_message,
                 review.reason,
                 None,
             ))
 
-        pause_status = pause_status_for_stop_kind(stop_kind)
-        if stop_kind in NON_FAILURE_STOP_KINDS and pause_status:
+        if stop_park_reason(stop_kind):
             review = external_pause_review_decision(
                 stop_kind=stop_kind,
                 fatal_error=fatal_error,
@@ -566,7 +526,7 @@ class RoundExecutionMixin:
                 stop_kind=stop_kind,
             ))
             return control_return((
-                pause_status,
+                "parked",
                 state.rounds,
                 state.last_engineer_message,
                 review.reason,
@@ -695,7 +655,7 @@ class RoundExecutionMixin:
                 stop_kind="provider_cooldown",
             ))
             return control_return((
-                "paused_provider_cooldown",
+                "parked",
                 state.rounds,
                 state.last_engineer_message,
                 review.reason,
@@ -856,7 +816,7 @@ class RoundExecutionMixin:
             if retry_window_spent:
                 named = cause.line or str(fatal_error or "").strip()
                 return control_return((
-                    "paused_provider_fence",
+                    "parked",
                     state.rounds,
                     state.last_engineer_message,
                     f"{RETRY_WINDOW_SPENT_REASON} ({named}).",
@@ -919,11 +879,15 @@ class RoundExecutionMixin:
                         interrupt_reason
                     )
                     status: LoopStatus = (
-                        "aborted"
-                        if interrupt_kind == "operator_abort"
-                        else pause_status_for_stop_kind(interrupt_kind)
-                        or "paused_operator"
+                        "aborted" if interrupt_kind == "operator_abort" else "parked"
                     )
+                    if status == "parked":
+                        # The interrupt, not the failure it cut short, is
+                        # why the run parks.
+                        state.rounds[-1] = replace(
+                            state.rounds[-1],
+                            stop_kind=stop_park_reason(interrupt_kind) or "operator_pause",
+                        )
                     reason_text = (
                         "The wait after a repeated backend failure ended "
                         f"early: {interrupt_reason}."

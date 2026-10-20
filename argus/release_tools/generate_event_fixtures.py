@@ -161,9 +161,9 @@ def _corpus() -> dict[str, Any]:
             "type": "engineer.progress", "kind": "agent_message", "agent_layer": "engineer",
             "text": "using token ghp_AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA",
         }),
-        _fixture("engineer.progress.handoff-fields", {
+        _fixture("engineer.progress.handoff", {
             "type": "engineer.progress", "kind": "agent_message", "agent_layer": "engineer",
-            "text": "Artifact complete.\nNEXT_OWNER=reviewer\nOPERATOR_QUESTION=none",
+            "text": "Artifact complete.\n→ reviewer",
         }),
         _fixture("engineer.progress.failed-command", {
             "type": "engineer.progress", "kind": "command_execution", "agent_layer": "engineer",

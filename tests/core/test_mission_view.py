@@ -236,7 +236,7 @@ def test_mission_view_preserves_final_engineer_output_beyond_summary(
         agent_layer="engineer",
         kind="agent_message",
         final_delivery=True,
-        text=f"{body}\nMILESTONE_STATUS=done\nOPERATOR_QUESTION=none",
+        text=f"{body}\n→ done",
     )
     view = emit(
         tmp_path,
@@ -260,7 +260,7 @@ def test_final_output_uses_last_delivery_not_later_progress(
     emit(tmp_path, "life.mission.started", 1, item_id="task")
     for ts, final_delivery, text, role in [
         (2, True, "Superseded handoff\n" * 500, "engineer"),
-        (3, True, "# Last handoff\n\nkept\nDecision:\nNEXT_OWNER=reviewer", "main"),
+        (3, True, "# Last handoff\n\nkept\nDecision:\n→ reviewer", "main"),
         (4, False, "Later progress, not a delivery", "engineer"),
         (5, True, "Reviewer response, not Engineer output", "reviewer"),
     ]:
@@ -300,7 +300,7 @@ def test_final_output_never_crosses_mission_boundaries(
     elif boundary == "footer":
         emit(
             tmp_path, "engineer.progress", 3, kind="assistant_message",
-            final_delivery=True, text="Decision:\nMILESTONE_STATUS=done",
+            final_delivery=True, text="Decision:\n→ done",
         )
     item_id = "previous" if boundary in {"resumed", "manager", "footer"} else "current"
     view = emit(
@@ -650,6 +650,27 @@ def test_snapshot_discovers_project_skill_and_attributes_mission(
         "content_truncated": False,
     }]
     assert load_mission_view(tmp_path)["learned_skills"] == []
+
+
+def test_snapshot_discovers_the_workspace_agent_skills(tmp_path: Path) -> None:
+    workspace = tmp_path / "workspace"
+    skill_path = workspace / ".agents" / "skills" / "measured-repair" / "SKILL.md"
+    skill_path.parent.mkdir(parents=True)
+    skill_path.write_text(
+        "---\nname: measured-repair\ndescription: Preserve measured repair evidence.\n---\n",
+        encoding="utf-8",
+    )
+    (skill_path.parent / "repair.py").write_text("print('ok')\n", encoding="utf-8")
+    state = tmp_path / "state"
+    state.mkdir()
+
+    view = snapshot_mission_view(
+        state, session={"workdir": str(workspace)}, daemon={}, roles=[], backlog=[], continuous={},
+    )
+
+    (skill,) = view["learned_skills"]
+    assert (skill["id"], skill["path"]) == ("measured-repair", str(skill_path))
+    assert skill["content"] == skill_path.read_text(encoding="utf-8")
 
 
 def test_free_text_is_display_only_and_never_changes_review_state(tmp_path: Path) -> None:

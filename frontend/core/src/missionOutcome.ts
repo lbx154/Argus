@@ -68,11 +68,6 @@ export function parkReason(status: unknown, recorded?: unknown): string | null {
   return value.startsWith('paused_') ? '' : null;
 }
 
-/** Why a backlog row is parked, reading older `paused_*` rows too. */
-export function backlogParkReason(item: { status: string; outcome?: { park?: { reason: string } } }): string | null {
-  return parkReason(item.status, item.outcome?.park?.reason);
-}
-
 /** Whether an event status reads as a pause: `parked` or an older `paused_*`. */
 export function isPauseStatus(status: unknown): boolean {
   const value = normalizedString(status);

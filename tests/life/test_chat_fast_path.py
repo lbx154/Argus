@@ -570,6 +570,52 @@ def test_local_worker_modes_get_narrow_tools_and_prompts(
     assert prompt_fragment in call["options"].extra_args[-1]
 
 
+def test_local_worker_mode_reads_what_argus_already_knows() -> None:
+    backend = _FakeBackend(response_message="done")
+    runner = _make_runner(backend)
+    asked: list[str] = []
+
+    def recall(objective: str) -> str:
+        asked.append(objective)
+        return "### What Argus already knows (advisory)\n- page: `/wiki/pages/scheduler.md`"
+
+    runner._args.manager_memory = SimpleNamespace(render_recall_context=recall)
+
+    runner._simple_quick_reply(
+        objective="design the scheduler", sink=_RecordingSink(), execute_mode="implement",
+    )
+
+    assert asked == ["design the scheduler"]
+    assert backend.calls[-1]["options"].add_dirs == []
+    assert backend.calls[-1]["prompt"] == (
+        "### What Argus already knows (advisory)\n- page: `/wiki/pages/scheduler.md`"
+        "\n\ndesign the scheduler"
+    )
+
+
+@pytest.mark.parametrize("mode", ["implement", ""])
+def test_direct_work_may_read_the_libraries_recall_points_at(monkeypatch, tmp_path, mode) -> None:
+    calls: list[tuple] = []
+
+    def read_dirs(state, global_root, workspace):
+        calls.append((state, global_root, workspace))
+        return ["/elsewhere/wiki"]
+
+    monkeypatch.setattr("argus.life.knowledge_recall.knowledge_read_dirs", read_dirs)
+    backend = _FakeBackend(response_message="done")
+    runner = _make_runner(backend)
+    runner._args.workdir = str(tmp_path)
+    runner._args.manager_memory = SimpleNamespace(
+        project_root=tmp_path / "state", global_root=tmp_path / "home",
+        render_recall_context=lambda *_a, **_k: "", render_prelude=lambda **_k: "",
+    )
+
+    runner._simple_quick_reply(objective="design the scheduler", sink=_RecordingSink(), execute_mode=mode)
+
+    assert calls == [(tmp_path / "state", tmp_path / "home", tmp_path)]
+    assert "/elsewhere/wiki" in backend.calls[-1]["options"].add_dirs
+
+
 def test_manager_self_effort_can_be_overridden(monkeypatch) -> None:
     monkeypatch.setenv("ARGUS_SKILL_SELF_REASONING_EFFORT", "high")
     backend = _FakeBackend(response_message="grounded")

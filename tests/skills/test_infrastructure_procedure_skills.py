@@ -91,7 +91,7 @@ def test_reviewer_checks_provenance_without_demanding_a_framework() -> None:
 def test_guide_routes_to_the_collapse_diagnosis_without_naming_stacks() -> None:
     guide = _text(GUIDE)
     assert "engineer/rl-training-collapse-diagnosis.md" in guide
-    assert "engineer/<task-class>-infrastructure-decision.md" in guide
+    assert "<task-class>-infrastructure-decision/SKILL.md" in guide
     # A procedure entry point: no dated recommendation, no "examples" list of
     # stacks, no year that would age the advice.
     assert "examples, not required choices" not in guide
@@ -108,7 +108,7 @@ def test_learning_block_asks_for_a_dated_decision_record() -> None:
     block = _research_learning_block("engineer", "experiment", "execute")
     assert "Surveyed" in block
     assert "History" in block
-    assert "engineer/<task-class>-infrastructure-decision.md" in block
+    assert "<task-class>-infrastructure-decision/SKILL.md" in block
     assert "re-verify after" in block
     assert "32 KB" in block
     assert "promotes reviewed project Skills into the shared research layer" in block

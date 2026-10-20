@@ -1,4 +1,4 @@
-"""A missing Codex tool host parks work until an explicit repair/retry."""
+"""A missing Codex tool host parks the work it failed until an explicit repair/retry."""
 from __future__ import annotations
 
 from pathlib import Path
@@ -8,12 +8,12 @@ import pytest
 
 from argus.core.models import ReviewDecision, RunnerResult
 from argus.core.runner_errors import is_execution_host_startup_error
+from argus.core.stop_kinds import OPERATOR_RESUMED_PARKS
 from argus.engineer.runner import EngineerConfig, SupervisedConfig, SupervisedEngineer
-from argus.life.memory import BacklogItem, LifeMemory
+from argus.life.memory import BacklogItem, LifeMemory, park_reason
 from argus.life.supervisor import LifeBudget, LifeSupervisor, LifeSupervisorConfig
-from argus.life.supervisor._constants import PLAN_AWAITING
-from argus.life.supervisor._planning_cycle_helpers import _PlanCycleState
 from argus.reviewer import ReviewerConfig
+from argus.skills.loop_settlement import MissionSettlementMixin
 
 HOST_ERROR = (
     "Code Mode is unavailable because failed to spawn code-mode host "
@@ -100,10 +100,15 @@ class _MissionRunner:
             on_event=self.events.append,
         )
         self.rounds = rounds
+        settler = MissionSettlementMixin()
+        settler._emit = lambda _event: None
+        loop = settler._settle_mission_outcome(
+            SimpleNamespace(workdir=self.workdir), None, status, rounds, message, reason, None,
+        )
         return SimpleNamespace(
-            status=status, success=status == "done", stop_reason=reason,
+            status=loop.status, success=status == "done", stop_reason=reason,
             final_message=message, rounds=len(rounds),
-            stop_kind=rounds[-1].stop_kind,
+            stop_kind=loop.stop_kind, park_reason=loop.park_reason,
             final_review_status=rounds[-1].review.status,
             final_review_source="reviewer", stage_transition={},
         )
@@ -120,7 +125,9 @@ def _supervisor(memory: LifeMemory, runner: _MissionRunner) -> LifeSupervisor:
     )
 
 
-def test_host_failure_persists_across_supervisors_and_explicit_retry(tmp_path: Path) -> None:
+def test_host_failure_parks_only_the_task_it_failed_until_an_explicit_resume(
+    tmp_path: Path,
+) -> None:
     memory = LifeMemory.open(tmp_path / "life")
     first = memory.backlog.add(BacklogItem.new(title="first", objective="repair it"))
     second = memory.backlog.add(BacklogItem.new(title="second", objective="another task"))
@@ -128,7 +135,7 @@ def test_host_failure_persists_across_supervisors_and_explicit_retry(tmp_path: P
 
     result = _supervisor(memory, runner).tick()
 
-    assert result is not None and result["status"] == "infra_blocked"
+    assert result is not None and result["status"] == "parked"
     assert result["success"] is False
     assert runner.backend.calls == 1
     assert runner.reviewer.calls == 0
@@ -139,40 +146,34 @@ def test_host_failure_persists_across_supervisors_and_explicit_retry(tmp_path: P
 
     reopened = LifeMemory.open(memory.root)
     parked = next(row for row in reopened.backlog.all() if row.id == first.id)
-    assert parked.status == "infra_blocked"
+    assert parked.status == "parked" and park_reason(parked) == "infra"
     assert parked.outcome["execution_status"] == "paused"
     assert parked.outcome["review_status"] == "not_assessed"
     assert parked.outcome["execution_host_failure"] == HOST_ERROR
     assert parked.outcome["resumable"] is True
 
+    # Nothing the runtime rechecks ends it, and it holds no other work: the
+    # next task runs and parks on the same missing host by itself.
     restarted = _supervisor(reopened, runner)
     assert restarted._resume_automatic_pauses() == []
-    for _ in range(3):
-        blocked = restarted.tick()
-        assert blocked["status"] == "infra_blocked"
-        assert blocked["item_id"] == second.id
-        assert blocked["blocked_item_id"] == first.id
-    assert runner.backend.calls == 1
-    assert reopened.backlog.next_pending().id == second.id
-    assert restarted._pc_preflight_shortcircuits(_PlanCycleState(None)) == PLAN_AWAITING
-
-    # An explicit retry permits precisely one new attempt. If the dependency
-    # is still missing, the same persisted mission immediately parks again.
-    resumed = reopened.backlog.resume_paused(first.id)
-    assert resumed is not None and resumed.attempt == 2
-    retry = restarted.tick()
-    assert retry["status"] == "infra_blocked"
+    assert restarted.tick()["item_id"] == second.id
     assert runner.backend.calls == 2
-    assert restarted.tick()["blocked_item_id"] == first.id
+    assert restarted.tick() is None
     assert runner.backend.calls == 2
 
+    # The operator's explicit Run, once the host is restored, re-arms each
+    # parked task with one fresh attempt.
     runner.backend.available = True
-    assert reopened.backlog.resume_paused(first.id).attempt == 3
+    resumed = reopened.backlog.resume_parked(OPERATOR_RESUMED_PARKS)
+    assert [item.attempt for item in resumed] == [2, 2]
     assert restarted.tick()["success"] is True
     assert restarted.tick()["success"] is True
     assert runner.backend.calls == 4
     assert runner.reviewer.calls == 2
-    assert runner.usage_ids[:3] == [f"{first.id}:attempt:{n}" for n in (1, 2, 3)]
+    assert runner.usage_ids == [
+        f"{first.id}:attempt:1", f"{second.id}:attempt:1",
+        f"{first.id}:attempt:2", f"{second.id}:attempt:2",
+    ]
 
 
 def test_reviewer_host_failure_parks_without_retrying_either_role(tmp_path: Path) -> None:
@@ -184,7 +185,7 @@ def test_reviewer_host_failure_parks_without_retrying_either_role(tmp_path: Path
 
     result = _supervisor(memory, runner).tick()
 
-    assert result["status"] == "infra_blocked"
+    assert result["status"] == "parked"
     assert runner.backend.calls == runner.reviewer.calls == 1
     parked = next(row for row in memory.backlog.all() if row.id == item.id)
     assert parked.outcome["execution_host_failure"] == HOST_ERROR
@@ -209,7 +210,7 @@ def test_ordinary_infrastructure_pause_does_not_hold_other_work(tmp_path: Path) 
 
 
 @pytest.mark.parametrize("host_failure", [True, False])
-def test_runtime_host_pause_skips_stage_judge_and_preserves_other_infra_outcomes(
+def test_an_infrastructure_park_skips_the_stage_judge(
     tmp_path: Path, host_failure: bool,
 ) -> None:
     from argus.apps._runtime import _SkillLoopRunner
@@ -224,7 +225,8 @@ def test_runtime_host_pause_skips_stage_judge_and_preserves_other_infra_outcomes
     state.mission_scope = "final_submission"
     state.effective_require_independent_review = True
     state.outcome = LoopOutcome(
-        status="infra_blocked",
+        status="parked",
+        park_reason="infra",
         reason=diagnostic,
         rounds=[RoundRecord(1, "work output", 0, review, diagnostic, "backend_unavailable")],
         final_message="work output",
@@ -251,13 +253,14 @@ def test_runtime_host_pause_skips_stage_judge_and_preserves_other_infra_outcomes
     )
     result = runtime._build_execute_outcome(state)
 
-    assert result.status == "infra_blocked"
+    assert (result.status, result.park_reason) == ("parked", "infra")
     assert result.stop_reason == diagnostic
     assert result.success is False
     assert result.final_submission_certified is False
-    assert len(stage_calls) == (0 if host_failure else 1)
+    # A park never moves the stage; only a host failure drops the review credit.
+    assert stage_calls == []
     assert result.final_review_status == ("not_assessed" if host_failure else "blocked")
-    assert result.stage_transition == ({} if host_failure else {"action": "hold"})
+    assert result.stage_transition == {}
 
 
 def test_planner_host_pause_gate_uses_split_memory_project_root(tmp_path: Path) -> None:
@@ -281,7 +284,7 @@ def test_planner_host_pause_gate_uses_split_memory_project_root(tmp_path: Path) 
 
     blocked = supervisor._execution_host_failure_block(item=item)
 
-    assert blocked is not None and blocked["status"] == "infra_blocked"
+    assert blocked is not None and blocked["status"] == "runtime_block"
     assert "re-enable continuous work" in blocked["reason"]
     assert runner.backend.calls == 0
     write_continuous_config(project_root, enabled=True, objective="project campaign")

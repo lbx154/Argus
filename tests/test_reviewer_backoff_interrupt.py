@@ -55,8 +55,8 @@ class Backend:
             return RunnerResult(exit_code=1, fatal_error=REVIEW_FAILURE)
         from argus.core.role_tool_bridge import bridge_request
 
-        bridge_request("ARGUS_PLUGIN_REVIEW", "approve_review", {
-            "review": "The local result was independently checked.",
+        bridge_request("ARGUS_PLUGIN_REVIEW", "submit_review", {
+            "review": "The local result was independently checked.\n→ done",
         }, env=_kwargs["options"].extension_env)
         return RunnerResult(exit_code=0)
 
@@ -75,7 +75,7 @@ def make_loop(tmp_path, engineer, reviewer, events):
 
 @pytest.mark.parametrize("source", ["reviewer", "engineer", "scope"])
 @pytest.mark.parametrize("reason,expected,stop_kind", [
-    ("daemon stop requested", "paused_daemon_shutdown", "daemon_shutdown"),
+    ("daemon stop requested", "parked", "daemon_shutdown"),
     ("operator abort requested: replace the current target", "aborted", "operator_abort"),
 ])
 def test_skill_loop_stops_during_reviewer_backoff_without_another_call(
@@ -173,7 +173,7 @@ def test_real_retry_sleep_returns_promptly_after_stop(tmp_path, monkeypatch, rea
         outcome = pending.result(timeout=0.75)
         elapsed = time.monotonic() - requested_at
     assert elapsed < 0.75
-    assert outcome.status in {"paused_daemon_shutdown", "aborted"}
+    assert outcome.status in {"parked", "aborted"}
     assert engineer.calls == reviewer.calls == 1
     assert outcome.rounds[0].engineer_message == ENGINEER_OUTPUT
 

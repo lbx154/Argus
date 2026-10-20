@@ -299,32 +299,17 @@ class MissionExecutionSettlementMixin:
     ) -> None:
         """Classify stage continuation before durable settlement and publication.
 
-        ``research_incomplete`` is project-level: it says the persisted final
-        research target is not finished. It must NOT cancel a
-        Manager-certified intermediate stage transition. A scope mission can
-        legitimately end with project-level research still incomplete while
-        the Manager advances ``scope -> solve`` (or rolls back to repair an
-        earlier stage). In that case the same bounded item stays pending and
-        continues automatically. Explicit failures, budget/provider
-        pauses, and infrastructure blocks do not enter this path.
-
-        Also applies the ``planner_node_stage_completed`` override (a
-        Planner-authored bounded node closes once the Manager certifies
-        ``advance`` for the current project stage, even if the Reviewer
-        described the WHOLE project as ``research_incomplete``).
+        A Manager-certified intermediate stage transition keeps the same
+        bounded item pending so it continues automatically. Failures and
+        parks do not enter this path.
         """
         outcome = state.outcome
         stage_transition = state.stage_transition
         stage_action = state.stage_action
         success = state.success
-        status = state.status
 
-        project_incomplete_but_stage_progressed = (
-            status == "research_incomplete"
-            and stage_action in {"advance", "rollback"}
-        )
         staged_item_continues = (
-            (success or project_incomplete_but_stage_progressed)
+            success
             and not self.config.continuous
             and not state.planner_bounded_node
             and isinstance(stage_transition, dict)
@@ -337,7 +322,7 @@ class MissionExecutionSettlementMixin:
             state.stop_reason = str(stage_transition.get("reason") or "")
 
         bounded_stage_hold = (
-            (success or status == "research_incomplete")
+            success
             and not self.config.continuous
             and not state.planner_bounded_node
             and isinstance(stage_transition, dict)
@@ -358,22 +343,6 @@ class MissionExecutionSettlementMixin:
                 state.status = "stage_continues"
             else:
                 state.status = "stage_hold"
-
-        # Planner-authored bounded nodes are separate acceptance units: once
-        # the Manager has certified ``advance`` for the current project stage,
-        # that node is complete even if the Reviewer described the WHOLE project
-        # as ``research_incomplete``. Close the node so its solve/review dependent
-        # can unlock. A HOLD remains incomplete; a ROLLBACK is not silently
-        # treated as node success.
-        planner_node_stage_completed = (
-            state.planner_bounded_node
-            and status == "research_incomplete"
-            and stage_action == "advance"
-        )
-        if planner_node_stage_completed:
-            state.success = True
-            state.status = "done"
-            state.stop_reason = ""
 
     # ------------------------------------------------------------------
     # Phase: final status resolution against the backlog
@@ -521,123 +490,10 @@ class MissionExecutionSettlementMixin:
         operator_question = str(
             getattr(outcome, "operator_question", "") or ""
         ).strip()
-        cannot_ask = False
-        if operator_question:
-            from ...core.autonomy import (
-                NO_OPERATOR_NEED,
-                OPERATOR_ACTION_NEEDS,
-                assess_operator_intervention,
-                normalize_operator_need,
-                operator_questions_can_be_asked,
-                technical_continuation,
-            )
-
-            cannot_ask = not operator_questions_can_be_asked()
-
-            raised_need = normalize_operator_need(
-                (getattr(outcome, "final_planner_report", {}) or {}).get("operator_need")
-                if isinstance(getattr(outcome, "final_planner_report", None), dict)
-                else ""
-            )
-            if (
-                cannot_ask
-                # The raiser itself said the team can decide this.
-                or raised_need == NO_OPERATOR_NEED
-            ):
-                planner_report = dict(
-                    getattr(outcome, "final_planner_report", {}) or {}
-                )
-                intervention = assess_operator_intervention(
-                    question=operator_question,
-                    reason=str(
-                        getattr(outcome, "final_review_reason", "") or ""
-                    ),
-                    next_action=str(
-                        getattr(outcome, "final_review_next_action", "") or ""
-                    ),
-                    planner_report=planner_report,
-                )
-                if not intervention.required:
-                    continuation = technical_continuation(
-                        question=operator_question,
-                        reason=str(
-                            getattr(outcome, "final_review_reason", "") or ""
-                        ),
-                        next_action=str(
-                            getattr(outcome, "final_review_next_action", "") or ""
-                        ),
-                    )
-                    planner_report.update({
-                        "plan_signal": "reconsider",
-                        "challenge": str(
-                            planner_report.get("challenge")
-                            or getattr(outcome, "final_review_reason", "")
-                            or operator_question
-                        ),
-                        "alternative": continuation,
-                        "authority_impact": "technical",
-                        "auto_continued": True,
-                    })
-                    # Runner and guard outcomes have different concrete shapes;
-                    # keep policy write-back as explicit duck-typed adaptation.
-                    setattr(outcome, "final_planner_report", planner_report)
-                    setattr(outcome, "operator_question", "")
-                    self._emit({
-                        "type": EventType.LIFE_MANAGER_PLAN_CHALLENGE_DECIDED,
-                        "item_id": item.id,
-                        "manager_action": "replace",
-                        "manager_reason": intervention.reason,
-                        "challenge": operator_question,
-                        "alternative": continuation,
-                        "authority_impact": "technical",
-                        "source": "pragmatic_autonomy_policy",
-                        "text": (
-                            "Argus kept a reversible technical choice inside the team "
-                            "instead of interrupting the operator."
-                        ),
-                    })
-                    operator_question = ""
-                    if status in {"blocked", "replan_requested"}:
-                        status = "replan_requested"
-                elif (
-                    cannot_ask
-                    and status in {"blocked", "replan_requested"}
-                    and intervention.operator_need not in OPERATOR_ACTION_NEEDS
-                ):
-                    # The operator cannot be asked, and the raising role named
-                    # no action only they could approve: the question is one
-                    # of scope or interpretation. Hand it to the Manager as an
-                    # operator-owned challenge without a question; the Manager
-                    # settles it on the most defensible reading and the
-                    # Planner records that assumption. An action stays a
-                    # question, which the Manager decides in the operator's
-                    # place once it is parked.
-                    planner_report.update({
-                        "plan_signal": "reconsider",
-                        "challenge": str(
-                            planner_report.get("challenge") or operator_question
-                        ),
-                        "authority_impact": "operator",
-                        "operator_need": intervention.operator_need,
-                    })
-                    setattr(outcome, "final_planner_report", planner_report)
-                    setattr(outcome, "operator_question", "")
-                    setattr(outcome, "operator_options", [])
-                    operator_question = ""
-                    status = "replan_requested"
-        research_pause = status in {
-            "research_incomplete",
-            "paused_no_breakthrough",
-            "exhausted_current_methods",
-            "infra_blocked",
-        }
+        # A park the loop's own pause path left here: the Manager stopped the
+        # run, or its host could not start.
+        parked = status == "parked"
         replan_requested = status == "replan_requested"
-        if replan_requested and operator_question:
-            # A replacement plan cannot authorize a semantic boundary decision.
-            # Route the question through the durable operator-answer path instead
-            # of immediately asking Planner to redispatch the same mission.
-            status = "blocked"
-            replan_requested = False
         intentional_abort = status == "aborted" or state.stop_kind == "operator_abort"
         if intentional_abort:
             success = False
@@ -652,7 +508,7 @@ class MissionExecutionSettlementMixin:
         err = state.exc_str or state.stop_reason or "unspecified failure"
         final_review_status = str(getattr(outcome, "final_review_status", "") or "")
         resumable = bool(
-            research_pause
+            parked
             or stop_kind_is_recoverable(state.stop_kind)
             # A stall the Reviewer answered with ``continue`` is unfinished
             # work, not a dead task: it stays resumable.
@@ -677,17 +533,14 @@ class MissionExecutionSettlementMixin:
             ),
             stop_kind=state.stop_kind,
             resumable=resumable,
+            park_reason=state.park_reason,
         )
         if iteration is not None:
             outcome_dimensions["iteration"] = dict(iteration)
-        if (
-            status == "infra_blocked"
-            and state.stop_kind == "backend_unavailable"
-            and is_execution_host_startup_error(state.stop_reason)
-        ):
-            # The shortcircuit owns this structured runner diagnostic. Persist
-            # it with the pause so dispatch stays held across daemon restarts;
-            # explicit resume_paused() re-arms the same metered attempt path.
+        if state.park_reason == "infra" and is_execution_host_startup_error(state.stop_reason):
+            # The shortcircuit owns this structured runner diagnostic; it stays
+            # with the park until an explicit resume re-arms the same metered
+            # attempt path.
             outcome_dimensions["execution_host_failure"] = state.stop_reason
             outcome_dimensions["review_status"] = "not_assessed"
 
@@ -843,7 +696,7 @@ class MissionExecutionSettlementMixin:
         elif maintenance_reviewed:
             from ...core.operator_decision import build_operator_decision
 
-            status = "paused_operator"
+            status, state.park_reason = "parked", "operator_question"
             resumable = True
             operator_question = (
                 f"The Reviewer read the change for “{item.title}” and it holds. "
@@ -887,9 +740,10 @@ class MissionExecutionSettlementMixin:
                 stage_transition=stage_transition,
                 stop_kind=state.stop_kind,
                 resumable=True,
+                park_reason=state.park_reason,
             )
             commit(
-                status=status,
+                park_reason=state.park_reason,
                 finished_ts=time.time(),
                 last_error="",
                 outcome=outcome_dimensions,
@@ -908,22 +762,6 @@ class MissionExecutionSettlementMixin:
             })
         elif success:
             commit(status="done", finished_ts=time.time(), outcome=outcome_dimensions)
-            if "runtime_failure_canary" in state.item_tags:
-                try:
-                    from ..runtime_failure_circuit import clear_runtime_failure_circuit
-
-                    circuit_cleared = clear_runtime_failure_circuit(
-                        self.memory.root,
-                        reason=f"reviewed runtime canary passed in mission {item.id}",
-                        canary_item_id=item.id,
-                    )
-                    self._emit({
-                        "type": EventType.LIFE_RUNTIME_FAILURE_CANARY_PASSED,
-                        "item_id": item.id,
-                        "circuit_cleared": circuit_cleared,
-                    })
-                except Exception:  # noqa: BLE001 - canary result remains successful
-                    log.exception("failed to clear runtime circuit after canary")
         elif status == "blocked" and operator_question:
             from ...core.operator_decision import build_operator_decision
 
@@ -945,7 +783,7 @@ class MissionExecutionSettlementMixin:
             # operator is deciding; the answer transaction terminalizes it and
             # rewires those dependencies to the continuation atomically.
             commit(
-                status="paused_operator",
+                park_reason="operator_question",
                 finished_ts=time.time(),
                 last_error=err,
                 outcome=outcome_dimensions,
@@ -974,9 +812,9 @@ class MissionExecutionSettlementMixin:
                 finished_ts=None,
                 last_error=state.stop_reason,
             )
-        elif research_pause:
+        elif parked:
             commit(
-                status=status,
+                park_reason=state.park_reason,
                 finished_ts=time.time(),
                 last_error=state.stop_reason,
                 outcome=outcome_dimensions,
@@ -991,10 +829,30 @@ class MissionExecutionSettlementMixin:
         else:
             fail(error=err, outcome=outcome_dimensions)
 
-        # A "blocked" verdict means the REVIEWER stopped progress because it
-        # needs the OPERATOR to make a call — not a bug/crash. This includes a
-        # replan verdict carrying an operator question, normalized above so
-        # Planner cannot proceed without authorization. Persist the question
+        # A canary that ran without a stop reached the model service, which
+        # ends a provider outage; a failure in Argus's own code needs its
+        # reviewed pass.
+        answered = not state.exc_str and state.stop_kind is None
+        if "runtime_failure_canary" in state.item_tags and (success or answered):
+            circuit_cleared = self._close_runtime_failure_circuit(
+                reason=(
+                    f"runtime canary {'passed review' if success else 'reached the model service'}"
+                    f" in mission {item.id}"
+                ),
+                canary_item_id=item.id,
+                outage_only=not success,
+            )
+            if success or circuit_cleared:
+                self._emit({
+                    "type": EventType.LIFE_RUNTIME_FAILURE_CANARY_PASSED,
+                    "item_id": item.id,
+                    "circuit_cleared": circuit_cleared,
+                })
+
+        # A "blocked" round with a question is a role handing the work to the
+        # OPERATOR (``→ operator: <question>``) — not a bug/crash; while the
+        # operator cannot be asked, the Manager decides the parked card in
+        # their place. Persist the question
         # onto the (now-terminal) item so it outlives this one event:
         # /status can list every currently-unanswered question across ALL
         # projects/restarts, not just whatever a cockpit happened to be tailing
@@ -1063,17 +921,7 @@ class MissionExecutionSettlementMixin:
         try:
             remaining_work = any(
                 row.id != item.id
-                and row.status
-                in {
-                    "pending",
-                    "running",
-                    "paused",
-                    "paused_budget",
-                    "paused_cost",
-                    "paused_provider_cooldown",
-                    "paused_provider_fence",
-                    "paused_operator",
-                }
+                and row.status in {"pending", "running", "parked"}
                 for row in self.memory.backlog.active()
             )
         except Exception:  # noqa: BLE001 - completion presentation fails closed
@@ -1081,7 +929,7 @@ class MissionExecutionSettlementMixin:
         overall_complete = bool(
             success
             and status != "stage_continues"
-            and status != "paused_operator"
+            and status != "parked"
             and state.iteration is None
             and (
                 final_submission_certified
@@ -1189,6 +1037,7 @@ class MissionExecutionSettlementMixin:
             ),
             "success": success,
             "status": status,
+            **({"park_reason": state.park_reason} if status == "parked" else {}),
             "summary": mission_summary,
             "residual_risk": residual_risk,
             "final_output": final_output,
@@ -1201,7 +1050,7 @@ class MissionExecutionSettlementMixin:
                 for candidate in reviewer_artifacts
                 if str(candidate).strip()
             ][:12],
-            "outcome_class": mission_outcome_class(status=status, success=success),
+            "outcome_class": mission_outcome_class(status, success, state.park_reason),
             "outcome": state.outcome_dimensions,
             "planner_report": planner_report,
             "plan_challenge": plan_challenge,
@@ -1550,10 +1399,13 @@ class MissionExecutionSettlementMixin:
             if isinstance(manager_decision, dict):
                 vertical = str(manager_decision.get("vertical") or "").strip()
             if not vertical:
-                from ...skills.vertical_select import resolve_skill_scope
+                from ...skills.vertical_select import resolve_project_vertical
+                from ._evolution import _project_state_root
 
                 try:
-                    vertical = resolve_skill_scope(workspace)
+                    vertical = resolve_project_vertical(
+                        workspace, life_dir=_project_state_root(self.memory) or workspace,
+                    )
                 except Exception:  # noqa: BLE001 - an undecided vertical only skips the vertical tier
                     vertical = ""
             promoted = promote_wiki_pages(
@@ -1564,12 +1416,11 @@ class MissionExecutionSettlementMixin:
         except OSError:
             log.exception("life supervisor: shared knowledge could not be updated")
             return
-        for scope, pages in promoted.items():
-            if pages:
-                log.info(
-                    "life supervisor: %d wiki page(s) shared with the %s knowledge (%s): %s",
-                    len(pages), scope, vertical or "-", ", ".join(pages),
-                )
+        for target, pages in promoted.items():
+            log.info(
+                "life supervisor: %d wiki page(s) shared with the %s knowledge: %s",
+                len(pages), target, ", ".join(pages),
+            )
 
 
 __all__ = ["MissionExecutionSettlementMixin"]

@@ -81,8 +81,8 @@ class _ReviewerRunner:
     def run_exec(self, **_kwargs) -> RunnerResult:
         from argus.core.role_tool_bridge import bridge_request
 
-        bridge_request("ARGUS_PLUGIN_REVIEW", "approve_review", {
-            "review": "The requested outcome is complete.",
+        bridge_request("ARGUS_PLUGIN_REVIEW", "submit_review", {
+            "review": "The requested outcome is complete.\n→ done",
         }, env=_kwargs["options"].extension_env)
         return RunnerResult(
             exit_code=0,

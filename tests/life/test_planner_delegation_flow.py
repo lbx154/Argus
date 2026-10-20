@@ -221,7 +221,7 @@ def test_planner_retires_pending_tasks_without_requiring_new_work(
     assert rows[pending.id].superseded_reason == reason
     assert rows[pending.id].superseded_by_plan_id
     assert rows[running.id].status == "running"
-    assert rows[parked.id].status == "paused_external_work"
+    assert rows[parked.id].status == "parked"
     assert rows[parked.id].outcome["external_wait"]["work_id"] == "training"
     assert rows[done.id].status == "done"
     events = [
@@ -982,7 +982,7 @@ def test_forbidden_questions_park_an_out_of_scope_alternative_for_the_manager(
     persisted = next(
         row for row in supervisor.memory.backlog.all() if row.id == item.id
     )
-    assert persisted.status == "paused_operator"
+    assert persisted.status == "parked"
     assert persisted.operator_decision["status"] == "pending"
 
 

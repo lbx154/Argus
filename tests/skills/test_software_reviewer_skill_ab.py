@@ -28,15 +28,15 @@ class _LibraryAwareBackend:
 
         env = kwargs["options"].extension_env
         if library_available:
-            bridge_request("ARGUS_PLUGIN_REVIEW", "revise_review", {
+            bridge_request("ARGUS_PLUGIN_REVIEW", "submit_review", {
                 "review": (
                     "The Reviewer can inspect its software review library. "
-                    "Trace the changed signature through unchanged callers."
+                    "Trace the changed signature through unchanged callers.\n→ engineer"
                 ),
             }, env=env)
         else:
-            bridge_request("ARGUS_PLUGIN_REVIEW", "approve_review", {
-                "review": "No Reviewer library was supplied.",
+            bridge_request("ARGUS_PLUGIN_REVIEW", "submit_review", {
+                "review": "No Reviewer library was supplied.\n→ done",
             }, env=env)
         return RunnerResult(exit_code=0, agent_messages=["Review submitted."])
 

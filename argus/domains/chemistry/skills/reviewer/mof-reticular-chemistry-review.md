@@ -34,7 +34,7 @@ when their evidence is claim-critical.
 
 ## Rejection conditions
 
-Return `replan_requested` when framework connectivity or topology is unstable,
+Hand the work to the Planner (`→ planner`) when framework connectivity or topology is unstable,
 sample state is unlinked, coordinated/charge-balancing species were removed
 without justification, adsorption analysis lacks raw conditions or valid model
 ranges, postsynthetic modification lacks discriminating evidence, dataset
@@ -43,7 +43,7 @@ presented as synthesized materials.
 
 ## Done standard
 
-Return `done` only at the requested evidence level and identify unresolved
+Hand off `→ done` only at the requested evidence level and identify unresolved
 disorder, defects, guest/activation state, topology alternatives, heterogeneity,
 and experimental validation gaps. A valuable predicted hypothesis may complete
 a screening mission but not a physical discovery objective.

@@ -224,7 +224,7 @@ def test_unchanged_wait_ignores_polling_rounds_and_own_receipts_then_wakes_on_an
     # The wait preserves campaign authority and the question until real input arrives.
     assert read_continuous_state(tmp_path).enabled
     backlog.update(item.id, pending_question="")
-    assert backlog.resume_paused(item.id)
+    assert backlog.resume_parked()
     assert not waiting_for_evidence(tmp_path)
     assert observe_project(tmp_path, event=event).evidence_revision != first["evidence_revision"]
 
@@ -440,7 +440,7 @@ def test_applied_wait_holds_unchanged_planning_until_new_operator_facts(tmp_path
         assert supervisor._plan_next_work() == PLAN_AWAITING
     assert len(calls) == 1
     backlog.update(item.id, pending_question="")
-    assert backlog.resume_paused(item.id)
+    assert backlog.resume_parked()
     assert supervisor._plan_next_work() == PLAN_ERROR
     assert len(calls) == 2
 
@@ -671,31 +671,32 @@ def test_wait_parks_only_task_a_and_independent_b_and_answered_a_can_run(tmp_pat
     assert not waiting_for_evidence(tmp_path, task_b.id)
     backend_a = MemoryBackend()
     outcome_a = role_loop(tmp_path, task_a.id, backend_a).run(task_a.objective, workdir=tmp_path)
-    assert outcome_a.status == "paused_operator"
+    assert (outcome_a.status, outcome_a.park_reason) == ("parked", "operator_question")
     assert outcome_a.rounds == [] and backend_a.history == []
     state = SimpleNamespace(
         item=task_at(backlog, task_a.id), outcome=SimpleNamespace(final_review_status=""),
-        status=outcome_a.status, stop_kind=None, stop_reason=outcome_a.reason,
+        status=outcome_a.status, park_reason=outcome_a.park_reason,
+        stop_kind=outcome_a.stop_kind, stop_reason=outcome_a.reason,
         usage_summary=SimpleNamespace(pricing_status="known"), usd=0.0, known_usd=0.0,
         context_packet_path=None,
     )
-    assert supervisor._maybe_pause_for_recoverable_stop(state)["status"] == "paused_operator"
+    assert supervisor._maybe_pause_for_recoverable_stop(state)["status"] == "parked"
     assert task_at(backlog, task_a.id).pending_question == "Provide the author declaration"
     assert waiting_for_evidence(tmp_path, task_a.id)
 
     backend_b = MemoryBackend()
     backend_b.queue("engineer-r1", CannedResponse(message="The independent syntax check passed"))
-    backend_b.queue("reviewer", CannedResponse(review_action=('approve_review', {'review': 'Syntax verified'})))
+    backend_b.queue("reviewer", CannedResponse(review_action=("submit_review", {'review': 'Syntax verified\n→ done'})))
     assert role_loop(tmp_path, task_b.id, backend_b).run(task_b.objective, workdir=tmp_path).successful
     backlog.update(task_b.id, status="done")
     assert waiting_for_evidence(tmp_path, task_a.id), "unrelated task completion cannot answer A's question"
 
     backlog.update(task_a.id, pending_question="")
-    assert backlog.resume_paused(task_a.id)
+    assert backlog.resume_parked()
     backlog.mark_running(task_a.id)
     assert not waiting_for_evidence(tmp_path, task_a.id)
     backend_a.queue("engineer-r1", CannedResponse(message="Applied the supplied author declaration"))
-    backend_a.queue("reviewer", CannedResponse(review_action=('approve_review', {'review': 'Declaration verified'})))
+    backend_a.queue("reviewer", CannedResponse(review_action=("submit_review", {'review': 'Declaration verified\n→ done'})))
     assert role_loop(tmp_path, task_a.id, backend_a).run(task_a.objective, workdir=tmp_path).successful
 
 
@@ -727,7 +728,7 @@ def test_wait_arriving_during_engineer_work_finishes_the_write_and_skips_reviewe
             assert not work.done() and artifact.read_text() == "in progress"
             release.set()
             outcome = work.result(timeout=1)
-            assert outcome.status == "paused_operator"
+            assert outcome.status == "parked"
             assert outcome.rounds == [], "the control boundary must not fabricate a Reviewer verdict"
             assert artifact.read_text() == "write complete"
             assert [label for label, _, _ in backend.history] == ["engineer-r1"]

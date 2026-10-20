@@ -49,6 +49,8 @@ class _Outcome:
     success: bool = True
     status: str = "done"
     stop_reason: str = ""
+    stop_kind: str | None = None
+    park_reason: str = ""
     rounds: int = 1
     matched_skill_name: str = ""
     skill_distilled: bool = True
@@ -91,11 +93,12 @@ class _ScientistSpendRunner:
         return _Outcome()
 
 
-class _ResearchIncompleteRunner:
+class _ResearchParkRunner:
     def execute(self, **kwargs) -> _Outcome:
         return _Outcome(
             success=False,
-            status="research_incomplete",
+            status="parked",
+            park_reason="research_open",
             stop_reason="doctoral target not reached",
         )
 
@@ -397,7 +400,7 @@ def test_framework_maintenance_uses_isolated_worktree_and_review(
 
     result = supervisor.tick()
 
-    assert result is not None and result["status"] == "paused_operator"
+    assert result is not None and result["status"] == "parked"
     assert result["review_status"] == "done"
     worktree = Path(runner.kwargs["working_dir_override"])
     assert worktree.is_dir()
@@ -408,7 +411,7 @@ def test_framework_maintenance_uses_isolated_worktree_and_review(
     assert runner.kwargs["require_independent_review"] is True
     assert runner.kwargs["allow_skill_changes"] is False
     settled = next(row for row in memory.backlog.history() if row.id == item.id)
-    assert settled.status == "paused_operator"
+    assert settled.status == "parked"
     assert settled.execution_workdir == str(worktree)
     assert [
         option["id"] for option in settled.operator_decision["options"]
@@ -795,13 +798,13 @@ def test_regular_task_adopts_nested_repository_as_campaign_root(tmp_path) -> Non
     assert after == before
 
 
-def test_research_incomplete_mission_is_paused_and_resumable(tmp_path) -> None:
-    assert "paused" in PLANNER_DEDUP_STATUSES
+def test_research_park_is_paused_and_resumable(tmp_path) -> None:
+    assert "parked" in PLANNER_DEDUP_STATUSES
     mem = LifeMemory.open(tmp_path / "life")
     sink = _RecordingSink(mem.root)
     sup = LifeSupervisor(
         memory=mem,
-        runner=_ResearchIncompleteRunner(),
+        runner=_ResearchParkRunner(),
         sink=sink,
         config=LifeSupervisorConfig(
             budget=LifeBudget(max_missions=1),
@@ -816,13 +819,13 @@ def test_research_incomplete_mission_is_paused_and_resumable(tmp_path) -> None:
 
     assert result is not None
     assert result["success"] is False
-    assert result["status"] == "research_incomplete"
+    assert result["status"] == "parked"
     paused = next(
         (candidate for candidate in mem.backlog.all() if candidate.id == item.id),
         None,
     )
     assert paused is not None
-    assert paused.status == "research_incomplete"
+    assert paused.status == "parked" and paused.outcome["park"] == {"reason": "research_open"}
     assert paused.last_error == "doctoral target not reached"
     event = next(
         event
@@ -831,12 +834,13 @@ def test_research_incomplete_mission_is_paused_and_resumable(tmp_path) -> None:
     )
     assert event["success"] is False
     assert event["resumable"] is True
+    assert (event["park_reason"], event["outcome_class"]) == ("research_open", "incomplete")
     (experience,) = mem.failure_experiences.recent()
     assert experience.mission_id == item.id
-    assert experience.status == "research_incomplete"
+    assert experience.status == "parked"
     assert "not a general impossibility" in experience.claim_boundaries[0]
 
-    resumed = mem.backlog.resume_paused(item.id)
+    [resumed] = mem.backlog.resume_parked()
     assert resumed is not None
     assert resumed.status == "pending"
     assert resumed.attempt == 2
@@ -961,7 +965,9 @@ class _BudgetExhaustedRunner:
     """A runner whose provider call was denied by the host-global budget."""
 
     def execute(self, **kwargs: Any) -> _Outcome:
-        return _Outcome(success=False, status="budget_exhausted", final_message="paused")
+        return _Outcome(
+            success=False, status="error", stop_kind="budget_exhausted", final_message="paused",
+        )
 
 
 def test_budget_exhausted_outcome_pauses_item_and_journals_budget_pause(
@@ -986,12 +992,12 @@ def test_budget_exhausted_outcome_pauses_item_and_journals_budget_pause(
 
     # Hard pause, NOT a completion — reviewer stays the sole done-ness authority.
     assert result is not None
-    assert result["status"] == "paused_budget"
+    assert result["status"] == "parked"
     assert result["item_id"] == item.id
     assert result.get("success") is not True
     # Item is recoverably paused until an explicit resume starts a fresh attempt.
     rows = {row.id: row for row in mem.backlog.all()}
-    assert rows[item.id].status == "paused_budget"
+    assert rows[item.id].status == "parked"
     # Exactly one budget_pause journal entry; no mission_complete.
     pauses = [e for e in mem.journal.all() if e.kind == "budget_pause"]
     assert len(pauses) == 1
@@ -999,7 +1005,7 @@ def test_budget_exhausted_outcome_pauses_item_and_journals_budget_pause(
     assert not [e for e in mem.journal.all() if e.kind == "mission_complete"]
     # A life.mission.completed event marks it as a non-success budget_pause.
     completed = [e for e in sink.events if e.get("type") == "life.mission.completed"]
-    assert completed and completed[-1]["status"] == "paused_budget"
+    assert completed and completed[-1]["status"] == "parked"
     assert completed[-1]["success"] is False
 
 
@@ -1069,7 +1075,7 @@ def test_blocked_verdict_persists_operator_question_onto_backlog_item(
     rows = {row.id: row for row in mem.backlog.all()}
     # Operator-paused rather than terminal: a failed dependency would
     # cascade-skip downstream DAG nodes before the answer can rewire them.
-    assert rows[item.id].status == "paused_operator"
+    assert rows[item.id].status == "parked"
     assert rows[item.id].pending_question == "fp16 精度损失可以接受吗，还是必须 fp32？"
     assert rows[item.id].operator_decision["project_id"] == mem.root.name
     assert rows[item.id].operator_decision["options_source"] == "agent"
@@ -1086,7 +1092,7 @@ def test_blocked_verdict_persists_operator_question_onto_backlog_item(
     assert pending_events[-1]["question"] == "fp16 精度损失可以接受吗，还是必须 fp32？"
 
 
-def test_late_forbid_prevents_custom_runner_question_from_parking(
+def test_late_forbid_still_parks_the_question_for_the_manager(
     tmp_path,
 ) -> None:
     mem = LifeMemory.open(tmp_path / "life")
@@ -1108,19 +1114,12 @@ def test_late_forbid_prevents_custom_runner_question_from_parking(
     result = sup.tick()
 
     assert result is not None
-    # The runner's question carries no classification, so with an operator
-    # present but questions forbidden it continues autonomously, as on dev
-    # without the old keyword match: replanned, neither parked nor failed.
-    assert result["status"] == "replan_requested"
-    assert not result.get("operator_question")
+    # The role named the operator. With nobody to ask, the card parks and the
+    # Manager decides it in the operator's place; the host never reroutes it.
+    assert result["status"] == "blocked"
     stored = next(row for row in mem.backlog.all() if row.id == item.id)
-    assert stored.status != "paused_operator"
-    assert stored.pending_question == ""
-    assert stored.operator_decision == {}
-    assert not any(
-        event["type"] == "life.operator_question.pending"
-        for event in sink.events
-    )
+    assert stored.status == "parked"
+    assert stored.pending_question
 
 
 class _TechnicalQuestionRunner:
@@ -1169,13 +1168,13 @@ def test_explicit_operator_question_parks_while_the_operator_can_be_asked(
 
     assert result is not None and result["status"] == "blocked"
     stored = next(row for row in mem.backlog.all() if row.id == item.id)
-    assert stored.status == "paused_operator"
+    assert stored.status == "parked"
     assert stored.pending_question == (
         "Should the benchmark use a smaller diagnostic shape?"
     )
 
 
-def test_no_operator_replans_technical_question_without_pausing(
+def test_no_operator_parks_the_question_for_the_manager(
     tmp_path,
     monkeypatch,
 ) -> None:
@@ -1197,19 +1196,12 @@ def test_no_operator_replans_technical_question_without_pausing(
 
     result = sup.tick()
 
-    assert result is not None and result["status"] == "replan_requested"
+    assert result is not None and result["status"] == "blocked"
     stored = next(row for row in mem.backlog.all() if row.id == item.id)
-    assert stored.status == "pending"
-    assert stored.pending_question == ""
-    assert not stored.operator_decision
-    decisions = [
-        event
-        for event in sink.events
-        if event.get("type") == EventType.LIFE_MANAGER_PLAN_CHALLENGE_DECIDED
-        and event.get("source") == "pragmatic_autonomy_policy"
-    ]
-    assert decisions
-    assert decisions[-1]["authority_impact"] == "technical"
+    assert stored.status == "parked"
+    assert stored.pending_question == (
+        "Should the benchmark use a smaller diagnostic shape?"
+    )
 
 
 def test_pending_wait_status_is_not_repeated_across_supervisor_restarts(
@@ -1306,19 +1298,19 @@ class _CountingReplanRunner:
         return outcome
 
 
-class _ReplanQuestionRunner:
-    """Requests a replacement plan that requires an operator decision first."""
+class _QuestionRunner:
+    """Hands the work to the operator with a question."""
 
     def execute(self, **kwargs: Any) -> _Outcome:
         return _Outcome(
             success=False,
-            status="replan_requested",
+            status="blocked",
             stop_reason="the approved trust boundary is ambiguous",
             operator_question="May this function be added to the trusted boundary?",
         )
 
 
-def test_replan_with_operator_question_uses_durable_answer_path(tmp_path) -> None:
+def test_a_question_uses_the_durable_answer_path(tmp_path) -> None:
     mem = LifeMemory.open(tmp_path / "life")
     sink = _RecordingSink(mem.root)
     cfg = LifeSupervisorConfig(
@@ -1326,7 +1318,7 @@ def test_replan_with_operator_question_uses_durable_answer_path(tmp_path) -> Non
         poll_interval_seconds=0.01,
     )
     sup = LifeSupervisor(
-        memory=mem, runner=_ReplanQuestionRunner(), sink=sink, config=cfg,
+        memory=mem, runner=_QuestionRunner(), sink=sink, config=cfg,
     )
     item = mem.backlog.add(BacklogItem.new(
         title="Resolve boundary", objective="verify the reachable call chain",
@@ -1351,12 +1343,11 @@ def test_replan_with_operator_question_uses_durable_answer_path(tmp_path) -> Non
     # answer-to-continuation transition.
     reopened = LifeMemory.open(tmp_path / "life")
     blocked = next(row for row in reopened.backlog.all() if row.id == item.id)
-    assert blocked.status == "paused_operator"
+    assert blocked.status == "parked"
     assert blocked.pending_question == (
         "May this function be added to the trusted boundary?"
     )
-    assert reopened.backlog.resume_paused(item.id) is None
-    assert reopened.backlog.resume_all_paused() == []
+    assert reopened.backlog.resume_parked() == []
     assert reopened.backlog.next_pending() is None
     waiting = next(row for row in reopened.backlog.all() if row.id == dependent.id)
     assert waiting.status == "pending"
@@ -1387,7 +1378,7 @@ def test_operator_question_pauses_its_item_not_the_campaign(tmp_path) -> None:
     )
     sup = LifeSupervisor(
         memory=mem,
-        runner=_ReplanQuestionRunner(),
+        runner=_QuestionRunner(),
         sink=_RecordingSink(mem.root),
         config=cfg,
     )
@@ -1414,7 +1405,7 @@ def test_operator_question_pauses_its_item_not_the_campaign(tmp_path) -> None:
         item for item in mem.backlog.all()
         if str(getattr(item, "pending_question", "") or "").strip()
     ]
-    assert blocked and blocked[0].status == "paused_operator"
+    assert blocked and blocked[0].status == "parked"
 
 
 def test_replan_requested_always_returns_the_node_to_pending(tmp_path) -> None:

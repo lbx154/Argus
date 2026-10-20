@@ -84,10 +84,9 @@ def test_provider_fence_requires_explicit_recovery_even_in_continuous_mode(tmp_p
         continuous=True, continuous_objective="Do not bypass the fence", budget=LifeBudget(max_missions=1),
         poll_interval_seconds=0.0,
     ))
-    result = supervisor.run()
-    assert result["stopped_by"] == "paused_provider_fence"
+    supervisor.run()
     assert not calls
-    assert memory.backlog.all()[0].status == "paused_provider_fence"
-    memory.backlog.resume_paused(item.id)
+    assert memory.backlog.all()[0].status == "parked"
+    memory.backlog.resume_parked()
     result = supervisor.run()
     assert result["missions_run"] == 1 and len(calls) == 1

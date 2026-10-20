@@ -91,16 +91,14 @@ def test_state_rejects_undeclared_dependencies_without_sharing_mutable_defaults(
         (_Outcome(True, "done"), (), "done", "done", True),
         (RuntimeError("execution failed"), (), "error", "failed", True),
         # A recoverable stop takes precedence over the stale stage HOLD.
-        (_Outcome(False, "budget_exhausted", stage_transition={"action": "hold"}),
-         (), "paused_budget", "paused_budget", True),
+        (_Outcome(False, "error", stop_kind="budget_exhausted", stage_transition={"action": "hold"}),
+         (), "parked", "parked", True),
         (_Outcome(True, "done", stage_transition={"action": "advance"}),
          (), "stage_continues", "pending", True),
         (_Outcome(True, "done", stage_transition={"action": "hold"}),
          (), "stage_hold", "failed", True),
-        (_Outcome(False, "research_incomplete", stage_transition={"action": "advance"}),
-         ("planner", "scope:bounded"), "done", "done", True),
     ],
-    ids=["done", "runner_error", "pause_before_hold", "next_stage", "stage_hold", "bounded_node"],
+    ids=["done", "runner_error", "pause_before_hold", "next_stage", "stage_hold"],
 )
 def test_execution_branches_preserve_metering_and_publication_order(
     tmp_path, monkeypatch, outcome, tags, result_status, stored_status, publishes,
@@ -126,7 +124,7 @@ def test_execution_branches_preserve_metering_and_publication_order(
         assert status_at_publish == stored_status
         assert event["status"] == result_status
         assert event["known_cost_usd"] == result["known_cost_usd"]
-    assert learning == ([stored_status] if publishes and result_status != "paused_budget" else [])
+    assert learning == ([stored_status] if publishes and result_status != "parked" else [])
 
 
 def test_intentional_hold_continues_and_publishes_before_next_attempt(tmp_path, monkeypatch):
@@ -170,7 +168,7 @@ def test_hold_with_operator_question_waits_instead_of_repeating(tmp_path, monkey
     supervisor, memory, item, runner, sink, _ = _mission(tmp_path, monkeypatch, outcome)
     supervisor._run_one(item)
     stored = next(row for row in memory.backlog.all() if row.id == item.id)
-    assert stored.status == "paused_operator"
+    assert stored.status == "parked"
     assert stored.pending_question == outcome.operator_question
     assert len(sink.completions) == 1
 

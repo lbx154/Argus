@@ -70,6 +70,7 @@ class _MissionRunState:
     rounds: int = 0
     stop_reason: str = ""
     stop_kind: StopKind | None = None
+    park_reason: str = ""
     usage_summary: UsageSummary | None = None
     usd: float | None = 0.0
     known_usd: float = 0.0

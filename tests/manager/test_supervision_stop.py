@@ -7,16 +7,17 @@ where the Planner can retire it or the operator resume it, workspace intact.
 from __future__ import annotations
 
 import json
+from types import SimpleNamespace
 
 from argus.core.event_catalog import EventType
 from argus.core.models import RunnerResult
-from argus.core.stop_kinds import park_reason_of, park_rule
 from argus.daemon.state import write_continuous_config
 from argus.engineer.round_config import SupervisedConfig
 from argus.engineer.round_manager_wait import manager_wait_terminal
 from argus.engineer.round_state import RoundLoopState
-from argus.life.memory import Backlog, BacklogItem
+from argus.life.memory import Backlog, BacklogItem, planner_may_retire_park
 from argus.manager import Manager, supervision
+from argus.skills.loop_settlement import MissionSettlementMixin
 
 REASON = "Eleven rounds rewrote the same parser and the residual never moved."
 
@@ -51,11 +52,17 @@ def test_a_manager_stop_parks_the_run_it_was_decided_on(tmp_path):
 
     assert record["status"] == "applied" and record["effects"]["effect"] == "mission parked"
     config = SupervisedConfig(operator_question_policy_root=tmp_path, session_id="grouped")
-    status, _rounds, _message, reason, _thread = manager_wait_terminal(config, RoundLoopState())
-    assert (status, reason) == ("paused_no_breakthrough", f"Manager decision: {REASON}")
-    assert park_rule(park_reason_of(status)).holder == "planner"
+    status, rounds, message, reason, thread = manager_wait_terminal(config, RoundLoopState())
+    assert (status, reason) == ("manager_stop", f"Manager decision: {REASON}")
+    settler = MissionSettlementMixin()
+    settler._emit = lambda _event: None
+    mission = SimpleNamespace(workdir=tmp_path)
+    outcome = settler._settle_mission_outcome(mission, None, status, rounds, message, reason, thread)
+    assert (outcome.status, outcome.park_reason, outcome.stop_kind) == ("parked", "research_open", None)
+    # The run waits where the Planner can retire it.
+    backlog.update("grouped", park_reason=outcome.park_reason)
+    assert planner_may_retire_park(next(row for row in backlog.all() if row.id == "grouped"))
     # Resuming starts a new run, which the old decision does not stop.
-    backlog.update("grouped", status=status)
-    backlog.resume_paused("grouped")
+    backlog.resume_parked()
     backlog.mark_running("grouped")
     assert manager_wait_terminal(config, RoundLoopState()) is None

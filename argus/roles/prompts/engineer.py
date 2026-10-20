@@ -65,19 +65,16 @@ def engineer_operator_handoff_rule() -> str:
         return (
             "No operator is available in this run; the Manager decides in their "
             "place. Settle what a requirement means yourself, on the most "
-            "defensible reading; record it in CHECKPOINT.md and state it as "
-            "ASSUMPTION=<the reading you chose>. Never assume facts or results, or "
-            "fake credentials or services; if a required input is missing, say what "
-            "and hand off with `→ manager`. Use `→ operator: <question>` only for an "
-            "action only the operator could approve, with OPERATOR_NEED=credentials "
-            "(or spending, irreversible_or_external) and at most five "
-            "OPERATOR_OPTIONS on the lines below; the Manager decides it."
+            "defensible reading, and record it in CHECKPOINT.md. Never assume facts "
+            "or results, or fake credentials or services; if a required input is "
+            "missing, say what and hand off with `→ manager`. Use `→ operator: "
+            "<question>` only for an action only the operator could approve "
+            "(credentials, spending, or an irreversible or external step); the "
+            "Manager decides it."
         )
     return (
-        "Use `→ operator: <question>` only for a real operator decision, with "
-        "OPERATOR_NEED=credentials (or spending, irreversible_or_external, "
-        "scope_or_authority, none) and at most five OPERATOR_OPTIONS on the lines "
-        "below; that parks the task."
+        "Use `→ operator: <question>` only for a real operator decision; that "
+        "parks the task."
     )
 
 
@@ -197,19 +194,20 @@ def _deduplicated_original_request(original_request: str, task: str) -> str:
 def _post_task_learning_section(
     *,
     require_post_task_learning: bool,
-    project_skill_dir: Path | str | None,
+    project_root: Path | str | None,
 ) -> str:
     """Render the Engineer's own durable-learning contract.
 
     The Engineer ends the task with the full execution context, making it the
-    right place to retain a reusable procedure. Roles edit the project Skill
-    layer directly, so the contract names the destination explicitly.
+    right place to retain a reusable procedure. It may write only inside its
+    workspace, so its Skills are the workspace's Agent Skills, which the host
+    reads for this project, recalls for later ones and offers for promotion.
     """
-    if not require_post_task_learning or project_skill_dir is None:
+    if not require_post_task_learning or project_root is None:
         return ""
     from ...skills.role_memory import role_skill_edit_rules
 
-    rules = role_skill_edit_rules("engineer", project_skill_dir)
+    rules = role_skill_edit_rules("engineer", Path(project_root) / ".agents" / "skills")
     return (
         "## Durable learning\n"
         "You have file and shell tools. After verification, if this task "
@@ -217,7 +215,11 @@ def _post_task_learning_section(
         "done, create or update the applicable Engineer Skills directly in the "
         "project skill directory before you finish this task.\n"
         + rules
-        + "\nDo not turn task-specific hypotheses, causal attributions, failed "
+        + "\nWrite each Skill as `<name>/SKILL.md`. When a step is better run than "
+        "read, keep the script you ran beside it and say in SKILL.md how to run it. "
+        "A Skill that belongs to another vertical names it in its front matter: "
+        "`vertical: <name>`."
+        "\nDo not turn task-specific hypotheses, causal attributions, failed "
         "attempts, or replacement recommendations into Skills unless phase "
         "attribution/profiling or a controlled comparison verified the causal rule. "
         "Keep inconclusive findings out of Skills.\n"
@@ -235,7 +237,6 @@ def build_mission_prompt(
     role_banner: str = "",
     require_post_task_learning: bool = False,
     project_root: Path | str | None = None,
-    project_skill_dir: Path | str | None = None,
     compact_team: bool = False,
     operator_context: str = "",
 ) -> str:
@@ -244,7 +245,7 @@ def build_mission_prompt(
     shell_summary = native_shell_summary()
     learning_block = _post_task_learning_section(
         require_post_task_learning=require_post_task_learning,
-        project_skill_dir=project_skill_dir,
+        project_root=project_root,
     )
     delta_sections: list[str] = []
     if next_action:
@@ -330,9 +331,7 @@ def build_mission_prompt(
         "CHECKPOINT.md carries your state from one round to the next. Host invokes "
         "Reviewer only when required; do not spawn a Reviewer subagent. "
         + engineer_operator_handoff_rule()
-        + " Options use "
-        "`id::label::description`, or `id::true::label::description` when a note "
-        "is required.\n\n"
+        + "\n\n"
         + RESEARCHER_VOICE + "\n\n"
         + _HANDOFF_RULE
     )

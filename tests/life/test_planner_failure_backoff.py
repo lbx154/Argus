@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import json
 from pathlib import Path
+from types import SimpleNamespace
 from typing import Any
 
 import pytest
@@ -631,3 +632,69 @@ def test_a_stopped_backend_retry_comes_back_for_the_operator_or_a_new_model(
 
     assert planner.planner_calls == stopped_calls + 1
     assert _streak(supervisor) == 0
+
+
+def test_a_provider_outage_holds_the_planner_until_a_probe_is_answered(tmp_path, monkeypatch) -> None:
+    """Every task is fenced: the circuit the fence opened keeps the Planner
+    uncalled, each half-open window lets one Planner probe through, and the
+    first probe the model service answers closes the circuit and puts the
+    fenced task back in the queue."""
+    import time
+
+    from argus.core.autonomy import RETRY_WINDOW_SPENT_REASON
+    from argus.life.memory import BacklogItem
+    from argus.life.runtime_failure_circuit import (
+        CIRCUIT_FILENAME,
+        PROVIDER_OUTAGE,
+        active_runtime_failure_circuit,
+    )
+
+    supervisor, planner, _sink, clock = _supervisor(tmp_path, monkeypatch, _NOT_DONE_NO_TASKS)
+    planner.fatal = _OUTAGE
+    life = tmp_path / "life"
+    missions: list[int] = []
+
+    def execute(**_kwargs: Any) -> Any:
+        missions.append(1)
+        if len(missions) == 1:
+            return SimpleNamespace(
+                success=False, status="parked", park_reason="provider_fence",
+                stop_kind="provider_fence", rounds=1,
+                stop_reason=f"{RETRY_WINDOW_SPENT_REASON} (HTTP 503).",
+            )
+        return SimpleNamespace(success=True, status="done", stop_reason="", rounds=1)
+
+    def open_window() -> None:
+        # What a changed backend, model or operator input, or the timed
+        # fallback does to the circuit.
+        state = json.loads((life / CIRCUIT_FILENAME).read_text())
+        state["canary_due_at"] = time.time() - 1
+        (life / CIRCUIT_FILENAME).write_text(json.dumps(state))
+
+    supervisor.runner.execute = execute
+    task = supervisor.memory.backlog.add(BacklogItem.new(
+        title="greet", objective="write greet.py",
+        manager_decision={"routed": True, "vertical": "software"},
+    ))
+
+    _drive(supervisor, clock, 3600.0)
+    assert active_runtime_failure_circuit(life)["fingerprint"] == PROVIDER_OUTAGE
+    assert (len(missions), planner.planner_calls) == (1, 0)
+
+    open_window()
+    _drive(supervisor, clock, 3600.0)
+    # The probe met the outage: one call, and the circuit stays open.
+    assert planner.planner_calls == 1
+    assert active_runtime_failure_circuit(life) is not None
+
+    planner.fatal = None
+    open_window()
+    _pass(supervisor)
+    assert planner.planner_calls > 1
+    assert active_runtime_failure_circuit(life) is None
+    row = next(row for row in supervisor.memory.backlog.all() if row.id == task.id)
+    assert (row.status, row.attempt) == ("pending", 2)
+
+    _pass(supervisor)
+    assert len(missions) == 2
+    assert next(row for row in supervisor.memory.backlog.all() if row.id == task.id).status == "done"

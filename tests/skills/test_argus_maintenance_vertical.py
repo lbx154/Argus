@@ -39,7 +39,7 @@ def test_explicit_vertical_reaches_engineer_and_reviewer_without_pipeline_state(
     backend.queue("engineer-r1", CannedResponse(message="Implemented and verified."))
     backend.queue(
         "reviewer",
-        CannedResponse(review_action=('approve_review', {'review': ('Verified.') + '\n\n' + ('None.')})),
+        CannedResponse(review_action=("submit_review", {'review': (('Verified.') + '\n\n' + ('None.')) + "\n→ done"})),
     )
     loop = SkillLoop(
         skills_dir=skills,
