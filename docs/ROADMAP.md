@@ -124,6 +124,9 @@ not guess on the model's behalf whether there is progress. The full design is in
   replaying old logs through HO-1 shows the share of wasted reviews going down.
 - Split into: HO-2a define "change"; HO-2b check before the call and record the event; HO-2c the web page shows "waiting
   for results, not reviewing again"; HO-2d tests.
+- Status: dropped. The Engineer now waits for its own jobs inside its turn and hands over only after they finish, so a
+  review in the middle of a running job no longer happens; the change-facts ledger that skipped the Reviewer is gone.
+  Old `holders.json` files under mission lineages and old skip events are ignored.
 
 #### HO-3 Hand problems the Reviewer can't judge to whoever can solve them
 `0.2` · `M` · Depends on: none

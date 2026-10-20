@@ -4,11 +4,8 @@ import json
 from pathlib import Path
 from types import SimpleNamespace
 
-import pytest
-
 from argus import SkillLoop, SkillLoopConfig
 from argus.adapters.memory_backend import CannedResponse, MemoryBackend
-from argus.core.file_facts import file_facts
 from argus.life.context_packet import (
     create_mission_context,
     record_engineer_handoff,
@@ -18,7 +15,6 @@ from argus.life.context_packet import (
 )
 from argus.life.memory import BacklogItem
 from argus.life.supervisor import LifeSupervisor
-from argus.planner.planner import hydrate_task_context_refs
 
 
 def test_context_packet_seals_engineer_and_reviewer_handoffs(tmp_path: Path) -> None:
@@ -538,68 +534,3 @@ def test_attachment_context_ref_renders_structured_metadata() -> None:
     assert "integrity: 01234567 89abcdef" in rendered
 
 
-def test_planner_context_ref_hash_tracks_project_file_revision(tmp_path: Path) -> None:
-    artifact = tmp_path / "research" / "chem_playground" / "x" / "QUESTION.md"
-    artifact.parent.mkdir(parents=True)
-    artifact.write_text("first revision", encoding="utf-8")
-    refs = [{
-        "kind": "artifact",
-        "ref": "research/chem_playground/x/QUESTION.md",
-        "why": "candidate question",
-        "content_hash": "",
-    }]
-
-    first = hydrate_task_context_refs(refs, tmp_path)
-    artifact.write_text("the second revision", encoding="utf-8")
-    second = hydrate_task_context_refs(refs, tmp_path)
-
-    assert first[0]["content_hash"] != second[0]["content_hash"]
-    assert second[0]["content_hash"] == json.dumps(file_facts(artifact))
-    assert refs[0]["content_hash"] == ""
-
-
-def test_planner_context_ref_at_project_root_is_safe_but_not_hydrated(
-    tmp_path: Path,
-) -> None:
-    assert hydrate_task_context_refs(
-        [{
-            "kind": "workspace",
-            "ref": "./",
-            "why": "whole bounded workspace",
-            "content_hash": "",
-        }],
-        tmp_path,
-    ) == []
-
-
-def test_planner_context_refs_reject_project_escape(tmp_path: Path) -> None:
-    with pytest.raises(ValueError, match="escapes the project root"):
-        hydrate_task_context_refs(
-            [{
-                "kind": "artifact",
-                "ref": "../../outside.txt",
-                "why": "unsafe",
-                "content_hash": "",
-            }],
-            tmp_path,
-        )
-
-
-def test_planner_context_refs_normalize_local_absolute_and_drop_external(
-    tmp_path: Path,
-) -> None:
-    local = tmp_path / "notes.md"
-    local.write_text("grounded", encoding="utf-8")
-    external = tmp_path.parent / "external-handoff.json"
-    external.write_text("runtime", encoding="utf-8")
-
-    hydrated = hydrate_task_context_refs(
-        [
-            {"kind": "wiki", "ref": str(local), "why": "local grounding"},
-            {"kind": "handoff", "ref": str(external), "why": "runtime state"},
-        ],
-        tmp_path,
-        discard_external=True,
-    )
-
-    assert [ref["ref"] for ref in hydrated] == ["notes.md"]

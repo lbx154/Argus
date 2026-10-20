@@ -284,7 +284,6 @@ def test_engineer_round_carries_the_research_notes_after_the_static_prompt(tmp_p
     mixin.engineer_config = SimpleNamespace(vertical_state_root=tmp_path)
     mixin.reviewer_config = SimpleNamespace(active_vertical="research", vertical_state_root=str(tmp_path))
     config = SimpleNamespace(
-        compact_continuation_prompts=True,
         max_rounds=8,
         context_packet_path="",
         engineer_operation="author_draft",

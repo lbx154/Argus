@@ -49,7 +49,6 @@ def _assemble(round_index: int, checkpoint: Path | None, workdir: Path) -> str:
         policy="fresh", action="fresh", prompt_block=lambda: ""
     )
     config = SimpleNamespace(
-        compact_continuation_prompts=True,
         max_rounds=8,
     )
     return RoundPromptMixin()._assemble_round_prompt(

@@ -6,7 +6,6 @@ or continues the mission however many rounds that takes.
 """
 from __future__ import annotations
 
-import json
 from pathlib import Path
 
 from argus.adapters.memory_backend import CannedResponse, MemoryBackend
@@ -77,31 +76,3 @@ def test_continue_verdicts_never_end_the_mission_by_count(tmp_path: Path) -> Non
     assert len(records) == rounds
     assert not [event for event in events if event.get("type") == EventType.ROUND_STALL]
 
-
-def test_a_supervised_review_names_the_ledger_its_periodic_look_reads(tmp_path: Path) -> None:
-    packet = tmp_path / "handoffs" / "m1" / "context.json"
-    packet.parent.mkdir(parents=True)
-    packet.write_text(json.dumps({"mission_id": "m1"}), encoding="utf-8")
-    seen: dict[bool, list[dict]] = {}
-    for supervised in (True, False):
-        backend = MemoryBackend()
-        backend.queue("engineer-r1", CannedResponse(message="Done."))
-        backend.queue("reviewer", CannedResponse(review_action=(
-            "approve_review", {"review": "Verified."},
-        )))
-        events: list[dict] = []
-        _engineer(backend).run(
-            objective="Finish the task.",
-            engineer_prompt_builder=lambda _next, _static=True: "Do the task.",
-            supervised_config=SupervisedConfig(
-                manager_supervised=supervised, context_packet_path=str(packet),
-            ),
-            workdir=tmp_path,
-            on_event=events.append,
-        )
-        seen[supervised] = [
-            event for event in events if event.get("type") == EventType.ROUND_REVIEW_COMPLETED
-        ]
-
-    assert seen[True][0]["holder_ledger"].endswith("lineage-m1/holders.json")
-    assert "holder_ledger" not in seen[False][0]

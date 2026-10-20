@@ -42,8 +42,6 @@ _POISONED_SESSION_FATAL_ERROR_PATTERNS: tuple[str, ...] = (
 _SESSION_DEATH_FATAL_ERROR_PATTERNS: tuple[str, ...] = (
     "forced restart after",
     "hard idle timeout",
-    "acp prompt timed out",
-    "acp process died",
     "before turn completion",
     "cli exited with code",
 )

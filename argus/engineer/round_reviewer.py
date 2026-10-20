@@ -74,16 +74,27 @@ def mission_state_root(supervised_config: Any) -> Path | None:
     return None
 
 
-def mission_item_id(supervised_config: Any) -> str:
-    """The backlog item this mission works on, from its context packet, or ""."""
+def _mission_packet(supervised_config: Any) -> dict[str, Any]:
+    """This mission's context packet, or {}."""
     packet = str(getattr(supervised_config, "context_packet_path", "") or "").strip()
     if not packet:
-        return ""
+        return {}
     try:
         payload = json.loads(Path(packet).expanduser().read_text(encoding="utf-8"))
     except (OSError, ValueError):
-        return ""
-    return str(payload.get("mission_id") or "").strip() if isinstance(payload, dict) else ""
+        return {}
+    return payload if isinstance(payload, dict) else {}
+
+
+def mission_item_id(supervised_config: Any) -> str:
+    """The backlog item this mission works on, from its context packet, or ""."""
+    return str(_mission_packet(supervised_config).get("mission_id") or "").strip()
+
+
+def mission_lineage(supervised_config: Any) -> str:
+    """The work this mission continues: its ``node_key``, else its item, or ""."""
+    packet = _mission_packet(supervised_config)
+    return str(packet.get("node_key") or "").strip() or str(packet.get("mission_id") or "").strip()
 
 
 def mission_contract(supervised_config: Any) -> dict[str, Any]:
@@ -353,10 +364,7 @@ class RoundReviewerMixin:
 
         reviewer_session = state.reviewer_session
         reviewer_resume_id = (
-            reviewer_session.prepare(
-                max_turns=supervised_config.role_session_max_turns,
-                max_input_tokens=supervised_config.role_session_max_input_tokens,
-            )
+            reviewer_session.prepare()
             if reviewer_session is not None
             else None
         )
@@ -397,10 +405,8 @@ class RoundReviewerMixin:
         mission_brief = render_mission_brief(
             supervised_config.context_packet_path,
             include_engineer_account=False,
-            # The carry-over is the one copy of this Reviewer's own findings;
-            # the frontier's open items stay unless it already names some.
+            # The carry-over is the one copy of this Reviewer's own findings.
             include_previous_review=not previous_findings.has_reviewer_findings,
-            include_missing_condition=not previous_findings.has_open_items,
         )
         shared_context_parts = (
             mission_brief,
@@ -610,7 +616,7 @@ class RoundReviewerMixin:
                 # not one per mission. It exists only for a resumable policy;
                 # the signal never creates one, so a missing file means there
                 # is no Planner thread to rotate.
-                effective_policy = supervised_config.role_session_policy
+                effective_policy = "rolling"
                 from ..core.role_session import signal_role_session_file
 
                 capsule_path = (

@@ -988,7 +988,6 @@ def test_system_resources_requires_auth_and_hides_device_identity(
                          "utilization_percent": 75, "visibility": "3"}],
             "detail": "partial telemetry",
         }],
-        "cpu_memory": {"status": "available"},
     }
     monkeypatch.setattr(probe.ResourceProbe, "snapshot", lambda self: snapshot)
     app = server.create_app(global_root=tmp_path, auth_token="secret")

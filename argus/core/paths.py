@@ -24,8 +24,6 @@ __all__ = [
     "tools_root",
     "capabilities_root",
     "special_prompts_root",
-    "logs_root",
-    "run_root",
     "session_states_root",
     "session_state_root",
     "session_trash_root",
@@ -105,14 +103,6 @@ def capabilities_root(root: str | Path | None = None) -> Path:
 
 def special_prompts_root(root: str | Path | None = None) -> Path:
     return _root(root) / "special_prompts"
-
-
-def logs_root(root: str | Path | None = None) -> Path:
-    return _root(root) / "logs"
-
-
-def run_root(root: str | Path | None = None) -> Path:
-    return _root(root) / "run"
 
 
 def session_states_root(root: str | Path | None = None) -> Path:

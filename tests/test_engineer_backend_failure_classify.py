@@ -117,7 +117,6 @@ def test_shell_exit_codes_for_a_missing_command_count_without_text() -> None:
     "its own log is under /srv/argus/copilot-home/logs.",
     # Argus's own watchdog ended the call; that says nothing about the service.
     "Forced restart after hard idle timeout (600s without a model stream event).",
-    "ACP prompt timed out after 900s",
     # A Codex reconnect notice: the CLI keeps recovering on its own.
     "Reconnecting... 1/100 (stream disconnected before completion)",
     # A path inside a stack frame is not a cause.

@@ -10,7 +10,6 @@ from typing import TYPE_CHECKING, Callable
 
 from ..core.models import LoopStatus, ReviewDecision, RoundRecord
 from ..core.venue_review import ACCEPTANCE_BAR_POLICY
-from .change_facts import mission_ledger
 from .checkpoint import resolve_shared_checkpoint
 from .round_config import (
     HOST_PLACEHOLDER_REVIEW_SOURCES,
@@ -237,18 +236,12 @@ class RoundSettlementMixin:
         state.pending_secret_guard_notes.clear()
         _record_operator_acceptance(state, review)
         if on_event:
-            payload = _review_event_payload(
+            on_event(_review_event_payload(
                 review,
                 round_index=round_index,
                 round_max=supervised_config.max_rounds,
                 text=f"review: {review.status} — {review.reason}",
-            )
-            if supervised_config.manager_supervised and (
-                ledger := mission_ledger(supervised_config.context_packet_path)
-            ):
-                # Where the Manager's periodic look finds the facts it last held.
-                payload["holder_ledger"] = str(ledger)
-            on_event(payload)
+            ))
         record = RoundRecord(
             round_index=round_index,
             engineer_message=engineer_message,
