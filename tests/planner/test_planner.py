@@ -762,6 +762,37 @@ def test_plan_next_disables_schema_and_forces_read_only_tools(monkeypatch) -> No
     assert options.add_dirs == ["/tmp/project-state"]
 
 
+@pytest.mark.parametrize("offered", [(), (7, 9)])
+def test_plan_next_names_settle_line_last_only_when_entries_are_offered(
+    monkeypatch, offered,
+) -> None:
+    # The shared footer asks for "only the Host actions below"; without this
+    # closing line a live Planner offered tagged entries settled none of them.
+    runner = _Runner()
+    monkeypatch.setattr(
+        Planner,
+        "_build_planner_prompt",
+        staticmethod(lambda **kwargs: "planner prompt"),
+    )
+
+    Planner(runner).plan_next(
+        continuous_objective="keep improving",
+        config=PlannerConfig(
+            working_dir="/tmp/project", settleable_instructions=offered,
+        ),
+    )
+
+    prompt = runner.calls[0]["prompt"]
+    if offered:
+        assert prompt.endswith(
+            "(for a subagent report) has already taken into account; omit "
+            "the line when none does."
+        )
+        assert "`SETTLE_INSTRUCTION=N M` (space-separated revisions)" in prompt
+    else:
+        assert "SETTLE_INSTRUCTION" not in prompt
+
+
 def test_plan_next_defaults_to_read_only_tool_access(monkeypatch) -> None:
     runner = _Runner()
     monkeypatch.setattr(

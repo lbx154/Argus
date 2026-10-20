@@ -1338,11 +1338,12 @@ def _render_operator_context_block(
         lines.append("## Operator steering (standing)")
     if offered:
         lines.append(
-            "Instructions tagged `revision N` were given while no work ran and belong "
-            "to the next increment. When your decision carries one out or deliberately "
-            "rules it out, add the footer line `SETTLE_INSTRUCTION=N` for it, before any "
-            "PLAN_UPDATE. It settles only once the Host applies that decision; otherwise "
-            "it stays here."
+            "Entries tagged `revision N` arrived while no work ran and belong to the "
+            "next increment. When your decision carries one out, deliberately rules it "
+            "out, or (for a subagent report) has taken it into account, name it in the "
+            "footer line `SETTLE_INSTRUCTION=N` (several: `N M`, space-separated), before "
+            "any PLAN_UPDATE. It settles only once the Host applies that decision; "
+            "otherwise it stays here."
         )
     for directive in projection.directives:
         flag = (

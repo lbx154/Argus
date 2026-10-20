@@ -40,6 +40,16 @@ OPEN_ENDED_PROJECT_DONE_ERROR = (
 PLANNER_SUPERSEDED_ERROR = "planner superseded by newer continuous generation"
 _PLANNER_REPAIR_ATTEMPTS = 1
 _PLANNER_REPAIR_TEXT_LIMIT = 8000
+# The decision footer asks for "only the Host actions below" and never names
+# SETTLE_INSTRUCTION. A live Planner offered 52 tagged entries (2026-10-20)
+# followed that list and settled none, so a turn that offers some says so last.
+_SETTLE_FOOTER_REMINDER = (
+    "Decision footer addition: before any PLAN_UPDATE, add one line "
+    "`SETTLE_INSTRUCTION=N M` (space-separated revisions) naming each "
+    "OperatorContext entry tagged `revision N` that this decision carries out, "
+    "rules out, or (for a subagent report) has already taken into account; omit "
+    "the line when none does."
+)
 # One deployment-wide knob for the rolling-session input budget, shared with
 # the Engineer (round_config) and the loop entry so all three move together.
 _ROLE_SESSION_MAX_INPUT_TOKENS_ENV = "ARGUS_SKILL_ROLE_SESSION_MAX_INPUT_TOKENS"
@@ -83,6 +93,8 @@ class PlannerConfig:
     on_event: Any = None
     require_stage_decision: bool = False
     current_stage: str = ""
+    # Idle OperatorContext revisions this turn offers for SETTLE_INSTRUCTION.
+    settleable_instructions: tuple[int, ...] = ()
 
 
 @dataclass(frozen=True)
@@ -300,6 +312,10 @@ class Planner:
             prompt = session.prompt_block() + "\n\n" + prompt
         full_prompt = prompt
         prompt = session.resume_prompt(full_prompt)
+        # Appended after elision and kept out of the session's record: a resumed
+        # thread would otherwise see it as an unchanged section and drop it.
+        if cfg.settleable_instructions:
+            prompt += "\n\n" + _SETTLE_FOOTER_REMINDER
         planner_options = RunnerOptions(
             model=cfg.model,
             reasoning_effort=cfg.reasoning_effort or "xhigh",
