@@ -1,0 +1,42 @@
+name: publish verified Windows 0.1.9
+on:
+  push:
+    branches: [release/windows-0.1.9-20261020]
+    paths:
+      - .github/workflows/publish-windows-019.yml
+      - .github/scripts/*019*
+permissions:
+  contents: write
+  actions: read
+concurrency:
+  group: argus-publish-windows-019
+  cancel-in-progress: false
+jobs:
+  publish:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 4
+          persist-credentials: false
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '24.19.0'
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11.9'
+      - name: Verify signed build and publish approved Windows update
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: python .github/scripts/cloud-release-019.py
+      - uses: actions/upload-artifact@v4
+        with:
+          name: windows-019-publication-verification
+          path: |
+            ${{ runner.temp }}/argus019publication/PUBLISHED.json
+            ${{ runner.temp }}/argus019publication/SIGNATURE-VERIFIED.json
+            ${{ runner.temp }}/argus019publication/BUILD-ELIGIBILITY.json
+            ${{ runner.temp }}/argus019publication/PUBLIC-DOWNLOAD-VERIFIED-*.json
+            ${{ runner.temp }}/argus019publication/LATEST-ENDPOINT-*.json
+          if-no-files-found: error

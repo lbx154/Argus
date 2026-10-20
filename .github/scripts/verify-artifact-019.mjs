@@ -1,0 +1,32 @@
+import assert from 'node:assert/strict';
+import fs from 'node:fs';
+import { join, resolve } from 'node:path';
+import { createHash } from 'node:crypto';
+import { verifyTauriSignature } from '../../desktop-tauri/scripts/verify-updater-signature.mjs';
+const directory=resolve(process.argv[2]);
+const output=resolve(process.argv[3]);
+const installer='Argus-0.1.9-setup.exe';
+const expected=[installer,installer+'.sig','latest.json','SHA256SUMS'];
+assert.deepEqual(fs.readdirSync(directory).sort(),expected.sort(),'Unexpected release artifact contents');
+const config=JSON.parse(fs.readFileSync(join(process.env.GITHUB_WORKSPACE,'desktop-tauri/src-tauri/tauri.conf.json'),'utf8'));
+const signature=fs.readFileSync(join(directory,installer+'.sig'),'utf8').trim();
+const verified=verifyTauriSignature(join(directory,installer),signature,config.plugins.updater.pubkey);
+const manifest=JSON.parse(fs.readFileSync(join(directory,'latest.json'),'utf8'));
+assert.equal(manifest.version,'0.1.9');
+assert.deepEqual(Object.keys(manifest.platforms),['windows-x86_64']);
+assert.equal(manifest.platforms['windows-x86_64'].signature,signature);
+assert.equal(manifest.platforms['windows-x86_64'].url,'https://github.com/lbx154/Argus/releases/download/v0.1.9/'+installer);
+const checksumRows=fs.readFileSync(join(directory,'SHA256SUMS'),'utf8').trim().split(/\r?\n/);
+assert.equal(checksumRows.length,3);
+for(const row of checksumRows) {
+ const match=row.match(/^([a-f0-9]{64})  (.+)$/); assert(match);
+ assert(expected.includes(match[2]) && match[2]!=='SHA256SUMS');
+ assert.equal(createHash('sha256').update(fs.readFileSync(join(directory,match[2]))).digest('hex'),match[1]);
+}
+const bytes=fs.readFileSync(join(directory,installer));
+assert.equal(bytes.toString('ascii',0,2),'MZ');
+const pe=bytes.readUInt32LE(60);assert(bytes.subarray(pe,pe+4).equals(Buffer.from([80,69,0,0])));
+assert([0x14c,0x8664].includes(bytes.readUInt16LE(pe+4)));
+const result={version:'0.1.9',...verified,updater_signature_verified:true,trusted_comment_verified:true,all_checksums_verified:true,existing_public_key_unchanged:true,installer_pe_header_verified:true,source_commit:'321d1d6f946ab69cfbc20c62288a1e19f501851a'};
+fs.writeFileSync(output,JSON.stringify(result,null,2)+'\n',{flag:'wx'});
+console.log(JSON.stringify(result,null,2));

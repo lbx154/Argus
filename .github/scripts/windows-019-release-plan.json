@@ -1,0 +1,105 @@
+{
+  "run_id": 39423086167,
+  "product_sha": "321d1d6f946ab69cfbc20c62288a1e19f501851a",
+  "artifact_id": 12265316859,
+  "artifact_digest": "sha256:50ace9926e97140b71e4cb6d43b4679ebf125a3220bd78df7f58156b39147d1c",
+  "before": {
+    "id": 393600237,
+    "name": "Argus 0.1.9 — macOS",
+    "tag_name": "v0.1.9",
+    "body": "# Argus 0.1.9 — macOS\n\n本次仅发布 **Mac Apple Silicon / Intel** 安装包，基于公开仓库 main\n`9250116086045582946fd5d3987477d5f92d5638`。不包含新的 Windows、Linux 或 PyPI 发行物。\n\n## 下载与安装\n\n| 关于本机显示的处理器 | 下载 |\n| --- | --- |\n| Apple M 系列 | [Argus-0.1.9-macos-aarch64.dmg](https://github.com/lbx154/Argus/releases/download/v0.1.9/Argus-0.1.9-macos-aarch64.dmg) |\n| Intel | [Argus-0.1.9-macos-x86_64.dmg](https://github.com/lbx154/Argus/releases/download/v0.1.9/Argus-0.1.9-macos-x86_64.dmg) |\n\n最低 macOS 13。打开 DMG，把 **Argus** 拖入 **Applications / 应用程序**，\n弹出安装磁盘，再从“应用程序”启动。升级前请在旧版中选择“停止本地后端并退出”；\n仅关闭窗口可能仍在后台运行。\n\n**不需要预装 Python、uv 或 Node.js，不需要终端安装命令。**\n包内带有冻结 Python 后端和 Web 工作台。首次启动选择邀请码试用，或使用已安装且\n已登录的个人 Agent CLI。邀请码试用会联网下载官方 Copilot 独立程序并验证真实回复；\n需要能够访问 GitHub Releases 和 argusbot.cn。安装包不包含邀请码、账户凭据或免费额度。\n额度不足、登录失效、网络下载失败仍需按界面错误处理。\n\n## 多后端与本次修复\n\n保留 GitHub Copilot、OpenAI Codex、Claude Code、Cursor、Pi、OpenCode、\nGrok Build、Qoder 和 DeepSeek Harness 等现有后端入口；本包不是 Copilot 专用版。\n各后端仍需对应的账户、订阅或 API 配置。\n\n修复 Mac 从 Finder 启动时不继承终端 PATH 导致的两类问题：\n\n- 已经通过 Homebrew 安装的 CLI 未出现在首次设置检测列表中。\n- npm 安装的 CLI 已找到，但执行时因 `env: node: No such file or directory` 退出。\n\n现在会查找 Apple Silicon / Intel 的 Homebrew 路径，并为需要 Node 的脚本补上\n已验证存在的 Node 目录；不修改 shell 启动文件或系统 PATH。\n首次连接失败时保留具体错误并隐藏试用 Key，不再只显示笼统的验证失败。\n\n## 首次启动的 macOS 安全提示\n\n**此包未经过 Apple Developer ID 签名和 notarization。**\n若 macOS 拦截，先尝试启动一次，然后到\n**系统设置 → 隐私与安全性 → 仍要打开**，确认后启动。\n不需要关闭 Gatekeeper，也不要运行删除系统安全设置的命令。\n\n`.app.tar.gz` 和 `.app.tar.gz.sig` 用于 Argus 更新器；\n它们的 minisign 签名不是 Apple 公证，不会消除 Gatekeeper 提示。\n本次保留现有 Windows 的 Latest 发布入口，Mac 用户请从本页手动下载升级。\n\n## 来源与验证\n\n发行源码：`d25dba8f0a4ae13962e7117728fa55951ceed2fe`。\n运行身份：`0.1.9+5d4d0e92690aa046`。\n构建与验证：[macOS-only release workflow](https://github.com/lbx154/Argus/actions/runs/35749821064)。\n\n- Apple Silicon 和 Intel 原生构建均通过。\n- 两个架构均通过 Finder 路径回归测试、真实 DMG 安装、应用签名完整性、\n  冻结运行时、原生 CLI、认证工作台及两次桌面启动验收。\n- 验收使用隔离用户目录和仅包含 macOS 系统目录的 PATH，不依赖开发者的 Python/Node。\n- 两个更新归档均使用原有 Argus updater 公钥独立验签；未更换更新密钥。\n- 本机 macOS 15.1 Apple Silicon 再次安装最终 DMG，验证启动、重启，并从最终\n  `.app` 的冻结后端通过个人 Copilot 账号完成真实模型回复：\n  `391 ARGUS_MAC_RELEASE_OK`。\n- 相关 Python 回归检查：34 通过，1 项需额外启用原生下载的测试未在该单测命令中运行；\n  原生下载另由上述安装验收覆盖。\n\n本轮账户实测使用 Copilot；未逐一验证其他后端账户、完整多角色长任务、通知/托盘\n和长时间运行。保留全部既有后端入口，不将单一后端验收描述为所有订阅都已实测。\n校验值见随附 `SHA256SUMS`。\n",
+    "draft": false,
+    "prerelease": false,
+    "html_url": "https://github.com/lbx154/Argus/releases/tag/v0.1.9",
+    "assets": [
+      {
+        "id": 581772493,
+        "name": "Argus-0.1.9-macos-aarch64.app.tar.gz",
+        "size": 107868785,
+        "digest": "sha256:ffde237bfd8f61b6ae0f3e29aa1c447ac09af17b80d2fcf2be6f46646d0fe7aa",
+        "browser_download_url": "https://github.com/lbx154/Argus/releases/download/v0.1.9/Argus-0.1.9-macos-aarch64.app.tar.gz",
+        "state": "uploaded"
+      },
+      {
+        "id": 581772495,
+        "name": "Argus-0.1.9-macos-aarch64.app.tar.gz.sig",
+        "size": 404,
+        "digest": "sha256:2d72ff720f5ca8cfb2a2578281610c2f63a590ce83bbadd6d07511296bcf86ab",
+        "browser_download_url": "https://github.com/lbx154/Argus/releases/download/v0.1.9/Argus-0.1.9-macos-aarch64.app.tar.gz.sig",
+        "state": "uploaded"
+      },
+      {
+        "id": 581772517,
+        "name": "Argus-0.1.9-macos-aarch64.dmg",
+        "size": 106625802,
+        "digest": "sha256:92facd784de1bb2381bfa7f3fb4f611b60c52f8646c90694bc9b181e085baded",
+        "browser_download_url": "https://github.com/lbx154/Argus/releases/download/v0.1.9/Argus-0.1.9-macos-aarch64.dmg",
+        "state": "uploaded"
+      },
+      {
+        "id": 581772509,
+        "name": "Argus-0.1.9-macos-x86_64.app.tar.gz",
+        "size": 107563838,
+        "digest": "sha256:b1b8c7cdce3e9035572bdd3d3cc0d68e10a68f45982c57f231379f6769854eb0",
+        "browser_download_url": "https://github.com/lbx154/Argus/releases/download/v0.1.9/Argus-0.1.9-macos-x86_64.app.tar.gz",
+        "state": "uploaded"
+      },
+      {
+        "id": 581772494,
+        "name": "Argus-0.1.9-macos-x86_64.app.tar.gz.sig",
+        "size": 404,
+        "digest": "sha256:a1e30eb45a321f8558b0bd60e08d8ed64a51f1c6c83a39f19da8c9c73ef19d89",
+        "browser_download_url": "https://github.com/lbx154/Argus/releases/download/v0.1.9/Argus-0.1.9-macos-x86_64.app.tar.gz.sig",
+        "state": "uploaded"
+      },
+      {
+        "id": 581772580,
+        "name": "Argus-0.1.9-macos-x86_64.dmg",
+        "size": 106489071,
+        "digest": "sha256:cdac0fb2c21e7341dc61d9741cebdb33398a72c8c2b5686f8fbbf234acaab618",
+        "browser_download_url": "https://github.com/lbx154/Argus/releases/download/v0.1.9/Argus-0.1.9-macos-x86_64.dmg",
+        "state": "uploaded"
+      },
+      {
+        "id": 581772667,
+        "name": "latest-darwin-aarch64.json",
+        "size": 749,
+        "digest": "sha256:8ff034ce694dcdf2da10c44a1a943761c1b2890dd858d1fd81302f97d81983ad",
+        "browser_download_url": "https://github.com/lbx154/Argus/releases/download/v0.1.9/latest-darwin-aarch64.json",
+        "state": "uploaded"
+      },
+      {
+        "id": 581772781,
+        "name": "latest-darwin-x86_64.json",
+        "size": 747,
+        "digest": "sha256:be2d0bf18a0ab35e9cecd6c1c3364d8712848512542059402b8965d1656708dc",
+        "browser_download_url": "https://github.com/lbx154/Argus/releases/download/v0.1.9/latest-darwin-x86_64.json",
+        "state": "uploaded"
+      },
+      {
+        "id": 581772943,
+        "name": "latest.json",
+        "size": 1314,
+        "digest": "sha256:775692fa4f833c00da60583d28cc414970b978ebe6ee01d218a999201b87ab7a",
+        "browser_download_url": "https://github.com/lbx154/Argus/releases/download/v0.1.9/latest.json",
+        "state": "uploaded"
+      },
+      {
+        "id": 581772571,
+        "name": "SHA256SUMS",
+        "size": 872,
+        "digest": "sha256:8b6a4c79ec912eea0153b2d600ef21ec62a1534332a23b2b7109e4f7a92212f1",
+        "browser_download_url": "https://github.com/lbx154/Argus/releases/download/v0.1.9/SHA256SUMS",
+        "state": "uploaded"
+      }
+    ]
+  },
+  "old_manifest_text": "{\n  \"version\": \"0.1.9\",\n  \"notes\": \"Argus 0.1.9 macOS: Finder CLI discovery and Node runtime startup fixes.\",\n  \"platforms\": {\n    \"darwin-aarch64\": {\n      \"url\": \"https://github.com/lbx154/Argus/releases/download/v0.1.9/Argus-0.1.9-macos-aarch64.app.tar.gz\",\n      \"signature\": \"dW50cnVzdGVkIGNvbW1lbnQ6IHNpZ25hdHVyZSBmcm9tIHRhdXJpIHNlY3JldCBrZXkKUlVUTi9XWTdLekpEaDlvN2J0RWFNSTV0WnlRaEU3emtZNkgyQWZnK1NXOTNkZ0JUT0VrVnZtdVlIRkdzQXdpMS84TzJvZTRVczlaQmdlelZwMjZzSkNvVnpwdks1WWloZ0E0PQp0cnVzdGVkIGNvbW1lbnQ6IHRpbWVzdGFtcDoxNzkwMDkyNTk2CWZpbGU6QXJndXMuYXBwLnRhci5negpiTXhLUFhTV1pmT2ZISXFHT0laRlNCeWZaeElDdDhXVnRmbFJmYXh6N0Z2c2V4ZXJibG5HUHo2VGF3L1Fpbk1oOHZPRTJZQXdLVDFLclRJanlZWExEQT09Cg==\"\n    },\n    \"darwin-x86_64\": {\n      \"url\": \"https://github.com/lbx154/Argus/releases/download/v0.1.9/Argus-0.1.9-macos-x86_64.app.tar.gz\",\n      \"signature\": \"dW50cnVzdGVkIGNvbW1lbnQ6IHNpZ25hdHVyZSBmcm9tIHRhdXJpIHNlY3JldCBrZXkKUlVUTi9XWTdLekpEaDRQUU40K0dHZkVkMWZqUUpvbGFGWFJ1U3JQTW91R0VVK2tTYTBCNjU3alg0Ri9WUGlrMERmRmNqQ1BGRDgzS1hZc1U5dWxaUU1QV1hJVEt0SHQ5OUE4PQp0cnVzdGVkIGNvbW1lbnQ6IHRpbWVzdGFtcDoxNzkwMDkzNjA5CWZpbGU6QXJndXMuYXBwLnRhci5negpUYkNCU0FDeEs2Zmp0NFg3Mk5BZUV6YXdxc3JqaUpyKzZHN0gvUXV6Umh3YUFyWXlqUzR5ejEzZlJ1bFMvT28rTG1ta2FoTXpzYjRDUmxidHhvSUNDZz09Cg==\"\n    }\n  },\n  \"pub_date\": \"2026-09-22T16:13:31.968088+00:00\"\n}\n",
+  "old_checksums_text": "ffde237bfd8f61b6ae0f3e29aa1c447ac09af17b80d2fcf2be6f46646d0fe7aa  Argus-0.1.9-macos-aarch64.app.tar.gz\n2d72ff720f5ca8cfb2a2578281610c2f63a590ce83bbadd6d07511296bcf86ab  Argus-0.1.9-macos-aarch64.app.tar.gz.sig\n92facd784de1bb2381bfa7f3fb4f611b60c52f8646c90694bc9b181e085baded  Argus-0.1.9-macos-aarch64.dmg\nb1b8c7cdce3e9035572bdd3d3cc0d68e10a68f45982c57f231379f6769854eb0  Argus-0.1.9-macos-x86_64.app.tar.gz\na1e30eb45a321f8558b0bd60e08d8ed64a51f1c6c83a39f19da8c9c73ef19d89  Argus-0.1.9-macos-x86_64.app.tar.gz.sig\ncdac0fb2c21e7341dc61d9741cebdb33398a72c8c2b5686f8fbbf234acaab618  Argus-0.1.9-macos-x86_64.dmg\n8ff034ce694dcdf2da10c44a1a943761c1b2890dd858d1fd81302f97d81983ad  latest-darwin-aarch64.json\nbe2d0bf18a0ab35e9cecd6c1c3364d8712848512542059402b8965d1656708dc  latest-darwin-x86_64.json\n775692fa4f833c00da60583d28cc414970b978ebe6ee01d218a999201b87ab7a  latest.json\n",
+  "source_release": {
+    "package_version": "0.1.9",
+    "release_id": "0.1.9+028729e3ef352a24",
+    "schema_version": 1,
+    "source_digest": "028729e3ef352a24aff286a44b9c9b83d55468cdc75fa503f9853d28c42968f2"
+  }
+}
