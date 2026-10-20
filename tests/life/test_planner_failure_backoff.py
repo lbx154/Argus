@@ -160,7 +160,6 @@ def _supervisor(tmp_path: Path, monkeypatch, reply: str, *, clock: _Clock | None
     monkeypatch.setattr(supervisor, "_resolve_vertical_once", lambda: None)
     monkeypatch.setattr(supervisor, "_wiki_collect_task_if_due_under_blocker", lambda: None)
     monkeypatch.setattr(supervisor, "_render_journal_for_planner", lambda: "")
-    monkeypatch.setattr(supervisor, "_recent_no_progress_failures", lambda: {})
     monkeypatch.setattr(supervisor, "_recent_subagent_family_failures", lambda: {})
     monkeypatch.setattr(supervisor, "_effective_final_certification_gate", lambda *_a, **_k: False)
     monkeypatch.setattr(supervisor, "_planner_runtime_with_idle_note", lambda: "")

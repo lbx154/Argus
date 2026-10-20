@@ -17,16 +17,11 @@ from __future__ import annotations
 import json
 import time
 from pathlib import Path
-from types import SimpleNamespace
 
 from argus.core.models import RunnerResult
 from argus.life.memory import BacklogItem, LifeMemory
 from argus.life.supervisor._config import LifeSupervisorConfig
-from argus.life.supervisor._constants import (
-    PLAN_ERROR,
-    PLAN_RETRY,
-    PLAN_TERMINAL_IDLE,
-)
+from argus.life.supervisor._constants import PLAN_RETRY
 from argus.life.supervisor._core import LifeSupervisor
 
 
@@ -111,7 +106,6 @@ def _make_supervisor(
     monkeypatch.setattr(sup, "_resolve_vertical_once", lambda: None)
     monkeypatch.setattr(sup, "_wiki_collect_task_if_due_under_blocker", lambda: None)
     monkeypatch.setattr(sup, "_render_journal_for_planner", lambda: "")
-    monkeypatch.setattr(sup, "_recent_no_progress_failures", lambda: {})
     monkeypatch.setattr(sup, "_effective_final_certification_gate", lambda *_a, **_k: False)
     monkeypatch.setattr(sup, "_planner_runtime_with_idle_note", lambda: "")
     return sup
@@ -322,49 +316,6 @@ def test_planner_stage_closing_flag_does_not_force_review_or_dedup(
     assert "review:required" not in newest.tags
 
 
-def test_revision_rejection_helper_opens_existing_circuit_breaker(
-    tmp_path,
-    monkeypatch,
-) -> None:
-    project_root = tmp_path / "project"
-    project_root.mkdir()
-    supervisor = _make_supervisor(
-        tmp_path,
-        monkeypatch,
-        "PROJECT_DONE=true\nREASON=unused",
-        project_worktree=project_root,
-    )
-    item = BacklogItem.new(
-        title="Revise failed node",
-        objective="Replace the invalid plan node.",
-        plan_id="plan-old",
-        plan_version=1,
-    )
-    item.replan_rejections = 2
-    supervisor.memory.backlog.add(item)
-    state = SimpleNamespace(
-        revision_request={"item_id": item.id},
-        revision_active_items=[item],
-        expected_plan_id="plan-old",
-        expected_plan_version=1,
-    )
-
-    result = supervisor._pc_record_revision_rejection(
-        state,
-        reason="replacement DAG has unresolved dependencies",
-        nonterminal_result=PLAN_ERROR,
-    )
-    updated = next(
-        stored
-        for stored in supervisor.memory.backlog.all()
-        if stored.id == item.id
-    )
-
-    assert result == PLAN_TERMINAL_IDLE
-    assert updated.replan_rejections == 3
-    assert updated.status == "failed"
-
-
 def test_dedup_uses_canonical_scope_and_acceptance_metadata(
     tmp_path,
     monkeypatch,
@@ -460,49 +411,6 @@ def test_duplicate_prerequisite_key_maps_to_existing_backlog_item(
     child = next(item for item in items if item.title == "Run child analysis")
     assert result is True
     assert child.deps == [parent.id]
-
-
-def test_recent_no_progress_failure_still_quarantines_expanded_task_signature(
-    tmp_path,
-    monkeypatch,
-) -> None:
-    project_root = tmp_path / "project"
-    project_root.mkdir()
-    verdict = _flat_verdict_kv(
-        (
-            "Retry failed probe",
-            "Run the same probe again.",
-            "the prior failure remains unresolved",
-        )
-    )
-    supervisor = _make_supervisor(
-        tmp_path,
-        monkeypatch,
-        verdict,
-        project_worktree=project_root,
-    )
-    failed = SimpleNamespace(
-        title="Retry failed probe",
-        extra={
-            "item_id": "failed-item",
-            "objective": "Run the same probe again.",
-            "terminal_status": "no_progress",
-        },
-    )
-    monkeypatch.setattr(
-        supervisor,
-        "_recent_no_progress_failures",
-        lambda: {("retry failed probe", "run the same probe again."): failed},
-    )
-
-    assert supervisor._plan_next_work() == PLAN_RETRY
-    assert supervisor.memory.backlog.all() == []
-    skipped = [
-        event
-        for event in supervisor._test_sink.events  # type: ignore[attr-defined]
-        if event.get("skip_category") == "recent_no_progress_failure"
-    ]
-    assert len(skipped) == 1
 
 
 def test_task_targeting_a_stuck_family_is_skipped(tmp_path, monkeypatch) -> None:

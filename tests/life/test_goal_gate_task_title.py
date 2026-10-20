@@ -122,9 +122,6 @@ def test_planner_enqueued_goal_gate_keeps_the_standing_objective(tmp_path: Path)
         def _item_requires_independent_review(self, item) -> bool:
             return "review:required" in item.tags
 
-        def _recent_no_progress_failures(self) -> dict:
-            return {}
-
         def _task_mentions_family(self, _task, _family: str) -> bool:
             return False
 

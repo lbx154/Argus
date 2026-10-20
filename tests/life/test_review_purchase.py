@@ -36,7 +36,6 @@ def test_unfrozen_current_review_defers_purchase(tmp_path: Path) -> None:
         task=_task(),
         existing_items=[],
         semantic_duplicate=None,
-        stage_reviewed_at=None,
     )
 
     assert decision is not None
@@ -94,13 +93,10 @@ def test_freeze_releases_prior_review_purchase_deferral(tmp_path: Path) -> None:
         task=_task(),
         existing_items=[completed],
         semantic_duplicate=completed,
-        stage_reviewed_at=0.0,
     )
 
     assert decision is not None
     assert decision.defer_reason == ""
-    assert decision.discard_semantic_duplicate is True
-    assert decision.release_stage_closing_blocker is True
 
 
 def test_semantically_equal_pending_review_defers_purchase(tmp_path: Path) -> None:

@@ -30,29 +30,13 @@ if TYPE_CHECKING:
     from ._config import _MemoryView, _MissionRunner
 
 from ._constants import (
-    PLANNER_RECENT_FAILURE_STATUS,
     PLANNER_SCOPE_BOUNDED,
     PLANNER_SCOPE_FINAL_SUBMISSION,
-    consecutive_replan_escalation_threshold,
 )
-from ._helpers import _normalize_planner_text
 from ._mission_execution_helpers import _MissionRunState
 from .pending_notify import notify_pending_question
 
 log = logging.getLogger(__name__)
-
-# JournalEntry kinds the replan-streak migration scan reasons about (see
-# ``memory.EventJournal._entry_from_event`` for the projection):
-# ``mission_replan_requested`` counts toward the streak, ``mission_complete``
-# and ``mission_iterated`` break it as forward progress. Every other
-# ``life.mission.completed`` projection (budget/provider/research pauses,
-# ``mission_failed``) neither counts nor breaks and therefore must not occupy
-# slots in the threshold-sized ``tail_for_item`` window.
-_REPLAN_STREAK_SETTLEMENT_KINDS = frozenset({
-    "mission_replan_requested",
-    "mission_complete",
-    "mission_iterated",
-})
 
 
 def outcome_manuscript_binding(outcome: object) -> dict[str, Any] | None:
@@ -520,42 +504,6 @@ class MissionExecutionSettlementMixin:
         })
         return iteration
 
-    def _count_consecutive_item_replans(self, item_id: str) -> int:
-        """Trailing consecutive replan_requested missions journaled for one item.
-
-        Migration fallback for pre-counter backlog rows only. Walks the item's
-        OWN settlement entries newest-first and counts
-        ``mission_replan_requested``, stopping at the first forward-progress
-        marker (``mission_complete`` or ``mission_iterated``). The journal
-        window holds exactly the last ``threshold`` settlements OF THOSE KINDS
-        (``kinds=`` pushes the filter into the tail read): neutral settlements
-        — budget/provider/research pauses, ``mission_failed`` — neither count
-        nor break the streak, so letting them occupy window slots would push
-        an older replan out and under-count. With only count-or-break entries
-        in the window, and the current mission's own replan not journaled yet
-        (the caller adds one for the in-flight outcome), ``threshold`` prior
-        entries always suffice to decide escalation.
-        """
-        try:
-            entries = self.memory.journal.tail_for_item(
-                item_id,
-                n=consecutive_replan_escalation_threshold(),
-                kinds=_REPLAN_STREAK_SETTLEMENT_KINDS,
-            )
-        except Exception:  # noqa: BLE001 - guard degrades to current behavior
-            log.exception(
-                "life supervisor: failed to read journal for replan streak"
-            )
-            return 0
-        count = 0
-        for entry in reversed(entries):
-            kind = str(getattr(entry, "kind", "") or "")
-            if kind in {"mission_complete", "mission_iterated"}:
-                break
-            if kind == "mission_replan_requested":
-                count += 1
-        return count
-
     def _finalize_mission_status(self, state: _MissionRunState) -> None:
         """Resolve final status and persist the backlog outcome/operator question.
 
@@ -718,9 +666,7 @@ class MissionExecutionSettlementMixin:
             research_pause
             or stop_kind_is_recoverable(state.stop_kind)
             # A stall the Reviewer answered with ``continue`` is unfinished
-            # work, not a dead task. Without this the mission is journaled with
-            # ``terminal_status=no_progress`` and ``resumable=False``, which
-            # quarantines its own signature out of the next planning cycle.
+            # work, not a dead task: it stays resumable.
             or review_keeps_mission_resumable(
                 status=status,
                 success=success,
@@ -896,30 +842,11 @@ class MissionExecutionSettlementMixin:
         # Update backlog row. A bounded research cycle that did not achieve its
         # persisted success target is resumable, not a success or terminal failure.
         if status == "stage_continues":
-            # Count repeated holds without observed progress, not productive
-            # work inside one stage. Only structured review/planner evidence
-            # resets this guard; "done" alone can describe unchanged artifacts.
-            made_progress = (getattr(outcome, "final_planner_report", None) or {}).get("forward_progress") is True
-            held_rounds = 0 if made_progress else int(getattr(item, "consecutive_replans", 0) or 0) + 1
-            if stage_action == "hold" and held_rounds >= consecutive_replan_escalation_threshold():
-                success = False
-                status = PLANNER_RECENT_FAILURE_STATUS
-                resumable = False
-                err = f"No stage progress after {held_rounds} attempts: {state.stop_reason}"
-                state.stop_reason = err
-                outcome_dimensions = mission_outcome_dimensions(
-                    status=status, success=False, review_status=final_review_status,
-                    stage_transition=stage_transition, resumable=False,
-                )
-                fail(error=err, outcome=outcome_dimensions)
-            else:
-                outcome_dimensions["stage_continuation"] = dict(stage_transition)
-                commit(
-                    status="pending", started_ts=None, finished_ts=None,
-                    last_error=state.stop_reason, outcome=outcome_dimensions,
-                    consecutive_replans=held_rounds if stage_action == "hold" else 0,
-                    replan_streak_tracked=True,
-                )
+            outcome_dimensions["stage_continuation"] = dict(stage_transition)
+            commit(
+                status="pending", started_ts=None, finished_ts=None,
+                last_error=state.stop_reason, outcome=outcome_dimensions,
+            )
         elif success and iteration_requeued:
             # ``requeue_for_iteration`` already performed the only backlog
             # transition allowed here: running -> pending on the same item.
@@ -1065,55 +992,12 @@ class MissionExecutionSettlementMixin:
                 outcome=outcome_dimensions,
             )
         elif replan_requested:
-            # Bounded convergence guard. A refuted node that keeps returning
-            # replan_requested with no intervening forward progress
-            # (mission_complete) must not be re-dispatched forever. Count the
-            # consecutive replans already journaled for this item and add the
-            # in-flight one; at/above the threshold, stop resetting to pending
-            # and escalate to a terminal no-progress failure that the planner
-            # quarantine (kind=mission_failed, terminal_status=no_progress)
-            # recognizes, so the daemon idles/escalates instead of re-running.
-            prior_replans = int(
-                getattr(item, "consecutive_replans", 0) or 0
+            commit(
+                status="pending",
+                started_ts=None,
+                finished_ts=None,
+                last_error=state.stop_reason,
             )
-            if not bool(getattr(item, "replan_streak_tracked", False)):
-                prior_replans = max(
-                    prior_replans,
-                    self._count_consecutive_item_replans(item.id),
-                )
-            consecutive_replans = prior_replans + 1
-            if consecutive_replans >= consecutive_replan_escalation_threshold():
-                replan_requested = False
-                success = False
-                status = PLANNER_RECENT_FAILURE_STATUS
-                err = (
-                    f"no forward progress after {consecutive_replans} "
-                    "consecutive replan_requested outcomes on this node"
-                    + (f": {state.stop_reason}" if state.stop_reason else "")
-                )
-                outcome_dimensions = mission_outcome_dimensions(
-                    status=status,
-                    success=success,
-                    review_status=str(
-                        getattr(outcome, "final_review_status", "") or ""
-                    ),
-                    stage_transition=stage_transition,
-                    stop_kind=state.stop_kind,
-                    resumable=resumable,
-                )
-                fail(
-                    error=err,
-                    outcome=outcome_dimensions,
-                )
-            else:
-                commit(
-                    status="pending",
-                    started_ts=None,
-                    finished_ts=None,
-                    last_error=state.stop_reason,
-                    consecutive_replans=consecutive_replans,
-                    replan_streak_tracked=True,
-                )
         elif research_pause:
             commit(
                 status=status,
@@ -1367,12 +1251,6 @@ class MissionExecutionSettlementMixin:
             "usage_record_count": state.usage_summary.call_count,
             "partial_usage_records": state.usage_summary.partial_calls,
             "unpriced_usage_records": state.usage_summary.unpriced_calls,
-            "planner_task_signature": {
-                "title": _normalize_planner_text(item.title),
-                "objective": _normalize_planner_text(item.objective),
-            }
-            if kind == "mission_failed"
-            else {},
             "terminal_status": status if kind == "mission_failed" else "",
             "resumable": state.resumable,
             "recoverable": bool(

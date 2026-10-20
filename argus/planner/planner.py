@@ -108,9 +108,6 @@ class TaskSpec:
     acceptance_check: str = ""
     non_goals: list[str] = field(default_factory=list)
     context_refs: list[dict[str, str]] = field(default_factory=list)
-    # Durable identity for a known blocking condition. Unlike title/objective,
-    # this must remain unchanged when the task is merely reworded.
-    blocker_fingerprint: str = ""
     scope: str = TASK_SCOPE_BOUNDED
     # A mission expected to satisfy the current-stage gate must receive an
     # independent Reviewer verdict so the Manager gets per-item evidence.
@@ -128,10 +125,6 @@ class TaskSpec:
     authorization_action: str = ""
     require_independent_review: bool = True
     skip_stage_transition: bool = False
-    # Host-authored recovery work after a Manager HOLD or approved revision.
-    # This bypasses certification-churn suppression because the task includes
-    # the substantive repair and its independent recertification in one unit.
-    stage_repair: bool = False
     allow_skill_changes: bool = False
     parallel_safe: bool = False
     owns_paths: list[str] = field(default_factory=list)
