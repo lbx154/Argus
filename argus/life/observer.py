@@ -8,10 +8,11 @@ the task. Whether the work itself is right is the Reviewer's to judge; the
 Observer only watches whether the work flows.
 
 The Observer is that person as a role, on the same backends as the others.
-Whenever the Engineer, Reviewer or Planner ends a turn, and once whenever the
-team goes still, it reads how the task has flowed so far from ``events.jsonl``,
-with the Engineer's access and only the tools reading needs, in a fresh
-session each time. When all is well it
+Whenever the Engineer, Reviewer or Planner ends a turn, it reads how the task
+has flowed so far from ``events.jsonl``, with the Engineer's access and only
+the tools reading needs, in a fresh session each time. A turn nobody took,
+such as a Planner call skipped on unchanged inputs, is not looked at. When all
+is well it
 says nothing and leaves no record of its own. A remark is one ``life.observer.note`` event for the
 Manager, who hears it through its supervision and decides what to do; with no
 Manager, or once the task is delivered, the operator gets it as an alert.
@@ -54,17 +55,6 @@ def _ended_turn(event: dict[str, Any]) -> dict[str, Any] | None:
     if event.get("type") != EventType.ROLE_SESSION_TURN or role not in WATCHED_ROLES:
         return None
     return {"role": role, "item_id": str(event.get("item_id") or ""), "ts": float(event.get("ts") or time.time())}
-
-
-def _went_still(event: dict[str, Any]) -> dict[str, Any] | None:
-    """The Planner's skipped turn as one to look at, or None.
-
-    A skipped Planner call is the last event a still team writes; without this
-    look nobody would see that nothing moves.
-    """
-    if event.get("type") != EventType.LIFE_PLANNER_IDLE or event.get("model_call_skipped") is not True:
-        return None
-    return {"role": "planner", "item_id": "", "ts": float(event.get("ts") or time.time()), "still": True}
 
 
 def _earlier_remarks(root: Path) -> list[str]:
@@ -126,8 +116,6 @@ class _Watch:
 
     waiting: list[dict[str, Any]] = field(default_factory=list)
     looking: threading.Thread | None = None
-    # Looked at since the team last went still; a turn that ends clears it.
-    still: bool = False
 
 
 #: One Observer per project, however many supervisors run its missions.
@@ -171,18 +159,12 @@ class ObserverSink:
     def _wake(self, event: dict[str, Any]) -> None:
         backend = getattr(self.supervisor.runner, "reviewer_backend", None)
         turn = _ended_turn(event)
-        still = None if turn else _went_still(event)
-        if backend is None or not (turn or still):
+        if backend is None or turn is None:
             return
-        if still and any(item.status == "running" for item in self.supervisor.memory.backlog.active()):
-            return  # a role is still at work: the team is not still
         root = Path(self.supervisor._project_state_root()).resolve()
         with _GUARD:
             watch = _WATCHES.setdefault(str(root), _Watch())
-            if still and watch.still:
-                return  # looked at once already; the next turn that ends re-arms it
-            watch.still = bool(still)
-            watch.waiting.append(turn or still)
+            watch.waiting.append(turn)
             if watch.looking is not None and watch.looking.is_alive():
                 return
             watch.looking = threading.Thread(

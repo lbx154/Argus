@@ -276,6 +276,45 @@ def test_a_manager_steer_wakes_the_planner_only_when_handed_to_it(
     assert calls["count"] == 2
 
 
+def test_an_observer_remark_and_the_steer_it_prompts_leave_the_planner_alone(
+    tmp_path: Path, monkeypatch
+) -> None:
+    """The 2026-10-20 loop: remark, steer, Planner turn, remark, four times over."""
+    from argus.core.event_catalog import EventType
+    from argus.core.models import RunnerResult
+    from argus.daemon.state import write_continuous_config
+    from argus.manager import Manager, supervision
+
+    class _Steers:
+        def fork(self):
+            return self
+
+        def run_exec(self, **_kwargs):
+            return RunnerResult(exit_code=0, agent_messages=[
+                "ACTION: steer\nREASON: The Planner keeps waking for nothing.\n"
+                "EVIDENCE_REFS: backlog.jsonl\nDIRECTIVE: Stop re-planning unchanged work.\n→ planner"
+            ])
+
+    project = tmp_path / "project"
+    project.mkdir()
+    life = tmp_path / "life"
+    life.mkdir()
+    write_continuous_config(life, enabled=True, objective="keep improving the solver")
+    calls = _install_planner(monkeypatch)
+    supervisor = _supervisor(project, life)
+    assert supervisor._plan_next_work() == PLAN_AWAITING
+    remark = {
+        "type": EventType.LIFE_OBSERVER_NOTE, "agent_layer": "observer", "to": "manager",
+        "text": "the Planner woke again only to wait", "stall_reason": "observer",
+    }
+    supervisor.sink.handle_event(remark)
+    manager = Manager(life, runner=_Steers(), memory_maintenance_enabled=False)
+    assert supervision.supervise(manager, life, remark)["status"] == "applied"
+
+    assert supervisor._plan_next_work() == PLAN_AWAITING
+    assert calls["count"] == 1
+
+
 def test_elapsed_time_alone_never_buys_a_planner_call(
     tmp_path: Path, monkeypatch
 ) -> None:

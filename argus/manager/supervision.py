@@ -624,7 +624,10 @@ def _apply(
                     directive = set_active_manager_directive(
                         root, decision["directive"], source=source,
                         scope_objective=observation.continuous.objective,
-                        for_planner=decision.get("handoff") == "planner",
+                        # An Observer's remark never moves the baton, so a steer
+                        # it prompted is read by the team, never handed to the Planner.
+                        for_planner=decision.get("handoff") == "planner"
+                        and record["trigger"].get("type") != EventType.LIFE_OBSERVER_NOTE,
                     )
                 effects.update(directive_revision=directive.revision, directive_delivered=True, inbox_queued=False)
                 _apply_risk_decision(root, record, event, observation, effects)
