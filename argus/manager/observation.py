@@ -28,7 +28,7 @@ def _semantic(value: Any) -> Any:
             "ts", "timestamp", "created_at", "updated_at", "set_at", "observed_at", "started_ts",
             "event_id", "round", "round_index", "rejected_attempts", "age_s", "evidence_refs",
         }}
-        if result.get("pending_question") and result.get("status") in {"running", "paused_operator"}:
+        if result.get("pending_question") and result.get("status") in {"running", "parked"}:
             result["status"] = "awaiting_operator"
             result.pop("last_error", None)
         return result

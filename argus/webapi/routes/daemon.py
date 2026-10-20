@@ -8,6 +8,7 @@ from typing import Any, Callable
 from fastapi import Depends, HTTPException
 from starlette.concurrency import run_in_threadpool
 
+from ...core.stop_kinds import OPERATOR_RESUMED_PARKS
 from ...core.workspace_lease import canonical_workdir
 from ...daemon import commands as daemon_commands
 from ...life.memory import LifeMemory
@@ -42,12 +43,13 @@ async def _execute_command(
     return result
 
 
-def _resume_provider_fences_after_start(life_dir, result, *, enabled=True):
+def _resume_parks_after_start(life_dir, result, *, enabled=True):
     # Only an authenticated, explicit start/continue command reaches this
-    # callback. Automatic supervision/restarts never clear this boundary.
+    # callback: the operator's go-ahead ends every park the Planner does not
+    # own. Automatic supervision/restarts never clear these boundaries.
     # Account attention and unknown-cost acknowledgements are separate gates.
     if enabled and type(result.get("rc")) is int and result["rc"] == 0:
-        LifeMemory.open(life_dir).backlog.resume_paused_statuses({"paused_provider_fence"})
+        LifeMemory.open(life_dir).backlog.resume_parked(OPERATOR_RESUMED_PARKS)
     return result
 
 
@@ -109,7 +111,7 @@ def register_daemon_routes(app, ctx: ServerContext) -> None:
                 ),
                 sid,
             )
-            return _resume_provider_fences_after_start(life_dir, result)
+            return _resume_parks_after_start(life_dir, result)
 
         return await _execute_command(
             life_dir, command,
@@ -172,7 +174,7 @@ def register_daemon_routes(app, ctx: ServerContext) -> None:
                 ),
                 sid,
             )
-            return _resume_provider_fences_after_start(
+            return _resume_parks_after_start(
                 life_dir, result, enabled=body.resume_continuous,
             )
 

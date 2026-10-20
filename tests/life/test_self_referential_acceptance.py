@@ -10,7 +10,7 @@ import pytest
 
 from argus.apps._runtime_backends import _Outcome
 from argus.core.models import RunnerResult
-from argus.life.memory import BacklogItem, LifeMemory
+from argus.life.memory import BacklogItem, LifeMemory, park_reason
 from argus.life.supervisor import LifeSupervisor, LifeSupervisorConfig
 from argus.skills.vertical_select import persist_vertical
 
@@ -97,7 +97,7 @@ def test_supervisor_blocks_proven_self_receipt_cycle_without_executing(tmp_path:
     assert runner.executed == []
     assert result["success"] is False
     stored = next(row for row in supervisor.memory.backlog.all() if row.id == item.id)
-    assert stored.status == "paused_operator"
+    assert stored.status == "parked"
     assert stored.pending_question
     assert stored.acceptance_check == CLAUSE
     assert len(runner.planner_backend.calls) == 1
@@ -136,7 +136,7 @@ def test_cached_cycle_survives_restart_without_another_assessment(tmp_path: Path
     })
     supervisor.tick()
     stored = next(row for row in supervisor.memory.backlog.all() if row.id == item.id)
-    assert stored.status == "paused_operator"
+    assert stored.status == "parked"
     assert stored.manager_decision["acceptance_dependency_assessment"]["result"] == "cyclic"
 
     reopened, replacement, _unused = _supervisor(tmp_path, None)
@@ -147,11 +147,11 @@ def test_cached_cycle_survives_restart_without_another_assessment(tmp_path: Path
     assert replacement.planner_backend.calls == []
     # Explicit resumption with the unchanged contract must reuse the same proof.
     reopened.memory.backlog.update(item.id, pending_question="", operator_decision={})
-    reopened.memory.backlog.resume_paused(item.id)
+    reopened.memory.backlog.resume_parked()
     reopened.tick()
     assert replacement.executed == []
     assert replacement.planner_backend.calls == []
-    assert next(row for row in reopened.memory.backlog.all() if row.id == item.id).status == "paused_operator"
+    assert next(row for row in reopened.memory.backlog.all() if row.id == item.id).status == "parked"
     assert len(runner.planner_backend.calls) == 1
 
 
@@ -170,7 +170,7 @@ def test_invalid_interpretation_retries_without_asking_the_operator(
     assert runner.executed == []
     assert result["success"] is False
     stored = next(row for row in supervisor.memory.backlog.all() if row.id == item.id)
-    assert stored.status == "infra_blocked"
+    assert (stored.status, park_reason(stored)) == ("parked", "infra")
     assert stored.pending_question == ""
     assert "acceptance_dependency_assessment" not in stored.manager_decision
     assert stored.acceptance_check == CLAUSE
@@ -187,7 +187,7 @@ def test_grounded_ambiguity_still_asks_a_readable_question(tmp_path: Path):
 
     assert runner.executed == []
     stored = next(row for row in supervisor.memory.backlog.all() if row.id == item.id)
-    assert stored.status == "paused_operator"
+    assert stored.status == "parked"
     assert stored.pending_question == "Should the report include this review's result or refer to an earlier completed review?"
     assessment = stored.manager_decision["acceptance_dependency_assessment"]
     assert assessment["result"] == "unresolved"
@@ -200,7 +200,7 @@ def test_grounded_ambiguity_still_asks_a_readable_question(tmp_path: Path):
 @pytest.mark.parametrize("payload,expected_status", [
     ({"status": "assessed", "dependencies": [_dependency(placement="external")]}, "done"),
     ({"status": "assessed", "dependencies": [], "reason": "Normal peer review requires no embedded receipt."}, "done"),
-    ({"status": "assessed", "dependencies": [_dependency()]}, "paused_operator"),
+    ({"status": "assessed", "dependencies": [_dependency()]}, "parked"),
 ])
 def test_internal_retry_recovers_and_still_checks_real_cycles(tmp_path: Path, payload, expected_status):
     supervisor, runner, item = _supervisor(tmp_path, None)
@@ -218,7 +218,7 @@ def test_internal_retry_recovers_and_still_checks_real_cycles(tmp_path: Path, pa
     assert stored.status == expected_status
     assert len(calls) == 2
     assert len(runner.executed) == (1 if expected_status == "done" else 0)
-    assert bool(stored.pending_question) == (expected_status == "paused_operator")
+    assert bool(stored.pending_question) == (expected_status == "parked")
 
 
 def test_contract_revision_reassesses_but_real_content_edits_do_not_invalidate_structure(
@@ -238,7 +238,7 @@ def test_contract_revision_reassesses_but_real_content_edits_do_not_invalidate_s
         item.id, pending_question="", operator_decision={},
         objective="Finish REPORT.md. " + revised, acceptance_check=revised,
     )
-    supervisor.memory.backlog.resume_paused(item.id)
+    supervisor.memory.backlog.resume_parked()
     assert supervisor.tick()["success"] is True
     assert len(runner.planner_backend.calls) == 2
     # A new report revision under the same external receipt contract is ordinary
@@ -290,7 +290,7 @@ def test_chinese_legacy_task_and_named_planner_reply_use_the_production_guard(tm
 
     assert runner.executed == []
     stored = next(row for row in supervisor.memory.backlog.all() if row.id == item.id)
-    assert stored.status == "paused_operator"
+    assert stored.status == "parked"
     assert "单独保存" in stored.pending_question
     assert "acceptance" not in stored.pending_question
     assert stored.manager_decision["acceptance_dependency_assessment"]["result"] == "cyclic"
@@ -337,7 +337,7 @@ def test_orphan_receipt_fields_cannot_be_discarded_as_an_empty_acyclic_assessmen
 
     assert runner.executed == []
     stored = next(row for row in supervisor.memory.backlog.all() if row.id == item.id)
-    assert stored.status == "infra_blocked"
+    assert (stored.status, park_reason(stored)) == ("parked", "infra")
     assert stored.pending_question == ""
     assert "acceptance_dependency_assessment" not in stored.manager_decision
 
@@ -352,7 +352,7 @@ def test_markdown_report_requirements_use_the_dependency_guard(tmp_path: Path):
 
     assert runner.executed == []
     assert len(runner.planner_backend.calls) == 1
-    assert next(row for row in supervisor.memory.backlog.all() if row.id == item.id).status == "paused_operator"
+    assert next(row for row in supervisor.memory.backlog.all() if row.id == item.id).status == "parked"
 
 
 def test_receipt_field_overwrite_cannot_erase_a_preceding_cycle(tmp_path: Path):
@@ -374,7 +374,7 @@ def test_receipt_field_overwrite_cannot_erase_a_preceding_cycle(tmp_path: Path):
 
     assert runner.executed == []
     stored = next(row for row in supervisor.memory.backlog.all() if row.id == item.id)
-    assert stored.status == "infra_blocked"
+    assert (stored.status, park_reason(stored)) == ("parked", "infra")
     assert stored.pending_question == ""
     assert "acceptance_dependency_assessment" not in stored.manager_decision
 
@@ -431,7 +431,7 @@ def test_invented_artifact_binding_is_an_internal_failure_even_with_a_real_sourc
 
     stored = next(row for row in supervisor.memory.backlog.all() if row.id == item.id)
     assert runner.executed == []
-    assert stored.status == "infra_blocked"
+    assert (stored.status, park_reason(stored)) == ("parked", "infra")
     assert stored.pending_question == ""
     assert "acceptance_dependency_assessment" not in stored.manager_decision
 
@@ -461,7 +461,7 @@ def test_superseded_external_contract_is_automatically_reassessed_before_executi
     assert calls == 2
     assert runner.executed == []
     stored = next(row for row in supervisor.memory.backlog.all() if row.id == item.id)
-    assert stored.status == "paused_operator"
+    assert stored.status == "parked"
     assert stored.manager_decision["acceptance_dependency_assessment"]["result"] == "cyclic"
 
 
@@ -519,8 +519,8 @@ def test_provider_failure_after_concurrent_abort_preserves_the_new_terminal_stat
 
 
 @pytest.mark.parametrize("kind,status", [
-    ("budget_exhausted", "paused_budget"),
-    ("provider_cooldown", "paused_provider_cooldown"),
+    ("budget_exhausted", "parked"),
+    ("provider_cooldown", "parked"),
     ("operator_abort", "aborted"),
 ])
 def test_provider_stop_remains_provider_stop_and_is_not_cached_as_a_contract_finding(
@@ -535,6 +535,7 @@ def test_provider_stop_remains_provider_stop_and_is_not_cached_as_a_contract_fin
 
     assert runner.executed == []
     assert result["status"] == status
+    assert result.get("park_reason", "") == ("" if status == "aborted" else kind)
     stored = next(row for row in supervisor.memory.backlog.all() if row.id == item.id)
     assert "acceptance_dependency_assessment" not in stored.manager_decision
     assert stored.pending_question == ""

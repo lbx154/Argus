@@ -428,8 +428,8 @@ class LifeWorkerRunMixin:
         # Drain for real. Helper missions run on ``_mission_stop`` and the
         # lead's harness waits watch only the process-wide stop flag; with just
         # ``_stop`` set they kept this process (and the daemon lock) busy for
-        # as long as those missions ran. Interrupted missions settle as
-        # ``paused_daemon_shutdown``, which the successor resumes.
+        # as long as those missions ran. Interrupted missions park on
+        # ``daemon_shutdown``, which the successor resumes.
         # Not ``request_process_stop``: a handoff is not an operator clock-out.
         process_stop.request_stop()
         self._mission_stop.set()
@@ -766,9 +766,6 @@ class LifeWorkerRunMixin:
                     max(float(rf_state.cfg.poll_interval), suggested),
                     rf_state.cfg.poll_interval,
                     rf_state.runtime_root,
-                    wake_on_ready_work=(
-                        summary.get("stopped_by") == "paused_provider_fence"
-                    ),
                 )
         finally:
             from ..manager.supervision import shutdown_supervision
@@ -888,15 +885,11 @@ class LifeWorkerRunMixin:
         total_seconds: float,
         poll_interval: float,
         runtime_root: Path,
-        *,
-        wake_on_ready_work: bool = False,
     ) -> None:
-        """Sleep until stop, inbox input, recovery, or configuration changes.
+        """Sleep until stop, inbox input, or configuration changes.
 
         The sleep is chunked into ``poll_interval`` slices so a stop request or
         newly queued operator guidance interrupts a long backoff promptly.
-        Ready work wakes provider-fence waits only; other pauses keep their
-        backoff.
         """
         if total_seconds <= 0:
             return
@@ -907,11 +900,6 @@ class LifeWorkerRunMixin:
         from ..core.paths import config_path
 
         operator_config = config_path(self.config.global_root)
-        backlog = None
-        if wake_on_ready_work:
-            from ..life.memory import LifeMemory
-
-            backlog = LifeMemory.open(runtime_root).backlog
 
         def _config_version() -> tuple[int, int, int] | None:
             try:
@@ -952,8 +940,6 @@ class LifeWorkerRunMixin:
             return
         remaining = float(total_seconds)
         while remaining > 0 and not self._stop.is_set():
-            if backlog is not None and backlog.next_pending() is not None:
-                return
             self._stop.wait(timeout=min(chunk, remaining))
             if self._stop.is_set():
                 return

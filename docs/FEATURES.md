@@ -110,14 +110,9 @@ Manager, Planner, Engineer, and Reviewer record primary-flow decisions as
 the whole event stream; a final assistant message may be natural language or
 absent. Legacy named-output parsing remains only for in-flight compatibility.
 
-Planner outcomes are:
-
-- `planned`: executable work was added;
-- `completed`: the finite operator objective is complete;
-- `research_incomplete`, `paused_no_breakthrough`, or
-  `exhausted_current_methods`: recoverable research pauses;
-- `paused_budget` (the task's iteration-cycle ceiling), `provider_cooldown` or `infra_blocked`: recoverable runtime pauses;
-- `error`: planning failed and is surfaced.
+Planner outcomes are `planned` (executable work was added) and `completed`
+(the finite operator objective is complete). Older verdict events with other
+statuses stay readable.
 
 ### Engineer
 
@@ -143,10 +138,7 @@ recorded beside the verdict and put to the Manager.
 | `done` | Settle mission successfully |
 | `continue` | Return `next_action` to Engineer |
 | `replan_requested` | Return to Planner |
-| `blocked` with operator question | Persist `paused_operator` and wait; while the operator cannot be asked the Manager answers in their place |
-| `research_incomplete` | Preserve evidence and pause recoverably |
-| `paused_no_breakthrough` | Pause until a new route or evidence exists |
-| `exhausted_current_methods` | Pause without pretending project completion |
+| `blocked` with operator question | Park the task on the question; while the operator cannot be asked the Manager answers in their place |
 
 New custom verticals require independent review before promotion. Ordinary
 formal direct tasks may complete without a separate Reviewer call when the Host
@@ -178,6 +170,17 @@ contract does not require one.
 Explicit pause stops the current mission and daemon while preserving the goal
 and backlog. An explicit resume that runs commands or changes artifacts is TEAM
 work; it is not executed inline as a SELF reply.
+
+Work that has to wait is `parked`, one status whose reason is data
+(`outcome.park.reason` on the task, `park_reason` on its completion event): a
+stop such as `daemon_shutdown`, `provider_cooldown` or `provider_fence`, an
+`operator_question`, a Manager stop left for the Planner (`research_open`), or
+a host that could not start (`infra`). A park holds only its task and the tasks
+that depend on it. A new fact ends it: the next daemon pass for the runtime's
+own parks (shutdown, cooldown), the operator's explicit Run for parks only the
+operator or the outside world can clear, the answer for a question, and the
+Planner retiring a park it owns. Older `paused_*` statuses load as the park
+they name.
 
 ### Manager model boundary
 

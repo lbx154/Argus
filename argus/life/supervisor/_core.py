@@ -19,6 +19,7 @@ from ...core.planner_verdict import (
     build_planner_verdict_event,
 )
 from ...core.ports import EventSink
+from ...core.stop_kinds import RUNTIME_RESUMED_PARKS
 from ...core.usage import project_usage_summary
 from ..memory import BacklogItem
 from ..mission_outcome import mission_outcome_class
@@ -442,23 +443,12 @@ class LifeSupervisor(
     # ------------------------------------------------------------------
 
     def _resume_automatic_pauses(self) -> list[BacklogItem]:
-        """Wake pause classes whose external condition is rechecked per run.
+        """Re-arm the parks the runtime itself ends on a new pass.
 
-        Provider fences, operator pauses, and scientific/infrastructure blocks
-        stay explicit: time passing does not establish quota recovery.
-        Items an older release left in ``paused_budget``/``paused_cost`` resume
-        with the rest: spending is recorded, never a reason to hold work.
+        Provider fences, operator pauses, and research/infrastructure parks
+        wait for someone: time passing does not establish quota recovery.
         """
-        statuses = {
-            "paused_provider_cooldown",
-            "paused_daemon_shutdown",
-        }
-        # Work paused by the retired spending checks resumes like any other
-        # paused work: spending is recorded, never a reason to hold a mission.
-        # So does work an older release parked on a background job it watched
-        # for the Engineer, who now waits on its own jobs in its turn.
-        statuses.update({"paused_budget", "paused_cost", "paused_external_work"})
-        resumed = self.memory.backlog.resume_paused_statuses(statuses)
+        resumed = self.memory.backlog.resume_parked(RUNTIME_RESUMED_PARKS)
         if resumed:
             self._emit_status(
                 "auto-resumed recoverable mission(s): "
@@ -600,7 +590,7 @@ class LifeSupervisor(
                     )
                     self.memory.backlog.update(
                         item.id,
-                        status="paused_operator",
+                        park_reason="operator_question",
                         pending_question=question,
                         operator_decision=card,
                     )
@@ -742,17 +732,6 @@ class LifeSupervisor(
                     self._plan_alongside_running_work(running_items)
                     self._wait_idle()
                     continue
-                if any(
-                    item.status == "paused_provider_fence"
-                    for item in active_items
-                ):
-                    self._enter_pause_backoff()
-                    self._emit_status(
-                        "provider fence held; restore quota or configuration, "
-                        "then explicitly resume"
-                    )
-                    stopped_by = "paused_provider_fence"
-                    break
                 # Backlog empty — continuous mode: ask planner for more
                 if self.config.continuous and self.config.continuous_objective:
                     pending_questions = [
@@ -886,22 +865,17 @@ class LifeSupervisor(
                 # no model call for an hour, while the real evaluation it was
                 # waiting on still had ninety minutes to run.
                 "claim_lost",
-                "paused_budget",
-                "paused_cost",
-                "paused_provider_cooldown",
-                "paused_provider_fence",
-                "paused_daemon_shutdown",
-                "paused_operator",
+                "parked",
                 "iteration_cap",
                 "lifecycle_block",
                 "stage_hold",
-                "infra_blocked",
+                "runtime_block",
             }:
                 # No mission actually ran — this is a held/paused outcome. Escalate
                 # the wait like the idle path (15→300s) instead of resetting to
                 # poll_interval, so a budget pause / F5 hold doesn't busy-spin and
                 # re-flood the journal every 5s until the daily cap rolls over.
-                if str(outcome.get("status") or "").startswith("paused_"):
+                if outcome.get("status") == "parked":
                     self._enter_pause_backoff()
                 else:
                     self._enter_idle_backoff()
@@ -986,16 +960,11 @@ class LifeSupervisor(
             # busy-spin ``infer_observable_status`` at 100% CPU). The
             # daemon's outer loop re-enters after ``poll_interval``.
             if outcome.get("status") in {
-                "paused_budget",
-                "paused_cost",
-                "paused_provider_cooldown",
-                "paused_provider_fence",
-                "paused_daemon_shutdown",
-                "paused_operator",
+                "parked",
                 "iteration_cap",
                 "lifecycle_block",
                 "stage_hold",
-                "infra_blocked",
+                "runtime_block",
             }:
                 stopped_by = outcome.get("status", "")
                 break
@@ -1109,9 +1078,6 @@ class LifeSupervisor(
         runtime_block = self._runtime_failure_circuit_block(item=item)
         if runtime_block is not None:
             return runtime_block
-        fence_block = self._retry_window_fence_block(item=item)
-        if fence_block is not None:
-            return fence_block
 
         obsolete_final_submission = (
             self._maybe_skip_inapplicable_final_submission_item(item)
@@ -1926,11 +1892,13 @@ class LifeSupervisor(
                 ).strip()
                 from ...core.autonomy import assess_operator_intervention
 
+                park = str(event.get("park_reason") or "") if status == "parked" else ""
+                on_operator = park in {"operator_question", "operator_pause"}
                 intervention = assess_operator_intervention(
                     question=(
                         operator_question
                         or next_action
-                        if status in {"blocked", "paused_operator"}
+                        if status == "blocked" or on_operator
                         else ""
                     ),
                     reason=reason,
@@ -1938,7 +1906,7 @@ class LifeSupervisor(
                     planner_report={
                         "authority_impact": (
                             "operator"
-                            if status == "paused_operator"
+                            if on_operator
                             else str(event.get("authority_impact") or "")
                         ),
                         "operator_need": event.get("operator_need") or "",
@@ -1969,6 +1937,7 @@ class LifeSupervisor(
                 text = render_operator_update(
                     title=title,
                     status=status,
+                    park_reason=park,
                     reason=reason,
                     next_action=next_action,
                     user_action_required=intervention.required,

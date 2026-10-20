@@ -10,6 +10,8 @@ from typing import TYPE_CHECKING, Any
 
 from ...core.event_catalog import EventType
 from ...core.runner_errors import is_execution_host_startup_error
+from ...core.stop_kinds import RUNTIME_RESUMED_PARKS
+from ..memory import park_reason
 from ..terminal_state import build_terminal_idle_signature
 from ._constants import (
     IDLE_BACKOFF_BASE_SECONDS,
@@ -24,16 +26,6 @@ if TYPE_CHECKING:
     from ._config import LifeSupervisorConfig
 
 log = logging.getLogger(__name__)
-# A canary in one of these states will still run (or resume by itself), so a
-# new half-open window waits for it; any other state ended the attempt.
-_CANARY_IN_FLIGHT_STATUSES = frozenset({
-    "pending",
-    "running",
-    "paused_provider_cooldown",
-    "paused_daemon_shutdown",
-    "paused_budget",
-    "paused_cost",
-})
 _DAEMON_IDLE_EXIT_DEFAULT_MINUTES = 0.0
 def _idle_exit_seconds() -> float:
     """Idle wall-clock (s) before a continuous daemon auto-exits; 0 = never."""
@@ -115,7 +107,7 @@ class IdleCycleMixin:
             })
             self._emit_status(reason)
         return {
-            "status": "infra_blocked",
+            "status": "runtime_block",
             "item_id": str(getattr(item, "id", "") or ""),
             "reason": reason,
             "fingerprint": fingerprint,
@@ -149,10 +141,15 @@ class IdleCycleMixin:
                     None,
                 )
                 # The claim is recorded before the item is tagged. An untagged
-                # row means tagging never happened, so it is not in flight.
+                # row means tagging never happened, so it is not in flight. A
+                # canary that will still run (or resume by itself) is in
+                # flight, so a new half-open window waits for it.
                 if (
                     row is not None
-                    and row.status in _CANARY_IN_FLIGHT_STATUSES
+                    and (
+                        row.status in {"pending", "running"}
+                        or park_reason(row) in RUNTIME_RESUMED_PARKS
+                    )
                     and CANARY_TAG in (row.tags or [])
                 ):
                     return False
@@ -204,53 +201,15 @@ class IdleCycleMixin:
             }
         except Exception:  # noqa: BLE001 - unreadable facts open no window
             return {}
-    def _retry_window_fence_block(self, *, item: Any | None = None) -> dict[str, Any] | None:
-        """Start no task while another waits after its automatic retries ran out.
-
-        The model service that turned that task away for the whole retry
-        window would turn the next one away too; the operator's explicit Run
-        resumes every fenced task at once.
-        """
-        from ...core.autonomy import RETRY_WINDOW_SPENT_REASON
-
-        read_backlog = getattr(self.memory.backlog, "active", None)
-        if not callable(read_backlog):
-            read_backlog = getattr(self.memory.backlog, "all", None)
-        if not callable(read_backlog):
-            return None
-        fenced = next(
-            (
-                row for row in read_backlog()
-                if row.status == "paused_provider_fence"
-                and str(row.last_error or "").startswith(RETRY_WINDOW_SPENT_REASON)
-            ),
-            None,
-        )
-        if fenced is None:
-            return None
-        reason = (
-            f"task {fenced.id} used up its automatic retries; no new task starts "
-            "until the operator clicks Run"
-        )
-        if self._should_journal_idle_repeat("retry_window_fence"):
-            self._emit_status(reason)
-        # Not a provider-fence status: that one wakes the daemon whenever
-        # work is ready, and the work held here is ready.
-        return {
-            "status": "infra_blocked",
-            "item_id": str(getattr(item, "id", "") or ""),
-            "reason": reason,
-            "recoverable": True,
-        }
 
     def _execution_host_failure_block(
         self, *, item: Any | None = None,
     ) -> dict[str, Any] | None:
-        """The persisted infrastructure pause is released by explicit resume.
+        """Hold work while the Planner's own host could not start.
 
-        A new model session cannot restore a missing executable. Inspect the
-        active backlog on every gate so another supervisor sees the pause and
-        the existing atomic resume APIs immediately permit a deliberate retry.
+        A new model session cannot restore a missing executable; re-enabling
+        continuous work retries it. A task whose host could not start parks
+        only itself until an explicit resume.
         """
         from ...daemon.state import read_continuous_state
 
@@ -281,48 +240,8 @@ class IdleCycleMixin:
                 })
                 self._emit_status(reason)
             return {
-                "status": "infra_blocked",
+                "status": "runtime_block",
                 "item_id": str(getattr(item, "id", "") or ""),
-                "reason": reason,
-                "recoverable": True,
-            }
-        read_backlog = getattr(self.memory.backlog, "active", None)
-        if not callable(read_backlog):
-            read_backlog = getattr(self.memory.backlog, "all", None)
-        if not callable(read_backlog):
-            return None
-        for blocked in read_backlog():
-            outcome = getattr(blocked, "outcome", {}) or {}
-            if (
-                blocked.status != "infra_blocked"
-                or not isinstance(outcome, dict)
-                or outcome.get("interruption_kind") != "backend_unavailable"
-                or not is_execution_host_startup_error(
-                    outcome.get("execution_host_failure")
-                )
-            ):
-                continue
-            reason = (
-                "The program that runs code for Argus could not be started, so "
-                f"task {blocked.id} is waiting. Restore the Codex installation, "
-                "then resume the task and it will pick up from its last saved "
-                "point. "
-                f"Technical record: {outcome['execution_host_failure']}"
-            )
-            if self._should_journal_idle_repeat("execution_host_failure"):
-                self._emit({
-                    "type": "life.execution_host.blocked",
-                    "item_id": str(getattr(item, "id", "") or ""),
-                    "blocked_item_id": blocked.id,
-                    "reason": reason,
-                    "operator_alert": True,
-                    "recoverable": True,
-                })
-                self._emit_status(reason)
-            return {
-                "status": "infra_blocked",
-                "item_id": str(getattr(item, "id", "") or ""),
-                "blocked_item_id": blocked.id,
                 "reason": reason,
                 "recoverable": True,
             }
@@ -521,7 +440,7 @@ class IdleCycleMixin:
         resolved = False
         for item in self.memory.backlog.active():
             card = item.operator_decision
-            if item.status != "paused_operator" or card.get("status") != "pending":
+            if item.status != "parked" or card.get("status") != "pending":
                 continue
             key = f"{card.get('id')}:r{card.get('revision', 1)}"
             attempts, retry_at = self._proxy_retry.get(key, (0, 0.0))

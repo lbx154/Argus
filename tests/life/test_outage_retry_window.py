@@ -2,7 +2,8 @@
 
 A task the model service failed goes back to the Planner, which can dispatch
 the next task into the same outage. Once such failures have run back to back
-for the window, the next one waits for the operator's Run instead.
+for the window, the next one waits for the operator's Run instead, and so does
+each later task in the same outage after its one attempt; none holds another.
 """
 from __future__ import annotations
 
@@ -76,15 +77,18 @@ def test_tasks_failing_on_the_model_service_stop_after_three_hours(tmp_path) -> 
     supervisor.run()
 
     fenced = next(item for item in memory.backlog.all() if item.id == task.id)
-    assert fenced.status == "paused_provider_fence"
+    assert fenced.status == "parked"
     assert fenced.last_error.startswith(RETRY_WINDOW_SPENT_REASON)
     told = [turn for turn in read_turns(tmp_path / "life") if turn.get("role") == "argus"]
     assert any("click Run" in turn["text"] for turn in told)
-    # Nothing else starts until the operator's Run.
-    memory.backlog.add(BacklogItem.new(title="later", objective="later work", manager_decision=_ROUTED))
+    # A later task is not held by the fenced one: it gets its one attempt in
+    # the same outage and then parks itself.
+    later = memory.backlog.add(BacklogItem.new(title="later", objective="later work", manager_decision=_ROUTED))
     for _ in range(3):
         supervisor.run()
-    assert runner.calls == 1
+    assert runner.calls == 2
+    parked = next(item for item in memory.backlog.all() if item.id == later.id)
+    assert parked.status == "parked" and parked.last_error.startswith(RETRY_WINDOW_SPENT_REASON)
 
 
 def test_a_younger_outage_still_fails_the_task_into_the_plan(tmp_path) -> None:

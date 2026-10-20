@@ -206,7 +206,7 @@ def _should_run_stage_transition(
         return False
     if normalized == "replan_requested":
         return False
-    if normalized.startswith("paused_"):
+    if normalized == "parked":
         return False
     if preplanned and normalized_scope == "bounded" and not stage_closing:
         return False

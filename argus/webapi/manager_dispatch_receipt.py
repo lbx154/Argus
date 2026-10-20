@@ -62,7 +62,7 @@ def _dispatch_ack_text(
     if dispatch_state == "already_queued":
         status = str(item.get("status") or "pending")
         status_zh = {"pending": "排队中", "running": "已接手", "done": "已完成",
-                     "paused_operator": "已暂停", "failed": "失败"}.get(status, "已保存")
+                     "parked": "已暂停", "failed": "失败"}.get(status, "已保存")
         return (
             f"这件事已存在（{status_zh}），没有重复创建。" if zh
             else f"This request already exists ({status}); no duplicate task was created."

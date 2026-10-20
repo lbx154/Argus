@@ -17,6 +17,7 @@ from __future__ import annotations
 
 import logging
 import time
+from dataclasses import replace
 from pathlib import Path
 from typing import TYPE_CHECKING, Callable
 
@@ -30,10 +31,9 @@ from ..core.runner_errors import is_execution_host_startup_error
 from ..core.runner_receipts import is_provider_background_wait_receipt
 from ..core.secret_guard import known_secret_values, redact_secrets_text
 from ..core.stop_kinds import (
-    NON_FAILURE_STOP_KINDS,
     normalize_stop_kind,
-    pause_status_for_stop_kind,
     stop_kind_from_external_interrupt,
+    stop_park_reason,
 )
 from .round_signals import _apply_round_secret_guard, _review_event_payload
 from .round_state import (
@@ -421,7 +421,7 @@ class RoundExecutionMixin:
                 stop_kind="daemon_shutdown",
             ))
             return control_return((
-                "paused_daemon_shutdown",
+                "parked",
                 state.rounds,
                 state.last_engineer_message,
                 review.reason,
@@ -484,7 +484,7 @@ class RoundExecutionMixin:
                 stop_kind="backend_unavailable",
             ))
             return control_return((
-                "infra_blocked",
+                "parked",
                 state.rounds,
                 state.last_engineer_message,
                 str(fatal_error or ""),
@@ -535,15 +535,14 @@ class RoundExecutionMixin:
                 stop_kind="provider_cooldown",
             ))
             return control_return((
-                "paused_provider_cooldown",
+                "parked",
                 state.rounds,
                 state.last_engineer_message,
                 review.reason,
                 None,
             ))
 
-        pause_status = pause_status_for_stop_kind(stop_kind)
-        if stop_kind in NON_FAILURE_STOP_KINDS and pause_status:
+        if stop_park_reason(stop_kind):
             review = external_pause_review_decision(
                 stop_kind=stop_kind,
                 fatal_error=fatal_error,
@@ -566,7 +565,7 @@ class RoundExecutionMixin:
                 stop_kind=stop_kind,
             ))
             return control_return((
-                pause_status,
+                "parked",
                 state.rounds,
                 state.last_engineer_message,
                 review.reason,
@@ -695,7 +694,7 @@ class RoundExecutionMixin:
                 stop_kind="provider_cooldown",
             ))
             return control_return((
-                "paused_provider_cooldown",
+                "parked",
                 state.rounds,
                 state.last_engineer_message,
                 review.reason,
@@ -856,7 +855,7 @@ class RoundExecutionMixin:
             if retry_window_spent:
                 named = cause.line or str(fatal_error or "").strip()
                 return control_return((
-                    "paused_provider_fence",
+                    "parked",
                     state.rounds,
                     state.last_engineer_message,
                     f"{RETRY_WINDOW_SPENT_REASON} ({named}).",
@@ -919,11 +918,15 @@ class RoundExecutionMixin:
                         interrupt_reason
                     )
                     status: LoopStatus = (
-                        "aborted"
-                        if interrupt_kind == "operator_abort"
-                        else pause_status_for_stop_kind(interrupt_kind)
-                        or "paused_operator"
+                        "aborted" if interrupt_kind == "operator_abort" else "parked"
                     )
+                    if status == "parked":
+                        # The interrupt, not the failure it cut short, is
+                        # why the run parks.
+                        state.rounds[-1] = replace(
+                            state.rounds[-1],
+                            stop_kind=stop_park_reason(interrupt_kind) or "operator_pause",
+                        )
                     reason_text = (
                         "The wait after a repeated backend failure ended "
                         f"early: {interrupt_reason}."

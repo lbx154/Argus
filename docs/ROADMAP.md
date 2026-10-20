@@ -298,6 +298,14 @@ not guess on the model's behalf whether there is progress. The full design is in
 - Can be split into: HO-16a read the line leniently (an unreadable line never means done); HO-16b merge the pause
   states; HO-16c (dropped: waits stay in the holder's turn, no `wait:` line); HO-16d unchanged return climbs; HO-16e
   delete the old footers and states.
+- Status: HO-16b is done. Every writer writes `parked` with the reason in the task's `outcome.park.reason` and the
+  completion event's `park_reason`; `paused_external_work`, `research_incomplete` and `exhausted_current_methods` have
+  no writer left and are only read. Resuming is one path driven by new facts: the daemon's next pass ends its own
+  parks (shutdown, cooldown), the operator's explicit Run ends the parks only the operator or the outside world can
+  clear, an answer ends a question, and the Planner retires the parks it owns. One task's park no longer holds other
+  tasks or planning: the three project-wide holds (provider fence, spent retry window, execution host that could not
+  start) are gone. Older `paused_*` rows and events still read, shown by their reason. An architecture test confirms no
+  writer writes an old status.
 
 #### HO-17 The Observer: watching in the person's place
 `0.4` · `M` · Depends on: HO-16

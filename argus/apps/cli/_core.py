@@ -1350,8 +1350,8 @@ def _cmd_answer(args: argparse.Namespace) -> int:
     """Answer the question a mission is paused on, and let it run again.
 
     A nudge is guidance the next round happens to read. This is the other
-    thing an operator needs: a mission that stopped to ask something is
-    ``paused_operator`` until the question is answered, and until this
+    thing an operator needs: a mission that stopped to ask something stays
+    parked until the question is answered, and until this
     existed the only way to clear that was the web cockpit — so an
     unattended box could sit blocked on "may I install torch?" indefinitely.
 
@@ -2022,7 +2022,7 @@ def _cmd_lifecycle_transition(
     if action == "resume":
         from ...life.memory import LifeMemory
 
-        resumed_items = LifeMemory.open(lifecycle_root).backlog.resume_all_paused()
+        resumed_items = LifeMemory.open(lifecycle_root).backlog.resume_parked()
 
     print(
         f"argus: lifecycle transition "

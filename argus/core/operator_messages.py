@@ -6,6 +6,7 @@ from pathlib import Path
 from typing import Any
 
 from ..life.event_log import JsonlEventSink
+from .stop_kinds import park_reason_of
 from .transcript import append_turn
 
 _CJK_RE = re.compile(r"[\u3400-\u9fff]")
@@ -94,6 +95,7 @@ def render_operator_update(
     *,
     title: str,
     status: str,
+    park_reason: str = "",
     reason: str = "",
     next_action: str = "",
     user_action_required: bool = False,
@@ -102,12 +104,13 @@ def render_operator_update(
     """Render structured runtime state as a short, plain operator update."""
     subject = str(title or "the current task").strip()
     state = str(status or "").strip().lower()
+    park = park_reason_of(state, park_reason)
     chinese = uses_cjk(language_hint or subject)
     why = humanize_runtime_reason(reason, language_hint=subject)
     # Reviewer/Manager next_action is already the actionable instruction. Do
     # not replace it with the generic explanation used for a raw error reason.
     action = str(next_action or "").strip()
-    if state == "paused_provider_fence":
+    if park == "provider_fence":
         first = (
             f"模型服务限制导致任务暂停：{subject}。"
             if chinese
@@ -130,7 +133,7 @@ def render_operator_update(
         first = f"已取消：{subject}。" if chinese else f"Canceled: {subject}."
     elif state in {"continue", "running", "in_progress", "stage_continues"}:
         first = f"正在继续：{subject}。" if chinese else f"Still working on {subject}."
-    elif state in {"blocked", "infra_blocked", "paused_operator"}:
+    elif state == "blocked" or park is not None:
         first = f"暂时无法继续：{subject}。" if chinese else f"Cannot continue yet: {subject}."
     elif state in {"replan_requested", "revise"}:
         first = (

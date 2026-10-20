@@ -5,8 +5,10 @@ from typing import Any
 
 import pytest
 
+from argus.core.stop_kinds import OPERATOR_RESUMED_PARKS
 from argus.life.memory import BacklogItem, IllegalStateTransition, LifeMemory
 from argus.life.supervisor import LifeBudget, LifeSupervisor, LifeSupervisorConfig
+from argus.life.supervisor._constants import PLAN_AWAITING
 
 
 class _Sink:
@@ -91,17 +93,16 @@ def test_paused_budget_is_recoverable_with_fresh_usage_attempt(tmp_path) -> None
     paused = supervisor.tick()
 
     assert paused is not None
-    assert paused["status"] == "paused_budget"
+    assert paused["status"] == "parked"
     assert paused["success"] is False
     stored = next(row for row in memory.backlog.all() if row.id == item.id)
-    assert stored.status == "paused_budget"
+    assert stored.status == "parked"
     assert stored.attempt == 1
     assert not [row for row in memory.backlog.all() if row.status == "failed"]
-    with pytest.raises(IllegalStateTransition, match="resume_paused"):
+    with pytest.raises(IllegalStateTransition, match="resume_parked"):
         memory.backlog.update(item.id, status="pending")
 
-    resumed = memory.backlog.resume_paused(item.id)
-    assert resumed is not None
+    [resumed] = memory.backlog.resume_parked()
     assert resumed.status == "pending"
     assert resumed.attempt == 2
 
@@ -193,48 +194,48 @@ def test_provider_fence_waits_across_passes_until_explicit_resume(
         continuous_objective="standing work" if continuous else "",
     )
 
-    def no_planning(*_args, **_kwargs):
-        pytest.fail("a provider fence must not trigger another paid planning call")
-
-    monkeypatch.setattr(LifeSupervisor, "_plan_next_work", no_planning)
+    planned: list[int] = []
+    monkeypatch.setattr(
+        LifeSupervisor, "_plan_next_work",
+        lambda *_args, **_kwargs: planned.append(1) or PLAN_AWAITING,
+    )
     supervisor = LifeSupervisor(
         memory=memory, runner=runner, sink=_Sink(), config=config,
     )
 
     first = supervisor.run()
-    assert first["stopped_by"] == "paused_provider_fence"
+    assert first["stopped_by"] == "parked"
     assert first["missions_run"] == 1
-    assert memory.backlog.all()[0].status == "paused_provider_fence"
+    assert memory.backlog.all()[0].status == "parked"
     for _ in range(3):
         held = supervisor.run()
-        assert held["stopped_by"] == "paused_provider_fence"
         assert held["missions_run"] == 0
-        assert held["suggested_sleep"] > 0
         assert memory.backlog.all()[0].attempt == 1
         assert runner.usage_mission_ids == [f"{item.id}:attempt:1"]
+    # The fence holds its own task, not the campaign's planning.
+    assert bool(planned) == continuous
 
     memory = LifeMemory.open(tmp_path / "life")
     supervisor = LifeSupervisor(
         memory=memory, runner=runner, sink=_Sink(), config=config,
     )
-    assert supervisor.run()["stopped_by"] == "paused_provider_fence"
+    assert supervisor.run()["missions_run"] == 0
     assert memory.backlog.all()[0].attempt == 1
-    resumed = memory.backlog.resume_all_paused()
+    resumed = memory.backlog.resume_parked(OPERATOR_RESUMED_PARKS)
     assert [(row.id, row.attempt) for row in resumed] == [(item.id, 2)]
-    assert memory.backlog.resume_all_paused() == []
+    assert memory.backlog.resume_parked() == []
 
     retried = supervisor.run()
-    assert retried["stopped_by"] == "paused_provider_fence"
+    assert retried["stopped_by"] == "parked"
     assert retried["missions_run"] == 1
     assert runner.usage_mission_ids == [
         f"{item.id}:attempt:1",
         f"{item.id}:attempt:2",
     ]
     held = supervisor.run()
-    assert held["stopped_by"] == "paused_provider_fence"
     assert held["missions_run"] == 0
     stored = memory.backlog.all()[0]
-    assert stored.status == "paused_provider_fence"
+    assert stored.status == "parked"
     assert stored.attempt == 2
     assert len(runner.usage_mission_ids) == 2
 
@@ -264,12 +265,12 @@ def test_provider_fence_does_not_block_independent_ready_work(tmp_path) -> None:
     summary = supervisor.run()
 
     stored = {item.id: item for item in memory.backlog.all()}
-    assert stored[held.id].status == "paused_provider_fence"
+    assert stored[held.id].status == "parked"
     assert stored[held.id].attempt == 1
     assert stored[ready.id].status == "done"
     assert runner.calls == 1
     assert summary["missions_run"] == 1
-    assert summary["stopped_by"] == "paused_provider_fence"
+    assert summary["stopped_by"] == "backlog_empty"
 
 
 def test_supervisor_does_not_auto_resume_operator_pause(tmp_path) -> None:
@@ -292,12 +293,12 @@ def test_supervisor_does_not_auto_resume_operator_pause(tmp_path) -> None:
     summary = supervisor.run()
 
     stored = next(row for row in memory.backlog.all() if row.id == item.id)
-    assert stored.status == "paused_operator"
+    assert stored.status == "parked"
     assert runner.calls == 0
     assert summary["missions_run"] == 0
 
 
-def test_a_task_out_of_automatic_retries_holds_new_tasks_until_run(tmp_path) -> None:
+def test_a_task_out_of_automatic_retries_holds_only_itself_until_run(tmp_path) -> None:
     from argus.core.autonomy import RETRY_WINDOW_SPENT_REASON
 
     memory = LifeMemory.open(tmp_path / "life")
@@ -322,12 +323,14 @@ def test_a_task_out_of_automatic_retries_holds_new_tasks_until_run(tmp_path) -> 
         config=LifeSupervisorConfig(poll_interval_seconds=0.0),
     )
 
-    for _ in range(3):
-        assert supervisor.run()["stopped_by"] == "infra_blocked"
-    assert runner.calls == 0
+    supervisor.run()
+    stored = {item.id: item for item in memory.backlog.all()}
+    assert stored[held.id].status == "parked"
+    assert stored[ready.id].status == "done"
+    assert runner.calls == 1
 
-    # The operator's explicit Run releases the fence and the held work.
-    memory.backlog.resume_paused_statuses({"paused_provider_fence"})
+    # The operator's explicit Run releases the fenced task.
+    memory.backlog.resume_parked(OPERATOR_RESUMED_PARKS)
     supervisor.run()
 
     stored = {item.id: item for item in memory.backlog.all()}

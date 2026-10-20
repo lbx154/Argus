@@ -14,7 +14,9 @@ describe("unknown cost recovery presentation", () => {
     expect(waiting?.text).not.toContain("budget denied");
     const exhausted = renderEvent({ type: "budget.reservation.denied", reason: "global daily budget exhausted" });
     expect(exhausted?.text).toContain("budget denied");
-    expect(statusLabel("paused_cost", (key) => key)).toBe("label.outcome.costUnreconciled");
+    // A park reads as paused whatever its reason; the reason has its own label.
+    expect(statusLabel("parked", (key) => key)).toBe("label.status.paused");
+    expect(statusLabel("paused_cost", (key) => key)).toBe("label.status.paused");
     expect(outcomeLabels({ execution_status: "paused", interruption_kind: "cost_unreconciled" }, (key) => key))
       .toContain("label.outcome.costUnreconciled");
   });

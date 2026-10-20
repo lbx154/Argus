@@ -380,20 +380,6 @@ def research_completion_issue(
     return ""
 
 
-def research_pause_status(value: Any) -> str:
-    result = normalize_research_result(value)
-    if result is None:
-        return "research_incomplete"
-    if result["result_class"] == "exhausted_current_methods":
-        return "exhausted_current_methods"
-    if result["result_class"] in {
-        "structured_failure_report",
-        "honest_final_report",
-    }:
-        return "paused_no_breakthrough"
-    return "research_incomplete"
-
-
 __all__ = [
     "ACCEPTED_SIGNIFICANCE",
     "CORRECTNESS_STATUSES",
@@ -410,7 +396,6 @@ __all__ = [
     "normalize_research_direction_mode",
     "normalize_research_target_level",
     "research_completion_issue",
-    "research_pause_status",
     "research_result_rejection",
     "research_target_contract",
     "research_target_env_override",
