@@ -92,6 +92,10 @@ class OperatorDeliveryCapacityError(OperatorContextCapacityError):
     """Replay metadata is full; the source must retain its pending delivery."""
 
 
+# Heading of tools/subagent/_reporting.py completion reports.
+_LEGACY_SUBAGENT_REPORT_PREFIX = "## Subagent Report:"
+
+
 def operator_context_state_root(memory: Any) -> Path:
     value = getattr(memory, "project_root", None) or getattr(memory, "root", None)
     if value is None:
@@ -814,6 +818,12 @@ class OperatorContextStore:
                             # Recorded while nothing ran; it lasts until the
                             # Planner declares the increment that handles it.
                             if record.revision in settled:
+                                continue
+                            # Subagent reports reach the inbox as ephemeral host
+                            # reports now (apps/_inbox_delivery.py); one stored here
+                            # predates that, was delivered long ago, and no Planner
+                            # decision ever settles a report another job wrote.
+                            if record.text.startswith(_LEGACY_SUBAGENT_REPORT_PREFIX):
                                 continue
                             idle_revisions.add(record.revision)
                     if record.lifetime == "once" and consume_once:
