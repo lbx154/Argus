@@ -574,7 +574,10 @@ def test_unhandled_input_blocks_old_certificate_until_tasks_committed(
         return PlannerVerdict(
             project_done=failure == "done",
             error="injected Planner failure" if failure == "error" else "",
-            reason="injected rejected decision",
+            reason=(
+                "planner backend failed before producing output; will retry later"
+                if failure == "error" else "injected rejected decision"
+            ),
             new_tasks=(
                 [TaskSpec(title="Investigate next increment", objective=instruction)]
                 if failure == "commit" else []
@@ -606,6 +609,13 @@ def test_unhandled_input_blocks_old_certificate_until_tasks_committed(
 
     monkeypatch.setattr("argus.planner.Planner.plan_next", succeed)
     monkeypatch.setattr(backlog_type, "add_many", original_commit)
+    if failure == "done":
+        # A completion the Host declined is the Planner's answer to these
+        # inputs; it is asked again only when something it reads changes.
+        assert supervisor._plan_next_work() != PLAN_TERMINAL_IDLE
+        assert len(calls) == 2
+        messages.append(instruction)
+        supervisor.config.user_inbox = lambda: messages.pop(0) if messages else None
     assert supervisor._plan_next_work() is True
     assert store.acknowledged_revision("planner") == store.revision
     item = supervisor.memory.backlog.active()[0]
@@ -644,7 +654,9 @@ def test_second_inbox_drain_reenters_intake_before_certification(
     def plan(_planner, **kwargs):
         calls.append(kwargs["runtime_change_summary"])
         return PlannerVerdict(
-            project_done=False, reason="test failure", error="injected Planner failure",
+            project_done=False,
+            reason="planner backend failed before producing output; will retry later",
+            error="injected Planner failure",
         )
 
     monkeypatch.setattr("argus.planner.Planner.plan_next", plan)

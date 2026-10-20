@@ -232,7 +232,7 @@ def test_subagent_report_does_not_bypass_the_skip(
     receiver.release_pending()
 
 
-def test_planner_errors_never_arm_the_skip(tmp_path: Path, monkeypatch) -> None:
+def test_backend_failures_never_arm_the_skip(tmp_path: Path, monkeypatch) -> None:
     project = tmp_path / "project"
     project.mkdir()
     life = tmp_path / "life"
@@ -241,7 +241,7 @@ def test_planner_errors_never_arm_the_skip(tmp_path: Path, monkeypatch) -> None:
         verdicts=[
             PlannerVerdict(
                 project_done=False,
-                reason="backend failed",
+                reason="planner backend failed before producing output; will retry later",
                 error="backend exit 1",
             ),
             _idle_verdict(),
@@ -256,6 +256,30 @@ def test_planner_errors_never_arm_the_skip(tmp_path: Path, monkeypatch) -> None:
     # answered from a decision that was never made.
     assert supervisor._plan_next_work() == PLAN_AWAITING
     assert calls["count"] == 2
+
+
+def test_an_unusable_answer_is_not_bought_again_on_unchanged_inputs(
+    tmp_path: Path, monkeypatch,
+) -> None:
+    project = tmp_path / "project"
+    project.mkdir()
+    life = tmp_path / "life"
+    unusable = "planner said not done but produced no concrete tasks"
+    calls = _install_planner(
+        monkeypatch,
+        verdicts=[
+            PlannerVerdict(project_done=False, reason=unusable, error=unusable)
+            for _ in range(3)
+        ],
+    )
+    supervisor = _supervisor(project, life)
+
+    supervisor._plan_next_work()
+    supervisor._plan_next_work()
+    asked = calls["count"]
+    supervisor._plan_next_work()
+
+    assert calls["count"] == asked
 
 
 @pytest.mark.parametrize("declared", [False, True])

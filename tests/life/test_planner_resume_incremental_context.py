@@ -50,7 +50,10 @@ def _supervisor(project: Path, life: Path) -> LifeSupervisor:
 def _idle_verdict(error: str = "") -> PlannerVerdict:
     return PlannerVerdict(
         project_done=False,
-        reason="the long training run is still producing its result",
+        reason=(
+            "planner backend failed before producing output; will retry later"
+            if error else "the long training run is still producing its result"
+        ),
         handoff="" if error else "engineer",
         error=error,
     )

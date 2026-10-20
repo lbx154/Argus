@@ -613,7 +613,7 @@ class PlanningCycleMixin(
                 return PLAN_ERROR
         if state.planner_invoked:
             self._record_planner_last_turn()
-        self._arm_unchanged_planner_skip(state, result)
+        self._arm_unchanged_planner_skip(state)
         self._record_planner_turn_outcome(state, result)
         return result
 
