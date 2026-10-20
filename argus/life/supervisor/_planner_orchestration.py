@@ -405,8 +405,6 @@ class PlannerOrchestrationMixin:
 
             presence = operator_presence(getattr(self.memory, "root", None))
             presence_lines.append(f"- time_and_presence: {presence.describe()}")
-            if guidance := presence.guidance():
-                presence_lines.append(f"  {guidance}")
         except Exception:  # noqa: BLE001 - presence is advisory
             pass
         return "\n".join(

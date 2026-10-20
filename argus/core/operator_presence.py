@@ -1,11 +1,10 @@
-"""When the operator last spoke, and what that means for the work.
+"""When the operator last spoke.
 
 A daemon that runs for days needs to know whether anyone is listening. The
 operator's presence is read from the two places their words arrive: the
-conversation transcript and the inbox of notes. Nothing here guesses at working
-hours; it reports how long the silence has lasted and lets the roles draw the
-practical conclusion, which is that a question asked into silence costs a night
-of work, while a long run started into silence has results by morning.
+conversation transcript and the inbox of notes. Nothing here decides whether
+the operator is away; it reports how long the silence has lasted and the roles
+draw their own conclusion.
 """
 from __future__ import annotations
 
@@ -14,10 +13,6 @@ import time
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
-
-# After this long without a word from the operator, roles are told to prefer
-# work that carries itself to a result over work that waits for an answer.
-UNATTENDED_AFTER_SECONDS = 3.0 * 3600.0
 
 
 @dataclass(frozen=True)
@@ -31,11 +26,6 @@ class OperatorPresence:
             return None
         return max(0.0, self.now - self.last_spoke_at)
 
-    @property
-    def unattended(self) -> bool:
-        silence = self.silence_seconds
-        return silence is None or silence >= UNATTENDED_AFTER_SECONDS
-
     def describe(self) -> str:
         """One line a role can read: local time and how long the operator has been away."""
         local = time.strftime("%Y-%m-%d %H:%M %A", time.localtime(self.now))
@@ -47,17 +37,6 @@ class OperatorPresence:
         else:
             away = f"the operator last wrote {silence / 3600:.1f} hours ago"
         return f"Local time is {local}; {away}."
-
-    def guidance(self) -> str:
-        """The practical conclusion, or an empty string when someone is around."""
-        if not self.unattended:
-            return ""
-        return (
-            "No one is likely to read a question soon. Prefer the work that has "
-            "results ready by the time someone does: the long, claim-sized runs "
-            "this machine can carry now, rather than a question or a small pilot "
-            "that waits for an answer."
-        )
 
 
 def _last_operator_turn(life_dir: Path) -> float | None:
@@ -123,4 +102,4 @@ def operator_presence(life_dir: Path | str | None, *, now: float | None = None) 
     )
 
 
-__all__ = ["OperatorPresence", "UNATTENDED_AFTER_SECONDS", "operator_presence"]
+__all__ = ["OperatorPresence", "operator_presence"]
