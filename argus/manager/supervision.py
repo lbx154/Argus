@@ -20,6 +20,7 @@ from ..core.models import RunnerOptions
 from ..core.run_gateway import run_exec, run_interrupt_scope
 from ..core.workspace_facts import fact_text
 from ..daemon.state import _fsync_directory, compare_and_swap_continuous_config
+from ..engineer.change_facts import held_facts, holds_unchanged, record_holder
 from ._helpers import _manager_backend_failure
 from ._session_ops import (
     _ManagerSession,
@@ -161,6 +162,21 @@ def mission_wait_reason(root: Path | str | None, mission_id: str | None) -> str:
     return f"Manager is waiting for the requested operator facts: {task.pending_question}"
 
 
+def mission_stop_reason(root: Path | str | None, mission_id: str | None) -> str:
+    """Why the Manager stopped this run of the mission, or "" when it did not."""
+    if root is None or not mission_id:
+        return ""
+    record = _latest_record(Path(root))
+    if (
+        record.get("status") != "applied"
+        or record.get("decision", {}).get("action") != "stop"
+        or record.get("trigger", {}).get("item_id") != mission_id
+        or record.get("effects", {}).get("stopped_attempt") != _attempt_key(Path(root), mission_id)
+    ):
+        return ""
+    return f"Manager decision: {record['decision']['reason']}"
+
+
 class SupervisionDecisionError(ValueError):
     """A Manager reply that could not become a decision, with a stable code."""
 
@@ -212,12 +228,13 @@ def _bare_named_lines(text: str) -> dict[str, str]:
     return found if saw_bare else {}
 
 
-_ACTIONS = ("continue", "steer", "wait")
+_ACTIONS = ("continue", "steer", "wait", "stop")
+_VERBS = "|".join(_ACTIONS)
 # A verb counts only when a separator follows it (a colon, a dash or the end of
 # the line) and what follows does not negate or hedge it: "STEER \u2014 rerun the
 # fixture" is a decision, "Steer is not needed" and "wait and see" are not.
 _LEADING_ACTION = re.compile(
-    r"^[`*_]*(?P<verb>continue|steer|wait)[`*_]*"
+    rf"^[`*_]*(?P<verb>{_VERBS})[`*_]*"
     r"(?:\s*$|\s*(?::|\u2014|\u2013|\s-\s)\s*(?P<rest>.*)$)",
     re.IGNORECASE | re.DOTALL,
 )
@@ -227,7 +244,7 @@ _HEDGE = re.compile(
     r"isn't\b|is not\b|would not\b|wouldn't\b|\?)",
     re.IGNORECASE,
 )
-_FIRST_VERB = re.compile(r"^[`*_]*(continue|steer|wait)\b", re.IGNORECASE)
+_FIRST_VERB = re.compile(rf"^[`*_]*({_VERBS})\b", re.IGNORECASE)
 # A rescue reader for replies that put every field on one line
 # ("DECISION: STEER \u2014 ACTION: ... REASON: ... EVIDENCE_REFS: ...") or each
 # key alone on a line with its value below it. Only capitalised keys count,
@@ -370,7 +387,7 @@ def _validated_decision(value: dict[str, Any]) -> dict[str, Any]:
     action = _action_of(value)
     reason = str(value.get("reason") or "").strip()
     directive = str(value.get("directive") or "").strip()
-    if action not in {"continue", "steer", "wait"} or not reason or len(reason) > 4000:
+    if action not in _ACTIONS or not reason or len(reason) > 4000:
         raise SupervisionDecisionError(
             "decision_incomplete",
             "Manager supervision decision is incomplete "
@@ -481,11 +498,12 @@ def _prompt(observation: ManagerObservation, consult_reason: str = "") -> str:
             "WAIT pauses automatic planning and preserves the task and question. Do not "
             "use WAIT for ordinary implementation failures; steer a fix. "
         )
+        + "Choose STOP when the work is clearly stuck and changing direction will not help. "
         + _standard_rule(root)
         + "Scheduling belongs to Argus and its operator: never direct a role to pause, "
         "stop or reschedule work by editing Argus's own state.\n"
         "End your reply with these fields, each on its own line in the form KEY: value:\n"
-        + f"ACTION: {'continue or steer' if holds else 'continue, steer or wait'} (the single word)\n"
+        + f"ACTION: {'continue, steer or stop' if holds else 'continue, steer, wait or stop'} (the single word)\n"
         "REASON: the decisive observed condition and what should happen next\n"
         "EVIDENCE_REFS: semicolon-separated paths from evidence_refs\n"
         "DIRECTIVE: the corrected team instruction (only for STEER)\n"
@@ -610,6 +628,15 @@ def _apply(
             if decision["action"] == "continue":
                 effects["effect"] = "current course retained"
                 _apply_risk_decision(root, record, event, observation, effects)
+                record["applied_control_revision"] = observation.control_revision
+                return effects
+            if decision["action"] == "stop":
+                # The mission's own round loop parks this run at its next
+                # boundary (mission_stop_reason); its workspace stays.
+                attempt = _attempt_key(root, str(record.get("trigger", {}).get("item_id") or ""))
+                if not attempt:
+                    raise SupervisionSuperseded("no mission run to stop")
+                effects.update(effect="mission parked", stopped_attempt=attempt)
                 record["applied_control_revision"] = observation.control_revision
                 return effects
             if not _owns_reserved_control(root, record):
@@ -1007,9 +1034,6 @@ def _dispatch_pending() -> None:
 #: Within a mission the Manager judges at least once every this many reviewed
 #: rounds, whatever the Reviewer said, so a confidently wrong Reviewer is caught.
 REVIEW_CHECKPOINT_ROUNDS = 3
-#: Consecutive no-progress verdicts after which the Manager is asked even when
-#: the Reviewer did not ask; half the default stall limit, so it can still act.
-STALL_BACKSTOP_STREAK = 2
 #: Reviewer authority impacts that put the decision beyond the Engineer.
 _ESCALATED_AUTHORITY = frozenset({"manager_contract", "operator"})
 
@@ -1075,7 +1099,10 @@ def _attention_reason(event: dict[str, Any]) -> str:
     if attention == "needed":
         why = " ".join(str(event.get("manager_attention_reason") or "").split())[:200]
         return f"reviewer asks for the Manager: {why}" if why else "reviewer asks for the Manager"
-    return "reviewer did not say whether the Manager is needed"
+    return _UNSTATED_ATTENTION
+
+
+_UNSTATED_ATTENTION = "reviewer did not say whether the Manager is needed"
 
 
 def _review_consult_reason(root: Path, event: dict[str, Any]) -> str:
@@ -1089,6 +1116,9 @@ def _review_consult_reason(root: Path, event: dict[str, Any]) -> str:
     a missing or unusable verdict, and a pending Manager decision. A run of
     no-progress verdicts reaches the Manager through ``round.stall``, and the
     Manager judges at least every ``REVIEW_CHECKPOINT_ROUNDS`` reviewed rounds.
+    A Reviewer that did not say, and the periodic look, ask only on facts the
+    Manager has not yet been asked on: on the same facts it could only repeat
+    its last ruling.
     """
     if event.get("status") == "blocked":
         return "blocked review"
@@ -1097,6 +1127,10 @@ def _review_consult_reason(root: Path, event: dict[str, Any]) -> str:
     if _flag(event.get("review_skipped")) or _flag(event.get("backend_unavailable")):
         return "review verdict unavailable"
     reason = _safety_net(root) or _attention_reason(event)
+    if reason and reason != _UNSTATED_ATTENTION:
+        return reason
+    if not _reviewed_facts_are_news(event):
+        return ""
     if reason:
         return reason
     # A sparse check that does not depend on the Reviewer being right: within a
@@ -1108,6 +1142,30 @@ def _review_consult_reason(root: Path, event: dict[str, Any]) -> str:
     if round_index - last >= REVIEW_CHECKPOINT_ROUNDS:
         return "periodic checkpoint"
     return ""
+
+
+def _reviewed_facts_are_news(event: dict[str, Any]) -> bool:
+    """Whether the Manager has yet to hold the facts this review judged.
+
+    The mission's holder ledger (``holder_ledger``) has them: the Reviewer's
+    entry is what the review saw, the Manager's what it was last asked on.
+    """
+    ledger = str(event.get("holder_ledger") or "")
+    if not ledger:
+        return True
+    try:
+        return not holds_unchanged(Path(ledger), "manager", held_facts(Path(ledger), "reviewer"))
+    except (KeyError, TypeError):  # no readable reviewed facts: unknown, so ask
+        return True
+
+
+def _hold_reviewed_facts(ledger: Path, event: dict[str, Any]) -> None:
+    """The Manager, now asked about this review, holds the facts it judged."""
+    try:
+        record_holder(ledger, "manager", held_facts(ledger, "reviewer"),
+                      round=_round(event.get("round_index")), reason=event.get("consult_reason", ""))
+    except OSError:  # an unwritten ledger only means the next look asks again
+        LOG.warning("could not record the facts the Manager was asked on", exc_info=True)
 
 
 def _latest_review(root: Path, item_id: str = "") -> dict[str, Any]:
@@ -1152,7 +1210,8 @@ def schedule_supervision(manager: Any, root: Path | str, event: dict[str, Any]) 
                               EventType.LIFE_DAEMON_DEGRADED,
                               EventType.LIFE_RUNTIME_INCIDENT_ESCALATED}
     relevant |= event_type == EventType.ROUND_REVIEW_COMPLETED and event.get("status") in {"continue", "blocked"}
-    relevant |= event_type == EventType.ROUND_STALL and _round(event.get("semantic_stall_streak")) >= STALL_BACKSTOP_STREAK
+    # The round loop asks only on facts the Manager has not yet ruled on.
+    relevant |= event_type == EventType.ROUND_STALL and bool(event.get("consult"))
     if not relevant or not callable(getattr(getattr(manager, "runner", None), "fork", None)):
         return False
     project_root = Path(root)
@@ -1160,7 +1219,7 @@ def schedule_supervision(manager: Any, root: Path | str, event: dict[str, Any]) 
     if event_type == EventType.ROUND_REVIEW_COMPLETED:
         reason = _review_consult_reason(project_root, event)
     elif event_type == EventType.ROUND_STALL:
-        reason = f"{_round(event.get('semantic_stall_streak'))} rounds without forward progress"
+        reason = str(event["consult"])
     elif event_type == EventType.LIFE_MISSION_COMPLETED:
         reason = _settled_consult_reason(project_root, event)
     if reason == "":
@@ -1171,7 +1230,10 @@ def schedule_supervision(manager: Any, root: Path | str, event: dict[str, Any]) 
     if event_type == EventType.ROUND_REVIEW_COMPLETED:
         # Lets an applied decision record which run of the mission it judged.
         event = {**event, "attempt_key": _attempt_key(project_root, str(event.get("item_id") or ""))}
-    return _admit(manager, root, event)
+    admitted = _admit(manager, root, event)
+    if admitted and event.get("holder_ledger"):
+        _hold_reviewed_facts(Path(event["holder_ledger"]), event)
+    return admitted
 
 
 def _admit(manager: Any, root: Path | str, event: dict[str, Any]) -> bool:

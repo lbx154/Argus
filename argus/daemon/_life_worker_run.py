@@ -423,10 +423,12 @@ class LifeWorkerRunMixin:
         )
         return True
 
-    def _fail_stalled_running_items(self, rf_state: _RunForeverState) -> list[str]:
-        """Fail durable running claims whose executor thread is no longer alive."""
-        from ..core.event_catalog import EventType
-        from ..life.mission_outcome import mission_outcome_class
+    def _recover_stalled_running_items(self, rf_state: _RunForeverState) -> list[str]:
+        """Requeue (or park on owned work) running claims whose executor thread died.
+
+        A dead executor says nothing about the mission itself, so the item keeps
+        its workspace and goes back to the queue for the next free worker.
+        """
         from ..life.role_activity import role_activity
 
         if self._supervisor_execution_active.is_set():
@@ -438,7 +440,7 @@ class LifeWorkerRunMixin:
             return []
 
         executor_threads = self._supervisor_execution_threads
-        failed: list[str] = []
+        recovered: list[str] = []
         for item in rf_state.mem.backlog.active():
             if item.status != "running" or item.started_ts is None:
                 continue
@@ -451,11 +453,16 @@ class LifeWorkerRunMixin:
                 item,
                 now=now,
             ):
-                failed.append(item.id)
+                recovered.append(item.id)
                 continue
-            if rf_state.mem.backlog.mark_failed(
+            if rf_state.mem.backlog.update(
                 item.id,
-                error=_RUNNING_STALL_ERROR,
+                status="pending",
+                attempt=max(1, int(item.attempt or 1)) + 1,
+                started_ts=None,
+                finished_ts=None,
+                running_owner="",
+                last_error=_RUNNING_STALL_ERROR,
             ) is None:
                 continue
             settled = self._backlog_item(rf_state, str(item.id))
@@ -469,27 +476,14 @@ class LifeWorkerRunMixin:
                     "executor_alive": False,
                     "owned_work": [],
                 },
-                action="fail_parent_without_owned_external_work",
-                expected_postcondition="parent mission is failed",
-                recovered=bool(settled is not None and settled.status == "failed"),
+                action="requeue_parent_without_owned_external_work",
+                expected_postcondition="parent mission is pending and claimable",
+                recovered=bool(settled is not None and settled.status == "pending"),
                 verification={"backlog_status": getattr(settled, "status", "")},
             )
-            failed.append(item.id)
-            rf_state.sink.handle_event({
-                "type": EventType.LIFE_MISSION_COMPLETED,
-                "item_id": item.id,
-                "title": item.title,
-                "objective": item.objective,
-                "success": False,
-                "status": "failed",
-                "summary": _RUNNING_STALL_ERROR,
-                "failure_reason": _RUNNING_STALL_ERROR,
-                "outcome_class": mission_outcome_class("failed", False),
-                "rounds": 0,
-                "elapsed_seconds": max(0.0, now - float(item.started_ts)),
-            })
-            log.error("daemon: failed stalled running item %s", item.id)
-        return failed
+            recovered.append(item.id)
+            log.warning("daemon: requeued stalled running item %s", item.id)
+        return recovered
 
     def _bounded_operator_wait_expired(
         self, supervisors: Any, *, enabled: bool = True
@@ -698,7 +692,7 @@ class LifeWorkerRunMixin:
         def _watch() -> None:
             while not self._running_stall_stop.wait(_RUNNING_STALL_POLL_SECONDS):
                 try:
-                    self._fail_stalled_running_items(rf_state)
+                    self._recover_stalled_running_items(rf_state)
                 except Exception:  # noqa: BLE001 - watchdog failure must not stop work
                     log.exception("daemon: stalled-running watchdog failed")
 

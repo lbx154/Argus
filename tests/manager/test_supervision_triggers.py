@@ -17,6 +17,7 @@ import pytest
 from argus.core.event_catalog import EventType
 from argus.core.models import RunnerResult
 from argus.daemon.state import write_continuous_config
+from argus.engineer.change_facts import record_holder
 from argus.life.memory import Backlog, BacklogItem
 from argus.manager import Manager, supervision
 
@@ -112,11 +113,28 @@ def test_an_undelivered_decision_is_still_delivered_on_the_next_review(admitted,
     assert admitted(_review(1, **_not_needed()))["consult_reason"] == "issued decision awaiting delivery"
 
 
-def test_a_no_progress_streak_reaches_the_manager_even_when_not_asked(admitted):
-    stall = {"type": EventType.ROUND_STALL, "round_index": 2, "semantic_stall_streak": 1}
-    assert admitted(stall) is None
-    event = admitted({**stall, "round_index": 3, "semantic_stall_streak": 2})
+def test_a_stall_reaches_the_manager_only_when_the_round_loop_asks(admitted):
+    stall = {"type": EventType.ROUND_STALL, "round_index": 3, "semantic_stall_streak": 2}
+    assert admitted({**stall, "consult": ""}) is None
+    event = admitted({**stall, "consult": "2 rounds without forward progress"})
     assert event["consult_reason"] == "2 rounds without forward progress"
+
+
+def _facts(size: int) -> dict:
+    return {"workspace": [["solver.py", size, 1.0]], "external": [], "operator_revision": 0}
+
+
+@pytest.mark.parametrize(("attention", "first"), [(_not_needed(), 3), ({}, 1)])
+def test_a_look_on_facts_the_manager_already_holds_is_skipped(admitted, tmp_path, attention, first):
+    """The periodic look, and a Reviewer that did not say, ask once per set of facts."""
+    ledger = tmp_path / "handoffs" / "lineage-grouped" / "holders.json"
+    record_holder(ledger, "reviewer", _facts(10))
+    review = lambda round_index: _review(round_index, holder_ledger=str(ledger), **attention)  # noqa: E731
+    assert [round_index for round_index in range(1, 11) if admitted(review(round_index))] == [first]
+    record_holder(ledger, "reviewer", _facts(12))
+    assert [round_index for round_index in range(11, 16) if admitted(review(round_index))] == [11]
+    record_holder(ledger, "reviewer", {**_facts(12), "operator_revision": -1})  # unreadable: ask
+    assert admitted(review(16)) is not None
 
 
 def test_a_failed_check_does_not_count_as_the_manager_having_looked(tmp_path):
@@ -185,7 +203,7 @@ def test_the_consult_reason_reaches_the_prompt_and_the_receipt(tmp_path):
     record = supervision.supervise(Manager(tmp_path, runner=backend, memory_maintenance_enabled=False), tmp_path, event)
     assert record["status"] == "applied"
     assert "consulted now because of: reviewer asks for the Manager" in backend.prompts[0]
-    assert "ACTION: continue, steer or wait" in backend.prompts[0]
+    assert "ACTION: continue, steer, wait or stop" in backend.prompts[0]
     assert record["trigger"]["round_index"] == 2
     assert record["trigger"]["consult_reason"] == "reviewer asks for the Manager"
 
