@@ -136,8 +136,8 @@ def test_bounded_planner_parses_real_fanout_fanin_dag(tmp_path) -> None:
     state = tmp_path / ".argus" / "PIPELINE_STATE.json"
     state.parent.mkdir()
     state.write_text(json.dumps({
-        "vertical": "kernel_engineering",
-        "current_stage": "optimize",
+        "vertical": "argus_maintenance",
+        "current_stage": "change",
     }))
 
     plan = plan_bounded_dag(runner, "build the tool", workdir=tmp_path)
@@ -159,7 +159,7 @@ def test_bounded_planner_parses_real_fanout_fanin_dag(tmp_path) -> None:
     assert "primary-source semantics are materially missing" in prompt
     assert "Existing grounding never forbids fresh upstream research" in prompt
     assert "When related attempts repeatedly fail" in prompt
-    assert "Active vertical context: `kernel_engineering` stage `optimize`" in prompt
+    assert "Active vertical context: `argus_maintenance` stage `change`" in prompt
     assert "`TASK_DEPS` (same-batch keys only)" in prompt
     assert plan.tasks[2].require_independent_review is True
     call = runner.calls[0]

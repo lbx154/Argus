@@ -2,9 +2,8 @@
 
 The generic ``setup -> optimize -> measure -> report`` shape and its
 metric-agnostic reviewer checklist live here, framework-owned, so that every
-optimization vertical -- the built-in ``math_synth`` and the community ones
-in ``argus-verticals`` (``speedrun``, ``kernelbench``, ``nanochat``,
-``nanogpt_speedrun``) -- specialises one canonical base instead of copying
+optimization vertical in ``argus-verticals`` (``speedrun``, ``kernelbench``,
+``nanochat``, ``nanogpt_speedrun``, ``math_synth``) -- specialises one canonical base instead of copying
 it. Mission-specific nouns (the editable file, the scorer, the metric name,
 the named baseline) come from the operator objective / MISSION.md, never from
 this module.

@@ -38,12 +38,12 @@ def test_external_completion_gate_rejects_unsafe_path(tmp_path: Path) -> None:
     )
 
 
-def test_final_stage_certificate_cannot_override_external_gate() -> None:
+def test_final_stage_certificate_cannot_override_external_gate(optimize_vertical) -> None:
     blocked = final_stage_completion_decision(
         _DoneReview(),
         current_stage="report",
         stage_order=["setup", "report"],
-        vertical="math_synth",
+        vertical=optimize_vertical,
         mission_scope="bounded",
         completion_blocker="external completion gate is not satisfied",
     )
@@ -51,7 +51,7 @@ def test_final_stage_certificate_cannot_override_external_gate() -> None:
         _DoneReview(),
         current_stage="report",
         stage_order=["setup", "report"],
-        vertical="math_synth",
+        vertical=optimize_vertical,
         mission_scope="bounded",
     )
 

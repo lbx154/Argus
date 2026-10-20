@@ -1648,9 +1648,10 @@ def test_finite_staged_paper_request_does_not_enter_bounded_dag(
     assert continuous["objective"] == objective
 
 
-def test_manager_decided_math_vertical_web_enqueue_enters_backlog(
+def test_manager_decided_targeted_vertical_web_enqueue_enters_backlog(
     tmp_path: Path,
     monkeypatch,
+    targeted_vertical,
 ) -> None:
     sid = "s-explicit-math"
     life = _make_project(tmp_path, sid)
@@ -1669,7 +1670,7 @@ def test_manager_decided_math_vertical_web_enqueue_enters_backlog(
         "decide_vertical",
         lambda task, **kwargs: VerticalDecision(
             choice="existing",
-            vertical="math",
+            vertical=targeted_vertical,
             workflow_mode="direct",
             execution_task=task,
             research_target_level="exploratory",
@@ -1743,7 +1744,7 @@ def test_manager_decided_math_vertical_web_enqueue_enters_backlog(
     state = json.loads(
         (life / ".argus" / "PIPELINE_STATE.json").read_text(encoding="utf-8")
     )
-    assert state["vertical"] == "math"
+    assert state["vertical"] == targeted_vertical
     assert state["research_target_level"] == "exploratory"
 
 

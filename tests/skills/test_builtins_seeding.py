@@ -21,13 +21,9 @@ from argus.skills.builtins import (
     vertical_skill_source_path,
 )
 
-MATH_SKILLS = {
-    "manager/math-research-manager.md",
-    "planner/math-research-planning.md",
-    "engineer/math-research-execution.md",
-    "reviewer/math-research-review.md",
-    "scientist/math-research-distillation.md",
-    "scientist/math-research-adaptation.md",
+MAINTENANCE_SKILLS = {
+    "engineer/argus-maintenance-execution.md",
+    "reviewer/argus-maintenance-review.md",
 }
 
 RETIRED_BUILTIN_SKILLS = {
@@ -85,9 +81,9 @@ RESEARCH_SKILLS = RESEARCH_BASE_SKILLS | RESEARCH_MOVED_SKILLS | {
 }
 
 
-def test_iter_vertical_skill_texts_math() -> None:
-    got = {name for name, _ in iter_vertical_skill_texts("math")}
-    assert got == MATH_SKILLS
+def test_iter_vertical_skill_texts_argus_maintenance() -> None:
+    got = {name for name, _ in iter_vertical_skill_texts("argus_maintenance")}
+    assert got == MAINTENANCE_SKILLS
 
 
 def test_iter_vertical_skill_texts_unknown_or_skill_less_is_empty() -> None:
@@ -345,12 +341,12 @@ def test_remove_unmodified_vertical_seeds_preserves_learned_edits(tmp_path) -> N
     assert modified.exists()
 
 
-def test_remove_inactive_vertical_seeds_prunes_math_but_preserves_edits_and_active(
+def test_remove_inactive_vertical_seeds_prunes_inactive_but_preserves_edits_and_active(
     tmp_path,
 ) -> None:
-    seed_vertical_skills(tmp_path, "math")
+    seed_vertical_skills(tmp_path, "argus_maintenance")
     seed_vertical_skills(tmp_path, "research")
-    edited_name = "engineer/math-research-execution.md"
+    edited_name = "engineer/argus-maintenance-execution.md"
     edited = tmp_path / edited_name
     edited.write_text(
         edited.read_text(encoding="utf-8") + "\nproject-specific learning\n",
@@ -362,7 +358,7 @@ def test_remove_inactive_vertical_seeds_prunes_math_but_preserves_edits_and_acti
         "research",
     )
 
-    assert set(removed) == MATH_SKILLS - {edited_name}
+    assert set(removed) == MAINTENANCE_SKILLS - {edited_name}
     assert edited.exists()
     assert (
         tmp_path / "engineer" / "paper-framework-figure-studio.md"
@@ -372,18 +368,18 @@ def test_remove_inactive_vertical_seeds_prunes_math_but_preserves_edits_and_acti
 def test_remove_inactive_vertical_seeds_with_no_active_vertical_prunes_all(
     tmp_path,
 ) -> None:
-    seed_vertical_skills(tmp_path, "math")
+    seed_vertical_skills(tmp_path, "argus_maintenance")
 
     removed = remove_unmodified_inactive_context_skill_seeds(tmp_path, None)
 
-    assert set(removed) == MATH_SKILLS
-    assert not any((tmp_path / filename).exists() for filename in MATH_SKILLS)
+    assert set(removed) == MAINTENANCE_SKILLS
+    assert not any((tmp_path / filename).exists() for filename in MAINTENANCE_SKILLS)
 
 
 def test_seed_for_research_does_not_pull_another_verticals_skills(tmp_path) -> None:
-    # A vertical that does not own the math skills must see no trace of them:
-    # not the real body (cross-vertical leakage) and no pointer stub either.
+    # A vertical that does not own the maintenance skills must see no trace of
+    # them: not the real body (cross-vertical leakage) and no pointer stub either.
     seed_builtin_skills_for_vertical(tmp_path, "research", overwrite=True)
-    for relative in MATH_SKILLS:
+    for relative in MAINTENANCE_SKILLS:
         assert not (tmp_path / relative).exists(), relative
     assert (tmp_path / "engineer" / "paper-framework-figure-studio.md").is_file()

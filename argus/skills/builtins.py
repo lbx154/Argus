@@ -223,9 +223,9 @@ def vertical_skill_parents(vertical: str) -> tuple[str, ...]:
 
     A vertical declares its own parents: an entry-point plugin exposes
     ``VERTICAL_SKILL_PARENTS`` (validated by ``verticals._registry``); the
-    built-in verticals declare none. A parent may itself be a plugin
-    (``nanogpt_speedrun <- speedrun``) or built in (``kernelbench <-
-    kernel_engineering``); ``_vertical_skill_roots`` resolves both the same way.
+    built-in verticals declare none. A parent may be a plugin
+    (``nanogpt_speedrun <- speedrun``) or built in; ``_vertical_skill_roots``
+    resolves both the same way.
     """
     from ..verticals._registry import vertical_plugin
 

@@ -9,8 +9,6 @@ from __future__ import annotations
 
 from types import SimpleNamespace
 
-import pytest
-
 from argus.apps._runtime_supervisor import (
     _final_certification_for_project_root,
     _paper_mission_for_project_root,
@@ -19,12 +17,9 @@ from argus.skills.stage_machine import ChecklistItem
 from argus.skills.vertical_select import persist_vertical
 from argus.verticals._base import _contract, load_vertical_contract
 
-OPTIMIZE = ["kernel_engineering", "math_synth"]
 
-
-@pytest.mark.parametrize("vertical", OPTIMIZE)
-def test_optimize_verticals_are_not_paper(vertical: str) -> None:
-    assert load_vertical_contract(vertical).paper_mission is False
+def test_optimize_verticals_are_not_paper(optimize_vertical: str) -> None:
+    assert load_vertical_contract(optimize_vertical).paper_mission is False
 
 
 def test_research_is_paper() -> None:
@@ -61,6 +56,6 @@ def test_direct_research_project_is_not_a_paper_mission(tmp_path) -> None:
     assert _paper_mission_for_project_root(tmp_path) is False
 
 
-def test_persisted_bounded_vertical_is_not_paper(tmp_path) -> None:
-    persist_vertical(tmp_path, "math_synth")
+def test_persisted_bounded_vertical_is_not_paper(optimize_vertical, tmp_path) -> None:
+    persist_vertical(tmp_path, optimize_vertical)
     assert _paper_mission_for_project_root(tmp_path) is False

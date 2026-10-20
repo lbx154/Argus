@@ -14,12 +14,13 @@ from argus.skills.vertical_select import persist_vertical
 
 @pytest.mark.parametrize("structured", [False, True])
 def test_stage_manager_receives_current_operator_context_from_state_root(
+    optimize_vertical,
     tmp_path, structured,
 ):
     state = tmp_path / "state"
     work = tmp_path / "work"
     work.mkdir()
-    persist_vertical(state, "math_synth", workflow_mode="staged")
+    persist_vertical(state, optimize_vertical, workflow_mode="staged")
     (state / "continuous.json").write_text(json.dumps({"objective": "original goal"}))
     directive = "Keep accepted groundwork; repair the actual remaining interface."
     if structured:
@@ -66,11 +67,11 @@ def test_stage_manager_receives_current_operator_context_from_state_root(
 
 
 @pytest.mark.parametrize("retract", [False, True])
-def test_changed_operator_context_prevents_stale_stage_commit(tmp_path, retract):
+def test_changed_operator_context_prevents_stale_stage_commit(optimize_vertical, tmp_path, retract):
     state = tmp_path / "state"
     work = tmp_path / "work"
     work.mkdir()
-    persist_vertical(state, "math_synth", workflow_mode="staged")
+    persist_vertical(state, optimize_vertical, workflow_mode="staged")
     set_active_manager_directive(state, "Current scope is unchanged.")
     before = (state / ".argus/PIPELINE_STATE.json").read_bytes()
 

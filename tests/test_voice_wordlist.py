@@ -63,20 +63,9 @@ VOICE_CLEAN_FILES: tuple[str, ...] = (
     "argus/verticals/research/prompt_policy.py",
     "argus/verticals/research/review_purchase.py",
     "argus/verticals/research/venue_profiles.py",
-    "argus/verticals/math/citation_check.py",
-    "argus/verticals/math/context_projection.py",
-    "argus/verticals/math/lean_async.py",
-    "argus/verticals/math/lean_evidence.py",
-    "argus/verticals/math/math_state.py",
-    "argus/verticals/math/stages.py",
-    "argus/verticals/math_synth/stages.py",
     "argus/verticals/software/stages.py",
     "argus/verticals/argus_maintenance/architecture_audit.py",
     "argus/verticals/path_evidence.py",
-    "argus/verticals/kernel_engineering/environment_audit.py",
-    "argus/verticals/kernel_engineering/frontier_watch.py",
-    "argus/verticals/kernel_engineering/leverage_gate.py",
-    "argus/verticals/kernel_engineering/stages.py",
     "argus/webapi/map_notes.py",
     "argus/webapi/map_references.py",
     "argus/webapi/routes/map_notes.py",
@@ -145,15 +134,6 @@ DISCIPLINE_PHRASES: tuple[str, ...] = (
     # A rendering artifact in a compiled PDF, kin to the imaging sense
     # (doc: "artifact (the ML literature's own senses)").
     "post-processing artifact",
-    # The data-synthesis pipeline math_synth ships as the object under study
-    # (doc: "synthesis pipeline"); also covers "data-synthesis pipeline".
-    "synthesis pipeline",
-    # Machine tokens (doc principle 9) quoted verbatim inside prose-shaped
-    # strings: CLI flags of the math ledger commands, and the frozen config
-    # path the math_synth banner must name exactly.
-    "--verdict",
-    "--artifact",
-    "configs/pipeline.yaml",
     # Chip design's EDA sense of sign-off, with and without the hyphen (doc:
     # "signoff / sign-off checks"): the signoff stage that closes a hardware
     # flow, sign-off checks (STA, DRC, LVS), a hardware sign-off reviewer, and

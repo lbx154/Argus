@@ -1320,13 +1320,13 @@ def test_execute_uses_full_pipeline_on_real_task(
     planned_tasks.clear()
     loop_kwargs.clear()
     runner.execute(
-        objective="run one direct kernel experiment",
+        objective="run one direct maintenance check",
         sink=_RecordingSink(),
         preplanned=True,
-        vertical_override="kernel_engineering",
+        vertical_override="argus_maintenance",
     )
     assert planned_tasks
-    assert loop_kwargs[0]["config"].active_vertical == "kernel_engineering"
+    assert loop_kwargs[0]["config"].active_vertical == "argus_maintenance"
     assert loop_kwargs[0]["config"].workflow_mode == "direct"
 
     planned_tasks.clear()

@@ -261,22 +261,22 @@ def test_consecutive_role_cycles_keep_a_large_common_prefix(tmp_path) -> None:
     assert min(ratios.values()) >= 0.75, ratios
 
 
-def test_engineer_banner_resolves_through_role_catalog(tmp_path) -> None:
-    persist_vertical(tmp_path, "math_synth")
-    contract = load_vertical_contract("math_synth", project_root=tmp_path)
+def test_engineer_banner_resolves_through_role_catalog(optimize_vertical, tmp_path) -> None:
+    persist_vertical(tmp_path, optimize_vertical)
+    contract = load_vertical_contract(optimize_vertical, project_root=tmp_path)
 
     engineer = resolve_role_prompt(mission_request(tmp_path))
 
-    assert engineer.vertical == "math_synth"
+    assert engineer.vertical == optimize_vertical
     assert engineer.role_banner == contract.banner("engineer")
     assert engineer.stage_checklist == ""
     assert engineer.fragment_ids == (
-        "vertical:math_synth:banner:engineer",
+        "vertical:optimize_lab:banner:engineer",
     )
 
 
-def test_planner_context_resolves_banner_stage_and_checklist(tmp_path) -> None:
-    persist_vertical(tmp_path, "math_synth")
+def test_planner_context_resolves_banner_stage_and_checklist(optimize_vertical, tmp_path) -> None:
+    persist_vertical(tmp_path, optimize_vertical)
     _set_stage(tmp_path, "optimize")
 
     context = resolve_role_prompt(continuous_request(tmp_path))
@@ -291,23 +291,9 @@ def test_planner_context_resolves_banner_stage_and_checklist(tmp_path) -> None:
     )
     assert context.paper_mission is False
     assert context.completion_gate != "certified"
-    assert "vertical:math_synth:checklist:planner:stage:optimize" in (
+    assert "vertical:optimize_lab:checklist:planner:stage:optimize" in (
         context.fragment_ids
     )
-
-
-def test_kernel_parallel_planning_policy_is_vertical_scoped(tmp_path) -> None:
-    kernel_root = tmp_path / "kernel"
-    software_root = tmp_path / "software"
-    persist_vertical(kernel_root, "kernel_engineering")
-    persist_vertical(software_root, "software")
-
-    kernel = resolve_role_prompt(continuous_request(kernel_root))
-    software = resolve_role_prompt(continuous_request(software_root))
-
-    assert "fill spare mission slots" in kernel.role_banner
-    assert "status polling" not in software.role_banner
-    assert "vertical:kernel_engineering:banner:planner" in kernel.fragment_ids
 
 
 def test_research_final_review_uses_only_review_stage_checklist(
@@ -462,9 +448,10 @@ def test_direct_planner_prompt_omits_stage_checklist(tmp_path) -> None:
 
 
 def test_manager_stage_decision_preserves_planner_checklist_framing(
+    optimize_vertical,
     tmp_path,
 ) -> None:
-    persist_vertical(tmp_path, "math_synth")
+    persist_vertical(tmp_path, optimize_vertical)
 
     context = resolve_role_prompt(
         stage_decision_request(tmp_path, stage="setup")
@@ -476,7 +463,7 @@ def test_manager_stage_decision_preserves_planner_checklist_framing(
         role="planner",
         project_root=tmp_path,
     )
-    assert "vertical:math_synth:checklist:planner:stage:setup" in (
+    assert "vertical:optimize_lab:checklist:planner:stage:setup" in (
         context.fragment_ids
     )
 
@@ -509,8 +496,8 @@ def test_unknown_role_operation_fails_loudly(tmp_path) -> None:
         )
 
 
-def test_planner_preview_uses_same_vertical_banner(tmp_path) -> None:
-    persist_vertical(tmp_path, "math_synth")
+def test_planner_preview_uses_same_vertical_banner(optimize_vertical, tmp_path) -> None:
+    persist_vertical(tmp_path, optimize_vertical)
 
     preview = resolve_role_prompt(preview_request(tmp_path))
     continuous = resolve_role_prompt(continuous_request(tmp_path))

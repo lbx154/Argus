@@ -105,15 +105,15 @@ def _with_parents(mod: ModuleType, *parents: object) -> ModuleType:
 def test_plugin_inherits_a_builtin_parents_skills_first(tmp_path, monkeypatch) -> None:
     from argus.skills.builtins import vertical_skill_parents
 
-    plugin = _with_parents(module(tmp_path), "kernel_engineering")
+    plugin = _with_parents(module(tmp_path), "software")
     install(monkeypatch, [Entry("bench", plugin)])
 
-    assert _registry.vertical_plugin("bench").skill_parents == ("kernel_engineering",)
-    assert vertical_skill_parents("bench") == ("kernel_engineering",)
+    assert _registry.vertical_plugin("bench").skill_parents == ("software",)
+    assert vertical_skill_parents("bench") == ("software",)
     names = [name for name, _ in iter_vertical_skill_texts("bench")]
-    kernel = [name for name, _ in iter_vertical_skill_texts("kernel_engineering")]
-    assert kernel and names[: len(kernel)] == kernel
-    assert names[len(kernel):] == ["engineer/plugin.md"]
+    parent = [name for name, _ in iter_vertical_skill_texts("software")]
+    assert parent and names[: len(parent)] == parent
+    assert names[len(parent):] == ["engineer/plugin.md"]
 
 
 def test_plugin_parent_may_itself_be_a_plugin(tmp_path, monkeypatch) -> None:

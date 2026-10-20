@@ -97,13 +97,13 @@ Kernel Reviewer 现在：
 
 ## 运行时与 Skill 修改
 
-策略落在：
+策略落在 argus-verticals 仓库：
 
-- `argus/verticals/kernel_engineering/stages.py`
-- `argus/verticals/kernel_engineering/skills/engineer/kernel-benchmark-measurement-integrity.md`
-- `argus/verticals/kernel_engineering/references/frontier-search-protocol.md`
-- `argus/verticals/kernel_engineering/references/idgl-loop.md`
-- `argus/verticals/kernel_engineering/skills/engineer/kernel-benchmark-measurement-integrity.md`
+- `argus_verticals/kernel_engineering/stages.py`
+- `argus_verticals/kernel_engineering/skills/engineer/kernel-benchmark-measurement-integrity.md`
+- `argus_verticals/kernel_engineering/references/frontier-search-protocol.md`
+- `argus_verticals/kernel_engineering/references/idgl-loop.md`
+- `argus_verticals/kernel_engineering/skills/engineer/kernel-benchmark-measurement-integrity.md`
 
 所有 kernel mission 都可使用 live search。测试固定了角色契约、联网能力、纯报告研究、高上限偏好、单次筛选，以及探索与认证的分离。
 

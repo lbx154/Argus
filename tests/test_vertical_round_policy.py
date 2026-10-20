@@ -36,15 +36,7 @@ from argus.verticals._data_domain import DataDomain
 
 _NO_KNOBS: dict[str, str] = {}
 
-_BUILT_INS = (
-    "argus_maintenance",
-    "kernel_engineering",
-    "learning",
-    "math",
-    "math_synth",
-    "research",
-    "software",
-)
+_BUILT_INS = ("argus_maintenance", "learning", "research", "software")
 
 
 @pytest.fixture(autouse=True)
@@ -105,9 +97,8 @@ def test_no_built_in_vertical_is_tighter_than_the_default() -> None:
 # ---------------------------------------------------------------------------
 
 
-@pytest.mark.parametrize("name", ["kernel_engineering", "argus_maintenance", "math"])
-def test_verification_verticals_turn_round_count_guards_off(name: str) -> None:
-    policy = load_vertical_contract(name, scoped=False).round_policy
+def test_verification_verticals_turn_round_count_guards_off() -> None:
+    policy = load_vertical_contract("argus_maintenance", scoped=False).round_policy
     assert policy is not None
     assert policy.soft_round_limit == 0
     assert policy.hard_escalate_rounds >= 200
@@ -199,9 +190,9 @@ def test_data_domain_policy_reaches_the_mission(tmp_path) -> None:
 
 def test_mission_resolution_uses_the_active_vertical(tmp_path) -> None:
     loop = SimpleNamespace(config=SkillLoopConfig())
-    policy = SkillLoop._resolve_round_policy(loop, "kernel_engineering", tmp_path)
+    policy = SkillLoop._resolve_round_policy(loop, "argus_maintenance", tmp_path)
     assert policy == resolve_round_policy(
-        load_vertical_contract("kernel_engineering", scoped=False).round_policy,
+        load_vertical_contract("argus_maintenance", scoped=False).round_policy,
         env=_NO_KNOBS,
         persisted={},
     )
@@ -210,7 +201,7 @@ def test_mission_resolution_uses_the_active_vertical(tmp_path) -> None:
 
 def test_explicit_mission_config_wins_over_the_vertical(tmp_path) -> None:
     loop = SimpleNamespace(config=SkillLoopConfig(soft_round_limit=5, stall_threshold=0))
-    policy = SkillLoop._resolve_round_policy(loop, "kernel_engineering", tmp_path)
+    policy = SkillLoop._resolve_round_policy(loop, "argus_maintenance", tmp_path)
     assert policy.soft_round_limit == 5
     assert policy.stall_threshold == 0
 

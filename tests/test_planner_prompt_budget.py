@@ -14,47 +14,11 @@ from argus.planner import Planner
 from argus.roles.prompts.planner import _RESEARCH_PLAN_CONTRACT
 from argus.skills.vertical_select import persist_vertical
 
-# Raised from 9_500 / 15_000 when the math vertical gained the objective mode
-# (targeted vs exploratory), the route ledger, and the proof-gap graph — three
-# blocks the planner has to see to choose a next step, deliberately added
-# rather than prose creep. The existing text was compressed first: the opening,
-# the failed-attempt paragraph, and the closing options list are all shorter
-# than they were. Compress again before raising these further.
-#
-# Raised again from 9_700 / 15_400 for two blocks the testbed runs paid for,
-# both about work the planner can only place in `scope`:
-#   * settle known results before dispatch — several workers on one goal cannot
-#     see each other's searches, so a lookup done in `scope` costs once and the
-#     same lookup done in `solve` costs once per worker; finding nothing is
-#     recorded as a result too;
-#   * two genuinely different attacks are two routes, an OR, and the test of
-#     "different" is that they fail for different reasons — two routes dying to
-#     the same obstruction were one route.
-# Neither restates existing text. Compress before raising a third time.
-# Raised by 50 to let the decision example carry a real question and a real
-# objective. It used to hold placeholders, and the Planner copied them
-# through: every campaign shipped a mission literally titled "title", then
-# — after those were replaced with angle-bracket slots — one titled
-# "<question>". An example a model can paste verbatim without producing
-# nonsense is worth fifty characters of fixed policy.
-# Raised for the stage checklist intentionally added to staged Planner prompts:
-# this is now the shared definition of useful progress for Planner and Reviewer,
-# rather than unrelated prompt ceremony. Direct workflows still omit it.
-# Raised by 1,100 for the fixed living-research-plan contract. The plan itself
-# has a separate 8,000-character projection cap tested below, so future policy
-# prose cannot silently consume that dynamic-state allowance.
-# +100 on 2026-09-16 for one fixed policy line ("plan from the mission workspace
-# only") after the bounded Planner was seen listing sibling projects.
-# +100 on 2026-10-08 for the fan-out line (emit independent input/config
-# variants together up to the free slots). It replaced "assign one task; split
-# only for dependencies or parallel work", which logs showed the Planner read as
-# one task per cycle even with free slots; the guidance had lived only in a
-# staged research checklist that direct/team routes never render.
-# +300 on 2026-10-08 for the time-fit and concurrency judgement questions: a
-# plan sized against no clock overran a one-week window about sixfold, and the
-# digest's time line is useless unless the Planner is asked to read it.
-MATH_SCOPE_BUDGET = 13_250
-MATURE_MATH_SCOPE_BUDGET = 19_050
+# A little above what the staged argus_maintenance prompt costs today
+# (2026-10-20, when math moved to argus-verticals and these guards moved off its
+# prompt). Raise only for fixed policy that earns its space; compress first.
+SCOPE_BUDGET = 9_450
+MATURE_SCOPE_BUDGET = 15_250
 RESEARCH_PLAN_DYNAMIC_BUDGET = 8_000
 
 
@@ -71,17 +35,13 @@ def _without_host_shell_guidance(prompt: str) -> str:
     return prompt
 
 
-def _build_math_scope_prompt(
+def _build_scope_prompt(
     tmp_path,
     monkeypatch,
     *,
     journal_tail: str = "(empty)",
 ) -> tuple[str, str]:
-    persist_vertical(
-        tmp_path,
-        "math",
-        research_target_level="doctoral",
-    )
+    persist_vertical(tmp_path, "argus_maintenance")
     monkeypatch.setenv("ARGUS_SKILL_PROJECT_ROOT", str(tmp_path))
     objective = (
         "Search current mathematical literature and primary sources to identify "
@@ -98,9 +58,9 @@ def _build_math_scope_prompt(
         "## Manager intent boundary (authoritative)\n"
         "- intent_id: intent-test\n"
         "- source: daemon_boot\n"
-        "- interpreted_vertical: math\n"
-        "- kind: custom\n"
-        "- stages: scope, solve, review\n"
+        "- interpreted_vertical: argus_maintenance\n"
+        "- kind: software\n"
+        "- stages: inspect, change, verify\n"
         "- reason: manager completed daemon objective handoff\n\n"
         "Plan only work consistent with this Manager boundary."
     )
@@ -115,16 +75,16 @@ def _build_math_scope_prompt(
 
 
 @pytest.mark.parametrize("policy", ["standard", "progress-first", "strict"])
-def test_math_scope_prompt_is_compact_and_deduplicated(
+def test_scope_prompt_is_compact_and_deduplicated(
     tmp_path,
     monkeypatch,
     policy,
 ) -> None:
     monkeypatch.setenv("ARGUS_SKILL_EVIDENCE_POLICY", policy)
-    prompt, objective = _build_math_scope_prompt(tmp_path, monkeypatch)
+    prompt, objective = _build_scope_prompt(tmp_path, monkeypatch)
 
-    assert len(_without_host_shell_guidance(prompt)) < MATH_SCOPE_BUDGET, (
-        f"math scope Planner prompt is {len(_without_host_shell_guidance(prompt))} chars; keep fixed policy "
+    assert len(_without_host_shell_guidance(prompt)) < SCOPE_BUDGET, (
+        f"scope Planner prompt is {len(_without_host_shell_guidance(prompt))} chars; keep fixed policy "
         "compact and move state-specific guidance behind structured triggers"
     )
     assert prompt.count(objective) == 1
@@ -141,16 +101,16 @@ def test_math_scope_prompt_is_compact_and_deduplicated(
     assert "JSON matching the provided schema" not in prompt
 
 
-def test_math_scope_prompt_excludes_unrelated_modules(
+def test_scope_prompt_excludes_unrelated_modules(
     tmp_path,
     monkeypatch,
 ) -> None:
-    prompt, _objective = _build_math_scope_prompt(tmp_path, monkeypatch)
+    prompt, _objective = _build_scope_prompt(tmp_path, monkeypatch)
 
     assert '## Assigning work' in prompt
     assert "## Current workflow stage" in prompt
-    assert "current: `scope`" in prompt
-    assert "## Stage checklist (scope)" in prompt
+    assert "current: `inspect`" in prompt
+    assert "## Stage checklist (inspect)" in prompt
     assert "## Stage gate" not in prompt
     assert "## Parallel paper-drafting track" not in prompt
     assert "PAPER_INFRASTRUCTURE_REVIEW.json" not in prompt
@@ -163,7 +123,7 @@ def test_direct_workflow_suppresses_stage_artifact_ceremony(
 ) -> None:
     persist_vertical(
         tmp_path,
-        "kernel_engineering",
+        "argus_maintenance",
         workflow_mode="direct",
     )
     monkeypatch.setenv("ARGUS_SKILL_PROJECT_ROOT", str(tmp_path))
@@ -177,9 +137,8 @@ def test_direct_workflow_suppresses_stage_artifact_ceremony(
 
     assert "## Direct workflow — objective first" in prompt
     assert 'describes the kind of work, without requiring a separate set of files' in prompt
-    assert "## Stage checklist (scope)" not in prompt
+    assert "## Stage checklist (inspect)" not in prompt
     assert "## Stage gate" not in prompt
-    assert "KERNEL_SCOPE.md" not in prompt
 
 
 def test_planner_keeps_operator_actions_ahead_of_optional_hardening(
@@ -244,7 +203,7 @@ def test_research_prompt_carries_no_final_submission_scope_machinery(
     assert "## Final-submission task scope" not in prompt
 
 
-def test_mature_math_prompt_keeps_only_bounded_terminal_history(
+def test_mature_prompt_keeps_only_bounded_terminal_history(
     tmp_path,
     monkeypatch,
 ) -> None:
@@ -253,13 +212,13 @@ def test_mature_math_prompt_keeps_only_bounded_terminal_history(
         for index in range(3)
     )
 
-    prompt, _objective = _build_math_scope_prompt(
+    prompt, _objective = _build_scope_prompt(
         tmp_path,
         monkeypatch,
         journal_tail=journal,
     )
 
-    assert len(_without_host_shell_guidance(prompt)) < MATURE_MATH_SCOPE_BUDGET
+    assert len(_without_host_shell_guidance(prompt)) < MATURE_SCOPE_BUDGET
 
 
 def test_planner_journal_uses_latest_three_terminal_outcomes() -> None:
@@ -450,7 +409,7 @@ def test_planner_prompt_asks_for_fanout_of_independent_work(
     research: independent work that differs only in inputs and writes
     disjoint outputs is emitted together up to the free slots, after any
     shared code change it depends on."""
-    prompt, _ = _build_math_scope_prompt(tmp_path, monkeypatch)
+    prompt, _ = _build_scope_prompt(tmp_path, monkeypatch)
     flat = " ".join(prompt.split())
 
     assert "differ only in inputs or config" in flat
@@ -465,7 +424,7 @@ def test_planner_prompt_asks_time_fit_and_concurrency_questions(
     """A plan sized against no clock overran a one-week window sixfold; a
     Planner that is never asked what else can start emits one task a cycle.
     Both are judgement questions, not gates."""
-    prompt, _ = _build_math_scope_prompt(tmp_path, monkeypatch)
+    prompt, _ = _build_scope_prompt(tmp_path, monkeypatch)
     flat = " ".join(prompt.split())
 
     assert "measured throughput" in flat

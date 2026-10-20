@@ -795,63 +795,6 @@ def test_regular_task_adopts_nested_repository_as_campaign_root(tmp_path) -> Non
     assert after == before
 
 
-def test_kernel_baseline_mission_receives_clean_reference_without_revert(
-    tmp_path,
-) -> None:
-    import json
-    import subprocess
-
-    memory = LifeMemory.open(tmp_path / "life")
-    sink = _RecordingSink(memory.root)
-    runner = _MaintenanceRunner()
-    project = tmp_path / "kernel-project"
-    project.mkdir()
-    subprocess.run(["git", "init", "-q"], cwd=project, check=True)
-    subprocess.run(["git", "config", "user.name", "test"], cwd=project, check=True)
-    subprocess.run(
-        ["git", "config", "user.email", "test@example.com"],
-        cwd=project,
-        check=True,
-    )
-    (project / "kernel.py").write_text("baseline\n", encoding="utf-8")
-    subprocess.run(["git", "add", "kernel.py"], cwd=project, check=True)
-    subprocess.run(["git", "commit", "-qm", "baseline"], cwd=project, check=True)
-    pipeline = project / ".argus" / "PIPELINE_STATE.json"
-    pipeline.parent.mkdir()
-    pipeline.write_text(
-        json.dumps({
-            "vertical": "kernel_engineering",
-            "current_stage": "baseline",
-        }),
-        encoding="utf-8",
-    )
-    (project / "kernel.py").write_text("candidate\n", encoding="utf-8")
-    supervisor = LifeSupervisor(
-        memory=memory,
-        runner=runner,
-        sink=sink,
-        config=LifeSupervisorConfig(
-            project_worktree=project,
-            artifact_root=project,
-        ),
-    )
-    memory.backlog.add(BacklogItem.new(
-        title="capture baseline",
-        objective="measure the clean reference",
-        tags=["planner", "review:required", "scope:bounded"],
-    ))
-
-    result = supervisor.tick()
-
-    assert result is not None and result["status"] == "done"
-    prelude = runner.kwargs["prelude_context"]
-    assert "## Kernel baseline isolation" in prelude
-    assert "clean_reference_root" in prelude
-    assert (project / "kernel.py").read_text(encoding="utf-8") == "candidate\n"
-    reference = memory.root / "runtime-worktrees" / "kernel-baseline" / "kernel.py"
-    assert reference.read_text(encoding="utf-8") == "baseline\n"
-
-
 def test_research_incomplete_mission_is_paused_and_resumable(tmp_path) -> None:
     assert "paused" in PLANNER_DEDUP_STATUSES
     mem = LifeMemory.open(tmp_path / "life")

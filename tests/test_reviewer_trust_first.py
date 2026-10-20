@@ -95,8 +95,8 @@ def _project_reviewer_prompt(tmp_path, *, scope: str = "") -> tuple[str, Reviewe
     return prompt, reviewer
 
 
-def test_math_review_omits_paper_review_rubric(tmp_path) -> None:
-    _persist_review_stage(tmp_path, "math")
+def test_non_paper_review_omits_paper_review_rubric(tmp_path) -> None:
+    _persist_review_stage(tmp_path, "learning")
 
     prompt, reviewer = _project_reviewer_prompt(tmp_path)
 
@@ -113,8 +113,8 @@ def test_final_certification_review_keeps_paper_review_rubric(tmp_path) -> None:
     assert reviewer.last_prompt_block_stats["static_total"]["chars"] > 0
 
 
-def test_final_submission_does_not_make_math_a_paper_vertical(tmp_path) -> None:
-    _persist_review_stage(tmp_path, "math")
+def test_final_submission_does_not_make_a_non_paper_vertical_a_paper_one(tmp_path) -> None:
+    _persist_review_stage(tmp_path, "learning")
 
     prompt, _reviewer = _project_reviewer_prompt(
         tmp_path,

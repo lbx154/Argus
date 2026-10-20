@@ -539,8 +539,8 @@ export ARGUS_SKILL_AUTONOMY_MODE=autonomous
 
 ### Verticals
 
-Argus 本体内置 7 个 vertical：`research`、`software`、`argus_maintenance`、`kernel_engineering`、
-`math`、`math_synth`、`learning`。其余 17 个——`quant`、`speedrun`、`kernelbench`、`nanochat`、
+Argus 本体内置 4 个 vertical：`research`、`software`、`argus_maintenance`、`learning`。
+其余的——`math`、`kernel_engineering`、`math_synth`、`quant`、`speedrun`、`kernelbench`、`nanochat`、
 `nanogpt_speedrun`、`chip_design`、`digital_circuit`、`digital_circuit_benchmark`、`medical`、
 `materials`、`physics`、`ale_last_exam`、`fiction_writing`、`prose`、`modern_poetry`、
 `classical_poetry`、`literary_editor`——放在社区仓库
@@ -564,7 +564,7 @@ Argus 的 Python 环境（`pip install "argus-verticals @ git+https://github.com
 
 Vertical 可以为你的领域提供专属阶段、Skill、数据集、工具、证据要求、评测方法与完成标准。规划与审查将遵循该领域真正重要的规范，而不是一套通用流程。
 
-`math` vertical 是已实现的完整范例：三阶段流程、内容寻址的证据库、Lean 机械验证，以及"哪一类检查才有资格判定哪一类问题"的明确规则。详见 **[mathematical research](docs/research-mathematics.md)**（英文）。
+argus-verticals 里的 `math` vertical 是已实现的完整范例：三阶段流程、内容寻址的证据库、Lean 机械验证，以及"哪一类检查才有资格判定哪一类问题"的明确规则。详见它的 **[设计说明](https://github.com/Argus-AiTeam/argus-verticals/blob/main/argus_verticals/math/DESIGN.md)**（英文）。
 
 ### 让其他 Agent 成为外层入口
 
@@ -728,7 +728,7 @@ Linux 请先停止 Argus、保留所需工作，再删除 `$HOME/Argus` checkout
 ## 仓库布局
 
 - `argus/` —— Python 包本体；`argus`、`argus` 与守护进程运行的全部代码。
-- `argus/core/`、`proof_ledger/` —— 内核：模型、端口、契约、路径。目标是叶子：不得 import 任何更高层；今天残余的向上边钉在不变量测试（`tests/test_architecture_invariants.py`）里，第 1 阶段移除。
+- `argus/core/` —— 内核：模型、端口、契约、路径。目标是叶子：不得 import 任何更高层；今天残余的向上边钉在不变量测试（`tests/test_architecture_invariants.py`）里，第 1 阶段移除。
 - `argus/agent_cli/`、`adapters/`、`provider_integrations/`、`advisor/` —— 模型 CLI（codex、claude、copilot……）的驱动与外部顾问侧信道。
 - `argus/skills/`、`tools/`、`wiki/`、`cli/` —— 能力：Skill 库、操作者批准的工具、项目 Wiki、终端渲染。
 - `argus/verticals/`、`domains/`、`builtin_skills/` —— 领域知识：7 个内置垂直（另外 17 个由 `argus-verticals` 以 entry point 接入）、overlay、种子 Skill。

@@ -384,7 +384,7 @@ def _kernel_supervisor(
         ),
         planner_runner=planner,
     )
-    persist_vertical(life, "kernel_engineering", workflow_mode="staged")
+    persist_vertical(life, "optimize_lab", workflow_mode="staged")
     supervisor._vertical_resolved = True
     supervisor._planner_config = lambda: PlannerConfig(  # type: ignore[method-assign]
         working_dir=str(project),
@@ -395,6 +395,7 @@ def _kernel_supervisor(
 
 
 def test_direct_kernel_workflow_does_not_generate_scope_bundle(
+    optimize_vertical: str,
     tmp_path: Path,
 ) -> None:
     project = tmp_path / "project"
@@ -415,7 +416,7 @@ def test_direct_kernel_workflow_does_not_generate_scope_bundle(
         ])
     ])
     supervisor = _kernel_supervisor(project, life, planner)
-    persist_vertical(life, "kernel_engineering", workflow_mode="direct")
+    persist_vertical(life, optimize_vertical, workflow_mode="direct")
 
     assert supervisor._plan_next_work() is True
 
@@ -554,6 +555,7 @@ def test_continuous_reload_rejects_malformed_provider_tuple(caplog) -> None:
 
 
 def test_task_policy_uses_isolated_stage_and_execution_evidence_root(
+    optimize_vertical: str,
     tmp_path: Path,
 ) -> None:
     project = tmp_path / "project"
@@ -565,7 +567,7 @@ def test_task_policy_uses_isolated_stage_and_execution_evidence_root(
     (research / "frontier" / "scope.json").write_text("{}\n", encoding="utf-8")
     # Deliberately stale workspace state must not override Manager-owned state.
     (research / "PIPELINE_STATE.json").write_text(
-        json.dumps({"vertical": "kernel_engineering", "current_stage": "optimize"}),
+        json.dumps({"vertical": optimize_vertical, "current_stage": "optimize"}),
         encoding="utf-8",
     )
     attempt = project / "attempts" / "winner"
@@ -1022,6 +1024,7 @@ def test_new_continuous_generation_interrupts_obsolete_planner(tmp_path: Path) -
 
 
 def test_split_memory_planner_resolves_vertical_from_project_state(
+    optimize_vertical: str,
     tmp_path: Path,
 ) -> None:
     worktree = tmp_path / "worktree"
@@ -1044,7 +1047,7 @@ def test_split_memory_planner_resolves_vertical_from_project_state(
     )
     persist_vertical(
         project_memory.root,
-        "kernel_engineering",
+        optimize_vertical,
         workflow_mode="direct",
     )
     supervisor = LifeSupervisor(
@@ -1074,7 +1077,7 @@ def test_split_memory_planner_resolves_vertical_from_project_state(
     assert config.state_root == str(project_memory.root)
     assert config.role_session_path == project_memory.root / "role-sessions" / "planner.json"
     assert str(global_root) not in config.add_dirs
-    assert "fill spare mission slots" in prompt
+    assert "optimize_lab planner banner" in prompt
 
 
 def test_research_planner_is_granted_the_playbook_its_prompt_names(

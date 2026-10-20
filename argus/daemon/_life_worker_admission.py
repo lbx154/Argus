@@ -425,13 +425,13 @@ def spawn_detached_daemon_clean(
     preflight_rc, preflight_error = _clean_spawn_preflight(config)
     if not preflight_error:
         from ..core.plugin_manager import PluginUnavailableError, require_session_plugin
-        from ..skills.vertical_select import resolve_vertical_if_decided
+        from ..skills.vertical_select import UninstalledVerticalError, resolve_vertical_if_decided
 
         try:
             vertical = resolve_vertical_if_decided(config.life_dir)
             require_session_plugin(config.life_dir, vertical=vertical,
                                    working_dir=config.project_workdir, check_binding=True)
-        except PluginUnavailableError as exc:
+        except (PluginUnavailableError, UninstalledVerticalError) as exc:
             preflight_rc, preflight_error = 2, str(exc)
     if preflight_error:
         detail = _record_spawn_error(config, preflight_error)

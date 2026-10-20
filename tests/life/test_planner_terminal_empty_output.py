@@ -29,6 +29,8 @@ from argus.life.supervisor._core import LifeSupervisor
 from argus.manager import Manager
 from argus.planner import NO_CONCRETE_TASKS_ERROR, PlannerVerdict
 
+pytestmark = pytest.mark.usefixtures("targeted_vertical")
+
 
 @pytest.mark.parametrize("report_count", [1, 12])
 def test_operator_behind_native_host_reports_reaches_planner_before_completion(
@@ -332,7 +334,7 @@ def _write_software_state(project: Path, *, done: bool) -> None:
     )
 
 
-def _write_reviewed_math_scope_state(project: Path) -> None:
+def _write_reviewed_scope_state(project: Path) -> None:
     research = project / "research"
     research.mkdir(parents=True, exist_ok=True)
     state_path = project / ".argus" / "PIPELINE_STATE.json"
@@ -340,11 +342,10 @@ def _write_reviewed_math_scope_state(project: Path) -> None:
     state_path.write_text(
         json.dumps(
             {
-                "vertical": "math",
+                "vertical": "targeted_lab",
                 "current_stage": "scope",
                 "research_target_level": "doctoral",
                 "workflow_mode": "staged",
-                "math_objective_mode": "exploratory",
             }
         ),
         encoding="utf-8",
@@ -1244,7 +1245,7 @@ def test_nonterminal_planning_replays_unassessed_current_stage_review_first(
     backend.manager_action = "advance"
     backend.manager_target_stage = "solve"
     project = Path(supervisor.config.project_worktree)
-    _write_reviewed_math_scope_state(project)
+    _write_reviewed_scope_state(project)
     assert _candidate_artifact_paths(project) == []
     item = supervisor.memory.backlog.add(
         BacklogItem.new(
@@ -1399,7 +1400,7 @@ def test_newer_replan_review_blocks_older_stage_replay(
         split_memory=True,
     )
     project = Path(supervisor.config.project_worktree)
-    _write_reviewed_math_scope_state(project)
+    _write_reviewed_scope_state(project)
     older = supervisor.memory.backlog.add(
         BacklogItem.new(
             title="Define the mathematical scope",
@@ -1506,7 +1507,7 @@ def test_bounded_continuous_campaign_replays_deferred_stage_review(
     backend.manager_action = "advance"
     backend.manager_target_stage = "solve"
     project = Path(supervisor.config.project_worktree)
-    _write_reviewed_math_scope_state(project)
+    _write_reviewed_scope_state(project)
     item = supervisor.memory.backlog.add(
         BacklogItem.new(
             title="Define the mathematical scope",
@@ -1573,7 +1574,7 @@ def test_deterministic_stage_gate_hold_is_not_re_adjudicated_next_cycle(
         split_memory=True,
     )
     project = Path(supervisor.config.project_worktree)
-    _write_reviewed_math_scope_state(project)
+    _write_reviewed_scope_state(project)
     monkeypatch.setattr(
         "argus.core.vertical_contract.VerticalContract.completion_issues",
         lambda *_args, **_kwargs: ("scope evidence is incomplete",),
@@ -1639,7 +1640,7 @@ def test_review_only_item_is_never_replayed_into_stage_writer(
         split_memory=True,
     )
     project = Path(supervisor.config.project_worktree)
-    _write_reviewed_math_scope_state(project)
+    _write_reviewed_scope_state(project)
     item = supervisor.memory.backlog.add(
         BacklogItem.new(
             title="Review bounded candidate",
@@ -1702,7 +1703,7 @@ def test_replay_reads_only_the_latest_run_of_a_requeued_mission(
         split_memory=True,
     )
     project = Path(supervisor.config.project_worktree)
-    _write_reviewed_math_scope_state(project)
+    _write_reviewed_scope_state(project)
     item = supervisor.memory.backlog.add(
         BacklogItem.new(
             title="Define the mathematical scope",
