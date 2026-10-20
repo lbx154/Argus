@@ -15,7 +15,7 @@ from typing import TYPE_CHECKING, Callable
 
 from ..core.models import ReviewDecision, RunnerResult
 from ..core.role_handoff import HANDOFF_STATUS, LADDER, read_baton_line, strip_handoff
-from ..life.memory import Backlog
+from .round_reviewer import backlog_history
 from .round_state import (
     EngineerTurnOutcome,
     RoundControl,
@@ -81,16 +81,12 @@ def accepted_as_is(state: RoundLoopState, label: str) -> bool:
     Reviewer like any unchanged return. An unreadable backlog keeps nothing.
     """
     verdict = state.snapshots.held_verdict("reviewer") if state.snapshots is not None else None
-    if not verdict or state.state_root is None or not returned_unchanged("reviewer", state, label):
+    if not verdict or not returned_unchanged("reviewer", state, label):
         return False
-    backlog = state.state_root / "backlog.jsonl"
-    if not backlog.is_file():
-        return True
-    try:
-        rows = Backlog(backlog).history()
-    except Exception:  # noqa: BLE001 - an unreadable backlog keeps no acceptance
-        return False
-    return not any(row.id == verdict["mission"] and row.status != "done" for row in rows)
+    rows = backlog_history(state.state_root)
+    return rows is not None and not any(
+        row.id == verdict["mission"] and row.status != "done" for row in rows
+    )
 
 
 def no_turn(state: RoundLoopState) -> EngineerTurnOutcome:
