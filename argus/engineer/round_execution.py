@@ -321,8 +321,8 @@ class RoundExecutionMixin:
                 "ARGUS PROCESS OWNERSHIP FACT: the provider turn exited while "
                 f"descendants remained in its private process group {orphan_group_id}. "
                 "The runner targeted only that exact group for cleanup "
-                f"(cleanup_succeeded={str(cleanup_succeeded).lower()}). Durable "
-                "Argus subagents run in separately owned process groups. Treat this "
+                f"(cleanup_succeeded={str(cleanup_succeeded).lower()}). Jobs started "
+                "detached with setsid run in their own process groups. Treat this "
                 "as an orchestration fact, not as scientific evidence."
             )
             if on_event:

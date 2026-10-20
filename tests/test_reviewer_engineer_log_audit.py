@@ -300,7 +300,6 @@ def test_config_path_is_threaded_into_evaluate(tmp_path: Path) -> None:
     )
     config = SupervisedConfig(
         max_rounds=1,
-        background_subagent_advisory=False,
         engineer_log_path=log_path,
     )
     engine.run(
@@ -328,7 +327,6 @@ def test_gateway_synthesized_call_id_uses_legacy_unscoped_audit(
     )
     config = SupervisedConfig(
         max_rounds=1,
-        background_subagent_advisory=False,
         engineer_log_path=log_path,
     )
 
@@ -353,7 +351,6 @@ def test_empty_config_path_threads_empty_string(tmp_path: Path) -> None:
     )
     config = SupervisedConfig(
         max_rounds=1,
-        background_subagent_advisory=False,
     )
     engine.run(
         objective="implement the increment",

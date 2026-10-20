@@ -108,8 +108,8 @@ If the execution owner dies, the guard reclaims its temporary provider process
 tree. On daemon restart, use the persistent backlog. An interrupted provider
 call is not resumed from CPU/RAM state or blindly retried.
 
-Explicit durable subagent/command launchers have their own registry and ownership
-boundary. They are distinct from temporary tool descendants; see
+Jobs a role starts detached (`setsid`, `Start-Process`) leave the provider's
+process group on purpose and are the role's to wait for; see
 [Windows process ownership](windows-process-ownership.md). POSIX process groups
 are not a sandbox against children deliberately creating new sessions. A service
 manager's control group also covers simultaneous loss of the execution owner and

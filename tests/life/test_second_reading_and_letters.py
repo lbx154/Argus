@@ -254,8 +254,6 @@ def _supervisor_stub(tmp_path: Path, manager: _Manager, *, stage: str = "experim
         def _render_campaign_tally(self) -> str:
             return "12 terminal missions"
 
-        def _live_subagent_id_line(self) -> str:
-            return ""
 
     return Stub(), life_dir, workdir
 

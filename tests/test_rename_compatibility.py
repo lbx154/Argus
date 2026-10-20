@@ -95,7 +95,7 @@ def test_legacy_import_emits_one_deprecation_warning() -> None:
     ("module", "arguments", "expected"),
     [
         ("argus_skill", ["--version"], f"argus {argus.__version__}"),
-        ("argus_skill.tools.subagent", ["--help"], "usage: subagent"),
+        ("argus_skill.tools.team", ["--help"], "usage: argus.tools.team"),
         ("argus", ["--version"], f"argus {argus.__version__}"),
     ],
 )

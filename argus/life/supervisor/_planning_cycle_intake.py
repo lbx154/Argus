@@ -240,11 +240,10 @@ class PlanningCycleIntakeMixin:
         )
 
         transient_messages = unique_operator_messages(transient_messages)
-        # A subagent's completion report is the host telling itself a job
-        # settled. The job's state already reaches the unchanged-input digest
-        # through the external-work registry, so the report rides along with
-        # the next Planner turn instead of forcing one. Counting it as operator
-        # input forced 63 of 131 back-to-back Planner calls on 2026-10-15.
+        # A background-job report an older release queued is the host telling
+        # itself a job settled, so it rides along with the next Planner turn
+        # instead of forcing one. Counting it as operator input forced 63 of
+        # 131 back-to-back Planner calls on 2026-10-15.
         operator_messages = [
             message for message in transient_messages if not is_host_report(message)
         ]

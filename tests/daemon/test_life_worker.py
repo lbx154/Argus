@@ -3473,7 +3473,7 @@ def test_bounded_daemon_exits_when_runtime_failure_circuit_is_open(
     assert calls == ["awaiting_external"]
 
 
-def test_bounded_daemon_keeps_waiting_on_external_work_without_a_circuit(
+def test_bounded_daemon_keeps_going_after_an_idle_planner_without_a_circuit(
     tmp_path: Path,
 ) -> None:
     worker, rf_state, calls = _bounded_worker_with_scripted_supervisor(

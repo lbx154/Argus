@@ -198,8 +198,6 @@ def _build_supervisor_config(
     return LifeSupervisorConfig(
         budget=LifeBudget(max_missions=0),
         planner_task_iteration_max_cycles=cfg.planner_task_iteration_max_cycles,
-        subagent_family_failure_streak_limit=cfg.subagent_family_failure_streak_limit,
-        subagent_family_failure_window_hours=cfg.subagent_family_failure_window_hours,
         poll_interval_seconds=2.0,
         project_worktree=cfg.project_workdir,
         stop_event=stop_event,

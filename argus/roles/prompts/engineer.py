@@ -142,7 +142,6 @@ def assemble_round_prompt(
     role_context: str = "",
     checkpoint_block: str = "",
     background_advisory: str = "",
-    external_work_advisory: str = "",
 ) -> str:
     """Append all dynamic Engineer round fragments in one stable order.
 
@@ -161,12 +160,7 @@ def assemble_round_prompt(
         separator, operator_tail = "", ""
     tail = [
         sanitize_model_visible_text(block)
-        for block in (
-            role_context,
-            checkpoint_block,
-            background_advisory,
-            external_work_advisory,
-        )
+        for block in (role_context, checkpoint_block, background_advisory)
         if block
     ]
     if separator:

@@ -26,8 +26,6 @@ from ._planning_cycle_verdict import PlanningCycleVerdictMixin
 
 log = logging.getLogger(__name__)
 
-# External-work sources whose state the Planner sees.
-HOST_OBSERVED_WAIT_SOURCES = frozenset({"subagent", "team"})
 
 
 class PlanningCycleMixin(
@@ -37,20 +35,6 @@ class PlanningCycleMixin(
     PlanningCycleEnqueueMixin,
     PlannerFailureBackoffMixin,
 ):
-    def _waitable_subagent_jobs(self) -> list[Any]:
-        """Live background work: subagent jobs and teams (``team:<id>``)."""
-        try:
-            from ...engineer.external_work import scan_external_work
-
-            return [
-                job
-                for job in scan_external_work(self._project_workdir())
-                if job.source in HOST_OBSERVED_WAIT_SOURCES and job.waitable
-            ]
-        except Exception:  # noqa: BLE001 - liveness discovery is fail-soft
-            log.debug("failed to inspect waitable subagents", exc_info=True)
-            return []
-
     def _emit_planner_verdict(
         self,
         *,

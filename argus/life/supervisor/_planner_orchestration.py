@@ -19,10 +19,6 @@ from ._helpers import (
     _entry_task_signature,
     _is_recent_no_progress_failure,
 )
-from ._subagent_family_failures import (
-    SubagentFamilyFailure,
-    recent_subagent_family_failures,
-)
 
 if TYPE_CHECKING:
     from ._config import _MemoryView
@@ -54,44 +50,6 @@ class PlannerOrchestrationMixin:
         config: LifeSupervisorConfig
 
         def _project_state_root(self) -> Path: ...
-
-    def _live_subagent_id_line(self) -> str:
-        """Name the live subagent work_ids, or say nothing.
-
-        Empty while nothing is running, so a quiet campaign pays no prompt for
-        it, and empty on any probe failure because the digest is advisory.
-        """
-        try:
-            jobs = list(self._waitable_subagent_jobs())
-            ids = sorted(
-                {
-                    work_id
-                    for job in jobs
-                    if (work_id := str(getattr(job, "work_id", "") or ""))
-                }
-            )
-        except Exception:  # noqa: BLE001 - the digest is advisory
-            return ""
-        if not ids:
-            return ""
-        lines = [
-            "- live_subagent_work_ids: " + ", ".join(ids)
-        ]
-        # A team's board is already read here; saying so spares the Planner
-        # the tool turns it otherwise spends re-reading tasks, pool and logs.
-        for job in sorted(jobs, key=lambda item: str(getattr(item, "work_id", ""))):
-            if str(getattr(job, "source", "") or "") != "team":
-                continue
-            facts = list(getattr(job, "facts", ()) or ())
-            summary = str(getattr(job, "description", "") or "").strip()
-            detail = "; ".join(facts[:6])
-            lines.append(
-                f"- live_team_status ({job.work_id}): {summary}"
-                + (f" — {detail}" if detail else "")
-                + ". This is the board's current state; there is no need to "
-                "re-read its files."
-            )
-        return "\n".join(lines)
 
     def _planner_cycle_gate_reason(self) -> str:
         gate = self.config.planner_cycle_gate
@@ -193,7 +151,6 @@ class PlannerOrchestrationMixin:
             pipeline,
             backlog_rows,
             project_created_ts=_project_created_ts(self._project_state_root()),
-            background_jobs=_finished_background_job_hours(project_root),
         )
         # Who owns the current idea decides what a refuted claim allows; the
         # Planner never saw it, so s-a43d1018 treated its own pick as locked.
@@ -325,14 +282,6 @@ class PlannerOrchestrationMixin:
                 "releases those dependents and frees the work to be re-planned."
             )
 
-        # A subagent event wait is bound by matching the Planner's own words
-        # against a live work_id, exactly. The ids were never shown to it, so
-        # it wrote what it knew: run-03 named the parent mission, run-01
-        # described "the active DARC-DPT monitor/subagent". Both jobs were
-        # genuinely running and both waits were thrown away. Rendered only
-        # while something is live, so a quiet campaign pays nothing.
-        live_subagent_line = self._live_subagent_id_line()
-
         changed_paths: list[str] = []
         try:
             status_result = subprocess.run(
@@ -416,7 +365,6 @@ class PlannerOrchestrationMixin:
                     if item.status in {"pending", "running"}
                 ),
                 *parked_lines,
-                *([live_subagent_line] if live_subagent_line else []),
                 (
                     "- awaiting_operator_answer: "
                     + "; ".join(awaiting)
@@ -475,81 +423,6 @@ class PlannerOrchestrationMixin:
             matches[signature] = entry
         return matches
 
-    def _recent_subagent_family_failures(self) -> dict[str, SubagentFamilyFailure]:
-        """Return subagent-job families stuck in an unresolved failure streak."""
-        try:
-            streak_limit = int(
-                getattr(
-                    self.config,
-                    "subagent_family_failure_streak_limit",
-                    LifeSupervisorConfig.subagent_family_failure_streak_limit,
-                )
-            )
-        except (TypeError, ValueError):
-            streak_limit = LifeSupervisorConfig.subagent_family_failure_streak_limit
-        try:
-            window_hours = float(
-                getattr(
-                    self.config,
-                    "subagent_family_failure_window_hours",
-                    LifeSupervisorConfig.subagent_family_failure_window_hours,
-                )
-            )
-        except (TypeError, ValueError):
-            window_hours = LifeSupervisorConfig.subagent_family_failure_window_hours
-        if streak_limit <= 0:
-            return {}
-        try:
-            return recent_subagent_family_failures(
-                self._project_workdir(),
-                window_seconds=max(0.0, window_hours) * 3600.0,
-                min_streak=streak_limit,
-            )
-        except Exception:  # noqa: BLE001
-            log.exception("life supervisor: failed to read subagent registry for planner")
-            return {}
-
-    @staticmethod
-    def _task_mentions_family(task: Any, family: str) -> bool:
-        if not family:
-            return False
-        haystack = " ".join((task.title, task.objective, task.evidence)).casefold()
-        needle = family.casefold()
-        if needle in haystack:
-            return True
-        return needle.replace("-", "_") in haystack.replace("-", "_")
-
-    @staticmethod
-    def _stuck_subagent_families_note(
-        family_failures: dict[str, SubagentFamilyFailure],
-    ) -> str:
-        if not family_failures:
-            return ""
-        lines = [
-            "STUCK EXPERIMENT FAMILIES (facts, not a directive on what to do "
-            "instead): the following subagent job families have failed "
-            "repeatedly, back-to-back, with no successful completion in "
-            "between. A bare resubmission with an unchanged strategy will be "
-            "AUTOMATICALLY SKIPPED by the supervisor (it will not reach the "
-            "engineer) — propose either a materially different approach "
-            "(root-cause fix, reduced scope, alternate method) or an explicit "
-            "operator-escalation task instead.",
-        ]
-        for failure in sorted(
-            family_failures.values(), key=lambda f: (-f.streak, f.family)
-        ):
-            reason = (
-                f" (last failure: {failure.last_reason})"
-                if failure.last_reason
-                else ""
-            )
-            lines.append(
-                f"  - {failure.family}: {failure.streak} consecutive "
-                f"{failure.last_state} attempt(s), most recently "
-                f"{failure.last_task_id!r}{reason}"
-            )
-        return "\n".join(lines)
-
     def _post_mission_hook(self, outcome: dict[str, Any]) -> str:
         hook = self.config.post_mission_hook
         if hook is None:
@@ -607,30 +480,6 @@ def _project_created_ts(state_root: Any) -> float | None:
     return created if created > 0 else None
 
 
-def _finished_background_job_hours(workdir: Any) -> list[float]:
-    """Wall hours of durable background jobs that finished successfully.
-
-    Long training/evaluation jobs register as external work; their lifetimes
-    are the throughput a schedule of further jobs depends on, unlike mission
-    rows that also include seconds-long crashes and short edits.
-    """
-    try:
-        from ...engineer.external_work import ExternalWorkState, scan_external_work
-
-        statuses = scan_external_work(workdir, include_subagents=False)
-    except Exception:  # noqa: BLE001 - digest is advisory
-        return []
-    hours: list[float] = []
-    for status in statuses:
-        if status.state is not ExternalWorkState.TERMINAL:
-            continue
-        if any(word in status.outcome.lower() for word in ("fail", "error", "abort", "cancel")):
-            continue
-        if status.started_at > 0 and status.heartbeat_at > status.started_at:
-            hours.append((status.heartbeat_at - status.started_at) / 3600.0)
-    return hours
-
-
 def _row_kind(item: Any) -> str:
     for tag in getattr(item, "tags", None) or []:
         if str(tag).startswith("stage:"):
@@ -647,7 +496,6 @@ def _planner_time_line(
     rows: list[Any],
     *,
     project_created_ts: float | None = None,
-    background_jobs: list[float] | None = None,
     now: float | None = None,
 ) -> str:
     """Remaining time and measured run durations, shown on every digest.
@@ -679,12 +527,6 @@ def _planner_time_line(
             parts.append(f"project started {_fmt_hours((now - float(started)) / 3600.0)} ago")
     except (TypeError, ValueError):
         pass
-    jobs = [h for h in (background_jobs or []) if h > 0]
-    if jobs:
-        parts.append(
-            f"finished background jobs: median {_fmt_hours(statistics.median(jobs))} "
-            f"over {len(jobs)}"
-        )
     # Missions of different kinds (a paper draft, a code cleanup, a crash after
     # seconds) are not one population. Only completed runs measure throughput,
     # grouped by stage; failures are counted, not averaged in.

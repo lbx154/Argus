@@ -25,7 +25,6 @@ from ._constants import (
     STALL_ESCALATION_AFTER_NO_PROGRESS_MISSIONS,
 )
 from ._helpers import _operator_only_external_blocker_wait_reason_for_project
-from ._planning_cycle import HOST_OBSERVED_WAIT_SOURCES
 
 log = logging.getLogger(__name__)
 
@@ -904,9 +903,6 @@ class PlanningContextMixin:
                         int(feedback.get("attempts") or 0),
                     ]
                 ),
-                "external_jobs": self._external_work_state_rows(
-                    self._project_workdir()
-                ),
                 "dropped_dependency_note": bool(
                     getattr(self, "_planner_dropped_dependency_keys", []) or []
                 ),
@@ -1241,26 +1237,6 @@ class PlanningContextMixin:
             "verdict without new evidence."
         )
 
-    @staticmethod
-    def _external_work_state_rows(project_root: Path) -> list[dict[str, str]]:
-        """Registered background jobs as (work_id, run_id, state) rows.
-
-        This is the Planner-relevant view of the external-work registry: it moves
-        when a job starts, completes, or fails, and stays put while a healthy
-        job merely appends to its own logs. An unreadable registry contributes
-        a stable empty view rather than churn.
-        """
-        try:
-            from ...engineer.external_work import external_work_rows, scan_external_work
-
-            return external_work_rows(
-                status for status in scan_external_work(project_root)
-                if status.source in HOST_OBSERVED_WAIT_SOURCES
-            )
-        except Exception:  # noqa: BLE001 - the input signature must stay stable
-            log.debug("external-work registry scan failed", exc_info=True)
-            return []
-
     def _current_planner_input_signature(self) -> str:
         """The Planner-visible inputs now, for deciding whether to ask again."""
         return self._planner_visible_input_signature(
@@ -1344,12 +1320,10 @@ class PlanningContextMixin:
             enqueued_tasks=1,
             skipped_duplicate_tasks=0,
             skipped_recent_failure_tasks=0,
-            skipped_subagent_family_failure_tasks=0,
             enqueued_titles=[item.title],
             enqueued_impact_scores=[task.impact_score],
             skipped_duplicate_titles=[],
             skipped_recent_failure_titles=[],
-            skipped_subagent_family_failure_titles=[],
             input_tokens=0,
             cached_input_tokens=0,
             output_tokens=0,

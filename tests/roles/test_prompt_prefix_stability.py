@@ -104,20 +104,20 @@ def test_engineer_round_tail_follows_the_mission_text(monkeypatch, tmp_path) -> 
         prompt,
         role_context="## Active research context\nnotes after round 0",
         checkpoint_block="## MissionBrief\n- Decisive result: round 1",
-        external_work_advisory="## External work status\n- job-1: running",
+        background_advisory="## Current host context\n- recalled: round 1",
     )
     second = assemble_round_prompt(
         prompt,
         role_context="## Active research context\nnotes after round 1",
         checkpoint_block="## MissionBrief\n- Decisive result: round 2",
-        external_work_advisory="",
+        background_advisory="",
     )
 
     mission_end = _end_of(first, "Ship it.")
     assert _lcp(first, second) >= mission_end
     assert first.index("## Active research context") > mission_end
     assert first.index("## MissionBrief") > first.index("## Active research context")
-    assert first.rindex("## OperatorContext") > first.index("## External work status")
+    assert first.rindex("## OperatorContext") > first.index("## Current host context")
     assert first.rstrip().endswith("operator_context_revision=4")
 
 
@@ -307,7 +307,6 @@ def test_engineer_round_carries_the_research_notes_after_the_static_prompt(monke
     mixin.reviewer_config = SimpleNamespace(active_vertical="research", vertical_state_root=str(tmp_path))
     config = SimpleNamespace(
         compact_continuation_prompts=True,
-        background_subagent_advisory=False,
         max_rounds=8,
         context_packet_path="",
         engineer_operation="author_draft",

@@ -115,7 +115,6 @@ class PlanningCycleCompletionMixin:
                 item.status not in {"done", "failed", "aborted", "skipped", "superseded"}
                 for item in self.memory.backlog.active()
             )
-            and not self._waitable_subagent_jobs()
             and self._effective_final_certification_gate(self._artifact_root())
             and self._journal_has_final_certification()
             and self._manager_final_stage_is_completed()

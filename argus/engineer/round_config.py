@@ -27,10 +27,6 @@ from ..core.role_session import (
 _RUNNER_HARD_IDLE_ENV = "ARGUS_SKILL_RUNNER_HARD_IDLE_SECONDS"
 _RUNNER_STALLED_IDLE_ENV = "ARGUS_SKILL_RUNNER_STALLED_IDLE_SECONDS"
 _DECISION_PROGRESS_TIMEOUT_ENV = "ARGUS_SKILL_DECISION_PROGRESS_TIMEOUT_SECONDS"
-# Toggle for the background-subagent advisory + agent-driven cadence wait. When
-# unset/true, each round surfaces in-flight supervised subagents so the engineer
-# does not babysit a self-watched run. Set to 0 to disable (e.g. tests).
-_BG_SUBAGENT_ADVISORY_ENV = "ARGUS_SKILL_BG_SUBAGENT_ADVISORY"
 _COMPACT_CONTINUATION_PROMPTS_ENV = "ARGUS_SKILL_COMPACT_CONTINUATION_PROMPTS"
 _ENGINEER_FULL_ROUND_POLICY_ENV = "ARGUS_SKILL_ENGINEER_FULL_ROUND_POLICY"
 #: ``session`` re-sends the full static task text only to a provider session
@@ -387,15 +383,6 @@ class SupervisedConfig:
             _RUNNER_STALLED_IDLE_ENV,
             _RUNNER_DEFAULT_STALLED_IDLE_SECONDS,
         )
-    )
-    # Surface in-flight SUPERVISED subagents (read from
-    # ``<workdir>/.argus_subagents``) in the engineer prompt each round so the
-    # agent does not burn rounds babysitting a self-watched long job, and can
-    # yield through the exact final-line JSON wait request instead of
-    # busy-polling. Env
-    # override: ARGUS_SKILL_BG_SUBAGENT_ADVISORY (0 disables).
-    background_subagent_advisory: bool = field(
-        default_factory=lambda: _env_bool(_BG_SUBAGENT_ADVISORY_ENV, True)
     )
     operator_questions_allowed: bool = True
     operator_question_policy_root: Path | None = None

@@ -287,11 +287,9 @@ def test_current_science_context_reaches_source_passes_without_reopening_pdf_pas
     assert second.input_tokens == 10 * len(source_labels)
 
 
-def test_round_delivers_current_account_and_live_jobs_to_source_reviewers(
+def test_round_delivers_current_account_to_source_reviewers(
     paper_review, monkeypatch,
 ):
-    import json
-    import os
 
     from argus.core.models import ReviewDecision
     from argus.engineer import round_reviewer
@@ -301,12 +299,6 @@ def test_round_delivers_current_account_and_live_jobs_to_source_reviewers(
     from argus.reviewer import _core
 
     project, config = paper_review
-    registry = project / ".argus_subagents"
-    registry.mkdir()
-    (registry / "replacement-panel.json").write_text(json.dumps({
-        "task_id": "replacement-panel", "state": "running", "mode": "direct",
-        "pid": os.getpid(),
-    }))
     account = "The real counterexample is repaired; the full replacement is pending."
     prompts = {}
     original = _core.gateway_run_exec
@@ -325,10 +317,6 @@ def test_round_delivers_current_account_and_live_jobs_to_source_reviewers(
 
     def finish_passes(*args, **kwargs):
         findings = original_passes(*args, **kwargs)
-        record = registry / "replacement-panel.json"
-        payload = json.loads(record.read_text())
-        payload["state"] = "completed"
-        record.write_text(json.dumps(payload))
         live_directive[:] = ["New observation: distinguish old failed outputs from the replacement."]
         return findings
 
@@ -359,10 +347,8 @@ def test_round_delivers_current_account_and_live_jobs_to_source_reviewers(
     )
     for label in ("reviewer-scientific", "reviewer-language"):
         assert account in prompts[label]
-        assert "replacement-panel" in prompts[label]
         assert "ICLR strong accept" in prompts[label]
     assert account not in prompts["reviewer-visual"]
-    assert "replacement-panel" not in prompts["reviewer-visual"]
     assert decision.status == "continue"
 
 

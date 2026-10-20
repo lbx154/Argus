@@ -384,7 +384,7 @@ def test_a_turn_without_new_work_is_not_blindly_acknowledged(campaign, monkeypat
 
 @pytest.mark.parametrize("blocker", [
     "not_invoked", "error", "revision", "tasks", "retire", "advance", "pending",
-    "paused", "job", "nonterminal_stage", "stale_cert", "not_operator",
+    "paused", "nonterminal_stage", "stale_cert", "not_operator",
 ])
 def test_certified_handoff_requires_current_final_idle_state(campaign, monkeypatch, blocker):
     from dataclasses import replace
@@ -413,8 +413,6 @@ def test_certified_handoff_requires_current_final_idle_state(campaign, monkeypat
         item = supervisor.memory.backlog.add(BacklogItem.new(title="New work", objective="New work"))
         if blocker == "paused":
             supervisor.memory.backlog.update(item.id, status="paused_operator", pending_question="Approve?")
-    elif blocker == "job":
-        monkeypatch.setattr(supervisor, "_waitable_subagent_jobs", lambda: [object()])
     elif blocker == "nonterminal_stage":
         path = campaign.project / ".argus" / "PIPELINE_STATE.json"
         pipeline = json.loads(path.read_text())

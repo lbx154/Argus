@@ -432,7 +432,6 @@ class _PlanCycleState:
         self.manager_intent: Any = None
 
         # Set by the planner-invocation phase.
-        self.subagent_family_failures: dict[str, Any] = {}
         self.verdict: Any = None
         self.planner_invoked = False
         # The durable generation that authorized this invocation. A late host
@@ -469,7 +468,6 @@ class _PlanCycleState:
         self.skipped_certification_reproposal_titles: list[str] = []
         self.skipped_certification_reproposal_reasons: list[str] = []
         self.skipped_recent_failure_titles: list[str] = []
-        self.skipped_subagent_family_failure_titles: list[str] = []
         self.skipped_task_feedback: list[dict[str, str]] = []
         self.new_plan_id: str = ""
         self.new_plan_version: int = 1

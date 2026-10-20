@@ -225,32 +225,13 @@ reduced an eight-second-prewarmed `你好` turn from 8.146 seconds to 3.937 seco
 and reduced duplicate classifier processes from two to one. This measurement is
 diagnostic evidence, not a universal latency promise.
 
-### Durable long commands and supervisor dialogue
+### Long commands
 
-- On POSIX, a command expected to run for more than two minutes is submitted to
-  `argus.tools.subagent`; a provider-native background task or a
-  session-owned background shell is never its durable owner.
-- `direct` is the default mode for deterministic commands such as builds,
-  evaluations, and test suites. It adds no Supervisor model calls.
-- `supervised` is used only when an experiment needs semantic monitoring,
-  early-stop judgment, or a persisted discussion with the Engineer.
-- A successful handoff requires the submit JSON receipt to contain
-  `state=submitted`, `task_id`, `run_id`, and `check_with`. `check_with` uses the
-  active Argus Python executable and is directly executable in a later turn.
-  CHECKPOINT.md records these fields only when another round must observe the
-  run.
-- A supervised concern moves the task to `state=discussing`. Status returns an
-  `ACTION_REQUIRED` message, a durable discussion path, and an executable
-  `reply_with` command. The Engineer reads the concern and replies through that
-  command before relaunching. The only exception is an explicit
-  `--override-discussion "<reason>"` break-glass submit, whose reason is recorded
-  durably. Supervisor and Engineer turns are appended to the same durable
-  transcript, with heartbeat and terminal resolution recorded.
-- Native Windows launches a detached Argus-owned worker for durable `direct`
-  and `supervised` subagents. The worker persists registry/log state outside the
-  provider turn, records its PID, applies CPU admission, and uses identity-checked
-  process-tree cleanup. POSIX retains its process-group implementation; WSL2 is
-  optional rather than required for Windows durability.
+- A command expected to run for more than two minutes is started detached
+  (`setsid nohup` on POSIX, `Start-Process` on native Windows) with its own log
+  and exit-code file, and the Engineer waits for it inside its own turn with the
+  backend's longest blocking call (Copilot about ten minutes, Codex about five).
+  Argus keeps no waiting state and watches no job on the Engineer's behalf.
 
 ## 4. Verticals and workflows
 
@@ -553,9 +534,6 @@ Web UI, Manager model, and daemon:
 | Manager uses an explicit role-specific runner binary | Prewarm and message reuse the same Manager ACP client; no duplicate classifier process |
 | Pure greeting | Still model-classified; reply identifies as Argus Manager and does not expose provider identity |
 | First full SELF inspection after completed prewarm | SELF process is initialized; the logical session and model/tool work may still add latency |
-| Deterministic command longer than two minutes | Durable `direct` receipt returns promptly and the command survives the submitting turn |
-| Supervised experiment raises a concern | Status exposes `reply_with`; Engineer reply and Supervisor response persist in one discussion transcript |
-| Detached subagent requested on native Windows | Argus-owned worker returns a durable submitted receipt and survives the provider turn |
 | Default identity template | Excluded from model prompts until the operator edits it |
 | Operator pause | Not captured or replayed as a failure lesson |
 | Planner acceptance check | No unconditional-success or tautological checks |

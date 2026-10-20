@@ -220,8 +220,9 @@ they can be asked, and otherwise the Manager decides the card in the operator's
 place. Returning the same handoff is recorded, not re-adjudicated. Stage
 validators remain authoritative.
 Bounded reconciliation cannot advance or complete without Reviewer evidence,
-including direct workflows. Native subagent reports remain host evidence, not
-new operator requests that could repeatedly defer bounded completion. Once a
+including direct workflows. Background-job reports an older release queued
+remain host evidence, not new operator requests that could repeatedly defer
+bounded completion. Once a
 current completion certificate exists, report-only native receipts are settled
 before checking the next inbox item; a retained report must not conceal a queued
 operator instruction. Operator receipts still require actual Planner handling.

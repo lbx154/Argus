@@ -716,40 +716,6 @@ def test_runtime_summary_omits_role_control_lines() -> None:
     assert runtime_outcome.summary == "Finished the benchmark."
 
 
-def test_daemon_reconciles_project_registry_from_unrelated_cwd(
-    tmp_path,
-    monkeypatch,
-) -> None:
-    supervisor, _sink = _make_supervisor(
-        tmp_path,
-        _Outcome(success=True, status="done"),
-    )
-    project = tmp_path / "project"
-    project.mkdir()
-    supervisor.config.project_worktree = project
-    registry = project / ".argus_subagents"
-    logs = registry / "dead-job_logs"
-    logs.mkdir(parents=True)
-    record_path = registry / "dead-job.json"
-    record_path.write_text(json.dumps({
-        "state": "running",
-        "task_id": "dead-job",
-        "run_id": "run-1",
-        "pid": 999_999_999,
-    }), encoding="utf-8")
-    (logs / "exit_code.run-1").write_text("0\n", encoding="utf-8")
-    elsewhere = tmp_path / "elsewhere"
-    elsewhere.mkdir()
-    monkeypatch.chdir(elsewhere)
-
-    supervisor._reconcile_dead_subagent_records()
-
-    reconciled = json.loads(record_path.read_text(encoding="utf-8"))
-    assert reconciled["state"] == "done"
-    assert reconciled["exit_code"] == 0
-    assert not (elsewhere / ".argus_subagents").exists()
-
-
 def test_operator_abort_is_terminal_but_not_failed(tmp_path) -> None:
     supervisor, sink = _make_supervisor(
         tmp_path,

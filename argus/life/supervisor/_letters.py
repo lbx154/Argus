@@ -340,12 +340,6 @@ class LettersMixin:
                     ))
         except Exception:  # noqa: BLE001
             pass
-        try:
-            live = str(self._live_subagent_id_line() or "").strip()
-            if live:
-                running.append(live)
-        except Exception:  # noqa: BLE001
-            pass
 
         machine = ""
         try:

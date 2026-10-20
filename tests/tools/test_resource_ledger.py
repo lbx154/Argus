@@ -1,7 +1,5 @@
 from __future__ import annotations
 
-import argparse
-import json
 import os
 import signal
 import subprocess
@@ -13,14 +11,9 @@ from pathlib import Path
 
 import pytest
 
-from argus.engineer.external_work import ExternalWorkState, scan_external_work
 from argus.tools.resource_ledger import cli as ledger_cli
 from argus.tools.resource_ledger.ledger import ResourceLedger, owner_identity
 from argus.tools.resource_ledger.probe import NvidiaAdapter, ResourceProbe
-from argus.tools.subagent import _cli as subagent_cli
-from argus.tools.subagent import _resource_admission
-from argus.tools.subagent._direct_run import _run_direct
-from argus.tools.subagent._registry import _read_task, _write_task
 
 
 def _snapshot(*, status: str = "available", enforcement: str = "strict") -> dict:
@@ -150,129 +143,6 @@ def test_admission_requires_matching_demand_host_and_task_identity(tmp_path: Pat
     assert ledger.admit(grant["id"], demand=changed, owner=owner) is None
     wrong_owner = dict(owner, task_id="other")
     assert ledger.admit(grant["id"], demand=_demand(), owner=wrong_owner) is None
-
-
-def _submit_args(**updates: object) -> argparse.Namespace:
-    values = {
-        "task_id": "submit-test",
-        "description": "test",
-        "command": "echo ok",
-        "mode": "direct",
-        "timeout": 10,
-        "monitor_interval": 120,
-        "model": None,
-        "run_dir": None,
-        "cwd": None,
-        "override_discussion": None,
-        "clear_stop": False,
-        "no_preflight": False,
-        "cpu_count": 0,
-        "cpu_ids": None,
-        "accelerator": None,
-        "gpu_count": None,
-        "gpu_mem_mib": None,
-        "expected_duration": None,
-        "checkpointable": None,
-        "intent": None,
-    }
-    values.update(updates)
-    return argparse.Namespace(**values)
-
-
-@pytest.mark.skipif(not hasattr(os, "fork"), reason="parent submit shape uses POSIX fork")
-def test_no_demand_submit_keeps_legacy_record_and_receipt_shape(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
-) -> None:
-    monkeypatch.chdir(tmp_path)
-    monkeypatch.setattr(subagent_cli.os, "fork", lambda: 4242)
-    assert subagent_cli.cmd_submit(_submit_args()) == 0
-    receipt = json.loads(capsys.readouterr().out)
-    record = _read_task("submit-test") or {}
-    assert not any(key.startswith("resource_") for key in receipt)
-    assert not any(key.startswith("resource_") for key in record)
-
-
-@pytest.mark.skipif(not hasattr(os, "fork"), reason="parent submit shape uses POSIX fork")
-def test_declared_demand_is_persisted_for_worker_admission(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
-) -> None:
-    monkeypatch.chdir(tmp_path)
-    monkeypatch.setattr(subagent_cli.os, "fork", lambda: 4242)
-    args = _submit_args(
-        task_id="demand-test",
-        accelerator="cuda",
-        gpu_count=2,
-        gpu_mem_mib=40,
-        expected_duration=300,
-        checkpointable=True,
-        intent="two-card training",
-    )
-    assert subagent_cli.cmd_submit(args) == 0
-    receipt = json.loads(capsys.readouterr().out)
-    record = _read_task("demand-test") or {}
-    assert receipt["resource_demand"] == record["resource_demand"]
-    assert record["resource_demand"]["device_count"] == 2
-
-
-def test_direct_worker_exports_grant_env_and_releases(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
-) -> None:
-    monkeypatch.chdir(tmp_path)
-    ledger = ResourceLedger(tmp_path / "ledger", probe=lambda: _snapshot())
-    monkeypatch.setattr(_resource_admission, "ResourceLedger", lambda: ledger)
-    _write_task("env-task", {
-        "state": "starting",
-        "task_id": "env-task",
-        "run_id": "env-run",
-        "resource_demand": _demand("env test"),
-    })
-    command = (
-        "powershell.exe -NoProfile -NonInteractive -Command "
-        "Write-Output $env:CUDA_VISIBLE_DEVICES"
-        if os.name == "nt"
-        else "printf '%s' \"$CUDA_VISIBLE_DEVICES\""
-    )
-    _run_direct(
-        "env-task",
-        command,
-        "env",
-        timeout=10,
-        cwd=str(tmp_path),
-    )
-    record = _read_task("env-task") or {}
-    assert record["state"] == "done"
-    assert record["stdout_tail"].strip() == "0"
-    assert record["resource_grant_id"]
-    assert ledger.status(refresh_probe=False)["grants"] == []
-
-
-def test_yield_request_round_trips_into_external_work_facts(tmp_path: Path) -> None:
-    ledger_root = tmp_path / "ledger"
-    ledger = ResourceLedger(ledger_root, probe=lambda: _snapshot())
-    grant = ledger.acquire(_demand("training"), owner=_owner(tmp_path, "train"))
-    request = ledger.yield_request(grant["id"], "checkpoint soon for an urgent eval")
-    registry = tmp_path / ".argus_subagents"
-    registry.mkdir()
-    log = tmp_path / "live.log"
-    log.write_text("running\n", encoding="utf-8")
-    (registry / "train.json").write_text(json.dumps({
-        "state": "running",
-        "task_id": "train",
-        "mode": "direct",
-        "pid": os.getpid(),
-        "worker_pid": os.getpid(),
-        "stdout_log": str(log),
-        "resource_grant_id": grant["id"],
-        "resource_ledger_root": str(ledger_root),
-    }), encoding="utf-8")
-
-    status = scan_external_work(tmp_path)[0]
-    assert status.state is ExternalWorkState.RUNNING_HEALTHY
-    assert any("someone asks for the card" in fact for fact in status.facts)
-    response = ledger.respond_yield(
-        grant["id"], request["id"], "run is at an unsafe checkpoint boundary"
-    )
-    assert response["response"]["decision"] == "decline"
 
 
 def _run_env(root: Path) -> dict[str, str]:
@@ -470,45 +340,3 @@ def test_unknown_card_memory_never_makes_a_demand_unsatisfiable(tmp_path: Path) 
 
     assert result["state"] != "unsatisfiable"
 
-
-def test_a_long_queue_wait_is_told_once_and_ends_at_the_job_timeout(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    from types import SimpleNamespace
-
-    from argus.core.transcript import read_turns
-
-    monkeypatch.chdir(tmp_path)
-    ledger = ResourceLedger(tmp_path / "ledger", probe=lambda: _snapshot())
-    holder = ledger.acquire(
-        dict(_demand("long training"), expected_duration_seconds=600),
-        owner=_owner(tmp_path, "holder"),
-    )
-    assert holder["state"] == "granted"
-    monkeypatch.setattr(_resource_admission, "ResourceLedger", lambda: ledger)
-    base, elapsed = time.time(), [0.0]
-    monkeypatch.setattr(_resource_admission, "time", SimpleNamespace(
-        monotonic=lambda: elapsed[0],
-        time=lambda: base + elapsed[0],
-        sleep=lambda seconds: elapsed.__setitem__(0, elapsed[0] + seconds),
-    ))
-    life = tmp_path / "life"
-    _write_task("waiter", {
-        "state": "starting",
-        "task_id": "waiter",
-        "run_id": "waiter-run",
-        "description": "evaluate the checkpoint",
-        "owner_session_root": str(life),
-        "resource_demand": dict(_demand("eval"), expected_duration_seconds=60),
-    })
-
-    with pytest.raises(_resource_admission.ResourceQueueTimeout, match="--timeout"):
-        _resource_admission.acquire_for_task(
-            "waiter", mode="direct", project_root=tmp_path, timeout=7200,
-        )
-
-    assert 7200 <= elapsed[0] < 7300
-    assert ledger.status(refresh_probe=False)["queue"] == []
-    notices = [turn for turn in read_turns(life) if turn.get("message_id") == "gpu-queue-wait-waiter"]
-    assert len(notices) == 1
-    assert "holder (held 1.0 h, estimate 0.2 h)" in notices[0]["text"]

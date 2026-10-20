@@ -33,7 +33,6 @@ from ..core.stop_kinds import (
 )
 from ..life.context_packet import render_mission_brief
 from ..life.memory import Backlog
-from .external_work import render_external_work_advisory
 from .reviewer_findings import (
     own_reviewer_thread,
     render_previous_findings,
@@ -307,15 +306,6 @@ class RoundReviewerMixin:
         )
         from ..core.operator_context import operator_context_revision_from_text
 
-        external_work_context = ""
-        if supervised_config.background_subagent_advisory:
-            try:
-                external_work_context = render_external_work_advisory(
-                    workdir,
-                    include_subagents=True,
-                )
-            except Exception:  # noqa: BLE001 — advisory is non-critical context
-                log.debug("reviewer subagent advisory refresh failed", exc_info=True)
         reviewer_session = state.reviewer_session
         reviewer_resume_id = (
             reviewer_session.prepare(
@@ -376,7 +366,7 @@ class RoundReviewerMixin:
             process_ownership_note,
         )
         reviewer_background_context = "\n\n".join(
-            part for part in (*shared_context_parts, external_work_context) if part
+            part for part in shared_context_parts if part
         )
         from ..reviewer._core import _parallel_final_review_passes
 
@@ -407,18 +397,8 @@ class RoundReviewerMixin:
             if preliminary_review.backend_unavailable and enforcement == "blocking":
                 return preliminary_review
             # Specialist passes can take minutes. The integrated Reviewer must
-            # receive instructions and job states that changed during that work.
+            # receive instructions that changed during that work.
             operator_messages = _active_manager_directive_for_reviewer(supervised_config)
-            if supervised_config.background_subagent_advisory:
-                try:
-                    external_work_context = render_external_work_advisory(
-                        workdir, include_subagents=True,
-                    )
-                except Exception:  # noqa: BLE001 — retain the prior observation
-                    log.debug("post-pass external-work refresh failed", exc_info=True)
-            reviewer_background_context = "\n\n".join(
-                part for part in (*shared_context_parts, external_work_context) if part
-            )
             authority_note = (
                 "Shadow calibration only: these new semantic-loss and cold-read signals "
                 "cannot be the sole reason to rule that the work does not hold. "
@@ -484,8 +464,7 @@ class RoundReviewerMixin:
                 ),
                 prev_review_summary=_previous_review_summary(state),
                 # Host-gathered round evidence (e.g. a vertical's spec checks):
-                # facts the Reviewer weighs, rendered as raw evidence rather
-                # than as supervised-subagent chatter.
+                # facts the Reviewer weighs, rendered as raw evidence.
                 raw_evidence="\n\n".join(state.pending_round_evidence),
                 scope=scope,
                 checkpoint_path=str(checkpoint_path or ""),

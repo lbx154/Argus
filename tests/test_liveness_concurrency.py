@@ -1,13 +1,11 @@
 """Liveness of concurrent handoffs: every wait has a deadline and a fallback.
 
-Regression tests for the concurrency audit: blue/green daemon handoff, stale
-external-work heartbeats, the team-task orphan budget, subagent terminal-state
-names, the Curator's stop/tick race, and discussion-blocker scoping.
+Regression tests for the concurrency audit: blue/green daemon handoff, the
+team-task orphan budget, and the Curator's stop/tick race.
 """
 from __future__ import annotations
 
 import json
-import os
 import time
 from pathlib import Path
 from types import SimpleNamespace
@@ -21,11 +19,8 @@ import argus.daemon.life_worker as life_worker_mod
 from argus.core import process_stop
 from argus.daemon.config import config_payload as _config_payload
 from argus.daemon.life_worker import LifeWorker, LifeWorkerConfig
-from argus.engineer.external_work import ExternalWorkState, inspect_external_work
 from argus.team import curator as cur
-from argus.team import external_work as team_work
-from argus.team import pool, registry, task_board
-from argus.tools import subagent as sa
+from argus.team import task_board
 
 # ---------------------------------------------------------------------------
 # R1 — blue/green handoff leaves exactly one live daemon
@@ -255,104 +250,6 @@ def test_rollback_that_cannot_start_tells_the_operator(
 
 
 # ---------------------------------------------------------------------------
-# R2 — a stale heartbeat wakes the waiting parent with the fact
-# ---------------------------------------------------------------------------
-
-
-def _subagent(root: Path, task_id: str, **fields: object) -> None:
-    directory = root / ".argus_subagents"
-    directory.mkdir(exist_ok=True)
-    record = {
-        "task_id": task_id,
-        "state": "running",
-        "worker_pid": os.getpid(),
-        "last_supervisor_health": "healthy",
-        "last_supervisor_decision": "continue",
-        "monitor_interval": 120,
-        **fields,
-    }
-    (directory / f"{task_id}.json").write_text(json.dumps(record), encoding="utf-8")
-
-
-def test_wedged_supervised_subagent_with_live_pid_is_stalled(tmp_path: Path) -> None:
-    now = 100_000.0
-    _subagent(tmp_path, "wedged", mode="supervised", heartbeat_at=now - 3_600)
-    _subagent(tmp_path, "fresh", mode="supervised", heartbeat_at=now - 60)
-
-    wedged = inspect_external_work(tmp_path, "wedged", now=now)
-    fresh = inspect_external_work(tmp_path, "fresh", now=now)
-
-    assert wedged is not None and wedged.state is ExternalWorkState.STALLED
-    assert not wedged.waitable
-    assert "heartbeat is stale" in wedged.reason
-    assert fresh is not None and fresh.state is ExternalWorkState.RUNNING_HEALTHY
-
-
-def test_stale_resource_wait_is_stalled_but_long_direct_run_is_not(tmp_path: Path) -> None:
-    now = time.time() + 4 * 3600.0
-    _subagent(
-        tmp_path, "queued", mode="direct", state="waiting_resource",
-        heartbeat_at=now - 3_600,
-    )
-    # A direct worker writes its record once and then waits on the command:
-    # an old record is a long run, not a wedged owner.
-    _subagent(tmp_path, "training", mode="direct")
-
-    queued = inspect_external_work(tmp_path, "queued", now=now)
-    training = inspect_external_work(tmp_path, "training", now=now)
-
-    assert queued is not None and queued.state is ExternalWorkState.STALLED
-    assert training is not None and training.state is ExternalWorkState.RUNNING_HEALTHY
-
-
-def _team(project: Path, *states: str, team_id: str = "t") -> Path:
-    root = project / ".argus" / "teams" / team_id
-    task_board.form(root, [
-        {"task_id": f"{team_id}-{index}", "objective": "o"}
-        for index in range(1, len(states) + 1)
-    ])
-    for index, state in enumerate(states, 1):
-        changes: dict[str, Any] = {"state": state}
-        if state in {"claimed", "running"}:
-            changes.update(owner=f"w{index}", claim_ts=1_000.0, heartbeat_ts=1_500.0)
-        task_board._mutate(root, f"{team_id}-{index}", **changes)
-    pool.update(root, width=1, state="running")
-    registry.write_marker(project, team_id=team_id, team_root=root, cwd=project, now=900.0)
-    return root
-
-
-def test_team_with_an_old_external_wait_is_not_terminal(tmp_path: Path) -> None:
-    # An older runtime parked a task on a job it watched; it reads as pending.
-    _team(tmp_path, "waiting_external", "done")
-    status = inspect_external_work(tmp_path, "team:t", now=time.time())
-
-    assert status is not None
-    assert status.state is ExternalWorkState.RUNNING_HEALTHY
-    assert "1 pending" in status.description
-
-
-def test_team_board_stale_past_its_limit_is_stalled(tmp_path: Path) -> None:
-    _team(tmp_path, "running", "pending")
-    later = time.time() + team_work._TEAM_STALE_AFTER_SECONDS + 3600.0
-
-    status = inspect_external_work(tmp_path, "team:t", now=later)
-
-    assert status is not None and status.state is ExternalWorkState.STALLED
-    assert "has not changed" in status.reason
-    # A finished sibling does not vouch for a wedged running task, however
-    # fresh its own stamps are.
-    root = _team(tmp_path, "running", "done", team_id="w")
-    task_board._mutate(root, "w-2", finished_ts=later)
-    masked = inspect_external_work(tmp_path, "team:w", now=later)
-    assert masked is not None and masked.state is ExternalWorkState.STALLED
-    # Pending work queues for the Curator (its in-flight cap, a daemon
-    # restart); nothing claimed it, so nothing is wedged.
-    _team(tmp_path, "pending", "pending", team_id="q")
-    queued = inspect_external_work(tmp_path, "team:q", now=later)
-    assert queued is not None and queued.state is ExternalWorkState.RUNNING_HEALTHY
-
-
-# ---------------------------------------------------------------------------
 # R4 — a teammate that keeps dying exhausts the mission orphan budget
 # ---------------------------------------------------------------------------
 
@@ -461,35 +358,3 @@ def test_claim_raced_by_stop_is_handed_back(
     task = task_board.snapshot(root)[0]
     assert task["state"] == "pending" and task["owner"] == ""
     assert float(task["retry_after_ts"]) <= 100.0
-
-
-# ---------------------------------------------------------------------------
-# R3 — a parked discussion blocks only its owner's submits
-# ---------------------------------------------------------------------------
-
-
-def _park(task_id: str, owner_team_task_id: str) -> None:
-    sa._write_task(task_id, {
-        "task_id": task_id,
-        "state": "discussing",
-        "worker_pid": os.getpid(),
-        "last_heartbeat": time.time(),
-        "owner_team_task_id": owner_team_task_id,
-    })
-
-
-def test_teammate_discussion_does_not_block_the_lead(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    monkeypatch.chdir(tmp_path)  # REGISTRY_DIR is relative to cwd
-    _park("route-probe", "team::route-1")
-    _park("lead-probe", "")
-
-    monkeypatch.delenv("ARGUS_SKILL_TEAM_TASK_ID", raising=False)
-    assert [b["task_id"] for b in sa._open_discussion_blockers()] == ["lead-probe"]
-
-    monkeypatch.setenv("ARGUS_SKILL_TEAM_TASK_ID", "team::route-1")
-    assert [b["task_id"] for b in sa._open_discussion_blockers()] == ["route-probe"]
-
-    monkeypatch.setenv("ARGUS_SKILL_TEAM_TASK_ID", "team::route-2")
-    assert sa._open_discussion_blockers() == []

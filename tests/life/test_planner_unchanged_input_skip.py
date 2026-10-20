@@ -295,3 +295,22 @@ def test_hours_waiting_on_an_answer_cost_no_more_planner_calls(
         supervisor.run()
 
     assert calls["count"] == (2 if declared else 1)
+
+
+def test_an_old_waiting_contract_file_is_ignored(tmp_path: Path, monkeypatch) -> None:
+    """An older release persisted the Planner's wait; nothing reads it now."""
+    project = tmp_path / "project"
+    project.mkdir()
+    life = tmp_path / "life"
+    life.mkdir()
+    (life / "planner-waiting-contract-0123abcd.json").write_text(json.dumps({
+        "active": True,
+        "blocker_fingerprint": "unobserved",
+        "operator_action_required": True,
+        "expires_at": 1.0,
+    }), encoding="utf-8")
+    calls = _install_planner(monkeypatch)
+    supervisor = _supervisor(project, life)
+
+    assert supervisor._plan_next_work() == PLAN_AWAITING
+    assert calls["count"] == 1

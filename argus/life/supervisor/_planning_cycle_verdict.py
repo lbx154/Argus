@@ -220,9 +220,6 @@ class PlanningCycleVerdictMixin:
             else ""
         )
 
-        state.subagent_family_failures = self._recent_subagent_family_failures()
-        stuck_families_note = self._stuck_subagent_families_note(state.subagent_family_failures)
-
         try:
             from ...planner import Planner
 
@@ -281,7 +278,6 @@ class PlanningCycleVerdictMixin:
                                 self.config.continuous_objective,
                             ),
                             self._planner_authorization_prompt_block(),
-                            stuck_families_note,
                             runtime_note,
                             revision_note,
                             *state.operator_messages,
