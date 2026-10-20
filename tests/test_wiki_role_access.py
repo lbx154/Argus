@@ -49,6 +49,8 @@ def test_manager_engineer_and_planner_share_direct_wiki_contract(
     assert "When durable declarative knowledge changes" in engineer
     assert "support/limitation matrices" in engineer
     assert "Procedures and checklists belong in Skills" in engineer
+    assert "the layer it belongs to, the value that takes effect on the usual path" in engineer
+    assert "small check kept in the Wiki's `checks/`" in engineer
     assert "route durable project facts" in engineer
     assert "external algorithm" in planner
     assert 'beyond Wiki/Skills' in planner

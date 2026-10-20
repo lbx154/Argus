@@ -98,6 +98,7 @@ def test_engineer_learning_stays_inside_the_workspace(tmp_path) -> None:
     skill_dir = tmp_path / ".agents" / "skills"
     assert f"Engineer Skill directory (project layer only): {skill_dir}" in prompt
     assert "Write each Skill as `<name>/SKILL.md`" in prompt
+    assert "keep the script you ran beside it" in prompt
     assert 'Deliver the requested outputs, not substitutes' in prompt
     assert "Keep only reusable role learning here" in prompt
     assert "route durable project facts" in prompt

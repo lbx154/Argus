@@ -218,7 +218,8 @@ def _post_task_learning_section(
         "done, create or update the applicable Engineer Skills directly in the "
         "project skill directory before you finish this task.\n"
         + rules
-        + "\nWrite each Skill as `<name>/SKILL.md`."
+        + "\nWrite each Skill as `<name>/SKILL.md`. When a step is better run than "
+        "read, keep the script you ran beside it and say in SKILL.md how to run it."
         "\nDo not turn task-specific hypotheses, causal attributions, failed "
         "attempts, or replacement recommendations into Skills unless phase "
         "attribution/profiling or a controlled comparison verified the causal rule. "

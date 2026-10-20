@@ -79,6 +79,10 @@ def render_knowledge_wiki_block(
         "plausible. Omit it when evidence is insufficient or it only repeats the "
         "summary. Search page bodies and linked Insight sections before reuse; "
         "recheck assumptions and revise interpretations as evidence changes. "
+        "A value read from code (a default, a limit) is recorded with the layer it "
+        "belongs to, the value that takes effect on the usual path, what decides it "
+        "and why; when rerunning would settle it on another version, link a small "
+        "check kept in the Wiki's `checks/`. "
         "Procedures and checklists belong in Skills instead. Do not copy task "
         "history, handoffs, evaluator results, or runtime metadata into the Wiki."
         + shared

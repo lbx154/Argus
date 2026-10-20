@@ -233,7 +233,7 @@ class _SilentBackend:
         run_label: str,
         resume_thread_id: str | None = None,
     ) -> RunnerResult:
-        self.calls.append({"prompt": prompt})
+        self.calls.append({"prompt": prompt, "options": options})
         return RunnerResult(exit_code=0, agent_messages=["no durable procedure"])
 
 
@@ -434,7 +434,7 @@ def test_team_learning_honors_configured_project_skill_root(
     assert "configured.md" in backend.calls[0]["prompt"]
 
 
-def test_a_workspace_skill_is_a_project_candidate(tmp_path: Path) -> None:
+def test_a_workspace_skill_is_offered_with_the_code_beside_it(tmp_path: Path) -> None:
     """The Engineer writes inside its workspace; its Agent Skill is a project candidate."""
     project = tmp_path / "workspace"
     state = tmp_path / "session-state"
@@ -447,12 +447,16 @@ def test_a_workspace_skill_is_a_project_candidate(tmp_path: Path) -> None:
         "Run `python check.py <module>`.\n",
         encoding="utf-8",
     )
+    (skill / "check.py").write_text("print('ok')\n", encoding="utf-8")
     backend = _SilentBackend()
 
     propagate_after_mission(project, backend, project_state_dir=state, shared_root=global_root)
 
     (call,) = backend.calls
     assert "- engineer/dependency-closed-check/SKILL.md" in call["prompt"]
+    assert f"code beside it in `{skill.resolve()}`: check.py" in call["prompt"]
+    assert "promote it whole" in call["prompt"]
+    assert call["options"].add_dirs == [str(skill.resolve())]
 
 
 def test_unseen_candidate_batch_remains_pending_for_next_success(

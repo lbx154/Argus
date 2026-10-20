@@ -4,6 +4,7 @@ from __future__ import annotations
 import json
 import logging
 import os
+from itertools import islice
 from pathlib import Path
 from typing import Any, Callable, Iterable
 
@@ -122,6 +123,18 @@ def _role_skill_paths(root: Path) -> list[Path]:
     return paths
 
 
+def _skill_code(path: Path) -> list[str]:
+    """The files a ``SKILL.md`` carries beside it."""
+    if path.name != "SKILL.md":
+        return []
+    found = (item.relative_to(path.parent) for item in islice(path.parent.rglob("*"), 64))
+    return sorted(
+        item.as_posix() for item in found
+        if (path.parent / item).is_file() and item != Path(path.name)
+        and not any(part.startswith(".") for part in item.parts)
+    )[:_MAX_CANDIDATE_FILES]
+
+
 def _snapshot(paths: Iterable[Path]) -> dict[Path, tuple[int, int]]:
     snapshot: dict[Path, tuple[int, int]] = {}
     for path in paths:
@@ -137,8 +150,8 @@ def _project_skill_files(project_skills: Path | None, workspace: Path) -> dict[s
     """Project-authored Skills by their place in a role library.
 
     The project layer keeps them in role directories. The Engineer writes
-    inside its workspace, as Agent Skills (``.agents/skills/<name>/SKILL.md``);
-    each takes the place ``engineer/<name>/SKILL.md``.
+    inside its workspace, as Agent Skills (``.agents/skills/<name>/SKILL.md``,
+    with any code beside it); each takes the place ``engineer/<name>/SKILL.md``.
     """
     files: dict[str, Path] = {}
     if project_skills is not None and project_skills.is_dir():
@@ -245,9 +258,11 @@ def _candidate_evidence(
         if not excerpt:
             continue
         presented.add(key)
+        code = _skill_code(path)
         rendered.append(
             f"- {key}\n"
-            "<untrusted_candidate>\n"
+            + (f"  code beside it in `{path.parent}`: {', '.join(code)}\n" if code else "")
+            + "<untrusted_candidate>\n"
             f"{excerpt}\n"
             "</untrusted_candidate>"
         )
@@ -342,7 +357,9 @@ def _team_learning_prompt(
         "keep its dates, SHAs, URLs and horizons verbatim, append one History line "
         "instead of duplicating the record, and never fold a dated record into a "
         "procedure skill or a procedure into a dated record. Each Skill must contain exactly `name` and "
-        "`description` frontmatter followed by concise Markdown. If the evidence does "
+        "`description` frontmatter followed by concise Markdown. A candidate listed with "
+        "code beside it is a Skill directory: promote it whole, copying that code from the "
+        "named directory into `<role>/<name>/` beside its SKILL.md. If the evidence does "
         "not justify sharing within this vertical, make no edit."
     )
     return prompt, presented
@@ -462,6 +479,8 @@ def propagate_after_mission(
         for role in _TEAM_ROLES
         if (shared / role).is_dir()
     ]
+    # Only the code of a presented candidate is read outside the vertical root.
+    code_dirs = [str(files[key].parent) for key in sorted(presented_paths) if _skill_code(files[key])]
     try:
         result = gateway_run_exec(
             backend,
@@ -472,6 +491,7 @@ def propagate_after_mission(
                 sandbox_mode="workspace-write",
                 skip_git_repo_check=True,
                 working_dir=str(shared),
+                add_dirs=code_dirs or None,
                 skill_paths=native_paths,
             ),
             run_label="team-learning-review",

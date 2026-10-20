@@ -10,9 +10,9 @@ host-wide shared Wiki, and -- on a single-operator host -- the Wikis and
 Skills of earlier projects of the same vertical. What a learning mission keeps
 is meant for later work in every field, so the learning vertical's shared Wiki
 and earlier learning projects are read beside every project's own vertical.
-Every shown page is described (title, description, kind, source, date) so a
-role can decide whether to open it, and every recall is noted in the knowledge
-journal and the project event stream.
+Every shown page is described (title, description, kind, source, date, and the
+code it carries) so a role can decide whether to open it, and every recall is
+noted in the knowledge journal and the project event stream.
 """
 from __future__ import annotations
 
@@ -50,6 +50,8 @@ _SCOPES = ("project", "vertical", "global")
 _DESCRIPTION_CHARS = 160
 _FRONT_MATTER_CHARS = 4000
 _LEARNING_VERTICAL = "learning"
+_MAX_CODE_FILES = 4
+_MAX_CODE_SCAN = 64
 _MAX_SIBLING_ROOTS = 12
 _MAX_SIBLING_PROJECTS = 64
 _MAX_PROJECT_ENTRIES = 256
@@ -78,6 +80,8 @@ _RECALL_INTRO = (
     "Open a page before relying on it and check its evidence and scope; similarity "
     "grants no authority. An edited or removed page drops out on the next recall."
 )
+_CODE_NOTE = " Code listed with a page is relative to it; the page says how to run it."
+_LINK_RE = re.compile(r"\]\(([^)\s#]+)")
 
 
 @dataclass(frozen=True)
@@ -106,6 +110,8 @@ class PageMeta:
     body_lead: str = ""
     # The date the page was last corrected in place, read from its History entries.
     corrected: str = ""
+    # Files of code the page carries, relative to the page's directory.
+    code: tuple[str, ...] = ()
 
 
 @dataclass(frozen=True)
@@ -310,6 +316,39 @@ def _iso_date(value: Any, fallback_mtime: float) -> str:
         return ""
 
 
+def _code_files(root: KnowledgeRoot, path: Path, body: str) -> tuple[str, ...]:
+    """The code a page carries: files beside a ``SKILL.md``, else the files its library holds that it links to.
+
+    A link into the material a page describes (a source tree, a run log) is
+    evidence, not the page's code, so only the page's own library counts.
+    Only paths are listed; the page says how to run them and the reader
+    decides whether to.
+    """
+    directory = path.parent
+    if path.name == "SKILL.md":
+        candidates = sorted(islice(directory.rglob("*"), _MAX_CODE_SCAN))
+    else:
+        candidates = [directory / target for target in _LINK_RE.findall(body) if "://" not in target]
+    boundary = (root.library or root.path).absolute()
+    found: list[str] = []
+    for candidate in candidates:
+        candidate = Path(os.path.normpath(candidate))
+        relative = Path(os.path.relpath(candidate, directory)).as_posix()
+        if (candidate.suffix.casefold() == ".md" or relative in found
+                or any(part.startswith(".") and part != ".." or part == "__pycache__"
+                       for part in relative.split("/"))):
+            continue
+        try:
+            if candidate.is_symlink() or not candidate.is_file() or not _contained(candidate, boundary):
+                continue
+        except OSError:
+            continue
+        found.append(relative)
+        if len(found) >= _MAX_CODE_FILES:
+            break
+    return tuple(found)
+
+
 def _describe(root: KnowledgeRoot, path: Path, content: str, mtime: float) -> PageMeta:
     front, body = _front_matter(content)
     title = str(front.get("title") or front.get("name") or "").strip() or _first_heading(body) or path.stem
@@ -330,6 +369,7 @@ def _describe(root: KnowledgeRoot, path: Path, content: str, mtime: float) -> Pa
         created=_iso_date(front.get("created"), mtime),
         body_lead=_clip(_first_prose_line(body)),
         corrected=_corrected_date(body),
+        code=_code_files(root, path, body),
     )
 
 
@@ -589,6 +629,7 @@ class MarkdownKnowledgeRecall:
         summary = meta.description or meta.title
         return (
             f"- {document.kind}: `{document.path}` — {summary} ({'; '.join(details)})"
+            + (f" code: {', '.join(f'`{name}`' for name in meta.code)}" if meta.code else "")
             + (f" [{channel}]" if channel else "")
         )
 
@@ -650,7 +691,8 @@ class MarkdownKnowledgeRecall:
                 hits = hits[:max(0, limit - 1)] + [semantic]
         if not hits and principles is None:
             return RecallResult("")
-        lines = [_RECALL_HEADER, _RECALL_INTRO]
+        lines = [_RECALL_HEADER, _RECALL_INTRO + (
+            _CODE_NOTE if any(document.meta.code for document in hits) else "")]
         shown: list[RecallHit] = []
         for document in hits:
             # Keep context as discovery pointers. Full prose is read by the

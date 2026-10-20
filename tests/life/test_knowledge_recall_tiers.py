@@ -268,6 +268,7 @@ def test_rendering_describes_each_page_and_appends_the_vertical_principles(tenan
 
     assert lines[0] == "### What Argus already knows (advisory)"
     assert "Current Wiki and Skill pointers" not in context
+    assert "Code listed" not in context
     lesson_line = next(line for line in lines if str(lesson) in line)
     assert lesson_line.startswith(f"- {VERTICAL} knowledge: `{lesson}` — Read the installed torch version's docs before writing a kernel. (lesson; s-fb4716b7/cf2c076f939e; 2026-09-17)")
     assert lesson_line.endswith("2026-09-17)"), "a lexical hit carries no channel tag"
@@ -388,3 +389,30 @@ def test_nothing_is_recorded_when_recall_is_empty(tenant, journal):
     assert journal(tenant) == []
     assert not (memory.project_root / "events.jsonl").exists() or "knowledge" not in (memory.project_root / "events.jsonl").read_text(encoding="utf-8")
 
+
+def test_a_page_names_the_code_it_carries_and_not_the_material_it_cites(tmp_path):
+    skills = tmp_path / "skills"
+    write(skills / "cpu-check" / "SKILL.md",
+          "---\nname: cpu-check\ndescription: quartz check\n---\n\nRun `python check.py <module>`.\n")
+    write(skills / "cpu-check" / "check.py", "print('ok')\n")
+    write(skills / "cpu-check" / "templates" / "case.rs", "fn main() {}\n")
+    wiki = tmp_path / "wiki"
+    write(wiki / "checks" / "default_max_tokens.py", "assert True\n")
+    write(tmp_path / "repo" / "sampling_params.py", "max_tokens = 16\n")
+    write(wiki / "pages" / "defaults.md", page(
+        "Defaults", "quartz defaults",
+        "A placeholder in [the source](../../repo/sampling_params.py); "
+        "rerun [the check](../checks/default_max_tokens.py) on another version.",
+    ))
+    recall = MarkdownKnowledgeRecall(tmp_path / "index.sqlite3", [
+        KnowledgeRoot("native project Skill", skills, tmp_path),
+        KnowledgeRoot("project Wiki", wiki / "pages", tmp_path, library=wiki),
+    ])
+
+    lines = recall.recall("quartz").text.splitlines()
+
+    assert lines[1].endswith("Code listed with a page is relative to it; the page says how to run it.")
+    assert next(line for line in lines if "SKILL.md" in line).endswith(
+        "code: `check.py`, `templates/case.rs`")
+    assert next(line for line in lines if "defaults.md" in line).endswith(
+        "code: `../checks/default_max_tokens.py`")
