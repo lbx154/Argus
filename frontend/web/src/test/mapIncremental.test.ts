@@ -29,6 +29,13 @@ it("retains loaded records and object identities while connecting new work", () 
   expect(stable).toBe(next);
 });
 
+it("keeps records in the order they happened when a page brings an earlier one", () => {
+  // A work segment is delivered when its round closes, after records that followed its start.
+  const closed = { id: "seg", item_id: "a", type: "work.segment", ts: 1.5, text: "Checking." };
+  const next = mergeMapProgress(first, { ...first, incremental: true, tasks: [], events: [closed] });
+  expect(next.events.map((e) => e.id)).toEqual(["seg", "e1"]);
+});
+
 it("merges paged history without duplicates and drops explicitly removed tasks", () => {
   const page = { ...first, tasks_complete: true, incremental: true };
   expect(mergeMapProgress(first, page).events).toHaveLength(1);

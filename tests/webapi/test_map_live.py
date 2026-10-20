@@ -655,7 +655,7 @@ def test_engineer_progress_folds_into_work_segments_with_narration_and_steps():
     segments: dict = {}
     events = normalize_events(rows, {"a"}, set(), segments)
     work = [e for e in events if e["type"] == "work.segment"]
-    assert [e["id"] for e in work] == ["seg:a:1", "seg:a:2", "seg:a:3"]
+    assert [e["id"] for e in work] == ["seg:a:1", "seg:a:2"]
     assert work[0]["text"] == "先读设计规范，再生成幻灯片。"
     assert [s["kind"] for s in work[0]["steps"]] == ["tool_use", "command_execution"]
     assert work[0]["steps"][1] == {
@@ -664,12 +664,60 @@ def test_engineer_progress_folds_into_work_segments_with_narration_and_steps():
     assert work[0]["ts"] == 2.0 and work[0]["ts_end"] == 4.0
     assert work[1]["text"] == "八页已生成，开始校验。" and len(work[1]["steps"]) == 1
     # The round ended before this narration, so it starts a fresh segment that is still open.
-    assert work[2]["text"] == "第二轮开始。" and work[2]["steps"] == []
-    assert list(segments["open"]) == ["a"]
+    # Words with no work after them yet wait: they may be the agent's last message.
+    assert segments["open"]["a"]["text"] == "第二轮开始。" and segments["open"]["a"]["steps"] == []
     # Reasoning never reaches the map; the original mission events are untouched.
     assert [e["type"] for e in events if e["type"] != "work.segment"] == [
         "life.mission.started", "round.main.completed",
     ]
+
+
+def test_a_tasks_work_holds_its_own_roles_once_in_the_order_it_happened(tmp_path):
+    rows = [
+        {"type": "life.mission.started", "item_id": "a", "ts": 1},
+        _progress("agent_message", "a", 2, text="Read the code."),
+        _progress("tool_use", "a", 3, text="view: a", tool_name="view"),
+        # The Planner runs beside the task and names none; the Manager's stage call names it.
+        {**_progress("agent_message", "", 4, text="Planning the project."), "agent_layer": "planner"},
+        {**_progress("tool_use", "", 5, text="view: plan", tool_name="view"), "agent_layer": "planner"},
+        {**_progress("tool_use", "a", 6, text="view: stage", tool_name="view"), "agent_layer": "manager"},
+        _progress("tool_use", "a", 7, text="view: b", tool_name="view"),
+        # The Engineer's last message is the round's record.
+        _progress("agent_message", "a", 8, text="Done: 3 passed."),
+        {"type": "round.main.completed", "item_id": "a", "ts": 9, "last_message": "Done: 3 passed.\n→ manager"},
+    ]
+    events = normalize_events(rows, {"a"}, set(), {})
+    work = [e for e in events if e["type"] == "work.segment"]
+    assert [(e["role"], e["text"], len(e["steps"])) for e in work] == [("engineer", "Read the code.", 2)]
+
+    # A segment closes after the records that followed it began: read in the order things happened.
+    sid, life = sample(tmp_path)
+    with (life / "events.jsonl").open("a") as f:
+        for row in (
+            _progress("agent_message", "task-a", 4, text="Checking."),
+            _progress("tool_use", "task-a", 5, text="view: a", tool_name="view"),
+            {"type": "round.main.completed", "item_id": "task-a", "ts": 6, "last_message": "Checked."},
+            {"type": "life.mission.completed", "item_id": "task-a", "ts": 7, "status": "done"},
+        ):
+            f.write(json.dumps(row) + "\n")
+    times = [e["ts"] for e in read_map(sid, tmp_path, life)["events"]]
+    assert times == sorted(times) and len(times) == 5
+
+
+def test_a_running_turn_shows_its_steps_as_they_are_journaled():
+    rows = [
+        {"type": "manager.turn.started", "message_id": "web-5", "ts": 1, "text": "Add slugify"},
+        {"type": "engineer.progress", "kind": "tool_use", "agent_layer": "manager", "item_id": "turn:web-5",
+         "message_id": "web-5:c1", "text": "查阅 core.py", "tool_name": "view", "status": "running",
+         "turn_step": True, "ts": 2},
+        {"type": "engineer.progress", "kind": "tool_use", "agent_layer": "manager", "item_id": "turn:web-5",
+         "message_id": "web-5:c1", "text": "查阅 core.py", "tool_name": "view", "status": "completed",
+         "turn_step": True, "ts": 3},
+    ]
+    (work,) = turn_records(rows, {}, {})["turn:web-5"]["events"]
+    assert work["steps"] == [{"kind": "tool_use", "label": "查阅 core.py", "ts": 2.0, "tool": "view",
+                              "status": "completed"}]
+    assert "tool_details_recorded" not in work
 
 
 def test_team_tool_steps_read_as_plain_actions_without_absolute_paths():

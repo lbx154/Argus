@@ -76,6 +76,9 @@ SEGMENT_CLOSERS = (
     "life.mission.failed",
     "life.mission.orphaned",
 )
+# The Planner and the Manager work for the whole project: their progress is
+# not the work of the task that happens to be running.
+PROJECT_LAYERS = frozenset({"planner", "manager"})
 SEGMENT_STEP_LIMIT = 40
 SEGMENT_LIMIT_PER_ITEM = 80
 SEGMENT_TEXT_LIMIT = 1200
@@ -152,9 +155,11 @@ def _step_from_progress(row: dict, workspace: str = "") -> dict:
     return step
 
 
-def _close_segment(segments: dict, owner: str) -> None:
+def _close_segment(segments: dict, owner: str, record: str = "") -> None:
     segment = segments.get("open", {}).pop(owner, None)
-    if segment is not None:
+    # Words with no work after them that the closing record repeats are the
+    # agent's last message: the map shows them once, as that record.
+    if segment is not None and (segment["steps"] or segment["text"] not in record):
         segments.setdefault("closed", []).append(segment)
 
 
@@ -235,9 +240,12 @@ def _same_call(previous: dict, step: dict) -> bool:
 
 
 def segment_events(segments: dict) -> list[dict]:
-    """Closed segments so far plus every segment still open, oldest first."""
+    """Closed segments so far plus every open segment with work in it, oldest
+    first. Words with no work after them yet wait: they may be the agent's last
+    message, which its round's record repeats."""
     closed = segments.pop("closed", []) if segments else []
-    return [*closed, *sorted(segments.get("open", {}).values(), key=lambda s: s["ts"])]
+    opened = (segment for segment in segments.get("open", {}).values() if segment["steps"])
+    return [*closed, *sorted(opened, key=lambda s: s["ts"])]
 
 
 def progress_workspace(life_dir: Path, meta=None) -> str:
@@ -279,12 +287,23 @@ def normalize_events(
         if not owner and kind.startswith(WINDOW_PREFIXES) and len(active) == 1:
             owner = next(iter(active))
             association = "single_active_window"
+        collected = owner in task_ids and kind.startswith(EVENT_PREFIXES)
+        said = text(
+            row.get("summary")
+            or row.get("reason")
+            or row.get("text")
+            or row.get("last_message")
+            or row.get("message")
+            or row.get("manager_decision")
+            or row.get("question")
+        ) if collected else ""
         if segments is not None and owner in task_ids:
             if kind == "engineer.progress":
-                fold_progress(segments, owner, row, association, workspace)
+                if row.get("agent_layer") not in PROJECT_LAYERS:
+                    fold_progress(segments, owner, row, association, workspace)
             elif kind.startswith(SEGMENT_CLOSERS):
-                _close_segment(segments, owner)
-        if owner in task_ids and kind.startswith(EVENT_PREFIXES):
+                _close_segment(segments, owner, said)
+        if collected:
             e = {
                 "id": event_id(row),
                 "item_id": owner,
@@ -297,15 +316,7 @@ def normalize_events(
                     or row.get("decided_by")
                     or ("reviewer" if "review" in kind else "engineer")
                 ),
-                "text": text(
-                    row.get("summary")
-                    or row.get("reason")
-                    or row.get("text")
-                    or row.get("last_message")
-                    or row.get("message")
-                    or row.get("manager_decision")
-                    or row.get("question")
-                ),
+                "text": said,
                 "status": text(row.get("status"), 40),
                 "next_action": text(row.get("next_action")),
             }
@@ -371,6 +382,27 @@ def ask_title(asked: str) -> str:
     return lines[0] if lines else ""
 
 
+def _turn_steps(steps: list[dict], workspace: str) -> list[dict]:
+    """A turn's journaled steps as its work segment lists them."""
+    return [
+        {
+            "kind": str(step.get("kind") or "tool_use"),
+            "label": text(
+                plain_step_label(
+                    str(step.get("label") or ""), str(step.get("tool") or ""),
+                    str(step.get("detail") or ""), workspace,
+                ) if str(step.get("kind") or "tool_use") in {"tool_use", "tool_call"}
+                else step.get("label"),
+                STEP_LABEL_LIMIT,
+            ),
+            "ts": _timestamp(step.get("started_ts")),
+            **({"tool": text(step["tool"], 120)} if step.get("tool") else {}),
+            **({"status": text(step["status"], 40)} if step.get("status") else {}),
+        }
+        for step in steps[:SEGMENT_STEP_LIMIT]
+    ]
+
+
 def turn_records(
     rows: list[dict], turns: dict | None = None, asks: dict | None = None,
     workspace: str = "",
@@ -415,6 +447,20 @@ def turn_records(
                             "status": "running", "text": "", "steps": [], "tool_details_recorded": False}],
             }
             ask["active_turn"] = turns[card_id]
+            continue
+        if row.get("type") == "engineer.progress" and row.get("turn_step"):
+            # A running turn's steps as they are journaled, opened and then
+            # closed under one message id; its reply carries the final list.
+            turn = turns.get(str(row.get("item_id") or ""))
+            if turn and turn["card"]["status"] == "running" and turn["events"]:
+                journaled = turn.setdefault("steps", {})
+                journaled.setdefault(message_id, {"started_ts": row.get("ts")}).update(
+                    kind=row.get("kind"), label=row.get("text"), tool=row.get("tool_name"),
+                    detail=row.get("detail"), status=row.get("status"),
+                )
+                work = turn["events"][0]
+                work.pop("tool_details_recorded", None)
+                work["steps"] = _turn_steps(list(journaled.values()), workspace)
             continue
         if row.get("type") == "manager.turn.cancelled":
             ask = asks.pop(message_id, {})
@@ -521,23 +567,7 @@ def turn_records(
                     "text": error or "",
                     "status": "failed" if failed else "recorded",
                     **({"tool_details_recorded": False} if recovered else {}),
-                    "steps": [
-                        {
-                            "kind": str(step.get("kind") or "tool_use"),
-                            "label": text(
-                                plain_step_label(
-                                    str(step.get("label") or ""), str(step.get("tool") or ""),
-                                    str(step.get("detail") or ""), workspace,
-                                ) if str(step.get("kind") or "tool_use") in {"tool_use", "tool_call"}
-                                else step.get("label"),
-                                STEP_LABEL_LIMIT,
-                            ),
-                            "ts": _timestamp(step.get("started_ts")),
-                            **({"tool": text(step["tool"], 120)} if step.get("tool") else {}),
-                            **({"status": text(step["status"], 40)} if step.get("status") else {}),
-                        }
-                        for step in steps[:SEGMENT_STEP_LIMIT]
-                    ],
+                    "steps": _turn_steps(steps, workspace),
                     "overflow": max(0, len(steps) - SEGMENT_STEP_LIMIT),
                 },
                 {
@@ -660,11 +690,13 @@ def read_map(
                     continue
             workspace = progress_workspace(life_dir, read_session_meta(root, sid))
             turns = turn_records(rows, turns, asks, workspace)
-            events = list({e["id"]: e for e in [
+            # In the order things happened: a segment is only complete when
+            # its round closes, and a turn's records when it is answered.
+            events = sorted({e["id"]: e for e in [
                 *previous,
                 *normalize_events(rows, task_ids, active, segments, workspace),
                 *(event for turn in turns.values() for event in turn["events"]),
-            ]}.values())
+            ]}.values(), key=lambda e: _timestamp(e["ts"]))
             f.seek(max(0, consumed - 128))
             state.update(
                 identity=identity, offset=consumed, anchor=f.read(min(128, consumed)),
