@@ -524,10 +524,7 @@ def role_banner(role: str) -> str:
     # Manager picks a stage; neither runs Lean, and a host fact they cannot act
     # on is prompt weight spent for nothing.
     if role_name in {"engineer", "reviewer"}:
-        from ...tools.jacobian import jacobian_capability_note
-
         banner += _lean_workspace_note()
-        banner += jacobian_capability_note()
     return banner
 
 

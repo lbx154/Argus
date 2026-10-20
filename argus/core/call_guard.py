@@ -26,7 +26,6 @@ _FOREGROUND_LABELS = (
     "engineer-",
     "reviewer",
     "advisor.",
-    "research.",
     "subagent:",
     "peer-message-response",
     "manager-frontdoor",

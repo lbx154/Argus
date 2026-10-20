@@ -56,7 +56,7 @@ def test_a_wait_that_only_ran_out_of_time_is_not_progress():
 
 @pytest.mark.parametrize("label", [
     "engineer-r4", "engineer-r4.winddown", "reviewer", "reviewer-correctness",
-    "advisor.engineer.math", "research.academic_language_review",
+    "advisor.engineer.math",
     "subagent:job-1:health", "peer-message-response", "manager-frontdoor-classify",
 ])
 def test_mission_work_and_answers_to_one_input_are_never_counted(label):

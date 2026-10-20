@@ -1,10 +1,9 @@
-# 反例实验室与 Jacobian 配置
+# 反例实验室配置
 
-这套集成包含三项
+这套集成包含两项
 互相独立的能力，并且不携带任何私有猜想或战役数据：
 
 - 科研工作台中的只读“反例实验室”；
-- 通过隔离 sidecar 调用 Jacobian 的 `math.find` 与 `math.run` MCP 契约；
 - 跟随当前已发布分支的源码更新按钮；工作树不干净、detached 或无法快进时拒绝更新。
 
 ## 从源码安装
@@ -16,24 +15,6 @@ python -m pip install -e .
 argus --version
 argus doctor --advisor none --verify
 ```
-
-## 启用 Jacobian
-
-Argus 不会把 Jacobian import 到自身进程，而是把已发布的 `jacobian-mcp` 可执行文件
-作为受限 stdio sidecar 启动，只传递必要的进程环境，并保留 operation id、请求、
-类型化输出、协议版本和结构化错误。这是进程与依赖隔离，不是操作系统沙箱；
-该程序仍拥有操作者的文件系统权限。
-
-按照 Jacobian 自身的安装说明在独立环境中安装，再配置该环境内可执行文件的绝对路径：
-
-```bash
-export ARGUS_SKILL_JACOBIAN_MCP_BIN="/path/to/jacobian-environment/bin/jacobian-mcp"
-python -m argus.tools.jacobian status
-python -m argus.tools.jacobian find --query "exact determinant"
-```
-
-只有发现该可执行文件时，数学 Engineer 与 Reviewer 才会收到 Jacobian 能力说明。
-Jacobian 输出属于计算证据，不会被自动当成证明；Argus 仍要求命题对齐和独立复核。
 
 ## 给反例实验室提供数据
 

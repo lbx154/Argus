@@ -1096,7 +1096,6 @@ class StreamProgressRelay:
 _ENGINEER_HELPER_ACTOR_PREFIXES = (
     "venue-research",
     "idea-search",
-    "research.",
 )
 
 _MANAGER_ACTOR_PREFIXES = (

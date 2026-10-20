@@ -21,14 +21,7 @@ from typing import Any, Iterator
 from .file_facts import file_facts
 
 _INTERNAL_DIR = Path(".argus/internal/narrative-runtime")
-_EXCLUDED_NAMES = frozenset(
-    {
-        "REVIEW.md",
-        "academic_language_review.json",
-        "academic_language_review.md",
-        "academic_language_review_history.jsonl",
-    }
-)
+_EXCLUDED_NAMES = frozenset({"REVIEW.md"})
 _EXCLUDED_SUFFIXES = frozenset(
     {
         ".aux",

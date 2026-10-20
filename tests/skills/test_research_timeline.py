@@ -9,7 +9,7 @@ from pathlib import Path
 
 import pytest
 
-from argus.verticals.research.timeline import estimate
+from argus.core.timeline import estimate
 from argus.verticals.research.timeline_store import record
 
 
@@ -294,7 +294,7 @@ def test_cli_real_entrypoint_records_and_renders(tmp_path):
         [
             sys.executable,
             "-m",
-            "argus.verticals.research.timeline",
+            "argus.core.timeline",
             "--input",
             str(source),
             "--project-root",
@@ -313,7 +313,7 @@ def test_cli_real_entrypoint_records_and_renders(tmp_path):
     assert (tmp_path / ".argus" / "timeline" / "000001.json").exists()
     source.write_text("{}")
     bad = subprocess.run(
-        [sys.executable, "-m", "argus.verticals.research.timeline", "--input", str(source)],
+        [sys.executable, "-m", "argus.core.timeline", "--input", str(source)],
         capture_output=True,
         text=True,
         cwd=Path(__file__).resolve().parents[2],

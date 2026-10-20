@@ -154,7 +154,7 @@ for d in sorted(pathlib.Path('argus/verticals').iterdir()):
 | 关注点 | 实现 |
 | --- | --- |
 | 账本 | `core/evidence_ledger.py`、`verticals/quant/search_ledger.py`、`verticals/research/literature_ledger.py` |
-| 锁 / 租约 | `core/daemon_lock.py`、`core/file_lock.py`、`core/workspace_lease.py`、`tools/gpu_lease.py` |
+| 锁 / 租约 | `core/daemon_lock.py`、`core/file_lock.py`、`core/workspace_lease.py` |
 | 状态持久化 | `core/pipeline_state.py`、`core/knob_store.py`、`daemon/state.py`、`life/memory.py`、`webapi/project_state.py` |
 
 **体积。** 31 个文件超过 1,000 行，6 个超过 2,000 行。最大的是

@@ -1,29 +1,9 @@
-"""Tests for the setup wizard's GPU keep-alive (anti-reclaim) integration."""
+"""Tests for the setup wizard's runner backend selection."""
 from __future__ import annotations
 
 from pathlib import Path
 
-import pytest
-
-from argus.tools import gpu_load
 from argus.tools import setup as _wizard
-
-
-def test_gpu_load_help_exits_clean() -> None:
-    with pytest.raises(SystemExit) as exc:
-        gpu_load.main(["--help"])
-    assert exc.value.code == 0
-
-
-def test_gpu_load_arg_defaults() -> None:
-    args = gpu_load._parse_args([])
-    assert args.util == 20.0
-    assert args.mem == 10.0
-    assert args.duration == 0.0
-    args2 = gpu_load._parse_args(["--gpus", "0,2", "--mem", "5", "--util", "15"])
-    assert args2.gpus == "0,2"
-    assert args2.mem == 5.0
-    assert args2.util == 15.0
 
 
 def test_setup_defaults_to_only_installed_copilot(

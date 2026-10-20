@@ -61,15 +61,6 @@ REGISTRY: tuple[Site, ...] = (
         ("advisor.engineer.math",),
     ),
     Site(
-        r"research\.(academic_language_review|paper_infrastructure_review)", FOREGROUND,
-        "A research-vertical review pass that runs as part of a mission round.",
-        (
-            "argus/verticals/research/academic_language_review.py:681",
-            "argus/verticals/research/paper_infrastructure_review.py:236",
-        ),
-        ("research.academic_language_review", "research.paper_infrastructure_review"),
-    ),
-    Site(
         r"subagent:[^:]+:(preflight|report|discussion)(:resume-recovery)?", FOREGROUND,
         "A job the Engineer submitted: one preflight before launch, one report when it ends, "
         "one reply per Engineer turn of an early-stop discussion; a resumed thread that "
@@ -390,10 +381,6 @@ PASS_THROUGH = {
     ("argus/manager/prompt_rewrite.py", "rewrite_prompt", "run_label"),
     ("argus/tools/subagent/_llm.py", "_run_backend_turn", "run_label"),
     ("argus/tools/subagent/_llm.py", "_run_supervisor_with_usage", "f'{run_label}:resume-recovery'"),
-    (
-        "argus/verticals/research/_reviewer_runner_fallback.py",
-        "run_reviewer_prompt_via_runner", "run_label",
-    ),
     ("argus/webapi/map_model.py", "_run_map_turn", "run_label"),
     ("argus/webapi/map_model.py", "run_map_model", "run_label"),
     # The reader's provenance record carries the literal "reader-foundation".

@@ -4,7 +4,7 @@
     "summary": "判断何时值得并行工作，按文件与职责拆分协作，并独立审查汇总结果；不替代原有角色与授权。",
     "originalName": "Agent Team Lead",
     "source": "argus/builtin_skills/agent-team-lead.md",
-    "sourceBytes": 6933
+    "sourceBytes": 6714
   },
   "global/engineer/minimal-coding-agent.md": {
     "title": "最小且严谨的软件修改",
@@ -12,13 +12,6 @@
     "originalName": "极简而严谨的 Coding Agent",
     "source": "argus/builtin_skills/engineer/minimal-coding-agent.md",
     "sourceBytes": 2672
-  },
-  "global/engineer/pdf-chat.md": {
-    "title": "分段阅读 PDF",
-    "summary": "按页或章节阅读并核对版本、页码；图片和版式需查看实际页面，回答只依据相关证据。",
-    "originalName": "Progressive PDF Reading",
-    "source": "argus/builtin_skills/engineer/pdf-chat.md",
-    "sourceBytes": 2101
   },
   "global/engineer/presentation-master.md": {
     "title": "可编辑演示文稿",
@@ -606,7 +599,7 @@
     "summary": "忠实保留命题与范围，诚实区分结果类别；需要 Lean 证据时实际编译，不虚构证明。",
     "originalName": "Math Research Execution",
     "source": "argus/verticals/math/skills/engineer/math-research-execution.md",
-    "sourceBytes": 16600
+    "sourceBytes": 16046
   },
   "vertical/math/manager/math-research-manager.md": {
     "title": "数学研究任务协调",
@@ -627,7 +620,7 @@
     "summary": "检查正确性、新意、意义、命题忠实性和真实形式化证据，不以叙述代替证明。",
     "originalName": "Math Research Review",
     "source": "argus/verticals/math/skills/reviewer/math-research-review.md",
-    "sourceBytes": 7408
+    "sourceBytes": 6811
   },
   "vertical/math/scientist/math-research-adaptation.md": {
     "title": "改进数学研究方法",

@@ -13,7 +13,6 @@ from pathlib import Path
 import pytest
 
 from argus.skills.stage_machine import format_stage_checklist
-from argus.verticals.research.paper_layout_review import _deterministic_assessment
 from argus.verticals.research.venue_profiles import (
     resolve_venue_profile,
     venue_profile_path,
@@ -58,22 +57,6 @@ def test_researched_profile_resolves_for_the_selected_venue(tmp_path: Path) -> N
     venue = resolve_venue_profile(root)
     assert venue.key == "AAAI"
     assert venue.has_fixed_page_budget is True
-
-
-def test_layout_review_uses_the_researched_page_budget(tmp_path: Path) -> None:
-    root = _seed_project(tmp_path)
-    venue = resolve_venue_profile(root)
-    # Conclusion p7 / References p8: exactly the researched budget.
-    layout = "\f".join(
-        [f"body {i}" for i in range(1, 7)] + ["Conclusion x", "References\n[1] a"]
-    )
-    codes = {
-        i["code"]
-        for i in _deterministic_assessment(
-            tex_text="", log_text="", layout_text=layout, threshold=3.5, venue=venue
-        )["issues"]
-    }
-    assert "references_before_full_body" not in codes
 
 
 def test_review_checklist_and_reviewer_skill_are_venue_neutral(tmp_path: Path) -> None:

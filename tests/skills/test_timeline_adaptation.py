@@ -4,7 +4,7 @@ from importlib.resources import files
 
 import pytest
 
-from argus.verticals.research.timeline import estimate
+from argus.core.timeline import estimate
 from argus.verticals.research.timeline_store import record
 
 

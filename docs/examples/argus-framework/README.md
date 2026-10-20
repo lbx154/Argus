@@ -32,24 +32,8 @@ local Research SVG component added.
 | Planner and campaign scheduling | `argus/planner/planner.py`, `argus/life/supervisor/_core.py` |
 | Engineer and Reviewer | `argus/loop.py`, `argus/engineer/runner.py`, `argus/reviewer/_core.py` |
 | Skills and Wiki | `argus/skills/loop_skill_library.py`, `argus/manager/skill_review.py`, `argus/wiki/context.py` |
-| Research contracts and drawing | `argus/verticals/research/stages.py`, `argus/verticals/research/pipeline_figure.py` |
+| Research contracts | `argus/verticals/research/stages.py` |
 | Manuscript context | `technical_report/sections/04_argus_method.tex` |
 
 Current code takes precedence where the technical report describes an older
 implementation. No retired L3 critic or independent matcher/distiller is drawn.
-
-## Render
-
-From the repository root, with Chromium and Times New Roman installed:
-
-```bash
-python -m argus.verticals.research.pipeline_figure render \
-  --input docs/examples/argus-framework/architecture.source.svg \
-  --output docs/examples/argus-framework/architecture.svg --pdf --png --width 624
-```
-
-Use [architecture.pdf](architecture.pdf) in the paper and edit
-[architecture.source.svg](architecture.source.svg) for revisions. The PDF is
-6.5 inches wide, with a minimum label size above 8 pt. Include it after
-Introduction, preferably at the top of page 2 or 3; check the compiled paper's
-actual floats without redrawing the figure to change its placement.

@@ -61,7 +61,7 @@ npm run build
 在源码根目录运行：
 
 ```bash
-python -m argus.verticals.research.timeline \
+python -m argus.core.timeline \
   --input argus/verticals/research/timeline_example.json
 ```
 
@@ -141,7 +141,7 @@ CLI/API 调用者同样应把选中行的 `duration_hours`、`resources`、`exec
 把计划输入保存在目标项目 `.argus/timeline/proposal.json`，首次记录：
 
 ```bash
-python -m argus.verticals.research.timeline \
+python -m argus.core.timeline \
   --input /path/to/project/.argus/timeline/proposal.json \
   --project-root /path/to/project --expected-version 0 --reason '初版 proposal'
 ```

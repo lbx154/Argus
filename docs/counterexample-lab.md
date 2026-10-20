@@ -1,10 +1,9 @@
-# Counterexample Lab and Jacobian setup
+# Counterexample Lab setup
 
-The integration adds three independent capabilities without including any
+The integration adds two independent capabilities without including any
 private campaign data:
 
 - a read-only Counterexample Lab in the research workbench;
-- an isolated adapter to Jacobian's `math.find` and `math.run` MCP contracts;
 - a source-update button that follows the currently checked-out published
   branch and refuses dirty, detached, or non-fast-forward updates.
 
@@ -18,29 +17,6 @@ python -m pip install -e .
 argus --version
 argus doctor --advisor none --verify
 ```
-
-## Enable Jacobian
-
-Argus does not import Jacobian into its own process. It starts the published
-`jacobian-mcp` executable as a restricted stdio sidecar, forwards only process
-essentials, and preserves the operation id, request, typed output, protocol
-version, and structured errors. This is process/dependency isolation, not an
-operating-system sandbox; the executable retains the operator's filesystem
-permissions.
-
-Install Jacobian in its own environment according to its installation
-instructions, then expose the absolute path of that environment's executable:
-
-```bash
-export ARGUS_SKILL_JACOBIAN_MCP_BIN="/path/to/jacobian-environment/bin/jacobian-mcp"
-python -m argus.tools.jacobian status
-python -m argus.tools.jacobian find --query "exact determinant"
-```
-
-The math Engineer and Reviewer receive the Jacobian capability note only when
-the executable is available. Jacobian results are computational evidence, not
-automatic proofs; Argus still requires statement alignment and independent
-review.
 
 ## Feed the Counterexample Lab
 
