@@ -221,6 +221,9 @@ def test_vertical_prompt_preserves_explicit_operator_actions() -> None:
     assert 'Preserve paths, commands, order, and stopping conditions' in prompt
     assert 'requested action, not words' in prompt
     assert "Repository work is usually `software`" in prompt
+    # 2026-10-20: "经独立审阅后交付" in the Engineer's task had it run its own
+    # review before the Reviewer ran the formal one.
+    assert "leave review out, since `REQUIRE_INDEPENDENT_REVIEW` carries it" in prompt
 
 
 def test_fast_vertical_parser_accepts_confident_existing_route() -> None:

@@ -219,7 +219,8 @@ def test_the_engineer_is_asked_for_the_baton_line() -> None:
         "→ reviewer\n"
         "Or `→ done` (milestone complete), `→ engineer` (keep working), `→ planner` "
         "(task mis-scoped), `→ manager` (obstacle only it can remove), or "
-        "`→ operator: <one question>`."
+        "`→ operator: <one question>`. The Reviewer you hand to with `→ reviewer` "
+        "does the independent review; do not start a review of your own."
     )
 
 

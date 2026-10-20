@@ -64,8 +64,7 @@ def test_engineer_must_not_spawn_a_subagent_to_impersonate_reviewer():
         next_action=None,
     )
 
-    assert "reviewer subagent" in out.lower()
-    assert "host invokes reviewer only when required" in out.lower()
+    assert "does the independent review; do not start a review of your own" in out
     assert "yield" in out.lower()
 
 
