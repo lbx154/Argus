@@ -1862,33 +1862,6 @@ export interface TeamLearningPromotionQuarantinedEvent extends EventMsg {
   "reason"?: string;
 }
 
-export interface SelfLearningReviewStartedEvent extends EventMsg {
-  type: "self.learning.review.started";
-  payload_schema_version?: 1;
-  "agent_layer"?: string;
-  "operator_turn_count": number;
-}
-
-export interface SelfLearningReviewCompletedEvent extends EventMsg {
-  type: "self.learning.review.completed";
-  payload_schema_version?: 1;
-  "agent_layer"?: string;
-  "operator_turn_count"?: number;
-  "error"?: string;
-  "learning_applied": boolean;
-  "created"?: Array<string>;
-  "updated"?: Array<string>;
-  "removed"?: Array<string>;
-}
-
-export interface SelfLearningReviewFailedEvent extends EventMsg {
-  type: "self.learning.review.failed";
-  payload_schema_version?: 1;
-  "agent_layer"?: string;
-  "operator_turn_count"?: number;
-  "error": string;
-}
-
 export interface DomainPromotionEvent extends EventMsg {
   type: "domain.promotion";
   payload_schema_version?: 1;
@@ -2134,9 +2107,6 @@ export interface EventPayloadByType {
   "team.learning.review.completed": TeamLearningReviewCompletedEvent;
   "team.learning.review.failed": TeamLearningReviewFailedEvent;
   "team.learning.promotion.quarantined": TeamLearningPromotionQuarantinedEvent;
-  "self.learning.review.started": SelfLearningReviewStartedEvent;
-  "self.learning.review.completed": SelfLearningReviewCompletedEvent;
-  "self.learning.review.failed": SelfLearningReviewFailedEvent;
   "domain.promotion": DomainPromotionEvent;
   "manager.turn.started": ManagerTurnStartedEvent;
   "manager.turn.cancelled": ManagerTurnCancelledEvent;

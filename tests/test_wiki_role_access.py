@@ -110,4 +110,4 @@ def test_the_manager_reads_primary_sources_when_asked_to_learn_a_subject() -> No
 
     prompt = build_simple_prompt(objective="你学习一下FA 就是初创公司融资的相关知识")
     assert "asks you to learn, survey or explain a subject, read primary sources on the web" in prompt
-    assert "cite their URLs" in prompt and "kept as shared knowledge" in prompt
+    assert "cite their URLs" in prompt

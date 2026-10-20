@@ -120,21 +120,6 @@ def release_manager_context(sid: str) -> None:
         _release_manager_state(sid)
 
 
-def answer_learning_backend(root: Path, sid: str) -> Any:
-    """Reconstruct the configured learning transport without sending a user turn."""
-    from ..life.memory import MemoryBundle
-    from ..manager.front_door import _ensure_manager_runner
-
-    with _lock_for(sid):
-        state = _chat_state_for(sid)
-        state.update(session_id=sid, global_root=str(root))
-        runner = _ensure_manager_runner(state, MemoryBundle.for_cwd(fingerprint=sid, global_root=root))
-        backend = getattr(runner, "_backend", None)
-    if backend is None:
-        raise RuntimeError("Learning backend is unavailable")
-    return backend
-
-
 def _warm_context_limits() -> tuple[int, float]:
     import os
 

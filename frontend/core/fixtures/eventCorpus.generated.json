@@ -2368,51 +2368,9 @@
     },
     {
       "event": {
-        "agent_layer": "engineer",
-        "operator_turn_count": 1,
-        "payload_schema_version": 1,
-        "ts": 1700000155,
-        "type": "self.learning.review.started"
-      },
-      "id": "self.learning.review.started"
-    },
-    {
-      "event": {
-        "agent_layer": "engineer",
-        "created": [
-          "created"
-        ],
-        "error": "provider request failed",
-        "learning_applied": true,
-        "operator_turn_count": 1,
-        "payload_schema_version": 1,
-        "removed": [
-          "removed"
-        ],
-        "ts": 1700000156,
-        "type": "self.learning.review.completed",
-        "updated": [
-          "updated"
-        ]
-      },
-      "id": "self.learning.review.completed"
-    },
-    {
-      "event": {
-        "agent_layer": "engineer",
-        "error": "provider request failed",
-        "operator_turn_count": 1,
-        "payload_schema_version": 1,
-        "ts": 1700000157,
-        "type": "self.learning.review.failed"
-      },
-      "id": "self.learning.review.failed"
-    },
-    {
-      "event": {
         "payload_schema_version": 1,
         "text": "Renderer event detail",
-        "ts": 1700000158,
+        "ts": 1700000155,
         "type": "domain.promotion"
       },
       "id": "domain.promotion"
@@ -2424,7 +2382,7 @@
         "payload_schema_version": 1,
         "project": "project",
         "text": "Renderer event detail",
-        "ts": 1700000159,
+        "ts": 1700000156,
         "type": "wiki.initialized"
       },
       "id": "wiki.initialized"
@@ -2435,7 +2393,7 @@
         "operation": "replace",
         "payload_schema_version": 1,
         "text": "Renderer event detail",
-        "ts": 1700000160,
+        "ts": 1700000157,
         "type": "wiki.hook.warning"
       },
       "id": "wiki.hook.warning"
@@ -2449,7 +2407,7 @@
         "status": "completed",
         "text": "Renderer event detail",
         "title": "Shared event renderer",
-        "ts": 1700000161,
+        "ts": 1700000158,
         "type": "wiki.created"
       },
       "id": "wiki.created"
@@ -2463,7 +2421,7 @@
         "status": "completed",
         "text": "Renderer event detail",
         "title": "Shared event renderer",
-        "ts": 1700000162,
+        "ts": 1700000159,
         "type": "wiki.updated"
       },
       "id": "wiki.updated"
@@ -2475,7 +2433,7 @@
         "payload_schema_version": 1,
         "reason": "the current operation needs attention",
         "text": "Renderer event detail",
-        "ts": 1700000163,
+        "ts": 1700000160,
         "type": "wiki.retired"
       },
       "id": "wiki.retired"
@@ -2491,7 +2449,7 @@
         "successful_references": 1,
         "text": "Renderer event detail",
         "to_status": "to status",
-        "ts": 1700000164,
+        "ts": 1700000161,
         "type": "wiki.promotion.promoted"
       },
       "id": "wiki.promotion.promoted"
@@ -2507,7 +2465,7 @@
         "successful_references": 1,
         "text": "Renderer event detail",
         "to_status": "to status",
-        "ts": 1700000165,
+        "ts": 1700000162,
         "type": "wiki.promotion.demoted"
       },
       "id": "wiki.promotion.demoted"
@@ -2525,7 +2483,7 @@
         "payload_schema_version": 1,
         "text": "Renderer event detail",
         "truncated": true,
-        "ts": 1700000166,
+        "ts": 1700000163,
         "type": "wiki.retired.compressed"
       },
       "id": "wiki.retired.compressed"
@@ -2551,7 +2509,7 @@
         "skipped": 1,
         "sources": 1,
         "text": "Renderer event detail",
-        "ts": 1700000167,
+        "ts": 1700000164,
         "type": "wiki.evolution.completed",
         "updated": 1,
         "wiki_count": 1
@@ -2569,7 +2527,7 @@
         "source_project": "source project",
         "text": "Renderer event detail",
         "title": "Shared event renderer",
-        "ts": 1700000168,
+        "ts": 1700000165,
         "type": "knowledge.learned",
         "vertical": "software"
       },
@@ -2591,7 +2549,7 @@
           "vertical": 1
         },
         "text": "Renderer event detail",
-        "ts": 1700000169,
+        "ts": 1700000166,
         "type": "knowledge.recalled"
       },
       "id": "knowledge.recalled"
@@ -2602,7 +2560,7 @@
         "payload_schema_version": 1,
         "reason": "the current operation needs attention",
         "text": "Renderer event detail",
-        "ts": 1700000170,
+        "ts": 1700000167,
         "type": "operator_alert"
       },
       "id": "operator_alert"
@@ -2619,7 +2577,7 @@
         "source": "daemon",
         "text": "Renderer event detail",
         "title": "Shared event renderer",
-        "ts": 1700000171,
+        "ts": 1700000168,
         "type": "manager.live_view.updated"
       },
       "id": "manager.live_view.updated"
@@ -2629,7 +2587,7 @@
         "error": "provider request failed",
         "payload_schema_version": 1,
         "text": "Renderer event detail",
-        "ts": 1700000172,
+        "ts": 1700000169,
         "type": "manager.live_view.rejected"
       },
       "id": "manager.live_view.rejected"
@@ -2639,7 +2597,7 @@
         "message_id": "message id",
         "payload_schema_version": 1,
         "text": "Renderer event detail",
-        "ts": 1700000173,
+        "ts": 1700000170,
         "turn_kind": "qa",
         "type": "manager.turn.started"
       },
@@ -2649,7 +2607,7 @@
       "event": {
         "message_id": "message id",
         "payload_schema_version": 1,
-        "ts": 1700000174,
+        "ts": 1700000171,
         "type": "manager.turn.cancelled"
       },
       "id": "manager.turn.cancelled"
@@ -2664,7 +2622,7 @@
         ],
         "text": "Renderer event detail",
         "title": "Shared event renderer",
-        "ts": 1700000175,
+        "ts": 1700000172,
         "type": "user.note"
       },
       "id": "user.note"
@@ -2675,7 +2633,7 @@
         "message_id": "message id",
         "payload_schema_version": 1,
         "text": "Renderer event detail",
-        "ts": 1700000176,
+        "ts": 1700000173,
         "type": "ui.operator"
       },
       "id": "ui.operator"
@@ -2691,7 +2649,7 @@
           }
         ],
         "text": "Renderer event detail",
-        "ts": 1700000177,
+        "ts": 1700000174,
         "turn_kind": "qa",
         "type": "ui.argus"
       },

@@ -5,7 +5,7 @@ import { api, type LearningState } from '../api';
 import { LearningStatus } from './LearningStatus';
 
 vi.mock('../i18n', () => ({ useI18n: () => ({ locale: 'zh-CN' }) }));
-vi.mock('../api', () => ({ api: { learningStatus: vi.fn(), retryLearning: vi.fn() } }));
+vi.mock('../api', () => ({ api: { learningStatus: vi.fn() } }));
 let client: QueryClient;
 let renderer: ReactTestRenderer;
 const content = (node: ReactTestInstance): string => node.children.map(child => typeof child === 'string' ? child : content(child)).join('');
@@ -51,14 +51,11 @@ it('shows nothing for a finished check that added nothing, in the workspace or a
   expect(renderer.toJSON()).toBeNull();
 });
 
-it('offers retry for failed learning without re-sending the user task', async () => {
+it('says plainly when learning did not finish', async () => {
   await mount('failed');
   expect(content(renderer.root)).toContain('本轮学习未完成，回复不受影响');
   expect(content(renderer.root)).not.toContain('知识库更新未完成');
-  vi.mocked(api.retryLearning).mockResolvedValue(state('running'));
-  await act(async () => renderer.root.findByType('button').props.onClick()); await settle();
-  expect(api.retryLearning).toHaveBeenCalledWith('one', 'turn');
-  expect(content(renderer.root)).toContain('知识库正在更新');
+  expect(renderer.root.findAllByType('button')).toHaveLength(0);
 });
 
 it('does not show the previous project learning after switching projects', async () => {
@@ -85,7 +82,4 @@ it('explains a policy pause in plain words inside the library, not as a failure'
   expect(text).not.toContain('未完成');
   expect(renderer.root.findByProps({ 'data-learning-status': 'skipped' })).toBeTruthy();
   expect(renderer.root.findAllByProps({ role: 'alert' })).toHaveLength(0);
-  vi.mocked(api.retryLearning).mockResolvedValue(state('running'));
-  await act(async () => renderer.root.findByType('button').props.onClick()); await settle();
-  expect(api.retryLearning).toHaveBeenCalledWith('one', 'turn');
 });

@@ -210,8 +210,7 @@ def build_simple_prompt(
         "teach one useful chunk, ask at most one question, then wait. Check primary "
         "sources only when an external technical claim matters. When the operator asks "
         "you to learn, survey or explain a subject, read primary sources on the web "
-        "first and cite their URLs in the answer; what you read is kept as shared "
-        "knowledge for later work. First verify the identity of a named external "
+        "first and cite their URLs in the answer. First verify the identity of a named external "
         "subject; unfamiliarity is not a spelling error or proof it does not exist. "
         "Use public search before guessing a familiar expansion or asking the user "
         "to define a publicly discoverable subject. Existing Skills and user interests "
@@ -240,6 +239,22 @@ def build_simple_prompt(
         f"{knowledge}"
         f"Task:\n{objective.strip()}"
         f"{status}"
+    )
+
+
+def build_self_learning_note(workspace: Path) -> str:
+    """What a SELF turn taught is kept by the Manager in that turn, as the Engineer does."""
+    from ...core.knobs import learning_enabled
+    from ...wiki.auto_hooks import discover_wikis
+
+    if not learning_enabled():
+        return ""
+    wikis = discover_wikis(workspace)
+    fact = f", a lasting project fact as a page in the project Wiki `{wikis[0]}`" if wikis else ""
+    return (
+        "If this turn taught something later work should reuse, keep it before you finish: "
+        f"a reusable procedure as a Skill in `{workspace / '.agents' / 'skills'}/<name>/SKILL.md`"
+        f"{fact}. Otherwise write nothing."
     )
 
 
@@ -1159,6 +1174,7 @@ __all__ = [
     "build_prompt_rewrite_prompt",
     "build_research_target_prompt",
     "build_route_prompt",
+    "build_self_learning_note",
     "build_simple_prompt",
     "build_skill_placements_prompt",
     "build_stage_decision_prompt",

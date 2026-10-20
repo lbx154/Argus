@@ -1,8 +1,7 @@
-"""Observable answer learning and retry without repeating the user's task."""
-from fastapi import Depends, HTTPException
+"""Observable learning after a mission."""
+from fastapi import Depends
 
-from ...life.answer_learning import learning_status, resume_learning, retry_learning
-from ..manager_state import answer_learning_backend
+from ...life.answer_learning import learning_status
 from .context import ServerContext
 
 
@@ -10,16 +9,3 @@ def register_learning_routes(app, ctx: ServerContext) -> None:
     @app.get("/api/projects/{sid}/learning", dependencies=[Depends(ctx.require_auth)])
     def _status(sid: str) -> dict:
         return learning_status(ctx.project_root_or_404(sid), sid)
-
-    @app.post("/api/projects/{sid}/learning/{job_id}/retry", dependencies=[Depends(ctx.require_auth)])
-    def _retry(sid: str, job_id: str) -> dict:
-        root = ctx.project_root_or_404(sid)
-        if not retry_learning(root, sid, job_id, backend_factory=answer_learning_backend):
-            raise HTTPException(status_code=409, detail="Only failed learning can be retried")
-        return learning_status(root, sid)
-
-    @app.on_event("startup")
-    def _resume() -> None:
-        for root in ctx.roots:
-            if (root / "answer-learning.sqlite3").exists():
-                resume_learning(root, backend_factory=answer_learning_backend)

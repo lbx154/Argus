@@ -137,12 +137,6 @@ REGISTRY: tuple[Site, ...] = (
         ("router-classify",),
     ),
     Site(
-        r"self-learning-review", FOREGROUND,
-        "One learning review after one answered operator turn.",
-        ("argus/apps/_self_reply.py:1247",),
-        ("self-learning-review",),
-    ),
-    Site(
         r"reader-(foundation|application)", FOREGROUND,
         "One reader foundation per question (reserved once), or the application cards of "
         "one reader request.",
@@ -221,12 +215,6 @@ REGISTRY: tuple[Site, ...] = (
         "Once per settled mission.",
         ("argus/life/reflection.py:831",),
         ("reflection",),
-    ),
-    Site(
-        r"answer-learning", EVENT,
-        "One queued job per researched chat reply; a failed job waits for an explicit retry.",
-        ("argus/life/reflection.py:1202",),
-        ("answer-learning",),
     ),
     Site(
         r"manager-prose", EVENT,

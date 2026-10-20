@@ -548,8 +548,6 @@ export function renderEvent(event: TypedArgusEvent, context: RenderContext): Ren
     }
     case 'team.learning.promotion.quarantined':
       return model('manager', 'role.manager', '⚠', localized(context, 'set aside a new procedure that would have judged its own work', '搁置了一条会评判自己工作的新做法'), 'warn');
-    case 'self.learning.review.failed':
-      return model('system', 'role.system', '⚠', `${localized(context, "the review of Argus's own conversation habits failed", '对 Argus 自身对话习惯的复盘失败')} · ${clean(stringField(event, 'error'), 140)}`, 'warn');
     case 'domain.promotion':
       return model('manager', 'role.manager', '★', clean(stringField(event, 'text'), 180), 'dim');
     case 'user.note': {
@@ -608,7 +606,7 @@ export function renderEvent(event: TypedArgusEvent, context: RenderContext): Ren
     case 'life.manager.project_report': case 'life.plan.revision.rolled_back':
     case 'life.planner.completion_circuit.notify_failed': case 'life.planner.completion_circuit_holding':
     case 'life.daemon.ready': case 'plan.draft.start':
-    case 'team.learning.review.skipped': case 'self.learning.review.started': case 'self.learning.review.completed':
+    case 'team.learning.review.skipped':
     case 'manager.live_view.updated': case 'manager.live_view.rejected':
     case 'manager.turn.started': case 'manager.turn.cancelled': case 'life.config.parse_failed':
       return fallback(event, context);

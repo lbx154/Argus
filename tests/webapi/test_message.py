@@ -2001,23 +2001,6 @@ def test_turn_emitter_reports_the_role_that_owns_a_phase(tmp_path: Path) -> None
     ]
 
 
-def test_turn_emitter_schedules_learning_only_for_chat(tmp_path: Path) -> None:
-    from argus.webapi.manager_dispatch import _TurnEmitter
-
-    reviewed: list[str] = []
-    emitter = _TurnEmitter(
-        life_dir=tmp_path,
-        turn_id="turn-1",
-        fragment=lambda *_args: None,
-        after_reply=reviewed.append,
-    )
-
-    emitter.respond("answer", {"kind": "chat"})
-    emitter.respond("queued", {"kind": "task"})
-
-    assert reviewed == ["answer"]
-
-
 def test_turn_emitter_persists_solo_delivery_metadata(tmp_path: Path) -> None:
     from argus.webapi.manager_dispatch import _TurnEmitter
 
@@ -2117,23 +2100,6 @@ def test_manager_stream_heartbeat_defaults_to_five_seconds(monkeypatch) -> None:
     assert server._manager_stream_heartbeat_seconds() == 5.0
     monkeypatch.setenv("ARGUS_SKILL_MANAGER_STREAM_HEARTBEAT_S", "invalid")
     assert server._manager_stream_heartbeat_seconds() == 5.0
-
-
-def test_turn_emitter_schedules_learning_only_after_chat_reply(tmp_path) -> None:
-    from argus.webapi.manager_dispatch import _TurnEmitter
-
-    learned: list[str] = []
-    emitter = _TurnEmitter(
-        life_dir=tmp_path,
-        turn_id="turn-1",
-        fragment=lambda *_args: None,
-        after_reply=learned.append,
-    )
-
-    emitter.respond("answer", {"kind": "chat"})
-    emitter.respond("queued", {"kind": "task"})
-
-    assert learned == ["answer"]
 
 
 def test_message_stream_emits_phase_delta_done(client: TestClient, monkeypatch) -> None:

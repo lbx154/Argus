@@ -1,10 +1,10 @@
 import { useEffect, useRef } from 'react';
-import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
+import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { Info, LoaderCircle, Sparkles } from 'lucide-react';
 import { api, type LearningChannel } from '../api';
 import { useI18n } from '../i18n';
 
-/** Poll independently of foreground work: learning continues after the reply. */
+/** Poll independently of foreground work: reflection runs after a mission ends. */
 export function LearningStatus({ sid, channel, onOpenKnowledge, onOpenSkills }: {
   sid: string | null;
   channel?: LearningChannel;
@@ -27,11 +27,9 @@ export function LearningStatus({ sid, channel, onOpenKnowledge, onOpenSkills }: 
       void client.invalidateQueries({ queryKey: [name] });
     }
   }, [sid, query.data?.revision, client]);
-  const retry = useMutation({ mutationFn: (request: { sid: string; id: string }) => api.retryLearning(request.sid, request.id),
-    onSuccess: (data, request) => client.setQueryData(['learning-status', request.sid], data) });
   if (!sid || !query.data?.jobs.length) return null;
   const jobs = query.data.jobs;
-  const active = jobs.find(job => job.status === 'running') ?? jobs.find(job => job.status === 'queued');
+  const active = jobs.find(job => job.status === 'running');
   const job = active ?? jobs[0];
   const busy = Boolean(active) || query.data.pending > 0;
   const paused = !busy && job.status === 'skipped' && job.outcome.reason === 'paused';
@@ -55,9 +53,7 @@ export function LearningStatus({ sid, channel, onOpenKnowledge, onOpenSkills }: 
   if (!busy && !settled && !channels.length) return null;
   const message = (kind: LearningChannel) => {
     const count = job.outcome.counts?.[kind] ?? 0;
-    if (busy) return job.status === 'running'
-      ? (zh ? `${names[kind]}正在更新` : `Updating ${names[kind].toLowerCase()}`)
-      : (zh ? `${names[kind]}等待更新` : `${names[kind]} update queued`);
+    if (busy) return zh ? `${names[kind]}正在更新` : `Updating ${names[kind].toLowerCase()}`;
     return zh ? `${names[kind]}已更新 · ${count} 条` : `${names[kind]} updated · ${count}`;
   };
   const items = (job.outcome.items ?? []).filter(item => !channel || item.channel === channel);
@@ -70,8 +66,6 @@ export function LearningStatus({ sid, channel, onOpenKnowledge, onOpenSkills }: 
         : 'Learning from this turn did not finish. Your reply is unaffected.'}</span>}
       {!settled && channels.map(kind => <span key={kind}>{message(kind)}</span>)}
       {query.data.pending > 1 && <span>{zh ? `还有 ${query.data.pending - 1} 轮待学习` : `${query.data.pending - 1} more queued`}</span>}
-      {settled && job.retryable !== false && <button type="button" disabled={retry.isPending}
-        className="text-blue underline" onClick={() => retry.mutate({ sid, id: job.id })}>{zh ? '重试学习' : 'Retry learning'}</button>}
     </div>
     {busy && !channel && <p className="text-ink-faint">{zh ? '正在整理本轮的知识、方法和偏好，你可以继续工作。' : 'Saving useful knowledge, methods and preferences. You can keep working.'}</p>}
     {items.length > 0 && !channel && <details className="mt-0.5">
@@ -82,6 +76,6 @@ export function LearningStatus({ sid, channel, onOpenKnowledge, onOpenSkills }: 
           : item.title}
       </li>)}</ul>
     </details>}
-    {(retry.isError || query.isError) && <p role="alert">{zh ? '暂时无法同步学习状态，请稍后重试。' : 'Learning status could not be refreshed. Please retry.'}</p>}
+    {query.isError && <p role="alert">{zh ? '暂时无法同步学习状态，请稍后重试。' : 'Learning status could not be refreshed. Please retry.'}</p>}
   </div>;
 }

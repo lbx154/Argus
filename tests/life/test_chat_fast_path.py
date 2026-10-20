@@ -162,7 +162,7 @@ def _make_runner(backend: _FakeBackend) -> Any:
 
 
 @pytest.mark.parametrize("mode", ["project_status", "argus_status", "host_status"])
-def test_scoped_status_reads_facts_without_another_model_turn(tmp_path, monkeypatch, mode):
+def test_scoped_status_reads_facts_without_another_model_turn(tmp_path, mode):
     from argus.daemon.runtime_status import register_web_status
 
     root = tmp_path / "projects" / "s-current"
@@ -181,14 +181,6 @@ def test_scoped_status_reads_facts_without_another_model_turn(tmp_path, monkeypa
     reply = next(row["last_message"] for row in sink.events if row["type"] == "round.main.completed")
     assert "网页服务正在运行" in reply and "Incorrect invented status" not in reply
     assert not (root / "backlog.jsonl").exists()
-    from argus.core import transcript
-
-    def no_learning_probe(*args, **kwargs):
-        raise AssertionError("Routine status must not trigger a learning review")
-
-    monkeypatch.setattr(transcript, "read_turns", no_learning_probe)
-    runner.manager.memory_maintenance_enabled = True
-    runner._schedule_self_learning_review(objective="服务器状态", reply=reply)
 
 
 def test_execute_config_loads_custom_vertical_from_session_state(
@@ -358,7 +350,7 @@ def test_local_microtask_uses_compact_isolated_execution(monkeypatch) -> None:
 
     call = backend.calls[-1]
     assert call["run_label"] == "self-micro"
-    assert call["prompt"] == "create result.txt and verify it"
+    assert call["prompt"].startswith("create result.txt and verify it\n\n")
     assert call["options"].model == "gpt-5.4-mini"
     assert call["options"].reasoning_effort == "high"
     assert call["options"].skill_paths == []
@@ -372,6 +364,25 @@ def test_local_microtask_uses_compact_isolated_execution(monkeypatch) -> None:
         "tool calls, report briefly, and stop.",
     ]
     assert runner.last_thread_id is None
+
+
+@pytest.mark.parametrize("learning", ["1", "0"])
+def test_self_turn_is_told_to_keep_its_learning_only_while_learning_is_on(tmp_path, monkeypatch, learning):
+    monkeypatch.setenv("ARGUS_SKILL_LEARNING", learning)
+    workspace = tmp_path / "workspace"
+    wiki = workspace / ".autors" / "p" / "wiki"
+    (wiki / "pages").mkdir(parents=True)
+    (wiki / "INDEX.md").write_text("# Index\n", encoding="utf-8")
+    backend = _FakeBackend(response_message="Fixed and checked.")
+    runner = _make_runner(backend)
+    runner._args.workdir = str(workspace)
+
+    runner._simple_quick_reply(objective="fix the function", sink=_RecordingSink(), execute_mode="implement")
+
+    prompt = backend.calls[-1]["prompt"]
+    assert len(backend.calls) == 1
+    assert (f"`{workspace / '.agents' / 'skills'}/<name>/SKILL.md`" in prompt) is (learning == "1")
+    assert (f"project Wiki `{wiki}`" in prompt) is (learning == "1")
 
 
 @pytest.mark.parametrize("mode", ["micro", "implement", "debug", "review", "synthesize", "inspect", "reply"])
@@ -399,6 +410,8 @@ def test_every_single_worker_mode_receives_selected_vertical(tmp_path, mode):
 
 
 def test_web_self_classification_reaches_execution_and_atlas_without_team(tmp_path, monkeypatch):
+    import threading
+
     from fastapi.testclient import TestClient
 
     from argus.core.session import SessionMeta, write_session_meta
@@ -406,8 +419,9 @@ def test_web_self_classification_reaches_execution_and_atlas_without_team(tmp_pa
     from argus.skills.layered import LayeredSkillStore
     from argus.webapi import manager_state, server
 
-    # This check counts foreground routing calls; background learning has its own suite.
-    monkeypatch.setenv("ARGUS_SKILL_LEARNING", "0")
+    # Learning stays on: the SELF turn keeps what it learned itself, so the
+    # turn is the only model call after classification.
+    monkeypatch.setenv("ARGUS_SKILL_LEARNING", "1")
 
     class Backend(_FakeBackend):
         def run_exec(self, **kwargs):
@@ -436,14 +450,19 @@ def test_web_self_classification_reaches_execution_and_atlas_without_team(tmp_pa
     monkeypatch.setattr(front_door, "_ensure_manager_runner", lambda *_a: runner)
     monkeypatch.setattr(config_intent, "_ensure_manager_runner", lambda *_a: runner)
     manager_state._STATES.pop(sid, None)
+    before = set(threading.enumerate())
     with TestClient(server.create_app(global_root=tmp_path)) as client:
         result = client.post(f"/api/projects/{sid}/message", json={"text": "Fix this one function"}).json()
         assert result["kind"] == "chat" and result["success"] is True, result
         assert "decision_card" not in result
         atlas = client.get(f"/api/projects/{sid}/map").json()
         assert any(task["kind"] == "turn" and task["status"] == "done" for task in atlas["tasks"])
+    for thread in set(threading.enumerate()) - before:
+        if thread.name.startswith("argus-"):
+            thread.join(timeout=5)
     assert len(backend.classify_calls) == 1 and len(backend.calls) == 1
     assert "single-agent task: software" in backend.calls[0]["prompt"]
+    assert f"`{workspace / '.agents' / 'skills'}/<name>/SKILL.md`" in backend.calls[0]["prompt"]
     assert str(tmp_path / "skills/_shared_verticals/software/engineer") in backend.calls[0]["options"].skill_paths
     assert not (state / "backlog.jsonl").exists() or not (state / "backlog.jsonl").read_text().strip()
     manager_state._STATES.pop(sid, None)
@@ -565,7 +584,7 @@ def test_local_worker_modes_get_narrow_tools_and_prompts(
 
     call = backend.calls[-1]
     assert call["run_label"] == f"self-{mode}"
-    assert call["prompt"] == "complete the local task"
+    assert call["prompt"].startswith("complete the local task\n\n")
     assert call["options"].extra_args[:2] == ["--tools", tools]
     assert prompt_fragment in call["options"].extra_args[-1]
 
@@ -587,9 +606,9 @@ def test_local_worker_mode_reads_what_argus_already_knows() -> None:
 
     assert asked == ["design the scheduler"]
     assert backend.calls[-1]["options"].add_dirs == []
-    assert backend.calls[-1]["prompt"] == (
+    assert backend.calls[-1]["prompt"].startswith(
         "### What Argus already knows (advisory)\n- page: `/wiki/pages/scheduler.md`"
-        "\n\ndesign the scheduler"
+        "\n\ndesign the scheduler\n\n"
     )
 
 
@@ -713,180 +732,6 @@ def test_execute_self_path_one_turn_no_reviewer(tmp_path: Path) -> None:
     assert "算 17*23" in backend.calls[0]["prompt"]
     assert "Answer the request yourself" in backend.calls[0]["prompt"]
     assert "Runtime maintenance must use an isolated worktree" not in backend.calls[0]["prompt"]
-
-
-@pytest.mark.parametrize("layered", [True, False])
-def test_self_learning_review_runs_after_five_operator_turns(
-    tmp_path: Path,
-    monkeypatch,
-    layered,
-) -> None:
-    from argus.core.transcript import append_turn
-    from argus.skills.layered import LayeredSkillStore
-
-    class _ImmediateThread:
-        def __init__(self, *, target, **_kwargs):
-            self._target = target
-
-        @staticmethod
-        def is_alive() -> bool:
-            return False
-
-        def start(self) -> None:
-            self._target()
-
-    backend = _FakeBackend(response_message="review complete")
-    runner = _make_runner(backend)
-    runner._manager_session_root = tmp_path / "life"
-    runner.manager.skill_store = LayeredSkillStore(
-        project_dir=tmp_path / "project-skills",
-        global_dir=tmp_path / "profile-skills",
-    )
-    if not layered:
-        from argus.skills.store import SkillStore
-        runner.manager.skill_store = SkillStore(tmp_path / "profile-skills")
-    runner.manager.memory_maintenance_enabled = True
-    for index in range(5):
-        append_turn(
-            runner._manager_session_root,
-            "operator",
-            f"operator turn {index}",
-        )
-    monkeypatch.setattr(
-        "argus.apps._self_reply.threading.Thread",
-        _ImmediateThread,
-    )
-
-    runner._schedule_self_learning_review(
-        objective="operator turn 4",
-        reply="The durable answer.",
-    )
-
-    assert [call["run_label"] for call in backend.calls] == ["self-learning-review"]
-    review_call = backend.calls[0]
-    skill_dir = ((tmp_path / "project-skills" / "self") if layered else (tmp_path / "life/skills/self")).resolve()
-    assert not (tmp_path / "profile-skills/self").exists()
-    assert str(skill_dir) in review_call["prompt"]
-    assert "canonical user answer is already complete" in review_call["prompt"]
-    assert "only directory you may edit" in review_call["prompt"]
-    assert review_call["options"].working_dir == str(skill_dir)
-
-
-def test_self_learning_review_catches_up_after_missed_cadence(
-    tmp_path: Path,
-    monkeypatch,
-) -> None:
-    from argus.core.transcript import append_turn
-    from argus.skills.layered import LayeredSkillStore
-
-    class _ImmediateThread:
-        def __init__(self, *, target, **_kwargs):
-            self._target = target
-
-        @staticmethod
-        def is_alive() -> bool:
-            return False
-
-        def start(self) -> None:
-            self._target()
-
-    backend = _FakeBackend(response_message="review complete")
-    runner = _make_runner(backend)
-    runner._manager_session_root = tmp_path / "life"
-    runner.manager.skill_store = LayeredSkillStore(
-        project_dir=tmp_path / "project-skills",
-        global_dir=tmp_path / "profile-skills",
-    )
-    runner.manager.memory_maintenance_enabled = True
-    for index in range(6):
-        append_turn(runner._manager_session_root, "operator", f"turn {index}")
-    monkeypatch.setattr(
-        "argus.apps._self_reply.threading.Thread",
-        _ImmediateThread,
-    )
-
-    runner._schedule_self_learning_review(objective="turn 5", reply="answer")
-    runner._schedule_self_learning_review(objective="turn 5", reply="answer")
-
-    assert [call["run_label"] for call in backend.calls] == ["self-learning-review"]
-    events = [
-        json.loads(line)
-        for line in (runner._manager_session_root / "events.jsonl")
-        .read_text(encoding="utf-8")
-        .splitlines()
-    ]
-    started = [
-        event for event in events if event["type"] == "self.learning.review.started"
-    ]
-    assert started[0]["operator_turn_count"] == 6
-
-
-def test_self_learning_review_reports_applied_skill_changes(
-    tmp_path: Path,
-    monkeypatch,
-) -> None:
-    from argus.core.transcript import append_turn
-    from argus.skills.layered import LayeredSkillStore
-
-    class _ImmediateThread:
-        def __init__(self, *, target, **_kwargs):
-            self._target = target
-
-        @staticmethod
-        def is_alive() -> bool:
-            return False
-
-        def start(self) -> None:
-            self._target()
-
-    runner = _make_runner(_FakeBackend(response_message="unused"))
-    runner._manager_session_root = tmp_path / "life"
-    runner.manager.skill_store = LayeredSkillStore(
-        project_dir=tmp_path / "project-skills",
-        global_dir=tmp_path / "profile-skills",
-    )
-    runner.manager.memory_maintenance_enabled = True
-    for index in range(5):
-        append_turn(runner._manager_session_root, "operator", f"turn {index}")
-
-    def _learn(*_args, options, **_kwargs):
-        skill_dir = Path(options.working_dir)
-        (skill_dir / "answer-preference.md").write_text(
-            "---\n"
-            'name: "Answer preference"\n'
-            'description: "Use the operator preferred answer shape."\n'
-            "---\n\n"
-            "# Answer preference\n\nUse concise evidence-first answers.\n",
-            encoding="utf-8",
-        )
-        return SimpleNamespace(exit_code=0, fatal_error="")
-
-    monkeypatch.setattr(
-        "argus.apps._self_reply.threading.Thread",
-        _ImmediateThread,
-    )
-    monkeypatch.setattr(
-        "argus.apps._self_reply.gateway_run_exec",
-        _learn,
-    )
-
-    runner._schedule_self_learning_review(objective="turn 4", reply="answer")
-
-    events = [
-        json.loads(line)
-        for line in (runner._manager_session_root / "events.jsonl")
-        .read_text(encoding="utf-8")
-        .splitlines()
-    ]
-    completed = next(
-        event
-        for event in events
-        if event["type"] == "self.learning.review.completed"
-    )
-    assert completed["learning_applied"] is True
-    assert completed["created"] == ["answer-preference.md"]
-    assert completed["updated"] == []
-    assert completed["removed"] == []
 
 
 def test_manager_self_progress_blocks_redacted_before_live_sink(redact_secrets_on) -> None:
