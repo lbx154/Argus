@@ -599,7 +599,7 @@ def model_options(global_root: Path | str | None = None) -> list[dict[str, Any]]
         persisted = read_persisted_knobs()
     except Exception:  # noqa: BLE001 - a corrupt store still leaves the catalog
         persisted = {}
-    for knob in ("ARGUS_SKILL_MODEL", *ROLE_MODEL_KNOBS, "ARGUS_SKILL_FIGURE_MODEL"):
+    for knob in ("ARGUS_SKILL_MODEL", *ROLE_MODEL_KNOBS):
         model = str(os.environ.get(knob) or persisted.get(knob) or "").strip()
         if model and model.lower() not in {"auto", "inherit", "default"}:
             row = options.setdefault(model, {"model": model, "source": "current"})
@@ -665,13 +665,6 @@ def get_config(
     snapshot["model_auto_resolves_to"] = next(
         (row["model"] for row in snapshot["model_options"] if row.get("default")), ""
     )
-    try:
-        from .map_model import resolve_map_model
-
-        resolved = resolve_map_model(global_root=Path(global_root) if global_root is not None else None)
-        snapshot["map_model"] = {"backend": resolved.backend, "model": resolved.model, "note": resolved.note}
-    except Exception:  # noqa: BLE001 - the snapshot must never fail on the map runner
-        snapshot["map_model"] = None
     return snapshot
 
 
@@ -698,12 +691,10 @@ _CONFIG_ALIASES = {
     "opencode_provider": "ARGUS_SKILL_OPENCODE_PROVIDER",
     "model": "ARGUS_SKILL_MODEL",
     "engineer_model": "ARGUS_SKILL_ENGINEER_MODEL",
-    "figure_model": "ARGUS_SKILL_FIGURE_MODEL",
     "reviewer_model": "ARGUS_SKILL_REVIEWER_MODEL",
     "planner_model": "ARGUS_SKILL_PLAN_MODEL",
     "manager_model": "ARGUS_SKILL_MANAGER_MODEL",
-    "manager_reply_model": "ARGUS_SKILL_MANAGER_REPLY_MODEL",
-    "frontdoor_model": "ARGUS_SKILL_FRONTDOOR_MODEL",
+    "light_model": "ARGUS_SKILL_LIGHT_MODEL",
     "engineer_effort": "ARGUS_SKILL_ENGINEER_REASONING_EFFORT",
     "reviewer_effort": "ARGUS_SKILL_REVIEWER_REASONING_EFFORT",
     "planner_effort": "ARGUS_SKILL_PLANNER_REASONING_EFFORT",
@@ -716,17 +707,13 @@ _CONFIG_ALIASES = {
 }
 
 
-# The knobs that pin one role (or one host-side task) to its own model. A
-# role knob wins over ARGUS_SKILL_MODEL, so a picker that sets only the shared
-# knob changes nothing on a host whose roles were pinned at setup; the trial
-# host showed "gpt-6-astra" chosen while every role still ran gemini.
-# ARGUS_SKILL_FIGURE_MODEL is a route override and ARGUS_SKILL_MAP_MODEL a
-# host-side draw; both are left alone.
+# The knobs that pin one role (or the light routes) to its own model. A role
+# knob wins over ARGUS_SKILL_MODEL, so a picker that sets only the shared knob
+# changes nothing on a host whose roles were pinned at setup; the trial host
+# showed "gpt-6-astra" chosen while every role still ran gemini.
 ROLE_MODEL_KNOBS: tuple[str, ...] = (
-    "ARGUS_SKILL_MANAGER_MODEL", "ARGUS_SKILL_MANAGER_REPLY_MODEL", "ARGUS_SKILL_PLAN_MODEL",
-    "ARGUS_SKILL_PLAN_PREVIEW_MODEL", "ARGUS_SKILL_ENGINEER_MODEL", "ARGUS_SKILL_REVIEWER_MODEL",
-    "ARGUS_SKILL_OBSERVER_MODEL", "ARGUS_SKILL_FRONTDOOR_MODEL",
-    "ARGUS_SKILL_REWRITE_MODEL", "ARGUS_SKILL_REFLECTION_MODEL",
+    "ARGUS_SKILL_MANAGER_MODEL", "ARGUS_SKILL_PLAN_MODEL", "ARGUS_SKILL_ENGINEER_MODEL",
+    "ARGUS_SKILL_REVIEWER_MODEL", "ARGUS_SKILL_OBSERVER_MODEL", "ARGUS_SKILL_LIGHT_MODEL",
 )
 
 
@@ -844,17 +831,7 @@ def set_operator_config(
             ),
             source="web.config",
         )
-    if env_name == "ARGUS_SKILL_MAP_MODEL":
-        # A map pin is chosen from the active runner's list; remember which
-        # runner, so a later backend switch does not send it somewhere that
-        # never offered it (it follows auto there instead).
-        from .map_model import MAP_MODEL_BACKEND_KNOB, map_base_role
-
-        pinned_backend = "" if val == "auto" else map_base_role()[1].backend
-        if not write_persisted_knobs({env_name: val, MAP_MODEL_BACKEND_KNOB: pinned_backend}):
-            raise RuntimeError(f"config setting could not be persisted: {env_name}")
-        os.environ[MAP_MODEL_BACKEND_KNOB] = pinned_backend
-    elif not write_persisted_knob(env_name, val):
+    if not write_persisted_knob(env_name, val):
         raise RuntimeError(f"config setting could not be persisted: {env_name}")
     if env_name in _SAVED_OVER_DEPLOYMENT_ENV:
         # The saved value is read from config.json; a deployment value in this
@@ -868,8 +845,7 @@ def set_operator_config(
         "released_role_pins": released,
         "role_pins": role_model_pins(),
         "restart_required": env_name not in {
-            "ARGUS_SKILL_MAP_MODEL", "ARGUS_SKILL_MAP_REASONING_EFFORT",
-            "ARGUS_SKILL_MAP_REVIEW_REASONING_EFFORT",
+            "ARGUS_SKILL_LIGHT_MODEL", "ARGUS_SKILL_LIGHT_REASONING_EFFORT",
         },
     }
 

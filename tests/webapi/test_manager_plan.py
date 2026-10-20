@@ -13,12 +13,10 @@ def test_plan_preview_uses_lightweight_role_config_and_caches_exact_repeat(
     (tmp_path / "projects" / sid).mkdir(parents=True)
     manager_state._STATES.clear()
     monkeypatch.setenv("ARGUS_SKILL_HOME", str(tmp_path))
-    monkeypatch.setenv("ARGUS_SKILL_PLAN_MODEL", "planner-deep-model")
-    monkeypatch.delenv("ARGUS_SKILL_PLAN_PREVIEW_MODEL", raising=False)
-    monkeypatch.delenv(
-        "ARGUS_SKILL_PLAN_PREVIEW_REASONING_EFFORT",
-        raising=False,
-    )
+    monkeypatch.setenv("ARGUS_SKILL_RUNNER_BACKEND", "codex")
+    monkeypatch.setenv("ARGUS_SKILL_MANAGER_MODEL", "manager-model")
+    monkeypatch.delenv("ARGUS_SKILL_LIGHT_MODEL", raising=False)
+    monkeypatch.delenv("ARGUS_SKILL_LIGHT_REASONING_EFFORT", raising=False)
     backend = object()
     monkeypatch.setattr(
         "argus.manager.front_door._ensure_manager_runner",
@@ -49,7 +47,7 @@ def test_plan_preview_uses_lightweight_role_config_and_caches_exact_repeat(
     assert first == second
     assert len(calls) == 1
     assert calls[0]["runner"] is backend
-    assert calls[0]["model"] == "planner-deep-model"
+    assert calls[0]["model"] == "manager-model"
     assert calls[0]["reasoning_effort"] == "low"
 
 
@@ -58,8 +56,8 @@ def test_plan_preview_effort_has_explicit_override(tmp_path, monkeypatch) -> Non
     (tmp_path / "projects" / sid).mkdir(parents=True)
     manager_state._STATES.clear()
     monkeypatch.setenv("ARGUS_SKILL_HOME", str(tmp_path))
-    monkeypatch.setenv("ARGUS_SKILL_PLAN_PREVIEW_MODEL", "preview-model")
-    monkeypatch.setenv("ARGUS_SKILL_PLAN_PREVIEW_REASONING_EFFORT", "medium")
+    monkeypatch.setenv("ARGUS_SKILL_LIGHT_MODEL", "preview-model")
+    monkeypatch.setenv("ARGUS_SKILL_LIGHT_REASONING_EFFORT", "medium")
     monkeypatch.setattr(
         "argus.manager.front_door._ensure_manager_runner",
         lambda *_args, **_kwargs: SimpleNamespace(planner_backend=object()),
@@ -78,7 +76,7 @@ def test_plan_preview_effort_has_explicit_override(tmp_path, monkeypatch) -> Non
     assert seen["model"] == "preview-model"
 
 
-def test_plan_preview_auto_inherits_planner_model_on_claude(
+def test_plan_preview_auto_inherits_manager_model_on_claude(
     tmp_path, monkeypatch,
 ) -> None:
     sid = "s-plan-claude"
@@ -86,8 +84,8 @@ def test_plan_preview_auto_inherits_planner_model_on_claude(
     manager_state._STATES.clear()
     monkeypatch.setenv("ARGUS_SKILL_HOME", str(tmp_path))
     monkeypatch.setenv("ARGUS_SKILL_RUNNER_BACKEND", "claude")
-    monkeypatch.setenv("ARGUS_SKILL_PLAN_MODEL", "claude-sonnet-test")
-    monkeypatch.delenv("ARGUS_SKILL_PLAN_PREVIEW_MODEL", raising=False)
+    monkeypatch.setenv("ARGUS_SKILL_MANAGER_MODEL", "claude-sonnet-test")
+    monkeypatch.delenv("ARGUS_SKILL_LIGHT_MODEL", raising=False)
     monkeypatch.setattr(
         "argus.manager.front_door._ensure_manager_runner",
         lambda *_args, **_kwargs: SimpleNamespace(planner_backend=object()),

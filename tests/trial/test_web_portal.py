@@ -1172,7 +1172,7 @@ def test_model_configuration_is_readable_without_allowing_changes(provisioned):
         assert client.head("/api/projects/p/config").status_code == 200
         for path in ("/api/projects/p/config", "/api/projects/p/config/set"):
             assert client.post(path, headers={"Origin": ORIGIN}, json={
-                "name": "ARGUS_SKILL_MAP_MODEL", "value": "other-model",
+                "name": "ARGUS_SKILL_LIGHT_MODEL", "value": "other-model",
             }).status_code == 403
 
 

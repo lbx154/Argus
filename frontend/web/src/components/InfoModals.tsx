@@ -1,5 +1,4 @@
 import { useQueryClient } from '@tanstack/react-query';
-import { MapModelSettings } from '../map/MapModelSettings';
 import { AdvisorSettings } from './AdvisorSettings';
 import { useDoctor, useConfig, useIdentity, useTranscript } from '../hooks';
 import { Modal, ModalHeader } from './Modal';
@@ -208,15 +207,15 @@ export function ConfigModal({
       setQuickConfigBusy(false);
     }
   };
-  const setMapModel = async (model: string) => {
+  const setLightModel = async (model: string) => {
     if (quickConfigBusy) return;
     setQuickConfigBusy(true);
     setQuickConfigMsg('');
     setQuickConfigError(false);
     try {
-      await api.setConfig(sid, 'ARGUS_SKILL_MAP_MODEL', model || 'auto');
+      await api.setConfig(sid, 'ARGUS_SKILL_LIGHT_MODEL', model || 'auto');
       await refreshSettings();
-      setQuickConfigMsg(model && model !== 'auto' ? t('settings.mapModelSet', { model }) : t('settings.mapModelFollows'));
+      setQuickConfigMsg(model && model !== 'auto' ? t('settings.lightModelSet', { model }) : t('settings.lightModelAuto'));
     } catch (error) {
       setQuickConfigError(true);
       setQuickConfigMsg(requestFailureText(error, t).text);
@@ -363,18 +362,18 @@ export function ConfigModal({
                 </button>
               </div>
               <div className="mt-2 flex items-center gap-2">
-                <span className="w-12 shrink-0 text-[10px] text-ink-faint">{t('settings.mapModel')}</span>
+                <span className="w-12 shrink-0 text-[10px] text-ink-faint">{t('settings.lightModel')}</span>
                 <select
-                  value={data.operator_knobs.find((knob) => knob.name === 'ARGUS_SKILL_MAP_MODEL')?.value || 'auto'}
+                  value={data.operator_knobs.find((knob) => knob.name === 'ARGUS_SKILL_LIGHT_MODEL')?.value || 'auto'}
                   disabled={quickConfigBusy}
-                  onChange={(event) => void setMapModel(event.target.value)}
-                  aria-label={t('settings.mapModel')}
+                  onChange={(event) => void setLightModel(event.target.value)}
+                  aria-label={t('settings.lightModel')}
                   className="h-8 min-w-0 flex-1 rounded border border-line bg-bg px-2 font-mono text-xs text-ink outline-none focus:border-blue disabled:opacity-40"
                 >
-                  <option value="auto">{t('settings.mapModelFollows')}</option>
+                  <option value="auto">{t('settings.lightModelAuto')}</option>
                   {(() => {
                     const options = (data.model_options ?? []).map(option => option.model);
-                    const current = data.operator_knobs.find((knob) => knob.name === 'ARGUS_SKILL_MAP_MODEL')?.value || '';
+                    const current = data.operator_knobs.find((knob) => knob.name === 'ARGUS_SKILL_LIGHT_MODEL')?.value || '';
                     if (current && current !== 'auto' && !options.includes(current)) options.unshift(current);
                     return options.map(model => <option key={model} value={model}>{model}</option>);
                   })()}
@@ -411,7 +410,6 @@ export function ConfigModal({
               </div>
             </section>}
 
-            {advancedOpen && <MapModelSettings sid={sid} config={data} onSaved={refreshSettings} />}
             {advancedOpen && <AdvisorSettings sid={sid} primaryModel={data.roles.find(role => role.role === 'engineer')?.model} />}
 
             <section className="overflow-hidden rounded-lg border border-line bg-surface/50">

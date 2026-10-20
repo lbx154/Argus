@@ -4,9 +4,9 @@ Such a token rejects every explicit ``--model``, and Copilot's automatic
 choice rejects ``--reasoning-effort``. Three things used to break there:
 
 * an empty/``auto`` model still sent ``--reasoning-effort`` (or ``--model auto``);
-* the cheap side routes (front door, reflection, ``/plan`` preview, bounded
-  DAG, prompt rewrite) named a fixed small model on Copilot even when the
-  operator asked for ``auto``;
+* the light model (front door, reflection, ``/plan`` preview, prompt
+  rewrite) named a fixed small model on Copilot even when the operator asked
+  for ``auto``;
 * a first call that failed before Copilot created its session still reported
   the pre-bound session id, so every later call tried to resume a session
   that never existed ("No session ... matched").
@@ -25,7 +25,7 @@ import pytest
 from argus.agent_cli import _run_exec as runner_exec
 from argus.agent_cli.agent_cli_runner import AgentCliRunner, RunnerOptions
 from argus.agent_cli.runner_backend import BACKEND_COPILOT
-from argus.core.knobs import resolve_cheap_route_model, resolve_manager_classify_model
+from argus.core.knobs import LIGHT_MODEL_DEFAULT, resolve_light_model
 
 BOUND = "0cb916db-26aa-40f2-86b5-1ba81b225fd2"
 
@@ -39,7 +39,7 @@ def _isolated_home(monkeypatch, tmp_path) -> None:
         "ARGUS_SKILL_MODEL",
         "ARGUS_SKILL_MANAGER_MODEL",
         "ARGUS_SKILL_PLAN_MODEL",
-        "ARGUS_SKILL_FRONTDOOR_MODEL",
+        "ARGUS_SKILL_LIGHT_MODEL",
         "ARGUS_SKILL_TRIAL",
     ):
         monkeypatch.delenv(name, raising=False)
@@ -74,7 +74,7 @@ def test_named_model_keeps_model_and_effort() -> None:
 
 
 # --------------------------------------------------------------------------- #
-# (2) cheap side routes                                                       #
+# (2) the light model                                                         #
 # --------------------------------------------------------------------------- #
 
 
@@ -86,67 +86,24 @@ def _env(**extra: str) -> dict[str, str]:
     }
 
 
-_ROUTES = [
-    ("ARGUS_SKILL_FRONTDOOR_MODEL", "manager", "ARGUS_SKILL_MANAGER_MODEL"),
-    ("ARGUS_SKILL_PLAN_PREVIEW_MODEL", "planner", "ARGUS_SKILL_PLAN_MODEL"),
-    ("ARGUS_SKILL_REWRITE_MODEL", "manager", "ARGUS_SKILL_MANAGER_MODEL"),
-]
-
-
-@pytest.mark.parametrize(("knob", "role", "role_env"), _ROUTES)
-def test_shared_auto_model_makes_side_routes_automatic(knob, role, role_env) -> None:
-    model = resolve_cheap_route_model(
-        knob=knob,
-        catalog_default="small-catalog-model",
-        role=role,
-        role_env=role_env,
-        env=_env(ARGUS_SKILL_MODEL="auto"),
-    )
-    assert model == ""
-
-
-def test_role_auto_model_makes_reflection_and_front_door_automatic() -> None:
-    # Reflection and the front door both resolve through the classify route.
-    assert (
-        resolve_manager_classify_model(
-            backend="copilot", env=_env(ARGUS_SKILL_MANAGER_MODEL="auto"),
-        )
-        == ""
-    )
+@pytest.mark.parametrize("name", ["ARGUS_SKILL_MODEL", "ARGUS_SKILL_MANAGER_MODEL"])
+def test_main_auto_model_makes_the_light_model_automatic(name) -> None:
+    assert resolve_light_model(env=_env(**{name: "auto"})) == ""
 
 
 def test_role_model_outranks_a_shared_auto_model() -> None:
-    model = resolve_cheap_route_model(
-        knob="ARGUS_SKILL_FRONTDOOR_MODEL",
-        catalog_default="small-catalog-model",
-        role="manager",
-        role_env="ARGUS_SKILL_MANAGER_MODEL",
-        env=_env(ARGUS_SKILL_MODEL="auto", ARGUS_SKILL_MANAGER_MODEL="named-model"),
-    )
-    assert model == "small-catalog-model"
+    env = _env(ARGUS_SKILL_MODEL="auto", ARGUS_SKILL_MANAGER_MODEL="named-model")
+    assert resolve_light_model(env=env) == LIGHT_MODEL_DEFAULT
 
 
 @pytest.mark.parametrize("extra", [{}, {"ARGUS_SKILL_MODEL": "named-model"}])
-def test_normal_copilot_deployment_keeps_the_small_catalog_model(extra) -> None:
-    model = resolve_cheap_route_model(
-        knob="ARGUS_SKILL_FRONTDOOR_MODEL",
-        catalog_default="small-catalog-model",
-        role="manager",
-        role_env="ARGUS_SKILL_MANAGER_MODEL",
-        env=_env(**extra),
-    )
-    assert model == "small-catalog-model"
+def test_normal_copilot_deployment_keeps_the_light_default(extra) -> None:
+    assert resolve_light_model(env=_env(**extra)) == LIGHT_MODEL_DEFAULT
 
 
-def test_explicit_side_route_knob_still_wins_over_auto() -> None:
-    model = resolve_cheap_route_model(
-        knob="ARGUS_SKILL_FRONTDOOR_MODEL",
-        catalog_default="small-catalog-model",
-        role="manager",
-        role_env="ARGUS_SKILL_MANAGER_MODEL",
-        env=_env(ARGUS_SKILL_MODEL="auto", ARGUS_SKILL_FRONTDOOR_MODEL="pinned-model"),
-    )
-    assert model == "pinned-model"
+def test_explicit_light_model_still_wins_over_auto() -> None:
+    env = _env(ARGUS_SKILL_MODEL="auto", ARGUS_SKILL_LIGHT_MODEL="pinned-model")
+    assert resolve_light_model(env=env) == "pinned-model"
 
 
 # --------------------------------------------------------------------------- #

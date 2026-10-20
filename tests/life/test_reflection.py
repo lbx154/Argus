@@ -171,7 +171,7 @@ def roots(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> _Roots:
     fixture = _Roots(tmp_path)
     monkeypatch.setenv("ARGUS_SKILL_HOME", str(fixture.home))
     monkeypatch.setenv("ARGUS_SKILL_LEARNING", "1")
-    monkeypatch.setenv("ARGUS_SKILL_REFLECTION_MODEL", "reflection-model-under-test")
+    monkeypatch.setenv("ARGUS_SKILL_LIGHT_MODEL", "reflection-model-under-test")
     return fixture
 
 
@@ -445,7 +445,7 @@ def test_survey_page_is_created_indexed_and_recorded(roots: _Roots) -> None:
     assert result["created"] == [str(survey_path)]
     call = backend.calls[0]
     assert call["run_label"] == "answer-learning"
-    assert call["options"].reasoning_effort == "medium"
+    assert call["options"].reasoning_effort == "low"
     draft = Path(call["options"].working_dir)
     assert draft.parent == roots.life / ".learning-drafts"
     assert call["options"].add_dirs == [str(draft)]

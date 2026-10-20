@@ -25,7 +25,7 @@ class IntakeDialogueError(ValueError):
 def manager_intake_decision(mem: Any, chat_state: dict, message: str, *,
                             root_task_id: str = "") -> dict:
     """Author the next choice in the existing durable Manager conversation."""
-    from ..core.knobs import resolve_manager_reply_model
+    from ..core.knobs import resolve_role_model
     from ..core.models import RunnerOptions
     from ..core.role_reply import decision_footer_text, read_block, read_key_values
     from ..core.run_gateway import run_exec
@@ -92,7 +92,8 @@ def manager_intake_decision(mem: Any, chat_state: dict, message: str, *,
     with manager._task_usage_scope(root_task_id) if manager is not None else nullcontext():
         result = run_exec(
             conversation_backend(runner), prompt=prompt,
-            options=RunnerOptions(model=resolve_manager_reply_model(), skip_git_repo_check=True,
+            options=RunnerOptions(model=resolve_role_model("manager", role_env="ARGUS_SKILL_MANAGER_MODEL"),
+                                  skip_git_repo_check=True,
                                   disable_tools=True, sandbox_mode="read-only", force_safe_mode=True,
                                   working_dir=str(getattr(manager, "execution_workdir", mem.project_root))),
             run_label="manager-domain-dialogue",

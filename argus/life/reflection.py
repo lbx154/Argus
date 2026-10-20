@@ -33,7 +33,7 @@ from ..core import paths as core_paths
 from ..core.event_catalog import EventType
 from ..core.file_facts import file_facts
 from ..core.file_lock import exclusive_file_lock
-from ..core.knobs import learning_enabled, resolve_knob, resolve_manager_classify_model
+from ..core.knobs import learning_enabled, resolve_light_effort, resolve_light_model
 from ..core.model_visible_text import sanitize_model_visible_text
 from ..core.models import RunnerOptions
 from ..core.run_gateway import run_exec as gateway_run_exec
@@ -43,7 +43,6 @@ from ..wiki.schema import parse_page
 
 log = logging.getLogger(__name__)
 
-REFLECTION_MODEL_KNOB = "ARGUS_SKILL_REFLECTION_MODEL"
 RECEIPT_RELATIVE = Path(".argus") / "REFLECTED.json"
 _REVIEWED_FACT_PREFIX = "REVIEWED_FACT:"
 MISSION_RUN_LABEL = "reflection"
@@ -58,13 +57,6 @@ Emit = Callable[[dict[str, Any]], Any] | None
 # --------------------------------------------------------------------------- small helpers
 
 
-def _knob_value(name: str, default: str) -> str:
-    try:
-        return str(resolve_knob(name, default).value or "").strip()
-    except Exception:  # noqa: BLE001 - a broken persisted setting means "default"
-        return default
-
-
 def _backend_for(runner: Any) -> Any:
     """The backend a runner talks to, or None; mirrors the Skill promotion lookup."""
     if runner is None:
@@ -77,13 +69,6 @@ def _backend_for(runner: Any) -> Any:
     if backend is not None:
         return backend
     return runner if callable(getattr(runner, "run_exec", None)) else None
-
-
-def _reflection_model(backend: Any) -> str:
-    configured = _knob_value(REFLECTION_MODEL_KNOB, "auto")
-    if configured and configured.lower() != "auto":
-        return configured
-    return resolve_manager_classify_model(backend=getattr(backend, "backend", None))
 
 
 def _vertical_root(vertical: str, global_root: Path) -> tuple[Path, str]:
@@ -798,8 +783,8 @@ def _reflect_after_mission(
             backend,
             prompt=prompt,
             options=RunnerOptions(
-                model=_reflection_model(backend),
-                reasoning_effort="low",
+                model=resolve_light_model(backend=getattr(backend, "backend", None)),
+                reasoning_effort=resolve_light_effort(),
                 sandbox_mode="workspace-write",
                 skip_git_repo_check=True,
                 working_dir=str(workspace),
@@ -1169,8 +1154,8 @@ def _reflect_after_answer(
                 backend,
                 prompt=prompt,
                 options=RunnerOptions(
-                    model=_reflection_model(backend),
-                    reasoning_effort="medium",
+                    model=resolve_light_model(backend=getattr(backend, "backend", None)),
+                    reasoning_effort=resolve_light_effort(),
                     sandbox_mode="workspace-write",
                     skip_git_repo_check=True,
                     working_dir=str(draft.directory),
@@ -1244,7 +1229,6 @@ def _reflect_after_answer(
 __all__ = [
     "ANSWER_PROMPT_CHAR_LIMIT",
     "PROMPT_CHAR_LIMIT",
-    "REFLECTION_MODEL_KNOB",
     "build_answer_prompt",
     "build_reflection_prompt",
     "reflect_after_answer",

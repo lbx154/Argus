@@ -34,35 +34,6 @@ from ._runtime_helpers import (
 log = logging.getLogger(__name__)
 
 
-def _engineer_model_for_task(default: str, vertical: str, task_text: str, project_root: Path | None) -> str:
-    """The engineer model for this task, or the route model its vertical asked for.
-
-    A vertical's module may define ``model_route_for_task(text) -> str`` (the
-    research vertical routes figure work to ``figure``); the route's knob
-    ``ARGUS_SKILL_<ROUTE>_MODEL`` then names the model and ``auto`` keeps the
-    engineer's. Anything failing here keeps the default: routing is a
-    convenience and must never stop a mission.
-    """
-    if not vertical or not task_text:
-        return default
-    try:
-        from ..verticals._base import load_vertical
-
-        module = load_vertical(vertical, project_root=project_root)
-        route_for = getattr(module, "model_route_for_task", None)
-        route = str(route_for(task_text) or "").strip() if callable(route_for) else ""
-        if not route:
-            return default
-        from ..core.knobs import resolve_task_route_model
-
-        chosen = resolve_task_route_model(route, fallback=default)
-    except Exception:  # noqa: BLE001 - see above
-        return default
-    if chosen != default:
-        log.info("engineer model for this task: %s (route %s)", chosen, route)
-    return chosen
-
-
 def _execution_host_blocked_outcome(outcome: object) -> bool:
     return (
         getattr(outcome, "status", "") == "infra_blocked"
@@ -679,7 +650,7 @@ class SkillLoopExecuteMixin:
         # Operators can opt back into sandbox via ARGUS_SKILL_SAFE_MODE=1.
         safe_mode = _env_flag("ARGUS_SKILL_SAFE_MODE", False)
         config_kwargs = {
-            "engineer_model": _engineer_model_for_task(args.engineer_model, active_vertical, objective, _proot),
+            "engineer_model": args.engineer_model,
             "reviewer_model": args.reviewer_model,
             "require_independent_review": effective_require_independent_review,
             "engineer_initial_reasoning_effort": os.environ.get(

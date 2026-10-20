@@ -480,7 +480,7 @@ def test_prompt_shows_at_most_forty_lessons(tmp_path: Path) -> None:
     assert prompt.count("\n### [") == 40 and "(40 of 45)" in prompt
 
 
-def test_the_model_call_uses_the_cheap_route_unless_a_model_is_named(monkeypatch, tmp_path: Path) -> None:
+def test_the_model_call_uses_the_light_model(monkeypatch, tmp_path: Path) -> None:
     seen: list[dict] = []
 
     def fake_exec(backend, *, prompt, run_label, options=None, **_kw):
@@ -488,20 +488,16 @@ def test_the_model_call_uses_the_cheap_route_unless_a_model_is_named(monkeypatch
         return SimpleNamespace(exit_code=0, fatal_error=None, last_agent_message="reply text")
 
     monkeypatch.setattr(consolidation, "gateway_run_exec", fake_exec)
-    monkeypatch.setattr(consolidation, "resolve_manager_classify_model", lambda **_kw: "cheap-route-model")
+    monkeypatch.setattr(consolidation, "resolve_light_model", lambda **_kw: "light-model")
     backend = SimpleNamespace(backend="fake")
     runner = SimpleNamespace(_backend=backend)
 
-    monkeypatch.delenv("ARGUS_SKILL_REFLECTION_MODEL", raising=False)
+    monkeypatch.delenv("ARGUS_SKILL_LIGHT_REASONING_EFFORT", raising=False)
     assert consolidation._run_principles_model(runner, prompt="p", vertical_root=tmp_path) == "reply text"
     options = seen[-1]["options"]
     assert seen[-1]["backend"] is backend and seen[-1]["run_label"] == "knowledge-consolidation"
-    assert options.model == "cheap-route-model" and options.reasoning_effort == "low"
+    assert options.model == "light-model" and options.reasoning_effort == "low"
     assert options.sandbox_mode == "workspace-write" and options.working_dir == str(tmp_path)
-
-    monkeypatch.setenv("ARGUS_SKILL_REFLECTION_MODEL", "named-model")
-    consolidation._run_principles_model(runner, prompt="p", vertical_root=tmp_path)
-    assert seen[-1]["options"].model == "named-model"
 
     monkeypatch.setattr(
         consolidation, "gateway_run_exec",

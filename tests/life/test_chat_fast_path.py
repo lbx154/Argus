@@ -300,8 +300,8 @@ def test_execute_dispatches_to_manager_self_path_on_greeting(monkeypatch) -> Non
     """English greeting → one Manager turn, no team pipeline."""
     monkeypatch.delenv("ARGUS_SKILL_SELF_REASONING_EFFORT", raising=False)
     monkeypatch.setattr(
-        "argus.apps._self_reply.resolve_manager_reply_model",
-        lambda **_kwargs: "best-manager",
+        "argus.apps._self_reply.resolve_role_model",
+        lambda *_args, **_kwargs: "best-manager",
     )
     backend = _FakeBackend(response_message="Hi! How can I help?")
     runner = _make_runner(backend)
@@ -324,8 +324,8 @@ def test_execute_dispatches_to_manager_self_path_on_greeting(monkeypatch) -> Non
 
 def test_message_only_self_reply_uses_manager_model_with_low_effort(monkeypatch) -> None:
     monkeypatch.setattr(
-        "argus.apps._self_reply.resolve_manager_reply_model",
-        lambda **_kwargs: "persistent-manager-model",
+        "argus.apps._self_reply.resolve_role_model",
+        lambda *_args, **_kwargs: "persistent-manager-model",
     )
     backend = _FakeBackend(response_message="exact reply")
     runner = _make_runner(backend)

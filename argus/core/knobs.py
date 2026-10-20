@@ -94,28 +94,24 @@ KNOBS: tuple[Knob, ...] = (
     Knob("ARGUS_SKILL_MODEL", "auto", "shared model override; auto uses the selected backend's default", "models", cockpit=True),
     Knob("ARGUS_SKILL_MANAGER_MODEL", "auto", "model for the Manager; auto uses the selected backend's default", "models", cockpit=True),
     Knob("ARGUS_SKILL_ENGINEER_MODEL", "auto", "model for the L1 engineer; auto uses the selected backend's default", "models", cockpit=True),
-    Knob("ARGUS_SKILL_FIGURE_MODEL", "auto", "model for figure tasks (the method figure through PPT Master, data figures); auto follows the engineer model", "models", cockpit=True),
-    Knob("ARGUS_SKILL_MAP_MODEL", "auto", "map summaries model; auto uses the Manager (front-door) model, or the engineer when the Manager has no runner", "models", cockpit=True),
-    Knob("ARGUS_SKILL_MAP_MODEL_BACKEND", "(unset)", "runner that was active when the map model was pinned; under another runner the pin must be in that runner's list or follows auto", "models"),
-    Knob("ARGUS_SKILL_MAP_REASONING_EFFORT", "auto", "map summaries reasoning effort; auto is a light drafting effort (low), independent of research effort", "reasoning", cockpit=True),
-    Knob("ARGUS_SKILL_MAP_REVIEW_REASONING_EFFORT", "auto", "map teaching review reasoning effort; auto is medium, independent of research effort", "reasoning", cockpit=True),
     Knob("ARGUS_SKILL_MAP_TIMEOUT_SECONDS", "600", "map-only generation deadline in seconds (1-3600); does not limit research turns", "map", cockpit=True),
     Knob("ARGUS_SKILL_MAP_BATCH_SIZE", "2", "maximum cards per map generation (1-8)", "map", cockpit=True),
     Knob("ARGUS_SKILL_MAP_RETRY_SECONDS", "300", "cross-tab cooldown after a failed map generation (1-3600 seconds)", "map", cockpit=True),
+    Knob(
+        "ARGUS_SKILL_LIGHT_MODEL", "auto",
+        "model for every light route (front-door classification, /plan preview, "
+        "prompt rewrite, map text, reflection and knowledge upkeep); auto is "
+        "gpt-6.1-sol on Copilot and the Manager model elsewhere",
+        "models", cockpit=True,
+    ),
     Knob("ARGUS_SKILL_REVIEWER_MODEL", "auto", "model for the L2 reviewer; auto uses the selected backend's default", "models", cockpit=True),
     Knob("ARGUS_SKILL_OBSERVER_MODEL", "auto", "model for the Observer, who watches whether the work flows and tells the Manager when it does not; auto follows the Reviewer model", "models", cockpit=True),
     Knob("ARGUS_SKILL_PLAN_MODEL", "auto", "model for the L4 planner; auto uses the selected backend's default", "models", cockpit=True),
-    Knob("ARGUS_SKILL_PLAN_PREVIEW_MODEL", "auto", "interactive /plan model: gpt-6.1-sol on copilot (follows an environment model of auto), planner model otherwise; set an id to override", "models"),
-    Knob("ARGUS_SKILL_REWRITE_MODEL", "auto", "interactive prompt rewrite model: gpt-5.5 on copilot (follows an environment model of auto), Manager model otherwise; set an id to override", "models"),
-    Knob("ARGUS_SKILL_MANAGER_REPLY_MODEL", "inherit", "operator-facing Manager SELF model; inherit uses the configured Manager/shared route model", "models", cockpit=True),
-    Knob("ARGUS_SKILL_FRONTDOOR_MODEL", "auto", "front-door classification model: gpt-6.1-sol on copilot (follows an environment model of auto), Manager model otherwise", "models"),
-    Knob("ARGUS_SKILL_FRONTDOOR_CLASSIFY_EFFORT", "low", "reasoning effort for the LLM-only front-door and STEER confirmation", "models"),
     # --- reasoning effort ---
     Knob("ARGUS_SKILL_MANAGER_REASONING_EFFORT", "high", "manager reasoning effort", "reasoning", cockpit=True),
     Knob("ARGUS_SKILL_PLANNER_REASONING_EFFORT", "high", "planner reasoning effort", "reasoning", cockpit=True),
+    Knob("ARGUS_SKILL_LIGHT_REASONING_EFFORT", "low", "reasoning effort for every light route", "reasoning", cockpit=True),
     Knob("ARGUS_SKILL_SELF_REASONING_EFFORT", "high", "foreground Manager SELF chat/read-only reply effort", "reasoning"),
-    Knob("ARGUS_SKILL_PLAN_PREVIEW_REASONING_EFFORT", "low", "interactive /plan preview effort; execution planning keeps the planner setting", "reasoning"),
-    Knob("ARGUS_SKILL_REWRITE_REASONING_EFFORT", "high", "interactive prompt rewrite reasoning effort", "reasoning"),
     Knob("ARGUS_SKILL_ENGINEER_INITIAL_REASONING_EFFORT", "high", "direct-task first-round Engineer effort; later rounds use the Engineer effort", "reasoning", cockpit=True),
     Knob("ARGUS_SKILL_ENGINEER_REASONING_EFFORT", "xhigh", "engineer reasoning effort: low|medium|high|xhigh", "reasoning", cockpit=True),
     Knob("ARGUS_SKILL_REVIEWER_REASONING_EFFORT", "high", "reviewer reasoning effort", "reasoning", cockpit=True),
@@ -183,7 +179,6 @@ KNOBS: tuple[Knob, ...] = (
         "off does none of this",
         "learning", cockpit=True,
     ),
-    Knob("ARGUS_SKILL_REFLECTION_MODEL", "auto", "model for the post-mission reflection and answer learning; auto uses the cheap front-door model", "models", cockpit=True),
     Knob("ARGUS_SKILL_ENGINEER_SANDBOX", "off", "codex sandbox for builder roles (engineer/reviewer/planner): set 'workspace-write' to confine writes to the project workdir + a writable allowlist (excludes ~/.argus-skill, the package, ~/.codex) and scrub VCS creds, instead of --dangerously-bypass. Default OFF — verify required network, cache, and remote accelerator access before enabling", "lifecycle"),
     Knob("ARGUS_SKILL_SKIP_VAULT_PREFLIGHT", "off", "bypass the capability-vault preflight on daemon start", "lifecycle"),
     Knob("ARGUS_SKILL_SOURCE_ROOT", "(unset)", "expected deployment source root: when set, daemon/WebAPI startup refuses a process whose loaded package resolves to a different checkout (rewritten-launcher guard)", "lifecycle"),
@@ -220,7 +215,7 @@ _EFFORT_KNOBS = frozenset(
         "ARGUS_SKILL_MANAGER_REASONING_EFFORT",
         "ARGUS_SKILL_PLANNER_REASONING_EFFORT",
         "ARGUS_SKILL_SELF_REASONING_EFFORT",
-        "ARGUS_SKILL_PLAN_PREVIEW_REASONING_EFFORT",
+        "ARGUS_SKILL_LIGHT_REASONING_EFFORT",
         "ARGUS_SKILL_ENGINEER_REASONING_EFFORT",
         "ARGUS_SKILL_REVIEWER_REASONING_EFFORT",
     }
@@ -316,13 +311,6 @@ def normalize_cockpit_knob_value(name: str, value: str) -> str:
     raw = str(value or "").strip()
     if not raw:
         raise ValueError("config value cannot be empty")
-    if name == "ARGUS_SKILL_MAP_MODEL" and raw.lower() == "auto":
-        return "auto"
-    if name in {"ARGUS_SKILL_MAP_REASONING_EFFORT", "ARGUS_SKILL_MAP_REVIEW_REASONING_EFFORT"}:
-        effort = raw.lower()
-        if effort not in {"auto", "low", "medium", "high", "xhigh", "max"}:
-            raise ValueError(f"{name} must be auto, low, medium, high, xhigh, or max")
-        return effort
     if name in {"ARGUS_SKILL_MAP_TIMEOUT_SECONDS", "ARGUS_SKILL_MAP_BATCH_SIZE", "ARGUS_SKILL_MAP_RETRY_SECONDS", "ARGUS_SKILL_MANAGER_HANDOFF_WAIT_SECONDS"}:
         maximum = 8 if name == "ARGUS_SKILL_MAP_BATCH_SIZE" else 3600
         try:
@@ -653,42 +641,6 @@ def resolve_role_backend(
     return resolve_role_backend_with_source(role, env=env, default=default)[0]
 
 
-def resolve_manager_reply_model(
-    *,
-    backend: str | None = None,
-    env: Mapping[str, str] | None = None,
-) -> str:
-    """Resolve the high-quality operator-facing Manager SELF model."""
-    env_map = env if env is not None else os.environ
-    resolved = resolve_knob(
-        "ARGUS_SKILL_MANAGER_REPLY_MODEL",
-        "inherit",
-        env=env_map,
-    )
-    configured = resolved.value.strip()
-    if (
-        resolved.source == "persisted"
-        and any(
-            str(env_map.get(name, "") or "").strip()
-            for name in ("ARGUS_SKILL_MANAGER_MODEL", "ARGUS_SKILL_MODEL")
-        )
-    ):
-        return resolve_role_model(
-            "manager",
-            role_env="ARGUS_SKILL_MANAGER_MODEL",
-            backend=backend,
-            env=env_map,
-        )
-    if configured.lower() not in {"", "auto", "inherit", "default"}:
-        return configured
-    return resolve_role_model(
-        "manager",
-        role_env="ARGUS_SKILL_MANAGER_MODEL",
-        backend=backend,
-        env=env_map,
-    )
-
-
 #: Backends whose model catalog IS the OpenAI catalog, so Argus may name a
 #: specific OpenAI id for its cheap control-plane routes without asking the
 #: operator. ``copilot`` qualifies by construction.  Codex normally does too,
@@ -737,147 +689,69 @@ def backend_uses_openai_catalog(
 _AUTO_MODEL_SENTINELS = frozenset({"", "auto", "inherit", "default"})
 
 
-def resolve_task_route_model(
-    route: str,
-    *,
-    fallback: str,
-    env: Mapping[str, str] | None = None,
-) -> str:
-    """The model for one kind of task when the operator named one; else ``fallback``.
+def _main_model_requested_auto(env: Mapping[str, str]) -> bool:
+    """Whether this process's environment asks the Manager model to be automatic.
 
-    A vertical may say that a task belongs to a route (the research vertical
-    routes figure work to ``figure``). The route's knob is
-    ``ARGUS_SKILL_<ROUTE>_MODEL``; an unknown route or an automatic value
-    (``auto``, ``inherit``, empty) keeps the engineer's model, so nothing
-    changes for operators who never set it. Environment outranks the
-    persisted cockpit value, as for every other model knob.
-    """
-    cleaned = str(route or "").strip()
-    name = f"ARGUS_SKILL_{cleaned.upper()}_MODEL"
-    if not cleaned or name not in {knob.name for knob in KNOBS}:
-        return fallback
-    env_map = env if env is not None else os.environ
-    value = str(env_map.get(name, "") or "").strip()
-    if not value:
-        from .knob_store import read_persisted_knobs
-
-        value = str(read_persisted_knobs().get(name, "") or "").strip()
-    return fallback if value.lower() in _AUTO_MODEL_SENTINELS else value
-
-
-def _main_model_requested_auto(role_env: str, env: Mapping[str, str]) -> bool:
-    """Whether the environment explicitly asks the role's model to be automatic.
-
-    Only the process environment counts: the cockpit stores ``auto`` as the
-    ordinary default, so a persisted ``auto`` must keep today's cheap-route
-    behaviour. The role-specific variable outranks the shared one, matching
+    Only the environment counts: the cockpit stores ``auto`` as the ordinary
+    default. The role variable outranks the shared one, as in
     :func:`resolve_role_model`.
     """
-    for name in (role_env, "ARGUS_SKILL_MODEL"):
-        if not name:
-            continue
+    for name in ("ARGUS_SKILL_MANAGER_MODEL", "ARGUS_SKILL_MODEL"):
         value = str(env.get(name, "") or "").strip()
         if value:
             return value.lower() in _AUTO_MODEL_SENTINELS
     return False
 
 
-def resolve_cheap_route_model(
+#: What ``ARGUS_SKILL_LIGHT_MODEL=auto`` names on a backend that sells it.
+LIGHT_MODEL_DEFAULT = "gpt-6.1-sol"
+
+
+def resolve_light_model(
     *,
-    knob: str,
-    catalog_default: str,
-    role: str,
-    role_env: str,
     backend: str | None = None,
     env: Mapping[str, str] | None = None,
 ) -> str:
-    """Resolve one cheap control-plane route's model.
+    """The one model for every light route.
 
-    Three routes want a small model rather than the role's full-strength one:
-    Manager front-door classify, ``/plan`` preview, and interactive prompt
-    rewrite. Each used to carry its own copy of this rule, and the copies
-    agreed on the wrong thing — they counted ``pi`` as an OpenAI-catalog
-    backend. A Pi fronting DeepSeek therefore asked its provider for
-    ``gpt-5.4-mini`` and every route hard-failed, no matter how
-    carefully the operator had configured Argus's documented model knobs.
-
-    Precedence: an explicit knob value wins; Copilot gets ``catalog_default``
-    unless the environment sets the role's model (or the shared model) to
-    ``auto``, in which case the route follows that automatic choice too;
-    Codex and provider-agnostic backends fall back to the role's own model.
-    Codex may authenticate through a ChatGPT account whose catalog does not
-    include Argus's historical cheap model ids.
-
-    中文：三条「廉价路由」不再为 Codex 强制指定 OpenAI model id，因为 ChatGPT
-    账户的 Codex 目录可能不包含该模型；Codex 与非 OpenAI 目录后端均回落到角色 model。
+    An explicit ``ARGUS_SKILL_LIGHT_MODEL`` wins, unless it is only a saved
+    value while this process's environment names the Manager or shared model
+    (a deployment default must not send a model id to a backend that never
+    offered it). ``auto`` is :data:`LIGHT_MODEL_DEFAULT` on Copilot and the
+    Manager model elsewhere: Codex may run on a ChatGPT account whose catalog
+    lacks it, and Pi, Claude and the rest sell their own catalogs.
     """
     env_map = env if env is not None else os.environ
-    resolved = resolve_knob(knob, "auto", env=env_map)
-    configured = resolved.value.strip()
-    if (
-        resolved.source == "persisted"
-        and any(
-            str(env_map.get(name, "") or "").strip()
-            for name in (role_env, "ARGUS_SKILL_MODEL")
-            if name
-        )
-    ):
+    requested = str(
+        backend or resolve_role_backend("manager", env=env_map, default="codex")
+    ).strip().lower()
+
+    def manager_model() -> str:
         return resolve_role_model(
-            role,
-            role_env=role_env,
-            backend=backend,
-            env=env_map,
+            "manager", role_env="ARGUS_SKILL_MANAGER_MODEL", backend=requested, env=env_map,
         )
+
+    resolved = resolve_knob("ARGUS_SKILL_LIGHT_MODEL", "auto", env=env_map)
+    configured = resolved.value.strip()
     if configured.lower() not in _AUTO_MODEL_SENTINELS:
+        if resolved.source == "persisted" and any(
+            str(env_map.get(name, "") or "").strip()
+            for name in ("ARGUS_SKILL_MANAGER_MODEL", "ARGUS_SKILL_MODEL")
+        ):
+            return manager_model()
         return configured
-    from ..agent_cli.runner_backend import BACKEND_MEMORY, normalize_runner_backend
-
-    # default="codex": same reasoning as resolve_role_model above — this only
-    # selects between the OpenAI catalog id and the role's own model, and a
-    # cheap control-plane route must not fail to pick a model just because no
-    # backend knob is set. memory branches out first, same as there.
-    requested = backend or resolve_role_backend(role, env=env_map, default="codex")
-    backend_name = (
-        BACKEND_MEMORY
-        if str(requested).strip().lower() == BACKEND_MEMORY
-        else normalize_runner_backend(requested)
-    )
-    if backend_name != "codex" and backend_uses_openai_catalog(
-        backend_name, env=env_map,
+    if (
+        requested == "copilot"
+        and backend_uses_openai_catalog(requested, env=env_map)
+        and not _main_model_requested_auto(env_map)
     ):
-        if _main_model_requested_auto(role_env, env_map):
-            # The operator asked this process to let the backend choose (e.g.
-            # a Copilot token that can only use automatic selection). A fixed
-            # small id would be rejected there, so the side route follows.
-            return resolve_role_model(
-                role,
-                role_env=role_env,
-                backend=backend_name,
-                env=env_map,
-            )
-        return catalog_default
-    return resolve_role_model(
-        role,
-        role_env=role_env,
-        backend=backend_name,
-        env=env_map,
-    )
+        return LIGHT_MODEL_DEFAULT
+    return manager_model()
 
 
-def resolve_manager_classify_model(
-    *,
-    backend: str | None = None,
-    env: Mapping[str, str] | None = None,
-) -> str:
-    """Resolve the stateless front-door classification model."""
-    return resolve_cheap_route_model(
-        knob="ARGUS_SKILL_FRONTDOOR_MODEL",
-        catalog_default="gpt-6.1-sol",
-        role="manager",
-        role_env="ARGUS_SKILL_MANAGER_MODEL",
-        backend=backend,
-        env=env,
-    )
+def resolve_light_effort(*, env: Mapping[str, str] | None = None) -> str:
+    """The one reasoning effort for every light route."""
+    return resolve_knob("ARGUS_SKILL_LIGHT_REASONING_EFFORT", "low", env=env).value.strip() or "low"
 
 
 def resolve_role_reasoning_effort(

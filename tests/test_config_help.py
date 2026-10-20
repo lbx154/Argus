@@ -57,8 +57,8 @@ def test_registry_covers_the_key_operator_knobs() -> None:
         "ARGUS_SKILL_MANAGER_REASONING_EFFORT",
         "ARGUS_SKILL_PLANNER_REASONING_EFFORT",
         "ARGUS_SKILL_SELF_REASONING_EFFORT",
-        "ARGUS_SKILL_PLAN_PREVIEW_MODEL",
-        "ARGUS_SKILL_PLAN_PREVIEW_REASONING_EFFORT",
+        "ARGUS_SKILL_LIGHT_MODEL",
+        "ARGUS_SKILL_LIGHT_REASONING_EFFORT",
         "ARGUS_SKILL_ENGINEER_REASONING_EFFORT",
         "ARGUS_SKILL_ENGINEER_FULL_ROUND_POLICY",
         "ARGUS_SKILL_PROVIDER_TURN_CAP",
@@ -70,7 +70,7 @@ def test_registry_covers_the_key_operator_knobs() -> None:
     assert "ARGUS_SKILL_RUNNER_BACKEND" in names
     assert not [name for name in names if name.endswith(("_RUNNER_BIN", "_BACKEND"))
                 and name not in {"ARGUS_SKILL_RUNNER_BIN", "ARGUS_SKILL_RUNNER_BACKEND",
-                                 "ARGUS_SKILL_LIFE_BACKEND", "ARGUS_SKILL_MAP_MODEL_BACKEND"}]
+                                 "ARGUS_SKILL_LIFE_BACKEND"}]
 
 
 def test_mission_round_default_is_unbounded_and_consistent() -> None:

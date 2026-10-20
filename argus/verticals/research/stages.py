@@ -16,9 +16,6 @@ from ...skills.stage_machine import ChecklistItem
 from . import library_preparation
 from .mission_brief import prepare_mission
 from .prompt_policy import render_role_prompt_context, render_role_prompt_fragment
-from .task_routes import (
-    model_route_for_task,  # noqa: F401 - the host reads this hook off the vertical module
-)
 
 LIBRARY_PREPARER = library_preparation.prepare_skill_libraries
 
@@ -716,5 +713,4 @@ __all__ = [
     "iteration_assessment",
     "completion_gate",
     "PAPER_MISSION",
-    "model_route_for_task",
 ]

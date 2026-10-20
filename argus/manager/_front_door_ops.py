@@ -50,8 +50,7 @@ class _FrontDoorMixin:
 
         Built FRESH on the raw backend (``self.runner``, NEVER
         ``self._session`` — no giant-session resume, no pollution),
-        ``resume_thread_id=None``. Effort comes from
-        ``ARGUS_SKILL_FRONTDOOR_CLASSIFY_EFFORT`` (default ``low``). Biases
+        ``resume_thread_id=None``, on the light model and effort. Biases
         each axis to its own safe default on any error."""
         from ..life.router import classify_front_door
 
@@ -76,7 +75,7 @@ class _FrontDoorMixin:
         if run_exec is None:
             if self.runner is None:
                 return None, None, "complex"
-            from ..core.knobs import resolve_knob, resolve_manager_classify_model
+            from ..core.knobs import resolve_light_effort, resolve_light_model
             from ..core.models import RunnerOptions
 
             _backend = self.runner
@@ -85,10 +84,7 @@ class _FrontDoorMixin:
             operator_context, _operator_context_revision = build_operator_context_block(
                 "manager", self.manager_session_root, consume_once=False
             )
-            _effort = resolve_knob(
-                "ARGUS_SKILL_FRONTDOOR_CLASSIFY_EFFORT",
-                "low",
-            ).value.strip() or "low"
+            _effort = resolve_light_effort()
             _backend_name = str(
                 getattr(_backend, "backend", "")
                 or getattr(_backend, "_backend_name", "")
@@ -102,9 +98,7 @@ class _FrontDoorMixin:
                     _backend,
                     prompt=append_operator_context(prompt, operator_context),
                     options=RunnerOptions(
-                        model=resolve_manager_classify_model(
-                            backend=getattr(_backend, "backend", None),
-                        ),
+                        model=resolve_light_model(backend=getattr(_backend, "backend", None)),
                         reasoning_effort=_effort,
                         skip_git_repo_check=True,
                         disable_tools=True,

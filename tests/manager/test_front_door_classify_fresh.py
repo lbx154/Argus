@@ -44,9 +44,9 @@ def _manager(answer: str, tmp_path) -> tuple[Manager, _RecordingBackend]:
 
 
 def test_front_door_runs_fresh_low_effort(tmp_path, monkeypatch) -> None:
-    monkeypatch.delenv("ARGUS_SKILL_FRONTDOOR_CLASSIFY_EFFORT", raising=False)
+    monkeypatch.delenv("ARGUS_SKILL_LIGHT_REASONING_EFFORT", raising=False)
     monkeypatch.setattr(
-        "argus.core.knobs.resolve_manager_classify_model",
+        "argus.core.knobs.resolve_light_model",
         lambda **_kwargs: "fast-manager",
     )
     mgr, backend = _manager(
@@ -89,7 +89,7 @@ def test_single_agent_vertical_selection_is_validated_in_existing_classifier(tmp
 
 
 def test_front_door_effort_env_override(tmp_path, monkeypatch) -> None:
-    monkeypatch.setenv("ARGUS_SKILL_FRONTDOOR_CLASSIFY_EFFORT", "high")
+    monkeypatch.setenv("ARGUS_SKILL_LIGHT_REASONING_EFFORT", "high")
     mgr, backend = _manager(
         "CONFIG: NONE\nCONTROL: NONE\nROUTE: TEAM",
         tmp_path,

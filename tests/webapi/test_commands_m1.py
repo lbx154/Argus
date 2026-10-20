@@ -2159,7 +2159,7 @@ def test_choosing_the_shared_model_for_every_role_releases_the_role_pins(ctx, mo
     monkeypatch.delenv("ARGUS_SKILL_ENGINEER_MODEL", raising=False)
     (root / "config.json").write_text(json.dumps({
         "ARGUS_SKILL_MODEL": "old-shared", "ARGUS_SKILL_ENGINEER_MODEL": "pinned-a",
-        "ARGUS_SKILL_REVIEWER_MODEL": "pinned-b", "ARGUS_SKILL_FIGURE_MODEL": "sees-pictures",
+        "ARGUS_SKILL_REVIEWER_MODEL": "pinned-b",
     }))
     client = TestClient(server.create_app(global_root=root))
 
@@ -2175,8 +2175,6 @@ def test_choosing_the_shared_model_for_every_role_releases_the_role_pins(ctx, mo
     stored = json.loads((root / "config.json").read_text())
     assert stored["ARGUS_SKILL_MODEL"] == "new-shared"
     assert stored["ARGUS_SKILL_ENGINEER_MODEL"] == "" and stored["ARGUS_SKILL_REVIEWER_MODEL"] == ""
-    # A route override is not a role pin and stays.
-    assert stored["ARGUS_SKILL_FIGURE_MODEL"] == "sees-pictures"
     from argus.core.knobs import resolve_role_model
 
     assert resolve_role_model("engineer", role_env="ARGUS_SKILL_ENGINEER_MODEL", env={}) == "new-shared"
@@ -2189,7 +2187,7 @@ def test_the_config_snapshot_offers_model_options_from_catalog_usage_and_knobs(c
     catalog.mkdir()
     (catalog / "models.json").write_text(json.dumps({"providers": {"argus": {"models": [{"id": "cat-a"}, {"id": "cat-b"}]}}}))
     monkeypatch.setenv("PI_CODING_AGENT_DIR", str(catalog))
-    (root / "config.json").write_text(json.dumps({"ARGUS_SKILL_MODEL": "cat-a", "ARGUS_SKILL_MAP_MODEL": "auto"}))
+    (root / "config.json").write_text(json.dumps({"ARGUS_SKILL_MODEL": "cat-a", "ARGUS_SKILL_LIGHT_MODEL": "auto"}))
     import time as _time
 
     usage = root / "projects" / sid / "usage.jsonl"

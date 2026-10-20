@@ -400,7 +400,6 @@ def generate(
         card.update(checked_text_fields({field: card.get(field) for field in CARD_TEXT_LIMITS},
                                         CARD_TEXT_LIMITS, "invalid card copy"))
         card["reader_brief"] = _reader_brief(card.get("reader_brief"))
-    review_config = config.for_review()
     approved, checks, cache_updates = review_concepts(
         {key: card["reader_brief"]["concept"] for key, card in value["cards"].items()},
         reading={key: {
@@ -408,14 +407,14 @@ def generate(
             **{field: card["reader_brief"][field] for field in BRIEF_LIMITS},
         } for key, card in value["cards"].items()},
         run=lambda review_prompt, review_schema: run_map_model(
-            review_prompt, review_schema, review_config, project_root=project_root,
+            review_prompt, review_schema, config, project_root=project_root,
             global_root=global_root, deadline=deadline,
             **({"on_progress": on_progress, "phase": "reviewing"} if on_progress is not None else {}),
         ),
         locale=locale,
         context=source_context,
         cached_reviews=cached_reviews or {},
-        model_revision=review_config.revision,
+        model_revision=config.revision,
     )
     for key, card in value["cards"].items():
         card["reader_brief"]["concept"] = approved.get(key)

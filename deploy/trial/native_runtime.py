@@ -61,11 +61,8 @@ def sandbox_command(config: dict, tenant: str, command: list[str] | None = None)
         "ARGUS_SKILL_MANAGER_WARM_CONTEXT_LIMIT": "2",
         "ARGUS_SKILL_MANAGER_WARM_CONTEXT_IDLE_SECONDS": "180",
     }
-    for knob in ("FRONTDOOR_MODEL", "PLAN_PREVIEW_MODEL", "REWRITE_MODEL"):
-        env["ARGUS_SKILL_" + knob] = MODEL
-    for role in ("ENGINEER", "REVIEWER", "PLANNER", "MANAGER"):
+    for role in ("ENGINEER", "REVIEWER", "PLANNER", "MANAGER", "LIGHT"):
         env[f"ARGUS_SKILL_{role}_MODEL"] = MODEL
-        env[f"ARGUS_SKILL_{role}_BACKEND"] = "copilot"
     for key, value in env.items():
         args.extend(("--setenv", key, value))
     args.extend(("--chdir", "/tenant/workspace", "--"))

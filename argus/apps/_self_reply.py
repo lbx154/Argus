@@ -12,8 +12,9 @@ from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
 from ..core.knobs import (
-    resolve_manager_classify_model,
-    resolve_manager_reply_model,
+    resolve_light_effort,
+    resolve_light_model,
+    resolve_role_model,
     resolve_role_reasoning_effort,
 )
 from ..core.models import RunnerOptions
@@ -873,7 +874,9 @@ class SelfReplyMixin:
         reply_model = (
             str(getattr(args, "engineer_model", "") or "")
             if executing
-            else resolve_manager_reply_model(backend=effective_backend)
+            else resolve_role_model(
+                "manager", role_env="ARGUS_SKILL_MANAGER_MODEL", backend=effective_backend,
+            )
         )
         reply_effort = (
             "low"
@@ -1199,10 +1202,10 @@ class SelfReplyMixin:
                     self._backend,
                     prompt=prompt,
                     options=RunnerOptions(
-                        model=resolve_manager_classify_model(
+                        model=resolve_light_model(
                             backend=getattr(self._args, "backend", None),
                         ),
-                        reasoning_effort="low",
+                        reasoning_effort=resolve_light_effort(),
                         sandbox_mode="workspace-write",
                         skip_git_repo_check=True,
                         working_dir=str(skill_dir),

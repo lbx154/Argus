@@ -15,9 +15,9 @@ def configure_provider(root: Path, config: dict) -> None:
     from . import (
         CLIENT_MODEL,
         DEFAULT_UPSTREAM_MODEL,
-        MAP_REASONING_DEFAULTS,
+        LIGHT_REASONING_KNOB,
         REASONING_EFFORT,
-        map_reasoning_knobs,
+        light_reasoning_knobs,
     )
     from .model_catalog import configured_model_ids
 
@@ -51,8 +51,8 @@ def configure_provider(root: Path, config: dict) -> None:
         })
         knobs["ARGUS_SKILL_PI_PROVIDER"] = "argus"
     knobs.update({knob.name: REASONING_EFFORT for knob in KNOBS
-                  if knob.name.endswith("_REASONING_EFFORT") and knob.name not in MAP_REASONING_DEFAULTS})
-    knobs.update(map_reasoning_knobs())
+                  if knob.name.endswith("_REASONING_EFFORT") and knob.name != LIGHT_REASONING_KNOB})
+    knobs.update(light_reasoning_knobs())
     os.environ.update(knobs)
     if not write_persisted_knobs(knobs):
         raise RuntimeError("Could not persist the trial provider configuration")

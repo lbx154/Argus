@@ -32,7 +32,7 @@ from ..core import paths as core_paths
 from ..core.event_catalog import EventType
 from ..core.file_facts import file_facts
 from ..core.file_lock import FileLockCancelled, exclusive_file_lock
-from ..core.knobs import resolve_knob, resolve_manager_classify_model
+from ..core.knobs import resolve_light_effort, resolve_light_model
 from ..core.model_visible_text import sanitize_model_visible_text
 from ..core.models import RunnerOptions
 from ..core.run_gateway import run_exec as gateway_run_exec
@@ -44,7 +44,6 @@ RECEIPT_FILENAME = ".consolidated.json"
 LOCK_FILENAME = ".consolidate.lock"
 PRINCIPLES_FILENAME = "principles.md"
 INDEX_FILENAME = "INDEX.md"
-MODEL_KNOB = "ARGUS_SKILL_REFLECTION_MODEL"
 MIN_LESSONS = 3
 MAX_PRINCIPLES = 12
 MAX_LESSONS_IN_PROMPT = 40
@@ -564,15 +563,12 @@ def _run_principles_model(runner: Any, *, prompt: str, vertical_root: Path) -> s
     backend = _backend_for(runner)
     if backend is None:
         raise RuntimeError("no model backend is available for consolidation")
-    model = resolve_knob(MODEL_KNOB, "auto").value.strip()
-    if not model or model.lower() == "auto":
-        model = resolve_manager_classify_model(backend=getattr(backend, "backend", None))
     result = gateway_run_exec(
         backend,
         prompt=prompt,
         options=RunnerOptions(
-            model=model,
-            reasoning_effort="low",
+            model=resolve_light_model(backend=getattr(backend, "backend", None)),
+            reasoning_effort=resolve_light_effort(),
             sandbox_mode="workspace-write",
             skip_git_repo_check=True,
             working_dir=str(vertical_root),
