@@ -1248,19 +1248,10 @@ def test_execute_uses_full_pipeline_on_real_task(
 
     assert sentinel_calls == [], "real task wrongly routed into chat fast-path"
     assert out.chat_mode is False
-    assert any(call["run_label"] == "planner-bounded-plan" for call in backend.calls)
-    planner_call = next(
-        call
-        for call in backend.calls
-        if call["run_label"] == "planner-bounded-plan"
-    )
-    assert "Closest analogue: src/ordered_tree.py" in planner_call["prompt"]
-    assert planner_call["options"].dangerous_yolo is True
-    assert planner_call["options"].working_dir == str(Path.cwd())
-    assert planned_tasks and "## Planner execution plan (advisory)" in planned_tasks[0]
-    assert "Check the premise" in planned_tasks[0]
-    assert any(event.get("type") == "life.planner.start" for event in sink.events)
-    assert any(event.get("type") == "life.planner.verdict" for event in sink.events)
+    # The campaign's Planner plans; a mission drafts no outline of its own.
+    assert planned_tasks and "Closest analogue: src/ordered_tree.py" in planned_tasks[0]
+    assert "## Planner execution plan" not in planned_tasks[0]
+    assert not any(event.get("type") == "life.planner.start" for event in sink.events)
     from argus.skills.layered import LayeredSkillStore
 
     layered = loop_kwargs[0]["skill_store"]
@@ -1290,11 +1281,6 @@ def test_execute_uses_full_pipeline_on_real_task(
         objective="write one short poem",
         sink=_RecordingSink(),
     )
-    assert not any(
-        call["run_label"] == "planner-bounded-plan"
-        for call in backend.calls
-    )
-    assert "## Planner execution plan" not in planned_tasks[0]
     assert loop_kwargs[0]["config"].workflow_mode == "direct"
     assert loop_kwargs[0]["config"].paper_mission is False
     assert loop_kwargs[0]["config"].reviewer_reasoning_effort == "high"
@@ -1311,8 +1297,7 @@ def test_execute_uses_full_pipeline_on_real_task(
         max_rounds_override=1,
         workflow_mode_override="direct",
     )
-    assert not any(call["run_label"] == "planner-bounded-plan" for call in backend.calls)
-    assert planned_tasks and "## Planner execution plan" not in planned_tasks[0]
+    assert planned_tasks
     assert loop_kwargs[0]["config"].max_rounds == 1
     assert loop_kwargs[0]["config"].workflow_mode == "direct"
     assert loop_kwargs[0]["config"].auto_init_wiki is True

@@ -34,9 +34,6 @@ def packaged(tmp_path):
         def _set_usage_context(self, value):
             self.usage = value
 
-        def _run_bounded_planning(self, *_args, **_kwargs):
-            pass
-
     return Harness(), canonical, cache
 
 
@@ -83,7 +80,7 @@ def test_symlink_preflight_is_not_misreported_as_pipeline_mutation(packaged, tmp
     state.loop = SimpleNamespace(run=lambda *a, **kw: pytest.fail("must refuse before execution"))
     with pytest.raises(RuntimeError, match="refused before execution: protected Playground Skill") as caught:
         harness._invoke_execute_loop(state, sink=SimpleNamespace(), objective="refine crystal", original_objective="",
-                                     preplanned=True, mission_id="test", usage_mission_id=None)
+                                     mission_id="test", usage_mission_id=None)
     assert "created formal pipeline" not in str(caught.value)
     assert list(state.workdir.iterdir()) == []
     assert harness.usage is None and harness._current_sink is None
@@ -121,7 +118,7 @@ def test_formal_mission_reaches_loop_with_uv_installed_skills(packaged, tmp_path
 
     state.loop = SimpleNamespace(run=run)
     harness._invoke_execute_loop(state, sink=SimpleNamespace(), objective="solve crystal", original_objective="",
-                                 preplanned=True, mission_id="test", usage_mission_id=None)
+                                 mission_id="test", usage_mission_id=None)
     assert seen == [state.workdir] and state.outcome.status == "done"
     assert not state.playground_workflow_guarded
     assert all((cache / path.name).read_text().startswith("trusted") for path in paths)

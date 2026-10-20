@@ -109,7 +109,7 @@ def test_front_door_wrapper_caches_bounded_lifetime_for_dispatch() -> None:
     assert state["_frontdoor_lifetime"] == "bounded"
 
 
-def test_front_door_wrapper_caches_explicit_bounded_increment() -> None:
+def test_front_door_wrapper_reads_a_legacy_bounded_increment_as_bounded() -> None:
     state: dict = {}
 
     decision = _front_door_classify(
@@ -122,7 +122,7 @@ def test_front_door_wrapper_caches_explicit_bounded_increment() -> None:
     )
 
     assert decision == (None, None, "complex")
-    assert state["_frontdoor_lifetime"] == "bounded_increment"
+    assert state["_frontdoor_lifetime"] == "bounded"
 
 
 def test_front_door_wrapper_caches_standing_lifetime_for_steer() -> None:

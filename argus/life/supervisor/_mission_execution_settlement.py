@@ -309,7 +309,7 @@ class MissionExecutionSettlementMixin:
         pauses, and infrastructure blocks do not enter this path.
 
         Also applies the ``planner_node_stage_completed`` override (a
-        Planner-authored bounded DAG node closes once the Manager certifies
+        Planner-authored bounded node closes once the Manager certifies
         ``advance`` for the current project stage, even if the Reviewer
         described the WHOLE project as ``research_incomplete``).
         """
@@ -359,7 +359,7 @@ class MissionExecutionSettlementMixin:
             else:
                 state.status = "stage_hold"
 
-        # Planner-authored bounded DAG nodes are separate acceptance units: once
+        # Planner-authored bounded nodes are separate acceptance units: once
         # the Manager has certified ``advance`` for the current project stage,
         # that node is complete even if the Reviewer described the WHOLE project
         # as ``research_incomplete``. Close the node so its solve/review dependent

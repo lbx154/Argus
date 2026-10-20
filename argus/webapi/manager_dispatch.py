@@ -1127,7 +1127,6 @@ def _handle_pause_control(
     if pause_persisted and chat_state is not None:
         chat_state.setdefault("config", {})["continuous"] = False
         chat_state["continuous_objective"] = ""
-        chat_state.pop("_continuous_pending_manager_handoff", None)
 
     abort_requested, item_id = request_running_item_abort(
         life_dir,
@@ -1426,23 +1425,15 @@ def _dispatch_team_mission(
     reference_deps: list[str] | None = None,
     public_objective: str | None = None,
 ) -> tuple[Any, bool, int | None]:
-    """Apply the Manager's lifetime decision, resume a done lifecycle, and
-    enqueue the operator's TEAM mission. Raises on failure — the caller
-    catches it and turns it into a structured ``{"kind": "error"}`` reply."""
+    """Resume a done lifecycle and run the operator's TEAM mission in a
+    Planner-run campaign. Raises on failure — the caller catches it and turns
+    it into a structured ``{"kind": "error"}`` reply."""
     from ..core.operator_messages import uses_cjk
     from ..manager.dispatch import (
         enqueue_mission,
-        maybe_promote_to_continuous,
         resume_done_lifecycle_for_team_dispatch,
     )
     from ..manager.front_door import prepare_manager_execution_task
-
-    # Reject quarantined/archived projects and resume completed projects before
-    # paying for another Manager model call. Lifetime and workflow are separate
-    # axes only after the project lifecycle admits new work.
-    # A publication campaign has a finite finish line, but Manager may still
-    # require staged progression. Run the normal workflow decision once, use it
-    # to choose topology, then reuse the sealed handoff during commit.
 
     chinese = uses_cjk(body)
     emitter.phase(
@@ -1483,49 +1474,11 @@ def _dispatch_team_mission(
         else "Checking whether this project can resume…"
     )
     resume_done_lifecycle_for_team_dispatch(mem)
-    workflow_mode = str(
-        getattr(prepared.decision, "workflow_mode", "") or ""
+    emitter.phase(
+        "正在将任务写入待办…"
+        if chinese
+        else "Adding the task to the backlog…"
     )
-    prepared.lifetime = str(
-        chat_state.get("_frontdoor_lifetime", "bounded") or "bounded"
-    ).strip().lower()
-    try:
-        maybe_promote_to_continuous(
-            mem,
-            body,
-            chat_state,
-            root_task_id=root_task_id,
-            workflow_mode=workflow_mode,
-        )
-        prepared.continuous = bool(
-            chat_state.get("config", {}).get("continuous", False)
-        )
-        prepared.open_ended = bool(
-            chat_state.get("_continuous_open_ended", False)
-        )
-        if prepared.continuous:
-            prepared.lifetime = (
-                "standing" if prepared.open_ended else "bounded"
-            )
-    except Exception as exc:
-        prepared.failed(exc)
-        raise
-    if prepared.continuous:
-        emitter.phase(
-            "正在将长期工作写入待办…"
-            if chinese
-            else "Adding standing work to the backlog…"
-        )
-    else:
-        # Bounded dispatch now enters a real Planner call before persistence.
-        # Keep the stream on the role that is actually working instead of
-        # making that model latency look like a stalled Manager turn.
-        emitter.phase(
-            "Planner 正在拆分并签发任务…"
-            if chinese
-            else "Planner is decomposing and signing off the task…",
-            role="planner",
-        )
     return enqueue_mission(
         mem,
         body,

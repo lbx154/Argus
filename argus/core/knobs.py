@@ -183,8 +183,6 @@ KNOBS: tuple[Knob, ...] = (
     Knob("ARGUS_SKILL_REVIEWER_VALIDATION_IMAGE", "(unset)", "local Docker image for opt-in read-only Reviewer command checks; empty disables", "mission"),
     Knob("ARGUS_SKILL_ROUND_CHECKPOINT", "off", "record private git refs for Reviewer-recommended round checkpoints", "mission"),
     Knob("ARGUS_SKILL_REQUIRE_POST_TASK_LEARNING", "1", "enable selective project-layer Skill maintenance for all four roles (default ON)", "mission"),
-    Knob("ARGUS_SKILL_BOUNDED_DAG_MODEL", "auto", "model for decomposing Manager bounded tasks into backlog DAG nodes: gpt-6.1-sol on copilot (follows an environment model of auto), planner model otherwise", "mission"),
-    Knob("ARGUS_SKILL_BOUNDED_DAG_REASONING_EFFORT", "low", "reasoning effort for bounded DAG decomposition", "mission"),
     Knob("ARGUS_SKILL_PROVIDER_TURN_CAP", "0", "optional per-call interaction allowance for Engineer/Reviewer; disabled by default (0). If explicitly enabled, save a checkpoint and continue in a fresh session", "mission"),
     Knob("ARGUS_SKILL_RUNNER_SOFT_IDLE_SECONDS", "600", "model stream inactivity before a diagnostic warning (0=off)", "mission"),
     Knob("ARGUS_SKILL_RUNNER_STALLED_IDLE_SECONDS", "1800", "seconds a model turn may make no progress (no model stream event, no CPU time in its commands) before it is reported as likely stalled; an Engineer turn is then reported to the Manager once, which decides whether to keep waiting or restart it (0=off)", "mission"),
@@ -898,12 +896,12 @@ def resolve_cheap_route_model(
 ) -> str:
     """Resolve one cheap control-plane route's model.
 
-    Four routes want a small model rather than the role's full-strength one:
-    Manager front-door classify, bounded-DAG decomposition, ``/plan`` preview,
-    and interactive prompt rewrite. Each used to carry its own copy of this
-    rule, and the copies agreed on the wrong thing — they counted ``pi`` as an
-    OpenAI-catalog backend. A Pi fronting DeepSeek therefore asked its provider
-    for ``gpt-5.4-mini`` and all four routes hard-failed, no matter how
+    Three routes want a small model rather than the role's full-strength one:
+    Manager front-door classify, ``/plan`` preview, and interactive prompt
+    rewrite. Each used to carry its own copy of this rule, and the copies
+    agreed on the wrong thing — they counted ``pi`` as an OpenAI-catalog
+    backend. A Pi fronting DeepSeek therefore asked its provider for
+    ``gpt-5.4-mini`` and every route hard-failed, no matter how
     carefully the operator had configured Argus's documented model knobs.
 
     Precedence: an explicit knob value wins; Copilot gets ``catalog_default``
@@ -913,7 +911,7 @@ def resolve_cheap_route_model(
     Codex may authenticate through a ChatGPT account whose catalog does not
     include Argus's historical cheap model ids.
 
-    中文：四条「廉价路由」不再为 Codex 强制指定 OpenAI model id，因为 ChatGPT
+    中文：三条「廉价路由」不再为 Codex 强制指定 OpenAI model id，因为 ChatGPT
     账户的 Codex 目录可能不包含该模型；Codex 与非 OpenAI 目录后端均回落到角色 model。
     """
     env_map = env if env is not None else os.environ

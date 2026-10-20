@@ -320,7 +320,7 @@ def build_front_door_prompt(text: str, *, active_mission: bool = False, allow_re
         f"{reply_rule}"
         f"{RESEARCHER_VOICE_BRIEF}\n\n"
         "LIFETIME: TEAM: default BOUNDED for casual unscoped work absent ongoing "
-        "intent; BOUNDED_INCREMENT=limited stage; STANDING=ongoing intent. "
+        "intent; STANDING=ongoing intent. "
         "SELF: NONE.\n\n"
         "GREETING: pure greetings; REPLY greets + 2-3 starter asks. "
         "NAME: topic in the message's language; greeting/chat/settings NONE.\n\n"

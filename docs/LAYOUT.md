@@ -93,7 +93,7 @@ that fixes it.
 - `argus/domains/` (domain) - domain overlays composed onto a workflow vertical (today: `chemistry`). "Domain" here means overlay; a project-local DATA domain is a different thing and lives in `verticals/_data_domain.py`.
 - `argus/builtin_skills/` (domain) - the markdown Skills seeded into a fresh `~/.argus-skill` (per-role folders plus cross-vertical defaults); read by `skills/builtins.py`. The `argus-*-role.md` files are seeds, not the runtime role prompts (those are `roles/prompts/*.py`).
 - `argus/roles/` (roles) - the role prompt catalog (`RoleName`, per-role operation sets, one resolver for role/vertical/stage/scope fragments) and the shared task contract.
-- `argus/planner/` (roles) - the read-only Planner that inspects project state and delegates concrete work; bounded-DAG pass for Manager-authored tasks.
+- `argus/planner/` (roles) - the read-only Planner that inspects project state and delegates concrete work.
 - `argus/engineer/` (roles) - `SupervisedEngineer`: the Reviewer-gated round loop, split by round phase (prompt, execution, waits, reviewer, self-review, settlement).
 - `argus/reviewer/` (roles) - the L2 Reviewer: graded done/continue/blocked verdicts, pure verdict parsers, editable review file.
 - `argus/life/` (runtime) - one Project's continuous life: persistent memory (`EventJournal`, `Backlog`, `IdentityCard`, `LifeMemory`), `event_log` (the only appender), `LifeSupervisor` (runs missions back-to-back and drives the continuous planner), operator channels (chat router, Feishu, Telegram, letters), project lifecycle and research plan state.

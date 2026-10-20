@@ -69,7 +69,6 @@ def _runner_namespace(cfg: LifeWorkerConfig) -> Any:
     ns.enable_mission_abort_signal = True
     ns.max_rounds = int(os.environ.get("ARGUS_SKILL_MAX_ROUNDS", "0"))
     ns.plan_mode = os.environ.get("ARGUS_SKILL_PLAN_MODE", "auto")
-    ns.plan_model = os.environ.get("ARGUS_SKILL_PLAN_MODEL")
     ns.color = None
     ns.verbose = False
     ns.quiet = True

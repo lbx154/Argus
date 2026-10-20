@@ -104,7 +104,6 @@ def _env(**extra: str) -> dict[str, str]:
 _ROUTES = [
     ("ARGUS_SKILL_FRONTDOOR_MODEL", "manager", "ARGUS_SKILL_MANAGER_MODEL"),
     ("ARGUS_SKILL_PLAN_PREVIEW_MODEL", "planner", "ARGUS_SKILL_PLAN_MODEL"),
-    ("ARGUS_SKILL_BOUNDED_DAG_MODEL", "planner", "ARGUS_SKILL_PLAN_MODEL"),
     ("ARGUS_SKILL_REWRITE_MODEL", "manager", "ARGUS_SKILL_MANAGER_MODEL"),
 ]
 

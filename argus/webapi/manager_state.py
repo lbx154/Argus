@@ -82,7 +82,6 @@ def interrupt_manager_turns(
         if state is not None and clear_continuous:
             state.setdefault("config", {})["continuous"] = False
             state["continuous_objective"] = ""
-            state.pop("_continuous_pending_manager_handoff", None)
         return generation
 
 

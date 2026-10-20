@@ -29,14 +29,12 @@ def isolated_trial(tmp_path, monkeypatch):
 
 
 @pytest.mark.parametrize("sentinel", ["", "auto", "inherit", "default"])
-@pytest.mark.parametrize("route", ["classify", "dag", "plan", "rewrite"])
+@pytest.mark.parametrize("route", ["classify", "plan", "rewrite"])
 def test_all_automatic_control_routes_use_the_trial_selector(monkeypatch, route, sentinel):
-    from argus.manager.dispatch import _bounded_dag_model
     from argus.webapi.manager_bridge import _plan_preview_model, _rewrite_model_and_effort
 
     routes = {
         "classify": ("ARGUS_SKILL_FRONTDOOR_MODEL", knobs.resolve_manager_classify_model),
-        "dag": ("ARGUS_SKILL_BOUNDED_DAG_MODEL", _bounded_dag_model),
         "plan": ("ARGUS_SKILL_PLAN_PREVIEW_MODEL", _plan_preview_model),
         "rewrite": ("ARGUS_SKILL_REWRITE_MODEL", lambda: _rewrite_model_and_effort()[0]),
     }

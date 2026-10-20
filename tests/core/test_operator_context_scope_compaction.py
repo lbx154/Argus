@@ -409,7 +409,7 @@ def test_real_planner_and_engineer_prompts_read_project_and_fresh_shared_prefere
 ) -> None:
     from argus.life.memory import BacklogItem, MemoryBundle
     from argus.life.supervisor._mission_execution_runtime import MissionExecutionRuntimeMixin
-    from argus.roles.prompts.planner import build_bounded_single_task_prompt
+    from argus.roles.prompts.planner import build_continuous_prompt
 
     memory = MemoryBundle.for_cwd(global_root=tmp_path, fingerprint="s-scope")
     global_preference(memory.project_root, "Initial shared preference.")
@@ -428,7 +428,13 @@ def test_real_planner_and_engineer_prompts_read_project_and_fresh_shared_prefere
     OperatorContextStore(tmp_path).compact()
     for prompt in (
         MissionExecutionRuntimeMixin._build_mission_prelude(host, item),
-        build_bounded_single_task_prompt(item.objective, state_root=memory.project_root),
+        build_continuous_prompt(
+            continuous_objective=item.objective,
+            journal_tail="",
+            planning_cycle=0,
+            project_root=memory.project_root,
+            state_root=memory.project_root,
+        ),
     ):
         assert "Updated shared preference." in prompt
         assert "Initial shared preference." not in prompt
