@@ -284,7 +284,9 @@ invariants, and together they are the whole state machine:
    snapshot and the event log. It is counted on the mission's lineage, so
    resuming, replanning, or rewording does not reset it. For the Engineer, a
    review handed to it that it has not yet worked on is new input; the next
-   unchanged return still stops at the Reviewer.
+   unchanged return still stops at the Reviewer. A Reviewer that accepted the
+   candidate as it is does not pass it up: its acceptance stands without a
+   model call, and the record names the verdict it reused.
 4. **Authority never vanishes.** Every decision type has an owner. When the
    owner cannot be asked, the decision falls to the next permitted rung
    instead of disappearing. Only irreversible decisions may wait on the operator

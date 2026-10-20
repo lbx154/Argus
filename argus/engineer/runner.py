@@ -44,6 +44,8 @@ from .round_prompt import RoundPromptMixin
 from .round_reviewer import RoundReviewerMixin
 from .round_self_review import (
     RoundSelfReviewMixin,
+    accepted_as_is,
+    accepted_verdict,
     climb_record,
     no_turn,
     outside_inputs,
@@ -276,9 +278,12 @@ class SupervisedEngineer(
                 return paused
             turn = state.snapshots is not None and state.snapshots.take("turn")
             state.handed_inputs = outside_inputs(state) if turn else None
-            climbed = turn and not state.review_unseen and returned_unchanged("engineer", state, "turn")
+            climbed = turn and not state.review_unseen and (
+                returned_unchanged("engineer", state, "turn") or accepted_as_is(state, "turn")
+            )
             if climbed:
-                # The Engineer already had the work as it is now, and no review it has not read: no turn.
+                # The Engineer already had the work as it is now, or the Reviewer
+                # accepted it as it is, and nothing new arrived: no turn.
                 outcome = no_turn(state)
             else:
                 control = self._take_engineer_turn(
@@ -334,7 +339,9 @@ class SupervisedEngineer(
             review = control.payload
             if state.snapshots is not None and state.snapshots.take("reviewed"):
                 # The Reviewer holds the work as its verdict leaves it.
-                state.snapshots.hold("reviewer", "reviewed", state.handed_inputs)
+                state.snapshots.hold(
+                    "reviewer", "reviewed", state.handed_inputs, accepted_verdict(review, round_index, state),
+                )
                 wanted = {"replan_requested": "planner", "blocked": "manager"}.get(review.status, "")
                 if wanted and not review.operator_question and not review.backend_unavailable:
                     holder, passed = self._deliver(wanted, state=state, label="reviewed")

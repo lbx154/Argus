@@ -71,6 +71,13 @@ def returned_unchanged(holder: str, state: RoundLoopState, label: str) -> bool:
     return state.snapshots is not None and state.snapshots.held_unchanged(holder, label, outside_inputs(state))
 
 
+def accepted_as_is(state: RoundLoopState, label: str) -> bool:
+    """Whether the Reviewer accepted the work as snapshot ``label`` shows it, with nothing new since."""
+    return returned_unchanged("reviewer", state, label) and bool(
+        state.snapshots is not None and state.snapshots.held_verdict("reviewer")
+    )
+
+
 def no_turn(state: RoundLoopState) -> EngineerTurnOutcome:
     """The round's Engineer slot when the work climbed past the Engineer: no turn ran."""
     return EngineerTurnOutcome(
@@ -112,6 +119,44 @@ def climb_record(passed: list[str], holder: str, *, handed: ReviewDecision | Non
     )
 
 
+#: What an accepting verdict decided, kept beside the Reviewer's hold so an
+#: unchanged rerun can stand on it.
+_VERDICT_FIELDS = (
+    "reason", "residual_risk", "residual_risk_detail", "research_result", "venue_review",
+    "venue_review_required", "venue_review_passed", "venue_review_snapshot", "manuscript_snapshot",
+)
+
+
+def accepted_verdict(review: ReviewDecision, round_index: int, state: RoundLoopState) -> dict | None:
+    """The Reviewer's acceptance, kept with its hold, or ``None`` when the verdict accepted nothing."""
+    if review.status != "done" or not review.final_submission_certified:
+        return None
+    return {
+        **{name: getattr(review, name) for name in _VERDICT_FIELDS},
+        "round": round_index, "mission": state.mission_item_id or state.mission_ref, "at": time.time(),
+    }
+
+
+def reused_record(verdict: dict) -> ReviewDecision:
+    """The Reviewer's acceptance of this very candidate, standing again without a model call."""
+    which = f"round {verdict['round']}" + (f" of {verdict['mission']}" if verdict["mission"] else "")
+    when = time.strftime("%Y-%m-%d %H:%M", time.localtime(verdict["at"]))
+    return ReviewDecision(
+        status="done",
+        next_action="",
+        **{name: verdict[name] for name in _VERDICT_FIELDS},
+        interventions=[{
+            "policy": "unchanged_return",
+            "action": "reused_verdict",
+            "at": time.time(),
+            "note": (
+                f"the candidate is unchanged since the Reviewer accepted it in {which} ({when}) "
+                "and nothing new arrived, so that acceptance stands; no model was called"
+            ),
+        }],
+    )
+
+
 class RoundSelfReviewMixin:
     """Hand a turn to the holder its baton line names."""
 
@@ -119,12 +164,15 @@ class RoundSelfReviewMixin:
         """Where work handed to ``holder`` goes, and the holders it climbed past.
 
         Up to the operator, each holder that already held the work as snapshot
-        ``label`` shows it, with nothing new since, passes it one rung up. The
+        ``label`` shows it, with nothing new since, passes it one rung up;
+        a Reviewer that accepted it as it is sends it to ``done`` instead. The
         Planner and the Manager hold it from here; the Engineer and the
         Reviewer record their own hold when their turn completes.
         """
         passed: list[str] = []
         while holder in LADDER[:-1] and returned_unchanged(holder, state, label):
+            if holder == "reviewer" and accepted_as_is(state, label):
+                return "done", passed
             passed.append(holder)
             holder = LADDER[LADDER.index(holder) + 1]
         if holder in {"planner", "manager"} and state.snapshots is not None:
@@ -172,11 +220,19 @@ class RoundSelfReviewMixin:
             return control_continue_loop()
         if holder == "reviewer":
             return control_proceed()
+        # Sent to ``done`` past the Reviewer: its acceptance of this candidate stands.
+        verdict = (
+            state.snapshots.held_verdict("reviewer")
+            if holder == "done" and wanted != "done" and state.snapshots else None
+        )
+        if verdict:
+            review = reused_record(verdict)
+        elif passed:
+            review = climb_record(passed, holder)
+        else:
+            review = _handoff_record(holder, handoff.question if handoff else "", outcome.engineer_message)
         return self._settle_round(
-            review=(
-                climb_record(passed, holder) if passed
-                else _handoff_record(holder, handoff.question if handoff else "", outcome.engineer_message)
-            ),
+            review=review,
             round_index=round_index,
             supervised_config=supervised_config,
             workdir=workdir,

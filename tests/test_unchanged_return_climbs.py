@@ -162,6 +162,26 @@ def test_a_new_mission_on_the_same_work_does_not_reset_the_count(tmp_path: Path)
     assert record.review.reviewer_words["status"] == "replan_requested"
 
 
+def test_an_unchanged_rerun_of_accepted_work_keeps_its_acceptance(tmp_path: Path) -> None:
+    _state(tmp_path)
+    first = MemoryBackend()
+    first.queue("engineer-r1", _write(tmp_path / "work", "v1"))
+    first.queue("reviewer", _review("→ done"))
+    assert _run(tmp_path, first)[0] == "done"
+
+    status, rounds, labels = _run(tmp_path, MemoryBackend())
+
+    # No model is called, nothing climbs: the Reviewer's pass on this very
+    # candidate stands, and the record names the verdict it reused.
+    assert labels == []
+    assert status == "done"
+    (record,) = rounds
+    assert (record.review.status, record.review.reason) == ("done", "Judged the parser.")
+    (reused,) = record.review.interventions
+    assert reused["action"] == "reused_verdict"
+    assert "accepted it in round 1 of parser-task" in reused["note"]
+
+
 def test_the_top_rung_is_the_operator(tmp_path: Path) -> None:
     _state(tmp_path)
     first = MemoryBackend()
