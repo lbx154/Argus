@@ -54,6 +54,16 @@ def fit(value: object, limit: int) -> str:
     return said[:limit].rstrip() + "…"
 
 
+def retry_wait(cache: dict, attempt: dict[str, str]) -> float:
+    """Seconds before ``attempt`` (what is asked for, by key) may be made. Only
+    the inputs of the last attempt wait out ``RETRY_SECONDS``: an input that
+    changed since, such as a task that has just finished, is asked for at once."""
+    tried = cache.get("attempted") or {}
+    if any(tried.get(key) != value for key, value in attempt.items()):
+        return 0.0
+    return RETRY_SECONDS - (time.time() - cache.get("attempt_at", 0))
+
+
 def lines_source(dataset_id: str, locale: str) -> str:
     return f"{dataset_id}:{locale}:lines"
 
@@ -170,13 +180,14 @@ def notes(
         cache = read_cache(root, source_name)
         saved = cache.get("pairs", {})
         todo = [pair for pair in wanted if saved.get(_key(*pair), {}).get("input") != inputs[_key(*pair)]]
-        wait = RETRY_SECONDS - (time.time() - cache.get("attempt_at", 0))
+        attempt = {_key(*pair): inputs[_key(*pair)] for pair in todo}
+        wait = retry_wait(cache, attempt)
         if not todo or wait > 0:
             return {"lines": _saved(cache, wanted, inputs), "available": True,
                     **({"retry_after": int(wait) + 1} if todo and wait > 0 else {})}
         path = cache_path(root, source_name)
         path.parent.mkdir(parents=True, exist_ok=True)
-        cache["attempt_at"] = time.time()
+        cache.update(attempt_at=time.time(), attempted=attempt)
         _write_cache(path, cache)
         told = [_told(by_id[task_id]) for task_id in dict.fromkeys(task_id for pair in todo for task_id in pair)]
         output_schema = _schema(todo, locale)

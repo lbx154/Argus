@@ -15,7 +15,7 @@ import json
 import time
 from pathlib import Path
 
-from .map_lines import RETRY_SECONDS, _told, fit
+from .map_lines import _told, fit, retry_wait
 from .map_model import MapGenerationError, map_timeout_seconds, resolve_map_model, run_map_model
 from .map_narrative import _source_lock, _write_cache, cache_path, read_cache
 from .map_view import facts, text
@@ -145,13 +145,14 @@ def words(
         cache = read_cache(root, source_name)
         saved = cache.get("tasks", {})
         todo = [task_id for task_id in wanted if saved.get(task_id, {}).get("input") != inputs[task_id]]
-        wait = RETRY_SECONDS - (time.time() - cache.get("attempt_at", 0))
+        attempt = {task_id: inputs[task_id] for task_id in todo}
+        wait = retry_wait(cache, attempt)
         if not todo or wait > 0:
             return {"cards": _saved(cache, wanted, inputs), "available": True,
                     **({"retry_after": int(wait) + 1} if todo and wait > 0 else {})}
         path = cache_path(root, source_name)
         path.parent.mkdir(parents=True, exist_ok=True)
-        cache["attempt_at"] = time.time()
+        cache.update(attempt_at=time.time(), attempted=attempt)
         _write_cache(path, cache)
         output_schema = _schema(todo, locale)
         prompt = _prompt(locale, [about[task_id] for task_id in todo], output_schema)
