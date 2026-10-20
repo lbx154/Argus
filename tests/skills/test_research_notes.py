@@ -1,6 +1,7 @@
 """The research notes replace the older HANDOFF.md without disturbing a live project."""
 from __future__ import annotations
 
+import json
 from pathlib import Path
 
 from argus.verticals.research.notes import (
@@ -77,3 +78,91 @@ def test_team_workers_read_the_notes_and_leave_them_to_the_dispatching_mission(
     assert "leave them unchanged" in worker
     assert worker.startswith(solo.split(" and rewrite the research notes")[0])
     assert stages.role_banner("reviewer") == stages._REVIEWER_RESEARCH_JUDGEMENT
+
+
+def _review_project(tmp_path: Path, stage: str) -> Path:
+    from argus.skills.vertical_select import persist_vertical
+
+    persist_vertical(tmp_path, "research")
+    state = tmp_path / ".argus" / "PIPELINE_STATE.json"
+    payload = json.loads(state.read_text(encoding="utf-8"))
+    payload["current_stage"] = stage
+    state.write_text(json.dumps(payload), encoding="utf-8")
+    (tmp_path / "paper").mkdir()
+    (tmp_path / "paper" / "REVIEW.md").write_text(
+        "# Review\n\nUNIQUE_REVIEW_LINE: Table 3 came from commit "
+        "9f8e7d6c5b4a39281706f5e4d3c2b1a098765432; rerun it at HEAD.\n",
+        encoding="utf-8",
+    )
+    return tmp_path
+
+
+def test_review_stage_reviewer_uses_the_supplied_review_instead_of_rereading_it(
+    tmp_path: Path,
+) -> None:
+    from argus.roles.prompts import resolve_role_prompt
+    from argus.roles.prompts.reviewer import evaluate_request
+
+    root = _review_project(tmp_path, "review")
+    resolved = resolve_role_prompt(
+        evaluate_request(root, scope="final-submission", include_role_context=True)
+    )
+
+    assert "Read the latest paper/REVIEW.md" not in resolved.role_banner
+    assert "rely on its copy under Active research context in this prompt" in (
+        resolved.role_banner
+    )
+    assert "open the file only if that copy is absent or marked truncated" in (
+        resolved.role_banner
+    )
+    # The copy arrives once, verbatim, in the same prompt.
+    assert (resolved.role_banner + resolved.role_context).count("UNIQUE_REVIEW_LINE") == 1
+    assert "9f8e7d6c5b4a39281706f5e4d3c2b1a098765432" in resolved.role_context
+
+
+def test_review_stage_engineer_uses_the_supplied_review_and_reopens_omitted_values(
+    tmp_path: Path,
+) -> None:
+    from argus.roles.prompts import resolve_role_prompt
+    from argus.roles.prompts.engineer import assemble_round_prompt, mission_request
+
+    root = _review_project(tmp_path, "review")
+    resolved = resolve_role_prompt(
+        # The round loop passes the stage it read, as engineer/round_prompt.py does.
+        mission_request(
+            root, vertical="research", stage="review", include_role_context=True
+        )
+    )
+    prompt = assemble_round_prompt(
+        resolved.role_banner, role_context=resolved.role_context
+    )
+
+    assert "Read the latest paper/REVIEW.md" not in prompt
+    assert prompt.count("UNIQUE_REVIEW_LINE") == 1
+    # The round tail redacts integrity values, so the policy names the
+    # placeholder as a reason to open the file.
+    assert "9f8e7d6c5b4a39281706f5e4d3c2b1a098765432" not in prompt
+    assert "<machine-integrity-metadata omitted>; rerun it" in prompt
+    assert (
+        "open the file only if that copy is absent, marked truncated, or shows "
+        "`<machine-integrity-metadata omitted>` where you need the value"
+    ) in prompt
+
+
+def test_final_submission_reviewer_without_a_supplied_review_still_reads_it(
+    tmp_path: Path,
+) -> None:
+    from argus.roles.prompts import resolve_role_prompt
+    from argus.roles.prompts.reviewer import evaluate_request
+
+    root = _review_project(tmp_path, "paper")
+    resolved = resolve_role_prompt(
+        evaluate_request(root, scope="final-submission", include_role_context=True)
+    )
+
+    assert "## Integrated final paper review" in resolved.role_banner
+    assert "UNIQUE_REVIEW_LINE" not in resolved.role_banner + resolved.role_context
+    assert "Read the latest paper/REVIEW.md to close resolved concerns" in (
+        resolved.role_banner
+    )
+    assert "rely on its copy under Active research context" not in resolved.role_banner
