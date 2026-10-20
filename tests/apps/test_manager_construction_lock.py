@@ -103,7 +103,7 @@ def _start_manager_build(state_root: Path, workdir: Path):
 @pytest.mark.parametrize("payload", [
     None,
     {},
-    {"vertical": "math", "current_stage": "review"},
+    {"vertical": "argus_maintenance", "current_stage": "verify"},
     {"vertical": "research", "current_stage": "experiment", "stages": {
         "idea": {"status": "done"}, "experiment": {"status": "in_progress"},
     }},
@@ -116,7 +116,7 @@ def test_manager_construction_does_not_wait_for_a_mission_without_migration(
     if payload is not None:
         write_pipeline_state(state, payload)
         # The existing target must also prevent importing a stale workdir copy.
-        write_pipeline_state(workdir, {"vertical": "math", "current_stage": "solve"})
+        write_pipeline_state(workdir, {"vertical": "argus_maintenance", "current_stage": "change"})
     state_path = primary_pipeline_state_path(state)
     before = state_path.read_bytes() if state_path.exists() else None
     with _mission_holds_pipeline(state):
@@ -150,7 +150,7 @@ def test_manager_migration_waits_and_rereads_after_the_peer_commits(
         "research": {"status": "done"},
     }}
     if migration == "import":
-        original = {"vertical": "math", "current_stage": "solve"}
+        original = {"vertical": "argus_maintenance", "current_stage": "change"}
         write_pipeline_state(workdir, original)
     else:
         write_pipeline_state(state, original)

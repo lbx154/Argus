@@ -60,8 +60,8 @@ def test_vertical_profile_reaches_reviewer_without_research_target(
     """
     write_state(
         tmp_path,
-        vertical="kernel_engineering",
-        current_stage="optimize",
+        vertical="argus_maintenance",
+        current_stage="change",
     )
     prompt, _ = render_reviewer_prompt(
         SimpleNamespace(skill_store=None),
@@ -74,7 +74,7 @@ def test_vertical_profile_reaches_reviewer_without_research_target(
         main_error=None,
         working_dir=tmp_path,
         vertical_state_root=tmp_path,
-        vertical="kernel_engineering",
+        vertical="argus_maintenance",
     )
 
     assert "active vertical owns when verification becomes final" in prompt
@@ -153,10 +153,10 @@ def test_research_stage_mapping(stage, expected) -> None:
     assert profile_for_stage(stage, _profiles("research")) == expected
 
 
-def test_kernel_stage_mapping_is_vertical_owned() -> None:
+def test_maintenance_stage_mapping_is_vertical_owned() -> None:
     assert profile_for_stage(
-        "optimize",
-        _profiles("kernel_engineering"),
+        "change",
+        _profiles("argus_maintenance"),
     ) == "develop"
 
 
@@ -371,41 +371,10 @@ def test_the_injected_block_is_shorter_than_what_it_replaced() -> None:
     assert len(block) < 386
 
 
-def test_math_stages_each_resolve_to_a_declared_profile(tmp_path) -> None:
-    """Math was absent from ``STAGE_PROFILES`` and fell to the unresolved
-    fallback: profile ``develop`` with ``resolved=False``. ``solve`` came out
-    right by accident; ``review`` was certifying under a develop-grade policy
-    while reporting it had no policy at all."""
-    from argus.core.verification_policy import resolve_policy
-
-    expected = {"scope": "explore", "solve": "develop", "review": "certify"}
-    for stage, profile in expected.items():
-        policy = resolve_policy(
-            tmp_path,
-            stage=stage,
-            vertical="math",
-            stage_profiles=_profiles("math"),
-        )
-        assert policy.resolved, f"math/{stage} still unresolved"
-        assert policy.source == "stage"
-        assert policy.profile == profile
-
-
-def test_math_review_stage_requires_the_proof_graph() -> None:
-    """The consequence the mapping exists for: ``review`` is the delivery point,
-    so a targeted project must have the graph its claim is discharged through."""
-    from argus.verticals.math.proof_graph import graph_required_for
-
-    assert graph_required_for("certify", "targeted")
-    assert graph_required_for("develop", "targeted")
-    assert not graph_required_for("explore", "targeted")
-    assert not graph_required_for("certify", "exploratory")
-
-
 def test_vertical_owned_profile_tables_cover_declared_stages() -> None:
     from argus.core.verification_policy import VERIFICATION_PROFILES
 
-    for vertical in ("research", "math", "kernel_engineering"):
+    for vertical in ("research", "argus_maintenance"):
         contract = load_vertical_contract(vertical)
         table = dict(contract.verification_stage_profiles or {})
         assert table

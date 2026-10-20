@@ -133,6 +133,7 @@ def test_post_task_appends_to_backlog(ctx) -> None:
 def test_post_task_preserves_active_continuous_campaign_governance(
     ctx,
     monkeypatch,
+    targeted_vertical,
 ) -> None:
     root, sid, life = ctx
     workspace = root / "workspace"
@@ -148,7 +149,7 @@ def test_post_task_preserves_active_continuous_campaign_governance(
     )
     persist_vertical(
         workspace,
-        "math",
+        targeted_vertical,
         research_target_level="doctoral",
         workflow_mode="staged",
     )
@@ -183,12 +184,12 @@ def test_post_task_preserves_active_continuous_campaign_governance(
             )
 
         def plan_stages(self, vertical):
-            assert vertical == "math"
+            assert vertical == targeted_vertical
             return ["scope", "solve", "review"]
 
         @staticmethod
         def _kind_for(vertical):
-            assert vertical == "math"
+            assert vertical == targeted_vertical
             return "research"
 
     manager_state._STATES.clear()
@@ -208,7 +209,7 @@ def test_post_task_preserves_active_continuous_campaign_governance(
     assert response["objective"] == "verify the migrated scope artifact"
     assert commits == []
     pipeline = json.loads((workspace / ".argus" / "PIPELINE_STATE.json").read_text())
-    assert pipeline["vertical"] == "math"
+    assert pipeline["vertical"] == targeted_vertical
     assert pipeline["workflow_mode"] == "staged"
     assert pipeline["research_target_level"] == "doctoral"
 

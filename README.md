@@ -596,8 +596,8 @@ What follows from that audit is **[the simplification plan](docs/simplification-
 
 ### Verticals
 
-Seven verticals ship with Argus itself: `research`, `software`, `argus_maintenance`,
-`kernel_engineering`, `math`, `math_synth`, `learning`. The other seventeen — `quant`,
+Four verticals ship with Argus itself: `research`, `software`, `argus_maintenance`,
+`learning`. The others — `math`, `kernel_engineering`, `math_synth`, `quant`,
 `speedrun`, `kernelbench`, `nanochat`, `nanogpt_speedrun`, `chip_design`, `digital_circuit`,
 `digital_circuit_benchmark`, `medical`, `materials`, `physics`, `ale_last_exam`,
 `fiction_writing`, `prose`, `modern_poetry`, `classical_poetry`, `literary_editor` — live in
@@ -624,10 +624,11 @@ Argus never installs community verticals either way.
 
 A Vertical gives your field its own stages, Skills, datasets, tools, evidence expectations, evaluation methods, and completion criteria. Planning and review can then follow the real standards of your domain instead of a generic process.
 
-The `math` vertical is the worked example: three stages, a content-addressed
-evidence store, Lean-backed mechanical verification, and an explicit rule for
-which kind of check is allowed to settle which kind of question. See
-**[mathematical research](docs/research-mathematics.md)**.
+The `math` vertical in argus-verticals is the worked example: three stages, a
+content-addressed evidence store, Lean-backed mechanical verification, and an
+explicit rule for which kind of check is allowed to settle which kind of
+question. See its
+**[design notes](https://github.com/Argus-AiTeam/argus-verticals/blob/main/argus_verticals/math/DESIGN.md)**.
 
 ### Use another agent as the outer layer
 
@@ -814,7 +815,7 @@ logs.
 ## Repository layout
 
 - `argus/` — the Python package; everything `argus`, `argus` and the daemon run.
-- `argus/core/`, `proof_ledger/` — kernel: models, ports, contracts, paths. Intended leaf: must import nothing above itself; today's remaining upward edges are pinned in the invariants test (`tests/test_architecture_invariants.py`) and removed in phase 1.
+- `argus/core/` — kernel: models, ports, contracts, paths. Intended leaf: must import nothing above itself; today's remaining upward edges are pinned in the invariants test (`tests/test_architecture_invariants.py`) and removed in phase 1.
 - `argus/agent_cli/`, `adapters/`, `provider_integrations/`, `advisor/` — drivers for the model CLIs (codex, claude, copilot, ...).
 - `argus/skills/`, `tools/`, `wiki/`, `cli/` — capabilities: the Skill library, operator-approved tools, the project Wiki, terminal rendering.
 - `argus/verticals/`, `domains/`, `builtin_skills/` — domain knowledge: the 7 built-in verticals (17 more arrive as entry points from `argus-verticals`), overlays, seeded Skills.

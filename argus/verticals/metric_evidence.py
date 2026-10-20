@@ -26,7 +26,6 @@ _NANOGPT_TIMING_METRICS = {"seconds_to_target", "wall_seconds"}
 _NANOGPT_LOSS_FIELDS = {"val_loss", "final_val_loss"}
 _CORRECT_FIELDS = ("correct", "is_correct")
 _SOL_FIELDS = ("sol_pct", "sol", "sol_score")
-_MATH_SYNTH_METRICS = {"score", "pass_gap", "mean_pass_gap"}
 _TRUE_VALUES = {"1", "true", "yes", "pass", "passed", "correct"}
 
 
@@ -248,58 +247,11 @@ def validate_kernelbench_evidence(project_root: Path) -> Path:
     )
 
 
-def validate_math_synth_evidence(project_root: Path) -> Path:
-    """Return an attempt summary containing a finite synthesized-problem score."""
-    candidates: set[Path] = set()
-    for rel in ("attempts", "runs"):
-        base = project_root.resolve() / rel
-        if base.is_dir():
-            candidates.update(
-                path
-                for path in base.rglob("summary.json")
-                if _is_contained_file(project_root, path)
-            )
-    for path in sorted(candidates):
-        try:
-            payload = json.loads(path.read_text(encoding="utf-8"))
-        except (OSError, json.JSONDecodeError):
-            continue
-        if not isinstance(payload, dict):
-            continue
-        normalized = {str(key).strip().lower(): value for key, value in payload.items()}
-        nested = normalized.get("metrics")
-        if isinstance(nested, dict):
-            normalized.update(
-                {str(key).strip().lower(): value for key, value in nested.items()}
-            )
-        score_valid = normalized.get("score_valid")
-        if score_valid is False or str(score_valid).strip().lower() in {"0", "false", "no"}:
-            continue
-        values = [
-            number
-            for field in sorted(_MATH_SYNTH_METRICS)
-            if (number := _finite_number(normalized.get(field))) is not None
-        ]
-        if (
-            values
-            and all(0.0 <= value <= 1.0 for value in values)
-            and all(
-                math.isclose(value, values[0], rel_tol=1e-9, abs_tol=1e-12)
-                for value in values[1:]
-            )
-        ):
-            return path
-    raise EvidenceError(
-        "no attempts/**/summary.json or runs/**/summary.json contains a finite "
-        f"metric field ({', '.join(sorted(_MATH_SYNTH_METRICS))})"
-    )
-
-
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(prog="argus-metric-evidence")
     parser.add_argument(
         "kind",
-        choices=("speedrun", "nanogpt", "speedrun-reference", "kernelbench", "math-synth"),
+        choices=("speedrun", "nanogpt", "speedrun-reference", "kernelbench"),
     )
     parser.add_argument("--project-root", default=".")
     args = parser.parse_args(argv)
@@ -309,7 +261,6 @@ def main(argv: list[str] | None = None) -> int:
         "nanogpt": validate_nanogpt_evidence,
         "speedrun-reference": validate_speedrun_reference,
         "kernelbench": validate_kernelbench_evidence,
-        "math-synth": validate_math_synth_evidence,
     }
     try:
         path = validators[args.kind](root)

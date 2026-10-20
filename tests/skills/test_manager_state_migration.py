@@ -39,20 +39,20 @@ def _roots(tmp_path: Path) -> tuple[Path, Path]:
 
 def test_a_decided_vertical_is_imported(tmp_path: Path) -> None:
     state_root, workdir = _roots(tmp_path)
-    _write_state(workdir, {"vertical": "math", "current_stage": "solve"})
+    _write_state(workdir, {"vertical": "argus_maintenance", "current_stage": "change"})
 
     assert migrate_legacy_manager_state(state_root, workdir) is True
 
     payload = json.loads(
         (state_root / ".argus" / "PIPELINE_STATE.json").read_text(encoding="utf-8")
     )
-    assert payload["vertical"] == "math"
-    assert payload["current_stage"] == "solve"
+    assert payload["vertical"] == "argus_maintenance"
+    assert payload["current_stage"] == "change"
 
 
 def test_the_workspace_copy_is_left_alone(tmp_path: Path) -> None:
     state_root, workdir = _roots(tmp_path)
-    source = _write_state(workdir, {"vertical": "math"})
+    source = _write_state(workdir, {"vertical": "argus_maintenance"})
     before = source.read_text(encoding="utf-8")
 
     migrate_legacy_manager_state(state_root, workdir)
@@ -150,19 +150,6 @@ def test_importing_undecided_state_does_not_seat_a_vertical(tmp_path: Path) -> N
     migrate_legacy_manager_state(state_root, workdir)
 
     assert resolve_vertical_if_decided(state_root) is None
-
-
-def test_the_objective_survives_the_import(tmp_path: Path) -> None:
-    """End of the chain this was blocking: the mode the operator chose has to
-    be readable from the root the Manager was handed."""
-    from argus.verticals.math.objective_mode import resolve_objective, set_objective
-
-    state_root, workdir = _roots(tmp_path)
-    set_objective(workdir, mode="targeted", goal="the pentagon bound is sharp")
-
-    migrate_legacy_manager_state(state_root, workdir)
-
-    assert resolve_objective(state_root).goal == "the pentagon bound is sharp"
 
 
 # -- when it declines to run ------------------------------------------------

@@ -63,10 +63,10 @@ def test_planner_uses_session_state_for_vertical_and_workspace_for_wiki(
     workspace = tmp_path / "workspace"
     workspace.mkdir()
     wiki = init_wiki("demo", base=workspace)
-    persist_vertical(state, "math")
+    persist_vertical(state, "argus_maintenance")
 
     prompt = Planner._build_planner_prompt(
-        continuous_objective="solve the current mathematical objective",
+        continuous_objective="repair the current runtime objective",
         journal_tail="",
         planning_cycle=0,
         runtime_change_summary="",
@@ -75,8 +75,8 @@ def test_planner_uses_session_state_for_vertical_and_workspace_for_wiki(
         state_root=state,
     )
 
-    assert "current: `scope`" in prompt
-    assert "sequence: scope, solve, review" in prompt
+    assert "current: `inspect`" in prompt
+    assert "sequence: inspect, change, verify" in prompt
     assert str(wiki.resolve()) in prompt
     assert "Pipeline stage order for this vertical: research, plan" not in prompt
 

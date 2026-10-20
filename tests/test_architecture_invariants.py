@@ -362,7 +362,7 @@ def test_no_framework_package_imports_a_named_vertical() -> None:
         "core", "life", "engineer", "reviewer", "planner", "manager",
         "roles", "skills", "daemon", "team", "webapi", "wiki",
         "tools", "adapters", "agent_cli", "provider_integrations", "plugin",
-        "maintenance", "trial", "release_tools", "cli", "integrations", "proof_ledger",
+        "maintenance", "trial", "release_tools", "cli", "integrations",
     ))
 
     assert offenders == []
@@ -602,10 +602,8 @@ def test_a_prelude_written_before_the_mission_argument_fails_by_name() -> None:
 def test_a_prelude_may_ignore_the_mission_and_stay_correct() -> None:
     """Per-mission is an *option*, not an obligation.
 
-    ``kernel_engineering`` accepts the item and never reads it, on purpose: its
-    baseline workspace is one shared tree per stage, so varying it per claimed
-    item would hand two concurrent missions two baselines. A vertical with
-    nothing item-specific to say must not be forced to invent something.
+    A vertical with nothing item-specific to say must not be forced to invent
+    something.
     """
     contract = vertical_contract("probe", _provider(
         prepare_mission=lambda **_kwargs: "STAGE BLOCK",
@@ -622,7 +620,7 @@ def test_a_prelude_may_ignore_the_mission_and_stay_correct() -> None:
 def test_a_vertical_without_a_prelude_is_indistinguishable_from_an_empty_one() -> None:
     """The hook is optional, and optional has to mean "contributes nothing".
 
-    Two in-tree verticals implement it. If an absent hook raised, or returned
+    Most verticals do not implement it. If an absent hook raised, or returned
     ``None``, every call site would need its own guard and every vertical would
     be pushed into implementing a no-op just to stay loadable.
     """
@@ -917,7 +915,7 @@ def test_one_dead_route_permanently_disqualifies_a_consumer_of_both(
 # delivery layer.
 
 LAYERS: dict[str, tuple[str, ...]] = {
-    "kernel": ("core", "proof_ledger"),
+    "kernel": ("core",),
     "providers": ("agent_cli", "provider_integrations", "adapters", "advisor"),
     "capabilities": ("tools", "wiki", "cli", "skills"),
     "domain": ("verticals", "domains", "builtin_skills"),
@@ -1216,9 +1214,6 @@ PRIVATE_IMPORT_ALLOWLIST: frozenset[str] = frozenset({
     "verticals -> argus.tools.image_api._load_sidecar_prompt",
     "verticals -> argus.tools.image_api._read_prompt",
     "verticals -> argus.tools.image_api._redact",
-    "verticals -> argus.tools.lean_check._artifact_directory_lock",
-    "verticals -> argus.tools.lean_check._atomic_artifact_write",
-    "verticals -> argus.tools.lean_check._resolve_lake_workspace",
     "webapi -> argus.agent_cli._env",
     "webapi -> argus.apps._inbox",
     "webapi -> argus.apps._life_actions",
@@ -1484,7 +1479,7 @@ def test_importing_the_kernel_does_not_load_the_engine() -> None:
     evaluation script -- pays for the Engineer, the Reviewer, the skill store
     and every role prompt, and inherits every import-time side effect they
     carry. The assertion is the invariant itself, not a list of suspects:
-    anything outside ``core`` and ``proof_ledger`` -- ``tools``, ``manager``,
+    anything outside ``core`` -- ``tools``, ``manager``,
     ``verticals``, ``daemon`` included -- is a failure. Measured in a fresh
     interpreter because this process already has all of it loaded.
     """

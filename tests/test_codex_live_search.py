@@ -34,6 +34,8 @@ from argus.engineer.runner import (
 from argus.skills.vertical_select import persist_vertical
 from argus.verticals._base import load_vertical_contract
 
+pytestmark = pytest.mark.usefixtures("optimize_vertical")
+
 
 def _cmd(live: bool) -> list[str]:
     r = AgentCliRunner(agent_bin="codex")
@@ -169,35 +171,13 @@ def _resolved_stages(vertical: str, project_root: object = None) -> frozenset[st
     return contract.live_search_stages(DEFAULT_LIVE_SEARCH_STAGES)
 
 
-def _math_project(tmp_path: Path, stage: str) -> Path:
-    persist_vertical(tmp_path, "math")
-    state_path = tmp_path / ".argus" / "PIPELINE_STATE.json"
-    payload = json.loads(state_path.read_text(encoding="utf-8"))
-    payload["current_stage"] = stage
-    state_path.write_text(json.dumps(payload), encoding="utf-8")
-    return tmp_path
-
-
-def _kernel_project(tmp_path: Path) -> Path:
-    persist_vertical(tmp_path, "kernel_engineering")
+def _optimize_project(tmp_path: Path) -> Path:
+    persist_vertical(tmp_path, "optimize_lab")
     state_path = tmp_path / ".argus" / "PIPELINE_STATE.json"
     payload = json.loads(state_path.read_text(encoding="utf-8"))
     payload["current_stage"] = "optimize"
     state_path.write_text(json.dumps(payload), encoding="utf-8")
     return tmp_path
-
-
-def test_every_math_stage_gets_live_search(tmp_path: Path) -> None:
-    """Current literature, official implementations and provider behaviour can
-    change while solving and while reviewing, not only while scoping."""
-    contract = load_vertical_contract("math")
-    assert contract.engineer_live_search_stages is None
-    stages = _resolved_stages("math")
-    assert stages == frozenset(contract.stage_order)
-    for index, stage in enumerate(contract.stage_order):
-        assert _engineer_live_search(
-            _math_project(tmp_path / str(index), stage), stages
-        ) is True
 
 
 def test_research_live_search_covers_working_stages_not_review(tmp_path: Path) -> None:
@@ -219,7 +199,7 @@ def test_research_live_search_covers_working_stages_not_review(tmp_path: Path) -
 
 def test_vertical_without_declaration_takes_the_default_path(tmp_path: Path) -> None:
     """Every other in-tree vertical keeps the framework default untouched."""
-    for vertical in ("software", "math", "math_synth", "kernel_engineering", "argus_maintenance"):
+    for vertical in ("software", "optimize_lab", "argus_maintenance"):
         contract = load_vertical_contract(vertical)
         assert contract.engineer_live_search_stages is None, vertical
         assert contract.live_search_stages(DEFAULT_LIVE_SEARCH_STAGES) == (
@@ -296,28 +276,28 @@ def _run_one_round(
     return _engineer_options(backend)
 
 
-def test_kernel_skill_loop_keeps_search_available(tmp_path: Path) -> None:
-    _kernel_project(tmp_path)
+def test_optimize_skill_loop_keeps_search_available(tmp_path: Path) -> None:
+    _optimize_project(tmp_path)
 
     options = _run_one_round(
         tmp_path,
-        "kernel_engineering",
+        "optimize_lab",
     )
 
     assert options.live_search is True
 
 
-def test_separated_state_root_enables_kernel_live_search(
+def test_separated_state_root_enables_optimize_live_search(
     tmp_path: Path,
 ) -> None:
     """The contract and stage gate must read the same production state root."""
-    state_root = _kernel_project(tmp_path / "state")
+    state_root = _optimize_project(tmp_path / "state")
     execution_root = tmp_path / "execution"
     persist_vertical(execution_root, "research")
 
     options = _run_one_round(
         execution_root,
-        "kernel_engineering",
+        "optimize_lab",
         vertical_state_root=state_root,
     )
 
@@ -333,16 +313,16 @@ def test_separated_state_root_enables_kernel_live_search(
         (frozenset(), False),
     ],
 )
-def test_kernel_default_does_not_replace_caller_live_search_config(
+def test_optimize_default_does_not_replace_caller_live_search_config(
     tmp_path: Path,
     custom: frozenset[str],
     expected: bool,
 ) -> None:
-    _kernel_project(tmp_path)
+    _optimize_project(tmp_path)
 
     options = _run_one_round(
         tmp_path,
-        "kernel_engineering",
+        "optimize_lab",
         live_search_stages=custom,
     )
 
@@ -351,22 +331,22 @@ def test_kernel_default_does_not_replace_caller_live_search_config(
 
 def test_explicit_framework_default_keeps_caller_provenance(tmp_path: Path) -> None:
     """An explicit value remains explicit even when equal to the default."""
-    _kernel_project(tmp_path)
+    _optimize_project(tmp_path)
 
     options = _run_one_round(
         tmp_path,
-        "kernel_engineering",
+        "optimize_lab",
         live_search_stages=frozenset({"research"}),
     )
 
     assert options.live_search is False
 
 
-def test_standard_replace_custom_live_search_overrides_kernel_default(
+def test_standard_replace_custom_live_search_overrides_optimize_default(
     tmp_path: Path,
 ) -> None:
-    _kernel_project(tmp_path)
-    loop, backend = _build_loop(tmp_path, "kernel_engineering")
+    _optimize_project(tmp_path)
+    loop, backend = _build_loop(tmp_path, "optimize_lab")
     loop.supervised.engineer_config = replace(
         loop.supervised.engineer_config,
         live_search_stages=frozenset({"optimize"}),
@@ -382,11 +362,11 @@ def test_standard_replace_custom_live_search_overrides_kernel_default(
     assert _engineer_options(backend).live_search is True
 
 
-def test_replaced_live_search_config_overrides_kernel_default(
+def test_replaced_live_search_config_overrides_optimize_default(
     tmp_path: Path,
 ) -> None:
-    _kernel_project(tmp_path)
-    loop, backend = _build_loop(tmp_path, "kernel_engineering")
+    _optimize_project(tmp_path)
+    loop, backend = _build_loop(tmp_path, "optimize_lab")
     loop.supervised.engineer_config = loop.supervised.engineer_config.replace(
         live_search_stages=frozenset(),
     )
@@ -400,11 +380,11 @@ def test_replaced_live_search_config_overrides_kernel_default(
     assert _engineer_options(backend).live_search is False
 
 
-def test_replaced_default_live_search_config_overrides_kernel_default(
+def test_replaced_default_live_search_config_overrides_optimize_default(
     tmp_path: Path,
 ) -> None:
-    _kernel_project(tmp_path)
-    loop, backend = _build_loop(tmp_path, "kernel_engineering")
+    _optimize_project(tmp_path)
+    loop, backend = _build_loop(tmp_path, "optimize_lab")
     loop.supervised.engineer_config = loop.supervised.engineer_config.replace(
         live_search_stages=DEFAULT_LIVE_SEARCH_STAGES,
     )
@@ -416,13 +396,6 @@ def test_replaced_default_live_search_config_overrides_kernel_default(
     )
 
     assert _engineer_options(backend).live_search is False
-
-
-def test_skill_loop_hands_math_engineer_live_search_in_solve(tmp_path: Path) -> None:
-    """End-to-end: the declaration actually reaches the codex invocation."""
-    _math_project(tmp_path, "solve")
-
-    assert _run_one_round(tmp_path, "math").live_search is True
 
 
 def test_skill_loop_keeps_research_engineer_behaviour(tmp_path: Path) -> None:
@@ -473,16 +446,16 @@ def test_mission_never_mutates_the_shared_supervised_engineer(
     stateless across calls; a mission-scoped value written onto it outlives the
     mission (and any exception during the mission leaves it there for good).
     """
-    _math_project(tmp_path, "solve")
-    custom = frozenset({"scope"})
-    loop, backend = _build_loop(tmp_path, "math", live_search_stages=custom)
+    _optimize_project(tmp_path)
+    custom = frozenset({"setup"})
+    loop, backend = _build_loop(tmp_path, "optimize_lab", live_search_stages=custom)
     shared_before = loop.supervised
     config_before = loop.supervised.engineer_config
 
     loop.run("Do the work.", workdir=tmp_path, scope="bounded")
 
     # An explicit caller policy is an opt-out from the vertical default, and
-    # solve is outside this caller's scope-only set.
+    # optimize is outside this caller's setup-only set.
     assert _engineer_options(backend).live_search is False
     # ...yet nothing was written back onto the shared object.
     assert loop.supervised is shared_before

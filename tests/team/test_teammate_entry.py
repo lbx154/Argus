@@ -546,28 +546,32 @@ def test_fatal_mission_still_marks_failed(tmp_path: Path, monkeypatch) -> None:
 # supply nothing, so "contributes exactly nothing" is the property under most of
 # the load here, not the happy path.
 
-def _math_project(tmp_path: Path, *claim_ids: str) -> Path:
-    """A project root the math vertical will actually project from."""
-    from argus.proof_ledger import (
-        ClaimVersion,
-        ContextVersion,
-        MathState,
-        save_state,
-    )
+def _briefed_project(tmp_path: Path, monkeypatch) -> Path:
+    """A project whose vertical briefs every mission on its done condition."""
+    from types import ModuleType, SimpleNamespace
 
+    from argus.skills.stage_machine import ChecklistItem
+    from argus.verticals import _registry
+
+    module = ModuleType("briefed.stages")
+    module.ARGUS_VERTICAL_API_VERSION = 1
+    module.VERTICAL_PURPOSE = "briefs each mission"
+    module.CHECKLIST_STAGE_ORDER = ("work",)
+    module.CHECKLIST_ITEMS = {"work": (ChecklistItem("work.done", "Work is done", "work"),)}
+    module.completion_gate = "none"
+    module.prepare_mission = lambda *, stage, project_root, state_root, mission: (
+        f"Brief for: {getattr(mission, 'acceptance_check', '') or mission.objective}"
+    )
+    entry = SimpleNamespace(name="briefed", value="briefed.stages", load=lambda: module)
+    monkeypatch.setattr(
+        _registry, "entry_points",
+        lambda group: [entry] if group == _registry.ENTRY_POINT_GROUP else [],
+    )
+    _registry.refresh_vertical_plugins()
     cwd = tmp_path / "proj"
     (cwd / ".argus").mkdir(parents=True)
     (cwd / ".argus" / "PIPELINE_STATE.json").write_text(
-        json.dumps({"vertical": "math", "current_stage": "solve"}), encoding="utf-8")
-    state = MathState()
-    context = state.add_context(ContextVersion(
-        context_id="c1", version=1,
-        statement="Fix a finite abelian group G.", definitions={}))
-    for claim_id in claim_ids or ("udist-main",):
-        state.add_claim(ClaimVersion(
-            claim_id=claim_id, version=1, context=context.ref(),
-            natural_statement="Every G carries a uniform distribution."))
-    save_state(cwd, state)
+        json.dumps({"vertical": "briefed", "current_stage": "work"}), encoding="utf-8")
     return cwd
 
 
@@ -590,14 +594,11 @@ def _dispatch(tmp_path: Path, monkeypatch, cwd: Path, **spec) -> dict:
 
 
 def test_teammate_receives_the_verticals_mission_prelude(tmp_path, monkeypatch) -> None:
-    # The point of the change: a teammate whose task names a claim starts knowing
-    # what the project already records about it instead of re-deriving it.
-    cwd = _math_project(tmp_path)
+    cwd = _briefed_project(tmp_path, monkeypatch)
     seen = _dispatch(tmp_path, monkeypatch, cwd,
                      objective="Close udist-main by the Fourier route.")
 
-    assert "udist-main" in seen["prelude"]
-    assert "MATH_STATE.json" in seen["prelude"]
+    assert seen["prelude"] == "Brief for: Close udist-main by the Fourier route."
     # It travels as prelude_context, NOT folded into the objective. The runner
     # reuses `objective` as the Reviewer's task, so prepending there would hand
     # the Reviewer the briefing to review instead of the work.
@@ -631,24 +632,6 @@ def test_teammate_prelude_never_raises_on_unreadable_project_state(
     assert seen["prelude"] == ""
 
 
-def test_teammate_prelude_is_empty_when_the_task_names_no_claim(
-    tmp_path, monkeypatch
-) -> None:
-    # Pinned deliberately. A route ("try the Fourier-analytic approach") names no
-    # claim, and the projection is claim-scoped by design: guessing which claim a
-    # route meant would produce a fragment about the wrong theorem that reads as
-    # if it were right. Empty is the correct answer here — the fix belongs in what
-    # the Engineer writes into the task, not in loosening the projection. There is
-    # now somewhere to write it (``acceptance_check``, below); this task still
-    # does not, so it still gets nothing, which is the point.
-    cwd = _math_project(tmp_path)
-    seen = _dispatch(tmp_path, monkeypatch, cwd,
-                     title="Fourier-analytic route",
-                     objective="Try the Fourier-analytic approach and report.")
-
-    assert seen["prelude"] == ""
-
-
 def test_teammate_and_supervisor_share_one_prelude_seam() -> None:
     # Two ways of computing this text is how a teammate and the Engineer that
     # dispatched it end up reading different projects. Both call sites route
@@ -662,18 +645,15 @@ def test_teammate_and_supervisor_share_one_prelude_seam() -> None:
     assert "prepare_mission(" not in inspect.getsource(te)
 
 
-# ── a route task carries its own done condition, and that is what aims it ─────
-# The case the whole path was built for: an Engineer dispatching one team task
-# per proof route. A route objective names two claims the way a mathematician
-# writes one down, so the vaguer fields are exactly where the projection refuses
-# to guess. The board now carries ``acceptance_check``, which is the field the
-# projection consults FIRST — and the only one a lead can make say one thing.
+# ── a task carries its own done condition, and that is what aims it ─────
+# The board carries ``acceptance_check``; a vertical that briefs on the done
+# condition reads it before the vaguer title and objective.
 
 
-def test_a_route_task_reaches_its_goal_claim_through_the_acceptance_check(
+def test_the_board_hands_the_vertical_its_acceptance_check(
     tmp_path, monkeypatch
 ) -> None:
-    cwd = _math_project(tmp_path, "udist-main", "udist-lemma")
+    cwd = _briefed_project(tmp_path, monkeypatch)
     seen = _dispatch(
         tmp_path, monkeypatch, cwd,
         title="Fourier-analytic route",
@@ -681,52 +661,24 @@ def test_a_route_task_reaches_its_goal_claim_through_the_acceptance_check(
         acceptance_check="udist-lemma is recorded as a conditional kernel.",
     )
 
-    # Briefed on the claim this route has to move, by name and by version.
-    assert "claim `udist-lemma` v1" in seen["prelude"]
-    assert "targeted by this mission's acceptance_check" in seen["prelude"]
-    assert "MATH_STATE.json" in seen["prelude"]
-    # ...and on no other claim. The other id in the objective is the route's
-    # source, not its goal, and a fragment about it would be wrong in a way the
-    # teammate could not detect.
-    assert "udist-main" not in seen["prelude"]
-    # Still prelude, never the objective: the runner reuses the objective as the
-    # Reviewer's task.
+    assert seen["prelude"] == "Brief for: udist-lemma is recorded as a conditional kernel."
     assert seen["objective"] == "Reduce udist-main to udist-lemma by Fourier inversion."
 
 
-def test_an_ambiguous_route_objective_alone_still_refuses_to_guess(
-    tmp_path, monkeypatch
-) -> None:
-    # The same task without its done condition, which is what (b) alone leaves
-    # you with: title and objective are prose about a reduction, they name two
-    # recorded claims, and the projection declines to pick one rather than aiming
-    # a plausible fragment at the wrong theorem. Carrying the field did not loosen
-    # that, and this pins that it did not.
-    cwd = _math_project(tmp_path, "udist-main", "udist-lemma")
-    seen = _dispatch(
-        tmp_path, monkeypatch, cwd,
-        title="Fourier-analytic route",
-        objective="Reduce udist-main to udist-lemma by Fourier inversion.",
-    )
-
-    assert "Mathematical state not projected" in seen["prelude"]
-    assert "claim `udist-lemma` v1" not in seen["prelude"]
-
-
-def test_the_acceptance_check_changes_nothing_for_a_non_math_team(
+def test_the_acceptance_check_changes_nothing_for_a_plain_team(
     tmp_path, monkeypatch
 ) -> None:
     # The board learned a field, not a domain. A team whose project has no
-    # vertical, and a kernel-engineering team whose vertical reads no mission
-    # field at all, must be byte-identical with the field set and unset — the one
-    # test that would fail if any of this had leaked into the team layer.
-    kernel = tmp_path / "kproj"
-    (kernel / ".argus").mkdir(parents=True)
-    (kernel / ".argus" / "PIPELINE_STATE.json").write_text(
-        json.dumps({"vertical": "kernel_engineering", "current_stage": "optimize"}),
+    # vertical, and a software team whose vertical reads no mission field at
+    # all, must be byte-identical with the field set and unset — the one test
+    # that would fail if any of this had leaked into the team layer.
+    software = tmp_path / "sproj"
+    (software / ".argus").mkdir(parents=True)
+    (software / ".argus" / "PIPELINE_STATE.json").write_text(
+        json.dumps({"vertical": "software", "current_stage": "delivery"}),
         encoding="utf-8")
 
-    for i, cwd in enumerate((tmp_path / "no_vertical", kernel)):
+    for i, cwd in enumerate((tmp_path / "no_vertical", software)):
         cwd.mkdir(exist_ok=True)
         bare = _dispatch(tmp_path / f"bare{i}", monkeypatch, cwd,
                          objective="optimize kA", target="kA")
@@ -743,13 +695,13 @@ def test_a_per_task_cwd_below_the_project_tree_gets_no_vertical_at_all(
 ) -> None:
     # Documented because it is a live trap, not a property worth having. Both
     # roots the teammate passes to the vertical come from the task's ``cwd``, and
-    # neither ``resolve_vertical`` nor the math store walks upward. So a task
+    # ``resolve_vertical`` does not walk upward. So a task
     # pointed at a private subdirectory of the project reads a tree with no
     # PIPELINE_STATE.json, resolves the default vertical on a log line nobody is
     # watching, and is briefed on nothing — however well its acceptance check
     # names its claim. A task that shares the campaign's project state must keep
     # the campaign cwd and take its private directory through ``owns_paths``.
-    cwd = _math_project(tmp_path, "udist-main")
+    cwd = _briefed_project(tmp_path, monkeypatch)
     (cwd / "routes" / "R1").mkdir(parents=True)
 
     seen = _dispatch(tmp_path, monkeypatch, cwd / "routes" / "R1",

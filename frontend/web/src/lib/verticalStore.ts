@@ -30,16 +30,14 @@ export const BUNDLED_GUIDES: Record<string, { title: string; purpose: string; in
   research: { title: '学术研究', purpose: '从研究问题出发，逐步完成分析、实验与论文写作。', input: '研究问题、已有资料和目标范围', output: '研究结论、实验记录或论文，按确认的范围完成' },
   software: { title: '软件开发', purpose: '修复项目问题、开发功能，并检查修改是否符合要求。', input: '代码项目、问题描述或功能要求', output: '代码修改、检查结果和使用说明' },
   argus_maintenance: { title: 'Argus 维护', purpose: '修复或改进 Argus 本身，适合维护服务的开发者。', input: 'Argus 问题、相关记录和修改范围', output: '修复、回归检查与发行检查结果' },
-  kernel_engineering: { title: '计算性能优化', purpose: '优化模型推理、数据传输和 GPU 计算代码的实际性能。', input: '代码、目标硬件、基准和性能目标', output: '优化实现、正确性检查和性能对比' },
-  math: { title: '数学研究', purpose: '探索数学问题，结合文献、计算或形式化方法检查证明。', input: '问题或猜想、已知条件和已有推导', output: '推导、证明检查或尚未解决的问题' },
-  math_synth: { title: '数学推理数据', purpose: '在固定求解和评估规则下，生成并评估数学推理样本。', input: '固定求解器、验证规则和评估要求', output: '推理样本和对应评估结果' },
   learning: { title: '资料整理与学习', purpose: '把你提供的材料整理为可再次使用的知识和技能。', input: '需要整理的资料与保存范围', output: '新增、更新或归档的知识与技能内容' },
 };
 
 const VERTICAL_TITLES: Record<string, string> = {
   chip_design: '芯片设计', classical_poetry: '古典诗词', digital_circuit: '数字电路',
-  digital_circuit_benchmark: '数字电路评测', fiction_writing: '小说创作', kernelbench: 'GPU 内核评测',
-  literary_editor: '文学编辑', materials: '材料科学', medical: '生物医药证据研究',
+  digital_circuit_benchmark: '数字电路评测', fiction_writing: '小说创作', kernel_engineering: '计算性能优化',
+  kernelbench: 'GPU 内核评测', literary_editor: '文学编辑', materials: '材料科学', math: '数学研究',
+  math_synth: '数学推理数据', medical: '生物医药证据研究',
   modern_poetry: '现代诗创作', nanochat: '语言模型训练优化', nanogpt_speedrun: '语言模型训练加速',
 };
 

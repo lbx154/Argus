@@ -62,7 +62,7 @@ def test_parse_dedupes_name_against_known_and_existing():
     assert p is not None and p.name not in ("research", "research_2")
 
 
-def test_vertical_prompt_keeps_math_routes_inside_builtin_math():
+def test_vertical_prompt_stays_compact():
     prompt = build_vertical_decision_prompt(
         "Investigate an open conjecture with literature, computation, proof, and review",
         verticals_with_purpose=VERTICAL_PURPOSES,
@@ -70,7 +70,6 @@ def test_vertical_prompt_keeps_math_routes_inside_builtin_math():
 
     assert "stable reusable staged capability" in prompt
     assert "Pick the closest existing capability" in prompt
-    assert "original mathematical work is `math`" in prompt
     # A ratchet, not a model limit. 56a02152 simplified this prompt and pinned a
     # ceiling so it would not quietly regrow; the number is "a little above
     # whatever it costs today", and it should be raised only for content that
@@ -222,20 +221,6 @@ def test_vertical_prompt_preserves_explicit_operator_actions() -> None:
     assert 'Preserve paths, commands, order, and stopping conditions' in prompt
     assert 'requested action, not words' in prompt
     assert "Repository work is usually `software`" in prompt
-
-
-def test_vertical_prompts_do_not_use_software_as_performance_catch_all() -> None:
-    task = "Continuously optimize full-model inference serving on eight accelerators."
-    grounded = build_vertical_decision_prompt(
-        task,
-        verticals_with_purpose=VERTICAL_PURPOSES,
-    )
-
-    assert 'Use `new` only if none fits' in grounded
-    assert "Pick the closest existing capability" in grounded
-    assert "inference/serving" in VERTICAL_PURPOSES["kernel_engineering"]
-    assert "inference serving" in grounded
-    assert "campaigns are `kernel_engineering`" in grounded
 
 
 def test_fast_vertical_parser_accepts_confident_existing_route() -> None:
