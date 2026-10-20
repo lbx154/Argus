@@ -32,14 +32,14 @@ def test_same_question_parks_current_item_without_overwriting_its_contract(tmp_p
         reason="Manager needs this decision.",
         outcome={"waiting": True},
     )
-    assert result.status == "paused_operator"
+    assert result.status == "parked"
     assert result.pending_question == item.pending_question
     assert result.objective == item.objective
     assert result.notes == item.notes
     assert result.started_ts == item.started_ts
     assert result.finished_ts == item.finished_ts
     assert result.last_error == "Manager needs this decision."
-    assert result.outcome == {"waiting": True}
+    assert result.outcome == {"waiting": True, "park": {"reason": "operator_question"}}
     assert backlog.all()[0].to_jsonable() == result.to_jsonable()
 
 

@@ -74,20 +74,13 @@ def stop_kind_from_external_interrupt(value: Any) -> StopKind | None:
     return None
 
 
-PauseStatus: TypeAlias = Literal[
-    "", "paused_budget", "paused_cost", "paused_provider_cooldown",
-    "paused_provider_fence", "paused_daemon_shutdown", "paused_operator",
-]
-_PAUSE_BY_STOP: dict[StopKind, PauseStatus] = {
-    "budget_exhausted": "paused_budget", "cost_unreconciled": "paused_cost",
-    "provider_cooldown": "paused_provider_cooldown", "provider_fence": "paused_provider_fence",
-    "daemon_shutdown": "paused_daemon_shutdown", "operator_pause": "paused_operator",
-}
+def stop_park_reason(value: Any) -> StopKind | None:
+    """The park a stop leaves its work in, or ``None`` when the stop does not park it.
 
-
-def pause_status_for_stop_kind(value: Any) -> PauseStatus:
+    Every stop that is not a failure parks, except an abort, which ends the work.
+    """
     kind = normalize_stop_kind(value)
-    return _PAUSE_BY_STOP.get(kind, "") if kind is not None else ""
+    return kind if kind in NON_FAILURE_STOP_KINDS and kind != "operator_abort" else None
 
 
 def stop_kind_is_recoverable(value: Any) -> bool:
@@ -147,8 +140,9 @@ class ParkRule:
 
 
 # Why a backlog item is parked: a stop kind, or a park no backend stop
-# explains. A ``parked`` row records its reason in ``outcome["park"]["reason"]``;
-# a row an older release wrote names it in its status (_LEGACY_PARK_REASONS).
+# explains. A ``parked`` row records its reason in ``outcome["park"]["reason"]``
+# and a ``parked`` event in ``park_reason``; a row or event an older release
+# wrote names it in its status (_LEGACY_PARK_REASONS).
 _PARK_RULES: dict[str, ParkRule] = {
     "budget_exhausted": ParkRule("runtime", auto_resume=True),
     "cost_unreconciled": ParkRule("runtime", auto_resume=True),
@@ -156,6 +150,8 @@ _PARK_RULES: dict[str, ParkRule] = {
     "provider_cooldown": ParkRule("world", auto_resume=True),
     # An older release parked work on a job it watched; it resumes at once.
     "external_work": ParkRule("runtime", auto_resume=True),
+    # The operator's Run ends it, and so does the model service answering
+    # again (the outage circuit it opened closing: life/runtime_failure_circuit.py).
     "provider_fence": ParkRule("operator"),
     "operator_pause": ParkRule("operator"),
     "operator_question": ParkRule("operator"),
@@ -181,6 +177,14 @@ _LEGACY_PARK_REASONS: dict[str, str] = {
     "infra_blocked": "infra",
 }
 PARK_STATUSES = frozenset({"parked", *_LEGACY_PARK_REASONS})
+#: Parks the runtime ends on its next pass: the condition was its own to recheck.
+RUNTIME_RESUMED_PARKS = frozenset(
+    reason for reason, rule in _PARK_RULES.items() if rule.auto_resume
+)
+#: Parks an explicit operator Run ends: every one the Planner does not own.
+OPERATOR_RESUMED_PARKS = frozenset(
+    reason for reason, rule in _PARK_RULES.items() if rule.holder != "planner"
+)
 
 _PARK_REASON_CLAUSES: dict[str, tuple[str, str]] = {
     "external_work": (
@@ -238,8 +242,10 @@ def park_clause(status: Any, recorded: Any = "", *, chinese: bool = False) -> st
 
 __all__ = [
     "NON_FAILURE_STOP_KINDS",
+    "OPERATOR_RESUMED_PARKS",
     "PARK_STATUSES",
     "RECOVERABLE_STOP_KINDS",
+    "RUNTIME_RESUMED_PARKS",
     "STOP_KINDS",
     "ParkRule",
     "StopKind",
@@ -248,8 +254,8 @@ __all__ = [
     "park_clause",
     "park_reason_of",
     "park_rule",
-    "pause_status_for_stop_kind",
     "stop_kind_clause",
     "stop_kind_from_external_interrupt",
     "stop_kind_is_recoverable",
+    "stop_park_reason",
 ]

@@ -36,8 +36,7 @@ log = logging.getLogger(__name__)
 
 def _execution_host_blocked_outcome(outcome: object) -> bool:
     return (
-        getattr(outcome, "status", "") == "infra_blocked"
-        and getattr(outcome, "stop_kind", None) == "backend_unavailable"
+        getattr(outcome, "park_reason", "") == "infra"
         and is_execution_host_startup_error(getattr(outcome, "reason", ""))
     )
 
@@ -1288,7 +1287,6 @@ class SkillLoopExecuteMixin:
         if (
             not maintenance_mission
             and not workflow_skips_stage_transition
-            and not _execution_host_blocked_outcome(outcome)
             and not _final_round_unjudged(outcome)
             and _should_run_stage_transition(
                 effective_status,
@@ -1372,6 +1370,7 @@ class SkillLoopExecuteMixin:
             stop_reason=ex_state.effective_reason,
             stop_kind=ex_state.effective_stop_kind,
             recoverable=ex_state.effective_recoverable,
+            park_reason=str(getattr(outcome, "park_reason", "") or ""),
             rounds=outcome.round_count,
             last_thread_id=ex_state.new_tid,
             auth_failure=ex_state.auth_fail,

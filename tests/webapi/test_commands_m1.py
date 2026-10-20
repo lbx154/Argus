@@ -819,7 +819,6 @@ def test_daemon_start_delegates(ctx, fenced_backlog, monkeypatch) -> None:
             config=LifeSupervisorConfig(poll_interval_seconds=0.0),
         )
         summary = supervisor.run()
-        assert summary["stopped_by"] == "paused_provider_fence"
         assert summary["missions_run"] == 0
         assert memory.backlog.all()[0].attempt == 1
         return 0
@@ -873,7 +872,7 @@ def test_explicit_daemon_resume_rearms_provider_fence_once_per_command(
 
     def start(*args, **_kwargs):
         starts.append(args)
-        assert memory.backlog.all()[0].status == "paused_provider_fence"
+        assert memory.backlog.all()[0].status == "parked"
         return {"rc": 0, "already_alive": True}
 
     monkeypatch.setattr(daemon_lifecycle, f"{operation}_project_daemon", start)
@@ -894,7 +893,7 @@ def test_explicit_daemon_resume_rearms_provider_fence_once_per_command(
     assert duplicate["command_status"] == "applied"
     assert stale["command_status"] == "rejected"
     assert len(starts) == 1
-    assert memory.backlog.all()[0].status == "paused_provider_fence"
+    assert memory.backlog.all()[0].status == "parked"
     assert memory.backlog.all()[0].attempt == 2
 
     fresh = client.post(url, json={
@@ -931,7 +930,7 @@ def test_failed_daemon_resume_preserves_provider_fence(
 
     assert response.status_code == 200
     assert response.json()["command_status"] == "failed"
-    assert memory.backlog.all()[0].status == "paused_provider_fence"
+    assert memory.backlog.all()[0].status == "parked"
     assert memory.backlog.all()[0].attempt == 1
 
 
@@ -949,7 +948,7 @@ def test_automatic_continuous_restart_preserves_provider_fence(
     )
 
     assert result["rc"] == 0
-    assert memory.backlog.all()[0].status == "paused_provider_fence"
+    assert memory.backlog.all()[0].status == "parked"
     assert memory.backlog.all()[0].attempt == 1
 
 
@@ -970,7 +969,7 @@ def test_daemon_replace_without_resume_preserves_provider_fence(
 
     assert response.status_code == 200
     assert response.json()["command_status"] == "applied"
-    assert memory.backlog.all()[0].status == "paused_provider_fence"
+    assert memory.backlog.all()[0].status == "parked"
     assert memory.backlog.all()[0].attempt == 1
 
 
@@ -1760,10 +1759,10 @@ def test_daemon_command_idempotency_and_revision_fencing(ctx, monkeypatch) -> No
 
 
 @pytest.mark.parametrize("rc", [0, 2])
-def test_explicit_injected_start_only_resumes_provider_fences_after_success(ctx, rc):
+def test_explicit_injected_start_resumes_parks_only_after_success(ctx, rc):
     root, sid, life = ctx
     memory = LifeMemory.open(life)
-    for status in ("paused_provider_fence", "paused_cost", "paused_budget"):
+    for status in ("paused_provider_fence", "paused_cost", "paused_no_breakthrough"):
         item = BacklogItem.new(title=status, objective="Synthetic paused work")
         item.status = status
         memory.backlog.add(item)
@@ -1772,9 +1771,9 @@ def test_explicit_injected_start_only_resumes_provider_fences_after_success(ctx,
     response = client.post(f"/api/projects/{sid}/daemon/start", json={"command_id": "explicit-start"})
     assert response.status_code == 200 and response.json()["rc"] == rc
     states = {item.title: item.status for item in memory.backlog.all()}
-    assert states["paused_provider_fence"] == ("pending" if rc == 0 else "paused_provider_fence")
-    assert states["paused_cost"] == "paused_cost"
-    assert states["paused_budget"] == "paused_budget"
+    assert states["paused_provider_fence"] == states["paused_cost"] == ("pending" if rc == 0 else "parked")
+    # A park the Planner owns waits for the Planner.
+    assert states["paused_no_breakthrough"] == "parked"
 
 
 def test_project_update_renames_session(ctx) -> None:

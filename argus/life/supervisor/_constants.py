@@ -19,21 +19,7 @@ PLAN_TERMINAL_IDLE = "planner_terminal_idle"
 PLAN_AWAITING = "awaiting_external"
 PLAN_ERROR = "planner_error"
 PLAN_RETRY = "planner_retry"
-PLANNER_DEDUP_STATUSES = frozenset({
-    "pending",
-    "running",
-    "paused",
-    "paused_budget",
-    "paused_cost",
-    "paused_provider_cooldown",
-    "paused_provider_fence",
-    "paused_daemon_shutdown",
-    "paused_operator",
-    "research_incomplete",
-    "paused_no_breakthrough",
-    "exhausted_current_methods",
-    "infra_blocked",
-})
+PLANNER_DEDUP_STATUSES = frozenset({"pending", "running", "parked"})
 MANAGER_FEEDBACK_REPLAN_LIMIT = 3
 # Consecutive planner completion attempts turned back for the SAME reason
 # before the supervisor stops asking and tells the operator. This is keyed on

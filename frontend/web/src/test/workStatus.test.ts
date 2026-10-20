@@ -86,7 +86,7 @@ describe('shared work status', () => {
 
   it('keeps paused work and unreadable status distinct from active work', () => {
     const snapshot = fixture(false), view = emptyMissionView();
-    view.mission.status = 'paused_external_work';
+    view.mission.status = 'parked';
     expect(currentWorkStatus(snapshot, view).state).toBe('paused');
     snapshot.daemon.read_status = 'error';
     expect(currentWorkStatus(snapshot, view).state).toBe('unknown');

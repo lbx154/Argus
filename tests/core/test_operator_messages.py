@@ -106,7 +106,8 @@ def test_operator_abort_is_not_rendered_as_a_failure_or_retry() -> None:
 def test_provider_fence_explains_explicit_recovery(hint: str, resume: str) -> None:
     text = render_operator_update(
         title="Research",
-        status="paused_provider_fence",
+        status="parked",
+        park_reason="provider_fence",
         reason="HTTP 402: Insufficient trial tokens for this request.",
         next_action="Check the trial quota.",
         language_hint=hint,

@@ -203,8 +203,6 @@ class RoundSettlementMixin:
                 return None, ""
             return "done", review.reason or "Reviewer judged the objective complete."
         if review.status == "blocked":
-            if review.backend_unavailable and not review.operator_question:
-                return "infra_blocked", review.reason or "Research infrastructure blocked progress."
             return "blocked", review.reason or "Reviewer blocked progress."
         if review.status == "replan_requested":
             return (

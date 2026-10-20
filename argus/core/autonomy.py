@@ -86,7 +86,8 @@ AUTONOMOUS_ASSUMPTIONS_FILENAME = "autonomous_assumptions.jsonl"
 # tells the operator. Operator decision, 2026-10-19: three hours.
 AUTOMATIC_RETRY_WINDOW_SECONDS = 3 * 3600.0
 # The stop reason of a task whose automatic retries used the whole window. It
-# waits for an explicit Run, and no other task starts while it does.
+# waits for an explicit Run, and the circuit its park opens holds every other
+# model call meanwhile (life/runtime_failure_circuit.py).
 RETRY_WINDOW_SPENT_REASON = (
     "Automatic retries ran for three hours and the model service did not recover"
 )

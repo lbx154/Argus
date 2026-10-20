@@ -219,7 +219,9 @@ def test_ordinary_execution_stops_while_role_storage_holder_remains_locked(tmp_p
         assert holder.is_alive() and not release.is_set()
         assert "exception" not in case.captured, case.captured
         outcome = case.captured["outcome"]
-        assert outcome.status == ("aborted" if signal == "abort" else "paused_daemon_shutdown")
+        assert (outcome.status, outcome.park_reason) == (
+            ("aborted", "") if signal == "abort" else ("parked", "daemon_shutdown")
+        )
         reason = "operator abort requested: ordinary original reason" if signal == "abort" else "daemon stop requested"
         assert case.captured["cleanup_reason"] == reason
         assert case.captured["gateway_interrupts"] and all(reason in error for error in case.captured["gateway_interrupts"])
@@ -413,7 +415,7 @@ def test_claimed_guidance_stops_under_contended_apply_and_replays(tmp_path, monk
         case.worker.join(3)
     assert not holder.is_alive() and not case.worker.is_alive()
     assert "exception" not in case.captured, case.captured
-    assert case.captured["outcome"].status == "paused_daemon_shutdown"
+    assert case.captured["outcome"].status == "parked"
     assert text not in [record.text for record in OperatorContextStore(case.state).project("engineer", consume_once=False).directives]
     assert case.captured["adapter_invocations"] == []
     case.stop.clear()

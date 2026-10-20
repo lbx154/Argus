@@ -8,6 +8,7 @@
 // separately so it can live in a tooltip instead of the page.
 
 import type { Locale } from '../i18n';
+import { parkReason } from '../../../core/src/missionOutcome';
 import { humanizeHarnessNote, splitHarnessRecord, TECHNICAL_MARKER_PREFIX } from './harnessNotes';
 
 type Pair = readonly [zh: string, en: string];
@@ -121,24 +122,22 @@ export const PLAIN_BY_KIND: Record<string, Pair> = {
 export const PLAIN_BY_CODE = PLAIN_BY_KIND;
 
 /**
- * Why work stopped, by the stop kind or pause status the backend records.
+ * Why work stopped, by the stop kind or park reason the backend records.
  * Each entry is a short clause so it fits after a label ("Task ended — …")
  * and inside a sentence ("The work stopped because …").
  */
 const STOP_KINDS: Record<string, Pair> = {
   daemon_shutdown: ['Argus 被暂停', 'Argus was paused'],
-  paused_daemon_shutdown: ['Argus 被暂停', 'Argus was paused'],
   operator_pause: ['你暂停了它', 'you paused it'],
-  paused_operator: ['你暂停了它', 'you paused it'],
+  operator_question: ['在等你回答一个问题', 'a question is waiting for you'],
   operator_abort: ['你停止了它', 'you stopped it'],
   budget_exhausted: ['预算用完了', 'the budget ran out'],
   budget_pause: ['预算用完了', 'the budget ran out'],
-  paused_budget: ['预算用完了', 'the budget ran out'],
   provider_cooldown: ['模型服务正在限流', 'the model service is cooling down'],
-  paused_provider_cooldown: ['模型服务正在限流', 'the model service is cooling down'],
   provider_fence: ['模型服务不可用', 'the model service is unavailable'],
-  paused_provider_fence: ['模型服务不可用', 'the model service is unavailable'],
   backend_unavailable: ['模型服务不可用', 'the model service is unavailable'],
+  infra: ['运行环境无法启动', 'the program that runs the work could not start'],
+  external_work: ['等待外部工作完成', 'it was waiting for external work'],
   transient_error: ['出现了暂时性的问题', 'a temporary problem came up'],
   permanent_error: ['遇到了无法自动恢复的错误', 'an error could not be recovered from'],
   operator_input_required: ['需要你的回复', 'your reply is needed'],
@@ -180,7 +179,6 @@ const STATUSES: Record<string, Pair> = {
   stopped: ['已停止', 'Stopped'],
   cancelled: ['已停止', 'Stopped'],
   aborted: ['已停止', 'Stopped'],
-  paused_external_work: ['等待外部工作完成', 'Waiting for external work'],
   superseded: ['已由新方案替代', 'Replaced by a newer plan'],
 };
 
@@ -266,15 +264,21 @@ export function plainStage(stage: string | null | undefined, locale: Locale): st
   return pair ? pick(pair, locale) : raw;
 }
 
-export function plainStopKind(kind: string | null | undefined, locale: Locale): string {
+/** A stop kind or park reason; an older `paused_*` status names its reason. */
+function stopKey(kind: string | null | undefined): string {
   const key = String(kind ?? '').trim().toLowerCase();
+  return parkReason(key) || key;
+}
+
+export function plainStopKind(kind: string | null | undefined, locale: Locale): string {
+  const key = stopKey(kind);
   const pair = STOP_KINDS[key];
   return pair ? pick(pair, locale) : key;
 }
 
 /** The stop kind as a whole sentence, for a line of its own. */
 export function plainStopSentence(kind: string | null | undefined, locale: Locale): string {
-  const key = String(kind ?? '').trim().toLowerCase();
+  const key = stopKey(kind);
   const pair = STOP_KINDS[key];
   if (!pair) return key;
   return locale === 'zh-CN' ? `因为${pair[0]}，工作停了下来。` : `The work stopped because ${pair[1]}.`;
@@ -454,7 +458,7 @@ const DETAIL_SENTENCES: Array<[RegExp, DetailRender]> = [
   // "review: skipped (backend failure) — " only announces the sentence that follows it.
   [/^review: \w+(?: \([^)]*\))? — /i, ['', '']],
   [/^status=(\S+) rounds=(\d+) reason=/i, (match, locale) => {
-    const stop = STOP_KINDS[match[1].toLowerCase()];
+    const stop = STOP_KINDS[stopKey(match[1])];
     const how = stop ? pick(stop, locale) : plainRouteStatus(match[1], locale);
     return locale === 'zh-CN'
       ? `任务已结束（${how}），共 ${match[2]} 轮。`

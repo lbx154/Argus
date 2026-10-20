@@ -1042,7 +1042,7 @@ def test_nonterminal_empty_plan_repair_exhaustion_asks_operator(
     assert backend.manager_calls == 0
     paused = [
         item for item in supervisor.memory.backlog.all()
-        if item.status == "paused_operator"
+        if item.status == "parked"
     ]
     assert len(paused) == 1
     assert "cannot identify a concrete next task" in paused[0].pending_question

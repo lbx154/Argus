@@ -235,7 +235,7 @@ class PlannerOrchestrationMixin:
         # owns. The digest used to show them only as a count while their
         # pending dependents waited on them forever; the Planner may retire
         # one, which releases those dependents through the cascade.
-        from ..memory import planner_may_retire_park
+        from ..memory import park_reason, planner_may_retire_park
 
         pending_rows = [row for row in backlog_rows if row.status == "pending"]
         parked_lines: list[str] = []
@@ -250,7 +250,7 @@ class PlannerOrchestrationMixin:
                         grew = True
             blocked.discard(park.id)
             parked_lines.append(
-                f"- parked task {park.id} ({park.status}): {park.title}; "
+                f"- parked task {park.id} ({park_reason(park) or 'reason unknown'}): {park.title}; "
                 f"blocks pending: [{', '.join(sorted(blocked))}]; nothing resumes "
                 f"it automatically. `RETIRE_TASK={park.id} | <reason>` retires it, "
                 "releases those dependents and frees the work to be re-planned."

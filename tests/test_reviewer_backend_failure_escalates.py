@@ -159,7 +159,7 @@ def test_unavailable_engineer_model_pauses_for_provider_cooldown(
         on_event=events.append,
     )
 
-    assert status == "paused_provider_cooldown"
+    assert status == "parked"
     assert engineer_runner.calls == 1
     assert len(rounds) == 1
     assert rounds[0].stop_kind == "provider_cooldown"
@@ -214,7 +214,7 @@ def test_provider_startup_refusal_pauses_instead_of_consuming_missions(
         on_event=events.append,
     )
 
-    assert status == "paused_provider_cooldown"
+    assert status == "parked"
     assert engineer_runner.calls == 1
     assert rounds[0].stop_kind == "provider_cooldown"
 

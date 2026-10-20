@@ -284,7 +284,7 @@ def test_forbidden_policy_strips_model_question_event(tmp_path: Path) -> None:
         on_event=events.append,
     )
 
-    assert status == "paused_provider_cooldown"
+    assert status == "parked"
     assert rounds[0].review.backend_stop_kind == "provider_cooldown"
     assert rounds[0].review.operator_question == ""
     review_event = next(

@@ -367,11 +367,11 @@ describe('ExperimentsPage recorded work presentation', () => {
     expect(markup).not.toContain('Unrelated task output');
   });
 
-  it('names an incomplete research outcome in the work list', () => {
-    const value = snapshot({ alive: false, activeStatus: 'research_incomplete' });
-    value.mission_view!.mission.status = 'research_incomplete';
+  it.each(['parked', 'research_incomplete'])('names a %s research task as paused in the work list', (status) => {
+    const value = snapshot({ alive: false, activeStatus: status });
+    value.mission_view!.mission.status = status;
     const markup = renderPage(value);
-    expect(markup).toContain('Research incomplete');
+    expect(markup).toContain('<small>Paused</small>');
     expect(markup).toContain('Conclusion awaiting review');
     expect(markup).not.toContain('Status updated');
   });

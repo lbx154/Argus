@@ -109,7 +109,7 @@ def test_operator_available_still_asks_for_an_operator_owned_conflict(
 
     assert action == "ask_operator"
     stored = next(row for row in supervisor.memory.backlog.all() if row.id == item.id)
-    assert stored.status == "paused_operator"
+    assert stored.status == "parked"
     assert stored.pending_question
     assert any(
         event["type"] == EventType.LIFE_OPERATOR_QUESTION_PENDING
@@ -131,7 +131,7 @@ def test_no_operator_settles_the_conflict_on_a_recorded_assumption(
 
     assert action == "revise"
     stored = next(row for row in supervisor.memory.backlog.all() if row.id == item.id)
-    assert stored.status != "paused_operator"
+    assert stored.status != "parked"
     assert not stored.pending_question
     assert not any(
         event["type"] == EventType.LIFE_OPERATOR_QUESTION_PENDING
@@ -176,7 +176,7 @@ def test_no_operator_parks_an_action_for_the_manager_to_decide(
 
     assert action == "ask_operator"
     stored = next(row for row in supervisor.memory.backlog.all() if row.id == item.id)
-    assert stored.status == "paused_operator"
+    assert stored.status == "parked"
     assert stored.operator_decision["status"] == "pending"
 
 
@@ -195,7 +195,7 @@ def test_no_operator_mission_question_becomes_a_replan_not_a_park(
 
     assert result is not None and result["status"] == "replan_requested"
     stored = next(row for row in supervisor.memory.backlog.all() if row.id == item.id)
-    assert stored.status != "paused_operator"
+    assert stored.status != "parked"
     assert stored.pending_question == ""
     assert not any(
         event["type"] == EventType.LIFE_OPERATOR_QUESTION_PENDING
@@ -215,7 +215,7 @@ def test_operator_available_mission_question_still_parks(tmp_path, monkeypatch) 
     supervisor.tick()
 
     stored = next(row for row in supervisor.memory.backlog.all() if row.id == item.id)
-    assert stored.status == "paused_operator"
+    assert stored.status == "parked"
     assert stored.pending_question == "Which of the two conflicting release rules wins?"
 
 
@@ -284,7 +284,7 @@ def test_no_operator_irreversible_alternative_parks_for_the_manager(
     )
     assert supervisor._adjudicate_mission_challenge(outcome) == "ask_operator"
     stored = next(row for row in supervisor.memory.backlog.all() if row.id == item.id)
-    assert stored.status == "paused_operator"
+    assert stored.status == "parked"
 
 
 def test_reviewer_decision_request_carries_its_classification() -> None:
@@ -375,7 +375,7 @@ def _proxy_supervisor(tmp_path, manager: _ProxyManager) -> LifeSupervisor:
 
 def _card(supervisor: LifeSupervisor):
     [card] = [
-        row for row in supervisor.memory.backlog.active() if row.status == "paused_operator"
+        row for row in supervisor.memory.backlog.active() if row.status == "parked"
     ]
     return card
 
@@ -504,7 +504,7 @@ def test_a_reviewer_credential_request_parks(
     supervisor.tick()
 
     stored = next(row for row in supervisor.memory.backlog.all() if row.id == item.id)
-    assert stored.status == "paused_operator"
+    assert stored.status == "parked"
 
 
 # --- interactive escalation stays at dev's rate ------------------------------
@@ -573,7 +573,7 @@ def test_reviewer_none_continues_instead_of_parking(
     item = supervisor.memory.backlog.add(BacklogItem.new(title="Load data", objective="load"))
     supervisor.tick()
     stored = next(row for row in supervisor.memory.backlog.all() if row.id == item.id)
-    assert stored.status != "paused_operator"
+    assert stored.status != "parked"
     assert not any(
         event["type"] == EventType.LIFE_OPERATOR_QUESTION_PENDING for event in sink.events
     )

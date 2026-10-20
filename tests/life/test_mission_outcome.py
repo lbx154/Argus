@@ -36,6 +36,7 @@ class _Outcome:
     stop_reason: str = ""
     stop_kind: str | None = None
     recoverable: bool = False
+    park_reason: str = ""
     rounds: int = 1
     final_review_status: str = ""
     final_review_source: str = ""
@@ -670,7 +671,8 @@ def test_daemon_shutdown_is_persisted_as_recoverable_pause(
         tmp_path,
         _Outcome(
             success=False,
-            status="paused_daemon_shutdown",
+            status="parked",
+            park_reason="daemon_shutdown",
             stop_kind=stop_kind,
             recoverable=recoverable,
             stop_reason="daemon shutdown requested",
@@ -682,13 +684,14 @@ def test_daemon_shutdown_is_persisted_as_recoverable_pause(
 
     result = supervisor.tick()
 
-    assert result is not None and result["status"] == "paused_daemon_shutdown"
+    assert result is not None and result["status"] == "parked"
     stored = next(row for row in supervisor.memory.backlog.all() if row.id == item.id)
-    assert stored.status == "paused_daemon_shutdown"
+    assert stored.status == "parked"
     assert any(row.id == item.id for row in supervisor.memory.backlog.active())
     completed = _completed_event(sink)
     assert completed["success"] is False
-    assert completed["stop_kind"] == "daemon_shutdown"
+    assert (completed["status"], completed["park_reason"]) == ("parked", "daemon_shutdown")
+    assert completed["stop_kind"] == stop_kind
     assert completed["recoverable"] is True
 
 

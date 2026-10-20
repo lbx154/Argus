@@ -1,10 +1,15 @@
-"""Durable circuit breaker for uncaught mission-runtime failures.
+"""Durable circuit breaker for failures more missions cannot repair.
 
-A provider/backend failure is represented by a normal mission outcome and does
-not belong here.  This module handles exceptions that escape Argus orchestration
-itself: once one such fingerprint is observed, more missions cannot repair the
-same loaded code, so Planner/Engineer dispatch is held until the runtime,
-relevant source, checkpoint contract, or an explicit canary result changes.
+Two failures open it. An exception that escapes Argus orchestration itself:
+more missions cannot repair the same loaded code. And a model service that
+turned work away past its automatic retries, so a task parked on the provider
+fence: every other call would be turned away too. A single provider failure is
+a normal mission outcome and does not belong here. While the circuit is open,
+Planner turns and task dispatch (and with it every role's model calls) are
+held until the runtime, relevant source, checkpoint contract, or an explicit
+canary result changes. A provider outage ends sooner: on the operator's Run,
+or on any call a half-open window lets through that the model service
+answers, the canary's or the Planner's.
 """
 from __future__ import annotations
 
@@ -24,13 +29,17 @@ from ..core.secret_guard import known_secret_values, redact_secrets_text
 from .context_packet import CHECKPOINT_CONTRACT_VERSION
 
 CIRCUIT_FILENAME = "runtime-failure-circuit.json"
+# The fingerprint of a provider outage: one outage is one circuit, whatever
+# words each failed call used.
+PROVIDER_OUTAGE = "provider_outage"
 # Half-open recovery. A window admits one canary mission (and, while nothing is
 # queued, one Planner turn to produce work for it); a reviewed canary pass
-# clears the circuit. A window opens when a fact the caller watches changes
-# (a backend switch, new operator input). A new Argus runtime needs no window:
-# it clears the circuit outright. For a recovery nothing announces (a provider
-# or disk coming back) a timed window is the fallback, its wait doubling after
-# each window that ends without a pass. Nothing used to produce a canary, so
+# clears the circuit, and for a provider outage so does any answer. A window
+# opens when a fact the caller watches changes (a backend switch, new operator
+# input). A new Argus runtime needs no window: it clears the circuit outright.
+# For a recovery nothing announces (a provider or disk coming back) a timed
+# window is the fallback, its wait doubling after each window that ends
+# without a pass. Nothing used to produce a canary, so
 # only a changed runtime could close a circuit.
 CANARY_COOLDOWN_KNOB = "ARGUS_SKILL_RUNTIME_CANARY_COOLDOWN_MIN"
 CANARY_COOLDOWN_DEFAULT_MINUTES = 30.0
@@ -201,16 +210,27 @@ def runtime_failure_fingerprint(exc: BaseException) -> dict[str, str]:
     }
 
 
+def provider_outage_failure(cause: object) -> dict[str, str]:
+    """The circuit's record of a model service that turned work away."""
+    return {
+        "fingerprint": PROVIDER_OUTAGE,
+        "exception_type": "",
+        "callsite": "",
+        "normalized_error": normalize_runtime_failure_message(cause),
+    }
+
+
 def record_runtime_failure_circuit(
     root: Path | str,
-    exc: BaseException,
+    failure: BaseException | dict[str, str],
     *,
     item_id: str = "",
 ) -> dict[str, Any]:
-    """Open or increment the durable circuit for one uncaught exception."""
+    """Open or increment the durable circuit for an uncaught exception or an outage."""
     state_root = Path(root)
     path = state_root / CIRCUIT_FILENAME
-    failure = runtime_failure_fingerprint(exc)
+    if isinstance(failure, BaseException):
+        failure = runtime_failure_fingerprint(failure)
     identity = runtime_failure_identity()
     now = time.time()
     with _locked(state_root):
@@ -408,10 +428,12 @@ __all__ = [
     "CANARY_COOLDOWN_KNOB",
     "CANARY_TAG",
     "CIRCUIT_FILENAME",
+    "PROVIDER_OUTAGE",
     "active_runtime_failure_circuit",
     "claim_runtime_failure_half_open",
     "clear_runtime_failure_circuit",
     "normalize_runtime_failure_message",
+    "provider_outage_failure",
     "record_runtime_failure_circuit",
     "runtime_failure_canary_cooldown_seconds",
     "runtime_failure_fingerprint",

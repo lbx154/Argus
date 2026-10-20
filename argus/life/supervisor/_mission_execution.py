@@ -46,8 +46,8 @@ class MissionExecutionMixin(
 
         * Lost claim: no execution; undo an unexpected claim if necessary.
         * Superseded acceptance: meter the call, preserve the replacement task.
-        * Recoverable stop: pause helper persists the pause and completion event,
-          or requeues external work that changed before it could be parked.
+        * Recoverable stop: pause helper persists the park and completion event,
+          or requeues a Manager wait whose question changed before it could be parked.
         * Stage continuation/HOLD: classify the next step, then commit and
           publish it through the same durable completion path as other outcomes.
         * Ordinary settlement (including chartered iteration): finalizer writes

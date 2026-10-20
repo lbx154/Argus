@@ -294,8 +294,6 @@ def test_settlement_follows_the_verdict_and_the_operator_bar(paper):
     assert RoundSettlementMixin._classify(review=rejecting) == (None, "")
     stopped = ReviewDecision(status="blocked", reason="Operator stopped this work.", next_action="", operator_question="Wait for the operator.")
     assert RoundSettlementMixin._classify(review=stopped)[0] == "blocked"
-    unavailable = ReviewDecision(status="blocked", reason="Provider unavailable.", next_action="Retry provider.", backend_unavailable=True)
-    assert RoundSettlementMixin._classify(review=unavailable)[0] == "infra_blocked"
     accepted = ReviewDecision(status="done", reason="Accepted.", next_action="", venue_review=assessment())
     enforce_venue_acceptance(accepted, venue="ICLR", before=paper_review_snapshot(paper), artifact_root=paper)
     assert RoundSettlementMixin._classify(review=accepted)[0] == "done"

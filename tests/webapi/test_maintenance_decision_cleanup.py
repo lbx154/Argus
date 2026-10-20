@@ -126,7 +126,7 @@ def test_publication_failure_retains_same_decision_and_authoring_evidence(tmp_pa
     assert sidecar.read_bytes() == before and worktree.is_dir()
     [pending] = mem.backlog.history()
     assert pending.operator_decision == card
-    assert pending.status == 'paused_operator'
+    assert pending.status == 'parked'
     assert not (mem.project_root / 'maintenance/receipts/daemon-roll.json').exists()
     monkeypatch.setattr(publication, 'publish_reviewed_change', publish)
     second = manager_resolve_operator_decision(mem.project.fingerprint, card['id'], 'adopt', global_root=mem.global_root)
@@ -169,7 +169,7 @@ def test_handoff_failure_retries_same_decision_without_republishing(tmp_path, mo
     assert len(pushes) == 1
     assert sidecar.read_bytes() == before and worktree.is_dir()
     [pending] = mem.backlog.history()
-    assert pending.operator_decision == card and pending.status == 'paused_operator'
+    assert pending.operator_decision == card and pending.status == 'parked'
     assert handoff._consume_deployment_handoff(mem.project_root) is None
 
     monkeypatch.setattr(handoff, 'request_deployment_handoff', request_handoff)

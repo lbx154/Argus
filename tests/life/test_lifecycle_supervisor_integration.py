@@ -719,5 +719,5 @@ def test_planner_operator_handoff_records_its_question(tmp_path: Path) -> None:
     assert len(idle_events) == 1
     assert idle_events[0]["handoff"] == "operator"
     assert "IMAGE2_OPERATOR_ACTION_REQUIRED.md" in idle_events[0]["reason"]
-    [card] = [row for row in mem.backlog.active() if row.status == "paused_operator"]
+    [card] = [row for row in mem.backlog.active() if row.status == "parked"]
     assert card.pending_question == "Can you make the configured image route available?"

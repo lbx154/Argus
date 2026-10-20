@@ -599,7 +599,7 @@ def test_provider_configuration_failure_parks_for_whoever_decides(
     ]
 
     assert results[:2] == [None, None]
-    assert results[2]["status"] == "paused_operator"
+    assert results[2]["status"] == "parked"
     card = fresh().operator_decision
     assert card["decision_kind"] == "provider_configuration"
     assert card["status"] == "pending"
@@ -714,7 +714,7 @@ def test_a_choice_outside_the_card_is_asked_again_only_after_a_backoff(
     assert supervisor._decide_parked_questions() is False
     assert len(manager.prompts) == 1
     parked = next(row for row in LifeMemory.open(life).backlog.history() if row.id == item.id)
-    assert parked.status == "paused_operator"
+    assert parked.status == "parked"
 
     # A card the Manager keeps failing gets a bounded number of tries.
     for _ in range(10):
@@ -744,7 +744,7 @@ def test_the_manager_cannot_answer_a_card_the_operator_can_be_asked(
     )
     assert "theirs" in result["error"]
     parked = next(row for row in LifeMemory.open(life).backlog.history() if row.id == item.id)
-    assert parked.status == "paused_operator"
+    assert parked.status == "parked"
 
 
 @dataclass
@@ -831,7 +831,7 @@ def test_reviewed_framework_change_parks_for_the_manager(
 
     result = supervisor.tick()
 
-    assert result is not None and result["status"] == "paused_operator"
+    assert result is not None and result["status"] == "parked"
     settled = next(row for row in memory.backlog.history() if row.id == item.id)
     assert settled.operator_decision["decision_kind"] == "framework_deployment"
     assert settled.operator_decision["status"] == "pending"
