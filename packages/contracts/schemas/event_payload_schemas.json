@@ -1786,6 +1786,12 @@
         },
         "learning_reason": {
           "type": "string"
+        },
+        "changed_during_review": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
         }
       }
     },

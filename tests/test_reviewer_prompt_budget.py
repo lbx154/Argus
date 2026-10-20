@@ -83,6 +83,9 @@ _TASK_OWNED_BLOCKS = (
 # fixture conditions live in the action tool descriptions, not here. Measured
 # at 5_658 (5_694 on Windows); the others at 5_371 and 5_463. No headroom is
 # left on Windows: re-compress before adding prose.
+#
+# The read-only forms then went: every Reviewer has the Engineer's tools and
+# gets the executing form alone. Measured at 5_198.
 FIXED_PROSE_BUDGET = 5_700
 
 
@@ -93,7 +96,7 @@ def _fixed_prose_chars(reviewer: Reviewer) -> int:
     return stats["static_total"]["chars"] - task_owned
 
 
-def _build(measured: bool, monkeypatch, evidence_mode: str = "") -> tuple[str, Reviewer]:
+def _build(measured: bool, monkeypatch) -> tuple[str, Reviewer]:
     if measured:
         monkeypatch.setenv("ARGUS_SKILL_MEASURED_MODE", "1")
     else:
@@ -108,7 +111,6 @@ def _build(measured: bool, monkeypatch, evidence_mode: str = "") -> tuple[str, R
         main_summary="HANDOFF: tried X. RESULT correct=true cand_ms=0.5",
         main_error=None,
         prior_checkpoint={},
-        evidence_mode=evidence_mode,
     )
     return prompt, r
 
@@ -138,22 +140,15 @@ def test_fixed_contract_prose_within_budget(monkeypatch):
     )
 
 
-@pytest.mark.parametrize("mode", ["execute", "recorded", "read"])
-def test_every_evidence_form_fits_the_budget(monkeypatch, mode):
-    _prompt_text, reviewer = _build(measured=False, monkeypatch=monkeypatch, evidence_mode=mode)
-    assert _fixed_prose_chars(reviewer) < FIXED_PROSE_BUDGET
-
-
-@pytest.mark.parametrize("mode", ["execute", "recorded", "read"])
 @pytest.mark.parametrize("policy", ["standard", "progress-first", "strict"])
-def test_windows_fixed_contract_prose_within_budget_for_every_form(monkeypatch, mode, policy):
+def test_windows_fixed_contract_prose_within_budget_for_every_policy(monkeypatch, policy):
     monkeypatch.setenv("ARGUS_SKILL_EVIDENCE_POLICY", policy)
     monkeypatch.setattr(
         reviewer_prompt,
         "native_shell_summary",
         lambda: NATIVE_WINDOWS_SHELL_SUMMARY,
     )
-    _prompt_text, reviewer = _build(measured=False, monkeypatch=monkeypatch, evidence_mode=mode)
+    _prompt_text, reviewer = _build(measured=False, monkeypatch=monkeypatch)
     assert _fixed_prose_chars(reviewer) < FIXED_PROSE_BUDGET
 
 

@@ -201,11 +201,11 @@ def snapshot_after_edit(
 
 
 def _prepare_readable_pdf(paper: Path) -> None:
-    """Render on the host before a read-only CLI reviewer receives the PDF.
+    """Render on the host before a CLI reviewer receives the PDF.
 
-    Some CLI file viewers expose PDFs as binary text and cannot run a renderer
-    in read-only mode. Only derivatives of the copied PDF enter this workspace;
-    manuscript source, earlier reviews, and project previews remain excluded.
+    Some CLI file viewers expose PDFs as binary text. Only derivatives of the
+    copied PDF enter this workspace; manuscript source, earlier reviews, and
+    project previews remain excluded.
     """
     try:
         import pymupdf as fitz

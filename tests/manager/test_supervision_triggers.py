@@ -420,3 +420,11 @@ R = "EVIDENCE_REFS: backlog.jsonl"
 def test_rescue_reading_never_invents_a_decision(text):
     with pytest.raises(supervision.SupervisionDecisionError):
         supervision._decision(text)
+
+
+@pytest.mark.parametrize("status", ["done", "continue", "blocked"])
+def test_a_workspace_changed_during_review_reaches_the_manager_whatever_the_verdict(admitted, status):
+    event = admitted(_review(1, status=status, changed_during_review=["src/model.py"], **_not_needed()))
+    assert "src/model.py" in event["consult_reason"]
+    assert "decide whether this review counts" in event["consult_reason"]
+    assert admitted(_review(1, status="done", **_not_needed())) is None

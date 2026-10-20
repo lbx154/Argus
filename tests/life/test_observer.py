@@ -1,7 +1,7 @@
 """The Observer glances at how the work flows and speaks up only when it does not.
 
-Each time another role ends a turn it reads the task's events with read-only
-tools, in a fresh session, says nothing when the flow is fine, and otherwise
+Each time another role ends a turn it reads the task's events with the
+Engineer's tools, in a fresh session, says nothing when the flow is fine, and otherwise
 gives the Manager one remark through its supervision; with no Manager, or once
 the task is delivered, the operator gets an alert. A look that fails is skipped
 and never holds up the work.
@@ -129,10 +129,12 @@ def test_only_the_engineer_reviewer_and_planner_wake_it(team):
     assert team.backend.calls == []
 
 
-def test_a_look_reads_only_the_events_with_read_only_tools_at_low_effort(team, monkeypatch):
+def test_a_look_reads_the_events_with_the_engineer_s_access_at_low_effort(team, monkeypatch):
     _turn(team)
     call = team.backend.calls[0]
-    assert call["label"] == "observer" and call["options"].sandbox_mode == "read-only"
+    options = call["options"]
+    assert call["label"] == "observer" and options.full_auto and options.sandbox_mode is None
+    assert not options.force_safe_mode and not options.dangerous_yolo
     assert (call["options"].model, call["options"].reasoning_effort) == ("reviewer-model", "low")
     assert f"`{team.root / 'events.jsonl'}`" in call["prompt"] and "agent_io" not in call["prompt"]
     monkeypatch.setenv("ARGUS_SKILL_OBSERVER_MODEL", "observer-model")

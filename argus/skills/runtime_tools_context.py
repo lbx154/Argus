@@ -27,7 +27,7 @@ def runtime_tools_run(ctx):
         return
     root = Path(ctx.usage_project_root).resolve()
     skills = Path(os.environ.get('ARGUS_SKILL_PROJECT_SKILLS_DIR') or root / 'skills').resolve()
-    writable = (role in {'engineer', 'manager', 'self'}
+    writable = (role != 'planner'
                 and options.sandbox_mode != 'read-only' and role_skill_maintenance_enabled())
     service = RuntimeToolService(root, skills_root=skills, role=role,
                                  call_id=ctx.call_id, writable=writable)

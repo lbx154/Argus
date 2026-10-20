@@ -22,8 +22,8 @@ the tool and its knowledge for the next task in the same project.
 | `evolve_runtime` | Proposes a new tool or revises an existing name with its expected revision, Python source, cases and documents. |
 | `rollback_runtime` | Restores the owning role's previous code and documents, or withdraws its first revision. |
 
-Engineer, writable Manager and ordinary writable SELF calls can propose tools.
-Reviewers and other read-only roles can reuse tools but cannot publish or roll back.
+Engineer, Reviewer, writable Manager and ordinary writable SELF calls can propose tools.
+The Planner and other read-only calls can reuse tools but cannot publish or roll back.
 `ARGUS_SKILL_REQUIRE_POST_TASK_LEARNING=0` disables new runtime learning along with
 the existing role-memory maintenance switch. Tools-disabled calls, nested advisor
 calls, supervisor calls and isolated framework-maintenance calls receive no new

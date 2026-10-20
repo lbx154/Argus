@@ -488,6 +488,7 @@ export interface RoundReviewCompletedEvent extends EventMsg {
   "manager_attention_reason"?: string;
   "learning"?: "worth_reflecting" | "nothing_new";
   "learning_reason"?: string;
+  "changed_during_review"?: Array<string>;
 }
 
 export interface RoundSecretRedactedEvent extends EventMsg {

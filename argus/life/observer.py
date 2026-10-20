@@ -9,8 +9,8 @@ Observer only watches whether the work flows.
 
 The Observer is that person as a role, on the same backends as the others.
 Whenever the Engineer, Reviewer or Planner ends a turn, it reads how the task
-has flowed so far from ``events.jsonl``, with the Reviewer's read-only tools,
-in a fresh session each time. When all is well it says nothing and leaves no
+has flowed so far from ``events.jsonl``, with the Engineer's tools, in a
+fresh session each time. When all is well it says nothing and leaves no
 record of its own. A remark is one ``life.observer.note`` event for the
 Manager, who hears it through its supervision and decides what to do; with no
 Manager, or once the task is delivered, the operator gets it as an alert.
@@ -93,8 +93,8 @@ def look(backend: Any, *, root: Path, turns: list[dict[str, Any]], model: str) -
         options=RunnerOptions(
             model=model or None, reasoning_effort="low",
             working_dir=str(root), skip_git_repo_check=True,
-            # The Reviewer's read-only boundary: read and search, change nothing.
-            sandbox_mode="read-only", force_safe_mode=True, dangerous_yolo=False, full_auto=False,
+            # The Engineer's access: full outside safe mode, full-auto inside it.
+            full_auto=True,
         ),
     )
     if int(getattr(result, "exit_code", 0) or 0) != 0 or getattr(result, "fatal_error", None):

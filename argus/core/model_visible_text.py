@@ -28,18 +28,8 @@ metrics, and readable provenance; ignore lower-level identifier adjudication.
 # judgment; what changes is the evidence they reach for: an executable check
 # whose outcome does not depend on reading the masked span.
 #
-# Which check the Reviewer can reach depends on its tools and on what the host
-# records. A Reviewer that can run commands reruns it. Most Reviewer surfaces
-# only read and search; told to rerun anyway, one A/B arm's Reviewer refused
-# the work in 13 verdicts and asked for an execution surface no role could
-# grant. A read-only Reviewer weighs what the host recorded of a run when the
-# Engineer's backend reports exit codes. That record is what the agent CLI's
-# stream reported, not proof, so the Reviewer still reads what the command ran. Where the
-# backend reports none, the Reviewer asks for evidence in a form it can read.
-# No form accepts the Engineer's word alone.
-EVIDENCE_EXECUTE = "execute"
-EVIDENCE_RECORDED = "recorded"
-EVIDENCE_READ = "read"
+# The Reviewer has the Engineer's tools, so it reruns the check itself; the
+# Engineer's word alone is never the evidence.
 
 # A check can also be impossible in this environment rather than missing: the
 # resource it needs exists only when the work is graded or deployed (one task's
@@ -77,43 +67,11 @@ _MASKED_DISPLAY = (
     "time; see unverifiable."
 )
 _NOT_EVIDENCE = "the Engineer's cited claim alone is not evidence."
-REVIEW_EVIDENCE_RULE_EXECUTING = (
+REVIEW_EVIDENCE_RULE = (
     "You can run commands: rerun the decisive check yourself; " + _NOT_EVIDENCE
-    + " If the sandbox blocks the rerun (write or network denied) or your "
-    "command tool is unavailable, judge from recorded runs and your own reading "
-    "instead. " + _MASKED_DISPLAY
+    + " If the sandbox blocks the rerun (write or network denied), judge from "
+    "recorded runs and your own reading instead. " + _MASKED_DISPLAY
 )
-REVIEW_EVIDENCE_RULE_READ_ONLY = (
-    "You can read and search, not run commands; never ask for an execution tool. "
-    "Judge from host-recorded runs and your own reading of code and tests; "
-    + _NOT_EVIDENCE + " A record shows what the agent CLI reported, not proof: "
-    "read the test or script it ran, and weigh pipes, `|| true`, test selection, "
-    "checks edited this round, and conflicting or unverified results. "
-    "An Engineer-written check counts only once you have read it. If that cannot "
-    "settle it, ask the Engineer for one named check whose run the host records. "
-    + _MASKED_DISPLAY
-)
-REVIEW_EVIDENCE_RULE_UNRECORDED = (
-    "You can read and search, not run commands; never ask for an execution tool. "
-    "Judge from your own reading of code and tests and the Engineer's evidence; "
-    + _NOT_EVIDENCE + " If that cannot settle it, ask for the decisive evidence "
-    "in a form you can read, such as an output file in the workspace, and read "
-    "what produced it. " + _MASKED_DISPLAY
-)
-_RULES = {
-    EVIDENCE_EXECUTE: REVIEW_EVIDENCE_RULE_EXECUTING,
-    EVIDENCE_RECORDED: REVIEW_EVIDENCE_RULE_READ_ONLY,
-    EVIDENCE_READ: REVIEW_EVIDENCE_RULE_UNRECORDED,
-}
-
-
-def review_evidence_rule(mode: str) -> str:
-    """The Reviewer's evidence rule for its tools and what the host records.
-
-    ``mode`` is :data:`EVIDENCE_EXECUTE`, :data:`EVIDENCE_RECORDED` or
-    :data:`EVIDENCE_READ`; anything else gets the most cautious read-only form.
-    """
-    return _RULES.get(mode, REVIEW_EVIDENCE_RULE_UNRECORDED)
 
 
 MASKED_DISPLAY_ENGINEER_RULE = (
@@ -192,19 +150,13 @@ def has_material_blocker(value: object) -> bool:
 
 
 __all__ = [
-    "EVIDENCE_EXECUTE",
-    "EVIDENCE_READ",
-    "EVIDENCE_RECORDED",
     "FIXTURE_EVIDENCE_RULE",
     "LABELLED_FIXTURE_CARVE_OUT",
     "MASKED_DISPLAY_ENGINEER_RULE",
     "MODEL_INTEGRITY_BOUNDARY",
-    "REVIEW_EVIDENCE_RULE_EXECUTING",
-    "REVIEW_EVIDENCE_RULE_READ_ONLY",
-    "REVIEW_EVIDENCE_RULE_UNRECORDED",
+    "REVIEW_EVIDENCE_RULE",
     "contains_integrity_judgment",
     "has_material_blocker",
-    "review_evidence_rule",
     "sanitize_model_judgment_text",
     "sanitize_model_visible_text",
 ]

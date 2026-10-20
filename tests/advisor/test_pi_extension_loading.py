@@ -114,7 +114,6 @@ export default function(pi) {
         result = subprocess.run(command, cwd=tmp_path, capture_output=True, text=True, timeout=20, env={
             "PATH": os.defpath, "PI_CODING_AGENT_DIR": str(agent), "PI_OFFLINE": "1", "CI": "true",
             "PI_HARNESS_PROFILE": "argus", "ARGUS_LOADER_RECEIPT": str(receipt),
-            "ARGUS_PLUGIN_EXPERIENCE_WRITABLE": "1",
             "ARGUS_PLUGIN_RUNTIME_WRITABLE": "1",
         })
         assert result.returncode == 0, result.stdout + result.stderr

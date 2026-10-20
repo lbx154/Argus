@@ -136,7 +136,8 @@ pre-existing files.
 ### Reviewer
 
 Reviewer independently inspects the Engineer result when review is required.
-The main Reviewer is read-only.
+It runs with the Engineer's access; a workspace change during its turn is
+recorded beside the verdict and put to the Manager.
 
 | Reviewer verdict | Transition |
 | --- | --- |

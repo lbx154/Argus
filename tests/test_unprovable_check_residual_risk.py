@@ -37,11 +37,7 @@ from argus.core.autonomy import AUTONOMOUS_ASSUMPTION_INSTRUCTION
 from argus.core.event_catalog import EventType, validate_event_envelope
 from argus.core.file_facts import file_facts
 from argus.core.grounding_baseline import snapshot
-from argus.core.model_visible_text import (
-    REVIEW_EVIDENCE_RULE_EXECUTING,
-    REVIEW_EVIDENCE_RULE_READ_ONLY,
-    REVIEW_EVIDENCE_RULE_UNRECORDED,
-)
+from argus.core.model_visible_text import REVIEW_EVIDENCE_RULE
 from argus.core.models import RunnerResult
 from argus.core.residual_risk import (
     accept_residual_risk,
@@ -524,9 +520,8 @@ def test_every_fixture_rule_names_the_three_faithfulness_conditions(tmp_path, mo
     ):
         for condition in _FIXTURE_CONDITIONS:
             assert condition in text, (condition, text[:200])
-    for text in (REVIEW_EVIDENCE_RULE_EXECUTING, REVIEW_EVIDENCE_RULE_READ_ONLY, REVIEW_EVIDENCE_RULE_UNRECORDED):
-        assert "the Engineer's cited claim alone is not evidence" in text
-        assert "impossible, not missing, only if the task, packet or environment says" in text
+    assert "the Engineer's cited claim alone is not evidence" in REVIEW_EVIDENCE_RULE
+    assert "impossible, not missing, only if the task, packet or environment says" in REVIEW_EVIDENCE_RULE
     # What stays: no assumed facts, no mocks in what ships.
     for text in (AUTONOMOUS_ASSUMPTION_INSTRUCTION, " ".join(rendered.split())):
         assert "Never assume facts, data" in text

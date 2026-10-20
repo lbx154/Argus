@@ -127,7 +127,7 @@ def test_review_combines_parallel_scientific_visual_and_language_passes() -> Non
     assert "executed code" in review
     assert "raw rows" in review
     assert "primary sources" in review
-    assert "independent read-only passes in parallel" in review
+    assert "independent passes in parallel" in review
     assert "inspect every rendered page" in review
     assert "academic prose" in review
     assert "scientific completeness" in playbook

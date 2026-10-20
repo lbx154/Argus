@@ -45,7 +45,7 @@ framework capabilities. Supported names currently are:
 - `composable-workflow-profiles`: `VerticalContract.compose_workflow`.
 - `vertical-routing-paths`: the framework's routing-path validator.
 - `host-round-evidence`: the request/result types, provider registration and
-  collection API used to deliver host evidence to a read-only Reviewer.
+  collection API used to deliver host evidence to the Reviewer.
 
 The Store checks these known framework APIs and the vertical API version across
 the entire selected dependency closure before starting an install/update job.

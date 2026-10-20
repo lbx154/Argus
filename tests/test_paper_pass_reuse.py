@@ -36,8 +36,8 @@ class PaperRunner:
             assert "natural-language assessment" in kwargs["prompt"]
             assert "that alone is not broken reading order" in kwargs["prompt"]
             assert "polish, not grounds to fail the paper" in kwargs["prompt"]
-        assert options.sandbox_mode == "read-only"
-        assert options.force_safe_mode
+        # The Engineer's access (here the config defaults), never a read-only mode.
+        assert options.sandbox_mode is None and not options.force_safe_mode
         return SimpleNamespace(
             exit_code=1 if self.shared.fail else 0,
             fatal_error="unavailable" if self.shared.fail else None,
@@ -110,7 +110,7 @@ def test_unchanged_paper_skips_loss_and_reuses_pdf_assessments(paper_review, mon
     assert sorted(runner.shared.calls) == ["reviewer-coldread", "reviewer-visual"]
     assert first.input_tokens == 20
     assert "not scientific correctness" in first.reason
-    assert len(renders) == 1  # Both read-only passes share one immutable render.
+    assert len(renders) == 1  # Both PDF-only passes share one immutable render.
     (project / "paper" / "REVIEW.md").write_text("new integrated verdict")
     second = _parallel_final_review_passes(runner, config)
     assert len(runner.shared.calls) == 2

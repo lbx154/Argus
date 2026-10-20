@@ -329,7 +329,7 @@ def test_research_final_review_uses_only_review_stage_checklist(
     assert "inspect every rendered page" in context.role_banner
     assert "do not load the research notes" in context.role_banner
     assert "`research-review-playbook.md`" in context.role_banner
-    assert "Update your own paper/REVIEW.md" in context.role_banner
+    assert "Your natural-language review becomes paper/REVIEW.md" in context.role_banner
     assert "do not edit the manuscript, code, figures" in context.role_banner
     assert "no fixed fields or review template is required" in context.role_banner
     assert "single workflow playbook" in context.role_banner

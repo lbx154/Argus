@@ -189,8 +189,6 @@ KNOBS: tuple[Knob, ...] = (
     Knob("ARGUS_SKILL_NO_PROGRESS_THRESHOLD", "(vertical)", "consecutive empty Engineer turns that end a mission unless the Reviewer reports progress; overrides every vertical's round_policy; 0 disables; 'vertical' hands control back", "mission", cockpit=True),
     Knob("ARGUS_SKILL_SOFT_ROUND_LIMIT", "(vertical)", "round after which two verdicts without forward progress end a mission; overrides every vertical's round_policy; 0 disables; 'vertical' hands control back", "mission", cockpit=True),
     Knob("ARGUS_SKILL_HARD_ESCALATE_ROUNDS", "(vertical)", "round from which a missing Reviewer progress judgement ends a mission; overrides every vertical's round_policy; 0 disables; 'vertical' hands control back", "mission", cockpit=True),
-    Knob("ARGUS_SKILL_REVIEWER_READ_DIRS", "[]", "JSON array of absolute input directories for scoped Reviewer reads", "mission"),
-    Knob("ARGUS_SKILL_REVIEWER_VALIDATION_IMAGE", "(unset)", "local Docker image for opt-in read-only Reviewer command checks; empty disables", "mission"),
     Knob("ARGUS_SKILL_ROUND_CHECKPOINT", "off", "record private git refs for Reviewer-recommended round checkpoints", "mission"),
     Knob("ARGUS_SKILL_REQUIRE_POST_TASK_LEARNING", "1", "enable selective project-layer Skill maintenance for all four roles (default ON)", "mission"),
     Knob("ARGUS_SKILL_BOUNDED_DAG_MODEL", "auto", "model for decomposing Manager bounded tasks into backlog DAG nodes: gpt-6.1-sol on copilot (follows an environment model of auto), planner model otherwise", "mission"),

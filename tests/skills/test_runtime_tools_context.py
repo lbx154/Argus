@@ -34,7 +34,7 @@ def test_non_task_calls_do_not_receive_evolution_capabilities(tmp_path, label, b
 @pytest.mark.parametrize('label,read_only,enabled,can_publish', [
     ('engineer-r1', False, True, True), ('simple-1', False, True, True),
     ('main', False, True, True), ('self-micro', False, True, True),
-    ('manager.turn', True, True, False), ('reviewer', False, True, False),
+    ('manager.turn', True, True, False), ('reviewer', False, True, True),
     ('engineer-r1', False, False, False),
 ])
 def test_context_preserves_tools_and_memory_switch(tmp_path, monkeypatch, label, read_only, enabled, can_publish):

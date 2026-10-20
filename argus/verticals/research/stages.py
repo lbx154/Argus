@@ -313,7 +313,7 @@ STAGE_CHECKLISTS: dict[str, tuple[ChecklistItem, ...]] = {
             statement=(
                 "Before narrative editing, preserve an immutable source/PDF snapshot in "
                 "internal mission state. After the fresh-context edit, the host obtains independent "
-                "read-only passes in parallel: before/after scientific semantic-loss, strict "
+                "passes in parallel: before/after scientific semantic-loss, strict "
                 "rendered visual quality, and a cold read whose isolated input contains only "
                 "the current rendered PDF. The host skips semantic loss for identical verified "
                 "snapshots and reuses PDF-only assessments only for identical input and policy. "
@@ -716,9 +716,8 @@ _REVIEWER_RESEARCH_JUDGEMENT = (
     _AMBITIOUS_RESEARCH_POLICY
     + " Distinguish scientific failure from implementation or evaluator failure. "
     "Keep defects in the current stage and specify the repair; never request rollback. "
-    "In Review, you own paper/REVIEW.md: update it through the provided report tool "
-    "when available, giving the complete judgment naturally. The host preserves your "
-    "opinion and binds it to the current paper. "
+    "In Review, your review becomes paper/REVIEW.md: give the complete judgment "
+    "naturally. The host preserves your opinion and binds it to the current paper. "
     "Engineer performs the requested scientific repairs and experiments directly in Review "
     "and returns for independent re-review; do not create parallel review records."
 )

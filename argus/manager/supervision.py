@@ -1124,6 +1124,10 @@ def _review_consult_reason(root: Path, event: dict[str, Any]) -> str:
     Manager has not yet been asked on: on the same facts it could only repeat
     its last ruling.
     """
+    changed = event.get("changed_during_review")
+    if changed:
+        return (f"the workspace changed while the Reviewer judged ({', '.join(map(str, changed[:20]))}); "
+                "its verdict stands as written: decide whether this review counts")
     if event.get("status") == "blocked":
         return "blocked review"
     if str(event.get("operator_question") or "").strip():
@@ -1213,7 +1217,8 @@ def schedule_supervision(manager: Any, root: Path | str, event: dict[str, Any]) 
     relevant = event_type in {EventType.LIFE_MISSION_COMPLETED, EventType.LIFE_PLANNER_VERDICT,
                               EventType.LIFE_DAEMON_DEGRADED,
                               EventType.LIFE_RUNTIME_INCIDENT_ESCALATED}
-    relevant |= event_type == EventType.ROUND_REVIEW_COMPLETED and event.get("status") in {"continue", "blocked"}
+    relevant |= event_type == EventType.ROUND_REVIEW_COMPLETED and (
+        event.get("status") in {"continue", "blocked"} or bool(event.get("changed_during_review")))
     # The round loop asks only on facts the Manager has not yet ruled on; a
     # stalled turn is reported once per stall.
     turn_stalled = event_type == EventType.ROUND_STALL and event.get("stall_reason") == "turn_stalled"

@@ -6,7 +6,6 @@ import os
 import sys
 from contextlib import contextmanager
 from dataclasses import dataclass, replace
-from functools import lru_cache
 from pathlib import Path
 from tempfile import TemporaryDirectory
 from typing import Any, Iterator, Mapping
@@ -19,14 +18,6 @@ from ..core.operator_decision import normalize_agent_options, normalize_option_i
 from ..core.research_contract import RESULT_FIELD_CHOICES, normalize_research_result
 from ..core.role_tool_bridge import CallBoundBridge, bridge_request
 from ..core.venue_review import ACCEPTED_RECOMMENDATIONS, RECOMMENDATIONS
-from .validation import (
-    CANCEL_TOOL,
-    COMMAND_TOOL,
-    RESULT_TOOL,
-    ReviewValidation,
-    configured_read_dirs,
-    configured_validation,
-)
 
 PREFIX = "ARGUS_PLUGIN_REVIEW"
 SERVER = "argus_review_actions"
@@ -206,14 +197,12 @@ def _basis_field() -> dict[str, Any]:
 class ReviewActions:
     def __init__(
         self, *, venue: str = "", venue_required: bool = False,
-        validation: ReviewValidation | None = None,
         grounding: ReviewGrounding | None = None,
     ) -> None:
         from ..core.autonomy import operator_questions_can_be_asked
 
         self.venue = venue
         self.venue_required = venue_required
-        self.validation = validation
         self.grounding = grounding or ReviewGrounding(
             operator_available=operator_questions_can_be_asked()
         )
@@ -360,8 +349,6 @@ class ReviewActions:
                 "name": name, "description": description,
                 "inputSchema": {"type": "object", "properties": fields, "required": required, "additionalProperties": False},
             })
-        if self.validation is not None:
-            tools.extend(self.validation.tools())
         return tools
 
     def dispatch(self, action: str, payload: dict[str, Any]) -> dict[str, Any]:
@@ -390,10 +377,6 @@ class ReviewActions:
             validate(payload, tool["inputSchema"])
         except ValidationError as exc:
             raise ValueError(exc.message) from exc
-        if action == COMMAND_TOOL and self.validation is not None:
-            return self.validation.run(payload)
-        if action in {RESULT_TOOL, CANCEL_TOOL} and self.validation is not None:
-            return self.validation.result(payload["command_id"], cancel=action == CANCEL_TOOL)
         review = payload["review"]
         if not review.strip():
             raise ValueError("The review must explain the judgment.")
@@ -555,66 +538,6 @@ def _residual_risk_record(risk: dict[str, Any], acceptance: str) -> tuple[str, d
     return f"{check}: {rest} (accepted by {who})", detail
 
 
-def validation_available(image: str) -> bool:
-    """Whether Docker can run the configured validation image on this host."""
-    image = str(image or "").strip()
-    if not image or not sys.platform.startswith("linux"):
-        return False
-    return _docker_image_present(image)
-
-
-@lru_cache(maxsize=8)
-def _docker_image_present(image: str) -> bool:
-    import shutil
-    import subprocess
-
-    docker = shutil.which("docker")
-    if not docker:
-        return False
-    try:
-        result = subprocess.run(
-            [docker, "image", "inspect", "--format", "{{.Id}}", image],
-            capture_output=True, timeout=10, check=False,
-        )
-    except (OSError, subprocess.SubprocessError):
-        return False
-    return result.returncode == 0
-
-
-def reviewer_can_execute(runner: Any) -> bool:
-    """Whether this Reviewer's tools can run commands.
-
-    Every Reviewer call is read-only (``sandbox_mode="read-only"``). Codex keeps
-    its shell inside a read-only sandbox; the other backends reduce the call to
-    file read and search tools. A validation image adds :data:`COMMAND_TOOL`
-    on any backend (:func:`review_action_tools`), but counts only when Docker
-    and the image are actually available here.
-    """
-    if str(getattr(runner, "backend", "")).lower() == "codex":
-        return True
-    from ..core.knobs import resolve_knob
-    from .validation import IMAGE_ENV
-
-    try:
-        image = resolve_knob(IMAGE_ENV, "").value.strip()
-    except Exception:  # noqa: BLE001 - an unreadable knob exposes no tool
-        return False
-    return validation_available(image)
-
-
-def reviewer_evidence_mode(runner: Any, *, engineer_records_commands: bool) -> str:
-    """Which evidence rule fits this Reviewer (see ``review_evidence_rule``).
-
-    A read-only Reviewer is told to rely on host-recorded runs only when the
-    Engineer's backend reports each command's exit code.
-    """
-    from ..core.model_visible_text import EVIDENCE_EXECUTE, EVIDENCE_READ, EVIDENCE_RECORDED
-
-    if reviewer_can_execute(runner):
-        return EVIDENCE_EXECUTE
-    return EVIDENCE_RECORDED if engineer_records_commands else EVIDENCE_READ
-
-
 @contextmanager
 def review_action_tools(
     runner: Any, options: RunnerOptions, *, venue: str, venue_required: bool,
@@ -623,21 +546,11 @@ def review_action_tools(
     backend = str(getattr(runner, "backend", "")).lower()
     if backend not in {"pi", "copilot", "codex", "claude", "qoder", "memory", ""}:
         raise ValueError(f"Reviewer action tools are not supported by backend {backend!r}; no text-parser fallback is available.")
-    approved_dirs = configured_read_dirs()
-    read_dirs = list(options.add_dirs or [])
-    if backend == "copilot":
-        read_dirs = list(dict.fromkeys([*read_dirs, *approved_dirs]))
-    validation = configured_validation(options.working_dir, approved_dirs)
-    if validation is not None and backend == "copilot":
-        read_dirs.append(str(validation.output_root))
-    actions = ReviewActions(
-        venue=venue, venue_required=venue_required, validation=validation, grounding=grounding,
-    )
-    with CallBoundBridge(
-        actions.dispatch, env_prefix=PREFIX,
-        on_close=validation.close if validation is not None else None,
-        cancel_operation=CANCEL_TOOL,
-    ) as bridge, TemporaryDirectory(prefix="argus-review-tools-") as directory:
+    actions = ReviewActions(venue=venue, venue_required=venue_required, grounding=grounding)
+    with (
+        CallBoundBridge(actions.dispatch, env_prefix=PREFIX) as bridge,
+        TemporaryDirectory(prefix="argus-review-tools-") as directory,
+    ):
         names = [tool["name"] for tool in actions.tools]
         environment = {**bridge.environment, "PYTHONPATH": str(Path(__file__).resolve().parents[2])}
         extra = list(options.extra_args or [])
@@ -672,10 +585,8 @@ def review_action_tools(
             ]
         yield actions, replace(
             options, extra_args=extra, trusted_extensions=extensions,
-            add_dirs=read_dirs,
             trusted_tool_names=[*(options.trusted_tool_names or []), *names],
             extension_env={**(options.extension_env or {}), **bridge.environment},
-            force_safe_mode=True,
         )
 
 

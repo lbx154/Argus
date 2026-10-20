@@ -3,7 +3,6 @@ from __future__ import annotations
 import json
 from dataclasses import replace
 from pathlib import Path
-from tempfile import TemporaryDirectory
 
 import pytest
 
@@ -114,31 +113,9 @@ def test_minimum_rating_cannot_be_satisfied_by_aspirational_prose(paper):
     assert result.final_submission_certified
 
 
-def test_reviewer_owned_file_stays_authoritative(paper):
-    from argus.reviewer.review_file import ReviewFileStore
-
-    class WritingReviewer(ProseRunner):
-        backend = "copilot"
-
-        def run_exec(self, **kwargs):
-            ReviewFileStore(**kwargs["options"].review_output).write_review(self.prose)
-            return super().run_exec(**kwargs)
-
-    runner = WritingReviewer(FEEDBACK)
-    result = evaluate(paper, runner)
-    assert result.reason == FEEDBACK and result.status == "continue"
-    assert (paper / "paper/REVIEW.md").read_text() == FEEDBACK
-    runner.prose = ACCEPTANCE + "新增实验解决了此前问题，无需返修。"
-    runner.action = "approve_review"
-    result = evaluate(paper, runner)
-    assert result.final_submission_certified
-    assert (paper / "paper/REVIEW.md").read_text() == runner.prose
-
-
 @pytest.mark.parametrize(("backend", "failure"), [
     ("pi", None),
     ("copilot", None),
-    ("copilot", "report_cleanup"),
     ("pi", "report_write"),
     ("copilot", "report_write"),
     ("pi", "state_write"),
@@ -148,7 +125,6 @@ def test_post_call_report_failures_preserve_usage_and_block_approval(
     paper, monkeypatch, backend, failure,
 ):
     from argus.manager import source_writeback
-    from argus.reviewer.review_file import ReviewFileStore
 
     metadata = {
         "input_tokens": 100,
@@ -160,23 +136,12 @@ def test_post_call_report_failures_preserve_usage_and_block_approval(
 
     class MeasuredReviewer(ProseRunner):
         def run_exec(self, **kwargs):
-            if kwargs["options"].review_output:
-                ReviewFileStore(**kwargs["options"].review_output).write_review(self.prose)
             return replace(super().run_exec(**kwargs), **metadata)
 
     runner = MeasuredReviewer(ACCEPTANCE, "approve_review")
     runner.backend = backend
     error = f"synthetic {failure} failure"
-    if failure == "report_cleanup":
-        cleanup = TemporaryDirectory.cleanup
-
-        def fail_cleanup(directory):
-            cleanup(directory)
-            if Path(directory.name).name.startswith("argus-review-output-"):
-                raise OSError(error)
-
-        monkeypatch.setattr(TemporaryDirectory, "cleanup", fail_cleanup)
-    elif failure == "report_write":
+    if failure == "report_write":
         atomic_write = source_writeback.atomic_write
 
         def fail_write(path, text):
@@ -199,9 +164,6 @@ def test_post_call_report_failures_preserve_usage_and_block_approval(
         assert payload[name] == value
     assert review.static_fingerprint
     assert review.prompt_block_stats
-    if backend == "copilot":
-        receipt = Path(runner.calls[0]["options"].review_output["receipt"])
-        assert not receipt.parent.exists()
     if failure is None:
         assert review.final_submission_certified and not review.backend_unavailable
         assert read_pipeline_state(paper)["current_verdict"] == "done"
