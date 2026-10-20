@@ -86,6 +86,23 @@ def test_questions_answers_remarks_and_parks_are_on_the_map(tmp_path):
     # The work an answer went on with is drawn from the question it answered.
     assert tasks["next"]["deps"] == ["ask"]
     assert tasks["budget"]["park_reason"] == "budget_exhausted" and "park_reason" not in tasks["ask"]
+    # The question is the Planner's, answered and carried on; the mission is the Engineer's.
+    assert (tasks["ask"]["role"], tasks["ask"]["continued_by"], tasks["ask"]["summary"]) == ("planner", "next", "A")
+    assert tasks["task-a"]["role"] == "engineer" and "continued_by" not in tasks["task-a"]
+
+
+def test_an_engineer_handoff_is_the_engineers_record_not_a_review():
+    rows = [
+        {"type": "life.mission.started", "item_id": "a", "ts": 1},
+        {"type": "round.main.completed", "item_id": "a", "ts": 2, "round_index": 1,
+         "last_message": "The two requirements conflict; the operator must choose.\n→ manager"},
+        {"type": "round.review.completed", "item_id": "a", "ts": 3, "round_index": 1, "status": "blocked",
+         "review_source": "engineer_handoff", "reason": "The two requirements conflict; the operator must choose."},
+        {"type": "round.review.completed", "item_id": "a", "ts": 4, "round_index": 2, "status": "done",
+         "review_source": "reviewer", "reason": "Passed."},
+    ]
+    roles = [(e["type"], e["role"]) for e in normalize_events(rows, {"a"})]
+    assert roles[2:] == [("round.review.completed", "engineer"), ("round.review.completed", "reviewer")]
 
 
 def test_ambiguous_rounds_do_not_attach_to_arbitrary_tasks():

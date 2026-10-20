@@ -310,11 +310,14 @@ def normalize_events(
                 "type": kind,
                 "ts": row.get("ts", 0),
                 "association": association,
+                # A handoff or self-check the Engineer wrote closes a round as
+                # a review would, but no Reviewer took part: it is the Engineer's.
                 "role": str(
                     row.get("agent_layer")
                     or row.get("role")
                     or row.get("decided_by")
-                    or ("reviewer" if "review" in kind else "engineer")
+                    or ("reviewer" if "review" in kind
+                        and not str(row.get("review_source") or "").startswith("engineer_") else "engineer")
                 ),
                 "text": said,
                 "status": text(row.get("status"), 40),
@@ -602,7 +605,8 @@ def read_map(
     continues = {}
     for item in memory.backlog.history():
         raw = item.to_jsonable()
-        if continuation := (raw.get("operator_decision") or {}).get("continuation_item_id"):
+        decision = raw.get("operator_decision") or {}
+        if continuation := decision.get("continuation_item_id"):
             continues[continuation] = item.id
         task = {k: raw[k] for k in TASK_FIELDS if k in raw}
         if reason := park_reason(item):
@@ -619,6 +623,10 @@ def read_map(
                 # owns_paths (and deps) are operator-visible strings too.
                 task[k] = [text(x) if isinstance(x, str) else x for x in v]
         task["summary"] = task.get("last_error") or task.get("notes") or ""
+        if continuation:
+            # Answered: where it ended is the answer, and its work goes on there.
+            task["continued_by"] = continuation
+            task["summary"] = text(decision.get("manager_decision") or decision.get("note")) or task["summary"]
         task["role"] = "engineer"
         tasks.append(task)
     for task in tasks:
@@ -718,6 +726,14 @@ def read_map(
     tasks.sort(key=lambda t: (t.get("ts") or 0, t["id"]))
     meta = read_session_meta(root, sid)
     visible_events = events[-2000:]
+    # A task is the work of the role whose record it holds first: an Engineer's
+    # mission, or a question the Planner put to the operator.
+    roles: dict[str, str] = {}
+    for event in visible_events:
+        if event["association"] == "explicit":
+            roles.setdefault(event["item_id"], event["role"])
+    for task in tasks:
+        task["role"] = roles.get(task["id"], task["role"])
     tasks = project_map_outcomes(tasks, visible_events)
     for task in tasks:
         # An outcome binding can change when a lifecycle event arrives even if

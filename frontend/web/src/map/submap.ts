@@ -441,8 +441,11 @@ export function buildSubmap(
       lastReview = undefined;
     }
     if (e.type === "round.review.completed") lastReview = e;
+    // An Engineer's handoff or self-check closes its round where a review
+    // would; no Reviewer took part, so it is part of the Engineer's round.
+    const engineerVerdict = e.type.includes("review") && e.role === "engineer";
     const kind: StepKind | null =
-      e.type.includes("review") ||
+      (e.type.includes("review") && !engineerVerdict) ||
       (e.type === "life.phase.started" && e.role === "reviewer")
         ? "review"
         : e.type === "life.planner.task_added"
@@ -452,6 +455,7 @@ export function buildSubmap(
             ? "result"
             : e.type === "round.start" ||
                 e.type === "round.main.completed" ||
+                engineerVerdict ||
                 e.type === "life.mission.started" ||
                 e.type === "life.phase.started"
               ? "execution"

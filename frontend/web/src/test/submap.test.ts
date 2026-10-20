@@ -32,6 +32,19 @@ const event = (
 });
 
 describe("task submap evidence", () => {
+  it("keeps an Engineer's handoff in the Engineer's round, not as a review", () => {
+    const rows = buildSubmap({ ...task, status: "failed" }, [
+      event("e1", "life.mission.started"),
+      event("e2", "round.start", { round_index: 1 }),
+      event("e3", "round.main.completed", { round_index: 1, text: "Requirements conflict.\n→ manager" }),
+      event("e4", "round.review.completed", { round_index: 1, role: "engineer", status: "blocked",
+        review_source: "engineer_handoff", text: "Requirements conflict." }),
+    ], true);
+    expect(rows.some((row) => row.kind === "review")).toBe(false);
+    const round = rows.find((row) => row.round === 1)!;
+    expect([round.kind, round.status, round.eventIds]).toEqual(["execution", "blocked", ["e2", "e3", "e4"]]);
+  });
+
   it("shows the question, its answer, remarks, direction and why the work paused", () => {
     const rows = buildSubmap({ ...task, status: "parked" }, [
       event("e1", "life.mission.started"),
