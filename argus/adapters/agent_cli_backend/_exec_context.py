@@ -47,7 +47,6 @@ class _ExecContext:
     call_id: str
     started_at: float
     log_path: "Path | None"
-    io_mode: str
 
     # ------------------------------------------------------------------ #
     # Usage routing                                                        #

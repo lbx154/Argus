@@ -212,7 +212,6 @@ class ReviewDecision:
     next_action: str
     operator_question: str = ""
     operator_options: list[dict[str, Any]] = field(default_factory=list)
-    checkpoint_recommended: bool = False
     # Strategic judgment beside the verdict (plan challenges, authority impact),
     # separate from bounded implementation acceptance.
     planner_report: dict[str, Any] = field(default_factory=dict)
@@ -303,7 +302,6 @@ class ReviewDecision:
                 for option in (self.operator_options or [])
                 if isinstance(option, dict)
             ],
-            "checkpoint_recommended": bool(self.checkpoint_recommended),
             "review_source": self.review_source or "reviewer",
             "prompt_block_stats": {
                 str(name): dict(stats)

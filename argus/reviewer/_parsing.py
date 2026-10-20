@@ -249,7 +249,6 @@ def decision_from_payload(payload: Mapping[str, Any]) -> ReviewDecision | None:
             next_action=next_action.strip(),
             operator_question=str(operator_question or "").strip(),
             operator_options=normalize_agent_options(option_values),
-            checkpoint_recommended=bool(payload.get("checkpoint_recommended", False)),
             research_result=normalize_research_result(
                 payload.get("research_result")
             ),
@@ -269,10 +268,10 @@ _VERDICT_KEYS = (
     "NEXT_ACTION",
     "OPERATOR_QUESTION",
     "OPERATOR_OPTIONS",
-    "CHECKPOINT_RECOMMENDED",
     "RESEARCH_RESULT",
     "VENUE_REVIEW",
-    # Retired; still a key so a legacy line ends the block before it.
+    # Retired; still keys so a legacy line ends the block before it.
+    "CHECKPOINT_RECOMMENDED",
     "FORWARD_PROGRESS",
     "PLAN_SIGNAL",
     "PLAN_CHALLENGE",
@@ -376,9 +375,6 @@ def _parse_named_verdict(text: str) -> ReviewDecision | None:
             operator_question=read_optional(values, "OPERATOR_QUESTION")[:500],
             operator_options=parse_agent_operator_options(
                 decision_footer_text(text)
-            ),
-            checkpoint_recommended=(
-                read_optional(values, "CHECKPOINT_RECOMMENDED").casefold() == "true"
             ),
             research_result=research_result,
             venue_review=venue_review,

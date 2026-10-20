@@ -1145,22 +1145,6 @@ export interface LoopDoneEvent extends EventMsg {
   "stop_reason"?: string;
 }
 
-export interface RoundCheckpointRecordedEvent extends EventMsg {
-  type: "round.checkpoint.recorded";
-  payload_schema_version?: 1;
-  "round"?: number;
-  "run_id"?: string;
-  "ref"?: string;
-}
-
-export interface RoundCheckpointFailedEvent extends EventMsg {
-  type: "round.checkpoint.failed";
-  payload_schema_version?: 1;
-  "round"?: number;
-  "run_id"?: string;
-  "error"?: string;
-}
-
 export interface RoundStallEvent extends EventMsg {
   type: "round.stall";
   payload_schema_version?: 1;
@@ -2075,8 +2059,6 @@ export interface EventPayloadByType {
   "codex.util.completed": CodexUtilCompletedEvent;
   "loop.start": LoopStartEvent;
   "loop.done": LoopDoneEvent;
-  "round.checkpoint.recorded": RoundCheckpointRecordedEvent;
-  "round.checkpoint.failed": RoundCheckpointFailedEvent;
   "round.stall": RoundStallEvent;
   "round.reviewer_backend_failure": RoundReviewerBackendFailureEvent;
   "engineer.skill_maintenance.completed": EngineerSkillMaintenanceCompletedEvent;

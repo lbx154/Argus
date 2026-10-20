@@ -35,7 +35,7 @@ from pathlib import Path
 from typing import Any, Callable
 
 from .core.event_catalog import EventType
-from .core.models import LoopOutcome, LoopStatus, RoundRecord
+from .core.models import LoopOutcome, LoopStatus
 from .core.ports import RunnerBackend
 from .engineer.runner import (
     EngineerConfig,
@@ -88,12 +88,6 @@ class SkillLoopConfig:
     # Bootstrap one project wiki before the first mission.
     # Library callers remain opt-in; the daemon runtime enables this by default.
     auto_init_wiki: bool = True
-    round_checkpoint_enabled: bool = field(
-        default_factory=lambda: _knob_bool_setting(
-            "ARGUS_SKILL_ROUND_CHECKPOINT",
-            False,
-        )
-    )
     full_auto: bool = True
     skip_git_repo_check: bool = True
     dangerous_yolo: bool = False
@@ -359,9 +353,6 @@ class SkillLoop(
         def prepare_review_context() -> None:
             return self._prepare_review_context(mission)
 
-        def capture_reviewed_round(record: RoundRecord) -> None:
-            return self._capture_reviewed_round(mission, record)
-
         from .core.venue_review import requires_venue_review
         from .skills.vertical_select import resolve_vertical_if_decided
 
@@ -400,7 +391,6 @@ class SkillLoop(
             seed_thread_id=seed_thread_id,
             scope=scope,
             prepare_review_context=prepare_review_context,
-            review_completed_hook=capture_reviewed_round,
             reviewer_skill_block=state.reviewer_skill_block,
         )
         if self.pre_settlement_guard is not None:

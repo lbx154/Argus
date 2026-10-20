@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import os
 from pathlib import Path
 from typing import Any, Mapping
 
@@ -236,8 +235,6 @@ def _engineer_log_audit_block(
     *,
     engineer_call_id: str = "",
     round_index: int,
-    measured: bool,  # noqa: ARG001 — kept for call-site symmetry
-    compact: bool = False,
 ) -> str:
     """One-line fallback pointer when the Engineer's own account looks wrong."""
     path = (engineer_log_path or "").strip()
@@ -435,9 +432,6 @@ def render_reviewer_prompt(
     direct_workflow = (
         workflow_mode if workflow_mode is not None else resolve_workflow_mode(_proot)
     ) == "direct"
-    _measured = not _requires_engineering_audit and os.environ.get(
-        "ARGUS_SKILL_MEASURED_MODE", ""
-    ).strip().lower() in ("1", "true", "yes", "on")
     # Vertical-owned policy arrives through the prompt catalog; this module
     # contributes only role-wide review behavior.
     optimize_banner = prompt_context.role_banner
@@ -513,40 +507,7 @@ def render_reviewer_prompt(
     search_altitude_block = sanitize_model_visible_text(
         prompt_context.search_altitude
     )
-    if _measured:
-        stage_checklist = (
-            "## MEASURED-BENCHMARK MODE — TRUST the scorer, judge the IDEA\n"
-            "The scorer is trusted and frozen. The Engineer has no reward signal "
-            "and does not control the scorer, so normally trust the pasted RESULT "
-            "(correct + cand_ms/score). Ask whether this round's measured score "
-            "beat the Engineer's previous best.\n"
-            "Do not rerun the scorer to confirm an honest, consistent number: "
-            "the Engineer checks correctness by running it every round, and "
-            "repeating that measurement adds nothing. Check only if no RESULT "
-            "was pasted or it contradicts itself. Otherwise, spend the round "
-            "reaching a judgment and choosing the next direction.\n"
-            "- Use `continue` if the score improved (preserve it and explore the next "
-            "mechanism) or a clearly different mechanism remains untried. First "
-            "ask whether this mechanism was new or another adjustment to a "
-            "direction that already failed. `next_action` must name a concrete new "
-            "direction (a different SOTA/library approach, a hardware technique, "
-            "the profiled bottleneck). Seek different mechanisms; never ask for "
-            "another small adjustment to a failed direction or a result already shown.\n"
-            "- Use `blocked` only at a real plateau (several rounds without improvement "
-            "and distinct mechanisms exhausted) or when only the operator can help. "
-            "When a choice requires the operator (direction, budget, which task, GPU, "
-            "or a yes/no), also set `operator_question`: one plain-language question "
-            "in the operator's language (Chinese here), answerable in a sentence "
-            "— no jargon/JSON/template names.\n"
-            "- Use `done` rarely here, only at or above the known ceiling.\n"
-            "Ignore GROUND_TRUTH/marker/status/provenance files (the harness "
-            "ignores them) and file tidiness; the scorer's number is the only "
-            "evidence. A round that measured a real number, even a worse one, made "
-            "progress by ruling out a mechanism. This takes precedence over the "
-            "general rules below about evidence and repeated measurements."
-        )
-    else:
-        stage_checklist = prompt_context.stage_checklist
+    stage_checklist = prompt_context.stage_checklist
     if direct_workflow:
         stage_checklist = ""
 
@@ -654,8 +615,6 @@ def render_reviewer_prompt(
         engineer_log_path,
         engineer_call_id=engineer_call_id,
         round_index=round_index,
-        measured=_measured,
-        compact=not bool((main_error or "").strip()),
     )
     engineer_log_audit_block = sanitize_model_visible_text(
         engineer_log_audit_block

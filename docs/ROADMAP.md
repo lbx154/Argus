@@ -189,8 +189,8 @@ not guess on the model's behalf whether there is progress. The full design is in
     modification time.
 - Done when: non-git directories, git directories, nested `.git`, large files, and excluded directories all have tests;
   a "pass" covers the whole task's changes.
-- Status: HO-7a and HO-7b are done (`247b432c`), and the window based on modification time went with them; HO-7c and
-  the rest of HO-7d remain.
+- Status: HO-7a and HO-7b are done (`247b432c`), and the window based on modification time went with them; HO-7d is
+  done (the round checkpoint and its switch are deleted); HO-7c remains.
 
 #### HO-8 Record what someone said under their own name
 `0.3` · `L` · Depends on: none

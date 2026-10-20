@@ -48,7 +48,6 @@ def test_raw_transcript_is_a_sibling_of_the_history_log() -> None:
 def test_control_protocol_is_diagnostic_while_real_updates_stay_visible(redact_secrets_on, tmp_path, monkeypatch, label):
     from argus.adapters.agent_cli_backend._io_log import AgentIOLogger
 
-    monkeypatch.setenv("ARGUS_SKILL_AGENT_IO_MODE", "full")
     live = []
     logger = AgentIOLogger(external_event_callback=lambda *event: live.append(event))
     logger.start_call(
@@ -86,7 +85,7 @@ class _Backend:
         self.written.setdefault(str(path), []).append(dict(row))
 
 
-def _emit_start(prompt: str, io_mode: str, tmp_path: Path) -> tuple[list[dict], list[dict]]:
+def _emit_start(prompt: str, tmp_path: Path) -> tuple[list[dict], list[dict]]:
     """Call the REAL start-record path and return (history rows, raw rows)."""
     from argus.adapters.agent_cli_backend._exec_spawn import log_start_record
 
@@ -97,7 +96,6 @@ def _emit_start(prompt: str, io_mode: str, tmp_path: Path) -> tuple[list[dict], 
         run_label="engineer-1",
         options=SimpleNamespace(model="m", reasoning_effort="high", working_dir="/w"),
         resume_thread_id=None,
-        io_mode=io_mode,
         prompt=prompt,
         log_path=history,
     )
@@ -110,20 +108,19 @@ def _emit_start(prompt: str, io_mode: str, tmp_path: Path) -> tuple[list[dict], 
     )
 
 
-@pytest.mark.parametrize("io_mode", ["full", "compact"])
-def test_history_never_carries_the_prompt(io_mode: str, tmp_path: Path) -> None:
+def test_history_never_carries_the_prompt(tmp_path: Path) -> None:
     prompt = "solve the conjecture\n" * 500
-    history, _raw = _emit_start(prompt, io_mode, tmp_path)
+    history, _raw = _emit_start(prompt, tmp_path)
 
     assert history and "prompt" not in history[0]
     assert history[0]["prompt_chars"] == len(prompt)
 
 
-def test_full_mode_keeps_the_verbatim_prompt_in_the_raw_transcript(
+def test_the_raw_transcript_keeps_the_verbatim_prompt(
     tmp_path: Path,
 ) -> None:
     prompt = "solve the conjecture\n" * 500
-    history, raw = _emit_start(prompt, "full", tmp_path)
+    history, raw = _emit_start(prompt, tmp_path)
 
     assert raw and raw[0]["prompt"] == prompt
     assert history[0]["call_id"] == raw[0]["call_id"]
@@ -131,19 +128,11 @@ def test_full_mode_keeps_the_verbatim_prompt_in_the_raw_transcript(
     assert "prompt_sha256" not in raw[0]
 
 
-def test_compact_mode_writes_nothing_to_the_raw_transcript(tmp_path: Path) -> None:
-    # Compact mode exists to not keep the prompt at all; the split must not
-    # smuggle it into a second file.
-    _history, raw = _emit_start("short prompt", "compact", tmp_path)
-
-    assert raw == []
-
-
 def test_the_history_record_stays_small(tmp_path: Path) -> None:
     # The point of the change, as a number: the record the projections scan is
     # bounded by its metadata, not by prompt length.
-    small, _ = _emit_start("x" * 100, "full", tmp_path)
-    large, _ = _emit_start("x" * 500_000, "full", tmp_path)
+    small, _ = _emit_start("x" * 100, tmp_path)
+    large, _ = _emit_start("x" * 500_000, tmp_path)
 
     assert len(json.dumps(large[0])) - len(json.dumps(small[0])) < 200
 
@@ -205,7 +194,6 @@ def test_the_prompt_is_redacted_on_its_way_to_the_raw_transcript(redact_secrets_
         run_label="engineer-1",
         options=SimpleNamespace(model="m", reasoning_effort="high", working_dir="/w"),
         resume_thread_id=None,
-        io_mode="full",
         prompt=f"use this key: {secret}\n",
         log_path=history,
     )

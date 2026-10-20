@@ -24,7 +24,6 @@ from ...core.secret_guard import redact_secrets_record, redact_secrets_text
 log = logging.getLogger(__name__)
 
 _AGENT_IO_LOG_ENV = "ARGUS_SKILL_AGENT_IO_LOG"
-_AGENT_IO_MODE_ENV = "ARGUS_SKILL_AGENT_IO_MODE"
 _AGENT_IO_BATCH_BYTES_ENV = "ARGUS_SKILL_AGENT_IO_BATCH_BYTES"
 _AGENT_IO_FLUSH_INTERVAL_ENV = "ARGUS_SKILL_AGENT_IO_FLUSH_INTERVAL_S"
 # ``agent_io.jsonl`` is the verbatim provider transcript — a DEBUG artifact.
@@ -91,14 +90,6 @@ _PROGRESS_STREAM_MARKERS = (
     '"type":"tool_execution_end"',
     '"type": "tool_execution_end"',
 )
-
-
-def _agent_io_mode(run_label: str) -> str:
-    """Persistence mode: full-once (default) or summary-only compact."""
-    mode = os.environ.get(_AGENT_IO_MODE_ENV, "full").strip().lower()
-    if mode in {"compact", "summary", "off"}:
-        return "compact"
-    return "full"
 
 
 def _user_message_content(line: str) -> str | None:
@@ -264,18 +255,14 @@ class AgentIOLogger:
         model: str | None,
         prompt: str,
     ) -> dict[str, Any]:
-        io_mode = _agent_io_mode(run_label)
         context: dict[str, Any] = {
             "call_id": call_id,
             "run_label": run_label,
             "log_path": str(log_path) if log_path is not None else "",
             "raw_log_path": (
-                str(raw_transcript_path(log_path))
-                if log_path is not None and io_mode == "full"
-                else ""
+                str(raw_transcript_path(log_path)) if log_path is not None else ""
             ),
             "model": model,
-            "mode": io_mode,
             "original_prompt": prompt,
             "buffer": [],
             "buffer_bytes": 0,
@@ -374,7 +361,6 @@ class AgentIOLogger:
             context = self.io_context
         ctx = context or {}
         log_path = str(ctx.get("raw_log_path") or "")
-        io_mode = str(ctx.get("mode") or "compact")
         prompt_echo = (
             _user_message_content(line)
             if '"user.message"' in str(line or "")
@@ -387,7 +373,7 @@ class AgentIOLogger:
         # The complete prompt is already stored in agent.io.start. Most CLIs
         # echo that same prompt as user.message; keep exactly one copy while
         # preserving every non-identical raw frame.
-        persist_raw = bool(log_path and io_mode == "full" and not duplicate_prompt)
+        persist_raw = bool(log_path and not duplicate_prompt)
         run_label = str(ctx.get("run_label") or stream.rsplit(".", 1)[0])
         forward_live = (
             self.external_event_callback is not None

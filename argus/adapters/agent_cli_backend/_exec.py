@@ -139,7 +139,6 @@ def _execute_prepared(backend, *, prompt, options, run_label, resume_thread_id):
         call_id=call_id,
         started_at=started_at,
         log_path=log_path,
-        io_mode="",
         usage_project_root=usage_project_root,
         usage_mission_id=usage_mission_id,
         usage_global_root=usage_global_root,
@@ -150,11 +149,10 @@ def _execute_prepared(backend, *, prompt, options, run_label, resume_thread_id):
     from ...messaging.runtime import peer_run
 
     with advisor_run(ctx), peer_run(ctx), experience_run(ctx):
-        io_context = backend._io_logger.start_call(
+        backend._io_logger.start_call(
             call_id=call_id, run_label=run_label, log_path=log_path,
             model=ctx.options.model, prompt=ctx.prompt,
         )
-        ctx.io_mode = io_context["mode"]
         from ...core.paths import global_root
         from ...core.provider_slots import (
             acquire_provider_slot,

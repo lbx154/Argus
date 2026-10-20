@@ -580,7 +580,7 @@ export function renderEvent(event: TypedArgusEvent, context: RenderContext): Ren
     case 'usage.recorded': case 'provider.request.started': case 'provider.request.completed':
     case 'codex.util.completed': case 'skill.cost.completed':
     case 'budget.reservation.created': case 'budget.reservation.settled': case 'budget.reservation.released':
-    case 'round.checkpoint.recorded': case 'round.checkpoint.failed': case 'round.secret_redacted':
+    case 'round.secret_redacted':
     case 'role.session.turn': case 'engineer.skill_maintenance.completed': case 'life.status':
     case 'life.mission.skipped': case 'life.mission.orphaned': case 'life.mission.requeued':
     case 'life.manager.plan_challenge.decided': case 'life.vertical.resolved':

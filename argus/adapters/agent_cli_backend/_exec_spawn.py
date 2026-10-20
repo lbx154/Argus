@@ -64,7 +64,7 @@ log = logging.getLogger(__name__)
 
 
 def log_start_record(backend: Any, ctx: "_ExecContext") -> None:
-    """Record the call's opening in the history log, and — in ``full`` mode —
+    """Record the call's opening in the history log, and
     its verbatim prompt in the raw transcript beside it.
 
     Split deliberately. ``events.jsonl`` is the authoritative history that the
@@ -87,19 +87,12 @@ def log_start_record(backend: Any, ctx: "_ExecContext") -> None:
         "provider_session_id": getattr(ctx, "provider_session_id", None),
         "ts": time.time(),
     }
-    if ctx.io_mode == "compact":
-        start_row["prompt_chars"] = len(ctx.prompt)
-        backend._log_agent_io(ctx.log_path, start_row)
-    else:
-        # Full prompts belong in the bounded raw I/O transcript, not the
-        # authoritative event history. Keep only size in events.jsonl;
-        # agent_io.jsonl retains the verbatim copy under ring rotation.
-        compact_row = dict(start_row)
-        compact_row["prompt_chars"] = len(ctx.prompt)
-        backend._log_agent_io(ctx.log_path, compact_row)
-
-        start_row["prompt"] = ctx.prompt
-        backend._log_agent_io(_raw_transcript_path(ctx.log_path), start_row)
+    # Full prompts belong in the bounded raw I/O transcript, not the
+    # authoritative event history. Keep only size in events.jsonl;
+    # agent_io.jsonl retains the verbatim copy under ring rotation.
+    backend._log_agent_io(ctx.log_path, {**start_row, "prompt_chars": len(ctx.prompt)})
+    start_row["prompt"] = ctx.prompt
+    backend._log_agent_io(_raw_transcript_path(ctx.log_path), start_row)
 
 
 def bind_provider_session(ctx: "_ExecContext", cli_options: Any) -> str | None:

@@ -12,8 +12,6 @@ Pinned here:
   * non-empty engineer_log_path -> prompt contains the audit section + the path
   * empty engineer_log_path     -> prompt is byte-for-byte the legacy prompt
                                    (back-compat: memory backend / tests / no life_dir)
-  * MEASURED-BENCHMARK mode      -> audit is RED-FLAG-ONLY (no incentive clash
-                                   with "trust the frozen scorer")
   * the path threads structurally: SupervisedConfig.engineer_log_path is what
     the supervised loop hands reviewer.evaluate(...)
   * the engineer-process-audit reviewer skill exists in the reviewer pool
@@ -41,7 +39,6 @@ def _build(
     *,
     call_id: str = "",
     monkeypatch=None,
-    measured: bool = False,
     workflow_mode: str | None = "staged",
     scope: str = "",
     main_error: str | None = None,
@@ -53,10 +50,6 @@ def _build(
                 "argus.skills.vertical_select.resolve_evidence_mode",
                 lambda _root: workflow_mode,
             )
-        if measured:
-            monkeypatch.setenv("ARGUS_SKILL_MEASURED_MODE", "1")
-        else:
-            monkeypatch.delenv("ARGUS_SKILL_MEASURED_MODE", raising=False)
     r = Reviewer(runner=None, skill_store=None)
     return r._build_prompt(
         objective=objective,
@@ -204,22 +197,10 @@ def test_empty_path_is_byte_for_byte_legacy_prompt() -> None:
     assert r._build_prompt(engineer_log_path="", **common) == r._build_prompt(**common)
 
 
-# --------------------------------------------------------------------------- #
-# Measured mode: red-flag-only (no clash with "trust the frozen scorer")
-# --------------------------------------------------------------------------- #
-def test_measured_mode_audit_is_red_flag_only(monkeypatch) -> None:
-    p = _build(_LOG_PATH, monkeypatch=monkeypatch, measured=True)
-    # measured framing is still injected
-    assert "MEASURED-BENCHMARK MODE" in p
-    assert "The event log is at" in p
-    assert "grep recipes" not in p.lower()
-
-
 def test_final_submission_uses_on_demand_process_audit(monkeypatch) -> None:
     p = _build(
         _LOG_PATH,
         monkeypatch=monkeypatch,
-        measured=False,
         scope="final_submission",
     )
     assert "The event log is at" in p

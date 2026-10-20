@@ -652,26 +652,6 @@ def _verification_directive() -> str:
     return _verification_directive()
 
 
-def _engineer_log_audit_block(
-    engineer_log_path: str,
-    *,
-    engineer_call_id: str = "",
-    round_index: int,
-    measured: bool,
-    compact: bool = False,
-) -> str:
-    """Compatibility wrapper for the prompt-module helper."""
-    from ..roles.prompts.reviewer import _engineer_log_audit_block
-
-    return _engineer_log_audit_block(
-        engineer_log_path,
-        engineer_call_id=engineer_call_id,
-        round_index=round_index,
-        measured=measured,
-        compact=compact,
-    )
-
-
 def _review_grounding(config: Any, *, task_parts: tuple[str, ...]) -> Any:
     """What the Reviewer's "impossible here" quotes and acceptances must match.
 

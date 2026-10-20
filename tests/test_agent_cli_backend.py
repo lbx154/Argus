@@ -827,7 +827,6 @@ def test_full_io_persists_prompt_once_not_as_user_message_echo(
 ) -> None:
     log_path = tmp_path / "events.jsonl"
     monkeypatch.setenv("ARGUS_SKILL_AGENT_IO_LOG", str(log_path))
-    monkeypatch.setenv("ARGUS_SKILL_AGENT_IO_MODE", "full")
     backend = AgentCliBackend(backend="copilot")
     prompt = "large prompt body that must be stored exactly once"
     provider_prompts: list[str] = []
@@ -1108,7 +1107,6 @@ def test_default_agent_io_is_bounded_and_drops_duplicate_stream(
 ) -> None:
     log_path = tmp_path / "events.jsonl"
     monkeypatch.setenv("ARGUS_SKILL_AGENT_IO_LOG", str(log_path))
-    monkeypatch.setenv("ARGUS_SKILL_AGENT_IO_MODE", "compact")
     live: list[tuple[str, str]] = []
     backend = AgentCliBackend(
         backend="copilot",

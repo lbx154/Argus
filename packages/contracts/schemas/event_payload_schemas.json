@@ -3810,36 +3810,6 @@
         }
       }
     },
-    "round.checkpoint.recorded": {
-      "version": 1,
-      "properties": {
-        "round": {
-          "type": "integer",
-          "minimum": 1
-        },
-        "run_id": {
-          "type": "string"
-        },
-        "ref": {
-          "type": "string"
-        }
-      }
-    },
-    "round.checkpoint.failed": {
-      "version": 1,
-      "properties": {
-        "round": {
-          "type": "integer",
-          "minimum": 1
-        },
-        "run_id": {
-          "type": "string"
-        },
-        "error": {
-          "type": "string"
-        }
-      }
-    },
     "round.stall": {
       "version": 1,
       "properties": {

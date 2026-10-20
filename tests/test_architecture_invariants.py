@@ -1188,7 +1188,6 @@ PRIVATE_IMPORT_ALLOWLIST: frozenset[str] = frozenset({
     "messaging -> argus.manager._session_ops",
     "reviewer -> argus.core.role_reply._line_pattern",
     "reviewer -> argus.roles.prompts.reviewer._REEVALUATE_HEADER",
-    "reviewer -> argus.roles.prompts.reviewer._engineer_log_audit_block",
     "reviewer -> argus.roles.prompts.reviewer._load_wiki_curator_skill_if_present",
     "reviewer -> argus.roles.prompts.reviewer._verification_directive",
     "roles -> argus.skills.vertical_select._persisted_vertical",
