@@ -290,6 +290,41 @@ def test_explicit_review_waiver_emits_a_visible_reason(tmp_path, caplog) -> None
     assert "independent review waived: framework maintenance mission" in caplog.text
 
 
+def test_a_sandboxed_engineer_may_read_its_own_handoff_directory(tmp_path) -> None:
+    """2026-10-20: safe mode denied the Engineer the mission and latest handoff
+    its prompt pointed at. It is given that task's directory, not the state root."""
+    from argus.apps._runtime_helpers import _ExecuteState
+    from argus.loop import SkillLoopConfig
+
+    workdir = tmp_path / "workspace"
+    workdir.mkdir()
+    state_root = tmp_path / "life"
+    handoff = state_root / "handoffs" / "task-1"
+    handoff.mkdir(parents=True)
+    runner = _make_runner(_FakeBackend())
+    runner._artifact_root = state_root
+    runner._role_memory_maintenance_enabled = True
+    runner._args.project_state_dir = str(state_root)
+    runner._args.workdir = str(workdir)
+    runner._SkillLoopConfig = SkillLoopConfig
+
+    state = _ExecuteState()
+    runner._build_execute_config(
+        state,
+        working_dir_override=str(workdir),
+        maintenance_mission=False,
+        vertical_override="software",
+        require_independent_review=True,
+        max_rounds_override=1,
+        context_packet_path=str(handoff / "mission.json"),
+        mission_id="task-1",
+        workflow_mode_override="direct",
+    )
+
+    assert str(handoff.resolve()) in state.config.read_dirs
+    assert str(state_root.resolve()) not in state.config.read_dirs
+
+
 # ---------- Manager SELF fast-path: runner unit tests ----------------------
 
 def test_execute_dispatches_to_manager_self_path_on_greeting(monkeypatch) -> None:

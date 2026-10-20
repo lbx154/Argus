@@ -715,11 +715,13 @@ class SkillLoopExecuteMixin:
         )
         from ..life.knowledge_recall import knowledge_read_dirs
 
-        # The Engineer's recalled knowledge points at libraries outside its
-        # workdir; a sandboxed backend reads them only when they are given.
-        config_kwargs["read_dirs"] = knowledge_read_dirs(
-            _project_state_dir, getattr(args, "global_root", None), workdir,
-        ) or None
+        # The Engineer's recalled knowledge, and this task's handoff directory
+        # its prompt names (mission, latest handoff, checkpoint), lie outside
+        # its workdir; a sandboxed backend reads them only when they are given.
+        config_kwargs["read_dirs"] = [
+            *knowledge_read_dirs(_project_state_dir, getattr(args, "global_root", None), workdir),
+            *([str(Path(context_packet_path).expanduser().resolve().parent)] if context_packet_path else []),
+        ] or None
         from ..core.autonomy import operator_questions_can_be_asked
 
         explicit_operator_root = str(getattr(args, "operator_context_dir", "") or "").strip()
