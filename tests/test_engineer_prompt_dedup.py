@@ -138,7 +138,7 @@ def test_direct_fresh_retry_forwards_reviewer_action_through_skill_loop(tmp_path
         config=SkillLoopConfig(
             engineer_model="fixture", reviewer_model="fixture",
             workflow_mode="direct", active_vertical="software",
-            role_session_policy="fresh", max_rounds=2,
+            max_rounds=2,
             require_independent_review=True, require_post_task_learning=False,
             wiki_enabled=False, auto_init_wiki=False,
         ),

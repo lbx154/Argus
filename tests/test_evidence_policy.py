@@ -124,7 +124,7 @@ def test_saved_policy_controls_real_skill_loop_without_accepting_failed_work(
         config=SkillLoopConfig(
             engineer_model="fixture", reviewer_model="fixture",
             workflow_mode="direct", active_vertical="software",
-            role_session_policy="fresh", max_rounds=8, session_id="evidence-policy-fixture",
+            max_rounds=8, session_id="evidence-policy-fixture",
             require_independent_review=True, require_post_task_learning=False,
             wiki_enabled=False, auto_init_wiki=False,
         ),

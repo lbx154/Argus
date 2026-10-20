@@ -18,8 +18,8 @@ from ..core.models import (
 from ..core.ports import RunnerBackend
 from ..core.role_session import (
     RoleSessionCapsule,
-    effective_role_session_policy,
     objective_revision,
+    role_session_policy,
 )
 from ..core.run_gateway import run_exec as gateway_run_exec
 from ..core.secret_guard import (
@@ -228,16 +228,14 @@ class SupervisedEngineer(
         engineer_backend = str(
             getattr(self.engineer_runner, "backend", type(self.engineer_runner).__name__)
         )
-        engineer_policy = effective_role_session_policy(
-            (
-                "fresh"
-                if supervised_config.engineer_operation == "narrative_edit"
-                else supervised_config.role_session_policy
-            ),
+        engineer_policy = role_session_policy(
             engineer_backend,
             # Pi deliberately uses --no-session in isolated maintenance
             # worktrees, so no persisted thread may be passed there.
-            allow_resume=not self.engineer_config.isolate_workdir,
+            allow_resume=(
+                not self.engineer_config.isolate_workdir
+                and supervised_config.engineer_operation != "narrative_edit"
+            ),
         )
         state.engineer_session = RoleSessionCapsule.open(
             role="engineer",
@@ -259,10 +257,7 @@ class SupervisedEngineer(
         reviewer_backend = str(
             getattr(reviewer_runner, "backend", type(reviewer_runner).__name__)
         )
-        reviewer_policy = effective_role_session_policy(
-            supervised_config.role_session_policy,
-            reviewer_backend,
-        )
+        reviewer_policy = role_session_policy(reviewer_backend)
         state.reviewer_session = RoleSessionCapsule.open(
             role="reviewer",
             policy=reviewer_policy,
@@ -312,10 +307,7 @@ class SupervisedEngineer(
             paused = manager_wait_terminal(supervised_config, state)
             if paused is not None:
                 return paused
-            engineer_resume_id = state.engineer_session.prepare(
-                max_turns=supervised_config.role_session_max_turns,
-                max_input_tokens=supervised_config.role_session_max_input_tokens,
-            )
+            engineer_resume_id = state.engineer_session.prepare()
             engineer_prompt = self._assemble_round_prompt(
                 round_index=round_index,
                 supervised_config=supervised_config,

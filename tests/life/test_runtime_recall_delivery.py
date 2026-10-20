@@ -40,9 +40,9 @@ class RuntimeRunner(SkillLoopExecuteMixin):
     _next_seed_thread_id = None
     manager = None
 
-    def __init__(self, memory, workdir, backend, mode, policy):
+    def __init__(self, memory, workdir, backend, mode):
         self.memory, self.workdir, self._backend = memory, workdir, backend
-        self.mode, self.policy, self.max_rounds = mode, policy, 1
+        self.mode, self.max_rounds = mode, 1
         self._args = SimpleNamespace(
             skills_dir=str(memory.root.parent.parent / "skills"),
             project_state_dir=str(memory.root),
@@ -54,7 +54,7 @@ class RuntimeRunner(SkillLoopExecuteMixin):
         state.config = SkillLoopConfig(
             engineer_model="offline", reviewer_model="offline",
             workflow_mode=self.mode, active_vertical="software",
-            vertical_state_root=self.memory.root, role_session_policy=self.policy,
+            vertical_state_root=self.memory.root,
             max_rounds=self.max_rounds, require_independent_review=True,
             require_post_task_learning=False, wiki_enabled=False, auto_init_wiki=False,
             session_id=kwargs["mission_id"], context_packet_path=kwargs["context_packet_path"],
@@ -132,11 +132,13 @@ def task(memory, identity, mode):
 
 
 @pytest.mark.parametrize("mode", ["direct", "staged"])
-@pytest.mark.parametrize("policy", ["fresh", "rolling"])
-def test_settled_success_reaches_next_runtime_role_and_refreshes_after_corrections(runtime, mode, policy):
+@pytest.mark.parametrize("resumable", [False, True])
+def test_settled_success_reaches_next_runtime_role_and_refreshes_after_corrections(runtime, mode, resumable):
     memory, workdir = runtime
     backend = OfflineBackend()
-    runner = RuntimeRunner(memory, workdir, backend, mode, policy)
+    if not resumable:
+        backend.backend = "memory"
+    runner = RuntimeRunner(memory, workdir, backend, mode)
     supervisor = LifeSupervisor(
         memory=memory, runner=runner, sink=JsonlEventSink(None, life_dir=memory.root),
         config=LifeSupervisorConfig(project_worktree=workdir, role_skill_maintenance_enabled=False),
@@ -192,7 +194,7 @@ def test_settled_success_reaches_next_runtime_role_and_refreshes_after_correctio
     assert local_value not in runner.mission_texts[-1]
     prompts = [prompt for label, prompt, _ in backend.history if label.startswith("engineer-r")]
     assert len(prompts) == 3 and all(prompt.count("## Current host context") == 1 for prompt in prompts)
-    if policy == "rolling":
+    if resumable:
         assert "## Continuation turn" in prompts[1]
     reviews = [prompt for label, prompt, _ in backend.history if label == "reviewer"]
     assert global_value in reviews[0] and local_value not in reviews[0]
@@ -203,7 +205,7 @@ def test_settled_success_reaches_next_runtime_role_and_refreshes_after_correctio
 def test_failed_memory_refresh_does_not_restore_the_old_mission_snapshot(runtime, monkeypatch):
     memory, workdir = runtime
     backend = OfflineBackend()
-    runner = RuntimeRunner(memory, workdir, backend, "direct", "rolling")
+    runner = RuntimeRunner(memory, workdir, backend, "direct")
     supervisor = LifeSupervisor(
         memory=memory, runner=runner, sink=JsonlEventSink(None, life_dir=memory.root),
         config=LifeSupervisorConfig(project_worktree=workdir, role_skill_maintenance_enabled=False,
@@ -262,7 +264,8 @@ def test_bounded_planner_refreshes_shared_memory_at_its_actual_call_boundary(run
             self._run_bounded_planning(state, **plan_kwargs)
             super()._invoke_execute_loop(state, **kwargs)
 
-    runner = PlanningRuntime(memory, workdir, backend, "direct", "fresh")
+    backend.backend = "memory"
+    runner = PlanningRuntime(memory, workdir, backend, "direct")
     supervisor = LifeSupervisor(
         memory=memory, runner=runner, sink=JsonlEventSink(None, life_dir=memory.root),
         config=LifeSupervisorConfig(project_worktree=workdir, role_skill_maintenance_enabled=False,
@@ -330,7 +333,8 @@ def test_bounded_planner_uses_the_selected_session_stage_not_workspace_state(run
     backend.queue("planner-bounded-plan", CannedResponse(
         message='{"steps":[{"title":"Check the selected stage"}]}',
     ))
-    runner = RuntimeRunner(memory, workdir, backend, "staged", "fresh")
+    backend.backend = "memory"
+    runner = RuntimeRunner(memory, workdir, backend, "staged")
     state = _ExecuteState()
     runner._build_execute_config(state, mission_id="stage-preview", context_packet_path="")
     state.full_task = "Check the requested work."

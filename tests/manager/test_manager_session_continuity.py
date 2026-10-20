@@ -1,4 +1,4 @@
-"""Long-lived Manager identity, context maintenance and durable control continuity."""
+"""Long-lived Manager identity and durable control continuity."""
 from __future__ import annotations
 
 import json
@@ -32,13 +32,10 @@ from argus.manager.session_continuity import (
 @pytest.fixture(autouse=True)
 def offline(monkeypatch):
     def forbidden(*_args, **_kwargs):
-        raise AssertionError("Capacity regressions cannot call a provider")
+        raise AssertionError("Continuity regressions cannot call a provider")
 
     monkeypatch.setattr(socket.socket, "connect", forbidden)
     monkeypatch.setattr(AgentCliBackend, "run_exec", forbidden)
-    monkeypatch.delenv("ARGUS_SKILL_MANAGER_SESSION_MAX_INPUT_TOKENS", raising=False)
-    monkeypatch.delenv("ARGUS_SKILL_MANAGER_SESSION_CONTEXT_WINDOW_TOKENS", raising=False)
-    monkeypatch.delenv("PI_CODING_AGENT_DIR", raising=False)
 
 
 class Backend:
@@ -86,6 +83,11 @@ def turn(root, backend, prompt="Message:\nWhat changed?", *, options=None):
     )
 
 
+def new_thread(root, backend, **options):
+    """A changed model is the remaining Argus-side reason for a fresh thread."""
+    return turn(root, backend, options=RunnerOptions(model="fixture/other", **options))
+
+
 def capsule(call):
     body = call["prompt"].split("## Current durable Manager continuity\n", 1)[1].split("\n", 1)[1]
     value, _end = json.JSONDecoder().raw_decode(body)
@@ -93,100 +95,36 @@ def capsule(call):
     return value
 
 
-def test_rotations_keep_one_logical_manager_and_a_useful_provider_window(tmp_path):
+def test_manager_resumes_one_provider_thread_and_keeps_its_identity(tmp_path):
     backend = Backend()
-    logical_ids, generations = [], []
     for _ in range(13):
         turn(tmp_path, backend)
-        logical_ids.append(state(tmp_path)["logical_manager_id"])
-        generations.append(state(tmp_path)["provider_generation"])
-    assert len(set(logical_ids)) == 1
-    assert generations == [1] * 4 + [2] * 4 + [3] * 4 + [4]
-    assert [index for index, call in enumerate(backend.calls, 1) if call["resume"] is None] == [1, 5, 9, 13]
-    assert all(call["resume"] for call in backend.calls if call not in [backend.calls[index] for index in [0, 4, 8, 12]])
-    assert state(tmp_path)["last_rotation"]["from_thread_id"] == "provider-9"
-    # Cache reads are already included in input; capacity does not double them.
-    assert state(tmp_path)["capacity"]["context_tokens"] == 20025
+    # The backend compacts its own context: no size or turn count starts a new thread.
+    assert [call["resume"] for call in backend.calls] == [None] + ["provider-1"] * 12
+    assert state(tmp_path)["provider_generation"] == 1
+    assert "capacity" not in state(tmp_path)
+    logical_id = state(tmp_path)["logical_manager_id"]
+    new_thread(tmp_path, backend)
+    assert backend.calls[-1]["resume"] is None
+    assert state(tmp_path)["logical_manager_id"] == logical_id
+    assert state(tmp_path)["provider_generation"] == 2
+    assert state(tmp_path)["last_rotation"]["from_thread_id"] == "provider-1"
     assert all((result.input_tokens, result.cached_input_tokens, result.output_tokens) == (20000, 19990, 25)
                for result in backend.results)
 
 
-@pytest.mark.parametrize("watermark,expected_sessions", [(4096, 2), (65536, 1)])
-def test_context_watermark_is_configurable_without_changing_usage(tmp_path, monkeypatch, watermark, expected_sessions):
-    monkeypatch.setenv("ARGUS_SKILL_MANAGER_SESSION_MAX_INPUT_TOKENS", str(watermark))
-    backend = Backend(input_tokens=12000)
-    for _ in range(8):
-        turn(tmp_path, backend)
-    assert sum(call["resume"] is None for call in backend.calls) == expected_sessions
-    assert state(tmp_path)["capacity"]["watermark_tokens"] == watermark
-    assert all(result.input_tokens == 12000 for result in backend.results)
-
-
-def test_known_small_context_window_takes_priority_over_four_turn_maintenance_floor(tmp_path, monkeypatch):
-    monkeypatch.setenv("ARGUS_SKILL_MANAGER_SESSION_CONTEXT_WINDOW_TOKENS", "4096")
-    backend = Backend(input_tokens=3200)
-    turn(tmp_path, backend)
-    turn(tmp_path, backend)
-    assert [call["resume"] for call in backend.calls] == [None, None]
-    assert "available provider context" in state(tmp_path)["last_rotation"]["reason"]
-    assert state(tmp_path)["capacity"]["provider_context_window_tokens"] == 4096
-
-
-def test_native_pi_model_metadata_supplies_the_actual_window(tmp_path, monkeypatch):
-    pi_dir = tmp_path / "pi-config"
-    pi_dir.mkdir()
-    (pi_dir / "models.json").write_text(json.dumps({"providers": {"fixture": {"apiKey": "not-retained-in-capacity",
-        "models": [{"id": "model", "contextWindow": 4096, "maxTokens": 1024}]}}}))
-    monkeypatch.setenv("PI_CODING_AGENT_DIR", str(pi_dir))
-    backend = Backend(input_tokens=3200)
-    turn(tmp_path, backend)
-    turn(tmp_path, backend)
-    assert backend.calls[-1]["resume"] is None
-    assert state(tmp_path)["capacity"]["provider_output_reserve_tokens"] == 1024
-    assert "not-retained-in-capacity" not in json.dumps(state(tmp_path))
-
-
-def test_missing_usage_uses_visible_history_without_fabricating_usage(tmp_path):
-    backend = Backend(reported=False)
-    for _ in range(9):
-        turn(tmp_path, backend, "Message:\n" + "observable evidence " * 1100)
-    assert [index for index, call in enumerate(backend.calls, 1) if call["resume"] is None] == [1, 5, 9]
-    assert state(tmp_path)["capacity"]["basis"] == "visible_text_bytes"
-    assert state(tmp_path)["capacity"]["context_tokens"] is None
-    assert all(result.input_tokens == 0 and not result.input_tokens_present for result in backend.results)
-
-
-def test_v2_unknown_capacity_gets_one_explicit_continuity_handoff(tmp_path):
-    old = {"version": 2, "thread_id": "unbounded-old-provider",
-           "identity": {"backend": "pi", "model": "fixture/model"},
-           "recent_turns": [{"kind": "manager-supervision", "request_excerpt": "Reviewer found pooled means.",
-                             "answer_excerpt": "Retain independent groups: means 2 and 12."}]}
-    (tmp_path / ".manager_session.json").write_text(json.dumps(old))
-    backend = Backend(input_tokens=100)
-    turn(tmp_path, backend)
-    assert backend.calls[0]["resume"] is None
-    assert "means 2 and 12" in backend.calls[0]["prompt"]
-    assert "predates bounded capacity accounting" in state(tmp_path)["last_rotation"]["reason"]
-    logical_id = state(tmp_path)["logical_manager_id"]
-    turn(tmp_path, backend)
-    assert backend.calls[1]["resume"] == "provider-1"
-    assert state(tmp_path)["logical_manager_id"] == logical_id
-
-
-def test_cancel_before_rotation_does_not_call_backend_or_change_pointer(tmp_path):
+def test_cancel_before_a_new_thread_does_not_call_backend_or_change_pointer(tmp_path):
     backend = Backend()
-    for _ in range(4):
-        turn(tmp_path, backend)
+    turn(tmp_path, backend)
     before = (tmp_path / ".manager_session.json").read_bytes()
     with pytest.raises(ManagerLockCancelled):
-        turn(tmp_path, backend, options=RunnerOptions(model="fixture/model",
-            external_interrupt_reason_provider=lambda: "operator stop"))
-    assert len(backend.calls) == 4
+        new_thread(tmp_path, backend, external_interrupt_reason_provider=lambda: "operator stop")
+    assert len(backend.calls) == 1
     assert (tmp_path / ".manager_session.json").read_bytes() == before
 
 
 @pytest.mark.parametrize("failure", ["quota", "exception"])
-def test_capacity_rotation_does_not_replay_a_refused_or_uncertain_call(tmp_path, failure):
+def test_a_refused_or_uncertain_call_is_not_replayed(tmp_path, failure):
     backend = Backend(failure=failure)
     for _ in range(4):
         turn(tmp_path, backend)
@@ -204,14 +142,14 @@ def test_handoff_has_one_utf8_history_budget_and_keeps_the_current_request_whole
     previous = {"recent_turns": [{"kind": "manager-ask", "request_excerpt": "往事" * 2000,
                                    "answer_excerpt": "旧决定" * 3000} for _ in range(4)]}
     prompt = "Message:\n" + "完整的新要求" * 2000
-    handoff = session_handoff(previous, prompt, "capacity maintenance")
+    handoff = session_handoff(previous, prompt, "the configured model or backend changed")
     history = handoff.split("\n", 2)[2].removesuffix("\n\n" + prompt)
     assert len(history.encode()) <= SESSION_HANDOFF_HISTORY_BYTES
     assert handoff.endswith(prompt)
     assert json.loads(history)
 
 
-def test_rotated_manager_rehydrates_current_controls_questions_and_issued_decision(tmp_path):
+def test_new_manager_thread_rehydrates_current_controls_questions_and_issued_decision(tmp_path):
     write_continuous_config(tmp_path, enabled=True, objective="MEANS_2_AND_12 remain the accepted design.")
     task = BacklogItem.new(title="Validate units", objective="Keep both original groups.")
     task.status = "running"
@@ -233,20 +171,19 @@ def test_rotated_manager_rehydrates_current_controls_questions_and_issued_decisi
                        receipt_dir / (issued["id"] + ".json"), tmp_path / "operator_context.jsonl"]
     before = {path: path.read_bytes() for path in canonical_paths}
     backend = Backend()
-    for _ in range(13):
-        turn(tmp_path, backend)
-    fresh_calls = [call for call in backend.calls[1:] if call["resume"] is None]
-    assert len(fresh_calls) == 3
-    for call in fresh_calls:
-        assert all(value in call["prompt"] for value in ["MEANS_2_AND_12", "UNANSWERED_UNITS",
-                                                        "ACTIVE_STEER", "ISSUED_NOT_APPLIED", "LATEST_AUTHORITY"])
-        assert directive.revision in call["prompt"]
-        assert '"status": "issued"' in call["prompt"]
+    turn(tmp_path, backend)
+    new_thread(tmp_path, backend)
+    call = backend.calls[-1]
+    assert call["resume"] is None
+    assert all(value in call["prompt"] for value in ["MEANS_2_AND_12", "UNANSWERED_UNITS",
+                                                    "ACTIVE_STEER", "ISSUED_NOT_APPLIED", "LATEST_AUTHORITY"])
+    assert directive.revision in call["prompt"]
+    assert '"status": "issued"' in call["prompt"]
     assert {path: path.read_bytes() for path in canonical_paths} == before
     assert asdict(OperatorContextStore(tmp_path).project("manager", consume_once=False).directives[-1])["revision"] == permission.revision
 
 
-def test_rotations_keep_active_steer_after_a_newer_continue_and_refresh_resolved_questions(tmp_path):
+def test_new_threads_keep_active_steer_after_a_newer_continue_and_refresh_resolved_questions(tmp_path):
     write_continuous_config(tmp_path, enabled=True, objective="Keep both groups")
     backlog = Backlog(tmp_path / "backlog.jsonl")
     for number in range(8):
@@ -262,23 +199,22 @@ def test_rotations_keep_active_steer_after_a_newer_continue_and_refresh_resolved
     (directory / "latest.json").write_text(json.dumps(latest))
     (directory / (latest["id"] + ".json")).write_text(json.dumps(latest))
     backend = Backend()
-    for _ in range(5):
-        turn(tmp_path, backend)
+    turn(tmp_path, backend)
+    new_thread(tmp_path, backend)
     first = capsule(backend.calls[-1])
     assert first["active_manager_directive"]["revision"] == directive.revision
     assert first["supervision_receipt"]["decision"]["action"] == "continue"
     assert first["pending_questions"] == [{"item_id": question.id, "status": "pending", "pending_question": question.pending_question}]
     backlog.update(question.id, pending_question="")
     clear_active_manager_directive(tmp_path)
-    for _ in range(4):
-        turn(tmp_path, backend)
+    turn(tmp_path, backend)
     second = capsule(backend.calls[-1])
     assert second["active_manager_directive"] is None
     assert second["pending_questions"] == []
     assert state(tmp_path)["provider_generation"] == 3
 
 
-def test_rotation_uses_canonical_receipt_status_when_latest_pointer_lags(tmp_path):
+def test_new_thread_uses_canonical_receipt_status_when_latest_pointer_lags(tmp_path):
     directory = tmp_path / "manager-supervision"
     directory.mkdir()
     identity = "c" * 32
@@ -288,21 +224,20 @@ def test_rotation_uses_canonical_receipt_status_when_latest_pointer_lags(tmp_pat
     path.write_text(json.dumps(canonical))
     before = path.read_bytes()
     backend = Backend()
-    for _ in range(5):
-        turn(tmp_path, backend)
+    turn(tmp_path, backend)
+    new_thread(tmp_path, backend)
     assert capsule(backend.calls[-1])["supervision_receipt"] == canonical
     assert "STALE_APPLIED" not in backend.calls[-1]["prompt"]
     assert path.read_bytes() == before
 
 
-def test_scope_changed_directive_is_not_revived_on_rotation(tmp_path):
+def test_scope_changed_directive_is_not_revived_on_a_new_thread(tmp_path):
     write_continuous_config(tmp_path, enabled=True, objective="Old objective")
     set_active_manager_directive(tmp_path, "OLD_SCOPE_ONLY", source="manager.supervision.old")
     backend = Backend()
-    for _ in range(4):
-        turn(tmp_path, backend)
-    write_continuous_config(tmp_path, enabled=True, objective="New objective")
     turn(tmp_path, backend)
+    write_continuous_config(tmp_path, enabled=True, objective="New objective")
+    new_thread(tmp_path, backend)
     current = capsule(backend.calls[-1])
     assert current["active_manager_directive"] is None
     assert current["continuous"]["objective"] == "New objective"
@@ -327,13 +262,12 @@ def test_a_turn_beside_a_busy_session_carries_the_current_operator_permission(tm
 
 
 @pytest.mark.parametrize("damage", ["invalid_json", "nan", "unreadable"])
-def test_bad_backlog_aborts_rotation_without_a_plain_provider_fallback(tmp_path, monkeypatch, damage):
+def test_bad_backlog_aborts_a_new_thread_without_a_plain_provider_fallback(tmp_path, monkeypatch, damage):
     from argus.core import scoped_file
 
     Backlog(tmp_path / "backlog.jsonl").add(BacklogItem.new(title="Pending", objective="Keep the question"))
     backend = Backend()
-    for _ in range(4):
-        turn(tmp_path, backend)
+    turn(tmp_path, backend)
     before = (tmp_path / ".manager_session.json").read_bytes()
     backlog = tmp_path / "backlog.jsonl"
     if damage == "unreadable":
@@ -349,8 +283,8 @@ def test_bad_backlog_aborts_rotation_without_a_plain_provider_fallback(tmp_path,
         with backlog.open("a") as handle:
             handle.write('{bad json}\n' if damage == "invalid_json" else '{"id":"bad","ts":NaN}\n')
     with pytest.raises(ManagerSessionContinuityUnavailable):
-        turn(tmp_path, backend)
-    assert len(backend.calls) == 4
+        new_thread(tmp_path, backend)
+    assert len(backend.calls) == 1
     assert (tmp_path / ".manager_session.json").read_bytes() == before
 
 
@@ -362,8 +296,8 @@ def test_incomplete_control_is_explicit_and_never_cut_into_a_partial_instruction
     if damage == "nan":
         (tmp_path / "active_manager_directive.json").write_text('{"text":NaN,"version":1}')
     backend = Backend()
-    for _ in range(5):
-        turn(tmp_path, backend)
+    turn(tmp_path, backend)
+    new_thread(tmp_path, backend)
     current = capsule(backend.calls[-1])
     assert current["active_manager_directive"] is None
     assert current["unobserved"]
@@ -386,12 +320,11 @@ def _hold_file_lock(path, held, release):
 
 @pytest.mark.parametrize("owner", ["thread", "process"])
 @pytest.mark.parametrize("interrupt", [False, True])
-def test_backlog_contention_does_not_trap_a_manager_rotation(tmp_path, monkeypatch, owner, interrupt):
+def test_backlog_contention_does_not_trap_a_new_manager_thread(tmp_path, monkeypatch, owner, interrupt):
     backlog = Backlog(tmp_path / "backlog.jsonl")
     backlog.add(BacklogItem.new(title="Keep", objective="Preserve current work"))
     backend = Backend()
-    for _ in range(4):
-        turn(tmp_path, backend)
+    turn(tmp_path, backend)
     before = (tmp_path / ".manager_session.json").read_bytes()
     stopped, entered = threading.Event(), threading.Event()
     original = Backlog._locked
@@ -417,8 +350,8 @@ def test_backlog_contention_does_not_trap_a_manager_rotation(tmp_path, monkeypat
 
     monkeypatch.setattr(Backlog, "_locked", watched_lock)
     with ThreadPoolExecutor(max_workers=1) as pool:
-        pending = pool.submit(turn, tmp_path, backend, options=RunnerOptions(model="fixture/model",
-            external_interrupt_reason_provider=lambda: "operator stop" if stopped.is_set() else None))
+        pending = pool.submit(new_thread, tmp_path, backend,
+            external_interrupt_reason_provider=lambda: "operator stop" if stopped.is_set() else None)
         try:
             assert entered.wait(2)
             if interrupt:
@@ -431,7 +364,7 @@ def test_backlog_contention_does_not_trap_a_manager_rotation(tmp_path, monkeypat
             release.set()
             holder.join(timeout=3)
     assert not holder.is_alive()
-    assert len(backend.calls) == 4
+    assert len(backend.calls) == 1
     assert (tmp_path / ".manager_session.json").read_bytes() == before
 
 
@@ -481,14 +414,13 @@ def test_bounded_continuity_read_still_recovers_the_canonical_backlog_commit(tmp
     task.pending_question = "BEFORE_RECOVERY"
     backlog.add(task)
     backend = Backend()
-    for _ in range(4):
-        turn(tmp_path, backend)
+    turn(tmp_path, backend)
     task.pending_question = "AFTER_CANONICAL_RECOVERY"
     completed = BacklogItem.new(title="Completed", objective="Previously finished work")
     completed.status = "done"
     backlog._commit_path.write_text(json.dumps({"version": 1, "archive_offset": 0,
                                                "live": [task.to_jsonable()], "terminal": [completed.to_jsonable()]}))
-    turn(tmp_path, backend)
+    new_thread(tmp_path, backend)
     assert capsule(backend.calls[-1])["pending_questions"][0]["pending_question"] == "AFTER_CANONICAL_RECOVERY"
     assert json.loads(backlog._commit_path.read_text()) == {"version": 1}
     assert [item.id for item in backlog.history()] == [completed.id, task.id]

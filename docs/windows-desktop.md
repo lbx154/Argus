@@ -357,12 +357,12 @@ CLI 预检、再次启动、单实例恢复、退出和独立数据目录；这�
 
 ### Role session 复用
 
-Desktop 不需要机器专用的 Pi 设置来复用角色上下文。共享运行时默认使用
-`ARGUS_SKILL_ROLE_SESSION_POLICY=auto`：支持 resume 的 Pi、Codex、Claude/Qoder、
-Copilot、OpenCode 和 Grok 使用有界、按角色隔离的 rolling session；DeepSeek Harness 等
+Desktop 不需要任何设置来复用角色上下文：支持 resume 的 Pi、Codex、Claude/Qoder、
+Copilot、OpenCode 和 Grok 按角色续用各自的 provider thread；DeepSeek Harness 等
 fresh-only backend 保持 fresh。Planner、Engineer、Reviewer 各自维护独立 capsule，不会跨角色
-或无关任务共享 provider thread；达到 turn/token 上限或身份相关上下文变化时自动轮换。完整
-契约见 [Role sessions and on-demand Skills](ROLE_SESSIONS_AND_SKILLS.md)。
+或无关任务共享 provider thread。上下文由 backend 自己压缩，Argus 不按轮数或大小轮换，只在
+分支、目标、backend、模型变化时换新 thread。完整契约见
+[Role sessions and on-demand Skills](ROLE_SESSIONS_AND_SKILLS.md)。
 
 安装依赖：
 

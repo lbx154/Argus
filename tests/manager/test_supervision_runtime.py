@@ -637,7 +637,7 @@ def role_loop(root, mission_id, backend):
         skills_dir=root / "skills", engineer_runner=backend, reviewer_runner=backend,
         config=SkillLoopConfig(
             engineer_model="fixture", reviewer_model="fixture", workflow_mode="direct",
-            active_vertical="software", role_session_policy="fresh", max_rounds=1,
+            active_vertical="software", max_rounds=1,
             require_independent_review=True, require_post_task_learning=False,
             wiki_enabled=False, auto_init_wiki=False, session_id=mission_id,
             operator_question_policy_root=root,

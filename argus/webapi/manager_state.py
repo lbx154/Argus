@@ -386,17 +386,6 @@ def _chat_state_for(
     return st
 
 
-def _rotate_after() -> int:
-    """Turns before the Manager session is rotated (a proxy for its context
-    filling). Override with ARGUS_SKILL_MANAGER_ROTATE_TURNS."""
-    import os
-
-    try:
-        return max(4, int(os.environ.get("ARGUS_SKILL_MANAGER_ROTATE_TURNS", "40")))
-    except ValueError:
-        return 40
-
-
 def reset_manager_context(
     sid: str,
     *,

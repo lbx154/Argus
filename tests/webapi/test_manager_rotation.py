@@ -1,10 +1,8 @@
-"""Persistent Manager session + context-rotation (webapi.manager_bridge).
+"""Persistent Manager session (webapi.manager_bridge).
 
-The Manager session stays alive across turns (its thread id is resumed) and is
-ROTATED only when its context fills — a fresh thread seeded with a STRUCTURED
-handoff. Here we stub the Manager triage so the test is offline and assert the
-rotation fires at the threshold: thread reset + handoff carrying the identity +
-project path is prepended to the first post-rotation turn.
+The Manager session stays alive across turns (its thread id is resumed); a new
+web process seeds it once with a STRUCTURED handoff. The Manager triage is
+stubbed so the tests stay offline.
 """
 
 from __future__ import annotations
@@ -205,125 +203,6 @@ def test_latest_explicit_project_becomes_prewarm_owner(monkeypatch) -> None:
     assert manager_state._MANAGER_PREWARM_OWNER == "s-first"
     manager_state._claim_manager_prewarm_owner("s-second")
     assert manager_state._MANAGER_PREWARM_OWNER == "s-second"
-
-
-def test_manager_session_rotates_with_structured_handoff(tmp_path: Path, monkeypatch) -> None:
-    _make_project(tmp_path)
-    monkeypatch.setenv("ARGUS_SKILL_MANAGER_ROTATE_TURNS", "4")
-    manager_state._STATES.clear()
-
-    seen: list[str] = []
-    modes: list[str] = []
-
-    def _fake_triage(mem, body, chat_state, **kwargs):
-        seen.append(body)
-        modes.append(kwargs["self_mode"])
-        chat_state["last_thread_id"] = "thread-xyz"  # a live session accrues a thread
-        return "ok"
-
-    def _classify(mem, body, chat_state, **kwargs):
-        chat_state["_frontdoor_self_mode"] = "reply"
-        return None, "simple"
-
-    # Offline: stub the merged front-door classify (no real runner/LLM) + triage.
-    monkeypatch.setattr(
-        "argus.manager.config_intent._front_door_classify", _classify
-    )
-    monkeypatch.setattr("argus.manager.front_door.manager_triage", _fake_triage)
-
-    # Turns 1..4 stay on the same session (thread resumed, no handoff).
-    for _ in range(4):
-        r = manager_bridge.manager_message(
-            "s-rot00001",
-            "checking in",
-            global_root=tmp_path,
-        )
-        assert r["kind"] == "chat"
-    events = [
-        json.loads(line)
-        for line in (tmp_path / "projects" / "s-rot00001" / "events.jsonl")
-        .read_text(encoding="utf-8")
-        .splitlines()
-        if line.strip()
-    ]
-    assert [event["type"] for event in events if event["type"].startswith("ui.")] == [
-        event_type
-        for _ in range(4)
-        for event_type in ("ui.operator", "ui.argus")
-    ]
-    assert all("SESSION HANDOFF" not in b for b in seen)
-    assert modes == ["reply", "inspect", "inspect", "inspect"]
-    st = manager_state._STATES["s-rot00001"]
-    assert st["last_thread_id"] == "thread-xyz"
-
-    # Turn 5 crosses the threshold → rotate: fresh thread + handoff prepended.
-    manager_bridge.manager_message("s-rot00001", "still there?", global_root=tmp_path)
-    assert "SESSION HANDOFF" in seen[-1]
-    assert "s-rot00001" in seen[-1]  # handoff carries the project path
-    assert "checking in" in seen[-1]
-    assert modes[-1] == "inspect"
-    assert st["rotations"] == 1
-    assert st["turns"] == 1  # counter reset after rotation
-
-    manager_bridge.manager_message("s-rot00001", "next question", global_root=tmp_path)
-    assert "SESSION HANDOFF" not in seen[-1]
-    assert modes[-1] == "inspect"
-    assert st["rotations"] == 1
-    assert st["turns"] == 2
-
-
-def test_rotation_resets_cached_runner_seed(tmp_path: Path, monkeypatch) -> None:
-    """Rotation must clear the CACHED RUNNER's own session memory too.
-
-    ``_simple_quick_reply`` falls back to ``runner._next_seed_thread_id`` when the
-    caller passes ``seed_thread_id=None`` — so resetting only
-    ``chat_state["last_thread_id"]`` let the runner resurrect the just-rotated
-    thread. Rotation then never took and the session grew unbounded (its resume
-    cost climbing every turn). This pins that the bridge resets the runner too.
-    """
-    _make_project(tmp_path, sid="s-rot00003")
-    monkeypatch.setenv("ARGUS_SKILL_MANAGER_ROTATE_TURNS", "4")
-    manager_state._STATES.clear()
-
-    class _FakeRunner:
-        def __init__(self) -> None:
-            self._next_seed_thread_id = "old-thread"
-            self.last_thread_id = "old-thread"
-            self.reset_calls = 0
-
-        def reset_chat_session(self) -> None:
-            self.reset_calls += 1
-            self._next_seed_thread_id = None
-            self.last_thread_id = None
-
-    runner = _FakeRunner()
-
-    def _fake_triage(mem, body, chat_state, **_kw):
-        # Mirror the front-door: the runner is cached and accrues a thread id.
-        chat_state["manager_runner"] = runner
-        chat_state["last_thread_id"] = runner._next_seed_thread_id or "old-thread"
-        return "ok"
-
-    # Stub BOTH front-door steps so the test is offline (no real runner built).
-    monkeypatch.setattr(
-        "argus.manager.config_intent._front_door_classify", lambda *a, **k: (None, "simple")
-    )
-    monkeypatch.setattr("argus.manager.front_door.manager_triage", _fake_triage)
-
-    for _ in range(4):  # turns 1..4 — no rotation yet
-        manager_bridge.manager_message(
-            "s-rot00003",
-            "checking in",
-            global_root=tmp_path,
-        )
-    assert runner.reset_calls == 0
-    assert runner._next_seed_thread_id == "old-thread"
-
-    # Turn 5 crosses the threshold → rotation must reset the runner's seed so the
-    # next reply starts a FRESH thread instead of resurrecting the old one.
-    manager_bridge.manager_message("s-rot00003", "still there?", global_root=tmp_path)
-    assert runner.reset_calls == 1
-    assert runner._next_seed_thread_id is None
 
 
 def test_handoff_names_identity_and_path(tmp_path: Path) -> None:
