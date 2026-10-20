@@ -23,7 +23,10 @@ from ..core.role_session import (
     role_session_policy,
 )
 from ..core.run_gateway import run_exec as gateway_run_exec
-from ..core.runner_errors import is_execution_host_startup_error
+from ..core.runner_errors import (
+    is_execution_host_startup_error,
+    result_has_missing_resume_target,
+)
 
 TASK_SCOPE_BOUNDED = "bounded"
 TASK_SCOPE_FINAL_SUBMISSION = "final_submission"
@@ -227,33 +230,39 @@ class Planner:
             ),
         )
         resume_thread_id = session.prepare()
-        prompt_builder = (
-            self._build_resumed_planner_prompt
-            if resume_thread_id
-            else self._build_planner_prompt
-        )
-        prompt = prompt_builder(
-            continuous_objective=continuous_objective,
-            journal_tail=journal_tail,
-            research_plan=research_plan,
-            planning_cycle=planning_cycle,
-            runtime_change_summary=runtime_change_summary,
-            mission=self.mission,
-            open_ended=cfg.open_ended,
-            memory_maintenance_enabled=self.memory_maintenance_enabled,
-            project_root=workdir,
-            state_root=cfg.state_root,
-            journal_delta=journal_delta,
-            research_plan_unchanged=research_plan_unchanged,
-        )
-        if session.prompt_block():
-            prompt = session.prompt_block() + "\n\n" + prompt
-        full_prompt = prompt
-        prompt = session.resume_prompt(full_prompt)
-        # Appended after elision and kept out of the session's record: a resumed
-        # thread would otherwise see it as an unchanged section and drop it.
-        if cfg.settleable_instructions:
-            prompt += "\n\n" + _SETTLE_FOOTER_REMINDER
+
+        def render(resumed: bool) -> tuple[str, str]:
+            """The prompt the session records, and the one sent to the provider."""
+            prompt_builder = (
+                self._build_resumed_planner_prompt
+                if resumed
+                else self._build_planner_prompt
+            )
+            prompt = prompt_builder(
+                continuous_objective=continuous_objective,
+                journal_tail=journal_tail,
+                research_plan=research_plan,
+                planning_cycle=planning_cycle,
+                runtime_change_summary=runtime_change_summary,
+                mission=self.mission,
+                open_ended=cfg.open_ended,
+                memory_maintenance_enabled=self.memory_maintenance_enabled,
+                project_root=workdir,
+                state_root=cfg.state_root,
+                journal_delta=journal_delta,
+                research_plan_unchanged=research_plan_unchanged,
+            )
+            if session.prompt_block():
+                prompt = session.prompt_block() + "\n\n" + prompt
+            full_prompt = prompt
+            prompt = session.resume_prompt(full_prompt)
+            # Appended after elision and kept out of the session's record: a resumed
+            # thread would otherwise see it as an unchanged section and drop it.
+            if cfg.settleable_instructions:
+                prompt += "\n\n" + _SETTLE_FOOTER_REMINDER
+            return full_prompt, prompt
+
+        full_prompt, prompt = render(bool(resume_thread_id))
         planner_options = RunnerOptions(
             model=cfg.model,
             reasoning_effort=cfg.reasoning_effort or "xhigh",
@@ -286,7 +295,24 @@ class Planner:
                 resume_thread_id=resume_thread_id,
                 options=planner_options,
                 run_label=f"planner.cycle{planning_cycle}",
+                # A lost thread restarts below with the full prompt.
+                fresh_on_missing_resume=False,
             )
+            if resume_thread_id and result_has_missing_resume_target(result):
+                # The provider no longer has the thread (Copilot prunes sessions
+                # idle past its retention window). The resume delta assumes the
+                # contract and older journal are in the session, so a fresh
+                # thread gets the full prompt instead.
+                session.rotate("missing_provider_session")
+                session.prepare()
+                full_prompt, prompt = render(False)
+                result = gateway_run_exec(
+                    self.runner,
+                    prompt=prompt,
+                    resume_thread_id=None,
+                    options=planner_options,
+                    run_label=f"planner.cycle{planning_cycle}",
+                )
         except Exception as exc:  # noqa: BLE001
             session.rotate("backend_exception")
             exc_text = f"{type(exc).__name__}: {exc}"
