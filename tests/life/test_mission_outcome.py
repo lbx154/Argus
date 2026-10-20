@@ -36,6 +36,7 @@ class _Outcome:
     stop_reason: str = ""
     stop_kind: str | None = None
     recoverable: bool = False
+    park_reason: str = ""
     rounds: int = 1
     final_review_status: str = ""
     final_review_source: str = ""
@@ -108,9 +109,8 @@ def test_reviewer_summary_creates_delivery_when_engineer_returns_only_footer(
             final_review_reason="已完整审阅《餐饮企业运营手册.md》；符合交付条件。",
             final_message=(
                 "Decision:\n"
-                "MILESTONE_STATUS=done\n"
                 "RESULT=已完成餐饮企业运营手册。\n"
-                "NEXT_OWNER=reviewer"
+                "→ reviewer"
             ),
         ),
     )
@@ -138,9 +138,8 @@ def test_reviewed_engineer_path_survives_malformed_reviewer_link(tmp_path) -> No
             final_review_reason="team-result.txt` passed independent byte verification.",
             final_message=(
                 "Decision:\n"
-                "MILESTONE_STATUS=done\n"
                 "RESULT=Created `team-result.txt` and verified it.\n"
-                "NEXT_OWNER=reviewer"
+                "→ reviewer"
             ),
         ),
     )
@@ -542,8 +541,7 @@ def test_research_result_survives_runtime_and_mission_event(tmp_path) -> None:
                 round_index=1,
                 engineer_message=(
                     "Wrote the survey and verified every cited source.\n\n"
-                    "MILESTONE_STATUS=done\n"
-                    "OPERATOR_QUESTION=none"
+                    "→ done"
                 ),
                 engineer_exit_code=0,
                 review=ReviewDecision(
@@ -556,8 +554,7 @@ def test_research_result_survives_runtime_and_mission_event(tmp_path) -> None:
         ],
         final_message=(
             "Wrote the survey and verified every cited source.\n\n"
-            "MILESTONE_STATUS=done\n"
-            "OPERATOR_QUESTION=none"
+            "→ done"
         ),
         reason="",
         workdir=str(tmp_path),
@@ -595,10 +592,7 @@ def test_long_engineer_handoff_survives_compact_mission_summary(tmp_path) -> Non
     wire_message = (
         f"{body}\n\n"
         "Decision:\n"
-        "MILESTONE_STATUS=done\n"
-        "NEXT_OWNER=reviewer\n"
-        "OPERATOR_QUESTION=none\n"
-        "OPERATOR_OPTIONS=none"
+        "→ reviewer"
     )
     loop_outcome = LoopOutcome(
         status="done",
@@ -670,7 +664,8 @@ def test_daemon_shutdown_is_persisted_as_recoverable_pause(
         tmp_path,
         _Outcome(
             success=False,
-            status="paused_daemon_shutdown",
+            status="parked",
+            park_reason="daemon_shutdown",
             stop_kind=stop_kind,
             recoverable=recoverable,
             stop_reason="daemon shutdown requested",
@@ -682,13 +677,14 @@ def test_daemon_shutdown_is_persisted_as_recoverable_pause(
 
     result = supervisor.tick()
 
-    assert result is not None and result["status"] == "paused_daemon_shutdown"
+    assert result is not None and result["status"] == "parked"
     stored = next(row for row in supervisor.memory.backlog.all() if row.id == item.id)
-    assert stored.status == "paused_daemon_shutdown"
+    assert stored.status == "parked"
     assert any(row.id == item.id for row in supervisor.memory.backlog.active())
     completed = _completed_event(sink)
     assert completed["success"] is False
-    assert completed["stop_kind"] == "daemon_shutdown"
+    assert (completed["status"], completed["park_reason"]) == ("parked", "daemon_shutdown")
+    assert completed["stop_kind"] == stop_kind
     assert completed["recoverable"] is True
 
 

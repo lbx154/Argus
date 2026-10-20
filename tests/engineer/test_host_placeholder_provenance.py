@@ -13,10 +13,9 @@ from __future__ import annotations
 from pathlib import Path
 from types import SimpleNamespace
 
-from argus.adapters.memory_backend import CannedResponse, MemoryBackend
-from argus.core.models import LoopOutcome, ReviewDecision, RoundRecord, RunnerResult
-from argus.engineer.round_config import QUESTION_POLICY, SupervisedConfig
-from argus.engineer.round_settlement import RoundSettlementMixin, _apply_operator_question_policy
+from argus.core.models import LoopOutcome, ReviewDecision, RunnerResult
+from argus.engineer.round_config import SupervisedConfig
+from argus.engineer.round_settlement import RoundSettlementMixin
 from argus.engineer.round_state import EngineerTurnOutcome, RoundLoopState
 from argus.engineer.round_stop_signals import (
     backend_failure_review_decision,
@@ -148,15 +147,15 @@ def test_a_turn_limit_restart_keeps_the_reviewers_pending_request() -> None:
     assert pending.count("per-call provider-turn allowance") == 1
 
 
-def test_forbidding_questions_keeps_the_reviewers_words_and_records_the_intervention(
+def test_a_question_nobody_may_be_asked_still_goes_where_the_reviewer_sent_it(
     tmp_path: Path,
 ) -> None:
+    """``→ operator`` parks the work; with no operator, the Manager decides the card."""
     review = ReviewDecision(
         status="blocked",
         reason="parse_date drops the timezone; the CSV writer leaves a trailing comma.",
         next_action="Fix parse_date to keep the timezone and remove the trailing comma.",
         operator_question="May I change the CSV schema?",
-        operator_options=[{"id": "yes", "label": "Yes"}],
     )
     review.reviewer_authored = True
     state = RoundLoopState()
@@ -164,84 +163,6 @@ def test_forbidding_questions_keeps_the_reviewers_words_and_records_the_interven
     control = _settle(state, review, SupervisedConfig(operator_questions_allowed=False), tmp_path)
 
     recorded = state.rounds[-1].review
-    assert (recorded.status, recorded.reason, recorded.next_action) == (
-        review.status, review.reason, review.next_action,
-    )
-    assert recorded.operator_question == "May I change the CSV schema?"
-    assert recorded.operator_options == [{"id": "yes", "label": "Yes"}]
-    assert recorded.review_source == "reviewer" and recorded.reviewer_authored
-    [intervention] = recorded.interventions
-    assert intervention["policy"] == QUESTION_POLICY
-    assert intervention["action"] == "continue"
-    assert intervention["at"] > 0 and intervention["note"]
-    # The work goes on from the Reviewer's repairs, without asking.
-    assert control.action == "continue_loop"
-    assert "Fix parse_date" in state.reviewer_next_action
-    assert "do not ask the operator" in state.reviewer_next_action
-
-
-def test_a_blocked_review_in_no_operator_mode_keeps_its_verdict_and_the_work_goes_on(
-    tmp_path: Path,
-) -> None:
-    from argus.engineer.runner import EngineerConfig, SupervisedEngineer
-    from argus.reviewer import Reviewer, ReviewerConfig
-
-    backend = MemoryBackend()
-    backend.queue("engineer-r1", CannedResponse(message="Wrote the exporter."))
-    backend.queue("reviewer", CannedResponse(review_action=(
-        "request_review_decision",
-        {"review": "The export format is not specified.", "question": "CSV or JSON?"},
-    )))
-    backend.queue("engineer-r2", CannedResponse(message="Chose CSV and recorded the assumption."))
-    backend.queue("reviewer", CannedResponse(review_action=(
-        "approve_review", {"review": "The CSV exporter is verified."},
-    )))
-    engineer = SupervisedEngineer(
-        engineer_runner=backend, reviewer=Reviewer(runner=backend),
-        engineer_config=EngineerConfig(model="m"), reviewer_config=ReviewerConfig(model="m"),
-    )
-
-    status, rounds, _final, _reason, _thread = engineer.run(
-        objective="Export the report.",
-        engineer_prompt_builder=lambda _next, _static=True: "Export it.",
-        supervised_config=SupervisedConfig(operator_questions_allowed=False),
-        workdir=tmp_path,
-    )
-
-    assert status == "done"
-    first = rounds[0].review
-    assert first.status == "blocked"
-    assert first.operator_question == "CSV or JSON?"
-    assert [row["policy"] for row in first.interventions] == [QUESTION_POLICY]
-    assert first.interventions[0]["action"] == "continue"
-
-
-def test_a_placeholder_between_forbidden_questions_hands_the_second_to_the_manager(
-    tmp_path: Path,
-) -> None:
-    config = SupervisedConfig(operator_questions_allowed=False)
-    state = RoundLoopState()
-    first = ReviewDecision(
-        status="continue", reason="needs schema", next_action="ask", operator_question="Schema?",
-    )
-    state.rounds.append(RoundRecord(
-        round_index=1, engineer_message="e1", engineer_exit_code=0,
-        review=_apply_operator_question_policy(first, supervised_config=config, state=state),
-    ))
-    state.rounds.append(RoundRecord(
-        round_index=2, engineer_message="e2", engineer_exit_code=1,
-        review=provider_turn_cap_review_decision(
-            fatal_error="cap", exit_code=1, wind_down_summary="", streak=1, streak_limit=0,
-        ),
-    ))
-    second = ReviewDecision(
-        status="continue", reason="still needs schema", next_action="ask", operator_question="Schema?",
-    )
-
-    control = _settle(state, second, config, tmp_path)
-
-    assert state.rounds[-1].review.status == "continue"
-    assert state.rounds[-1].review.intervention(QUESTION_POLICY)["action"] == "manager"
+    assert recorded == review and recorded.interventions == []
     assert control.action == "return"
     assert control.terminal[0] == "blocked"
-    assert "the Manager decides" in control.terminal[3]

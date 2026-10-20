@@ -65,10 +65,10 @@ def test_reviewer_handoff_uses_actions():
     p = _prompt()
 
     for field in (
-        "replan_review",
+        "submit_review",
+        "`→ planner`",
         "alternative",
-        "authority",
-        "request_review_decision",
+        "`→ operator: <one question>`",
     ):
         assert field in p
     assert "STATUS=" not in p

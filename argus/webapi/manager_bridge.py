@@ -133,7 +133,7 @@ def _recent_team_replay(
     prior_turns: list[dict[str, Any]],
 ) -> Any | None:
     request = " ".join(str(body or "").split())
-    eligible_statuses = {"pending", "running", "done", "paused_operator"}
+    eligible_statuses = {"pending", "running", "done", "parked"}
     recent_items = []
     now = time.time()
     for item in sorted(mem.backlog.history(), key=lambda row: float(row.ts), reverse=True):

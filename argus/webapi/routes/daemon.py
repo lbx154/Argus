@@ -8,9 +8,11 @@ from typing import Any, Callable
 from fastapi import Depends, HTTPException
 from starlette.concurrency import run_in_threadpool
 
+from ...core.stop_kinds import OPERATOR_RESUMED_PARKS
 from ...core.workspace_lease import canonical_workdir
 from ...daemon import commands as daemon_commands
 from ...life.memory import LifeMemory
+from ...life.runtime_failure_circuit import PROVIDER_OUTAGE, clear_runtime_failure_circuit
 from ...manager import front_door as manager_front_door
 from .. import daemon_lifecycle, daemon_upgrade, project_state
 from .context import ServerContext
@@ -42,12 +44,16 @@ async def _execute_command(
     return result
 
 
-def _resume_provider_fences_after_start(life_dir, result, *, enabled=True):
+def _resume_parks_after_start(life_dir, result, *, enabled=True):
     # Only an authenticated, explicit start/continue command reaches this
-    # callback. Automatic supervision/restarts never clear this boundary.
-    # Account attention and unknown-cost acknowledgements are separate gates.
+    # callback: the operator's go-ahead ends every park the Planner does not
+    # own, and a provider outage's circuit. Automatic supervision/restarts
+    # never clear these boundaries. Account attention and unknown-cost
+    # acknowledgements are separate gates. The circuit goes first: the resume's
+    # backlog write is what wakes a sleeping daemon.
     if enabled and type(result.get("rc")) is int and result["rc"] == 0:
-        LifeMemory.open(life_dir).backlog.resume_paused_statuses({"paused_provider_fence"})
+        clear_runtime_failure_circuit(life_dir, reason="operator Run", fingerprint=PROVIDER_OUTAGE)
+        LifeMemory.open(life_dir).backlog.resume_parked(OPERATOR_RESUMED_PARKS)
     return result
 
 
@@ -109,7 +115,7 @@ def register_daemon_routes(app, ctx: ServerContext) -> None:
                 ),
                 sid,
             )
-            return _resume_provider_fences_after_start(life_dir, result)
+            return _resume_parks_after_start(life_dir, result)
 
         return await _execute_command(
             life_dir, command,
@@ -172,7 +178,7 @@ def register_daemon_routes(app, ctx: ServerContext) -> None:
                 ),
                 sid,
             )
-            return _resume_provider_fences_after_start(
+            return _resume_parks_after_start(
                 life_dir, result, enabled=body.resume_continuous,
             )
 

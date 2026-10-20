@@ -21,9 +21,9 @@ from typing import TYPE_CHECKING, Any
 
 from ...agent_cli._process_control import windows_hidden_subprocess_kwargs
 from ...core.event_catalog import EventType
-from ...core.stop_kinds import normalize_stop_kind, pause_status_for_stop_kind
+from ...core.stop_kinds import normalize_stop_kind, stop_park_reason
 from ...core.usage import UsageLedger, UsageRecord
-from ..memory import BacklogItem
+from ..memory import BacklogItem, park_reason
 from ..mission_outcome import mission_outcome_class, mission_outcome_dimensions
 from ._cost import _CostTrackingSink
 from ._mission_execution_helpers import _MissionRunState
@@ -34,14 +34,6 @@ if TYPE_CHECKING:
 log = logging.getLogger(__name__)
 
 
-# Pause statuses the round loop returns directly; each is resumable on its own.
-_TYPED_PAUSE_STATUSES = frozenset({
-    "paused_budget",
-    "paused_cost",
-    "paused_provider_cooldown",
-    "paused_provider_fence",
-    "paused_daemon_shutdown",
-})
 # How a task ends when the model service, not the work, failed it.
 _OUTAGE_STOP_KINDS = frozenset({"backend_unavailable", "transient_error"})
 
@@ -902,29 +894,35 @@ class MissionExecutionRuntimeMixin:
         except Exception as exc:  # noqa: BLE001
             state.exc_str = f"{type(exc).__name__}: {exc}"
             log.exception("life supervisor: mission raised")
-            try:
-                from ..runtime_failure_circuit import record_runtime_failure_circuit
-
-                circuit = record_runtime_failure_circuit(
-                    self.memory.root,
-                    exc,
-                    item_id=item.id,
-                )
-                self._emit({
-                    "type": EventType.LIFE_RUNTIME_FAILURE_CIRCUIT_OPENED,
-                    "item_id": item.id,
-                    "fingerprint": circuit.get("fingerprint"),
-                    "exception_type": circuit.get("exception_type"),
-                    "callsite": circuit.get("callsite"),
-                    "normalized_error": circuit.get("normalized_error"),
-                    "occurrence_count": circuit.get("occurrence_count"),
-                    "runtime_identity": circuit.get("runtime_identity"),
-                    "newly_opened": circuit.get("newly_opened"),
-                    "operator_alert": True,
-                })
-            except Exception:  # noqa: BLE001 - circuit failure cannot hide original
-                log.exception("failed to persist mission runtime failure circuit")
+            self._record_runtime_failure(exc, item_id=item.id)
         state.elapsed = time.time() - state.t0
+
+    def _record_runtime_failure(
+        self, failure: BaseException | dict[str, str], *, item_id: str,
+    ) -> None:
+        """Open (or count again) the circuit that holds every model call."""
+        try:
+            from ..runtime_failure_circuit import record_runtime_failure_circuit
+
+            circuit = record_runtime_failure_circuit(
+                self.memory.root,
+                failure,
+                item_id=item_id,
+            )
+            self._emit({
+                "type": EventType.LIFE_RUNTIME_FAILURE_CIRCUIT_OPENED,
+                "item_id": item_id,
+                "fingerprint": circuit.get("fingerprint"),
+                "exception_type": circuit.get("exception_type"),
+                "callsite": circuit.get("callsite"),
+                "normalized_error": circuit.get("normalized_error"),
+                "occurrence_count": circuit.get("occurrence_count"),
+                "runtime_identity": circuit.get("runtime_identity"),
+                "newly_opened": circuit.get("newly_opened"),
+                "operator_alert": True,
+            })
+        except Exception:  # noqa: BLE001 - circuit failure cannot hide original
+            log.exception("failed to persist mission runtime failure circuit")
 
     # ------------------------------------------------------------------
     # Phase: basic outcome derivation + budget/provider pause
@@ -945,14 +943,7 @@ class MissionExecutionRuntimeMixin:
         state.rounds = int(getattr(outcome, "rounds", 0) or 0)
         state.stop_reason = str(getattr(outcome, "stop_reason", "") or "")
         state.stop_kind = normalize_stop_kind(getattr(outcome, "stop_kind", None))
-        if state.stop_kind is None:
-            if state.status == "budget_exhausted":
-                state.stop_kind = "budget_exhausted"
-            elif state.status == "paused_daemon_shutdown":
-                # The harness can stop while awaiting an external experiment
-                # after Engineer has returned. There is no interrupted backend
-                # call to attach a stop kind; the typed pause remains resumable.
-                state.stop_kind = "daemon_shutdown"
+        state.park_reason = str(getattr(outcome, "park_reason", "") or "")
         cost_sink = state.cost_sink
         assert cost_sink is not None, "outcome derivation requires prepared cost sink"
         usage_summary = cost_sink.usage_summary()
@@ -1024,49 +1015,44 @@ class MissionExecutionRuntimeMixin:
         """
         outcome = state.outcome
         item = state.item
-        pause_status = pause_status_for_stop_kind(state.stop_kind)
-        if not pause_status and state.status in _TYPED_PAUSE_STATUSES:
-            # The round loop already named a typed, resumable pause. Its stop
-            # kind may describe the failure it was waiting out (the Reviewer
-            # backend on s-009c3ec3, 2026-09-16 03:33) rather than the
-            # interrupt that ended the wait; the daemon stopping is not that
-            # failure's fault, and the mission was archived as failed and never
-            # resumed because the kind, not the status, decided.
-            pause_status = state.status
-        manager_wait = state.status == "paused_operator" and state.stop_kind is None
-        if manager_wait:
-            # A task-scoped Manager WAIT is observed at a safe role boundary;
-            # it has no provider interruption and preserves the existing question.
-            pause_status = "paused_operator"
-        if state.status == "budget_exhausted":
-            state.status = "paused_budget"
-            pause_status = "paused_budget"
-        if not pause_status and self._outage_retries_spent(state):
+        # The round loop names its own park; any other outcome parks on a
+        # stop that is not a failure.
+        reason = (
+            state.park_reason if state.status == "parked"
+            else stop_park_reason(state.stop_kind) or ""
+        )
+        if reason in {"research_open", "infra"}:
+            # These settle with the rest of the work's outcome.
+            return None
+        if not reason and self._outage_retries_spent(state):
             from ...core.autonomy import RETRY_WINDOW_SPENT_REASON
 
             state.stop_kind = "provider_fence"
             state.stop_reason = f"{RETRY_WINDOW_SPENT_REASON} ({state.stop_reason})."
-            pause_status = "paused_provider_fence"
-        if not pause_status:
+            reason = "provider_fence"
+        if not reason:
             return None
-        if pause_status == "paused_provider_cooldown":
+        if reason == "provider_cooldown":
             parked = self._maybe_park_permanent_provider_failure(state)
             if parked is not None:
                 return parked
             if state.stop_kind == "provider_fence":
-                pause_status = "paused_provider_fence"
+                reason = "provider_fence"
         usage_summary = state.usage_summary
         assert usage_summary is not None, "pause settlement requires metered outcome"
         pause_outcome = mission_outcome_dimensions(
-            status=pause_status,
+            status="parked",
             success=False,
             review_status=str(
                 getattr(outcome, "final_review_status", "") or ""
             ),
             stop_kind=state.stop_kind,
             resumable=True,
+            park_reason=reason,
         )
-        if manager_wait:
+        if reason == "operator_question":
+            # A task-scoped Manager WAIT is observed at a safe role boundary;
+            # it has no provider interruption and preserves the existing question.
             from ...core.operator_context import operator_context_state_root
             from ...manager.supervision import waiting_for_evidence
 
@@ -1078,7 +1064,7 @@ class MissionExecutionRuntimeMixin:
                 outcome=pause_outcome,
                 wait_current=waiting_for_evidence(operator_context_state_root(self.memory), item.id),
             )
-            if settled is None or settled.status != "paused_operator":
+            if settled is None or settled.status != "parked":
                 return {
                     "status": settled.status if settled is not None else "superseded",
                     "item_id": item.id, "success": False, "recoverable": True,
@@ -1088,10 +1074,18 @@ class MissionExecutionRuntimeMixin:
         else:
             self.memory.backlog.update(
                 item.id,
-                status=pause_status,
+                park_reason=reason,
                 finished_ts=time.time(),
                 last_error=state.stop_reason,
                 outcome=pause_outcome,
+            )
+        if reason == "provider_fence":
+            # The model service turned this task away past its automatic
+            # retries; it would turn every other call away too.
+            from ..runtime_failure_circuit import provider_outage_failure
+
+            self._record_runtime_failure(
+                provider_outage_failure(state.stop_reason), item_id=item.id,
             )
         from ...engineer.round_stop_signals import backend_failure_cause
 
@@ -1102,11 +1096,9 @@ class MissionExecutionRuntimeMixin:
             "type": EventType.LIFE_MISSION_COMPLETED,
             "item_id": item.id,
             "success": False,
-            "status": pause_status,
-            "outcome_class": mission_outcome_class(
-                status=pause_status,
-                success=False,
-            ),
+            "status": "parked",
+            "park_reason": reason,
+            "outcome_class": mission_outcome_class("parked", False, reason),
             "outcome": pause_outcome,
             "stop_kind": state.stop_kind,
             "stop_reason": state.stop_reason,
@@ -1124,7 +1116,8 @@ class MissionExecutionRuntimeMixin:
             ),
         })
         return {
-            "status": pause_status,
+            "status": "parked",
+            "park_reason": reason,
             "item_id": item.id,
             "success": False,
             "stop_kind": state.stop_kind,
@@ -1146,7 +1139,9 @@ class MissionExecutionRuntimeMixin:
         dispatch the next task into the same outage. Counting back over the
         tasks that ended that way with nothing else in between, once the first
         is older than the automatic-retry window the next one waits for the
-        operator instead of failing into another plan.
+        operator instead of failing into another plan. A task already parked
+        on the fence is part of the same outage, so a task that still meets it
+        (a canary, or one that was already running) parks too.
         """
         from ...core.autonomy import AUTOMATIC_RETRY_WINDOW_SECONDS
 
@@ -1163,7 +1158,9 @@ class MissionExecutionRuntimeMixin:
             if row.id == state.item.id:
                 continue
             outcome = row.outcome if isinstance(row.outcome, dict) else {}
-            if row.status != "failed" or outcome.get("interruption_kind") not in _OUTAGE_STOP_KINDS:
+            if park_reason(row) != "provider_fence" and (
+                row.status != "failed" or outcome.get("interruption_kind") not in _OUTAGE_STOP_KINDS
+            ):
                 break
             since = float(row.finished_ts or now)
         return now - since >= AUTOMATIC_RETRY_WINDOW_SECONDS
@@ -1275,17 +1272,18 @@ class MissionExecutionRuntimeMixin:
         # agent-authored option that happens to be called "drop" must not.
         decision_card["decision_kind"] = "provider_configuration"
         pause_outcome = mission_outcome_dimensions(
-            status="paused_operator",
+            status="parked",
             success=False,
             review_status=str(
                 getattr(state.outcome, "final_review_status", "") or ""
             ),
             stop_kind=state.stop_kind,
             resumable=True,
+            park_reason="operator_question",
         )
         self.memory.backlog.update(
             item.id,
-            status="paused_operator",
+            park_reason="operator_question",
             finished_ts=time.time(),
             last_error=state.stop_reason,
             outcome=pause_outcome,
@@ -1318,11 +1316,9 @@ class MissionExecutionRuntimeMixin:
             "type": EventType.LIFE_MISSION_COMPLETED,
             "item_id": item.id,
             "success": False,
-            "status": "paused_operator",
-            "outcome_class": mission_outcome_class(
-                status="paused_operator",
-                success=False,
-            ),
+            "status": "parked",
+            "park_reason": "operator_question",
+            "outcome_class": mission_outcome_class("parked", False, "operator_question"),
             "outcome": pause_outcome,
             "stop_kind": state.stop_kind,
             "recoverable": True,
@@ -1332,7 +1328,8 @@ class MissionExecutionRuntimeMixin:
             "spent_usd": state.known_usd,
         })
         return {
-            "status": "paused_operator",
+            "status": "parked",
+            "park_reason": "operator_question",
             "item_id": item.id,
             "success": False,
             "stop_kind": state.stop_kind,

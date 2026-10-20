@@ -4,6 +4,7 @@ from __future__ import annotations
 import json
 import logging
 import os
+from itertools import islice
 from pathlib import Path
 from typing import Any, Callable, Iterable
 
@@ -13,6 +14,7 @@ from ..core.models import RunnerOptions
 from ..core.run_gateway import run_exec as gateway_run_exec
 from ..skills.layered import shared_skill_scope_dir
 from ..skills.vertical_select import resolve_skill_scope
+from ..wiki.promote import declared_vertical
 from .source_writeback import atomic_write
 
 log = logging.getLogger(__name__)
@@ -105,9 +107,9 @@ def _backend_for(runner: Any) -> Any:
     return runner if callable(getattr(runner, "run_exec", None)) else None
 
 
-def _role_skill_paths(root: Path) -> list[Path]:
+def _role_skill_paths(root: Path, roles: Iterable[str] = _TEAM_ROLES) -> list[Path]:
     paths: list[Path] = []
-    for role in _TEAM_ROLES:
+    for role in roles:
         role_root = root / role
         if not role_root.is_dir():
             continue
@@ -122,6 +124,18 @@ def _role_skill_paths(root: Path) -> list[Path]:
     return paths
 
 
+def _skill_code(path: Path) -> list[str]:
+    """The files a ``SKILL.md`` carries beside it."""
+    if path.name != "SKILL.md":
+        return []
+    found = (item.relative_to(path.parent) for item in islice(path.parent.rglob("*"), 64))
+    return sorted(
+        item.as_posix() for item in found
+        if (path.parent / item).is_file() and item != Path(path.name)
+        and not any(part.startswith(".") for part in item.parts)
+    )[:_MAX_CANDIDATE_FILES]
+
+
 def _snapshot(paths: Iterable[Path]) -> dict[Path, tuple[int, int]]:
     snapshot: dict[Path, tuple[int, int]] = {}
     for path in paths:
@@ -133,23 +147,42 @@ def _snapshot(paths: Iterable[Path]) -> dict[Path, tuple[int, int]]:
     return snapshot
 
 
+def _project_skill_files(project_skills: Path | None, workspace: Path) -> dict[str, Path]:
+    """Project-authored Skills by their place in a role library.
+
+    The Manager, Planner and Reviewer keep theirs in role directories of the
+    project state. Engineer procedures, the Engineer's and the post-mission
+    reflection's, are the workspace's Agent Skills
+    (``.agents/skills/<name>/SKILL.md``, with any code beside it); each takes
+    the place ``engineer/<name>/SKILL.md``.
+    """
+    files: dict[str, Path] = {}
+    if project_skills is not None and project_skills.is_dir():
+        files = {
+            path.relative_to(project_skills).as_posix(): path
+            for path in _role_skill_paths(project_skills, (role for role in _TEAM_ROLES if role != "engineer"))
+        }
+    native = workspace / ".agents" / "skills"
+    for path in sorted(native.glob("*/SKILL.md")):
+        if path.is_file() and not path.parent.name.startswith((".", "_")):
+            files.setdefault(f"engineer/{path.parent.name}/SKILL.md", path.resolve())
+    return files
+
+
 def _unshared_project_skills(
-    project_root: Path | None,
+    files: dict[str, Path],
     shared_root: Path,
 ) -> dict[str, list[int]]:
     """``file_facts`` of project-authored Skills absent from the shared layer."""
-    if project_root is None or not project_root.is_dir():
-        return {}
     skills: dict[str, list[int]] = {}
-    for source in _role_skill_paths(project_root):
+    for relative, source in files.items():
         try:
-            relative = source.relative_to(project_root)
             target = shared_root / relative
             body = source.read_bytes()
             if target.is_file() and body == target.read_bytes():
                 continue
-            skills[relative.as_posix()] = file_facts(source)
-        except (OSError, ValueError):
+            skills[relative] = file_facts(source)
+        except OSError:
             continue
     return skills
 
@@ -189,22 +222,19 @@ def _record_reviewed_project_skills(
 
 
 def _candidate_evidence(
-    root: Path | None,
+    files: dict[str, Path],
     *,
     include: frozenset[str] | None = None,
 ) -> tuple[str, frozenset[str]]:
-    if root is None:
-        return "- none", frozenset()
     rendered: list[str] = []
     presented: set[str] = set()
     remaining = _MAX_CANDIDATE_CHARS
-    for path in _role_skill_paths(root):
+    for key, path in files.items():
+        if include is not None and key not in include:
+            continue
         try:
             text = path.read_text(encoding="utf-8", errors="replace")
-            relative = path.relative_to(root)
-        except (OSError, ValueError):
-            continue
-        if include is not None and relative.as_posix() not in include:
+        except OSError:
             continue
         marker = names_the_verifier(text)
         if marker:
@@ -215,7 +245,7 @@ def _candidate_evidence(
             # the case where the mission result alone is enough to reconstruct
             # the procedure.
             rendered.append(
-                f"- {relative.as_posix()}\n"
+                f"- {key}\n"
                 "<withheld_candidate>\n"
                 f"This candidate names {marker!r}, part of the machinery that "
                 "produced this mission's verdict. The verdict cannot certify a "
@@ -223,17 +253,19 @@ def _candidate_evidence(
                 "here and its text is not shown. It stays in the project layer.\n"
                 "</withheld_candidate>"
             )
-            presented.add(relative.as_posix())
+            presented.add(key)
             if len(rendered) >= _MAX_CANDIDATE_FILES:
                 break
             continue
         excerpt = text[:remaining]
         if not excerpt:
             continue
-        presented.add(relative.as_posix())
+        presented.add(key)
+        code = _skill_code(path)
         rendered.append(
-            f"- {relative.as_posix()}\n"
-            "<untrusted_candidate>\n"
+            f"- {key}\n"
+            + (f"  code beside it in `{path.parent}`: {', '.join(code)}\n" if code else "")
+            + "<untrusted_candidate>\n"
             f"{excerpt}\n"
             "</untrusted_candidate>"
         )
@@ -245,7 +277,7 @@ def _candidate_evidence(
 
 def _team_learning_prompt(
     *,
-    project_skill_root: Path | None,
+    project_skills: dict[str, Path],
     candidate_paths: frozenset[str],
     shared_root: Path,
     scope: str,
@@ -254,7 +286,7 @@ def _team_learning_prompt(
     mission_result: str,
 ) -> tuple[str, frozenset[str]]:
     candidates, presented = _candidate_evidence(
-        project_skill_root,
+        project_skills,
         include=candidate_paths,
     )
     prompt = (
@@ -328,7 +360,9 @@ def _team_learning_prompt(
         "keep its dates, SHAs, URLs and horizons verbatim, append one History line "
         "instead of duplicating the record, and never fold a dated record into a "
         "procedure skill or a procedure into a dated record. Each Skill must contain exactly `name` and "
-        "`description` frontmatter followed by concise Markdown. If the evidence does "
+        "`description` frontmatter followed by concise Markdown. A candidate listed with "
+        "code beside it is a Skill directory: promote it whole, copying that code from the "
+        "named directory into `<role>/<name>/` beside its SKILL.md. If the evidence does "
         "not justify sharing within this vertical, make no edit."
     )
     return prompt, presented
@@ -362,11 +396,24 @@ def propagate_after_mission(
     mission_result: str = "",
     on_event: Any = None,
 ) -> dict[str, int]:
-    """Run one isolated, agent-native TEAM learning review after success."""
+    """Run one isolated, agent-native TEAM learning review after success.
+
+    A candidate whose front matter names a vertical this host knows
+    (``vertical: <name>``) is reviewed into that vertical's library; the rest
+    into the project's own.
+    """
     counts = dict(_ZERO_SHARED)
     backend = _backend_for(runner)
     if backend is None:
         log.debug("TEAM learning review skipped: no runner backend")
+        return counts
+    if not mission_success:
+        _emit(on_event, {
+            "type": "team.learning.review.skipped",
+            "agent_layer": "manager",
+            "mission_success": mission_success,
+            "reason": "mission failed",
+        })
         return counts
 
     state = (
@@ -388,48 +435,74 @@ def propagate_after_mission(
     scope = resolve_skill_scope(state or project_root)
     if not scope and state is not None:
         scope = resolve_skill_scope(project_root)
+    by_vertical: dict[str, dict[str, Path]] = {}
+    for key, path in _project_skill_files(project_skills, Path(project_root)).items():
+        try:
+            vertical = declared_vertical(path.read_text(encoding="utf-8", errors="replace"), scope)
+        except OSError:
+            vertical = scope
+        by_vertical.setdefault(vertical, {})[key] = path
+    for vertical, files in (by_vertical or {scope: {}}).items():
+        for name, value in _review_into_vertical(
+            vertical, files, backend=backend, state=state, global_skills=global_skills,
+            mission_objective=mission_objective, mission_result=mission_result,
+            on_event=on_event,
+        ).items():
+            counts[name] += value
+    return counts
+
+
+def _review_into_vertical(
+    scope: str,
+    files: dict[str, Path],
+    *,
+    backend: Any,
+    state: Path | None,
+    global_skills: Path,
+    mission_objective: str,
+    mission_result: str,
+    on_event: Any,
+) -> dict[str, int]:
+    """Review ``files`` for the shared library of the vertical ``scope``."""
+    counts = dict(_ZERO_SHARED)
     vertical_root = shared_skill_scope_dir(global_skills, scope)
     shared = vertical_root.resolve() if vertical_root is not None else global_skills
-    candidates = _unshared_project_skills(project_skills, shared)
+    candidates = _unshared_project_skills(files, shared)
     reviewed = _reviewed_project_skills(state)
     pending_paths = frozenset(
         path for path, facts in candidates.items() if reviewed.get(path) != facts
     )
-    if not mission_success or not pending_paths:
+    if not pending_paths:
         _emit(on_event, {
             "type": "team.learning.review.skipped",
             "agent_layer": "manager",
-            "mission_success": mission_success,
-            "reason": (
-                "mission failed"
-                if not mission_success
-                else "no project skill delta"
-            ),
+            "mission_success": True,
+            "reason": "no project skill delta",
         })
         return counts
     if vertical_root is None or not shared.is_relative_to(global_skills / "_shared_verticals"):
         counts["stayed"] = len(pending_paths)
         _emit(on_event, {
             "type": "team.learning.review.skipped", "agent_layer": "manager",
-            "mission_success": mission_success,
+            "mission_success": True,
             "reason": "no resolved vertical; candidates stay in project, not global",
         })
         return counts
     shared.mkdir(parents=True, exist_ok=True)
     prompt, presented_paths = _team_learning_prompt(
-        project_skill_root=project_skills,
+        project_skills=files,
         candidate_paths=pending_paths,
         shared_root=shared,
         scope=scope,
         mission_objective=mission_objective,
-        mission_success=mission_success,
+        mission_success=True,
         mission_result=mission_result,
     )
     if not presented_paths:
         _emit(on_event, {
             "type": "team.learning.review.skipped",
             "agent_layer": "manager",
-            "mission_success": mission_success,
+            "mission_success": True,
             "reason": "no readable project skill delta",
         })
         return counts
@@ -438,7 +511,7 @@ def propagate_after_mission(
         "type": "team.learning.review.started",
         "agent_layer": "manager",
         "mission_objective": mission_objective[:500],
-        "mission_success": mission_success,
+        "mission_success": True,
         "scope": "vertical", "vertical": scope,
     })
 
@@ -447,6 +520,8 @@ def propagate_after_mission(
         for role in _TEAM_ROLES
         if (shared / role).is_dir()
     ]
+    # Only the code of a presented candidate is read outside the vertical root.
+    code_dirs = [str(files[key].parent) for key in sorted(presented_paths) if _skill_code(files[key])]
     try:
         result = gateway_run_exec(
             backend,
@@ -457,6 +532,7 @@ def propagate_after_mission(
                 sandbox_mode="workspace-write",
                 skip_git_repo_check=True,
                 working_dir=str(shared),
+                add_dirs=code_dirs or None,
                 skill_paths=native_paths,
             ),
             run_label="team-learning-review",
@@ -466,7 +542,7 @@ def propagate_after_mission(
         _emit(on_event, {
             "type": "team.learning.review.failed",
             "agent_layer": "manager",
-            "mission_success": mission_success,
+            "mission_success": True,
             "error": f"{type(exc).__name__}: {exc}",
         })
         return counts
@@ -479,7 +555,7 @@ def propagate_after_mission(
         _emit(on_event, {
             "type": "team.learning.review.failed",
             "agent_layer": "manager",
-            "mission_success": mission_success,
+            "mission_success": True,
             "error": str(getattr(result, "fatal_error", "") or ""),
         })
         return counts
@@ -511,7 +587,7 @@ def propagate_after_mission(
     _emit(on_event, {
         "type": "team.learning.review.completed",
         "agent_layer": "manager",
-        "mission_success": mission_success,
+        "mission_success": True,
         "created": len(created),
         "updated": len(updated),
         "quarantined": len(quarantined),

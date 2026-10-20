@@ -10,7 +10,7 @@ from argus.planner import Planner, PlannerConfig
 
 
 def _review(status: str) -> tuple[str, dict]:
-    return (('approve_review' if status == 'done' else 'revise_review'), {'review': (f'review-{status}') + '\n\n' + ('finish' if status == 'done' else 'continue')})
+    return "submit_review", {'review': f'review-{status}\n\n' + ('finish\n→ done' if status == 'done' else 'continue\n→ engineer')}
 
 
 def test_default_auto_policy_resumes_pi_role_threads_without_machine_configuration(

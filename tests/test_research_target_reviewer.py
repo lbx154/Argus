@@ -19,16 +19,11 @@ class _Backend:
         self.options = kwargs["options"]
         from argus.core.role_tool_bridge import bridge_request
 
-        payload = {"review": "Independent judgment from the inspected evidence."}
+        holder = "done" if self.status == "done" else "planner"
+        payload = {"review": f"Independent judgment from the inspected evidence.\n→ {holder}"}
         if self.venue_review:
             payload["recommendation"] = self.venue_review["recommendation"]
-        if self.status == "replan_requested":
-            payload["authority_impact"] = "technical"
-        bridge_request(
-            "ARGUS_PLUGIN_REVIEW",
-            "approve_review" if self.status == "done" else "replan_review",
-            payload, env=self.options.extension_env,
-        )
+        bridge_request("ARGUS_PLUGIN_REVIEW", "submit_review", payload, env=self.options.extension_env)
         return RunnerResult(exit_code=0)
 
 

@@ -33,11 +33,7 @@ log = logging.getLogger(__name__)
 
 
 def _open_runtime_failure_circuit(supervisors: Any) -> dict[str, Any] | None:
-    """The first active runtime failure circuit among the worker's supervisors.
-
-    The circuit only clears when a different Argus runtime is loaded, so a
-    finite (bounded) worker that hits it can never make progress again.
-    """
+    """The first active runtime failure circuit among the worker's supervisors."""
     from ..life.runtime_failure_circuit import active_runtime_failure_circuit
 
     for supervisor in supervisors or ():
@@ -60,7 +56,7 @@ _HELPER_WAKE_SETTLE_SECONDS = 0.05
 
 
 def _backlog_fingerprint(supervisor: Any) -> tuple | None:
-    """Cheap change marker for the backlog a helper supervisor claims from."""
+    """Cheap change marker for the backlog a supervisor claims from."""
     backlog = getattr(getattr(supervisor, "memory", None), "backlog", None)
     paths = getattr(backlog, "storage_paths", None)
     if not paths:
@@ -428,8 +424,8 @@ class LifeWorkerRunMixin:
         # Drain for real. Helper missions run on ``_mission_stop`` and the
         # lead's harness waits watch only the process-wide stop flag; with just
         # ``_stop`` set they kept this process (and the daemon lock) busy for
-        # as long as those missions ran. Interrupted missions settle as
-        # ``paused_daemon_shutdown``, which the successor resumes.
+        # as long as those missions ran. Interrupted missions park on
+        # ``daemon_shutdown``, which the successor resumes.
         # Not ``request_process_stop``: a handoff is not an operator clock-out.
         process_stop.request_stop()
         self._mission_stop.set()
@@ -706,9 +702,9 @@ class LifeWorkerRunMixin:
                         log.info("daemon: bounded work completed; exiting cleanly")
                         break
                     # A bounded worker parked behind an open runtime failure
-                    # circuit would wait forever: the circuit only clears once a
-                    # changed runtime is loaded, which never happens inside this
-                    # process. Release the slot instead of idling until killed.
+                    # circuit waits on facts this process does not produce (a
+                    # changed runtime, the operator's Run). Release the slot
+                    # instead of idling until killed.
                     if (
                         not rf_state.cfg.continuous_open_ended
                         and not standing_enabled
@@ -717,9 +713,8 @@ class LifeWorkerRunMixin:
                         if circuit is not None:
                             log.warning(
                                 "daemon: bounded work blocked by an open runtime failure "
-                                "circuit (%s at %s); exiting",
-                                circuit.get("exception_type") or "error",
-                                circuit.get("callsite") or "unknown callsite",
+                                "circuit (%s); exiting",
+                                circuit.get("fingerprint") or "unknown",
                             )
                             break
                     # Idle auto-exit: the supervisor judged the project idle past
@@ -756,8 +751,9 @@ class LifeWorkerRunMixin:
                 _maybe_consolidate(rf_state, self.config)
                 # Honor the supervisor's suggested backoff (escalating while it is
                 # idle awaiting an external dependency). The sleep is wakeable: it returns
-                # early on stop, or when the user inbox grows — so /add and /nudge
-                # stay responsive even during a long await-external backoff.
+                # early on stop, when the user inbox grows, or when someone else
+                # writes the backlog — so /add, /nudge and an explicit Run stay
+                # responsive even during a long await-external backoff.
                 try:
                     suggested = float(summary.get("suggested_sleep") or 0.0)
                 except Exception:  # noqa: BLE001
@@ -766,9 +762,7 @@ class LifeWorkerRunMixin:
                     max(float(rf_state.cfg.poll_interval), suggested),
                     rf_state.cfg.poll_interval,
                     rf_state.runtime_root,
-                    wake_on_ready_work=(
-                        summary.get("stopped_by") == "paused_provider_fence"
-                    ),
+                    supervisor=rf_state.sup,
                 )
         finally:
             from ..manager.supervision import shutdown_supervision
@@ -889,14 +883,16 @@ class LifeWorkerRunMixin:
         poll_interval: float,
         runtime_root: Path,
         *,
-        wake_on_ready_work: bool = False,
+        supervisor: Any = None,
     ) -> None:
-        """Sleep until stop, inbox input, recovery, or configuration changes.
+        """Sleep until stop, inbox input, a backlog write, or configuration changes.
 
         The sleep is chunked into ``poll_interval`` slices so a stop request or
-        newly queued operator guidance interrupts a long backoff promptly.
-        Ready work wakes provider-fence waits only; other pauses keep their
-        backoff.
+        newly queued operator guidance interrupts a long backoff promptly. The
+        pass that just ended wrote the backlog before the sleep began, so a
+        change seen during it is someone else's new fact (an explicit Run that
+        resumed parked work, an answer, a new task), and wakes the daemon the
+        way a backlog write wakes an idle helper.
         """
         if total_seconds <= 0:
             return
@@ -907,11 +903,6 @@ class LifeWorkerRunMixin:
         from ..core.paths import config_path
 
         operator_config = config_path(self.config.global_root)
-        backlog = None
-        if wake_on_ready_work:
-            from ..life.memory import LifeMemory
-
-            backlog = LifeMemory.open(runtime_root).backlog
 
         def _config_version() -> tuple[int, int, int] | None:
             try:
@@ -946,14 +937,13 @@ class LifeWorkerRunMixin:
         baseline = _inbox_size()
         durable_baseline = _durable_input()
         config_baseline = _config_version()
+        backlog_baseline = _backlog_fingerprint(supervisor)
         previously_observed = getattr(self, "_last_inbox_wake_observation", None)
         self._last_inbox_wake_observation = durable_baseline
         if _inbox_offset() < baseline or (durable_baseline[1] and durable_baseline != previously_observed):
             return
         remaining = float(total_seconds)
         while remaining > 0 and not self._stop.is_set():
-            if backlog is not None and backlog.next_pending() is not None:
-                return
             self._stop.wait(timeout=min(chunk, remaining))
             if self._stop.is_set():
                 return
@@ -965,4 +955,6 @@ class LifeWorkerRunMixin:
                 return
             if _config_version() != config_baseline:
                 return  # an operator config change must wake paused work
+            if _backlog_fingerprint(supervisor) != backlog_baseline:
+                return
             remaining -= chunk

@@ -1191,13 +1191,7 @@ def _planner_verdict_from_fields(
     from ..core.role_handoff import read_baton_line
 
     baton = read_baton_line(text)
-    handoff = (
-        baton.next_owner
-        if baton is not None
-        and baton.source == "structured"
-        and baton.next_owner in {"engineer", "manager", "operator"}
-        else ""
-    )
+    handoff = baton.holder if baton is not None and baton.holder in {"engineer", "manager", "operator"} else ""
 
     new_tasks: list[TaskSpec] = []
     for task_index, row in enumerate(task_rows):
@@ -1300,7 +1294,7 @@ def _planner_verdict_from_fields(
         reason=reason,
         advance_to_stage=advance_to_stage,
         handoff=handoff,
-        operator_question=baton.operator_question if handoff == "operator" else "",
+        operator_question=baton.question if baton is not None else "",
         new_tasks=new_tasks,
         diagnostics=tuple(diagnostics),
         retire_tasks=retire_tasks,

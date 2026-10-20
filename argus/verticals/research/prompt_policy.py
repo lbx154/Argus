@@ -462,7 +462,7 @@ def _research_learning_block(role: str, stage: str, operation: str) -> str:
             "Surveys are learning too. When this round chooses training or inference "
             "infrastructure, write one project Engineer Skill per task class in the "
             "Durable learning directory, named "
-            "`engineer/<task-class>-infrastructure-decision.md`, whose description "
+            "`<task-class>-infrastructure-decision/SKILL.md`, whose description "
             "begins `Surveyed <date>: <task class> on <hardware>; re-verify after "
             "<date> or when task class or hardware changes`. Body: `## Current` "
             "holding, in order, question and task-class card; survey date and "

@@ -8,11 +8,6 @@ from typing import Any, Callable, Literal
 from .event_catalog import EventType
 from .stop_kinds import StopKind
 
-ResearchPauseStatus = Literal[
-    "research_incomplete",
-    "paused_no_breakthrough",
-    "exhausted_current_methods",
-]
 ReviewStatus = Literal[
     "done",
     "continue",
@@ -28,20 +23,15 @@ LoopStatus = Literal[
     "blocked",
     "no_progress",
     "error",
-    "budget_exhausted",
-    "paused_budget",
-    "paused_cost",
-    "paused_provider_cooldown",
-    "paused_provider_fence",
-    "paused_daemon_shutdown",
-    "paused_operator",
+    # Waiting on something; ``LoopOutcome.park_reason`` says what. In the
+    # round loop's own result the reason is the last round's stop kind.
     "parked",
+    # The Manager parked the run between role operations: on the operator's
+    # answer to its question (wait), or for the Planner to retire (stop).
+    "manager_wait",
+    "manager_stop",
     "aborted",
-    "infra_blocked",
     "replan_requested",
-    "research_incomplete",
-    "paused_no_breakthrough",
-    "exhausted_current_methods",
 ]
 
 # Copilot CLI tools for sub-agents, dynamic workflows, the session store and
@@ -412,6 +402,7 @@ class LoopOutcome:
     last_thread_id: str | None = None
     stop_kind: StopKind | None = None
     recoverable: bool = False
+    park_reason: str = ""
     extras: dict[str, Any] = field(default_factory=dict)
 
     @property

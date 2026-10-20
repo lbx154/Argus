@@ -225,7 +225,7 @@ def test_a_run_of_capped_calls_stops_the_mission_truthfully(
 
 @pytest.mark.parametrize("stop_kind,expected", [
     (None, "done"),
-    ("budget_exhausted", "paused_budget"),
+    ("budget_exhausted", "parked"),
     ("operator_abort", "aborted"),
 ])
 def test_final_review_rotates_beyond_three_sessions_and_keeps_real_stops(

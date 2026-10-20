@@ -1,12 +1,17 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
+from types import SimpleNamespace
 from typing import Any
 
 import pytest
 
+from argus.core.autonomy import RETRY_WINDOW_SPENT_REASON
 from argus.life.memory import BacklogItem, IllegalStateTransition, LifeMemory
+from argus.life.runtime_failure_circuit import PROVIDER_OUTAGE, active_runtime_failure_circuit
 from argus.life.supervisor import LifeBudget, LifeSupervisor, LifeSupervisorConfig
+from argus.life.supervisor._constants import PLAN_AWAITING
+from argus.webapi.routes.daemon import _resume_parks_after_start
 
 
 class _Sink:
@@ -25,6 +30,7 @@ class _Outcome:
     recoverable: bool = False
     stop_reason: str = ""
     rounds: int = 1
+    park_reason: str = ""
 
 
 class _PauseThenCompleteRunner:
@@ -51,6 +57,26 @@ class _CompleteRunner:
     def execute(self, **_kwargs: Any) -> _Outcome:
         self.calls += 1
         return _Outcome(success=True, status="done")
+
+
+class _TurnedAwayOnceRunner(_CompleteRunner):
+    """The model service turns the first task away for good; then it is back."""
+
+    def __init__(self, stop_reason: str) -> None:
+        super().__init__()
+        self.stop_reason = stop_reason
+
+    def execute(self, **kwargs: Any) -> _Outcome:
+        if self.calls:
+            return super().execute(**kwargs)
+        self.calls += 1
+        return _Outcome(
+            success=False,
+            status="parked",
+            park_reason="provider_fence",
+            stop_kind="provider_fence",
+            stop_reason=self.stop_reason,
+        )
 
 
 class _ProviderFenceRunner:
@@ -91,17 +117,16 @@ def test_paused_budget_is_recoverable_with_fresh_usage_attempt(tmp_path) -> None
     paused = supervisor.tick()
 
     assert paused is not None
-    assert paused["status"] == "paused_budget"
+    assert paused["status"] == "parked"
     assert paused["success"] is False
     stored = next(row for row in memory.backlog.all() if row.id == item.id)
-    assert stored.status == "paused_budget"
+    assert stored.status == "parked"
     assert stored.attempt == 1
     assert not [row for row in memory.backlog.all() if row.status == "failed"]
-    with pytest.raises(IllegalStateTransition, match="resume_paused"):
+    with pytest.raises(IllegalStateTransition, match="resume_parked"):
         memory.backlog.update(item.id, status="pending")
 
-    resumed = memory.backlog.resume_paused(item.id)
-    assert resumed is not None
+    [resumed] = memory.backlog.resume_parked()
     assert resumed.status == "pending"
     assert resumed.attempt == 2
 
@@ -193,48 +218,50 @@ def test_provider_fence_waits_across_passes_until_explicit_resume(
         continuous_objective="standing work" if continuous else "",
     )
 
-    def no_planning(*_args, **_kwargs):
-        pytest.fail("a provider fence must not trigger another paid planning call")
-
-    monkeypatch.setattr(LifeSupervisor, "_plan_next_work", no_planning)
+    planned: list[int] = []
+    monkeypatch.setattr(
+        LifeSupervisor, "_plan_next_work",
+        lambda *_args, **_kwargs: planned.append(1) or PLAN_AWAITING,
+    )
     supervisor = LifeSupervisor(
         memory=memory, runner=runner, sink=_Sink(), config=config,
     )
 
     first = supervisor.run()
-    assert first["stopped_by"] == "paused_provider_fence"
+    assert first["stopped_by"] == "parked"
     assert first["missions_run"] == 1
-    assert memory.backlog.all()[0].status == "paused_provider_fence"
+    assert memory.backlog.all()[0].status == "parked"
     for _ in range(3):
         held = supervisor.run()
-        assert held["stopped_by"] == "paused_provider_fence"
         assert held["missions_run"] == 0
-        assert held["suggested_sleep"] > 0
         assert memory.backlog.all()[0].attempt == 1
         assert runner.usage_mission_ids == [f"{item.id}:attempt:1"]
+    # The pass still reaches planning; the circuit the fence opened holds the
+    # Planner's model call there.
+    assert bool(planned) == continuous
+    assert active_runtime_failure_circuit(tmp_path / "life")["fingerprint"] == PROVIDER_OUTAGE
 
     memory = LifeMemory.open(tmp_path / "life")
     supervisor = LifeSupervisor(
         memory=memory, runner=runner, sink=_Sink(), config=config,
     )
-    assert supervisor.run()["stopped_by"] == "paused_provider_fence"
+    assert supervisor.run()["missions_run"] == 0
     assert memory.backlog.all()[0].attempt == 1
-    resumed = memory.backlog.resume_all_paused()
-    assert [(row.id, row.attempt) for row in resumed] == [(item.id, 2)]
-    assert memory.backlog.resume_all_paused() == []
+    _resume_parks_after_start(tmp_path / "life", {"rc": 0})
+    assert [(row.status, row.attempt) for row in memory.backlog.all()] == [("pending", 2)]
+    assert active_runtime_failure_circuit(tmp_path / "life") is None
 
     retried = supervisor.run()
-    assert retried["stopped_by"] == "paused_provider_fence"
+    assert retried["stopped_by"] == "parked"
     assert retried["missions_run"] == 1
     assert runner.usage_mission_ids == [
         f"{item.id}:attempt:1",
         f"{item.id}:attempt:2",
     ]
     held = supervisor.run()
-    assert held["stopped_by"] == "paused_provider_fence"
     assert held["missions_run"] == 0
     stored = memory.backlog.all()[0]
-    assert stored.status == "paused_provider_fence"
+    assert stored.status == "parked"
     assert stored.attempt == 2
     assert len(runner.usage_mission_ids) == 2
 
@@ -264,12 +291,12 @@ def test_provider_fence_does_not_block_independent_ready_work(tmp_path) -> None:
     summary = supervisor.run()
 
     stored = {item.id: item for item in memory.backlog.all()}
-    assert stored[held.id].status == "paused_provider_fence"
+    assert stored[held.id].status == "parked"
     assert stored[held.id].attempt == 1
     assert stored[ready.id].status == "done"
     assert runner.calls == 1
     assert summary["missions_run"] == 1
-    assert summary["stopped_by"] == "paused_provider_fence"
+    assert summary["stopped_by"] == "backlog_empty"
 
 
 def test_supervisor_does_not_auto_resume_operator_pause(tmp_path) -> None:
@@ -292,29 +319,24 @@ def test_supervisor_does_not_auto_resume_operator_pause(tmp_path) -> None:
     summary = supervisor.run()
 
     stored = next(row for row in memory.backlog.all() if row.id == item.id)
-    assert stored.status == "paused_operator"
+    assert stored.status == "parked"
     assert runner.calls == 0
     assert summary["missions_run"] == 0
 
 
 def test_a_task_out_of_automatic_retries_holds_new_tasks_until_run(tmp_path) -> None:
-    from argus.core.autonomy import RETRY_WINDOW_SPENT_REASON
-
     memory = LifeMemory.open(tmp_path / "life")
-    held = BacklogItem.new(
+    held = memory.backlog.add(BacklogItem.new(
         title="outage held",
         objective="wait for recovery",
         manager_decision={"routed": True, "vertical": "software"},
-    )
-    held.status = "paused_provider_fence"
-    held.last_error = f"{RETRY_WINDOW_SPENT_REASON} (HTTP 503)."
-    memory.backlog.add(held)
+    ))
     ready = memory.backlog.add(BacklogItem.new(
         title="next",
         objective="next work",
         manager_decision={"routed": True, "vertical": "software"},
     ))
-    runner = _CompleteRunner()
+    runner = _TurnedAwayOnceRunner(f"{RETRY_WINDOW_SPENT_REASON} (HTTP 503).")
     supervisor = LifeSupervisor(
         memory=memory,
         runner=runner,
@@ -322,15 +344,71 @@ def test_a_task_out_of_automatic_retries_holds_new_tasks_until_run(tmp_path) -> 
         config=LifeSupervisorConfig(poll_interval_seconds=0.0),
     )
 
+    assert supervisor.run()["stopped_by"] == "parked"
+    # The model service would turn the next task away too: the circuit the
+    # fenced park opened holds it without a call.
     for _ in range(3):
-        assert supervisor.run()["stopped_by"] == "infra_blocked"
-    assert runner.calls == 0
+        assert supervisor.run()["stopped_by"] == "runtime_block"
+    assert runner.calls == 1
+    assert active_runtime_failure_circuit(tmp_path / "life")["fingerprint"] == PROVIDER_OUTAGE
 
     # The operator's explicit Run releases the fence and the held work.
-    memory.backlog.resume_paused_statuses({"paused_provider_fence"})
+    _resume_parks_after_start(tmp_path / "life", {"rc": 0})
     supervisor.run()
 
     stored = {item.id: item for item in memory.backlog.all()}
     assert stored[held.id].status == "done"
     assert stored[ready.id].status == "done"
-    assert runner.calls == 2
+    assert runner.calls == 3
+    assert active_runtime_failure_circuit(tmp_path / "life") is None
+
+
+def test_a_canary_the_model_service_answers_ends_the_outage_whatever_its_review(
+    tmp_path,
+) -> None:
+    import json
+    import time
+
+    from argus.life.runtime_failure_circuit import CIRCUIT_FILENAME
+
+    life = tmp_path / "life"
+    memory = LifeMemory.open(life)
+    held = memory.backlog.add(BacklogItem.new(
+        title="outage held",
+        objective="wait for recovery",
+        manager_decision={"routed": True, "vertical": "software"},
+    ))
+    canary = memory.backlog.add(BacklogItem.new(
+        title="next",
+        objective="next work",
+        manager_decision={"routed": True, "vertical": "software"},
+    ))
+    outcomes = [
+        _Outcome(
+            success=False, status="parked", park_reason="provider_fence",
+            stop_kind="provider_fence", stop_reason=f"{RETRY_WINDOW_SPENT_REASON} (HTTP 503).",
+        ),
+        # The Reviewer turned the work down: the service answered all the same.
+        _Outcome(success=False, status="failed", stop_reason="review: not done"),
+        _Outcome(success=True, status="done"),
+    ]
+    runner = SimpleNamespace(execute=lambda **_kwargs: outcomes.pop(0))
+    supervisor = LifeSupervisor(
+        memory=memory,
+        runner=runner,
+        sink=_Sink(),
+        config=LifeSupervisorConfig(poll_interval_seconds=0.0),
+    )
+    assert supervisor.run()["stopped_by"] == "parked"
+    assert supervisor.run()["stopped_by"] == "runtime_block"
+
+    state = json.loads((life / CIRCUIT_FILENAME).read_text())
+    state["canary_due_at"] = time.time() - 1
+    (life / CIRCUIT_FILENAME).write_text(json.dumps(state))
+    supervisor.run()
+
+    stored = {item.id: item for item in memory.backlog.all()}
+    assert stored[canary.id].status == "failed"
+    assert (stored[held.id].status, stored[held.id].attempt) == ("done", 2)
+    assert outcomes == []
+    assert active_runtime_failure_circuit(life) is None

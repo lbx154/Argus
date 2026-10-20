@@ -30,7 +30,7 @@ from ..core.launch_settings import (
 )
 
 LAUNCH_HOLD_FILENAME = "launch_hold.json"
-_ACTIVE_STATUSES = {"pending", "running", "in_progress", "claimed", "paused_operator"}
+_ACTIVE_STATUSES = {"pending", "running", "in_progress", "claimed", "parked"}
 
 __all__ = [
     "LAUNCH_HOLD_FILENAME", "clear_launch_hold", "discard_held_work", "launch_hold_view",
@@ -134,7 +134,7 @@ def discard_held_work(life_dir: Path | str) -> dict[str, Any]:
     skipped: list[str] = []
     backlog = LifeMemory.open(root).backlog
     for item in list(backlog.active()):
-        if str(item.status) in {"pending", "paused_operator"}:
+        if str(item.status) in {"pending", "parked"}:
             if backlog.update(item.id, status="skipped") is not None:
                 skipped.append(str(item.id))
     try:

@@ -5,7 +5,7 @@ from argus.adapters.memory_backend import CannedResponse, MemoryBackend
 
 
 def _done_review() -> tuple[str, dict]:
-    return ('approve_review', {'review': ('Work completed.') + '\n\n' + ('No further action.')})
+    return ("submit_review", {'review': (('Work completed.') + '\n\n' + ('No further action.')) + "\n→ done"})
 
 
 def test_skill_loop_supplies_library_path_without_matcher_or_cost_event(

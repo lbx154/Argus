@@ -98,7 +98,7 @@ def test_planner_sees_and_retires_a_wedging_park_and_its_dependents_are_released
     supervisor = _supervisor(project, tmp_path / "life", planner)
     backlog = supervisor.memory.backlog
     park = backlog.add(BacklogItem.new(title="Prove the bound", objective="prove it"))
-    backlog.update(park.id, status="research_incomplete")
+    backlog.update(park.id, park_reason="research_open")
     child = backlog.add(
         BacklogItem.new(title="Write up the bound", objective="write", deps=[park.id])
     )
@@ -108,7 +108,7 @@ def test_planner_sees_and_retires_a_wedging_park_and_its_dependents_are_released
     )
 
     digest = supervisor._planner_current_reality_note()
-    assert f"parked task {park.id} (research_incomplete)" in digest
+    assert f"parked task {park.id} (research_open)" in digest
     assert f"blocks pending: [{child.id}]" in digest
     assert f"parked task {question.id}" not in digest, "questions stay the operator's"
 
@@ -125,7 +125,7 @@ def test_planner_sees_and_retires_a_wedging_park_and_its_dependents_are_released
 
     rows = {item.id: item for item in backlog.history()}
     assert rows[park.id].status == "superseded"
-    assert rows[question.id].status == "paused_operator"
+    assert rows[question.id].status == "parked"
     assert rows[question.id].pending_question == "Which venue?"
     # Retired in the same verdict, the park is not a duplicate of its replacement.
     replacement = [
@@ -147,7 +147,7 @@ def test_retiring_a_park_while_reproposing_it_and_its_dependent_keeps_the_depend
     supervisor = _supervisor(project, tmp_path / "life", planner)
     backlog = supervisor.memory.backlog
     park = backlog.add(BacklogItem.new(title="Prove the bound", objective="prove it"))
-    backlog.update(park.id, status="research_incomplete")
+    backlog.update(park.id, park_reason="research_open")
     child = backlog.add(
         BacklogItem.new(title="Write up the bound", objective="write", deps=[park.id])
     )
@@ -273,7 +273,7 @@ def test_supervisor_tags_the_admitted_canary_and_holds_everything_else(
     stored = next(item for item in backlog.active() if item.id == first.id)
     assert CANARY_TAG in stored.tags
     blocked = supervisor._runtime_failure_circuit_block(item=second)
-    assert blocked is not None and blocked["status"] == "infra_blocked"
+    assert blocked is not None and blocked["status"] == "runtime_block"
     assert any(
         event["type"] == "life.status" and "half-open" in event.get("text", "")
         for event in _events(supervisor)
@@ -348,7 +348,7 @@ def test_a_canary_tag_on_a_row_the_circuit_did_not_admit_neither_passes_nor_clea
     backlog.add(other)
 
     held = supervisor._runtime_failure_circuit_block(item=other)
-    assert held is not None and held["status"] == "infra_blocked"
+    assert held is not None and held["status"] == "runtime_block"
     assert not clear_runtime_failure_circuit(
         root, reason="other passed", canary_item_id=other.id
     )
@@ -369,7 +369,7 @@ def test_a_canary_tag_before_any_admission_waits_for_a_window_and_cannot_clear(
     supervisor.memory.backlog.add(stale)
 
     held = supervisor._runtime_failure_circuit_block(item=stale)
-    assert held is not None and held["status"] == "infra_blocked"
+    assert held is not None and held["status"] == "runtime_block"
     assert not clear_runtime_failure_circuit(
         root, reason="stale tag passed", canary_item_id=stale.id
     )
@@ -514,7 +514,7 @@ def test_operator_question_with_tasks_is_asked_beside_them(
 
     backlog = supervisor.memory.backlog
     assert [item.title for item in backlog.pending()] == ["Write the changelog"]
-    [card] = [item for item in backlog.active() if item.status == "paused_operator"]
+    [card] = [item for item in backlog.active() if item.status == "parked"]
     assert card.pending_question == "Is the release hold lifted?"
     assert not list(life.glob("planner-waiting-contract*.json"))
 
@@ -648,7 +648,7 @@ def test_operator_question_on_an_ended_node_is_held_and_answerable(
 
     assert action == "ask_operator"
     holder = next(
-        item for item in backlog.active() if item.status == "paused_operator"
+        item for item in backlog.active() if item.status == "parked"
     )
     assert holder.id != source.id and holder.title == source.title
     assert "unreleased gate" in holder.pending_question
@@ -682,7 +682,7 @@ def test_a_question_about_finished_work_neither_holds_nor_skips_its_dependents(
         operator_decision={},
     )
 
-    assert holder is not None and holder.status == "paused_operator"
+    assert holder is not None and holder.status == "parked"
     row = next(item for item in backlog.active() if item.id == dependent.id)
     assert row.deps == [source.id]
     assert backlog.stop_for_operator_decision(holder.id) is not None

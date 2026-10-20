@@ -1,3 +1,4 @@
+import { parkReason } from '../../../core/src/missionOutcome';
 import type { MissionOutcomeDimensions, MissionView } from '../../../core/src/types';
 import { agentRoleName, isAgentRole } from './agentRoles';
 
@@ -24,9 +25,6 @@ const STATUS_KEYS: Record<string, string> = {
   rejected: 'label.status.needsChanges',
   continue: 'label.status.needsChanges',
   skipped: 'label.status.skipped',
-  paused: 'label.status.paused',
-  parked: 'label.status.paused',
-  paused_cost: 'label.outcome.costUnreconciled',
   stopped: 'label.status.paused',
   cancelled: 'label.status.cancelled',
   aborted: 'label.status.cancelled',
@@ -86,13 +84,9 @@ const EXECUTION_KEYS: Record<string, string> = {
   aborted: 'label.outcome.workEnded',
   ended: 'label.outcome.workEnded',
   incomplete: 'label.outcome.workIncomplete',
-  research_incomplete: 'label.outcome.workIncomplete',
-  paused_no_breakthrough: 'label.outcome.workIncomplete',
-  exhausted_current_methods: 'label.outcome.workIncomplete',
   stalled: 'label.outcome.workStalled',
   no_progress: 'label.outcome.workStalled',
   max_rounds: 'label.outcome.workStalled',
-  infra_blocked: 'label.outcome.workBlocked',
   supervisor_error: 'label.outcome.workFailed',
 };
 
@@ -139,8 +133,10 @@ const ACCELERATOR_KEYS: Record<string, string> = {
   cpu: 'label.resource.cpu',
 };
 
+/** A status as one word; every park, whatever its reason, reads as paused. */
 export function statusLabel(value: string | null | undefined, t: Translate): string {
-  return t(STATUS_KEYS[String(value ?? '').toLowerCase()] ?? 'label.status.updated');
+  const key = String(value ?? '').toLowerCase();
+  return t(STATUS_KEYS[key] ?? (parkReason(key) !== null ? 'label.status.paused' : 'label.status.updated'));
 }
 
 export function roleLabel(value: string | null | undefined, t: Translate): string {

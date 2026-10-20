@@ -145,7 +145,7 @@ class PlanningCycleVerdictMixin:
                     for row in self.memory.backlog.active()
                     if row.title == _OPERATOR_DIRECTION_TITLE
                     and "operator_decision" in (row.tags or [])
-                    and row.status == "paused_operator"
+                    and row.status == "parked"
                     and row.objective == str(self.config.continuous_objective or row.objective)
                 ),
                 None,
@@ -180,7 +180,7 @@ class PlanningCycleVerdictMixin:
             card = {}
         self.memory.backlog.update(
             item.id,
-            status="paused_operator",
+            park_reason="operator_question",
             pending_question=question,
             operator_decision=card,
             last_error=reason,

@@ -41,7 +41,7 @@ from collections import deque
 from contextlib import contextmanager
 from dataclasses import asdict, dataclass, field
 from pathlib import Path
-from typing import Any, Callable, Iterable, Iterator, Mapping
+from typing import Any, Callable, Collection, Iterable, Iterator, Mapping
 
 import portalocker
 
@@ -750,6 +750,7 @@ class EventJournal:
 # ---------------------------------------------------------------------------
 
 _TERMINAL_STATUSES = {"done", "failed", "aborted", "skipped", "superseded"}
+# An older release's park statuses stay valid on disk; a loaded row reads as ``parked``.
 _BACKLOG_STATUSES = {"pending", "running", *PARK_STATUSES, *_TERMINAL_STATUSES}
 
 
@@ -761,6 +762,12 @@ def park_reason(item: Any) -> str | None:
         getattr(item, "status", ""),
         park.get("reason") if isinstance(park, dict) else "",
     )
+
+
+def _park(item: BacklogItem, reason: str) -> None:
+    """Park ``item``: one status, its reason kept in the outcome."""
+    item.status = "parked"
+    item.outcome = {**item.outcome, "park": {"reason": reason}}
 
 
 def _holds_resources(item: Any) -> bool:
@@ -1184,10 +1191,12 @@ class BacklogItem:
     @classmethod
     def from_jsonable(cls, row: dict[str, Any]) -> "BacklogItem":
         status = str(row.get("status", "pending"))
-        if status not in _BACKLOG_STATUSES:
+        # A row an older release parked names its reason in its status.
+        legacy_park = park_reason_of(status) if status != "parked" else None
+        if legacy_park is None and status not in _BACKLOG_STATUSES:
             status = "pending"
         objective = str(row.get("objective", ""))
-        return cls(
+        item = cls(
             id=str(row["id"] if "id" in row else cls.new_id()),
             ts=float(row.get("ts", time.time())),
             title=str(row.get("title", "")),
@@ -1277,6 +1286,9 @@ class BacklogItem:
             mission_result=(dict(row["mission_result"]) if isinstance(row.get("mission_result"), dict) else None),
             mission_delivery_id=str(row.get("mission_delivery_id") or ""),
         )
+        if legacy_park is not None:
+            _park(item, legacy_park)
+        return item
 
 
 class Backlog:
@@ -2207,8 +2219,16 @@ class Backlog:
 
     def update(
         self, item_id: str, *, _mission_delivery: dict[str, Any] | None = None,
-        **fields: Any,
+        park_reason: str | None = None, **fields: Any,
     ) -> BacklogItem | None:
+        """Write ``fields`` onto one row; ``park_reason`` parks it for that reason.
+
+        An older release's park status names its own reason and parks the same way.
+        """
+        if park_reason is None and fields.get("status") not in {None, "parked"}:
+            park_reason = park_reason_of(fields["status"])
+        if park_reason is not None:
+            fields["status"] = "parked"
         if _mission_delivery is not None:
             from .mission_delivery import validate_mission_delivery
 
@@ -2236,17 +2256,16 @@ class Backlog:
                                 f"{it.status!r}; refusing transition to "
                                 f"{new_status!r}. Enqueue a new item instead."
                             )
-                        if (
-                            it.status in PARK_STATUSES
-                            and new_status == "pending"
-                        ):
+                        if it.status == "parked" and new_status == "pending":
                             raise IllegalStateTransition(
-                                f"backlog item {item_id} is paused; use "
-                                "resume_paused() so the usage attempt advances"
+                                f"backlog item {item_id} is parked; use "
+                                "resume_parked() so the usage attempt advances"
                             )
                     for k, v in fields.items():
                         if hasattr(it, k):
                             setattr(it, k, v)
+                    if park_reason is not None:
+                        _park(it, park_reason)
                     if it.status in _TERMINAL_STATUSES:
                         _expire_unanswered_operator_question(it)
                     self._validate_no_dependency_cycles(items)
@@ -2615,7 +2634,7 @@ class Backlog:
         A terminal row cannot carry a live question (it expires with the
         mission), and it cannot be reopened. Without a holder the question was
         simply lost: the run stopped for an operator decision nobody could see
-        or answer. The holder is a new ``paused_operator`` row with the ended
+        or answer. The holder is a new row parked on the question, with the ended
         mission's contract, so the ordinary answer path
         (:meth:`continue_with_operator_reply` / :meth:`stop_for_operator_decision`)
         resolves it, and live dependents of an ended row that did not succeed
@@ -2666,7 +2685,7 @@ class Backlog:
                 original_objective=source.original_objective,
                 manager_decision=dict(source.manager_decision),
             )
-            holder.status = "paused_operator"
+            _park(holder, "operator_question")
             holder.finished_ts = time.time()
             holder.last_error = source.last_error
             holder.pending_question = question
@@ -2907,10 +2926,10 @@ class Backlog:
             if item.status != "running":
                 return item
             if wait_current and item.pending_question == expected_question:
-                item.status = "paused_operator"
                 item.last_error = str(reason)
                 if outcome is not None:
                     item.outcome = dict(outcome)
+                _park(item, "operator_question")
             else:
                 item.status = "pending"
                 item.started_ts = None
@@ -2918,64 +2937,18 @@ class Backlog:
             self._save(items)
             return item
 
-    def resume_paused(self, item_id: str) -> BacklogItem | None:
-        """Start a fresh metering attempt for one recoverable paused item."""
-        with self._locked():
-            items = self._load()
-            out: BacklogItem | None = None
-            for item in items:
-                if item.id != item_id:
-                    continue
-                if item.status not in PARK_STATUSES:
-                    return None
-                if str(item.pending_question or "").strip():
-                    return None
-                item.status = "pending"
-                item.attempt = max(1, int(item.attempt or 1)) + 1
-                item.started_ts = None
-                item.finished_ts = None
-                out = item
-                break
-            if out is not None:
-                self._save(items)
-            return out
+    def resume_parked(self, reasons: Collection[str] | None = None) -> list[BacklogItem]:
+        """Atomically re-arm parked rows, each with a fresh usage attempt.
 
-    def resume_all_paused(self) -> list[BacklogItem]:
-        """Atomically re-arm every recoverable pause with fresh usage attempts."""
-        with self._locked():
-            items = self._load()
-            resumed: list[BacklogItem] = []
-            for item in items:
-                if item.status not in PARK_STATUSES:
-                    continue
-                if str(item.pending_question or "").strip():
-                    continue
-                item.status = "pending"
-                item.attempt = max(1, int(item.attempt or 1)) + 1
-                item.started_ts = None
-                item.finished_ts = None
-                resumed.append(item)
-            if resumed:
-                self._save(items)
-            return resumed
-
-    def resume_paused_statuses(
-        self,
-        statuses: Iterable[str],
-    ) -> list[BacklogItem]:
-        """Atomically re-arm only explicitly auto-resumable pause classes.
-
-        A class is named by its older status; a ``parked`` row with the same
-        reason resumes with it.
+        ``reasons`` limits it to parks with those reasons. A row a question
+        holds stays parked: only the answer resumes it.
         """
-        reasons = {park_reason_of(status) for status in statuses} - {None}
-        if not reasons:
-            return []
         with self._locked():
             items = self._load()
             resumed: list[BacklogItem] = []
             for item in items:
-                if park_reason(item) not in reasons:
+                reason = park_reason(item)
+                if reason is None or (reasons is not None and reason not in reasons):
                     continue
                 if str(item.pending_question or "").strip():
                     continue

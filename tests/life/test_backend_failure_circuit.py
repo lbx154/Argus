@@ -405,7 +405,7 @@ def test_an_unreachable_model_service_pauses_instead_of_burning_the_streak(
     # One call, then a provider-cooldown pause: no fresh-session retry, no
     # backoff, no streak. A relay that had died inside a container once cost
     # hours of retries this way with the operator seeing only "exit code 1".
-    assert status == "paused_provider_cooldown"
+    assert status == "parked"
     assert engineer.calls == 1
     assert sleeps == []
     assert _backoff_events(events) == []
@@ -477,7 +477,7 @@ def test_daemon_stop_ends_the_hold_before_it_sleeps(
     # was already asked to stop: the mission pauses for the shutdown at once
     # instead of sleeping out the whole backoff first.
     assert engineer.calls == 3
-    assert status == "paused_daemon_shutdown"
+    assert status == "parked"
     assert sleeps == []
     interrupted = _hold_interrupt_events(events)
     assert len(interrupted) == 1
@@ -575,9 +575,9 @@ def test_third_identical_model_configuration_cooldown_parks_on_the_operator(
     )
 
     assert third is not None
-    assert third["status"] == "paused_operator"
+    assert third["status"] == "parked"
     parked = _fresh_item(memory, item.id)
-    assert parked.status == "paused_operator"
+    assert parked.status == "parked"
     assert parked.provider_cooldown_streak == 3
     assert "stopped retrying this configuration" in parked.pending_question
     disabled = [
@@ -590,13 +590,13 @@ def test_third_identical_model_configuration_cooldown_parks_on_the_operator(
     assert disabled[0]["streak"] == 3
 
     # The whole point: the provider-cooldown auto-resume no longer touches it.
-    resumed = memory.backlog.resume_paused_statuses({
-        "paused_provider_cooldown",
-        "paused_provider_fence",
-        "paused_daemon_shutdown",
+    resumed = memory.backlog.resume_parked({
+        "provider_cooldown",
+        "provider_fence",
+        "daemon_shutdown",
     })
     assert resumed == []
-    assert _fresh_item(memory, item.id).status == "paused_operator"
+    assert _fresh_item(memory, item.id).status == "parked"
 
 
 def test_a_different_failure_signature_restarts_the_count(tmp_path: Path) -> None:
@@ -622,7 +622,7 @@ def test_a_different_failure_signature_restarts_the_count(tmp_path: Path) -> Non
 
     refreshed = _fresh_item(memory, item.id)
     assert refreshed.provider_cooldown_streak == 1
-    assert refreshed.status != "paused_operator"
+    assert refreshed.status != "parked"
     assert not [
         event
         for event in harness.events
@@ -649,7 +649,7 @@ def test_repeating_non_model_cooldowns_keep_the_ordinary_auto_resume(
             _fresh_item(memory, item.id).provider_cooldown_streak
             == expected_streak
         )
-    assert _fresh_item(memory, item.id).status != "paused_operator"
+    assert _fresh_item(memory, item.id).status != "parked"
 
 
 # --------------------------------------------------------------------------- #
@@ -699,7 +699,7 @@ def test_a_same_cause_hold_retries_for_three_hours_then_fences_the_task(
         on_event=lambda _event: None,
     )
 
-    assert status == "paused_provider_fence"
+    assert status == "parked"
     assert rounds[-1].stop_kind == "provider_fence"
     assert reason.startswith(RETRY_WINDOW_SPENT_REASON)
     assert clock[0] - 1_000.0 >= AUTOMATIC_RETRY_WINDOW_SECONDS
@@ -735,7 +735,7 @@ def _cooldown_until_fenced(memory, harness, item_id, clock, *, rounds=1) -> int:
         _settle_cooldown(memory, item_id, state)
         if state.stop_kind == "provider_fence":
             return attempts
-        memory.backlog.resume_paused_statuses({"paused_provider_cooldown"})
+        memory.backlog.resume_parked({"provider_cooldown"})
         clock[0] += 300.0
 
 
@@ -757,9 +757,9 @@ def test_cooldown_pauses_without_progress_stop_auto_resuming_after_three_hours(
     # One attempt every five minutes for three hours, then none.
     assert attempts == 37
     fenced = _fresh_item(memory, item.id)
-    assert fenced.status == "paused_provider_fence"
+    assert fenced.status == "parked"
     assert fenced.last_error.startswith(RETRY_WINDOW_SPENT_REASON)
-    assert memory.backlog.resume_paused_statuses({"paused_provider_cooldown"}) == []
+    assert memory.backlog.resume_parked({"provider_cooldown"}) == []
 
 
 def test_a_completed_round_restarts_the_cooldown_window(tmp_path: Path, monkeypatch) -> None:

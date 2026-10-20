@@ -21,7 +21,7 @@ _NOT_A_GATE = "weigh them as evidence, they are not a gate"
 
 
 def _review(status: str) -> tuple[str, dict]:
-    return ("approve_review" if status == "done" else "revise_review"), {"review": "r; do the next thing"}
+    return "submit_review", {"review": "r; do the next thing\n→ " + ("done" if status == "done" else "engineer")}
 
 
 def _loop(backend: MemoryBackend, skills: Path) -> SkillLoop:

@@ -279,7 +279,7 @@ def test_operator_pause_dependency_remains_blocked_after_restart(
     assert reopened.next_pending() is None
     assert reopened.claim_next() is None
     assert {item.title: item.status for item in reopened.all()} == {
-        "operator approval": "paused_operator",
+        "operator approval": "parked",
         "dependent work": "pending",
     }
 

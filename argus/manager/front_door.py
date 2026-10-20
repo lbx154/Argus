@@ -289,6 +289,10 @@ def _ensure_manager_runner(chat_state: dict[str, Any], mem: Any) -> Any:
         if cached is not None:
             chat_state.pop("manager_runner", None)
             chat_state.pop("manager_runner_workdir", None)
+        # A memory opened by session id takes the server's cwd for its
+        # worktree; the Manager's own recall reads the project's Wiki and
+        # Skills from the workspace the Manager works in.
+        mem.project_worktree = operator_workspace
         runner_backend = backend or "codex"
         ns = argparse.Namespace(
             backend=runner_backend,

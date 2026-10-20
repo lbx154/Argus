@@ -12,7 +12,7 @@ import { layoutGraph } from "./graphLayout";
 import { completionScope } from "./status";
 import { humanizeHarnessNote, TECHNICAL_MARKER_PREFIX } from "../lib/harnessNotes";
 import { visibleAgentText } from "../../../core/src/events";
-import { isPauseStatus, parkReason } from "../../../core/src/missionOutcome";
+import { isPauseStatus } from "../../../core/src/missionOutcome";
 export { humanizeHarnessNote, TECHNICAL_MARKER } from "../lib/harnessNotes";
 
 export const MAP_FRAME = { width: 1440, height: 1080 };
@@ -140,9 +140,6 @@ function describeRecord(event: MapEvent, status: string, zh: boolean): string {
     case "life.mission.completed":
       return completionScope(event, zh) || (status === "done"
         ? zh ? "任务完成，结果已经记录在案。" : "The task was finished; its result is on record."
-        : parkReason(status, event.park_reason) === "external_work"
-          ? zh ? "这项任务在等待后台任务的结果；结果就绪后会自动继续。"
-            : "This task is waiting for background work; it continues on its own once the results are in."
         : isPauseStatus(status)
           ? zh ? "这项任务的工作暂停了。" : "Work on this task was paused."
           : zh ? "任务到此结束。" : "The task ended here.");
@@ -475,8 +472,6 @@ export function buildSubmap(
           : kind === "result"
             ? scope
               ? zh ? "本次执行已结束" : "This execution ended"
-              : parkReason(status, e.park_reason) === "external_work"
-                ? zh ? "等待后台任务" : "Waiting for background work"
               : zh ? "执行结果" : "Result of the work"
             : kind === "plan"
               ? zh
