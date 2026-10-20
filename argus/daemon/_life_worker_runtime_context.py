@@ -196,7 +196,6 @@ def _build_supervisor_config(
 
     return LifeSupervisorConfig(
         budget=LifeBudget(max_missions=0),
-        planner_task_iteration_max_cycles=cfg.planner_task_iteration_max_cycles,
         poll_interval_seconds=2.0,
         project_worktree=cfg.project_workdir,
         stop_event=stop_event,

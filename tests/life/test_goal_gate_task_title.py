@@ -137,9 +137,6 @@ def test_planner_enqueued_goal_gate_keeps_the_standing_objective(tmp_path: Path)
                 tags.extend(["stage_closing", "review:required"])
             return tags
 
-        def _item_iteration_cycles(self) -> int:
-            return 1
-
         def _project_workdir(self) -> Path:
             return tmp_path
 

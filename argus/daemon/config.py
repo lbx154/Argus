@@ -55,7 +55,6 @@ class LifeWorkerConfig:
     # usable cores, resolved when the config is built; the ready DAG and free
     # GPUs decide how many of them run at once.
     mission_width: int | str = 2
-    planner_task_iteration_max_cycles: int = 0
     poll_interval: float = 5.0
     log_path: Path | None = None  # defaults to <life_dir>/daemon.log
     project_workdir: Path | None = None
@@ -108,7 +107,6 @@ def config_payload(config: LifeWorkerConfig) -> dict[str, Any]:
         "engineer_reasoning_effort": config.engineer_reasoning_effort,
         "reviewer_reasoning_effort": config.reviewer_reasoning_effort,
         "mission_width": config.mission_width,
-        "planner_task_iteration_max_cycles": config.planner_task_iteration_max_cycles,
         "poll_interval": config.poll_interval,
         "log_path": str(config.log_path) if config.log_path is not None else "",
         "project_workdir": str(config.project_workdir) if config.project_workdir is not None else "",
@@ -183,9 +181,6 @@ def config_from_payload(data: dict[str, Any]) -> LifeWorkerConfig:
             data.get("reviewer_reasoning_effort") or "high"
         ),
         mission_width=int(data.get("mission_width", 2)),
-        planner_task_iteration_max_cycles=int(
-            data.get("planner_task_iteration_max_cycles", 0) or 0
-        ),
         poll_interval=float(data.get("poll_interval") or 5.0),
         log_path=Path(log_path).expanduser() if log_path else None,
         continuous=bool(data.get("continuous")),

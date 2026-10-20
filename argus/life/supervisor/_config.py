@@ -81,8 +81,6 @@ class LifeSupervisorConfig:
     runtime_context: str = ""
     # A/B switch shared by all four roles' direct project-layer Skill edits.
     role_skill_maintenance_enabled: bool = True
-    # Optional cycle count for planner tasks; zero leaves legitimate work open-ended.
-    planner_task_iteration_max_cycles: int = 0
     # --- Continuous improvement mode -----------------------------------
     # When enabled, the supervisor does not exit when the backlog is
     # empty. Instead it invokes the planner to inspect the

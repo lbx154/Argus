@@ -715,7 +715,6 @@ def _build_worker_config(args: argparse.Namespace):
             "ARGUS_SKILL_REVIEWER_REASONING_EFFORT"
         ),
         mission_width=getattr(args, "mission_width", 2),
-        planner_task_iteration_max_cycles=int(os.environ.get("ARGUS_SKILL_PLANNER_TASK_ITERATION_MAX_CYCLES", "0")),
         poll_interval=float(os.environ.get("ARGUS_SKILL_DAEMON_POLL_S", "5.0")),
         continuous=getattr(args, "continuous", False),
         continuous_objective=getattr(args, "objective", ""),

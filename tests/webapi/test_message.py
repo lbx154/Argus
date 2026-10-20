@@ -2571,7 +2571,6 @@ def test_web_daemon_config_uses_resolved_role_models_and_efforts(
     monkeypatch.setenv("ARGUS_SKILL_REVIEWER_MODEL", "reviewer-model")
     monkeypatch.setenv("ARGUS_SKILL_ENGINEER_REASONING_EFFORT", "high")
     monkeypatch.setenv("ARGUS_SKILL_REVIEWER_REASONING_EFFORT", "xhigh")
-    monkeypatch.setenv("ARGUS_SKILL_PLANNER_TASK_ITERATION_MAX_CYCLES", "9")
     life_dir = tmp_path / "life"
     life_dir.mkdir()
     write_session_meta(
@@ -2584,7 +2583,6 @@ def test_web_daemon_config_uses_resolved_role_models_and_efforts(
     assert cfg.reviewer_model == "reviewer-model"
     assert cfg.engineer_reasoning_effort == "high"
     assert cfg.reviewer_reasoning_effort == "xhigh"
-    assert cfg.planner_task_iteration_max_cycles == 9
 
 
 def test_web_daemon_config_uses_persisted_session_workdir(tmp_path: Path) -> None:

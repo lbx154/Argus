@@ -97,9 +97,6 @@ def _worker_config_from_env(life_dir: Path, global_root: Path) -> LifeWorkerConf
         reviewer_reasoning_effort=resolve_role_reasoning_effort(
             "ARGUS_SKILL_REVIEWER_REASONING_EFFORT",
         ),
-        planner_task_iteration_max_cycles=int(
-            os.environ.get("ARGUS_SKILL_PLANNER_TASK_ITERATION_MAX_CYCLES", "0")
-        ),
     )
 
 

@@ -573,7 +573,6 @@ class PlanningCycleEnqueueMixin:
                 priority=100,
                 tags=task_tags,
                 iterate=True,
-                iteration_max_cycles=self._item_iteration_cycles(),
                 plan_id=state.new_plan_id,
                 plan_version=state.new_plan_version,
                 node_key=str(getattr(task, "key", "") or item_id),

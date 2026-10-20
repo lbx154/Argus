@@ -97,13 +97,6 @@ class PlannerRenderingMixin:
         })
         return True
 
-    def _item_iteration_cycles(self) -> int:
-        """Optional iteration ceiling for planner-generated tasks."""
-        try:
-            return max(0, int(self.config.planner_task_iteration_max_cycles))
-        except (TypeError, ValueError):
-            return 0
-
     def _render_campaign_tally(self) -> str:
         """Whole-campaign terminal facts, as facts and nothing else.
 
