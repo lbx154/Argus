@@ -786,12 +786,13 @@ class EventConsumerMixin:
         return parsed
 
     @staticmethod
-    def _retain_json_event(event: dict) -> bool:
+    def retain_json_event(event: dict) -> bool:
         """Keep semantic/final events, not high-frequency transport deltas.
 
         Every event is still consumed immediately and forwarded to the live
-        callback. This only bounds the post-turn ``AgentRunResult`` retained in
-        Python memory. Token-bearing deltas are kept for accounting.
+        callback. This bounds the post-turn ``AgentRunResult`` retained in
+        Python memory, and what the raw transcript saves. Token-bearing deltas
+        are kept for accounting.
         """
         data = event.get("data") if isinstance(event.get("data"), dict) else {}
         token_fields = {

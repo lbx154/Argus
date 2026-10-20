@@ -53,7 +53,7 @@ def test_control_protocol_is_diagnostic_while_real_updates_stay_visible(redact_s
     logger = AgentIOLogger(external_event_callback=lambda *event: live.append(event))
     logger.start_call(
         call_id="c1", run_label=label, log_path=tmp_path / "events.jsonl",
-        model="model", prompt="Current work",
+        prompt="Current work",
     )
     # Visibility follows the actual role, not keyword stripping: a real
     # reviewer may need to discuss this text when explaining a process defect.
@@ -61,8 +61,7 @@ def test_control_protocol_is_diagnostic_while_real_updates_stay_visible(redact_s
         "content": "DEPENDENCY_STATUS=assessed; source token fixture-secret",
     }})
     logger.stream_event_callback(
-        label + ".stdout", line, backend_name="copilot",
-        known_secret_values=("fixture-secret",),
+        label + ".stdout", line, known_secret_values=("fixture-secret",),
     )
     logger.close("c1")
 

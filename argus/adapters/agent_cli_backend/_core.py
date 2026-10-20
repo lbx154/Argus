@@ -388,7 +388,6 @@ class AgentCliBackend:
         self._io_logger.stream_event_callback(
             stream,
             line,
-            backend_name=getattr(self._runner, "backend", ""),
             known_secret_values=self._known_secret_values,
         )
 

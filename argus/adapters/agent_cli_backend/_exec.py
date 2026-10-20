@@ -152,7 +152,7 @@ def _execute_prepared(backend, *, prompt, options, run_label, resume_thread_id):
     with advisor_run(ctx), peer_run(ctx), experience_run(ctx):
         io_context = backend._io_logger.start_call(
             call_id=call_id, run_label=run_label, log_path=log_path,
-            model=ctx.options.model, prompt=ctx.prompt,
+            prompt=ctx.prompt,
         )
         ctx.io_mode = io_context["mode"]
         from ...core.paths import global_root

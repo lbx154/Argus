@@ -472,7 +472,7 @@ def test_post_exit_drain_keeps_queued_terminal_event_with_slow_callback(
 
 def test_runner_keeps_usage_bearing_delta_for_accounting() -> None:
     assert (
-        AgentCliRunner._retain_json_event(
+        AgentCliRunner.retain_json_event(
             {
                 "type": "assistant.message_delta",
                 "data": {"deltaContent": "x", "inputTokens": 17},
@@ -481,7 +481,7 @@ def test_runner_keeps_usage_bearing_delta_for_accounting() -> None:
         is True
     )
     assert (
-        AgentCliRunner._retain_json_event(
+        AgentCliRunner.retain_json_event(
             {
                 "type": "assistant.message_delta",
                 "data": {"deltaContent": "x"},
