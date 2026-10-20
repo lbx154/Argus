@@ -25,7 +25,8 @@ schema is enforced by `argus/verticals/learning/curation.py`, so an entry that
 does not fit it is rejected rather than misread.
 
 A `create`, `update` or `archive` operation names a project-relative `target`,
-its `layer` (`skill` for a reusable procedure, `wiki` for a fact, judgement or
+its `layer` (`skill` for a reusable procedure, kept as
+`.agents/skills/<name>/SKILL.md`; `wiki` for a fact, judgement or
 contradiction), a reason, and at least one evidence span with `source_id`,
 `locator` and a verbatim `quote` from the staged material. The span is the
 whole point: it is what lets a Reviewer, or a later reader, open the source and
@@ -34,7 +35,9 @@ before curation completes; a plan describing edits that were never made is
 worse than no plan. Never target a global library, escape the project root, or
 invent identity suffixes for generated names. Nothing is promoted beyond the
 project layer from a learning mission, because a document that reached one
-project has earned no standing in every other.
+project has earned no standing in every other. Later projects of every vertical
+are still shown the pages and Skills that match their work, as sourced
+advisory recall, which is one more reason every claim carries its span.
 
 When nothing durable should change, emit one `no_op` operation with the honest
 reason: the material is already covered, too vague to act on, or of too little

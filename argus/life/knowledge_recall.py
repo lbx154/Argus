@@ -7,10 +7,12 @@ The index stores lexical terms/vectors, never an authoritative copy of the prose
 Recall reads four tiers of knowledge: this project's Wiki and Skills, the
 shared Wiki of the project's vertical (with its ``principles.md``), the
 host-wide shared Wiki, and -- on a single-operator host -- the Wikis and
-Skills of earlier projects of the same vertical. Every shown page is described
-(title, description, kind, source, date) so a role can decide whether to open
-it, and every recall is noted in the knowledge journal and the project event
-stream.
+Skills of earlier projects of the same vertical. What a learning mission keeps
+is meant for later work in every field, so the learning vertical's shared Wiki
+and earlier learning projects are read beside every project's own vertical.
+Every shown page is described (title, description, kind, source, date) so a
+role can decide whether to open it, and every recall is noted in the knowledge
+journal and the project event stream.
 """
 from __future__ import annotations
 
@@ -47,6 +49,7 @@ _PAGE_KINDS = ("fact", "lesson", "survey", "principles", "note", "profile", "pag
 _SCOPES = ("project", "vertical", "global")
 _DESCRIPTION_CHARS = 160
 _FRONT_MATTER_CHARS = 4000
+_LEARNING_VERTICAL = "learning"
 _MAX_SIBLING_ROOTS = 12
 _MAX_SIBLING_PROJECTS = 64
 _MAX_PROJECT_ENTRIES = 256
@@ -375,8 +378,9 @@ def _same_path(left: Path, right: Path) -> bool:
         return False
 
 
-def _sibling_roots(global_root: Path, state: Path, workspace: Path, vertical: str) -> list[KnowledgeRoot]:
-    """Wikis and Skills of earlier projects of ``vertical``, newest first.
+def _sibling_roots(global_root: Path, state: Path, workspace: Path,
+                   verticals: list[str]) -> list[KnowledgeRoot]:
+    """Wikis and Skills of earlier projects in one of ``verticals``, newest first.
 
     A project is read where the host keeps it: the Manager's pipeline state
     and record in its state directory under ``projects/``, its Wikis and Agent
@@ -385,7 +389,7 @@ def _sibling_roots(global_root: Path, state: Path, workspace: Path, vertical: st
     operator's preferences and stay in it.
     """
     projects = global_root / "projects"
-    if not vertical or not _contained(projects, global_root) or not projects.is_dir():
+    if not verticals or not _contained(projects, global_root) or not projects.is_dir():
         return []
     candidates: list[tuple[float, Path]] = []
     try:
@@ -418,7 +422,8 @@ def _sibling_roots(global_root: Path, state: Path, workspace: Path, vertical: st
             sibling = resolve_session_workdir(meta, state_dir=candidate)
         except (OSError, RuntimeError, ValueError):
             continue
-        if _resolve_vertical(sibling, candidate) != vertical or _same_path(sibling, workspace):
+        vertical = _resolve_vertical(sibling, candidate)
+        if vertical not in verticals or _same_path(sibling, workspace):
             continue
         found = [(f"earlier project Wiki ({sid})", wiki / "pages", sibling, wiki)
                  for wiki in _bounded_wiki_roots(sibling)]
@@ -693,22 +698,24 @@ def _operator_roots(global_root: Path) -> list[KnowledgeRoot]:
 
 
 def _shared_wiki_roots(global_root: Path, vertical: str) -> list[KnowledgeRoot]:
-    """The vertical's shared Wiki (pages and principles) and the host-wide shared Wiki."""
+    """The vertical's shared Wiki (pages and principles), the learning vertical's
+    pages and the host-wide shared Wiki."""
     from ..core.paths import global_wiki_root, shared_vertical_wiki_root, shared_wiki_root
 
     roots: list[KnowledgeRoot] = []
     try:
         boundary = shared_wiki_root(global_root).absolute()
-        if vertical:
-            vertical_root = shared_vertical_wiki_root(vertical, global_root).absolute()
+        for name in dict.fromkeys(filter(None, (vertical, _LEARNING_VERTICAL))):
+            vertical_root = shared_vertical_wiki_root(name, global_root).absolute()
             roots.append(KnowledgeRoot(
-                f"{vertical} knowledge", vertical_root / "pages", boundary,
-                scope="vertical", vertical=vertical, library=vertical_root,
+                f"{name} knowledge", vertical_root / "pages", boundary,
+                scope="vertical", vertical=name, library=vertical_root,
             ))
-            roots.append(KnowledgeRoot(
-                "principles", vertical_root / "principles.md", boundary,
-                scope="vertical", vertical=vertical, library=vertical_root,
-            ))
+            if name == vertical:
+                roots.append(KnowledgeRoot(
+                    "principles", vertical_root / "principles.md", boundary,
+                    scope="vertical", vertical=vertical, library=vertical_root,
+                ))
         global_pages = global_wiki_root(global_root).absolute()
         roots.append(KnowledgeRoot(
             "shared knowledge", global_pages / "pages", boundary,
@@ -762,8 +769,10 @@ def knowledge_recall_for_memory(memory: Any, *, worktree: Path | None = None,
         # What Argus knows about the operator comes first of all: the work
         # should fit the person before it fits the field.
         roots[0:0] = _operator_roots(global_root)
-        if workspace is not None and vertical and _sibling_wikis_enabled():
-            roots.extend(_sibling_roots(global_root, state, workspace, vertical))
+        if workspace is not None and _sibling_wikis_enabled():
+            # What a learning mission keeps is meant for later work in every field.
+            verticals = [name for name in dict.fromkeys((vertical, _LEARNING_VERTICAL)) if name]
+            roots.extend(_sibling_roots(global_root, state, workspace, verticals))
     # A subordinate can keep its derived index isolated while using the same
     # explicit canonical source and embedding policy/budget as its parent.
     from .recall_embedding import configured_embedder

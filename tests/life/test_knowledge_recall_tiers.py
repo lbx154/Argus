@@ -126,7 +126,8 @@ def test_roots_include_shared_tiers_principles_and_same_vertical_siblings_only(t
     by_kind = {root.kind: root for root in recall.roots}
 
     assert kinds[:2] == ["about the operator", "notes about the operator"]
-    assert kinds[2:6] == ["project Wiki", f"{VERTICAL} knowledge", "principles", "shared knowledge"]
+    assert kinds[2:7] == ["project Wiki", f"{VERTICAL} knowledge", "principles", "learning knowledge",
+                          "shared knowledge"]
     assert by_kind[f"{VERTICAL} knowledge"].path == vertical_root / "pages"
     assert by_kind[f"{VERTICAL} knowledge"].scope == "vertical"
     assert by_kind["principles"].path == vertical_root / "principles.md"
@@ -174,6 +175,33 @@ def test_earlier_projects_are_found_where_the_host_keeps_them(tenant, tmp_path):
     context = recall.render_context("quartz")
     assert str(earlier / ".autors" / "earlier" / "wiki" / "pages" / "engine.md") in context
     assert "operator-taste" not in context
+
+
+def test_what_a_learning_project_kept_is_read_by_projects_of_every_vertical(tenant, tmp_path):
+    learned = tmp_path / "work" / "learn"
+    earlier_project(tenant, "s-learned", "learning", learned)
+    project_wiki(learned, "learn", "engine-scheduler.md",
+                 page("Engine scheduler", "how the engine schedules prefill", "quartz scheduler prefill"))
+    write(learned / ".agents" / "skills" / "dependency-closed-check" / "SKILL.md",
+          "---\nname: dependency-closed-check\ndescription: validate quartz modules\n---\n\nquartz\n")
+    write(shared_vertical_wiki_root("learning", tenant) / "pages" / "lessons" / "20261020-narrow.md",
+          page("Narrow the check", "narrow quartz checks", "quartz lesson", kind="lesson"))
+    write(shared_vertical_wiki_root("learning", tenant) / "principles.md",
+          "---\ntitle: P\ndescription: d\nkind: principles\n---\n\n1. Learning rule.\n")
+
+    for sid, vertical in (("s-software", VERTICAL), ("s-undecided", "")):
+        workspace = tmp_path / "work" / sid
+        earlier_project(tenant, sid, vertical, workspace)
+        memory = MemoryBundle.for_cwd(workspace, global_root=tenant, fingerprint=sid)
+
+        result = knowledge_recall_for_memory(memory).recall("quartz scheduler")
+
+        shown = {hit.document.path for hit in result.hits}
+        assert learned / ".autors" / "learn" / "wiki" / "pages" / "engine-scheduler.md" in shown, vertical
+        assert any(hit.document.vertical == "learning" and hit.document.meta.page_kind == "lesson"
+                   for hit in result.hits)
+        # The learning vertical's principles govern learning missions, not this one.
+        assert "Learning rule" not in result.text
 
 
 @pytest.mark.parametrize("switch", [("ARGUS_SKILL_COPILOT_TRIAL", "1"), ("ARGUS_SKILL_LEARNING", "0")])
