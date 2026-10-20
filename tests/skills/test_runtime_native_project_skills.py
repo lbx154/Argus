@@ -281,8 +281,7 @@ def test_life_planner_cycle_rebuilds_skills_for_adopted_worktree(
     supervisor.sink = object()
     supervisor._planning_cycles = 1
     supervisor._render_journal_for_planner = lambda: ""
-    supervisor._planner_runtime_with_idle_note = lambda: ""
-    supervisor._recent_subagent_family_failures = lambda: {}
+    supervisor._planner_runtime_notes = lambda: ""
     supervisor._stuck_subagent_families_note = lambda _failures: ""
     supervisor._manager_intent_prompt_block = lambda *_args: ""
     supervisor._planner_authorization_prompt_block = lambda: ""

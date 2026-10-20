@@ -182,11 +182,11 @@ def _record_round_evidence(
             item.engineer_note.strip() for item in items if item.engineer_note.strip()
         )[:_ROUND_EVIDENCE_ENGINEER_NOTE_CHARS]
         # A retried round replaces its earlier note instead of stacking it.
-        followup = state.pending_external_work_followup
+        followup = state.pending_engineer_followup
         if state.pending_round_evidence_engineer_note:
             followup = followup.replace(state.pending_round_evidence_engineer_note, "").strip()
         state.pending_round_evidence_engineer_note = engineer_note
-        state.pending_external_work_followup = "\n\n".join(
+        state.pending_engineer_followup = "\n\n".join(
             part for part in (followup, engineer_note) if part
         )
     except Exception:  # noqa: BLE001 - evidence staging must never break the round
@@ -321,8 +321,8 @@ class RoundExecutionMixin:
                 "ARGUS PROCESS OWNERSHIP FACT: the provider turn exited while "
                 f"descendants remained in its private process group {orphan_group_id}. "
                 "The runner targeted only that exact group for cleanup "
-                f"(cleanup_succeeded={str(cleanup_succeeded).lower()}). Durable "
-                "Argus subagents run in separately owned process groups. Treat this "
+                f"(cleanup_succeeded={str(cleanup_succeeded).lower()}). Jobs started "
+                "detached with setsid run in their own process groups. Treat this "
                 "as an orchestration fact, not as scientific evidence."
             )
             if on_event:
@@ -588,11 +588,10 @@ class RoundExecutionMixin:
                 "Continue this unfinished task. Inspect the actual producer "
                 "processes, saved command, partial outputs and checkpoint before deciding "
                 "what remains; do not assume the command completed or rerun valid evidence. "
-                "Preserve the interrupted attempt. For remaining long computations, use "
-                "the available Argus durable job interface with its own task record and "
-                "output directory, so the computation survives a model-call boundary. "
-                "A native shell notification wait can expire when the CLI exits. Continue "
-                "independent work while durable jobs run, then complete the "
+                "Preserve the interrupted attempt. Start remaining long computations "
+                "detached with their own output directory, so they survive a model-call "
+                "boundary, and wait for them in the turn with blocking calls: a native "
+                "shell notification wait ends when the CLI exits. Then complete the "
                 "related changes and validation before returning for review."
             )
             previous = state.reviewer_next_action or ""

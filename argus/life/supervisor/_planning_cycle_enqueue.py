@@ -2,8 +2,8 @@
 
 Covers everything after the planner has returned a trusted, non-empty
 ``new_tasks`` batch: building the existing-backlog dedupe index, the two-pass
-DAG-aware pending-item construction (dedupe / subagent-family-failure /
-authorization skips, then intra-batch dep-key resolution),
+DAG-aware pending-item construction (dedupe / authorization skips, then
+intra-batch dep-key resolution),
 the revision-vs-non-revision commit path, and the final planner-verdict
 emission.
 """
@@ -106,38 +106,6 @@ def _stage_closing_forced() -> bool:
     return os.environ.get(
         "ARGUS_SKILL_FORCE_STAGE_CLOSING", ""
     ).strip().casefold() in {"1", "true", "yes", "on"}
-
-
-def _automatic_stage_target(
-    *,
-    state_root: Path,
-    evidence_root: Path,
-) -> str:
-    """Return the next stage when the active vertical certifies auto-completion."""
-    try:
-        from ...core.pipeline_state import read_pipeline_state
-        from ...verticals._base import load_vertical_contract
-
-        pipeline = read_pipeline_state(state_root)
-        if not isinstance(pipeline, dict):
-            return ""
-        vertical = str(pipeline.get("vertical") or "").strip()
-        current = str(pipeline.get("current_stage") or "").strip()
-        if not vertical or not current:
-            return ""
-        contract = load_vertical_contract(vertical, project_root=state_root)
-        order = tuple(contract.stage_order)
-        if current not in order or order.index(current) + 1 >= len(order):
-            return ""
-        if not contract.automatic_stage_completion_ready(
-            stage=current,
-            project_root=evidence_root,
-            state_root=state_root,
-        ):
-            return ""
-        return order[order.index(current) + 1]
-    except Exception:  # noqa: BLE001 - automatic closing is fail-open to normal planning
-        return ""
 
 
 def _apply_planner_stage_request(
@@ -339,25 +307,6 @@ class PlanningCycleEnqueueMixin:
                     return PLAN_ERROR
                 self._reset_idle_backoff()
                 return PLAN_RETRY
-        automatic_stage_target = _automatic_stage_target(
-            state_root=Path(state_root),
-            evidence_root=Path(context_root).resolve(),
-        )
-        if automatic_stage_target:
-            try:
-                from ...skills.stage_machine import advance_stage
-
-                advance_stage(
-                    state_root,
-                    target_stage=automatic_stage_target,
-                    reason="the active vertical certified automatic stage completion",
-                    advanced_by="manager:auto_completion",
-                    evidence_root=Path(context_root).resolve(),
-                )
-                # Tasks were authored under the prior stage context.
-                return PLAN_RETRY
-            except Exception:  # noqa: BLE001 - normal Manager planning remains available
-                log.debug("automatic stage advance failed", exc_info=True)
         for task_index, task in enumerate(planned_tasks):
             task = replace(task, context_refs=[], execution_workdir="")
             sanitized_title = _sanitize_planner_task_text(task.title)
@@ -478,16 +427,13 @@ class PlanningCycleEnqueueMixin:
                 gpu_count=max(0, int(getattr(task, "gpu_count", 0) or 0)),
                 cpu_count=max(1, int(getattr(task, "cpu_count", 1) or 1)),
             )
-            from ...skills.stage_machine import current_stage
             from ...skills.vertical_select import resolve_vertical
             from ...verticals._base import load_vertical_contract
 
             policy_root = Path(context_root or self._project_workdir()).resolve()
-            policy_stage = current_stage(state_root)
-            campaign_vertical = resolve_vertical(state_root)
             policy_vertical = (
                 str(getattr(task, "vertical", "") or "").strip()
-                or campaign_vertical
+                or resolve_vertical(state_root)
             )
             try:
                 policy_contract = load_vertical_contract(
@@ -508,27 +454,6 @@ class PlanningCycleEnqueueMixin:
                     "objective": task.objective,
                     "skip_category": "unknown_task_vertical",
                     "reason": f"unknown Planner task vertical: {policy_vertical}",
-                })
-                continue
-            policy_issues = policy_contract.planner_task_issues(
-                policy_stage,
-                policy_root,
-                task,
-            )
-            if policy_issues:
-                _record_filtered_task(
-                    state,
-                    title=task.title,
-                    category="vertical_task_policy",
-                    reason="; ".join(policy_issues),
-                )
-                self._emit({
-                    "type": EventType.LIFE_PLANNER_TASK_SKIPPED,
-                    "cycle": self._planning_cycles,
-                    "title": task.title,
-                    "objective": task.objective,
-                    "skip_category": "vertical_task_policy",
-                    "reason": "; ".join(policy_issues),
                 })
                 continue
 
@@ -614,45 +539,6 @@ class PlanningCycleEnqueueMixin:
                         "matched_item_id": duplicate_item.id,
                         "matched_status": duplicate_item.status,
                         "reason": duplicate_reason,
-                    }
-                )
-                continue
-            family_failure = next(
-                (
-                    ff
-                    for ff in state.subagent_family_failures.values()
-                    if self._task_mentions_family(task, ff.family)
-                ),
-                None,
-            )
-            if family_failure is not None:
-                state.skipped_subagent_family_failure_titles.append(task.title)
-                family_reason = (
-                    f"subagent family {family_failure.family!r} has failed "
-                    f"{family_failure.streak} times in a row unresolved"
-                )
-                _record_filtered_task(
-                    state,
-                    title=task.title,
-                    category="recent_subagent_family_failure",
-                    reason=family_reason,
-                )
-                self._emit(
-                    {
-                        "type": EventType.LIFE_PLANNER_TASK_SKIPPED,
-                        "cycle": self._planning_cycles,
-                        "title": task.title,
-                        "objective": task.objective,
-                        "impact_score": task.impact_score,
-                        "impact_area": task.impact_area,
-                        "evidence": task.evidence,
-                        "matched_family": family_failure.family,
-                        "matched_streak": family_failure.streak,
-                        "matched_last_task_id": family_failure.last_task_id,
-                        "matched_last_state": family_failure.last_state,
-                        "matched_last_reason": family_failure.last_reason,
-                        "skip_category": "recent_subagent_family_failure",
-                        "reason": family_reason,
                     }
                 )
                 continue
@@ -826,53 +712,6 @@ class PlanningCycleEnqueueMixin:
         evidence["routed"] = True
         return evidence
 
-    def _pc_split_external_work_deps(
-        self, keys: list[str]
-    ) -> tuple[list[str], list[tuple[str, str]]]:
-        """Partition unresolved dep keys against the external-work registry.
-
-        A planner may legitimately name a durable background job as a task
-        dependency: the job outlives daemon restarts and never appears in the
-        backlog, so plain key resolution cannot see it. Returns
-        ``(unknown, external)`` where ``external`` pairs each recognized job
-        id with a short description of its current state. Recognized jobs are
-        not backlog dependencies at all — the depending task is enqueued
-        without them and the mission coordinates with the job directly
-        through the external-work protocol, which already handles durable
-        waiting, health checks, and resumption. Any failure to consult the
-        registry fails closed: every key is reported unknown so the existing
-        whole-batch rejection still applies.
-        """
-        try:
-            from ...engineer.external_work import inspect_external_work
-
-            workdir = self._project_workdir()
-        except Exception:  # noqa: BLE001
-            log.warning(
-                "external-work registry unavailable while resolving planner deps",
-                exc_info=True,
-            )
-            return list(keys), []
-        unknown: list[str] = []
-        external: list[tuple[str, str]] = []
-        for key in keys:
-            try:
-                status = inspect_external_work(workdir, key)
-            except Exception:  # noqa: BLE001
-                log.warning(
-                    "external-work lookup failed for planner dependency %r",
-                    key,
-                    exc_info=True,
-                )
-                status = None
-            if status is None:
-                unknown.append(key)
-            elif status.waitable:
-                external.append((key, "still running"))
-            else:
-                external.append((key, "already settled"))
-        return unknown, external
-
     def _pc_hold_children_of_filtered_siblings(self, state: _PlanCycleState) -> None:
         """Hold back tasks whose in-batch parent was filtered out of this batch.
 
@@ -969,7 +808,6 @@ class PlanningCycleEnqueueMixin:
             + [(str(key), str(item_id)) for key, item_id in state.key_map.items()]
         )
         unresolved: list[tuple[str, list[str]]] = []
-        released_external: dict[str, list[str]] = {}
         for task, item in state.pending_items:
             task_deps = list(getattr(task, "deps", []) or [])
             if not task_deps:
@@ -996,49 +834,24 @@ class PlanningCycleEnqueueMixin:
                 )
             if not unresolved_keys:
                 continue
-            # A dep key the backlog cannot resolve may still name a durable
-            # background job. Such a job is not a backlog dependency: the
-            # task is enqueued without it and its mission coordinates with
-            # the job directly through the external-work protocol, which
-            # already knows how to wait durably, watch health, and resume.
-            unknown_keys, external_deps = self._pc_split_external_work_deps(
-                unresolved_keys
+            # The planner named something that is not a backlog node: usually
+            # a team id, a job, a task label it saw in evidence, or a node it
+            # meant to create. Rejecting the whole plan over it used to stall
+            # campaigns for dozens of identical cycles. Drop the key, enqueue
+            # the task, and tell the planner.
+            unresolved.append((item.title, unresolved_keys))
+            self._emit(
+                {
+                    "type": EventType.LIFE_PLANNER_DEPENDENCY_DROPPED,
+                    "item_id": str(item.id),
+                    "title": item.title,
+                    "dependency_keys": list(unresolved_keys),
+                    "text": (
+                        "planner dependency keys matched no backlog item and "
+                        "were dropped; the task is enqueued without them"
+                    ),
+                }
             )
-            if unknown_keys:
-                # The planner named something that is neither a backlog node
-                # nor a durable job: usually a task label it saw in
-                # evidence, or a node it meant to create. Rejecting the whole
-                # plan over it used to stall campaigns for dozens of identical
-                # cycles. Drop the key, enqueue the task, and tell the planner.
-                unresolved.append((item.title, unknown_keys))
-                self._emit(
-                    {
-                        "type": EventType.LIFE_PLANNER_DEPENDENCY_DROPPED,
-                        "item_id": str(item.id),
-                        "title": item.title,
-                        "dependency_keys": list(unknown_keys),
-                        "text": (
-                            "planner dependency keys matched no backlog item or "
-                            "durable job and were dropped; the task is enqueued "
-                            "without them"
-                        ),
-                    }
-                )
-            if external_deps:
-                released_external[str(item.id)] = [
-                    key for key, _state_desc in external_deps
-                ]
-                log.info(
-                    "planner dependencies resolved to durable background "
-                    "jobs; the mission will coordinate with them directly",
-                    extra={
-                        "task_title": item.title,
-                        "background_jobs": [
-                            f"{key} ({state_desc})"
-                            for key, state_desc in external_deps
-                        ],
-                    },
-                )
         if unresolved:
             self._planner_dropped_dependency_keys = list(unresolved)
         if state.dropped_parallel:
@@ -1094,9 +907,6 @@ class PlanningCycleEnqueueMixin:
                         "plan_id": item.plan_id,
                         "plan_version": item.plan_version,
                         "node_key": item.node_key,
-                        "external_work_deps": released_external.get(
-                            str(item.id), []
-                        ),
                     }
                 )
 
@@ -1162,9 +972,6 @@ class PlanningCycleEnqueueMixin:
                         "plan_id": item.plan_id,
                         "plan_version": item.plan_version,
                         "node_key": item.node_key,
-                        "external_work_deps": released_external.get(
-                            str(item.id), []
-                        ),
                     }
                 )
             challenge = revision_request.get("plan_challenge")
@@ -1247,7 +1054,6 @@ class PlanningCycleEnqueueMixin:
             skipped_certification_reproposal_tasks=len(
                 state.skipped_certification_reproposal_titles
             ),
-            skipped_subagent_family_failure_tasks=len(state.skipped_subagent_family_failure_titles),
             enqueued_titles=state.added_titles,
             enqueued_impact_scores=state.added_impact_scores,
             skipped_duplicate_titles=state.skipped_duplicate_titles,
@@ -1257,10 +1063,6 @@ class PlanningCycleEnqueueMixin:
             skipped_certification_reproposal_reasons=(
                 state.skipped_certification_reproposal_reasons
             ),
-            skipped_subagent_family_failure_titles=(state.skipped_subagent_family_failure_titles),
-            stuck_subagent_families={
-                family: failure.streak for family, failure in state.subagent_family_failures.items()
-            },
             manager_intent=state.manager_intent,
         )
         if not delivered:

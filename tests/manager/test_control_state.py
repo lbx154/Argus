@@ -21,69 +21,29 @@ def _store(tmp_path: Path) -> CampaignControlStore:
     return CampaignControlStore(state_root, project_root=project_root)
 
 
-def test_head_last_revisions_make_old_waits_stale(tmp_path: Path) -> None:
+def test_head_last_revisions_keep_terminal_evidence(tmp_path: Path) -> None:
     store = _store(tmp_path)
     identity = store.campaign_identity()
 
-    wait_head = store.activate_wait(
+    first, _ = store.commit_revision(
         identity=identity,
-        wait_id="wait-1",
-        blocker_fingerprint="source:missing",
-        recheck_token="source-v1",
+        updates={"stage_projection": {"current_stage": "evaluate", "status": "running"}},
+        reason="Manager projected the stage",
     )
-    assert store.is_wait_current(
-        campaign_epoch=identity.campaign_epoch,
-        state_revision=wait_head.state_revision,
-        wait_id="wait-1",
-    )
-
-    evidence_head = store.clear_wait_for_new_evidence(
+    evidence_head, _ = store.commit_revision(
         identity=identity,
-        stage_projection={"current_stage": "evaluate", "status": "done"},
-        terminal_evidence=[{"event_id": "terminal-1", "sha256": "abc"}],
+        updates={
+            "stage_projection": {"current_stage": "evaluate", "status": "done"},
+            "terminal_evidence": [{"event_id": "terminal-1"}],
+        },
         reason="Manager reconciled terminal evidence",
     )
 
-    assert evidence_head.state_revision == wait_head.state_revision + 1
-    assert not store.is_wait_current(
-        campaign_epoch=identity.campaign_epoch,
-        state_revision=wait_head.state_revision,
-        wait_id="wait-1",
-    )
+    assert evidence_head.state_revision == first.state_revision + 1
     snapshot = store.read_snapshot()
     assert snapshot is not None
-    assert snapshot["active_wait"] is None
     assert snapshot["terminal_evidence"][0]["event_id"] == "terminal-1"
     assert len(list(store.revisions_root.glob("*.json"))) == 2
-
-
-def test_clear_wait_if_current_does_not_clear_newer_wait(tmp_path: Path) -> None:
-    store = _store(tmp_path)
-    identity = store.campaign_identity()
-    old_head = store.activate_wait(
-        identity=identity,
-        wait_id="wait-old",
-        blocker_fingerprint="source:old",
-        recheck_token="source-v1",
-    )
-    store.activate_wait(
-        identity=identity,
-        wait_id="wait-new",
-        blocker_fingerprint="source:new",
-        recheck_token="source-v2",
-    )
-
-    cleared = store.clear_wait_if_current(
-        identity=identity,
-        expected_state_revision=old_head.state_revision,
-        expected_wait_id="wait-old",
-        reason="stale runtime attempted cleanup",
-    )
-
-    assert cleared is None
-    snapshot = store.read_snapshot()
-    assert snapshot is not None
-    assert snapshot["active_wait"]["wait_id"] == "wait-new"
 
 
 def test_authorization_is_manager_owned_campaign_bound_and_one_shot(tmp_path: Path) -> None:
@@ -151,9 +111,9 @@ def test_authorization_is_rejected_after_newer_manager_revision(tmp_path: Path) 
         source_channel="web",
         source_message_id="message-1",
     )
-    store.clear_wait_for_new_evidence(
+    store.commit_revision(
         identity=identity,
-        stage_projection={"status": "newer"},
+        updates={"stage_projection": {"status": "newer"}},
         reason="Manager observed newer state",
     )
 
@@ -238,15 +198,17 @@ def test_validator_repair_rejects_symlink_created_after_authorization(
     identity = store.campaign_identity()
     evidence = store.project_root / "evidence.json"
     evidence.write_text("frozen\n", encoding="utf-8")
-    store.clear_wait_for_new_evidence(
+    store.commit_revision(
         identity=identity,
-        terminal_evidence=[
-            {
-                "failure_source": "validator_defect",
-                "validator_id": "new-validator",
-                "repair_paths": ["tests/new_validator.py"],
-            }
-        ],
+        updates={
+            "terminal_evidence": [
+                {
+                    "failure_source": "validator_defect",
+                    "validator_id": "new-validator",
+                    "repair_paths": ["tests/new_validator.py"],
+                }
+            ],
+        },
         reason="Reviewer diagnosed a missing validator",
     )
     authorization = store.issue_authorization(
@@ -283,15 +245,17 @@ def test_validator_repair_rejects_directory_created_after_authorization(
 ) -> None:
     store = _store(tmp_path)
     identity = store.campaign_identity()
-    store.clear_wait_for_new_evidence(
+    store.commit_revision(
         identity=identity,
-        terminal_evidence=[
-            {
-                "failure_source": "validator_defect",
-                "validator_id": "new-validator",
-                "repair_paths": ["tests/new_validator.py"],
-            }
-        ],
+        updates={
+            "terminal_evidence": [
+                {
+                    "failure_source": "validator_defect",
+                    "validator_id": "new-validator",
+                    "repair_paths": ["tests/new_validator.py"],
+                }
+            ],
+        },
         reason="Reviewer diagnosed a missing validator",
     )
     authorization = store.issue_authorization(
@@ -318,20 +282,14 @@ def test_validator_repair_rejects_directory_created_after_authorization(
         )
 
 
-def test_authorization_issuance_compares_observed_wait_revision(tmp_path: Path) -> None:
+def test_authorization_issuance_compares_observed_head_revision(tmp_path: Path) -> None:
     store = _store(tmp_path)
     identity = store.campaign_identity()
-    observed = store.activate_wait(
-        identity=identity,
-        wait_id="wait-observed",
-        blocker_fingerprint="validator:observed",
-        recheck_token="observed-v1",
+    observed, _ = store.commit_revision(
+        identity=identity, updates={"stage_projection": {"status": "observed"}}, reason="observed",
     )
-    store.activate_wait(
-        identity=identity,
-        wait_id="wait-newer",
-        blocker_fingerprint="validator:newer",
-        recheck_token="newer-v1",
+    store.commit_revision(
+        identity=identity, updates={"stage_projection": {"status": "newer"}}, reason="newer",
     )
 
     with pytest.raises(ValueError, match="HEAD changed"):
@@ -344,7 +302,6 @@ def test_authorization_issuance_compares_observed_wait_revision(tmp_path: Path) 
             source_channel="web",
             source_message_id="message-raced",
             expected_state_revision=observed.state_revision,
-            expected_wait_id="wait-observed",
         )
 
 
@@ -358,21 +315,23 @@ def _prepare_validator_repair(
     validator = store.project_root / "tests" / "test_terminal_contract.py"
     validator.parent.mkdir(exist_ok=True)
     validator.write_text("def test_contract(): assert False\n", encoding="utf-8")
-    store.clear_wait_for_new_evidence(
+    store.commit_revision(
         identity=identity,
-        terminal_evidence=[
-            {
-                "failure_source": "validator_defect",
-                "validator_id": "terminal-contract",
-                "repair_paths": ["tests/test_terminal_contract.py"],
-                "failure_source_evidence": [
-                    {
-                        "artifact": "tests/test_terminal_contract.py",
-                        "observation": "validator binds a stale hash",
-                    }
-                ],
-            }
-        ],
+        updates={
+            "terminal_evidence": [
+                {
+                    "failure_source": "validator_defect",
+                    "validator_id": "terminal-contract",
+                    "repair_paths": ["tests/test_terminal_contract.py"],
+                    "failure_source_evidence": [
+                        {
+                            "artifact": "tests/test_terminal_contract.py",
+                            "observation": "validator binds a stale hash",
+                        }
+                    ],
+                }
+            ],
+        },
         reason="Reviewer diagnosed validator defect",
     )
     authorization = store.issue_authorization(
@@ -573,15 +532,17 @@ def test_scientific_evidence_failure_cannot_claim_validator_repair(
 ) -> None:
     store = _store(tmp_path)
     identity, authorization, _evidence, _validator = _prepare_validator_repair(store)
-    store.clear_wait_for_new_evidence(
+    store.commit_revision(
         identity=identity,
-        terminal_evidence=[
-            {
-                "failure_source": "scientific_evidence_failure",
-                "validator_id": "",
-                "repair_paths": [],
-            }
-        ],
+        updates={
+            "terminal_evidence": [
+                {
+                    "failure_source": "scientific_evidence_failure",
+                    "validator_id": "",
+                    "repair_paths": [],
+                }
+            ],
+        },
         reason="Reviewer found scientific evidence failure",
     )
 
@@ -598,19 +559,17 @@ def test_scientific_evidence_failure_cannot_claim_validator_repair(
 def test_new_campaign_starts_revision_chain_without_rewriting_history(tmp_path: Path) -> None:
     store = _store(tmp_path)
     old_identity = store.campaign_identity()
-    old_head = store.activate_wait(
-        identity=old_identity,
-        wait_id="old-wait",
-        blocker_fingerprint="old:blocker",
-        recheck_token="old-v1",
+    old_head, _ = store.commit_revision(
+        identity=old_identity, updates={}, reason="Manager ran the old campaign",
     )
 
     new_identity = store.campaign_identity(
         objective="new campaign objective",
         campaign_epoch=4,
     )
-    new_head = store.clear_wait_for_new_evidence(
+    new_head, _ = store.commit_revision(
         identity=new_identity,
+        updates={},
         reason="Manager started a new campaign",
     )
 
@@ -625,22 +584,12 @@ def test_same_epoch_new_objective_keeps_immutable_revision_history(
 ) -> None:
     store = _store(tmp_path)
     old_identity = store.campaign_identity()
-    store.activate_wait(
-        identity=old_identity,
-        wait_id="old-wait",
-        blocker_fingerprint="old:blocker",
-        recheck_token="old-v1",
-    )
+    store.commit_revision(identity=old_identity, updates={}, reason="old objective")
     new_identity = store.campaign_identity(
         objective="new objective at the same epoch",
         campaign_epoch=old_identity.campaign_epoch,
     )
-    store.activate_wait(
-        identity=new_identity,
-        wait_id="new-wait",
-        blocker_fingerprint="new:blocker",
-        recheck_token="new-v1",
-    )
+    store.commit_revision(identity=new_identity, updates={}, reason="new objective")
 
     revisions = list(store.revisions_root.glob("*.json"))
     assert len(revisions) == 2

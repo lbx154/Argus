@@ -71,7 +71,7 @@ import "./design.css";
 import { MapRelationEdge } from "./MapRelationEdge";
 import { MapHistoryChoice } from "./MapHistoryChoice";
 import { livePollInterval, mapIsPaused, mergeMapProgress, parseMapSelection, type MapSelection } from "./incremental";
-import { currentWorkStartedAt, currentWorkStatus, workStatusLabel } from "../lib/workStatus";
+import { currentWorkStartedAt, currentWorkStatus } from "../lib/workStatus";
 import { workSummary } from '../lib/workSummary';
 import { recalledView, rememberView } from "./viewMemory";
 
@@ -109,7 +109,6 @@ export function MapCanvas({
   zh,
   composer,
   activePhase,
-  waiting,
   snapshot,
   currentTaskId,
   events,
@@ -126,9 +125,6 @@ export function MapCanvas({
   zh: boolean;
   composer: MapComposerProps;
   activePhase?: string;
-  /** The task waiting on its background work and the one sentence saying so;
-   * the heading and that task's card show it instead of a role at work. */
-  waiting?: { taskId: string; sentence: string };
   snapshot: Snapshot;
   currentTaskId?: string | null;
   events: EventMsg[];
@@ -605,7 +601,6 @@ export function MapCanvas({
           arriving,
           revealing: replaying,
           phase: activePhase && ACTIVE.has(n.data.task.status) ? activePhase : undefined,
-          waiting: waiting && waiting.taskId === n.data.task.id ? waiting.sentence : undefined,
           growthDelay: growth.cards[n.id],
           dispatchState: flight?.result?.type === 'task' && flight.result.taskId === n.data.task.id && !composer.historical
             ? flight.landed ? 'landed' : 'receiving'
@@ -653,7 +648,6 @@ export function MapCanvas({
       arriving,
       replaying,
       activePhase,
-      waiting,
     ],
   );
   const edges: Edge[] = useMemo(
@@ -826,7 +820,6 @@ export function MapCanvas({
     hasOpenWork: data.tasks.some((task) => ["running", "pending", "paused", "held", "question"].includes(statusKey(task))),
     role: activePhase,
     current: data.kind === 'live' && !['idle', 'step_finished'].includes(status.state) ? currentWork : undefined,
-    waiting: waiting?.sentence,
     zh,
   });
   const focus = (id: string) => {
@@ -991,7 +984,7 @@ export function MapCanvas({
           </span>
         )}
         <p className="map-status-line" role="status">
-          {(composer.pending || (!paused && (activePhase || waiting))) ? <i className="map-live-dot" aria-hidden /> : null}
+          {(composer.pending || (!paused && activePhase)) ? <i className="map-live-dot" aria-hidden /> : null}
           <span className="map-status-text">{statusSentence}</span>
           {attention.length > 0 && (
             <>
@@ -1636,18 +1629,6 @@ export const MapPanel = memo(function MapPanel({
     refetchInterval: (query) => livePollInterval(approved, query.state.data, snapshot),
   });
   const paused = source === "live" && mapIsPaused(snapshot);
-  // One runtime status for the whole page: the same reading the sidebar and
-  // the conversation header make, so a task waiting on background work reads
-  // the same way here as there.
-  const work = currentWorkStatus(snapshot, snapshot.mission_view, events);
-  const waitingSentence = work.reason === "background_work" && work.taskId
-    ? workStatusLabel(work, zh ? "zh-CN" : "en") : "";
-  const waiting = useMemo(
-    () => source === "live" && !paused && waitingSentence
-      ? { taskId: work.taskId, sentence: waitingSentence }
-      : undefined,
-    [source, paused, work.taskId, waitingSentence],
-  );
   const latestMapEvent = events.filter((e) => e.run_label !== "map-summary" &&
     /^(life\.(mission\.|phase\.|planner\.task_added)|manager\.turn\.|round\.|agent\.message|engineer\.progress|ui\.argus)/.test(String(e.type))).at(-1);
   const updateKey = JSON.stringify([
@@ -1889,11 +1870,10 @@ export const MapPanel = memo(function MapPanel({
             readOnly={readOnly}
             replacements={replacements}
             activePhase={
-              source === "live" && !paused && !waiting
+              source === "live" && !paused
                 ? snapshot.roles.find((r) => r.active)?.role
                 : undefined
             }
-            waiting={waiting}
             composer={composer}
           />
         </ReactFlowProvider>

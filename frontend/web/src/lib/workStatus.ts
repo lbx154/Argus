@@ -1,6 +1,6 @@
-import type { BacklogItem, EventMsg, MissionView, Snapshot } from '../../../core/src/types';
+import type { EventMsg, MissionView, Snapshot } from '../../../core/src/types';
 import { operatorDecisionCards } from '../../../core/src/decisions';
-import { backlogParkReason, parkReason } from '../../../core/src/missionOutcome';
+import { parkReason } from '../../../core/src/missionOutcome';
 import type { Locale } from '../i18n';
 import { roleActionLabel } from './taskLanguage';
 
@@ -11,7 +11,7 @@ export interface WorkStatus {
   title: string;
   activityAt: number | null;
   activityAgeSeconds: number | null;
-  reason: 'provider_wait' | 'no_recent_progress' | 'awaiting_next_step' | 'not_running' | 'task_failed' | 'operator_input' | 'background_work' | 'launch_confirm' | '';
+  reason: 'provider_wait' | 'no_recent_progress' | 'awaiting_next_step' | 'not_running' | 'task_failed' | 'operator_input' | 'launch_confirm' | '';
   /** The Manager is answering a request the operator sent, not tidying up on its own. */
   foreground?: boolean;
 }
@@ -57,12 +57,6 @@ export function activeProviderRequest(events: EventMsg[], notBefore = 0): EventM
   return [...calls.values()].at(-1) ?? null;
 }
 
-/** Whether the task is parked on background work it will resume from. */
-function waitsOnBackgroundWork(snapshot: Snapshot | undefined, task: BacklogItem | undefined): boolean {
-  return !!snapshot?.daemon.alive && !!task && backlogParkReason(task) === 'external_work'
-    && !!task.outcome?.external_wait?.work_id;
-}
-
 /** Runtime status is separate from progress toward the user's research goal. */
 export function currentWorkStatus(
   snapshot: Snapshot | undefined,
@@ -70,9 +64,7 @@ export function currentWorkStatus(
   events: EventMsg[] = [],
   nowSeconds = Date.now() / 1000,
 ): WorkStatus {
-  // A mission parked on its background work is still the current one.
-  const taskId = view?.mission.id
-    || snapshot?.backlog?.find(item => ACTIVE.has(item.status) || backlogParkReason(item) === 'external_work')?.id || '';
+  const taskId = view?.mission.id || snapshot?.backlog?.find(item => ACTIVE.has(item.status))?.id || '';
   const task = snapshot?.backlog?.find(item => item.id === taskId);
   const started = currentWorkStartedAt(snapshot, view, taskId);
   const liveRoles = snapshot?.roles?.filter(role => role.active) || [];
@@ -137,8 +129,6 @@ export function currentWorkStatus(
       };
     }
   }
-  // A task waiting on its own background work is neither stalled nor paused.
-  if (waitsOnBackgroundWork(snapshot, task)) return { ...result, state: 'waiting', role: '', reason: 'background_work' };
   const missionState = String(task?.status || view?.mission.status || '').toLowerCase();
   if (PAUSED.has(missionState) || parkReason(missionState) !== null) {
     const needsReply = operatorDecisionCards(snapshot.pending_questions ?? [], snapshot.backlog.map(item => ({ ...item })), taskId)
@@ -179,21 +169,12 @@ export function progressAgeLabel(seconds: number | null, locale: Locale): string
   return zh ? `${Math.floor(seconds / 3600)} 小时前` : `${Math.floor(seconds / 3600)} hr ago`;
 }
 
-/** One sentence for a task waiting on its background work, and when it last moved. */
-export function backgroundWaitLabel(status: WorkStatus, locale: Locale): string {
-  const zh = locale === 'zh-CN';
-  const age = progressAgeLabel(status.activityAgeSeconds, locale);
-  const recent = !age ? '' : zh ? (age === '刚刚' ? '，最近一次进展就在刚刚' : `，最近一次进展在 ${age}`) : `, last progress ${age}`;
-  return zh ? `正在等待后台任务完成${recent}` : `Waiting for background work to finish${recent}`;
-}
-
 export function workStatusLabel(status: WorkStatus, locale: Locale, connected = true): string {
   const zh = locale === 'zh-CN';
   if (!connected) return zh ? '实时连接已断开' : 'Live connection lost';
   if (status.reason === 'operator_input') return zh ? '当前任务等待你的回复' : 'This task is waiting for your reply';
   if (status.reason === 'launch_confirm') return zh ? '计划已排好，等你确认开始' : 'Plan ready; waiting for your go-ahead';
   if (status.reason === 'task_failed') return zh ? '这一步执行未完成' : 'Execution of this step did not finish';
-  if (status.reason === 'background_work') return backgroundWaitLabel(status, locale);
   if (status.state === 'running') {
     if (status.foreground) return zh ? '正在处理你的请求' : 'Working on your request';
     return roleActionLabel(status.role, zh, status.title);

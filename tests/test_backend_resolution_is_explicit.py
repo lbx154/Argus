@@ -570,30 +570,3 @@ def test_a_healthy_knob_file_carries_no_error_banner(tmp_path, monkeypatch) -> N
     assert snapshot["roles"], "roles should resolve normally"
     assert "PERSISTED KNOBS UNREADABLE" not in format_config_snapshot_markdown(snapshot)
 
-
-def test_an_unresolvable_backend_reads_as_unavailable_supervision_not_as_health(
-    tmp_path,
-    monkeypatch,
-) -> None:
-    """The two halves of this branch have to compose.
-
-    ``resolve_role_backend`` now refuses to guess codex, and the subagent guard
-    chain must turn that refusal into a visible ``supervisor_unavailable`` —
-    not a crash, and above all not the fabricated "continue / healthy" that let
-    a GPU run burn to completion with no supervision at all.
-    """
-    from argus.tools.subagent import _supervised_run as sr
-
-    for name in [k for k in os.environ if k.startswith("ARGUS_SKILL")]:
-        monkeypatch.delenv(name, raising=False)
-    monkeypatch.setenv("ARGUS_SKILL_HOME", str(tmp_path))
-
-    result = sr._supervisor_check_with_usage(
-        "t1", "python train.py", "desc",
-        tmp_path / "o.log", tmp_path / "e.log",
-        1.0, 1, "gpt-5.5", str(tmp_path),
-    )
-
-    assert result.health == "supervisor_unavailable"
-    assert result.decision == "continue"  # a dead supervisor is not a verdict on the run
-    assert "BackendResolutionError" in (result.error or "")

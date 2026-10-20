@@ -162,8 +162,8 @@ class LifeWorkerBootMixin:
 
         ``--backend`` is a CLI ARGUMENT. It lands in
         ``LifeWorkerConfig.backend`` and was never exported, so
-        ``core.knobs.resolve_role_backend`` — which the reviewer gate, the
-        subagent supervisor and the vault preflight all read — walked role env
+        ``core.knobs.resolve_role_backend`` — which the reviewer gate and the
+        vault preflight read — walked role env
         -> ``ARGUS_SKILL_RUNNER_BACKEND`` -> ``ARGUS_SKILL_LIFE_BACKEND`` ->
         persisted knob, found NOTHING (``/proc/<pid>/environ`` of a daemon
         launched with ``--backend copilot`` carries ``ARGUS_SKILL_HOME`` and no

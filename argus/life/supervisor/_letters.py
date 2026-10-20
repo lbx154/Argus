@@ -315,12 +315,7 @@ class LettersMixin:
             for item in self.memory.backlog.active():
                 status = str(getattr(item, "status", "") or "")
                 title = str(getattr(item, "title", "") or "")
-                if status == "paused_external_work":
-                    running.append(
-                        f"- {title} (waiting for background results; "
-                        "Argus resumes automatically when they are ready)"
-                    )
-                elif status == "running":
+                if status == "running":
                     running.append(f"- {title} (running)")
                 elif status == "pending":
                     planned.append(f"- {title}")
@@ -343,12 +338,6 @@ class LettersMixin:
                             if checkpoint else "",
                         ) if part
                     ))
-        except Exception:  # noqa: BLE001
-            pass
-        try:
-            live = str(self._live_subagent_id_line() or "").strip()
-            if live:
-                running.append(live)
         except Exception:  # noqa: BLE001
             pass
 

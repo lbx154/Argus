@@ -1,14 +1,10 @@
 """Liveness of concurrent handoffs: every wait has a deadline and a fallback.
 
-Regression tests for the concurrency audit: blue/green daemon handoff, stale
-external-work heartbeats, subagent terminal-state names, and discussion-blocker
-scoping.
+Regression tests for the concurrency audit: blue/green daemon handoff.
 """
 from __future__ import annotations
 
 import json
-import os
-import threading
 import time
 from pathlib import Path
 from types import SimpleNamespace
@@ -22,9 +18,6 @@ import argus.daemon.life_worker as life_worker_mod
 from argus.core import process_stop
 from argus.daemon.config import config_payload as _config_payload
 from argus.daemon.life_worker import LifeWorker, LifeWorkerConfig
-from argus.engineer.external_work import ExternalWorkState, inspect_external_work
-from argus.life.memory import BacklogItem, LifeMemory
-from argus.tools import subagent as sa
 
 # ---------------------------------------------------------------------------
 # R1 — blue/green handoff leaves exactly one live daemon
@@ -251,130 +244,3 @@ def test_rollback_that_cannot_start_tells_the_operator(
 
     alerts = _operator_alerts(tmp_path / "life")
     assert [alert["reason"] for alert in alerts] == ["daemon_handoff_rollback_failed"]
-
-
-# ---------------------------------------------------------------------------
-# R2 — a stale heartbeat wakes the waiting parent with the fact
-# ---------------------------------------------------------------------------
-
-
-def _subagent(root: Path, task_id: str, **fields: object) -> None:
-    directory = root / ".argus_subagents"
-    directory.mkdir(exist_ok=True)
-    record = {
-        "task_id": task_id,
-        "state": "running",
-        "worker_pid": os.getpid(),
-        "last_supervisor_health": "healthy",
-        "last_supervisor_decision": "continue",
-        "monitor_interval": 120,
-        **fields,
-    }
-    (directory / f"{task_id}.json").write_text(json.dumps(record), encoding="utf-8")
-
-
-def test_wedged_supervised_subagent_with_live_pid_is_stalled(tmp_path: Path) -> None:
-    now = 100_000.0
-    _subagent(tmp_path, "wedged", mode="supervised", heartbeat_at=now - 3_600)
-    _subagent(tmp_path, "fresh", mode="supervised", heartbeat_at=now - 60)
-
-    wedged = inspect_external_work(tmp_path, "wedged", now=now)
-    fresh = inspect_external_work(tmp_path, "fresh", now=now)
-
-    assert wedged is not None and wedged.state is ExternalWorkState.STALLED
-    assert not wedged.waitable
-    assert "heartbeat is stale" in wedged.reason
-    assert fresh is not None and fresh.state is ExternalWorkState.RUNNING_HEALTHY
-
-
-def test_stale_resource_wait_is_stalled_but_long_direct_run_is_not(tmp_path: Path) -> None:
-    now = time.time() + 4 * 3600.0
-    _subagent(
-        tmp_path, "queued", mode="direct", state="waiting_resource",
-        heartbeat_at=now - 3_600,
-    )
-    # A direct worker writes its record once and then waits on the command:
-    # an old record is a long run, not a wedged owner.
-    _subagent(tmp_path, "training", mode="direct")
-
-    queued = inspect_external_work(tmp_path, "queued", now=now)
-    training = inspect_external_work(tmp_path, "training", now=now)
-
-    assert queued is not None and queued.state is ExternalWorkState.STALLED
-    assert training is not None and training.state is ExternalWorkState.RUNNING_HEALTHY
-
-
-# ---------------------------------------------------------------------------
-# R5 — the daemon recognizes the terminal states subagent writers write
-# ---------------------------------------------------------------------------
-
-
-@pytest.mark.parametrize("terminal_state", ["early_stopped", "crashed"])
-def test_parent_is_requeued_after_owned_subagent_settles(
-    tmp_path: Path, terminal_state: str,
-) -> None:
-    project = tmp_path / "project"
-    subagents = project / ".argus_subagents"
-    subagents.mkdir(parents=True)
-    memory = LifeMemory.open(tmp_path)
-    memory.init()
-    item = BacklogItem.new(title="stalled", objective="collect the result")
-    memory.backlog.add(item)
-    memory.backlog.mark_running(item.id)
-    (subagents / "job.json").write_text(json.dumps({
-        "task_id": "job",
-        "state": terminal_state,
-        "owner_mission_id": item.id,
-        "completed_at": time.time(),
-    }), encoding="utf-8")
-    worker = LifeWorker(LifeWorkerConfig(
-        life_dir=tmp_path, backend="memory", project_workdir=project,
-    ))
-    dead_executor = threading.Thread(target=lambda: None)
-    dead_executor.start()
-    dead_executor.join()
-    worker._supervisor_execution_threads = {"primary": dead_executor}
-    state = SimpleNamespace(
-        cfg=worker.config,
-        mem=memory,
-        runtime_root=tmp_path,
-        sink=SimpleNamespace(handle_event=lambda _event: None),
-    )
-
-    assert worker._recover_stalled_running_items(state) == [item.id]
-
-    stored = next(row for row in memory.backlog.active() if row.id == item.id)
-    assert stored.status == "pending"
-    assert stored.outcome["external_wait"]["work_id"] == "job"
-
-
-# ---------------------------------------------------------------------------
-# R3 — a parked discussion blocks only its owner's submits
-# ---------------------------------------------------------------------------
-
-
-def _park(task_id: str, owner_team_task_id: str) -> None:
-    sa._write_task(task_id, {
-        "task_id": task_id,
-        "state": "discussing",
-        "worker_pid": os.getpid(),
-        "last_heartbeat": time.time(),
-        "owner_team_task_id": owner_team_task_id,
-    })
-
-
-def test_teammate_discussion_does_not_block_the_lead(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    monkeypatch.chdir(tmp_path)  # REGISTRY_DIR is relative to cwd
-    _park("route-probe", "team::route-1")
-    _park("lead-probe", "")
-
-    monkeypatch.delenv("ARGUS_SKILL_TEAM_TASK_ID", raising=False)
-    assert [b["task_id"] for b in sa._open_discussion_blockers()] == ["lead-probe"]
-
-    monkeypatch.setenv("ARGUS_SKILL_TEAM_TASK_ID", "team::route-1")
-    assert [b["task_id"] for b in sa._open_discussion_blockers()] == ["route-probe"]
-
-    monkeypatch.setenv("ARGUS_SKILL_TEAM_TASK_ID", "team::route-2")
-    assert sa._open_discussion_blockers() == []

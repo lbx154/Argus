@@ -4,8 +4,7 @@
 finder, ``__main__.py`` delegates). These tests pin what "alias" has to mean for
 the processes that still carry the old spelling: identity of module objects
 (so ``monkeypatch`` and ``isinstance`` agree), ``python -m argus_skill…``
-re-entry, the ``argus-skill`` console script, and the argv matchers that
-recognise teammates spawned before the rename.
+re-entry and the ``argus-skill`` console script.
 """
 from __future__ import annotations
 
@@ -94,7 +93,7 @@ def test_legacy_import_emits_one_deprecation_warning() -> None:
     ("module", "arguments", "expected"),
     [
         ("argus_skill", ["--version"], f"argus {argus.__version__}"),
-        ("argus_skill.tools.subagent", ["--help"], "usage: subagent"),
+        ("argus_skill.tools.peer", ["--help"], "usage: python -m argus.tools.peer"),
         ("argus", ["--version"], f"argus {argus.__version__}"),
     ],
 )

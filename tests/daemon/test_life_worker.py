@@ -941,138 +941,6 @@ def test_daemon_requeues_running_item_when_executor_thread_dead(
     assert events == []
 
 
-def test_daemon_requeues_running_item_when_owned_subagent_finished(
-    tmp_path: Path,
-) -> None:
-    project = tmp_path / "project"
-    registry = project / ".argus_subagents"
-    registry.mkdir(parents=True)
-    memory = LifeMemory.open(tmp_path)
-    memory.init()
-    item = BacklogItem.new(title="stalled", objective="collect durable result")
-    memory.backlog.add(item)
-    memory.backlog.mark_running(item.id)
-    (registry / "durable-job.json").write_text(json.dumps({
-        "task_id": "durable-job",
-        "state": "done",
-        "owner_mission_id": item.id,
-        "completed_at": time.time(),
-    }), encoding="utf-8")
-    worker = LifeWorker(LifeWorkerConfig(
-        life_dir=tmp_path,
-        backend="memory",
-        project_workdir=project,
-    ))
-    dead_executor = threading.Thread(target=lambda: None)
-    dead_executor.start()
-    dead_executor.join()
-    worker._supervisor_execution_threads = {"primary": dead_executor}
-    events: list[dict[str, Any]] = []
-    state = SimpleNamespace(
-        cfg=worker.config,
-        mem=memory,
-        runtime_root=tmp_path,
-        sink=SimpleNamespace(handle_event=events.append),
-    )
-
-    assert worker._recover_stalled_running_items(state) == [item.id]
-
-    stored = next(row for row in memory.backlog.active() if row.id == item.id)
-    assert stored.status == "pending"
-    assert stored.attempt == 2
-    assert stored.outcome["external_wait"]["work_id"] == "durable-job"
-    assert events == []
-
-
-def test_daemon_keeps_parent_parked_when_any_owned_subagent_is_active(
-    tmp_path: Path,
-) -> None:
-    project = tmp_path / "project"
-    registry = project / ".argus_subagents"
-    registry.mkdir(parents=True)
-    memory = LifeMemory.open(tmp_path)
-    memory.init()
-    item = BacklogItem.new(title="stalled", objective="collect both results")
-    memory.backlog.add(item)
-    memory.backlog.mark_running(item.id)
-    (registry / "finished.json").write_text(json.dumps({
-        "task_id": "finished",
-        "state": "done",
-        "owner_mission_id": item.id,
-        "completed_at": time.time(),
-    }), encoding="utf-8")
-    (registry / "active.json").write_text(json.dumps({
-        "task_id": "active",
-        "state": "running",
-        "owner_mission_id": item.id,
-        "submitted_at": time.time() - 10,
-    }), encoding="utf-8")
-    worker = LifeWorker(LifeWorkerConfig(
-        life_dir=tmp_path,
-        backend="memory",
-        project_workdir=project,
-    ))
-    dead_executor = threading.Thread(target=lambda: None)
-    dead_executor.start()
-    dead_executor.join()
-    worker._supervisor_execution_threads = {"primary": dead_executor}
-    state = SimpleNamespace(
-        cfg=worker.config,
-        mem=memory,
-        runtime_root=tmp_path,
-        sink=SimpleNamespace(handle_event=lambda _event: None),
-    )
-
-    assert worker._recover_stalled_running_items(state) == [item.id]
-
-    stored = next(row for row in memory.backlog.active() if row.id == item.id)
-    assert stored.status == "paused_external_work"
-    assert stored.outcome["external_wait"]["work_id"] == "active"
-
-
-def test_daemon_parks_running_item_on_owned_active_subagent(
-    tmp_path: Path,
-) -> None:
-    project = tmp_path / "project"
-    registry = project / ".argus_subagents"
-    registry.mkdir(parents=True)
-    memory = LifeMemory.open(tmp_path)
-    memory.init()
-    item = BacklogItem.new(title="stalled", objective="wait for durable result")
-    memory.backlog.add(item)
-    memory.backlog.mark_running(item.id)
-    (registry / "durable-job.json").write_text(json.dumps({
-        "task_id": "durable-job",
-        "state": "running",
-        "owner_mission_id": item.id,
-        "submitted_at": time.time(),
-    }), encoding="utf-8")
-    worker = LifeWorker(LifeWorkerConfig(
-        life_dir=tmp_path,
-        backend="memory",
-        project_workdir=project,
-    ))
-    dead_executor = threading.Thread(target=lambda: None)
-    dead_executor.start()
-    dead_executor.join()
-    worker._supervisor_execution_threads = {"primary": dead_executor}
-    events: list[dict[str, Any]] = []
-    state = SimpleNamespace(
-        cfg=worker.config,
-        mem=memory,
-        runtime_root=tmp_path,
-        sink=SimpleNamespace(handle_event=events.append),
-    )
-
-    assert worker._recover_stalled_running_items(state) == [item.id]
-
-    stored = next(row for row in memory.backlog.active() if row.id == item.id)
-    assert stored.status == "paused_external_work"
-    assert stored.outcome["external_wait"]["work_id"] == "durable-job"
-    assert events[0]["status"] == "paused_external_work"
-    assert events[0]["recoverable"] is True
-
-
 def test_supervisor_pass_clears_executor_registration(tmp_path: Path) -> None:
     worker = LifeWorker(LifeWorkerConfig(life_dir=tmp_path, backend="memory"))
     supervisor = SimpleNamespace(
@@ -3047,7 +2915,7 @@ def test_bounded_daemon_exits_after_plain_backlog_is_drained(
     assert calls == 1
 
 
-def test_bounded_daemon_waits_for_background_work_then_finishes_same_task(
+def test_bounded_daemon_runs_an_old_background_job_pause_again(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     from argus.life.event_log import JsonlEventSink
@@ -3079,14 +2947,8 @@ def test_bounded_daemon_waits_for_background_work_then_finishes_same_task(
         ),
     )
     supervisor._vertical_resolved = True
-    job_path = project / ".argus_subagents" / "data-build.json"
-    job_path.parent.mkdir()
-    job = {
-        "task_id": "data-build", "run_id": "data-build-run-1",
-        "mode": "direct", "state": "running", "pid": os.getpid(),
-        "worker_pid": os.getpid(), "started_at": time.time(),
-    }
-    job_path.write_text(json.dumps(job), encoding="utf-8")
+    # An older release parked the task on a job it watched for the Engineer;
+    # the Engineer now waits on its own jobs, so the task simply runs again.
     item = memory.backlog.add(BacklogItem.new(
         title="Assess the existing build", objective="Check the completed build",
     ))
@@ -3104,28 +2966,17 @@ def test_bounded_daemon_waits_for_background_work_then_finishes_same_task(
     monkeypatch.setattr(supervisor, "_run_one", run_one)
     sleeps: list[float] = []
 
-    def background_work_progresses(
-        seconds, _poll, _root, *, wake_on_ready_work=False,
-    ):
-        assert wake_on_ready_work is False
+    def sleep(seconds, _poll, _root, *, wake_on_ready_work=False):
         sleeps.append(seconds)
-        assert not executed
-        assert next(row for row in memory.backlog.active() if row.id == item.id).status == (
-            "paused_external_work"
-        )
-        if len(sleeps) == 2:
-            job_path.write_text(json.dumps({**job, "state": "done"}), encoding="utf-8")
-        elif len(sleeps) > 2:
-            worker._stop.set()
+        worker._stop.set()
 
-    monkeypatch.setattr(worker, "_wakeable_sleep", background_work_progresses)
+    monkeypatch.setattr(worker, "_wakeable_sleep", sleep)
     worker._rf_main_loop(SimpleNamespace(
         runtime_root=life, cfg=worker.config,
         runner=SimpleNamespace(manager=None), sup=supervisor,
     ))
 
-    assert len(sleeps) == 2
-    assert all(delay > 0 for delay in sleeps)
+    assert sleeps == []
     assert executed == [item.id]
     stored = next(row for row in memory.backlog.history() if row.id == item.id)
     assert stored.status == "done"
@@ -3556,7 +3407,7 @@ def test_bounded_daemon_exits_when_runtime_failure_circuit_is_open(
     assert calls == ["awaiting_external"]
 
 
-def test_bounded_daemon_keeps_waiting_on_external_work_without_a_circuit(
+def test_bounded_daemon_keeps_going_after_an_idle_planner_without_a_circuit(
     tmp_path: Path,
 ) -> None:
     worker, rf_state, calls = _bounded_worker_with_scripted_supervisor(

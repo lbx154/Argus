@@ -11,7 +11,6 @@ from argus.core.vertical_contract import (
     vertical_contract,
 )
 from argus.skills.stage_machine import ChecklistItem
-from argus.verticals._base import _contract
 
 
 def _item(item_id: str) -> ChecklistItem:
@@ -85,60 +84,6 @@ def test_provider_completion_validator_is_typed_and_normalized(tmp_path: Path) -
     assert contract.completion_issues("verify", tmp_path) == (
         f"verify:{tmp_path.name}",
     )
-
-
-def test_empty_completion_gate_does_not_opt_into_automatic_close(tmp_path: Path) -> None:
-    provider = SimpleNamespace(
-        CHECKLIST_STAGE_ORDER=("verify",),
-        CHECKLIST_ITEMS={"verify": (_item("verify.output"),)},
-        completion_gate="none",
-        stage_completion_issues=lambda *_args: (),
-    )
-    contract = vertical_contract("model_reviewed", provider)
-
-    assert contract.completion_issues("verify", tmp_path) == ()
-    assert not _contract(provider).automatic_stage_completion_ready(
-        stage="verify", project_root=tmp_path, state_root=tmp_path,
-    )
-
-
-@pytest.mark.parametrize("ready", [True, False])
-def test_auto_close_policy_receives_separate_state_and_evidence_roots(
-    tmp_path: Path, ready: bool,
-) -> None:
-    calls = []
-
-    def allowed(*, stage, project_root, state_root):
-        calls.append((stage, project_root, state_root))
-        return ready
-
-    provider = SimpleNamespace(
-        CHECKLIST_STAGE_ORDER=("verify",),
-        CHECKLIST_ITEMS={"verify": (_item("verify.output"),)},
-        completion_gate="none", automatic_stage_completion_ready=allowed,
-    )
-    evidence, state = tmp_path / "evidence", tmp_path / "state"
-
-    assert _contract(provider).automatic_stage_completion_ready(
-        stage="verify", project_root=evidence, state_root=state,
-    ) is ready
-    assert calls == [("verify", evidence, state)]
-
-
-@pytest.mark.parametrize("policy", [
-    "yes", lambda **_kwargs: "false", lambda **_kwargs: "yes",
-    lambda **_kwargs: 1, lambda **_kwargs: 0, lambda **_kwargs: None,
-])
-def test_auto_close_rejects_invalid_policy(policy, tmp_path: Path) -> None:
-    provider = SimpleNamespace(
-        CHECKLIST_STAGE_ORDER=("verify",),
-        CHECKLIST_ITEMS={"verify": (_item("verify.output"),)},
-        completion_gate="none", automatic_stage_completion_ready=policy,
-    )
-    with pytest.raises(VerticalContractError, match="automatic stage completion"):
-        _contract(provider).automatic_stage_completion_ready(
-            stage="verify", project_root=tmp_path, state_root=tmp_path,
-        )
 
 
 def test_vertical_validator_can_defer_checks_by_verification_profile(

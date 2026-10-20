@@ -188,21 +188,7 @@ describe('call status across concurrent tasks', () => {
   });
 });
 
-describe('a task waiting on background work', () => {
-  it('names the wait for a parked task while the daemon runs, and needs a live daemon', () => {
-    const snapshot = fixture();
-    snapshot.backlog = [{ id: 'mission', title: 'Choose an idea', objective: '', status: 'paused_external_work', priority: 1,
-      outcome: { execution_status: 'paused', review_status: 'not_assessed', stage_certification: 'not_assessed', interruption_kind: 'none', resumable: true,
-        external_wait: { kind: 'external_work', work_id: 'job:1' } } }];
-    const status = currentWorkStatus(snapshot, null, [], 1000);
-    expect(status).toMatchObject({ state: 'waiting', reason: 'background_work', role: '' });
-    expect(workStatusLabel(status, 'zh-CN')).toBe('正在等待后台任务完成');
-    expect(workStatusLabel(status, 'en')).toBe('Waiting for background work to finish');
-    const stopped = fixture(false);
-    stopped.backlog = snapshot.backlog;
-    expect(currentWorkStatus(stopped, null, [], 1000)).toMatchObject({ state: 'paused', reason: 'not_running' });
-  });
-
+describe('the Manager at work', () => {
   it('does not call the Manager’s own tidying “your request”', () => {
     const snapshot = fixture();
     snapshot.roles = [{ role: 'manager', active: true, backend: 'pi', backend_label: 'Pi', model: 'model', effort: 'high', label: 'summarizing', status: 'running', age_s: 1 }];

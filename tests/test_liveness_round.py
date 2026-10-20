@@ -6,8 +6,6 @@ with the decision the host took.
 """
 from __future__ import annotations
 
-import json
-import os
 from pathlib import Path
 from typing import Any, cast
 
@@ -16,7 +14,6 @@ import pytest
 from argus.adapters.memory_backend import CannedResponse, MemoryBackend
 from argus.core.models import ReviewDecision, RunnerResult
 from argus.core.role_handoff import decision_engineer_handoff, parse_engineer_handoff
-from argus.engineer import round_settlement
 from argus.engineer.round_execution import _engineer_decision_message
 from argus.engineer.round_self_review import _milestone_is_blocked, _milestone_is_done
 from argus.engineer.round_state import EngineerTurnOutcome
@@ -218,54 +215,4 @@ def test_a_rendered_decision_is_done_only_when_the_decision_is(status: str) -> N
     assert _milestone_is_done(rendered) is _milestone_is_done(_outcome("", decision))
 
 
-# --- 4. Only this mission's healthy work excuses its stall -----------------
 
-
-def _subagent(workdir: Path, task_id: str, owner: str) -> None:
-    root = workdir / ".argus_subagents"
-    root.mkdir(exist_ok=True)
-    (root / f"{task_id}.json").write_text(json.dumps({
-        "task_id": task_id, "run_id": f"{task_id}-run", "state": "running",
-        "mode": "direct", "worker_pid": os.getpid(), "heartbeat_at": 100,
-        "owner_mission_id": owner,
-    }))
-
-
-@pytest.fixture
-def host_process_env(monkeypatch):
-    # The host process carries no mission id of its own; only the Engineer's does.
-    monkeypatch.delenv("ARGUS_PLUGIN_PARENT_MISSION_ID", raising=False)
-    monkeypatch.delenv("ARGUS_SKILL_TEAM_TASK_ID", raising=False)
-
-
-def test_a_neighbours_healthy_subagent_does_not_count_as_this_missions_wait(
-    tmp_path: Path, host_process_env,
-) -> None:
-    _subagent(tmp_path, "neighbour-grid", owner="mission-b")
-    assert round_settlement._blocked_on_healthy_work(tmp_path, "mission-a") is False
-    assert round_settlement._blocked_on_healthy_work(tmp_path, "mission-b") is True
-    # Without a mission id nothing can be attributed: unchanged behaviour.
-    assert round_settlement._blocked_on_healthy_work(tmp_path) is True
-
-    _subagent(tmp_path, "own-grid", owner="mission-a")
-    assert round_settlement._blocked_on_healthy_work(tmp_path, "mission-a") is True
-
-
-def test_an_unattributed_healthy_subagent_still_counts(tmp_path: Path, host_process_env) -> None:
-    _subagent(tmp_path, "legacy-grid", owner="")
-    assert round_settlement._blocked_on_healthy_work(tmp_path, "mission-a") is True
-
-
-def test_the_stall_guard_fires_while_only_a_neighbour_is_busy(tmp_path: Path, host_process_env) -> None:
-    _subagent(tmp_path, "neighbour-grid", owner="mission-b")
-    engineer, reviewer = _CappedEngineer(), _NoProgressReviewer()
-
-    status, _rounds, _final, reason, _tid = _stub_engine(engineer, reviewer).run(
-        objective="repair the failing check",
-        engineer_prompt_builder=lambda _na, _include_static=True: "Do the task.",
-        supervised_config=SupervisedConfig(max_rounds=6, stall_threshold=2, session_id="mission-a"),
-        workdir=tmp_path,
-    )
-
-    assert status == "no_progress", reason
-    assert (engineer.calls, reviewer.calls) == (2, 2)

@@ -96,7 +96,7 @@ def load_config() -> dict:
 @contextlib.contextmanager
 def _lock() -> Iterator[None]:
     """Hold an exclusive flock so claim/park/lease mutations are serialized
-    across concurrent missions and subagents."""
+    across concurrent missions and jobs."""
     lock_path = _state_dir() / "lock"
     fh = open(lock_path, "a+b")
     try:

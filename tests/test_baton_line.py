@@ -13,12 +13,10 @@ import pytest
 from argus.adapters.memory_backend import CannedResponse, MemoryBackend
 from argus.core.models import RunnerResult
 from argus.core.role_handoff import parse_engineer_handoff, read_baton_line, strip_handoff
-from argus.engineer.external_work import parse_external_wait_request
 from argus.engineer.round_self_review import _milestone_is_done
 from argus.engineer.round_state import EngineerTurnOutcome
 from argus.engineer.runner import EngineerConfig, SupervisedConfig, SupervisedEngineer
 from argus.reviewer import Reviewer, ReviewerConfig
-from argus.reviewer._parsing import decision_from_deferred_wait
 from argus.roles.prompts import engineer as engineer_prompts
 
 
@@ -89,7 +87,6 @@ def test_done_reads_the_same_as_the_footer_did() -> None:
     ("→ 统筹", "manager"),
     ("→ 完成", "done"),
     ("→ 操作员：要不要发布？", "operator"),
-    ("→ 等待: `job-42`", "wait"),
 ])
 def test_decoration_case_and_the_operator_facing_names_are_read(line: str, owner: str) -> None:
     handoff = read_baton_line(f"Did the work.\n{line}")
@@ -101,7 +98,8 @@ def test_decoration_case_and_the_operator_facing_names_are_read(line: str, owner
     "Work.\n→ reviewer\n→ engineer",
     "Work.\n→ done\n→ engineer",
     "Work.\n→ operator",
-    "Work.\n→ wait:",
+    "Work.\n→ wait: `job-42`",
+    "Work.\n→ 等待: `job-42`",
     "Work.\n→ engineer\nNEXT_OWNER=reviewer",
 ])
 def test_an_unreadable_or_conflicting_line_falls_back_to_the_reviewer(text: str) -> None:
@@ -118,30 +116,11 @@ def test_an_arrow_quoted_from_the_task_does_not_route() -> None:
     assert read_baton_line("I changed the parser.\n-> next I will profile it") is None
 
 
-def test_a_wait_line_names_the_job_the_json_line_did() -> None:
-    json_line = parse_external_wait_request('Launched.\n{"wait_for":"subagent","wait_id":"job-42"}')
-    assert json_line == ("subagent", "job-42")
-    for text in (
-        "Launched.\n→ wait: job-42",
-        "Launched.\n→ wait: `job-42`",
-        "Launched.\n→ wait: the run `job-42` finishes",
-    ):
-        assert parse_external_wait_request(text) == json_line
-    assert parse_external_wait_request("Launched.\n→ wait: the training run finishes") is None
-
-
 def test_a_person_reads_the_prose_without_the_protocol() -> None:
     assert strip_handoff("Built it.\n→ reviewer") == "Built it."
     assert strip_handoff(
         "Prose.\nDecision:\nMILESTONE_STATUS=done\nRESULT=Parser fixed.\nNEXT_OWNER=reviewer"
     ) == "Prose.\nParser fixed."
-
-
-def test_a_review_that_closes_on_a_wait_line_defers_to_that_run() -> None:
-    review = decision_from_deferred_wait(["Every clause depends on the benchmark.\n→ wait: `bench-1`"])
-    assert review is not None and review.status == "continue"
-    assert review.reason == "Every clause depends on the benchmark."
-    assert "bench-1" in review.next_action
 
 
 # --- Routing ----------------------------------------------------------------
@@ -201,8 +180,8 @@ def test_the_engineer_is_asked_for_the_baton_line() -> None:
         "naming that holder:\n"
         "→ reviewer\n"
         "Or `→ done` (milestone complete), `→ engineer` (keep working), `→ planner` "
-        "(task mis-scoped), `→ manager` (obstacle only it can remove), "
-        "`→ operator: <one question>`, or `→ wait: <task-id>` (submitted job)."
+        "(task mis-scoped), `→ manager` (obstacle only it can remove), or "
+        "`→ operator: <one question>`."
     )
 
 

@@ -4,7 +4,7 @@ The count guards (empty Engineer turns, no-progress verdicts, the soft and
 hard round limits, the decision clock) only guess that progress stopped. Under
 a Manager the guess asks once per set of facts and the mission runs on the
 ruling: asked again on the same facts the Manager could only repeat itself.
-Without a Manager (teammates, the CLI) the guard still ends the run.
+Without a Manager (the CLI) the guard still ends the run.
 """
 from __future__ import annotations
 

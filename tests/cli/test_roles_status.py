@@ -586,9 +586,9 @@ def test_activity_keeps_action_summary_for_non_engineer_layers(tmp_path):
 
 @pytest.mark.parametrize(
     "event_type",
-    ["life.planner.waiting", "life.team.waiting"],
+    ["life.planner.idle", "life.planner.waiting", "life.team.waiting"],
 )
-def test_planner_waiting_event_projects_waiting_label(tmp_path, event_type):
+def test_planner_idle_event_projects_idle_label(tmp_path, event_type):
     now = time.time()
     _write_events(tmp_path, [{
         "type": event_type,
@@ -597,8 +597,8 @@ def test_planner_waiting_event_projects_waiting_label(tmp_path, event_type):
     }])
 
     planner = role_activity(tmp_path, now=now)["planner"]
-    assert planner.label == "waiting on external work"
-    assert planner.status == "waiting"
+    assert planner.label == "nothing new to start"
+    assert planner.status == "idle"
     assert planner.active is False
 
 

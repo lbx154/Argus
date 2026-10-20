@@ -212,8 +212,8 @@ A record without a known author is a defect, not a Reviewer verdict.
 - If the candidate equals the last judged candidate and no external result or
   operator directive arrived since, the host records that and does not call the
   Reviewer. This alone removes the largest class of `continue` verdicts.
-- Background work is judged when its result exists. Until then the host waits;
-  it does not ask a Reviewer to judge that nothing happened.
+- Background work is judged when its result exists. The Engineer waits for it
+  in its own turn; nobody asks a Reviewer to judge that nothing happened.
 
 ### The Reviewer's decision
 
@@ -250,17 +250,16 @@ not explain host mechanics it cannot influence.
 ### The baton
 
 Every open item (a mission, or the project's planning slot when no mission is
-runnable) has exactly one **holder**: Engineer, Reviewer, Planner, Manager, the
-operator, or the world, meaning a parked wait. A handoff is a prose note and
-one line naming the next holder:
+runnable) has exactly one **holder**: Engineer, Reviewer, Planner, Manager, or
+the operator. A handoff is a prose note and one line naming the next holder:
 
 ```text
 <what was done, what was found, what is open, why the next holder>
 → reviewer
 ```
 
-The line takes one of seven values: `engineer`, `reviewer`, `planner`,
-`manager`, `operator: <one-sentence question>`, `wait: <what>`, or `done`.
+The line takes one of six values: `engineer`, `reviewer`, `planner`,
+`manager`, `operator: <one-sentence question>`, or `done`.
 Routing is free. Any holder may pass to any role: a Reviewer straight to the
 Manager when the criteria conflict, an Engineer straight to the Planner when a
 task is mis-scoped. The host never decides where work goes. It enforces four
@@ -270,13 +269,14 @@ invariants, and together they are the whole state machine:
    other only through the dependency graph, which is acyclic. No circular wait
    can form. A question parks only its own item and that item's descendants,
    never the project and never the operator's control channel.
-2. **Every wait has a deadline and a fallback.** A park records what it waits
-   for, until when, and who receives the item when the deadline passes; by
-   default that is the next rung up. The model may say what it waits for, and
-   the host always supplies the deadline. A stale heartbeat is an event: it
-   wakes the holder with that fact. This one rule covers background runs,
-   teammates, Planner waits, operator questions, pauses, and the failure
-   circuit.
+2. **Waiting happens in the holder's own turn, and the backend handles it.**
+   Argus has no waiting state and watches nothing on a holder's behalf
+   (principle 1: the runtime is not a parent; design question 7: if the backend
+   can do it, do not do it for it). A long job is started detached and waited
+   for inside the turn with the backend's blocking commands. A question goes to
+   the operator, or to the Manager while the operator cannot be asked. The
+   Planner is called only when something is handed to it: a mission ends, the
+   operator writes, the Manager directs.
 3. **An unchanged return climbs.** Suppose the item would return to a holder
    that already held it at the same candidate, with no new external result and
    no new operator input since. Then the host does not call that model again.
@@ -312,7 +312,7 @@ its own, with the evidence it cited, and the delivery report lists it.
 - It climbs one rung, which can happen at most four times.
 - It ends the item.
 
-A wait becomes a climb when its deadline passes. Within a bounded number of
+A wait lasts at most the turn it happens in. Within a bounded number of
 handoffs, every item is therefore done, dropped, or held by an operator who
 can be asked on an irreversible decision that blocks nothing else. Deadlock is impossible, and
 the ladder's height bounds the number of model calls made without a change.
@@ -323,10 +323,11 @@ the ladder's height bounds the number of model calls made without a change.
   `→` whoever can remove the obstacle, and `done` is acceptance of a named
   candidate.
 - The eleven `paused_*` statuses become one park whose reason is data.
-- A Planner wait needs only `wait: <what>`. The fingerprint, token, recheck
-  condition, and deadline belong to the host.
+- A Planner with nothing new to start names who acts next: `→ engineer` (the
+  work in flight decides what comes next), `→ manager` (the stage blocks it), or
+  `→ operator: <question>`. There is no waiting contract.
 - The Engineer's seven footer keys and its wait line become the single line
-  above.
+  above; the wait itself moves into the Engineer's turn.
 
 Structured payloads remain only where a side effect needs them: a Planner
 task's title and objective (plus dependencies and owned paths where they
@@ -334,6 +335,25 @@ exist), a question, and an authorization. The line is read leniently: case,
 role names in the operator's language, and Markdown decoration do not matter. A
 missing or unreadable line never ends a mission and never means `done`. A
 changed candidate goes to the Reviewer, and an unchanged one climbs.
+
+### The Observer
+
+The baton moves between the four roles, the operator, and the world. The Observer
+never holds it. It is the person who used to sit beside the screen, glancing at
+whether the work flows: who holds the baton and whom it passed to, how long each
+turn took and what it cost, a role called again and again with nothing new, a
+wait that goes on with nobody moving, a course drifting from the task. Whether
+the work is right stays the Reviewer's to judge. It decides nothing: stopping or
+redirecting a mission is still the Manager's or the operator's.
+
+It looks once at each turn the Engineer, Reviewer or Planner ends, never at its
+own, reading only the task's events. When the flow is off it writes one line,
+`→ manager: <sentence and where it was seen>`, as one `life.observer.note`
+event. The Manager hears it through its supervision, as news reported once,
+like a stalled turn, and decides whether to steer, pause, or stop; with no
+Manager, or once the task is delivered, the operator gets an alert. The remark
+moves no baton and changes no candidate, and the Observer never repeats one,
+so it cannot keep a handoff going on its own.
 
 ## What is deleted
 

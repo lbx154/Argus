@@ -25,11 +25,9 @@ export function mapStatusSentence(input: {
   role?: string;
   /** A recorded action from the current task, already in the display language. */
   current?: string;
-  /** The one sentence for a task waiting on its background work; wins over the role. */
-  waiting?: string;
   zh: boolean;
 }): string {
-  const { total, qa = 0, complete, ended = 0, reviewUnavailable = 0, held = 0, running, pending, paused, hasOpenWork, role, current, waiting, zh } = input;
+  const { total, qa = 0, complete, ended = 0, reviewUnavailable = 0, held = 0, running, pending, paused, hasOpenWork, role, current, zh } = input;
   const allDone = total > 0 && complete === total && ended === 0;
   const allDoneLabel = qa === total && qa > 0 ? (zh ? '已全部回答' : 'all answered') : (zh ? '已全部完成' : 'all completed');
   const counts = zh
@@ -53,8 +51,6 @@ export function mapStatusSentence(input: {
     ];
   const state = pending
     ? zh ? "正在处理你的消息" : "working on your message"
-    : waiting
-      ? waiting
     : paused
       ? allDone
         ? allDoneLabel

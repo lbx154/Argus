@@ -65,7 +65,7 @@ To be honest: Argus can already do a lot, but it is still a good distance from t
 | --- | --- | --- | --- |
 | **0.2** | Stop making mistakes first | We have a baseline to measure everything; the most wasteful reviews and the most dangerous hole are closed first; CI no longer lets type and frontend problems through | HO-1–6, HO-15, SE-1–2, CI-1–2, CO-1, CO-3, CE-1–2, EV-4, LE-5, RL-4, SC-14 |
 | **0.3** | Results you can trust | The Reviewer looks at the real change and judges against acceptance criteria; who said what is on record; research numbers are checked by the host; we can measure how many errors the Reviewer lets through | HO-7–11, SC-1–5, SC-7–9, SC-11, EV-3 |
-| **0.4** | Fast, cheap, and provably so | A public comparison table against using an Agent directly; cost is visible and budgets can be set; review happens only when work is handed in | HO-12–13, HO-16, CE-3–8, EV-1–2, EV-5–6, CI-8 |
+| **0.4** | Fast, cheap, and provably so | A public comparison table against using an Agent directly; cost is visible and budgets can be set; review happens only when work is handed in | HO-12–13, HO-16–17, CE-3–8, EV-1–2, EV-5–6, CI-8 |
 | **0.5** | Anyone can get started | A new machine on any of the three platforms gets a result in 10 minutes; Windows works natively; interrupted uploads resume | UX-1–4, UX-6, CI-4–7, CI-10 |
 | **0.6** | Safe for many users | Accounts, project isolation, a fixed address, data that can be exported and deleted; nothing is lost when you switch devices; passes the security review | SE-3–6, SE-8, UX-5, UX-7–9, UX-11, UX-13 |
 | **0.7** | An ecosystem you can rely on | The code structure makes sense; the domain SDK has a public version; old data upgrades | CO-4–13, EC-1–2, EC-4–6, EC-10–11, RA-10–11, RL-1–2, HO-14 |
@@ -275,24 +275,51 @@ not guess on the model's behalf whether there is progress. The full design is in
   whose process is alive but whose heartbeat stopped still counts as running; answering a question after a pause
   reopens the campaign.
 - Do: close each one according to the four invariants in the "baton" section of the
-  [handoff design](role-handoff-design.md): one holder per item; every wait has a deadline and a fallback; an unchanged
-  return climbs; authority never vanishes.
+  [handoff design](role-handoff-design.md): one holder per item; waiting happens in the holder's own turn and the
+  backend handles it; an unchanged return climbs; authority never vanishes.
 - Done when: each case above has a test (`tests/test_liveness_*.py`) that reaches done, dropped, or an explicit climb.
 - Status: all in `dev`. The first upgrade of a daemon from an
-  old release should still stop the service before starting the new one.
+  old release should still stop the service before starting the new one. The Planner waiting contract, the Engineer
+  wait line and the host's background-job waits are deleted: Argus keeps no waiting state.
 
 #### HO-16 The baton: one handoff line instead of footers and many pause states
 `0.4` · `L` · Depends on: HO-2, HO-12, HO-15
 - Today: the Engineer hands off with seven footer keys, a Planner wait needs a fingerprint, a token, and a recheck
   condition, and there are eleven `paused_*` statuses, each with its own resume logic.
 - Do: per the handoff design, a handoff is a prose note plus one line
-  `→ engineer|reviewer|planner|manager|operator: <question>|wait: <what>|done`; the host enforces only the four
-  invariants; the eleven pauses become one park whose reason is data; the host supplies wait deadlines and
-  fingerprints; an unchanged return climbs instead of calling the same model again.
+  `→ engineer|reviewer|planner|manager|operator: <question>|done`; the host enforces only the four
+  invariants; the eleven pauses become one park whose reason is data; waiting stays inside the holder's turn; an
+  unchanged return climbs instead of calling the same model again.
 - Done when: an architecture test confirms only this handoff format and one park status remain; HO-1 shows the number
   of model calls made without a change never exceeds the height of the ladder.
 - Can be split into: HO-16a read the line leniently (an unreadable line never means done); HO-16b merge the pause
-  states; HO-16c host-supplied wait deadlines; HO-16d unchanged return climbs; HO-16e delete the old footers and states.
+  states; HO-16c (dropped: waits stay in the holder's turn, no `wait:` line); HO-16d unchanged return climbs; HO-16e
+  delete the old footers and states.
+
+#### HO-17 The Observer: watching in the person's place
+`0.4` · `M` · Depends on: HO-16
+- Today: nobody notices when a role goes round in circles, a wait drags on with nobody moving, the work drifts off
+  the task, or money goes out faster than anything changes, unless someone happens to read the project logs. On the
+  live trial that someone was Claude Code, which found the Planner idling every five minutes.
+- Do: an Observer role (`observer` in code, shown as 监督者) on the same backends as the others, with the Reviewer's
+  read-only tools and low reasoning effort. It watches only whether the work flows; whether the work is right stays
+  the Reviewer's to judge. Each time the Engineer, Reviewer or Planner ends a turn (each model call of theirs ends
+  one; a delivery ends a turn, so it is covered) it looks once, in a fresh session, at how that task has flowed so
+  far: who held the baton and whom it passed to, how long each turn took and what it cost, a role called again and
+  again with nothing new, idling, and drift from the task. Its own turns end none. Its prompt gives only where
+  `events.jsonl` is, the task id of each turn that just ended, the event types that carry the flow, and its earlier
+  remarks; it takes the task's events itself with rg and reads nothing else. When the flow is fine it says nothing
+  and writes no event. Otherwise it writes `→ manager: <one sentence and where it saw it>`, in the operator's
+  language, as one `life.observer.note` event: the Manager hears it through its supervision and decides what to
+  do; with no Manager, or once the task is delivered, the operator gets it as an alert. It never makes a remark
+  twice. A delivery does not wait for it, but a bounded daemon waits for its look at the last turns before it exits.
+  Its model is `ARGUS_SKILL_OBSERVER_MODEL`, by default the Reviewer's.
+- Done when: tests show it looks once at each ended turn and never at its own, in a fresh session, reads only the
+  events, stays silent when the flow is fine, gives a remark to the Manager's supervision or else alerts the
+  operator, never repeats one, and that a failed look leaves the work running.
+- Known gaps: the Manager's turns are not watched yet.
+- Status: implemented on `feat/observer`; tried on small tasks on the real Copilot backend and on a copied stretch
+  of a live project where the Planner kept waiting. Not yet merged.
 ---
 
 ### Theme CO: Reliability and the core — failures you can see, a structure you can follow

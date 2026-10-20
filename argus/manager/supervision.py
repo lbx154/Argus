@@ -828,10 +828,10 @@ def supervise(
             latest = _latest_record(root)
             if latest.get("status") == "issued":
                 return _deliver(root, latest.get("source_event", {}), latest, cancelled or (lambda: False))
-            # A stalled turn is reported once per stall and changes no project
-            # file, so it is new evidence by itself.
+            # A stalled turn or an Observer's remark is reported once and
+            # changes no project file, so it is new evidence by itself.
             if (not observation.incomplete_requirements and latest.get("status") == "applied" and latest.get("evidence_revision") == observation.evidence_revision
-                    and event.get("stall_reason") != "turn_stalled"
+                    and event.get("stall_reason") not in _REPORTED_ONCE
                     and observation.control_revision in {
                 latest.get("control_revision"), latest.get("applied_control_revision"),
             }):
@@ -1030,6 +1030,11 @@ def _dispatch_pending() -> None:
             return
 
 
+#: A ``stall_reason`` that is reported once and changes no project file, so it
+#: is news by itself and newer evidence must not drop it: a stalled Engineer
+#: turn, or the Observer telling the Manager that the work looks off.
+_REPORTED_ONCE = frozenset({"turn_stalled", "observer"})
+
 #: Within a mission the Manager judges at least once every this many reviewed
 #: rounds, whatever the Reviewer said, so a confidently wrong Reviewer is caught.
 REVIEW_CHECKPOINT_ROUNDS = 3
@@ -1213,6 +1218,9 @@ def schedule_supervision(manager: Any, root: Path | str, event: dict[str, Any]) 
     # stalled turn is reported once per stall.
     turn_stalled = event_type == EventType.ROUND_STALL and event.get("stall_reason") == "turn_stalled"
     relevant |= turn_stalled or (event_type == EventType.ROUND_STALL and bool(event.get("consult")))
+    # The Observer speaks to the Manager when what it saw needs a decision.
+    remark = event_type == EventType.LIFE_OBSERVER_NOTE and event.get("to") == "manager"
+    relevant |= remark
     if not relevant or not callable(getattr(getattr(manager, "runner", None), "fork", None)):
         return False
     project_root = Path(root)
@@ -1226,6 +1234,9 @@ def schedule_supervision(manager: Any, root: Path | str, event: dict[str, Any]) 
         )
     elif event_type == EventType.ROUND_STALL:
         reason = str(event["consult"])
+    elif remark:
+        reason = f"the Observer, who watches how the team works, says: {event.get('text')}"
+        event = {**event, "stall_reason": "observer"}
     elif event_type == EventType.LIFE_MISSION_COMPLETED:
         reason = _settled_consult_reason(project_root, event)
     if reason == "":
@@ -1256,15 +1267,17 @@ def _admit(manager: Any, root: Path | str, event: dict[str, Any]) -> bool:
 
 
 def _carry_stall(earlier: dict[str, Any], event: dict[str, Any]) -> dict[str, Any]:
-    """``event``, still asking about a stalled turn whose pending report it replaces.
+    """``event``, still asking what the pending once-only report it replaces asked.
 
-    A stall is reported once, so newer evidence must not drop it: one look
-    answers both.
+    A stalled turn and an Observer's remark are reported once, so newer
+    evidence must not drop them: one look answers all.
     """
     event = dict(event)
-    if earlier.get("stall_reason") == "turn_stalled" and event.get("stall_reason") != "turn_stalled":
+    if earlier.get("stall_reason") in _REPORTED_ONCE:
         reasons = (earlier.get("consult_reason"), event.get("consult_reason"))
-        event.update(stall_reason="turn_stalled", consult_reason="; ".join(r for r in reasons if r))
+        event["consult_reason"] = "; ".join(dict.fromkeys(r for r in reasons if r))
+        if event.get("stall_reason") not in _REPORTED_ONCE:
+            event["stall_reason"] = earlier["stall_reason"]
     return event
 
 

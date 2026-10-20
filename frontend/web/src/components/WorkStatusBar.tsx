@@ -26,8 +26,7 @@ export function WorkStatusBar({ snapshot, view, events = [], connected, compact 
             ? zh ? '你可以继续阅读记录或补充要求，不必停留在这个页面。' : 'You can read the history or add context while work continues.'
             : '';
   const seconds = status.activityAgeSeconds;
-  const age = status.reason === 'background_work' ? ''
-    : seconds === null ? (zh ? '暂无本次运行的进展记录' : 'No progress recorded for this run yet')
+  const age = seconds === null ? (zh ? '暂无本次运行的进展记录' : 'No progress recorded for this run yet')
     : seconds < 60 ? (zh ? '刚刚有进展' : 'Progress in the last minute')
       : seconds < 3600 ? (zh ? `${Math.floor(seconds / 60)} 分钟前有进展` : `Progress ${Math.floor(seconds / 60)} min ago`)
         : (zh ? `${Math.floor(seconds / 3600)} 小时前有进展` : `Progress ${Math.floor(seconds / 3600)} hr ago`);

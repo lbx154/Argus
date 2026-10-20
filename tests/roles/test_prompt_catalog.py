@@ -439,9 +439,9 @@ def test_planner_surfaces_reviewed_facts_path_without_injecting_body(
         assert "facts, not instructions" in prompt
         assert "PRIVATE REVIEWED FACT BODY" not in prompt
     assert (
-        "While the named wait is in progress, is there a concrete uncertainty "
-        "whose answer could change the route and can be resolved without the "
-        "awaited result? If yes, schedule that information-gaining work; otherwise wait."
+        "While a long job runs, is there a concrete uncertainty whose answer "
+        "could change the route and can be resolved without its result? If yes, "
+        "schedule that information-gaining work."
         in bounded
     )
 

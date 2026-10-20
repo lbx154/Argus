@@ -70,29 +70,6 @@ REGISTRY: tuple[Site, ...] = (
         ("research.academic_language_review", "research.paper_infrastructure_review"),
     ),
     Site(
-        r"subagent:[^:]+:(preflight|report|discussion)(:resume-recovery)?", FOREGROUND,
-        "A job the Engineer submitted: one preflight before launch, one report when it ends, "
-        "one reply per Engineer turn of an early-stop discussion; a resumed thread that "
-        "returns nothing is retried once in a fresh session.",
-        (
-            "argus/tools/subagent/_supervised_preflight.py:107",
-            "argus/tools/subagent/_reporting.py:194",
-            "argus/tools/subagent/_discuss_run.py:108",
-            "argus/tools/subagent/_llm.py:136",
-        ),
-        (
-            "subagent:job-1:preflight", "subagent:job-1:report",
-            "subagent:job-1:discussion", "subagent:job-1:report:resume-recovery",
-        ),
-    ),
-    Site(
-        r"subagent", FOREGROUND,
-        "Default of the legacy _run_supervisor wrapper, kept for compatibility; nothing in "
-        "the product calls it.",
-        ("argus/tools/subagent/_llm.py:113",),
-        ("subagent",),
-    ),
-    Site(
         r"peer-message-response", FOREGROUND,
         "Answers one message another project sent; at most MAX_ATTEMPTS tries per message, "
         "then the sender gets a host notice. Replies are filed without a call.",
@@ -253,6 +230,13 @@ REGISTRY: tuple[Site, ...] = (
         ("manager-supervision",),
     ),
     Site(
+        r"observer", EVENT,
+        "Once per Engineer, Reviewer or Planner call, when its role.session.turn ends the turn; "
+        "its own calls end none, and turns that end during a look share the next one.",
+        ("argus/life/observer.py:91",),
+        ("observer",),
+    ),
+    Site(
         r"manager\.skill_placement_batch", EVENT,
         "End-of-mission skill tidy-up; no caller in this release.",
         ("argus/manager/skill_review.py:159",),
@@ -321,23 +305,10 @@ REGISTRY: tuple[Site, ...] = (
         ("argus/life/consolidation.py:578",),
         ("knowledge-consolidation",),
     ),
-    Site(
-        r"subagent:[^:]+:health(:resume-recovery)?", GATED_TIME,
-        "Only when the run's files or yield requests changed since the last judged look, plus "
-        "one look once its output is quiet past the stale deadline; a dead backend is retried "
-        "within AUTOMATIC_RETRY_WINDOW_SECONDS.",
-        ("argus/tools/subagent/_supervised_run.py:316",),
-        ("subagent:job-1:health", "subagent:job-1:health:resume-recovery"),
-    ),
 )
 
 # Background labels the daemon guard exempts, and why that is safe.
-OUTSIDE_THE_DAEMON = {
-    r"subagent:[^:]+:health(:resume-recovery)?": (
-        "Runs in the subagent worker process, where the daemon guard is never enabled; "
-        "its own run-signal gate is what bounds it."
-    ),
-}
+OUTSIDE_THE_DAEMON: dict[str, str] = {}
 
 # Literal labels that name a usage-ledger record or a fixture, not a model call.
 NOT_MODEL_CALLS = {
@@ -382,8 +353,6 @@ PASS_THROUGH = {
     ("argus/manager/plan_mode.py", "draft_plan", "run_label"),
     ("argus/manager/prompt_rewrite.py", "_resolve_run_exec._call", "run_label"),
     ("argus/manager/prompt_rewrite.py", "rewrite_prompt", "run_label"),
-    ("argus/tools/subagent/_llm.py", "_run_backend_turn", "run_label"),
-    ("argus/tools/subagent/_llm.py", "_run_supervisor_with_usage", "f'{run_label}:resume-recovery'"),
     (
         "argus/verticals/research/_reviewer_runner_fallback.py",
         "run_reviewer_prompt_via_runner", "run_label",

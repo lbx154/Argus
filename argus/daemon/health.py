@@ -40,7 +40,7 @@ _WAITING_EVENTS = frozenset({
     EventType.LIFE_BUDGET_PAUSE,
     EventType.LIFE_OPERATOR_QUESTION_PENDING,
     EventType.LIFE_PLANNER_TERMINAL_IDLE,
-    EventType.LIFE_PLANNER_WAITING,
+    EventType.LIFE_PLANNER_IDLE,
 })
 _DEGRADED_EVENTS = frozenset({
     EventType.LIFE_DAEMON_DEGRADED,
@@ -176,30 +176,14 @@ class DaemonHealthTracker:
         self.observe({"type": EventType.LIFE_DAEMON_READY, "ts": time.time()})
 
 
-def _waits_on_healthy_work(workdir: Path | str | None) -> bool:
-    if not workdir:
-        return False
-    from ..engineer.external_work import scan_external_work
-
-    try:
-        return any(status.waitable for status in scan_external_work(workdir))
-    except Exception:  # noqa: BLE001 - an unreadable registry is no excuse
-        return False
-
-
 def read_daemon_health(
     life_dir: Path | str,
     *,
     pid: int | None,
     alive: bool,
     now: float | None = None,
-    workdir: Path | str | None = None,
 ) -> dict[str, Any]:
-    """Return health separately from process liveness.
-
-    A round holding its slot for healthy background work in ``workdir`` writes
-    nothing while it waits; that quiet is waiting, not a stall.
-    """
+    """Return health separately from process liveness."""
     if not alive:
         return {
             "state": "stopped",
@@ -227,8 +211,6 @@ def read_daemon_health(
     age = max(0.0, float(now if now is not None else time.time()) - last_progress)
     phase = str(payload.get("phase") or "unknown")
     stalled = phase == "active" and age >= _stall_seconds()
-    if stalled and _waits_on_healthy_work(workdir):
-        phase, stalled = "waiting", False
     return {
         "state": "stalled" if stalled else phase,
         "stalled": stalled,

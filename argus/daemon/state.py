@@ -936,7 +936,6 @@ def read_daemon_status(life_dir: Path | None = None) -> DaemonStatus:
         life_dir,
         pid=pid if alive else None,
         alive=alive,
-        workdir=project_workdir,
     )
     return DaemonStatus(
         alive=alive,

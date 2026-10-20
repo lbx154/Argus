@@ -199,6 +199,15 @@ export interface LifeManagerSupervisionFailedEvent extends EventMsg {
   "backend_exit_code"?: number;
 }
 
+export interface LifeObserverNoteEvent extends EventMsg {
+  type: "life.observer.note";
+  payload_schema_version?: 1;
+  "agent_layer": "observer";
+  "to": "manager" | "operator";
+  "text": string;
+  "operator_alert"?: boolean;
+}
+
 export interface AgentIoStartEvent extends EventMsg {
   type: "agent.io.start";
   payload_schema_version?: 1;
@@ -1287,27 +1296,16 @@ export interface LifePlannerNormalizedEvent extends EventMsg {
   "diagnostic"?: string;
 }
 
-export interface LifePlannerWaitingEvent extends EventMsg {
-  type: "life.planner.waiting";
+export interface LifePlannerIdleEvent extends EventMsg {
+  type: "life.planner.idle";
   payload_schema_version?: 1;
   "cycle"?: number;
   "reason"?: string;
+  "handoff"?: string;
   "consecutive_idle_cycles"?: number;
+  "consecutive_failures"?: number;
   "suggested_sleep_s"?: number;
   "model_call_skipped"?: boolean;
-  "wait_mode"?: string;
-  "waiting_contract_persisted"?: boolean;
-  "waiting_contract"?: { "wait_id"?: string; "recheck_condition"?: string; "wait_mode"?: string; "wake_on"?: Array<string>; "observed_revision"?: string | null; } | null;
-}
-
-export interface LifePlannerWaitingWokenEvent extends EventMsg {
-  type: "life.planner.waiting_woken";
-  payload_schema_version?: 1;
-  "blocker_fingerprint"?: string;
-  "recheck_token"?: string;
-  "wake_reason"?: string;
-  "observed_revision"?: string | null;
-  "current_revision"?: string | null;
 }
 
 export interface LifePlannerTerminalIdleEvent extends EventMsg {
@@ -1670,35 +1668,6 @@ export interface LifePlannerSupersededEvent extends EventMsg {
   "reason"?: string;
 }
 
-export interface LifePlannerWaitOverriddenEvent extends EventMsg {
-  type: "life.planner.wait_overridden";
-  payload_schema_version?: 1;
-  "cycle": number;
-  "task_title": string;
-  "reason"?: string;
-}
-
-export interface LifePlannerWaitingContractNormalizedEvent extends EventMsg {
-  type: "life.planner.waiting_contract.normalized";
-  payload_schema_version?: 1;
-  "blocker_fingerprint"?: string;
-  "recheck_token"?: string;
-  "reasons": Array<string>;
-  "degraded"?: boolean;
-  "wait_mode"?: string;
-  "wake_on"?: Array<string>;
-}
-
-export interface LifePlannerExternalPollSuppressedEvent extends EventMsg {
-  type: "life.planner.external_poll_suppressed";
-  payload_schema_version?: 1;
-  "cycle": number;
-  "source"?: string;
-  "work_ids": Array<string>;
-  "recheck_token"?: string;
-  "suppressed_task_titles"?: Array<string>;
-}
-
 export interface LifePlannerVerdictDiscardedEvent extends EventMsg {
   type: "life.planner.verdict.discarded";
   payload_schema_version?: 1;
@@ -1891,34 +1860,6 @@ export interface RoundOrphanProcessGroupEvent extends EventMsg {
   "text"?: string;
 }
 
-export interface RoundExternalWorkReviewRequiredEvent extends EventMsg {
-  type: "round.external_work_review.required";
-  payload_schema_version?: 1;
-  "review_key": string;
-  "work_id"?: string;
-  "run_id"?: string;
-  "started_at"?: number | string | null;
-  "phase"?: string;
-  "outcome"?: string;
-  "text"?: string;
-}
-
-export interface RoundExternalWorkReviewCompletedEvent extends EventMsg {
-  type: "round.external_work_review.completed";
-  payload_schema_version?: 1;
-  "review_key": string;
-  "review_status"?: string;
-  "text"?: string;
-}
-
-export interface RoundReviewSkippedUnchangedEvent extends EventMsg {
-  type: "round.review.skipped_unchanged";
-  payload_schema_version?: 1;
-  "round_index"?: number;
-  "work_id": string;
-  "text"?: string;
-}
-
 export interface LifeDaemonReadyEvent extends EventMsg {
   type: "life.daemon.ready";
   payload_schema_version?: 1;
@@ -2099,6 +2040,7 @@ export interface EventPayloadByType {
   "life.manager.supervision.issued": LifeManagerSupervisionIssuedEvent;
   "life.manager.supervision.applied": LifeManagerSupervisionAppliedEvent;
   "life.manager.supervision.failed": LifeManagerSupervisionFailedEvent;
+  "life.observer.note": LifeObserverNoteEvent;
   "agent.io.start": AgentIoStartEvent;
   "agent.io.stream": AgentIoStreamEvent;
   "agent.io.complete": AgentIoCompleteEvent;
@@ -2190,8 +2132,7 @@ export interface EventPayloadByType {
   "life.manager.stage_decision": LifeManagerStageDecisionEvent;
   "life.vertical.resolved": LifeVerticalResolvedEvent;
   "life.planner.normalized": LifePlannerNormalizedEvent;
-  "life.planner.waiting": LifePlannerWaitingEvent;
-  "life.planner.waiting_woken": LifePlannerWaitingWokenEvent;
+  "life.planner.idle": LifePlannerIdleEvent;
   "life.planner.terminal_idle": LifePlannerTerminalIdleEvent;
   "life.planner.verification_probe": LifePlannerVerificationProbeEvent;
   "life.planner.stall_escalation": LifePlannerStallEscalationEvent;
@@ -2232,9 +2173,6 @@ export interface EventPayloadByType {
   "life.manager.project_report.failed": LifeManagerProjectReportFailedEvent;
   "life.planner.deferred": LifePlannerDeferredEvent;
   "life.planner.superseded": LifePlannerSupersededEvent;
-  "life.planner.wait_overridden": LifePlannerWaitOverriddenEvent;
-  "life.planner.waiting_contract.normalized": LifePlannerWaitingContractNormalizedEvent;
-  "life.planner.external_poll_suppressed": LifePlannerExternalPollSuppressedEvent;
   "life.planner.verdict.discarded": LifePlannerVerdictDiscardedEvent;
   "life.planner.final_submission_skipped": LifePlannerFinalSubmissionSkippedEvent;
   "life.planner.continuation_required": LifePlannerContinuationRequiredEvent;
@@ -2255,9 +2193,6 @@ export interface EventPayloadByType {
   "round.provider_turn_cap.restart": RoundProviderTurnCapRestartEvent;
   "round.provider_turn_cap.reviewer_restart": RoundProviderTurnCapReviewerRestartEvent;
   "round.orphan_process_group": RoundOrphanProcessGroupEvent;
-  "round.external_work_review.required": RoundExternalWorkReviewRequiredEvent;
-  "round.external_work_review.completed": RoundExternalWorkReviewCompletedEvent;
-  "round.review.skipped_unchanged": RoundReviewSkippedUnchangedEvent;
   "life.daemon.ready": LifeDaemonReadyEvent;
   "life.daemon.degraded": LifeDaemonDegradedEvent;
   "team.learning.review.started": TeamLearningReviewStartedEvent;

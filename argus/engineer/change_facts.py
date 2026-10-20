@@ -1,8 +1,7 @@
 """What a holder of a mission would see, and which holders already saw it.
 
 A role called again on the facts it last held can only repeat itself
-(principle 4). The facts are the workspace (minus the files running work is
-still writing), the registered background work, and the operator's context
+(principle 4). The facts are the workspace and the operator's context
 revision: plain values compared with ``==`` and stored as readable JSON.
 
 The ledger records, per lineage (a mission's ``node_key``, else its id), the
@@ -15,12 +14,11 @@ import json
 import os
 import time
 from pathlib import Path
-from typing import Any, Iterable
+from typing import Any
 
 from ..core.operator_context import OperatorContextStore
 from ..core.portable_filename import portable_filename_component
 from ..core.workspace_facts import workspace_facts
-from .external_work import ExternalWorkStatus, external_work_rows, scan_external_work
 
 LEDGER_FILENAME = "holders.json"
 
@@ -29,20 +27,14 @@ def change_facts(
     workdir: Path | str,
     *,
     state_root: Path | str | None = None,
-    statuses: Iterable[ExternalWorkStatus] | None = None,
 ) -> dict[str, Any]:
-    """The facts a mission's next holder would read, from one registry scan."""
-    work = list(scan_external_work(workdir) if statuses is None else statuses)
+    """The facts a mission's next holder would read."""
     try:
         operator = OperatorContextStore(state_root).revision if state_root else 0
     except Exception:  # noqa: BLE001 - unknown, see ``holds_unchanged``
         operator = -1
     return {
-        "workspace": workspace_facts(
-            workdir,
-            ignore=[path for status in work if status.waitable for path in status.activity_paths],
-        ),
-        "external": external_work_rows(work),
+        "workspace": workspace_facts(workdir),
         "operator_revision": operator,
     }
 

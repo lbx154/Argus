@@ -6,7 +6,7 @@ from argus.roles.prompts import engineer
 
 
 @pytest.mark.parametrize("include_static,compact_team", [(True, False), (False, False), (True, True)])
-def test_long_task_rule_requires_argus_durable_receipt(
+def test_long_task_rule_waits_in_turn_with_blocking_calls(
     monkeypatch: pytest.MonkeyPatch,
     include_static: bool,
     compact_team: bool,
@@ -22,21 +22,17 @@ def test_long_task_rule_requires_argus_durable_receipt(
         compact_team=compact_team,
     )
 
-    assert '"${ARGUS_SKILL_PYTHON:-python3}" -m argus.tools.subagent submit' in prompt
-    assert "--mode direct" in prompt and "--timeout" not in prompt
-    assert "--mode supervised" in prompt
-    assert 'task(mode="background")' in prompt
-    assert all(field in prompt for field in ("state=submitted", "task_id", "run_id", "check_with"))
-    assert "state=discussing" in prompt
-    assert "reply_with" in prompt
-    assert "launch a supervised subagent" not in prompt
-    assert "`→ wait: <task-id>`" in prompt
-    assert "submitted during this same turn" in prompt
-    assert "Do not foreground-poll or relaunch" in prompt
+    assert "setsid nohup" in prompt
+    assert "<run>/exit_code" in prompt
+    assert "`initial_wait` or `read_bash` delay 600" in prompt
+    assert "`yield_time_ms` 300000" in prompt
+    assert "never poll in short loops" in prompt
+    assert "argus.tools.subagent" not in prompt
+    assert "→ wait" not in prompt
 
 
 @pytest.mark.parametrize("include_static,compact_team", [(True, False), (False, False), (True, True)])
-def test_native_windows_rule_uses_powershell_durable_runner(
+def test_native_windows_rule_waits_with_wait_process(
     monkeypatch: pytest.MonkeyPatch,
     include_static: bool,
     compact_team: bool,
@@ -52,19 +48,8 @@ def test_native_windows_rule_uses_powershell_durable_runner(
         compact_team=compact_team,
     )
 
-    assert "Native Windows preview cannot detach Argus subagents" not in prompt
-    assert "`→ wait: <task-id>`" in prompt
-    assert "submitted during this same turn" in prompt
     assert "Windows PowerShell 5.1 syntax" in prompt
-    assert (
-        "& '.\\.venv\\Scripts\\python.exe' -m argus.tools.subagent submit"
-        in prompt
-    )
-    assert "--mode direct" in prompt and "--timeout" not in prompt
-    assert "--mode supervised" in prompt
-    assert 'task(mode="background")' in prompt
-    assert "session-owned background shell" in prompt
-    assert all(field in prompt for field in ("state=submitted", "task_id", "run_id", "check_with"))
-    assert "state=discussing" in prompt
-    assert "reply_with" in prompt
-    assert '"${ARGUS_SKILL_PYTHON:-python3}"' not in prompt
+    assert "Start-Process -PassThru" in prompt
+    assert "Wait-Process -Id <pid> -Timeout 590" in prompt
+    assert "setsid" not in prompt
+    assert "argus.tools.subagent" not in prompt

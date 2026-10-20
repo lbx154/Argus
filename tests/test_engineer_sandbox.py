@@ -672,35 +672,12 @@ def test_isolated_copilot_disables_builtin_mcp_and_custom_instructions() -> None
 
 
 # ── raw subagent-spawn helpers ───────────────────────────────────────────────
-def test_codex_sandbox_args_legacy_when_off(gate_off):
-    assert sandbox.codex_sandbox_args(working_dir="/wd") == [
-        "--dangerously-bypass-approvals-and-sandbox"
-    ]
-    assert sandbox.codex_sandbox_env() is None
-
-
-def test_codex_sandbox_args_sandboxed_when_on(gate_on):
-    args = sandbox.codex_sandbox_args(working_dir="/wd")
-    assert "--dangerously-bypass-approvals-and-sandbox" not in args
-    assert args[:4] == ["-s", "workspace-write", "-C", "/wd"]
-    assert "--add-dir" in args
-    assert sandbox.codex_sandbox_env()["PYTHONSAFEPATH"] == "1"
-
-
-def test_no_hardcoded_bypass_left_in_subagent_spawns():
-    """Every codex spawn must route through the gated policy. The only remaining
-    literal bypass is the legacy default-OFF fallback in the runner/policy."""
-    import argus.tools.subagent._core as sub
-    src = Path(sub.__file__).read_text(encoding="utf-8")
-    assert "--dangerously-bypass-approvals-and-sandbox" not in src
-
-
 def test_no_raw_codex_spawn_bypasses_gate_anywhere():
     """Repo-wide invariant (not just one file): the literal dangerous bypass may
     appear ONLY in the runner/policy (the gated default-OFF fallback). Every
-    other module that spawns codex must go through
-    codex_sandbox_args/codex_sandbox_env, so enabling the gate contains them too.
-    Guards against a future raw spawn re-opening the hole the PR closed.
+    other module that spawns codex must go through that chokepoint, so enabling
+    the gate contains it too. Guards against a future raw spawn re-opening the
+    hole the PR closed.
 
     ``agent_cli/_sandbox_commands.py`` holds the codex command builders +
     ``_apply_sandbox_policy`` gate that used to live inline in

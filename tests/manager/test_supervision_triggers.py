@@ -150,18 +150,36 @@ def test_a_stalled_turn_reaches_the_manager_with_its_choices(admitted):
     assert "CONTINUE keeps waiting on that turn, STEER stops it" in event["consult_reason"]
 
 
-def test_newer_evidence_does_not_drop_a_pending_stall_report(admitted, tmp_path):
-    """The stall is sent once; the event that replaces it in the queue asks for both."""
+_REMARK = {
+    "type": EventType.LIFE_OBSERVER_NOTE, "agent_layer": "observer", "to": "manager",
+    "text": "the planner woke 14 times on the same running job (events.jsonl ts 1760000000)",
+}
+
+
+def test_an_observer_remark_to_the_manager_reaches_its_supervision(admitted):
+    event = admitted(_REMARK)
+    assert event["consult_reason"] == f"the Observer, who watches how the team works, says: {_REMARK['text']}"
+    assert event["stall_reason"] == "observer"
+    assert admitted({**_REMARK, "to": "planner"}) is None
+
+
+_REPORTS = [{**_TURN_STALL, "consult_reason": "stalled"}, {**_REMARK, "stall_reason": "observer", "consult_reason": "stalled"}]
+
+
+@pytest.mark.parametrize("report", _REPORTS)
+def test_newer_evidence_does_not_drop_a_pending_stall_report(admitted, tmp_path, report):
+    """A stall or a remark is sent once; the event that replaces it in the queue asks for both."""
     key = str(tmp_path.resolve())
-    supervision._PENDING[key] = (None, tmp_path, {**_TURN_STALL, "consult_reason": "stalled"})
+    supervision._PENDING[key] = (None, tmp_path, report)
     supervision._admit(None, tmp_path, _review(4, consult_reason="review"))
     merged = supervision._PENDING.pop(key)[2]
-    assert merged["type"] == EventType.ROUND_REVIEW_COMPLETED and merged["stall_reason"] == "turn_stalled"
+    assert merged["type"] == EventType.ROUND_REVIEW_COMPLETED and merged["stall_reason"] == report["stall_reason"]
     assert merged["consult_reason"] == "stalled; review"
 
 
-def test_a_stalled_turn_is_judged_even_when_the_project_files_are_unchanged(tmp_path):
-    """The stall is the news: an applied look at the same files does not answer it."""
+@pytest.mark.parametrize("report", _REPORTS)
+def test_a_stalled_turn_is_judged_even_when_the_project_files_are_unchanged(tmp_path, report):
+    """The report is the news: an applied look at the same files does not answer it."""
     write_continuous_config(tmp_path, enabled=True, objective="Produce a validated grouped summary")
     Backlog(tmp_path / "backlog.jsonl").add(BacklogItem.new(item_id="grouped", title="t", objective="o"))
     backend = _Backend(json.dumps({"action": "continue", "reason": "The run is still plausible.", "evidence_refs": ["backlog.jsonl"]}))
@@ -169,7 +187,7 @@ def test_a_stalled_turn_is_judged_even_when_the_project_files_are_unchanged(tmp_
     first = supervision.supervise(manager, tmp_path, _review(2, forward_progress=False))
     assert first["status"] == "applied" and len(backend.prompts) == 1
     assert supervision.supervise(manager, tmp_path, _review(2, forward_progress=False)) == first
-    stalled = supervision.supervise(manager, tmp_path, {**_TURN_STALL, "consult_reason": "stalled"})
+    stalled = supervision.supervise(manager, tmp_path, report)
     assert stalled["status"] == "applied" and stalled["id"] != first["id"]
     assert len(backend.prompts) == 2 and "consulted now because of: stalled" in backend.prompts[1]
 

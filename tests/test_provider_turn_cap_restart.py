@@ -131,7 +131,6 @@ def test_capped_call_winds_down_and_continues_in_a_fresh_session(
         supervised_config=SupervisedConfig(
             max_rounds=4,
             checkpoint_path=checkpoint,
-            background_subagent_advisory=False,
         ),
         workdir=tmp_path,
         on_event=events.append,
@@ -207,7 +206,6 @@ def test_a_run_of_capped_calls_stops_the_mission_truthfully(
         supervised_config=SupervisedConfig(
             max_rounds=10,
             provider_turn_cap_streak_limit=3,
-            background_subagent_advisory=False,
         ),
         workdir=tmp_path,
         on_event=events.append,
@@ -248,7 +246,7 @@ def test_final_review_rotates_beyond_three_sessions_and_keeps_real_stops(
     reviewer = _DoneReviewer()
     supervised = _make_supervised(engineer, reviewer)
     config = SupervisedConfig(
-        checkpoint_path=tmp_path / "CHECKPOINT.md", background_subagent_advisory=False,
+        checkpoint_path=tmp_path / "CHECKPOINT.md",
     )
     config.checkpoint_path.write_text("Continue the native PPT mathematical-label repair.")
     configure_venue_revisions(config)
@@ -319,7 +317,6 @@ def test_capped_reviewer_call_restarts_once_without_failure_accounting(
         engineer_prompt_builder=lambda _na, _include_static=True: "WORK",
         supervised_config=SupervisedConfig(
             max_rounds=2,
-            background_subagent_advisory=False,
         ),
         workdir=tmp_path,
         on_event=events.append,

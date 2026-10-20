@@ -33,6 +33,7 @@ def _tail_jsonl(path: Path, *, limit: int = 500) -> list[dict[str, Any]]:
 
 
 _BACKGROUND_RUN_LABELS = (
+    "observer",
     "map-summary",
     "reflection",
     "answer-learning",
@@ -238,8 +239,8 @@ def _describe_event(event: dict[str, Any]) -> tuple[str, str]:
         verdict = str(event.get("verdict") or event.get("decision") or "")
         if etype.endswith("start"):
             return "planning new work", "running"
-        if etype.endswith("waiting"):
-            return "waiting on external work", "waiting"
+        if etype.endswith("idle"):
+            return "nothing new to start", "idle"
         return (f"plan verdict {verdict}" if verdict else "planning done"), verdict or "done"
     if etype.startswith("manager") or etype.startswith("life.manager"):
         # Front-door decisions must read as a TERSE state token, never the raw

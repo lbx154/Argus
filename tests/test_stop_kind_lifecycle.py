@@ -55,7 +55,6 @@ def _run_engineer(
             max_rounds=3,
             backend_failure_threshold=2,
             backend_failure_backoff_seconds=0,
-            background_subagent_advisory=False,
         ),
         workdir=tmp_path,
         on_event=events.append,
@@ -230,7 +229,6 @@ def test_reviewer_budget_stop_pauses_without_failure_streak(tmp_path: Path) -> N
             max_rounds=3,
             backend_failure_threshold=2,
             backend_failure_backoff_seconds=0,
-            background_subagent_advisory=False,
         ),
         workdir=tmp_path,
         on_event=events.append,
@@ -306,7 +304,6 @@ def test_post_edit_review_stop_kind_reaches_mission_status(
         engineer_prompt_builder=lambda _next, _static=True: "work",
         supervised_config=SupervisedConfig(
             max_rounds=1,
-            background_subagent_advisory=False,
             narrative_review_enforcement="blocking",
         ),
         workdir=tmp_path,

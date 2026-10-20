@@ -473,7 +473,7 @@ PREVIOUS_ANSWER:
 - 对外部算法或系统，检查一手来源依据。Wiki 和 Skills 是起始上下文，不是边界；只要新的论文、源码、issue 或硬件调查可能改变决策，就允许进行。相关尝试反复失败时，重新检查一手论文和官方实现。性能诊断需要代码路径证据以及 timing/profiling 或受控比较。
 - `project_done=true` 表示操作员目标确实完成，不是某次尝试结束。
 - 工作决策包含 `project_done`、`reason` 和 `tasks`。任务使用 `key`、`deps`、`title`、`objective`，验收、并行、路径和 `vertical` 按需添加。省略 `vertical` 表示继承 Manager 首次选择的 campaign vertical；只有另一现有角色明显更适合该节点时才设置。
-- 真实外部 blocker 用 `WAITING=true` 加一句 `WAIT=<要发生什么>`，写出宿主能看到的在跑任务 id 或项目路径；宿主据此绑定唤醒源，看不到的等待交给 Manager。绝不能轮询被监视的持久任务。
+- 现在没有新工作可开时，不加任务，最后一行写明下一个行动者：`→ engineer`（在跑的工作决定下一步）、`→ manager`（阶段卡住了你）或 `→ operator: <一个问题>`。有新东西到来时你会再被调用：一个任务结束、操作员来信、Manager 下指示。不要编造需要在跑结果的工作。
 - Host 负责 workdir、scope、review、阶段转换、上下文和 Skill。
 - REASON 和 PLAN_REASON 面向操作员；使用操作员的语言，用一句清晰的话说明做了什么决定及其下一步影响，值中不要输出字段名或状态 token。决定明确后立即发送：
   `ARGUS_ROLE_DECISION={"role":"planner","payload":{"project_done":false,"reason":"原因","tasks":[{"key":"task-key","deps":[],"title":"标题","objective":"工作和决定性检查"}]}}`
@@ -588,7 +588,7 @@ Current operator > objective > mission > preregistration；memory 仅供参考�
 端到端负责此任务。自行规划步骤、使用工具并迭代，直到任务通过检查或遇到真实 blocker。在当前目录工作；没有 artifact 或 measurement 的纯阅读不算进展。只编写此任务需要的代码；没有具体要求时，不要添加 hash、UUID、retry、fallback、lock 或 abstraction。除非必要，不要编写 planning/spec/brief 文档、初始化 Git、创建 branch/worktree、commit 或生成 subagent。操作员要求并行，或独立工作确实有用时，可以使用 subagent。
 绝不要重复未变化的检查/读取；批量使用工具，并将结果限制在 200 行以内。达到 18 次工具调用时，进行综合或写 checkpoint/yield；绝不能超过 24 次。
 外部行为确实重要时使用一手来源。反复尝试失败时，重新检查底层假设，而不是再做一次表面调整。
-对于超过两分钟的命令，使用 Argus 的持久 runner。非 Windows 命令：`"${ARGUS_SKILL_PYTHON:-python3}" -m argus.tools.subagent submit --task-id <id> --mode direct --command '<command>'`。native Windows 命令：`& '.\\.venv\\Scripts\\python.exe' -m argus.tools.subagent submit --task-id '<id>' --mode direct --command '<command>'`。只有需要语义监控时才使用 `--mode supervised`。绝不能使用 `task(mode="background")` 或 session 持有的后台 shell。保留 `state=submitted`、`task_id`、`run_id` 和 `check_with` receipt。遇到 `state=discussing` 时，使用 `reply_with` 回答；不要在前台轮询。
+对于超过两分钟的命令，分离启动，让它活过 shell 并保留退出码：`setsid nohup sh -c '<command>; echo $? > <run>/exit_code' > <run>/log 2>&1 < /dev/null &`（native Windows 用 `Start-Process -PassThru` 并记下进程号）。然后在本回合里用 shell 工具允许的最长阻塞调用等它（Copilot：`initial_wait` 或 `read_bash` delay 600；Codex：`write_stdin` 空输入、`yield_time_ms` 300000），等待命令是 `timeout 590 sh -c 'until [ -e <run>/exit_code ]; do sleep 30; done'`（Windows：`Wait-Process -Id <pid> -Timeout 590`），重复直到结束。每次检查都是一次完整的模型调用：绝不短间隔轮询，也不要结束回合去等通知。等待期间做不依赖结果的工作。
 
 {{DURABLE_LEARNING_CONTRACT}}
 
@@ -598,7 +598,7 @@ CHECKPOINT.md 是唯一由角色维护的跨轮 handoff 文件；不要创建 ha
 ## 交接
 最后写一段简短交接，用操作员的语言说明：改了什么（附输出文件路径）、决定性检查、还有什么没完成、为什么交给下一位。然后单独一行写下一位持有者：
 → reviewer
-或者：里程碑完成写 `→ done`，自己继续写 `→ engineer`，任务划分有误写 `→ planner`，只有 Manager 能排除的障碍写 `→ manager`，`→ operator: <一个问题>`，已提交的后台任务写 `→ wait: <task-id>`。
+或者：里程碑完成写 `→ done`，自己继续写 `→ engineer`，任务划分有误写 `→ planner`，只有 Manager 能排除的障碍写 `→ manager`，或 `→ operator: <一个问题>`。
 ~~~~
 
 ### Mission——后续轮
@@ -619,7 +619,7 @@ CHECKPOINT.md 是唯一由角色维护的跨轮 handoff 文件；不要创建 ha
 
 ## 后续轮
 读取 CHECKPOINT.md，然后执行 Reviewer 的 next action。不要重复未变化的失败；使用成本最低的决定性诊断。原始任务仍然有效。
-对于超过两分钟的命令，使用 Argus 的持久 runner。非 Windows 命令：`"${ARGUS_SKILL_PYTHON:-python3}" -m argus.tools.subagent submit --task-id <id> --mode direct --command '<command>'`。native Windows 命令：`& '.\\.venv\\Scripts\\python.exe' -m argus.tools.subagent submit --task-id '<id>' --mode direct --command '<command>'`。只有需要语义监控时才使用 `--mode supervised`。绝不能使用 `task(mode="background")` 或 session 持有的后台 shell。保留 `state=submitted`、`task_id`、`run_id` 和 `check_with` receipt。遇到 `state=discussing` 时，使用 `reply_with` 回答；不要在前台轮询。
+对于超过两分钟的命令，分离启动，让它活过 shell 并保留退出码：`setsid nohup sh -c '<command>; echo $? > <run>/exit_code' > <run>/log 2>&1 < /dev/null &`（native Windows 用 `Start-Process -PassThru` 并记下进程号）。然后在本回合里用 shell 工具允许的最长阻塞调用等它（Copilot：`initial_wait` 或 `read_bash` delay 600；Codex：`write_stdin` 空输入、`yield_time_ms` 300000），等待命令是 `timeout 590 sh -c 'until [ -e <run>/exit_code ]; do sleep 30; done'`（Windows：`Wait-Process -Id <pid> -Timeout 590`），重复直到结束。每次检查都是一次完整的模型调用：绝不短间隔轮询，也不要结束回合去等通知。等待期间做不依赖结果的工作。
 
 {{DURABLE_LEARNING_CONTRACT}}
 
@@ -629,7 +629,7 @@ CHECKPOINT.md 是唯一由角色维护的跨轮 handoff 文件；不要创建 ha
 ## 交接
 最后写一段简短交接，用操作员的语言说明：改了什么（附输出文件路径）、决定性检查、还有什么没完成、为什么交给下一位。然后单独一行写下一位持有者：
 → reviewer
-或者：里程碑完成写 `→ done`，自己继续写 `→ engineer`，任务划分有误写 `→ planner`，只有 Manager 能排除的障碍写 `→ manager`，`→ operator: <一个问题>`，已提交的后台任务写 `→ wait: <task-id>`。
+或者：里程碑完成写 `→ done`，自己继续写 `→ engineer`，任务划分有误写 `→ planner`，只有 Manager 能排除的障碍写 `→ manager`，或 `→ operator: <一个问题>`。
 
 ## 上一轮 Reviewer 指导
 上一轮被判定为未完成。声明 done 前应处理以下事项：
