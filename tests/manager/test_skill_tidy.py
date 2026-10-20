@@ -434,6 +434,27 @@ def test_team_learning_honors_configured_project_skill_root(
     assert "configured.md" in backend.calls[0]["prompt"]
 
 
+def test_a_workspace_skill_is_a_project_candidate(tmp_path: Path) -> None:
+    """The Engineer writes inside its workspace; its Agent Skill is a project candidate."""
+    project = tmp_path / "workspace"
+    state = tmp_path / "session-state"
+    global_root = tmp_path / "profile-skills"
+    skill = project / ".agents" / "skills" / "dependency-closed-check"
+    skill.mkdir(parents=True)
+    (skill / "SKILL.md").write_text(
+        "---\nname: dependency-closed-check\n"
+        "description: Validate a module whose dependencies close\n---\n\n"
+        "Run `python check.py <module>`.\n",
+        encoding="utf-8",
+    )
+    backend = _SilentBackend()
+
+    propagate_after_mission(project, backend, project_state_dir=state, shared_root=global_root)
+
+    (call,) = backend.calls
+    assert "- engineer/dependency-closed-check/SKILL.md" in call["prompt"]
+
+
 def test_unseen_candidate_batch_remains_pending_for_next_success(
     tmp_path: Path,
 ) -> None:

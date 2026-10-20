@@ -106,10 +106,10 @@ never reopen Idea selection.
 ## When the experiment trains a model or runs large inference
 
 Read the dated decision record at
-`engineer/<task-class>-infrastructure-decision.md` in the project skill
-directory the way `engineer/training-infrastructure.md` says it was produced,
-and judge the procedure, not the choice: every cited date has a source URL
-and access date behind it; rejected candidates carry an exclusion
+`<task-class>-infrastructure-decision/SKILL.md` in the workspace's Agent
+Skills (`.agents/skills`) the way `engineer/training-infrastructure.md` says
+it was produced, and judge the procedure, not the choice: every cited date has
+a source URL and access date behind it; rejected candidates carry an exclusion
 reason that points at a card field; the chosen framework is pinned to a SHA
 under `third_party/<name>/`; pilot numbers trace to durable-runner logs on the
 allocated device; an adopted inference engine has a rollout-versus-trainer

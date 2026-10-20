@@ -47,7 +47,7 @@ def hosted_engineer_prompt(task):
                                  path=Path(HANDOFF + "/role-sessions/engineer.json"))
     base = build_mission_prompt(task=task, skill_text=libraries, next_action=None,
                                role_banner=banner, require_post_task_learning=True,
-                               project_root=Path(WORKSPACE), project_skill_dir=roots[0] + "/engineer",
+                               project_root=Path(WORKSPACE),
                                compact_team=True, operator_context="Carry out only the current task and verify its public result.")
     return assemble_round_prompt(base, checkpoint_block="\n\n".join((
         f"## MissionBrief\n- Workdir: `{WORKSPACE}`\n- Stage: delivery",

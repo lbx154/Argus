@@ -97,6 +97,13 @@ maintenance and promotion, the project wiki, recall from other projects, and
 the shared-principles pass, which otherwise runs only when the shared pages
 change.
 
+The Engineer writes only inside its workspace, so the Skills it keeps are the
+workspace's Agent Skills, `.agents/skills/<name>/SKILL.md`. Nothing imports
+these files: roles of the same project discover them, recall shows them to
+later projects (a learning project's to projects of every vertical), and the
+post-mission review offers a workspace Skill for the vertical's shared library
+like any project Skill.
+
 Quality checks cover a changed factual conclusion reaching the next recall,
 unrelated English/Chinese questions, repeated findings and methods, partially
 written drafts, concurrent human edits, and a worker killed while another

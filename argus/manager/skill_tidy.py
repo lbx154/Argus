@@ -133,23 +133,40 @@ def _snapshot(paths: Iterable[Path]) -> dict[Path, tuple[int, int]]:
     return snapshot
 
 
+def _project_skill_files(project_skills: Path | None, workspace: Path) -> dict[str, Path]:
+    """Project-authored Skills by their place in a role library.
+
+    The project layer keeps them in role directories. The Engineer writes
+    inside its workspace, as Agent Skills (``.agents/skills/<name>/SKILL.md``);
+    each takes the place ``engineer/<name>/SKILL.md``.
+    """
+    files: dict[str, Path] = {}
+    if project_skills is not None and project_skills.is_dir():
+        files = {
+            path.relative_to(project_skills).as_posix(): path
+            for path in _role_skill_paths(project_skills)
+        }
+    native = workspace / ".agents" / "skills"
+    for path in sorted(native.glob("*/SKILL.md")):
+        if path.is_file() and not path.parent.name.startswith((".", "_")):
+            files.setdefault(f"engineer/{path.parent.name}/SKILL.md", path.resolve())
+    return files
+
+
 def _unshared_project_skills(
-    project_root: Path | None,
+    files: dict[str, Path],
     shared_root: Path,
 ) -> dict[str, list[int]]:
     """``file_facts`` of project-authored Skills absent from the shared layer."""
-    if project_root is None or not project_root.is_dir():
-        return {}
     skills: dict[str, list[int]] = {}
-    for source in _role_skill_paths(project_root):
+    for relative, source in files.items():
         try:
-            relative = source.relative_to(project_root)
             target = shared_root / relative
             body = source.read_bytes()
             if target.is_file() and body == target.read_bytes():
                 continue
-            skills[relative.as_posix()] = file_facts(source)
-        except (OSError, ValueError):
+            skills[relative] = file_facts(source)
+        except OSError:
             continue
     return skills
 
@@ -189,22 +206,19 @@ def _record_reviewed_project_skills(
 
 
 def _candidate_evidence(
-    root: Path | None,
+    files: dict[str, Path],
     *,
     include: frozenset[str] | None = None,
 ) -> tuple[str, frozenset[str]]:
-    if root is None:
-        return "- none", frozenset()
     rendered: list[str] = []
     presented: set[str] = set()
     remaining = _MAX_CANDIDATE_CHARS
-    for path in _role_skill_paths(root):
+    for key, path in files.items():
+        if include is not None and key not in include:
+            continue
         try:
             text = path.read_text(encoding="utf-8", errors="replace")
-            relative = path.relative_to(root)
-        except (OSError, ValueError):
-            continue
-        if include is not None and relative.as_posix() not in include:
+        except OSError:
             continue
         marker = names_the_verifier(text)
         if marker:
@@ -215,7 +229,7 @@ def _candidate_evidence(
             # the case where the mission result alone is enough to reconstruct
             # the procedure.
             rendered.append(
-                f"- {relative.as_posix()}\n"
+                f"- {key}\n"
                 "<withheld_candidate>\n"
                 f"This candidate names {marker!r}, part of the machinery that "
                 "produced this mission's verdict. The verdict cannot certify a "
@@ -223,16 +237,16 @@ def _candidate_evidence(
                 "here and its text is not shown. It stays in the project layer.\n"
                 "</withheld_candidate>"
             )
-            presented.add(relative.as_posix())
+            presented.add(key)
             if len(rendered) >= _MAX_CANDIDATE_FILES:
                 break
             continue
         excerpt = text[:remaining]
         if not excerpt:
             continue
-        presented.add(relative.as_posix())
+        presented.add(key)
         rendered.append(
-            f"- {relative.as_posix()}\n"
+            f"- {key}\n"
             "<untrusted_candidate>\n"
             f"{excerpt}\n"
             "</untrusted_candidate>"
@@ -245,7 +259,7 @@ def _candidate_evidence(
 
 def _team_learning_prompt(
     *,
-    project_skill_root: Path | None,
+    project_skills: dict[str, Path],
     candidate_paths: frozenset[str],
     shared_root: Path,
     scope: str,
@@ -254,7 +268,7 @@ def _team_learning_prompt(
     mission_result: str,
 ) -> tuple[str, frozenset[str]]:
     candidates, presented = _candidate_evidence(
-        project_skill_root,
+        project_skills,
         include=candidate_paths,
     )
     prompt = (
@@ -390,7 +404,8 @@ def propagate_after_mission(
         scope = resolve_skill_scope(project_root)
     vertical_root = shared_skill_scope_dir(global_skills, scope)
     shared = vertical_root.resolve() if vertical_root is not None else global_skills
-    candidates = _unshared_project_skills(project_skills, shared)
+    files = _project_skill_files(project_skills, Path(project_root))
+    candidates = _unshared_project_skills(files, shared)
     reviewed = _reviewed_project_skills(state)
     pending_paths = frozenset(
         path for path, facts in candidates.items() if reviewed.get(path) != facts
@@ -417,7 +432,7 @@ def propagate_after_mission(
         return counts
     shared.mkdir(parents=True, exist_ok=True)
     prompt, presented_paths = _team_learning_prompt(
-        project_skill_root=project_skills,
+        project_skills=files,
         candidate_paths=pending_paths,
         shared_root=shared,
         scope=scope,
