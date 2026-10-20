@@ -226,7 +226,10 @@
 - 状态：HO-16a、HO-16b、HO-16d 和 HO-16e 的页脚部分已完成。Engineer 和 Reviewer 都只认交接行，
   Reviewer 的五个动作合成一个 `submit_review`；七个页脚键和 Engineer 的决策事件不再读取。
   没变化的退回按工作区快照和外部输入判断、按任务谱系计数，逐级上交；Engineer 还没看过的审阅意见算新输入；
-  候选和上次通过时完全一样、也没有新输入时，沿用那次通过，不再调用模型。
+  候选和上次通过时完全一样、也没有新输入时，沿用那次通过，不再调用模型；宿主拒收过的通过
+  （它结束的任务失败了或被送回重跑）不再沿用，越过 Reviewer 往上交。
+  已没有任何来源写 `operator_need`，这套分类、计划挑战的 `ask_operator` 路径和没有判决会产生的三个 Reviewer 状态
+  （`research_incomplete`、`paused_no_breakthrough`、`exhausted_current_methods`）已删除；带这些字段的旧行和旧事件照常读取。
   所有写入方只写 `parked`，原因记在任务的 `outcome.park.reason` 和完成事件的 `park_reason`；
   `paused_external_work`、`research_incomplete`、`exhausted_current_methods` 已没有写入方，只留读取。
   恢复按新事实合并成一个入口：守护进程的下一轮恢复它自己的挂起（停机、限流），操作员显式点“运行”恢复只有操作员或外部能解除的挂起，

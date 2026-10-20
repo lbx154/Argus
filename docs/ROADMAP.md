@@ -302,7 +302,11 @@ not guess on the model's behalf whether there is progress. The full design is in
   by their handoff line, and the Reviewer's five actions are one `submit_review`; the seven footer keys and the
   Engineer's decision event are no longer read. An unchanged return, judged from workspace snapshots and outside
   inputs and counted per lineage, climbs one rung at a time; a review the Engineer has not yet seen counts as new
-  input, and a candidate identical to one already passed, with no new input, keeps that pass without a model call.
+  input, and a candidate identical to one already passed, with no new input, keeps that pass without a model call
+  unless the host refused it (the task it ended failed or was sent back), in which case it climbs past the Reviewer.
+  Nothing writes `operator_need` any more, so the classification, the plan challenge's `ask_operator` route and the
+  Reviewer statuses no verdict produces (`research_incomplete`, `paused_no_breakthrough`, `exhausted_current_methods`)
+  are deleted; old rows and events that carry them still read.
   Every writer writes `parked` with the reason in the task's `outcome.park.reason` and the
   completion event's `park_reason`; `paused_external_work`, `research_incomplete` and `exhausted_current_methods` have
   no writer left and are only read. Resuming is one path driven by new facts: the daemon's next pass ends its own
