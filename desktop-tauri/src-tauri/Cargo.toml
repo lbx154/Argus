@@ -1,5 +1,6 @@
 [package]
 name = "argus-desktop"
+default-run = "Argus"
 version = "0.1.9"
 description = "Argus desktop host"
 authors = ["lbx154"]
