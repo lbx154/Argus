@@ -157,7 +157,7 @@ def test_new_manager_thread_rehydrates_current_controls_questions_and_issued_dec
     task.acceptance_check = "Preserve independent means 2 and 12."
     Backlog(tmp_path / "backlog.jsonl").add(task)
     directive = set_active_manager_directive(tmp_path, "ACTIVE_STEER: never pool the groups.",
-                                            source="manager.supervision.fixture", operator_question_policy="allow")
+                                            source="manager.supervision.fixture")
     receipt_dir = tmp_path / "manager-supervision"
     receipt_dir.mkdir()
     issued = {"id": "a" * 64, "status": "issued", "decision": {

@@ -865,7 +865,7 @@ def test_replan_replace_commits_after_version_zero_source_terminalized(
 def test_forbidden_questions_request_revision_within_existing_authority(
     tmp_path: Path,
 ) -> None:
-    from argus.manager.directive import set_active_manager_directive
+    from argus.core.knob_store import write_persisted_knob
 
     project = tmp_path / "project"
     project.mkdir()
@@ -874,11 +874,7 @@ def test_forbidden_questions_request_revision_within_existing_authority(
         title="Repair the environment",
         objective="Resolve the reversible environment issue.",
     ))
-    set_active_manager_directive(
-        supervisor.memory.root,
-        "continue without asking",
-        operator_question_policy="forbid",
-    )
+    write_persisted_knob("ARGUS_SKILL_OPERATOR_AVAILABLE", "0")
     outcome = {
         "item_id": item.id,
         "status": "replan_requested",
@@ -931,19 +927,20 @@ def test_forbidden_questions_request_revision_within_existing_authority(
 
 
 @pytest.mark.parametrize(
-    "alternative",
+    ("alternative", "need"),
     [
-        "Use the operator's API credentials.",
-        "Purchase additional compute capacity.",
-        "Force-push the protected release branch.",
+        ("Use the operator's API credentials.", "credentials"),
+        ("Purchase additional compute capacity.", "spending"),
+        ("Force-push the protected release branch.", "irreversible_or_external"),
     ],
     ids=["credentials", "spending", "irreversible"],
 )
 def test_forbidden_questions_park_an_out_of_scope_alternative_for_the_manager(
     tmp_path: Path,
     alternative: str,
+    need: str,
 ) -> None:
-    from argus.manager.directive import set_active_manager_directive
+    from argus.core.knob_store import write_persisted_knob
 
     project = tmp_path / "project"
     project.mkdir()
@@ -952,11 +949,7 @@ def test_forbidden_questions_park_an_out_of_scope_alternative_for_the_manager(
         title="Operator-owned boundary",
         objective="Proceed only within existing authority.",
     ))
-    set_active_manager_directive(
-        supervisor.memory.root,
-        "continue without asking",
-        operator_question_policy="forbid",
-    )
+    write_persisted_knob("ARGUS_SKILL_OPERATOR_AVAILABLE", "0")
     outcome = {
         "item_id": item.id,
         "status": "replan_requested",
@@ -967,6 +960,7 @@ def test_forbidden_questions_park_an_out_of_scope_alternative_for_the_manager(
             "challenge": "The current plan reaches an operator-owned boundary.",
             "alternative": alternative,
             "authority_impact": "operator",
+            "operator_need": need,
         },
         "plan_challenge": {
             "manager_action": "ask_operator",

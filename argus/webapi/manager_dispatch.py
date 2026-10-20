@@ -731,7 +731,6 @@ def _classify_operator_turn(
             "_frontdoor_greeting_reply",
             "_frontdoor_failure",
             "_frontdoor_steering_directive",
-            "_frontdoor_operator_question_policy",
             "_frontdoor_authorization",
             "_frontdoor_intake",
             "_frontdoor_standing_notice",
@@ -969,7 +968,6 @@ def _handle_steer_control(
     from ..apps._inbox import queue_inbox_message
     from ..manager.directive import (
         active_manager_directive_message,
-        active_operator_question_policy,
         set_active_manager_directive,
     )
 
@@ -989,20 +987,6 @@ def _handle_steer_control(
     from ..daemon.state import read_continuous_state
 
     current = read_continuous_state(life_dir)
-    operator_question_policy = str(
-        chat_state.pop(
-            "_frontdoor_operator_question_policy",
-            "unchanged",
-        )
-        or "unchanged"
-    ).strip().lower()
-    if operator_question_policy == "unchanged":
-        inherited_question_policy = active_operator_question_policy(
-            life_dir,
-            expected_objective=current.objective,
-        )
-        if inherited_question_policy != "unchanged":
-            operator_question_policy = inherited_question_policy
     lifetime = str(
         chat_state.pop("_frontdoor_lifetime", "") or ""
     ).strip().lower()
@@ -1033,7 +1017,6 @@ def _handle_steer_control(
         life_dir,
         manager_directive,
         source="manager.steer",
-        operator_question_policy=operator_question_policy,
         authorized_objective=standing_objective,
         scope_objective=current.objective,
     )

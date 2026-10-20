@@ -208,13 +208,9 @@ def test_execute_config_loads_custom_vertical_from_session_state(
         purpose="physical archive restoration",
         require_independent_review=True,
     )
-    from argus.manager.directive import set_active_manager_directive
+    from argus.core.knob_store import write_persisted_knob
 
-    set_active_manager_directive(
-        state_root,
-        "continue autonomously",
-        operator_question_policy="forbid",
-    )
+    write_persisted_knob("ARGUS_SKILL_OPERATOR_AVAILABLE", "0")
     runner = _make_runner(_FakeBackend())
     runner._artifact_root = state_root
     runner._role_memory_maintenance_enabled = True

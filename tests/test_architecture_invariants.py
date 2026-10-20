@@ -1065,7 +1065,6 @@ FUNCTION_BODY_UPWARD_ALLOWLIST: frozenset[str] = frozenset({
     "agent_cli/_sandbox_commands.py -> trial",
     "agent_cli/copilot_home.py -> trial",
     "core/agent_probe.py -> adapters",
-    "core/autonomy.py -> manager",
     "core/backend_readiness.py -> agent_cli",
     "core/backend_readiness.py -> tools",
     "core/jsonl_reader.py -> life",
@@ -1869,7 +1868,7 @@ def test_retired_names_do_not_spread() -> None:
 # signature (_idle_cycle.py) and the venue acceptance check (_core.py) now
 # take LifeSupervisor._project_state_root(), because handing the host root to
 # a vertical lookup answered "undecided" for a classified project.
-MEMORY_ROOT_READS = 71
+MEMORY_ROOT_READS = 69
 def test_memory_root_reads_do_not_grow() -> None:
     """``MemoryBundle.root`` returns the *host* root; every reader of it is a trap.
 

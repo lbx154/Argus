@@ -76,8 +76,7 @@ def _control_capsule(root: Path, *, cancelled: Callable[[], bool] | None = None)
     active_directive = None
     if directive:
         if (directive.get("version") != 1 or not isinstance(directive.get("text"), str)
-                or not directive["text"].strip()
-                or directive.get("operator_question_policy", "unchanged") not in {"allow", "forbid", "unchanged"}):
+                or not directive["text"].strip()):
             diagnostics.append("active_manager_directive.json: invalid directive was not projected")
         elif str(root / "continuous.json") in unobserved:
             diagnostics.append("active_manager_directive.json: objective scope could not be verified")
@@ -86,7 +85,7 @@ def _control_capsule(root: Path, *, cancelled: Callable[[], bool] | None = None)
             active_directive = None
         else:
             active_directive = {key: directive[key] for key in (
-                "text", "source", "revision", "operator_question_policy", "authorized_objective", "objective",
+                "text", "source", "revision", "authorized_objective", "objective",
             ) if key in directive}
 
     # Backlog's ordinary reader tolerates a malformed trailing row. A rotation

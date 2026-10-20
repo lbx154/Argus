@@ -521,21 +521,18 @@ class MissionExecutionSettlementMixin:
         operator_question = str(
             getattr(outcome, "operator_question", "") or ""
         ).strip()
-        operator_question_policy = "unchanged"
+        cannot_ask = False
         if operator_question:
-            from ...manager.directive import effective_operator_question_policy
-
-            operator_question_policy = effective_operator_question_policy(
-                self._artifact_root()
-            )
             from ...core.autonomy import (
                 NO_OPERATOR_NEED,
                 OPERATOR_ACTION_NEEDS,
                 assess_operator_intervention,
                 normalize_operator_need,
-                resolve_autonomy_mode,
+                operator_questions_can_be_asked,
                 technical_continuation,
             )
+
+            cannot_ask = not operator_questions_can_be_asked()
 
             raised_need = normalize_operator_need(
                 (getattr(outcome, "final_planner_report", {}) or {}).get("operator_need")
@@ -543,8 +540,7 @@ class MissionExecutionSettlementMixin:
                 else ""
             )
             if (
-                operator_question_policy == "forbid"
-                or resolve_autonomy_mode() == "autonomous"
+                cannot_ask
                 # The raiser itself said the team can decide this.
                 or raised_need == NO_OPERATOR_NEED
             ):
@@ -560,11 +556,6 @@ class MissionExecutionSettlementMixin:
                         getattr(outcome, "final_review_next_action", "") or ""
                     ),
                     planner_report=planner_report,
-                    mode=(
-                        "autonomous"
-                        if operator_question_policy == "forbid"
-                        else None
-                    ),
                 )
                 if not intervention.required:
                     continuation = technical_continuation(
@@ -609,7 +600,7 @@ class MissionExecutionSettlementMixin:
                     if status in {"blocked", "replan_requested"}:
                         status = "replan_requested"
                 elif (
-                    operator_question_policy == "forbid"
+                    cannot_ask
                     and status in {"blocked", "replan_requested"}
                     and intervention.operator_need not in OPERATOR_ACTION_NEEDS
                 ):

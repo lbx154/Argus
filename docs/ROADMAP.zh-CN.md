@@ -132,7 +132,8 @@
   凭据例外：Manager 拿不出自己没有的凭据，只能决定绕过或结束该项。
 - 做完的样子：策略为"禁止提问"时，Reviewer 的工具说明里不再出现"去问操作员"；没有任何代码路径等待操作员或以"需要操作员"结束；
   Manager 只能回答交给它的卡片；交付报告逐条列出它代做的决定。
-- 状态：统一判断和 Manager 接手权限都已在 `dev`。
+- 状态：统一判断和 Manager 接手权限都已在 `dev`。原来四种说法（`AUTONOMY_MODE`、`--no-operator`、前门提问策略、
+  带 30 分钟计时的 `--operator-wait-exit`）已合成一个开关 `ARGUS_SKILL_OPERATOR_AVAILABLE`；按文字匹配的边界正则已删。
 
 #### HO-7 给 Reviewer 看真正的 diff
 `0.3` · `L` · 依赖：无

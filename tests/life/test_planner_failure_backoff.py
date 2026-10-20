@@ -252,12 +252,10 @@ def test_backoff_starts_after_the_free_attempts_and_doubles_to_a_cap() -> None:
 
 
 def test_empty_plan_asks_the_operator_once(tmp_path, monkeypatch) -> None:
-    from argus.manager.directive import set_active_manager_directive
+    from argus.core.knob_store import write_persisted_knob
 
     supervisor, planner, sink, clock = _supervisor(tmp_path, monkeypatch, _NOT_DONE_NO_TASKS)
-    set_active_manager_directive(
-        supervisor.memory.root, "questions are allowed", operator_question_policy="allow",
-    )
+    write_persisted_knob("ARGUS_SKILL_OPERATOR_AVAILABLE", "1")
 
     _drive(supervisor, clock, DAY_SECONDS)
 

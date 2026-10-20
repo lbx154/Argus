@@ -1027,18 +1027,14 @@ def test_nonterminal_empty_plan_repair_exhaustion_asks_operator(
     tmp_path: Path,
     monkeypatch,
 ) -> None:
-    from argus.manager.directive import set_active_manager_directive
+    from argus.core.knob_store import write_persisted_knob
 
     supervisor, backend, sink = _make_supervisor(
         tmp_path,
         monkeypatch,
         terminal_stage_done=False,
     )
-    set_active_manager_directive(
-        supervisor.memory.root,
-        "questions are allowed",
-        operator_question_policy="allow",
-    )
+    write_persisted_knob("ARGUS_SKILL_OPERATOR_AVAILABLE", "1")
 
     assert supervisor._plan_next_work() == PLAN_AWAITING
 
@@ -1070,18 +1066,14 @@ def test_nonterminal_empty_plan_does_not_park_when_questions_are_forbidden(
     tmp_path: Path,
     monkeypatch,
 ) -> None:
-    from argus.manager.directive import set_active_manager_directive
+    from argus.core.knob_store import write_persisted_knob
 
     supervisor, backend, sink = _make_supervisor(
         tmp_path,
         monkeypatch,
         terminal_stage_done=False,
     )
-    set_active_manager_directive(
-        supervisor.memory.root,
-        "continue without questions",
-        operator_question_policy="forbid",
-    )
+    write_persisted_knob("ARGUS_SKILL_OPERATOR_AVAILABLE", "0")
 
     assert supervisor._plan_next_work() == PLAN_ERROR
 

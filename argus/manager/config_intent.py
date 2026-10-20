@@ -50,6 +50,19 @@ def _invalidate_manager_runner(
         pass
 
 
+def _save_operator_available(available: bool) -> None:
+    """Save the one "can Argus ask me now" switch the operator just set.
+
+    Running workers read it from config.json, so it is not pinned into the
+    environment they inherit.
+    """
+    from ..core.autonomy import OPERATOR_AVAILABLE_KNOB
+    from ..core.knob_store import write_persisted_knob
+
+    if write_persisted_knob(OPERATOR_AVAILABLE_KNOB, "1" if available else "0"):
+        os.environ.pop(OPERATOR_AVAILABLE_KNOB, None)
+
+
 def _front_door_classify(
     mem: Any,
     text: str,
@@ -90,7 +103,6 @@ def _front_door_classify(
     chat_state.pop("_frontdoor_greeting_reply", None)
     chat_state.pop("_frontdoor_failure", None)
     chat_state.pop("_frontdoor_steering_directive", None)
-    chat_state.pop("_frontdoor_operator_question_policy", None)
     chat_state.pop("_frontdoor_authorization", None)
     chat_state.pop("_frontdoor_intake", None)
     chat_state.pop("_frontdoor_standing_notice", None)
@@ -252,16 +264,16 @@ def _front_door_classify(
             )
             if directive:
                 chat_state["_frontdoor_steering_directive"] = directive
-            question_policy = next(
-                (
-                    str(value).strip().lower()
-                    for value in operator_question_policies
-                    if str(value).strip().lower()
-                    in {"allow", "forbid", "unchanged"}
-                ),
-                "unchanged",
-            )
-            chat_state["_frontdoor_operator_question_policy"] = question_policy
+        question_policy = next(
+            (
+                str(value).strip().lower()
+                for value in operator_question_policies
+                if str(value).strip().lower() in {"allow", "forbid"}
+            ),
+            "",
+        )
+        if question_policy:
+            _save_operator_available(question_policy == "allow")
         if authorization_decisions:
             actions = [
                 str(value).strip().lower()

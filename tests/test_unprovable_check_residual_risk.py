@@ -659,29 +659,15 @@ def test_the_manager_cannot_accept_with_an_operator_or_without_a_quoted_basis(tm
     assert active_residual_risks(tmp_path / "ungrounded", item_id=item.id) == []
 
 
-def test_a_forbid_policy_gives_the_manager_risk_authority_even_with_an_operator(tmp_path, with_operator) -> None:
-    """Questions forbidden, operator nominally available: someone must still decide.
-
-    The Manager accepted only when ``operator_available()`` was false, and the
-    Reviewer was told to ask the operator, whose questions the policy then
-    dropped. Neither could accept, so a check impossible here ended every
-    mission blocked. Both now read one rule: the operator decides only while a
-    question can reach them.
+def test_saying_dont_ask_gives_the_manager_risk_authority(tmp_path, monkeypatch) -> None:
+    """Someone must decide a check impossible here: the operator while a
+    question can reach them, the Manager once they said not to be asked.
+    The Manager and the Reviewer read the same switch.
     """
     from argus.core.autonomy import operator_questions_can_be_asked
+    from argus.core.knob_store import write_persisted_knob
     from argus.engineer.round_reviewer import mission_grounding
-    from argus.manager.directive import set_active_manager_directive
 
-    root = tmp_path / "forbid"
-    item, event = _supervised_project(root)
-    set_active_manager_directive(root, "Work without asking the operator.", operator_question_policy="forbid")
-    assert operator_questions_can_be_asked(root) is False
-    # Control: the same run without the policy keeps the operator's authority.
-    _supervised_project(tmp_path / "allow")
-    assert operator_questions_can_be_asked(tmp_path / "allow") is True
-    assert supervision._manager_holds_operator_authority(tmp_path / "allow") is False
-
-    # The Manager is offered the decision, and taking it is recorded.
     class _Observation:
         def __init__(self, observed: Path) -> None:
             self.root = observed
@@ -689,8 +675,17 @@ def test_a_forbid_policy_gives_the_manager_risk_authority_even_with_an_operator(
         def render(self) -> str:
             return "{}"
 
+    root = tmp_path / "project"
+    item, event = _supervised_project(root)
+    assert operator_questions_can_be_asked(root) is True
+    assert supervision._manager_holds_operator_authority(root) is False
+    assert "ACCEPT_RISK" not in supervision._prompt(_Observation(root))
+
+    # The operator says not to be asked: the Manager is offered the decision,
+    # and taking it is recorded.
+    write_persisted_knob("ARGUS_SKILL_OPERATOR_AVAILABLE", "0")
+    assert operator_questions_can_be_asked(root) is False
     assert "ACCEPT_RISK: yes, no, or revoke <risk id>" in supervision._prompt(_Observation(root))
-    assert "ACCEPT_RISK" not in supervision._prompt(_Observation(tmp_path / "allow"))
     record = _supervise(root, event, _ACCEPT)
     assert record["status"] == "applied", record
     assert "residual_risk_refused" not in record["effects"]

@@ -500,22 +500,11 @@ export ARGUS_SKILL_TELEGRAM_BOT_TOKEN=... ARGUS_SKILL_TELEGRAM_CHAT_ID=...
 
 Argus 的设计目标不是“只能配置”，而是“可以被你改变”。
 
-### 自主程度
+### 什么时候问你
 
-默认 `pragmatic` 模式会自行处理超时、失败测试、benchmark 规模和技术路线等可恢复问题；只有凭证、预算增加、不可逆操作、对外发布或改变你定义的验收边界时才会询问。
+Argus 会自行处理超时、失败测试、benchmark 规模和技术路线等可恢复问题；只有提问的角色判断需要凭证、预算增加、不可逆或对外操作、或改变你定义的范围时才会询问。
 
-```bash
-# 谨慎：每个明确问题都询问
-export ARGUS_SKILL_AUTONOMY_MODE=cautious
-
-# 务实（默认）：技术问题自动恢复，权威边界询问
-export ARGUS_SKILL_AUTONOMY_MODE=pragmatic
-
-# 主动：最大化可逆技术执行，仍保留凭证/金钱/不可逆边界
-export ARGUS_SKILL_AUTONOMY_MODE=autonomous
-```
-
-也可以从 Web 配置页或 `/config` 修改该选项。
+能不能问你只有一个开关：`ARGUS_SKILL_OPERATOR_AVAILABLE`。无人值守的运行用 `--no-operator`，只对这一次运行有效；对经理说“别问我”或“可以问我了”会保存这个开关，Web 配置页也能改。关掉时页面顶部会有提示和一键恢复按钮，经理代你做决定并逐条记录，供你事后查看。
 
 ### 改造整个运行时
 

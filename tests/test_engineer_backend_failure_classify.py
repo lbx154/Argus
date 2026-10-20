@@ -223,13 +223,9 @@ def test_oauth_failure_pauses_once_without_opening_a_new_round(tmp_path: Path) -
 def test_forbidden_policy_withholds_a_stop_kind_operator_question(
     tmp_path: Path,
 ) -> None:
-    from argus.manager.directive import set_active_manager_directive
+    from argus.core.knob_store import write_persisted_knob
 
-    set_active_manager_directive(
-        tmp_path,
-        "do not ask further questions",
-        operator_question_policy="forbid",
-    )
+    write_persisted_knob("ARGUS_SKILL_OPERATOR_AVAILABLE", "0")
     engineer = _OAuthFailedRunner()
     engine = SupervisedEngineer(
         engineer_runner=engineer,
@@ -260,13 +256,9 @@ def test_forbidden_policy_withholds_a_stop_kind_operator_question(
 
 
 def test_forbidden_policy_strips_model_question_event(tmp_path: Path) -> None:
-    from argus.manager.directive import set_active_manager_directive
+    from argus.core.knob_store import write_persisted_knob
 
-    set_active_manager_directive(
-        tmp_path,
-        "continue without questions",
-        operator_question_policy="forbid",
-    )
+    write_persisted_knob("ARGUS_SKILL_OPERATOR_AVAILABLE", "0")
 
     class _UnavailableModel:
         def run_exec(self, **_kwargs) -> RunnerResult:

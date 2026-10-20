@@ -1035,13 +1035,9 @@ class _LateForbidQuestionRunner(_BlockedQuestionRunner):
         self.state_root = state_root
 
     def execute(self, **kwargs: Any) -> _Outcome:
-        from argus.manager.directive import set_active_manager_directive
+        from argus.core.knob_store import write_persisted_knob
 
-        set_active_manager_directive(
-            self.state_root,
-            "continue without questions",
-            operator_question_policy="forbid",
-        )
+        write_persisted_knob("ARGUS_SKILL_OPERATOR_AVAILABLE", "0")
         return super().execute(**kwargs)
 
 
@@ -1148,11 +1144,11 @@ class _TechnicalQuestionRunner:
         return outcome
 
 
-def test_pragmatic_autonomy_parks_explicit_operator_question_by_default(
+def test_explicit_operator_question_parks_while_the_operator_can_be_asked(
     tmp_path,
     monkeypatch,
 ) -> None:
-    monkeypatch.setenv("ARGUS_SKILL_AUTONOMY_MODE", "pragmatic")
+    monkeypatch.setenv("ARGUS_SKILL_OPERATOR_AVAILABLE", "true")
     mem = LifeMemory.open(tmp_path / "life")
     sink = _RecordingSink(mem.root)
     sup = LifeSupervisor(
@@ -1163,13 +1159,6 @@ def test_pragmatic_autonomy_parks_explicit_operator_question_by_default(
             budget=LifeBudget(max_missions=2),
             poll_interval_seconds=0.01,
         ),
-    )
-    project_root = tmp_path / "project-life"
-    seen_policy_roots: list[Path] = []
-    monkeypatch.setattr(sup, "_artifact_root", lambda: project_root)
-    monkeypatch.setattr(
-        "argus.manager.directive.active_operator_question_policy",
-        lambda root: seen_policy_roots.append(Path(root)) or "unchanged",
     )
     item = mem.backlog.add(BacklogItem.new(
         title="Choose the scope",
@@ -1184,24 +1173,14 @@ def test_pragmatic_autonomy_parks_explicit_operator_question_by_default(
     assert stored.pending_question == (
         "Should the benchmark use a smaller diagnostic shape?"
     )
-    assert seen_policy_roots == [project_root]
 
 
-@pytest.mark.parametrize("mode", ["pragmatic", "cautious"])
-def test_forbid_policy_replans_technical_question_without_pausing(
+def test_no_operator_replans_technical_question_without_pausing(
     tmp_path,
     monkeypatch,
-    mode,
 ) -> None:
-    from argus.manager.directive import set_active_manager_directive
-
-    monkeypatch.setenv("ARGUS_SKILL_AUTONOMY_MODE", mode)
+    monkeypatch.setenv("ARGUS_SKILL_OPERATOR_AVAILABLE", "false")
     mem = LifeMemory.open(tmp_path / "life")
-    set_active_manager_directive(
-        mem.root,
-        "continue without questions",
-        operator_question_policy="forbid",
-    )
     sink = _RecordingSink(mem.root)
     sup = LifeSupervisor(
         memory=mem,

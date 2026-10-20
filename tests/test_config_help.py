@@ -132,9 +132,6 @@ def test_format_shows_persisted_value_when_env_is_unset() -> None:
 def test_cockpit_value_normalization_is_typed() -> None:
     assert normalize_cockpit_knob_value("ARGUS_SKILL_MAX_ACTIVE_DAEMONS", "4") == "4"
     assert normalize_cockpit_knob_value("ARGUS_SKILL_SAFE_MODE", "enabled") == "1"
-    assert normalize_cockpit_knob_value(
-        "ARGUS_SKILL_AUTONOMY_MODE", "PRAGMATIC"
-    ) == "pragmatic"
     for raw, backend in (("COPILOT", "copilot"), ("CURSOR", "cursor"), ("opencod", "opencode"),
                          ("PI", "pi"), ("GROK", "grok"), ("QODER", "qoder"), ("DSH", "dsh")):
         assert normalize_cockpit_knob_value("ARGUS_SKILL_RUNNER_BACKEND", raw) == backend
@@ -145,8 +142,6 @@ def test_cockpit_value_normalization_is_typed() -> None:
         normalize_cockpit_knob_value("ARGUS_SKILL_RUNNER_BACKEND", "magic")
     with pytest.raises(ValueError, match="non-negative integer"):
         normalize_cockpit_knob_value("ARGUS_SKILL_MAX_ACTIVE_DAEMONS", "-1")
-    with pytest.raises(ValueError, match="cautious, pragmatic, or autonomous"):
-        normalize_cockpit_knob_value("ARGUS_SKILL_AUTONOMY_MODE", "reckless")
 
 
 def test_cockpit_path_knob_requires_an_absolute_path(tmp_path: Path) -> None:

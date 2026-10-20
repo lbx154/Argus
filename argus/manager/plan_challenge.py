@@ -30,7 +30,6 @@ def adjudicate_plan_challenge(
     reviewer_status: str = "",
     review_reason: str = "",
     next_action: str = "",
-    operator_question: str = "",
 ) -> PlanChallengeDecision:
     """Route a Reviewer challenge without promoting Planner prose to authority."""
     report = planner_report if isinstance(planner_report, Mapping) else {}
@@ -49,27 +48,15 @@ def adjudicate_plan_challenge(
             alternative=alternative,
             authority_impact=authority,
         )
-    if authority == "operator" or str(operator_question or "").strip():
-        from .plan_boundary import assess_plan_boundary
-
-        intervention = assess_plan_boundary(
-            question=(
-                str(operator_question or "").strip()
-                or challenge
-                or "Please decide this operator-owned constraint."
-            ),
-            reason=challenge,
-            next_action=alternative,
-            planner_report={"authority_impact": authority},
+    if authority == "operator":
+        # The Reviewer's own label decides; words in the challenge never do.
+        return PlanChallengeDecision(
+            action="ask_operator",
+            reason="Reviewer marked an operator-owned decision",
+            challenge=challenge,
+            alternative=alternative,
+            authority_impact="operator",
         )
-        if intervention.required:
-            return PlanChallengeDecision(
-                action="ask_operator",
-                reason=intervention.reason,
-                challenge=challenge,
-                alternative=alternative,
-                authority_impact="operator",
-            )
     if alternative:
         return PlanChallengeDecision(
             action="replace",

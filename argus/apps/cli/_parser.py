@@ -275,10 +275,7 @@ def build_parser() -> argparse.ArgumentParser:
         dest="operator_wait_exit",
         choices=("auto", "on", "off"),
         default="auto",
-        help="whether a bounded run whose only remaining work is an unanswered "
-             "operator question ends as 'blocked: needs operator' after "
-             "ARGUS_SKILL_BOUNDED_OPERATOR_WAIT_EXIT_MIN minutes. auto (default): "
-             "on for a foreground --daemon-fg --bounded run, off otherwise.",
+        help=argparse.SUPPRESS,  # retired; accepted so old launch scripts still run
     )
     daemon_grp.add_argument(
         "--mission-width",

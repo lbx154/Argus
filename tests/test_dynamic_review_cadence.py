@@ -268,21 +268,13 @@ def test_forbidden_engineer_question_becomes_autonomous_continuation(
 
 
 def test_inflight_forbid_takes_effect_at_engineer_boundary(tmp_path: Path) -> None:
-    from argus.manager.directive import set_active_manager_directive
+    from argus.core.knob_store import write_persisted_knob
 
-    set_active_manager_directive(
-        tmp_path,
-        "questions are currently allowed",
-        operator_question_policy="allow",
-    )
+    write_persisted_knob("ARGUS_SKILL_OPERATOR_AVAILABLE", "1")
     backend = MemoryBackend()
 
     def forbid_during_turn(_prompt, _options):
-        set_active_manager_directive(
-            tmp_path,
-            "do not ask further questions",
-            operator_question_policy="forbid",
-        )
+        write_persisted_knob("ARGUS_SKILL_OPERATOR_AVAILABLE", "0")
         return "NEXT_OWNER=operator\nOPERATOR_QUESTION=Can you configure Git?"
 
     backend.queue(
@@ -313,21 +305,13 @@ def test_inflight_forbid_takes_effect_at_engineer_boundary(tmp_path: Path) -> No
 
 
 def test_inflight_allow_reenables_engineer_question_boundary(tmp_path: Path) -> None:
-    from argus.manager.directive import set_active_manager_directive
+    from argus.core.knob_store import write_persisted_knob
 
-    set_active_manager_directive(
-        tmp_path,
-        "do not ask questions",
-        operator_question_policy="forbid",
-    )
+    write_persisted_knob("ARGUS_SKILL_OPERATOR_AVAILABLE", "0")
     backend = MemoryBackend()
 
     def allow_during_turn(_prompt, _options):
-        set_active_manager_directive(
-            tmp_path,
-            "questions are allowed again",
-            operator_question_policy="allow",
-        )
+        write_persisted_knob("ARGUS_SKILL_OPERATOR_AVAILABLE", "1")
         return (
             "NEXT_OWNER=operator\n"
             "OPERATOR_QUESTION=Is route A or B acceptable under the operator "

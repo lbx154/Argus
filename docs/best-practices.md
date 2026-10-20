@@ -70,8 +70,9 @@ batches. If those choices matter to you, say them.
 Things to avoid in an objective, and why:
 
 - **Work that needs your credentials, your money, or an irreversible or
-  public action.** Those are authority boundaries: whatever the autonomy
-  setting, a task that reaches one stops and asks. Put the credential in
+  public action.** Those are authority boundaries: a task that reaches one
+  stops and asks (or, while Argus cannot ask you, the Manager decides in your
+  place). Put the credential in
   place first (the cockpit accepts credentials and stores them in the
   capability vault) or keep the objective short of the boundary.
 - **A goal with no checkable end.** "Make it better" leaves the Reviewer
@@ -156,20 +157,14 @@ when a task is active and the text clearly redirects it does the second check
 turn it into a `STEER`. Questions, criticism and suggestions are not steering;
 if you mean "change course", say so in the imperative.
 
-When Argus stops on its own to ask you is governed by one setting:
-
-```bash
-export ARGUS_SKILL_AUTONOMY_MODE=pragmatic    # default
-```
-
-`pragmatic` recovers technical problems (a failed test, a timeout, a route
-that did not work) without asking and stops only at authority boundaries:
-credentials, payment or a bigger budget, deleting or force-pushing shared
-state, publishing or sending outward, and changes to an acceptance contract
-you own. `cautious` asks on every explicit question the Reviewer raises.
-`autonomous` still stops at those same boundaries; it only removes the
-remaining discretionary pauses. Pick `cautious` for the first run of a new
-vertical, when you want to see what it would have asked.
+Argus recovers technical problems (a failed test, a timeout, a route that did
+not work) without asking and stops only where the role raising the question
+says it needs you: credentials, payment or a bigger budget, an irreversible or
+outward-facing step, and changes to a scope you own. Whether it can ask you at
+all is one switch, `ARGUS_SKILL_OPERATOR_AVAILABLE`: `--no-operator` turns it
+off for one run, and telling the Manager "don't ask me" (or "you can ask me
+again") saves it. While it is off the Manager decides in your place and
+records each decision for the run report.
 
 Two real cases show what interjection looks like in practice.
 
@@ -308,7 +303,7 @@ It fits poorly when:
   check the work; it is not worth it for a throwaway.
 - **Finishing requires something only you can do.** Logging in somewhere,
   paying, publishing, deleting shared state, or approving a change to an
-  acceptance contract stops the task by design in every autonomy mode. Plan
+  acceptance contract stops the task by design. Plan
   the objective to end before that step, or do the step first.
 - **"Done" cannot be written down.** If you cannot state what the Reviewer
   should check, it will accept or refuse on its own reading, and rounds will

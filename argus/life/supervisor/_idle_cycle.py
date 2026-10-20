@@ -507,7 +507,6 @@ class IdleCycleMixin:
         Returns whether any card was resolved.
         """
         from ...core.autonomy import (
-            operator_available,
             operator_questions_can_be_asked,
             record_autonomous_assumption,
         )
@@ -518,11 +517,7 @@ class IdleCycleMixin:
         root = self._project_state_root()
         if not callable(resolver) or operator_questions_can_be_asked(root):
             return False
-        why = (
-            "The operator asked not to be asked"
-            if operator_available()
-            else "This run has no operator"
-        )
+        why = "The operator cannot be asked now"
         resolved = False
         for item in self.memory.backlog.active():
             card = item.operator_decision
@@ -652,40 +647,6 @@ class IdleCycleMixin:
         self._idle_since = None
         self._suggested_sleep_s = self._idle_backoff_seconds()
         return self._suggested_sleep_s
-
-    def _pending_operator_questions(self) -> list[str] | None:
-        """Open operator questions when they are the only thing left, else ``None``.
-
-        True of a backlog whose live items are all parked on an operator answer
-        (``paused_operator``) -- the Planner's own question included -- or
-        pending behind such an item, with nothing running or claimable.
-        An unreadable backlog is not evidence of anything, so it answers
-        ``None``.
-        """
-        try:
-            active = list(self.memory.backlog.active())
-        except Exception:  # noqa: BLE001 - an unreadable backlog is not a wait
-            return None
-        parked = [item for item in active if item.status == "paused_operator"]
-        blocked = {item.id for item in parked}
-        others = [item for item in active if item.id not in blocked]
-        grew = True
-        while grew:
-            grew = False
-            for item in others:
-                if (
-                    item.id not in blocked
-                    and item.status == "pending"
-                    and blocked.intersection(getattr(item, "deps", ()) or ())
-                ):
-                    blocked.add(item.id)
-                    grew = True
-        if any(item.id not in blocked for item in others) or not parked:
-            return None
-        return [
-            str(getattr(item, "pending_question", "") or item.title or "").strip()
-            for item in parked
-        ]
 
     def _maybe_idle_timeout(self) -> str:
         """``"idle_timeout"`` once a continuous daemon has been idle too long.

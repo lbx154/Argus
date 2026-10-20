@@ -4,20 +4,17 @@ import pytest
 
 from argus.core.autonomy import (
     assess_operator_intervention,
-    bounded_operator_wait_exit_seconds,
-    normalize_autonomy_mode,
     normalize_operator_need,
     operator_available,
     technical_continuation,
 )
 
 
-def test_pragmatic_mode_keeps_technical_choice_inside_argus() -> None:
+def test_technical_choice_stays_inside_argus() -> None:
     decision = assess_operator_intervention(
         question="Should the benchmark use a smaller diagnostic shape?",
         reason="The largest row timed out.",
         planner_report={"authority_impact": "technical"},
-        mode="pragmatic",
     )
 
     assert decision.required is False
@@ -28,7 +25,6 @@ def test_operator_owned_acceptance_change_still_asks() -> None:
     decision = assess_operator_intervention(
         question="Is fp16 precision loss acceptable?",
         planner_report={"authority_impact": "operator"},
-        mode="pragmatic",
     )
 
     assert decision.required is True
@@ -46,26 +42,23 @@ def test_words_in_the_question_never_decide_on_their_own() -> None:
     ):
         assert assess_operator_intervention(
             question=question,
-            mode="pragmatic",
             unclassified_requires_operator=False,
         ).required is False
         assert assess_operator_intervention(
             question=question,
-            mode="pragmatic",
             unclassified_requires_operator=True,
         ).required is True
 
 
-@pytest.mark.parametrize("mode", ["pragmatic", "autonomous"])
 def test_unclassified_questions_stay_with_the_team_unless_explicitly_handed_off(
-    monkeypatch, mode
+    monkeypatch,
 ) -> None:
     monkeypatch.setenv("ARGUS_SKILL_OPERATOR_AVAILABLE", "true")
-    decision = assess_operator_intervention(question="Ship it?", mode=mode)
+    decision = assess_operator_intervention(question="Ship it?")
     assert decision.required is False
     # Only the caller that saw an explicit hand-off asks for the fail-safe.
     assert assess_operator_intervention(
-        question="Ship it?", mode=mode, unclassified_requires_operator=True
+        question="Ship it?", unclassified_requires_operator=True
     ).required is True
 
 
@@ -75,7 +68,6 @@ def test_the_raising_roles_classification_decides(monkeypatch) -> None:
         decision = assess_operator_intervention(
             question="Which diagnostic should run next?",
             operator_need=need,
-            mode="pragmatic",
         )
         assert decision.required is True
         assert decision.operator_need == need
@@ -83,15 +75,14 @@ def test_the_raising_roles_classification_decides(monkeypatch) -> None:
     assert assess_operator_intervention(
         question="Ship it?",
         planner_report={"operator_need": "irreversible"},
-        mode="autonomous",
     ).required is True
     monkeypatch.setenv("ARGUS_SKILL_OPERATOR_AVAILABLE", "true")
     assert assess_operator_intervention(
-        question="Ship it?", operator_need="none", mode="pragmatic"
+        question="Ship it?", operator_need="none"
     ).required is False
 
 
-def test_autonomous_mode_still_sends_classified_action_needs_to_the_operator(
+def test_classified_action_needs_go_to_the_operator(
     monkeypatch,
 ) -> None:
     monkeypatch.setenv("ARGUS_SKILL_OPERATOR_AVAILABLE", "true")
@@ -99,20 +90,7 @@ def test_autonomous_mode_still_sends_classified_action_needs_to_the_operator(
         assert assess_operator_intervention(
             question="Proceed?",
             planner_report={"authority_impact": "technical", "operator_need": need},
-            mode="autonomous",
         ).required is True
-
-
-def test_cautious_mode_asks_on_every_question() -> None:
-    assert assess_operator_intervention(
-        question="Which diagnostic should run next?",
-        operator_need="none",
-        mode="cautious",
-    ).required is True
-
-
-def test_invalid_mode_defaults_to_pragmatic() -> None:
-    assert normalize_autonomy_mode("maximum-ish") == "pragmatic"
 
 
 @pytest.mark.parametrize(
@@ -148,28 +126,6 @@ def test_operator_availability_knob(value: str) -> None:
 def test_operator_is_available_by_default() -> None:
     assert operator_available(env={}) is True
     assert operator_available(env={"ARGUS_SKILL_OPERATOR_AVAILABLE": "true"}) is True
-
-
-def test_bounded_operator_wait_grace() -> None:
-    assert bounded_operator_wait_exit_seconds(
-        env={
-            "ARGUS_SKILL_OPERATOR_AVAILABLE": "true",
-            "ARGUS_SKILL_BOUNDED_OPERATOR_WAIT_EXIT_MIN": "5",
-        }
-    ) == 300.0
-    # 0 means wait indefinitely, for an operator who wants that.
-    assert bounded_operator_wait_exit_seconds(
-        env={
-            "ARGUS_SKILL_OPERATOR_AVAILABLE": "true",
-            "ARGUS_SKILL_BOUNDED_OPERATOR_WAIT_EXIT_MIN": "0",
-        }
-    ) < 0
-    assert bounded_operator_wait_exit_seconds(
-        env={
-            "ARGUS_SKILL_OPERATOR_AVAILABLE": "true",
-            "ARGUS_SKILL_BOUNDED_OPERATOR_WAIT_EXIT_MIN": "garbage",
-        }
-    ) == 30 * 60.0
 
 
 def test_technical_continuation_prefers_reviewers_concrete_action() -> None:

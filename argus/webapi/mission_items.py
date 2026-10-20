@@ -732,7 +732,9 @@ def role_model_pins(persisted: Mapping[str, str] | None = None) -> dict[str, str
 
 # Runner and model choices: what the operator saves wins over the deployment
 # environment the server was started with, which is only a default.
-_SAVED_OVER_DEPLOYMENT_ENV = frozenset({"ARGUS_SKILL_RUNNER_BACKEND", "ARGUS_SKILL_MODEL"})
+_SAVED_OVER_DEPLOYMENT_ENV = frozenset({
+    "ARGUS_SKILL_RUNNER_BACKEND", "ARGUS_SKILL_MODEL", "ARGUS_SKILL_OPERATOR_AVAILABLE",
+})
 
 
 def prefer_saved_over_deployment_env(env: MutableMapping[str, str] | None = None) -> list[str]:
@@ -846,6 +848,7 @@ def set_operator_config(
         "role_pins": role_model_pins(),
         "restart_required": env_name not in {
             "ARGUS_SKILL_LIGHT_MODEL", "ARGUS_SKILL_LIGHT_REASONING_EFFORT",
+            "ARGUS_SKILL_OPERATOR_AVAILABLE",
         },
     }
 

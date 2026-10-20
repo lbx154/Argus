@@ -168,7 +168,9 @@ not guess on the model's behalf whether there is progress. The full design is in
 - Done when: when the policy is "no questions", the Reviewer's tool description no longer says "ask the operator"; no
   code path waits for the operator or ends as "needs operator"; the Manager can answer only the cards handed to it;
   the delivery report lists each decision it took.
-- Status: the single policy and the Manager taking over the operator's authority are both in `dev`.
+- Status: the single policy and the Manager taking over the operator's authority are both in `dev`. The four ways to
+  say it (`AUTONOMY_MODE`, `--no-operator`, the front door's question policy, `--operator-wait-exit` with its 30-minute
+  timer) are now one switch, `ARGUS_SKILL_OPERATOR_AVAILABLE`; the text-matching boundary regex is gone.
 
 #### HO-7 Show the Reviewer a real diff
 `0.3` · `L` · Depends on: none

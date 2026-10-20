@@ -123,24 +123,11 @@ KNOBS: tuple[Knob, ...] = (
     # --- mission / lifecycle ---
     Knob("ARGUS_SKILL_MANAGER_HANDOFF_WAIT_SECONDS", "900", "foreground Manager wait for a safe task boundary (1-3600 seconds); never interrupts provider work", "mission", cockpit=True),
     Knob(
-        "ARGUS_SKILL_AUTONOMY_MODE",
-        "pragmatic",
-        "operator interruption policy: cautious | pragmatic | autonomous",
-        "mission",
-        cockpit=True,
-    ),
-    Knob(
         "ARGUS_SKILL_OPERATOR_AVAILABLE",
         "true",
-        "false declares that nobody can answer questions: the Manager holds the operator's authority, settles questions of meaning itself and decides every parked operator question in their place, recording each decision for the run report. Prefer --no-operator, which lasts for one run; a saved off value applies to every run until switched back on",
+        "whether Argus can ask you now. false: the Manager holds the operator's authority, settles questions of meaning itself and decides every parked operator question in your place, recording each decision for the run report. --no-operator turns it off for one run; telling the Manager not to ask (or to ask again) saves it for every run",
         "mission",
         cockpit=True,
-    ),
-    Knob(
-        "ARGUS_SKILL_BOUNDED_OPERATOR_WAIT_EXIT_MIN",
-        "30",
-        "minutes a bounded run whose only remaining work is an unanswered operator question waits before it ends as blocked: needs operator; 0 waits indefinitely; ignored while the operator cannot be asked, since the Manager then answers in their place",
-        "mission",
     ),
     Knob(
         "ARGUS_SKILL_RUNTIME_CANARY_COOLDOWN_MIN",
@@ -320,13 +307,6 @@ def normalize_cockpit_knob_value(name: str, value: str) -> str:
         if not 1 <= bounded_integer <= maximum:
             raise ValueError(f"{name} must be an integer from 1 to {maximum}")
         return str(bounded_integer)
-    if name == "ARGUS_SKILL_AUTONOMY_MODE":
-        mode = raw.lower()
-        if mode not in {"cautious", "pragmatic", "autonomous"}:
-            raise ValueError(
-                f"{name} must be cautious, pragmatic, or autonomous"
-            )
-        return mode
     if name in _NON_NEGATIVE_INT_KNOBS:
         try:
             number = int(raw)

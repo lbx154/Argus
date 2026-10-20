@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import os
 from types import SimpleNamespace
 
 import pytest
@@ -53,7 +54,7 @@ class _Manager:
             greeting_sink("你好，我是 Argus Manager。")
         if name_sink is not None:
             name_sink("test")
-        if self.control == "steer" and operator_question_policy_sink is not None:
+        if operator_question_policy_sink is not None:
             operator_question_policy_sink(self.operator_question_policy)
         return None, self.control, self.route
 
@@ -145,24 +146,24 @@ def test_front_door_wrapper_caches_standing_lifetime_for_steer() -> None:
     assert state["_frontdoor_lifetime"] == "standing"
 
 
-def test_front_door_wrapper_carries_structured_question_policy_for_steer() -> None:
-    state: dict = {}
+def test_front_door_question_policy_sets_the_one_operator_switch(monkeypatch) -> None:
+    from argus.core.autonomy import operator_available
+    from argus.core.knob_store import read_persisted_knobs
 
-    decision = _front_door_classify(
-        object(),
-        "continue without asking",
-        state,
-        ensure_runner=lambda *_args: SimpleNamespace(
-            manager=_Manager(
-                route="simple",
-                control="steer",
-                operator_question_policy="forbid",
-            )
-        ),
-    )
-
-    assert decision == (None, "steer", "simple")
-    assert state["_frontdoor_operator_question_policy"] == "forbid"
+    monkeypatch.setenv("ARGUS_SKILL_OPERATOR_AVAILABLE", "true")
+    for policy, available in (("forbid", False), ("unchanged", False), ("allow", True)):
+        decision = _front_door_classify(
+            object(),
+            "continue without asking",
+            {},
+            ensure_runner=lambda *_args, policy=policy: SimpleNamespace(
+                manager=_Manager(route="simple", operator_question_policy=policy)
+            ),
+        )
+        assert decision[2] == "simple"
+        assert operator_available() is available
+        assert "ARGUS_SKILL_OPERATOR_AVAILABLE" not in os.environ
+    assert read_persisted_knobs()["ARGUS_SKILL_OPERATOR_AVAILABLE"] == "1"
 
 
 def test_front_door_wrapper_carries_one_turn_greeting_reply() -> None:

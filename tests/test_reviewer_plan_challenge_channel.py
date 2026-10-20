@@ -124,7 +124,6 @@ def test_an_operator_owned_challenge_still_goes_back_to_the_operator() -> None:
     routed = adjudicate_plan_challenge(
         decision.planner_report,
         reviewer_status=decision.status,
-        operator_question=decision.operator_question,
     )
     assert routed.action == "ask_operator"
 

@@ -714,15 +714,13 @@ class SkillLoopExecuteMixin:
         config_kwargs["engineer_log_path"] = (
             str(_project_state_dir / "events.jsonl") if _project_state_dir is not None else ""
         )
-        from ..manager.directive import effective_operator_question_policy
+        from ..core.autonomy import operator_questions_can_be_asked
 
         explicit_operator_root = str(getattr(args, "operator_context_dir", "") or "").strip()
         operator_policy_root = (
             Path(explicit_operator_root).expanduser() if explicit_operator_root else _project_state_dir
         )
-        config_kwargs["operator_questions_allowed"] = (
-            effective_operator_question_policy(operator_policy_root) != "forbid"
-        )
+        config_kwargs["operator_questions_allowed"] = operator_questions_can_be_asked()
         config_kwargs["operator_question_policy_root"] = operator_policy_root
         # Only a LifeSupervisor mission carries a context packet, and every
         # one of those runs under the project's Manager.
@@ -1177,7 +1175,6 @@ class SkillLoopExecuteMixin:
                             getattr(_final_review, "reason", "") or ""
                         ),
                         next_action=final_review_next_action,
-                        operator_question=operator_question,
                     )
                 else:
                     from ..manager import adjudicate_plan_challenge
@@ -1189,7 +1186,6 @@ class SkillLoopExecuteMixin:
                             getattr(_final_review, "reason", "") or ""
                         ),
                         next_action=final_review_next_action,
-                        operator_question=operator_question,
                     )
                 if challenge_decision.action != "keep":
                     plan_challenge = {

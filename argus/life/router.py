@@ -605,11 +605,7 @@ def classify_front_door(
                 failure_sink,
             )
     question_policy = fields["operator_question_policy"].strip().lower()
-    if (
-        callable(operator_question_policy_sink)
-        and control == "steer"
-        and question_policy in {"allow", "forbid", "unchanged"}
-    ):
+    if callable(operator_question_policy_sink) and question_policy in {"allow", "forbid", "unchanged"}:
         try:
             operator_question_policy_sink(
                 cast(OperatorQuestionPolicy, question_policy)

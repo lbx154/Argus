@@ -10,7 +10,6 @@ from argus.manager.directive import (
     STEERING_HEADER,
     STEERING_LEDGER_FILENAME,
     active_manager_directive_message,
-    active_operator_question_policy,
     append_steering_directive,
     clear_active_manager_directive,
     load_active_manager_directive,
@@ -116,13 +115,13 @@ def test_malformed_directive_is_ignored(tmp_path: Path) -> None:
     assert load_active_manager_directive(tmp_path) is None
 
 
-def test_old_directive_defaults_to_unchanged_question_policy(tmp_path: Path) -> None:
+def test_old_directive_fields_are_ignored(tmp_path: Path) -> None:
     record = set_active_manager_directive(tmp_path, "continue the current route")
     payload = json.loads(
         (tmp_path / ACTIVE_MANAGER_DIRECTIVE_FILENAME).read_text(encoding="utf-8")
     )
-    payload.pop("operator_question_policy")
     payload.pop("authorized_objective")
+    payload["operator_question_policy"] = "forbid"  # retired field
     (tmp_path / ACTIVE_MANAGER_DIRECTIVE_FILENAME).write_text(
         json.dumps(payload),
         encoding="utf-8",
@@ -132,31 +131,7 @@ def test_old_directive_defaults_to_unchanged_question_policy(tmp_path: Path) -> 
 
     assert loaded is not None
     assert loaded.text == record.text
-    assert loaded.operator_question_policy == "unchanged"
-    assert active_operator_question_policy(tmp_path) == "unchanged"
-
-
-def test_question_policy_persists_and_can_be_explicitly_reenabled(
-    tmp_path: Path,
-) -> None:
-    forbidden = set_active_manager_directive(
-        tmp_path,
-        "continue without asking",
-        operator_question_policy="forbid",
-    )
-    assert forbidden.operator_question_policy == "forbid"
-    assert active_operator_question_policy(tmp_path) == "forbid"
-
-    inherited = set_active_manager_directive(tmp_path, "also run focused checks")
-    assert inherited.operator_question_policy == "forbid"
-
-    allowed = set_active_manager_directive(
-        tmp_path,
-        "questions are allowed again",
-        operator_question_policy="allow",
-    )
-    assert allowed.operator_question_policy == "allow"
-    assert active_operator_question_policy(tmp_path) == "allow"
+    assert not hasattr(loaded, "operator_question_policy")
 
 
 def test_standing_steer_authorizes_final_continuous_objective(tmp_path: Path) -> None:
@@ -176,11 +151,7 @@ def test_standing_steer_authorizes_final_continuous_objective(tmp_path: Path) ->
         objective="old bounded objective",
         open_ended=False,
     )
-    set_active_manager_directive(
-        tmp_path,
-        "existing no-question policy",
-        operator_question_policy="forbid",
-    )
+    set_active_manager_directive(tmp_path, "existing direction")
     memory = LifeMemory.open(tmp_path)
     active = memory.backlog.add(
         BacklogItem.new(
@@ -194,7 +165,6 @@ def test_standing_steer_authorizes_final_continuous_objective(tmp_path: Path) ->
     result = _handle_steer_control(
         {
             "_frontdoor_steering_directive": "continue autonomously",
-            "_frontdoor_operator_question_policy": "unchanged",
             "_frontdoor_lifetime": "standing",
         },
         tmp_path,
@@ -207,7 +177,6 @@ def test_standing_steer_authorizes_final_continuous_objective(tmp_path: Path) ->
     assert continuous.objective == "final standing objective"
     assert continuous.open_ended is True
     assert directive is not None
-    assert directive.operator_question_policy == "forbid"
     assert directive.objective == "old bounded objective"
     assert directive.authorized_objective == continuous.objective
     payload = json.loads(
@@ -248,7 +217,6 @@ def test_failed_standing_cas_keeps_directive_and_refreshes_chat_state(
 
     chat_state = {
         "_frontdoor_steering_directive": "replace the active direction",
-        "_frontdoor_operator_question_policy": "forbid",
         "_frontdoor_lifetime": "standing",
         "config": {"continuous": False},
         "continuous_objective": "stale cache",
@@ -264,7 +232,6 @@ def test_failed_standing_cas_keeps_directive_and_refreshes_chat_state(
     assert "方向已记录" in result["reply"]
     directive = load_active_manager_directive(tmp_path)
     assert directive is not None
-    assert directive.operator_question_policy == "forbid"
     assert chat_state["config"]["continuous"] is True
     assert chat_state["continuous_objective"] == "already standing"
     assert (tmp_path / "inbox.jsonl").exists()
@@ -312,7 +279,6 @@ def test_concurrent_replacement_steer_is_stale_and_not_queued(
     )
     chat_state = {
         "_frontdoor_steering_directive": "steer objective A",
-        "_frontdoor_operator_question_policy": "forbid",
         "_frontdoor_lifetime": "standing",
         "config": {"continuous": False},
         "continuous_objective": "stale cache",
@@ -335,98 +301,6 @@ def test_concurrent_replacement_steer_is_stale_and_not_queued(
     assert "steer objective A" in active_manager_directive_message(tmp_path)
     assert chat_state["config"]["continuous"] is True
     assert chat_state["continuous_objective"] == "objective B"
-
-
-def test_unchanged_policy_inheritance_stays_bound_to_captured_objective(
-    tmp_path: Path,
-    monkeypatch,
-) -> None:
-    from argus.daemon import state as daemon_state
-    from argus.manager import directive as directive_module
-    from argus.webapi.manager_dispatch import (
-        _handle_steer_control,
-        _TurnEmitter,
-    )
-
-    daemon_state.write_continuous_config(
-        tmp_path,
-        enabled=True,
-        objective="objective A",
-        open_ended=False,
-    )
-    set_active_manager_directive(
-        tmp_path,
-        "objective A policy",
-        operator_question_policy="forbid",
-    )
-    original_policy = directive_module.active_operator_question_policy
-
-    def replace_objective_after_inheritance(
-        state_root,
-        *,
-        expected_objective=None,
-    ):
-        policy = original_policy(
-            state_root,
-            expected_objective=expected_objective,
-        )
-        daemon_state.write_continuous_config(
-            tmp_path,
-            enabled=True,
-            objective="objective B",
-            open_ended=False,
-        )
-        return policy
-
-    monkeypatch.setattr(
-        directive_module,
-        "active_operator_question_policy",
-        replace_objective_after_inheritance,
-    )
-
-    result = _handle_steer_control(
-        {
-            "_frontdoor_steering_directive": "continue the captured objective",
-            "_frontdoor_operator_question_policy": "unchanged",
-            "_frontdoor_lifetime": "bounded",
-        },
-        tmp_path,
-        _TurnEmitter(tmp_path, "turn-inheritance-race", lambda *_args: None),
-    )
-
-    payload = json.loads(
-        (tmp_path / ACTIVE_MANAGER_DIRECTIVE_FILENAME).read_text(encoding="utf-8")
-    )
-    assert result["control"] == "steer"
-    assert payload["operator_question_policy"] == "forbid"
-    assert payload["objective"] == "objective A"
-    assert load_active_manager_directive(tmp_path) is None
-    assert (
-        active_operator_question_policy(
-            tmp_path,
-            expected_objective="objective A",
-        )
-        == "forbid"
-    )
-    assert (
-        active_operator_question_policy(
-            tmp_path,
-            expected_objective="objective B",
-        )
-        == "unchanged"
-    )
-    assert (
-        active_operator_question_policy(
-            tmp_path,
-            expected_objective="",
-        )
-        == "unchanged"
-    )
-    assert (tmp_path / "inbox.jsonl").exists()
-    standing = active_manager_directive_message(tmp_path)
-    assert "objective A policy" in standing
-    assert "continue the captured objective" in standing
-    assert "OBJECTIVE.md changed on" in standing
 
 
 def test_directive_write_failure_happens_before_standing_cas(

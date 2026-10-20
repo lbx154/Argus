@@ -125,11 +125,6 @@ def _maybe_consolidate(rf_state: Any, config: Any) -> None:
         log.exception("daemon: knowledge consolidation failed")
 
 
-def _bounded_operator_wait_text(questions: list[str]) -> str:
-    shown = "; ".join(question[:300] for question in questions if question)[:900]
-    return "blocked: needs operator" + (f" — {shown}" if shown else "")
-
-
 class LifeWorkerRunMixin:
     """``run_forever``'s post-boot phases: main loop and shutdown."""
 
@@ -247,81 +242,6 @@ class LifeWorkerRunMixin:
             recovered.append(item.id)
             log.warning("daemon: requeued stalled running item %s", item.id)
         return recovered
-
-    def _bounded_operator_wait_expired(
-        self, supervisors: Any, *, enabled: bool = True
-    ) -> bool:
-        """End a bounded run that has nothing left but an unanswered question.
-
-        Applies only to a foreground CLI/harness bounded run
-        (``operator_wait_exit``; grace from
-        ``ARGUS_SKILL_BOUNDED_OPERATOR_WAIT_EXIT_MIN``). Workers the web
-        cockpit starts keep waiting for the answer in the UI. While the
-        operator cannot be asked the Manager answers in their place; it is the
-        top of the ladder, so a question it has not settled within the same
-        grace ends the run the same way. On exit the run records
-        ``blocked: needs operator``; the question and the parked work stay on
-        disk, and ``argus --answer`` restarts the worker. This is about not
-        hanging; it never caps work that is still running.
-        """
-        from ..core.autonomy import OPERATOR_WAIT_EXIT_FILENAME, bounded_operator_wait_exit_seconds
-
-        supervisor = next(iter(supervisors or ()), None)
-        state_root = getattr(supervisor, "_project_state_root", None)
-        root = (
-            state_root()
-            if callable(state_root)
-            else getattr(getattr(supervisor, "memory", None), "root", None)
-        )
-        probe = getattr(supervisor, "_pending_operator_questions", None)
-        questions = probe() if enabled and callable(probe) else None
-        if questions is None:
-            self._operator_wait_since = None
-            return False
-        now = time.monotonic()
-        since = getattr(self, "_operator_wait_since", None)
-        if since is None:
-            since = now
-            self._operator_wait_since = since
-        grace = bounded_operator_wait_exit_seconds()
-        if grace < 0 or now - since < grace:
-            return False
-        text = _bounded_operator_wait_text(questions)
-        log.warning("daemon: bounded run %s; exiting (answer to continue)", text)
-        emit = getattr(supervisor, "_emit", None)
-        status = getattr(supervisor, "_emit_status", None)
-        try:
-            if root is not None:
-                import json as _json
-
-                (Path(root) / OPERATOR_WAIT_EXIT_FILENAME).write_text(
-                    _json.dumps(
-                        {
-                            "outcome": "blocked: needs operator",
-                            "questions": questions,
-                            "waited_seconds": round(now - since, 1),
-                            "ts": time.time(),
-                        },
-                        ensure_ascii=False,
-                    )
-                    + "\n",
-                    encoding="utf-8",
-                )
-            if callable(emit):
-                from ..core.event_catalog import EventType
-
-                emit({
-                    "type": EventType.LIFE_LIFECYCLE_BLOCK,
-                    "lifecycle_state": "needs_operator",
-                    "reason": text,
-                    "text": text,
-                    "agent_layer": "manager",
-                })
-            if callable(status):
-                status(text + " (answer it with argus --answer to continue)")
-        except Exception:  # noqa: BLE001 - the exit itself must still happen
-            log.exception("daemon: could not record the operator-wait outcome")
-        return True
 
     def _run_supervisor_pass(self, supervisor: Any) -> dict:
         worker_id = str(
@@ -706,18 +626,6 @@ class LifeWorkerRunMixin:
         # Each worker is one run: assumptions and operator-only blocks from an
         # earlier run of this project are not reported again.
         start_autonomy_run()
-        self._operator_wait_passes = 0
-        # A running worker makes an earlier "ended waiting for the operator"
-        # marker stale.
-        from ..core.autonomy import clear_operator_wait_marker
-
-        for supervisor in getattr(rf_state, "supervisors", None) or [rf_state.sup]:
-            state_root = getattr(supervisor, "_project_state_root", None)
-            if callable(state_root):
-                try:
-                    clear_operator_wait_marker(state_root())
-                except Exception:  # noqa: BLE001 - a stale marker is harmless
-                    pass
         from ..core import call_guard
 
         call_guard.enable(
@@ -813,13 +721,6 @@ class LifeWorkerRunMixin:
                                 circuit.get("exception_type") or "error",
                                 circuit.get("callsite") or "unknown callsite",
                             )
-                            break
-                        if self._bounded_operator_wait_expired(
-                            supervisors,
-                            enabled=bool(
-                                getattr(rf_state.cfg, "operator_wait_exit", False)
-                            ),
-                        ):
                             break
                     # Idle auto-exit: the supervisor judged the project idle past
                     # the cap. Exit the loop so the process shuts down cleanly

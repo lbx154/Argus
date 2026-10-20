@@ -76,9 +76,9 @@ class PlanningCycleVerdictMixin:
         """Make an exhausted empty plan visible instead of silently backing off."""
         verdict = state.verdict
         reason = str(verdict.reason or verdict.error or "").strip()
-        from ...manager.directive import effective_operator_question_policy
+        from ...core.autonomy import operator_questions_can_be_asked
 
-        if effective_operator_question_policy(self.memory.root) == "forbid":
+        if not operator_questions_can_be_asked():
             self._emit({
                 "type": EventType.LIFE_PLANNER_ERROR,
                 "cycle": self._planning_cycles,

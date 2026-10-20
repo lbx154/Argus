@@ -501,44 +501,26 @@ class LifeSupervisor(
         if action not in {"keep", "revise", "replace", "ask_operator"}:
             action = "revise"
         if action == "ask_operator":
-            from ...manager.directive import effective_operator_question_policy
+            from ...core.autonomy import operator_questions_can_be_asked
 
-            if effective_operator_question_policy(self.memory.root) == "forbid":
+            if not operator_questions_can_be_asked():
                 from ...core.autonomy import (
                     AUTONOMOUS_ASSUMPTION_INSTRUCTION,
                     OPERATOR_ACTION_NEEDS,
                     normalize_operator_need,
                     record_autonomous_assumption,
                 )
-                from ...manager.plan_boundary import assess_plan_boundary
 
-                reviewer_alternative = str(
-                    challenge.get("alternative") or ""
-                ).strip()
-                # dev's own boundary check, unchanged.
-                boundary = assess_plan_boundary(
-                    question=str(
-                        challenge.get("operator_question")
-                        or outcome.get("operator_question")
-                        or challenge.get("challenge")
-                        or outcome.get("review_reason")
-                        or ""
-                    ),
-                    reason=str(challenge.get("challenge") or ""),
-                    next_action=reviewer_alternative,
-                    planner_report={},
-                    mode="autonomous",
-                )
                 need = normalize_operator_need(
                     challenge.get("operator_need")
                     or (report.get("operator_need") if isinstance(report, dict) else "")
                 )
                 # The operator cannot be asked, so the Manager holds their
-                # authority. Crossing an operator-owned boundary, or an action
-                # only they could approve, stays a question that the Manager
-                # decides in their place once it is parked. Anything else the
-                # Manager settles here, on the most defensible reading.
-                if not (boundary.required or need in OPERATOR_ACTION_NEEDS):
+                # authority. An action only they could approve stays a
+                # question that the Manager decides in their place once it is
+                # parked. Anything else the Manager settles here, on the most
+                # defensible reading.
+                if need not in OPERATOR_ACTION_NEEDS:
                     action = "revise"
                     challenge["manager_reason"] = (
                         "The operator cannot be asked, so the Manager settles the "
