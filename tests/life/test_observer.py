@@ -1,7 +1,7 @@
 """The Observer glances at how the work flows and speaks up only when it does not.
 
-Each time another role ends a turn it reads the task's events with read-only
-tools, in a fresh session, says nothing when the flow is fine, and otherwise
+Each time another role ends a turn it reads the task's events with the
+Engineer's tools, in a fresh session, says nothing when the flow is fine, and otherwise
 gives the Manager one remark through its supervision; with no Manager, or once
 the task is delivered, the operator gets an alert. A look that fails is skipped
 and never holds up the work.
@@ -19,7 +19,7 @@ from argus.core.event_catalog import EventType
 from argus.core.models import RunnerResult
 from argus.life import observer
 from argus.life.event_log import JsonlEventSink
-from argus.life.memory import LifeMemory
+from argus.life.memory import BacklogItem, LifeMemory
 from argus.life.observer import remarks
 from argus.life.supervisor import LifeSupervisor, LifeSupervisorConfig
 from argus.manager import supervision
@@ -122,6 +122,30 @@ def test_each_turn_another_role_ends_is_looked_at_once(team):
     assert "- the Planner, planning for the whole project, at " in planner
 
 
+def _skipped(team) -> None:
+    """The Planner's call is skipped: nothing it reads has changed."""
+    team.supervisor._emit({"type": EventType.LIFE_PLANNER_IDLE, "reason": "unchanged", "model_call_skipped": True})
+    _settle(team)
+
+
+def test_a_team_that_goes_still_is_looked_at_once_each_time(team):
+    """A still team writes nothing more, so no ended turn would ever wake the Observer."""
+    _skipped(team)
+    _skipped(team)
+    assert len(team.backend.calls) == 1
+    assert "then the team went still: nothing runs and the Planner was not called" in team.backend.calls[0]["prompt"]
+    _turn(team, "planner")
+    _skipped(team)
+    assert len(team.backend.calls) == 3
+
+
+def test_a_skipped_planner_beside_running_work_is_not_stillness(team):
+    backlog = team.supervisor.memory.backlog
+    backlog.update(backlog.add(BacklogItem.new(title="Train", objective="Train the model")).id, status="running")
+    _skipped(team)
+    assert team.backend.calls == []
+
+
 def test_only_the_engineer_reviewer_and_planner_wake_it(team):
     team.supervisor._emit({"type": EventType.LIFE_OBSERVER_NOTE, "agent_layer": "observer", "to": "manager", "text": "x"})
     _ends(team, "manager")
@@ -129,10 +153,12 @@ def test_only_the_engineer_reviewer_and_planner_wake_it(team):
     assert team.backend.calls == []
 
 
-def test_a_look_reads_only_the_events_with_read_only_tools_at_low_effort(team, monkeypatch):
+def test_a_look_reads_the_events_with_the_engineer_s_access_at_low_effort(team, monkeypatch):
     _turn(team)
     call = team.backend.calls[0]
-    assert call["label"] == "observer" and call["options"].sandbox_mode == "read-only"
+    options = call["options"]
+    assert call["label"] == "observer" and options.full_auto and options.sandbox_mode is None
+    assert not options.force_safe_mode and not options.dangerous_yolo
     assert (call["options"].model, call["options"].reasoning_effort) == ("reviewer-model", "low")
     assert f"`{team.root / 'events.jsonl'}`" in call["prompt"] and "agent_io" not in call["prompt"]
     monkeypatch.setenv("ARGUS_SKILL_OBSERVER_MODEL", "observer-model")

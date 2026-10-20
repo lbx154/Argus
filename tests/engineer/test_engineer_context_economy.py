@@ -17,7 +17,6 @@ from argus.agent_cli.agent_cli_runner import AgentCliRunner
 from argus.agent_cli.agent_cli_runner import RunnerOptions as CliOptions
 from argus.core.models import RunnerOptions
 from argus.engineer.checkpoint import shared_checkpoint_instructions
-from argus.engineer.round_config import EngineerConfig
 from argus.life.context_packet import render_mission_brief
 from argus.skills.role_library import role_skill_libraries
 from argus.skills.store import SkillStore
@@ -75,13 +74,6 @@ def test_lean_surface_reaches_the_copilot_command_through_the_backend() -> None:
     )
     assert any(arg.startswith("--excluded-tools=") for arg in command)
     assert "--disable-builtin-mcps" not in command
-
-
-def test_engineer_asks_for_the_lean_surface_by_default(monkeypatch) -> None:
-    monkeypatch.delenv("ARGUS_SKILL_ENGINEER_LEAN_TOOLS", raising=False)
-    assert EngineerConfig(model="m").lean_tool_surface is True
-    monkeypatch.setenv("ARGUS_SKILL_ENGINEER_LEAN_TOOLS", "false")
-    assert EngineerConfig(model="m").lean_tool_surface is False
 
 
 # ── Skill discovery ──────────────────────────────────────────────────────────

@@ -27,8 +27,9 @@ them is what makes an objective good:
 3. **The Planner** decomposes it into tasks, each with an acceptance check.
    What you leave unsaid, it will decide for you.
 4. **The Reviewer** judges every round against it and against the vertical's
-   stage checklist. The Reviewer runs read-only and cannot ask the Engineer;
-   it can only check what the objective and the work directory let it check.
+   stage checklist. The Reviewer has the Engineer's tools but cannot ask the
+   Engineer; it can only check what the objective and the work directory let
+   it check.
 
 So an objective should say what must be true at the end, what evidence you
 will accept, what the scope and constraints are, and what form the result
@@ -233,10 +234,9 @@ the Engineer's would have changed everything.
 
 The same ledger explains where the money goes: 33.9 million input tokens
 against 0.3 million output tokens after two hours. Long tool-using rounds
-re-read context, which is why Argus by default sends the full task text only
-on the first round of a session (`ARGUS_SKILL_COMPACT_CONTINUATION_PROMPTS`),
-why the Engineer's agent CLI runs without the few tools of its own that it
-never uses (`ARGUS_SKILL_ENGINEER_LEAN_TOOLS`), and why a precise objective
+re-read context, which is why Argus sends the full task text only on the
+first round of a session, why the Engineer's agent CLI runs without the few
+tools of its own that it never uses, and why a precise objective
 with the evidence already in the work directory costs less than a vague one
 that makes the Engineer explore.
 
@@ -308,10 +308,9 @@ It fits poorly when:
 - **"Done" cannot be written down.** If you cannot state what the Reviewer
   should check, it will accept or refuse on its own reading, and rounds will
   continue until a cap.
-- **The evidence lives somewhere the roles cannot reach.** The Reviewer is
-  read-only and works from the work directory and the paths you allow
-  (`ARGUS_SKILL_REVIEWER_READ_DIRS`); a result that only exists in a service it
-  cannot query cannot be certified.
+- **The evidence lives somewhere the roles cannot reach.** The Reviewer has
+  the Engineer's access and nothing more; a result that only exists in a
+  service it cannot query cannot be certified.
 
 A useful test before you start: write the sentence the Reviewer should be
 able to say at the end ("the README reports the maximum error against the

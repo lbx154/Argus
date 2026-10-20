@@ -486,6 +486,7 @@ export interface RoundReviewCompletedEvent extends EventMsg {
   "learning"?: "worth_reflecting" | "nothing_new";
   "learning_reason"?: string;
   "interventions"?: Array<Record<string, unknown>>;
+  "changed_during_review"?: Array<string>;
 }
 
 export interface RoundSecretRedactedEvent extends EventMsg {

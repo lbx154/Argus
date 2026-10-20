@@ -21,13 +21,6 @@ from typing import Any
 from ..core.knobs import env_int
 
 _RUNNER_STALLED_IDLE_ENV = "ARGUS_SKILL_RUNNER_STALLED_IDLE_SECONDS"
-_COMPACT_CONTINUATION_PROMPTS_ENV = "ARGUS_SKILL_COMPACT_CONTINUATION_PROMPTS"
-_ENGINEER_FULL_ROUND_POLICY_ENV = "ARGUS_SKILL_ENGINEER_FULL_ROUND_POLICY"
-#: ``session`` re-sends the full static task text only to a provider session
-#: that cannot already hold it; ``legacy`` also re-sends it on every round 1
-#: (the historical behavior, kept for rollback).
-ENGINEER_FULL_ROUND_POLICIES = frozenset({"session", "legacy"})
-_ENGINEER_LEAN_TOOLS_ENV = "ARGUS_SKILL_ENGINEER_LEAN_TOOLS"
 _NARRATIVE_REVIEW_ENFORCEMENT_ENV = "ARGUS_SKILL_NARRATIVE_REVIEW_ENFORCEMENT"
 _CONTINUE_WORK_SENTINEL = "CONTINUE_WORK:"
 _CONTINUE_WORK_MAX_CHARS = 500
@@ -71,33 +64,9 @@ HOST_PLACEHOLDER_REVIEW_SOURCES = frozenset(
 )
 
 
-def _env_bool(name: str, default: bool) -> bool:
-    raw = os.environ.get(name)
-    if raw is None or raw.strip() == "":
-        return default
-    return raw.strip().lower() in {"1", "true", "yes", "y", "on"}
-
-
 def _narrative_review_enforcement() -> str:
     raw = os.environ.get(_NARRATIVE_REVIEW_ENFORCEMENT_ENV, "shadow")
     return "blocking" if raw.strip().lower() == "blocking" else "shadow"
-
-
-def configured_engineer_full_round_policy() -> str:
-    """Which Engineer rounds re-send the full static task text.
-
-    A provider session receives the full text on the round that creates it,
-    so ``session`` (the default) re-sends it only when the session cannot
-    already hold the current terms: a newly created or rotated session, a
-    fresh-only policy, a stage that changed since the last full prompt, or a
-    first round whose resumed session has no sealed prior round for this
-    mission. ``legacy`` additionally re-sends it on every round 1 — the
-    historical behavior, kept for rollback. Anything else falls back to
-    ``session``, same shape as ``_narrative_review_enforcement`` above:
-    prompt-mode selection must never break a round over a typo.
-    """
-    raw = os.environ.get(_ENGINEER_FULL_ROUND_POLICY_ENV, "").strip().lower()
-    return raw if raw in ENGINEER_FULL_ROUND_POLICIES else "session"
 
 
 def parse_continue_work_request(message: str | None) -> str | None:
@@ -135,14 +104,6 @@ class EngineerConfig:
     dangerous_yolo: bool = False
     sandbox_mode: str | None = None
     isolate_workdir: bool = False
-    # Leave out the agent CLI's own tools the Engineer does not use (for
-    # Copilot CLI: the session SQL database and the CLI self-documentation
-    # tool). Their schemas and notes are resent on every tool step; the
-    # Engineer keeps state in CHECKPOINT.md. Built-in MCP servers stay.
-    lean_tool_surface: bool = field(
-        default_factory=lambda: _env_bool(_ENGINEER_LEAN_TOOLS_ENV, True),
-        kw_only=True,
-    )
     # Public, historical caller configuration for pipeline stages in which the
     # engineer runs with codex's native live web_search enabled
     # (``codex exec --search``). The value and type of this default are part of
@@ -252,25 +213,9 @@ class SupervisedConfig:
     # Keep the historical reviewed loop by default. Planner-classified
     # low-risk bounded work may opt into an Engineer self-review completion.
     require_independent_review: bool = True
-    # Round 1 receives the full task/skill contract. Continuation rounds use
-    # Reviewer guidance plus the shared CHECKPOINT.md baton.
-    compact_continuation_prompts: bool = field(
-        default_factory=lambda: _env_bool(_COMPACT_CONTINUATION_PROMPTS_ENV, True)
-    )
-    # When a round must re-send that full contract rather than the compact
-    # continuation: see ``configured_engineer_full_round_policy``. ``legacy``
-    # restores the historical round-1-always-full behavior.
-    engineer_full_round_policy: str = field(
-        default_factory=configured_engineer_full_round_policy
-    )
     backend_failure_threshold: int = 2
     backend_failure_backoff_seconds: float = 15.0
     session_id: str | None = None
-    # Read only by round_reviewer.py; nothing rotates on them. Delete them with
-    # that call site.
-    role_session_policy: str = "auto"
-    role_session_max_turns: int = 0
-    role_session_max_input_tokens: int = 0
     role_session_dir: Path | None = None
     # Absolute path to THIS mission's engineer execution log (the per-project
     # ``<life_dir>/events.jsonl``). The reviewer runs in the project work-tree
@@ -305,10 +250,3 @@ class SupervisedConfig:
     )
     operator_questions_allowed: bool = True
     operator_question_policy_root: Path | None = None
-    # A Manager supervises this run (daemon and LifeSupervisor missions): each
-    # review event names where its periodic look finds the facts it last held.
-    manager_supervised: bool = False
-
-    def __post_init__(self) -> None:
-        if self.engineer_full_round_policy not in ENGINEER_FULL_ROUND_POLICIES:
-            raise ValueError("engineer_full_round_policy must be session or legacy")

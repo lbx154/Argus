@@ -68,7 +68,7 @@ UI. It does not call a model API itself; it drives one of the coding-agent CLIs
 you already use (Copilot, Codex, Claude Code, Cursor, Pi, OpenCode, Grok, Qoder,
 DeepSeek Harness) and lets four roles share it: a Manager that routes your
 message, a Planner that decides the next task, an Engineer that does the work,
-and a read-only Reviewer that decides whether the work is done.
+and a Reviewer, with the Engineer's tools, that decides whether the work is done.
 
 Two things follow from that design and explain most of what you will see:
 

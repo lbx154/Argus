@@ -26,8 +26,6 @@ from __future__ import annotations
 
 import json
 
-import pytest
-
 from argus.reviewer import Reviewer
 from argus.roles.prompts import reviewer as reviewer_prompt
 from argus.roles.task_contract import NATIVE_WINDOWS_SHELL_SUMMARY
@@ -83,6 +81,9 @@ _TASK_OWNED_BLOCKS = (
 # fixture conditions live in the action tool descriptions, not here. Measured
 # at 5_658 (5_694 on Windows); the others at 5_371 and 5_463. No headroom is
 # left on Windows: re-compress before adding prose.
+#
+# The read-only forms then went: every Reviewer has the Engineer's tools and
+# gets the executing form alone. Measured at 5_198.
 FIXED_PROSE_BUDGET = 5_700
 
 
@@ -93,7 +94,7 @@ def _fixed_prose_chars(reviewer: Reviewer) -> int:
     return stats["static_total"]["chars"] - task_owned
 
 
-def _build(monkeypatch, evidence_mode: str = "") -> tuple[str, Reviewer]:
+def _build(monkeypatch) -> tuple[str, Reviewer]:
     r = Reviewer(runner=None, skill_store=None)
     prompt = r._build_prompt(
         objective="minimize cand_ms on the kernel",
@@ -104,7 +105,6 @@ def _build(monkeypatch, evidence_mode: str = "") -> tuple[str, Reviewer]:
         main_summary="HANDOFF: tried X. RESULT correct=true cand_ms=0.5",
         main_error=None,
         prior_checkpoint={},
-        evidence_mode=evidence_mode,
     )
     return prompt, r
 
@@ -132,23 +132,6 @@ def test_fixed_contract_prose_within_budget(monkeypatch):
         "examples) rather than raising this cap, unless a genuinely new "
         "contract block was deliberately added — and say which, here."
     )
-
-
-@pytest.mark.parametrize("mode", ["execute", "recorded", "read"])
-def test_every_evidence_form_fits_the_budget(monkeypatch, mode):
-    _prompt_text, reviewer = _build(monkeypatch=monkeypatch, evidence_mode=mode)
-    assert _fixed_prose_chars(reviewer) < FIXED_PROSE_BUDGET
-
-
-@pytest.mark.parametrize("mode", ["execute", "recorded", "read"])
-def test_windows_fixed_contract_prose_within_budget_for_every_form(monkeypatch, mode):
-    monkeypatch.setattr(
-        reviewer_prompt,
-        "native_shell_summary",
-        lambda: NATIVE_WINDOWS_SHELL_SUMMARY,
-    )
-    _prompt_text, reviewer = _build(monkeypatch=monkeypatch, evidence_mode=mode)
-    assert _fixed_prose_chars(reviewer) < FIXED_PROSE_BUDGET
 
 
 def test_windows_fixed_contract_prose_within_budget(monkeypatch):

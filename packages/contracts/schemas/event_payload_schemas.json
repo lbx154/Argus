@@ -1779,6 +1779,12 @@
           "items": {
             "type": "object"
           }
+        },
+        "changed_during_review": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
         }
       }
     },

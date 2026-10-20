@@ -135,7 +135,7 @@ def test_reviewer_runner_receives_configured_working_dir(tmp_path: Path) -> None
     assert options.working_dir == str(tmp_path)
     assert options.dangerous_yolo is False
     assert options.full_auto is False
-    assert options.sandbox_mode == "read-only"
+    assert options.sandbox_mode is None and not options.force_safe_mode
 
 
 def test_matching_resume_request_sends_delta_only() -> None:

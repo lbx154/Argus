@@ -124,6 +124,9 @@ not guess on the model's behalf whether there is progress. The full design is in
   replaying old logs through HO-1 shows the share of wasted reviews going down.
 - Split into: HO-2a define "change"; HO-2b check before the call and record the event; HO-2c the web page shows "waiting
   for results, not reviewing again"; HO-2d tests.
+- Status: dropped. The Engineer now waits for its own jobs inside its turn and hands over only after they finish, so a
+  review in the middle of a running job no longer happens; the change-facts ledger that skipped the Reviewer is gone.
+  Old `holders.json` files under mission lineages and old skip events are ignored.
 
 #### HO-3 Hand problems the Reviewer can't judge to whoever can solve them
 `0.2` · `M` · Depends on: none
@@ -131,12 +134,10 @@ not guess on the model's behalf whether there is progress. The full design is in
   who is just as stuck, and the two spin in circles (17 of the 59).
 - Do: let the Reviewer report an obstacle to the system (missing permission, missing tool) or to the owner of the
   contract (requirements that contradict each other), handing it on with `→ manager`; in that case, do not
-  rerun the Engineer. Let a domain declare "does review at this stage need to run code itself": if yes, turn on the
-  existing read-only validation sandbox; if no, remove the rerun demands from the prompt.
+  rerun the Engineer. The Reviewer now has the Engineer's tools, so it runs code itself wherever review needs it.
 - Done when: in tests, after the Reviewer reports it cannot read files, the task goes to escalation with no further
-  Engineer round; at stages that need execution, the Reviewer starts with the sandbox.
-- Split into: HO-3a the report action; HO-3b the domain declaration; HO-3c wiring in the sandbox; HO-3d cleaning up the
-  prompts.
+  Engineer round.
+- Split into: HO-3a the report action; HO-3b cleaning up the prompts.
 
 #### HO-4 The Reviewer wrote a paragraph but didn't press "submit"
 `0.2` · `S` · Depends on: none · good first issue
@@ -303,8 +304,8 @@ not guess on the model's behalf whether there is progress. The full design is in
 - Today: nobody notices when a role goes round in circles, a wait drags on with nobody moving, the work drifts off
   the task, or money goes out faster than anything changes, unless someone happens to read the project logs. On the
   live trial that someone was Claude Code, which found the Planner idling every five minutes.
-- Do: an Observer role (`observer` in code, shown as 监督者) on the same backends as the others, with the Reviewer's
-  read-only tools and low reasoning effort. It watches only whether the work flows; whether the work is right stays
+- Do: an Observer role (`observer` in code, shown as 监督者) on the same backends as the others, with the Engineer's
+  tools and low reasoning effort. It watches only whether the work flows; whether the work is right stays
   the Reviewer's to judge. Each time the Engineer, Reviewer or Planner ends a turn (each model call of theirs ends
   one; a delivery ends a turn, so it is covered) it looks once, in a fresh session, at how that task has flowed so
   far: who held the baton and whom it passed to, how long each turn took and what it cost, a role called again and
@@ -541,8 +542,8 @@ rejects is measured, and public.
 
 #### SC-5 The Reviewer reruns one key number itself
 `0.3` · `L` · Depends on: HO-3
-- Do: turn on the read-only validation sandbox at the certify stage, and have the Reviewer rerun at least one number that
-  supports the main conclusion.
+- Do: at the certify stage, have the Reviewer rerun, with its own tools, at least one number that supports the main
+  conclusion.
 
 #### SC-6 Certify-level conclusions come with a one-command rerun package
 `0.8` · `L` · Depends on: HO-7, SC-5

@@ -372,7 +372,8 @@ class PlanningCycleMixin(
         Each request is put to the Manager once per stage; the same request
         returned unchanged is recorded, not adjudicated again. The Manager alone
         decides HOLD versus ROLLBACK, and a HOLD's reason reaches the Planner
-        as feedback for its next turn.
+        as feedback for its next turn. ``"unanswered"`` means the Manager's
+        backend gave no answer and the request is still open.
         """
         if getattr(verdict, "handoff", "") != "manager" or verdict.project_done:
             return ""
@@ -409,14 +410,18 @@ class PlanningCycleMixin(
             "diagnostic": decision.diagnostic,
             "trigger": "planner_handoff",
         })
+        if decision.source == "failsafe_hold" or decision.diagnostic == "empty_output":
+            # The Manager's backend gave no answer; the handoff stays open.
+            self._last_planner_handoff_key = None
+            return "unanswered"
         if decision.source != "manager_llm" and decision.action != "rollback":
-            # Backend/failsafe HOLDs are not authoritative; the next handoff asks again.
+            # Deterministic HOLDs are not authoritative; the next handoff asks again.
             self._last_planner_handoff_key = None
 
-        # Every HOLD the Manager's model chooses parses as ``intentional_hold``.
-        # Unpersisted, the Planner's inputs never move and it is never asked again.
+        # The Manager's HOLD answers the handoff. Unpersisted, the Planner's
+        # inputs never move and it is never asked again.
         diagnostic = decision.diagnostic
-        if diagnostic in {"planner_handoff_advance_rejected", "intentional_hold"}:
+        if decision.action == "hold" and decision.source == "manager_llm":
             if not self._persist_manager_planner_feedback(
                 stage=stage, reason=decision.reason, diagnostic=diagnostic,
             ):

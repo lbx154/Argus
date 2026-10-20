@@ -178,6 +178,7 @@ def test_skill_loop_keeps_both_roles_on_the_configured_workflow(
     engineer_prompt = next(
         prompt for label, prompt, _ in backend.history if label == "engineer-r1"
     )
+    engineer_options = next(options for label, _, options in backend.history if label == "engineer-r1")
     reviewer_prompt, reviewer_options = next(
         (prompt, options) for label, prompt, options in backend.history if label == "reviewer"
     )
@@ -185,7 +186,8 @@ def test_skill_loop_keeps_both_roles_on_the_configured_workflow(
     assert (
         "when a direct task meets its requirements and decisive check" in reviewer_prompt
     ) == (workflow_mode == "direct")
-    assert reviewer_options.sandbox_mode == "read-only"
+    for access in ("full_auto", "dangerous_yolo", "sandbox_mode"):
+        assert getattr(reviewer_options, access) == getattr(engineer_options, access)
 
 
 def test_reviewer_workflow_change_refreshes_the_session_rubric(tmp_path) -> None:

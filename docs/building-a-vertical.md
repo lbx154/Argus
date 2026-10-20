@@ -55,8 +55,8 @@ class ChecklistItem:
 
 The `statement` is what must be true; the `evidence_hint` tells the Engineer
 what to show and the Reviewer what to look for. This is the whole mechanism:
-the Reviewer is read-only, so the quality of your checklist is the quality of
-your review.
+the Reviewer judges against it, so the quality of your checklist is the quality
+of your review.
 
 ## Two built-ins to learn from
 
@@ -119,7 +119,7 @@ then write it up so someone else can rerun it. Two stages follow from that,
 would actually check.
 
 Write the checklist before anything else, and write it as statements a
-read-only reviewer can verify from files. "The measurement was repeated" is
+reviewer can verify from files. "The measurement was repeated" is
 checkable (there are N raw files); "the measurement is good" is not.
 
 `examples/verticals/argus_verticals/lab_notebook/stages.py`:

@@ -280,8 +280,8 @@ def venue_review_instruction(venue: str, *, minimum: str = "weak_accept") -> str
         "current recommendation for the selected venue, its evidence, and whether Engineer "
         "should make further changes before completion in your own words. A best-paper-level "
         "assessment describes your judgment of quality, not an award. The host records "
-        "the actual reviewed manuscript version. You own the current paper/REVIEW.md: "
-        "update that same report each round with current strengths, resolved concerns, "
-        "remaining opportunities and useful next experiments, rather than creating "
-        "another report or repeating an obsolete judgment.\n"
+        "the actual reviewed manuscript version. Your review becomes the current "
+        "paper/REVIEW.md: give the whole current report each round with current strengths, "
+        "resolved concerns, remaining opportunities and useful next experiments, rather "
+        "than repeating an obsolete judgment.\n"
     )

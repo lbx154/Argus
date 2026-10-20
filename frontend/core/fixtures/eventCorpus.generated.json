@@ -635,6 +635,9 @@
         "authority_impact": "authority impact",
         "backend_unavailable": true,
         "cached_input_tokens": 1,
+        "changed_during_review": [
+          "changed during review"
+        ],
         "failure_cause": "failure cause",
         "failure_kind": "failure kind",
         "input_tokens": 1,

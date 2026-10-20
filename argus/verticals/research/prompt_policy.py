@@ -92,8 +92,8 @@ def academic_paper_review_block() -> str:
         "Write a natural review with evidence and constructive, actionable guidance; "
         "no fixed fields or review template is required. Engineer implements scientific "
         "repairs, including method changes and new experiments, directly inside this "
-        "final Review and returns for re-review. Update your own paper/REVIEW.md with "
-        "the current natural-language review; do not edit the manuscript, code, figures, "
+        "final Review and returns for re-review. Your natural-language review becomes "
+        "paper/REVIEW.md; do not edit the manuscript, code, figures, "
         "or experiment evidence, change stage state, reopen selection, or move backward. "
         + paper_reviewer_standard()
         + " For each required "
@@ -171,7 +171,7 @@ def paper_reviewer_standard() -> str:
         "request expansion of terse mechanisms, derivations, and design tradeoffs. "
         "Experiments should support the argument, "
         "not turn it into an experiment report. Put actionable expansion requests "
-        "in the existing paper/REVIEW.md, "
+        "in your review, "
         "respecting explicit short-paper and partial-edit requests."
     )
 

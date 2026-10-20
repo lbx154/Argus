@@ -805,7 +805,7 @@ class RunExecMixin:
                     observed_model = self._event_usage_model(event)
                     if observed_model:
                         state.usage_model = observed_model
-                    if self._retain_json_event(event):
+                    if self.retain_json_event(event):
                         state.events.append(event)
                     _msgs_before = len(state.agent_messages)
                     _last_text_before = len(state.agent_messages[-1]) if state.agent_messages else 0
@@ -918,7 +918,7 @@ class RunExecMixin:
                     observed_model = self._event_usage_model(event)
                     if observed_model:
                         state.usage_model = observed_model
-                    if self._retain_json_event(event):
+                    if self.retain_json_event(event):
                         state.events.append(event)
                     messages_before = len(state.agent_messages)
                     last_text_before = len(state.agent_messages[-1]) if state.agent_messages else 0

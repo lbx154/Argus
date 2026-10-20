@@ -45,7 +45,7 @@ class ExperienceToolService:
     """The host owns project, role and call identity; requests cannot override them."""
 
     def __init__(self, project_root: Path, *, role: str, parent_call_id: str,
-                 writable: bool = True, workspace: Path | None = None,
+                 workspace: Path | None = None,
                  redact: Callable[[str], str] | None = None) -> None:
         if role not in {"manager", "planner", "engineer", "reviewer"}:
             raise ValueError("unsupported experience tool role")
@@ -59,7 +59,6 @@ class ExperienceToolService:
             raise ValueError("experience tool workspace must be canonical")
         self.role = role
         self.parent_call_id = _text(parent_call_id, "parent call id", limit=200)
-        self.writable = writable and role != "reviewer"
         if redact is None:
             from ..core.secret_guard import redact_secrets_text
 
@@ -87,8 +86,6 @@ class ExperienceToolService:
             return {"experience": item.to_jsonable() if item else None, "authority": "advisory"}
         if operation not in {"revise", "retract"}:
             raise ValueError("unknown experience operation")
-        if not self.writable:
-            raise ValueError("this role turn can inspect experiences but cannot mutate them")
         required = {"experience_id", "expected_revision", "evidence_refs", "reason"}
         if operation == "revise":
             required.add("changes")

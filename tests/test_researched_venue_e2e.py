@@ -56,7 +56,6 @@ def test_researched_profile_resolves_for_the_selected_venue(tmp_path: Path) -> N
     root = _seed_project(tmp_path, target_venue="AAAI 2027")
     venue = resolve_venue_profile(root)
     assert venue.key == "AAAI"
-    assert venue.has_fixed_page_budget is True
 
 
 def test_review_checklist_and_reviewer_skill_are_venue_neutral(tmp_path: Path) -> None:

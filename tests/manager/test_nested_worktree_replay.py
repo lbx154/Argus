@@ -12,7 +12,7 @@ from types import SimpleNamespace
 import pytest
 
 from argus.apps._runtime import _SkillLoopRunner
-from argus.core.campaign_workdir import adopt_campaign_workdir, task_workdir_provenance
+from argus.core.campaign_workdir import adopt_campaign_workdir
 from argus.core.file_facts import file_facts
 from argus.core.pipeline_state import read_pipeline_state, write_pipeline_state
 from argus.core.stage_certificate import latest_stage_review
@@ -85,9 +85,8 @@ def test_legacy_node_workdir_provenance_replays_from_its_validated_root(
         plan_id="bounded-legacy",
         plan_version=1,
         node_key="run",
-        execution_workdir=task_workdir_provenance(anchor, requested),
+        execution_workdir=str(anchor / requested),
     ))
-    assert item.execution_workdir == str(anchor / requested)
 
     if deferred:
         target.mkdir()

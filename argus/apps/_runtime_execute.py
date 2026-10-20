@@ -722,9 +722,6 @@ class SkillLoopExecuteMixin:
         )
         config_kwargs["operator_questions_allowed"] = operator_questions_can_be_asked()
         config_kwargs["operator_question_policy_root"] = operator_policy_root
-        # Only a LifeSupervisor mission carries a context packet, and every
-        # one of those runs under the project's Manager.
-        config_kwargs["manager_supervised"] = bool(context_packet_path)
         # Campaign lifetime metadata forwarded from the daemon namespace so the
         # Manager stage hook receives open_ended=True for daemon-created open-ended
         # campaigns, preventing final_stage_completion_decision from overwriting a

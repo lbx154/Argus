@@ -717,13 +717,13 @@ def test_run_exec_writes_full_agent_io_log(
         "agent.io.complete",
         "usage.recorded",
     ]
-    assert [row["type"] for row in raw_rows] == [
-        "agent.io.start",
-        "agent.io.stream",
-        "agent.io.stream",
-    ]
     assert [row["io_kind"] for row in rows[:-1]] == ["start", "complete"]
-    assert [row["io_kind"] for row in raw_rows] == ["start", "stream", "stream"]
+    # The start row names the call once; each frame after it carries only
+    # what differs per frame.
+    assert raw_rows[0]["type"] == "agent.io.start"
+    assert raw_rows[0]["model"] == "gpt-5.5"
+    assert [set(row) for row in raw_rows[1:]] == [{"call_id", "stream", "line", "ts"}] * 2
+    assert {row["call_id"] for row in raw_rows} == {rows[0]["call_id"]}
     # Call-bound tool instructions are part of the actual provider input. The
     # trace must retain that complete input, including the original request.
     assert len(provider_prompts) == 1
@@ -734,11 +734,7 @@ def test_run_exec_writes_full_agent_io_log(
         "stdout",
         "stderr",
     ]
-    assert raw_rows[1]["stream"] == "stdout"
-    assert raw_rows[1]["model"] == "gpt-5.5"
     assert raw_rows[1]["line"].startswith('{"type"')
-    assert raw_rows[2]["stream"] == "stderr"
-    assert raw_rows[2]["model"] == "gpt-5.5"
     assert "agent_messages" not in rows[-2]
     assert "stdout_lines" not in rows[-2]
     assert "stderr_lines" not in rows[-2]
@@ -788,8 +784,8 @@ def test_full_agent_io_batches_raw_stream_writes(
                 "stdout",
                 json.dumps(
                     {
-                        "type": "assistant.tool_call_delta",
-                        "data": {"index": index, "delta": "x" * 32},
+                        "type": "tool.shell_output",
+                        "data": {"index": index, "text": "x" * 32},
                     }
                 ),
             )
@@ -814,7 +810,7 @@ def test_full_agent_io_batches_raw_stream_writes(
     rows = [json.loads(line) for line in (tmp_path / "agent_io.jsonl").read_text().splitlines()]
     assert sum(batch_sizes) == 1_000
     assert len(batch_sizes) < 10
-    assert sum(row["type"] == "agent.io.stream" for row in rows) == 1_000
+    assert sum("line" in row for row in rows) == 1_000
     control_rows = [json.loads(line) for line in log_path.read_text().splitlines()]
     assert "json_events" not in next(
         row for row in control_rows if row["type"] == "agent.io.complete"
@@ -847,8 +843,8 @@ def test_full_io_persists_prompt_once_not_as_user_message_echo(
             "stdout",
             json.dumps(
                 {
-                    "type": "assistant.message_delta",
-                    "data": {"deltaContent": "ok"},
+                    "type": "assistant.message",
+                    "data": {"content": "ok"},
                 }
             ),
         )
@@ -872,8 +868,8 @@ def test_full_io_persists_prompt_once_not_as_user_message_echo(
     rows = [json.loads(line) for line in log_path.read_text().splitlines()]
     raw_rows = [json.loads(line) for line in (tmp_path / "agent_io.jsonl").read_text().splitlines()]
     start = next(row for row in rows if row["type"] == "agent.io.start")
-    raw_start = next(row for row in raw_rows if row["type"] == "agent.io.start")
-    streams = [row for row in raw_rows if row["type"] == "agent.io.stream"]
+    raw_start = next(row for row in raw_rows if row.get("type") == "agent.io.start")
+    streams = [row for row in raw_rows if "line" in row]
     assert "prompt" not in start
     assert "prompt_sha256" not in start
     assert "prompt_sha256" not in raw_start
@@ -881,7 +877,45 @@ def test_full_io_persists_prompt_once_not_as_user_message_echo(
     assert raw_start["prompt"] == provider_prompts[0]
     assert raw_start["prompt"].startswith(prompt)
     assert len(streams) == 1
-    assert "assistant.message_delta" in streams[0]["line"]
+    assert "assistant.message" in streams[0]["line"]
+
+
+def test_transcript_drops_fragments_and_housekeeping_but_live_sees_them(tmp_path) -> None:
+    from argus.adapters.agent_cli_backend._io_log import AgentIOLogger
+
+    def frame(kind: str) -> str:
+        return json.dumps({"type": kind, "data": {}})
+
+    dropped = [
+        # Copilot fragments the final message / tool result repeats in full.
+        "assistant.message_delta", "assistant.reasoning_delta", "assistant.tool_call_delta",
+        "assistant.message_start", "tool.execution_partial_result",
+        # Copilot housekeeping.
+        "session.background_tasks_changed", "session.mcp_servers_loaded",
+        "session.mcp_server_status_changed", "session.mcp_server_tools_loaded",
+        "session.tools_updated", "assistant.idle",
+        "model.call_start", "model.call_finished", "model.call_final_result",
+        # Pi fragments and aggregates.
+        "message_start", "message_update", "tool_execution_update", "turn_end", "agent_end", "queue_update",
+    ]
+    kept = [
+        "assistant.message", "assistant.reasoning", "tool.execution_start", "tool.shell_output",
+        "tool.execution_complete", "session.usage_checkpoint", "result",
+        "item.started", "item.completed", "assistant", "user", "message_end", "tool_execution_end",
+    ]
+    live: list[tuple[str, str]] = []
+    logger = AgentIOLogger(external_event_callback=lambda *event: live.append(event))
+    logger.start_call(call_id="c1", run_label="engineer-r1", log_path=tmp_path / "events.jsonl", prompt="p")
+    for kind in dropped + kept:
+        logger.stream_event_callback("engineer.stdout", frame(kind), known_secret_values=())
+    logger.stream_event_callback("engineer.stderr", "plain diagnostic", known_secret_values=())
+    logger.close("c1")
+
+    rows = [json.loads(line) for line in (tmp_path / "agent_io.jsonl").read_text().splitlines()]
+    assert [json.loads(row["line"])["type"] for row in rows[:-1]] == kept
+    assert rows[-1]["line"] == "plain diagnostic" and rows[-1]["stream"] == "stderr"
+    # "Typing" still reaches the live view; only the file goes without it.
+    assert ("engineer.stdout", frame("assistant.message_delta")) in live
 
 
 def test_copilot_run_exec_uses_exact_session_store_tokens(
@@ -1827,7 +1861,7 @@ def test_background_forks_do_not_publish_into_the_foreground_role(tmp_path: Path
     redirected = backend.fork(event_callback=lambda *event: background.append(event))
     line = '{"type":"tool_execution_start","toolName":"read"}'
     for target in (inherited, isolated, redirected):
-        target._io_logger.stream_event_callback("engineer.stdout", line, backend_name="pi", known_secret_values=())
+        target._io_logger.stream_event_callback("engineer.stdout", line, known_secret_values=())
         assert target._usage_context_snapshot() == backend._usage_context_snapshot()
     assert foreground == [("engineer.stdout", line)]
     assert background == [("engineer.stdout", line)]

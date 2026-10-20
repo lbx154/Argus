@@ -159,7 +159,6 @@ def render_mission_brief(
     *,
     include_engineer_account: bool = True,
     include_previous_review: bool = True,
-    include_missing_condition: bool = True,
 ) -> str:
     """Project canonical mission state into one compact role briefing.
 
@@ -168,8 +167,6 @@ def render_mission_brief(
     distinguished from the last reviewed state. A Reviewer that already receives
     the current Engineer response can omit that duplicate account, and one
     that already receives its own previous findings can omit their summary.
-    ``include_missing_condition`` is ignored; engineer/round_reviewer still
-    passes it.
     """
     if not path:
         return ""

@@ -1,38 +1,17 @@
-"""The Reviewer's evidence rule follows its tools and what the host records.
+"""The Reviewer's evidence rule: it has the Engineer's tools, so it reruns.
 
-Every Reviewer call is read-only. On most backends that leaves file read and
-search tools only; told to rerun a check "yourself", such a Reviewer refused
-the Engineer's work round after round and asked for an execution surface no
-role could grant. Three forms now exist:
-
-- a Reviewer that can run commands reruns the decisive check, and falls back
-  to recorded runs and its own reading when the sandbox blocks the rerun;
-- a read-only Reviewer whose Engineer's backend reports exit codes judges from
-  host-recorded runs, reading what each ran, and may ask for one named check;
-- a read-only Reviewer without such records asks for evidence it can read.
-
-In every form the Engineer's cited claim alone is not evidence.
+Every Reviewer runs with the Engineer's access, so one rule fits all of them:
+rerun the decisive check, and fall back to recorded runs and its own reading
+only when the sandbox blocks the rerun. The Engineer's cited claim alone is
+never evidence.
 """
 from __future__ import annotations
 
 import pytest
 
 from argus.core.command_record import backend_records_command_results
-from argus.core.model_visible_text import (
-    EVIDENCE_EXECUTE,
-    EVIDENCE_READ,
-    EVIDENCE_RECORDED,
-    REVIEW_EVIDENCE_RULE_EXECUTING,
-    REVIEW_EVIDENCE_RULE_READ_ONLY,
-    REVIEW_EVIDENCE_RULE_UNRECORDED,
-    review_evidence_rule,
-)
+from argus.core.model_visible_text import REVIEW_EVIDENCE_RULE
 from argus.reviewer import Reviewer
-from argus.reviewer import tools as review_tools
-from argus.reviewer.tools import reviewer_can_execute, reviewer_evidence_mode
-from argus.reviewer.validation import IMAGE_ENV
-
-_RULES = (REVIEW_EVIDENCE_RULE_EXECUTING, REVIEW_EVIDENCE_RULE_READ_ONLY, REVIEW_EVIDENCE_RULE_UNRECORDED)
 
 
 class _Runner:
@@ -40,53 +19,16 @@ class _Runner:
         self.backend = backend
 
 
-def _static(runner, *, records: bool) -> str:
-    reviewer = Reviewer(runner=runner, skill_store=None)
-    return reviewer._build_static_preamble(
+@pytest.mark.parametrize("backend", ["codex", "copilot", "claude", "pi", "qoder", "memory", ""])
+def test_every_reviewer_reruns_the_check_itself(backend: str) -> None:
+    prompt = Reviewer(runner=_Runner(backend), skill_store=None)._build_static_preamble(
         objective="Make the parser accept the documented grammar.",
         operator_messages=[], planner_review_instruction="", round_index=1,
         session_id=None, main_summary="All tests pass.", main_error=None,
         prior_checkpoint={},
-        evidence_mode=reviewer_evidence_mode(runner, engineer_records_commands=records),
     )
-
-
-@pytest.fixture(autouse=True)
-def _no_validation_image(monkeypatch):
-    monkeypatch.delenv(IMAGE_ENV, raising=False)
-    monkeypatch.setattr("argus.core.knob_store.read_persisted_knobs", lambda: {})
-
-
-@pytest.mark.parametrize("backend", ["copilot", "claude", "pi", "qoder", "memory", ""])
-def test_a_read_only_reviewer_relies_on_host_records_only_when_they_exist(backend: str) -> None:
-    runner = _Runner(backend)
-    assert reviewer_can_execute(runner) is False
-    recorded = _static(runner, records=True)
-    assert REVIEW_EVIDENCE_RULE_READ_ONLY in recorded
-    unrecorded = _static(runner, records=False)
-    assert REVIEW_EVIDENCE_RULE_UNRECORDED in unrecorded
-    assert "host" not in REVIEW_EVIDENCE_RULE_UNRECORDED
-
-
-def test_a_sandboxed_shell_reruns_the_check_itself() -> None:
-    runner = _Runner("codex")
-    assert reviewer_can_execute(runner) is True
-    for records in (True, False):
-        prompt = _static(runner, records=records)
-        assert REVIEW_EVIDENCE_RULE_EXECUTING in prompt
-        assert REVIEW_EVIDENCE_RULE_READ_ONLY not in prompt
-
-
-def test_a_validation_image_counts_only_when_docker_can_run_it(monkeypatch) -> None:
-    monkeypatch.setenv(IMAGE_ENV, "python:3.12-slim")
-    monkeypatch.setattr(review_tools.sys, "platform", "linux")
-    monkeypatch.setattr(review_tools, "_docker_image_present", lambda image: True)
-    assert reviewer_evidence_mode(_Runner("copilot"), engineer_records_commands=False) == EVIDENCE_EXECUTE
-    monkeypatch.setattr(review_tools, "_docker_image_present", lambda image: False)
-    assert reviewer_evidence_mode(_Runner("copilot"), engineer_records_commands=True) == EVIDENCE_RECORDED
-    monkeypatch.setattr(review_tools.sys, "platform", "darwin")
-    monkeypatch.setattr(review_tools, "_docker_image_present", lambda image: True)
-    assert reviewer_can_execute(_Runner("copilot")) is False
+    assert REVIEW_EVIDENCE_RULE in prompt
+    assert "never ask for an execution tool" not in prompt
 
 
 def test_only_backends_that_report_exit_codes_count_as_recording() -> None:
@@ -96,52 +38,15 @@ def test_only_backends_that_report_exit_codes_count_as_recording() -> None:
         assert not backend_records_command_results(_Runner(backend))
 
 
-def test_the_static_prompt_differs_only_by_the_rule() -> None:
-    runner = _Runner("copilot")
-    bodies = {
-        _static(runner, records=True).replace(REVIEW_EVIDENCE_RULE_READ_ONLY, ""),
-        _static(runner, records=False).replace(REVIEW_EVIDENCE_RULE_UNRECORDED, ""),
-        _static(_Runner("codex"), records=True).replace(REVIEW_EVIDENCE_RULE_EXECUTING, ""),
-    }
-    assert len(bodies) == 1
+def test_the_rule_refuses_the_engineers_word_alone_and_falls_back_when_blocked() -> None:
+    assert "the Engineer's cited claim alone is not evidence" in REVIEW_EVIDENCE_RULE
+    assert "rerun the decisive check yourself" in REVIEW_EVIDENCE_RULE
+    assert "If the sandbox blocks the rerun (write or network denied)" in REVIEW_EVIDENCE_RULE
+    assert "judge from recorded runs and your own reading" in REVIEW_EVIDENCE_RULE
 
 
-def test_every_form_refuses_the_engineers_word_alone() -> None:
-    for mode in (EVIDENCE_EXECUTE, EVIDENCE_RECORDED, EVIDENCE_READ, "unknown"):
-        assert "the Engineer's cited claim alone is not evidence" in review_evidence_rule(mode)
-    assert review_evidence_rule("unknown") == REVIEW_EVIDENCE_RULE_UNRECORDED
-
-
-def test_a_read_only_reviewer_never_asks_for_an_execution_tool() -> None:
-    for rule in (REVIEW_EVIDENCE_RULE_READ_ONLY, REVIEW_EVIDENCE_RULE_UNRECORDED):
-        assert "never ask for an execution tool" in rule
-        assert "yourself" not in rule
-    assert "ask for the decisive evidence in a form you can read" in REVIEW_EVIDENCE_RULE_UNRECORDED
-
-
-def test_host_records_are_read_for_what_they_ran() -> None:
-    rule = REVIEW_EVIDENCE_RULE_READ_ONLY
-    assert "A record shows what the agent CLI reported, not proof" in rule
-    assert "read the test or script it ran" in rule
-    for shape in ("pipes", "`|| true`", "test selection", "checks edited this round",
-                  "conflicting or unverified results"):
-        assert shape in rule
-    assert "An Engineer-written check counts only once you have read it" in rule
-    assert "one named check whose run the host records" in rule
-
-
-def test_an_executing_reviewer_falls_back_when_its_rerun_is_blocked() -> None:
-    rule = REVIEW_EVIDENCE_RULE_EXECUTING
-    assert "rerun the decisive check yourself" in rule
-    assert "If the sandbox blocks the rerun (write or network denied)" in rule
-    assert "judge from recorded runs and your own reading" in rule
-
-
-def test_the_masked_display_sentence_follows_each_form() -> None:
-    masked = "`******` or `<REDACTED:…>` is display masking"
-    for rule in _RULES:
-        _evidence, _, display = rule.partition(masked)
-        assert display, "the masked-display sentence is part of every form"
-        assert "proves neither a defect nor a fix" in display
-        assert "settle it the same way" in display
-        assert "rerunnable assertion on a placeholder value" in display
+def test_the_masked_display_sentence_follows_the_rule() -> None:
+    _evidence, _, display = REVIEW_EVIDENCE_RULE.partition("`******` or `<REDACTED:…>` is display masking")
+    assert "proves neither a defect nor a fix" in display
+    assert "settle it the same way" in display
+    assert "rerunnable assertion on a placeholder value" in display

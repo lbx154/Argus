@@ -35,7 +35,7 @@ def test_pi_partial_output_remains_captured_before_interrupt() -> None:
 
     assert state == ("pi-session", False, False, None)
     assert messages == ["partial-before-interrupt"]
-    assert not runner._retain_json_event(event)
+    assert not runner.retain_json_event(event)
 
 
 def test_pi_authoritative_receipts_replace_streamed_attempts_without_duplicates() -> None:
@@ -149,7 +149,7 @@ def test_pi_message_update_usage_snapshots_remain_filtered() -> None:
         }
         if usage is not None:
             event["usage"] = usage
-        assert not runner._retain_json_event(event)
+        assert not runner.retain_json_event(event)
 
 
 def test_pi_error_update_keeps_stream_open_for_the_authoritative_snapshot() -> None:

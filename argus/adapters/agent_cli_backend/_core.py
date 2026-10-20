@@ -388,7 +388,6 @@ class AgentCliBackend:
         self._io_logger.stream_event_callback(
             stream,
             line,
-            backend_name=getattr(self._runner, "backend", ""),
             known_secret_values=self._known_secret_values,
         )
 
@@ -463,7 +462,6 @@ class AgentCliBackend:
             sandbox_mode=options.sandbox_mode,
             force_safe_mode=options.force_safe_mode,
             disable_tools=options.disable_tools,
-            review_output=dict(options.review_output) if options.review_output else None,
             isolate_workdir=options.isolate_workdir,
             lean_tool_surface=getattr(options, "lean_tool_surface", False),
             on_agent_message=options.on_agent_message,

@@ -563,8 +563,9 @@ def _apply(
                 or _owns_reserved_control(root, record)
             ):
                 raise SupervisionSuperseded("newer project control")
-            if observation.evidence_revision != record["evidence_revision"]:
-                raise SupervisionSuperseded("newer project evidence")
+            # Work that moved on while the Manager decided does not void its
+            # decision; voided, the decision was lost and nobody asked again.
+            record["evidence_moved"] = observation.evidence_revision != record["evidence_revision"]
             if decision["action"] == "wait" and not any(
                 item.get("pending_question") for item in observation.facts["tasks"]
             ):
@@ -936,11 +937,16 @@ _DELIVERY_BOUNDARIES = frozenset({
 def _review_consult_reason(root: Path, event: dict[str, Any]) -> str:
     """What a review puts to the Manager, or "" when nothing.
 
-    An Engineer's ``→ manager``, or a check the Reviewer cannot make here while
-    the operator cannot be asked, so accepting its risk falls to the Manager.
+    A workspace that changed while the Reviewer judged, an Engineer's
+    ``→ manager``, or a check the Reviewer cannot make here while the operator
+    cannot be asked, so accepting its risk falls to the Manager.
     A blocked verdict goes to the stage decision, a question to the operator,
     and how the work flows is the Observer's to report.
     """
+    changed = event.get("changed_during_review")
+    if changed:
+        return (f"the workspace changed while the Reviewer judged ({', '.join(map(str, changed[:20]))}); "
+                "its verdict stands as written: decide whether this review counts")
     if event.get("review_source") == "engineer_handoff":
         why = " ".join(str(event.get("reason") or "").split())[:200]
         return f"the Engineer handed the work to you: {why}"
@@ -958,7 +964,8 @@ def schedule_supervision(manager: Any, root: Path | str, event: dict[str, Any]) 
     reason: str | None = ""
     if event_type in {EventType.LIFE_DAEMON_DEGRADED, EventType.LIFE_RUNTIME_INCIDENT_ESCALATED}:
         reason = None
-    elif event_type == EventType.ROUND_REVIEW_COMPLETED and event.get("status") in {"continue", "blocked"}:
+    elif event_type == EventType.ROUND_REVIEW_COMPLETED and (
+            event.get("status") in {"continue", "blocked"} or event.get("changed_during_review")):
         reason = _review_consult_reason(project_root, event)
     elif event_type == EventType.ROUND_STALL and event.get("stall_reason") == "turn_stalled":
         reason = (

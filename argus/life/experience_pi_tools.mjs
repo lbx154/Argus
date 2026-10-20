@@ -1,4 +1,4 @@
-export function experienceExtension(submit, Type, writable = false) {
+export function experienceExtension(submit, Type) {
   return pi => {
     const register = (name, description, parameters, operation) => pi.registerTool({
       name, label: name, description, parameters,
@@ -15,7 +15,6 @@ export function experienceExtension(submit, Type, writable = false) {
       Type.Object({query: Type.String()}), "search");
     register("get_experience", "Inspect current capsule, revision, provenance and claim boundaries.",
       Type.Object({experience_id: Type.String()}), "get");
-    if (!writable) return;
     const common = {experience_id: Type.String(), expected_revision: Type.Integer({minimum: 1}),
       evidence_refs: Type.Array(Type.String({description: "Existing workspace: or state: relative text file; complete evidence totals at most 32 KiB."}), {minItems: 1, maxItems: 16}), reason: Type.String()};
     const changes = {};

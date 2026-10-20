@@ -67,8 +67,6 @@ def full_prompt_decision(
     session_policy: str,
     session_action: str,
     rotation_reason: str,
-    compact_continuation_prompts: bool,
-    full_round_policy: str,
     mission_has_history: bool,
     stage: str,
     stage_at_last_full: str,
@@ -77,17 +75,13 @@ def full_prompt_decision(
 
     A provider session receives the full static text on the round that
     creates it — a session only ever starts on a FULL round — so a resumed
-    session needs the full text again only when what it holds may be stale.
-    Under the default ``session`` policy that means: compact prompts are
-    disabled, the policy is fresh-per-round, the session was just created or
-    rotated (rotation already covers an objective or workdir change and an
-    explicit Reviewer redirection signal), the stage changed since the last
-    full prompt, or a first round resumes a session with no sealed prior
-    round for this mission. ``legacy`` keeps the historical round-1-always-
-    full behavior for rollback.
+    session needs the full text again only when what it holds may be stale:
+    the policy is fresh-per-round, the session was just created or rotated
+    (rotation already covers an objective or workdir change and an explicit
+    Reviewer redirection signal), the stage changed since the last full
+    prompt, or a first round resumes a session with no sealed prior round for
+    this mission.
     """
-    if not compact_continuation_prompts:
-        return True, "compact_prompts_disabled"
     if session_policy == "fresh":
         # Every round starts a provider session with no memory of the last.
         return True, "fresh_policy"
@@ -95,10 +89,6 @@ def full_prompt_decision(
         return True, f"session_rotated:{rotation_reason or 'unspecified'}"
     if session_action != "resumed":
         return True, "session_fresh"
-    if full_round_policy == "legacy":
-        if round_index == 1:
-            return True, "first_round_legacy"
-        return False, "resumed_session"
     if stage and stage_at_last_full and stage != stage_at_last_full:
         return True, "stage_changed"
     if round_index == 1:
@@ -196,13 +186,6 @@ class RoundPromptMixin:
             session_action=role_session.action,
             rotation_reason=str(
                 getattr(role_session, "rotation_reason", "") or ""
-            ),
-            compact_continuation_prompts=(
-                supervised_config.compact_continuation_prompts
-            ),
-            full_round_policy=str(
-                getattr(supervised_config, "engineer_full_round_policy", "")
-                or "session"
             ),
             # Only round 1 consults mission history; skip the directory scan on
             # every later round.

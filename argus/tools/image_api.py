@@ -629,13 +629,6 @@ def _project_path(project_root: Path, path: Path | str) -> Path:
     return resolved
 
 
-def _project_relative(project_root: Path, path: Path) -> str:
-    try:
-        return path.resolve().relative_to(project_root.resolve()).as_posix()
-    except ValueError as exc:
-        raise ImageToolError(f"path escapes project root: {path}") from exc
-
-
 def _read_json_object(path: Path) -> dict[str, Any]:
     try:
         payload = json.loads(path.read_text(encoding="utf-8"))

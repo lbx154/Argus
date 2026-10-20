@@ -18,8 +18,8 @@ rules, with the writing target. Judge the depth of principle-level analysis:
 does the reader understand why the mechanism follows, what the assumptions
 imply, and why the design choices differ from alternatives? Request expansion
 of terse reasoning, derivations, or tradeoffs. Experiments should support this argument, not turn the
-paper into an experiment report. Put actionable expansion requests in the
-existing `paper/REVIEW.md`. Respect an explicit short-paper or partial-edit request.
+paper into an experiment report. Put actionable expansion requests in your
+review. Respect an explicit short-paper or partial-edit request.
 
 ## What each reader can consult
 
@@ -116,7 +116,7 @@ independent assessments and integrated judgment:
    If no concrete problem needs repair, return without changing the manuscript.
    Compile if manuscript inputs changed or the PDF is missing or stale; reuse
    a current PDF when no input changed.
-3. After the Engineer turn, the host runs the independent read-only passes concurrently.
+3. After the Engineer turn, the host runs the independent passes concurrently.
    Engineer and integrated Reviewer must not spawn a duplicate review team:
    - `science_loss_check` compares before/after scientific completeness,
      meaning, and carriers;
@@ -210,7 +210,7 @@ be repeated after every number. Keep unaffected passages intact.
 
 ## Recording the judgment
 
-The integrated Reviewer edits its own `paper/REVIEW.md` each round, replacing
+The integrated Reviewer's review becomes `paper/REVIEW.md` each round, replacing
 stale feedback with a current assessment of the science, figures, and language,
 the strongest case for acceptance, remaining rejection-level issues, its
 judgment, and a constructive next action. Write this naturally; no fixed section

@@ -173,26 +173,21 @@ def test_the_same_command_hanging_again_fails_the_round(tmp_path) -> None:
     assert "pip install -e ." in reason
 
 
-def test_silence_stops_across_different_commands_are_still_bounded(tmp_path) -> None:
-    engineer = _SilentCommandsEngineer([f"cmd{i}" for i in range(10)])
+def test_silence_stops_are_not_counted_across_different_commands(tmp_path) -> None:
+    # Each stop was the Manager's call; the host does not add a count of its own.
+    engineer = _SilentCommandsEngineer([f"cmd{i}" for i in range(6)] + [None])
     status, _rounds, _reason, _prompts = _run_loop(tmp_path, engineer)
-    assert status == "error"
-    assert engineer.calls == 4
+    assert status == "done"
+    assert engineer.calls == 7
 
 
-def test_unnamed_silence_stops_get_generic_guidance_and_are_bounded(tmp_path) -> None:
-    # A stream that never names its command cannot show a repeat, so two
-    # unnamed stops do not fail the round; the any-command limit still does.
+def test_unnamed_silence_stops_get_generic_guidance(tmp_path) -> None:
+    # A stream that never names its command cannot show a repeat.
     engineer = _SilentCommandsEngineer(["", "", None])
     status, _rounds, _reason, prompts = _run_loop(tmp_path, engineer)
     assert status == "done"
     assert engineer.calls == 3
     assert "background job" in prompts[1] and "the command it was running" in prompts[1]
-
-    engineer = _SilentCommandsEngineer([""])
-    status, _rounds, _reason, _prompts = _run_loop(tmp_path / "again", engineer)
-    assert status == "error"
-    assert engineer.calls == 4
 
 
 @pytest.mark.parametrize(

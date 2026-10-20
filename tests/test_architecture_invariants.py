@@ -1061,7 +1061,6 @@ FUNCTION_BODY_UPWARD_ALLOWLIST: frozenset[str] = frozenset({
     "adapters/agent_cli_backend/_exec_finalize.py -> trial",
     "advisor/service.py -> life",
     "advisor/service.py -> trial",
-    "agent_cli/_sandbox_commands.py -> reviewer",
     "agent_cli/_sandbox_commands.py -> trial",
     "agent_cli/copilot_home.py -> trial",
     "core/agent_probe.py -> adapters",
@@ -1112,7 +1111,6 @@ FUNCTION_BODY_UPWARD_ALLOWLIST: frozenset[str] = frozenset({
     "manager/supervision.py -> daemon",
     "provider_integrations/copilot_usage.py -> trial",
     "reviewer/_core.py -> manager",
-    "reviewer/review_file.py -> manager",
     "roles/prompts/manager.py -> manager",
     "skills/builtins.py -> domains",
     "skills/builtins.py -> verticals",
@@ -1598,7 +1596,6 @@ def test_module_paths_cited_by_prompts_and_skills_resolve() -> None:
 # and are therefore matched back by string in a *different* process.
 SUBPROCESS_REENTRY_MODULES = (
     "argus.daemon.spawn_helper",
-    "argus.reviewer.review_file",
     "argus.tools.manager_live_view",
     "argus.desktop_backend_entry",
     "argus.plugin.mcp_server",

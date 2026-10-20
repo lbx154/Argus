@@ -57,8 +57,6 @@ class RunnerOptions:
     # backends use the path-only discovery block in the prompt.
     skill_paths: list[str] | None = None
     extra_args: list[str] | None = None
-    # Host-bound write capability for the independent Reviewer's own report.
-    review_output: dict[str, str] | None = None
     skip_git_repo_check: bool = False
     # Enable codex's native live web_search tool for this call (``codex exec
     # --search``). Off by default; turned on for the research/ideation stage so
@@ -268,6 +266,9 @@ class ReviewDecision:
     # each names the ``policy`` applied, the ``action`` taken instead, when
     # (``at``), and a ``note``. Settlement reads verdict and interventions.
     interventions: list[dict[str, Any]] = field(default_factory=list)
+    # Workspace paths that changed while the Reviewer judged, from the round's
+    # snapshots. A fact beside the verdict, which stands as written.
+    changed_during_review: list[str] = field(default_factory=list)
     # Why a host-written record stands where no Reviewer judgment was made,
     # e.g. ``provider_turn_cap``, ``backend_failure``, ``silent_command``.
     # Those records name the same kind in ``review_source``, so no consumer
@@ -361,6 +362,8 @@ class ReviewDecision:
                 payload["residual_risk_detail"] = dict(self.residual_risk_detail)
         if self.research_result is not None:
             payload["research_result"] = dict(self.research_result)
+        if self.changed_during_review:
+            payload["changed_during_review"] = list(self.changed_during_review)
         payload.update(extras)
         return payload
 

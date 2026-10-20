@@ -143,9 +143,6 @@ def test_the_engineer_hands_straight_to_the_planner_or_the_manager(
     review = rounds[0].review
     assert (review.status, review.review_source) == (status, "engineer_handoff")
     assert review.reason == "The task assumes a GPU this host lacks."
-    assert review.planner_report.get("manager_attention") == (
-        "needed" if line == "→ manager" else None
-    )
 
 
 def test_done_under_required_review_still_reaches_the_reviewer(tmp_path: Path) -> None:

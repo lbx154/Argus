@@ -289,9 +289,7 @@ class RoleSessionCapsule:
         capsule.save()
         return capsule
 
-    def prepare(self, *, max_turns: int = 0, max_input_tokens: int = 0) -> str | None:
-        # The limits are ignored: the backend compacts its own context. They
-        # remain only while round_reviewer.py still passes them.
+    def prepare(self) -> str | None:
         if self.policy == "fresh":
             self.thread_id = ""
             self.action = "fresh"

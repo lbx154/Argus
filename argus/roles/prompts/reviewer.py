@@ -7,7 +7,7 @@ from typing import Any, Mapping
 
 from ...core.model_visible_text import (
     MODEL_INTEGRITY_BOUNDARY,
-    review_evidence_rule,
+    REVIEW_EVIDENCE_RULE,
     sanitize_model_visible_text,
 )
 from ...core.workspace_snapshot import WorkspaceSnapshots
@@ -296,7 +296,6 @@ def render_reviewer_prompt(
     workflow_mode: str | None = None,
     snapshots: WorkspaceSnapshots | None = None,
     previous_findings: str = "",
-    evidence_mode: str = "",
 ) -> tuple[str, str]:
     """Render the complete Reviewer prompt as ``(static_preamble, round_delta)``.
 
@@ -309,7 +308,6 @@ def render_reviewer_prompt(
         RESULT_FIELD_CHOICES,
         resolve_research_target_level,
     )
-    from ...reviewer.tools import reviewer_evidence_mode
     from ...skills.vertical_select import (
         _persisted_vertical,
         resolve_workflow_mode,
@@ -712,10 +710,7 @@ def render_reviewer_prompt(
         "In `explore`/`develop`, require experimental or research feedback. "
         "Ground negatives, hedging, limitations and reruns in consequences; "
         "all claims share one evidence standard. "
-        + review_evidence_rule(
-            evidence_mode
-            or reviewer_evidence_mode(getattr(owner, "runner", None), engineer_records_commands=False)
-        )
+        + REVIEW_EVIDENCE_RULE
         + "\n\n"
         + EXPERIMENT_EVIDENCE_CONTRACT + "\n\n"
         + "Check actual input changes, not rerun reasons; producer logs cannot replace external observation.\n\n"

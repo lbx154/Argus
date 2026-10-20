@@ -234,10 +234,9 @@ A record without a known author is a defect, not a Reviewer verdict.
 ### Capability matches mandate
 
 A role is given what its decision needs, or the decision is assigned
-elsewhere. If a vertical stage requires independent execution, its Reviewer
-gets the existing read-only validation sandbox. If not, the Reviewer judges
-the commands the Engineer recorded, and the prompt does not ask it to rerun
-them.
+elsewhere. The Reviewer has the Engineer's access, so it reruns a decisive
+check itself; that it left the work alone is a fact the host checks by
+comparing workspace snapshots, not a permission.
 
 ### The host enforces budgets, not progress
 

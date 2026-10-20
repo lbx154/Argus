@@ -62,7 +62,7 @@ def _flat(text: str) -> str:
     return " ".join(text.split())
 
 
-def _review_prompt(tmp_path, evidence_mode: str, *, software: bool) -> str:
+def _review_prompt(tmp_path, *, software: bool) -> str:
     if software:
         from argus.skills.vertical_select import persist_vertical
 
@@ -71,14 +71,13 @@ def _review_prompt(tmp_path, evidence_mode: str, *, software: bool) -> str:
     return reviewer._build_prompt(
         objective=_TASK, operator_messages=[], planner_review_instruction="",
         round_index=1, session_id=None, main_summary=_ACCOUNT, main_error=None,
-        prior_checkpoint={}, evidence_mode=evidence_mode, working_dir=str(tmp_path),
+        prior_checkpoint={}, working_dir=str(tmp_path),
     )
 
 
 @pytest.mark.parametrize("software", [True, False])
-@pytest.mark.parametrize("evidence_mode", ["execute", "recorded", "read"])
-def test_the_reviewer_checks_each_stated_symptom_before_approving(tmp_path, evidence_mode, software):
-    flat = _flat(_review_prompt(tmp_path, evidence_mode, software=software))
+def test_the_reviewer_checks_each_stated_symptom_before_approving(tmp_path, software):
+    flat = _flat(_review_prompt(tmp_path, software=software))
     assert _RULE in flat
     assert "operator's own words" not in flat
     # The rule rides in the role's fixed prose, ahead of the task and the account.

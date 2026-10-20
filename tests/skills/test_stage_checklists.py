@@ -221,7 +221,7 @@ def test_review_persistence_uses_the_explicit_artifact_root(tmp_path: Path) -> N
     assert not (maintenance / "paper" / "REVIEW.md").exists()
 
 
-def test_initial_final_review_runs_three_read_only_passes_in_parallel(
+def test_initial_final_review_runs_three_passes_in_parallel_with_engineer_access(
     tmp_path: Path,
 ) -> None:
     state = tmp_path / "state"
@@ -274,6 +274,7 @@ def test_initial_final_review_runs_three_read_only_passes_in_parallel(
             working_dir=str(workdir),
             artifact_root=str(workdir),
             vertical_state_root=str(state),
+            full_auto=True,
         ),
     )
 
@@ -282,10 +283,9 @@ def test_initial_final_review_runs_three_read_only_passes_in_parallel(
     assert all(label in decision.reason for label in ("Scientific:", "Visual:", "Language:"))
     assert runner.shared.max_active == 3
     assert all(
-        option.sandbox_mode == "read-only"
+        option.full_auto and option.sandbox_mode is None and not option.force_safe_mode
         for option in runner.shared.options
     )
-    assert all(option.force_safe_mode for option in runner.shared.options)
 
 
 def test_failed_parallel_review_preserves_the_provider_stop_kind(
