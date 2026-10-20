@@ -1362,9 +1362,11 @@ def test_idle_instruction_settles_only_when_applied_decision_declares_it(
         "error-declared": (idle.revision,),
     }[decision]
     calls = []
+    offered = []
 
     def plan(_planner, **kwargs):
         calls.append(kwargs["runtime_change_summary"])
+        offered.append(kwargs["config"].settleable_instructions)
         if decision.startswith("wait"):
             return PlannerVerdict(
                 project_done=False, reason="Wait for the parser result", waiting=True,
@@ -1397,6 +1399,7 @@ def test_idle_instruction_settles_only_when_applied_decision_declares_it(
 
     assert f"revision {idle.revision}]: {instruction}" in calls[0]
     assert "SETTLE_INSTRUCTION=N" in calls[0]
+    assert offered == [(idle.revision,)]
     for item in supervisor.memory.backlog.active():
         supervisor.memory.backlog.update(item.id, status="done")
     visible = [
