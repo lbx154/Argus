@@ -182,12 +182,6 @@ export function renderEvent(ev: EventMsg): Rendered | null {
     const target = S(ev, 'target_stage') || S(ev, 'stage') || S(ev, 'current_stage');
     return { role: 'manager', label: 'Manager', glyph: '🧭', text: `${S(ev, 'action')}${target ? ` → ${target}` : ''} ${trunc(S(ev, 'reason'), 140)}`, tone: 'info' };
   }
-  if (t === 'life.research.second_reading') {
-    const layer = S(ev, 'agent_layer') || 'manager';
-    const supported = trunc(S(ev, 'supported'), 160);
-    const base = 'reread the evidence and reworked the plan';
-    return { role: layer, label: ROLE_LABEL[layer] || layer, glyph: '📖', text: supported ? `${base} · ${supported}` : base, tone: 'info' };
-  }
   if (t === 'life.letter.written') {
     const layer = S(ev, 'agent_layer') || 'manager';
     return { role: layer, label: ROLE_LABEL[layer] || layer, glyph: '✉', text: 'wrote you a letter', tone: 'accent' };

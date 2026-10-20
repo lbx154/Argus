@@ -106,7 +106,6 @@
     "life.planner.verdict.discarded",
     "life.planner.verification_probe",
     "life.post_mission.stop",
-    "life.research.second_reading",
     "life.review.waived",
     "life.reviewer.backend_resolved",
     "life.runtime.incident.detected",
@@ -192,7 +191,7 @@
       "counts": {
         "handled": 22,
         "hidden": 0,
-        "missing": 164
+        "missing": 163
       },
       "fallback": "greppable",
       "handled": [
@@ -312,7 +311,6 @@
         "life.planner.verdict.discarded",
         "life.planner.verification_probe",
         "life.post_mission.stop",
-        "life.research.second_reading",
         "life.review.waived",
         "life.reviewer.backend_resolved",
         "life.runtime.incident.detected",
@@ -389,7 +387,7 @@
     },
     "tui": {
       "counts": {
-        "handled": 96,
+        "handled": 95,
         "hidden": 90,
         "missing": 0
       },
@@ -457,7 +455,6 @@
         "life.planner.verdict",
         "life.planner.verification_probe",
         "life.post_mission.stop",
-        "life.research.second_reading",
         "life.review.waived",
         "life.supervisor.error",
         "loop.done",
@@ -588,7 +585,7 @@
     },
     "web": {
       "counts": {
-        "handled": 96,
+        "handled": 95,
         "hidden": 90,
         "missing": 0
       },
@@ -656,7 +653,6 @@
         "life.planner.verdict",
         "life.planner.verification_probe",
         "life.post_mission.stop",
-        "life.research.second_reading",
         "life.review.waived",
         "life.supervisor.error",
         "loop.done",

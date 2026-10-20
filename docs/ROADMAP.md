@@ -784,11 +784,6 @@ cleared, with success rate and cost improving as experience grows.
 - Do: evaluate a small offline embedding model as the default recall method, and compare its recall hit rate with word
   hashing.
 
-#### LE-7 Bring "learned tools" to more backends
-`0.8` · `L` · Depends on: none
-- Today: only the Pi backend can turn repeated actions into tools.
-- Do: extend it to Copilot and Codex.
-
 #### LE-8 The first public "gets better with use" curve
 `0.8` · `L` · Depends on: LE-1, LE-2, EV-1
 - Done when: at least one domain meets standard 4.

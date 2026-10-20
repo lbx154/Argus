@@ -130,16 +130,6 @@ def _base_event(event_type: EventType, index: int) -> dict[str, Any]:
         event.update({"status": "completed", "success": True})
     elif event_type == EventType.ROUND_REVIEW_COMPLETED:
         event.update({"status": "done", "reason": "focused checks passed"})
-    elif event_type == EventType.LIFE_RESEARCH_SECOND_READING:
-        event.update({
-            "agent_layer": "manager",
-            "stage": "experiment",
-            "refuted": "the speedup on the smallest worlds",
-            "supported": "the effect on the untouched worlds",
-            "next": "rerun the comparison at full scale",
-            "text": "A second reading of the evidence.",
-            "notes_path": "RESEARCH_NOTES.md",
-        })
     elif event_type == EventType.LIFE_LETTER_WRITTEN:
         event.update({
             "agent_layer": "manager",

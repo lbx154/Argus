@@ -1962,29 +1962,13 @@
     {
       "event": {
         "agent_layer": "manager",
-        "next": "rerun the comparison at full scale",
-        "notes_path": "RESEARCH_NOTES.md",
-        "payload_schema_version": 1,
-        "refuted": "the speedup on the smallest worlds",
-        "signals": 1,
-        "stage": "experiment",
-        "supported": "the effect on the untouched worlds",
-        "text": "A second reading of the evidence.",
-        "ts": 1700000125,
-        "type": "life.research.second_reading"
-      },
-      "id": "life.research.second_reading"
-    },
-    {
-      "event": {
-        "agent_layer": "manager",
         "hours_since_last": 1.25,
         "letters_path": "LETTERS.md",
         "message_id": "letter-1700000000",
         "payload_schema_version": 1,
         "stage": "experiment",
         "text": "A letter about how the work has gone since the last one.",
-        "ts": 1700000126,
+        "ts": 1700000125,
         "type": "life.letter.written"
       },
       "id": "life.letter.written"
@@ -1997,7 +1981,7 @@
         "reason": "the current operation needs attention",
         "text": "Renderer event detail",
         "title": "Shared event renderer",
-        "ts": 1700000127,
+        "ts": 1700000126,
         "type": "life.budget.pause"
       },
       "id": "life.budget.pause"
@@ -2011,7 +1995,7 @@
         "reason": "the current operation needs attention",
         "text": "Renderer event detail",
         "title": "Shared event renderer",
-        "ts": 1700000128,
+        "ts": 1700000127,
         "type": "life.lifecycle.block"
       },
       "id": "life.lifecycle.block"
@@ -2023,7 +2007,7 @@
         "payload_schema_version": 1,
         "reason": "the current operation needs attention",
         "to_state": "complete",
-        "ts": 1700000129,
+        "ts": 1700000128,
         "type": "life.lifecycle.transition"
       },
       "id": "life.lifecycle.transition"
@@ -2034,7 +2018,7 @@
         "source": "daemon",
         "stage": "implementation",
         "text": "Renderer event detail",
-        "ts": 1700000130,
+        "ts": 1700000129,
         "type": "life.inbox.queued"
       },
       "id": "life.inbox.queued"
@@ -2046,7 +2030,7 @@
           "message"
         ],
         "payload_schema_version": 1,
-        "ts": 1700000131,
+        "ts": 1700000130,
         "type": "life.inbox.drained"
       },
       "id": "life.inbox.drained"
@@ -2058,7 +2042,7 @@
         "payload_schema_version": 1,
         "question": "question",
         "title": "Shared event renderer",
-        "ts": 1700000132,
+        "ts": 1700000131,
         "type": "life.operator_question.pending"
       },
       "id": "life.operator_question.pending"
@@ -2076,7 +2060,7 @@
         "payload_schema_version": 1,
         "question": "question",
         "stopped": true,
-        "ts": 1700000133,
+        "ts": 1700000132,
         "type": "life.operator_question.answered"
       },
       "id": "life.operator_question.answered"
@@ -2087,7 +2071,7 @@
         "idle_seconds": 1.25,
         "payload_schema_version": 1,
         "text": "Renderer event detail",
-        "ts": 1700000134,
+        "ts": 1700000133,
         "type": "life.daemon.idle_timeout"
       },
       "id": "life.daemon.idle_timeout"
@@ -2095,7 +2079,7 @@
     {
       "event": {
         "payload_schema_version": 1,
-        "ts": 1700000135,
+        "ts": 1700000134,
         "type": "life.daemon.ready"
       },
       "id": "life.daemon.ready"
@@ -2107,7 +2091,7 @@
         "objective_dispatched": true,
         "payload_schema_version": 1,
         "text": "Renderer event detail",
-        "ts": 1700000136,
+        "ts": 1700000135,
         "type": "life.daemon.degraded"
       },
       "id": "life.daemon.degraded"
@@ -2122,7 +2106,7 @@
         "payload_schema_version": 1,
         "required_gate": "required gate",
         "source": "daemon",
-        "ts": 1700000137,
+        "ts": 1700000136,
         "type": "project.completed",
         "vertical": "software"
       },
@@ -2135,7 +2119,7 @@
         "reason": "the current operation needs attention",
         "required_gate": "required gate",
         "source": "daemon",
-        "ts": 1700000138,
+        "ts": 1700000137,
         "type": "project.completion_refused",
         "vertical": "software"
       },
@@ -2147,7 +2131,7 @@
         "previous_pid": 1,
         "replaced_by": "replaced by",
         "state_preserved": true,
-        "ts": 1700000139,
+        "ts": 1700000138,
         "type": "daemon.parked",
         "unfinished_tasks": 1
       },
@@ -2160,7 +2144,7 @@
         "operation": "replace",
         "payload_schema_version": 1,
         "revision": 1,
-        "ts": 1700000140,
+        "ts": 1700000139,
         "type": "daemon.command.submitted"
       },
       "id": "daemon.command.submitted"
@@ -2176,7 +2160,7 @@
         },
         "revision": 1,
         "status": "applied",
-        "ts": 1700000141,
+        "ts": 1700000140,
         "type": "daemon.command.completed"
       },
       "id": "daemon.command.completed"
@@ -2189,7 +2173,7 @@
         "payload_schema_version": 1,
         "revision": 1,
         "status": "rejected",
-        "ts": 1700000142,
+        "ts": 1700000141,
         "type": "daemon.command.rejected"
       },
       "id": "daemon.command.rejected"
@@ -2198,7 +2182,7 @@
       "event": {
         "payload_schema_version": 1,
         "text": "Renderer event detail",
-        "ts": 1700000143,
+        "ts": 1700000142,
         "type": "idea.search.started"
       },
       "id": "idea.search.started"
@@ -2208,7 +2192,7 @@
         "count": 1,
         "payload_schema_version": 1,
         "text": "Renderer event detail",
-        "ts": 1700000144,
+        "ts": 1700000143,
         "type": "idea.search.completed"
       },
       "id": "idea.search.completed"
@@ -2218,7 +2202,7 @@
         "payload_schema_version": 1,
         "reason": "the current operation needs attention",
         "text": "Renderer event detail",
-        "ts": 1700000145,
+        "ts": 1700000144,
         "type": "idea.search.skipped"
       },
       "id": "idea.search.skipped"
@@ -2234,7 +2218,7 @@
         "task_count": 1,
         "team_root": "team root",
         "text": "Renderer event detail",
-        "ts": 1700000146,
+        "ts": 1700000145,
         "type": "idea.portfolio.formed",
         "width": 1
       },
@@ -2245,7 +2229,7 @@
         "payload_schema_version": 1,
         "team_task_id": "team task id",
         "text": "Renderer event detail",
-        "ts": 1700000147,
+        "ts": 1700000146,
         "type": "idea.portfolio.nested_skipped"
       },
       "id": "idea.portfolio.nested_skipped"
@@ -2254,7 +2238,7 @@
       "event": {
         "payload_schema_version": 1,
         "text": "Renderer event detail",
-        "ts": 1700000148,
+        "ts": 1700000147,
         "type": "venue.research.started"
       },
       "id": "venue.research.started"
@@ -2264,7 +2248,7 @@
         "ok": true,
         "payload_schema_version": 1,
         "text": "Renderer event detail",
-        "ts": 1700000149,
+        "ts": 1700000148,
         "type": "venue.research.completed"
       },
       "id": "venue.research.completed"
@@ -2280,7 +2264,7 @@
         "reviewer_certified": true,
         "summary": "Implemented and verified the requested change.",
         "title": "Shared event renderer",
-        "ts": 1700000150,
+        "ts": 1700000149,
         "type": "research.achievement.certified"
       },
       "id": "research.achievement.certified"
@@ -2306,7 +2290,7 @@
         ],
         "role": "engineer",
         "text": "Renderer event detail",
-        "ts": 1700000151,
+        "ts": 1700000150,
         "type": "skill.library.available"
       },
       "id": "skill.library.available"
@@ -2319,7 +2303,7 @@
         "scope": "frontend/core",
         "skill_id": "skill id",
         "text": "Renderer event detail",
-        "ts": 1700000152,
+        "ts": 1700000151,
         "type": "skill.created",
         "version": 1
       },
@@ -2333,7 +2317,7 @@
         "scope": "frontend/core",
         "skill_id": "skill id",
         "text": "Renderer event detail",
-        "ts": 1700000153,
+        "ts": 1700000152,
         "type": "skill.updated",
         "version": 1
       },
@@ -2348,7 +2332,7 @@
         "scope": "frontend/core",
         "skill_id": "skill id",
         "text": "Renderer event detail",
-        "ts": 1700000154,
+        "ts": 1700000153,
         "type": "skill.archived",
         "version": 1
       },
@@ -2361,7 +2345,7 @@
         "payload_schema_version": 1,
         "placement": "global",
         "text": "Renderer event detail",
-        "ts": 1700000155,
+        "ts": 1700000154,
         "type": "skill.tidied",
         "vertical": "software"
       },
@@ -2380,7 +2364,7 @@
         "payload_schema_version": 1,
         "text": "Renderer event detail",
         "truncated": true,
-        "ts": 1700000156,
+        "ts": 1700000155,
         "type": "skill.history.compressed"
       },
       "id": "skill.history.compressed"
@@ -2402,7 +2386,7 @@
         "project_skill_dir": "project skill dir",
         "rejected": 1,
         "text": "Renderer event detail",
-        "ts": 1700000157,
+        "ts": 1700000156,
         "type": "skill.evolution.completed",
         "updated": 1
       },
@@ -2415,7 +2399,7 @@
         "mission_success": true,
         "payload_schema_version": 1,
         "scope": "vertical",
-        "ts": 1700000158,
+        "ts": 1700000157,
         "type": "team.learning.review.started",
         "vertical": "software"
       },
@@ -2427,7 +2411,7 @@
         "mission_success": true,
         "payload_schema_version": 1,
         "reason": "the current operation needs attention",
-        "ts": 1700000159,
+        "ts": 1700000158,
         "type": "team.learning.review.skipped"
       },
       "id": "team.learning.review.skipped"
@@ -2443,7 +2427,7 @@
         "payload_schema_version": 1,
         "quarantined": 1,
         "scope": "vertical",
-        "ts": 1700000160,
+        "ts": 1700000159,
         "type": "team.learning.review.completed",
         "updated": 1,
         "vertical": "software"
@@ -2456,7 +2440,7 @@
         "error": "provider request failed",
         "mission_success": true,
         "payload_schema_version": 1,
-        "ts": 1700000161,
+        "ts": 1700000160,
         "type": "team.learning.review.failed"
       },
       "id": "team.learning.review.failed"
@@ -2469,7 +2453,7 @@
         "path": "path",
         "payload_schema_version": 1,
         "reason": "the current operation needs attention",
-        "ts": 1700000162,
+        "ts": 1700000161,
         "type": "team.learning.promotion.quarantined"
       },
       "id": "team.learning.promotion.quarantined"
@@ -2479,7 +2463,7 @@
         "agent_layer": "engineer",
         "operator_turn_count": 1,
         "payload_schema_version": 1,
-        "ts": 1700000163,
+        "ts": 1700000162,
         "type": "self.learning.review.started"
       },
       "id": "self.learning.review.started"
@@ -2497,7 +2481,7 @@
         "removed": [
           "removed"
         ],
-        "ts": 1700000164,
+        "ts": 1700000163,
         "type": "self.learning.review.completed",
         "updated": [
           "updated"
@@ -2511,7 +2495,7 @@
         "error": "provider request failed",
         "operator_turn_count": 1,
         "payload_schema_version": 1,
-        "ts": 1700000165,
+        "ts": 1700000164,
         "type": "self.learning.review.failed"
       },
       "id": "self.learning.review.failed"
@@ -2520,7 +2504,7 @@
       "event": {
         "payload_schema_version": 1,
         "text": "Renderer event detail",
-        "ts": 1700000166,
+        "ts": 1700000165,
         "type": "domain.promotion"
       },
       "id": "domain.promotion"
@@ -2532,7 +2516,7 @@
         "payload_schema_version": 1,
         "project": "project",
         "text": "Renderer event detail",
-        "ts": 1700000167,
+        "ts": 1700000166,
         "type": "wiki.initialized"
       },
       "id": "wiki.initialized"
@@ -2543,7 +2527,7 @@
         "operation": "replace",
         "payload_schema_version": 1,
         "text": "Renderer event detail",
-        "ts": 1700000168,
+        "ts": 1700000167,
         "type": "wiki.hook.warning"
       },
       "id": "wiki.hook.warning"
@@ -2557,7 +2541,7 @@
         "status": "completed",
         "text": "Renderer event detail",
         "title": "Shared event renderer",
-        "ts": 1700000169,
+        "ts": 1700000168,
         "type": "wiki.created"
       },
       "id": "wiki.created"
@@ -2571,7 +2555,7 @@
         "status": "completed",
         "text": "Renderer event detail",
         "title": "Shared event renderer",
-        "ts": 1700000170,
+        "ts": 1700000169,
         "type": "wiki.updated"
       },
       "id": "wiki.updated"
@@ -2583,7 +2567,7 @@
         "payload_schema_version": 1,
         "reason": "the current operation needs attention",
         "text": "Renderer event detail",
-        "ts": 1700000171,
+        "ts": 1700000170,
         "type": "wiki.retired"
       },
       "id": "wiki.retired"
@@ -2599,7 +2583,7 @@
         "successful_references": 1,
         "text": "Renderer event detail",
         "to_status": "to status",
-        "ts": 1700000172,
+        "ts": 1700000171,
         "type": "wiki.promotion.promoted"
       },
       "id": "wiki.promotion.promoted"
@@ -2615,7 +2599,7 @@
         "successful_references": 1,
         "text": "Renderer event detail",
         "to_status": "to status",
-        "ts": 1700000173,
+        "ts": 1700000172,
         "type": "wiki.promotion.demoted"
       },
       "id": "wiki.promotion.demoted"
@@ -2633,7 +2617,7 @@
         "payload_schema_version": 1,
         "text": "Renderer event detail",
         "truncated": true,
-        "ts": 1700000174,
+        "ts": 1700000173,
         "type": "wiki.retired.compressed"
       },
       "id": "wiki.retired.compressed"
@@ -2659,7 +2643,7 @@
         "skipped": 1,
         "sources": 1,
         "text": "Renderer event detail",
-        "ts": 1700000175,
+        "ts": 1700000174,
         "type": "wiki.evolution.completed",
         "updated": 1,
         "wiki_count": 1
@@ -2677,7 +2661,7 @@
         "source_project": "source project",
         "text": "Renderer event detail",
         "title": "Shared event renderer",
-        "ts": 1700000176,
+        "ts": 1700000175,
         "type": "knowledge.learned",
         "vertical": "software"
       },
@@ -2699,7 +2683,7 @@
           "vertical": 1
         },
         "text": "Renderer event detail",
-        "ts": 1700000177,
+        "ts": 1700000176,
         "type": "knowledge.recalled"
       },
       "id": "knowledge.recalled"
@@ -2710,7 +2694,7 @@
         "payload_schema_version": 1,
         "reason": "the current operation needs attention",
         "text": "Renderer event detail",
-        "ts": 1700000178,
+        "ts": 1700000177,
         "type": "operator_alert"
       },
       "id": "operator_alert"
@@ -2727,7 +2711,7 @@
         "source": "daemon",
         "text": "Renderer event detail",
         "title": "Shared event renderer",
-        "ts": 1700000179,
+        "ts": 1700000178,
         "type": "manager.live_view.updated"
       },
       "id": "manager.live_view.updated"
@@ -2737,7 +2721,7 @@
         "error": "provider request failed",
         "payload_schema_version": 1,
         "text": "Renderer event detail",
-        "ts": 1700000180,
+        "ts": 1700000179,
         "type": "manager.live_view.rejected"
       },
       "id": "manager.live_view.rejected"
@@ -2747,7 +2731,7 @@
         "message_id": "message id",
         "payload_schema_version": 1,
         "text": "Renderer event detail",
-        "ts": 1700000181,
+        "ts": 1700000180,
         "turn_kind": "qa",
         "type": "manager.turn.started"
       },
@@ -2757,7 +2741,7 @@
       "event": {
         "message_id": "message id",
         "payload_schema_version": 1,
-        "ts": 1700000182,
+        "ts": 1700000181,
         "type": "manager.turn.cancelled"
       },
       "id": "manager.turn.cancelled"
@@ -2772,7 +2756,7 @@
         ],
         "text": "Renderer event detail",
         "title": "Shared event renderer",
-        "ts": 1700000183,
+        "ts": 1700000182,
         "type": "user.note"
       },
       "id": "user.note"
@@ -2783,7 +2767,7 @@
         "message_id": "message id",
         "payload_schema_version": 1,
         "text": "Renderer event detail",
-        "ts": 1700000184,
+        "ts": 1700000183,
         "type": "ui.operator"
       },
       "id": "ui.operator"
@@ -2799,7 +2783,7 @@
           }
         ],
         "text": "Renderer event detail",
-        "ts": 1700000185,
+        "ts": 1700000184,
         "turn_kind": "qa",
         "type": "ui.argus"
       },

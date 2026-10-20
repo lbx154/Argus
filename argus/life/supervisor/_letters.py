@@ -286,7 +286,6 @@ class LettersMixin:
             types={
                 "life.manager.stage_decision",
                 "life.plan.node.superseded",
-                "life.research.second_reading",
                 "life.manager.plan_challenge.decided",
             },
         ):
@@ -298,10 +297,6 @@ class LettersMixin:
                 )
             elif kind == "life.plan.node.superseded":
                 decisions.append(f"- Let go of a planned task: {str(row.get('reason') or '')[:300]}")
-            elif kind == "life.research.second_reading":
-                decisions.append(
-                    f"- A second reading of the evidence: supports {str(row.get('supported') or '')[:300]}"
-                )
             elif kind == "life.manager.plan_challenge.decided":
                 decisions.append(
                     f"- Plan challenge: {row.get('manager_action')}: {str(row.get('challenge') or '')[:300]}"

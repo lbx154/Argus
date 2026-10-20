@@ -204,8 +204,7 @@ process.stdout.write(JSON.stringify(result.details));
     def provider(ctx, _options):
         calls.append(ctx.call_id)
         assert {"consult_advisor", "send_peer_message", "revise_experience", "get_experience"} <= set(ctx.options.trusted_tool_names)
-        assert len(ctx.options.trusted_extensions) == 4
-        assert any(Path(path).as_posix().endswith("skills/runtime_extension.mjs") for path in ctx.options.trusted_extensions)
+        assert len(ctx.options.trusted_extensions) == 3
         command = ctx.backend._runner._build_pi_command(resume_thread_id=None, options=ctx.options)
         names = command[command.index("--tools") + 1].split(",")
         assert "revise_experience" in names and not {"bash", "write", "edit"} & set(names)

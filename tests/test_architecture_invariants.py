@@ -1061,7 +1061,6 @@ FUNCTION_BODY_UPWARD_ALLOWLIST: frozenset[str] = frozenset({
     "adapters/agent_cli_backend/_core.py -> tools",
     "adapters/agent_cli_backend/_exec.py -> life",
     "adapters/agent_cli_backend/_exec.py -> messaging",
-    "adapters/agent_cli_backend/_exec.py -> skills",
     "adapters/agent_cli_backend/_exec.py -> trial",
     "adapters/agent_cli_backend/_exec_finalize.py -> trial",
     "advisor/service.py -> life",
@@ -1135,7 +1134,6 @@ FUNCTION_BODY_UPWARD_ALLOWLIST: frozenset[str] = frozenset({
     "team/teammate_entry.py -> apps",
     "tools/setup.py -> trial",
     "verticals/research/idea_portfolio.py -> manager",
-    "verticals/research/second_reading.py -> manager",
 })
 
 # Cross-package imports of an underscore-private module or name. Every entry
@@ -1206,7 +1204,6 @@ PRIVATE_IMPORT_ALLOWLIST: frozenset[str] = frozenset({
     "skills -> argus.verticals._base",
     "skills -> argus.verticals._data_domain",
     "skills -> argus.verticals._registry",
-    "skills -> argus.wiki.store._atomic_write_text",
     "team -> argus.apps._runtime",
     "team -> argus.apps._runtime_supervisor",
     "team -> argus.daemon.state._terminate_windows_process_tree",
