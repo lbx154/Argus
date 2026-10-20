@@ -354,8 +354,8 @@ def test_operator_reply_lifts_the_pause(tmp_path) -> None:
 
 
 def test_circuit_state_survives_a_restart(tmp_path) -> None:
-    """The count lives on disk, not in the process (consecutive_replans
-    precedent): a daemon restart must not grant three fresh paid cycles."""
+    """The count lives on disk, not in the process: a daemon restart must
+    not grant three fresh paid cycles."""
     path = completion_rejection_circuit_path(tmp_path)
     record_completion_rejection(
         path, diagnostic="research_target_incomplete", reason="same cause"

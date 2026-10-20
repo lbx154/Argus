@@ -1320,7 +1320,7 @@ class MissionExecutionRuntimeMixin:
         hours because nothing distinguished a standing misconfiguration from a
         provider having a bad minute. The distinction is repetition: count
         consecutive same-signature cooldown pauses on the item itself
-        (restart-safe, like ``consecutive_replans``); at the limit, when the
+        (restart-safe); at the limit, when the
         failure is a model-configuration one, stop using that configuration
         and put the question to the operator instead of paying for another
         retry. Genuine outages clear within a retry or two and never reach the

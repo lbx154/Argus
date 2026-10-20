@@ -58,9 +58,7 @@ def review_keeps_mission_resumable(
     Reviewer's finding about *the work*: it is unfinished and should go on.
     These are independent, and letting the round-level fact win discards the
     verdict — the project then records a terminal stall for a goal a Reviewer
-    explicitly asked to continue, and the task signature is quarantined out of
-    replanning, so the run sits idle with an unfinished objective and an empty
-    queue.
+    explicitly asked to continue.
 
     Deliberately narrow. A success needs no resumption, and ``blocked``,
     ``failed`` and an operator abort stop for reasons no review verdict may

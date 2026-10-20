@@ -111,7 +111,6 @@ def _make_supervisor(
     monkeypatch.setattr(sup, "_resolve_vertical_once", lambda: None)
     monkeypatch.setattr(sup, "_wiki_collect_task_if_due_under_blocker", lambda: None)
     monkeypatch.setattr(sup, "_render_journal_for_planner", lambda: "")
-    monkeypatch.setattr(sup, "_recent_no_progress_failures", lambda: {})
     monkeypatch.setattr(sup, "_effective_final_certification_gate", lambda *_a, **_k: False)
     monkeypatch.setattr(sup, "_planner_runtime_with_idle_note", lambda: "")
     return sup
@@ -460,49 +459,6 @@ def test_duplicate_prerequisite_key_maps_to_existing_backlog_item(
     child = next(item for item in items if item.title == "Run child analysis")
     assert result is True
     assert child.deps == [parent.id]
-
-
-def test_recent_no_progress_failure_still_quarantines_expanded_task_signature(
-    tmp_path,
-    monkeypatch,
-) -> None:
-    project_root = tmp_path / "project"
-    project_root.mkdir()
-    verdict = _flat_verdict_kv(
-        (
-            "Retry failed probe",
-            "Run the same probe again.",
-            "the prior failure remains unresolved",
-        )
-    )
-    supervisor = _make_supervisor(
-        tmp_path,
-        monkeypatch,
-        verdict,
-        project_worktree=project_root,
-    )
-    failed = SimpleNamespace(
-        title="Retry failed probe",
-        extra={
-            "item_id": "failed-item",
-            "objective": "Run the same probe again.",
-            "terminal_status": "no_progress",
-        },
-    )
-    monkeypatch.setattr(
-        supervisor,
-        "_recent_no_progress_failures",
-        lambda: {("retry failed probe", "run the same probe again."): failed},
-    )
-
-    assert supervisor._plan_next_work() == PLAN_RETRY
-    assert supervisor.memory.backlog.all() == []
-    skipped = [
-        event
-        for event in supervisor._test_sink.events  # type: ignore[attr-defined]
-        if event.get("skip_category") == "recent_no_progress_failure"
-    ]
-    assert len(skipped) == 1
 
 
 def test_task_targeting_a_stuck_family_is_skipped(tmp_path, monkeypatch) -> None:

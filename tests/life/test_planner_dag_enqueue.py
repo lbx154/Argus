@@ -128,7 +128,7 @@ def test_commit_resolves_dependency_from_prior_planning_cycle(tmp_path: Path) ->
     assert persisted.deps == [implementation.id]
 
 
-def test_planner_dedup_index_includes_archived_completed_signature(
+def test_planner_dedup_index_leaves_completed_work_to_the_planner(
     tmp_path: Path,
 ) -> None:
     backlog = Backlog(tmp_path / "backlog.jsonl")
@@ -158,14 +158,10 @@ def test_planner_dedup_index_includes_archived_completed_signature(
         def _item_skips_stage_transition(_item):
             return False
 
-        @staticmethod
-        def _recent_no_progress_failures():
-            return {}
-
     state = _PlanCycleState(None)
     assert Harness()._pc_build_dedupe_index(state) is None
 
-    assert completed.id in {item.id for item in state.seen_signatures.values()}
+    assert completed.id not in {item.id for item in state.seen_signatures.values()}
 
 
 def test_planner_dedup_index_maps_active_planner_node_key(tmp_path: Path) -> None:
@@ -194,10 +190,6 @@ def test_planner_dedup_index_maps_active_planner_node_key(tmp_path: Path) -> Non
         @staticmethod
         def _item_skips_stage_transition(_item):
             return False
-
-        @staticmethod
-        def _recent_no_progress_failures():
-            return {}
 
     state = _PlanCycleState(None)
     Harness()._pc_build_dedupe_index(state)
@@ -663,11 +655,7 @@ def test_all_filtered_tasks_persist_feedback_for_next_planner_cycle() -> None:
         "reason": (
             "Supervisor filtered every task in the previous Planner proposal:\n"
             "- [stage_closing_requires_intervening_repair] Refresh paper review: "
-            "manuscript is unfrozen; staleness is a planning fact\n"
-            "Return a materially different executable plan that addresses these "
-            "reasons; do not repeat an unchanged filtered proposal. If nothing is "
-            "startable because pending tasks depend on in-flight work, return "
-            "waiting=true with a waiting contract naming that work and no new tasks."
+            "manuscript is unfrozen; staleness is a planning fact"
         ),
         "diagnostic": "planner_tasks_filtered",
     }]

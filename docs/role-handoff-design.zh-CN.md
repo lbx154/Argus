@@ -97,7 +97,7 @@ Reviewer 的判决不是第七种动作：`continue` 是退回，`replan_request
 | 类别 | 发生了什么 | 例子 |
 | --- | --- | --- |
 | 孤儿等待 | 持有者在等一个没有任何人有义务产生的事件，且没有期限 | 依赖 `research_incomplete` 或 `infra_blocked` 工作项的任务永远 pending：级联只在终态时触发，而 Planner 只能退役 pending 项。runtime 故障熔断只有在一个 `runtime_failure_canary` 任务通过后才会复位，而没有任何代码创建这种任务。进程还活着但已卡死的 subagent 永远被视为健康，因为 `stale_after` 算出来了却从未被比较。蓝绿切换的候选进程 60 秒内拿不到锁就退出，而此时切换请求已被消费，项目没有了 daemon。不带任务的 Manager WAIT 会冻结全部规划。 |
-| 无界往返 | 工作来回传递，却没有机械的变化度量 | `require_independent_review=False` 的任务不经结算就自我继续，而 `max_rounds` 默认为 0。`forward_progress=true` 让停滞守卫失效，轮次计数每次恢复都从头开始。每次 replan 都会建出计数器归零的新行，隔离按标题文本做键。team 任务重试没有预算。 |
+| 无界往返 | 工作来回传递，却没有机械的变化度量 | `require_independent_review=False` 的任务不经结算就自我继续，而 `max_rounds` 默认为 0。`forward_progress=true` 让停滞守卫失效，轮次计数每次恢复都从头开始。team 任务重试没有预算。 |
 | 权限真空 | 某个决定没有有权做出它的一方 | 操作员在场但禁止提问时，没有任何人可以接受残余风险。Manager 的监督通道停不掉一个任务。 |
 | 交接失真 | 动作在转换中丢失或被送错 | 同时声明等待并提出任务的 Planner 判决会丢掉这些任务。在已归档工作项上提出的问题被吞掉。daemon 不把 `early_stopped` 和 `crashed` 视为终态。一张过期的决策卡片会回答一个更新的问题。 |
 
@@ -200,7 +200,7 @@ Reviewer 的判决不是第七种动作：`continue` 是退回，`replan_request
 - Reviewer 提示词中解释 harness 机制的段落；
 - `review_objective` 拼接，由通过引用读取任务契约替代；
 - `reviewer/_parsing.py` 中没有生产调用方的散文解析路径；
-- 其余用来代替“原样退回即上交”的循环计数器：空回合与停滞连击、`consecutive_replans`、`replan_rejections`、按标题做键的隔离、Planner 的探针任务及其固定的重新授权节奏；
+- 其余用来代替“原样退回即上交”的循环计数器：空回合与停滞连击、`replan_rejections`、Planner 的探针任务及其固定的重新授权节奏；
 - 作为独立状态的十一种 `paused_*`，由一种挂起记录替代；
 - Planner 的等待契约字段和 Engineer 的 footer 键，由那一行交接替代。
 

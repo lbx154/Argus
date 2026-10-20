@@ -157,7 +157,6 @@ def test_feedback_writes_gate_metadata_during_enqueue(
     )
     monkeypatch.setattr(supervisor, "_clear_manager_planner_feedback", lambda: None)
     monkeypatch.setattr(supervisor, "_final_submission_scope_applies", lambda _root: True)
-    monkeypatch.setattr(supervisor, "_recent_no_progress_failures", lambda: {})
     monkeypatch.setattr(supervisor, "_recent_subagent_family_failures", lambda: {})
     monkeypatch.setattr(supervisor, "_planner_runtime_with_idle_note", lambda: "")
 

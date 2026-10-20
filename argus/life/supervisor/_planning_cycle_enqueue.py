@@ -2,8 +2,8 @@
 
 Covers everything after the planner has returned a trusted, non-empty
 ``new_tasks`` batch: building the existing-backlog dedupe index, the two-pass
-DAG-aware pending-item construction (dedupe / recent-failure / subagent-
-family-failure / authorization skips, then intra-batch dep-key resolution),
+DAG-aware pending-item construction (dedupe / subagent-family-failure /
+authorization skips, then intra-batch dep-key resolution),
 the revision-vs-non-revision commit path, and the final planner-verdict
 emission.
 """
@@ -31,7 +31,6 @@ from ._constants import (
     REPLAN_FILTER_REJECTION_LIMIT,
 )
 from ._helpers import (
-    _entry_task_signature,
     _normalize_blocker_fingerprint,
     _normalize_task_dep_key,
     _planner_task_signature,
@@ -70,12 +69,6 @@ def _render_filtered_task_feedback(state: _PlanCycleState) -> str:
         )
     if len(rows) > 8:
         lines.append(f"- ... and {len(rows) - 8} additional filtered task(s)")
-    lines.append(
-        "Return a materially different executable plan that addresses these "
-        "reasons; do not repeat an unchanged filtered proposal. If nothing is "
-        "startable because pending tasks depend on in-flight work, return "
-        "waiting=true with a waiting contract naming that work and no new tasks."
-    )
     return "\n".join(lines)
 
 
@@ -209,8 +202,7 @@ class PlanningCycleEnqueueMixin:
 
     def _pc_build_dedupe_index(self, state: _PlanCycleState) -> Any | None:
         try:
-            # Planner semantic dedup intentionally includes archived terminal
-            # node ids/keys; otherwise compaction would repurchase old work.
+            # Archived rows still name node ids/keys later tasks may depend on.
             state.existing_items = self.memory.backlog.history()
         except Exception:  # noqa: BLE001
             log.exception("life supervisor: failed to inspect backlog before planning")
@@ -293,7 +285,7 @@ class PlanningCycleEnqueueMixin:
                 execution_workdir=str(existing.execution_workdir or ""),
             )
             base_signature = signature
-            if existing.status != "done" and not terminal_blocker:
+            if not terminal_blocker:
                 active_base_signatures[base_signature] = existing
                 seen_signatures[signature] = existing
                 node_key = str(existing.node_key or "").strip()
@@ -306,7 +298,6 @@ class PlanningCycleEnqueueMixin:
         state.active_base_signatures = active_base_signatures
         state.active_node_keys = active_node_keys
         state.terminal_blocker_fingerprints = terminal_blocker_fingerprints
-        state.recent_failures = self._recent_no_progress_failures()
         state.new_plan_id = f"plan-{BacklogItem.new_id()}"
         state.new_plan_version = (
             state.expected_plan_version + 1 if state.revision_request is not None else 1
@@ -415,33 +406,12 @@ class PlanningCycleEnqueueMixin:
         Review semantics are part of task identity. A prior ordinary task
         cannot satisfy a later stage-closing
         certification request, even when its prose is identical.
-
-        Nor can a COMPLETED one. `done` means the mission finished,
-        not that the gate closed — a stage-closing task can run,
-        satisfy its own review, and still leave the gate uncertified.
-        When that happened the Planner re-proposed the gate and this
-        filter skipped it as a "duplicate completed task" every cycle,
-        leaving nothing pending and nothing to do but back off and
-        retry. Caught live on a clean project: 5 identical verdicts,
-        4 skips, an empty backlog and no exit, because "a done task
-        has this signature" is not a condition that changes.
-
-        If the Planner is asking for the gate again, the previous
-        attempt evidently did not close it, or the campaign would
-        have completed. The stage-level guard above now additionally requires an
-        intervening non-stage-closing repair before this signature exemption can
-        be reached. A still-pending or running duplicate is a genuine duplicate
-        and is still filtered, so concurrent copies of in-flight work remain
-        impossible.
         """
-        stage_closing = bool(getattr(task, "stage_closing", False))
-        requires_review = stage_closing or bool(
+        requires_review = bool(getattr(task, "stage_closing", False)) or bool(
             getattr(task, "require_independent_review", True)
         )
         if not requires_review:
             return False
-        if stage_closing and duplicate_item.status == "done":
-            return True
         return not self._item_requires_independent_review(duplicate_item)
 
     def _pc_build_pending_items(self, state: _PlanCycleState) -> Any | None:
@@ -817,9 +787,7 @@ class PlanningCycleEnqueueMixin:
                     key_map[task.key] = duplicate_item.id
                 state.skipped_duplicate_titles.append(task.title)
                 duplicate_reason = (
-                    "duplicate completed task"
-                    if duplicate_item.status == "done"
-                    else "duplicate terminal blocker"
+                    "duplicate terminal blocker"
                     if self._terminal_blocker_is_dedupable(duplicate_item)
                     else "duplicate pending/running task"
                 )
@@ -841,45 +809,6 @@ class PlanningCycleEnqueueMixin:
                         "matched_item_id": duplicate_item.id,
                         "matched_status": duplicate_item.status,
                         "reason": duplicate_reason,
-                    }
-                )
-                continue
-            recent_failure = state.recent_failures.get(signature[:2])
-            if recent_failure is not None:
-                state.skipped_recent_failure_titles.append(task.title)
-                failure_extra = getattr(recent_failure, "extra", {}) or {}
-                failure_signature = _entry_task_signature(recent_failure)
-                _record_filtered_task(
-                    state,
-                    title=task.title,
-                    category="recent_no_progress_failure",
-                    reason="recent no_progress failure",
-                )
-                self._emit(
-                    {
-                        "type": EventType.LIFE_PLANNER_TASK_SKIPPED,
-                        "cycle": self._planning_cycles,
-                        "title": task.title,
-                        "objective": task.objective,
-                        "impact_score": task.impact_score,
-                        "impact_area": task.impact_area,
-                        "evidence": task.evidence,
-                        "matched_item_id": failure_extra.get("item_id"),
-                        "matched_title": recent_failure.title,
-                        "matched_status": failure_extra.get("terminal_status")
-                        or failure_extra.get("status"),
-                        "matched_stop_reason": failure_extra.get("stop_reason")
-                        or failure_extra.get("failure_reason"),
-                        "matched_signature": (
-                            {
-                                "title": failure_signature[0],
-                                "objective": failure_signature[1],
-                            }
-                            if failure_signature is not None
-                            else None
-                        ),
-                        "skip_category": "recent_no_progress_failure",
-                        "reason": "recent no_progress failure",
                     }
                 )
                 continue
@@ -1197,7 +1126,7 @@ class PlanningCycleEnqueueMixin:
         """Hold back tasks whose in-batch parent was filtered out of this batch.
 
         A dependency key that names a sibling task of the same verdict is real,
-        required work. When a filter (policy, quarantine, certification guard,
+        required work. When a filter (policy, certification guard,
         authorization) removed that sibling, its key never reached ``key_map``
         and pass 2 dropped it like a hallucinated key, so the child ran without
         its parent. Hold the child (and, transitively, whatever needs it) with
@@ -1564,7 +1493,6 @@ class PlanningCycleEnqueueMixin:
             skipped_certification_reproposal_tasks=len(
                 state.skipped_certification_reproposal_titles
             ),
-            skipped_recent_failure_tasks=len(state.skipped_recent_failure_titles),
             skipped_subagent_family_failure_tasks=len(state.skipped_subagent_family_failure_titles),
             enqueued_titles=state.added_titles,
             enqueued_impact_scores=state.added_impact_scores,
@@ -1575,7 +1503,6 @@ class PlanningCycleEnqueueMixin:
             skipped_certification_reproposal_reasons=(
                 state.skipped_certification_reproposal_reasons
             ),
-            skipped_recent_failure_titles=state.skipped_recent_failure_titles,
             skipped_subagent_family_failure_titles=(state.skipped_subagent_family_failure_titles),
             stuck_subagent_families={
                 family: failure.streak for family, failure in state.subagent_family_failures.items()
