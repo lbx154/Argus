@@ -149,11 +149,7 @@ def test_engineer_operator_question_parks_without_reviewer(tmp_path: Path) -> No
         CannedResponse(
             message=(
                 "The required choice belongs to the operator.\n"
-                "MILESTONE_STATUS=continue\n"
-                "`OPERATOR_QUESTION=Is publishing route A or B acceptable?`\n"
-                "`OPERATOR_NEED=scope_or_authority`\n"
-                "`OPERATOR_OPTIONS=route-a :: 选择 A :: 使用 A 路线继续。; "
-                "route-b :: 选择 B :: 使用 B 路线继续。`"
+                "→ operator: Is publishing route A or B acceptable?"
             ),
             thread_id="t1",
         ),
@@ -176,16 +172,11 @@ def test_engineer_operator_question_parks_without_reviewer(tmp_path: Path) -> No
     assert len(rounds) == 1
     assert rounds[0].review.review_source == "engineer_handoff"
     assert rounds[0].review.operator_question == "Is publishing route A or B acceptable?"
-    assert [option["label"] for option in rounds[0].review.operator_options] == [
-        "选择 A",
-        "选择 B",
-    ]
     assert reason == "The required choice belongs to the operator."
     review_events = [event for event in events if event["type"] == "round.review.completed"]
     assert review_events[0]["operator_question"] == (
         "Is publishing route A or B acceptable?"
     )
-    assert review_events[0]["operator_options"][0]["id"] == "route-a"
 
 
 def test_a_question_nobody_may_be_asked_parks_for_the_manager(tmp_path: Path) -> None:
@@ -291,11 +282,9 @@ def test_structured_reviewer_handoff_is_authoritative_over_summary_vocabulary(
         "engineer-r1",
         CannedResponse(
             message=(
-                "MILESTONE_STATUS=continue\n"
-                "NEXT_OWNER=reviewer\n"
-                "OPERATOR_QUESTION=Authorize the budget and external publication "
-                "before review.\n"
-                "OPERATOR_OPTIONS=approve :: Approve :: Spend budget and publish."
+                "Should the operator authorize the budget and external publication "
+                "before review?\n"
+                "→ reviewer"
             ),
             thread_id="t1",
         ),
@@ -327,9 +316,7 @@ def test_structured_engineer_handoff_continues_without_early_review(
         CannedResponse(
             message=(
                 "Completed the first internal step.\n"
-                "MILESTONE_STATUS=continue\n"
-                "NEXT_OWNER=engineer\n"
-                "OPERATOR_QUESTION=none"
+                "→ engineer"
             ),
             thread_id="t1",
         ),
@@ -339,9 +326,7 @@ def test_structured_engineer_handoff_continues_without_early_review(
         CannedResponse(
             message=(
                 "Completed the artifact.\n"
-                "MILESTONE_STATUS=done\n"
-                "NEXT_OWNER=reviewer\n"
-                "OPERATOR_QUESTION=none"
+                "→ done"
             ),
             thread_id="t2",
         ),
@@ -364,7 +349,7 @@ def test_structured_engineer_handoff_continues_without_early_review(
     assert len(rounds) == 1
 
 
-def _freight_question_round(tmp_path: Path, *, need_line: str = ""):
+def _freight_question_round(tmp_path: Path):
     """The Engineer round from the freight trial: an explicit operator
     handoff whose question mentions credentials only to say they are not
     needed."""
@@ -373,11 +358,9 @@ def _freight_question_round(tmp_path: Path, *, need_line: str = ""):
         "engineer-r1",
         CannedResponse(
             message=(
-                "MILESTONE_STATUS=blocked\n"
-                "NEXT_OWNER=operator\n"
-                "OPERATOR_QUESTION=Provide the Reviewer with original packet access "
+                "Blocked on packet access.\n"
+                "→ operator: Provide the Reviewer with original packet access "
                 "and bounded local execution; production credentials are unnecessary."
-                + need_line
             ),
             thread_id="t1",
         ),

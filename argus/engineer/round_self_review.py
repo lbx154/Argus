@@ -14,13 +14,7 @@ from pathlib import Path
 from typing import TYPE_CHECKING, Callable
 
 from ..core.models import ReviewDecision, RunnerResult
-from ..core.role_handoff import (
-    HANDOFF_STATUS,
-    LADDER,
-    EngineerHandoff,
-    parse_engineer_handoff,
-    strip_handoff,
-)
+from ..core.role_handoff import HANDOFF_STATUS, LADDER, read_baton_line, strip_handoff
 from .round_state import (
     EngineerTurnOutcome,
     RoundControl,
@@ -33,34 +27,17 @@ if TYPE_CHECKING:
     from .runner import SupervisedConfig
 
 
-def _round_handoff(outcome: EngineerTurnOutcome) -> EngineerHandoff:
-    """The handoff the Engineer's turn ends with.
-
-    A recorded decision is read as the line it renders, the one the Reviewer
-    and the journal see, so a sentence in the narrative cannot name another
-    holder. A missing or unreadable line names the Reviewer: never done.
-    """
-    if isinstance(outcome.decision, dict):
-        from .round_execution import _engineer_decision_message
-
-        return parse_engineer_handoff(_engineer_decision_message(outcome.decision))
-    return parse_engineer_handoff(outcome.engineer_message)
-
-
-def _handoff_record(holder: str, outcome: EngineerTurnOutcome) -> ReviewDecision:
+def _handoff_record(holder: str, question: str, message: str) -> ReviewDecision:
     """The round's record of the Engineer handing the work past the Reviewer.
 
     The Engineer's own words, under its own source: the host writes no verdict
     for it. ``done`` is the Engineer accepting where no review is required.
     """
-    handoff = _round_handoff(outcome)
-    why = strip_handoff(outcome.engineer_message)[-1200:]
     return ReviewDecision(
         status=HANDOFF_STATUS[holder],
-        reason=why or f"Engineer handed the work to the {holder}.",
+        reason=strip_handoff(message)[-1200:] or f"Engineer handed the work to the {holder}.",
         next_action="",
-        operator_question=handoff.operator_question,
-        operator_options=list(handoff.operator_options),
+        operator_question=question,
         review_source="engineer_self_review" if holder == "done" else "engineer_handoff",
     )
 
@@ -135,55 +112,6 @@ def climb_record(passed: list[str], holder: str, *, handed: ReviewDecision | Non
     )
 
 
-def _footer_block(footer: str, name: str, *, limit: int = 2400) -> str:
-    """A ``NAME=`` footer value with its continuation lines kept whole.
-
-    The value runs until the next ``KEY=`` control line, so a reading the
-    Engineer wrote over several lines is recorded as written.
-    """
-    collected: list[str] = []
-    capturing = False
-    for raw_line in str(footer or "").splitlines():
-        line = raw_line.strip().strip("`")
-        key, separator, value = line.partition("=")
-        is_control = bool(separator) and key.strip().isupper() and " " not in key.strip()
-        if is_control:
-            if capturing:
-                break
-            if key.strip() == name:
-                capturing = True
-                collected.append(value.strip())
-            continue
-        if capturing:
-            collected.append(raw_line.rstrip())
-    return "\n".join(part for part in collected).strip()[:limit]
-
-
-def _record_stated_assumption(
-    outcome: EngineerTurnOutcome, supervised_config: "SupervisedConfig"
-) -> None:
-    """Keep the reading the Engineer chose when no operator could be asked.
-
-    The run report lists the reading in the Engineer's own words, from its
-    decision (``assumption``) or footer (``ASSUMPTION=``).
-    """
-    from ..core.autonomy import operator_questions_can_be_asked, record_autonomous_assumption
-    from ..core.role_reply import decision_footer_text
-
-    root = getattr(supervised_config, "operator_question_policy_root", None)
-    if root is None or operator_questions_can_be_asked(root):
-        return
-    reading = ""
-    if isinstance(outcome.decision, dict):
-        reading = str(outcome.decision.get("assumption") or "").strip()
-    if not reading:
-        reading = _footer_block(decision_footer_text(outcome.engineer_message), "ASSUMPTION")
-    if reading:
-        record_autonomous_assumption(
-            root, item_id="", reading=reading, source="engineer"
-        )
-
-
 class RoundSelfReviewMixin:
     """Hand a turn to the holder its baton line names."""
 
@@ -224,11 +152,12 @@ class RoundSelfReviewMixin:
         # outage and open the hold on an isolated accident.
         state.backend_failure_signature = ""
         state.backend_failure_same_cause_streak = 0
-        _record_stated_assumption(outcome, supervised_config)
         if state.snapshots is not None:
             # The Engineer held the work as its turn began.
             state.snapshots.hold("engineer", "turn", state.handed_inputs)
-        wanted = "reviewer" if climbed else _round_handoff(outcome).next_owner
+        # A missing or unreadable line names the Reviewer: never done.
+        handoff = None if climbed else read_baton_line(outcome.engineer_message)
+        wanted = handoff.holder if handoff else "reviewer"
         if wanted == "done" and supervised_config.require_independent_review:
             # Accepting a candidate is the Reviewer's where review is required.
             wanted = "reviewer"
@@ -242,7 +171,10 @@ class RoundSelfReviewMixin:
         if holder == "reviewer":
             return control_proceed()
         return self._settle_round(
-            review=climb_record(passed, holder) if passed else _handoff_record(holder, outcome),
+            review=(
+                climb_record(passed, holder) if passed
+                else _handoff_record(holder, handoff.question if handoff else "", outcome.engineer_message)
+            ),
             round_index=round_index,
             supervised_config=supervised_config,
             workdir=workdir,

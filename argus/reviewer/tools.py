@@ -335,7 +335,7 @@ class ReviewActions:
         if not prose:
             raise ValueError("The review must explain the judgment.")
         handoff = read_baton_line(review)
-        holder = handoff.next_owner if handoff is not None and handoff.source == "structured" else ""
+        holder = handoff.holder if handoff is not None else ""
         if holder not in HANDOFF_STATUS:
             raise ValueError(HANDOFF_LINE)
         if holder != "done" and "residual_risk" in payload:
@@ -359,7 +359,7 @@ class ReviewActions:
         decision = ReviewDecision(
             status=status, reason=prose,
             next_action="" if status == "done" else prose,
-            operator_question=handoff.operator_question if holder == "operator" else "",
+            operator_question=handoff.question,
             operator_options=normalize_agent_options(options),
             research_result=research,
             planner_report={"plan_signal": "reconsider" if holder == "planner" else "continue"},

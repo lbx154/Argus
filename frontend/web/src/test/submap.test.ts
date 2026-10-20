@@ -292,7 +292,7 @@ it("keeps late unnumbered observations moving right without crossing earlier rou
 it("shows the result prose without runner-control fields", () => {
   expect(
     readableRecord(
-      "Decision:\nMILESTONE_STATUS=done\nRESULT=完成 200 个独立种子。\nNEXT_OWNER=reviewer",
+      "Decision:\nRESULT=完成 200 个独立种子。\n→ reviewer",
     ),
   ).toBe("完成 200 个独立种子。");
   expect(readableRecord("完成 200 个独立种子。\n→ reviewer")).toBe("完成 200 个独立种子。");

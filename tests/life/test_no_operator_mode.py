@@ -9,7 +9,6 @@ assumption.
 from __future__ import annotations
 
 from dataclasses import dataclass, field
-from types import SimpleNamespace
 from typing import Any
 
 import pytest
@@ -426,13 +425,11 @@ def test_engineer_prompt_hands_only_actions_to_the_manager_without_an_operator(
 
     monkeypatch.setenv("ARGUS_SKILL_OPERATOR_AVAILABLE", "false")
     rule = engineer_operator_handoff_rule()
-    assert "ASSUMPTION=" in rule
-    assert "OPERATOR_NEED=credentials (or spending, irreversible_or_external)" in rule
+    assert "only for an action only the operator could approve" in rule
     assert rule.endswith("the Manager decides it.")
     monkeypatch.setenv("ARGUS_SKILL_OPERATOR_AVAILABLE", "true")
     rule = engineer_operator_handoff_rule()
-    assert "OPERATOR_NEED=credentials (or" in rule
-    assert "credentials|" not in rule
+    assert rule.endswith("that parks the task.")
 
 
 def test_bounded_completion_summary_names_the_assumptions(tmp_path) -> None:
@@ -491,24 +488,6 @@ def test_everyday_unclassified_questions_never_reach_the_operator(
     ).action != "ask_operator"
 
 
-@pytest.mark.parametrize("question", _EVERYDAY_QUESTIONS)
-def test_everyday_engineer_questions_without_explicit_handoff_reach_the_reviewer(
-    question,
-) -> None:
-    from argus.core.autonomy import assess_operator_intervention
-    from argus.core.role_handoff import parse_engineer_handoff
-
-    handoff = parse_engineer_handoff(
-        f"Decision:\nMILESTONE_STATUS=continue\nOPERATOR_QUESTION={question}\n"
-    )
-    assert handoff.source != "structured"
-    assert assess_operator_intervention(
-        question=handoff.operator_question,
-        operator_need=handoff.operator_need,
-        unclassified_requires_operator=handoff.source == "structured",
-    ).required is False
-
-
 # --- --no-operator lasts one run ---------------------------------------------
 def test_no_operator_flag_is_not_persisted_with_the_project(tmp_path, monkeypatch) -> None:
     import argus.core.autonomy as autonomy
@@ -549,30 +528,6 @@ def test_assumptions_are_scoped_to_the_run(tmp_path, monkeypatch) -> None:
     assert read_autonomous_assumptions(tmp_path)
     start_autonomy_run()
     assert read_autonomous_assumptions(tmp_path) == []
-
-
-def test_engineer_states_the_reading_it_chose(tmp_path, monkeypatch) -> None:
-    from argus.core.autonomy import read_autonomous_assumptions, start_autonomy_run
-    from argus.engineer.round_self_review import _record_stated_assumption
-
-    monkeypatch.setenv("ARGUS_SKILL_OPERATOR_AVAILABLE", "false")
-    start_autonomy_run()
-    outcome = SimpleNamespace(
-        decision=None,
-        engineer_message=(
-            "Done.\nDecision:\nMILESTONE_STATUS=done\n"
-            "ASSUMPTION=The release rule wins over the WIP rule for MB-1010\n"
-            "NEXT_OWNER=reviewer"
-        ),
-    )
-    _record_stated_assumption(
-        outcome, SimpleNamespace(operator_question_policy_root=tmp_path)
-    )
-    rows = read_autonomous_assumptions(tmp_path)
-    assert rows[-1]["reading"] == "The release rule wins over the WIP rule for MB-1010"
-    from argus.core.autonomy import render_autonomous_assumptions
-
-    assert "assumed: The release rule wins" in render_autonomous_assumptions(tmp_path)
 
 
 def test_completion_report_prompt_names_each_assumption() -> None:
@@ -622,27 +577,6 @@ def test_task_completed_message_lists_the_assumptions(tmp_path, monkeypatch) -> 
         for line in (tmp_path / "transcript.jsonl").read_text(encoding="utf-8").splitlines()
     ]
     assert any("assumed: Hello goes to stdout" in text for text in texts)
-
-
-def test_multi_line_assumption_is_kept_whole(tmp_path, monkeypatch) -> None:
-    from argus.core.autonomy import read_autonomous_assumptions, start_autonomy_run
-    from argus.engineer.round_self_review import _record_stated_assumption
-
-    monkeypatch.setenv("ARGUS_SKILL_OPERATOR_AVAILABLE", "false")
-    start_autonomy_run()
-    outcome = SimpleNamespace(
-        decision=None,
-        engineer_message=(
-            "Done.\nDecision:\nMILESTONE_STATUS=done\n"
-            "ASSUMPTION=The release rule wins over the WIP rule for MB-1010.\n"
-            "WO-WIP-002 is therefore not continued; the conflict is in CHECKPOINT.md.\n"
-            "NEXT_OWNER=reviewer"
-        ),
-    )
-    _record_stated_assumption(outcome, SimpleNamespace(operator_question_policy_root=tmp_path))
-    reading = read_autonomous_assumptions(tmp_path)[-1]["reading"]
-    assert reading.startswith("The release rule wins")
-    assert reading.endswith("the conflict is in CHECKPOINT.md.")
 
 
 def test_assumption_wording_never_targets_graded_deliverables(monkeypatch, tmp_path) -> None:

@@ -60,7 +60,7 @@
     "summary": "独立判断执行结果是否成立、需要补充或转向，把检查结果提炼成执行者需要的那一个下一步；评审有争议时以带标签的证据而非角色权威定论，不替执行者作完成声明。",
     "originalName": "The Reviewer's role",
     "source": "argus/builtin_skills/reviewer/argus-reviewer-role.md",
-    "sourceBytes": 5084
+    "sourceBytes": 5276
   },
   "global/reviewer/engineer-process-audit.md": {
     "title": "核对执行过程与证据",
@@ -515,14 +515,14 @@
     "summary": "检查受限问题与结果、证据和状态历史，防止未经确认的探索被当作正式科学结论。",
     "originalName": "Chemistry Playground Promotion Gate",
     "source": "argus/domains/chemistry/skills/reviewer/chemistry-playground-review.md",
-    "sourceBytes": 3087
+    "sourceBytes": 3081
   },
   "vertical/chemistry/reviewer/chemistry-review.md": {
     "title": "化学研究综合评审",
     "summary": "按问题转交专门评审方法，核对对象、原始证据、对照、可复现性、不确定性和安全要求。",
     "originalName": "Chemistry Research Review",
     "source": "argus/domains/chemistry/skills/reviewer/chemistry-review.md",
-    "sourceBytes": 2762
+    "sourceBytes": 2783
   },
   "vertical/chemistry/reviewer/computational-review.md": {
     "title": "计算化学证据评审",
@@ -536,28 +536,28 @@
     "summary": "独立检查衍射、对称性、精修、CIF、物相声明和结构不确定性，不替代其他领域评审。",
     "originalName": "Crystallography Evidence Review",
     "source": "argus/domains/chemistry/skills/reviewer/crystallography-review.md",
-    "sourceBytes": 1983
+    "sourceBytes": 2008
   },
   "vertical/chemistry/reviewer/materials-science-review.md": {
     "title": "材料科学证据评审",
     "summary": "核对非 MOF 材料的身份、工艺、性质和发现声明，不把结论跨用到晶体精修或电池循环。",
     "originalName": "Materials Science Evidence Review",
     "source": "argus/domains/chemistry/skills/reviewer/materials-science-review.md",
-    "sourceBytes": 2002
+    "sourceBytes": 2027
   },
   "vertical/chemistry/reviewer/mof-reticular-chemistry-review.md": {
     "title": "MOF 与网状化学证据评审",
     "summary": "核对构筑单元、拓扑、合成活化、孔隙吸附、后修饰、数据与生成结构的证据。",
     "originalName": "MOF and Reticular Chemistry Evidence Review",
     "source": "argus/domains/chemistry/skills/reviewer/mof-reticular-chemistry-review.md",
-    "sourceBytes": 2365
+    "sourceBytes": 2390
   },
   "vertical/chemistry/reviewer/organic-synthesis-review.md": {
     "title": "有机合成与逆合成评审",
     "summary": "独立核对反应记录、路线先例、选择性、分析证据、安全和实际可行性声明。",
     "originalName": "Organic Synthesis and Retrosynthesis Review",
     "source": "argus/domains/chemistry/skills/reviewer/organic-synthesis-review.md",
-    "sourceBytes": 2046
+    "sourceBytes": 2071
   },
   "vertical/chemistry/scientist/chemistry-adaptation.md": {
     "title": "根据证据改进化学方法",
@@ -725,7 +725,7 @@
     "summary": "亲自读代码、配置、评测器和原始行，判断证据对当前声明的支持与缺口；低于基线的结果在阶梯未走完前是修复请求；训练类实验另核对基础设施决策记录。",
     "originalName": "What the experiments establish",
     "source": "argus/verticals/research/skills/reviewer/experiment-results-review.md",
-    "sourceBytes": 10413
+    "sourceBytes": 10428
   },
   "vertical/research/reviewer/strongest-argument-against.md": {
     "title": "寻找最有力的科学反对意见",

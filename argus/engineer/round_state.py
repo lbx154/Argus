@@ -110,10 +110,6 @@ class EngineerTurnOutcome:
     engineer_message: str
     process_ownership_note: str
     round_started_at: float
-    #: The Engineer's decision event, when it recorded one. The round message
-    #: below stays the human-readable narrative; control decisions are read
-    #: from here so the narrative can never answer for them.
-    decision: dict[str, Any] | None = None
 
 
 TerminalResult = tuple[LoopStatus, list[RoundRecord], str, str, str | None]

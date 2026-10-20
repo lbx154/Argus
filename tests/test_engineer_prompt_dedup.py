@@ -55,18 +55,6 @@ def test_engineer_prompt_leaves_working_methods_to_the_backend() -> None:
         assert ban not in prompt
 
 
-def test_engineer_prompt_marks_detail_dependent_operator_options() -> None:
-    prompt = build_mission_prompt(
-        task="Offer the operator implementation choices.",
-        skill_text="",
-        next_action=None,
-    )
-
-    assert "OPERATOR_OPTIONS" in prompt
-    assert "id::true::label::description" in prompt
-    assert "requires_note:true" not in prompt
-
-
 def _without_host_shell_guidance(prompt: str) -> str:
     """Drop native-Windows shell guidance, which is host-specific by design."""
     from argus.roles.prompts.engineer import _WINDOWS_LONG_EXPERIMENT_RULE

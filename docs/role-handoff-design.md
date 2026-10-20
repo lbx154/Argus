@@ -390,8 +390,9 @@ Removed once the replacement is in place, each in its own roadmap item:
 - Each roadmap item is a separate, reviewable change. API, storage format,
   stage semantics, and deployment do not change in the same patch, following
   [runtime-maintainability.md](runtime-maintainability.md).
-- The current footers stay readable. A `NEXT_OWNER=` line or a native Reviewer
-  action maps onto the handoff line, so prompts can move one role at a time.
+- The old footers are no longer read: the Engineer's and the Reviewer's
+  prompts ask for the handoff line, and a footer line left in an older
+  message is plain prose.
 
 ## How success is measured
 
@@ -421,8 +422,5 @@ later item can report its effect against the same baseline.
 - How follow-ups are prioritized against the Planner's existing frontier.
 - Default deadlines per kind of park and per vertical, given that research runs
   legitimately take days.
-- Until the snapshot store exists, the unchanged-return rule needs a cheaper
-  change signal. A manifest (path, size, mtime) of the workdir, compared
-  directly, is enough to decide "unchanged", and the snapshot id replaces it later.
 - Whether the holder is only derived from handoff events in `events.jsonl`, or
   is also kept on the Backlog item for cheap reads.

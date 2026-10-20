@@ -28,7 +28,7 @@ def test_an_engineer_keeps_the_work_until_it_hands_it_over(tmp_path: Path) -> No
     for index in range(1, 8):
         backend.queue(
             f"engineer-r{index}",
-            CannedResponse(message=f"round {index}: more to do\n\nNEXT_OWNER=engineer"),
+            CannedResponse(message=f"round {index}: more to do\n\n→ engineer"),
         )
     backend.queue("engineer-r8", CannedResponse(message="Finished and verified."))
     backend.queue("reviewer", CannedResponse(review_action=(

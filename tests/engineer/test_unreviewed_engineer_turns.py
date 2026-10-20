@@ -41,12 +41,12 @@ def test_reviewer_sees_the_self_handoff_turn_before_the_final_one(tmp_path: Path
         (work / "evaluate.py").write_text("SPLIT = 'train'\n")
         return (
             "Switched evaluate.py to score on the train split (MARKER_R1).\n"
-            "MILESTONE_STATUS=continue\nNEXT_OWNER=engineer"
+            "→ engineer"
         )
 
     def round_two(_prompt, _options) -> str:
         (work / "report.md").write_text("accuracy 0.99\n")
-        return "Wrote report.md with accuracy 0.99.\nMILESTONE_STATUS=done\nNEXT_OWNER=reviewer"
+        return "Wrote report.md with accuracy 0.99.\n→ done"
 
     backend = MemoryBackend()
     backend.queue("engineer-r1", CannedResponse(message_factory=round_one, thread_id="t1"))
@@ -78,11 +78,11 @@ def test_a_later_review_still_sees_the_whole_task(tmp_path: Path) -> None:
 
     def round_one(_prompt, _options) -> str:
         (work / "evaluate.py").write_text("SPLIT = 'test'\n")
-        return "Fixed the split (MARKER_R1).\nMILESTONE_STATUS=continue\nNEXT_OWNER=reviewer"
+        return "Fixed the split (MARKER_R1).\n→ reviewer"
 
     def round_two(_prompt, _options) -> str:
         (work / "report.md").write_text("accuracy 0.81\n")
-        return "Wrote report.md.\nMILESTONE_STATUS=done\nNEXT_OWNER=reviewer"
+        return "Wrote report.md.\n→ done"
 
     backend = MemoryBackend()
     backend.queue("engineer-r1", CannedResponse(message_factory=round_one, thread_id="t1"))
@@ -122,11 +122,11 @@ def test_unreviewed_turn_evidence_waits_for_the_reviewer(
     backend = MemoryBackend()
     backend.queue(
         "engineer-r1",
-        CannedResponse(message="Step one.\nMILESTONE_STATUS=continue\nNEXT_OWNER=engineer"),
+        CannedResponse(message="Step one.\n→ engineer"),
     )
     backend.queue(
         "engineer-r2",
-        CannedResponse(message="Step two.\nMILESTONE_STATUS=done\nNEXT_OWNER=reviewer"),
+        CannedResponse(message="Step two.\n→ done"),
     )
     backend.queue("reviewer", CannedResponse(review_action=("submit_review", {"review": "ok\n→ done"})))
 
@@ -149,7 +149,7 @@ def test_the_reviewer_judges_every_turn_the_engineer_kept_for_itself(tmp_path: P
     for index in (1, 2):
         backend.queue(
             f"engineer-r{index}",
-            CannedResponse(message=f"step {index} written\nMILESTONE_STATUS=continue\nNEXT_OWNER=engineer"),
+            CannedResponse(message=f"step {index} written\n→ engineer"),
         )
     backend.queue("engineer-r3", CannedResponse(message="all steps written and checked"))
     backend.queue("reviewer", CannedResponse(review_action=("submit_review", {"review": "ok\n→ done"})))

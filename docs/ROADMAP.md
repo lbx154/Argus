@@ -298,6 +298,11 @@ not guess on the model's behalf whether there is progress. The full design is in
 - Can be split into: HO-16a read the line leniently (an unreadable line never means done); HO-16b merge the pause
   states; HO-16c (dropped: waits stay in the holder's turn, no `wait:` line); HO-16d unchanged return climbs; HO-16e
   delete the old footers and states.
+- Status: HO-16a, HO-16d and the footer half of HO-16e are done on `feat/baton-routing`, not yet merged. The Engineer
+  and the Reviewer are read only by their handoff line, and the Reviewer's five actions are one `submit_review`; an
+  unchanged return, judged from workspace snapshots and outside inputs and counted per lineage, climbs one rung at a
+  time; the seven footer keys and the Engineer's decision event are no longer read. HO-16b is on `feat/one-suspend`;
+  the old states go once both are merged.
 
 #### HO-17 The Observer: watching in the person's place
 `0.4` · `M` · Depends on: HO-16

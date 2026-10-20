@@ -176,7 +176,7 @@ def assess_operator_intervention(
 
     A question nobody classified stays with the team, as it always has,
     except where the caller passes ``unclassified_requires_operator``: the
-    Engineer's explicit ``NEXT_OWNER=operator`` hand-off without a usable
+    Engineer's explicit ``→ operator`` hand-off without a usable
     label fails safe to the operator while one may be asked.
     """
     del reason, next_action  # prose is context, not a classification

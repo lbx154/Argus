@@ -2723,10 +2723,10 @@
       "event": {
         "agent_layer": "engineer",
         "kind": "agent_message",
-        "text": "Artifact complete.\nNEXT_OWNER=reviewer\nOPERATOR_QUESTION=none",
+        "text": "Artifact complete.\n→ reviewer",
         "type": "engineer.progress"
       },
-      "id": "engineer.progress.handoff-fields"
+      "id": "engineer.progress.handoff"
     },
     {
       "event": {

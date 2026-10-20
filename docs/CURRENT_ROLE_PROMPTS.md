@@ -11,7 +11,7 @@
 > 主执行链路中的 Manager 路由/阶段和 Planner 计划会在决定明确时立即发送
 > `ARGUS_ROLE_DECISION={"role":"...","payload":{...}}`。Host 从整个事件流保存它；
 > 后续自然语言只给人看，不再解析“最后一段结构化输出”。Engineer 和 Reviewer 都用一段话加一行
-> `→ <下一位>` 交接，这一行就是工作的下一站（见 [交接设计](role-handoff-design.zh-CN.md)）；
+> `→ <下一位>` 交接，这一行就是工作的下一站，也是唯一被读取的交接（旧页脚键不再读取，见 [交接设计](role-handoff-design.zh-CN.md)）；
 > Reviewer 的这一段话和这一行写在唯一的原生动作 `submit_review` 里。
 
 ## Manager
@@ -533,7 +533,7 @@ Web UI：用真实 Chromium 和移动端测试。
 {{DURABLE_LEARNING_CONTRACT}}
 
 ## Handoff
-CHECKPOINT.md 把你的状态从一轮带到下一轮。Host 只在需要时调用 Reviewer；不要生成 Reviewer subagent。只有真实操作员决策才使用 `→ operator: <问题>`；下面几行可以写 OPERATOR_NEED 和最多五个 OPERATOR_OPTIONS（`id::label::description`），这会挂起任务。
+CHECKPOINT.md 把你的状态从一轮带到下一轮。Host 只在需要时调用 Reviewer；不要生成 Reviewer subagent。只有真实操作员决策才使用 `→ operator: <问题>`，这会挂起任务。
 
 ## 交接
 最后写一段简短交接，用操作员的语言说明：改了什么（附输出文件路径）、决定性检查、还有什么没完成、为什么交给下一位。然后单独一行写下一位持有者：
@@ -564,7 +564,7 @@ CHECKPOINT.md 把你的状态从一轮带到下一轮。Host 只在需要时调�
 {{DURABLE_LEARNING_CONTRACT}}
 
 ## Handoff
-只有操作员拥有决定权时才使用 `→ operator: <问题>`；问题会挂起任务，下面几行可以写 OPERATOR_NEED 和 OPERATOR_OPTIONS。
+只有真实操作员决策才使用 `→ operator: <问题>`，这会挂起任务。
 
 ## 交接
 最后写一段简短交接，用操作员的语言说明：改了什么（附输出文件路径）、决定性检查、还有什么没完成、为什么交给下一位。然后单独一行写下一位持有者：

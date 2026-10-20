@@ -1,22 +1,18 @@
-"""Structured role handoff parsing for model-authored round summaries.
+"""The baton line a role ends its turn with.
 
 A role ends its turn with prose and one line naming the next holder, the
 baton line of docs/role-handoff-design.md: ``→ reviewer``, ``→ engineer``,
-``→ planner``, ``→ manager``, ``→ operator: <question>`` or ``→ done``. The older ``NEXT_OWNER=`` footer is still read when no such line
-is present.
+``→ planner``, ``→ manager``, ``→ operator: <question>`` or ``→ done``. That
+line is the only handoff the host reads.
 """
 from __future__ import annotations
 
 import re
 from dataclasses import dataclass
-from typing import Literal, Mapping, Sequence
 
 from .models import ReviewStatus
-from .operator_decision import normalize_agent_options, parse_agent_operator_options
+from .role_decision import ROLE_DECISION_PREFIX
 
-HandoffOwner = Literal[
-    "engineer", "reviewer", "planner", "manager", "operator", "done"
-]
 #: How a round settles on each holder a handoff names: the Engineer works on,
 #: the Planner replans, the Manager or the operator decides, or the candidate
 #: is accepted. The Reviewer is reached inside the round.
@@ -27,23 +23,12 @@ HANDOFF_STATUS: dict[str, ReviewStatus] = {
 #: The rungs an unchanged return climbs, one at a time (invariant 3).
 LADDER = ("engineer", "reviewer", "planner", "manager", "operator")
 
-_EMPTY_VALUES = frozenset({"", "none", "n/a", "na", "null"})
-
-# The control lines of the older Engineer footer. Every surface that shows a
-# handoff to a person strips them, and the baton line, with ``strip_handoff``.
-FOOTER_KEYS = (
-    "MILESTONE_STATUS",
-    "NEXT_OWNER",
-    "OPERATOR_QUESTION",
-    "OPERATOR_OPTIONS",
-    "OPERATOR_NEED",
-    "ASSUMPTION",
-    "ROLE_DECISION",
-)
 # A ``RESULT=`` line's key, which a person never needs to read.
 _RESULT_KEY = re.compile(
     r"(?im)^[ \t]*(?:[-*+][ \t]*)?[`*_]*(?:ARGUS_)?RESULT[`*_]*[ \t]*[:=][ \t]*"
 )
+# A role-decision event line (``core.role_decision``): read by the host, never by a person.
+_ROLE_DECISION_LINE = re.compile(r"^[ \t]*(?:[-*+][ \t]*)?`?" + re.escape(ROLE_DECISION_PREFIX))
 # The holders a baton line may name, in English or by the role names the
 # operator sees.
 _HOLDERS = {
@@ -71,100 +56,11 @@ def _baton(line: str) -> re.Match[str] | None:
 
 
 @dataclass(frozen=True)
-class EngineerHandoff:
-    """The next role and any genuine operator decision requested by Engineer."""
+class Handoff:
+    """The holder a baton line names (one of ``_HOLDERS``), and the question an operator handoff asks."""
 
-    next_owner: HandoffOwner
-    operator_question: str = ""
-    operator_options: tuple[dict, ...] = ()
-    source: str = "default"
-    # The Engineer's own answer to "why can only the operator decide this?"
-    # (one of ``core.autonomy.OPERATOR_NEEDS``), or "" when it named none.
-    operator_need: str = ""
-
-    @property
-    def waits_for_operator(self) -> bool:
-        return self.next_owner == "operator" and bool(self.operator_question)
-
-
-def _named_value(
-    message: str, name: str, *, limit: int = 500, keep_none: bool = False
-) -> str:
-    value = ""
-    expected = name.casefold()
-    for line in str(message or "").splitlines():
-        normalized_line = line.strip()
-        if (
-            len(normalized_line) >= 2
-            and normalized_line.startswith("`")
-            and normalized_line.endswith("`")
-        ):
-            normalized_line = normalized_line[1:-1].strip()
-        key, separator, candidate = normalized_line.partition("=")
-        if separator and key.strip().casefold() == expected:
-            normalized = candidate.strip()
-            value = (
-                ""
-                if not keep_none
-                and normalized.casefold().rstrip(".") in _EMPTY_VALUES
-                else normalized[:limit]
-            )
-    return value
-
-
-def resolve_engineer_handoff(
-    *,
-    next_owner: object,
-    operator_question: object,
-    operator_options: Sequence[dict] = (),
-    operator_need: object = "",
-) -> EngineerHandoff:
-    """Resolve the next role from handoff fields that are already separated.
-
-    Both callers below reach this with three values. The difference is only
-    where they came from: the Engineer's decision event states them, and a
-    prose round summary has to be read for them.
-    """
-    owner = str(next_owner or "").strip().casefold()[:32]
-    question = str(operator_question or "").strip()
-    if question.casefold().rstrip(".") in _EMPTY_VALUES:
-        question = ""
-    question = question[:500]
-    options = tuple(operator_options or ())
-    from .autonomy import normalize_operator_need
-
-    need = normalize_operator_need(operator_need)
-
-    if owner in {"reviewer", "planner", "manager"}:
-        return EngineerHandoff(owner, source="structured")
-    if owner == "operator" and question:
-        return EngineerHandoff(
-            "operator", question, options, source="structured", operator_need=need
-        )
-    if owner == "engineer" and not question:
-        return EngineerHandoff("engineer", source="structured")
-    if question:
-        return EngineerHandoff(
-            "operator", question, options, source="operator_question", operator_need=need
-        )
-    return EngineerHandoff("reviewer", source="default")
-
-
-def decision_engineer_handoff(payload: Mapping[str, object]) -> EngineerHandoff:
-    """Read the handoff straight out of the Engineer's decision event.
-
-    The runtime used to render this payload into ``NEXT_OWNER=`` lines and read
-    them back. That put the model's own prose — rendered first — in a position
-    to answer questions the payload had already answered.
-    """
-    raw_options = payload.get("operator_options")
-    option_values = raw_options if isinstance(raw_options, (list, tuple)) else ()
-    return resolve_engineer_handoff(
-        next_owner=payload.get("next_owner"),
-        operator_question=payload.get("operator_question"),
-        operator_options=normalize_agent_options(option_values),
-        operator_need=payload.get("operator_need"),
-    )
+    holder: str
+    question: str = ""
 
 
 def baton_lines(text: str) -> list[tuple[str, str]]:
@@ -179,14 +75,14 @@ def baton_lines(text: str) -> list[tuple[str, str]]:
     ]
 
 
-def read_baton_line(text: str) -> EngineerHandoff | None:
-    """The handoff a closing ``→ <holder>`` line names, or ``None`` without one.
+def read_baton_line(text: str) -> Handoff | None:
+    """The handoff a closing ``→ <holder>`` line names, or ``None`` when none can be read.
 
     Only the decision region is read: after the last ``Decision:``, else the
     last five non-empty lines, so an arrow quoted from the task cannot route
-    the work. An unknown holder, two lines that disagree, a ``NEXT_OWNER=``
-    footer naming someone else, or ``operator:`` with nothing after it falls
-    back to the Reviewer. Nothing unreadable is ever ``done``.
+    the work. No line, an unknown holder, two lines that disagree, or
+    ``operator:`` with nothing after it is unreadable; nothing unreadable is
+    ever ``done``.
     """
     from .role_reply import decision_footer_text
 
@@ -195,72 +91,34 @@ def read_baton_line(text: str) -> EngineerHandoff | None:
     if footer == str(text or ""):
         lines = lines[-5:]
     named = set(baton_lines("\n".join(lines)))
-    if not named:
+    if len(named) != 1:
         return None
-    fallback = EngineerHandoff("reviewer", source="default")
-    if len(named) > 1:
-        return fallback
-    ((owner, argument),) = named
-    footer_owner = _named_value(footer, "NEXT_OWNER", limit=32).casefold()
-    disagrees = footer_owner and footer_owner != {"done": "reviewer"}.get(owner, owner)
-    if not owner or disagrees or (owner == "operator" and not argument):
-        return fallback
-    if owner == "operator":
-        return EngineerHandoff(
-            "operator",
-            argument[:500],
-            tuple(parse_agent_operator_options(footer)),
-            source="structured",
-            operator_need=_named_value(footer, "OPERATOR_NEED", limit=64, keep_none=True),
-        )
-    return EngineerHandoff(owner, source="structured")
+    ((holder, argument),) = named
+    if not holder or (holder == "operator" and not argument):
+        return None
+    return Handoff(holder, argument[:500] if holder == "operator" else "")
 
 
 def strip_handoff(text: str) -> str:
     """The prose of a handoff, as a person reads it.
 
-    Footer control lines and the baton line go; a ``RESULT=`` line keeps its
-    sentence, which was always written for the operator.
+    The baton line, a bare ``Decision:`` marker and a role-decision event
+    line go; a ``RESULT=`` line keeps its sentence, which was always written
+    for the operator.
     """
-    from .role_reply import strip_control_footer
+    from .role_reply import _DECISION_FOOTER
 
-    prose = "\n".join(
+    return "\n".join(
         line for line in _RESULT_KEY.sub("", str(text or "")).splitlines()
-        if not _baton(line)
-    )
-    return strip_control_footer(prose, FOOTER_KEYS)
-
-
-def parse_engineer_handoff(message: str) -> EngineerHandoff:
-    """Read the handoff out of a round summary that carried no decision event.
-
-    The baton line wins; the older footer is read only when there is none.
-    """
-    from .role_reply import decision_footer_text
-
-    baton = read_baton_line(message)
-    if baton is not None:
-        return baton
-    footer = decision_footer_text(message)
-    return resolve_engineer_handoff(
-        next_owner=_named_value(footer, "NEXT_OWNER", limit=32),
-        operator_question=_named_value(footer, "OPERATOR_QUESTION"),
-        operator_options=tuple(parse_agent_operator_options(footer)),
-        # "none" is a classification here, not an empty value.
-        operator_need=_named_value(footer, "OPERATOR_NEED", limit=64, keep_none=True),
-    )
+        if not (_baton(line) or _DECISION_FOOTER.match(line) or _ROLE_DECISION_LINE.match(line))
+    ).strip()
 
 
 __all__ = [
-    "FOOTER_KEYS",
     "HANDOFF_STATUS",
     "LADDER",
-    "EngineerHandoff",
-    "HandoffOwner",
+    "Handoff",
     "baton_lines",
-    "decision_engineer_handoff",
-    "parse_engineer_handoff",
     "read_baton_line",
-    "resolve_engineer_handoff",
     "strip_handoff",
 ]
