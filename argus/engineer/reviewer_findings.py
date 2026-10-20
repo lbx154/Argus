@@ -38,8 +38,8 @@ _UNJUDGED = {
     "provider_turn_cap": "the Engineer's session reached its per-call turn limit",
     "backend_failure": "the model service dropped the Engineer's session",
     "silent_command": (
-        "Argus stopped the Engineer's session after a command stayed silent "
-        "for the whole idle limit"
+        "Argus stopped the Engineer's session after a command made no "
+        "progress for a long time"
     ),
 }
 

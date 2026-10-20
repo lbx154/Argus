@@ -131,26 +131,41 @@ def test_budget_failures_keep_provider_provenance_without_exposing_raw_details(t
     assert len(backend.calls) == 1
 
 
-@pytest.mark.parametrize("origin", ["provider-exception", "trusted-timeout", "host-deadline"])
-def test_timeouts_are_provider_failures_without_applying_a_late_decision(tmp_path, monkeypatch, origin):
+@pytest.mark.parametrize("origin", ["provider-exception", "trusted-timeout"])
+def test_timeouts_are_provider_failures_without_applying_a_late_decision(tmp_path, origin):
     event = project(tmp_path)
     before = controls(tmp_path)
-    now = [100.0]
-    if origin == "host-deadline":
-        monkeypatch.setattr(supervision.time, "monotonic", lambda: now[0])
-        backend = Backend(reply(), before_return=lambda: now.__setitem__(0, 161.0))
-    elif origin == "trusted-timeout":
+    if origin == "trusted-timeout":
         backend = Backend(RunnerResult(exit_code=1, stop_kind="transient_error", call_id=CALL_ID,
                                        fatal_error="HTTP 504 Gateway Timeout: " + SECRET + " " + PROMPT_MARKER))
     else:
         backend = Backend(TimeoutError("Provider timed out: " + SECRET + " " + PROMPT_MARKER))
     record = supervision.supervise(Manager(tmp_path, runner=backend, memory_maintenance_enabled=False), tmp_path, event)
-    assert record["status"] == ("superseded" if origin == "host-deadline" else "failed")
+    assert record["status"] == "failed"
     assert not record.get("decision")
     assert_failure(tmp_path, record, stage="provider", code="timeout", stop_kind="transient_error",
-                   exit_code=0 if origin == "host-deadline" else 1 if origin == "trusted-timeout" else None,
+                   exit_code=1 if origin == "trusted-timeout" else None,
                    call_id=CALL_ID if origin != "provider-exception" else None)
     assert controls(tmp_path) == before and len(backend.calls) == 1
+
+
+def test_a_slow_decision_is_waited_for_and_applied(tmp_path, monkeypatch):
+    """A long Manager call is live work: no host deadline cuts it or its delivery."""
+    event = project(tmp_path)
+    now = [100.0]
+    monkeypatch.setattr(supervision.time, "monotonic", lambda: now[0])
+    original = supervision._apply
+
+    def slow_apply(*args, **kwargs):
+        now[0] += 3600.0
+        return original(*args, **kwargs)
+
+    monkeypatch.setattr(supervision, "_apply", slow_apply)
+    backend = Backend(reply(action="steer"), before_return=lambda: now.__setitem__(0, now[0] + 3600.0))
+    record = supervision.supervise(Manager(tmp_path, runner=backend, memory_maintenance_enabled=False), tmp_path, event)
+    assert record["status"] == "applied" and record["effects"]["directive_delivered"]
+    assert load_active_manager_directive(tmp_path).text == record["decision"]["directive"]
+    assert len(backend.calls) == 1
 
 
 @pytest.mark.parametrize("origin", ["callback", "operator_abort", "operator_pause", "daemon_shutdown", "external-prefix"])
@@ -322,28 +337,6 @@ def test_delivery_error_keeps_the_issued_decision_and_replays_without_another_mo
     assert all(not recovered.get(field) for field in ("failure_stage", "error_code", "error", "error_type", "failure_reason"))
     assert read_continuous_state(tmp_path).objective == "Validate separate grouped means"
     assert not (tmp_path / "inbox.jsonl").exists()
-
-
-def test_commit_deadline_keeps_the_existing_superseded_fence(tmp_path, monkeypatch):
-    event = project(tmp_path)
-    before = controls(tmp_path)
-    now = [100.0]
-    monkeypatch.setattr(supervision.time, "monotonic", lambda: now[0])
-    original = supervision._apply
-
-    def expire_before_delivery(*args, **kwargs):
-        now[0] = 161.0
-        return original(*args, **kwargs)
-
-    monkeypatch.setattr(supervision, "_apply", expire_before_delivery)
-    backend = Backend(reply(action="steer"))
-    manager = Manager(tmp_path, runner=backend, memory_maintenance_enabled=False)
-    record = supervision.supervise(manager, tmp_path, event)
-    assert record["status"] == "superseded" and record["decision"]["action"] == "steer"
-    assert_failure(tmp_path, record, stage="commit", code="timeout", exit_code=0, call_id=CALL_ID)
-    assert not supervision.recover_issued_supervision(manager, tmp_path)
-    assert controls(tmp_path) == before and load_active_manager_directive(tmp_path) is None
-    assert len(backend.calls) == 1
 
 
 def test_successful_model_prose_with_error_literals_is_not_provider_failure_metadata(tmp_path):

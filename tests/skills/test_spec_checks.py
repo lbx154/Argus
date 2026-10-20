@@ -11,6 +11,7 @@ from pathlib import Path
 
 import pytest
 
+from argus.core import process_progress
 from argus.engineer.round_evidence import (
     RoundEvidence,
     RoundEvidenceRequest,
@@ -255,13 +256,37 @@ def test_conftest_under_tests_still_provides_fixtures(tmp_path: Path) -> None:
     assert report.counts["PASSED"] == 1
 
 
-def test_timeout_knob_is_clamped_and_tolerant() -> None:
+def test_timeout_knob_limits_progress_and_is_tolerant() -> None:
     assert SPEC_CHECK_TIMEOUT_KNOB == "ARGUS_RESEARCH_SPEC_CHECK_TIMEOUT_SECONDS"
-    assert configured_spec_check_timeout_s({}) == 600.0
+    assert configured_spec_check_timeout_s({}) == 1800.0
+    assert configured_spec_check_timeout_s({SPEC_CHECK_TIMEOUT_KNOB: "abc"}) == 1800.0
     assert configured_spec_check_timeout_s({SPEC_CHECK_TIMEOUT_KNOB: "5"}) == 30.0
-    assert configured_spec_check_timeout_s({SPEC_CHECK_TIMEOUT_KNOB: "99999"}) == 3600.0
-    assert configured_spec_check_timeout_s({SPEC_CHECK_TIMEOUT_KNOB: "abc"}) == 600.0
-    assert configured_spec_check_timeout_s({SPEC_CHECK_TIMEOUT_KNOB: "120"}) == 120.0
+    assert configured_spec_check_timeout_s({SPEC_CHECK_TIMEOUT_KNOB: "99999"}) == 99999.0
+    assert configured_spec_check_timeout_s({SPEC_CHECK_TIMEOUT_KNOB: "0"}) == 0.0
+
+
+@pytest.mark.skipif(os.name == "nt", reason="process groups are POSIX")
+def test_a_suite_that_keeps_computing_is_never_stopped(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    """The limit is on progress: a check running three times the limit while busy finishes."""
+    import argus.verticals.research.spec_checks as module
+
+    workdir = tmp_path / "project"
+    spec = workdir / "tests" / "spec"
+    spec.mkdir(parents=True)
+    (spec / "test_busy.py").write_text(
+        "import time\n\ndef test_busy():\n    end = time.monotonic() + 3\n"
+        "    while time.monotonic() < end:\n        pass\n",
+        encoding="utf-8",
+    )
+    monkeypatch.setattr(module, "configured_spec_check_timeout_s", lambda env=None: 1.0)
+    monkeypatch.setattr(process_progress, "CPU_PROGRESS_SECONDS", 0.05)
+
+    report = _run(workdir, tmp_path / "life")
+
+    assert report is not None
+    assert not report.timed_out
+    assert report.duration_s >= 3
+    assert report.counts["PASSED"] == 1
 
 
 def test_parse_summary_reads_only_the_short_summary_section() -> None:
@@ -586,7 +611,6 @@ def test_incomplete_run_keeps_the_previous_state(tmp_path: Path, monkeypatch: py
     (spec / "test_slow.py").write_text(
         "import time\n\ndef test_slow():\n    time.sleep(30)\n", encoding="utf-8",
     )
-    monkeypatch.setenv(SPEC_CHECK_TIMEOUT_KNOB, "30")  # clamped floor; the run is killed there
     import argus.verticals.research.spec_checks as module
 
     monkeypatch.setattr(module, "configured_spec_check_timeout_s", lambda env=None: 2.0)

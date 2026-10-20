@@ -137,6 +137,33 @@ def test_a_look_on_facts_the_manager_already_holds_is_skipped(admitted, tmp_path
     assert admitted(review(16)) is not None
 
 
+_TURN_STALL = {
+    "type": EventType.ROUND_STALL, "stall_reason": "turn_stalled", "item_id": "grouped",
+    "idle_seconds": 1800, "running_tool": "sleep 9999",
+    "text": "the Engineer's turn has made no progress for 30 min while running `sleep 9999`",
+}
+
+
+def test_a_stalled_turn_reaches_the_manager_with_its_choices(admitted):
+    event = admitted(_TURN_STALL)
+    assert event["consult_reason"].startswith("the Engineer's turn has made no progress for 30 min")
+    assert "CONTINUE keeps waiting on that turn, STEER stops it" in event["consult_reason"]
+
+
+def test_a_stalled_turn_is_judged_even_when_the_project_files_are_unchanged(tmp_path):
+    """The stall is the news: an applied look at the same files does not answer it."""
+    write_continuous_config(tmp_path, enabled=True, objective="Produce a validated grouped summary")
+    Backlog(tmp_path / "backlog.jsonl").add(BacklogItem.new(item_id="grouped", title="t", objective="o"))
+    backend = _Backend(json.dumps({"action": "continue", "reason": "The run is still plausible.", "evidence_refs": ["backlog.jsonl"]}))
+    manager = Manager(tmp_path, runner=backend, memory_maintenance_enabled=False)
+    first = supervision.supervise(manager, tmp_path, _review(2, forward_progress=False))
+    assert first["status"] == "applied" and len(backend.prompts) == 1
+    assert supervision.supervise(manager, tmp_path, _review(2, forward_progress=False)) == first
+    stalled = supervision.supervise(manager, tmp_path, {**_TURN_STALL, "consult_reason": "stalled"})
+    assert stalled["status"] == "applied" and stalled["id"] != first["id"]
+    assert len(backend.prompts) == 2 and "consulted now because of: stalled" in backend.prompts[1]
+
+
 def test_a_failed_check_does_not_count_as_the_manager_having_looked(tmp_path):
     """The next trigger on the same evidence asks again after a failed or superseded check."""
     write_continuous_config(tmp_path, enabled=True, objective="Produce a validated grouped summary")

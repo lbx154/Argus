@@ -167,9 +167,8 @@ def test_a_hung_git_leaves_the_facts_unknown_and_the_reviewer_still_decides(tmp_
     hung.write_text("#!/bin/sh\nexec sleep 60\n", encoding="utf-8")
     hung.chmod(0o755)
     monkeypatch.setenv("PATH", f"{hung.parent}{os.pathsep}{os.environ['PATH']}")
-    monkeypatch.setattr(
-        importlib.import_module("argus.core.workspace_facts"), "GIT_TIMEOUT_SECONDS", 0.2,
-    )
+    for module in ("argus.core.workspace_facts", "argus.core.workspace_snapshot"):
+        monkeypatch.setattr(importlib.import_module(module), "GIT_TIMEOUT_SECONDS", 0.2)
     packet, workdir = _mission(tmp_path)
     (workdir / ".git").mkdir()
     trainer = Trainer(workdir)
@@ -183,3 +182,36 @@ def test_a_hung_git_leaves_the_facts_unknown_and_the_reviewer_still_decides(tmp_
     assert reviewer.saw_result == [False, False]
     assert not any(event["type"] == "round.review.skipped_unchanged" for event in events)
     assert time.monotonic() - started < 30
+
+
+def test_a_ledger_that_cannot_be_written_never_stops_the_round(tmp_path, monkeypatch):
+    """Bookkeeping never blocks work: without the record the Reviewer is only asked again."""
+    from argus.engineer import runner
+
+    def full_disk(*_args: Any, **_kwargs: Any) -> None:
+        raise OSError(28, "No space left on device")
+
+    monkeypatch.setattr(runner, "record_holder", full_disk)
+    packet = tmp_path / "state" / "handoffs" / "m1" / "mission.json"
+    packet.parent.mkdir(parents=True)
+    packet.write_text(json.dumps({"mission_id": "m1"}), encoding="utf-8")
+    workdir = tmp_path / "work"
+    workdir.mkdir()
+    trainer = Trainer(workdir)
+    reviewer = Reviewer(trainer)
+    loop = cast(Any, SupervisedEngineer.__new__(SupervisedEngineer))
+    loop.engineer_runner, loop.reviewer = Engineer(trainer, workdir), reviewer
+    loop.engineer_config, loop.reviewer_config = EngineerConfig(model="stub"), ReviewerConfig(model="stub")
+    events: list[dict] = []
+
+    result = loop.run(
+        objective="Train a policy and report its final loss", workdir=workdir,
+        engineer_prompt_builder=lambda action, include_static=True: action or "Start",
+        supervised_config=SupervisedConfig(max_rounds=2, require_independent_review=True, context_packet_path=packet),
+        on_event=events.append,
+    )
+
+    # The rounds end on the Reviewer's own verdicts, not on the failed write.
+    assert result[0] == "no_progress"
+    assert reviewer.saw_result == [False, False]
+    assert not any(event["type"] == "round.review.skipped_unchanged" for event in events)

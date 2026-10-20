@@ -101,9 +101,10 @@ class RunnerOptions:
     # ``fatal_error="External interrupt: <reason>"``.
     #
     # ``inactivity_callback`` is invoked on soft-idle boundaries (no
-    # stdout for ``watchdog_soft_idle_seconds``); it can return
-    # ``"restart"`` to force termination + retry semantics, or any
-    # other value to keep waiting.
+    # progress -- no stdout event, no CPU time in the CLI's process tree --
+    # for ``watchdog_soft_idle_seconds``); it can return ``"restart"`` or
+    # ``"restart: <who decided, and why>"`` to force termination + retry
+    # semantics, or any other value to keep waiting.
     #
     # Idle thresholds use ``None`` to inherit backend defaults and ``0`` to
     # disable that stage for this call.
