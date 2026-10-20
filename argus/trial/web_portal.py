@@ -503,10 +503,10 @@ def compute_permitted(path: str, method: str) -> bool:
     return method == "POST" and bool(re.fullmatch(r"/compute/jobs(?:/[0-9]+/cancel)?", path))
 
 
-def clean_query(request: Request | WebSocket, *, readonly: bool = False) -> str:
+def clean_query(request: Request | WebSocket) -> str:
     return urlencode([
         (key, value) for key, value in request.query_params.multi_items()
-        if key.lower() != "token" and not (readonly and key == "prewarm")
+        if key.lower() != "token"
     ])
 
 
@@ -1128,7 +1128,7 @@ def create_app(config: dict | str | Path | Settings | None = None, *,
             data = json_body(body)
             if data.get("workdir") or data.get("launch_cwd"):
                 raise HTTPException(403, "Workspace selection is not available")
-        query = clean_query(request, readonly=identity["readonly"])
+        query = clean_query(request)
         url = backend.url + quote(path, safe="/:@-._~!$&'()*+,;=") + ("?" + query if query else "")
         headers = filtered_headers(httpx.Headers(request.headers), REQUEST_HEADERS)
         headers["authorization"] = "Bearer " + credential
@@ -1232,7 +1232,7 @@ def create_app(config: dict | str | Path | Settings | None = None, *,
             await ws.close(code=4403)
             return
         backend = settings.tenants[identity["tenant"]]
-        query = clean_query(ws, readonly=identity["readonly"])
+        query = clean_query(ws)
         query += ("&" if query else "") + urlencode({"token": backend.token})
         url = backend.url.replace("http", "ws", 1) + "/" + quote(path, safe="/") + "?" + query
         accepted = False

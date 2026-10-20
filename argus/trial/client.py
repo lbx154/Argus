@@ -47,7 +47,7 @@ def trial_enabled(env: Mapping[str, str] | None = None) -> bool:
 def trial_model_options(
     model: str | None, effort: str | None, *, env: Mapping[str, str] | None = None,
 ) -> tuple[str | None, str | None]:
-    """Normalize a trial selector consistently for one-shot and ACP workers.
+    """Normalize a trial selector consistently for every Copilot worker.
 
     Adapted from upstream be5bb394. Preserve the opaque client selector and the
     user's reasoning setting; never silently accept an incompatible explicit
@@ -76,7 +76,7 @@ def runtime_redactions() -> tuple[str, ...]:
 
 
 def apply_trial_provider(env: dict[str, str]) -> dict[str, str]:
-    """Apply the user's trial key to both one-shot and ACP workers."""
+    """Apply the user's trial key to every Copilot worker."""
     from ..core.paths import global_root
 
     if not trial_enabled(env):
@@ -242,7 +242,7 @@ def validate_role_overrides() -> None:
 
     settings = {**read_persisted_knobs(), **os.environ}
     conflicts = []
-    for role in ("MANAGER", "PLANNER", "ENGINEER", "REVIEWER", "CURATOR", "SUPERVISOR"):
+    for role in ("MANAGER", "PLANNER", "ENGINEER", "REVIEWER", "SUPERVISOR"):
         backend = str(settings.get(f"ARGUS_SKILL_{role}_BACKEND", "")).strip().lower()
         model_key = "PLAN" if role == "PLANNER" else role
         model = str(settings.get(f"ARGUS_SKILL_{model_key}_MODEL", "")).strip().lower()

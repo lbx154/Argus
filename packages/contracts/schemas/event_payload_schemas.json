@@ -1671,9 +1671,6 @@
         "review_source": {
           "type": "string"
         },
-        "forward_progress": {
-          "type": "boolean"
-        },
         "plan_signal": {
           "type": "string"
         },
@@ -1767,16 +1764,6 @@
         "residual_risk_detail": {
           "type": "object"
         },
-        "manager_attention": {
-          "type": "string",
-          "enum": [
-            "needed",
-            "not_needed"
-          ]
-        },
-        "manager_attention_reason": {
-          "type": "string"
-        },
         "learning": {
           "type": "string",
           "enum": [
@@ -1786,6 +1773,12 @@
         },
         "learning_reason": {
           "type": "string"
+        },
+        "interventions": {
+          "type": "array",
+          "items": {
+            "type": "object"
+          }
         },
         "changed_during_review": {
           "type": "array",
@@ -3751,28 +3744,6 @@
         }
       }
     },
-    "life.curator.backend_resolved": {
-      "version": 1,
-      "required": [
-        "role",
-        "backend",
-        "source"
-      ],
-      "properties": {
-        "role": {
-          "type": "string",
-          "minLength": 1
-        },
-        "backend": {
-          "type": "string",
-          "minLength": 1
-        },
-        "source": {
-          "type": "string",
-          "minLength": 1
-        }
-      }
-    },
     "codex.util.completed": {
       "version": 1,
       "properties": {
@@ -3875,32 +3846,6 @@
         }
       }
     },
-    "round.escalated": {
-      "version": 1,
-      "properties": {
-        "round_index": {
-          "type": "integer",
-          "minimum": 1
-        },
-        "soft_round_limit": {
-          "type": "integer",
-          "minimum": 1
-        },
-        "hard_escalate_rounds": {
-          "type": "integer",
-          "minimum": 1
-        },
-        "forward_progress": {
-          "type": "boolean"
-        },
-        "continuation_reason": {
-          "type": "string"
-        },
-        "text": {
-          "type": "string"
-        }
-      }
-    },
     "round.stall": {
       "version": 1,
       "properties": {
@@ -3911,21 +3856,6 @@
         "round_max": {
           "type": "integer",
           "minimum": 0
-        },
-        "semantic_stall_streak": {
-          "type": "integer",
-          "minimum": 0
-        },
-        "stall_threshold": {
-          "type": "integer",
-          "minimum": 0
-        },
-        "decision_idle_seconds": {
-          "type": "number",
-          "minimum": 0
-        },
-        "forward_progress": {
-          "type": "boolean"
         },
         "stall_reason": {
           "type": "string",
@@ -4223,24 +4153,6 @@
             "object",
             "null"
           ]
-        }
-      }
-    },
-    "life.planner.stall_escalation": {
-      "version": 1,
-      "properties": {
-        "objective": {
-          "type": "string"
-        },
-        "consecutive_no_progress_missions": {
-          "type": "integer",
-          "minimum": 1
-        },
-        "reason": {
-          "type": "string"
-        },
-        "text": {
-          "type": "string"
         }
       }
     },
@@ -4565,36 +4477,6 @@
           "type": "string"
         },
         "text": {
-          "type": "string"
-        }
-      }
-    },
-    "life.research.second_reading": {
-      "version": 1,
-      "properties": {
-        "stage": {
-          "type": "string"
-        },
-        "refuted": {
-          "type": "string"
-        },
-        "supported": {
-          "type": "string"
-        },
-        "next": {
-          "type": "string"
-        },
-        "text": {
-          "type": "string"
-        },
-        "notes_path": {
-          "type": "string"
-        },
-        "signals": {
-          "type": "integer",
-          "minimum": 0
-        },
-        "agent_layer": {
           "type": "string"
         }
       }
@@ -5550,53 +5432,6 @@
         },
         "error": {
           "type": "string"
-        },
-        "text": {
-          "type": "string"
-        }
-      }
-    },
-    "idea.portfolio.formed": {
-      "version": 1,
-      "required": [
-        "route_count"
-      ],
-      "properties": {
-        "team_root": {
-          "type": "string"
-        },
-        "width": {
-          "type": "integer",
-          "minimum": 0
-        },
-        "route_count": {
-          "type": "integer",
-          "minimum": 0
-        },
-        "task_count": {
-          "type": "integer",
-          "minimum": 0
-        },
-        "selection": {
-          "type": "object"
-        },
-        "policy": {
-          "type": "string"
-        },
-        "text": {
-          "type": "string"
-        }
-      }
-    },
-    "idea.portfolio.nested_skipped": {
-      "version": 1,
-      "required": [
-        "team_task_id"
-      ],
-      "properties": {
-        "team_task_id": {
-          "type": "string",
-          "minLength": 1
         },
         "text": {
           "type": "string"

@@ -168,8 +168,6 @@ Verify these paths and contracts at the supplied revision; names may move:
   calls and queue exhaustion rather than accepting default responses.
 - `core/role_session.py`: `auto` may mean rolling for a real provider but fresh
   for MemoryBackend. Explicitly reproduce the intended session policy.
-- `agent_cli/_acp_routing.py`: warm Manager ACP and ordinary CLI are different
-  paths. A CLI-only fake does not cover ACP.
 - `life/mission_outcome.py` and `core/stage_certificate.py`: inspect outcome
   dimensions and artifact-bound stage authority, not a lone success boolean.
 - `skills/store.py` and `skills/builtins.py`: Markdown can be executable

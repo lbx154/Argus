@@ -536,7 +536,7 @@ def _stage_decision(**overrides) -> SimpleNamespace:  # noqa: ANN003
         "reason": "The stage still owes its review.",
         "current_stage": "",
         "source": "manager_llm",
-        "diagnostic": "",
+        "diagnostic": "intentional_hold",
     }
     fields.update(overrides)
     return SimpleNamespace(**fields)
@@ -561,7 +561,7 @@ def test_stage_reconciliation_request_with_tasks_reaches_the_manager_and_replans
     assert manager.calls[0]["planner_verdict"].new_tasks == []
     assert supervisor.memory.backlog.pending() == []
     feedback = supervisor._load_manager_planner_feedback()
-    assert feedback["diagnostic"] == "manager_hold_requires_stage_repair"
+    assert feedback["diagnostic"] == "intentional_hold"
 
 
 def test_stage_reconciliation_request_held_by_a_failsafe_keeps_tasks(
@@ -571,7 +571,7 @@ def test_stage_reconciliation_request_held_by_a_failsafe_keeps_tasks(
     life = tmp_path / "life"
     planner = _PlannerBackend([_handoff_with_task("→ manager")])
     supervisor = _supervisor(project, life, planner)
-    manager = _StageManager(_stage_decision(source="no_review_hold"))
+    manager = _StageManager(_stage_decision(source="no_review_hold", diagnostic=""))
     supervisor._bound_manager = lambda: manager  # type: ignore[method-assign]
 
     assert supervisor._plan_next_work() is True
@@ -804,6 +804,28 @@ _MANAGER_HANDOFF = "\n".join([
     "REASON=The vendor has not published the dataset the stage needs.",
     "→ manager",
 ])
+
+
+def test_a_handoff_the_managers_backend_left_unanswered_is_retried_as_a_failed_turn(
+    tmp_path: Path, monkeypatch,
+) -> None:
+    """The Manager's backend gave no answer to the Planner's handoff. Argus
+    launched that backend, so the turn failed: the Planner's failure streak
+    paces the retry instead of the handoff hanging until something changes."""
+    project = _project(tmp_path, monkeypatch)
+    planner = _PlannerBackend([_MANAGER_HANDOFF] * 2)
+    supervisor = _supervisor(project, tmp_path / "life", planner)
+    manager = _StageManager(_stage_decision(source="failsafe_hold", diagnostic="exception"))
+    supervisor._bound_manager = lambda: manager  # type: ignore[method-assign]
+
+    supervisor._plan_next_work()
+    assert supervisor._load_planner_failure_state()["kind"] == "backend"
+
+    manager.decision = _stage_decision()
+    assert supervisor._plan_next_work() == PLAN_RETRY
+    assert len(planner.calls) == 2 and len(manager.calls) == 2
+    assert supervisor._load_planner_failure_state() == {}
+    assert supervisor._load_manager_planner_feedback()["reason"] == "The stage still owes its review."
 
 
 @pytest.mark.parametrize("open_ended", [False, True])

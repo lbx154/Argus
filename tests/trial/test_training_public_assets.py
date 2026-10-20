@@ -22,7 +22,7 @@ ASSET = ROOT + "/_shared_verticals/software/engineer/software-change-implementat
 @pytest.mark.parametrize("scope,relative", [
     ("software", "engineer/software-change-implementation.md"),
     ("software", "reviewer/software-change-review.md"),
-    ("math", "engineer/math-research-execution.md"),
+    ("argus_maintenance", "engineer/argus-maintenance-execution.md"),
     ("research", "engineer"),
 ])
 def test_builtin_registry_only_recognizes_published_paths(scope, relative):

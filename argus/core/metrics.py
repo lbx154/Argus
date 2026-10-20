@@ -330,12 +330,6 @@ def _goal_progress_snapshot(
             == project_id
         ]
         accepted = sum(bool((row.get("fields") or {}).get("accepted")) for row in missions)
-        progress_reports = [
-            (row.get("fields") or {}).get("forward_progress")
-            for row in missions
-            if isinstance((row.get("fields") or {}).get("forward_progress"), bool)
-        ]
-        forward = sum(value is True for value in progress_reports)
         replans = sum(
             bool((row.get("fields") or {}).get("replan_requested"))
             for row in missions
@@ -351,7 +345,7 @@ def _goal_progress_snapshot(
             (
                 float(row.get("ts") or 0.0)
                 for row in missions
-                if (row.get("fields") or {}).get("forward_progress") is True
+                if (row.get("fields") or {}).get("accepted")
                 and float(row.get("ts") or 0.0) > 0
             ),
             default=0.0,
@@ -363,10 +357,6 @@ def _goal_progress_snapshot(
             "missions": len(missions),
             "accepted": accepted,
             "mission_acceptance_rate": accepted / len(missions) if missions else 0.0,
-            "forward_progress_reported": len(progress_reports),
-            "forward_progress_rate": (
-                forward / len(progress_reports) if progress_reports else 0.0
-            ),
             "replans": replans,
             "replan_rate": replans / len(missions) if missions else 0.0,
             "planner_tasks_proposed": proposed,
@@ -520,8 +510,6 @@ def render_prometheus(snapshot: dict[str, Any]) -> str:
         f'argus_event_validation_failures_total {snapshot["event_validation_failures"]}',
         "# TYPE argus_goal_mission_acceptance_ratio gauge",
         f'argus_goal_mission_acceptance_ratio {goal.get("mission_acceptance_rate", 0)}',
-        "# TYPE argus_goal_forward_progress_ratio gauge",
-        f'argus_goal_forward_progress_ratio {goal.get("forward_progress_rate", 0)}',
         "# TYPE argus_goal_replan_ratio gauge",
         f'argus_goal_replan_ratio {goal.get("replan_rate", 0)}',
         "# TYPE argus_goal_duplicate_work_ratio gauge",

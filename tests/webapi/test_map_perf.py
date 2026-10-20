@@ -10,8 +10,7 @@ from fastapi.testclient import TestClient
 
 from argus.core.session import SessionMeta, write_session_meta
 from argus.life.memory import BacklogItem, LifeMemory
-from argus.team import task_board
-from argus.webapi import map_feed, map_team
+from argus.webapi import map_feed
 from argus.webapi.map_feed import MapFeed
 from argus.webapi.server import create_app
 
@@ -28,29 +27,6 @@ def setup_session(root, sid="s-progress"):
     memory.backlog.add(BacklogItem(id="a", ts=1, title="Coverage", objective="Compare methods", status="running"))
     append(life, {"type": "life.mission.started", "item_id": "a", "ts": 2})
     return sid, life, memory
-
-
-def team_session(root: Path, sid: str = "s-team-perf"):
-    workdir = root / "workspaces" / sid
-    workdir.mkdir(parents=True)
-    write_session_meta(root, SessionMeta(id=sid, workdir=str(workdir), created=1))
-    life = root / "projects" / sid
-    memory = LifeMemory.open(life)
-    memory.backlog.add(BacklogItem(
-        id="parent", ts=1, title="Choose a research idea", objective="Compare routes", status="running",
-    ))
-    board = workdir / ".argus" / "teams" / "research-team"
-    task_board.form(board, [
-        {"task_id": "route-01", "role": "idea-route", "title": "Investigate route one",
-         "objective": "Read primary sources for route one."},
-    ])
-    append(life, {"type": "life.mission.started", "item_id": "parent", "ts": 2})
-    append(life, {"type": "idea.portfolio.formed", "item_id": "parent", "team_root": str(board), "ts": 10})
-    return sid, life, board
-
-
-def team_events(value: dict) -> dict[str, dict]:
-    return {event["team_task_id"]: event for event in value["events"] if event["type"] == "team.task"}
 
 
 def test_slow_session_read_does_not_block_other_sessions(tmp_path, monkeypatch):
@@ -101,39 +77,6 @@ def test_racing_reads_of_one_session_never_overlap_a_projection(tmp_path, monkey
     with ThreadPoolExecutor(max_workers=4) as executor:
         results = list(executor.map(read, range(4)))
     assert all([task["id"] for task in value["tasks"]] == ["a"] for value in results)
-
-
-def test_invalidating_read_walks_team_sources_once(tmp_path, monkeypatch):
-    sid, life, board = team_session(tmp_path)
-    feed = MapFeed()
-    feed.read(sid, tmp_path, life)
-    task_board.claim_top(board, "worker-1", now=20)
-    calls = []
-    original = map_team._sources
-
-    def counted(*args):
-        calls.append(args)
-        return original(*args)
-
-    monkeypatch.setattr(map_team, "_sources", counted)
-    changed = feed.read(sid, tmp_path, life)
-    assert team_events(changed)["route-01"]["status"] == "claimed"
-    assert len(calls) == 1
-
-
-def test_formations_recorded_since_the_signature_are_projected_immediately(tmp_path):
-    sid, life, board = team_session(tmp_path)
-    feed = MapFeed()
-    feed.read(sid, tmp_path, life)
-    second = board.with_name("second-team")
-    task_board.form(second, [
-        {"task_id": "route-02", "role": "idea-route", "title": "Investigate route two",
-         "objective": "Investigate a distinct route."},
-    ])
-    append(life, {"type": "idea.portfolio.formed", "item_id": "parent", "team_root": str(second), "ts": 20})
-    events = team_events(feed.read(sid, tmp_path, life))
-    assert {"route-01", "route-02"} <= set(events)
-    assert events["route-02"]["ts"] == 20
 
 
 def test_current_range_request_uses_a_single_feed_read(tmp_path, monkeypatch):

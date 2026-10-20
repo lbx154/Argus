@@ -583,7 +583,7 @@ def test_unknown_store_does_not_establish_premium_only_billing(tmp_path: Path, s
     assert copilot_store_supports_token_billing(db)
 
 
-# --- warm ``copilot --acp`` sessions: usage lives in the session event log ---
+# --- sessions with no store rows: usage lives in the session event log ---
 
 
 def _events(
@@ -622,7 +622,7 @@ def _stamp(seconds: float) -> str:
     return datetime.fromtimestamp(seconds, UTC).strftime("%Y-%m-%dT%H:%M:%S.") + f"{int((seconds % 1) * 1000):03d}Z"
 
 
-def test_acp_turn_is_priced_from_the_session_event_log_when_the_store_has_no_rows(
+def test_turn_is_priced_from_the_session_event_log_when_the_store_has_no_rows(
     tmp_path: Path, monkeypatch,
 ) -> None:
     home = tmp_path / "copilot"

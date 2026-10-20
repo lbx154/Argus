@@ -119,7 +119,6 @@ export function useProjectFeed(api: ApiClient, project: string): ProjectFeedStat
   useEffect(() => {
     let alive = true;
     let snapshotInFlight = false;
-    let prewarm = true;
     let snapshotController: AbortController | undefined;
     const tick = async () => {
       if (snapshotInFlight) return;
@@ -127,8 +126,7 @@ export function useProjectFeed(api: ApiClient, project: string): ProjectFeedStat
       const controller = new AbortController();
       snapshotController = controller;
       try {
-        const s = await api.snapshot(1, controller.signal, prewarm);
-        prewarm = false;
+        const s = await api.snapshot(1, controller.signal);
         if (alive) {
           setSnap((current) => (
             current && JSON.stringify(current) === JSON.stringify(s)

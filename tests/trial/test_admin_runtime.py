@@ -36,7 +36,7 @@ def test_admin_pi_configuration_preserves_state_and_never_embeds_provider_secret
         configure_provider(root, binary, vault)
         assert os.environ["ARGUS_ADMIN_PROVIDER_TOKEN"] == "fixture-provider-credential"
         persisted = read_persisted_knobs()
-        for role in ("MANAGER", "ENGINEER", "REVIEWER", "PLANNER", "SUPERVISOR", "CURATOR"):
+        for role in ("MANAGER", "ENGINEER", "REVIEWER", "PLANNER", "SUPERVISOR"):
             assert persisted[f"ARGUS_SKILL_{role}_BACKEND"] == "pi"
             assert persisted[f"ARGUS_SKILL_{role}_RUNNER_BIN"] == str(binary)
         assert persisted["ARGUS_SKILL_MANAGER_MODEL"] == "gpt-5.5"

@@ -10,8 +10,6 @@
   --map-edge-semantic: #8b95a0; /* neutral gray: related work */
   --map-edge-context: #6f8ca8; /* slate blue, a step quieter: the order work happened in */
   --map-edge-replacement: #af8149; /* muted amber: the plan changed course */
-  --map-edge-fanout: #6a9ab8; /* team fans stay steel, a step lighter */
-  --map-edge-fanin: #6a9ab8;
 }
 [data-theme="dark"] .argus-map {
   --map-edge-dependency: #7ea9cd;
@@ -19,8 +17,6 @@
   --map-edge-semantic: #939ea9;
   --map-edge-context: #7d97b0;
   --map-edge-replacement: #c79e63;
-  --map-edge-fanout: #7fb0cd;
-  --map-edge-fanin: #7fb0cd;
 }
 
 /* Legend swatches quote the same variables so the key never drifts from the
@@ -71,11 +67,6 @@
 [data-theme="dark"] .argus-map .map-relation-label {
   color: color-mix(in srgb, var(--edge-hue) 66%, rgb(var(--ink)));
   background: color-mix(in srgb, var(--edge-hue) 16%, var(--map-paper));
-}
-
-/* Join dot where a team fan leaves or rejoins its owning card. */
-.argus-map .map-edge-joint {
-  pointer-events: none;
 }
 
 /* Active-flow drift on edges into running work is already wired: MapPanel

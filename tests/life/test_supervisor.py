@@ -795,63 +795,6 @@ def test_regular_task_adopts_nested_repository_as_campaign_root(tmp_path) -> Non
     assert after == before
 
 
-def test_kernel_baseline_mission_receives_clean_reference_without_revert(
-    tmp_path,
-) -> None:
-    import json
-    import subprocess
-
-    memory = LifeMemory.open(tmp_path / "life")
-    sink = _RecordingSink(memory.root)
-    runner = _MaintenanceRunner()
-    project = tmp_path / "kernel-project"
-    project.mkdir()
-    subprocess.run(["git", "init", "-q"], cwd=project, check=True)
-    subprocess.run(["git", "config", "user.name", "test"], cwd=project, check=True)
-    subprocess.run(
-        ["git", "config", "user.email", "test@example.com"],
-        cwd=project,
-        check=True,
-    )
-    (project / "kernel.py").write_text("baseline\n", encoding="utf-8")
-    subprocess.run(["git", "add", "kernel.py"], cwd=project, check=True)
-    subprocess.run(["git", "commit", "-qm", "baseline"], cwd=project, check=True)
-    pipeline = project / ".argus" / "PIPELINE_STATE.json"
-    pipeline.parent.mkdir()
-    pipeline.write_text(
-        json.dumps({
-            "vertical": "kernel_engineering",
-            "current_stage": "baseline",
-        }),
-        encoding="utf-8",
-    )
-    (project / "kernel.py").write_text("candidate\n", encoding="utf-8")
-    supervisor = LifeSupervisor(
-        memory=memory,
-        runner=runner,
-        sink=sink,
-        config=LifeSupervisorConfig(
-            project_worktree=project,
-            artifact_root=project,
-        ),
-    )
-    memory.backlog.add(BacklogItem.new(
-        title="capture baseline",
-        objective="measure the clean reference",
-        tags=["planner", "review:required", "scope:bounded"],
-    ))
-
-    result = supervisor.tick()
-
-    assert result is not None and result["status"] == "done"
-    prelude = runner.kwargs["prelude_context"]
-    assert "## Kernel baseline isolation" in prelude
-    assert "clean_reference_root" in prelude
-    assert (project / "kernel.py").read_text(encoding="utf-8") == "candidate\n"
-    reference = memory.root / "runtime-worktrees" / "kernel-baseline" / "kernel.py"
-    assert reference.read_text(encoding="utf-8") == "baseline\n"
-
-
 def test_research_incomplete_mission_is_paused_and_resumable(tmp_path) -> None:
     assert "paused" in PLANNER_DEDUP_STATUSES
     mem = LifeMemory.open(tmp_path / "life")
@@ -1199,7 +1142,6 @@ class _TechnicalQuestionRunner:
             "Validate one smaller row, then replan the full measurement."
         )
         outcome.final_planner_report = {
-            "forward_progress": False,
             "plan_signal": "reconsider",
             "authority_impact": "technical",
         }
@@ -1526,50 +1468,6 @@ def test_replan_requested_always_returns_the_node_to_pending(tmp_path) -> None:
         e for e in mem.journal.all()
         if e.kind == "mission_failed" and e.id == item.id
     ]
-
-
-def test_replan_after_forward_progress_is_not_redispatched(tmp_path) -> None:
-    class _ProgressThenReplanRunner:
-        def __init__(self) -> None:
-            self.calls = 0
-
-        def execute(self, **kwargs: Any) -> _Outcome:
-            self.calls += 1
-            outcome = _Outcome(
-                success=False,
-                status="replan_requested",
-                stop_reason="bounded probe completed; redesign the next mission",
-            )
-            outcome.final_planner_report = {
-                "forward_progress": True,
-                "plan_signal": "reconsider",
-            }
-            return outcome
-
-    mem = LifeMemory.open(tmp_path / "life")
-    runner = _ProgressThenReplanRunner()
-    sup = LifeSupervisor(
-        memory=mem,
-        runner=runner,
-        sink=_RecordingSink(mem.root),
-        config=LifeSupervisorConfig(
-            budget=LifeBudget(max_missions=2),
-            poll_interval_seconds=0.01,
-        ),
-    )
-    item = mem.backlog.add(BacklogItem.new(
-        title="bounded probe",
-        objective="measure the premise once, then choose replacement work",
-    ))
-
-    result = sup.tick()
-
-    assert result is not None and result["status"] == "replan_requested"
-    stored = next(row for row in mem.backlog.all() if row.id == item.id)
-    assert stored.status == "failed"
-    assert runner.calls == 1
-    assert sup.tick() is None
-    assert runner.calls == 1
 
 
 def test_stage_reconciled_replan_fails_with_the_stage_reason(tmp_path) -> None:

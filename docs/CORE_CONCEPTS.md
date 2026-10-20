@@ -24,8 +24,8 @@ Operator
 ## Hierarchy and cardinality
 
 An **Operator** is the human or external driver that asks Argus to do work. The
-Operator is outside the Argus role system: Manager, Planner, Engineer, Reviewer,
-and teammate are internal runtime roles, not names for the Operator. One Operator can operate many Projects.
+Operator is outside the Argus role system: Manager, Planner, Engineer, and
+Reviewer are internal runtime roles, not names for the Operator. One Operator can operate many Projects.
 
 A **Project** is the persistent unit of work. It has one execution/work directory
 and one Argus-owned project state directory under
@@ -60,8 +60,7 @@ or edit project files. Engineer produces the requested artifact, code, analysis,
 or experiment and hands checkable evidence to Reviewer. Reviewer independently
 judges the current mission and can accept, redirect, or block with statuses such
 as `done`, `continue`, `blocked`, or `replan_requested`
-[`argus/builtin_skills/reviewer/argus-reviewer-role.md`]. A
-**teammate** is a concurrent worker role for disjoint delegated tasks.
+[`argus/builtin_skills/reviewer/argus-reviewer-role.md`].
 
 A **role session** or **provider thread** is model/backend conversation
 continuity for one role. It can be fresh, mission-scoped, or rolling, and it is
@@ -144,7 +143,7 @@ projects that consume it.
 | Backlog and mission state | `backlog.jsonl` for live mission rows plus `backlog.archive.jsonl` for terminal rows. |
 | Events | `events.jsonl` and retained rollovers under `life_dir`; this is the durable replay surface for supervisor/runtime events. |
 | Handoffs | `handoffs/<mission-id>/` contains `mission.json`, `CHECKPOINT.md`, `latest.json`, and round handoffs [`argus/life/context_packet.py:17-344`]. |
-| Role sessions | `role-sessions/<role>.json` capsules, including Planner, Engineer, Reviewer, and teammate state where a role has a durable provider context. |
+| Role sessions | `role-sessions/<role>.json` capsules, including Planner, Engineer, and Reviewer state where a role has a durable provider context. |
 | Operator context | `operator_context.jsonl` ledger plus `operator_context.json` projection and lock under the caller-selected project or shared global root. |
 
 ## Glossary
@@ -154,8 +153,7 @@ Canonical names for concepts that today carry several identifiers in code. The
 declared-layering section of `tests/test_architecture_invariants.py` pins the
 counts of the project-state-directory spellings (first row) and of `memory.root`
 so they can only go down; the other rows are conventions only. Permanent aliases
-are listed last and are not retired. Source: `docs/audits/architecture-clarity-2026-09-14.md`, 4.3,
-and decision card 2 for Curator.
+are listed last and are not retired. Source: `docs/audits/architecture-clarity-2026-09-14.md`, 4.3.
 
 | Concept | Canonical name | Retired names | Notes |
 | --- | --- | --- | --- |
@@ -170,5 +168,4 @@ and decision card 2 for Curator.
 | Doctor / Terminal | `doctor/` and `terminal/` (phase 6) | `maintenance/` and `cli/` as package names | `argus_doctor.py` at the repository root is the stdlib-only bootstrap doctor; `argus/maintenance/` is the runtime Doctor. |
 | Overlay vs data domain | Overlay: `domains/<name>/overlay.py`, composed onto a workflow vertical. DATA domain: a project-local, Manager-routed vertical stored as JSON (`verticals/_data_domain.py`) | — | Docstrings distinguish the two now; renaming `domains/` to `overlays/` awaits decision card 8. |
 | Mission | `BacklogItem` (class name unchanged); one bounded backlog item inside a Project | — | See "Hierarchy and cardinality" above. |
-| Curator | a daemon-resident component owned by `team/curator.py` (a thread of the daemon that owns the teammate pool), not a fifth persistent Role | — | It has routing/model/effort entries in `core/role_config.py` but is not in `RoleName`; decision card 2's recommended default. |
 | Permanent aliases | `--life-dir`, `sid`, the `ARGUS_SKILL_*` environment variables | — | Never removed; running daemons and installed launchers pass them. |

@@ -29,14 +29,12 @@ def isolated_trial(tmp_path, monkeypatch):
 
 
 @pytest.mark.parametrize("sentinel", ["", "auto", "inherit", "default"])
-@pytest.mark.parametrize("route", ["classify", "dag", "plan", "rewrite"])
+@pytest.mark.parametrize("route", ["classify", "plan", "rewrite"])
 def test_all_automatic_control_routes_use_the_trial_selector(monkeypatch, route, sentinel):
-    from argus.manager.dispatch import _bounded_dag_model
     from argus.webapi.manager_bridge import _plan_preview_model, _rewrite_model_and_effort
 
     routes = {
         "classify": ("ARGUS_SKILL_FRONTDOOR_MODEL", knobs.resolve_manager_classify_model),
-        "dag": ("ARGUS_SKILL_BOUNDED_DAG_MODEL", _bounded_dag_model),
         "plan": ("ARGUS_SKILL_PLAN_PREVIEW_MODEL", _plan_preview_model),
         "rewrite": ("ARGUS_SKILL_REWRITE_MODEL", lambda: _rewrite_model_and_effort()[0]),
     }
@@ -122,18 +120,16 @@ def test_front_door_classification_reaches_execution_in_trial_mode(isolated_tria
 
 
 @pytest.mark.parametrize("model", [None, "", "auto", "AUTO", "default", CLIENT_MODEL])
-def test_one_shot_and_acp_share_the_same_trial_selector(model):
+def test_copilot_calls_use_the_trial_selector(model):
     from argus.agent_cli.agent_cli_runner import AgentCliRunner
     from argus.agent_cli.agent_cli_runner import RunnerOptions as CliOptions
-    from argus.agent_cli.copilot_acp import CopilotAcpClient
 
     options = CliOptions(model=model, reasoning_effort="low")
     command = AgentCliRunner("copilot", backend="copilot")._build_command(
         resume_thread_id=None, options=options,
     )
     assert command[command.index("--model") + 1] == CLIENT_MODEL
-    acp = CopilotAcpClient("copilot", model=model, reasoning_effort="low")
-    assert acp._model == CLIENT_MODEL and acp._reasoning_effort == "low"
+    assert command[command.index("--reasoning-effort") + 1] == "low"
 
 
 def test_isolated_trial_retains_only_its_selected_provider(isolated_trial, monkeypatch):

@@ -79,7 +79,6 @@ id 在预训练数据里的分布，取决于它们被写过多少次，而这�
 | --- | --- |
 | [`idea_portfolio.py`](../argus/verticals/research/idea_portfolio.py) | 建立固定 source-only 路线/评审组合，24 个任务完成后才允许一次 selector |
 | [`venue_research.py`](../argus/verticals/research/venue_research.py) | 会议的官方投稿事实，是取回来的而不是回忆出来的 |
-| [`frontier_watch.py`](../argus/verticals/kernel_engineering/frontier_watch.py) | 按阶段持久化并校验持续的前沿搜索，覆盖目标仓库、官方工具链和研究前沿 |
 
 **这条的普遍教训。** Agent 从预训练里知道的一切，按其构造方式就是过时的。凡是时效性重要的地
 方，运行时必须**强制它去查**，而不是信任它的回忆；每条候选路线还必须接受独立 prior-art

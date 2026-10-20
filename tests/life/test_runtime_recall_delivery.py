@@ -1,9 +1,7 @@
 """Current memory must survive the real runtime-to-SkillLoop prompt boundary."""
 from __future__ import annotations
 
-import json
 import socket
-from pathlib import Path
 from types import SimpleNamespace
 
 import pytest
@@ -15,7 +13,6 @@ from argus.apps._runtime_backends import _Outcome
 from argus.apps._runtime_execute import SkillLoopExecuteMixin
 from argus.core.operator_context import (
     OperatorContextStore,
-    append_directive,
     append_preference,
     append_revoke,
 )
@@ -40,9 +37,9 @@ class RuntimeRunner(SkillLoopExecuteMixin):
     _next_seed_thread_id = None
     manager = None
 
-    def __init__(self, memory, workdir, backend, mode, policy):
+    def __init__(self, memory, workdir, backend, mode):
         self.memory, self.workdir, self._backend = memory, workdir, backend
-        self.mode, self.policy, self.max_rounds = mode, policy, 1
+        self.mode, self.max_rounds = mode, 1
         self._args = SimpleNamespace(
             skills_dir=str(memory.root.parent.parent / "skills"),
             project_state_dir=str(memory.root),
@@ -54,7 +51,7 @@ class RuntimeRunner(SkillLoopExecuteMixin):
         state.config = SkillLoopConfig(
             engineer_model="offline", reviewer_model="offline",
             workflow_mode=self.mode, active_vertical="software",
-            vertical_state_root=self.memory.root, role_session_policy=self.policy,
+            vertical_state_root=self.memory.root,
             max_rounds=self.max_rounds, require_independent_review=True,
             require_post_task_learning=False, wiki_enabled=False, auto_init_wiki=False,
             session_id=kwargs["mission_id"], context_packet_path=kwargs["context_packet_path"],
@@ -132,11 +129,13 @@ def task(memory, identity, mode):
 
 
 @pytest.mark.parametrize("mode", ["direct", "staged"])
-@pytest.mark.parametrize("policy", ["fresh", "rolling"])
-def test_settled_success_reaches_next_runtime_role_and_refreshes_after_corrections(runtime, mode, policy):
+@pytest.mark.parametrize("resumable", [False, True])
+def test_settled_success_reaches_next_runtime_role_and_refreshes_after_corrections(runtime, mode, resumable):
     memory, workdir = runtime
     backend = OfflineBackend()
-    runner = RuntimeRunner(memory, workdir, backend, mode, policy)
+    if not resumable:
+        backend.backend = "memory"
+    runner = RuntimeRunner(memory, workdir, backend, mode)
     supervisor = LifeSupervisor(
         memory=memory, runner=runner, sink=JsonlEventSink(None, life_dir=memory.root),
         config=LifeSupervisorConfig(project_worktree=workdir, role_skill_maintenance_enabled=False),
@@ -192,7 +191,7 @@ def test_settled_success_reaches_next_runtime_role_and_refreshes_after_correctio
     assert local_value not in runner.mission_texts[-1]
     prompts = [prompt for label, prompt, _ in backend.history if label.startswith("engineer-r")]
     assert len(prompts) == 3 and all(prompt.count("## Current host context") == 1 for prompt in prompts)
-    if policy == "rolling":
+    if resumable:
         assert "## Continuation turn" in prompts[1]
     reviews = [prompt for label, prompt, _ in backend.history if label == "reviewer"]
     assert global_value in reviews[0] and local_value not in reviews[0]
@@ -203,7 +202,7 @@ def test_settled_success_reaches_next_runtime_role_and_refreshes_after_correctio
 def test_failed_memory_refresh_does_not_restore_the_old_mission_snapshot(runtime, monkeypatch):
     memory, workdir = runtime
     backend = OfflineBackend()
-    runner = RuntimeRunner(memory, workdir, backend, "direct", "rolling")
+    runner = RuntimeRunner(memory, workdir, backend, "direct")
     supervisor = LifeSupervisor(
         memory=memory, runner=runner, sink=JsonlEventSink(None, life_dir=memory.root),
         config=LifeSupervisorConfig(project_worktree=workdir, role_skill_maintenance_enabled=False,
@@ -238,107 +237,3 @@ def test_failed_memory_refresh_does_not_restore_the_old_mission_snapshot(runtime
     task(memory, "followup", "direct")
     assert supervisor.tick()["success"]
     assert original not in runner.mission_texts[-1]
-
-
-@pytest.mark.parametrize("unavailable", [False, True])
-def test_bounded_planner_refreshes_shared_memory_at_its_actual_call_boundary(runtime, monkeypatch, unavailable):
-    memory, workdir = runtime
-    backend = OfflineBackend()
-
-    class PlanningRuntime(RuntimeRunner):
-        before_planning = None
-
-        def _build_execute_config(self, state, **kwargs):
-            super()._build_execute_config(state, **kwargs)
-            state.config.checkpoint_path = Path(kwargs["context_packet_path"]).parent / "CHECKPOINT.md"
-            if self.before_planning is not None:
-                # The caller has supplied its context, but Planner has not run.
-                self.before_planning(state)
-
-        def _invoke_execute_loop(self, state, **kwargs):
-            plan_kwargs = {key: kwargs[key] for key in (
-                "sink", "objective", "original_objective", "preplanned", "mission_id",
-            )}
-            self._run_bounded_planning(state, **plan_kwargs)
-            super()._invoke_execute_loop(state, **kwargs)
-
-    runner = PlanningRuntime(memory, workdir, backend, "direct", "fresh")
-    supervisor = LifeSupervisor(
-        memory=memory, runner=runner, sink=JsonlEventSink(None, life_dir=memory.root),
-        config=LifeSupervisorConfig(project_worktree=workdir, role_skill_maintenance_enabled=False,
-                                    runtime_context="ENGINEER_RUNTIME_ONLY"),
-    )
-    backend.queue("engineer-r1", CannedResponse(message="Original bounded completion."))
-    backend.queue("reviewer", verdict())
-    task(memory, "seed-success", "direct")
-    assert supervisor.tick()["success"]
-    (experience,) = memory.failure_experiences.recent()
-    marker = "RETRACTED_PLANNER_INTERPRETATION"
-    (workdir / "correction.txt").write_text("Synthetic evidence corrects the interpretation.\n")
-    service = ExperienceToolService(memory.root, role="engineer", parent_call_id="offline-correction", workspace=workdir)
-    correction = {"experience_id": experience.id, "expected_revision": 1,
-                  "evidence_refs": ["workspace:correction.txt"], "reason": "Synthetic correction"}
-    service.dispatch("revise", {**correction, "changes": {"research_narrative": marker}})
-    append_directive(memory.root, "ENGINEER_ROLE_ONLY", applies_to_roles=("engineer",),
-                     expected_revision=0)
-
-    def change_after_context_was_supplied(state):
-        service.dispatch("retract", {**correction, "expected_revision": 2})
-        state.config.checkpoint_path.write_text("CURRENT_SHARED_CHECKPOINT")
-        memory.journal.path.write_text(memory.journal.path.read_text() + json.dumps({
-            "type": "life.mission.completed", "item_id": "later-observation",
-            "title": "Later observation", "summary": "LATEST_SHARED_HISTORY", "success": True,
-        }) + "\n")
-        if unavailable:
-            def fail(_item):
-                raise OSError("synthetic shared-memory source unavailable")
-
-            monkeypatch.setattr(supervisor, "_build_planner_continuation_context", fail)
-
-    runner.before_planning = change_after_context_was_supplied
-    runner.mode = "staged"
-    backend.queue("planner-bounded-plan", CannedResponse(message='{"steps":[{"title":"Validate current evidence"}]}'))
-    backend.queue("engineer-r1", CannedResponse(message="Current bounded completion."))
-    backend.queue("reviewer", verdict())
-    task(memory, "followup", "staged")
-    assert supervisor.tick()["success"]
-    (prompt,) = [prompt for label, prompt, _ in backend.history if label == "planner-bounded-plan"]
-    assert marker not in prompt
-    assert "CURRENT_SHARED_CHECKPOINT" in prompt
-    assert "ENGINEER_RUNTIME_ONLY" not in prompt and "ENGINEER_ROLE_ONLY" not in prompt
-    if unavailable:
-        assert "Current shared memory is unavailable" in prompt
-    else:
-        assert "LATEST_SHARED_HISTORY" in prompt
-
-
-def test_bounded_planner_uses_the_selected_session_stage_not_workspace_state(runtime, monkeypatch):
-    from argus.apps._runtime_execute import _ExecuteState
-    from argus.skills.vertical_select import persist_vertical
-    from argus.verticals.software import stages
-
-    memory, workdir = runtime
-    stage = stages.STAGE_ORDER[0]
-    persist_vertical(memory.root, "software", start_stage=stage)
-    persist_vertical(workdir, "learning")
-    monkeypatch.setattr(
-        stages, "render_role_prompt_fragment",
-        lambda **context: f"SELECTED_STAGE_RULE={context['stage']}",
-        raising=False,
-    )
-    backend = OfflineBackend()
-    backend.queue("planner-bounded-plan", CannedResponse(
-        message='{"steps":[{"title":"Check the selected stage"}]}',
-    ))
-    runner = RuntimeRunner(memory, workdir, backend, "staged", "fresh")
-    state = _ExecuteState()
-    runner._build_execute_config(state, mission_id="stage-preview", context_packet_path="")
-    state.full_task = "Check the requested work."
-    runner._run_bounded_planning(
-        state, sink=JsonlEventSink(None, life_dir=memory.root),
-        objective=state.full_task, original_objective=state.full_task,
-        preplanned=False, mission_id="stage-preview",
-    )
-    (prompt,) = [prompt for label, prompt, _ in backend.history if label == "planner-bounded-plan"]
-    assert f"SELECTED_STAGE_RULE={stage}" in prompt
-    assert "Check the selected stage" in state.full_task

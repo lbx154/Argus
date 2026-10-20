@@ -341,7 +341,7 @@ def test_round_delivers_current_account_to_source_reviewers(
         owner, objective="Bring the paper to ICLR strong accept", original_objective=None,
         round_index=1, supervised_config=SupervisedConfig(), workdir=project,
         scope="mission", checkpoint_path=None, reviewer_skill_block=None,
-        escalate_hint="", engineer_result=RunnerResult(exit_code=0),
+        engineer_result=RunnerResult(exit_code=0),
         engineer_message=account, safe_fatal_error=None, process_ownership_note="",
         state=RoundLoopState(), on_event=None,
     )

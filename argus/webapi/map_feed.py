@@ -9,7 +9,6 @@ from pathlib import Path
 
 from ..core.session import read_session_meta
 from ..life.memory import Backlog
-from .map_team import source_snapshot
 from .map_view import read_map
 
 
@@ -47,8 +46,6 @@ class MapFeed:
         entry = self._entry(key)
         with entry["lock"]:
             meta = read_session_meta(root, sid)
-            bindings = entry["events"].get("team_bindings", {})
-            sources = source_snapshot(sid, root, life_dir, bindings) if include_events else None
             stamp = (
                 # Include the storage owner's recovery files: a completion can
                 # commit before either materialized backlog file changes.
@@ -57,12 +54,10 @@ class MapFeed:
                     *((life_dir / "events.jsonl",) if include_events else ()),
                 )),
                 meta.display_name if meta else sid,
-                sources[0] if include_events else (),
             )
             if entry.get("stamp") != stamp:
                 value = read_map(sid, root, life_dir, event_state=entry["events"],
-                                 include_events=include_events,
-                                 team_sources=(bindings, sources) if include_events else None)
+                                 include_events=include_events)
                 versions = entry["versions"]
                 if entry["events"].get("reset"):
                     entry["invalidated"].update((cursor, None) for cursor in versions)
@@ -87,9 +82,6 @@ class MapFeed:
                 )
                 while len(versions) > 8:
                     versions.popitem(last=False)
-                # Use the fingerprint taken before reading the Team records.
-                # A later writer must invalidate, not get blessed as cached.
-                stamp = (*stamp[:-1], entry["events"].get("team_signature", ()))
                 entry.update(stamp=stamp, value=value, revision=revision)
             value, revision = entry["value"], entry["revision"]
             # The full task ordering, so current-range callers can filter an
@@ -104,7 +96,6 @@ class MapFeed:
                         "reset_history": after in entry["invalidated"]}
             tasks, events = previous
             ids = {t["id"] for t in value["tasks"]}
-            event_ids = {e["id"] for e in value["events"]}
             return {
                 **value,
                 **extra,
@@ -113,10 +104,4 @@ class MapFeed:
                 "tasks": [t for t in value["tasks"] if tasks.get(t["id"]) != t["revision"]],
                 "events": [e for e in value["events"] if events.get(e["id"]) != e["revision"]],
                 "removed_task_ids": sorted(tasks.keys() - ids),
-                # Log history is retained by the client. Team snapshots are
-                # replaceable observations and must disappear when removed.
-                "removed_event_ids": sorted(
-                    event_id for event_id in events
-                    if event_id.startswith("team:") and event_id not in event_ids
-                ),
             }

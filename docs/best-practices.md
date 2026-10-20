@@ -104,13 +104,7 @@ validation, numerical thresholds, prerequisite checks, or actual failures.
 These settings do not certify complete provider telemetry or retrospectively
 accept previous failed runs.
 
-`progress-first` also uses the existing round controls: it caps enabled
-no-progress streak thresholds at two and enabled soft-round thresholds at three.
-After that soft threshold, the existing two-verdict progress window applies;
-productive work can continue. A disabled guard stays disabled, and explicit
-mission or individual guard settings still take precedence. Standard and strict
-leave the existing vertical thresholds unchanged. There is no new retry loop,
-automatic replay, or evidence ledger.
+No mode adds a round limit, retry loop, automatic replay, or evidence ledger.
 
 An explicit environment value overrides a saved setting. Invalid policy names
 are errors, not silent fallbacks. Use a new mission for a changed policy;
@@ -261,10 +255,9 @@ the Engineer's would have changed everything.
 
 The same ledger explains where the money goes: 33.9 million input tokens
 against 0.3 million output tokens after two hours. Long tool-using rounds
-re-read context, which is why Argus by default sends the full task text only
-on the first round of a session (`ARGUS_SKILL_COMPACT_CONTINUATION_PROMPTS`),
-why the Engineer's agent CLI runs without the few tools of its own that it
-never uses (`ARGUS_SKILL_ENGINEER_LEAN_TOOLS`), and why a precise objective
+re-read context, which is why Argus sends the full task text only on the
+first round of a session, why the Engineer's agent CLI runs without the few
+tools of its own that it never uses, and why a precise objective
 with the evidence already in the work directory costs less than a vague one
 that makes the Engineer explore.
 

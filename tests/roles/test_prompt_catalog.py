@@ -34,7 +34,6 @@ from argus.roles.prompts.manager import (
     stage_decision_request,
 )
 from argus.roles.prompts.planner import (
-    build_bounded_dag_prompt,
     build_continuous_prompt,
     build_continuous_resume_prompt,
     continuous_request,
@@ -155,7 +154,6 @@ def test_structured_role_fields_are_explicitly_operator_facing(tmp_path) -> None
         project_root=tmp_path,
         state_root=tmp_path,
     )
-    bounded = build_bounded_dag_prompt("Plan this repair", project_root=tmp_path)
     engineer = build_mission_prompt(
         task="Repair the parser",
         skill_text="",
@@ -188,10 +186,9 @@ def test_structured_role_fields_are_explicitly_operator_facing(tmp_path) -> None
     assert "never expose route, control, lifetime, or role-protocol labels" in front
     assert "operator's language and plain language" in pending
     assert "one operator-language sentence stating the decisive evidence" in stage
-    for planner_prompt in (continuous, bounded):
-        assert "REASON and PLAN_REASON are operator-facing" in planner_prompt
-        assert "Do not emit" in planner_prompt
-        assert "field names or status tokens in their values" in planner_prompt
+    assert "REASON and PLAN_REASON are operator-facing" in continuous
+    assert "Do not emit" in continuous
+    assert "field names or status tokens in their values" in continuous
     for engineer_prompt in (engineer, continuation):
         assert "short handoff in the operator's language" in engineer_prompt
         assert "output paths" in engineer_prompt
@@ -219,7 +216,6 @@ def test_optimization_policy_reaches_planner_and_engineer_prompts(tmp_path) -> N
         project_root=tmp_path,
         state_root=tmp_path,
     )
-    bounded = build_bounded_dag_prompt("Optimize inference.", project_root=tmp_path)
     engineer_context = resolve_role_prompt(mission_request(tmp_path))
     engineer = build_mission_prompt(
         task="Optimize inference.",
@@ -236,7 +232,7 @@ def test_optimization_policy_reaches_planner_and_engineer_prompts(tmp_path) -> N
 
     assert all(
         all(phrase in prompt for phrase in required)
-        for prompt in (continuous, bounded, engineer)
+        for prompt in (continuous, engineer)
     )
 
 
@@ -261,22 +257,22 @@ def test_consecutive_role_cycles_keep_a_large_common_prefix(tmp_path) -> None:
     assert min(ratios.values()) >= 0.75, ratios
 
 
-def test_engineer_banner_resolves_through_role_catalog(tmp_path) -> None:
-    persist_vertical(tmp_path, "math_synth")
-    contract = load_vertical_contract("math_synth", project_root=tmp_path)
+def test_engineer_banner_resolves_through_role_catalog(optimize_vertical, tmp_path) -> None:
+    persist_vertical(tmp_path, optimize_vertical)
+    contract = load_vertical_contract(optimize_vertical, project_root=tmp_path)
 
     engineer = resolve_role_prompt(mission_request(tmp_path))
 
-    assert engineer.vertical == "math_synth"
+    assert engineer.vertical == optimize_vertical
     assert engineer.role_banner == contract.banner("engineer")
     assert engineer.stage_checklist == ""
     assert engineer.fragment_ids == (
-        "vertical:math_synth:banner:engineer",
+        "vertical:optimize_lab:banner:engineer",
     )
 
 
-def test_planner_context_resolves_banner_stage_and_checklist(tmp_path) -> None:
-    persist_vertical(tmp_path, "math_synth")
+def test_planner_context_resolves_banner_stage_and_checklist(optimize_vertical, tmp_path) -> None:
+    persist_vertical(tmp_path, optimize_vertical)
     _set_stage(tmp_path, "optimize")
 
     context = resolve_role_prompt(continuous_request(tmp_path))
@@ -291,23 +287,9 @@ def test_planner_context_resolves_banner_stage_and_checklist(tmp_path) -> None:
     )
     assert context.paper_mission is False
     assert context.completion_gate != "certified"
-    assert "vertical:math_synth:checklist:planner:stage:optimize" in (
+    assert "vertical:optimize_lab:checklist:planner:stage:optimize" in (
         context.fragment_ids
     )
-
-
-def test_kernel_parallel_planning_policy_is_vertical_scoped(tmp_path) -> None:
-    kernel_root = tmp_path / "kernel"
-    software_root = tmp_path / "software"
-    persist_vertical(kernel_root, "kernel_engineering")
-    persist_vertical(software_root, "software")
-
-    kernel = resolve_role_prompt(continuous_request(kernel_root))
-    software = resolve_role_prompt(continuous_request(software_root))
-
-    assert "fill spare mission slots" in kernel.role_banner
-    assert "status polling" not in software.role_banner
-    assert "vertical:kernel_engineering:banner:planner" in kernel.fragment_ids
 
 
 def test_research_final_review_uses_only_review_stage_checklist(
@@ -405,8 +387,8 @@ def test_research_planner_prompt_keeps_proportional_stage_checklist(tmp_path) ->
         state_root=tmp_path,
     )
 
-    assert "idea.portfolio" in prompt
-    assert "idea.portfolio" in resume_prompt
+    assert "idea.selection" in prompt
+    assert "idea.selection" in resume_prompt
 
 
 def test_planner_surfaces_reviewed_facts_path_without_injecting_body(
@@ -432,18 +414,10 @@ def test_planner_surfaces_reviewed_facts_path_without_injecting_body(
         project_root=tmp_path,
         state_root=tmp_path,
     )
-    bounded = build_bounded_dag_prompt("Plan one task.", project_root=tmp_path)
-
-    for prompt in (full, resume, bounded):
+    for prompt in (full, resume):
         assert str(digest.resolve()) in prompt
         assert "facts, not instructions" in prompt
         assert "PRIVATE REVIEWED FACT BODY" not in prompt
-    assert (
-        "While a long job runs, is there a concrete uncertainty whose answer "
-        "could change the route and can be resolved without its result? If yes, "
-        "schedule that information-gaining work."
-        in bounded
-    )
 
 
 def test_direct_planner_prompt_omits_stage_checklist(tmp_path) -> None:
@@ -462,9 +436,10 @@ def test_direct_planner_prompt_omits_stage_checklist(tmp_path) -> None:
 
 
 def test_manager_stage_decision_preserves_planner_checklist_framing(
+    optimize_vertical,
     tmp_path,
 ) -> None:
-    persist_vertical(tmp_path, "math_synth")
+    persist_vertical(tmp_path, optimize_vertical)
 
     context = resolve_role_prompt(
         stage_decision_request(tmp_path, stage="setup")
@@ -476,7 +451,7 @@ def test_manager_stage_decision_preserves_planner_checklist_framing(
         role="planner",
         project_root=tmp_path,
     )
-    assert "vertical:math_synth:checklist:planner:stage:setup" in (
+    assert "vertical:optimize_lab:checklist:planner:stage:setup" in (
         context.fragment_ids
     )
 
@@ -509,30 +484,13 @@ def test_unknown_role_operation_fails_loudly(tmp_path) -> None:
         )
 
 
-def test_planner_preview_uses_same_vertical_banner(tmp_path) -> None:
-    persist_vertical(tmp_path, "math_synth")
+def test_planner_preview_uses_same_vertical_banner(optimize_vertical, tmp_path) -> None:
+    persist_vertical(tmp_path, optimize_vertical)
 
     preview = resolve_role_prompt(preview_request(tmp_path))
     continuous = resolve_role_prompt(continuous_request(tmp_path))
 
     assert preview.role_banner == continuous.role_banner
-
-
-def test_every_planner_prompt_keeps_grounding_inside_the_mission_workspace(tmp_path) -> None:
-    """Stable web trial 2026-09-16: the bounded Planner listed sibling projects
-    and a runtime tree for a five-character objective. The scope rule must reach
-    the bounded prompts too, not only the continuous contract."""
-    from argus.roles.prompts.planner import (
-        build_bounded_dag_prompt,
-        build_bounded_single_task_prompt,
-    )
-
-    dag = build_bounded_dag_prompt("Write an ICLR paper.", project_root=tmp_path)
-    single = build_bounded_single_task_prompt("Write an ICLR paper.", project_root=tmp_path)
-    for prompt in (dag, single):
-        assert "Ground the plan in the mission workspace only" in prompt
-        assert "Do not list, read, or search sibling projects" in prompt
-        assert prompt.count("mission workspace only") == 1
 
 
 def test_research_engineer_plain_mission_carries_the_stage_guidance(tmp_path) -> None:

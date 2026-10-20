@@ -56,8 +56,7 @@ def test_the_engineer_turn_captures_its_commands_for_the_providers(tmp_path, mon
     engineer.run(
         objective="Fix the parser.",
         engineer_prompt_builder=lambda _next, _static=True: "Do the task.",
-        supervised_config=SupervisedConfig(max_rounds=1, engineer_log_path=str(log_path),
-                                           decision_progress_timeout_seconds=0),
+        supervised_config=SupervisedConfig(max_rounds=1, engineer_log_path=str(log_path)),
         workdir=tmp_path,
     )
 
@@ -80,7 +79,7 @@ def _review_prompt(engineer_backend: str, tmp_path) -> str:
     engineer.run(
         objective="Fix the parser.",
         engineer_prompt_builder=lambda _next, _static=True: "Do the task.",
-        supervised_config=SupervisedConfig(max_rounds=1, decision_progress_timeout_seconds=0),
+        supervised_config=SupervisedConfig(max_rounds=1),
         workdir=tmp_path,
     )
     return next(prompt for label, prompt, _options in backend.history if label == "reviewer")

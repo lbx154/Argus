@@ -62,7 +62,7 @@ Other required acceptance remains incomplete: broader mobile and complete Reader
 | Responsibility | Source boundary | Invariant |
 | --- | --- | --- |
 | Advisor | `argus_skill/advisor`, role-tool hooks and scoped bridges | Separate opt-in model; parent call, budget and evidence are recorded; advice cannot acquire operator authority |
-| Persistent Manager | `manager/_session_ops.py`, `session_capacity.py`, `session_continuity.py`, supervision and observation modules | One logical identity; bounded provider generations; current canonical controls survive rotation; incomplete authority reads cannot launch an unscoped fallback |
+| Persistent Manager | `manager/_session_ops.py`, `session_continuity.py`, supervision and observation modules | One logical identity; the backend compacts its own context; current canonical controls survive a new provider thread; incomplete authority reads cannot launch an unscoped fallback |
 | Web controls | `webapi/message_requests.py`, `manager_bridge.py`, `manager_dispatch_receipt.py`, `routes/manager.py`, portal control pool | Cancellation fences old replies and waits; terminal SSE invalidates caches; one durable acknowledgement distinguishes queue state from execution |
 | Role memory | Supervisor runtime, role context providers, OperatorContext, memory bundle and recall adapters | Current project/user precedence and revocations are read at supported role-call boundaries; provider history is not retroactively scrubbed |
 | Settlement learning | `life/mission_delivery.py`, `failure_experience.py`, `failure_experience_storage.py` | Factual capture precedes durable completion; learning failure does not block delivery; idempotent recovery preserves edits, retractions and retirement |
@@ -75,7 +75,7 @@ Other required acceptance remains incomplete: broader mobile and complete Reader
 
 Use deterministic backends for concurrency, errors, cancellation, crash recovery and scope checks. Real tool/model selection and autonomous judgment require real-provider evidence; mocked inference cannot establish those claims. Keep private credentials and tenant data out of repository fixtures. Preserve failed tests and immutable receipts.
 
-Current memory and experience refresh does not erase old provider conversation. Manager context maintenance is bounded and retains canonical continuity, but does not reset billing or bypass reservations. Historical native-Pi capacity probes used synthetic usage: short chat 40/40; compact supervision 29 successes followed by a quota refusal; full supervision 24/24. These are capacity/control observations, not model-quality acceptance.
+Current memory and experience refresh does not erase old provider conversation. A new Manager provider thread retains canonical continuity, but does not reset billing or bypass reservations. Historical native-Pi capacity probes used synthetic usage: short chat 40/40; compact supervision 29 successes followed by a quota refusal; full supervision 24/24. These are capacity/control observations, not model-quality acceptance.
 
 Published pending learning retains at most 128 records / 2 MiB; unpublished deliveries are never retired. A complete state copy must preserve delivery envelopes and the authoritative retention watermark. Old 69 implements delivery v1 and rejects v2. Observed 8f8 predates that protocol and may ignore the new files; 69 rejection is not evidence of safe 8f8 rollback. Stop all old shared writers before changing formats, and never roll billing back with project snapshots.
 

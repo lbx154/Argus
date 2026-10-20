@@ -460,7 +460,6 @@ export interface RoundReviewCompletedEvent extends EventMsg {
   "operator_question"?: string;
   "operator_options"?: Array<{ "id"?: string; "label"?: string; "description"?: string; "requires_note"?: boolean; }>;
   "review_source"?: string;
-  "forward_progress"?: boolean;
   "plan_signal"?: string;
   "plan_challenge"?: string;
   "plan_alternative"?: string;
@@ -484,10 +483,9 @@ export interface RoundReviewCompletedEvent extends EventMsg {
   "verification_obstacle_basis_source"?: string;
   "residual_risk"?: string;
   "residual_risk_detail"?: Record<string, unknown>;
-  "manager_attention"?: "needed" | "not_needed";
-  "manager_attention_reason"?: string;
   "learning"?: "worth_reflecting" | "nothing_new";
   "learning_reason"?: string;
+  "interventions"?: Array<Record<string, unknown>>;
   "changed_during_review"?: Array<string>;
 }
 
@@ -1116,14 +1114,6 @@ export interface LifeReviewerBackendResolvedEvent extends EventMsg {
   "source": string;
 }
 
-export interface LifeCuratorBackendResolvedEvent extends EventMsg {
-  type: "life.curator.backend_resolved";
-  payload_schema_version?: 1;
-  "role": string;
-  "backend": string;
-  "source": string;
-}
-
 export interface CodexUtilCompletedEvent extends EventMsg {
   type: "codex.util.completed";
   payload_schema_version?: 1;
@@ -1172,26 +1162,11 @@ export interface RoundCheckpointFailedEvent extends EventMsg {
   "error"?: string;
 }
 
-export interface RoundEscalatedEvent extends EventMsg {
-  type: "round.escalated";
-  payload_schema_version?: 1;
-  "round_index"?: number;
-  "soft_round_limit"?: number;
-  "hard_escalate_rounds"?: number;
-  "forward_progress"?: boolean;
-  "continuation_reason"?: string;
-  "text"?: string;
-}
-
 export interface RoundStallEvent extends EventMsg {
   type: "round.stall";
   payload_schema_version?: 1;
   "round_index"?: number;
   "round_max"?: number;
-  "semantic_stall_streak"?: number;
-  "stall_threshold"?: number;
-  "decision_idle_seconds"?: number;
-  "forward_progress"?: boolean;
   "stall_reason"?: "no_forward_progress" | "unverifiable_through_view" | "turn_stalled" | "background_work_stalled";
   "text"?: string;
 }
@@ -1331,15 +1306,6 @@ export interface LifePlannerVerificationProbeEvent extends EventMsg {
   "idle_cycles"?: number;
   "reason"?: string;
   "waiting_contract"?: Record<string, unknown> | null;
-}
-
-export interface LifePlannerStallEscalationEvent extends EventMsg {
-  type: "life.planner.stall_escalation";
-  payload_schema_version?: 1;
-  "objective"?: string;
-  "consecutive_no_progress_missions"?: number;
-  "reason"?: string;
-  "text"?: string;
 }
 
 export interface LifePlanRevisionProposedEvent extends EventMsg {
@@ -1489,19 +1455,6 @@ export interface SkillLibraryAvailableEvent extends EventMsg {
   "precedence"?: Array<string>;
   "discovery"?: string;
   "text"?: string;
-}
-
-export interface LifeResearchSecondReadingEvent extends EventMsg {
-  type: "life.research.second_reading";
-  payload_schema_version?: 1;
-  "stage"?: string;
-  "refuted"?: string;
-  "supported"?: string;
-  "next"?: string;
-  "text"?: string;
-  "notes_path"?: string;
-  "signals"?: number;
-  "agent_layer"?: string;
 }
 
 export interface LifeLetterWrittenEvent extends EventMsg {
@@ -1881,25 +1834,6 @@ export interface LifeDaemonDegradedEvent extends EventMsg {
   "text"?: string;
 }
 
-export interface IdeaPortfolioFormedEvent extends EventMsg {
-  type: "idea.portfolio.formed";
-  payload_schema_version?: 1;
-  "team_root"?: string;
-  "width"?: number;
-  "route_count": number;
-  "task_count"?: number;
-  "selection"?: Record<string, unknown>;
-  "policy"?: string;
-  "text"?: string;
-}
-
-export interface IdeaPortfolioNestedSkippedEvent extends EventMsg {
-  type: "idea.portfolio.nested_skipped";
-  payload_schema_version?: 1;
-  "team_task_id": string;
-  "text"?: string;
-}
-
 export interface TeamLearningReviewStartedEvent extends EventMsg {
   type: "team.learning.review.started";
   payload_schema_version?: 1;
@@ -2139,13 +2073,11 @@ export interface EventPayloadByType {
   "life.planner.backend_resolved": LifePlannerBackendResolvedEvent;
   "life.engineer.backend_resolved": LifeEngineerBackendResolvedEvent;
   "life.reviewer.backend_resolved": LifeReviewerBackendResolvedEvent;
-  "life.curator.backend_resolved": LifeCuratorBackendResolvedEvent;
   "codex.util.completed": CodexUtilCompletedEvent;
   "loop.start": LoopStartEvent;
   "loop.done": LoopDoneEvent;
   "round.checkpoint.recorded": RoundCheckpointRecordedEvent;
   "round.checkpoint.failed": RoundCheckpointFailedEvent;
-  "round.escalated": RoundEscalatedEvent;
   "round.stall": RoundStallEvent;
   "round.reviewer_backend_failure": RoundReviewerBackendFailureEvent;
   "engineer.skill_maintenance.completed": EngineerSkillMaintenanceCompletedEvent;
@@ -2162,7 +2094,6 @@ export interface EventPayloadByType {
   "life.planner.idle": LifePlannerIdleEvent;
   "life.planner.terminal_idle": LifePlannerTerminalIdleEvent;
   "life.planner.verification_probe": LifePlannerVerificationProbeEvent;
-  "life.planner.stall_escalation": LifePlannerStallEscalationEvent;
   "life.plan.revision.proposed": LifePlanRevisionProposedEvent;
   "life.plan.revision.rejected": LifePlanRevisionRejectedEvent;
   "life.plan.revision.committed": LifePlanRevisionCommittedEvent;
@@ -2179,7 +2110,6 @@ export interface EventPayloadByType {
   "venue.research.started": VenueResearchStartedEvent;
   "venue.research.completed": VenueResearchCompletedEvent;
   "skill.library.available": SkillLibraryAvailableEvent;
-  "life.research.second_reading": LifeResearchSecondReadingEvent;
   "life.letter.written": LifeLetterWrittenEvent;
   "operator_alert": OperatorAlertEvent;
   "life.mission.provider_configuration_disabled": LifeMissionProviderConfigurationDisabledEvent;
@@ -2222,8 +2152,6 @@ export interface EventPayloadByType {
   "round.orphan_process_group": RoundOrphanProcessGroupEvent;
   "life.daemon.ready": LifeDaemonReadyEvent;
   "life.daemon.degraded": LifeDaemonDegradedEvent;
-  "idea.portfolio.formed": IdeaPortfolioFormedEvent;
-  "idea.portfolio.nested_skipped": IdeaPortfolioNestedSkippedEvent;
   "team.learning.review.started": TeamLearningReviewStartedEvent;
   "team.learning.review.skipped": TeamLearningReviewSkippedEvent;
   "team.learning.review.completed": TeamLearningReviewCompletedEvent;

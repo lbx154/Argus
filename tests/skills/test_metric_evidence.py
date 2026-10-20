@@ -7,7 +7,6 @@ import pytest
 from argus.verticals.metric_evidence import (
     EvidenceError,
     validate_kernelbench_evidence,
-    validate_math_synth_evidence,
     validate_nanogpt_evidence,
     validate_speedrun_evidence,
     validate_speedrun_reference,
@@ -120,29 +119,3 @@ def test_kernelbench_rejects_conflicting_sol_fields(tmp_path):
     )
     with pytest.raises(EvidenceError):
         validate_kernelbench_evidence(tmp_path)
-
-
-def test_math_synth_requires_a_parseable_finite_summary_score(tmp_path):
-    summary = tmp_path / "attempts" / "a" / "runs" / "seed-1" / "summary.json"
-    summary.parent.mkdir(parents=True)
-    summary.write_text('{"status": "score pending"}', encoding="utf-8")
-    with pytest.raises(EvidenceError):
-        validate_math_synth_evidence(tmp_path)
-
-    summary.write_text('{"score": 0.42, "score_valid": false}', encoding="utf-8")
-    with pytest.raises(EvidenceError):
-        validate_math_synth_evidence(tmp_path)
-
-    summary.write_text('{"score": -0.1}', encoding="utf-8")
-    with pytest.raises(EvidenceError):
-        validate_math_synth_evidence(tmp_path)
-
-    summary.write_text(
-        '{"metrics": {"score": 0.42, "score_valid": false}}',
-        encoding="utf-8",
-    )
-    with pytest.raises(EvidenceError):
-        validate_math_synth_evidence(tmp_path)
-
-    summary.write_text('{"score": 0.42}', encoding="utf-8")
-    assert validate_math_synth_evidence(tmp_path) == summary

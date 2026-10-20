@@ -12,27 +12,12 @@ re-imports these same names to keep its historical public surface unchanged.
 """
 from __future__ import annotations
 
-import json
 import re
 from dataclasses import dataclass
 
 from ..core.http_status import has_http_status
 from ..core.models import ReviewDecision, RunnerResult
 from ..core.stop_kinds import normalize_stop_kind, stop_kind_clause
-
-_SUCCESS_ITEM_STATUSES: tuple[str, ...] = (
-    "completed",
-    "succeeded",
-    "success",
-    "ok",
-    "applied",
-)
-_FAILED_ITEM_STATUSES: tuple[str, ...] = (
-    "failed",
-    "error",
-    "cancelled",
-    "canceled",
-)
 
 _POISONED_SESSION_FATAL_ERROR_PATTERNS: tuple[str, ...] = (
     "empty output",
@@ -57,8 +42,6 @@ _POISONED_SESSION_FATAL_ERROR_PATTERNS: tuple[str, ...] = (
 _SESSION_DEATH_FATAL_ERROR_PATTERNS: tuple[str, ...] = (
     "forced restart after",
     "hard idle timeout",
-    "acp prompt timed out",
-    "acp process died",
     "before turn completion",
     "cli exited with code",
 )
@@ -306,61 +289,6 @@ def fatal_error_looks_like_operator_abort_request(fatal_error: str | None) -> bo
     return bool(_OPERATOR_ABORT_INTERRUPT_RE.search(low))
 
 
-def _parse_json_event(raw: object) -> dict | None:
-    text = str(raw or "").strip()
-    if not text or text[0] not in "{[":
-        return None
-    try:
-        event = json.loads(text)
-    except (TypeError, ValueError):
-        return None
-    return event if isinstance(event, dict) else None
-
-
-def _event_has_successful_work_signal(event: dict) -> bool:
-    event_type = str(event.get("type") or "").strip()
-    if event_type == "item.completed":
-        item = event.get("item") or {}
-        if not isinstance(item, dict):
-            return False
-        kind = str(item.get("type") or "").strip()
-        status = str(item.get("status") or "").strip().casefold()
-        exit_code = item.get("exit_code")
-        if kind == "agent_message":
-            return bool(str(item.get("text") or "").strip())
-        if status in _FAILED_ITEM_STATUSES:
-            return False
-        if kind == "command_execution":
-            return exit_code == 0 or status in _SUCCESS_ITEM_STATUSES
-        if kind in {"file_change", "tool_use"}:
-            return status in _SUCCESS_ITEM_STATUSES or bool(item.get("changes"))
-        return False
-    if event_type in {"tool.result", "assistant.message"}:
-        data = event.get("data") or {}
-        if isinstance(data, dict):
-            return bool(str(data.get("content") or data.get("output") or "").strip())
-    return False
-
-
-def _runner_result_has_successful_work_signal(
-    result: RunnerResult,
-    *,
-    engineer_message: str,
-) -> bool:
-    if normalize_stop_kind(result.stop_kind) is not None:
-        return False
-    if engineer_message.strip():
-        return True
-    if fatal_error_looks_like_backend_failure(result.fatal_error):
-        return False
-
-    for raw in result.stdout_lines:
-        event = _parse_json_event(raw)
-        if event is not None and _event_has_successful_work_signal(event):
-            return True
-    return False
-
-
 def runner_result_is_backend_failure(result: RunnerResult) -> bool:
     stop_kind = normalize_stop_kind(result.stop_kind)
     if stop_kind is not None:
@@ -421,14 +349,12 @@ def backend_failure_hold_backoff_seconds(
 
 def should_clear_thread_id_after_outcome(
     *,
-    status: str,
     fatal_error: str | None,
     stop_kind: str | None = None,
 ) -> bool:
     """Return True when the carried Codex thread id should be cleared."""
     return (
-        str(status).strip().casefold() == "no_progress"
-        or _fatal_error_looks_like_poisoned_session(fatal_error)
+        _fatal_error_looks_like_poisoned_session(fatal_error)
         or fatal_error_looks_like_backend_failure(fatal_error)
         or normalize_stop_kind(stop_kind) in {"backend_unavailable", "transient_error"}
     )

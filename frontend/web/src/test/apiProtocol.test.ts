@@ -296,25 +296,6 @@ describe('web API protocol handshake', () => {
     expect(snapshotAttempts).toBe(2);
   });
 
-  it('prewarms an active project once instead of on every snapshot poll', async () => {
-    const paths: string[] = [];
-    vi.stubGlobal('fetch', vi.fn((path: string): Promise<Response> => {
-      paths.push(path);
-      if (path === '/api/meta') return Promise.resolve(Response.json(currentMeta));
-      return Promise.resolve(Response.json(currentSnapshot));
-    }));
-    const { api } = await import('../api');
-
-    await api.activeSnapshot('s-active');
-    await api.activeSnapshot('s-active');
-
-    expect(paths).toEqual([
-      '/api/meta',
-      '/api/projects/s-active/snapshot?compact=true&events_limit=1&prewarm=true',
-      '/api/projects/s-active/snapshot?compact=true&events_limit=1',
-    ]);
-  });
-
   it('times out when response headers arrive but the JSON body stalls', async () => {
     vi.useFakeTimers();
     let projectAttempts = 0;
@@ -947,7 +928,7 @@ describe('a page left open across a deployment', () => {
     const { getPageUpdateAvailable, observePageRelease, PageUpdateRequiredError } = await import('../lib/pageUpdate');
     await api.listProjects();
     updated = true;
-    const failure = await api.activeSnapshot('s-one').catch(error => error);
+    const failure = await api.snapshot('s-one').catch(error => error);
     expect(failure).toBeInstanceOf(PageUpdateRequiredError);
     expect(failure).not.toBeInstanceOf(LocalArgusUnavailableError);
     expect(getPageUpdateAvailable()).toBe(true);

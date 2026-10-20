@@ -33,12 +33,10 @@ class _LibraryAwareBackend:
                     "The Reviewer can inspect its software review library. "
                     "Trace the changed signature through unchanged callers."
                 ),
-                "forward_progress": True,
             }, env=env)
         else:
             bridge_request("ARGUS_PLUGIN_REVIEW", "approve_review", {
                 "review": "No Reviewer library was supplied.",
-                "forward_progress": True,
             }, env=env)
         return RunnerResult(exit_code=0, agent_messages=["Review submitted."])
 

@@ -8,7 +8,6 @@ import {
 } from "@xyflow/react";
 import { useId } from "react";
 import { brushStroke } from "./brush";
-import { pointAlong } from "./relationGeometry";
 import { relationLabelText, relationLayout } from "./relationLabels";
 import { useSteppedZoom } from "./zoomStep";
 import "./edges.css";
@@ -34,20 +33,13 @@ export function MapRelationEdge({ id, label, style, data }: EdgeProps<RelationEd
   const point = layout.labels.get(id);
   if (!route) return null;
   const kind = layout.kinds.get(id);
-  const fan = kind === "fanout" || kind === "fanin";
   // Kind hues come from edges.css variables so both themes tune in one place;
   // the per-kind dash patterns from MapPanel stay the primary encoding.
   const stroke =
     !kind || style?.stroke === CYCLE_STROKE
       ? style?.stroke || "#7594ad"
       : `var(--map-edge-${kind}, ${style?.stroke || "#7594ad"})`;
-  // Team fans read slightly bolder than the quiet width MapPanel assigns them.
-  const strokeWidth = (Number(style?.strokeWidth || 2) + (fan ? 0.4 : 0)) / zoom;
-  // A small join dot marks where the fan leaves its card (fanout) or gathers
-  // again just short of the returning arrowhead (fanin).
-  const joint = fan
-    ? pointAlong(route.points, (kind === "fanout" ? 2 : 15) / zoom, kind === "fanin")
-    : null;
+  const strokeWidth = Number(style?.strokeWidth || 2) / zoom;
   const text = typeof label === "string" ? relationLabelText(label) : undefined;
   // A route fades in from the card it leaves and is full strength where it
   // arrives, so direction reads along the whole line and not only at the
@@ -59,7 +51,7 @@ export function MapRelationEdge({ id, label, style, data }: EdgeProps<RelationEd
   // A route that is a path (the order of work, a dependency, a task carrying
   // on) is an ink stroke; an association keeps its dashed line, which a filled
   // outline cannot carry.
-  const inked = !fan && !style?.strokeDasharray;
+  const inked = !style?.strokeDasharray;
   const ink = inked
     ? brushStroke(route.points, (Number(style?.strokeWidth || 2) * 1.45) / zoom, 16 / zoom)
     : "";
@@ -119,7 +111,7 @@ export function MapRelationEdge({ id, label, style, data }: EdgeProps<RelationEd
         />
       )}
       {/* Where the route leaves its card: a small anchor ties the line to it. */}
-      {!fan && from && (
+      {from && (
         <circle
           className="map-edge-anchor"
           cx={from.x}
@@ -128,16 +120,6 @@ export function MapRelationEdge({ id, label, style, data }: EdgeProps<RelationEd
           style={ink
             ? { fill: stroke, opacity: Number(style?.opacity ?? 1) * 0.62 }
             : { fill: "var(--map-paper)", stroke, strokeWidth: 1.4 / zoom, opacity: style?.opacity }}
-          aria-hidden="true"
-        />
-      )}
-      {joint && (
-        <circle
-          className="map-edge-joint"
-          cx={joint.x}
-          cy={joint.y}
-          r={3.2 / zoom}
-          style={{ fill: stroke, opacity: style?.opacity }}
           aria-hidden="true"
         />
       )}

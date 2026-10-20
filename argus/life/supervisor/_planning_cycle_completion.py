@@ -30,6 +30,7 @@ from ._constants import (
     PLANNER_TASKS_FILTERED_DIAGNOSTIC,
     PROJECT_REPORT_MODEL_ATTEMPTS,
 )
+from ._planner_failure_backoff import MANAGER_HANDOFF_UNANSWERED
 from ._planning_cycle_helpers import (
     _PlanCycleState,
     _research_project_done_issue,
@@ -519,7 +520,7 @@ class PlanningCycleCompletionMixin:
             # The tasks run. A stage handed to the Manager is put to it first:
             # a stage it moves leaves these tasks planned against the old one,
             # so plan again under the new stage. A question goes on the card.
-            if revision_request is None and self._reconcile_planner_handoff(verdict):
+            if revision_request is None and self._reconcile_planner_handoff(verdict) in {"hold", "rollback"}:
                 return PLAN_RETRY
             if verdict.handoff == "operator":
                 self._park_planner_question(
@@ -592,6 +593,8 @@ class PlanningCycleCompletionMixin:
                     }
                 )
                 return PLAN_RETRY
+            if reconciliation_result == "unanswered":
+                return self._pc_handoff_unanswered(state)
             if reconciliation_result:
                 return PLAN_RETRY
             self._emit(
@@ -602,9 +605,30 @@ class PlanningCycleCompletionMixin:
                     "expected_plan_version": expected_plan_version,
                 }
             )
-        if revision_request is None and self._reconcile_planner_handoff(verdict):
-            return PLAN_RETRY
+        if revision_request is None:
+            reconciliation_result = self._reconcile_planner_handoff(verdict)
+            if reconciliation_result == "unanswered":
+                return self._pc_handoff_unanswered(state)
+            if reconciliation_result:
+                return PLAN_RETRY
         return self._record_planner_handoff(verdict, state)
+
+    def _pc_handoff_unanswered(self, state: _PlanCycleState) -> str:
+        """The Manager's backend left the Planner's handoff unanswered.
+
+        Argus launched that backend, so the turn failed: the Planner's failure
+        streak paces the retry, alerts, and stops it with the operator told.
+        """
+        state.verdict = replace(
+            state.verdict, reason=MANAGER_HANDOFF_UNANSWERED, error=MANAGER_HANDOFF_UNANSWERED,
+        )
+        self._emit({
+            "type": EventType.LIFE_PLANNER_ERROR,
+            "cycle": self._planning_cycles,
+            "error": MANAGER_HANDOFF_UNANSWERED,
+        })
+        self._enter_pause_backoff()
+        return PLAN_ERROR
 
     def _pc_normalize_project_done(self, state: _PlanCycleState) -> Any | None:
         verdict = state.verdict

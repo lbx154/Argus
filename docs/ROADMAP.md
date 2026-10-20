@@ -124,13 +124,16 @@ not guess on the model's behalf whether there is progress. The full design is in
   replaying old logs through HO-1 shows the share of wasted reviews going down.
 - Split into: HO-2a define "change"; HO-2b check before the call and record the event; HO-2c the web page shows "waiting
   for results, not reviewing again"; HO-2d tests.
+- Status: dropped. The Engineer now waits for its own jobs inside its turn and hands over only after they finish, so a
+  review in the middle of a running job no longer happens; the change-facts ledger that skipped the Reviewer is gone.
+  Old `holders.json` files under mission lineages and old skip events are ignored.
 
 #### HO-3 Hand problems the Reviewer can't judge to whoever can solve them
 `0.2` · `M` · Depends on: none
 - Today: when the Reviewer cannot read files or has no command line, all it can do is send the work back to an Engineer
   who is just as stuck, and the two spin in circles (17 of the 59).
 - Do: let the Reviewer report an obstacle to the system (missing permission, missing tool) or to the owner of the
-  contract (requirements that contradict each other), reusing the existing `manager_attention`; in that case, do not
+  contract (requirements that contradict each other), handing it on with `→ manager`; in that case, do not
   rerun the Engineer. The Reviewer now has the Engineer's tools, so it runs code itself wherever review needs it.
 - Done when: in tests, after the Reviewer reports it cannot read files, the task goes to escalation with no further
   Engineer round.
@@ -781,11 +784,6 @@ cleared, with success rate and cost improving as experience grows.
 `0.8` · `M` · Depends on: LE-1
 - Do: evaluate a small offline embedding model as the default recall method, and compare its recall hit rate with word
   hashing.
-
-#### LE-7 Bring "learned tools" to more backends
-`0.8` · `L` · Depends on: none
-- Today: only the Pi backend can turn repeated actions into tools.
-- Do: extend it to Copilot and Codex.
 
 #### LE-8 The first public "gets better with use" curve
 `0.8` · `L` · Depends on: LE-1, LE-2, EV-1

@@ -34,7 +34,6 @@ from ._helpers import (
     _sanitize_planner_task_text,
     _unique_normalized_task_key_aliases,
 )
-from ._planner_rendering import _forward_progress
 from ._planning_cycle_helpers import _PlanCycleState, _revision_reason
 
 log = logging.getLogger(__name__)
@@ -68,34 +67,6 @@ def _render_filtered_task_feedback(state: _PlanCycleState) -> str:
     return "\n".join(lines)
 
 
-def _latest_planner_forward_progress(
-    memory: Any,
-    revision_request: dict[str, Any] | None,
-) -> bool:
-    """Whether the latest settled mission explicitly advanced the objective."""
-    if isinstance(revision_request, dict):
-        report = revision_request.get("planner_report")
-        value = report.get("forward_progress") if isinstance(report, dict) else None
-        if isinstance(value, bool):
-            return value
-    try:
-        # The single most recent terminal settlement: journal chatter (planner
-        # cycles, waiting heartbeats) must not hide it behind a fixed window.
-        entries = memory.journal.tail_settlements(
-            1,
-            kinds=(
-                "mission_complete",
-                "mission_failed",
-                "mission_replan_requested",
-            ),
-        )
-    except Exception:  # noqa: BLE001 - backoff remains conservative on read failure
-        return False
-    if not entries:
-        return False
-    return _forward_progress(entries[-1]) is True
-
-
 def _independent_review_forced() -> bool:
     return os.environ.get(
         "ARGUS_SKILL_REQUIRE_INDEPENDENT_REVIEW", ""
@@ -106,38 +77,6 @@ def _stage_closing_forced() -> bool:
     return os.environ.get(
         "ARGUS_SKILL_FORCE_STAGE_CLOSING", ""
     ).strip().casefold() in {"1", "true", "yes", "on"}
-
-
-def _automatic_stage_target(
-    *,
-    state_root: Path,
-    evidence_root: Path,
-) -> str:
-    """Return the next stage when the active vertical certifies auto-completion."""
-    try:
-        from ...core.pipeline_state import read_pipeline_state
-        from ...verticals._base import load_vertical_contract
-
-        pipeline = read_pipeline_state(state_root)
-        if not isinstance(pipeline, dict):
-            return ""
-        vertical = str(pipeline.get("vertical") or "").strip()
-        current = str(pipeline.get("current_stage") or "").strip()
-        if not vertical or not current:
-            return ""
-        contract = load_vertical_contract(vertical, project_root=state_root)
-        order = tuple(contract.stage_order)
-        if current not in order or order.index(current) + 1 >= len(order):
-            return ""
-        if not contract.automatic_stage_completion_ready(
-            stage=current,
-            project_root=evidence_root,
-            state_root=state_root,
-        ):
-            return ""
-        return order[order.index(current) + 1]
-    except Exception:  # noqa: BLE001 - automatic closing is fail-open to normal planning
-        return ""
 
 
 def _apply_planner_stage_request(
@@ -339,25 +278,6 @@ class PlanningCycleEnqueueMixin:
                     return PLAN_ERROR
                 self._reset_idle_backoff()
                 return PLAN_RETRY
-        automatic_stage_target = _automatic_stage_target(
-            state_root=Path(state_root),
-            evidence_root=Path(context_root).resolve(),
-        )
-        if automatic_stage_target:
-            try:
-                from ...skills.stage_machine import advance_stage
-
-                advance_stage(
-                    state_root,
-                    target_stage=automatic_stage_target,
-                    reason="the active vertical certified automatic stage completion",
-                    advanced_by="manager:auto_completion",
-                    evidence_root=Path(context_root).resolve(),
-                )
-                # Tasks were authored under the prior stage context.
-                return PLAN_RETRY
-            except Exception:  # noqa: BLE001 - normal Manager planning remains available
-                log.debug("automatic stage advance failed", exc_info=True)
         for task_index, task in enumerate(planned_tasks):
             task = replace(task, context_refs=[], execution_workdir="")
             sanitized_title = _sanitize_planner_task_text(task.title)
@@ -478,22 +398,15 @@ class PlanningCycleEnqueueMixin:
                 gpu_count=max(0, int(getattr(task, "gpu_count", 0) or 0)),
                 cpu_count=max(1, int(getattr(task, "cpu_count", 1) or 1)),
             )
-            from ...skills.stage_machine import current_stage
             from ...skills.vertical_select import resolve_vertical
             from ...verticals._base import load_vertical_contract
 
-            policy_root = Path(context_root or self._project_workdir()).resolve()
-            policy_stage = current_stage(state_root)
-            campaign_vertical = resolve_vertical(state_root)
             policy_vertical = (
                 str(getattr(task, "vertical", "") or "").strip()
-                or campaign_vertical
+                or resolve_vertical(state_root)
             )
             try:
-                policy_contract = load_vertical_contract(
-                    policy_vertical,
-                    project_root=state_root,
-                )
+                load_vertical_contract(policy_vertical, project_root=state_root)
             except LookupError:
                 _record_filtered_task(
                     state,
@@ -508,27 +421,6 @@ class PlanningCycleEnqueueMixin:
                     "objective": task.objective,
                     "skip_category": "unknown_task_vertical",
                     "reason": f"unknown Planner task vertical: {policy_vertical}",
-                })
-                continue
-            policy_issues = policy_contract.planner_task_issues(
-                policy_stage,
-                policy_root,
-                task,
-            )
-            if policy_issues:
-                _record_filtered_task(
-                    state,
-                    title=task.title,
-                    category="vertical_task_policy",
-                    reason="; ".join(policy_issues),
-                )
-                self._emit({
-                    "type": EventType.LIFE_PLANNER_TASK_SKIPPED,
-                    "cycle": self._planning_cycles,
-                    "title": task.title,
-                    "objective": task.objective,
-                    "skip_category": "vertical_task_policy",
-                    "reason": "; ".join(policy_issues),
                 })
                 continue
 
@@ -1124,12 +1016,9 @@ class PlanningCycleEnqueueMixin:
                 )
             return PLAN_RETRY
         self._clear_manager_planner_feedback()
-        # A queued task is not itself evidence that the objective moved. Preserve
-        # the accumulated backoff across hollow/repeated planning cycles; only
-        # the Reviewer's explicit objective-level signal clears it.
-        if _latest_planner_forward_progress(self.memory, state.revision_request):
-            self._reset_idle_backoff()
+        # A queued task is not itself news that the objective moved; the
+        # mission that runs it clears the accumulated backoff.
         return True
 
 
-__all__ = ["PlanningCycleEnqueueMixin", "_latest_planner_forward_progress"]
+__all__ = ["PlanningCycleEnqueueMixin"]

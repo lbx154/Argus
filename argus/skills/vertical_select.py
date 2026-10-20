@@ -1,13 +1,13 @@
 """Vertical selection for the auto-research loop.
 
 The loop runs ONE of several *verticals*, selected by a single ``vertical``
-field in ``.argus/PIPELINE_STATE.json``. Seven are built in (``VERTICALS``
+field in ``.argus/PIPELINE_STATE.json``. Four are built in (``VERTICALS``
 below: ``research`` -- the default and the safe fallback whenever intent is
-unclear -- plus ``software``, ``argus_maintenance``, ``kernel_engineering``,
-``math``, ``math_synth`` and ``learning``); every other vertical is discovered
-at runtime through the ``argus.verticals`` entry-point group, which is
-how the ``argus-verticals`` community package contributes ``quant``,
-``speedrun``, ``medical``, the literary verticals and the rest. Runtime code
+unclear -- plus ``software``, ``argus_maintenance`` and ``learning``); every
+other vertical comes from the Vertical Store or the ``argus.verticals``
+entry-point group, which is how the ``argus-verticals`` community package
+contributes ``math``, ``kernel_engineering``, ``quant``, ``speedrun``, the
+literary verticals and the rest. Runtime code
 that asks "is this a vertical / what is its purpose" must therefore use
 ``available_verticals()`` / ``available_vertical_purposes()``, never the
 built-in tuple.
@@ -69,10 +69,7 @@ _FALLBACK_WARNED_ROOTS: set[str] = set()
 #: verticals (``argus-verticals``) are merged in by ``available_verticals()``.
 #: ``argus_maintenance.architecture_audit`` reads this tuple with
 #: ``ast.literal_eval``, so keep it a plain literal.
-VERTICALS: tuple[str, ...] = (
-    "research", "software", "argus_maintenance", "kernel_engineering",
-    "math", "math_synth", "learning",
-)
+VERTICALS: tuple[str, ...] = ("research", "software", "argus_maintenance", "learning")
 
 #: One-line purpose per built-in vertical, handed to the Manager's vertical
 #: decision prompt (merged with plugin purposes by
@@ -86,13 +83,6 @@ VERTICAL_PURPOSES: dict[str, str] = {
     "ordinary implementation; not specialized hardware/runtime performance research",
     "argus_maintenance": "Argus framework repair and architecture improvement with "
     "independent regression and release checks",
-    "kernel_engineering": "accelerator runtime, model inference/serving, communication, "
-    "memory movement, and production CUDA/HIP/Triton/TileLang/CUTLASS/PyTorch kernel "
-    "performance work in a repository; not a fixed SOL-ExecBench competition",
-    "math": "mathematical conjectures, proofs, and open problems using literature, "
-    "computation, natural-language proof, or Lean as needed",
-    "math_synth": "math-reasoning data synthesis: maximize pass@4-minus-pass@1 while "
-    "the solver, verifier, metric, seeds, and evaluator stay frozen",
     "learning": "ingest operator material and create, update, or archive skill/wiki knowledge",
 }
 
@@ -1277,8 +1267,8 @@ def reset_stage_for_new_intent(
             generation = 1
         payload["research_intent_generation"] = generation + 1
         # A replacement intent is never an initial migration. Permanently
-        # consume the legacy-import opportunity before the fresh portfolio is
-        # formed, even if no earlier runtime reached library preparation.
+        # consume the legacy-import opportunity before the new Idea stage
+        # starts, even if no earlier runtime reached library preparation.
         payload["legacy_selection_consumed"] = True
         if not retain_research_context:
             payload.pop("idea_portfolio", None)

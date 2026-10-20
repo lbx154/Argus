@@ -18,7 +18,7 @@ def test_empty_profile_exposes_global_skills_to_each_role_and_pi(tmp_path, role,
     store = (LayeredSkillStore(project_dir=tmp_path / "project", global_dir=shared)
              if layered else SkillStore(shared))
     bundled = builtin_skill_source_path().resolve()
-    required = "agent-team-lead.md"
+    required = "project-venv-package-management.md"
     assert (bundled / required).is_file()
     libraries = role_library.role_skill_libraries(store, role=role, task="Hello", required_relative_paths=(required,))
     assert libraries.library_roots[-1] == bundled
@@ -38,7 +38,7 @@ def test_switching_projects_and_tasks_cannot_remove_global_access(tmp_path, task
         store = LayeredSkillStore(project_dir=tmp_path / project, global_dir=tmp_path / "shared")
         libraries = role_library.role_skill_libraries(store, role="manager", task=task)
         assert builtin_skill_source_path() in libraries.library_roots
-        assert (builtin_skill_source_path() / "agent-team-lead.md").read_text()
+        assert (builtin_skill_source_path() / "project-venv-package-management.md").read_text()
 
 
 def test_saved_overrides_win_without_copying_or_recalling_the_bundled_body(tmp_path, monkeypatch):

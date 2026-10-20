@@ -104,7 +104,6 @@ independent reviews** before one selector:
 | --- | --- |
 | [`idea_portfolio.py`](../argus/verticals/research/idea_portfolio.py) | Forms the fixed source-only route/review portfolio and admits one selector only after all 24 tasks finish |
 | [`venue_research.py`](../argus/verticals/research/venue_research.py) | A venue's official submission facts, fetched rather than recalled |
-| [`frontier_watch.py`](../argus/verticals/kernel_engineering/frontier_watch.py) | Persists and validates continuous frontier search per stage, across the target repository, official toolchains, and the research frontier |
 
 **The general lesson.** Anything the agent knows from pretraining is, by
 construction, out of date. Where recency matters, the runtime must force a lookup

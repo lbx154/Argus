@@ -24,8 +24,8 @@ class _SkillLoopRunner(
     StageTransitionMixin,
     SelfReplyMixin,
 ):
-    """Backend-neutral mission runner used by the daemon, teammate, and
-    Manager front-door.
+    """Backend-neutral mission runner used by the daemon and the Manager
+    front-door.
 
     Composed from sibling-module mixins (construction/backend-wiring,
     execute lifecycle, stage-transition decision, self-reply chat

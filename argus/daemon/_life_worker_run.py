@@ -619,7 +619,7 @@ class LifeWorkerRunMixin:
         return None
 
     def _rf_start_services(self, rf_state: _RunForeverState) -> None:
-        """Log readiness, start the Telegram poller, and start the Curator."""
+        """Log readiness and start the chat bridges."""
         if rf_state.handoff_failure:
             log.warning(
                 "daemon: degraded; Manager objective was not dispatched "
@@ -686,14 +686,6 @@ class LifeWorkerRunMixin:
                 log.info("feishu bridge disabled")
         except Exception:  # noqa: BLE001
             log.exception("daemon: failed to start feishu bridge; continuing")
-
-        # Start the resident Curator: it keeps each active team campaign's pool
-        # in flight and is the single reaper (the lead drops .argus/team campaign
-        # markers under project_workdir, which the Curator watches). Stopped in
-        # the finally below so a clean shutdown reaps every teammate it owns.
-        self._curator = self._build_curator(rf_state.runner)
-        if self._curator is not None:
-            self._curator.start()
 
         # Protect a resumed running claim before the main loop reaches its first
         # supervisor call. The loop clears this guard as soon as that call
@@ -777,8 +769,8 @@ class LifeWorkerRunMixin:
                                 )
                             ):
                                 self._adopted_continuous_generation = None
-                    # A bounded worker owns one finite queue. Plain bounded DAGs
-                    # finish with ``backlog_empty``; finite staged campaigns end
+                    # A bounded worker owns one finite queue. A plain backlog
+                    # finishes with ``backlog_empty``; a finite campaign ends
                     # with ``project_done``. Both must release the process slot.
                     # A standing campaign that was enabled while this worker was
                     # alive remains resident even if the launch itself was bounded.
@@ -878,8 +870,6 @@ class LifeWorkerRunMixin:
             call_guard.disable()
             shutdown_supervision(rf_state.runtime_root)
             self._stop_running_stall_watcher()
-            if self._curator is not None:
-                self._curator.stop()
             if self._control_started_at_iso:
                 clear_daemon_control_stop(
                     self.config.life_dir,

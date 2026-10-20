@@ -106,7 +106,8 @@ def test_minimum_rating_cannot_be_satisfied_by_aspirational_prose(paper):
     write_pipeline_state(paper, state)
     prose = ACCEPTANCE + "未来有望达到 strong accept。"
     result = evaluate(paper, ProseRunner(prose, "approve_review"))
-    assert result.status == "continue" and not result.final_submission_certified
+    assert result.status == "done" and not result.final_submission_certified
+    assert result.interventions[0]["action"] == "kept_open"
     assert result.venue_review["recommendation"] == "weak_accept"
     assert result.reason == prose
     result = evaluate(paper, ProseRunner("当前版本达到 strong accept。", "approve_review", "strong_accept"))
@@ -195,14 +196,15 @@ def test_review_without_explicit_root_does_not_inspect_a_manuscript(monkeypatch)
 
 def test_below_threshold_recommendation_cannot_pass_an_approval_action(paper):
     result = evaluate(paper, ProseRunner("当前只有 borderline。", "approve_review", "borderline"))
-    assert result.status == "continue" and not result.final_submission_certified
+    assert result.status == "done" and not result.final_submission_certified
+    assert result.interventions[0]["action"] == "kept_open"
     assert not result.backend_unavailable
 
 
 @pytest.mark.parametrize(("action", "arguments", "status"), [
     ("defer_review", {}, "continue"),
     ("request_review_decision", {"question": "可否使用授权数据集？"}, "blocked"),
-    ("replan_review", {"authority_impact": "technical", "alternative": "补充分组实验。"}, "continue"),
+    ("replan_review", {"authority_impact": "technical", "alternative": "补充分组实验。"}, "replan_requested"),
 ])
 def test_wait_questions_and_scientific_repairs_are_not_backend_failure(paper, action, arguments, status):
     feedback = "需要等后台实验，或解决所述前提，再作最终判断。"

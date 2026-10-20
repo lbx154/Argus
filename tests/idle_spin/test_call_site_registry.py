@@ -69,13 +69,8 @@ REGISTRY: tuple[Site, ...] = (
     ),
     Site(
         r"manager-frontdoor-classify", FOREGROUND,
-        "Classifies one operator message. The web prewarm and the ACP front-door session "
-        "use the same label to start the transport, without a model turn.",
-        (
-            "argus/manager/_front_door_ops.py:122",
-            "argus/webapi/manager_state.py:211",
-            "argus/agent_cli/copilot_acp.py:52",
-        ),
+        "Classifies one operator message.",
+        ("argus/manager/_front_door_ops.py:122",),
         ("manager-frontdoor-classify",),
     ),
     Site(
@@ -128,18 +123,6 @@ REGISTRY: tuple[Site, ...] = (
         "The plan preview for one operator request, cached per request.",
         ("argus/webapi/manager_bridge.py:1049",),
         ("planner-preview",),
-    ),
-    Site(
-        r"planner-bounded-plan", FOREGROUND,
-        "The outline of one dispatched mission, drafted once when it starts.",
-        ("argus/apps/_runtime_execute.py:1061",),
-        ("planner-bounded-plan",),
-    ),
-    Site(
-        r"planner\.bounded_dag(\.repair)?", FOREGROUND,
-        "Plans the task graph for one operator task, with at most one repair.",
-        ("argus/planner/bounded_dag.py:338",),
-        ("planner.bounded_dag", "planner.bounded_dag.repair"),
     ),
     Site(
         r"simple-1|manager-quick-reply|self-(?!learning-review$)[\w-]+", FOREGROUND,
@@ -200,18 +183,6 @@ REGISTRY: tuple[Site, ...] = (
         "a deterministic report is published instead.",
         ("argus/manager/_stage_ops.py:506",),
         ("manager-project-report",),
-    ),
-    Site(
-        r"manager-second-reading", EVENT,
-        "Per settled mission that carries a reconsider signal, when second_reading_due allows.",
-        ("argus/life/supervisor/_second_reading.py:111",),
-        ("manager-second-reading",),
-    ),
-    Site(
-        r"manager\.team_summary", EVENT,
-        "Once per team-completion fingerprint; the summary is cached before it is published.",
-        ("argus/daemon/life_worker.py:367",),
-        ("manager.team_summary",),
     ),
     Site(
         r"manager\.reviewed_facts", EVENT,
@@ -320,17 +291,14 @@ NOT_MODEL_CALLS = {
 # Functions that pass a caller's label on (or record it) without choosing one.
 PASS_THROUGH = {
     # The backend and its transport.
-    ("argus/adapters/agent_cli_backend/_core.py", "prewarm_acp_client", "run_label"),
     ("argus/adapters/agent_cli_backend/_core.py", "run_exec", "run_label"),
     ("argus/adapters/agent_cli_backend/_exec.py", "_execute_prepared", "run_label"),
     ("argus/adapters/agent_cli_backend/_exec.py", "execute", "run_label"),
     ("argus/adapters/agent_cli_backend/_exec_finalize.py", "finalize_result", "ctx.run_label"),
     ("argus/adapters/agent_cli_backend/_exec_spawn.py", "spawn_and_finish", "ctx.run_label"),
-    ("argus/agent_cli/_acp_routing.py", "_run_exec_acp", "run_label"),
     ("argus/agent_cli/_run_exec.py", "_run_prepared_exec", "run_label"),
     ("argus/agent_cli/_run_exec.py", "_stream_turn_output.check_idle_deadlines", "run_label"),
     ("argus/agent_cli/_run_exec.py", "run_exec", "run_label"),
-    ("argus/agent_cli/copilot_acp.py", "run_prompt._watchdog", "run_label"),
     ("argus/provider_integrations/authorization_retry.py", "run_agent_cli.request", "run_label"),
     ("argus/core/run_gateway.py", "run_exec", "run_label"),
     ("argus/core/cost_events.py", "metered_run_exec.wrapped", "run_label"),
@@ -538,7 +506,7 @@ def test_every_label_that_reaches_a_model_is_classified(found: list[Found]) -> N
         if item.label is not None
         and (item.where.rsplit(":", 1)[0], item.function, item.label) not in NOT_MODEL_CALLS
     ]
-    assert len(chosen) > 60, "the sweep no longer sees the call sites"
+    assert len(chosen) > 50, "the sweep no longer sees the call sites"
     unclassified = [f"{item.where} {item.label!r}" for item in chosen if not _matches(item.label)]
     ambiguous = [
         f"{item.where} {item.label!r}: {[site.pattern for site in _matches(item.label)]}"

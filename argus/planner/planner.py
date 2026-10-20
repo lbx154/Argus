@@ -11,8 +11,6 @@ from pathlib import Path
 from typing import Any
 
 from ..core.event_catalog import EventType
-from ..core.file_facts import file_facts
-from ..core.knobs import env_int
 from ..core.models import RunnerOptions
 from ..core.ports import RunnerBackend
 from ..core.role_decision import (
@@ -21,9 +19,8 @@ from ..core.role_decision import (
 )
 from ..core.role_session import (
     RoleSessionCapsule,
-    configured_role_session_policy,
-    effective_role_session_policy,
     objective_revision,
+    role_session_policy,
 )
 from ..core.run_gateway import run_exec as gateway_run_exec
 from ..core.runner_errors import is_execution_host_startup_error
@@ -39,15 +36,6 @@ OPEN_ENDED_PROJECT_DONE_ERROR = (
 PLANNER_SUPERSEDED_ERROR = "planner superseded by newer continuous generation"
 _PLANNER_REPAIR_ATTEMPTS = 1
 _PLANNER_REPAIR_TEXT_LIMIT = 8000
-# One deployment-wide knob for the rolling-session input budget, shared with
-# the Engineer (round_config) and the loop entry so all three move together.
-_ROLE_SESSION_MAX_INPUT_TOKENS_ENV = "ARGUS_SKILL_ROLE_SESSION_MAX_INPUT_TOKENS"
-
-
-def configured_role_session_max_input_tokens() -> int:
-    """Read the shared rolling-session input budget, in non-cached tokens."""
-    return env_int(_ROLE_SESSION_MAX_INPUT_TOKENS_ENV, 120_000)
-
 
 @dataclass
 class PlannerConfig:
@@ -66,17 +54,6 @@ class PlannerConfig:
     dangerous_yolo: bool = False
     open_ended: bool = False
     external_interrupt_reason_provider: Any = None
-    role_session_policy: str = field(default_factory=configured_role_session_policy)
-    # Rolling-session caps rotate context; they never stop the Planner's work.
-    # Six turns proved far too short for a long campaign: one 48-hour run
-    # rotated the Planner 403 times on turn_limit alone, and every rotation
-    # re-paid the full static prompt (~15k characters) with a cold provider
-    # cache. Twenty turns keeps the session warm while the token budget below
-    # and the objective_revision rotation still guard against real drift.
-    role_session_max_turns: int = 20
-    role_session_max_input_tokens: int = field(
-        default_factory=configured_role_session_max_input_tokens
-    )
     role_session_path: Path | None = None
     objective_revision: str = ""
     on_event: Any = None
@@ -216,10 +193,7 @@ class Planner:
         cfg = config or PlannerConfig()
         workdir = Path(cfg.working_dir).resolve() if cfg.working_dir else Path.cwd()
         backend_name = str(getattr(self.runner, "backend", type(self.runner).__name__))
-        session_policy = effective_role_session_policy(
-            cfg.role_session_policy,
-            backend_name,
-        )
+        session_policy = role_session_policy(backend_name)
         session = RoleSessionCapsule.open(
             role="planner",
             policy=session_policy,
@@ -236,10 +210,7 @@ class Planner:
                 else None
             ),
         )
-        resume_thread_id = session.prepare(
-            max_turns=cfg.role_session_max_turns,
-            max_input_tokens=cfg.role_session_max_input_tokens,
-        )
+        resume_thread_id = session.prepare()
         prompt_builder = (
             self._build_resumed_planner_prompt
             if resume_thread_id
@@ -758,49 +729,6 @@ def _with_planner_diagnostic(
     return replace(verdict, diagnostics=(*verdict.diagnostics, diagnostic))
 
 
-def hydrate_task_context_refs(
-    context_refs: list[dict[str, str]],
-    project_root: Path | str,
-    *,
-    discard_external: bool = False,
-) -> list[dict[str, str]]:
-    """Validate project-local refs and record the ``file_facts`` of existing files as JSON."""
-    root = Path(project_root).expanduser().resolve()
-    hydrated: list[dict[str, str]] = []
-    for raw_ref in context_refs:
-        if not isinstance(raw_ref, dict):
-            raise ValueError("Planner context refs must be objects")
-        ref = {str(key): str(value) for key, value in raw_ref.items()}
-        target = str(ref.get("ref") or "").strip()
-        if not target:
-            raise ValueError("Planner context refs must be project-relative file paths")
-        target_path = Path(target).expanduser()
-        resolved = (
-            target_path.resolve()
-            if target_path.is_absolute()
-            else (root / target_path).resolve()
-        )
-        if resolved != root and root not in resolved.parents:
-            if discard_external:
-                continue
-            raise ValueError(f"Planner context ref escapes the project root: {target}")
-        if target_path.is_absolute():
-            if not discard_external:
-                raise ValueError(
-                    "Planner context refs must be project-relative file paths"
-                )
-            target = resolved.relative_to(root).as_posix()
-            ref["ref"] = target
-        if not resolved.is_file():
-            continue
-        try:
-            ref["content_hash"] = json.dumps(file_facts(resolved))
-        except OSError as exc:
-            raise ValueError(f"Planner context ref cannot be read: {target}") from exc
-        hydrated.append(ref)
-    return hydrated
-
-
 def _parse_completion_bool(values: dict[str, str]) -> bool | None:
     raw = values.get("PROJECT_DONE", "").strip().casefold()
     if raw in {"true", "yes", "1", "done", "complete", "completed"}:
@@ -938,8 +866,8 @@ def parse_planner_payload(payload: Mapping[str, Any]) -> PlannerVerdict:
         return value
 
     def review_boolean(source: Mapping[str, Any], name: str) -> bool:
-        # Mirrors the bounded-DAG validation contract: a structured boolean or
-        # the literal strings "true"/"false"; anything else is a metadata error.
+        # A structured boolean or the literal strings "true"/"false"; anything
+        # else is a metadata error.
         value = source.get(name, True)
         if isinstance(value, bool):
             return value

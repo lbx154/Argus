@@ -193,7 +193,7 @@ class JsonlEventSink:
         # this is the SELLABLE trajectory: a clean per-mission episode, no
         # command/idle/heartbeat churn. "full" keeps everything for deep debug.
         # Errors are NEVER dropped (full, untruncated, via markers). Explicit arg
-        # wins; else env; else "signal" so teammates emit clean episodes too.
+        # wins; else env; else "signal".
         if verbosity is None:
             verbosity = os.environ.get("ARGUS_SKILL_EVENT_VERBOSITY", "signal")
         self._verbosity = "signal" if str(verbosity).strip().lower() == "signal" else "full"

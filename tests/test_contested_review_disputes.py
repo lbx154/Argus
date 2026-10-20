@@ -10,8 +10,6 @@ from __future__ import annotations
 
 from importlib import resources
 
-from argus.manager.observation import observe_project
-from argus.manager.supervision import _prompt
 from argus.reviewer import Reviewer
 from argus.roles.prompts.engineer import build_mission_prompt
 
@@ -58,11 +56,3 @@ def test_engineer_keeps_values_its_own_labeled_measurement_supports() -> None:
         )
         assert "Never write values that your own labeled measurement contradicts" in prompt \
             or "do not write that value" in prompt
-
-
-def test_manager_treats_conflicting_values_as_a_dispute(tmp_path) -> None:
-    observation = observe_project(tmp_path, event={"type": "round.review.completed",
-                                                   "reason": "Reviewer and Engineer disagree"})
-    prompt = _prompt(observation)
-    assert "neither side is verified by its role" in prompt
-    assert "rather than adopting either side's number" in prompt

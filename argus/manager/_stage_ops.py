@@ -184,26 +184,18 @@ class _StageDecisionMixin:
             return False
 
         allowed_plan_fields = {
-            "forward_progress",
             "plan_signal",
             "challenge",
             "alternative",
             "authority_impact",
-            # Routing judgments for supervision and reflection; they say
-            # nothing about whether the stage is accepted.
-            "manager_attention",
-            "manager_attention_reason",
+            # The reflection judgment says nothing about whether the stage is accepted.
             "learning",
             "learning_reason",
         }
         if not set(planner_report).issubset(allowed_plan_fields):
             return False
-        for name in ("manager_attention", "manager_attention_reason", "learning", "learning_reason"):
+        for name in ("learning", "learning_reason"):
             if name in planner_report and not isinstance(planner_report[name], str):
-                return False
-        if "forward_progress" in planner_report:
-            progress = planner_report["forward_progress"]
-            if not isinstance(progress, bool) or not progress:
                 return False
         if "plan_signal" in planner_report:
             signal = planner_report["plan_signal"]
@@ -358,8 +350,7 @@ class _StageDecisionMixin:
     ) -> str:
         """The prose of one Manager turn (:meth:`run_turn`), footer removed.
 
-        This is how the Manager writes for a person: a letter to the operator,
-        or a second reading of the evidence.
+        This is how the Manager writes for a person: a letter to the operator.
         """
         raw = self.run_turn(
             prompt, on_event=on_event, run_label=run_label, root_task_id=root_task_id,

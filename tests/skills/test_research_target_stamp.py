@@ -36,6 +36,8 @@ from argus.skills.vertical_select import _state_path, persist_vertical
 
 TARGET = "exploratory"
 
+pytestmark = pytest.mark.usefixtures("targeted_vertical")
+
 
 def _stamp(root: Path) -> float:
     payload = json.loads(_state_path(root).read_text(encoding="utf-8"))
@@ -45,11 +47,11 @@ def _stamp(root: Path) -> float:
 def test_re_persisting_the_same_target_does_not_move_the_cutoff(
     tmp_path: Path,
 ) -> None:
-    persist_vertical(tmp_path, "math", research_target_level=TARGET)
+    persist_vertical(tmp_path, "targeted_lab", research_target_level=TARGET)
     first = _stamp(tmp_path)
 
     for _ in range(3):
-        persist_vertical(tmp_path, "math", research_target_level=TARGET)
+        persist_vertical(tmp_path, "targeted_lab", research_target_level=TARGET)
 
     assert _stamp(tmp_path) == first, (
         "re-affirming the level already persisted moved the certification "
@@ -60,10 +62,10 @@ def test_re_persisting_the_same_target_does_not_move_the_cutoff(
 
 def test_raising_the_target_does_move_the_cutoff(tmp_path: Path) -> None:
     """The cutoff still does its actual job."""
-    persist_vertical(tmp_path, "math", research_target_level=TARGET)
+    persist_vertical(tmp_path, "targeted_lab", research_target_level=TARGET)
     first = _stamp(tmp_path)
 
-    persist_vertical(tmp_path, "math", research_target_level="publishable")
+    persist_vertical(tmp_path, "targeted_lab", research_target_level="publishable")
 
     assert _stamp(tmp_path) > first, (
         "a genuinely different target must retire evidence earned against the "
@@ -87,7 +89,7 @@ def test_changing_vertical_retires_same_target_certification(
     assert _research_project_done_issue(tmp_path, [certification]) == ""
 
     monkeypatch.setattr("argus.skills.vertical_select.time.time", lambda: 300.0)
-    persist_vertical(tmp_path, "math", research_target_level=target_level)
+    persist_vertical(tmp_path, "targeted_lab", research_target_level=target_level)
 
     assert _research_project_done_issue(
         tmp_path, [certification]
@@ -138,7 +140,7 @@ def test_a_certified_mission_survives_later_planning_cycles(
     tmp_path: Path,
 ) -> None:
     """The end-to-end livelock, at the gate that rejected run 8 four times."""
-    persist_vertical(tmp_path, "math", research_target_level=TARGET)
+    persist_vertical(tmp_path, "targeted_lab", research_target_level=TARGET)
 
     # Certified against the target as it stands right now — the earliest
     # moment the gate accepts, and so the one a re-stamp invalidates first.
@@ -151,7 +153,7 @@ def test_a_certified_mission_survives_later_planning_cycles(
 
     # A later cycle re-resolves the vertical and re-affirms the same target.
     time.sleep(0.01)
-    persist_vertical(tmp_path, "math", research_target_level=TARGET)
+    persist_vertical(tmp_path, "targeted_lab", research_target_level=TARGET)
 
     assert _research_project_done_issue(tmp_path, [certification]) == "", (
         "the certification was valid, then a re-resolve of the unchanged "
@@ -162,7 +164,7 @@ def test_a_certified_mission_survives_later_planning_cycles(
 @pytest.mark.parametrize("missing", ["absent", "blank"])
 def test_a_missing_stamp_is_backfilled(tmp_path: Path, missing: str) -> None:
     """State written before this field existed still gets a cutoff."""
-    persist_vertical(tmp_path, "math", research_target_level=TARGET)
+    persist_vertical(tmp_path, "targeted_lab", research_target_level=TARGET)
     path = _state_path(tmp_path)
     payload = json.loads(path.read_text(encoding="utf-8"))
     if missing == "absent":
@@ -171,6 +173,6 @@ def test_a_missing_stamp_is_backfilled(tmp_path: Path, missing: str) -> None:
         payload["research_target_set_at"] = 0.0
     path.write_text(json.dumps(payload), encoding="utf-8")
 
-    persist_vertical(tmp_path, "math", research_target_level=TARGET)
+    persist_vertical(tmp_path, "targeted_lab", research_target_level=TARGET)
 
     assert _stamp(tmp_path) > 0.0

@@ -317,12 +317,6 @@ export function renderEvent(event: TypedArgusEvent, context: RenderContext): Ren
       const target = stringField(event, 'target_stage') || stringField(event, 'stage') || stringField(event, 'current_stage');
       return model('manager', 'role.manager', '🧭', `${stringField(event, 'action')}${target ? ` → ${target}` : ''} ${clean(stringField(event, 'reason'), context.density === 'full' ? 140 : 120)}`, 'info');
     }
-    case 'life.research.second_reading': {
-      const role = roleFor(event, 'manager');
-      const supported = clean(stringField(event, 'supported'), 160);
-      const base = localized(context, 'reread the evidence and reworked the plan', '重读了证据并重排了计划');
-      return model(role, `role.${role}`, '📖', supported ? `${base} · ${supported}` : base, 'info');
-    }
     case 'life.letter.written': {
       const role = roleFor(event, 'manager');
       return model(role, `role.${role}`, '✉', localized(context, 'wrote you a letter', '给你写了一封信'), 'accent');
@@ -429,10 +423,6 @@ export function renderEvent(event: TypedArgusEvent, context: RenderContext): Ren
     }
     case 'round.stall':
       return model('system', 'event.notice', context.density === 'full' ? '👁' : '!', clean(stringField(event, 'text') || localized(context, context.density === 'full' ? 'no progress this round — keeping a close eye on it' : 'no progress this round', '这一轮没有进展'), 170), 'warn');
-    case 'round.escalated':
-      return model('system', 'event.notice', context.density === 'full' ? '👁' : '!', clean(stringField(event, 'text') || localized(context, 'many rounds without a finish — raising what is blocking the work', '轮次已经很多还没做完 — 把外部阻碍提出来'), 170), 'warn');
-    case 'life.planner.stall_escalation':
-      return model('system', 'event.notice', context.density === 'full' ? '👁' : '!', `${localized(context, 'the Planner is stuck', '规划者卡住了')} — ${clean(stringField(event, 'reason') || stringField(event, 'text'), 150)}`, 'warn');
     case 'life.budget.pause':
       if (stringField(event, 'stop_kind') === 'cost_unreconciled' || stringField(event, 'reason').startsWith('unresolved provider cost'))
         return model('system', 'event.budget', '$', localized(context, 'Provider usage awaits reconciliation — not budget exhaustion', '调用费用待对账 — 并非预算耗尽'), 'warn');
@@ -562,20 +552,6 @@ export function renderEvent(event: TypedArgusEvent, context: RenderContext): Ren
       return model('system', 'role.system', '⚠', `${localized(context, "the review of Argus's own conversation habits failed", '对 Argus 自身对话习惯的复盘失败')} · ${clean(stringField(event, 'error'), 140)}`, 'warn');
     case 'domain.promotion':
       return model('manager', 'role.manager', '★', clean(stringField(event, 'text'), 180), 'dim');
-    case 'idea.portfolio.formed': {
-      const selection = row(event).selection;
-      const routeId = selection && typeof selection === 'object'
-        ? String((selection as Record<string, unknown>).route_id ?? '')
-        : '';
-      const routes = Number(row(event).route_count || 0);
-      const said = clean(stringField(event, 'text'), 180);
-      const formed = routes > 0
-        ? localized(context, `formed an idea portfolio of ${count(routes, 'route')}`, `组成了 ${routes} 条思路的组合`)
-        : localized(context, 'formed an idea portfolio', '组成了思路组合');
-      return model('engineer', 'role.engineer', '💡', routeId
-        ? localized(context, `chose route ${routeId} from the idea portfolio`, `从思路组合中选定了路线 ${routeId}`)
-        : said || formed, 'accent');
-    }
     case 'user.note': {
       const tags = Array.isArray(row(event).tags) ? (row(event).tags as unknown[]).map(String) : [];
       // A chat config change already answers in the conversation; its note is
@@ -610,7 +586,7 @@ export function renderEvent(event: TypedArgusEvent, context: RenderContext): Ren
     case 'life.manager.plan_challenge.decided': case 'life.vertical.resolved':
     case 'life.manager.backend_resolved': case 'life.planner.backend_resolved':
     case 'life.planner.dependency_dropped': case 'life.planner.parallel_dropped':
-    case 'life.engineer.backend_resolved': case 'life.reviewer.backend_resolved': case 'life.curator.backend_resolved':
+    case 'life.engineer.backend_resolved': case 'life.reviewer.backend_resolved':
     case 'life.runtime_failure.circuit_opened': case 'life.runtime_failure.circuit_blocked': case 'life.runtime_failure.canary_passed':
     case 'life.runtime.incident.detected': case 'life.runtime.incident.recovered': case 'life.runtime.incident.escalated':
     case 'life.plan.revision.proposed': case 'life.plan.revision.rejected': case 'life.plan.revision.committed': case 'life.plan.node.superseded':
@@ -633,7 +609,7 @@ export function renderEvent(event: TypedArgusEvent, context: RenderContext): Ren
     case 'life.planner.completion_circuit.notify_failed': case 'life.planner.completion_circuit_holding':
     case 'life.daemon.ready': case 'plan.draft.start':
     case 'team.learning.review.skipped': case 'self.learning.review.started': case 'self.learning.review.completed':
-    case 'manager.live_view.updated': case 'manager.live_view.rejected': case 'idea.portfolio.nested_skipped':
+    case 'manager.live_view.updated': case 'manager.live_view.rejected':
     case 'manager.turn.started': case 'manager.turn.cancelled': case 'life.config.parse_failed':
       return fallback(event, context);
     default: {

@@ -246,7 +246,7 @@ SelfModeIntent = Literal[
     "synthesize",
 ]
 ConfigDecision = ConfigIntent | tuple[ConfigIntent, ...] | None
-LifetimeIntent = Literal["bounded", "bounded_increment", "standing"]
+LifetimeIntent = Literal["bounded", "standing"]
 AuthorizationAction = Literal[
     "validator_repair",
     "acceptance_retry",
@@ -560,25 +560,14 @@ def classify_front_door(
         if lifetime_parts
         else ""
     )
+    # One bit survives the single dispatch topology: whether the campaign
+    # stops when its Planner certifies the outcome (BOUNDED) or keeps going
+    # (STANDING). A steering turn stays on the SELF control path but may
+    # explicitly promote the active campaign to standing.
     if route == "complex":
-        # BOUNDED_INCREMENT preserves an operator's explicit instruction to do
-        # only one named stage/increment even when vertical classification later
-        # identifies a normally-staged workflow.
-        if lifetime_token == "BOUNDED_INCREMENT":
-            lifetime = "bounded_increment"
-        elif lifetime_token == "STANDING":
-            lifetime = "standing"
-        else:
-            lifetime = "bounded"
-    elif control == "steer":
-        # A steering turn stays on the SELF control path, but it may explicitly
-        # promote the active bounded mission to a standing campaign.
-        if lifetime_token == "STANDING":
-            lifetime = "standing"
-        elif lifetime_token == "BOUNDED_INCREMENT":
-            lifetime = "bounded_increment"
-        elif lifetime_token == "BOUNDED":
-            lifetime = "bounded"
+        lifetime = "standing" if lifetime_token == "STANDING" else "bounded"
+    elif control == "steer" and lifetime_token == "STANDING":
+        lifetime = "standing"
     if callable(lifetime_sink) and lifetime is not None:
         try:
             lifetime_sink(lifetime)
@@ -663,7 +652,7 @@ def classify_front_door(
             dict.fromkeys(
                 role.strip()
                 for role in raw_roles.split(",")
-                if role.strip() in {"manager", "planner", "engineer", "reviewer", "teammate"}
+                if role.strip() in {"manager", "planner", "engineer", "reviewer"}
             )
         ) or "all"
     preference_kind = fields["preference_kind"].strip().lower()

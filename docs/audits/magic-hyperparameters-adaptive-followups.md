@@ -11,6 +11,7 @@
 - `argus_skill/agent_cli/copilot_acp.py:45` · _DEFAULT_SESSION_RECYCLE = 12  
   后果:The 12th call pays session re-setup latency and loses in-session context; bounds unbounded resume-cost growth.  
   建议:The right trigger is measured context size or per-call latency/cost climbing past a threshold, not a fixed call count; 12 is a pure judgment call, though env-overridable.
+  状态:**已删除(2026-10-20)** — Copilot 常驻会话(ACP)整体删除,所有 Copilot 调用改走一次性命令行,此参数随之移除。
 - `argus_skill/apps/_runtime_construction.py:206` · default_watchdog_stalled_idle_seconds (ARGUS_SKILL_RUNNER_STALLED_IDLE_SECONDS fallback) = 1800 (30*60)  
   后果:The session is flagged stalled and stall-handling kicks in, even if a legitimate long GPU/compile step is simply quiet on the event stream.  
   建议:For a daemon that launches multi-hour GPU training, 30 minutes of event silence is common while a foreground training script runs. Stalledness should be judged by process/GPU liveness (child process alive, GPU utilization, log file mtime) rather than event-stream silence; note the hard-kill tier correctly defaults to 0 (disabled), which is the right pattern.

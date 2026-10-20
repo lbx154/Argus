@@ -98,16 +98,6 @@ KNOBS: tuple[Knob, ...] = (
     Knob("ARGUS_SKILL_REVIEWER_RUNNER_BIN", "(=RUNNER_BIN)", "per-role CLI binary for the reviewer", "backend"),
     Knob("ARGUS_SKILL_PLANNER_RUNNER_BIN", "(=RUNNER_BIN)", "per-role CLI binary for the planner", "backend"),
     Knob("ARGUS_SKILL_MANAGER_RUNNER_BIN", "(=RUNNER_BIN)", "per-role CLI binary for the manager", "backend"),
-    # --- resident teammate pool and time-box ---
-    Knob("ARGUS_TEAMMATE_PAPER_MISSION", "(inherit lead default)", "force the paper gates on|off for each teammate", "team"),
-    Knob("ARGUS_TEAMMATE_TIMEOUT_S", "0", "optional teammate wall-clock cap; disabled by default", "team"),
-    Knob("ARGUS_TEAMMATE_MAX_ROUNDS", "0", "optional teammate engineer-round cap; disabled by default", "team"),
-    Knob("ARGUS_TEAM_MAX_WIDTH", "64", "hard safety ceiling for one campaign's requested teammate width", "team"),
-    Knob("ARGUS_TEAM_DEFAULT_WIDTH", "2", "default concurrent teammates, independent of candidate count", "team"),
-    Knob("ARGUS_TEAM_MAX_ACTIVE_CAMPAIGNS", "8", "hard safety ceiling for active Team campaigns in one project", "team"),
-    Knob("ARGUS_TEAM_MAX_TASKS_PER_FORMATION", "256", "hard safety ceiling for tasks admitted by one Team formation", "team"),
-    Knob("ARGUS_TEAM_MAX_TOTAL_IN_FLIGHT", "2", "hard Curator ceiling across all live teammates in one daemon", "team"),
-    Knob("ARGUS_SKILL_ALLOW_NESTED_TEAM", "off", "expert override permitting a teammate to form another Team", "team"),
     # --- models ---
     Knob("ARGUS_SKILL_MODEL", "auto", "shared model override; auto uses the selected backend's default", "models", cockpit=True),
     Knob("ARGUS_SKILL_MANAGER_MODEL", "auto", "model for the Manager; auto uses the selected backend's default", "models", cockpit=True),
@@ -155,7 +145,7 @@ KNOBS: tuple[Knob, ...] = (
         "ARGUS_SKILL_EVIDENCE_POLICY",
         "standard",
         "evidence depth: progress-first | standard | strict; progress-first favors "
-        "targeted development checks and earlier no-progress replanning, never weaker correctness",
+        "targeted development checks, never weaker correctness",
         "mission",
         cockpit=True,
     ),
@@ -179,28 +169,12 @@ KNOBS: tuple[Knob, ...] = (
         "mission",
     ),
     Knob("ARGUS_SKILL_MAX_ROUNDS", "0", "optional engineer-round cap per mission; disabled by default", "mission"),
-    Knob(
-        "ARGUS_SKILL_VENUE_REVIEW_MAX_ROUNDS",
-        "6",
-        "reviewed rounds a research paper's final Review may buy (each pays for a venue-scale review) before the Manager decides whether to fund more, settle, or stop; 0 is no cap",
-        "mission",
-    ),
-    Knob("ARGUS_SKILL_STALL_THRESHOLD", "(vertical)", "consecutive Reviewer no-progress verdicts that end a mission; overrides every vertical's round_policy; 0 disables; 'vertical' hands control back", "mission", cockpit=True),
-    Knob("ARGUS_SKILL_NO_PROGRESS_THRESHOLD", "(vertical)", "consecutive empty Engineer turns that end a mission unless the Reviewer reports progress; overrides every vertical's round_policy; 0 disables; 'vertical' hands control back", "mission", cockpit=True),
-    Knob("ARGUS_SKILL_SOFT_ROUND_LIMIT", "(vertical)", "round after which two verdicts without forward progress end a mission; overrides every vertical's round_policy; 0 disables; 'vertical' hands control back", "mission", cockpit=True),
-    Knob("ARGUS_SKILL_HARD_ESCALATE_ROUNDS", "(vertical)", "round from which a missing Reviewer progress judgement ends a mission; overrides every vertical's round_policy; 0 disables; 'vertical' hands control back", "mission", cockpit=True),
     Knob("ARGUS_SKILL_ROUND_CHECKPOINT", "off", "record private git refs for Reviewer-recommended round checkpoints", "mission"),
     Knob("ARGUS_SKILL_REQUIRE_POST_TASK_LEARNING", "1", "enable selective project-layer Skill maintenance for all four roles (default ON)", "mission"),
-    Knob("ARGUS_SKILL_BOUNDED_DAG_MODEL", "auto", "model for decomposing Manager bounded tasks into backlog DAG nodes: gpt-6.1-sol on copilot (follows an environment model of auto), planner model otherwise", "mission"),
-    Knob("ARGUS_SKILL_BOUNDED_DAG_REASONING_EFFORT", "low", "reasoning effort for bounded DAG decomposition", "mission"),
     Knob("ARGUS_SKILL_PROVIDER_TURN_CAP", "0", "optional per-call interaction allowance for Engineer/Reviewer; disabled by default (0). If explicitly enabled, save a checkpoint and continue in a fresh session", "mission"),
     Knob("ARGUS_SKILL_RUNNER_SOFT_IDLE_SECONDS", "600", "model stream inactivity before a diagnostic warning (0=off)", "mission"),
     Knob("ARGUS_SKILL_RUNNER_STALLED_IDLE_SECONDS", "1800", "seconds a model turn may make no progress (no model stream event, no CPU time in its commands) before it is reported as likely stalled; an Engineer turn is then reported to the Manager once, which decides whether to keep waiting or restart it (0=off)", "mission"),
-    Knob("ARGUS_SKILL_DECISION_PROGRESS_TIMEOUT_SECONDS", "0", "optional round-boundary limit without reviewer-classified decision/evidence progress; disabled by default", "mission"),
     Knob("ARGUS_SKILL_CHECKPOINT_PERSIST", "true", "persist the reviewer checkpoint across missions/restarts", "mission"),
-    Knob("ARGUS_SKILL_COMPACT_CONTINUATION_PROMPTS", "true", "send the full Engineer task/skill contract only on round 1; later rounds use reviewer guidance plus CHECKPOINT.md", "mission"),
-    Knob("ARGUS_SKILL_ENGINEER_LEAN_TOOLS", "true", "leave the Engineer agent CLI's unused own tools out of every model request (Copilot CLI: session SQL database and CLI self-documentation; built-in MCP servers stay); false restores them", "mission"),
-    Knob("ARGUS_SKILL_ENGINEER_FULL_ROUND_POLICY", "session", "when an Engineer round re-sends the full static task text: session sends it only to a new or rotated provider session (plus a stage change, or a first round resuming a session with no sealed prior round for the mission); legacy also re-sends it on every round 1", "mission"),
     Knob("ARGUS_SKILL_AUTOCOMMIT_SKILLS", "off", "compatibility gate for explicitly operator-approved source promotions such as generated data-domain verticals", "lifecycle"),
     Knob("ARGUS_SKILL_CROSS_PROJECT_PROPAGATION", "on", "Manager-promote changed reviewed Skills into shared global/vertical runtime layers after each successful mission", "lifecycle"),
     Knob("ARGUS_SKILL_WIKI", "on", "enable the shared direct-edit project knowledge wiki", "lifecycle"),
@@ -295,13 +269,6 @@ _TOGGLE_KNOBS = frozenset(
     }
 )
 _NON_NEGATIVE_INT_KNOBS = frozenset({"ARGUS_SKILL_MAX_ACTIVE_DAEMONS"})
-# Mission round guards (core/round_policy.py); "vertical" defers to the vertical.
-_ROUND_GUARD_KNOBS = frozenset({
-    "ARGUS_SKILL_STALL_THRESHOLD",
-    "ARGUS_SKILL_NO_PROGRESS_THRESHOLD",
-    "ARGUS_SKILL_SOFT_ROUND_LIMIT",
-    "ARGUS_SKILL_HARD_ESCALATE_ROUNDS",
-})
 # A path knob names one absolute filesystem location. ``~`` expands at persist
 # time; a relative path would silently depend on whichever cwd the reading
 # process was started from. Existence is deliberately NOT required: the
@@ -450,20 +417,6 @@ def normalize_cockpit_knob_value(name: str, value: str) -> str:
         if mode not in {"progress-first", "standard", "strict"}:
             raise ValueError(f"{name} must be progress-first, standard, or strict")
         return mode
-    if name in _ROUND_GUARD_KNOBS:
-        if raw.lower() in {"vertical", "(vertical)", "default", "inherit"}:
-            return "vertical"
-        try:
-            guard = int(raw)
-        except ValueError as exc:
-            raise ValueError(
-                f"{name} must be a non-negative integer (0 disables) or 'vertical'"
-            ) from exc
-        if not 0 <= guard <= 1_000_000:
-            raise ValueError(
-                f"{name} must be a non-negative integer (0 disables) or 'vertical'"
-            )
-        return str(guard)
     if name in _NON_NEGATIVE_INT_KNOBS:
         try:
             number = int(raw)
@@ -928,12 +881,12 @@ def resolve_cheap_route_model(
 ) -> str:
     """Resolve one cheap control-plane route's model.
 
-    Four routes want a small model rather than the role's full-strength one:
-    Manager front-door classify, bounded-DAG decomposition, ``/plan`` preview,
-    and interactive prompt rewrite. Each used to carry its own copy of this
-    rule, and the copies agreed on the wrong thing — they counted ``pi`` as an
-    OpenAI-catalog backend. A Pi fronting DeepSeek therefore asked its provider
-    for ``gpt-5.4-mini`` and all four routes hard-failed, no matter how
+    Three routes want a small model rather than the role's full-strength one:
+    Manager front-door classify, ``/plan`` preview, and interactive prompt
+    rewrite. Each used to carry its own copy of this rule, and the copies
+    agreed on the wrong thing — they counted ``pi`` as an OpenAI-catalog
+    backend. A Pi fronting DeepSeek therefore asked its provider for
+    ``gpt-5.4-mini`` and every route hard-failed, no matter how
     carefully the operator had configured Argus's documented model knobs.
 
     Precedence: an explicit knob value wins; Copilot gets ``catalog_default``
@@ -943,7 +896,7 @@ def resolve_cheap_route_model(
     Codex may authenticate through a ChatGPT account whose catalog does not
     include Argus's historical cheap model ids.
 
-    中文：四条「廉价路由」不再为 Codex 强制指定 OpenAI model id，因为 ChatGPT
+    中文：三条「廉价路由」不再为 Codex 强制指定 OpenAI model id，因为 ChatGPT
     账户的 Codex 目录可能不包含该模型；Codex 与非 OpenAI 目录后端均回落到角色 model。
     """
     env_map = env if env is not None else os.environ

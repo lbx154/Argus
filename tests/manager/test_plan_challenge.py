@@ -68,7 +68,7 @@ def test_technical_question_uses_the_available_alternative(monkeypatch) -> None:
 
 def test_unchallenged_plan_is_kept() -> None:
     decision = adjudicate_plan_challenge(
-        {"plan_signal": "continue", "forward_progress": True},
+        {"plan_signal": "continue"},
         reviewer_status="continue",
     )
 

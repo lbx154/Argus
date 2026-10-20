@@ -319,7 +319,6 @@ def _ensure_manager_runner(chat_state: dict[str, Any], mem: Any) -> Any:
                 "ARGUS_SKILL_REVIEWER_REASONING_EFFORT", "high"
             ),
             plan_mode="auto",
-            plan_model=None,
             max_rounds=0,
             # The Manager uses the same persisted workdir as Planner, Engineer,
             # and Reviewer. Session state remains rooted at session_root.
@@ -339,18 +338,6 @@ def _ensure_manager_runner(chat_state: dict[str, Any], mem: Any) -> Any:
         from ..apps._runtime import build_life_runner
 
         runner = build_life_runner(ns)
-        acp_scope = f"manager:{chat_state.get('session_id') or workspace_key}"
-        backends: list[Any] = []
-        for backend in (
-            getattr(runner, "_backend", None),
-            getattr(runner, "manager_backend", None),
-        ):
-            if backend is not None and not any(backend is item for item in backends):
-                backends.append(backend)
-        for backend in backends:
-            set_acp_scope = getattr(backend, "set_acp_scope", None)
-            if callable(set_acp_scope):
-                set_acp_scope(acp_scope)
     except Exception as exc:  # noqa: BLE001 — retry on the next operator turn
         # Not cached (a transient build failure must not disable triage for the
         # rest of the session), but not silent either. Everything below this
@@ -693,14 +680,8 @@ class PreparedManagerHandoff:
             getattr(division, "workflow_mode", "staged") or "staged"
         ).strip().lower()
         lifetime = str(self.lifetime or "bounded").strip().lower()
-        inferred_continuous = lifetime == "standing" or (
-            lifetime == "bounded" and workflow_mode == "staged"
-        )
-        continuous = (
-            self.continuous
-            if self.continuous is not None
-            else inferred_continuous
-        )
+        # Every TEAM task runs inside a Planner-run campaign.
+        continuous = True if self.continuous is None else self.continuous
         open_ended = (
             self.open_ended
             if self.open_ended is not None
@@ -1009,8 +990,6 @@ def manager_bounded_handoff(
     *,
     root_task_id: str | None = None,
     ensure_runner: Callable[[dict[str, Any], Any], Any] | None = None,
-    prepare_persist: Callable[[str], None] | None = None,
-    validate_persist: Callable[[str], None] | None = None,
     prepared_handoff: PreparedManagerHandoff | None = None,
     cancelled: Callable[[], bool] | None = None,
 ) -> Any:
@@ -1044,11 +1023,7 @@ def manager_bounded_handoff(
     yield_token = ""
     try:
         yield_token = request_manager_pipeline_yield(life_dir, cancelled=cancelled)
-        if prepare_persist is not None:
-            prepare_persist(prepared.execution_task)
         with _operator_pipeline_lock(prepared, cancelled=cancelled, request_yield=False):
-            if validate_persist is not None:
-                validate_persist(prepared.execution_task)
             division = _bounded_handoff_division(
                 prepared,
                 chat_state=chat_state,
@@ -1112,8 +1087,6 @@ def manager_continuous_handoff(
     cancelled: Callable[[], bool] | None = None,
     prepared_handoff: PreparedManagerHandoff | None = None,
     persist: Callable[[str, Any], Any] | None = None,
-    prepare_persist: Callable[[str], None] | None = None,
-    validate_persist: Callable[[str], None] | None = None,
 ) -> str:
     """Atomically enable a Manager-authored continuous objective and first task."""
     from ..daemon.state import (
@@ -1157,8 +1130,6 @@ def manager_continuous_handoff(
     def _commit() -> None:
         if callable(cancelled) and cancelled():
             raise ManagerHandoffError("Manager request cancelled before commit")
-        if validate_persist is not None:
-            validate_persist(prepared.execution_task)
         committed["division"] = prepared.commit(
             acquire_lock=False,
             force_stage_reset=replacement_intent,
@@ -1186,8 +1157,6 @@ def manager_continuous_handoff(
     yield_token = ""
     try:
         yield_token = request_manager_pipeline_yield(life_dir, cancelled=cancelled)
-        if prepare_persist is not None:
-            prepare_persist(prepared.execution_task)
         with _operator_pipeline_lock(prepared, cancelled=cancelled, request_yield=False):
             resolved_open_ended = bool(
                 chat_state.get("_continuous_open_ended", expected.open_ended)

@@ -9,7 +9,8 @@ from typing import Any, Sequence
 def _turn_line(turn: dict[str, Any]) -> str:
     finished = datetime.fromtimestamp(turn["ts"]).astimezone().isoformat(timespec="seconds")
     task = f"on task `{turn['item_id']}`" if turn["item_id"] else "planning for the whole project"
-    return f"- the {turn['role'].capitalize()}, {task}, at {finished} (ts {turn['ts']:.0f})"
+    still = "; then the team went still: nothing runs and the Planner was not called" if turn.get("still") else ""
+    return f"- the {turn['role'].capitalize()}, {task}, at {finished} (ts {turn['ts']:.0f}){still}"
 
 
 def build_observer_prompt(

@@ -109,7 +109,6 @@ def test_readonly_copilot_gateway_loads_only_bound_advisor_over_stdio(tmp_path, 
         runner = ctx.backend._runner
         options = runner._apply_sandbox_policy(cli_options)
         assert options.sandbox_mode == "read-only" and options.force_safe_mode
-        assert not runner._acp_enabled(ctx.run_label, options=options)
         command = runner._build_command(resume_thread_id=None, options=options)
         available = command[command.index("--available-tools") + 1].split(",")
         assert available == ["view", "rg", "glob", TOOL_NAME]

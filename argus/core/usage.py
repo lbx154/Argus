@@ -552,10 +552,10 @@ def is_interrupted_empty_copilot_turn(
     model_usage: object = None,
     usage_observed: bool = False,
 ) -> bool:
-    """A warm Copilot turn that Argus itself ended before the CLI recorded it.
+    """A Copilot turn that Argus itself ended before the CLI recorded it.
 
-    Supersession, operator cancellation and Argus's own timeouts end a warm
-    ``copilot --acp`` turn by terminating the CLI process. When that happens
+    Supersession, operator cancellation and Argus's own timeouts end a
+    Copilot turn by terminating the CLI process. When that happens
     before the CLI has written a session record, nothing local can ever price
     the call: there is no store row and no session event log to reconcile
     from. The completion receipt shows the turn produced no message, no tool

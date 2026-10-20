@@ -9,7 +9,6 @@ from argus.reviewer import Reviewer
 from argus.reviewer._parsing import parse_decision_text
 from argus.roles.prompts.engineer import assemble_round_prompt, build_mission_prompt
 from argus.roles.prompts.manager import assemble_manager_prompt, build_quick_reply_prompt
-from argus.roles.prompts.planner import build_bounded_dag_prompt
 
 SHA_A = "a" * 64
 SHA_B = "b" * 64
@@ -112,7 +111,6 @@ def test_operator_commit_id_survives_all_role_prompt_assembly() -> None:
         skill_text="",
         next_action=None,
     )
-    planner = build_bounded_dag_prompt(task)
     manager = assemble_manager_prompt(task)
     reviewer = Reviewer(runner=None, skill_store=None)._build_prompt(
         objective=task,
@@ -125,7 +123,7 @@ def test_operator_commit_id_survives_all_role_prompt_assembly() -> None:
         prior_checkpoint={},
     )
 
-    for prompt in (engineer, planner, manager, reviewer):
+    for prompt in (engineer, manager, reviewer):
         assert task in prompt
         assert COMMIT_ID in prompt
     for prompt in (manager, reviewer):

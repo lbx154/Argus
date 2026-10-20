@@ -152,10 +152,9 @@ def test_action_preserves_explicit_session_signal():
     actions = ReviewActions()
     signal = {"kind": "quality_degradation", "target": "engineer", "detail": "Repeated an obsolete repair."}
     actions.dispatch("revise_review", {
-        "review": "Use the current evidence.", "session_signal": signal, "forward_progress": False,
+        "review": "Use the current evidence.", "session_signal": signal,
     })
     assert actions.decision.session_signal == signal
-    assert actions.decision.planner_report["forward_progress"] is False
     assert all("frontier_report" not in tool["inputSchema"]["properties"] for tool in actions.tools)
 
 
@@ -219,42 +218,35 @@ def test_unsupported_backend_has_no_text_fallback():
             pytest.fail("unsupported backend must not run")
 
 
-def test_reviewer_judges_manager_attention_and_learning_on_the_verdict():
+def test_reviewer_judges_learning_on_the_verdict():
     actions = ReviewActions()
     actions.dispatch("approve_review", {
         "review": "The fixture now proves the header.",
-        "manager_attention": {"verdict": "not_needed", "reason": "Accepted with evidence."},
         "learning": {"verdict": "worth_reflecting", "reason": "A masked display hid the value."},
     })
-    report = actions.decision.planner_report
-    assert report["manager_attention"] == "not_needed"
-    assert report["manager_attention_reason"] == "Accepted with evidence."
-    assert report["learning"] == "worth_reflecting"
+    assert actions.decision.planner_report["learning"] == "worth_reflecting"
     payload = actions.decision.to_event_payload()
-    assert payload["manager_attention"] == "not_needed"
     assert payload["learning"] == "worth_reflecting"
     assert payload["learning_reason"] == "A masked display hid the value."
 
 
 def test_judgments_are_offered_only_where_the_host_uses_them():
     tools = {tool["name"]: tool["inputSchema"]["properties"] for tool in ReviewActions().tools}
-    assert {name for name, props in tools.items() if "manager_attention" in props} == {
-        "approve_review", "revise_review", "defer_review",
-    }
+    assert not any("manager_attention" in props for props in tools.values())
     assert {name for name, props in tools.items() if "learning" in props} == {"approve_review"}
 
 
+@pytest.mark.parametrize("action", ["approve_review", "revise_review"])
 @pytest.mark.parametrize("judgment", [
-    {"verdict": "maybe", "reason": "?"}, "needed", {"verdict": "needed"}, {"verdict": "needed", "reason": "x", "extra": 1},
+    {"verdict": "maybe", "reason": "?"}, "nothing_new", {"verdict": "nothing_new"},
+    {"verdict": "nothing_new", "reason": "x", "extra": 1},
 ])
-def test_a_malformed_judgment_is_ignored_and_the_verdict_stands(judgment):
+def test_a_malformed_judgment_is_ignored_and_the_verdict_stands(action, judgment):
     actions = ReviewActions()
-    actions.dispatch("revise_review", {"review": "Repair grouping.", "manager_attention": judgment,
-                                       "learning": judgment})
-    assert actions.decision.status == "continue"
-    assert "manager_attention" not in actions.decision.planner_report
+    actions.dispatch(action, {"review": "Repair grouping.", "learning": judgment})
+    assert actions.decision.status == {"approve_review": "done", "revise_review": "continue"}[action]
     assert "learning" not in actions.decision.planner_report
-    assert "manager_attention" not in actions.decision.to_event_payload()
+    assert "learning" not in actions.decision.to_event_payload()
 
 
 def test_judgments_do_not_break_the_reviewer_acceptance_shortcut():
@@ -262,8 +254,7 @@ def test_judgments_do_not_break_the_reviewer_acceptance_shortcut():
 
     actions = ReviewActions()
     actions.dispatch("approve_review", {
-        "review": "Complete with evidence.", "forward_progress": True,
-        "manager_attention": {"verdict": "needed", "reason": "Worth a final look."},
+        "review": "Complete with evidence.",
         "learning": {"verdict": "nothing_new", "reason": "Routine."},
     })
     assert _StageDecisionMixin._is_clean_reviewer_acceptance(actions.decision) is True

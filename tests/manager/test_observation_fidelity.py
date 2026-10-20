@@ -263,26 +263,25 @@ def test_excerpt_tail_edits_change_canonical_revision_even_when_presentation_is_
 
 
 @pytest.mark.parametrize("field", ["last_error", "engineer_summary"])
-def test_unseen_excerpt_tail_edit_fences_a_running_manager_result(tmp_path, field):
+def test_unseen_excerpt_tail_edit_while_the_manager_decides_is_recorded_not_voided(tmp_path, field):
+    """Work that moved on while the Manager decided leaves its decision standing.
+
+    Voiding it lost the decision, and nothing asked the Manager again
+    (2026-10-20: a steer for a stuck campaign dropped, the project went silent).
+    """
     backlog, item, event = project(tmp_path)
     original = LONG_EXCERPT_PREFIX + "Hidden tail: the check passed."
     changed = LONG_EXCERPT_PREFIX + "Hidden tail: the check failed."
     write_excerpt(tmp_path, backlog, item, field, original)
     before = observe_project(tmp_path, event=event)
-    expected_control = []
 
-    def edit_while_model_runs():
-        write_excerpt(tmp_path, backlog, item, field, changed)
-        expected_control.append(controls(tmp_path))
-
-    backend = Backend(before_return=edit_while_model_runs)
+    backend = Backend(before_return=lambda: write_excerpt(tmp_path, backlog, item, field, changed))
     record = supervise(Manager(tmp_path, runner=backend, memory_maintenance_enabled=False), tmp_path, event)
     after = observe_project(tmp_path, event=event)
     assert displayed_excerpt(before, item.id, field) == displayed_excerpt(after, item.id, field)
     assert before.evidence_revision != after.evidence_revision
-    assert record["status"] == "superseded" and not record.get("effects")
-    assert controls(tmp_path) == expected_control[0]
-    assert load_active_manager_directive(tmp_path) is None and not (tmp_path / "inbox.jsonl").exists()
+    assert record["status"] == "applied" and record["evidence_moved"] is True
+    assert load_active_manager_directive(tmp_path).text == record["decision"]["directive"]
     assert len(backend.prompts) == 1
 
 

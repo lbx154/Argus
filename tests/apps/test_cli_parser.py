@@ -535,7 +535,7 @@ def test_export_preserves_edited_legacy_research_fallback(
     ).exists()
 
 
-def test_export_prunes_unmodified_math_skills_after_vertical_switch(
+def test_export_prunes_unmodified_vertical_skills_after_vertical_switch(
     tmp_path: Path,
     capsys: pytest.CaptureFixture[str],
 ) -> None:
@@ -544,19 +544,19 @@ def test_export_prunes_unmodified_math_skills_after_vertical_switch(
 
     project = tmp_path / "project"
     target = project / "argus_builtin_skills"
-    math_skills = {name for name, _text in iter_vertical_skill_texts("math")}
-    persist_vertical(project, "math")
+    maintenance_skills = {name for name, _text in iter_vertical_skill_texts("argus_maintenance")}
+    persist_vertical(project, "argus_maintenance")
     assert main(["--export-builtin-skills", str(target), "--apply"]) == 0
-    assert all((target / filename).is_file() for filename in math_skills)
+    assert all((target / filename).is_file() for filename in maintenance_skills)
     capsys.readouterr()
 
     persist_vertical(project, "software")
     assert main(["--export-builtin-skills", str(target), "--apply"]) == 0
     out = capsys.readouterr().out
 
-    assert not any((target / filename).exists() for filename in math_skills)
+    assert not any((target / filename).exists() for filename in maintenance_skills)
     assert (
-        f"pruned : {len(math_skills)} inactive unmodified context seed(s)"
+        f"pruned : {len(maintenance_skills)} inactive unmodified context seed(s)"
         in out
     )
 

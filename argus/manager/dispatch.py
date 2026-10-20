@@ -2,8 +2,6 @@
 
 from __future__ import annotations
 
-import uuid
-from contextlib import nullcontext
 from pathlib import Path
 from typing import Any, Callable
 
@@ -40,62 +38,23 @@ def _resolve_manager_workdir(mem: Any) -> Path:
     return active_campaign_workdir(life_dir, base) or base
 
 
-def _node_stage_of_record(
-    state_root: Path | str,
-    node_workdir: Path | str,
-    campaign_workdir: Path | str,
-) -> str:
-    """Stage a new backlog node is bound to, read where the stage is kept.
+def _campaign_stage(state_root: Path | str, workdir: Path | str) -> str:
+    """Stage a new backlog item is bound to, read where the stage is kept.
 
     The supervisor reads the campaign stage from the project state root and
-    replays reviewed work only for rows tagged with that stage; its own
-    Planner enqueue tags rows the same way. Reading the team workdir instead
-    (which has no pipeline state of its own) tagged every staged node with
-    the vertical's first stage, so its reviewed results were never replayed,
-    the campaign could never certify, and its delivery never arrived.
-
-    A node is nested only when it really runs in another directory than the
-    campaign workdir (``"."``, the campaign path itself, and the
-    deferred-clone fallback all run at the root). A nested repository with a
-    pipeline state of its own keeps its own stage; every other node takes the
-    state-root stage when the state root keeps one.
+    replays reviewed work only for rows tagged with that stage. Reading the
+    team workdir instead (which has no pipeline state of its own) tagged the
+    item with the vertical's first stage, so its reviewed result was never
+    replayed and the campaign could never certify.
     """
     from ..core.pipeline_state import pipeline_state_exists
     from ..skills.stage_machine import current_stage
 
-    def _same(left: Path | str, right: Path | str) -> bool:
-        try:
-            return Path(left).expanduser().resolve() == Path(right).expanduser().resolve()
-        except OSError:
-            return str(left) == str(right)
-
-    def _has_state(root: Path | str) -> bool:
-        try:
-            return pipeline_state_exists(root)
-        except OSError:
-            return False
-
-    nested = not _same(node_workdir, campaign_workdir)
-    if nested and _has_state(node_workdir):
-        return current_stage(node_workdir)
-    if _has_state(state_root):
-        return current_stage(state_root)
-    return current_stage(node_workdir)
-
-
-def _stable_topological_nodes(tasks: tuple[Any, ...]) -> list[Any]:
-    ordered: list[Any] = []
-    done: set[str] = set()
-    remaining = list(tasks)
-    while remaining:
-        ready = [node for node in remaining if set(node.deps) <= done]
-        if not ready:
-            raise front_door.ManagerHandoffError("bounded Planner returned a cyclic DAG")
-        for node in ready:
-            ordered.append(node)
-            done.add(node.key)
-            remaining.remove(node)
-    return ordered
+    try:
+        kept = pipeline_state_exists(state_root)
+    except OSError:
+        kept = False
+    return current_stage(state_root if kept else workdir)
 
 
 def _merge_context_refs(
@@ -170,67 +129,6 @@ def _attachable_reference_deps(
     return attachable
 
 
-def _bounded_dag_model() -> str:
-    """Model for decomposing a bounded Manager task into backlog DAG nodes.
-
-    Deliberately compact — this is a structural decomposition, not the plan
-    itself. See ``core.knobs.resolve_cheap_route_model`` for why the backend,
-    not just the knob, decides the fallback.
-    """
-    from ..core.knobs import resolve_cheap_route_model
-
-    return resolve_cheap_route_model(
-        knob="ARGUS_SKILL_BOUNDED_DAG_MODEL",
-        catalog_default="gpt-6.1-sol",
-        role="planner",
-        role_env="ARGUS_SKILL_PLAN_MODEL",
-    )
-
-
-def _plan_bounded_execution(
-    mem: Any,
-    execution_body: str,
-    chat_state: dict[str, Any],
-    *,
-    root_task_id: str | None = None,
-    require_independent_review: bool = True,
-    single_package: bool = False,
-) -> Any:
-    runner = front_door._ensure_manager_runner(chat_state, mem)
-    backend = getattr(runner, "planner_backend", None) if runner is not None else None
-    if backend is None:
-        raise front_door.ManagerHandoffError(
-            "bounded Planner backend unavailable; refusing an atomic fallback "
-            "that cannot preserve review and stage-transition semantics"
-        )
-    from ..core.knobs import resolve_role_reasoning_effort
-    from ..planner.bounded_dag import plan_bounded_dag
-
-    workdir = _resolve_manager_workdir(mem)
-    model = _bounded_dag_model()
-    usage_scope = getattr(runner, "task_usage_context", None)
-    scope = usage_scope(root_task_id) if callable(usage_scope) and root_task_id else nullcontext()
-    with scope:
-        plan = plan_bounded_dag(
-            backend,
-            execution_body,
-            workdir=workdir,
-            state_root=getattr(mem, "project_root", None),
-            require_independent_review=require_independent_review,
-            single_package=single_package,
-            model=model,
-            reasoning_effort=resolve_role_reasoning_effort(
-                "ARGUS_SKILL_BOUNDED_DAG_REASONING_EFFORT",
-                default="low",
-            ),
-        )
-    if plan.error or not plan.tasks:
-        raise front_door.ManagerHandoffError(
-            f"bounded Planner could not produce an executable DAG: {plan.error or 'empty plan'}"
-        )
-    return plan
-
-
 def resume_done_lifecycle_for_team_dispatch(mem: Any) -> bool:
     """Resume a completed project lifecycle when new TEAM work arrives.
 
@@ -302,20 +200,39 @@ def _daemon_status(life_dir: Any) -> tuple[bool, int | None]:
         return False, None
 
 
+def _continuous_backend_error(life_dir: Path, body: str) -> str:
+    from ..core.knobs import resolve_role_backend
+    from ..daemon.life_worker import continuous_mode_error, read_daemon_status
+
+    daemon_status = read_daemon_status(life_dir)
+    # Only compared against "memory" (the in-process test backend that cannot
+    # plan), so an unconfigured host must not fail an operator's turn here.
+    backend = (
+        str(daemon_status.life_backend or "") if daemon_status.alive else ""
+    ) or resolve_role_backend("", default="codex")
+    return continuous_mode_error(backend, True, body)
+
+
 def enqueue_mission(
     mem: Any,
     body: str,
     chat_state: dict[str, Any],
     *,
-    iterate: bool = True,
-    max_cycles: int = 0,
     root_task_id: str | None = None,
     cancelled: Callable[[], bool] | None = None,
     prepared_handoff: front_door.PreparedManagerHandoff | None = None,
     context_refs: list[dict[str, str]] | None = None,
     reference_deps: list[str] | None = None,
-) -> tuple[Any | None, bool, int | None]:
-    """Persist one Manager-authored mission and report executor availability."""
+) -> tuple[Any, bool, int | None]:
+    """Run one operator TEAM task inside a Planner-run campaign.
+
+    There is one dispatch topology. The task becomes one reviewed operator
+    item in a durable campaign whose Planner sequences what follows and, for
+    finite work, declares the campaign done. With no campaign running, the
+    task arms one: finite unless the front door read standing intent. A direct
+    task joins a running campaign without replacing it; staged or standing
+    work replaces the running campaign's objective.
+    """
     domain_display = chat_state.pop("_domain_display_objective", {})
     display_objective = (str(domain_display.get("objective") or "")
                          if domain_display.get("execution_task") == body else "")
@@ -342,656 +259,155 @@ def enqueue_mission(
                 pass
         body = f"{prior}\n\nOperator reply: {body}"
 
-    life_dir = front_door._life_dir_for(mem)
-    # Starting a finite staged campaign still needs the Planner's executable
-    # DAG. Entering the durable supervisor must not flatten its dependencies
-    # into a raw operator item and leave decomposition as advisory prose.
-    new_finite_campaign = bool(
-        chat_state.get("config", {}).get("continuous", False)
-        and chat_state.get("_continuous_pending_manager_handoff")
-        and chat_state.get("_continuous_open_ended") is False
-    )
-    if new_finite_campaign and prepared_handoff is None:
-        try:
-            prepared_handoff = front_door.prepare_manager_execution_task(
-                mem, body, chat_state, root_task_id=root_task_id,
-            )
-        except Exception:
-            chat_state.setdefault("config", dict(DEFAULT_MANAGER_CONFIG))["continuous"] = False
-            chat_state["continuous_objective"] = ""
-            chat_state.pop("_continuous_pending_manager_handoff", None)
-            raise
-    # Software has concrete component interfaces. Research campaigns must keep
-    # discovering their next stage through the scientific completion gates.
-    decompose_finite_campaign = bool(
-        new_finite_campaign
-        and getattr(getattr(prepared_handoff, "decision", None), "vertical", "") == "software"
-    )
-    if chat_state.get("config", {}).get("continuous", False) and not decompose_finite_campaign:
-        pending_auto_promote = bool(
-            chat_state.pop("_continuous_pending_manager_handoff", False)
-        )
-        persisted: dict[str, Any] = {}
-
-        def _persist_operator_priority_item(
-            execution_body: str,
-            division: Any,
-        ) -> Any:
-            pending = mem.backlog.pending()
-            head_priority = min((item.priority for item in pending), default=100)
-            from ..life.memory import BacklogItem
-            from ..life.supervisor.backlog_guard import decision_evidence
-
-            contextual_body = (
-                "[CURRENT OPERATOR MESSAGE]" in body
-                and (
-                    "[RECENT CONVERSATION CONTEXT" in body
-                    or "[BOUNDED TASK CONTEXT" in body
-                )
-            )
-            title_body = execution_body if contextual_body else body
-            compact = " ".join(title_body.split()).replace("`", "")
-            title = compact if len(compact) <= 96 else compact[:93] + "..."
-            # Operator-quoted map nodes attach the new work where the operator
-            # pointed instead of leaving it dangling at the end of the graph.
-            item_deps = _attachable_reference_deps(
-                mem,
-                reference_deps,
-                exclude={str(root_task_id or "")},
-            )
-            item = BacklogItem.new(
-                item_id=root_task_id,
-                title=title,
-                objective=execution_body,
-                priority=min(head_priority - 1, -1),
-                tags=[
-                    "manager",
-                    # Deliberately NOT "planner": that tag is a claim of Planner
-                    # authorship, and the mission runtime reads it as exactly
-                    # that — ``preplanned = "planner" in tags`` — to skip the
-                    # advisory planning pass on the ground that a Planner has
-                    # already decomposed the work. This item is a raw operator
-                    # message the Manager routed; nothing decomposed it. Tagging
-                    # it here suppressed the Planner for the one case
-                    # ``_maybe_draft_plan`` documents as needing it ("user-
-                    # authored bounded work now follows the full team chain:
-                    # Manager → Planner → Engineer → Reviewer"), sending the
-                    # objective straight to a single Engineer. The Planner-
-                    # authored path below keeps the tag, alongside the
-                    # ``bounded_dag_node`` that shows where its plan came from.
-                    "operator",
-                    "operator_priority",
-                    "scope:bounded",
-                    # Paired with "stage_transition:skip" on purpose. Twenty
-                    # lines below, ``_prepare_persist`` REJECTS a Planner node
-                    # that sets ``skip_stage_transition`` without
-                    # ``require_independent_review`` as "an invalid review-only
-                    # stage transition contract" — and this item was setting
-                    # exactly that combination, so the Manager was exempting
-                    # itself from the contract it enforces on the Planner.
-                    #
-                    # Untagged, ``round_self_review`` closes the mission the
-                    # first time the Engineer writes MILESTONE_STATUS=DONE, with
-                    # no second pair of eyes; the observed run settled a claimed
-                    # proof of an open conjecture that way, in one round. It
-                    # also inverted the skip: ``_should_run_stage_transition``
-                    # only honors ``skip_stage_transition`` alongside
-                    # ``require_independent_review`` on a bounded scope, so
-                    # without this tag the mission fell through to the
-                    # ``review_source == "engineer_self_review"`` arm and ran
-                    # the stage transition the tag exists to prevent.
-                    "review:required",
-                    "stage_transition:skip",
-                ],
-                iterate=False,
-                iteration_max_cycles=1,
-                deps=item_deps,
-                context_refs=_merge_context_refs(context_refs),
-                original_objective=execution_body,
-                manager_decision=decision_evidence(division) or {"routed": True},
-            )
-            try:
-                mem.backlog.add(item)
-            except OSError as exc:
-                chat_state.setdefault("_pending_missions", []).append((item,))
-                raise MissionPersistenceError(
-                    f"Could not persist mission to {mem.backlog.path}: {exc}. "
-                    "The mission remains pending in memory and was not dispatched."
-                ) from exc
-            persisted["item"] = item
-            try:
-                from ..life.event_log import JsonlEventSink
-
-                JsonlEventSink(None, life_dir=Path(life_dir)).append({
-                    "type": "life.planner.task_added",
-                    "item_id": item.id,
-                    "title": item.title,
-                    "objective": item.objective,
-                    "deps": list(item.deps),
-                    "priority": item.priority,
-                    "source": "manager_operator",
-                    "operator_priority": True,
-                })
-            except Exception:  # noqa: BLE001 - backlog persistence is authoritative
-                pass
-            return item
-
-        try:
-            execution_body = front_door.manager_continuous_handoff(
-                mem,
-                body,
-                chat_state,
-                root_task_id=root_task_id,
-                cancelled=cancelled,
-                prepared_handoff=prepared_handoff,
-                persist=_persist_operator_priority_item,
-            )
-        except Exception:
-            if pending_auto_promote:
-                chat_state.setdefault("config", dict(DEFAULT_MANAGER_CONFIG))[
-                    "continuous"
-                ] = False
-                chat_state["continuous_objective"] = ""
-            raise
-        item = persisted.get("item")
-        if item is None:
-            item = _persist_operator_priority_item(
-                execution_body,
-                getattr(prepared_handoff, "decision", None),
-            )
-        chat_state["last_objective"] = execution_body
-        chat_state["continuous_objective"] = execution_body
-        front_door._maybe_name_session(
-            chat_state,
-            execution_body,
-            suggested_name=display_title,
-            promote_task_name=True,
-        )
-        alive, pid = _daemon_status(life_dir)
-        return item, alive, pid
-
     if prepared_handoff is None:
         prepared_handoff = front_door.prepare_manager_execution_task(
-            mem,
-            body,
-            chat_state,
-            root_task_id=root_task_id,
+            mem, body, chat_state, root_task_id=root_task_id,
         )
+    standing = str(
+        chat_state.pop("_frontdoor_lifetime", "") or ""
+    ).strip().lower() == "standing"
+    direct = not standing and str(
+        getattr(prepared_handoff.decision, "workflow_mode", "") or ""
+    ).strip().lower() == "direct"
+    life_dir = Path(front_door._life_dir_for(mem))
+    from ..daemon.state import read_continuous_state
 
-    direct_workflow = (
-        str(
-            getattr(
-                getattr(prepared_handoff, "decision", None),
-                "workflow_mode",
-                "",
-            )
-            or ""
-        ).strip().lower()
-        == "direct"
-    )
-    planned: dict[str, Any] = {}
+    campaign = read_continuous_state(life_dir)
+    campaign_running = campaign.enabled and bool(campaign.objective.strip())
+    persisted: dict[str, Any] = {}
 
-    def _hydrate_context_refs(nodes: list[Any]) -> dict[str, list[dict[str, Any]]]:
-        from ..core.campaign_workdir import resolve_task_workdir
-        from ..planner.planner import hydrate_task_context_refs
-
-        workdir = _resolve_manager_workdir(mem)
-        hydrated_refs: dict[str, list[dict[str, Any]]] = {}
-        for node in nodes:
-            try:
-                raw_refs = list(getattr(node, "context_refs", ()) or ())
-                try:
-                    context_root = resolve_task_workdir(
-                        workdir,
-                        getattr(node, "execution_workdir", ""),
-                    )
-                except ValueError:
-                    if (
-                        str(getattr(node, "execution_workdir", "") or "").strip()
-                        and list(node.deps)
-                        and not raw_refs
-                    ):
-                        context_root = None
-                    else:
-                        raise
-                hydrated_refs[node.key] = (
-                    []
-                    if context_root is None
-                    else hydrate_task_context_refs(raw_refs, context_root)
-                )
-            except ValueError as exc:
-                raise front_door.ManagerHandoffError(
-                    f"bounded Planner returned an invalid context reference: {exc}"
-                ) from exc
-        return hydrated_refs
-
-    def _prepare_persist(execution_body: str) -> None:
-        if callable(cancelled) and cancelled():
-            raise front_door.ManagerHandoffError(
-                "Manager request cancelled before bounded DAG planning"
-            )
-        if direct_workflow:
-            from types import SimpleNamespace
-
-            compact = " ".join((display_title or display_objective or execution_body).split()).replace("`", "")
-            node = SimpleNamespace(
-                key="manager_direct",
-                deps=(),
-                title=compact if len(compact) <= 96 else compact[:93] + "...",
-                objective=execution_body,
-                stage_closing=True,
-                require_independent_review=True,
-            )
-            planned["plan"] = None
-            planned["nodes"] = [node]
-            planned["hydrated_refs"] = {node.key: []}
-            return
-        plan = _plan_bounded_execution(
-            mem,
-            execution_body,
-            chat_state,
-            root_task_id=root_task_id,
-            require_independent_review=bool(
-                getattr(
-                    getattr(prepared_handoff, "decision", None),
-                    "require_independent_review",
-                    True,
-                )
-            ),
-            single_package=(
-                str(
-                    getattr(
-                        getattr(prepared_handoff, "decision", None),
-                        "workflow_mode",
-                        "",
-                    )
-                    or ""
-                ).strip().lower()
-                == "direct"
-            ),
-        )
-        nodes = _stable_topological_nodes(tuple(plan.tasks))
-        if not nodes:
-            raise front_door.ManagerHandoffError("bounded Planner produced no tasks")
-        for node in nodes:
-            stage_closing = bool(getattr(node, "stage_closing", False))
-            require_review = bool(
-                getattr(node, "require_independent_review", True)
-            )
-            skip_stage_transition = bool(
-                getattr(node, "skip_stage_transition", False)
-            )
-            if skip_stage_transition and (stage_closing or not require_review):
-                raise front_door.ManagerHandoffError(
-                    "bounded Planner returned an invalid review-only stage "
-                    "transition contract"
-                )
-        planned["plan"] = plan
-        planned["nodes"] = nodes
-        planned["hydrated_refs"] = _hydrate_context_refs(nodes)
-
-    def _validate_persist(_execution_body: str) -> None:
-        nodes = list(planned.get("nodes") or ())
-        current_refs = _hydrate_context_refs(nodes)
-        if current_refs != dict(planned.get("hydrated_refs") or {}):
-            raise front_door.ManagerHandoffError(
-                "bounded Planner context references changed before Manager commit"
-            )
-        planned["hydrated_refs"] = current_refs
-
-    def _persist(execution_body: str, _division: Any) -> Any:
+    def _persist(execution_body: str, division: Any) -> Any:
         if callable(cancelled) and cancelled():
             raise front_door.ManagerHandoffError(
                 "Manager request cancelled before backlog commit"
             )
-        pending = mem.backlog.pending()
-        head_priority = min((item.priority for item in pending), default=100)
-        plan = planned.get("plan")
-        nodes = list(planned.get("nodes") or ())
-        hydrated_refs = dict(planned.get("hydrated_refs") or {})
         from ..life.memory import BacklogItem
-
-        plan_id = "" if direct_workflow else f"bounded-{uuid.uuid4().hex[:12]}"
         from ..life.supervisor.backlog_guard import decision_evidence
 
-        manager_decision = decision_evidence(_division) or {"routed": True}
-        if direct_workflow:
+        contextual_body = (
+            "[CURRENT OPERATOR MESSAGE]" in body
+            and (
+                "[RECENT CONVERSATION CONTEXT" in body
+                or "[BOUNDED TASK CONTEXT" in body
+            )
+        )
+        title_body = display_title or display_objective or (
+            execution_body if direct or contextual_body else body
+        )
+        compact = " ".join(title_body.split()).replace("`", "")
+        manager_decision = decision_evidence(division) or {"routed": True}
+        if direct:
+            # One reviewed, stage-closing mission: the same item the campaign
+            # supervisor queues for a finite direct objective, so its certified
+            # review finishes the campaign instead of queueing a second run.
             manager_decision["route_source"] = "manager"
-        learned_candidate = (
-            manager_decision.get("learned_vertical_status") == "candidate"
+            if display_objective:
+                manager_decision["display_objective"] = display_objective
+            stage = _campaign_stage(life_dir, _resolve_manager_workdir(mem))
+            kind_tags = [
+                "manager_direct",
+                "stage_closing",
+                *([f"stage:{stage}"] if stage else []),
+            ]
+        else:
+            # Not "planner": nothing decomposed this raw operator task. Review
+            # is required and the stage stays with the campaign: the Reviewer
+            # closes the item, and the Planner decides what the stage needs.
+            kind_tags = ["operator", "operator_priority", "stage_transition:skip"]
+        head_priority = min(
+            (row.priority for row in mem.backlog.pending()), default=100,
         )
-        ids = {
-            node.key: (
-                str(root_task_id)
-                if index == 0 and root_task_id
-                else BacklogItem.new_id()
-            )
-            for index, node in enumerate(nodes)
-        }
-        # Operator-quoted map nodes become deps of the plan's ENTRY nodes so
-        # the whole new subgraph attaches where the operator pointed. Nodes
-        # with in-plan deps inherit the ordering transitively.
-        entry_deps = _attachable_reference_deps(
-            mem,
-            reference_deps,
-            exclude=set(ids.values()),
+        item = BacklogItem.new(
+            item_id=root_task_id,
+            title=compact if len(compact) <= 96 else compact[:93] + "...",
+            objective=execution_body,
+            priority=min(head_priority - 1, -1),
+            tags=["manager", "scope:bounded", "review:required", *kind_tags],
+            iterate=False,
+            iteration_max_cycles=1,
+            # Operator-quoted map nodes attach the new work where the operator
+            # pointed instead of leaving it dangling at the end of the graph.
+            deps=_attachable_reference_deps(
+                mem, reference_deps, exclude={str(root_task_id or "")},
+            ),
+            context_refs=_merge_context_refs(context_refs),
+            original_objective=execution_body,
+            manager_decision=manager_decision,
         )
-        items: list[BacklogItem] = []
-        priority = min(head_priority - 1, -1)
-        from ..core.campaign_workdir import (
-            resolve_task_workdir,
-            task_workdir_provenance,
-        )
-
-        campaign_workdir = _resolve_manager_workdir(mem)
-        for index, node in enumerate(nodes):
-            requested_workdir = str(
-                getattr(node, "execution_workdir", "") or ""
-            ).strip()
-            persisted_workdir = task_workdir_provenance(
-                campaign_workdir,
-                requested_workdir,
-            )
-            try:
-                node_workdir = resolve_task_workdir(
-                    campaign_workdir,
-                    requested_workdir,
-                )
-            except ValueError:
-                raw_refs = list(getattr(node, "context_refs", ()) or ())
-                if requested_workdir and list(node.deps) and not raw_refs:
-                    # Preserve the existing deferred-clone contract: a dependency
-                    # may create this workdir before the node becomes runnable.
-                    node_workdir = campaign_workdir
-                else:
-                    raise
-            stage = _node_stage_of_record(life_dir, node_workdir, campaign_workdir)
-            stage_closing = bool(getattr(node, "stage_closing", False))
-            require_review = bool(
-                getattr(node, "require_independent_review", True)
-            ) or learned_candidate or bool(
-                manager_decision.get("require_independent_review")
-            )
-            skip_stage_transition = bool(
-                getattr(node, "skip_stage_transition", False)
-            )
-            item_context_refs = _merge_context_refs(
-                hydrated_refs.get(node.key, []),
-                context_refs,
-            )
-            hypothesis = str(getattr(node, "hypothesis", "") or "").strip()
-            decision_rule = str(
-                getattr(node, "decision_rule", "") or ""
-            ).strip()
-            node_manager_decision = dict(manager_decision)
-            if display_objective and direct_workflow:
-                node_manager_decision["display_objective"] = display_objective
-            node_vertical = str(getattr(node, "vertical", "") or "").strip()
-            if node_vertical:
-                from ..skills.vertical_select import (
-                    UnknownVerticalError,
-                    require_vertical,
-                )
-
-                try:
-                    require_vertical(node_vertical, node_workdir)
-                except UnknownVerticalError as exc:
-                    raise front_door.ManagerHandoffError(
-                        f"bounded Planner selected unknown vertical {node_vertical!r}"
-                    ) from exc
-                node_manager_decision["vertical"] = node_vertical
-                node_manager_decision["route_source"] = "planner"
-                node_manager_decision["routed"] = True
-            item = BacklogItem.new(
-                item_id=ids[node.key],
-                title=str(node.title).replace("`", ""),
-                objective=node.objective,
-                priority=priority + index,
-                tags=[
-                    "manager",
-                    *(
-                        ["manager_direct"]
-                        if direct_workflow
-                        else ["planner", "bounded_dag_node"]
-                    ),
-                    "scope:bounded",
-                    *(
-                        ["stage_closing"]
-                        if stage_closing
-                        else []
-                    ),
-                    *(
-                        ["review:required"]
-                        if stage_closing or require_review
-                        else []
-                    ),
-                    *(
-                        ["review:waived"]
-                        if not stage_closing and not require_review
-                        else []
-                    ),
-                    *(
-                        ["stage_transition:skip"]
-                        if skip_stage_transition
-                        else []
-                    ),
-                    *(
-                        ["skill_changes:allowed"]
-                        if bool(getattr(node, "allow_skill_changes", False))
-                        else []
-                    ),
-                    *([f"stage:{stage}"] if stage else []),
-                ],
-                iterate=not direct_workflow,
-                iteration_max_cycles=1 if direct_workflow else 3,
-                deps=[ids[dep] for dep in node.deps] or list(entry_deps),
-                plan_id=plan_id,
-                plan_version=0 if direct_workflow else 1,
-                node_key="" if direct_workflow else node.key,
-                context_refs=item_context_refs,
-                acceptance_check=str(getattr(node, "acceptance_check", "") or ""),
-                plan_hypothesis=hypothesis,
-                goal_contribution=str(
-                    getattr(node, "goal_contribution", "") or ""
-                ),
-                expected_regressions=str(
-                    getattr(node, "expected_regressions", "") or ""
-                ),
-                decision_rule=decision_rule,
-                execution_workdir=persisted_workdir,
-                non_goals=list(getattr(node, "non_goals", ()) or ()),
-                manager_decision=node_manager_decision,
-            )
-            item.original_objective = execution_body
-            items.append(item)
         try:
-            mem.backlog.add_many(items)
+            mem.backlog.add(item)
         except OSError as exc:
-            chat_state.setdefault("_pending_missions", []).append(tuple(items))
+            chat_state.setdefault("_pending_missions", []).append((item,))
             raise MissionPersistenceError(
                 f"Could not persist mission to {mem.backlog.path}: {exc}. "
                 "The mission remains pending in memory and was not dispatched."
             ) from exc
-        item = items[0]
+        persisted["item"] = item
         try:
-            from ..core.planner_verdict import (
-                PlannerVerdictStatus,
-                build_planner_verdict_event,
-            )
             from ..life.event_log import JsonlEventSink
 
-            sink = JsonlEventSink(None, life_dir=Path(life_dir))
-            reason = str(
-                getattr(plan, "reason", "")
-                or ("Manager direct package" if direct_workflow else "bounded DAG")
-            )
-            if not direct_workflow:
-                sink.append(build_planner_verdict_event(
-                    status=PlannerVerdictStatus.PLANNED,
-                    reason=reason,
-                    project_id=Path(life_dir).name,
-                    mission_id=plan_id,
-                    plan_id=plan_id,
-                    enqueued_tasks=len(items),
-                    new_tasks=len(items),
-                    text=f"bounded Planner created {len(items)} DAG node(s)",
-                ))
-            for node_item in items:
-                task_added = {
-                    "type": "life.planner.task_added",
-                    "item_id": node_item.id,
-                    "title": node_item.title,
-                    "deps": list(node_item.deps),
-                    "plan_id": plan_id,
-                    "node_key": node_item.node_key,
-                }
-                if direct_workflow:
-                    task_added["source"] = "manager_direct"
-                    task_added["objective"] = node_item.objective
-                    task_added["priority"] = node_item.priority
-                sink.append(task_added)
-                if "review:waived" in node_item.tags:
-                    sink.append({
-                        "type": "life.review.waived",
-                        "item_id": node_item.id,
-                        "text": (
-                            "independent review waived: bounded Planner explicitly "
-                            "set require_independent_review=false"
-                        ),
-                        "reason": reason,
-                    })
-        except Exception:  # noqa: BLE001
+            event = {
+                "type": "life.planner.task_added",
+                "item_id": item.id,
+                "title": item.title,
+                "objective": item.objective,
+                "deps": list(item.deps),
+                "priority": item.priority,
+                "source": "manager_direct" if direct else "manager_operator",
+            }
+            if not direct:
+                event["operator_priority"] = True
+            JsonlEventSink(None, life_dir=life_dir).append(event)
+        except Exception:  # noqa: BLE001 - backlog persistence is authoritative
             pass
-        front_door._maybe_name_session(
-            chat_state,
-            execution_body,
-            suggested_name=display_title,
-            promote_task_name=True,
-        )
         return item
 
-    if decompose_finite_campaign:
-        chat_state.pop("_continuous_pending_manager_handoff", None)
-        persisted: list[Any] = []
-
-        def persist_campaign(execution_body: str, division: Any) -> Any:
-            item = _persist(execution_body, division)
-            persisted.append(item)
-            return item
-
-        try:
-            execution_body = front_door.manager_continuous_handoff(
-                mem, body, chat_state,
-                root_task_id=root_task_id,
-                cancelled=cancelled,
-                prepared_handoff=prepared_handoff,
-                prepare_persist=_prepare_persist,
-                validate_persist=_validate_persist,
-                persist=persist_campaign,
-            )
-        except Exception:
-            chat_state.setdefault("config", dict(DEFAULT_MANAGER_CONFIG))["continuous"] = False
-            chat_state["continuous_objective"] = ""
-            raise
-        item = persisted[0]
-        chat_state["continuous_objective"] = execution_body
-    else:
-        item = front_door.manager_bounded_handoff(
+    if direct and campaign_running:
+        front_door.manager_bounded_handoff(
             mem,
             body,
             chat_state,
             _persist,
             root_task_id=root_task_id,
             cancelled=cancelled,
-            prepare_persist=_prepare_persist,
-            validate_persist=_validate_persist,
             prepared_handoff=prepared_handoff,
         )
-    chat_state["last_objective"] = item.original_objective or item.objective
+        objective = campaign.objective
+    else:
+        error = _continuous_backend_error(life_dir, body)
+        if error:
+            exc = front_door.ManagerHandoffError(error)
+            prepared_handoff.failed(exc)
+            raise exc
+        chat_state["_continuous_open_ended"] = (
+            campaign.open_ended if campaign_running else standing
+        )
+        objective = front_door.manager_continuous_handoff(
+            mem,
+            body,
+            chat_state,
+            root_task_id=root_task_id,
+            cancelled=cancelled,
+            prepared_handoff=prepared_handoff,
+            persist=_persist,
+        )
+    item = persisted["item"]
+    chat_state.setdefault("config", dict(DEFAULT_MANAGER_CONFIG))["continuous"] = True
+    chat_state["continuous_objective"] = objective
+    chat_state["last_objective"] = item.objective
+    front_door._maybe_name_session(
+        chat_state,
+        item.objective,
+        suggested_name=display_title,
+        promote_task_name=True,
+    )
     alive, pid = _daemon_status(life_dir)
     return item, alive, pid
-
-
-def maybe_promote_to_continuous(
-    mem: Any,
-    body: str,
-    chat_state: dict[str, Any],
-    *,
-    root_task_id: str | None = None,
-    workflow_mode: str = "",
-) -> bool:
-    """Resolve finite lifetime and Manager workflow into a dispatch topology.
-
-    The front door decides whether the requested outcome is a single explicit
-    increment, finite, or standing. The Manager independently decides whether
-    satisfying the complete outcome requires staged progression. An explicit
-    increment always stays bounded; an ordinary finite staged outcome uses the
-    durable campaign supervisor so its stage gates can advance.
-    """
-    del root_task_id
-    lifetime = str(
-        chat_state.pop("_frontdoor_lifetime", "bounded") or "bounded"
-    ).strip().lower()
-    if lifetime not in {"bounded_increment", "bounded", "standing"}:
-        lifetime = "bounded"
-    normalized_workflow = str(workflow_mode or "").strip().lower()
-    if lifetime == "bounded_increment" or (
-        lifetime == "bounded" and normalized_workflow != "staged"
-    ):
-        chat_state.setdefault("config", dict(DEFAULT_MANAGER_CONFIG))[
-            "continuous"
-        ] = False
-        chat_state["continuous_objective"] = ""
-        chat_state.pop("_continuous_open_ended", None)
-        chat_state.pop("_continuous_pending_manager_handoff", None)
-        return False
-
-    from ..core.knobs import resolve_role_backend
-    from ..daemon.life_worker import (
-        continuous_mode_error,
-        read_continuous_state,
-        read_daemon_status,
-    )
-
-    life_dir = Path(front_door._life_dir_for(mem))
-    daemon_status = read_daemon_status(life_dir)
-    # default="codex": this value is only ever compared against "memory" (see
-    # daemon.state.continuous_mode_error, which rejects continuous mode on the
-    # in-process test backend). Any real backend passes the same gate, so an
-    # unconfigured host must not fail an operator's chat turn here.
-    backend = (
-        str(daemon_status.life_backend or "")
-        if daemon_status.alive
-        else resolve_role_backend("", default="codex")
-    )
-    error = continuous_mode_error(
-        backend or resolve_role_backend("", default="codex"), True, body
-    )
-    if error:
-        raise front_door.ManagerHandoffError(error)
-    persisted = read_continuous_state(life_dir)
-    if persisted.enabled and persisted.objective.strip():
-        chat_state.setdefault("config", dict(DEFAULT_MANAGER_CONFIG))[
-            "continuous"
-        ] = True
-        chat_state["continuous_objective"] = persisted.objective
-        chat_state["_continuous_open_ended"] = persisted.open_ended
-        chat_state.pop("_continuous_pending_manager_handoff", None)
-        return True
-
-    chat_state.setdefault("config", dict(DEFAULT_MANAGER_CONFIG))[
-        "continuous"
-    ] = True
-    chat_state["_continuous_pending_manager_handoff"] = True
-    chat_state["_continuous_open_ended"] = lifetime == "standing"
-    chat_state["continuous_objective"] = ""
-    return True
 
 
 __all__ = [
     "DEFAULT_MANAGER_CONFIG",
     "MissionPersistenceError",
     "enqueue_mission",
-    "maybe_promote_to_continuous",
     "resume_done_lifecycle_for_team_dispatch",
 ]

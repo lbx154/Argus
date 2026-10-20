@@ -14,7 +14,6 @@ from argus.planner.planner import (
     parse_task_scope,
 )
 from argus.roles.prompts.planner import (
-    _BOUNDED_DAG_FOOTER,
     _PLANNER_CORE_CONTRACT,
     _PLANNER_DECISION_FOOTER,
 )
@@ -450,13 +449,8 @@ def test_planner_prompt_requires_read_only_delegation_and_minimal_footer() -> No
     assert 'official code' in _PLANNER_CORE_CONTRACT
 
 
-@pytest.mark.parametrize(
-    "footer",
-    [_PLANNER_DECISION_FOOTER, _BOUNDED_DAG_FOOTER],
-)
-def test_planner_footer_example_is_an_ambitious_experiment_program(
-    footer: str,
-) -> None:
+def test_planner_footer_example_is_an_ambitious_experiment_program() -> None:
+    footer = _PLANNER_DECISION_FOOTER
     assert (
         "TASK_TITLE=Launch the strongest untested attack on the core hypothesis"
         in footer
@@ -1429,25 +1423,6 @@ def test_planner_zero_exit_fatal_error_preserves_actionable_reason() -> None:
         "ignored old stderr\n"
         "recent stderr detail"
     )
-
-
-def test_planner_config_reads_the_shared_rolling_session_budget(monkeypatch) -> None:
-    monkeypatch.delenv("ARGUS_SKILL_ROLE_SESSION_MAX_INPUT_TOKENS", raising=False)
-    assert PlannerConfig().role_session_max_input_tokens == 120_000
-
-    # The same environment knob that budgets Engineer rolling sessions in
-    # round_config and the loop entry now budgets the Planner's session.
-    monkeypatch.setenv("ARGUS_SKILL_ROLE_SESSION_MAX_INPUT_TOKENS", "42000")
-    assert PlannerConfig().role_session_max_input_tokens == 42_000
-
-    monkeypatch.setenv("ARGUS_SKILL_ROLE_SESSION_MAX_INPUT_TOKENS", "not-a-number")
-    assert PlannerConfig().role_session_max_input_tokens == 120_000
-
-
-def test_planner_turn_budget_outlives_a_long_campaign() -> None:
-    # Six turns rotated the Planner hundreds of times across one 48-hour run,
-    # each rotation re-paying the full static prompt with a cold cache.
-    assert PlannerConfig().role_session_max_turns == 20
 
 
 def test_parse_planner_objective_keeps_the_brief_that_follows_it() -> None:

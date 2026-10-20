@@ -1,11 +1,4 @@
 {
-  "global/agent-team-lead.md": {
-    "title": "多智能体团队协作",
-    "summary": "判断何时值得并行工作，按文件与职责拆分协作，并独立审查汇总结果；不替代原有角色与授权。",
-    "originalName": "Agent Team Lead",
-    "source": "argus/builtin_skills/agent-team-lead.md",
-    "sourceBytes": 6816
-  },
   "global/engineer/minimal-coding-agent.md": {
     "title": "最小且严谨的软件修改",
     "summary": "用足够小的改动实现、修复或重构软件与界面，保留既有行为，避免无依据的抽象和新增依赖。",
@@ -580,61 +573,12 @@
     "source": "argus/domains/chemistry/skills/scientist/chemistry-distillation.md",
     "sourceBytes": 1537
   },
-  "vertical/kernel_engineering/engineer/kernel-benchmark-measurement-integrity.md": {
-    "title": "GPU 算子工程：先算屋顶线，隔离测量",
-    "summary": "先用屋顶线定瓶颈再改机制而非参数；一次干净的隔离运行足以筛选想法，要主张或保留的提升必须在官方条件下测量；审阅只看正确性与基准证据。",
-    "originalName": "Kernel Engineering: Roofline First, Measure in Isolation",
-    "source": "argus/verticals/kernel_engineering/skills/engineer/kernel-benchmark-measurement-integrity.md",
-    "sourceBytes": 17012
-  },
   "vertical/learning/learning-curation.md": {
     "title": "学习任务的整理与审阅",
     "summary": "把操作者材料变成有证据锚点的项目 Skill/Wiki 修改或诚实的空操作，说明 CHANGE_PLAN.json 的约定以及审阅者如何判断修改是否忠实、无冗余、不倒退、层级正确。",
     "originalName": "Learning Curation",
     "source": "argus/verticals/learning/skills/learning-curation.md",
     "sourceBytes": 4940
-  },
-  "vertical/math/engineer/math-research-execution.md": {
-    "title": "数学研究执行",
-    "summary": "忠实保留命题与范围，诚实区分结果类别；需要 Lean 证据时实际编译，不虚构证明。",
-    "originalName": "Math Research Execution",
-    "source": "argus/verticals/math/skills/engineer/math-research-execution.md",
-    "sourceBytes": 16046
-  },
-  "vertical/math/manager/math-research-manager.md": {
-    "title": "数学研究任务协调",
-    "summary": "在通用协调流程中保持研究目标、范围、求解和评审职责，不另造一套权限体系。",
-    "originalName": "Math Research Manager Context",
-    "source": "argus/verticals/math/skills/manager/math-research-manager.md",
-    "sourceBytes": 630
-  },
-  "vertical/math/planner/math-research-planning.md": {
-    "title": "数学研究规划",
-    "summary": "围绕范围界定、求解和评审安排动态任务，保持原有角色与生命周期规则。",
-    "originalName": "Math Research Planning",
-    "source": "argus/verticals/math/skills/planner/math-research-planning.md",
-    "sourceBytes": 2300
-  },
-  "vertical/math/reviewer/math-research-review.md": {
-    "title": "数学研究独立评审",
-    "summary": "检查正确性、新意、意义、命题忠实性和真实形式化证据，不以叙述代替证明。",
-    "originalName": "Math Research Review",
-    "source": "argus/verticals/math/skills/reviewer/math-research-review.md",
-    "sourceBytes": 6811
-  },
-  "vertical/math/scientist/math-research-adaptation.md": {
-    "title": "改进数学研究方法",
-    "summary": "在评审确认方法失败或技能缺口后，按已有适应阶段调整可复用方法。",
-    "originalName": "Math Research Scientist Adaptation",
-    "source": "argus/verticals/math/skills/scientist/math-research-adaptation.md",
-    "sourceBytes": 660
-  },
-  "vertical/math/scientist/math-research-distillation.md": {
-    "title": "沉淀数学研究方法",
-    "summary": "在首次匹配缺失后整理可复用研究方法，不假定已经失败，也不代替当前任务的执行。",
-    "originalName": "Math Research Skill Distillation",
-    "source": "argus/verticals/math/skills/scientist/math-research-distillation.md",
-    "sourceBytes": 631
   },
   "vertical/research/engineer/ablation-planner.md": {
     "title": "选择有判别力的消融实验",
@@ -669,7 +613,7 @@
     "summary": "按表达内容选渲染路线：数据图走 SciencePlots/Matplotlib，概念与框架图默认以图像蓝图重建为可编辑 PPT，无图像接口时直接原生绘制；生成图像只用于不承载论断的部分。",
     "originalName": "Composing a conceptual paper figure",
     "source": "argus/verticals/research/skills/engineer/paper-framework-figure-studio.md",
-    "sourceBytes": 26228
+    "sourceBytes": 25858
   },
   "vertical/research/engineer/references/ideation/ideation-patterns/overview.md": {
     "title": "研究构思模式总览",
@@ -746,7 +690,7 @@
     "summary": "从来源中发现候选可能性，估算每条路线拿到决定性证据所需的时间与算力，经独立审查后作最终选择，不把构思直接当作实验结果。",
     "originalName": "Finding a research idea",
     "source": "argus/verticals/research/skills/research-idea-playbook.md",
-    "sourceBytes": 6027
+    "sourceBytes": 5604
   },
   "vertical/research/research-paper-playbook.md": {
     "title": "撰写完整研究论文",

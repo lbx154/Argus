@@ -57,7 +57,6 @@ from ._planner_orchestration import PlannerOrchestrationMixin
 from ._planner_rendering import PlannerRenderingMixin
 from ._planning_context import PlanningContextMixin
 from ._planning_cycle import PlanningCycleMixin
-from ._second_reading import SecondReadingMixin
 from .pending_notify import should_report_pending_wait
 
 log = logging.getLogger(__name__)
@@ -86,7 +85,6 @@ def _review_phrase(review: str, chinese: bool) -> str:
 class LifeSupervisor(
     EvolutionMixin,
     LettersMixin,
-    SecondReadingMixin,
     IdleCycleMixin,
     MissionExecutionMixin,
     LifecycleMixin,
@@ -196,10 +194,6 @@ class LifeSupervisor(
         self._last_planner_idle_sig: str | None = None
         self._last_planner_idle_at = 0.0
         self._last_planner_handoff_key: tuple[str, str] | None = None
-        # Consecutive missions that COMPLETED with the reviewer judging
-        # forward_progress=false; when it crosses the threshold the harness
-        # escalates to the operator (surface, don't loop invisibly).
-        self._consecutive_no_progress_missions = 0
         self._reap_orphans_on_startup()
         if self.manager is not None:
             from ...manager.supervision import recover_issued_supervision
@@ -380,10 +374,7 @@ class LifeSupervisor(
     def _planner_config(self):
         from ...core.knobs import resolve_knob, resolve_role_model
         from ...daemon.state import read_continuous_state
-        from ...planner import (
-            PlannerConfig,
-            configured_role_session_max_input_tokens,
-        )
+        from ...planner import PlannerConfig
 
         continuous_root = Path(
             getattr(self.memory, "project_root", self.memory.root)
@@ -437,11 +428,6 @@ class LifeSupervisor(
             open_ended=bool(self.config.continuous and self.config.open_ended),
             external_interrupt_reason_provider=_semantic_interrupt,
             role_session_path=state_root / "role-sessions" / "planner.json",
-            # The same environment knob that budgets Engineer sessions budgets
-            # the Planner's rolling session, so one setting moves every role.
-            role_session_max_input_tokens=(
-                configured_role_session_max_input_tokens()
-            ),
             objective_revision=(
                 f"{expected.generation}:"
                 f"{objective_revision(expected.objective)}"
@@ -702,8 +688,6 @@ class LifeSupervisor(
                 stopped_by = "mission_delivery_pending"
                 self._suggested_sleep_s = 1.0
                 break
-            if self._decide_overdue_venue_stalls():
-                continue
             yield_provider = getattr(
                 self.config,
                 "manager_pipeline_yield_provider",
@@ -985,38 +969,7 @@ class LifeSupervisor(
                     self._emit_status(gate_reason)
                     stopped_by = gate_reason
                     break
-                revision = self._maybe_second_reading(outcome) or outcome
-                planned = self._plan_next_work(revision_request=revision)
-                if planned is True:
-                    continue
-                if planned == "daemon_handoff":
-                    stopped_by = "daemon_handoff"
-                elif planned == "planner_retry":
-                    stopped_by = "planner_retry"
-                elif planned == _PLAN_AWAITING:
-                    stopped_by = _PLAN_AWAITING
-                elif planned == _PLAN_TERMINAL_IDLE:
-                    stopped_by = _PLAN_TERMINAL_IDLE
-                else:
-                    stopped_by = "planner_error"
-                break
-            # A mission can end well and still leave the Reviewer doubting the
-            # line of work it belongs to. Repeated doubt earns a fresh reading
-            # of the evidence and a re-plan around what it supports, without
-            # waiting for a formal request to replace the plan.
-            reading = self._maybe_second_reading(outcome)
-            if reading is not None:
-                gate_reason = self._planner_cycle_gate_reason()
-                if gate_reason:
-                    self._emit({
-                        "type": "life.planner.deferred",
-                        "reason": gate_reason,
-                        "agent_layer": "planner",
-                    })
-                    self._emit_status(gate_reason)
-                    stopped_by = gate_reason
-                    break
-                planned = self._plan_next_work(revision_request=reading)
+                planned = self._plan_next_work(revision_request=outcome)
                 if planned is True:
                     continue
                 if planned == "daemon_handoff":

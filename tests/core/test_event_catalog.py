@@ -333,13 +333,9 @@ def test_resource_status_generator_writes_reproducible_lf_bytes(tmp_path, monkey
 # its own ledger or speaks another protocol, so the event catalog does not own
 # that vocabulary.
 _NON_EVENT_MODULES = frozenset({
-    # ACP-to-CLI stream lines (session.start, tool.call, tool.result,
-    # watchdog.*) that adapters/stream_progress.py parses as runner output.
-    "agent_cli/copilot_acp.py",
     # repairs/history.jsonl, the doctor's own audit ledger.
     "maintenance/repair.py",
     # Map observation nodes projected from events for the web map.
-    "webapi/map_team.py",
     "webapi/map_view.py",
 })
 

@@ -230,8 +230,8 @@ def test_direct_engineer_and_reviewer_keep_selected_vertical_banners(
 ) -> None:
     from argus.roles.prompts.engineer import build_mission_prompt
 
-    persist_vertical(tmp_path, "kernel_engineering", workflow_mode="direct")
-    contract = load_vertical_contract("kernel_engineering", project_root=tmp_path)
+    persist_vertical(tmp_path, "argus_maintenance", workflow_mode="direct")
+    contract = load_vertical_contract("argus_maintenance", project_root=tmp_path)
     engineer_banner = contract.banner("engineer")
     engineer_prompt = build_mission_prompt(
         task="Profile one decode and patch the measured hot path.",
@@ -255,7 +255,5 @@ def test_direct_engineer_and_reviewer_keep_selected_vertical_banners(
     )
 
     assert "## Active vertical role" in engineer_prompt
-    assert "Treat unattended benchmark and profiler runs as long jobs" in (
-        engineer_prompt
-    )
-    assert "never fail work merely because" in reviewer_prompt
+    assert "ARGUS MAINTENANCE: improve Argus itself" in engineer_prompt
+    assert "Review the changed causal surface" in reviewer_prompt

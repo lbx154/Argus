@@ -24,7 +24,6 @@ import pytest
 
 from argus.agent_cli import _run_exec as runner_exec
 from argus.agent_cli.agent_cli_runner import AgentCliRunner, RunnerOptions
-from argus.agent_cli.copilot_acp import CopilotAcpClient
 from argus.agent_cli.runner_backend import BACKEND_COPILOT
 from argus.core.knobs import resolve_cheap_route_model, resolve_manager_classify_model
 
@@ -74,20 +73,6 @@ def test_named_model_keeps_model_and_effort() -> None:
     assert command[command.index("--reasoning-effort") + 1] == "high"
 
 
-@pytest.mark.parametrize("model", ["", "auto"])
-def test_warm_acp_process_follows_the_same_rule(model: str) -> None:
-    client = CopilotAcpClient("copilot-bin", model, "high")
-
-    assert client._model is None
-    assert client._reasoning_effort is None
-
-
-def test_warm_acp_process_keeps_a_named_model_and_effort() -> None:
-    client = CopilotAcpClient("copilot-bin", "named-model", "low")
-
-    assert (client._model, client._reasoning_effort) == ("named-model", "low")
-
-
 # --------------------------------------------------------------------------- #
 # (2) cheap side routes                                                       #
 # --------------------------------------------------------------------------- #
@@ -104,7 +89,6 @@ def _env(**extra: str) -> dict[str, str]:
 _ROUTES = [
     ("ARGUS_SKILL_FRONTDOOR_MODEL", "manager", "ARGUS_SKILL_MANAGER_MODEL"),
     ("ARGUS_SKILL_PLAN_PREVIEW_MODEL", "planner", "ARGUS_SKILL_PLAN_MODEL"),
-    ("ARGUS_SKILL_BOUNDED_DAG_MODEL", "planner", "ARGUS_SKILL_PLAN_MODEL"),
     ("ARGUS_SKILL_REWRITE_MODEL", "manager", "ARGUS_SKILL_MANAGER_MODEL"),
 ]
 
@@ -237,3 +221,34 @@ def test_failed_resume_keeps_its_own_identity(monkeypatch) -> None:
     )
 
     assert result.thread_id == "sess-original"
+
+
+@pytest.mark.parametrize(("label", "models"), [
+    ("manager-frontdoor-classify", ["named-model", None]),
+    ("engineer-r1", ["named-model"]),
+])
+def test_a_manager_call_runs_on_copilots_model_when_the_named_one_is_gone(
+    monkeypatch, label, models,
+) -> None:
+    answered = [
+        json.dumps({"type": "assistant.message", "data": {"content": "OK", "model": "copilot-pick"}}),
+        json.dumps({"type": "result", "sessionId": BOUND, "exitCode": 0}),
+    ]
+    processes = iter([_ExitedProc(_STARTUP_ONLY, _REJECTED, returncode=1), _ExitedProc(answered, [], 0)])
+    asked: list[str | None] = []
+    monkeypatch.setattr(runner_exec, "spawn_owned_process", lambda *a, **k: next(processes))
+    monkeypatch.setattr(AgentCliRunner, "_resolve_executable", staticmethod(lambda v: v))
+    monkeypatch.setattr(
+        AgentCliRunner, "_build_command",
+        lambda self, *, options, **_kw: asked.append(options.model) or ["copilot"],
+    )
+    result = AgentCliRunner(agent_bin="copilot", backend=BACKEND_COPILOT).run_exec(
+        prompt="classify", resume_thread_id=None,
+        options=RunnerOptions(model="named-model", provider_session_id=BOUND), run_label=label,
+    )
+
+    assert asked == models
+    if len(models) == 2:
+        assert result.turn_completed and result.usage_model == "copilot-pick"
+    else:
+        assert result.turn_failed and "not available" in result.fatal_error

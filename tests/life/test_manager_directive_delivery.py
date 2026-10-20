@@ -158,7 +158,6 @@ def test_active_directive_reaches_reviewer(tmp_path: Path) -> None:
         scope="bounded",
         checkpoint_path=None,
         reviewer_skill_block=None,
-        escalate_hint="",
         engineer_result=RunnerResult(exit_code=0, agent_messages=["done"]),
         engineer_message="implemented replacement",
         safe_fatal_error=None,

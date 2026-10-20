@@ -377,10 +377,6 @@ def _parallel_final_review_passes(
                 )
         except (OSError, RuntimeError) as exc:
             workspace_stack.close()
-            for backend in pass_runners.values():
-                close = getattr(backend, "close_acp_clients", None)
-                if callable(close):
-                    close()
             return ReviewDecision(
                 status="blocked",
                 reason=f"Rendered paper review inputs are unavailable: {exc}",
@@ -404,11 +400,6 @@ def _parallel_final_review_passes(
             run_label=f"reviewer-{label.lower()}",
         )
 
-    created_runners = [
-        backend
-        for backend in pass_runners.values()
-        if backend is not runner
-    ]
     try:
         with ThreadPoolExecutor(
             max_workers=3,
@@ -426,10 +417,6 @@ def _parallel_final_review_passes(
                 except Exception as exc:  # provider boundary
                     errors[label] = exc
     finally:
-        for backend in created_runners:
-            close = getattr(backend, "close_acp_clients", None)
-            if callable(close):
-                close()
         workspace_stack.close()
 
     def total(field: str) -> int:
@@ -749,25 +736,6 @@ def _review_grounding(config: Any, *, task_parts: tuple[str, ...]) -> Any:
     )
 
 
-def _note_host_venue_rewrite(decision: ReviewDecision) -> None:
-    """Record, apart from the Reviewer's words, what venue enforcement changed."""
-    words = decision.reviewer_words or {}
-    changes: list[str] = []
-    before_status = words.get("status", "")
-    if decision.status != before_status:
-        changes.append(f"your `{before_status}` became `{decision.status}`")
-    if decision.reason != words.get("reason", "") or (
-        decision.next_action != words.get("next_action", "")
-    ):
-        changes.append("the host added its own guidance to the request")
-    if changes:
-        decision.host_notes = [
-            *decision.host_notes,
-            "the selected-venue acceptance check changed this judgment ("
-            + "; ".join(changes) + ")",
-        ]
-
-
 class Reviewer:
     """One independent judgment per round, with optional same-role resume."""
 
@@ -808,7 +776,6 @@ class Reviewer:
         prior_checkpoint: dict[str, Any] | None = None,
         checkpoint_path: str = "",
         background_context: str = "",
-        escalate_hint: str = "",
         engineer_log_path: str = "",
         engineer_call_id: str = "",
         preselected_skill_block: str | None = None,
@@ -878,7 +845,6 @@ class Reviewer:
             prior_checkpoint=prior_checkpoint,
             checkpoint_path=checkpoint_path,
             background_context=background_context,
-            escalate_hint=escalate_hint,
             engineer_log_path=engineer_log_path,
             engineer_call_id=engineer_call_id,
             preselected_skill_block=preselected_skill_block,
@@ -1065,7 +1031,6 @@ class Reviewer:
                     decision, venue=venue, before=venue_snapshot, artifact_root=artifact_root,
                     minimum=acceptance_minimum,
                 )
-                _note_host_venue_rewrite(decision)
                 if decision.backend_unavailable:
                     return decision
             _persist_research_review(decision, config)
@@ -1104,7 +1069,6 @@ class Reviewer:
         prior_checkpoint: dict[str, Any] | None = None,
         checkpoint_path: str = "",
         background_context: str = "",
-        escalate_hint: str = "",
         engineer_log_path: str = "",
         engineer_call_id: str = "",
         preselected_skill_block: str | None = None,
@@ -1143,7 +1107,6 @@ class Reviewer:
             prior_checkpoint=prior_checkpoint,
             checkpoint_path=checkpoint_path,
             background_context=background_context,
-            escalate_hint=escalate_hint,
             engineer_log_path=engineer_log_path,
             engineer_call_id=engineer_call_id,
             preselected_skill_block=preselected_skill_block,

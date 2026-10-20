@@ -42,14 +42,19 @@ def _context(tmp_path: Path) -> tuple[Path, Path]:
     return context, checkpoint
 
 
+def _resumable() -> MemoryBackend:
+    """A deterministic runner labelled as a CLI that resumes provider threads."""
+    backend = MemoryBackend()
+    backend.backend = "pi"  # type: ignore[misc]
+    return backend
+
+
 def _loop(
     backend: MemoryBackend,
     tmp_path: Path,
     context: Path,
     checkpoint: Path,
     *,
-    policy: str,
-    max_turns: int = 6,
     events: list[dict] | None = None,
 ) -> SkillLoop:
     return SkillLoop(
@@ -63,16 +68,14 @@ def _loop(
             backend_failure_backoff_seconds=0,
             context_packet_path=str(context),
             checkpoint_path=checkpoint,
-            role_session_policy=policy,
-            role_session_max_turns=max_turns,
         ),
         on_event=events.append if events is not None else None,
     )
 
 
-def test_mission_policy_resumes_each_role_without_crossing_roles(tmp_path: Path) -> None:
+def test_resumable_backend_resumes_each_role_without_crossing_roles(tmp_path: Path) -> None:
     context, checkpoint = _context(tmp_path)
-    backend = MemoryBackend()
+    backend = _resumable()
     backend.queue("engineer-r1", CannedResponse(message="engineer one", thread_id="e1"))
     backend.queue("reviewer", CannedResponse(review_action=_review("continue"), thread_id="v1"))
     backend.queue("engineer-r2", CannedResponse(message="engineer two", thread_id="e1"))
@@ -84,7 +87,6 @@ def test_mission_policy_resumes_each_role_without_crossing_roles(tmp_path: Path)
         tmp_path,
         context,
         checkpoint,
-        policy="mission",
         events=events,
     ).run("implement the change", workdir=tmp_path)
 
@@ -115,7 +117,7 @@ def test_mission_policy_resumes_each_role_without_crossing_roles(tmp_path: Path)
     ]
 
 
-def test_fresh_policy_repeats_task_contract_on_continuation_round(
+def test_fresh_backend_repeats_task_contract_on_continuation_round(
     tmp_path: Path,
 ) -> None:
     context, checkpoint = _context(tmp_path)
@@ -132,7 +134,6 @@ def test_fresh_policy_repeats_task_contract_on_continuation_round(
         tmp_path,
         context,
         checkpoint,
-        policy="fresh",
     ).run("implement the contract-preserving change", workdir=tmp_path)
 
     assert outcome.successful
@@ -152,9 +153,8 @@ def test_fresh_policy_repeats_task_contract_on_continuation_round(
 def test_resumed_reviewer_reduces_prompt_bytes_without_changing_verdict(
     tmp_path: Path,
 ) -> None:
-    def run(policy: str, root: Path) -> tuple[str, int]:
+    def run(backend: MemoryBackend, root: Path) -> tuple[str, int]:
         context, checkpoint = _context(root)
-        backend = MemoryBackend()
         backend.queue("engineer-r1", CannedResponse(message="one", thread_id="e1"))
         backend.queue(
             "reviewer", CannedResponse(review_action=_review("continue"), thread_id="v1")
@@ -168,7 +168,6 @@ def test_resumed_reviewer_reduces_prompt_bytes_without_changing_verdict(
             root,
             context,
             checkpoint,
-            policy=policy,
         ).run("same matched task", workdir=root)
         reviewer_chars = sum(
             len(prompt)
@@ -177,30 +176,27 @@ def test_resumed_reviewer_reduces_prompt_bytes_without_changing_verdict(
         )
         return outcome.status, reviewer_chars
 
-    fresh_status, fresh_chars = run("fresh", tmp_path / "fresh")
-    mission_status, mission_chars = run("mission", tmp_path / "mission")
+    fresh_status, fresh_chars = run(MemoryBackend(), tmp_path / "fresh")
+    resumed_status, resumed_chars = run(_resumable(), tmp_path / "resumed")
 
-    assert fresh_status == mission_status == "done"
-    assert mission_chars < fresh_chars
+    assert fresh_status == resumed_status == "done"
+    assert resumed_chars < fresh_chars
 
 
-def test_rolling_policy_rotates_at_the_turn_limit(tmp_path: Path) -> None:
+def test_a_role_with_no_thread_to_resume_is_told_the_round(tmp_path: Path) -> None:
     context, checkpoint = _context(tmp_path)
-    backend = MemoryBackend()
-    backend.queue("engineer-r1", CannedResponse(message="one", thread_id="e1"))
-    backend.queue("reviewer", CannedResponse(review_action=_review("continue"), thread_id="v1"))
-    backend.queue("engineer-r2", CannedResponse(message="two", thread_id="e2"))
-    backend.queue("reviewer", CannedResponse(review_action=_review("done"), thread_id="v2"))
-    events: list[dict] = []
+    backend = _resumable()
+    # The provider reports no thread, so round 2 cannot resume round 1.
+    backend.queue("engineer-r1", CannedResponse(message="one"))
+    backend.queue("reviewer", CannedResponse(review_action=_review("continue")))
+    backend.queue("engineer-r2", CannedResponse(message="two"))
+    backend.queue("reviewer", CannedResponse(review_action=_review("done")))
 
     outcome = _loop(
         backend,
         tmp_path,
         context,
         checkpoint,
-        policy="rolling",
-        max_turns=1,
-        events=events,
     ).run("implement the change", workdir=tmp_path)
 
     assert outcome.successful
@@ -221,26 +217,15 @@ def test_rolling_policy_rotates_at_the_turn_limit(tmp_path: Path) -> None:
         for label, thread in backend.resume_history
         if label.startswith("engineer-") or label == "reviewer"
     ] == [None, None, None, None]
-    rotations = [
-        event
-        for event in events
-        if event.get("type") == "role.session.turn"
-        and event.get("action") == "rotated"
-    ]
-    assert [(event["role"], event["rotation_reason"]) for event in rotations] == [
-        ("engineer", "turn_limit"),
-        ("reviewer", "turn_limit"),
-    ]
 
 
 def test_capsules_restore_same_mission_after_process_restart(tmp_path: Path) -> None:
     context, checkpoint = _context(tmp_path)
-    first = MemoryBackend()
+    first = _resumable()
     first.queue("engineer-r1", CannedResponse(message="partial", thread_id="e1"))
     first.queue("reviewer", CannedResponse(review_action=_review("continue"), thread_id="v1"))
-    first_loop = _loop(first, tmp_path, context, checkpoint, policy="mission")
+    first_loop = _loop(first, tmp_path, context, checkpoint)
     first_loop.config.max_rounds = 1
-    first_loop.config.hard_escalate_rounds = 0
     interrupted = first_loop.run("same objective", workdir=tmp_path)
 
     assert interrupted.status == "max_rounds"
@@ -261,10 +246,10 @@ def test_capsules_restore_same_mission_after_process_restart(tmp_path: Path) -> 
     assert reviewer_before_restart["thread_id"] == "v1"
     assert "partial" not in reviewer_before_restart["decisive_output"]
 
-    second = MemoryBackend()
+    second = _resumable()
     second.queue("engineer-r1", CannedResponse(message="finished", thread_id="e1"))
     second.queue("reviewer", CannedResponse(review_action=_review("done"), thread_id="v1"))
-    outcome = _loop(second, tmp_path, context, checkpoint, policy="mission").run(
+    outcome = _loop(second, tmp_path, context, checkpoint).run(
         "same objective", workdir=tmp_path
     )
 
@@ -302,12 +287,12 @@ def test_rolling_capsule_rotates_when_branch_changes(tmp_path: Path) -> None:
         check=True,
     )
 
-    assert capsule.prepare(max_turns=6, max_input_tokens=120_000) is None
+    assert capsule.prepare() is None
     assert capsule.action == "rotated"
     assert capsule.rotation_reason == "branch_changed"
 
 
-def test_cached_tokens_do_not_count_against_the_rotation_budget(tmp_path: Path) -> None:
+def test_a_long_session_keeps_resuming(tmp_path: Path) -> None:
     capsule = RoleSessionCapsule.open(
         role="engineer",
         policy="rolling",
@@ -318,63 +303,20 @@ def test_cached_tokens_do_not_count_against_the_rotation_budget(tmp_path: Path) 
         checkpoint_path=None,
         path=tmp_path / "state" / "engineer.json",
     )
+    for _ in range(30):
+        capsule.prepare()
+        capsule.complete(RunnerResult(
+            exit_code=0, thread_id="thread-1", input_tokens=400_000, cached_input_tokens=0,
+        ))
 
-    capsule.complete(
-        RunnerResult(
-            exit_code=0,
-            thread_id="thread-1",
-            input_tokens=100_000,
-            cached_input_tokens=90_000,
-        )
-    )
-
-    # Only the 10k tokens the provider read fresh count toward rotation; the
-    # raw billed input alone would already exhaust this budget on turn one.
-    assert capsule.input_tokens == 10_000
-    assert capsule.prepare(max_turns=20, max_input_tokens=15_000) == "thread-1"
+    # The backend compacts its own context; Argus never rotates on size or turns.
+    assert capsule.prepare() == "thread-1"
     assert capsule.action == "resumed"
-
-    capsule.complete(
-        RunnerResult(
-            exit_code=0,
-            thread_id="thread-1",
-            input_tokens=100_000,
-            cached_input_tokens=95_000,
-        )
-    )
-
-    assert capsule.input_tokens == 15_000
-    assert capsule.prepare(max_turns=20, max_input_tokens=15_000) is None
-    assert capsule.action == "rotated"
-    assert capsule.rotation_reason == "context_limit"
+    assert capsule.turns == 30
 
 
-def test_result_without_cache_data_counts_its_full_input(tmp_path: Path) -> None:
-    class LegacyResult:
-        exit_code = 0
-        thread_id = "thread-legacy"
-        input_tokens = 50_000
-
-    capsule = RoleSessionCapsule.open(
-        role="engineer",
-        policy="rolling",
-        objective_revision="v1",
-        workdir=tmp_path,
-        backend="codex",
-        model="model",
-        checkpoint_path=None,
-        path=tmp_path / "state" / "engineer.json",
-    )
-
-    capsule.complete(LegacyResult())
-
-    # A result that reports nothing about caching counts in full, which errs
-    # toward rotating sooner rather than trusting an absent number.
-    assert capsule.input_tokens == 50_000
-
-
-def test_planner_mission_session_survives_new_planner_instance(tmp_path: Path) -> None:
-    backend = MemoryBackend()
+def test_planner_session_survives_new_planner_instance(tmp_path: Path) -> None:
+    backend = _resumable()
     backend.queue(
         "planner.cycle0",
         CannedResponse(message="PROJECT_DONE=true\nREASON=done", thread_id="p1"),
@@ -387,7 +329,6 @@ def test_planner_mission_session_survives_new_planner_instance(tmp_path: Path) -
     config = PlannerConfig(
         model="model",
         working_dir=str(tmp_path),
-        role_session_policy="mission",
         role_session_path=capsule_path,
         objective_revision="generation-1",
     )
@@ -416,7 +357,7 @@ def test_planner_mission_session_survives_new_planner_instance(tmp_path: Path) -
 
 def test_explicit_reviewer_quality_signal_rotates_only_target_role(tmp_path: Path) -> None:
     context, checkpoint = _context(tmp_path)
-    backend = MemoryBackend()
+    backend = _resumable()
     backend.queue("engineer-r1", CannedResponse(message="first", thread_id="e1"))
     backend.queue(
         "reviewer",
@@ -434,7 +375,6 @@ def test_explicit_reviewer_quality_signal_rotates_only_target_role(tmp_path: Pat
         tmp_path,
         context,
         checkpoint,
-        policy="mission",
         events=events,
     ).run("repair the current cluster", workdir=tmp_path)
 
@@ -465,10 +405,9 @@ def test_cross_role_signal_file_migrates_old_capsule_and_forces_fresh_thread(
     path.write_text(json.dumps({
         "schema_version": 1,
         "role": "planner",
-        "policy": "mission",
+        "policy": "rolling",
         "thread_id": "old-thread",
         "turns": 4,
-        "input_tokens": 100,
     }), encoding="utf-8")
 
     assert signal_role_session_file(
@@ -492,11 +431,11 @@ def test_reviewer_planner_signal_rotates_the_project_planner_capsule(tmp_path: P
     planner_capsule.write_text(json.dumps({
         "schema_version": 2,
         "role": "planner",
-        "policy": "mission",
+        "policy": "rolling",
         "thread_id": "planner-old",
         "turns": 3,
     }), encoding="utf-8")
-    backend = MemoryBackend()
+    backend = _resumable()
     backend.queue("engineer-r1", CannedResponse(message="first", thread_id="e1"))
     backend.queue(
         "reviewer",
@@ -508,7 +447,7 @@ def test_reviewer_planner_signal_rotates_the_project_planner_capsule(tmp_path: P
     events: list[dict] = []
 
     outcome = _loop(
-        backend, tmp_path, context, checkpoint, policy="mission", events=events,
+        backend, tmp_path, context, checkpoint, events=events,
     ).run("finish the plan step", workdir=tmp_path)
 
     assert outcome.successful
@@ -528,7 +467,7 @@ def test_rotated_capsule_does_not_resume_the_seed_thread(tmp_path: Path) -> None
     path = tmp_path / "role-sessions" / "engineer.json"
     common = {
         "role": "engineer",
-        "policy": "mission",
+        "policy": "rolling",
         "workdir": tmp_path,
         "backend": "memory",
         "model": "model",
@@ -536,23 +475,23 @@ def test_rotated_capsule_does_not_resume_the_seed_thread(tmp_path: Path) -> None
         "path": path,
     }
     first = RoleSessionCapsule.open(objective_revision="objective-a", **common)
-    first.prepare(max_turns=6, max_input_tokens=0)
+    first.prepare()
     first.complete(RunnerResult(exit_code=0, thread_id="thread-old"))
 
     same = RoleSessionCapsule.open(
         objective_revision="objective-a", seed_thread_id="thread-old", **common,
     )
-    assert same.prepare(max_turns=6, max_input_tokens=0) == "thread-old"
+    assert same.prepare() == "thread-old"
 
     changed = RoleSessionCapsule.open(
         objective_revision="objective-b", seed_thread_id="thread-old", **common,
     )
     assert changed.rotation_reason == "objective_revision_changed"
-    assert changed.prepare(max_turns=6, max_input_tokens=0) is None
+    assert changed.prepare() is None
 
     changed.complete(RunnerResult(exit_code=0, thread_id="thread-new"))
     assert signal_role_session_file(path, "quality_degradation")
     signalled = RoleSessionCapsule.open(
         objective_revision="objective-b", seed_thread_id="thread-new", **common,
     )
-    assert signalled.prepare(max_turns=6, max_input_tokens=0) is None
+    assert signalled.prepare() is None

@@ -40,23 +40,15 @@ def _invalidate_manager_runner(
     *,
     backend: str | None = None,
 ) -> None:
-    """Close stale warm clients after a Manager backend/model knob change."""
+    """Drop the Manager runner after a Manager backend/model knob change."""
     runner = chat_state.pop("manager_runner", None)
     chat_state.pop("manager_runner_workdir", None)
-    chat_state.pop("_manager_acp_prewarmed", None)
     chat_state["last_thread_id"] = None
     if backend:
         chat_state["backend"] = backend
     if runner is None:
         return
     try:
-        for candidate in (
-            getattr(runner, "_backend", None),
-            getattr(runner, "manager_backend", None),
-        ):
-            close_acp = getattr(candidate, "close_acp_clients", None)
-            if callable(close_acp):
-                close_acp()
         reset = getattr(runner, "reset_chat_session", None)
         if callable(reset):
             reset()
@@ -78,9 +70,8 @@ def _front_door_classify(
     """ONE merged LLM call for the Manager front-door: returns
     ``(ConfigIntent | None, control | None, route)``.
 
-    TEAM lifetime is cached from the same call as ``bounded_increment``,
-    ``bounded``, or ``standing``; final topology also considers Manager's
-    direct/staged workflow decision. Classifier output is never treated as an
+    TEAM lifetime is cached from the same call as ``bounded`` (the campaign
+    stops when done) or ``standing``. Classifier output is never treated as an
     operator-facing reply: every SELF message reaches the real Manager model.
     Fail-soft: no runner, no manager, or any error → ``(None, None, "complex")``
     so the message flows through the normal task path unchanged (never swallow
@@ -236,9 +227,7 @@ def _front_door_classify(
             (
                 str(value).strip().lower()
                 for value in lifetime_decisions
-                if str(value).strip().lower() in {
-                    "bounded_increment", "bounded", "standing",
-                }
+                if str(value).strip().lower() in {"bounded", "standing"}
             ),
             "",
         )

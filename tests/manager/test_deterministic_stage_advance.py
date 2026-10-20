@@ -10,6 +10,8 @@ from argus.core.models import ReviewDecision
 from argus.manager import Manager
 from argus.skills.vertical_select import persist_vertical
 
+pytestmark = pytest.mark.usefixtures("optimize_vertical")
+
 
 def _review(**changes) -> ReviewDecision:
     values = {
@@ -25,7 +27,7 @@ def _manager(tmp_path, *, workflow_mode: str = "staged"):
     state_root = tmp_path / "state"
     workdir = tmp_path / "worktree"
     workdir.mkdir(parents=True)
-    persist_vertical(state_root, "math_synth", workflow_mode=workflow_mode)
+    persist_vertical(state_root, "optimize_lab", workflow_mode=workflow_mode)
     return (
         Manager(
             project_root=state_root,
@@ -121,7 +123,6 @@ def test_stage_closing_bounded_direct_done_with_advice_completes_current_stage(
     decision = manager.decide_stage_transition(
         review=_review(
             planner_report={
-                "forward_progress": True,
                 "plan_signal": "reconsider",
                 "challenge": "A broader causal claim needs implementation evidence.",
                 "alternative": "Compare executed configurations before expanding it.",

@@ -326,10 +326,8 @@ def _existing(vertical: str) -> _DecisionRunner:
         "confidence": 0.95,
         "execution_task": "perform the requested task",
     }
-    if normalized in {"math", "research"}:
-        decision["research_target_level"] = (
-            "exploratory" if normalized == "math" else "publishable"
-        )
+    if normalized == "research":
+        decision["research_target_level"] = "publishable"
     return _DecisionRunner(decision)
 
 
@@ -342,12 +340,12 @@ def test_divide_existing_research(tmp_path):
     assert division.kind == "research"
 
 
-def test_divide_existing_math_synth_is_optimize(tmp_path):
+def test_divide_existing_optimize_vertical_is_optimize(tmp_path, optimize_vertical):
     division = Manager(
         project_root=tmp_path,
-        runner=_existing("math_synth"),
+        runner=_existing(optimize_vertical),
     ).divide("maximize the pass@4-minus-pass@1 gap of the synthesized set")
-    assert division.vertical == "math_synth"
+    assert division.vertical == optimize_vertical
     assert division.kind == "optimize"
 
 
@@ -512,31 +510,31 @@ def test_plan_stages_rejects_incomplete_vertical_contract(monkeypatch):
         Manager().plan_stages("some-vertical")
 
 
-def test_divide_commits_vertical_so_supervisor_trusts_it(tmp_path):
-    mgr = Manager(project_root=tmp_path, runner=_existing("math_synth"))
+def test_divide_commits_vertical_so_supervisor_trusts_it(tmp_path, optimize_vertical):
+    mgr = Manager(project_root=tmp_path, runner=_existing(optimize_vertical))
     d = mgr.divide("maximize the pass-gap of the synthesized problem set")
     assert isinstance(d, Division)
-    assert d.vertical == "math_synth" and d.kind == "optimize"
+    assert d.vertical == optimize_vertical and d.kind == "optimize"
     # persisted into PIPELINE_STATE.json — the supervisor reads & trusts this
     state = json.loads((tmp_path / ".argus" / "PIPELINE_STATE.json").read_text())
-    assert state["vertical"] == "math_synth"
+    assert state["vertical"] == optimize_vertical
 
 
-def test_math_divide_persists_manager_owned_research_target(
+def test_divide_persists_manager_owned_research_target(
     tmp_path,
     monkeypatch,
 ):
     monkeypatch.delenv("ARGUS_SKILL_VERTICAL", raising=False)
-    manager = Manager(project_root=tmp_path, runner=_existing("math"))
+    manager = Manager(project_root=tmp_path, runner=_existing("research"))
 
     division = manager.divide("verify this bounded lemma")
 
     state = json.loads(
         (tmp_path / ".argus" / "PIPELINE_STATE.json").read_text()
     )
-    assert division.vertical == "math"
-    assert state["vertical"] == "math"
-    assert state["research_target_level"] == "exploratory"
+    assert division.vertical == "research"
+    assert state["vertical"] == "research"
+    assert state["research_target_level"] == "publishable"
     assert state["research_target_set_at"] > 0
 
 
@@ -584,6 +582,7 @@ def test_target_capable_vertical_parsing_is_not_math_specific() -> None:
 def test_vertical_commit_persists_generic_research_target_contract(
     tmp_path,
     monkeypatch,
+    optimize_vertical,
 ) -> None:
     from types import SimpleNamespace
 
@@ -610,7 +609,7 @@ def test_vertical_commit_persists_generic_research_target_contract(
     manager = Manager(project_root=tmp_path)
     decision = VerticalDecision(
         choice="existing",
-        vertical="math",
+        vertical=optimize_vertical,
         execution_task="derive the requested result",
         research_target_level="doctoral",
     )
@@ -623,7 +622,7 @@ def test_vertical_commit_persists_generic_research_target_contract(
     state = json.loads(
         (tmp_path / ".argus" / "PIPELINE_STATE.json").read_text()
     )
-    assert division.vertical == "math"
+    assert division.vertical == optimize_vertical
     assert state["research_target_level"] == "doctoral"
     assert state["research_target_set_at"] > 0
 
@@ -653,11 +652,12 @@ def test_replacement_intent_forces_immediate_pipeline_reset(tmp_path):
     state_path.parent.mkdir(parents=True)
     state_path.write_text(
         json.dumps({
-            "vertical": "math",
+            "vertical": "learning",
             "current_stage": "review",
             "stages": {
-                "scope": {"status": "done"},
-                "solve": {"status": "done"},
+                "ingest": {"status": "done"},
+                "study": {"status": "done"},
+                "curate": {"status": "done"},
                 "review": {"status": "in_progress"},
             },
         }),
@@ -685,7 +685,7 @@ def test_replacement_intent_forces_immediate_pipeline_reset(tmp_path):
 
 
 @pytest.mark.parametrize("completed", [False, True])
-def test_new_math_intent_rejects_prior_same_target_certification(
+def test_new_intent_rejects_prior_same_target_certification(
     tmp_path,
     monkeypatch,
     completed: bool,
@@ -699,13 +699,14 @@ def test_new_math_intent_rejects_prior_same_target_certification(
     workdir = tmp_path / "work"
     workdir.mkdir()
     monkeypatch.setattr("argus.skills.vertical_select.time.time", lambda: 100.0)
-    persist_vertical(state_root, "math", research_target_level="exploratory")
+    persist_vertical(state_root, "research", research_target_level="exploratory")
     state_path = state_root / ".argus" / "PIPELINE_STATE.json"
     state = json.loads(state_path.read_text(encoding="utf-8"))
     state["current_stage"] = "review"
     state["stages"] = {
-        "scope": {"status": "done"},
-        "solve": {"status": "done"},
+        "idea": {"status": "done"},
+        "experiment": {"status": "done"},
+        "paper": {"status": "done"},
         "review": {"status": "done" if completed else "in_progress"},
     }
     state_path.write_text(json.dumps(state), encoding="utf-8")
@@ -727,7 +728,7 @@ def test_new_math_intent_rejects_prior_same_target_certification(
         "prove a different theorem",
         VerticalDecision(
             choice="existing",
-            vertical="math",
+            vertical="research",
             research_target_level="exploratory",
         ),
         force_stage_reset=not completed,
@@ -738,7 +739,7 @@ def test_new_math_intent_rejects_prior_same_target_certification(
     ) == "missing_exploratory_reviewer_certification"
     state = json.loads(state_path.read_text(encoding="utf-8"))
     assert state["research_target_set_at"] == 300.0
-    assert state["current_stage"] == "scope"
+    assert state["current_stage"] == "idea"
 
     certification.update(id="new-certification", ts=400.0)
     with journal.path.open("a", encoding="utf-8") as handle:
@@ -823,14 +824,14 @@ def test_completed_paper_artifact_revision_keeps_direction_and_selected_start(
     assert state["stages"]["review"]["status"] != "done"
 
 
-def test_failed_vertical_commit_restores_pipeline_state(tmp_path, monkeypatch):
+def test_failed_vertical_commit_restores_pipeline_state(tmp_path, monkeypatch, optimize_vertical):
     manager = Manager(project_root=tmp_path, runner=_existing("research"))
     manager.divide("seed the research pipeline")
     pipeline_state = tmp_path / ".argus" / "PIPELINE_STATE.json"
     before = pipeline_state.read_bytes()
     decision = VerticalDecision(
         choice="existing",
-        vertical="math_synth",
+        vertical=optimize_vertical,
         execution_task="run the synthesis pipeline",
     )
     monkeypatch.setattr(

@@ -51,7 +51,7 @@ def _manager_roots(args: argparse.Namespace) -> tuple[Path, Path, Path]:
     )
 
     # The daemon owns this lock throughout a mission. Ordinary Manager reads
-    # and prewarm must not wait behind it just to perform two no-op migrations.
+    # must not wait behind it just to perform two no-op migrations.
     # Only a real state import/stage migration needs the write boundary. Each
     # migration rereads its inputs under that lock, since the daemon may have
     # updated them while construction was waiting.
@@ -652,8 +652,7 @@ def build_life_runner(args: argparse.Namespace, *, seed_thread_id: str | None = 
         # Lazy proxy: ``_SkillLoopRunner`` is defined on the ``_runtime``
         # facade module (composed from this mixin plus the execute/
         # stage-transition mixins), not here, and tests monkeypatch it
-        # directly on that module object (see
-        # tests/team/test_teammate_entry.py). Importing it at call time
+        # directly on that module object. Importing it at call time
         # resolves against whatever is currently installed on ``_runtime``
         # and avoids a circular import at module-load time.
         from ._runtime import _SkillLoopRunner

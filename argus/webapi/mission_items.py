@@ -455,8 +455,8 @@ def _backend_model_catalog(
 ) -> tuple[list[str], str] | None:
     """The ACTIVE backend's own model list and its automatic default.
 
-    Only Copilot exposes the account's live list (on the ACP ``session/new``
-    handshake). ``None`` means "this backend has no live list": the caller
+    Only Copilot exposes the account's live list (on its no-prompt
+    ``session/new`` handshake). ``None`` means "this backend has no live list": the caller
     falls back to the harness catalog. Never blocks longer than
     ``_BACKEND_MODELS_WAIT_S``; a slow probe finishes in the background and
     fills the cache under the Argus home for the next request.
@@ -730,7 +730,7 @@ ROLE_MODEL_KNOBS: tuple[str, ...] = (
     "ARGUS_SKILL_MANAGER_MODEL", "ARGUS_SKILL_MANAGER_REPLY_MODEL", "ARGUS_SKILL_PLAN_MODEL",
     "ARGUS_SKILL_PLAN_PREVIEW_MODEL", "ARGUS_SKILL_ENGINEER_MODEL", "ARGUS_SKILL_REVIEWER_MODEL",
     "ARGUS_SKILL_OBSERVER_MODEL", "ARGUS_SKILL_FRONTDOOR_MODEL",
-    "ARGUS_SKILL_REWRITE_MODEL", "ARGUS_SKILL_BOUNDED_DAG_MODEL", "ARGUS_SKILL_REFLECTION_MODEL",
+    "ARGUS_SKILL_REWRITE_MODEL", "ARGUS_SKILL_REFLECTION_MODEL",
 )
 
 

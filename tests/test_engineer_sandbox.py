@@ -704,15 +704,6 @@ def test_no_raw_codex_spawn_bypasses_gate_anywhere():
     assert offenders == [], f"raw codex bypass outside the gated chokepoint: {offenders}"
 
 
-def test_teammate_has_no_harness_forced_research_spawn():
-    """Teammates use the normal reviewed mission path, not a second CLI spawn."""
-    import argus.team.teammate_entry as te
-
-    src = Path(te.__file__).read_text(encoding="utf-8")
-    assert "_forced_web_research" not in src
-    assert "--dangerously-bypass-approvals-and-sandbox" not in src
-
-
 # ── default-OFF inertness (must stay byte-for-byte legacy) ────────────────────
 def test_off_path_inert_for_all_roles(gate_off):
     r = _codex_runner()
