@@ -387,8 +387,6 @@ class LifeSupervisor(
                 return "planner superseded by newer continuous generation"
             return None
 
-        from ...core.role_session import objective_revision
-
         workdir = self._planner_workdir()
         state_root = self._artifact_root()
         try:
@@ -424,10 +422,6 @@ class LifeSupervisor(
             open_ended=bool(self.config.continuous and self.config.open_ended),
             external_interrupt_reason_provider=_semantic_interrupt,
             role_session_path=state_root / "role-sessions" / "planner.json",
-            objective_revision=(
-                f"{expected.generation}:"
-                f"{objective_revision(expected.objective)}"
-            ),
             on_event=getattr(self.sink, "handle_event", None),
             require_stage_decision=bool(current_pipeline_stage),
             current_stage=current_pipeline_stage,

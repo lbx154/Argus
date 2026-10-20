@@ -69,7 +69,6 @@ class PlannerConfig:
     open_ended: bool = False
     external_interrupt_reason_provider: Any = None
     role_session_path: Path | None = None
-    objective_revision: str = ""
     on_event: Any = None
     require_stage_decision: bool = False
     current_stage: str = ""
@@ -216,9 +215,7 @@ class Planner:
         session = RoleSessionCapsule.open(
             role="planner",
             policy=session_policy,
-            objective_revision=(
-                cfg.objective_revision or objective_revision(continuous_objective)
-            ),
+            objective_revision=objective_revision(continuous_objective),
             workdir=workdir,
             backend=backend_name,
             model=str(cfg.model or ""),
