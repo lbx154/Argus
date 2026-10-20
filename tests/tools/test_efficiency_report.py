@@ -1,0 +1,163 @@
+from __future__ import annotations
+
+import json
+from pathlib import Path
+
+import pytest
+
+from argus.tools.efficiency_report import efficiency_report, main, role_of
+
+
+def _usage(call: str, label: str, cost: float, input_tokens: int, task: str = "", **fields) -> dict:
+    return {"type": "usage.recorded", "call_id": call, "run_label": label, "mission_id": task,
+            "input_tokens": input_tokens, "output_tokens": 10, "cost_usd": cost, "status": "completed", **fields}
+
+
+def _turn(role: str, turn: int, input_tokens: int) -> dict:
+    return {"type": "role.session.turn", "role": role, "turns_on_session": turn, "input_tokens": input_tokens}
+
+
+def _review(task: str, status: str, **fields) -> dict:
+    return {"type": "round.review.completed", "item_id": task, "status": status, **fields}
+
+
+def _supervision(outcome: str, sid: str, **fields) -> dict:
+    return {"type": f"life.manager.supervision.{outcome}", "supervision_id": sid, **fields}
+
+
+# The older generation: one Planner turn that only kept waiting, then two
+# waits the ledger answered without a model call.
+OLDER = [
+    {"type": "life.planner.start"},
+    _usage("p1", "planner.cycle0", 1.0, 100, cached_input_tokens=80, cache_write_tokens=20),
+    _turn("planner", 1, 100),
+    {"type": "life.planner.waiting"},
+    {"type": "life.planner.waiting", "model_call_skipped": True},
+    {"type": "life.planner.waiting", "model_call_skipped": True},
+]
+
+CURRENT = [
+    # A Planner turn (and its repair) that scheduled work, then one that waited.
+    {"type": "life.planner.start"},
+    _usage("p2", "planner.cycle1", 2.0, 300),
+    _usage("p3", "planner.cycle1.repair1", 0.5, 50),
+    _turn("planner", 2, 300),
+    {"type": "life.planner.verdict", "tasks_added": 1},
+    {"type": "life.planner.start"},
+    _usage("p4", "planner.cycle2", 1.0, 500),
+    _turn("planner", 9, 500),
+    {"type": "life.planner.waiting"},
+    # Supervision: one kept the course, one steered, one was superseded.
+    _usage("m1", "manager-supervision", 0.25, 10),
+    _supervision("issued", "s1", call_id="m1", action="continue"),
+    _supervision("applied", "s1", action="continue"),
+    _usage("m2", "manager-supervision", 0.25, 10),
+    _supervision("issued", "s2", call_id="m2", action="steer"),
+    _supervision("applied", "s2", action="steer"),
+    _usage("m3", "manager-supervision", 0.5, 10),
+    _supervision("issued", "s3", call_id="m3", action="continue"),
+    _supervision("failed", "s3", action="continue"),
+    # Task aaa: reviewed once on new work, once while its job still ran, then
+    # skipped once as unchanged, and passed on the job's result.
+    {"type": "life.mission.started", "item_id": "aaa"},
+    _usage("e1", "engineer-r1", 3.0, 1000, task="aaa:attempt:1"),
+    _usage("r1", "reviewer", 1.0, 400, task="aaa:attempt:1"),
+    _review("aaa", "continue", frontier_change="artifact_improved"),
+    {"type": "round.external_work_wait.started", "item_id": "aaa", "work_id": "job-1"},
+    {"type": "round.external_work_wait.completed", "item_id": "aaa", "work_id": "job-1", "reason": "cadence_elapsed"},
+    _usage("e2", "engineer-r2", 1.0, 2000, task="aaa:attempt:1"),
+    _usage("r2", "reviewer", 1.0, 400, task="aaa:attempt:1"),
+    _review("aaa", "continue", frontier_change="uncertainty_reduced"),
+    {"type": "round.review.skipped_unchanged", "item_id": "aaa", "round_index": 3},
+    {"type": "round.external_work_wait.completed", "item_id": "aaa", "work_id": "job-1", "reason": "terminal"},
+    _usage("r3", "reviewer", 1.0, 400, task="aaa:attempt:1"),
+    _review("aaa", "done"),
+    {"type": "life.mission.completed", "item_id": "aaa", "success": True, "elapsed_seconds": 120.5},
+    # Task bbb: a failed attempt, then a passing retry.
+    _usage("e3", "engineer-r1", 2.0, 1000, task="bbb:attempt:1", status="error"),
+    {"type": "life.mission.completed", "item_id": "bbb", "success": False, "elapsed_seconds": 30},
+    _usage("e4", "engineer-r1", 1.0, 1000, task="bbb:attempt:2"),
+    _usage("r4", "reviewer", 1.0, 400, task="bbb:attempt:2"),
+    _review("bbb", "continue"),
+    {"type": "life.mission.completed", "item_id": "bbb", "success": True, "elapsed_seconds": 60},
+    {"type": "life.mission.completed", "item_id": "ccc", "success": False, "elapsed_seconds": 5},
+    _usage("c1", "curator.distill", 0.5, 20),
+    _usage("c2", "curator.distill", 0.5, 20),
+]
+
+
+@pytest.fixture
+def project(tmp_path: Path) -> Path:
+    write = lambda path, rows: path.write_text("".join(json.dumps(row) + "\n" for row in rows))  # noqa: E731
+    write(tmp_path / "events.jsonl.1", OLDER)
+    write(tmp_path / "events.jsonl", CURRENT)
+    with (tmp_path / "events.jsonl").open("a") as handle:
+        handle.write('{"type": "usage.recorded", "call_id": "torn"\n')
+    return tmp_path
+
+
+def test_report_counts_a_fixed_log(project: Path) -> None:
+    report = efficiency_report(project)
+
+    assert report["total"]["calls"] == 17
+    assert report["total"]["cost_usd"] == 17.5
+    assert list(report["roles"]) == ["engineer", "planner", "reviewer", "manager", "curator"]
+    assert report["roles"]["planner"] == {
+        "calls": 4, "input_tokens": 950, "cached_input_tokens": 80, "cache_write_tokens": 20,
+        "output_tokens": 40, "cost_usd": 4.5, "cost_share": 0.2571,
+    }
+    assert report["roles"]["engineer"]["cost_share"] == 0.4
+
+    waste = report["no_new_information"]
+    assert {name: (row["calls"], row["of_calls"], row["cost_usd"], row["avoided"]) for name, row in waste.items()} == {
+        "planner_kept_waiting": (2, 4, 2.0, 2),
+        "manager_not_applied": (1, 3, 0.5, 0),
+        "manager_kept_course": (1, 3, 0.25, 0),
+        "reviewer_while_running": (1, 4, 1.0, 1),
+    }
+
+    assert [
+        {key: row[key] for key in ("task", "reviewer_calls", "unchanged", "while_running", "continue",
+                                   "elapsed_s", "calls", "input_tokens", "cost_usd")}
+        for row in report["passed_tasks"]
+    ] == [
+        {"task": "aaa", "reviewer_calls": 3, "unchanged": 1, "while_running": 1, "continue": 2,
+         "elapsed_s": 120.5, "calls": 5, "input_tokens": 4200, "cost_usd": 7.0},
+        {"task": "bbb", "reviewer_calls": 1, "unchanged": 0, "while_running": 0, "continue": 1,
+         "elapsed_s": 90.0, "calls": 3, "input_tokens": 2400, "cost_usd": 4.0},
+    ]
+    assert report["continue_reasons"] == {"artifact_improved": 1, "background_running": 1, "unspecified": 1}
+    assert report["context"]["planner"] == {
+        "p50": 100, "p90": 500, "max": 500, "mean_by_session_turn": {"1": 100, "2-3": 300, "8-15": 500},
+    }
+    assert report["failures"]["failed"]["calls"] == 1 and report["failures"]["failed"]["cost_usd"] == 2.0
+    assert report["failures"]["retries"]["calls"] == 1 and report["failures"]["retries"]["cost_usd"] == 0.5
+
+
+def test_cli_prints_a_table_or_json(project: Path, capsys: pytest.CaptureFixture[str]) -> None:
+    assert main([str(project)]) == 0
+    table = capsys.readouterr().out
+    assert table.startswith(f"{project}: 17 calls, $17.50")
+    assert "planner kept waiting        2   4    2.00        2" in table
+
+    assert main([str(project), "--json"]) == 0
+    assert json.loads(capsys.readouterr().out) == efficiency_report(project)
+
+
+def test_cli_rejects_a_directory_without_an_event_log(tmp_path: Path) -> None:
+    with pytest.raises(SystemExit) as exit_info:
+        main([str(tmp_path)])
+    assert exit_info.value.code == 2
+
+
+@pytest.mark.parametrize(("label", "role"), [
+    ("planner.cycle3.repair1", "planner"),
+    ("manager-frontdoor-classify", "manager"),
+    ("engineer-r2", "engineer"),
+    ("curator.distill", "curator"),
+    ("subagent:t1:report", "subagent"),
+    ("answer-learning", "answer-learning"),
+    ("", "unlabeled"),
+])
+def test_role_of_run_label(label: str, role: str) -> None:
+    assert role_of(label) == role
