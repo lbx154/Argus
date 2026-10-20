@@ -75,7 +75,7 @@ def _run_one_round(
     context_packet_path: str | None = None,
 ) -> Path:
     """Drive exactly one supervised round; return the mission packet root."""
-    mission_root = tmp_path / "mission"
+    mission_root = tmp_path / "state" / "handoffs" / "mission"
     mission_root.mkdir(parents=True, exist_ok=True)
     mission_context = mission_root / "context.json"
     mission_context.write_text(

@@ -22,6 +22,8 @@ class _Outcome:
     stop_reason: str = ""
     stop_kind: str | None = None
     recoverable: bool = False
+    # Why a ``parked`` outcome waits (``LoopOutcome.park_reason``).
+    park_reason: str = ""
     rounds: int = 1
     had_follow_up: bool = False
     last_thread_id: str | None = None

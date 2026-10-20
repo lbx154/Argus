@@ -1,4 +1,4 @@
-"""A typed pause returned by the round loop stays a pause whatever its stop kind says."""
+"""A park the round loop names stays a park whatever its stop kind says."""
 from __future__ import annotations
 
 from pathlib import Path
@@ -24,7 +24,7 @@ def test_daemon_stop_during_a_backend_failure_hold_pauses_instead_of_failing(tmp
     )
     state = SimpleNamespace(
         item=item, outcome=SimpleNamespace(final_review_status=""),
-        status="paused_daemon_shutdown", stop_kind="backend_unavailable",
+        status="parked", park_reason="daemon_shutdown", stop_kind="backend_unavailable",
         stop_reason="The wait after a Reviewer backend failure ended early: daemon stop requested.",
         usage_summary=SimpleNamespace(pricing_status="known"), usd=0.0, known_usd=0.0,
         context_packet_path=None,
@@ -32,10 +32,10 @@ def test_daemon_stop_during_a_backend_failure_hold_pauses_instead_of_failing(tmp
 
     result = supervisor._maybe_pause_for_recoverable_stop(state)
 
-    assert result is not None and result["status"] == "paused_daemon_shutdown"
-    assert result["recoverable"] is True
+    assert result is not None and result["status"] == "parked"
+    assert result["park_reason"] == "daemon_shutdown" and result["recoverable"] is True
     stored = next(row for row in memory.backlog.active() if row.id == item.id)
-    assert stored.status == "paused_daemon_shutdown"
+    assert stored.status == "parked" and stored.outcome["park"] == {"reason": "daemon_shutdown"}
 
 
 def test_unknown_status_with_unmapped_stop_kind_still_settles_normally(tmp_path: Path) -> None:

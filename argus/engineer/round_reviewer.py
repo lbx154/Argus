@@ -26,10 +26,9 @@ from ..core.models import LoopStatus, ReviewDecision, RoundRecord
 from ..core.operator_messages import uses_cjk
 from ..core.runner_errors import is_execution_host_startup_error
 from ..core.stop_kinds import (
-    NON_FAILURE_STOP_KINDS,
     normalize_stop_kind,
-    pause_status_for_stop_kind,
     stop_kind_from_external_interrupt,
+    stop_park_reason,
 )
 from ..life.context_packet import render_mission_brief
 from ..life.memory import Backlog
@@ -713,9 +712,6 @@ class RoundReviewerMixin:
             reviewer_stop_kind = normalize_stop_kind(
                 review.backend_stop_kind
             ) or stop_kind_from_external_interrupt(reviewer_fatal_error)
-            reviewer_pause_status = pause_status_for_stop_kind(
-                reviewer_stop_kind
-            )
             if (
                 review.backend_unavailable
                 and is_execution_host_startup_error(reviewer_fatal_error)
@@ -732,17 +728,13 @@ class RoundReviewerMixin:
                     stop_kind="backend_unavailable",
                 ))
                 return control_return((
-                    "infra_blocked",
+                    "parked",
                     state.rounds,
                     state.last_engineer_message,
                     reviewer_fatal_error,
                     None,
                 ))
-            if (
-                review.backend_unavailable
-                and reviewer_stop_kind in NON_FAILURE_STOP_KINDS
-                and reviewer_pause_status
-            ):
+            if review.backend_unavailable and stop_park_reason(reviewer_stop_kind):
                 if on_event:
                     on_event(_review_event_payload(
                         review,
@@ -760,7 +752,7 @@ class RoundReviewerMixin:
                     stop_kind=reviewer_stop_kind,
                 ))
                 return control_return((
-                    reviewer_pause_status,
+                    "parked",
                     state.rounds,
                     state.last_engineer_message,
                     review.reason,
@@ -856,7 +848,7 @@ class RoundReviewerMixin:
                     stop_kind="daemon_shutdown",
                 ))
                 return control_return((
-                    "paused_daemon_shutdown",
+                    "parked",
                     state.rounds,
                     state.last_engineer_message,
                     interrupted_review.reason,
@@ -982,9 +974,10 @@ class RoundReviewerMixin:
                     backoff_seconds, retry_runner=getattr(getattr(self, "reviewer", None), "runner", None),
                 )
                 if interrupt_reason:
-                    interrupt_kind = stop_kind_from_external_interrupt(interrupt_reason) or "operator_pause"
-                    status: LoopStatus = ("aborted" if interrupt_kind == "operator_abort"
-                                          else pause_status_for_stop_kind(interrupt_kind) or "paused_operator")
+                    interrupt_kind = stop_kind_from_external_interrupt(interrupt_reason)
+                    status: LoopStatus = "aborted" if interrupt_kind == "operator_abort" else "parked"
+                    if status == "parked":
+                        interrupt_kind = stop_park_reason(interrupt_kind) or "operator_pause"
                     reason_text = (
                         "The wait after a Reviewer backend failure ended "
                         f"early: {interrupt_reason}."

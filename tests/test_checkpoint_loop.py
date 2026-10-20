@@ -19,7 +19,7 @@ SKILL_MD = (
 
 
 def _review(status: str) -> tuple[str, dict]:
-    return (('approve_review' if status == 'done' else 'revise_review'), {'review': ('reviewed') + '\n\n' + ('continue' if status == 'continue' else '—')})
+    return "submit_review", {'review': 'reviewed\n\n' + ('continue\n→ engineer' if status == 'continue' else '—\n→ done')}
 
 
 def test_engineer_and_reviewer_edit_one_shared_checkpoint_in_sequence(
@@ -102,7 +102,7 @@ def test_engineer_and_reviewer_edit_one_shared_checkpoint_in_sequence(
     assert str(checkpoint.resolve()) in prompts["engineer-r2"]
     reviewer_prompts = [p for label, p, _ in backend.history if label == "reviewer"]
     assert all(str(checkpoint.resolve()) not in prompt for prompt in reviewer_prompts)
-    assert all("revise_review" in prompt for prompt in reviewer_prompts)
+    assert all("submit_review" in prompt for prompt in reviewer_prompts)
 
 
 def test_reviewer_output_does_not_need_checkpoint_json(tmp_path: Path) -> None:

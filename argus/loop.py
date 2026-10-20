@@ -83,6 +83,8 @@ class SkillLoopConfig:
     sandbox_mode: str | None = None
     isolate_workdir: bool = False
     extra_args: list[str] | None = None
+    # Directories outside the workdir the Engineer may read (recall's libraries).
+    read_dirs: list[str] | None = None
     session_id: str | None = None
     # Manager-selected execution topology. Every mode still uses skill/wiki.
     workflow_mode: str = "staged"
@@ -205,6 +207,7 @@ class SkillLoop(
                     str(path)
                     for path in self.engineer_mission.libraries().native_paths
                 ],
+                add_dirs=self.config.read_dirs,
                 full_auto=self.config.full_auto,
                 skip_git_repo_check=self.config.skip_git_repo_check,
                 dangerous_yolo=self.config.dangerous_yolo,

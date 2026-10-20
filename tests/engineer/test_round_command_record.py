@@ -26,7 +26,7 @@ class _Sink:
 def test_the_engineer_turn_captures_its_commands_for_the_providers(tmp_path, monkeypatch) -> None:
     backend = MemoryBackend()
     backend.queue("engineer-r1", CannedResponse(message="ran the tests"))
-    backend.queue("reviewer", CannedResponse(review_action=("approve_review", {"review": "Done."})))
+    backend.queue("reviewer", CannedResponse(review_action=("submit_review", {"review": "Done.\n→ done"})))
     engineer = SupervisedEngineer(
         engineer_runner=backend, reviewer=Reviewer(runner=backend),
         engineer_config=EngineerConfig(model="m"), reviewer_config=ReviewerConfig(model="m"),
@@ -71,7 +71,7 @@ def _review_prompt(engineer_backend: str, tmp_path) -> str:
     engineer_runner = backend.fork()
     engineer_runner.backend = engineer_backend
     backend.queue("engineer-r1", CannedResponse(message="ran the tests"))
-    backend.queue("reviewer", CannedResponse(review_action=("approve_review", {"review": "Done."})))
+    backend.queue("reviewer", CannedResponse(review_action=("submit_review", {"review": "Done.\n→ done"})))
     engineer = SupervisedEngineer(
         engineer_runner=engineer_runner, reviewer=Reviewer(runner=backend),
         engineer_config=EngineerConfig(model="m"), reviewer_config=ReviewerConfig(model="m"),

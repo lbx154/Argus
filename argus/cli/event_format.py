@@ -14,7 +14,7 @@ from typing import Any, Callable
 from ..core.event_catalog import EventType, canonical_event_type
 from ..core.operator_messages import uses_cjk
 from ..core.secret_guard import redact_secrets_text
-from ..core.stop_kinds import is_pause_status
+from ..core.stop_kinds import is_pause_status, park_clause
 from ..life.mission_outcome import mission_outcome_class
 
 # Canonical live events with dedicated presentation. Unknown/internal events
@@ -429,7 +429,13 @@ def _render_life_mission_completed(event: dict[str, Any]) -> str:
     elif success or outcome_class == "completed":
         headline = f"已完成：{title}。" if chinese else f"Completed: {title}."
     elif is_pause_status(status) or resumable:
-        headline = f"已暂停：{title}。" if chinese else f"Paused: {title}."
+        why = park_clause(status, event.get("park_reason"), chinese=chinese)
+        headline = (
+            f"已暂停：{title}（{why}）。" if chinese and why
+            else f"已暂停：{title}。" if chinese
+            else f"Paused: {title} ({why})." if why
+            else f"Paused: {title}."
+        )
     elif outcome_class == "failed":
         headline = f"未能完成 {title}。" if chinese else f"Could not complete {title}."
     else:

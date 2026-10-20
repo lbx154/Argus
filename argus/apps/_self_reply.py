@@ -779,6 +779,7 @@ class SelfReplyMixin:
                 role="reviewer" if execute_mode == "review" else "engineer",
                 on_event=sink.handle_event,
             )
+        memory = getattr(args, "manager_memory", None)
         if lean:
             prompt = build_quick_reply_prompt(objective=objective)
             from ..manager.observation import observe_project
@@ -793,12 +794,13 @@ class SelfReplyMixin:
                 if str(getattr(self._backend, "backend", "")) == "pi"
                 else f"{execution_contract[1]}\n\nTask:\n{objective.strip()}"
             )
-            if libraries.block:
-                prompt = libraries.block + "\n\n" + prompt
+            # Finite work keeps its compact prompt, not at the cost of what
+            # Argus already knows about it.
+            recalled = memory.render_recall_context(objective) if memory is not None else ""
+            prompt = "\n\n".join(block for block in (libraries.block, recalled, prompt) if block)
             read_dirs = [str(path) for path in libraries.library_roots]
             native_skill_paths = [str(path) for path in libraries.native_paths]
         else:
-            memory = getattr(args, "manager_memory", None)
             memory_prelude = (
                 memory.render_prelude(objective=objective)
                 if memory is not None
@@ -822,6 +824,14 @@ class SelfReplyMixin:
             read_dirs = list(dict.fromkeys([
                 *(read_dirs or []), *(str(path) for path in libraries.library_roots),
             ]))
+        if not lean:
+            from ..life.knowledge_recall import knowledge_read_dirs
+
+            # Recall points at libraries outside the workspace; a sandboxed
+            # worker reads them only when they are given.
+            read_dirs = list(dict.fromkeys([*(read_dirs or []), *knowledge_read_dirs(
+                getattr(memory, "project_root", None), getattr(memory, "global_root", None), workdir,
+            )]))
 
         from ..core.operator_context import (
             append_operator_context,

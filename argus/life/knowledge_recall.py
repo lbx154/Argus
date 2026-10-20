@@ -6,20 +6,24 @@ The index stores lexical terms/vectors, never an authoritative copy of the prose
 
 Recall reads four tiers of knowledge: this project's Wiki and Skills, the
 shared Wiki of the project's vertical (with its ``principles.md``), the
-host-wide shared Wiki, and -- on a single-operator host -- the Wikis of earlier
-projects of the same vertical. Every shown page is described (title,
-description, kind, source, date) so a role can decide whether to open it, and
-every recall is noted in the knowledge journal and the project event stream.
+host-wide shared Wiki, and -- on a single-operator host -- the Wikis and
+Skills of earlier projects. Other verticals' shared Wikis and earlier projects
+of any vertical take part like the project's own: what matches the work is
+shown, whatever field it was learned in. Every shown page is described (title, description, kind, source, date, and the
+code it carries) so a role can decide whether to open it, and every recall is
+noted in the knowledge journal and the project event stream.
 """
 from __future__ import annotations
 
 import datetime as _dt
+import json
 import logging
 import os
 import re
 from collections import Counter
 from collections.abc import Callable
 from dataclasses import dataclass
+from itertools import islice
 from pathlib import Path
 from typing import Any
 
@@ -44,9 +48,11 @@ _PAGE_KINDS = ("fact", "lesson", "survey", "principles", "note", "profile", "pag
 _SCOPES = ("project", "vertical", "global")
 _DESCRIPTION_CHARS = 160
 _FRONT_MATTER_CHARS = 4000
-_MAX_SIBLING_WIKIS = 8
-_MAX_SIBLING_WORKSPACES = 64
-_MAX_WORKSPACE_ENTRIES = 256
+_MAX_CODE_FILES = 4
+_MAX_CODE_SCAN = 64
+_MAX_SIBLINGS = 8
+_MAX_SIBLING_CANDIDATES = 64
+_MAX_PROJECT_ENTRIES = 256
 _OBJECTIVE_EXCERPT_CHARS = 200
 # Read through the knob resolver rather than the hosted-trial client: the
 # runtime layer may not import the delivery layer, and both read this switch.
@@ -72,6 +78,7 @@ _RECALL_INTRO = (
     "Open a page before relying on it and check its evidence and scope; similarity "
     "grants no authority. An edited or removed page drops out on the next recall."
 )
+_CODE_NOTE = " Code listed with a page is relative to it; the page says how to run it."
 
 
 @dataclass(frozen=True)
@@ -100,6 +107,8 @@ class PageMeta:
     body_lead: str = ""
     # The date the page was last corrected in place, read from its History entries.
     corrected: str = ""
+    # Files of code the page carries, relative to the page's directory.
+    code: tuple[str, ...] = ()
 
 
 @dataclass(frozen=True)
@@ -304,6 +313,39 @@ def _iso_date(value: Any, fallback_mtime: float) -> str:
         return ""
 
 
+def _code_files(root: KnowledgeRoot, path: Path, body: str) -> tuple[str, ...]:
+    """The code a page carries: files beside a ``SKILL.md``, else the files of its library it links to.
+
+    Only paths are listed; the page says how to run them and the reader
+    decides whether to.
+    """
+    from ..wiki.promote import linked_files
+
+    directory = path.parent
+    boundary = (root.library or root.path).absolute()
+    if path.name == "SKILL.md":
+        candidates = sorted(islice(directory.rglob("*"), _MAX_CODE_SCAN))
+    else:
+        candidates = linked_files(path, body, boundary)
+    found: list[str] = []
+    for candidate in candidates:
+        candidate = Path(os.path.normpath(candidate))
+        relative = Path(os.path.relpath(candidate, directory)).as_posix()
+        if (candidate.suffix.casefold() == ".md" or relative in found
+                or any(part.startswith(".") and part != ".." or part == "__pycache__"
+                       for part in relative.split("/"))):
+            continue
+        try:
+            if candidate.is_symlink() or not candidate.is_file() or not _contained(candidate, boundary):
+                continue
+        except OSError:
+            continue
+        found.append(relative)
+        if len(found) >= _MAX_CODE_FILES:
+            break
+    return tuple(found)
+
+
 def _describe(root: KnowledgeRoot, path: Path, content: str, mtime: float) -> PageMeta:
     front, body = _front_matter(content)
     title = str(front.get("title") or front.get("name") or "").strip() or _first_heading(body) or path.stem
@@ -324,6 +366,7 @@ def _describe(root: KnowledgeRoot, path: Path, content: str, mtime: float) -> Pa
         created=_iso_date(front.get("created"), mtime),
         body_lead=_clip(_first_prose_line(body)),
         corrected=_corrected_date(body),
+        code=_code_files(root, path, body),
     )
 
 
@@ -354,7 +397,7 @@ def _bounded_wiki_roots(workspace: Path) -> list[Path]:
 
 
 def _sibling_wikis_enabled() -> bool:
-    """Other projects' Wikis are read only on a single-operator host with learning on."""
+    """Other projects' Wikis and Skills are read only on a single-operator host with learning on."""
     try:
         from ..core.knobs import learning_enabled, resolve_knob
 
@@ -372,50 +415,63 @@ def _same_path(left: Path, right: Path) -> bool:
         return False
 
 
-def _sibling_wiki_roots(global_root: Path, workspace: Path, vertical: str) -> list[tuple[str, Path]]:
-    """Wikis of earlier workspaces whose persisted state names the same vertical, newest first."""
-    if not vertical:
-        return []
-    workspaces = global_root / "workspaces"
-    if not _contained(workspaces, global_root) or not workspaces.is_dir():
+def _sibling_roots(global_root: Path, state: Path, workspace: Path) -> list[KnowledgeRoot]:
+    """Wikis and Skills of the newest earlier projects that kept any.
+
+    A project is read where the host keeps it: its state directory under
+    ``projects/`` and the workspace its session names, with its Wikis and
+    Agent Skills. Of the state directory only the Engineer procedures older
+    projects kept there are read; a project's SELF and Manager Skills hold its
+    operator's preferences and stay in it.
+    """
+    projects = global_root / "projects"
+    if not _contained(projects, global_root) or not projects.is_dir():
         return []
     candidates: list[tuple[float, Path]] = []
     try:
-        with os.scandir(workspaces) as entries:
-            for _ in range(_MAX_WORKSPACE_ENTRIES):
-                try:
-                    entry = next(entries)
-                except StopIteration:
-                    break
+        with os.scandir(projects) as entries:
+            for entry in islice(entries, _MAX_PROJECT_ENTRIES):
                 if entry.name.startswith(".") or entry.is_symlink() or not entry.is_dir(follow_symlinks=False):
                     continue
-                candidate = workspaces / entry.name
-                if _same_path(candidate, workspace):
+                candidate = projects / entry.name
+                if _same_path(candidate, state):
                     continue
-                state = candidate / ".argus" / "PIPELINE_STATE.json"
                 try:
-                    if state.is_symlink() or not state.is_file():
-                        continue
-                    modified = state.stat().st_mtime
+                    candidates.append((entry.stat(follow_symlinks=False).st_mtime, candidate))
                 except OSError:
                     continue
-                candidates.append((modified, candidate))
     except OSError:
         return []
     candidates.sort(key=lambda row: (-row[0], str(row[1])))
-    from ..skills.vertical_select import resolve_skill_scope
+    from ..core.session import SESSION_META_FILE, SessionMeta, resolve_session_workdir
 
-    roots: list[tuple[str, Path]] = []
-    for _modified, candidate in candidates[:_MAX_SIBLING_WORKSPACES]:
+    roots: list[KnowledgeRoot] = []
+    siblings = 0
+    for _modified, candidate in candidates[:_MAX_SIBLING_CANDIDATES]:
+        sid = candidate.name
         try:
-            if resolve_skill_scope(candidate) != vertical:
-                continue
-        except Exception:  # noqa: BLE001 - another project's state is read, never repaired
+            meta: SessionMeta | None = SessionMeta.from_dict(
+                json.loads((candidate / SESSION_META_FILE).read_text(encoding="utf-8")))
+        except (OSError, ValueError, AttributeError):
+            meta = None
+        try:
+            # Another project's state is read, never repaired.
+            sibling = resolve_session_workdir(meta, state_dir=candidate)
+        except (OSError, RuntimeError, ValueError):
             continue
-        for wiki in _bounded_wiki_roots(candidate):
-            roots.append((wiki.parent.name, wiki))
-            if len(roots) >= _MAX_SIBLING_WIKIS:
-                return roots
+        if _same_path(sibling, workspace):
+            continue
+        found = [(f"earlier project Wiki ({sid})", wiki / "pages", sibling, wiki)
+                 for wiki in _bounded_wiki_roots(sibling)]
+        found += [(f"earlier project Skill ({sid})", path, boundary, None)
+                  for path, boundary in ((candidate / "skills" / "engineer", candidate),
+                                         (sibling / ".agents" / "skills", sibling))
+                  if path.is_dir()]
+        roots += [KnowledgeRoot(kind, path, boundary, scope="project", library=library, source=sid)
+                  for kind, path, boundary, library in found]
+        siblings += bool(found)
+        if siblings >= _MAX_SIBLINGS:
+            break
     return roots
 
 
@@ -569,6 +625,7 @@ class MarkdownKnowledgeRecall:
         summary = meta.description or meta.title
         return (
             f"- {document.kind}: `{document.path}` — {summary} ({'; '.join(details)})"
+            + (f" code: {', '.join(f'`{name}`' for name in meta.code)}" if meta.code else "")
             + (f" [{channel}]" if channel else "")
         )
 
@@ -630,7 +687,8 @@ class MarkdownKnowledgeRecall:
                 hits = hits[:max(0, limit - 1)] + [semantic]
         if not hits and principles is None:
             return RecallResult("")
-        lines = [_RECALL_HEADER, _RECALL_INTRO]
+        lines = [_RECALL_HEADER, _RECALL_INTRO + (
+            _CODE_NOTE if any(document.meta.code for document in hits) else "")]
         shown: list[RecallHit] = []
         for document in hits:
             # Keep context as discovery pointers. Full prose is read by the
@@ -678,22 +736,29 @@ def _operator_roots(global_root: Path) -> list[KnowledgeRoot]:
 
 
 def _shared_wiki_roots(global_root: Path, vertical: str) -> list[KnowledgeRoot]:
-    """The vertical's shared Wiki (pages and principles) and the host-wide shared Wiki."""
+    """Every vertical's shared Wiki pages, the project's own first with its
+    principles, and the host-wide shared Wiki."""
     from ..core.paths import global_wiki_root, shared_vertical_wiki_root, shared_wiki_root
+    from ..wiki.promote import SHARED_VERTICALS_DIRNAME
 
     roots: list[KnowledgeRoot] = []
     try:
         boundary = shared_wiki_root(global_root).absolute()
-        if vertical:
-            vertical_root = shared_vertical_wiki_root(vertical, global_root).absolute()
+        verticals = boundary / SHARED_VERTICALS_DIRNAME
+        names = sorted(path.name for path in verticals.iterdir()
+                       if not path.name.startswith(".") and path.is_dir() and not path.is_symlink()
+                       ) if verticals.is_dir() else []
+        for name in dict.fromkeys(filter(None, (vertical, *names))):
+            vertical_root = shared_vertical_wiki_root(name, global_root).absolute()
             roots.append(KnowledgeRoot(
-                f"{vertical} knowledge", vertical_root / "pages", boundary,
-                scope="vertical", vertical=vertical, library=vertical_root,
+                f"{name} knowledge", vertical_root / "pages", boundary,
+                scope="vertical", vertical=name, library=vertical_root,
             ))
-            roots.append(KnowledgeRoot(
-                "principles", vertical_root / "principles.md", boundary,
-                scope="vertical", vertical=vertical, library=vertical_root,
-            ))
+            if name == vertical:
+                roots.append(KnowledgeRoot(
+                    "principles", vertical_root / "principles.md", boundary,
+                    scope="vertical", vertical=vertical, library=vertical_root,
+                ))
         global_pages = global_wiki_root(global_root).absolute()
         roots.append(KnowledgeRoot(
             "shared knowledge", global_pages / "pages", boundary,
@@ -704,18 +769,11 @@ def _shared_wiki_roots(global_root: Path, vertical: str) -> list[KnowledgeRoot]:
     return roots
 
 
-def knowledge_recall_for_memory(memory: Any, *, worktree: Path | None = None,
-                                skill_store: Any = None,
-                                index_path: Path | None = None) -> MarkdownKnowledgeRecall:
-    state = getattr(memory, "project_root", None)
-    if state is None:
-        state = getattr(memory, "root", None)
-    if state is None:
-        raise ValueError("knowledge recall requires an explicit project state root")
+def knowledge_roots(state: Path, global_root: Path | None, workspace: Path | None,
+                    skill_store: Any = None) -> list[KnowledgeRoot]:
+    """Where recall reads, in the order the bounded snapshot takes them."""
     state = Path(state).absolute()
-    workspace = worktree if worktree is not None else getattr(memory, "project_worktree", None)
     roots: list[KnowledgeRoot] = [KnowledgeRoot("project Skill", state / "skills", state)]
-    global_root = getattr(memory, "global_root", None)
     if global_root is not None:
         global_root = Path(global_root).absolute()
         roots.append(KnowledgeRoot("shared Skill", global_root / "skills", global_root, scope="global"))
@@ -747,12 +805,42 @@ def knowledge_recall_for_memory(memory: Any, *, worktree: Path | None = None,
         # What Argus knows about the operator comes first of all: the work
         # should fit the person before it fits the field.
         roots[0:0] = _operator_roots(global_root)
-        if workspace is not None and vertical and _sibling_wikis_enabled():
-            for sid, wiki in _sibling_wiki_roots(global_root, workspace, vertical):
-                roots.append(KnowledgeRoot(
-                    f"earlier project Wiki ({sid})", wiki / "pages", global_root,
-                    scope="project", vertical=vertical, library=wiki, source=sid,
-                ))
+        if workspace is not None and _sibling_wikis_enabled():
+            roots.extend(_sibling_roots(global_root, state, workspace))
+    return roots
+
+
+def knowledge_read_dirs(state: Path | None, global_root: Path | None, workspace: Path | None) -> list[str]:
+    """The directories recall can point a role at outside its workspace.
+
+    A sandboxed backend reads only its workspace and the directories it is
+    given, so a role that is shown recall's pointers is given these. The
+    operator's private memory is recalled but never handed to a backend.
+    """
+    if state is None:
+        return []
+    inside = Path(workspace).absolute() if workspace is not None else None
+    libraries = {(root.library or root.path).absolute()
+                 for root in knowledge_roots(state, global_root, workspace) if root.scope != "private"}
+    found: list[Path] = []
+    for library in sorted(libraries, key=lambda path: (len(path.parts), str(path))):
+        if (library.is_dir() and not any(library.is_relative_to(path) for path in found)
+                and not (inside is not None and library.is_relative_to(inside))):
+            found.append(library)
+    return [str(path) for path in found]
+
+
+def knowledge_recall_for_memory(memory: Any, *, worktree: Path | None = None,
+                                skill_store: Any = None,
+                                index_path: Path | None = None) -> MarkdownKnowledgeRecall:
+    state = getattr(memory, "project_root", None)
+    if state is None:
+        state = getattr(memory, "root", None)
+    if state is None:
+        raise ValueError("knowledge recall requires an explicit project state root")
+    state = Path(state).absolute()
+    workspace = worktree if worktree is not None else getattr(memory, "project_worktree", None)
+    roots = knowledge_roots(state, getattr(memory, "global_root", None), workspace, skill_store)
     # A subordinate can keep its derived index isolated while using the same
     # explicit canonical source and embedding policy/budget as its parent.
     from .recall_embedding import configured_embedder

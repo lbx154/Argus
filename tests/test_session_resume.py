@@ -19,7 +19,7 @@ SKILL_MD = (
 
 
 def _review(status: str) -> tuple[str, dict]:
-    return (('approve_review' if status == 'done' else 'revise_review'), {'review': ('reviewed') + '\n\n' + ('Finish the work.' if status == 'continue' else '—')})
+    return "submit_review", {'review': 'reviewed\n\n' + ('Finish the work.\n→ engineer' if status == 'continue' else '—\n→ done')}
 
 
 def _loop(backend: MemoryBackend, skills: Path, checkpoint: Path | None = None) -> SkillLoop:

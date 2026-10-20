@@ -31,6 +31,7 @@ import pytest
 import argus
 from argus.core import project_api
 from argus.core.research_contract import normalize_research_result
+from argus.core.stop_kinds import PARK_STATUSES
 from argus.core.vertical_contract import (
     _COMPLETION_GATES,
     VerticalContractError,
@@ -1767,6 +1768,40 @@ def test_only_the_manager_advances_the_pipeline_stage() -> None:
     assert counts == STAGE_WRITER_REFERENCES_OUTSIDE_MANAGER, _baseline_report(
         counts, STAGE_WRITER_REFERENCES_OUTSIDE_MANAGER, "STAGE_WRITER_REFERENCES_OUTSIDE_MANAGER"
     )
+
+
+def test_parked_is_the_only_status_a_writer_parks_work_with() -> None:
+    """Eleven pause statuses became one park whose reason is data.
+
+    An older release's ``paused_*`` statuses stay readable: ``core/stop_kinds``
+    maps each to its reason and a loaded row reads as ``parked``. Nothing
+    writes one again, because a status of its own is how a pause grew its own
+    resume logic and its own way of holding up unrelated work.
+    """
+    legacy = PARK_STATUSES - {"parked"}
+
+    def legacy_status(node: ast.AST | None) -> bool:
+        return isinstance(node, ast.Constant) and node.value in legacy
+
+    writes: list[str] = []
+    for path in _every_python_file():
+        relpath = path.relative_to(ARGUS).as_posix()
+        for node in ast.walk(ast.parse(path.read_text(encoding="utf-8"))):
+            values = (
+                [node.value] if isinstance(node, ast.keyword) and node.arg == "status"
+                else [node.value] if isinstance(node, ast.Assign) and any(
+                    isinstance(target, ast.Attribute) and target.attr == "status"
+                    for target in node.targets
+                )
+                else [
+                    value for key, value in zip(node.keys, node.values)
+                    if isinstance(key, ast.Constant) and key.value == "status"
+                ] if isinstance(node, ast.Dict)
+                else []
+            )
+            writes.extend(f"{relpath}:{node.lineno}" for value in values if legacy_status(value))
+
+    assert writes == []
 
 
 @functools.lru_cache(maxsize=None)

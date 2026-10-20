@@ -67,7 +67,7 @@ describe('deriveProgressEstimate', () => {
   });
 
   it('strips control footers from public prose while preserving identical text in tool output', () => {
-    const prose = 'SUMMARY=Checked the lemma.\nDecision: continue\nMILESTONE_STATUS=pending\nNEXT_ACTION=Check the boundary case.';
+    const prose = 'SUMMARY=Checked the lemma.\nDecision: continue\n→ engineer\nNEXT_ACTION=Check the boundary case.';
     const result = deriveProgressEstimate(snapshot(), [...events, { type: 'engineer.progress', item_id: 'active', ts: 990, kind: 'assistant_message', text: prose }], 1_000);
     expect(result.currentDetail).toBe('Checked the lemma.\nCheck the boundary case.');
     expect(result.taskEvents.at(-1)?.text).toBe(result.currentDetail);
@@ -77,7 +77,7 @@ describe('deriveProgressEstimate', () => {
 
   it('does not replace a useful action with an empty handoff or a structured reviewer payload', () => {
     const result = deriveProgressEstimate(snapshot(), [...events,
-      { type: 'engineer.progress', item_id: 'active', ts: 990, kind: 'assistant_message', text: 'Decision: continue\nNEXT_OWNER=reviewer', action_summary: 'Decision: continue' },
+      { type: 'engineer.progress', item_id: 'active', ts: 990, kind: 'assistant_message', text: 'Decision: continue\n→ reviewer', action_summary: 'Decision: continue' },
       { type: 'engineer.progress', item_id: 'active', ts: 991, kind: 'assistant_message', agent_layer: 'reviewer', text: '{"status":"done","reason":"checked"}' },
     ], 1_000);
     expect(result.currentStep).toBe('running probe');
@@ -367,11 +367,11 @@ describe('ExperimentsPage recorded work presentation', () => {
     expect(markup).not.toContain('Unrelated task output');
   });
 
-  it('names an incomplete research outcome in the work list', () => {
-    const value = snapshot({ alive: false, activeStatus: 'research_incomplete' });
-    value.mission_view!.mission.status = 'research_incomplete';
+  it.each(['parked', 'research_incomplete'])('names a %s research task as paused in the work list', (status) => {
+    const value = snapshot({ alive: false, activeStatus: status });
+    value.mission_view!.mission.status = status;
     const markup = renderPage(value);
-    expect(markup).toContain('Research incomplete');
+    expect(markup).toContain('<small>Paused</small>');
     expect(markup).toContain('Conclusion awaiting review');
     expect(markup).not.toContain('Status updated');
   });

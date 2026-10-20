@@ -54,6 +54,9 @@ def test_every_review_sees_the_whole_task_diff_and_resuming_keeps_the_baseline(t
     reviewer = Reviewer()
 
     assert _run(workdir, packet, reviewer) == "done"
+    # Someone touched the work since it was accepted, so the task runs again
+    # (unchanged, its acceptance would simply stand).
+    (workdir / "notes.txt").write_text("resumed\n", encoding="utf-8")
     assert _run(workdir, packet, reviewer) == "done"
 
     # Each review covers everything since the task began, not just its round;

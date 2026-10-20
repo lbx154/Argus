@@ -17,7 +17,7 @@ MODEL_INTEGRITY_BOUNDARY = """## Opaque integrity IDs
 Checksums, digests, fingerprints, and commit IDs are host-only. Never inspect,
 quote, compare, or use their values as evidence. Differences cannot prove
 freshness, correctness, provenance, completion, contradiction, or justify
-`continue`, `blocked`, or `replan_requested`. Use content, timestamps, tests,
+a handoff. Use content, timestamps, tests,
 metrics, and readable provenance; ignore lower-level identifier adjudication.
 """
 

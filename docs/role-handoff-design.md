@@ -220,7 +220,7 @@ A record without a known author is a defect, not a Reviewer verdict.
 - The acceptance criteria come from the mission contract, by reference, owned
   by whoever wrote them (Planner, Manager, or operator, per
   [goal-contract-authority.md](goal-contract-authority.md)).
-- `approve_review` and `revise_review` state a status for each criterion.
+- A review handing off `→ done` or `→ engineer` states a status for each criterion.
   Approval requires every criterion to be met or explicitly accepted by its
   owner.
 - A concern outside the criteria is a follow-up: recorded, routed to the
@@ -282,7 +282,11 @@ invariants, and together they are the whole state machine:
    Instead the item moves one rung up the ladder Engineer → Reviewer → Planner →
    Manager → operator. "Changed" is a mechanical fact read from the candidate
    snapshot and the event log. It is counted on the mission's lineage, so
-   resuming, replanning, or rewording does not reset it.
+   resuming, replanning, or rewording does not reset it. For the Engineer, a
+   review handed to it that it has not yet worked on is new input; the next
+   unchanged return still stops at the Reviewer. A Reviewer that accepted the
+   candidate as it is does not pass it up: its acceptance stands without a
+   model call, and the record names the verdict it reused.
 4. **Authority never vanishes.** Every decision type has an owner. When the
    owner cannot be asked, the decision falls to the next permitted rung
    instead of disappearing. Only irreversible decisions may wait on the operator
@@ -390,8 +394,9 @@ Removed once the replacement is in place, each in its own roadmap item:
 - Each roadmap item is a separate, reviewable change. API, storage format,
   stage semantics, and deployment do not change in the same patch, following
   [runtime-maintainability.md](runtime-maintainability.md).
-- The current footers stay readable. A `NEXT_OWNER=` line or a native Reviewer
-  action maps onto the handoff line, so prompts can move one role at a time.
+- The old footers are no longer read: the Engineer's and the Reviewer's
+  prompts ask for the handoff line, and a footer line left in an older
+  message is plain prose.
 
 ## How success is measured
 
@@ -421,8 +426,5 @@ later item can report its effect against the same baseline.
 - How follow-ups are prioritized against the Planner's existing frontier.
 - Default deadlines per kind of park and per vertical, given that research runs
   legitimately take days.
-- Until the snapshot store exists, the unchanged-return rule needs a cheaper
-  change signal. A manifest (path, size, mtime) of the workdir, compared
-  directly, is enough to decide "unchanged", and the snapshot id replaces it later.
 - Whether the holder is only derived from handoff events in `events.jsonl`, or
   is also kept on the Backlog item for cheap reads.

@@ -65,12 +65,12 @@ def _run_engineer(
 @pytest.mark.parametrize(
     ("stop_kind", "expected_status"),
     [
-        ("budget_exhausted", "paused_budget"),
-        ("cost_unreconciled", "paused_cost"),
-        ("provider_cooldown", "paused_provider_cooldown"),
-        ("provider_fence", "paused_provider_fence"),
-        ("daemon_shutdown", "paused_daemon_shutdown"),
-        ("operator_pause", "paused_operator"),
+        ("budget_exhausted", "parked"),
+        ("cost_unreconciled", "parked"),
+        ("provider_cooldown", "parked"),
+        ("provider_fence", "parked"),
+        ("daemon_shutdown", "parked"),
+        ("operator_pause", "parked"),
         ("operator_abort", "aborted"),
     ],
 )
@@ -107,7 +107,7 @@ def test_copilot_trial_quota_error_pauses_after_one_attempt(tmp_path: Path) -> N
     stop_kind = _raw_backend_stop_kind(fatal_error=state[3], exit_code=1)
     assert stop_kind == "provider_fence"
     status, backend, events = _run_engineer(tmp_path, stop_kind)
-    assert status == "paused_provider_fence"
+    assert status == "parked"
     assert backend.calls == 1
     assert not any(event["type"] == "round.backend_failure.backoff" for event in events)
 
@@ -234,7 +234,7 @@ def test_reviewer_budget_stop_pauses_without_failure_streak(tmp_path: Path) -> N
         on_event=events.append,
     )
 
-    assert status == "paused_budget"
+    assert status == "parked"
     assert reviewer.calls == 1
     assert not [
         event
@@ -246,7 +246,7 @@ def test_reviewer_budget_stop_pauses_without_failure_streak(tmp_path: Path) -> N
 @pytest.mark.parametrize(
     ("stop_kind", "expected_status"),
     [
-        ("provider_cooldown", "paused_provider_cooldown"),
+        ("provider_cooldown", "parked"),
         ("operator_abort", "aborted"),
     ],
 )

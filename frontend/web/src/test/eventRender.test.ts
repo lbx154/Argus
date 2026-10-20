@@ -106,18 +106,15 @@ describe('the web feed line', () => {
     expect(rendered?.text.endsWith('…')).toBe(false);
   });
 
-  it('hides role handoff fields from agent speech', () => {
+  it('hides the baton line from agent speech', () => {
     const rendered = line({
       type: 'engineer.progress',
       kind: 'agent_message',
       text: (
         'I need the operator to choose the report format.\n'
+        + 'ARGUS_ROLE_DECISION={"role":"planner","payload":{}}\n'
         + 'Decision:\n'
-        + 'MILESTONE_STATUS=continue\n'
-        + 'NEXT_OWNER=operator\n'
-        + 'ROLE_DECISION=ask\n'
-        + 'OPERATOR_QUESTION=Which format?\n'
-        + 'OPERATOR_OPTIONS=markdown :: false :: Markdown :: Human-readable report'
+        + '→ operator: Which format?'
       ),
       agent_layer: 'engineer',
     });

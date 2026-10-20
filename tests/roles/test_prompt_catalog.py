@@ -194,7 +194,7 @@ def test_structured_role_fields_are_explicitly_operator_facing(tmp_path) -> None
         assert "output paths" in engineer_prompt
         assert "the decisive check" in engineer_prompt
     assert "Express the complete review naturally in the operator's language" in reviewer
-    assert "No JSON, fixed fields, named closing lines, or text template" in reviewer
+    assert "No JSON or other closing line is read" in reviewer
 
 
 def test_role_prompts_are_byte_identical_for_identical_state(tmp_path) -> None:

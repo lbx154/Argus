@@ -58,6 +58,7 @@ import stat
 import uuid
 
 from argus.core.secret_guard import contains_secret, redact_secrets_record
+from argus.core.stop_kinds import park_reason_of
 from argus.trial.analytics import (
     _ID,
     AnalyticsError,
@@ -307,7 +308,7 @@ def _lifecycle(kind, payload):
     status = payload.get("status") or payload.get("to_state")
     if isinstance(status, str):
         status = status.lower()
-        if status.startswith("paused") or status in {"blocked", "infra_blocked"}:
+        if park_reason_of(status) is not None or status == "blocked":
             return "pause"
         if status in {"cancelled", "canceled", "aborted"}:
             return "cancel"

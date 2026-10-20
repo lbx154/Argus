@@ -7,8 +7,9 @@ from pathlib import Path
 from argus.wiki.promote import promote_wiki_pages
 
 
-def _page(title: str, description: str, body: str, *, audience: str | None = None) -> str:
+def _page(title: str, description: str, body: str, *, audience: str | None = None, vertical: str = "") -> str:
     extra = f"audience: {audience}\n" if audience else ""
+    extra += f"vertical: {vertical}\n" if vertical else ""
     return f"---\ntitle: {title}\ndescription: {description}\n{extra}---\n\n{body}\n"
 
 
@@ -34,7 +35,7 @@ def test_tagged_pages_are_copied_and_listed_once(tmp_path):
 
     promoted = promote_wiki_pages(workspace, vertical="research", shared_root=shared)
 
-    assert promoted == {"vertical": ["eval/protocol.md"], "global": ["hosts.md"]}
+    assert promoted == {"research": ["eval/protocol.md"], "global": ["hosts.md"]}
     vertical_copy = shared / "_shared_verticals" / "research" / "pages" / "eval" / "protocol.md"
     global_copy = shared / "_global" / "pages" / "hosts.md"
     assert vertical_copy.read_text(encoding="utf-8") == _page("Protocol", "How we evaluate", "Body.", audience="vertical")
@@ -48,7 +49,7 @@ def test_tagged_pages_are_copied_and_listed_once(tmp_path):
 
     # Running again changes nothing: the shared copies are as new as the pages.
     again = promote_wiki_pages(workspace, vertical="research", shared_root=shared)
-    assert again == {"vertical": [], "global": []}
+    assert again == {}
     assert (shared / "_shared_verticals" / "research" / "INDEX.md").read_text(encoding="utf-8") == vertical_index
 
 
@@ -64,7 +65,7 @@ def test_newer_project_page_replaces_older_shared_copy_but_not_the_reverse(tmp_p
 
     promoted = promote_wiki_pages(workspace, vertical="research", shared_root=shared)
 
-    assert promoted["vertical"] == ["notes.md"]
+    assert promoted == {"research": ["notes.md"]}
     assert "New body." in target.read_text(encoding="utf-8")
     # The index already names the page; no second line is added.
     index = (shared / "_shared_verticals" / "research" / "INDEX.md").read_text(encoding="utf-8")
@@ -72,7 +73,7 @@ def test_newer_project_page_replaces_older_shared_copy_but_not_the_reverse(tmp_p
 
     # An older project page never overwrites a newer shared copy.
     _write(wiki / "pages" / "notes.md", _page("Notes", "Stale", "Stale body.", audience="vertical"), 100)
-    assert promote_wiki_pages(workspace, vertical="research", shared_root=shared) == {"vertical": [], "global": []}
+    assert promote_wiki_pages(workspace, vertical="research", shared_root=shared) == {}
     assert "New body." in target.read_text(encoding="utf-8")
 
 
@@ -90,7 +91,7 @@ def test_malformed_or_hidden_pages_are_skipped_without_raising(tmp_path):
 
     promoted = promote_wiki_pages(workspace, vertical="research", shared_root=shared)
 
-    assert promoted == {"vertical": [], "global": ["good.md"]}
+    assert promoted == {"global": ["good.md"]}
     assert sorted(path.name for path in (shared / "_global" / "pages").iterdir()) == ["good.md"]
 
 
@@ -100,12 +101,50 @@ def test_vertical_pages_stay_home_when_no_vertical_is_known(tmp_path):
     _write(wiki / "pages" / "a.md", _page("A", "Vertical page", "Body.", audience="vertical"), 1_000)
     _write(wiki / "pages" / "b.md", _page("B", "Global page", "Body.", audience="global"), 1_000)
 
-    assert promote_wiki_pages(workspace, vertical="", shared_root=shared) == {"vertical": [], "global": ["b.md"]}
-    assert promote_wiki_pages(workspace, vertical="../evil", shared_root=shared) == {"vertical": [], "global": []}
+    assert promote_wiki_pages(workspace, vertical="", shared_root=shared) == {"global": ["b.md"]}
+    assert promote_wiki_pages(workspace, vertical="../evil", shared_root=shared) == {}
     assert not (shared / "_shared_verticals").exists()
+
+
+def test_a_page_names_the_vertical_it_belongs_to(tmp_path):
+    workspace, shared = tmp_path / "ws", tmp_path / "home" / "wiki"
+    wiki = _project_wiki(workspace)
+    _write(wiki / "pages" / "serving.md", _page("Serving", "How to serve", "Body.", audience="vertical", vertical="software"), 1_000)
+    _write(wiki / "pages" / "eval.md", _page("Eval", "How to evaluate", "Body.", audience="vertical", vertical="no-such"), 1_000)
+
+    promoted = promote_wiki_pages(workspace, vertical="research", shared_root=shared)
+
+    assert promoted == {"software": ["serving.md"], "research": ["eval.md"]}
+    assert (shared / "_shared_verticals" / "software" / "pages" / "serving.md").is_file()
+    assert "[Serving](pages/serving.md)" in (shared / "_shared_verticals" / "software" / "INDEX.md").read_text(encoding="utf-8")
+    assert (shared / "_shared_verticals" / "research" / "pages" / "eval.md").is_file()
+    assert not (shared / "_shared_verticals" / "no-such").exists()
 
 
 def test_workspace_without_a_wiki_promotes_nothing(tmp_path):
     shared = tmp_path / "home" / "wiki"
-    assert promote_wiki_pages(tmp_path / "ws", vertical="research", shared_root=shared) == {"vertical": [], "global": []}
+    assert promote_wiki_pages(tmp_path / "ws", vertical="research", shared_root=shared) == {}
     assert not shared.exists()
+
+
+def test_a_promoted_page_takes_the_checks_it_links_to(tmp_path):
+    workspace, shared = tmp_path / "ws", tmp_path / "home" / "wiki"
+    wiki = _project_wiki(workspace)
+    _write(wiki / "checks" / "max_tokens.py", "assert True\n", 1_000)
+    _write(workspace / "repo" / "sampling_params.py", "max_tokens = 16\n", 1_000)
+    _write(wiki / "pages" / "defaults.md", _page(
+        "Defaults", "Which max_tokens takes effect",
+        "16 is a placeholder ([source](../../../../repo/sampling_params.py)); "
+        "rerun [the check](../checks/max_tokens.py).", audience="global"), 2_000)
+
+    promote_wiki_pages(workspace, vertical="research", shared_root=shared)
+
+    page = shared / "_global" / "pages" / "defaults.md"
+    check = (page.parent / "../checks/max_tokens.py").resolve()
+    assert check == (shared / "_global" / "checks" / "max_tokens.py").resolve()
+    assert check.read_text(encoding="utf-8") == "assert True\n"
+    assert not list((shared / "_global").rglob("sampling_params.py")), "cited material stays home"
+
+    _write(wiki / "checks" / "max_tokens.py", "assert 16 != 8192\n", 3_000)
+    promote_wiki_pages(workspace, vertical="research", shared_root=shared)
+    assert check.read_text(encoding="utf-8") == "assert 16 != 8192\n", "a newer check travels on its own"

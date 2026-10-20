@@ -36,12 +36,12 @@ def test_private_reasoning_and_provider_data_are_never_exported(tmp_path):
     write_events(tmp_path / 'events.jsonl', [
         {'type': 'engineer.progress', 'kind': 'reasoning', 'event_id': 'private', 'text': 'PRIVATE SCRATCHPAD'},
         {'type': 'agent.io.complete', 'event_id': 'provider', 'text': 'PRIVATE TRANSPORT'},
-        {'type': 'engineer.progress', 'kind': 'agent_message', 'event_id': 'public', 'agent_layer': 'engineer', 'text': 'Public result.\nNEXT_OWNER=reviewer'},
+        {'type': 'engineer.progress', 'kind': 'agent_message', 'event_id': 'public', 'agent_layer': 'engineer', 'text': 'Public result.\n→ reviewer'},
     ])
     assert full_work_record(tmp_path, 'engineer', 'private') is None
     assert full_work_record(tmp_path, 'engineer', 'provider') is None
     text = ''.join(export_work_records(tmp_path, 'engineer'))
-    assert 'Public result.' in text and 'PRIVATE' not in text and 'NEXT_OWNER' not in text
+    assert 'Public result.' in text and 'PRIVATE' not in text and '→' not in text
 
 
 def test_export_contains_more_than_twenty_four_records_and_keeps_task_filter(tmp_path):

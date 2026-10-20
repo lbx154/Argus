@@ -29,7 +29,7 @@ The terminal Playground recommendation is one of:
   capability, license, authorization, identity, or inspectable evidence is
   unavailable.
 
-Before returning the Harness verdict, directly edit `RESULT.md`: append exactly
+Before handing the work on, directly edit `RESULT.md`: append exactly
 one legal terminal state to `status_history`, set `status` and
 `reviewer_recommendation` to the same terminal value, replace `reviewer:
 pending` with a specific non-placeholder review identifier, and write a
@@ -44,11 +44,11 @@ python -m argus.domains.chemistry.playground validate \
   --project-root . --idea-id <idea-id>
 ```
 
-Use Harness `done` when a valid terminal RESULT has been saved, including
+Hand off `→ done` when a valid terminal RESULT has been saved, including
 `retained`, `falsified`, or scientifically `blocked`: the bounded review task is
-complete even when the hypothesis is not promoted. Use `continue` only for a
-repairable evidence/protocol gap, `blocked` when the review itself cannot be
-completed, and `replan_requested` when the task is not a legitimate Playground
+complete even when the hypothesis is not promoted. Use `→ engineer` only for a
+repairable evidence/protocol gap, `→ manager` when the review itself cannot be
+completed, and `→ planner` when the task is not a legitimate Playground
 scope or requests unauthorized physical action.
 
 Never require private chain-of-thought. Require only inspectable reasoning,

@@ -18,7 +18,7 @@ def test_latest_operator_scope_reaches_next_round_without_stale_guidance(
     backend.queue(
         "reviewer",
         CannedResponse(
-            review_action=('revise_review', {'review': ('beta is absent') + '\n\n' + (reviewer_action)})
+            review_action=("submit_review", {'review': (('beta is absent') + '\n\n' + (reviewer_action)) + "\n→ engineer"})
         ),
     )
     backend.queue(
@@ -28,7 +28,7 @@ def test_latest_operator_scope_reaches_next_round_without_stale_guidance(
     backend.queue(
         "reviewer",
         CannedResponse(
-            review_action=('approve_review', {'review': 'latest operator scope is satisfied'})
+            review_action=("submit_review", {'review': 'latest operator scope is satisfied\n→ done'})
         ),
     )
     loop = SkillLoop(

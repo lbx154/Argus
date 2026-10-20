@@ -14,7 +14,7 @@ import {
   TriangleAlert,
   X,
 } from "lucide-react";
-import { backlogParkReason, isPauseStatus } from "../../../core/src/missionOutcome";
+import { isPauseStatus } from "../../../core/src/missionOutcome";
 import { MarkdownExcerpt } from "../components/MarkdownExcerpt";
 import { Button } from "../components/primitives";
 import { MapReaderContent, type MapReaderSelection } from "./MapReaderContent";
@@ -121,7 +121,6 @@ const STATES: Record<string, [string, string]> = {
   superseded: ["已被新计划替代", "Replaced by a new plan"],
   question: ["等待答复", "Waiting for an answer"],
   paused: ["已暂停", "Paused"],
-  paused_external_work: ["等待后台任务", "Waiting on background work"],
   missing: ["记录中缺失", "Not in this record"],
   unknown: ["状态未知", "Unknown"],
   continue: ["需再改一轮", "Another pass needed"],
@@ -208,8 +207,6 @@ export const MacroTaskNode = memo(function MacroTaskNode({
     : task.status === "missing"
       ? "missing"
       : data.paused && ACTIVE.has(task.status) ? "paused" : statusKey(task);
-  const displayedState = state === 'paused' && backlogParkReason(task) === 'external_work'
-    ? 'paused_external_work' : state;
   const summaryScale = Math.min(
     data.frame.width / 288,
     data.frame.height / 280,
@@ -330,13 +327,13 @@ export const MacroTaskNode = memo(function MacroTaskNode({
   }, [screenWidth, screenHeight]);
   const stateLabel = (s: string) =>
     (STATES[
-      s === 'paused_external_work' ? s : isPauseStatus(s) ? "paused" : ACTIVE.has(s) ? "running" : s
+      isPauseStatus(s) ? "paused" : ACTIVE.has(s) ? "running" : s
     ] ?? STATES.unknown)[zh ? 0 : 1];
   const taskStateLabel = data.completionScope
     ? zh ? "当次结束 · 当时目标未完成" : "Execution ended · goal incomplete then"
     : task.turn_kind === 'qa' && ['done', 'running', 'cancelled', 'failed'].includes(state)
     ? ({ done: ['已回答', 'Answered'], running: ['正在回答', 'Answering'], cancelled: ['已中断', 'Interrupted'], failed: ['回答失败', 'Answer failed'] } as Record<string, string[]>)[state][zh ? 0 : 1]
-    : stateLabel(displayedState);
+    : stateLabel(state);
   return (
     <article
       className={`map-macro map-state-${state}`}

@@ -18,7 +18,7 @@ _REEVALUATE = "RE-EVALUATE INDEPENDENTLY"
 
 
 def _review_action(status: str = "continue") -> tuple[str, dict]:
-    return ("approve_review" if status == "done" else "revise_review", {"review": "r"})
+    return "submit_review", {"review": "r\n→ " + ("done" if status == "done" else "engineer")}
 
 
 def _evaluate(reviewer: Reviewer, **over):

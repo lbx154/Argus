@@ -1,8 +1,9 @@
 """Cut #1 (daemon side): the inter-pass sleep is wakeable.
 
-``LifeWorker._wakeable_sleep`` must return promptly on a stop request and on
-fresh user input (a growing ``inbox.jsonl``), so a long await-external backoff
-never makes ``/add`` / ``/nudge`` unresponsive.
+``LifeWorker._wakeable_sleep`` must return promptly on a stop request, on
+fresh user input (a growing ``inbox.jsonl``) and on someone else's backlog
+write, so a long backoff never makes ``/add``, ``/nudge`` or an explicit Run
+unresponsive.
 """
 from __future__ import annotations
 
@@ -13,7 +14,6 @@ from types import SimpleNamespace
 import pytest
 
 from argus.daemon.life_worker import LifeWorker
-from argus.life.memory import BacklogItem, LifeMemory
 
 
 def _worker(tmp_path) -> LifeWorker:
@@ -102,64 +102,34 @@ def test_durable_input_wakes_once_and_new_input_interrupts_retained_envelope_wai
     assert waits == [0.5]
 
 
-@pytest.mark.parametrize("resume_before_sleep", [False, True])
-def test_provider_fence_sleep_wakes_on_explicit_resume(
-    tmp_path, resume_before_sleep: bool,
-) -> None:
+def test_an_explicit_run_wakes_the_sleep_instead_of_waiting_out_the_backoff(tmp_path) -> None:
+    from argus.life.memory import BacklogItem, LifeMemory
+    from argus.webapi.routes.daemon import _resume_parks_after_start
+
     worker = _worker(tmp_path)
     memory = LifeMemory.open(tmp_path)
-    item = BacklogItem.new(
-        title="quota held",
-        objective="resume after recovery",
-        manager_decision={"routed": True, "vertical": "software"},
-    )
-    item.status = "paused_provider_fence"
-    memory.backlog.add(item)
-    waits = []
+    item = memory.backlog.add(BacklogItem.new(title="fenced", objective="resume after recovery"))
+    memory.backlog.update(item.id, park_reason="provider_fence")
+    supervisor = SimpleNamespace(memory=memory)
+    waits: list[float] = []
 
-    def resume_during_wait(timeout):
+    def run_during_wait(timeout):
         waits.append(timeout)
-        memory.backlog.resume_all_paused()
+        if len(waits) == 2:
+            _resume_parks_after_start(tmp_path, {"rc": 0})
         return False
 
-    worker._stop.wait = resume_during_wait
-    if resume_before_sleep:
-        memory.backlog.resume_all_paused()
+    worker._stop.wait = run_during_wait
+    worker._wakeable_sleep(300.0, 0.5, tmp_path, supervisor=supervisor)
 
-    worker._wakeable_sleep(
-        300.0, 0.1, tmp_path, wake_on_ready_work=True,
-    )
-
-    assert len(waits) == (0 if resume_before_sleep else 1)
+    # The Run's backlog write ended a 300-second backoff after one slice.
+    assert waits == [0.5, 0.5]
     assert memory.backlog.all()[0].status == "pending"
-    assert memory.backlog.all()[0].attempt == 2
-    assert not (tmp_path / "inbox.jsonl").exists()
-
-
-@pytest.mark.parametrize("status", ["paused_provider_fence", "pending"])
-def test_recovery_wake_does_not_bypass_unchanged_fence_or_pending_backoff(
-    tmp_path, status: str,
-) -> None:
-    worker = _worker(tmp_path)
-    memory = LifeMemory.open(tmp_path)
-    item = BacklogItem.new(
-        title="held work",
-        objective="wait",
-        manager_decision={"routed": True, "vertical": "software"},
-    )
-    item.status = status
-    memory.backlog.add(item)
-    waits = []
+    # With nothing new the backoff is slept out in full.
+    waits.clear()
     worker._stop.wait = lambda timeout: waits.append(timeout) or False
-
-    worker._wakeable_sleep(
-        2.0, 0.5, tmp_path,
-        wake_on_ready_work=status == "paused_provider_fence",
-    )
-
+    worker._wakeable_sleep(2.0, 0.5, tmp_path, supervisor=supervisor)
     assert waits == [0.5] * 4
-    assert memory.backlog.all()[0].status == status
-    assert memory.backlog.all()[0].attempt == 1
 
 
 @pytest.mark.parametrize("existing_config", [False, True])

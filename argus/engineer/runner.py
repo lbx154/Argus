@@ -10,7 +10,6 @@ from typing import Callable
 from ..core.models import (
     LoopOutcome,
     LoopStatus,
-    ReviewDecision,
     RoundRecord,
     RunnerOptions,
     RunnerResult,
@@ -43,8 +42,16 @@ from .round_execution import RoundExecutionMixin
 from .round_manager_wait import manager_wait_terminal
 from .round_prompt import RoundPromptMixin
 from .round_reviewer import RoundReviewerMixin
-from .round_self_review import RoundSelfReviewMixin
-from .round_settlement import RoundSettlementMixin, withhold_terminal_question
+from .round_self_review import (
+    RoundSelfReviewMixin,
+    accepted_as_is,
+    accepted_verdict,
+    climb_record,
+    no_turn,
+    outside_inputs,
+    returned_unchanged,
+)
+from .round_settlement import RoundSettlementMixin
 
 # These round-signal helpers remain module attributes because callers and tests
 # patch them through ``argus.engineer.runner``.
@@ -52,7 +59,7 @@ from .round_signals import (
     _apply_round_secret_guard,  # noqa: F401
     _review_event_payload,  # noqa: F401
 )
-from .round_state import RoundLoopState
+from .round_state import RoundControl, RoundLoopState, control_proceed, control_return
 from .round_stop_signals import (
     backend_failure_review_decision,
     daemon_stop_review_decision,
@@ -87,19 +94,6 @@ def _carry_unreviewed_turn(state: RoundLoopState, round_index: int, message: str
         )
     state.unreviewed_engineer_accounts.append(f"### Engineer round {round_index}\n{account}")
     del state.unreviewed_engineer_accounts[:-_UNREVIEWED_ACCOUNT_TURNS]
-
-
-def _paper_unchanged_since_venue_review(rounds: list[RoundRecord], workdir: Path) -> bool:
-    """Whether the paper the last venue review judged is still the paper here.
-
-    Reviewing it again could only repeat that paid verdict, so the unchanged
-    return climbs to the Planner instead (the baton's third invariant).
-    """
-    from ..core.venue_review import paper_review_snapshot
-
-    last = next((record.review for record in reversed(rounds) if record.review.venue_review_required), None)
-    recorded = last.venue_review_snapshot if last is not None else None
-    return bool(recorded) and recorded == paper_review_snapshot(workdir)
 
 
 class SupervisedEngineer(
@@ -282,47 +276,30 @@ class SupervisedEngineer(
             paused = manager_wait_terminal(supervised_config, state)
             if paused is not None:
                 return paused
-            engineer_resume_id = state.engineer_session.prepare()
-            engineer_prompt = self._assemble_round_prompt(
-                round_index=round_index,
-                supervised_config=supervised_config,
-                engineer_prompt_builder=engineer_prompt_builder,
-                reviewer_next_action=state.reviewer_next_action,
-                checkpoint_path=checkpoint_path,
-                workdir=workdir,
-                role_session=state.engineer_session,
-                on_event=on_event,
+            turn = state.snapshots is not None and state.snapshots.take("turn")
+            state.handed_inputs = outside_inputs(state) if turn else None
+            climbed = turn and not state.review_unseen and (
+                returned_unchanged("engineer", state, "turn") or accepted_as_is(state, "turn")
             )
-            if state.pending_engineer_followup:
-                engineer_prompt += "\n\n" + state.pending_engineer_followup
-                state.pending_engineer_followup = ""
-
-            outcome = self._run_engineer_turn(
-                round_index=round_index,
-                engineer_prompt=engineer_prompt,
-                workdir=workdir,
-                supervised_config=supervised_config,
-                checkpoint_path=checkpoint_path,
-                resume_thread_id=engineer_resume_id,
-                on_event=on_event,
-                state=state,
-            )
-
-            control = self._handle_stop_kind_shortcircuit(
-                round_index=round_index,
-                supervised_config=supervised_config,
-                outcome=outcome,
-                state=state,
-                on_event=on_event,
-            )
-            if control.action == "return":
-                return withhold_terminal_question(control.terminal, supervised_config)
-            if control.action == "continue_loop":
-                continue
-
-            paused = manager_wait_terminal(supervised_config, state)
-            if paused is not None:
-                return paused
+            if climbed:
+                # The Engineer already had the work as it is now, or the Reviewer
+                # accepted it as it is, and nothing new arrived: no turn.
+                outcome = no_turn(state)
+            else:
+                control = self._take_engineer_turn(
+                    round_index=round_index,
+                    supervised_config=supervised_config,
+                    engineer_prompt_builder=engineer_prompt_builder,
+                    checkpoint_path=checkpoint_path,
+                    workdir=workdir,
+                    state=state,
+                    on_event=on_event,
+                )
+                if control.action == "return":
+                    return control.terminal
+                if control.action == "continue_loop":
+                    continue
+                outcome = control.payload
 
             control = self._handle_progress_and_self_review(
                 round_index=round_index,
@@ -332,34 +309,15 @@ class SupervisedEngineer(
                 state=state,
                 review_completed_hook=review_completed_hook,
                 on_event=on_event,
+                climbed=climbed,
             )
             if control.action == "return":
-                return withhold_terminal_question(control.terminal, supervised_config)
+                return control.terminal
             if control.action == "continue_loop":
                 _carry_unreviewed_turn(state, round_index, outcome.engineer_message)
                 continue
 
-            if _paper_unchanged_since_venue_review(state.rounds, workdir):
-                control = self._settle_round(
-                    review=ReviewDecision(
-                        status="replan_requested",
-                        reason=(
-                            "The paper and its figures are unchanged since the last venue "
-                            "review; reviewing them again would only repeat that verdict."
-                        ),
-                        next_action="",
-                        review_source="unchanged_paper",
-                    ),
-                    round_index=round_index,
-                    supervised_config=supervised_config,
-                    workdir=workdir,
-                    outcome=outcome,
-                    state=state,
-                    review_completed_hook=review_completed_hook,
-                        on_event=on_event,
-                )
-                return withhold_terminal_question(control.terminal, supervised_config)
-
+            state.handed_inputs = outside_inputs(state)
             control = self._invoke_reviewer_with_retry(
                 objective=objective,
                 original_objective=original_objective,
@@ -375,10 +333,19 @@ class SupervisedEngineer(
                 on_event=on_event,
             )
             if control.action == "return":
-                return withhold_terminal_question(control.terminal, supervised_config)
+                return control.terminal
             if control.action == "continue_loop":
                 continue
             review = control.payload
+            if state.snapshots is not None and state.snapshots.take("reviewed"):
+                # The Reviewer holds the work as its verdict leaves it.
+                state.snapshots.hold(
+                    "reviewer", "reviewed", state.handed_inputs, accepted_verdict(review, round_index, state),
+                )
+                wanted = {"replan_requested": "planner", "blocked": "manager"}.get(review.status, "")
+                if wanted and not review.operator_question and not review.backend_unavailable:
+                    holder, passed = self._deliver(wanted, state=state, label="reviewed")
+                    review = climb_record(passed, holder, handed=review) if passed else review
             control = self._settle_round(
                 review=review,
                 round_index=round_index,
@@ -389,24 +356,72 @@ class SupervisedEngineer(
                 review_completed_hook=review_completed_hook,
                 on_event=on_event,
             )
+            state.review_unseen = bool(state.reviewer_next_action)
             if control.action == "return":
-                return withhold_terminal_question(control.terminal, supervised_config)
+                return control.terminal
             if control.action == "continue_loop":
                 continue
             # else "proceed": fall through to the next round.
 
         # Only an explicit positive max_rounds can exhaust the finite range.
-        return withhold_terminal_question(
-            (
-                "max_rounds",
-                state.rounds,
-                state.last_engineer_message,
-                f"Hit max_rounds={supervised_config.max_rounds} without "
-                "reviewer-confirmed completion.",
-                None,
-            ),
-            supervised_config,
+        return (
+            "max_rounds",
+            state.rounds,
+            state.last_engineer_message,
+            f"Hit max_rounds={supervised_config.max_rounds} without "
+            "reviewer-confirmed completion.",
+            None,
         )
+
+    def _take_engineer_turn(
+        self,
+        *,
+        round_index: int,
+        supervised_config: SupervisedConfig,
+        engineer_prompt_builder: Callable[[str | None, bool], str],
+        checkpoint_path: Path | None,
+        workdir: Path,
+        state: RoundLoopState,
+        on_event: Callable[[dict], None] | None,
+    ) -> RoundControl:
+        """Run one Engineer turn; ``proceed`` carries its outcome to routing."""
+        engineer_resume_id = state.engineer_session.prepare()
+        engineer_prompt = self._assemble_round_prompt(
+            round_index=round_index,
+            supervised_config=supervised_config,
+            engineer_prompt_builder=engineer_prompt_builder,
+            reviewer_next_action=state.reviewer_next_action,
+            checkpoint_path=checkpoint_path,
+            workdir=workdir,
+            role_session=state.engineer_session,
+            on_event=on_event,
+        )
+        if state.pending_engineer_followup:
+            engineer_prompt += "\n\n" + state.pending_engineer_followup
+            state.pending_engineer_followup = ""
+
+        outcome = self._run_engineer_turn(
+            round_index=round_index,
+            engineer_prompt=engineer_prompt,
+            workdir=workdir,
+            supervised_config=supervised_config,
+            checkpoint_path=checkpoint_path,
+            resume_thread_id=engineer_resume_id,
+            on_event=on_event,
+            state=state,
+        )
+
+        control = self._handle_stop_kind_shortcircuit(
+            round_index=round_index,
+            supervised_config=supervised_config,
+            outcome=outcome,
+            state=state,
+            on_event=on_event,
+        )
+        if control.action != "proceed":
+            return control
+        paused = manager_wait_terminal(supervised_config, state)
+        return control_return(paused) if paused is not None else control_proceed(outcome)
 
     def _run_engineer(
         self,
@@ -442,6 +457,7 @@ class SupervisedEngineer(
                         else self.engineer_config.reasoning_effort
                     ),
                     extra_args=self.engineer_config.extra_args,
+                    add_dirs=self.engineer_config.add_dirs,
                     skill_paths=self.engineer_config.skill_paths,
                     full_auto=self.engineer_config.full_auto,
                     skip_git_repo_check=self.engineer_config.skip_git_repo_check,

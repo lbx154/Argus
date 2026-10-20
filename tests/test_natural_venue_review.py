@@ -37,9 +37,9 @@ def paper(tmp_path):
 class ProseRunner:
     backend = "pi"
 
-    def __init__(self, prose, action="revise_review", recommendation="weak_accept", **arguments):
+    def __init__(self, prose, holder="engineer", recommendation="weak_accept", **arguments):
         self.prose = prose
-        self.action = action
+        self.holder = holder
         self.recommendation = recommendation
         self.arguments = arguments
         self.calls = []
@@ -47,11 +47,11 @@ class ProseRunner:
     def run_exec(self, **kwargs):
         self.calls.append(kwargs)
         assert kwargs["run_label"] == "reviewer", "No JSON translation call is allowed"
-        if self.action:
-            payload = {"review": self.prose, **self.arguments}
-            if self.action in {"approve_review", "revise_review"}:
+        if self.holder:
+            payload = {"review": f"{self.prose}\n→ {self.holder}", **self.arguments}
+            if self.holder in {"done", "engineer"} and self.recommendation:
                 payload["recommendation"] = self.recommendation
-            bridge_request("ARGUS_PLUGIN_REVIEW", self.action, payload, env=kwargs["options"].extension_env)
+            bridge_request("ARGUS_PLUGIN_REVIEW", "submit_review", payload, env=kwargs["options"].extension_env)
         return RunnerResult(exit_code=0, agent_messages=["审查意见已提交。"], input_tokens=100, output_tokens=50)
 
 
@@ -93,7 +93,7 @@ def test_natural_feedback_survives_action_handoff_and_engineer_reentry(paper):
 
 def test_explicit_approval_can_finish_and_is_bound_to_current_paper(paper):
     prose = ACCEPTANCE + "必要修改已完成；扩大模型家族留作后续工作。"
-    review = evaluate(paper, ProseRunner(prose, "approve_review"))
+    review = evaluate(paper, ProseRunner(prose, "done"))
     assert review.final_submission_certified and review.reason == prose
     assert review.next_action == ""
     (paper / "paper/main.pdf").write_bytes(b"Changed after review")
@@ -105,12 +105,12 @@ def test_minimum_rating_cannot_be_satisfied_by_aspirational_prose(paper):
     state["venue_acceptance_minimum"] = "strong_accept"
     write_pipeline_state(paper, state)
     prose = ACCEPTANCE + "未来有望达到 strong accept。"
-    result = evaluate(paper, ProseRunner(prose, "approve_review"))
+    result = evaluate(paper, ProseRunner(prose, "done"))
     assert result.status == "done" and not result.final_submission_certified
     assert result.interventions[0]["action"] == "kept_open"
     assert result.venue_review["recommendation"] == "weak_accept"
     assert result.reason == prose
-    result = evaluate(paper, ProseRunner("当前版本达到 strong accept。", "approve_review", "strong_accept"))
+    result = evaluate(paper, ProseRunner("当前版本达到 strong accept。", "done", "strong_accept"))
     assert result.final_submission_certified
 
 
@@ -139,7 +139,7 @@ def test_post_call_report_failures_preserve_usage_and_block_approval(
         def run_exec(self, **kwargs):
             return replace(super().run_exec(**kwargs), **metadata)
 
-    runner = MeasuredReviewer(ACCEPTANCE, "approve_review")
+    runner = MeasuredReviewer(ACCEPTANCE, "done")
     runner.backend = backend
     error = f"synthetic {failure} failure"
     if failure == "report_write":
@@ -184,7 +184,7 @@ def test_review_without_explicit_root_does_not_inspect_a_manuscript(monkeypatch)
         return {"sha256": ""}
 
     monkeypatch.setattr("argus.core.manuscript_snapshot.manuscript_snapshot", snapshot)
-    review = Reviewer(ProseRunner("Waiting for the software checks.", "defer_review")).evaluate(
+    review = Reviewer(ProseRunner("Waiting for the software checks.", "engineer", None)).evaluate(
         objective="Review a software change", round_index=1, session_id=None,
         main_summary="No project directory was provided.", main_error=None,
         config=ReviewerConfig(active_vertical="software"),
@@ -195,20 +195,20 @@ def test_review_without_explicit_root_does_not_inspect_a_manuscript(monkeypatch)
 
 
 def test_below_threshold_recommendation_cannot_pass_an_approval_action(paper):
-    result = evaluate(paper, ProseRunner("当前只有 borderline。", "approve_review", "borderline"))
+    result = evaluate(paper, ProseRunner("当前只有 borderline。", "done", "borderline"))
     assert result.status == "done" and not result.final_submission_certified
     assert result.interventions[0]["action"] == "kept_open"
     assert not result.backend_unavailable
 
 
-@pytest.mark.parametrize(("action", "arguments", "status"), [
-    ("defer_review", {}, "continue"),
-    ("request_review_decision", {"question": "可否使用授权数据集？"}, "blocked"),
-    ("replan_review", {"authority_impact": "technical", "alternative": "补充分组实验。"}, "replan_requested"),
+@pytest.mark.parametrize(("holder", "status"), [
+    ("operator: 可否使用授权数据集？", "blocked"),
+    ("planner", "replan_requested"),
+    ("manager", "blocked"),
 ])
-def test_wait_questions_and_scientific_repairs_are_not_backend_failure(paper, action, arguments, status):
-    feedback = "需要等后台实验，或解决所述前提，再作最终判断。"
-    result = evaluate(paper, ProseRunner(feedback, action, **arguments))
+def test_questions_and_scientific_repairs_are_not_backend_failure(paper, holder, status):
+    feedback = "需要解决所述前提，再作最终判断。"
+    result = evaluate(paper, ProseRunner(feedback, holder))
     assert result.status == status and not result.backend_unavailable
     assert not result.final_submission_certified
     assert result.reason == feedback
@@ -218,7 +218,7 @@ def test_wait_questions_and_scientific_repairs_are_not_backend_failure(paper, ac
 def test_acknowledgement_cannot_reuse_preexisting_acceptance_report(paper):
     report = paper / "paper/REVIEW.md"
     report.write_text(ACCEPTANCE)
-    runner = ProseRunner("已更新我的审稿文件。", action=None)
+    runner = ProseRunner("已更新我的审稿文件。", holder=None)
     runner.backend = "copilot"
     review = evaluate(paper, runner)
     assert review.backend_unavailable and not review.final_submission_certified

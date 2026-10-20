@@ -19,21 +19,23 @@ from ...core.acceptance_dependencies import (
 from ...core.models import RunnerOptions
 from ...core.operator_messages import uses_cjk
 from ...core.run_gateway import run_exec
-from ...core.stop_kinds import normalize_stop_kind, pause_status_for_stop_kind
+from ...core.stop_kinds import normalize_stop_kind, stop_park_reason
 
 
 def _stopped(
     reason: str, *, stop_kind: str | None = None, assessment=None, operator_question: str = "",
 ):
     contract_blocked = assessment is not None
+    park = "" if contract_blocked else (
+        stop_park_reason(stop_kind) or ("infra" if stop_kind == "backend_unavailable" else "")
+    )
     return SimpleNamespace(
         success=False,
-        status=("blocked" if contract_blocked else (
-            pause_status_for_stop_kind(stop_kind)
-            or {"operator_abort": "aborted", "backend_unavailable": "infra_blocked"}.get(
-                stop_kind, "error",
-            )
-        )),
+        status=(
+            "blocked" if contract_blocked else "parked" if park
+            else "aborted" if stop_kind == "operator_abort" else "error"
+        ),
+        park_reason=park,
         stop_reason=reason, stop_kind=stop_kind, recoverable=True, rounds=0,
         final_review_status="not_assessed", final_review_source="contract_preflight",
         final_review_reason=reason,

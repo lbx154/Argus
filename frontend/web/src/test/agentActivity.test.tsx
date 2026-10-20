@@ -15,7 +15,7 @@ describe('Agent activity', () => {
     const rows = agentWork(view, 'engineer', 'current');
     expect(rows.map((r) => r.id)).toEqual(['one', 'four']);
     expect(rows.map((r) => r.detail).join(' ')).toBe('Checking 500 weighted maps. ');
-    expect(cleanActivityText('Useful result.\nDecision:\nMILESTONE_STATUS=done\nNEXT_OWNER=reviewer')).toBe('Useful result.');
+    expect(cleanActivityText('Useful result.\nDecision:\n→ reviewer')).toBe('Useful result.');
   });
   it('does not present old records or paused sessions as active work', () => {
     const view = emptyMissionView(); view.mission.id = 'current'; view.mission.status = 'working'; view.active_role = 'engineer';

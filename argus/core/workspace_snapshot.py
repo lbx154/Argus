@@ -6,6 +6,11 @@ read or written. What :mod:`.workspace_facts` leaves out is left out here too,
 as are nested repositories and whatever the workspace's ignore files exclude.
 A file over ``LARGE_FILE_BYTES`` is not stored; its ``file_facts`` ride in the
 commit message, so a change to it still shows, by size.
+
+Each holder of the line keeps the snapshot it last held the work as, with the
+outside inputs (the operator's and the Manager's) it held it under and the
+verdict it left, so a return of unchanged work is a fact read from the store,
+not a judgment.
 """
 from __future__ import annotations
 
@@ -18,6 +23,7 @@ import subprocess
 from dataclasses import dataclass
 from pathlib import Path
 
+from .atomic_replace import replace
 from .file_facts import file_facts
 from .workspace_facts import IGNORED_NAMES, fact_text
 
@@ -141,6 +147,43 @@ class WorkspaceSnapshots:
     def _large(self, label: str) -> dict[str, list[int]]:
         commit = self._git("cat-file", "commit", self._ref(label)).decode("utf-8", "replace")
         return json.loads(commit.split("\n\n", 1)[1])
+
+    @property
+    def _holders_path(self) -> Path:
+        return self.store / "holders" / f"{self._name}.json"
+
+    def _holders(self) -> dict[str, dict]:
+        try:
+            holders = json.loads(self._holders_path.read_text(encoding="utf-8"))
+        except (OSError, ValueError):
+            return {}
+        if not isinstance(holders, dict):
+            return {}
+        return {holder: held for holder, held in holders.items() if isinstance(held, dict)}
+
+    def hold(self, holder: str, label: str, inputs: object, verdict: dict | None = None) -> None:
+        """Record that ``holder`` held this line of work as snapshot ``label``, given ``inputs``, leaving ``verdict``."""
+        try:
+            commit = self._git("rev-parse", "-q", "--verify", self._ref(label)).decode().strip()
+            self._git("update-ref", self._ref(f"held-{holder}"), commit)
+            self._holders_path.parent.mkdir(exist_ok=True)
+            pending = self._holders_path.with_suffix(".tmp")
+            held = {holder: {"inputs": inputs, "verdict": verdict}}
+            pending.write_text(json.dumps({**self._holders(), **held}), encoding="utf-8")
+            replace(pending, self._holders_path)
+        except (OSError, subprocess.SubprocessError):
+            return
+
+    def held_unchanged(self, holder: str, label: str, inputs: object) -> bool:
+        """Whether ``holder`` already held this line as snapshot ``label`` is, given the same ``inputs``."""
+        return inputs is not None and self._holders().get(holder, {}).get("inputs") == inputs and (
+            self.changes(f"held-{holder}", label) == []
+        )
+
+    def held_verdict(self, holder: str) -> dict | None:
+        """The verdict ``holder`` left when it last held this line, if any."""
+        verdict = self._holders().get(holder, {}).get("verdict")
+        return verdict if isinstance(verdict, dict) else None
 
     def changes(self, base: str, head: str) -> list[Change] | None:
         """Every path that differs from ``base`` to ``head``, by path; ``None`` if unknown."""

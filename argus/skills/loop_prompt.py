@@ -16,14 +16,6 @@ from .loop_state import MissionContext, SkillLibraryState
 log = logging.getLogger(__name__)
 
 
-def _resolve_project_skill_dir(skill_store: object) -> str | None:
-    """Return the Engineer-owned project Skill directory."""
-    from .role_memory import project_role_skill_dir
-
-    value = project_role_skill_dir(skill_store, "engineer")
-    return str(value) if value is not None else None
-
-
 class PromptContextMixin:
     """Prompt-assembly phase methods for ``SkillLoop``."""
 
@@ -98,7 +90,6 @@ class PromptContextMixin:
             role_banner=mission.engineer_role_banner,
             require_post_task_learning=self.config.require_post_task_learning,
             project_root=mission.workdir,
-            project_skill_dir=_resolve_project_skill_dir(self.skill_store),
             compact_team=compact_team,
             operator_context="\n\n".join(guidance),
         )
@@ -136,7 +127,6 @@ class PromptContextMixin:
         role_banner: str = "",
         require_post_task_learning: bool = False,
         project_root=None,
-        project_skill_dir: str | None = None,
         compact_team: bool = False,
         operator_context: str = "",
     ) -> str:
@@ -151,7 +141,6 @@ class PromptContextMixin:
             role_banner=role_banner,
             require_post_task_learning=require_post_task_learning,
             project_root=project_root,
-            project_skill_dir=project_skill_dir,
             compact_team=compact_team,
             operator_context=operator_context,
         )

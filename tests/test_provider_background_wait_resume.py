@@ -115,8 +115,8 @@ def test_a_working_provider_wait_breaks_a_backend_failure_streak(tmp_path):
 
 @pytest.mark.parametrize("stop_kind,expected", [
     ("operator_abort", "aborted"),
-    ("daemon_shutdown", "paused_daemon_shutdown"),
-    ("budget_exhausted", "paused_budget"),
+    ("daemon_shutdown", "parked"),
+    ("budget_exhausted", "parked"),
 ])
 def test_real_stops_still_take_precedence_after_a_wait(tmp_path, stop_kind, expected):
     class Engineer:

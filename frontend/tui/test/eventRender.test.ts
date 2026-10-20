@@ -134,16 +134,14 @@ test('Manager routing failures lead with structured facts and retain raw error',
   assert.equal(rendered?.expand, true);
 });
 
-test('agent speech hides internal handoff fields', () => {
+test('agent speech hides the baton line', () => {
   const speech = renderEvent({
     type: 'engineer.progress',
     kind: 'agent_message',
     agent_layer: 'engineer',
     text: (
       'Waiting for the operator choice.\n'
-      + 'MILESTONE_STATUS=continue\n'
-      + 'OPERATOR_QUESTION=Which format?\n'
-      + 'OPERATOR_OPTIONS=json :: false :: JSON :: Structured report'
+      + '→ operator: Which format?'
     ),
   } as EventMsg);
 

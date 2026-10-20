@@ -937,19 +937,28 @@ _DELIVERY_BOUNDARIES = frozenset({
 def _review_consult_reason(root: Path, event: dict[str, Any]) -> str:
     """What a review puts to the Manager, or "" when nothing.
 
-    A workspace that changed while the Reviewer judged, an Engineer's
-    ``→ manager``, or a check the Reviewer cannot make here while the operator
-    cannot be asked, so accepting its risk falls to the Manager.
-    A blocked verdict goes to the stage decision, a question to the operator,
-    and how the work flows is the Observer's to report.
+    A workspace that changed while the Reviewer judged, an Engineer's or a
+    Reviewer's ``→ manager``, work that climbed to the Manager because it came
+    back unchanged, or a check the Reviewer cannot make here while the
+    operator cannot be asked, so accepting its risk falls to the Manager.
+    A question goes to the operator, and how the work flows is the Observer's
+    to report.
     """
     changed = event.get("changed_during_review")
     if changed:
         return (f"the workspace changed while the Reviewer judged ({', '.join(map(str, changed[:20]))}); "
                 "its verdict stands as written: decide whether this review counts")
-    if event.get("review_source") == "engineer_handoff":
+    handed = {
+        "engineer_handoff": "the Engineer handed the work to you",
+        "reviewer": "the Reviewer handed the work to you",
+        "unchanged_return": "the work came back unchanged and climbed to you",
+    }.get(str(event.get("review_source") or ""))
+    if (
+        handed and event.get("status") == "blocked"
+        and not event.get("operator_question") and not event.get("review_skipped")
+    ):
         why = " ".join(str(event.get("reason") or "").split())[:200]
-        return f"the Engineer handed the work to you: {why}"
+        return f"{handed}: {why}"
     if str(event.get("verification_obstacle") or "").strip() and _manager_holds_operator_authority(root):
         return "a check the Reviewer cannot make here, whose risk is yours to accept or not"
     return ""

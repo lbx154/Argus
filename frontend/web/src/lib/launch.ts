@@ -68,7 +68,7 @@ export function launchSettingsSummary(settings: Partial<LaunchSettings> | undefi
 
 export function launchHoldPlan(backlog: Snapshot['backlog']): string[] {
   return backlog
-    .filter((item) => ['pending', 'paused_operator'].includes(item.status))
+    .filter((item) => ['pending', 'parked'].includes(item.status))
     .map((item) => item.title || item.objective)
     .filter(Boolean)
     .slice(0, 8);

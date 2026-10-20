@@ -42,3 +42,12 @@ def test_the_workspace_state_wins_over_the_record(tmp_path: Path) -> None:
     write_pipeline_state(workspace, {"vertical": "software"})
     (life / "manager-handoff.json").write_text(json.dumps({"vertical": "research"}))
     assert resolve_project_vertical(workspace, life_dir=life) == "software"
+
+
+def test_the_state_directory_holds_the_managers_pipeline_state(tmp_path: Path) -> None:
+    workspace, life = tmp_path / "ws", tmp_path / "life"
+    workspace.mkdir()
+    write_pipeline_state(life, {"vertical": "learning"})
+    write_pipeline_state(workspace, {"vertical": "software"})
+    assert resolve_project_vertical(workspace, life_dir=life) == "learning"
+    assert resolve_project_vertical(workspace) == "software"

@@ -60,7 +60,8 @@ def render_knowledge_wiki_block(
             f"{shared_lines}\n\n"
             "A page useful beyond this project carries `audience: vertical` (or "
             "`audience: global`) in its front matter; after a passing review the host "
-            "copies it into the shared knowledge of this vertical, which later projects read."
+            "copies it into the shared knowledge of this vertical, which later projects read. "
+            "A page that belongs to another vertical also names it: `vertical: <name>`."
         )
     return (
         "## Shared project Wiki\n"
@@ -79,6 +80,10 @@ def render_knowledge_wiki_block(
         "plausible. Omit it when evidence is insufficient or it only repeats the "
         "summary. Search page bodies and linked Insight sections before reuse; "
         "recheck assumptions and revise interpretations as evidence changes. "
+        "A value read from code (a default, a limit) is recorded with the layer it "
+        "belongs to, the value that takes effect on the usual path, what decides it "
+        "and why; when rerunning would settle it on another version, link a small "
+        "check kept in the Wiki's `checks/`. "
         "Procedures and checklists belong in Skills instead. Do not copy task "
         "history, handoffs, evaluator results, or runtime metadata into the Wiki."
         + shared

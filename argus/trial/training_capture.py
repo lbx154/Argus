@@ -863,7 +863,6 @@ def _public_path_scan_text(value, sid, mission_id):
     public_directories = {
         "/tenant/home/.argus-skill",
         f"/tenant/home/.argus-skill/projects/{sid}/skills",
-        f"/tenant/home/.argus-skill/projects/{sid}/skills/engineer",
         f"/tenant/home/.argus-skill/projects/{sid}/skills/reviewer",
     }
     handoffs = set()

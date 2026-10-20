@@ -4,7 +4,6 @@ from __future__ import annotations
 import json
 from dataclasses import replace
 from pathlib import Path
-from types import SimpleNamespace
 
 from argus import SkillLoop, SkillLoopConfig
 from argus.adapters.memory_backend import CannedResponse, MemoryBackend
@@ -58,17 +57,20 @@ def _run(
     backend = MemoryBackend()
     if resumable:
         backend.backend = "pi"  # type: ignore[misc]
-    backend.queue("engineer-r1", CannedResponse(
-        message="Wrote summary.csv.", thread_id=engineer_threads[0],
-    ))
+    def writes(rows: str, message: str, thread_id: str) -> CannedResponse:
+        def turn(_prompt, _options) -> str:
+            (work / "summary.csv").write_text(rows, encoding="utf-8")
+            return message
+
+        return CannedResponse(message_factory=turn, thread_id=thread_id)
+
+    backend.queue("engineer-r1", writes("ERROR,370\n", "Wrote summary.csv.", engineer_threads[0]))
     backend.queue("reviewer", CannedResponse(
-        review_action=("revise_review", {"review": _FINDING}), thread_id="v1",
+        review_action=("submit_review", {"review": (_FINDING) + "\n→ engineer"}), thread_id="v1",
     ))
-    backend.queue("engineer-r2", CannedResponse(
-        message="Recounted all rows.", thread_id=engineer_threads[1],
-    ))
+    backend.queue("engineer-r2", writes("ERROR,20\n", "Recounted all rows.", engineer_threads[1]))
     backend.queue("reviewer", CannedResponse(
-        review_action=("approve_review", {"review": "All rows match."}),
+        review_action=("submit_review", {"review": "All rows match.\n→ done"}),
         thread_id="v1",
     ))
     events: list[dict] = []
@@ -245,26 +247,6 @@ def test_self_reviews_are_not_reviewer_findings() -> None:
 # --- host rewrites keep the Reviewer's own words ------------------------------
 
 
-def test_a_withheld_question_stays_the_reviewers_finding_beside_the_host_fact(
-    monkeypatch,
-) -> None:
-    import argus.engineer.round_settlement as settlement
-
-    monkeypatch.setattr(settlement, "_operator_questions_allowed", lambda _cfg: False)
-    asked = ReviewDecision(
-        status="blocked", reason="REAL: the operator must pick dataset A or B",
-        next_action="REAL: pick", operator_question="A or B?", reviewer_authored=True,
-    )
-    recorded = settlement._apply_operator_question_policy(
-        asked, supervised_config=SimpleNamespace(), state=RoundLoopState(),
-    )
-    assert recorded.reviewer_authored is True
-    text = render_previous_findings([_record(1, recorded)], round_index=2).text
-    findings, host = text.split("## Host facts since then (not your words)\n", 1)
-    assert "REAL: the operator must pick dataset A or B" in findings
-    assert "the question was not sent" in host
-
-
 def test_venue_enforcement_keeps_the_reviewer_words_and_labels_the_host_change(
     tmp_path: Path,
 ) -> None:
@@ -289,8 +271,8 @@ def test_venue_enforcement_keeps_the_reviewer_words_and_labels_the_host_change(
 
         def run_exec(self, **kwargs):
             bridge_request(
-                "ARGUS_PLUGIN_REVIEW", "approve_review",
-                {"review": prose, "recommendation": "weak_accept"},
+                "ARGUS_PLUGIN_REVIEW", "submit_review",
+                {"review": (prose) + "\n→ done", "recommendation": "weak_accept"},
                 env=kwargs["options"].extension_env,
             )
             return RunnerResult(exit_code=0, agent_messages=["submitted"])

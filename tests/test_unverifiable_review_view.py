@@ -10,6 +10,8 @@ round budget are unchanged.
 
 from __future__ import annotations
 
+import pytest
+
 from argus.adapters.memory_backend import CannedResponse, MemoryBackend
 from argus.core.event_catalog import validate_event_envelope
 from argus.engineer.runner import EngineerConfig, SupervisedConfig, SupervisedEngineer
@@ -33,25 +35,26 @@ def _engineer(backend: MemoryBackend) -> SupervisedEngineer:
 
 def _queue(backend: MemoryBackend, round_index: int, payload: dict) -> None:
     backend.queue(f"engineer-r{round_index}", CannedResponse(message=f"round {round_index} fixed it"))
-    backend.queue("reviewer", CannedResponse(review_action=("revise_review", payload)))
+    backend.queue("reviewer", CannedResponse(review_action=("submit_review", payload)))
 
 
-def test_continuing_and_replanning_actions_offer_the_obstacle_field() -> None:
+def test_the_obstacle_rides_any_handoff_but_an_acceptance() -> None:
     # A Reviewer stopped by a check impossible here may replan over it; the
     # obstacle has to ride that verdict too, or a replan erases it.
-    tools = {tool["name"]: tool for tool in ReviewActions().tools}
-
-    for name in ("revise_review", "defer_review", "replan_review"):
-        assert "unverifiable" in tools[name]["inputSchema"]["properties"]
-    for name in ("approve_review", "request_review_decision"):
-        assert "unverifiable" not in tools[name]["inputSchema"]["properties"]
+    for line in ("→ engineer", "→ planner", "→ manager"):
+        actions = ReviewActions()
+        actions.dispatch("submit_review", {"review": f"Header unverified.\n{line}", "unverifiable": _OBSTACLE})
+        assert actions.decision.verification_obstacle == _OBSTACLE
+    actions = ReviewActions()
+    with pytest.raises(ValueError, match="residual_risk"):
+        actions.dispatch("submit_review", {"review": "Holds.\n→ done", "unverifiable": _OBSTACLE})
 
 
 def test_reviewer_obstacle_is_carried_on_the_review_event(tmp_path) -> None:
     backend = MemoryBackend()
-    _queue(backend, 1, {"review": "Header still unverified.",
+    _queue(backend, 1, {"review": "Header still unverified.\n→ engineer",
                         "unverifiable": _OBSTACLE})
-    _queue(backend, 2, {"review": "Header still unverified."})
+    _queue(backend, 2, {"review": "Header still unverified.\n→ engineer"})
     events: list[dict] = []
 
     status, rounds, _final, _reason, _thread = _engineer(backend).run(

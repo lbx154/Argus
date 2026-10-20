@@ -20,7 +20,7 @@ from ..core.knobs import learning_enabled
 from ..core.ports import EventSink
 from ..core.role_handoff import strip_handoff
 from ..core.runner_errors import is_execution_host_startup_error
-from ..engineer.round_config import HOST_PLACEHOLDER_REVIEW_SOURCES, QUESTION_POLICY
+from ..engineer.round_config import HOST_PLACEHOLDER_REVIEW_SOURCES
 from ..engineer.runner import should_clear_thread_id_after_outcome
 from ._env import env_flag as _env_flag
 from ._runtime_backends import _Outcome
@@ -36,8 +36,7 @@ log = logging.getLogger(__name__)
 
 def _execution_host_blocked_outcome(outcome: object) -> bool:
     return (
-        getattr(outcome, "status", "") == "infra_blocked"
-        and getattr(outcome, "stop_kind", None) == "backend_unavailable"
+        getattr(outcome, "park_reason", "") == "infra"
         and is_execution_host_startup_error(getattr(outcome, "reason", ""))
     )
 
@@ -714,6 +713,13 @@ class SkillLoopExecuteMixin:
         config_kwargs["engineer_log_path"] = (
             str(_project_state_dir / "events.jsonl") if _project_state_dir is not None else ""
         )
+        from ..life.knowledge_recall import knowledge_read_dirs
+
+        # The Engineer's recalled knowledge points at libraries outside its
+        # workdir; a sandboxed backend reads them only when they are given.
+        config_kwargs["read_dirs"] = knowledge_read_dirs(
+            _project_state_dir, getattr(args, "global_root", None), workdir,
+        ) or None
         from ..core.autonomy import operator_questions_can_be_asked
 
         explicit_operator_root = str(getattr(args, "operator_context_dir", "") or "").strip()
@@ -1141,17 +1147,11 @@ class SkillLoopExecuteMixin:
                 )
                 review_source = str(getattr(_final_review, "review_source", "") or "").strip()
                 final_residual_risk = str(getattr(_final_review, "residual_risk", "") or "").strip()
-                # A question the operator may not be asked was not sent; the
-                # intervention beside the verdict says so (round_settlement).
-                withheld = any(
-                    row.get("policy") == QUESTION_POLICY
-                    for row in getattr(_final_review, "interventions", None) or []
-                )
-                operator_question = "" if withheld else str(
+                operator_question = str(
                     getattr(_final_review, "operator_question", "") or ""
                 ).strip()
                 raw_operator_options = getattr(_final_review, "operator_options", []) or []
-                if isinstance(raw_operator_options, list) and not withheld:
+                if isinstance(raw_operator_options, list):
                     operator_options = [
                         dict(option)
                         for option in raw_operator_options
@@ -1288,7 +1288,6 @@ class SkillLoopExecuteMixin:
         if (
             not maintenance_mission
             and not workflow_skips_stage_transition
-            and not _execution_host_blocked_outcome(outcome)
             and not _final_round_unjudged(outcome)
             and _should_run_stage_transition(
                 effective_status,
@@ -1372,6 +1371,7 @@ class SkillLoopExecuteMixin:
             stop_reason=ex_state.effective_reason,
             stop_kind=ex_state.effective_stop_kind,
             recoverable=ex_state.effective_recoverable,
+            park_reason=str(getattr(outcome, "park_reason", "") or ""),
             rounds=outcome.round_count,
             last_thread_id=ex_state.new_tid,
             auth_failure=ex_state.auth_fail,

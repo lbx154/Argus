@@ -146,8 +146,8 @@ def _audit_integrity_directive(context: str) -> str:
         "cannot make an overwritten or reconstructed record contemporaneous. Do not credit any "
         "fact attributed to the objective unless the cited objective text states it, and "
         "do not treat a summarized command log as the missing byte-faithful command. "
-        "Preserve useful corrections, but return `continue`, `replan_requested`, or "
-        "`blocked` when the required historical integrity is irrecoverable.\n\n"
+        "Preserve useful corrections, but do not hand off `→ done` when the required "
+        "historical integrity is irrecoverable.\n\n"
     )
 
 
@@ -470,12 +470,12 @@ def render_reviewer_prompt(
             )
         ) + (
             f"This round: {policy_line(_policy)}. The integrity floor is "
-            "identical at every profile. Judge directly and explain in `reason`. "
+            "identical at every profile. Judge directly and explain in the review. "
         )
         if _research_target_level is not None and not prose_final_review:
             verification_instruction += (
-                "If the direction cannot reach the target, return "
-                "`replan_requested`.\n"
+                "If the direction cannot reach the target, hand the work to the "
+                "Planner: `→ planner`.\n"
                 "Supply the research assessment through the review action tool "
                 "using evidence you inspected; never append a data block to your reply. A survey is "
                 "`literature_review` with `novelty_status` `known` or "
@@ -492,8 +492,8 @@ def render_reviewer_prompt(
         "What observed result or pattern most changed your belief — including a "
         "positive surprise — and what is the cheapest observation that would "
         "distinguish a new scientific explanation from an artifact? `none` is valid "
-        "and produces no work; if the answer could change the claim or route, use "
-        "ordinary `reconsider` to ask Planner to consider it.\n"
+        "and produces no work; if the answer could change the claim or route, hand "
+        "it to the Planner: `→ planner`.\n"
         if _research_target_level is not None
         else ""
     )
@@ -541,8 +541,8 @@ def render_reviewer_prompt(
             f"Current stage: `{stage}`. Earlier stages: {earlier_stages}.\n"
             "Rollback only when a concrete earlier defect makes the current result "
             "unusable. Optional outputs or those not needed for the claim are advisory. If "
-            "rollback is necessary, return `replan_requested` with the earliest "
-            "stage and evidence; Manager owns rollback. Never edit "
+            "rollback is necessary, hand the work to the Manager, who owns rollback: "
+            "`→ manager`, with the earliest stage and evidence. Never edit "
             "`.argus/PIPELINE_STATE.json`."
         )
     operator_text = (
@@ -632,43 +632,41 @@ def render_reviewer_prompt(
         )
     )
     handoff_policy = (
-        "Use `done` when a direct task meets its requirements and decisive check. "
-        "Use `replan_requested` only to change the plan; `plan_signal` advises and "
-        "cannot override `status`. For a material gap, use `continue` and name the "
-        "next task. Leave optional hardening advisory."
+        "Hand off `→ done` when a direct task meets its requirements and decisive "
+        "check, `→ planner` only to change the plan, and `→ engineer` naming the next "
+        "repair for a material gap. Leave optional hardening advisory."
         if direct_workflow
         else (
-            "`done` needs sufficient evidence, not exhaustive proof or every file. "
-            "Only claim-essential evidence gaps warrant `continue`; optional "
+            "`→ done` needs sufficient evidence, not exhaustive proof or every file. "
+            "Only claim-essential evidence gaps warrant `→ engineer`; optional "
             "evidence and minor weaknesses are advice. A timeout or failed attempt "
             "proves no impossibility; a missed threshold describes only that run. "
             "Root-cause, dominant-stage, bottleneck, or replacement claims need code-path "
             "evidence plus profiling, timing, or a controlled comparison. Integrity is "
             "required, not scientific value. Ask only for operator-owned authority/facts. "
-            "`done` closes a task; final-submission may close the project."
+            "`→ done` closes a task; final-submission may close the project."
         )
     )
     decision_policy = (
         "## Submit your review\n"
-        "Express the complete review naturally in the operator's language. "
-        "No JSON, fixed fields, named closing lines, or text template is required or parsed. "
-        "Call one native action: approve_review, revise_review, defer_review, "
-        "request_review_decision or replan_review. "
-        "Before approving, check each "
+        "Express the complete review naturally in the operator's language and submit "
+        "it with the one native action, submit_review. End it with one line naming "
+        "who holds the work next: `→ done`, `→ engineer`, `→ planner`, `→ manager` or "
+        "`→ operator: <one question>`. No JSON or other closing line is read. "
+        "Before accepting, check each "
         "requirement and symptom the task (this increment) states against the "
         "deliverable; tests the Engineer wrote show only its reading of them. "
         "Submit all evidence/next steps unchanged in the review argument. "
-        "Chat cannot replace the tool. Plan challenges name a failed assumption, "
-        "alternative and authority: technical for working choices and team plans; "
-        "manager_contract or operator for their commitments. "
+        "Chat cannot replace the tool. A plan challenge names the failed assumption "
+        "and an alternative; a commitment of the Manager or the operator goes to them. "
         "Give Engineer instructions in the review; neither "
         "read nor edit checkpoint or context records.\n\n"
     )
     if prose_final_review:
         decision_policy += (
             "Explain your actual current venue recommendation, not a hoped-for future "
-            "rating. Submit approve_review only when no required repairs remain; "
-            "otherwise use revise_review even if the current rating is weak accept "
+            "rating. Hand off `→ done` only when no required repairs remain; "
+            "otherwise `→ engineer`, even if the current rating is weak accept "
             "or better. Scientific repairs stay in this final review task.\n\n"
         )
         handoff_policy = (
@@ -701,10 +699,11 @@ def render_reviewer_prompt(
         + "\n\n"
         + _PRODUCT_ACCEPTANCE_DIRECTIVE
         + "\n\n## Reviewer role\n"
-        "`done` meets this profile; check relevant uncertainty. "
+        "`→ done` meets this profile; check relevant uncertainty. "
         "Leave source/output/build files unchanged; use the vertical command for judgments. "
-        "Use `continue` for one material gap in scope, `replan_requested` for a wrong target or "
-        "scope change, and `blocked` only for external obstacles. Use primary sources "
+        "Use `→ engineer` for one material gap in scope, `→ planner` for a wrong target or "
+        "scope change, and `→ manager` or `→ operator` only for obstacles the team cannot "
+        "remove. Use primary sources "
         "for external claims; community code may ground implementation details. "
         "Stay within this profile; require no future-proofing. "
         "In `explore`/`develop`, require experimental or research feedback. "

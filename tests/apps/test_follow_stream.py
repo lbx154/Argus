@@ -183,21 +183,20 @@ def test_follow_progress_render_redacts_raw_secret(redact_secrets_on) -> None:
     assert "REDACTED" in rendered
 
 
-def test_follow_progress_hides_structured_handoff_fields() -> None:
+def test_follow_progress_hides_the_baton_line() -> None:
     rendered = _follow._format_follow_event_body(
         {
             "type": "engineer.progress",
             "kind": "agent_message",
             "agent_layer": "engineer",
-            "text": "Artifact complete.\nNEXT_OWNER=reviewer\nOPERATOR_QUESTION=none",
+            "text": "Artifact complete.\n→ reviewer",
         },
         "engineer",
     )
 
     assert rendered is not None
     assert rendered.endswith("💭 Artifact complete.")
-    assert "NEXT_OWNER" not in rendered
-    assert "OPERATOR_QUESTION" not in rendered
+    assert "→" not in rendered
 
 
 def test_follow_role_judgments_read_as_prose_not_verdict_labels() -> None:

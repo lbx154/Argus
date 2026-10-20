@@ -185,7 +185,7 @@ def test_open_runtime_circuit_holds_pending_mission_without_calling_runner(
 
     result = supervisor.tick()
 
-    assert result is not None and result["status"] == "infra_blocked"
+    assert result is not None and result["status"] == "runtime_block"
     assert result["item_id"] == item.id
     assert calls == 0
     assert memory.backlog.next_pending() is not None
@@ -260,7 +260,7 @@ def test_supervisor_run_stops_cleanly_instead_of_spinning_on_open_circuit(
         ),
     ).run()
 
-    assert summary["stopped_by"] == "infra_blocked"
+    assert summary["stopped_by"] == "runtime_block"
     assert len(summary["results"]) == 1
     assert summary["suggested_sleep"] > 0
 
@@ -353,7 +353,7 @@ def test_uncaught_mission_exception_opens_circuit_before_second_dispatch(
     blocked = supervisor.tick()
 
     assert failed is not None and failed["status"] == "error"
-    assert blocked is not None and blocked["status"] == "infra_blocked"
+    assert blocked is not None and blocked["status"] == "runtime_block"
     assert calls == 1
     rows = {item.id: item for item in memory.backlog.all()}
     assert rows[first.id].status == "failed"

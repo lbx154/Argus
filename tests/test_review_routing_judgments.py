@@ -36,23 +36,6 @@ def _assert_kept(review: ReviewDecision) -> None:
     assert review.to_event_payload()["learning"] == "nothing_new"
 
 
-def test_the_operator_question_policy_keeps_the_verdict_and_its_judgments():
-    from argus.engineer.round_config import QUESTION_POLICY, SupervisedConfig
-    from argus.engineer.round_settlement import _apply_operator_question_policy
-    from argus.engineer.round_state import RoundLoopState
-
-    review = _review("blocked")
-    review.operator_question = "Which dataset may we use?"
-    config = SupervisedConfig(operator_questions_allowed=False)
-
-    recorded = _apply_operator_question_policy(review, supervised_config=config, state=RoundLoopState())
-
-    assert recorded.status == "blocked"
-    assert recorded.operator_question == "Which dataset may we use?"
-    assert recorded.intervention(QUESTION_POLICY)
-    _assert_kept(recorded)
-
-
 @pytest.fixture
 def paper(tmp_path: Path) -> Path:
     persist_vertical(tmp_path, "research", target_venue="ICLR")
