@@ -339,7 +339,7 @@ def enqueue_mission(
             # Only the operator can decide before this work starts: it waits on
             # their answer, which continues it like any parked question.
             from ..core.operator_decision import build_operator_decision
-            from ..life.memory import _park
+            from ..life.memory import park_item
 
             item.pending_question = question
             item.operator_decision = build_operator_decision(
@@ -349,7 +349,7 @@ def enqueue_mission(
                 question=question,
                 project_id=life_dir.name,
             )
-            _park(item, "operator_question")
+            park_item(item, "operator_question")
         try:
             mem.backlog.add(item)
         except OSError as exc:

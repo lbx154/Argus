@@ -764,7 +764,7 @@ def park_reason(item: Any) -> str | None:
     )
 
 
-def _park(item: BacklogItem, reason: str) -> None:
+def park_item(item: BacklogItem, reason: str) -> None:
     """Park ``item``: one status, its reason kept in the outcome."""
     item.status = "parked"
     item.outcome = {**item.outcome, "park": {"reason": reason}}
@@ -1287,7 +1287,7 @@ class BacklogItem:
             mission_delivery_id=str(row.get("mission_delivery_id") or ""),
         )
         if legacy_park is not None:
-            _park(item, legacy_park)
+            park_item(item, legacy_park)
         return item
 
 
@@ -2265,7 +2265,7 @@ class Backlog:
                         if hasattr(it, k):
                             setattr(it, k, v)
                     if park_reason is not None:
-                        _park(it, park_reason)
+                        park_item(it, park_reason)
                     if it.status in _TERMINAL_STATUSES:
                         _expire_unanswered_operator_question(it)
                     self._validate_no_dependency_cycles(items)
@@ -2849,7 +2849,7 @@ class Backlog:
                 item.last_error = str(reason)
                 if outcome is not None:
                     item.outcome = dict(outcome)
-                _park(item, "operator_question")
+                park_item(item, "operator_question")
             else:
                 item.status = "pending"
                 item.started_ts = None
