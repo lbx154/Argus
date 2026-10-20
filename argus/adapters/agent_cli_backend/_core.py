@@ -464,6 +464,10 @@ class AgentCliBackend:
             disable_tools=options.disable_tools,
             isolate_workdir=options.isolate_workdir,
             lean_tool_surface=getattr(options, "lean_tool_surface", False),
+            excluded_tools=tuple(getattr(options, "excluded_tools", ()) or ()),
+            disabled_mcp_servers=tuple(
+                getattr(options, "disabled_mcp_servers", ()) or ()
+            ),
             on_agent_message=options.on_agent_message,
         )
 

@@ -11,7 +11,7 @@ from pathlib import Path
 from typing import Any
 
 from ..core.event_catalog import EventType
-from ..core.models import RunnerOptions
+from ..core.models import READING_ROLE_UNUSED_COPILOT_TOOLS, RunnerOptions
 from ..core.ports import RunnerBackend
 from ..core.role_decision import (
     decision_footer_instruction,
@@ -265,6 +265,12 @@ class Planner:
             dangerous_yolo=False,
             full_auto=False,
             sandbox_mode="read-only",
+            # The global yolo policy lifts the read-only mode above, which
+            # would hand this call the CLI's whole tool surface. GitHub/web
+            # search and apply_patch stay: the contract sends the Planner to
+            # primary sources, and wiki upkeep edits pages.
+            lean_tool_surface=True,
+            excluded_tools=READING_ROLE_UNUSED_COPILOT_TOOLS,
             skip_git_repo_check=cfg.skip_git_repo_check,
             extra_args=list(cfg.extra_args) if cfg.extra_args else None,
             skill_paths=[

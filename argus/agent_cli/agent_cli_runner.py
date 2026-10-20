@@ -99,6 +99,8 @@ class RunnerOptions:
     isolate_workdir: bool = False
     # See ``argus.core.models.RunnerOptions.lean_tool_surface``.
     lean_tool_surface: bool = False
+    excluded_tools: tuple[str, ...] = ()
+    disabled_mcp_servers: tuple[str, ...] = ()
     skip_git_repo_check: bool = False
     # Enable codex's native live web_search tool (``-c web_search="live"``).
     live_search: bool = False

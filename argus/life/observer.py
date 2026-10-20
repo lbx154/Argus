@@ -10,7 +10,8 @@ Observer only watches whether the work flows.
 The Observer is that person as a role, on the same backends as the others.
 Whenever the Engineer, Reviewer or Planner ends a turn, and once whenever the
 team goes still, it reads how the task has flowed so far from ``events.jsonl``,
-with the Engineer's tools, in a fresh session each time. When all is well it
+with the Engineer's access and only the tools reading needs, in a fresh
+session each time. When all is well it
 says nothing and leaves no record of its own. A remark is one ``life.observer.note`` event for the
 Manager, who hears it through its supervision and decides what to do; with no
 Manager, or once the task is delivered, the operator gets it as an alert.
@@ -26,7 +27,7 @@ from pathlib import Path
 from typing import Any
 
 from ..core.event_catalog import EventType
-from ..core.models import RunnerOptions
+from ..core.models import READING_ROLE_UNUSED_COPILOT_TOOLS, RunnerOptions
 from ..core.run_gateway import run_exec
 
 LOG = logging.getLogger(__name__)
@@ -106,6 +107,11 @@ def look(backend: Any, *, root: Path, turns: list[dict[str, Any]], model: str) -
             working_dir=str(root), skip_git_repo_check=True,
             # The Engineer's access: full outside safe mode, full-auto inside it.
             full_auto=True,
+            # It only reads the event log: tools for writing, agents and
+            # GitHub/web search stay out of each fresh session's requests.
+            lean_tool_surface=True,
+            excluded_tools=(*READING_ROLE_UNUSED_COPILOT_TOOLS, "apply_patch"),
+            disabled_mcp_servers=("github-mcp-server",),
         ),
     )
     if int(getattr(result, "exit_code", 0) or 0) != 0 or getattr(result, "fatal_error", None):
