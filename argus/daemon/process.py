@@ -97,7 +97,10 @@ def _windows_daemon_command(config: Any) -> list[str]:
     """Re-enter the active package/binary as one foreground worker."""
     command = [sys.executable]
     if not getattr(sys, "frozen", False):
-        command.extend(["-m", "argus"])
+        # -P: the cwd is the project workdir, whose own ``argus/`` must not
+        # shadow the runtime. A flag, not PYTHONSAFEPATH, so agents never
+        # inherit it.
+        command.extend(["-P", "-m", "argus"])
     global_root = config.global_root or config.life_dir.parent.parent
     command.extend(
         [

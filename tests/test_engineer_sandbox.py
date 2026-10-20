@@ -346,10 +346,13 @@ def test_sandboxed_child_env_scrubs_vcs_creds(monkeypatch):
     monkeypatch.setenv("SSH_AUTH_SOCK", "/tmp/a.sock")
     monkeypatch.setenv("COPILOT_GITHUB_TOKEN", "copilot-secret")
     monkeypatch.setenv("PATH", "/usr/bin")  # a normal var survives
+    monkeypatch.delenv("PYTHONSAFEPATH", raising=False)
     env = sandbox.sandboxed_child_env()
     assert "GH_TOKEN" not in env and "GITHUB_TOKEN" not in env and "SSH_AUTH_SOCK" not in env
     assert "COPILOT_GITHUB_TOKEN" not in env
-    assert env["PYTHONSAFEPATH"] == "1"
+    # The agent's shell runs the project's own tests; safe-path breaks their
+    # subprocess imports, so it stays on Argus's own interpreters only.
+    assert "PYTHONSAFEPATH" not in env
     assert env["PATH"] == "/usr/bin"
 
 

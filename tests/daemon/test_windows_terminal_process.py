@@ -46,7 +46,7 @@ def test_source_windows_worker_uses_python_module(monkeypatch, tmp_path: Path) -
     monkeypatch.delattr(process.sys, "frozen", raising=False)
 
     command = process._windows_daemon_command(config)
-    assert command[:3] == ["python.exe", "-m", "argus"]
+    assert command[:4] == ["python.exe", "-P", "-m", "argus"]
     assert command[-6:] == [
         "--resume",
         "session-1",
