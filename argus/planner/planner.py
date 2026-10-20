@@ -196,6 +196,9 @@ class PlannerVerdict:
     # planning round.
     diagnostics: tuple[str, ...] = ()
     retire_tasks: tuple[tuple[str, str], ...] = ()
+    # Idle operator instructions (``SETTLE_INSTRUCTION=<revision>``) this
+    # decision handles; the host settles them only when it applies the decision.
+    settled_instructions: tuple[int, ...] = ()
 
 
 class Planner:
@@ -616,6 +619,7 @@ _GLOBAL_KEY_VALUE_KEYS = (
     "SUMMARY",
     "ADVANCE_TO_STAGE",
     "RETIRE_TASK",
+    "SETTLE_INSTRUCTION",
     "WAITING",
     "WAITING_REASON",
     "BLOCKER_FINGERPRINT",
@@ -688,20 +692,32 @@ OBJECTIVE_CONTINUATION_CHARS = 8000
 
 def _planner_key_values(
     text: str,
-) -> tuple[dict[str, str], list[dict[str, str]], tuple[tuple[str, str], ...]]:
-    """Parse global fields, repeated task blocks, and task retirements."""
+) -> tuple[
+    dict[str, str], list[dict[str, str]], tuple[tuple[str, str], ...], tuple[int, ...]
+]:
+    """Parse global fields, task blocks, task retirements and settled instructions."""
     from ..core.role_reply import decision_footer_text
 
     values: dict[str, str] = {}
     tasks: list[dict[str, str]] = []
     retire_tasks: list[tuple[str, str]] = []
+    settled_instructions: list[int] = []
     numbered_tasks: dict[str, dict[str, str]] = {}
     current_task: dict[str, str] | None = None
     # The objective a following non-field line extends, as (row, field).
     open_objective: tuple[dict[str, str], str] | None = None
+    in_plan_update = False
     for raw_line in decision_footer_text(text).splitlines():
         line = raw_line.strip().strip("`").strip()
         match = _KEY_VALUE_LINE.match(line)
+        if in_plan_update:
+            # A settle line written after the plan still belongs to the
+            # decision; nothing else in the plan is read as a field.
+            if match is not None and match.group("key").upper() == "SETTLE_INSTRUCTION":
+                settled_instructions.extend(
+                    _settled_instruction_revisions(match.group("value").strip())
+                )
+            continue
         if match is None:
             if open_objective is not None and not _OBJECTIVE_CONTINUATION_STOP.match(line):
                 row, field = open_objective
@@ -715,11 +731,15 @@ def _planner_key_values(
         # parsed separately with role_reply.read_block by the supervisor; no
         # heading or evidence line inside it may impersonate task metadata.
         if key == "PLAN_UPDATE":
-            break
+            in_plan_update = True
+            continue
         if key == "RETIRE_TASK":
             item_id, separator, reason = value.partition("|")
             if separator and item_id.strip() and reason.strip():
                 retire_tasks.append((item_id.strip(), reason.strip()))
+            continue
+        if key == "SETTLE_INSTRUCTION":
+            settled_instructions.extend(_settled_instruction_revisions(value))
             continue
         numbered_match = _NUMBERED_TASK_KEY.match(key)
         if numbered_match is not None:
@@ -747,7 +767,7 @@ def _planner_key_values(
     for row in tasks:
         if "TASK_OBJECTIVE" in row:
             row["TASK_OBJECTIVE"] = row["TASK_OBJECTIVE"].strip()
-    return values, tasks, tuple(retire_tasks)
+    return values, tasks, tuple(retire_tasks), tuple(dict.fromkeys(settled_instructions))
 
 
 def _key_value_bool(raw: str, default: bool = False) -> bool:
@@ -935,7 +955,14 @@ def _build_no_task_repair_prompt(
         "`WAIT_ID=<live subagent id>` for in-flight subagent work. Do not invent "
         "dependent tasks while waiting for that work.\n"
         "- Do not repeat the rejected launch slogan. Say what failed, why, and what "
-        "should happen next.\n\n"
+        "should happen next.\n"
+        + (
+            "- Repeat each `SETTLE_INSTRUCTION` line the corrected decision still "
+            "handles; an omitted one stays pending.\n"
+            if "settle_instruction" in previous_raw_text.casefold()
+            else ""
+        )
+        + "\n"
         "For authorized work, use a task footer instead of the waiting footer:\n"
         + decision_footer_instruction(
             "PROJECT_DONE=false\n"
@@ -953,6 +980,14 @@ def _build_no_task_repair_prompt(
     )
 def parse_planner_payload(payload: Mapping[str, Any]) -> PlannerVerdict:
     """Validate the structured Planner event without routing it through text."""
+    verdict = _parse_planner_payload_fields(payload)
+    settled = tuple(dict.fromkeys(_settled_instruction_revisions(
+        payload.get("settle_instructions") or payload.get("settle_instruction") or ()
+    )))
+    return replace(verdict, settled_instructions=settled) if settled else verdict
+
+
+def _parse_planner_payload_fields(payload: Mapping[str, Any]) -> PlannerVerdict:
     raw_text = json.dumps(dict(payload), ensure_ascii=False)
     diagnostics: list[str] = []
 
@@ -1227,8 +1262,47 @@ def parse_planner_text(text: str) -> PlannerVerdict:
     payload = _planner_payload_from_text(text)
     if payload is not None:
         return replace(parse_planner_payload(payload), raw_text=text)
-    values, task_rows, retire_tasks = _planner_key_values(text)
-    return _planner_verdict_from_fields(text, values, task_rows, retire_tasks)
+    values, task_rows, retire_tasks, settled = _planner_key_values(text)
+    verdict = _planner_verdict_from_fields(text, values, task_rows, retire_tasks)
+    return replace(verdict, settled_instructions=settled) if settled else verdict
+
+
+_SETTLE_LIST_WORDS = frozenset({"revision", "and", "&"})
+_SETTLE_SEPARATORS = re.compile(r"[|,;:#`]")
+
+
+def _revision_token(token: str) -> int | None:
+    stripped = token.rstrip(".")
+    return int(stripped) if stripped.isascii() and stripped.isdigit() else None
+
+
+def _settled_instruction_revisions(raw: Any) -> list[int]:
+    """Revisions a ``SETTLE_INSTRUCTION`` value (or payload list) names.
+
+    A value made only of revision numbers ("7", "7 9", "#7; 9", "Revision: 7
+    and 9") names all of them. Any other wording names only its leading
+    revision, so prose such as "7 is done, 9 is still open" can never settle 9.
+    """
+    items = raw if isinstance(raw, (list, tuple)) else [raw]
+    revisions: list[int] = []
+    for item in items:
+        if isinstance(item, (int, float)) and not isinstance(item, bool):
+            if float(item).is_integer() and item > 0:
+                revisions.append(int(item))
+            continue
+        tokens = _SETTLE_SEPARATORS.sub(" ", str(item or "")).split()
+        numbers = [_revision_token(token) for token in tokens]
+        if tokens and all(
+            number is not None or token.casefold() in _SETTLE_LIST_WORDS
+            for token, number in zip(tokens, numbers)
+        ):
+            revisions.extend(number for number in numbers if number)
+            continue
+        leading = next((token for token in tokens if token.casefold() != "revision"), "")
+        number = _revision_token(leading)
+        if number:
+            revisions.append(number)
+    return revisions
 
 
 def _planner_verdict_from_fields(

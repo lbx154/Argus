@@ -309,6 +309,7 @@ class PlanningCycleMixin(
             waiting=True,
             waiting_reason=reason,
             waiting_contract=contract,
+            settled_instructions=(),
         )
 
     def _independent_overlap_task(self, verdict: Any) -> Any | None:
@@ -1183,6 +1184,7 @@ class PlanningCycleMixin(
                 if state.operator_context_revision > 0:
                     OperatorContextStore(operator_context_state_root(self.memory)).acknowledge(
                         "planner", state.operator_context_revision,
+                        settle=state.operator_settlements(),
                     )
                 settle = getattr(self, "_settle_operator_inbox", None)
                 if callable(settle):

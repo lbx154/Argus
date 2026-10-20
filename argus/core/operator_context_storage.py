@@ -97,6 +97,20 @@ def validate_operator_delivery_state(state: dict[str, Any], revision: int) -> No
                 raise ValueError("operator delivery receipt does not match its stream")
 
 
+#: The binding of a bounded instruction recorded while no mission ran.
+NO_MISSION = "__no_mission__"
+
+
+def bounded_mission(mission_id: str, revision: int, bounded: dict[str, Any]) -> str:
+    """The mission a bounded instruction belongs to; idle input has none."""
+    return str(mission_id or bounded.get(str(revision)) or NO_MISSION)
+
+
+def settled_revisions(state: dict[str, Any]) -> set[int]:
+    """Idle bounded instructions the Planner declared handled."""
+    return {int(value) for value in state.get("settled_idle_bounded", [])}
+
+
 def preference_key(row: dict[str, Any]) -> str:
     roles = row.get("applies_to_roles", "all")
     normalized = "all" if roles == "all" else sorted(set(roles))
@@ -121,7 +135,7 @@ class ContextDocument:
                 heads[key] = max(int(heads.get(key, 0)), int(row["revision"]))
             if row.get("type") == "directive" and row.get("lifetime") == "bounded_increment":
                 revision = str(row["revision"])
-                bounded.setdefault(revision, str(row.get("mission_id") or "__no_mission__"))
+                bounded.setdefault(revision, str(row.get("mission_id") or NO_MISSION))
         self.state["preference_heads"] = heads
         self.state["bounded_missions"] = bounded
 
@@ -221,6 +235,11 @@ def read_document(
         if any(not 0 < int(value) <= doc.revision for value in doc.state.get("consumed_once", [])):
             raise ValueError("invalid consumed operator-context revision")
         if any(
+            type(value) is not int or not 0 < value <= doc.revision
+            for value in doc.state.get("settled_idle_bounded", [])
+        ):
+            raise ValueError("invalid settled operator-context revision")
+        if any(
             not 0 <= int(value) <= doc.revision
             for value in (doc.state.get("acknowledged_revisions") or {}).values()
         ):
@@ -240,6 +259,8 @@ def compact_document(doc: ContextDocument) -> None:
     revoked = {int(row["target_revision"]) for row in doc.records if row.get("type") == "revoke"}
     revoked.update(int(value) for value in doc.state.get("revoked", []))
     consumed = {int(value) for value in doc.state.get("consumed_once", [])}
+    settled = settled_revisions(doc.state)
+    bounded = doc.state["bounded_missions"]
     heads = doc.state["preference_heads"]
     kept = []
     for row in doc.records:
@@ -247,6 +268,13 @@ def compact_document(doc: ContextDocument) -> None:
         if row["type"] == "revoke" or revision in revoked:
             continue
         if row["type"] == "directive" and row.get("lifetime") == "once" and revision in consumed:
+            continue
+        if (
+            row["type"] == "directive"
+            and row.get("lifetime") == "bounded_increment"
+            and revision in settled
+            and bounded_mission(row.get("mission_id", ""), revision, bounded) == NO_MISSION
+        ):
             continue
         if row["type"] == "preference" and revision != int(heads[preference_key(row)]):
             continue
@@ -261,6 +289,10 @@ def compact_document(doc: ContextDocument) -> None:
     doc.state["consumed_once"] = sorted(
         value for value in consumed if value in retained or value > doc.revision
     )
+    if "settled_idle_bounded" in doc.state:
+        doc.state["settled_idle_bounded"] = sorted(
+            value for value in settled if value in retained
+        )
     doc.state["bounded_missions"] = {
         key: value
         for key, value in doc.state["bounded_missions"].items()

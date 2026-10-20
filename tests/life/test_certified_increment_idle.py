@@ -1324,3 +1324,177 @@ def test_project_report_attempts_are_counted_per_completion(campaign, monkeypatc
     context["stages"] = {"delivery": {}, "follow-up": {}}
     supervisor._manager_publish_project_report("accepted")
     assert len(calls) == PROJECT_REPORT_MODEL_ATTEMPTS + 1
+
+
+@pytest.mark.parametrize(
+    ("decision", "settles"),
+    [
+        ("commit-declared", True),
+        ("commit-undeclared", False),
+        ("commit-unoffered", False),
+        ("wait-declared", True),
+        ("error-declared", False),
+    ],
+)
+def test_idle_instruction_settles_only_when_applied_decision_declares_it(
+    campaign, monkeypatch, decision, settles,
+):
+    from argus.core.operator_context import OperatorContextStore, append_directive
+
+    supervisor = campaign.supervisor
+    store = OperatorContextStore(campaign.life)
+    instruction = "Evaluate the faster parser in the next increment."
+    idle = append_directive(
+        campaign.life, instruction, scope="mission", lifetime="bounded_increment",
+        expected_revision=store.revision,
+    )
+    monkeypatch.setattr(
+        LifeSupervisor, "_reconcile_open_ended_planner_waiting", lambda *_args: False,
+    )
+    monkeypatch.setattr(
+        LifeSupervisor, "_planner_turn_available_during_wait", lambda *_args: False,
+    )
+    declared = {
+        "commit-declared": (idle.revision,),
+        "commit-undeclared": (),
+        "commit-unoffered": (idle.revision + 100,),
+        "wait-declared": (idle.revision,),
+        "error-declared": (idle.revision,),
+    }[decision]
+    calls = []
+
+    def plan(_planner, **kwargs):
+        calls.append(kwargs["runtime_change_summary"])
+        if decision.startswith("wait"):
+            return PlannerVerdict(
+                project_done=False, reason="Wait for the parser result", waiting=True,
+                waiting_contract=WaitingContract(
+                    blocker_fingerprint="parser-result",
+                    recheck_condition="The parser result arrives",
+                    recheck_token="parser-result-1",
+                    wait_mode="event", wake_on=("filesystem",),
+                    watched_paths=("parser-result.txt",),
+                ),
+                settled_instructions=declared,
+            )
+        if decision.startswith("error"):
+            return PlannerVerdict(
+                project_done=False, reason="test failure", error="injected Planner failure",
+                settled_instructions=declared,
+            )
+        return PlannerVerdict(
+            project_done=False,
+            reason="Handle the new operator instruction",
+            new_tasks=[TaskSpec(
+                title="Evaluate faster parser", objective=instruction,
+                acceptance_check="Parser comparison is recorded.",
+            )],
+            settled_instructions=declared,
+        )
+
+    monkeypatch.setattr("argus.planner.Planner.plan_next", plan)
+    supervisor._plan_next_work()
+
+    assert f"revision {idle.revision}]: {instruction}" in calls[0]
+    assert "SETTLE_INSTRUCTION=N" in calls[0]
+    for item in supervisor.memory.backlog.active():
+        supervisor.memory.backlog.update(item.id, status="done")
+    visible = [
+        record.revision
+        for record in store.project("planner", consume_once=False).directives
+    ]
+    assert (idle.revision in visible) is not settles
+
+
+@pytest.mark.parametrize(
+    ("dropped_as", "settles"),
+    [("filtered", False), ("duplicate of finished work", False), ("duplicate of live work", True)],
+)
+def test_idle_instruction_settles_only_when_every_task_is_carried(
+    campaign, monkeypatch, dropped_as, settles,
+):
+    from argus.core.operator_context import OperatorContextStore, append_directive
+
+    supervisor = campaign.supervisor
+    build_pending = LifeSupervisor._pc_build_pending_items
+
+    def drop_first_task(self, state):
+        # Stand-in for a Host filter that keeps one proposed task out of the
+        # backlog; only a duplicate of live work still carries the instruction.
+        result = build_pending(self, state)
+        dropped, _item = state.pending_items[0]
+        state.pending_items = state.pending_items[1:]
+        if dropped_as.startswith("duplicate"):
+            state.skipped_duplicate_titles.append(dropped.title)
+        if dropped_as == "duplicate of live work":
+            state.skipped_live_duplicate_titles.append(dropped.title)
+        return result
+
+    monkeypatch.setattr(LifeSupervisor, "_pc_build_pending_items", drop_first_task)
+    store = OperatorContextStore(campaign.life)
+    idle = append_directive(
+        campaign.life, "Evaluate the faster parser next.", scope="mission",
+        lifetime="bounded_increment", expected_revision=store.revision,
+    )
+
+    def plan(_planner, **_kwargs):
+        return PlannerVerdict(
+            project_done=False,
+            reason="Handle the new operator instruction",
+            new_tasks=[
+                TaskSpec(
+                    title="Evaluate faster parser", objective="Compare both parsers.",
+                    acceptance_check="Parser comparison is recorded.",
+                ),
+                TaskSpec(
+                    title="Profile the loader", objective="Profile loader startup.",
+                    acceptance_check="Loader profile is recorded.",
+                ),
+            ],
+            settled_instructions=(idle.revision,),
+        )
+
+    monkeypatch.setattr("argus.planner.Planner.plan_next", plan)
+    assert supervisor._plan_next_work() is True
+
+    titles = [item.title for item in supervisor.memory.backlog.active()]
+    assert titles == ["Profile the loader"]
+    visible = [
+        record.revision
+        for record in store.project("planner", consume_once=False).directives
+    ]
+    assert (idle.revision in visible) is not settles
+
+
+def test_certified_handoff_carries_planner_settlements(campaign, monkeypatch):
+    from argus.core.operator_context import OperatorContextStore, append_directive
+
+    supervisor = campaign.supervisor
+    store = OperatorContextStore(campaign.life)
+    idle = append_directive(
+        campaign.life, "Report the certified result; do not start new work.",
+        scope="mission", lifetime="bounded_increment", expected_revision=store.revision,
+    )
+    calls = []
+
+    def plan(_planner, **kwargs):
+        calls.append(kwargs["runtime_change_summary"])
+        return PlannerVerdict(
+            project_done=False,
+            reason="The current final certification is accepted. Waiting for new explicit operator direction.",
+            waiting=True,
+            settled_instructions=(idle.revision,),
+        )
+
+    monkeypatch.setattr("argus.planner.Planner.plan_next", plan)
+    assert supervisor._plan_next_work() == PLAN_TERMINAL_IDLE
+
+    assert f"revision {idle.revision}]" in calls[0]
+    record = load_planner_verdict_outbox(campaign.life)
+    assert record["event"]["completion_kind"] == "certified_increment"
+    assert record["event"]["settled_operator_instructions"] == [idle.revision]
+    visible = [
+        record.revision
+        for record in store.project("planner", consume_once=False).directives
+    ]
+    assert idle.revision not in visible

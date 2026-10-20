@@ -426,6 +426,8 @@ class _PlanCycleState:
         self.inbox_delivery_messages: list[str] = []
         self.had_operator_messages = False
         self.operator_context_revision: int = 0
+        # Idle instructions this turn's prompt offered for SETTLE_INSTRUCTION.
+        self.settleable_operator_revisions: frozenset[int] = frozenset()
         self.has_unhandled_operator_input: bool = False
         self.revision_active_items: list[BacklogItem] = []
         self.revision_witness_active_item_ids: list[str] = []
@@ -463,6 +465,8 @@ class _PlanCycleState:
         self.added_titles: list[str] = []
         self.added_impact_scores: list[int] = []
         self.skipped_duplicate_titles: list[str] = []
+        # Duplicates of pending/running backlog work, which will still run.
+        self.skipped_live_duplicate_titles: list[str] = []
         # (title, reason) for tasks whose requested parallel_safe flag was
         # stripped during canonicalization. Collected here and reported only
         # for tasks that actually commit, so dedup-skipped proposals do not
@@ -477,6 +481,21 @@ class _PlanCycleState:
         self.new_plan_version: int = 1
         self.key_map: dict[str, str] = {}
         self.pending_items: list[tuple[Any, Any]] = []
+
+    def operator_settlements(self) -> frozenset[int]:
+        """Idle instructions this prompt offered and the decision declared handled.
+
+        Empty unless every proposed task was committed or duplicates pending or
+        running backlog work, so an instruction whose task was filtered, or
+        matched only finished work, stays visible.
+        """
+        verdict = self.verdict
+        if verdict is None:
+            return frozenset()
+        carried = len(self.added_titles) + len(self.skipped_live_duplicate_titles)
+        if carried != len(verdict.new_tasks):
+            return frozenset()
+        return self.settleable_operator_revisions.intersection(verdict.settled_instructions)
 
 
 __all__ = [

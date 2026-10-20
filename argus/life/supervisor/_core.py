@@ -1648,7 +1648,10 @@ class LifeSupervisor(
             from ...core.operator_context import OperatorContextStore, operator_context_state_root
 
             try:
-                OperatorContextStore(operator_context_state_root(self.memory)).acknowledge("planner", handled_revision)
+                OperatorContextStore(operator_context_state_root(self.memory)).acknowledge(
+                    "planner", handled_revision,
+                    settle=event.get("settled_operator_instructions") or (),
+                )
             except (OSError, ValueError):
                 log.exception("failed to checkpoint certified Planner handoff")
                 return False

@@ -11,7 +11,7 @@ from contextlib import contextmanager
 from dataclasses import asdict, dataclass, replace
 from datetime import datetime, timezone
 from pathlib import Path
-from typing import Any, Iterator, Literal, TypeAlias, cast
+from typing import Any, Iterable, Iterator, Literal, TypeAlias, cast
 
 from .file_lock import exclusive_file_lock
 from .operator_context_storage import (
@@ -19,13 +19,16 @@ from .operator_context_storage import (
     MAX_OPERATOR_DELIVERY_RECEIPTS,
     MAX_OPERATOR_DELIVERY_STREAMS,
     MAX_SOURCE_BYTES,
+    NO_MISSION as _NO_MISSION,
     ContextDocument,
+    bounded_mission,
     checkpoint_bytes,
     compact_document,
     encode,
     operator_delivery_identity,
     preference_key,
     read_document,
+    settled_revisions,
     write_checkpoint,
 )
 
@@ -54,7 +57,6 @@ _LIFETIMES = frozenset({"standing", "bounded_increment", "once"})
 _ROLES = frozenset({"manager", "planner", "engineer", "reviewer", "teammate"})
 _PREFERENCE_KINDS = frozenset({"autonomy", "interaction", "workflow"})
 _SCOPE_ORDER = {"global": 0, "project": 1, "mission": 2}
-_NO_MISSION = "__no_mission__"
 
 
 class OperatorContextUnavailable(RuntimeError):
@@ -176,6 +178,8 @@ class OperatorContextProjection:
     capabilities: tuple[CapabilityRecord, ...]
     global_revision: int = 0
     preference_sources: tuple[str, ...] = ()
+    #: Shown bounded instructions recorded while no mission ran.
+    idle_revisions: frozenset[int] = frozenset()
 
 
 @dataclass(frozen=True)
@@ -359,6 +363,10 @@ def _current_mission_id(root: Path) -> str:
     if active:
         return max(active, key=lambda item: float(item.started_ts or 0.0)).id
     return ""
+
+
+def _applies_to(applies: AppliesToRoles | str, role: str) -> bool:
+    return applies == "all" or role in applies
 
 
 def _standing_directive_key(
@@ -569,9 +577,21 @@ class OperatorContextStore:
         with self._locked():
             return int((self._load().state.get("acknowledged_revisions") or {}).get(role, 0))
 
-    def acknowledge(self, role: Role, revision: int) -> None:
+    def acknowledge(
+        self, role: Role, revision: int, *, settle: Iterable[int] = ()
+    ) -> tuple[int, ...]:
+        """Checkpoint the input ``role`` handled up to ``revision``.
+
+        ``settle`` names idle bounded instructions the Planner declared handled
+        in the decision being checkpointed. Only instructions that were idle,
+        Planner-visible and at or below ``revision`` settle; the settled
+        revisions are returned. Anything not declared stays visible.
+        """
         if role not in _ROLES:
             raise ValueError(f"unknown operator context role: {role}")
+        declared = {int(value) for value in settle}
+        if declared and role != "planner":
+            raise ValueError("only Planner settles idle bounded instructions")
         with self._locked():
             doc = self._load()
             if not 0 <= revision <= doc.revision:
@@ -586,10 +606,30 @@ class OperatorContextStore:
                 if row["type"] == "directive"
                 and row["lifetime"] == "once"
                 and int(row["revision"]) <= revision
-                and (row["applies_to_roles"] == "all" or role in row["applies_to_roles"])
+                and _applies_to(row["applies_to_roles"], role)
             )
             doc.state["consumed_once"] = sorted(consumed)
+            if not declared:
+                self._save(doc, checkpoint=True)
+                return ()
+            bounded = dict(doc.state.get("bounded_missions") or {})
+            settled = settled_revisions(doc.state)
+            pending = declared - settled
+            newly_settled = tuple(
+                int(row["revision"])
+                for row in doc.records
+                if int(row["revision"]) in pending
+                and int(row["revision"]) <= revision
+                and row["type"] == "directive"
+                and row["lifetime"] == "bounded_increment"
+                and _applies_to(row["applies_to_roles"], role)
+                and bounded_mission(row.get("mission_id", ""), int(row["revision"]), bounded)
+                == _NO_MISSION
+            )
+            if newly_settled:
+                doc.state["settled_idle_bounded"] = sorted(settled | set(newly_settled))
             self._save(doc, checkpoint=True)
+            return newly_settled
 
     def append(
         self,
@@ -742,11 +782,13 @@ class OperatorContextStore:
             revoked.update(int(value) for value in doc.state.get("revoked", []))
             consumed = {int(value) for value in doc.state.get("consumed_once", [])}
             bounded = dict(doc.state.get("bounded_missions") or {})
+            settled = settled_revisions(doc.state)
             heads = doc.state["preference_heads"]
             current_mission = (
                 str(mission_id).strip() or _current_mission_id(self.root) or _NO_MISSION
             )
             visible: list[OperatorRecord] = []
+            idle_revisions: set[int] = set()
             newly_consumed: list[int] = []
             for record in records:
                 if isinstance(record, RevokeRecord) or record.revision in revoked:
@@ -755,8 +797,7 @@ class OperatorContextStore:
                     not isinstance(record, PreferenceRecord) or record.scope != "global"
                 ):
                     continue
-                applies = getattr(record, "applies_to_roles", "all")
-                if applies != "all" and role not in applies:
+                if not _applies_to(getattr(record, "applies_to_roles", "all"), role):
                     continue
                 if isinstance(record, PreferenceRecord) and record.revision != int(
                     heads[preference_key(asdict(record))]
@@ -766,11 +807,15 @@ class OperatorContextStore:
                     if record.lifetime == "once" and record.revision in consumed:
                         continue
                     if record.lifetime == "bounded_increment":
-                        bound_to = record.mission_id or str(
-                            bounded.get(str(record.revision)) or _NO_MISSION
-                        )
+                        bound_to = bounded_mission(record.mission_id, record.revision, bounded)
                         if bound_to != current_mission:
                             continue
+                        if bound_to == _NO_MISSION:
+                            # Recorded while nothing ran; it lasts until the
+                            # Planner declares the increment that handles it.
+                            if record.revision in settled:
+                                continue
+                            idle_revisions.add(record.revision)
                     if record.lifetime == "once" and consume_once:
                         newly_consumed.append(record.revision)
                 visible.append(record)
@@ -816,6 +861,8 @@ class OperatorContextStore:
                 tuple(directives),
                 tuple(preferences.values()),
                 tuple(capabilities.values()),
+                # Bounded records are never deduplicated, so all are shown.
+                idle_revisions=frozenset(idle_revisions),
             )
 
     def project(
@@ -1227,11 +1274,56 @@ def build_operator_context_block(
     consume_once: bool = True,
     global_root: Path | str | None = None,
 ) -> tuple[str, int]:
+    text, revision, _offered = _render_operator_context_block(
+        role,
+        life_dir,
+        mission_id=mission_id,
+        live_turn=live_turn,
+        consume_once=consume_once,
+        global_root=global_root,
+        settleable=False,
+    )
+    return text, revision
+
+
+def build_settleable_planner_context_block(
+    life_dir: Path | str | None,
+    *,
+    live_turn: str = "",
+    global_root: Path | str | None = None,
+) -> tuple[str, int, frozenset[int]]:
+    """The continuous Planner's OperatorContext, for a turn whose footer is read back.
+
+    Idle bounded instructions are tagged with their revision, so the Planner can
+    declare them handled with ``SETTLE_INSTRUCTION``; the third value names the
+    revisions offered, the only ones the Host may then settle.
+    """
+    return _render_operator_context_block(
+        "planner",
+        life_dir,
+        live_turn=live_turn,
+        consume_once=False,
+        global_root=global_root,
+        settleable=True,
+    )
+
+
+def _render_operator_context_block(
+    role: Role,
+    life_dir: Path | str | None,
+    *,
+    mission_id: str = "",
+    live_turn: str = "",
+    consume_once: bool,
+    global_root: Path | str | None,
+    settleable: bool,
+) -> tuple[str, int, frozenset[int]]:
     if life_dir is None:
-        return "", 0
+        return "", 0, frozenset()
     projection = OperatorContextStore(life_dir, global_root=global_root).project(
         role, mission_id=mission_id, consume_once=consume_once
     )
+    offered = projection.idle_revisions if settleable else frozenset()
     lines = [
         "## OperatorContext",
         "Safety and correctness policy outrank every preference. This context may "
@@ -1244,6 +1336,14 @@ def build_operator_context_block(
         lines.append(f"- live turn (highest precedence): {live_turn.strip()}")
     if projection.directives:
         lines.append("## Operator steering (standing)")
+    if offered:
+        lines.append(
+            "Instructions tagged `revision N` were given while no work ran and belong "
+            "to the next increment. When your decision carries one out or deliberately "
+            "rules it out, add the footer line `SETTLE_INSTRUCTION=N` for it, before any "
+            "PLAN_UPDATE. It settles only once the Host applies that decision; otherwise "
+            "it stays here."
+        )
     for directive in projection.directives:
         flag = (
             "; standing-sounding answer: classify its durable scope"
@@ -1251,7 +1351,11 @@ def build_operator_context_block(
             else ""
         )
         # The Manager sees the revision so "取消"/"cancel that" can name it.
-        revision = f"; revision {directive.revision}" if role == "manager" else ""
+        revision = (
+            f"; revision {directive.revision}"
+            if role == "manager" or directive.revision in offered
+            else ""
+        )
         lines.append(f"- directive [{directive.scope}{revision}{flag}]: {directive.text}")
     if role in {"planner", "engineer", "teammate"}:
         from ..manager.directive import load_active_manager_directive
@@ -1332,7 +1436,7 @@ def build_operator_context_block(
             f"operator_context_revision={projection.revision}",
         )
     )
-    return "\n".join(lines), projection.revision
+    return "\n".join(lines), projection.revision, offered
 
 
 def append_operator_context(prompt: str, operator_context: str) -> str:
@@ -1385,6 +1489,7 @@ __all__ = [
     "append_revoke",
     "apply_operator_delivery",
     "build_operator_context_block",
+    "build_settleable_planner_context_block",
     "close_operator_delivery_prefix",
     "freeze_operator_intake",
     "import_deterministic_credential",

@@ -789,6 +789,11 @@ class PlanningCycleEnqueueMixin:
                     if self._terminal_blocker_is_dedupable(duplicate_item)
                     else "duplicate pending/running task"
                 )
+                if (
+                    duplicate_reason == "duplicate pending/running task"
+                    and duplicate_item.status in {"pending", "running"}
+                ):
+                    state.skipped_live_duplicate_titles.append(task.title)
                 _record_filtered_task(
                     state,
                     title=task.title,

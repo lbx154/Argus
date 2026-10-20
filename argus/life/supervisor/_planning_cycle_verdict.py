@@ -468,6 +468,9 @@ class PlanningCycleVerdictMixin:
                     "overlap work instead of idling"
                 ),
                 new_tasks=[overlap_task],
+                # The Host chose this work, so the Planner's settlements no
+                # longer describe the decision being applied.
+                settled_instructions=(),
             )
             self._emit(
                 {

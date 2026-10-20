@@ -1240,3 +1240,61 @@ def test_open_operator_question_with_unchanged_inputs_never_regrants_on_age(
     )
     assert supervisor._plan_next_work() == PLAN_AWAITING
     assert calls == 3
+
+
+def test_host_rewritten_wait_drops_planner_settlements() -> None:
+    probe = _NormalizationProbe([_direct_job()])
+    verdict = PlannerVerdict(
+        project_done=False,
+        reason="check it",
+        new_tasks=[
+            TaskSpec(
+                title="Observe live data build",
+                objective=(
+                    "Run python -m argus.tools.subagent status "
+                    "--task-id data-build. If it remains live, stop."
+                ),
+            )
+        ],
+        settled_instructions=(4,),
+    )
+
+    normalized = probe._normalize_live_subagent_wait(verdict)
+
+    assert normalized.waiting is True
+    assert normalized.settled_instructions == ()
+
+
+def test_host_overlap_task_drops_planner_settlements() -> None:
+    from argus.life.supervisor._planning_cycle_helpers import _PlanCycleState
+    from argus.life.supervisor._planning_cycle_verdict import PlanningCycleVerdictMixin
+
+    overlap = TaskSpec(title="Advance independent work", objective="Independent work.")
+
+    class _OverlapProbe(PlanningCycleVerdictMixin):
+        _planning_cycles = 1
+
+        def __init__(self) -> None:
+            self.events: list[dict] = []
+
+        def _emit(self, event: dict) -> None:
+            self.events.append(event)
+
+        def _normalize_live_subagent_wait(self, verdict):
+            return verdict
+
+        def _defer_project_done_for_operator_external_blocker(self, verdict):
+            return verdict
+
+        def _independent_overlap_task(self, _verdict):
+            return overlap
+
+    state = _PlanCycleState(None)
+    state.verdict = PlannerVerdict(
+        project_done=False, reason="wait for the job", waiting=True,
+        settled_instructions=(4,),
+    )
+
+    assert _OverlapProbe()._pc_normalize_verdict(state) is None
+    assert state.verdict.new_tasks == [overlap]
+    assert state.verdict.settled_instructions == ()

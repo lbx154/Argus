@@ -587,6 +587,7 @@ class PlanningContextMixin:
             waiting_reason=wait_reason,
             reason=wait_reason,
             new_tasks=[],
+            settled_instructions=(),
         )
 
     def _manager_intent_context(self) -> dict[str, Any]:
