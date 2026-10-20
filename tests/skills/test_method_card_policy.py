@@ -4,10 +4,10 @@ One project shipped a method the Engineer had defined in passing, implemented
 in a simplified form, covered with outcome-shaped tests, and had certified by a
 read-only Reviewer from the Engineer's own account. These tests pin the
 prompt fragments, the skill documents and the templates that make the method
-statement, the reference clone and the host-run spec suite the first work of
+statement, the reference clone and the spec suite the first work of
 Experiment, and the Reviewer's first reading. The card is written once; its
-volatile half (status, reused code, hyperparameters, history) is derived by
-the host, so no fragment may ask for hand-maintained tables.
+volatile half (tests per component, reused code, hyperparameters, history) is
+derived by the host, so no fragment may ask for hand-maintained tables.
 """
 from __future__ import annotations
 
@@ -43,7 +43,8 @@ def test_engineer_experiment_fragment_orders_card_reference_and_spec_first() -> 
     assert "one function per equation" in text
     assert "one knockout per component" in text
     assert "claim-shaped tests" in text
-    assert "host runs tests/spec after every round" in text
+    assert "Run tests/spec yourself when needed; put the command and result in your evidence" in text
+    assert "host runs tests/spec" not in text
     assert "write METHOD.md once" in text
     assert "@pytest.mark.component" in text
     assert "'# why: ...'" in text
@@ -82,11 +83,10 @@ def test_reviewer_experiment_fragment_reads_the_card_before_the_account() -> Non
         assert verdict in text
     assert "file:line" in text
     assert "unexplained-skip" in text
-    assert "collected last round but missing now" in text
-    assert "Do not ask for tools or re-run anything yourself" in text
-    assert "derived method-card status" in text
-    for status in ("proven", "contradicted", "partial", "untested", "unchecked"):
-        assert status in text
+    assert "Where your tools allow, run tests/spec yourself" in text
+    assert "re-run anything yourself" not in text
+    for status in ("proven", "unchecked", "collected last round"):
+        assert status not in text
     assert "hyperparameter change without a '# why'" in text
     assert "hyperparameter table" not in text
     assert "## Method card first" not in _fragment("reviewer", "paper", operation="evaluate")
@@ -113,7 +113,7 @@ def test_reviewer_context_carries_the_derived_card_when_a_project_root_is_given(
     for stage in ("experiment", "review"):
         text = context(stage, tmp_path)
         assert "## Method card, derived by the host" in text, stage
-        assert "- gate: untested" in text, stage
+        assert "no test carries its marker: gate" in text, stage
         assert "not a gate" in text, stage
     assert "## Method card, derived by the host" not in context("paper", tmp_path)
     # The static fragment stays static: the derived text lives in the per-round context only.
@@ -248,7 +248,7 @@ def test_spec_templates_are_collectable_with_todo_tests_skipped(tmp_path: Path) 
     assert "skipped" in summary or "passed" in summary, summary
     assert "PytestUnknownMarkWarning" not in proc.stdout + proc.stderr
     # The conftest hook recorded every marker under pytest's rootdir for the
-    # host to join with its run.
+    # host to join with the card.
     written = sorted(tmp_path.rglob("spec_components.json"))
     assert len(written) == 1 and written[0].parent.name == ".argus", written
     recorded = json.loads(written[0].read_text(encoding="utf-8"))

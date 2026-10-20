@@ -655,7 +655,7 @@
     "summary": "在 METHOD.md 中写清方法、组件、协议和证伪条件；以钉版参考实现为底把方法写成 diff；先写 tests/spec 再跑承载论断的实验；用代码锚点让不在场的审阅者找到机制；规划者据此写实现简报。",
     "originalName": "Method card (METHOD.md), executable spec and review anchors",
     "source": "argus/verticals/research/skills/engineer/method-card.md",
-    "sourceBytes": 20533
+    "sourceBytes": 20082
   },
   "vertical/research/engineer/novelty-check.md": {
     "title": "检验研究想法的新意",
@@ -746,7 +746,7 @@
     "summary": "忠实实现已选想法，先跑通一个小而完整、记录了耗时与算力的闭环，再通过适应性实验形成足以支撑论文的证据；经独立审核的阶段成果可以先作为阶段包交付。",
     "originalName": "Developing an idea through experiments",
     "source": "argus/verticals/research/skills/research-experiment-playbook.md",
-    "sourceBytes": 34531
+    "sourceBytes": 34434
   },
   "vertical/research/research-idea-playbook.md": {
     "title": "寻找并选择研究想法",
@@ -781,14 +781,14 @@
     "summary": "沿配置和执行路径核对公式、比较条件与观测，判断研究声明是否对应实际产生证据的代码。",
     "originalName": "Claim-to-Code Trace",
     "source": "argus/verticals/research/skills/reviewer/claim-to-code-trace.md",
-    "sourceBytes": 2062
+    "sourceBytes": 1996
   },
   "vertical/research/reviewer/experiment-results-review.md": {
     "title": "判断实验真正说明了什么",
     "summary": "亲自读代码、配置、评测器和原始行，判断证据对当前声明的支持与缺口；低于基线的结果在阶梯未走完前是修复请求；训练类实验另核对基础设施决策记录。",
     "originalName": "What the experiments establish",
     "source": "argus/verticals/research/skills/reviewer/experiment-results-review.md",
-    "sourceBytes": 10435
+    "sourceBytes": 10424
   },
   "vertical/research/reviewer/strongest-argument-against.md": {
     "title": "寻找最有力的科学反对意见",

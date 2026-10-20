@@ -31,6 +31,12 @@ from ...skills.evidence_chain import (
 )
 
 # ---------------------------------------------------------------------------
+# The host's log of the Engineer's round registers its round-evidence provider
+# on import.
+# ---------------------------------------------------------------------------
+from . import round_log  # noqa: F401
+
+# ---------------------------------------------------------------------------
 # Shared review-contract constants / helpers
 # ---------------------------------------------------------------------------
 from ._review_contract_constants import (
@@ -96,15 +102,6 @@ from .stages import (
     WORKFLOW_MODE,
     stage_completion_issues,
 )
-
-# ---------------------------------------------------------------------------
-# Host-run spec checks register their round-evidence provider on import; the
-# package still imports while the module is absent (it is optional evidence).
-# ---------------------------------------------------------------------------
-try:
-    from . import spec_checks  # noqa: F401
-except ImportError:  # pragma: no cover - the provider is optional
-    pass
 
 __all__ = [
     # mission_brief

@@ -424,12 +424,11 @@ before method code. It holds the one-paragraph statement, a `Components`
 table (`Component | The idea prescribes | Notes`: the route quoted, and a
 note only for a deliberate simplification), the `Protocol` copied from the
 route with every deviation named, and what would falsify the claim. It is
-touched again only when the method itself changes. Implementation status
-per component, the tests that prove it, reused code with pinned revisions,
-hyperparameters with their `# why:` reasons, and the change history are not
-written by hand: the host derives them from the code, the
-`@pytest.mark.component` markers on `tests/spec`, the config files and git,
-and shows them beside the card in Atlas and to the Reviewer. It is a work
+touched again only when the method itself changes. The tests behind each
+component, reused code with pinned revisions, hyperparameters with their
+`# why:` reasons, and the change history are not written by hand: the host
+derives them from the code, the `@pytest.mark.component` markers on
+`tests/spec`, the config files and git, and shows them beside the card in Atlas and to the Reviewer. It is a work
 product shown to human readers, the one named exception to the rule against
 extra files; the Reviewer reads it before the code and before the Engineer's
 account. `engineer/method-card.md` gives the procedure and, in its last
@@ -437,9 +436,9 @@ section, the body.
 
 ## Executable spec
 
-`tests/spec` is what the method must do, in code the host runs after every
-round without a model and shows to the Reviewer and the Engineer as Raw
-verification evidence. It is written before the first claim-bearing run:
+`tests/spec` is what the method must do, in code that runs without a model;
+whoever needs its result runs it and puts the command and result in their
+evidence. It is written before the first claim-bearing run:
 an oracle transcribed from the route's equations (slow, `float64`, one
 function per equation), differential tests of the implementation against
 the oracle and against the `third_party/` reference, one knockout per
@@ -448,8 +447,7 @@ output must change), and claim-shaped tests for complexity, memory and
 throughput claims, each tagged with the component it exercises.
 Outcome-shaped tests that assert the headline number prove nothing and do
 not belong here. Nothing blocks on the result; a
-failing test, an unexplained skip, or a test that was collected last round
-and is missing now is a repair the Reviewer names. Templates and the
+failing test or an unexplained skip is a repair the Reviewer names. Templates and the
 procedure are in `engineer/method-card.md`.
 
 ## When the evidence is ready for Paper

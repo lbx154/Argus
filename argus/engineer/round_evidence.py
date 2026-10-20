@@ -1,7 +1,7 @@
 """Vertical-blind registry for host-gathered evidence after an Engineer round.
 
 After the Engineer's turn the host may observe the project without spending a
-model token -- run the project's own checks, measure an artifact, diff a
+model token -- render the round's command log, measure an artifact, diff a
 config. What it observes is *evidence*: it is rendered into the Reviewer's
 raw-evidence slot and summarised for the next Engineer round. Nothing here
 blocks a stage, admits or rejects a task, or overrides a role's judgment.
@@ -16,8 +16,7 @@ wall-clock budget is the provider's own job -- it knows what it is running.
 
 Each provider owns a small opaque ``state`` dict that the host stores between
 rounds and hands back on the next request (``previous_state``), so a provider
-can compare this round with the last one -- for example, name the tests that
-were collected last round but are not collected now.
+can compare this round with the last one.
 """
 from __future__ import annotations
 

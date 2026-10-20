@@ -349,7 +349,7 @@ def _method_card_engineer_block(stage: str, operation: str) -> str:
     One project shipped a simplified method that the Engineer had defined in
     passing, tested with outcome-shaped tests, and had certified from its own
     account. The card fixes the statement, the reference fixes the baseline,
-    and the host-run spec gives the Reviewer evidence nobody wrote for it.
+    and the spec states in runnable code what the method must do.
     """
     scientific_revision = stage == "review" and operation != "narrative_edit"
     if stage != "experiment" and not scientific_revision:
@@ -368,10 +368,10 @@ def _method_card_engineer_block(stage: str, operation: str) -> str:
         "@pytest.mark.component('<name as in the card>'). Put '# @component <name>' "
         "above each component entry point, '# @simplified' and '# @reuses' likewise "
         "(all in engineer/method-card.md); the host builds the Reviewer's packet from "
-        "these anchors. The host runs tests/spec after every round "
-        "and derives status, reused code, hyperparameters and history from code, "
-        "markers, configs and git: maintain no tables by hand; write '# why: ...' "
-        "beside each chosen config value; edit METHOD.md only when the method changes. "
+        "these anchors and derives the rest from code, markers, configs and git: maintain "
+        "no tables by hand; write '# why: ...' beside each chosen config value; edit "
+        "METHOD.md only when the method changes. Run tests/spec yourself when needed; put "
+        "the command and result in your evidence. "
         "Stand-ins (mock model, fake environment, oracle policy, synthetic data where "
         "the route names real data) belong in tests/spec only: a claim-bearing run "
         "exercises the real system the route names; if it cannot run here, name the "
@@ -396,16 +396,15 @@ def _method_card_reviewer_block(stage: str) -> str:
         "question: which clauses do these numbers meet. A stated value the host resolves differently, "
         "a run shorter than its protocol allows, or a metric named differently from the protocol's "
         "is where you open the script; a metric on which every method scores the same separates nothing. Then the review packet "
-        "(anchors, tests, config changes, files changed, Run "
-        "reality), METHOD.md, the derived method-card status in Raw verification evidence "
-        "(proven, contradicted, partial, untested, unchecked; reused code; hyperparameter "
-        "changes), tests/spec, code, and the Engineer's account last. Per component report MATCHES, CONTRADICTS, NOT_IMPLEMENTED or "
+        "(anchors, tests per component, config changes, files changed, Run "
+        "reality; reused code; hyperparameter changes), METHOD.md, the runs in Raw "
+        "verification evidence, tests/spec, code, and the Engineer's account last. Per component report MATCHES, CONTRADICTS, NOT_IMPLEMENTED or "
         "INSUFFICIENT_EVIDENCE with file:line. "
         "Required repairs, returned as continue naming the smallest fix: a component "
         "without a '# @component' anchor or a knockout that fails in its absence, an "
-        "untested or contradicted component, a failing or unexplained-skip test, tests "
-        "collected last round but missing now, a hyperparameter change without a "
-        "'# why' or a card note, code that contradicts the card. Narrowing the METHOD.md "
+        "untested component, a failing or unexplained-skip test, a hyperparameter "
+        "change without a '# why' or a card note, code that contradicts the card. "
+        "Narrowing the METHOD.md "
         "claim is claim drift; it, or a negative result while a named ladder rung could "
         "still change it, is a repair request, whatever the attempt count. A "
         "result produced through a stand-in listed under Run reality is "
@@ -415,7 +414,8 @@ def _method_card_reviewer_block(stage: str) -> str:
         "Do not re-read "
         "what the packet already shows; ask at most two questions, each answered by a "
         "file or a number. A path outside the workspace in the host log (another venv or "
-        "project) is a reproducibility question to raise. Do not ask for tools or re-run anything yourself."
+        "project) is a reproducibility question to raise. Where your tools allow, run "
+        "tests/spec yourself when its result matters; put the command and result in your evidence."
     )
 
 
@@ -881,7 +881,7 @@ def _attainment_block_for_planner(stage: str, project_root: Path | None) -> str:
 
 
 def _derived_method_card_for_reviewer(stage: str, project_root: Path | None) -> str:
-    """Host-derived component status, reused code and hyperparameter changes.
+    """Host-derived component tests, reused code and hyperparameter changes.
 
     Evidence for the Reviewer's reading order, not a gate; '' when the project
     has no METHOD.md or the derivation fails for any reason.
@@ -916,7 +916,7 @@ def render_role_prompt_context(
     if normalized_role == "reviewer":
         if normalized_operation != "evaluate":
             return ""
-        # The review packet: the host-derived method card (component status,
+        # The review packet: the host-derived method card (component tests,
         # code anchors, files changed this round). Capped here as well as at
         # its source so a longer derivation can never crowd the Reviewer's
         # own evidence out of the prompt.

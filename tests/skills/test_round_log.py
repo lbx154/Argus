@@ -20,7 +20,6 @@ from pathlib import Path
 from argus.core.command_record import CommandCapture
 from argus.engineer.round_evidence import RoundEvidenceRequest
 from argus.verticals.research import round_log as mod
-from argus.verticals.research import spec_checks
 
 T0 = 1_800_000_000.0
 PYTEST = "cd /app && PYTHONPATH=/app/src:/app/lib timeout 900 /app/.venv/bin/python -m pytest tests/test_outputs.py -q"
@@ -191,14 +190,14 @@ def test_a_shadow_log_beside_the_mission_packet_is_never_read(tmp_path: Path) ->
         events_path=project / "events.jsonl",
     )
 
-    evidence = spec_checks.round_log_evidence(request)
+    evidence = mod.round_log_evidence(request)
 
     assert evidence is not None
     assert "7 passed in 0.2s" not in evidence.reviewer_text
     assert "1 failed, 6 passed" in evidence.reviewer_text
     # Without the host's own log path, the provider reads nothing at all.
     request = RoundEvidenceRequest(workdir=tmp_path / "ws", life_dir=life_dir, round_index=1)
-    assert spec_checks.round_log_evidence(request) is None
+    assert mod.round_log_evidence(request) is None
 
 
 def test_a_second_result_for_the_same_call_is_shown_as_a_conflict(tmp_path: Path) -> None:
@@ -296,7 +295,7 @@ def test_provider_reads_host_memory_from_the_request(tmp_path: Path) -> None:
         workdir=tmp_path, life_dir=tmp_path / "x", round_index=3, command_runs=tuple(capture.runs()),
     )
 
-    evidence = spec_checks.round_log_evidence(request)
+    evidence = mod.round_log_evidence(request)
 
     assert evidence is not None and evidence.engineer_note == ""
     assert "run_positive_control.py" in evidence.reviewer_text and "ran ≤57 s" in evidence.reviewer_text
@@ -306,13 +305,11 @@ def test_provider_reads_host_memory_from_the_request(tmp_path: Path) -> None:
 def test_provider_is_silent_without_a_round(tmp_path: Path) -> None:
     events = _write_events(tmp_path / "events.jsonl", [_event(1.0, "command_execution", "echo hi")])
     request = RoundEvidenceRequest(workdir=tmp_path, life_dir=tmp_path, round_index=1, events_path=events)
-    assert spec_checks.round_log_evidence(request) is None  # no round.start or mission start to anchor the window
+    assert mod.round_log_evidence(request) is None  # no round.start or mission start to anchor the window
 
 
-def test_the_research_vertical_registers_the_provider_and_the_renderer_knows_no_higher_layer() -> None:
+def test_the_research_vertical_registers_the_provider() -> None:
     import argus.verticals.research  # noqa: F401 - importing the vertical registers its providers
     from argus.engineer.round_evidence import registered_round_evidence_providers
 
-    assert spec_checks.round_log_evidence in registered_round_evidence_providers()
-    source = Path(mod.__file__).read_text(encoding="utf-8")
-    assert "engineer.round_evidence" not in source and "register_round_evidence_provider" not in source
+    assert mod.round_log_evidence in registered_round_evidence_providers()
