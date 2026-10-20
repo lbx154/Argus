@@ -250,8 +250,8 @@ def _manager_message(
     ``/message``) keeps the whole exchange synchronous.
 
     ``route_override`` lets the operator explicitly mark Chat or Task. Task
-    still passes through classification so conversation stays inline and
-    finite work can use one worker with a vertical. Chat skips classification.
+    still passes through classification so conversation stays inline, and
+    work goes to the team rather than one worker. Chat skips classification.
     Explicit Chat also bypasses automatic pending-answer interpretation and
     task replay; the dedicated answer/decision endpoints remain authoritative.
 
