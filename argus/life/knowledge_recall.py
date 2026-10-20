@@ -812,12 +812,14 @@ def knowledge_read_dirs(state: Path | None, global_root: Path | None, workspace:
     """The directories recall can point a role at outside its workspace.
 
     A sandboxed backend reads only its workspace and the directories it is
-    given, so a role that is shown recall's pointers is given these.
+    given, so a role that is shown recall's pointers is given these. The
+    operator's private memory is recalled but never handed to a backend.
     """
     if state is None:
         return []
     inside = Path(workspace).absolute() if workspace is not None else None
-    libraries = {(root.library or root.path).absolute() for root in knowledge_roots(state, global_root, workspace)}
+    libraries = {(root.library or root.path).absolute()
+                 for root in knowledge_roots(state, global_root, workspace) if root.scope != "private"}
     found: list[Path] = []
     for library in sorted(libraries, key=lambda path: (len(path.parts), str(path))):
         if (library.is_dir() and not any(library.is_relative_to(path) for path in found)

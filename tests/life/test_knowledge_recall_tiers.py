@@ -213,6 +213,7 @@ def test_a_role_is_given_the_directories_recall_points_at_outside_its_workspace(
     write(earlier_state / "skills" / "engineer" / "old.md", "---\nname: old\ndescription: d\n---\n")
     write(tenant / "skills" / "_shared_verticals" / VERTICAL / "engineer" / "shared.md", "shared\n")
     write(shared_vertical_wiki_root(OTHER_VERTICAL, tenant) / "pages" / "lesson.md", page("L", "d", "quartz"))
+    write(tenant / "operator" / "profile.md", "---\ntitle: Me\ndescription: d\n---\n")
 
     dirs = knowledge_read_dirs(state, tenant, workspace)
 
@@ -222,7 +223,7 @@ def test_a_role_is_given_the_directories_recall_points_at_outside_its_workspace(
         str(earlier / ".autors" / "earlier" / "wiki"),
         str(earlier / ".agents" / "skills"),
         str(earlier_state / "skills" / "engineer"),
-    }
+    }, "the operator's private memory is recalled, never handed to a backend"
     assert knowledge_read_dirs(None, tenant, workspace) == []
 
 
