@@ -608,20 +608,6 @@ def _data_lines(project_root: Path) -> list[str]:
     return lines
 
 
-def _gpu_line() -> str:
-    try:
-        from .prompt_policy import _query_local_gpus
-
-        gpus = _query_local_gpus()
-    except Exception:  # noqa: BLE001
-        return ""
-    if not gpus:
-        return ""
-    return "- GPUs: " + "; ".join(
-        f"{index} {name} {total:.0f} GB ({used:.0f} GB used)" for index, name, total, used in gpus
-    )
-
-
 MODEL_CACHE_ENTRIES = 8
 
 
@@ -678,7 +664,6 @@ def _environment_section(project_root: Path, card: dict[str, Any]) -> list[str]:
         _skill_scripts_line,
         lambda: _packages_line(project_root, card),
         lambda: _clones_line(project_root, card),
-        _gpu_line,
         _model_cache_line,
     ):
         try:

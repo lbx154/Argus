@@ -411,7 +411,7 @@ def render_reviewer_prompt(
                 else ChecklistMode.AUTO
             ),
             operation=operation,
-            # The vertical's live facts (research notes, GPU memory in use)
+            # The vertical's live facts (the research notes)
             # belong to the round delta, never to the fingerprinted static.
             include_role_context=operation == EVALUATE,
         )

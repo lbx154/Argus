@@ -256,27 +256,10 @@ def test_manager_assembly_leads_with_the_vertical_banner() -> None:
     )
 
 
-# --- Research vertical: static inventory vs. live facts ---------------------
+# --- Research vertical: static policy vs. live notes ------------------------
 
 
-def test_gpu_inventory_is_static_while_memory_in_use_is_live(monkeypatch) -> None:
-    readings = [[("0", "NVIDIA RTX A6000", 45.0, 1.0)]]
-    monkeypatch.setattr(prompt_policy, "_query_local_gpus", lambda: readings[0])
-    first_static = prompt_policy.local_hardware_block()
-    first_live = prompt_policy.local_hardware_usage_block()
-    readings[0] = [("0", "NVIDIA RTX A6000", 45.0, 30.0)]
-    second_static = prompt_policy.local_hardware_block()
-    second_live = prompt_policy.local_hardware_usage_block()
-
-    assert first_static == second_static
-    assert "- GPU 0: NVIDIA RTX A6000, 45 GB memory" in first_static
-    assert "GB free" not in first_static
-    assert "- GPU 0: 44 GB free, 1 GB in use by running jobs" in first_live
-    assert "- GPU 0: 15 GB free, 30 GB in use by running jobs" in second_live
-
-
-def test_research_fragment_is_static_and_the_context_carries_notes_and_usage(monkeypatch, tmp_path) -> None:
-    monkeypatch.setattr(prompt_policy, "_query_local_gpus", lambda: [("0", "NVIDIA RTX A6000", 45.0, 1.0)])
+def test_research_fragment_is_static_and_the_context_carries_notes(tmp_path) -> None:
     notes = tmp_path / "RESEARCH_NOTES.md"
     notes.write_text("# Research notes\nround one findings\n", encoding="utf-8")
     roles = (("planner", "continuous"), ("engineer", "mission"), ("manager", "stage_decision"))
@@ -291,11 +274,7 @@ def test_research_fragment_is_static_and_the_context_carries_notes_and_usage(mon
         )
         fragments[role] = fragment
         assert "round one findings" not in fragment, role
-        assert "GB free" not in fragment, role
         assert "round one findings" in context, role
-        if role != "manager":
-            assert "## Compute available on this machine" in fragment, role
-            assert "1 GB in use by running jobs" in context, role
 
     notes.write_text("# Research notes\nround two findings\n", encoding="utf-8")
     for role, operation in roles:
@@ -304,11 +283,10 @@ def test_research_fragment_is_static_and_the_context_carries_notes_and_usage(mon
         ) == fragments[role], role
 
 
-def test_engineer_round_carries_the_research_notes_after_the_static_prompt(monkeypatch, tmp_path) -> None:
+def test_engineer_round_carries_the_research_notes_after_the_static_prompt(tmp_path) -> None:
     from argus.engineer.round_prompt import RoundPromptMixin
 
     persist_vertical(tmp_path, "research")
-    monkeypatch.setattr(prompt_policy, "_query_local_gpus", lambda: [])
     (tmp_path / "RESEARCH_NOTES.md").write_text("# Research notes\nlive findings\n", encoding="utf-8")
     mixin = RoundPromptMixin()
     mixin.engineer_config = SimpleNamespace(vertical_state_root=tmp_path)
