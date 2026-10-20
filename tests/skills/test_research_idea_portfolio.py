@@ -580,32 +580,9 @@ def test_direct_nonpaper_research_still_requires_idea_playbook(
     assert required == ["research-idea-playbook.md"]
 
 
-def test_routes_grounded_by_arxiv_doi_or_fetched_sources_are_valid(tmp_path: Path) -> None:
-    """Three finished routes cited arXiv ids and `.argus/sources/` texts and no
-    URL; the URL-only check reopened all six tasks (2026-09-16 04:02)."""
-    from argus.verticals.research.idea_portfolio import _route_output_present
-
-    task = {"owns_paths": ["routes/r.md"]}
-    route = tmp_path / "routes" / "r.md"
-    route.parent.mkdir(parents=True)
-    for text in (
-        "Avron et al. (ICML 2014 / arXiv:1412.8293): QMC feature maps.",
-        "See doi 10.1137/22M1466244 for the SISC version.",
-        "Primary source: https://arxiv.org/abs/1506.02785",
-    ):
-        route.write_text(text, encoding="utf-8")
-        assert _route_output_present(tmp_path, task), text
-    (tmp_path / ".argus" / "sources").mkdir(parents=True)
-    (tmp_path / ".argus" / "sources" / "abc123.txt").write_text("fetched", encoding="utf-8")
-    route.write_text("Source: `.argus/sources/abc123.txt` (fetched 2026-09-16).", encoding="utf-8")
-    assert _route_output_present(tmp_path, task)
-    route.write_text("Source: `.argus/sources/missing.txt`.", encoding="utf-8")
-    assert not _route_output_present(tmp_path, task)
-    route.write_text("A mechanism with no sources at all.", encoding="utf-8")
-    assert not _route_output_present(tmp_path, task)
-
-
-def test_reopened_portfolio_tasks_say_why(tmp_path: Path) -> None:
+def test_a_finished_route_is_left_to_its_reviewer(tmp_path: Path) -> None:
+    """Whether a route is source-grounded is the route reviewer's call; the
+    host does not reopen a finished route for the sources it cites."""
     _state(tmp_path)
     root = ensure_idea_portfolio(tmp_path, direction="reliable agents")
     task = task_board.claim_top(root, "w1", now=time.time())
@@ -617,9 +594,8 @@ def test_reopened_portfolio_tasks_say_why(tmp_path: Path) -> None:
 
     ensure_idea_portfolio(tmp_path, direction="reliable agents")
 
-    reopened = next(t for t in task_board.snapshot(root) if t["task_id"] == task["task_id"])
-    assert reopened["state"] == "pending" and reopened["attempts"] == 1
-    assert reopened["reason"].startswith("reopened: route file names no source")
+    route = next(t for t in task_board.snapshot(root) if t["task_id"] == task["task_id"])
+    assert route["state"] == "done"
 
 
 def test_ensure_claims_runtime_ownership_of_a_marker_written_without_one(tmp_path: Path) -> None:
