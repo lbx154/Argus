@@ -53,19 +53,25 @@ def lineage_ledger(handoffs_root: Path | str, lineage: str) -> Path:
     )
 
 
+def mission_lineage(context_packet_path: str | os.PathLike[str] | None) -> str:
+    """The lineage of the mission whose context packet is ``context_packet_path``, or ""."""
+    if not context_packet_path:
+        return ""
+    try:
+        mission = json.loads(Path(context_packet_path).expanduser().read_text(encoding="utf-8"))
+    except (OSError, ValueError):
+        return ""
+    if not isinstance(mission, dict):
+        return ""
+    return str(mission.get("node_key") or "").strip() or str(mission.get("mission_id") or "").strip()
+
+
 def mission_ledger(context_packet_path: str | os.PathLike[str] | None) -> Path | None:
     """The ledger of the mission whose context packet is ``context_packet_path``."""
-    if not context_packet_path:
+    lineage = mission_lineage(context_packet_path)
+    if not lineage:
         return None
-    packet = Path(context_packet_path).expanduser()
-    try:
-        mission = json.loads(packet.read_text(encoding="utf-8"))
-    except (OSError, ValueError):
-        return None
-    if not isinstance(mission, dict):
-        return None
-    lineage = str(mission.get("node_key") or "").strip() or str(mission.get("mission_id") or "").strip()
-    return lineage_ledger(packet.parent.parent, lineage) if lineage else None
+    return lineage_ledger(Path(context_packet_path).expanduser().parent.parent, lineage)
 
 
 def _read(ledger: Path) -> dict[str, Any]:
@@ -114,5 +120,6 @@ __all__ = [
     "holds_unchanged",
     "lineage_ledger",
     "mission_ledger",
+    "mission_lineage",
     "record_holder",
 ]

@@ -1,0 +1,172 @@
+"""The workspace as commits in Argus's own git repository, so two states diff.
+
+The repository lives in the project's state directory and only borrows the
+workspace as its work tree: the user's repository, index and refs are never
+read or written. What :mod:`.workspace_facts` leaves out is left out here too,
+as are nested repositories and whatever the workspace's ignore files exclude.
+A file over ``LARGE_FILE_BYTES`` is not stored; its ``file_facts`` ride in the
+commit message, so a change to it still shows, by size.
+"""
+from __future__ import annotations
+
+import json
+import os
+import re
+import stat
+import subprocess
+from dataclasses import dataclass
+from pathlib import Path
+
+from .file_facts import file_facts
+from .workspace_facts import IGNORED_NAMES, fact_text
+
+LARGE_FILE_BYTES = 1 << 20
+_EXCLUDES = "".join(f"{name}\n" for name in sorted({*IGNORED_NAMES, "*.egg-info"}))
+_IDENTITY = {
+    "GIT_AUTHOR_NAME": "Argus",
+    "GIT_AUTHOR_EMAIL": "argus@localhost",
+    "GIT_COMMITTER_NAME": "Argus",
+    "GIT_COMMITTER_EMAIL": "argus@localhost",
+}
+
+
+@dataclass(frozen=True)
+class Change:
+    """One path that differs between two snapshots."""
+
+    path: str
+    #: Changed lines; ``None`` when git cannot count them (a binary file).
+    added: int | None = None
+    deleted: int | None = None
+    #: Bytes before and after (``None``: absent) of a file too large to store.
+    sizes: tuple[int | None, int | None] | None = None
+
+
+@dataclass(frozen=True)
+class WorkspaceSnapshots:
+    """Snapshots of ``workdir`` for one line of work, kept in the repository ``store``."""
+
+    store: Path
+    workdir: Path
+    line: str
+
+    @property
+    def _name(self) -> str:
+        return re.sub(r"[^A-Za-z0-9_-]+", "_", self.line)
+
+    def _ref(self, label: str) -> str:
+        return f"refs/argus/{self._name}/{label}"
+
+    def _git(self, *args: str, stdin: bytes = b"", check: bool = True) -> bytes:
+        env = {key: value for key, value in os.environ.items() if not key.startswith("GIT_")}
+        env.update(
+            _IDENTITY,
+            GIT_DIR=str(self.store),
+            # One index per line of work: its stat cache is for one work tree.
+            GIT_INDEX_FILE=str(self.store / "indexes" / self._name),
+            GIT_LITERAL_PATHSPECS="1",
+        )
+        if args[0] != "init":  # a repository is created without a work tree
+            env["GIT_WORK_TREE"] = str(self.workdir)
+        return subprocess.run(
+            ["git", "-c", "core.fsmonitor=false", "-c", "commit.gpgSign=false", *args],
+            input=stdin, env=env, capture_output=True, check=check,
+        ).stdout
+
+    def _paths(self, *args: str) -> list[str]:
+        out = self._git("ls-files", "-z", "--exclude-standard", *args)
+        return [os.fsdecode(path) for path in out.split(b"\0") if path]
+
+    def _update(self, *args: str, paths: list[str]) -> None:
+        self._git("update-index", "-z", *args, "--stdin",
+                  stdin=b"\0".join(os.fsencode(path) for path in paths))
+
+    def take(self, label: str, *, keep: bool = False) -> bool:
+        """Record the workspace as ``label``; with ``keep``, a recorded one stays."""
+        ref = self._ref(label)
+        try:
+            if not (self.store / "HEAD").exists():
+                self.store.mkdir(parents=True, exist_ok=True)
+                self._git("init", "-q", "--bare", "--template=")
+            elif keep and self._git("rev-parse", "-q", "--verify", ref, check=False):
+                return True
+            exclude = self.store / "info" / "exclude"
+            exclude.parent.mkdir(exist_ok=True)
+            if not exclude.is_file() or exclude.read_text(encoding="utf-8") != _EXCLUDES:
+                exclude.write_text(_EXCLUDES, encoding="utf-8")
+            (self.store / "indexes").mkdir(exist_ok=True)
+            # Stored before, excluded now (a new ignore rule): no longer the work.
+            dropped = self._paths("--cached", "--ignored")
+            stored, large, skip = [], {}, set(dropped)
+            for path in self._paths("--cached", "--others"):
+                # A trailing slash marks a nested repository: its files are its own.
+                if path in skip or path.endswith("/"):
+                    continue
+                full = self.workdir / path
+                try:
+                    mode = os.lstat(full)
+                except (FileNotFoundError, NotADirectoryError):
+                    stored.append(path)  # gone: the update removes it
+                    continue
+                regular = stat.S_ISREG(mode.st_mode)
+                if regular and mode.st_size > LARGE_FILE_BYTES:
+                    large[path] = file_facts(full)
+                elif stat.S_ISLNK(mode.st_mode) or (regular and os.access(full, os.R_OK)):
+                    stored.append(path)
+                    continue
+                dropped.append(path)
+            self._update("--force-remove", paths=dropped)
+            self._update("--add", "--remove", "--replace", paths=stored)
+            tree = self._git("write-tree").decode().strip()
+            commit = self._git("commit-tree", tree, stdin=fact_text(large).encode())
+            self._git("update-ref", ref, commit.decode().strip())
+            self._git("gc", "--auto", "--quiet", check=False)
+            return True
+        except (OSError, subprocess.SubprocessError):
+            return False
+
+    def _large(self, label: str) -> dict[str, list[int]]:
+        commit = self._git("cat-file", "commit", self._ref(label)).decode("utf-8", "replace")
+        return json.loads(commit.split("\n\n", 1)[1])
+
+    def changes(self, base: str, head: str) -> list[Change] | None:
+        """Every path that differs from ``base`` to ``head``, by path; ``None`` if unknown."""
+        try:
+            out = self._git("diff", "--no-renames", "--numstat", "-z", self._ref(base), self._ref(head))
+            before, after = self._large(base), self._large(head)
+        except (OSError, subprocess.SubprocessError, ValueError, IndexError):
+            return None
+        found = []
+        for row in out.decode("utf-8", "replace").split("\0"):
+            if row:
+                added, deleted, path = row.split("\t", 2)
+                binary = added == "-"
+                found.append(Change(path, None if binary else int(added), None if binary else int(deleted)))
+        for path in sorted({*before, *after}):
+            if before.get(path) != after.get(path):
+                found.append(Change(path, sizes=(
+                    before[path][0] if path in before else None,
+                    after[path][0] if path in after else None,
+                )))
+        return sorted(found, key=lambda change: change.path)
+
+    def hunks(self, base: str, head: str, paths: list[str]) -> list[list[str]]:
+        """The diff hunks of each of ``paths``, in order; ``[]`` if unavailable."""
+        if not paths:
+            return []
+        try:
+            out = self._git(
+                "diff", "--no-renames", "--no-ext-diff", "--no-textconv", "--no-color",
+                self._ref(base), self._ref(head), "--", *paths,
+            )
+        except (OSError, subprocess.SubprocessError):
+            return []
+        excerpts = []
+        for text in out.decode("utf-8", "replace").split("\ndiff --git "):
+            lines = text.splitlines()
+            start = next((i for i, line in enumerate(lines) if line.startswith("@@")), len(lines))
+            excerpts.append(lines[start:])
+        return excerpts if len(excerpts) == len(paths) else []
+
+
+__all__ = ["Change", "LARGE_FILE_BYTES", "WorkspaceSnapshots"]

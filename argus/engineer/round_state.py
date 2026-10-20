@@ -30,6 +30,7 @@ from typing import Any
 from ..core.models import LoopStatus, RoundRecord
 from ..core.role_session import RoleSessionCapsule
 from ..core.stop_kinds import StopKind
+from ..core.workspace_snapshot import WorkspaceSnapshots
 
 
 @dataclass
@@ -37,11 +38,9 @@ class RoundLoopState:
     """Mutable state that persists across rounds within one ``run()`` call."""
 
     rounds: list[RoundRecord] = field(default_factory=list)
-    # Wall-clock start of the first Engineer turn since the last completed
-    # review (for "changed this round"). A turn that ended without review --
-    # a self-handoff, a background wait, a provider restart -- stays inside
-    # the window, so the Reviewer sees every file the unjudged work touched.
-    round_started_wall: float | None = None
+    # The task's workspace snapshots: its baseline, taken before the first
+    # Engineer turn, and the candidate each Reviewer is shown the diff to.
+    snapshots: WorkspaceSnapshots | None = None
     # Accounts of Engineer turns that continued without any review, newest
     # last. The next Reviewer reads them beside the final turn's account; a
     # completed review clears them.
