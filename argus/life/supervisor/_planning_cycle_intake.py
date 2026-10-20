@@ -274,9 +274,9 @@ class PlanningCycleIntakeMixin:
                 # A WAIT is the Manager's answer to exactly the evidence it
                 # judged: keeping work on the operator's question is no new
                 # input for the Planner. It never freezes the project: any
-                # change to that evidence, or operator words, ends it.
+                # change to that evidence, or operator words, ends it. The
+                # operator already hears what is waiting on them, once.
                 self._enter_idle_backoff()
-                self._emit_status("Waiting for the requested operator facts; unchanged work is not being reviewed again")
                 return PLAN_AWAITING
         if operator_messages:
             self._clear_manager_planner_feedback()

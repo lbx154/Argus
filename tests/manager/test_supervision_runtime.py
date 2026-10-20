@@ -432,10 +432,12 @@ def test_applied_wait_holds_unchanged_planning_until_new_operator_facts(tmp_path
     )
     supervisor._vertical_resolved = True
     # The WAIT is the Manager's answer to the evidence it judged: while that
-    # holds, the Planner is not asked; the answer moves it.
+    # holds, the Planner is not asked, and nothing new is said each pass; the
+    # answer moves it.
     for _ in range(4):
         assert supervisor._plan_next_work() == PLAN_AWAITING
     assert calls == []
+    assert "requested operator facts" not in (tmp_path / "events.jsonl").read_text(encoding="utf-8")
     backlog.update(item.id, pending_question="")
     assert backlog.resume_parked()
     assert supervisor._plan_next_work() == PLAN_ERROR

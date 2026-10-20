@@ -612,13 +612,15 @@ class LifeSupervisor(
                             self.memory.root,
                             pending_questions,
                         ):
+                            asked = "; ".join(
+                                str(item.pending_question).strip()
+                                for item in pending_questions[:3]
+                            )
                             self._emit_status(
-                                "Argus is waiting for your answer on: "
-                                + "; ".join(
-                                    str(item.pending_question).strip()
-                                    for item in pending_questions[:3]
-                                )
-                                + " — independent work continues meanwhile"
+                                f"Argus 在等你回答：{asked}；不依赖答复的工作照常进行"
+                                if self._operator_chinese()
+                                else f"Argus is waiting for your answer on: {asked}"
+                                " — independent work continues meanwhile"
                             )
                     gate_reason = self._planner_cycle_gate_reason()
                     if gate_reason:
@@ -1966,15 +1968,20 @@ class LifeSupervisor(
     def _emit_status(self, text: str) -> None:
         self._emit({"type": "life.status", "text": text})
 
+    def _operator_chinese(self) -> bool:
+        """Whether the operator writes Chinese, as their objective reads."""
+        from ...core.operator_messages import uses_cjk
+
+        return uses_cjk(str(getattr(self.config, "continuous_objective", "") or ""))
+
     def _tell_operator(self, notice_id: str, english: str, chinese: str) -> None:
         """Post one message to the operator's conversation, once per ``notice_id``."""
-        from ...core.operator_messages import publish_operator_message, uses_cjk
+        from ...core.operator_messages import publish_operator_message
 
-        cjk = uses_cjk(str(getattr(self.config, "continuous_objective", "") or ""))
         try:
             publish_operator_message(
                 self._manager_project_report_root(),
-                text=chinese if cjk else english,
+                text=chinese if self._operator_chinese() else english,
                 message_id=f"argus-notice-{notice_id}",
                 event_fields={"operator_notice": notice_id},
             )

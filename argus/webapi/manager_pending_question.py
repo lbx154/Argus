@@ -213,7 +213,15 @@ def _decision_stale(reason: str) -> dict[str, Any]:
 
 _DROPPED_REPLY = "Dropped this task. The rest of the campaign continues."
 _CAMPAIGN_STAYS_STOPPED = "The campaign stays stopped until you resume it."
+_CAMPAIGN_STAYS_STOPPED_ZH = "在你恢复之前，这轮工作保持停止。"
 _DROPPED_STOPPED_REPLY = f"Dropped this task. {_CAMPAIGN_STAYS_STOPPED}"
+
+
+def _delivered(answer: str) -> str:
+    """The reply to an answer, in the operator's language."""
+    from ..core.operator_messages import uses_cjk
+
+    return "已把你的决定交给团队。" if uses_cjk(answer) else "I delivered your decision to the team."
 
 
 def campaign_stop_reason(project_root: Path | str) -> str:
@@ -238,10 +246,14 @@ def _keep_recorded_campaign_stop(mem: Any, result: dict[str, Any]) -> bool:
     """
     if not campaign_stop_reason(mem.project_root):
         return False
+    from ..core.operator_messages import uses_cjk
+
     result["resume_requested"] = False
     reply = str(result.get("reply") or "").strip()
-    if _CAMPAIGN_STAYS_STOPPED not in reply:
-        result["reply"] = f"{reply} {_CAMPAIGN_STAYS_STOPPED}".strip()
+    chinese = uses_cjk(reply)
+    stays = _CAMPAIGN_STAYS_STOPPED_ZH if chinese else _CAMPAIGN_STAYS_STOPPED
+    if stays not in reply:
+        result["reply"] = f"{reply}{'' if chinese else ' '}{stays}".strip()
     return True
 
 
@@ -584,7 +596,7 @@ def _apply_operator_answer(
     answer: str,
     *,
     manager_decision: str,
-    manager_reply: str,
+    manager_reply: str = "",
     decision_option: str = "custom",
     decision_id: str = "",
     decision_note: str = "",
@@ -625,6 +637,7 @@ def _apply_operator_answer(
     from ..life.event_log import JsonlEventSink
 
     question = str(item.pending_question or "").strip()
+    manager_reply = manager_reply or _delivered(answer)
     resumed, answered = mem.backlog.resume_with_operator_reply(
         item.id,
         answer,
@@ -687,7 +700,7 @@ def _apply_operator_answer(
             resumed.operator_decision.get("resolution_id") or ""
         ),
         "resume_requested": True,
-        "reply": manager_reply or "I have delivered your decision to the team.",
+        "reply": manager_reply,
         "manager_decision": manager_decision,
         "item": resumed.to_jsonable(),
     }
@@ -837,9 +850,7 @@ def _resolve_pending_question_with_manager(
         item,
         answer,
         manager_decision=parsed["decision"],
-        manager_reply=(
-            parsed["reply"] or "I have delivered your decision to the team."
-        ),
+        manager_reply=parsed["reply"],
         decision_option=decision_option,
         decision_id=decision_id,
         decision_note=decision_note,
@@ -926,7 +937,6 @@ def manager_answer_pending_question(
             item,
             text.strip(),
             manager_decision=text.strip(),
-            manager_reply="I delivered your decision to the team.",
             decision_option=decision_option,
             decision_id=decision_id,
             decision_note=decision_note,

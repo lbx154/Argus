@@ -434,6 +434,28 @@ def test_web_answer_after_a_pause_reaches_its_task_and_restarts_nothing(
         assert read_continuous_state(life).enabled is False
 
 
+@pytest.mark.parametrize(
+    ("answer", "reply"),
+    [
+        ("走近路。", "已把你的决定交给团队。在你恢复之前，这轮工作保持停止。"),
+        ("Take the short route.", "I delivered your decision to the team. The campaign stays stopped until you resume it."),
+    ],
+)
+def test_an_answer_is_acknowledged_in_the_operator_s_language(
+    tmp_path: Path, answer: str, reply: str,
+) -> None:
+    sid = "s-liveness"
+    life = _make_project(tmp_path, sid)
+    _campaign_left_by(life, "pause")
+    item = _park(life, "route", "Which route?")
+
+    result = manager_pending_question.manager_answer_pending_question(
+        sid, item.id, answer, global_root=tmp_path,
+    )
+
+    assert result["reply"] == reply
+
+
 def test_web_answer_continues_an_armed_campaign(tmp_path: Path) -> None:
     sid = "s-liveness"
     life = _make_project(tmp_path, sid)
