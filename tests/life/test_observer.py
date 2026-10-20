@@ -168,6 +168,15 @@ def test_it_speaks_the_operator_s_language(team):
     assert "in Chinese, the operator's language" in second
 
 
+def test_it_never_takes_the_formal_review_for_a_duplicate(team):
+    """2026-10-20: the Observer twice called the Reviewer's turn after an Engineer's
+    in-turn subagent review "a duplicate review chain" to be merged away."""
+    _turn(team)
+    prompt = team.backend.calls[0]["prompt"]
+    assert "formal review is how a task is accepted, never a duplicate" in prompt
+    assert "subagent review inside its turn does not replace it" in prompt
+
+
 def test_a_smooth_flow_leaves_no_event_and_asks_nobody(team):
     _turn(team)
     assert len(team.backend.calls) == 1
