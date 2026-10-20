@@ -367,10 +367,7 @@ def create_app(
             project_state._schedule_host_projection_refresh(root)
 
     @app.on_event("shutdown")
-    def _shutdown_warm_manager_clients() -> None:
-        # Explicitly terminate module-level Copilot ACP clients. Otherwise an
-        # old Web process can remain resident after Uvicorn shuts down, leaving
-        # stale Copilot processes alive across repeated cockpit launches.
+    def _shutdown_manager_bridge() -> None:
         try:
             from .manager_state import shutdown_manager_bridge
 

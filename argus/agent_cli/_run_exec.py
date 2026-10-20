@@ -1,5 +1,5 @@
-"""``run_exec`` split into four explicit phases: the source-level interrupt gate
-+ ACP fast path, spawning the child process, streaming its stdout/stderr with
+"""``run_exec`` split into four explicit phases: the source-level interrupt gate,
+spawning the child process, streaming its stdout/stderr with
 watchdog enforcement, and finalizing the result (OpenCode recovery +
 completion/failure semantics). Extracted verbatim from ``agent_cli_runner.py``
 — same argv, stdin, env, event-callback ordering, bounded capture, and
@@ -15,7 +15,7 @@ import subprocess
 import threading
 import time
 from collections import deque
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 from pathlib import Path
 
 from ..core.control_state_guard import mark_role_process_env
@@ -37,6 +37,7 @@ from ._env import (
     _DEFAULT_STREAM_QUEUE_LINES,
     _STREAM_QUEUE_LINES_ENV,
     _incomplete_turn_error,
+    _is_manager_turn_label,
     _positive_env_int,
     _provider_turn_cap,
 )
@@ -53,6 +54,8 @@ from ._process_control import background_subprocess_kwargs
 from .models import AgentRunResult, InactivitySnapshot
 from .runner_backend import BACKEND_COPILOT, BACKEND_DSH, BACKEND_OPENCODE
 
+# Copilot's startup refusal of a model the account does not offer.
+_COPILOT_MODEL_REFUSED = "from --model flag is not available"
 _POST_EXIT_PIPE_DRAIN_QUIET_SECONDS = 0.1
 # Post-exit drain bounds retained pipe resources after the provider has exited.
 _POST_EXIT_PIPE_DRAIN_MAX_SECONDS = 5.0
@@ -178,10 +181,24 @@ class RunExecMixin:
         from ._structured_output import structured_output_call
 
         with structured_output_call(self.backend, options) as prepared:
-            return self._run_prepared_exec(
+            result = self._run_prepared_exec(
                 prompt=prompt, resume_thread_id=resume_thread_id,
                 options=prepared, run_label=run_label,
             )
+            if (
+                self.backend == BACKEND_COPILOT
+                and prepared.model
+                and _is_manager_turn_label(run_label)
+                and _COPILOT_MODEL_REFUSED in str(result.fatal_error or "")
+            ):
+                # The account no longer offers the configured model and the CLI
+                # refused it before any session existed. A Manager call then runs
+                # on the model Copilot selects; usage records that model.
+                result = self._run_prepared_exec(
+                    prompt=prompt, resume_thread_id=resume_thread_id,
+                    options=replace(prepared, model=None), run_label=run_label,
+                )
+            return result
 
     def _run_prepared_exec(
         self, *, prompt: str, resume_thread_id: str | None, options,
@@ -193,18 +210,6 @@ class RunExecMixin:
         gated = self._run_exec_start_gate(resume_thread_id=resume_thread_id, options=options)
         if gated is not None:
             return gated
-        # Warm-copilot fast path: Manager front-door classify + direct replies go
-        # through a persistent ``copilot --acp`` process.  The ACP client keeps
-        # the classifier and conversation in separate logical sessions.
-        if self._acp_enabled(run_label, options):
-            acp_result = self._run_exec_acp(
-                prompt=prompt,
-                resume_thread_id=resume_thread_id,
-                options=options,
-                run_label=run_label,
-            )
-            if acp_result is not None:
-                return acp_result
         command, process, spawn_failure, prompt_path = self._spawn_turn_process(
             prompt=prompt, resume_thread_id=resume_thread_id, options=options
         )
@@ -332,11 +337,11 @@ class RunExecMixin:
     ) -> AgentRunResult | None:
         # SOURCE-LEVEL gate: refuse to start a NEW LLM call if the (composed)
         # interrupt provider ALREADY signals a reason — a per-mission budget hit
-        # its cap, or the operator/daemon requested a stop. Checked BEFORE the ACP
-        # fast path and the CLI spawn, so the cap is enforced at the finest
-        # granularity: once tripped no further call fires, and a single round can
-        # never overspend past the cap while waiting for the between-rounds
-        # breaker. A ``None`` provider (every non-mission call) makes this a no-op.
+        # its cap, or the operator/daemon requested a stop. Checked BEFORE the CLI
+        # spawn, so the cap is enforced at the finest granularity: once tripped
+        # no further call fires, and a single round can never overspend past the
+        # cap while waiting for the between-rounds breaker. A ``None`` provider
+        # (every non-mission call) makes this a no-op.
         _gate = options.external_interrupt_reason_provider
         if _gate is None:
             return None
@@ -642,8 +647,7 @@ class RunExecMixin:
                     )
                 elif stage == TERMINATE_STAGE:
                     # Name the command the call was waiting on when the
-                    # stream announced it, in the same form the ACP
-                    # transport uses, so the next round is told which
+                    # stream announced it, so the next round is told which
                     # command not to repeat as it was.
                     waiting_on = (
                         f"; running tool: {state.running_tool})"
@@ -832,8 +836,8 @@ class RunExecMixin:
                     # render the reply live instead of after the whole turn. Default
                     # ``None`` (every daemon/role turn) skips this entirely, so the
                     # hot path is unchanged. A callback fault must never break the run.
-                    # As in the ACP path, the callback receives the accumulated element
-                    # (a growing superset), so the UI merges it in place by message_id.
+                    # The callback receives the accumulated element (a growing
+                    # superset), so the UI merges it in place by message_id.
                     _cb = options.on_agent_message
                     if _cb is not None and state.agent_messages:
                         _new_count = len(state.agent_messages)

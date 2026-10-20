@@ -66,6 +66,14 @@ def _nonnegative_env_int(name: str, default: int) -> int:
         return default
 
 
+def _is_manager_turn_label(run_label: str | None) -> bool:
+    label = str(run_label or "").strip().lower()
+    return (
+        label.startswith(("manager-", "manager."))
+        or label in _SYNCHRONOUS_MANAGER_TURN_LABELS
+    )
+
+
 def _provider_turn_cap(run_label: str | None) -> int:
     """Per-call provider-turn allowance for this run label; 0 = no allowance.
 

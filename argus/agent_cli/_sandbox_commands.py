@@ -36,6 +36,9 @@ log = logging.getLogger(__name__)
 _OPENCODE_READ_ONLY_AGENT = "argus-read-only"
 _OPENCODE_FULL_ACCESS_AGENT = "argus-full-access"
 _OPENCODE_NO_TOOLS_AGENT = "argus-no-tools"
+# The whole ``--available-tools`` allowlist of a tool-free Copilot call: a name
+# no tool will ever have. An empty value is a no-op (the call keeps every tool),
+# and a denylist would re-arm the call with each tool a later CLI ships.
 _COPILOT_NO_TOOLS_SENTINEL = "__argus_no_tools__"
 # One empty ``write_stdin`` poll waits at most this long (Codex default: five
 # minutes). TOML's largest integer is the largest value Codex accepts, so a
@@ -614,7 +617,7 @@ class CommandBuilderMixin:
         resume_thread_id: str | None,
         options,
     ) -> list[str]:
-        # Use the same loader policy as readiness and warm ACP. Copilot's npm
+        # Use the same loader policy as readiness. Copilot's npm
         # loader can select an older base installation with --no-auto-update,
         # even when the same executable normally selects a compatible update.
         command = [
@@ -635,7 +638,9 @@ class CommandBuilderMixin:
             from ..reviewer.review_file import copilot_review_file_args
 
             command.extend(copilot_review_file_args(review_output))
-        if options.isolate_workdir:
+        if options.isolate_workdir or options.disable_tools:
+            # A tool-free call needs neither repository instructions nor MCP
+            # servers; both only add startup time and input context.
             command.extend([
                 "--no-custom-instructions",
                 "--disable-builtin-mcps",

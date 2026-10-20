@@ -180,32 +180,6 @@ def test_manager_runner_retries_after_transient_build_failure(
     assert calls == 2
 
 
-def test_manager_runner_scopes_acp_to_session_id(tmp_path, monkeypatch) -> None:
-    root = tmp_path / "root"
-    sid = "s-private-acp"
-    memory = MemoryBundle.for_cwd(tmp_path, global_root=root, fingerprint=sid)
-    memory.init()
-    default_scopes: list[str] = []
-    manager_scopes: list[str] = []
-    runner = SimpleNamespace(
-        _backend=SimpleNamespace(set_acp_scope=default_scopes.append),
-        manager_backend=SimpleNamespace(set_acp_scope=manager_scopes.append),
-    )
-    monkeypatch.setattr(
-        "argus.apps._runtime.build_life_runner",
-        lambda args: runner,
-    )
-
-    result = front_door._ensure_manager_runner(
-        {"backend": "copilot", "session_id": sid, "global_root": str(root)},
-        memory,
-    )
-
-    assert result is runner
-    assert default_scopes == [f"manager:{sid}"]
-    assert manager_scopes == [f"manager:{sid}"]
-
-
 def test_operator_workspace_refuses_the_filesystem_root(monkeypatch) -> None:
     """A detached daemon chdirs to ``/``; that is not a project workspace.
 

@@ -8,10 +8,8 @@ stubbed so the tests stay offline.
 from __future__ import annotations
 
 import json
-import threading
 import time
 from pathlib import Path
-from types import SimpleNamespace
 
 from argus.life.memory import BacklogItem, LifeMemory
 from argus.webapi import manager_bridge, manager_dispatch, manager_state
@@ -29,119 +27,6 @@ def _make_project(root: Path, sid: str = "s-rot00001") -> Path:
     return life
 
 
-def test_manager_prewarm_schedule_is_one_shot_after_success(
-    tmp_path: Path,
-    monkeypatch,
-) -> None:
-    manager_state._STATES.clear()
-    manager_state._MANAGER_PREWARMING.clear()
-    monkeypatch.setattr(manager_state, "_MANAGER_PREWARM_OWNER", None)
-    calls: list[tuple[str, Path | None]] = []
-
-    def fake_prewarm(sid: str, *, global_root=None) -> None:
-        calls.append((sid, Path(global_root) if global_root is not None else None))
-        manager_state._STATES.setdefault(sid, {})["_manager_acp_prewarmed"] = True
-
-    class InlineThread:
-        def __init__(self, *, target, name: str, daemon: bool) -> None:  # noqa: ANN001
-            self.target = target
-            self.name = name
-            self.daemon = daemon
-
-        def start(self) -> None:
-            self.target()
-
-    monkeypatch.setattr(manager_state, "_prewarm_manager_context", fake_prewarm)
-    monkeypatch.setattr(manager_state.threading, "Thread", InlineThread)
-
-    manager_state.schedule_manager_prewarm("s-prewarm01", global_root=tmp_path)
-    manager_state.schedule_manager_prewarm("s-prewarm01", global_root=tmp_path)
-
-    assert calls == [("s-prewarm01", tmp_path)]
-    assert manager_state._MANAGER_PREWARMING == set()
-
-
-def test_manager_prewarm_schedule_does_not_wait_for_busy_manager_turn(
-    tmp_path: Path,
-    monkeypatch,
-) -> None:
-    """A compact snapshot must not queue behind a long-running Manager call."""
-    sid = "s-prewarm-busy"
-    manager_state._STATES.clear()
-    manager_state._MANAGER_PREWARMING.clear()
-    monkeypatch.setattr(manager_state, "_MANAGER_PREWARM_OWNER", None)
-    lock_held = threading.Event()
-    release_lock = threading.Event()
-    schedule_returned = threading.Event()
-    prewarm_started = threading.Event()
-
-    def hold_manager_lock() -> None:
-        with manager_state.manager_context_lock(sid):
-            lock_held.set()
-            release_lock.wait(2)
-
-    def fake_prewarm(_sid: str, *, global_root=None) -> None:  # noqa: ANN001
-        prewarm_started.set()
-
-    holder = threading.Thread(target=hold_manager_lock)
-    holder.start()
-    assert lock_held.wait(1)
-    monkeypatch.setattr(manager_state, "_prewarm_manager_context", fake_prewarm)
-
-    def schedule() -> None:
-        manager_state.schedule_manager_prewarm(sid, global_root=tmp_path)
-        schedule_returned.set()
-
-    caller = threading.Thread(target=schedule)
-    caller.start()
-    try:
-        assert schedule_returned.wait(0.5), "prewarm scheduling blocked on the Manager lock"
-        assert prewarm_started.wait(0.5)
-    finally:
-        release_lock.set()
-        holder.join(timeout=1)
-        caller.join(timeout=1)
-
-
-def test_manager_prewarm_uses_manager_backend(
-    tmp_path: Path,
-    monkeypatch,
-) -> None:
-    sid = "s-prewarm-manager-backend"
-    _make_project(tmp_path, sid)
-    manager_state._STATES.clear()
-    monkeypatch.setattr(manager_state, "_MANAGER_PREWARM_OWNER", sid)
-    manager_state._STATES[sid] = {
-        "backend": "copilot",
-        "last_access_monotonic": time.monotonic(),
-    }
-    calls: list[tuple[str, bool]] = []
-
-    default_backend = SimpleNamespace(
-        prewarm_acp_client=lambda **kwargs: calls.append(
-            ("default", bool(kwargs["lean"]))
-        )
-    )
-    manager_backend = SimpleNamespace(
-        prewarm_acp_client=lambda **kwargs: calls.append(
-            ("manager", bool(kwargs["lean"]))
-        )
-    )
-    runner = SimpleNamespace(
-        _backend=default_backend,
-        manager_backend=manager_backend,
-    )
-    monkeypatch.setattr(
-        "argus.manager.front_door._ensure_manager_runner",
-        lambda _state, _memory: runner,
-    )
-
-    manager_state._prewarm_manager_context(sid, global_root=tmp_path)
-
-    assert calls == [("manager", True), ("default", False)]
-    assert manager_state._STATES[sid]["_manager_acp_prewarmed"] is True
-
-
 def test_warm_manager_contexts_are_bounded_and_oldest_is_closed(
     monkeypatch,
 ) -> None:
@@ -151,19 +36,12 @@ def test_warm_manager_contexts_are_bounded_and_oldest_is_closed(
     monkeypatch.setenv("ARGUS_SKILL_MANAGER_WARM_CONTEXT_IDLE_SECONDS", "99999")
     closed: list[str] = []
 
-    class Backend:
+    class Runner:
         def __init__(self, sid: str) -> None:
             self.sid = sid
 
-        def close_acp_clients(self) -> None:
-            closed.append(self.sid)
-
-    class Runner:
-        def __init__(self, sid: str) -> None:
-            self._backend = Backend(sid)
-
         def reset_chat_session(self) -> None:
-            pass
+            closed.append(self.sid)
 
     now = time.monotonic()
     manager_state._STATES.update({
@@ -196,13 +74,6 @@ def test_manager_shutdown_clears_control_generations() -> None:
     assert manager_state._CONTROL_GENERATIONS == {}
 
 
-def test_latest_explicit_project_becomes_prewarm_owner(monkeypatch) -> None:
-    monkeypatch.setattr(manager_state, "_MANAGER_PREWARM_OWNER", None)
-
-    manager_state._claim_manager_prewarm_owner("s-first")
-    assert manager_state._MANAGER_PREWARM_OWNER == "s-first"
-    manager_state._claim_manager_prewarm_owner("s-second")
-    assert manager_state._MANAGER_PREWARM_OWNER == "s-second"
 
 
 def test_handoff_names_identity_and_path(tmp_path: Path) -> None:

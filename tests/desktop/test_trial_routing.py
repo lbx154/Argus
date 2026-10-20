@@ -120,18 +120,16 @@ def test_front_door_classification_reaches_execution_in_trial_mode(isolated_tria
 
 
 @pytest.mark.parametrize("model", [None, "", "auto", "AUTO", "default", CLIENT_MODEL])
-def test_one_shot_and_acp_share_the_same_trial_selector(model):
+def test_copilot_calls_use_the_trial_selector(model):
     from argus.agent_cli.agent_cli_runner import AgentCliRunner
     from argus.agent_cli.agent_cli_runner import RunnerOptions as CliOptions
-    from argus.agent_cli.copilot_acp import CopilotAcpClient
 
     options = CliOptions(model=model, reasoning_effort="low")
     command = AgentCliRunner("copilot", backend="copilot")._build_command(
         resume_thread_id=None, options=options,
     )
     assert command[command.index("--model") + 1] == CLIENT_MODEL
-    acp = CopilotAcpClient("copilot", model=model, reasoning_effort="low")
-    assert acp._model == CLIENT_MODEL and acp._reasoning_effort == "low"
+    assert command[command.index("--reasoning-effort") + 1] == "low"
 
 
 def test_isolated_trial_retains_only_its_selected_provider(isolated_trial, monkeypatch):

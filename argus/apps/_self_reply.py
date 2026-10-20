@@ -38,9 +38,6 @@ if TYPE_CHECKING:
     from ..manager import Manager
 
 _SELF_RETRYABLE_TRANSPORT_ERRORS = (
-    "acp restart requested",
-    "acp process died",
-    "stopreason=cancelled",
     "upstream request failed: endpoint is unavailable",
     "provider finish_reason: network_error",
 )
@@ -553,7 +550,7 @@ class SelfReplyMixin:
     def _manager_state_path(self) -> Path:
         return Path(getattr(self, "_manager_session_root", None) or self.manager.manager_session_root)
 
-    def _manager_reply_runtime_context(self, run_label: str) -> str:
+    def _manager_reply_runtime_context(self) -> str:
         workspace_context = ""
         team_log_context = ""
         try:
@@ -589,29 +586,8 @@ class SelfReplyMixin:
         except Exception:  # noqa: BLE001 — context must never block a reply
             workspace_context = ""
             team_log_context = ""
-        try:
-            runner = getattr(self._backend, "_runner", None)
-            if runner is None or not runner._acp_enabled(run_label):
-                return "\n\n".join(
-                    part for part in (workspace_context, team_log_context) if part
-                )
-        except Exception:  # noqa: BLE001 - metadata must never block a reply
-            return "\n\n".join(
-                part for part in (workspace_context, team_log_context) if part
-            )
-        runtime_fact = (
-            "Runtime fact (answer accurately if the operator asks): this "
-            "operator-facing Manager conversation is one logical session on a "
-            "long-lived Copilot ACP process. Ordinary turns use session/prompt "
-            "on that same live process and session; they do NOT spawn a fresh "
-            "CLI process with --resume, and Argus does NOT resend the full chat "
-            "transcript each turn. The front-door classifier is isolated from "
-            "this conversation, and the background task daemon is a separate "
-            "process. A deliberate context rotation starts a new conversation "
-            "session with a structured handoff."
-        )
         return "\n\n".join(
-            part for part in (workspace_context, team_log_context, runtime_fact) if part
+            part for part in (workspace_context, team_log_context) if part
         )
 
     def _live_mission_status_block(self) -> str:
@@ -832,7 +808,7 @@ class SelfReplyMixin:
                 identity_card=memory_prelude,
                 skill_library=libraries.block,
                 mission_status=self._live_mission_status_block(),
-                runtime_context=self._manager_reply_runtime_context("simple-1"),
+                runtime_context=self._manager_reply_runtime_context(),
                 operator_workspace=str(workdir),
             )
             native_skill_paths = [str(path) for path in libraries.native_paths]

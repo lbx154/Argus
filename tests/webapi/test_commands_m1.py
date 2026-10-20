@@ -1843,9 +1843,6 @@ def test_project_delete_releases_warm_manager_runner(ctx) -> None:
     closed: list[str] = []
     state = manager_state._chat_state_for(sid)
     state["manager_runner"] = SimpleNamespace(
-        _backend=SimpleNamespace(
-            close_acp_clients=lambda: closed.append("acp"),
-        ),
         reset_chat_session=lambda: closed.append("session"),
     )
     services = _daemon_services(alive=False)
@@ -1853,7 +1850,7 @@ def test_project_delete_releases_warm_manager_runner(ctx) -> None:
     response = TestClient(server.create_app(global_root=root, daemon_services=services)).delete(f"/api/projects/{sid}")
 
     assert response.status_code == 200
-    assert closed == ["acp", "session"]
+    assert closed == ["session"]
     assert sid not in manager_state._STATES
 
 

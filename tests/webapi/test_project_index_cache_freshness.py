@@ -169,27 +169,11 @@ def test_repeated_compact_snapshot_polls_do_not_start_manager_contexts(
     for _ in range(10):
         response = client.get("/api/projects/s-cachetest/snapshot?compact=true&events_limit=30")
         assert response.status_code == 200
+    # An older client's prewarm flag is ignored.
+    response = client.get("/api/projects/s-cachetest/snapshot?compact=true&prewarm=true")
+    assert response.status_code == 200
 
     assert manager_state._STATES == {}
-
-
-def test_active_snapshot_polls_schedule_one_manager_prewarm(
-    home: Path, monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    prewarms: list[tuple[str, Path]] = []
-    monkeypatch.setattr(
-        "argus.webapi.manager_state.schedule_manager_prewarm",
-        lambda sid, *, global_root=None: prewarms.append((sid, Path(global_root))),
-    )
-    client = TestClient(server.create_app(global_root=home))
-
-    response = client.get(
-        "/api/projects/s-cachetest/snapshot"
-        "?compact=true&events_limit=30&prewarm=true"
-    )
-
-    assert response.status_code == 200
-    assert prewarms == [("s-cachetest", home)]
 
 
 def test_a_delete_is_visible_on_the_very_next_poll(home: Path) -> None:

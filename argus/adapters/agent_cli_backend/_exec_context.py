@@ -63,7 +63,7 @@ class _ExecContext:
     copilot_usage_cursor: Any = None
     # Provider-session identity Argus allocated for a NEW Copilot session and
     # bound to this call before spawn; ``None`` for resumed calls, non-Copilot
-    # backends, the warm ACP path, or a CLI without ``--session-id``.
+    # backends, or a CLI without ``--session-id``.
     provider_session_id: str | None = None
     # The CLI named a different session than the one this call was bound to.
     # Usage lookups and the persisted record must not fall back to any identity.

@@ -243,10 +243,10 @@ def _jsonl_append_lines(
 class AgentIOLogger:
     """Owns the per-``AgentCliBackend`` I/O logging state across one call.
 
-    ``AgentCliBackend`` is serial by contract (one call at a time), but a
-    warm ACP client can still emit stream frames from its own reader
-    thread, so the "current call" context and its raw-stream buffer are
-    guarded by an ``RLock`` shared with the plain append lock.
+    ``AgentCliBackend`` is serial by contract (one call at a time). The
+    "current call" context and its raw-stream buffer are still guarded by an
+    ``RLock`` shared with the plain append lock, so a frame delivered from
+    another thread never sees a half-switched call.
     """
 
     def __init__(self, *, external_event_callback: Any | None = None) -> None:

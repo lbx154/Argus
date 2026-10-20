@@ -203,41 +203,6 @@ class AgentCliBackend:
         """DSH has no structured stream from which to observe tool use."""
         return self._backend_name != "dsh"
 
-    def set_acp_scope(self, scope: str) -> None:
-        setter = getattr(self._runner, "set_acp_scope", None)
-        if callable(setter):
-            setter(scope)
-
-    def prewarm_acp_client(
-        self,
-        *,
-        run_label: str,
-        model: str | None,
-        reasoning_effort: str | None,
-        lean: bool,
-        cwd: str,
-        front_door_session: bool = False,
-        read_only: bool = False,
-        add_dirs: list[str] | None = None,
-    ) -> None:
-        prewarm = getattr(self._runner, "prewarm_acp_client", None)
-        if callable(prewarm):
-            prewarm(
-                run_label=run_label,
-                model=model,
-                reasoning_effort=reasoning_effort,
-                lean=lean,
-                cwd=cwd,
-                front_door_session=front_door_session,
-                read_only=read_only,
-                add_dirs=add_dirs,
-            )
-
-    def close_acp_clients(self) -> None:
-        close = getattr(self._runner, "close_acp_clients", None)
-        if callable(close):
-            close()
-
     def set_usage_context(
         self,
         *,

@@ -581,7 +581,7 @@ async fn apply_setup(app: &AppHandle, input: CompleteSetupInput, trial_mode: boo
             return SetupResult::error(error);
         }
     }
-    // Replacing a key must also replace ACP workers carrying the old provider environment.
+    // Replacing a key restarts the runtime so no worker keeps the old provider environment.
     let runtime_changed = trial_mode || previous.trial_mode != next.trial_mode || previous.port != next.port
         || previous.runner_kind != next.runner_kind
         || previous.runner_configured != next.runner_configured

@@ -674,8 +674,8 @@ def _classify_operator_turn(
 
     forced_route = _FORCED_ROUTES.get(str(route_override or "").strip().lower())
 
-    # Emit the stage BEFORE the classifier call. Copilot ACP may produce no
-    # protocol events while the model is reasoning, so without this real
+    # Emit the stage BEFORE the classifier call. A tool-free classifier may
+    # produce no events while the model is reasoning, so without this real
     # transition the TUI can only show its generic rotating slogan.
 
     if forced_route == "simple":

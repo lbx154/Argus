@@ -215,7 +215,7 @@ def test_build_simple_prompt_includes_grounding_workspace_when_given() -> None:
 
 
 def test_manager_prompts_include_runtime_context_only_when_given() -> None:
-    fact = "Runtime fact: one warm ACP conversation session."
+    fact = "Runtime fact: the Team log is events.jsonl."
     chat = build_quick_reply_prompt(objective="how are you?", runtime_context=fact)
     simple = build_simple_prompt(objective="status", runtime_context=fact)
 

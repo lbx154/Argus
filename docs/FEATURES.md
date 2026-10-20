@@ -178,7 +178,7 @@ Explicit pause stops the current mission and daemon while preserving the goal
 and backlog. An explicit resume that runs commands or changes artifacts is TEAM
 work; it is not executed inline as a SELF reply.
 
-### Manager model boundary and required prewarm
+### Manager model boundary
 
 These are runtime design invariants:
 
@@ -188,41 +188,18 @@ These are runtime design invariants:
   "choose a specific item" guard when several questions are pending retain their
   existing control paths. The Host must not add keyword, regex, or local
   canned-reply routing for otherwise ordinary prose to bypass the Manager model.
-- Selecting an active project starts best-effort background prewarm from both
-  Web and TUI. Prewarm initializes ACP processes without spending a model turn;
-  the lean front door also initializes its logical session. Full SELF creates
-  its logical session on the first prompt. The eventual message still receives
-  a real model decision.
-- The active Manager session has two intentionally distinct warm transports:
-  the lean front-door classifier and the full SELF transport. The classifier
-  uses the compact model/effort and no tools; full SELF uses the configured
-  Manager model, effort, workspace, and tool policy.
-- ACP scope is `manager:<session-id>` and must be propagated to both the default
-  backend and any separate Manager-role backend. When ACP and the corresponding
-  label are enabled, prewarm must target the same backend and exact client key
-  later used by the message. Prewarm honors
-  `ARGUS_SKILL_COPILOT_ACP` and `ARGUS_SKILL_COPILOT_ACP_LABELS`; a disabled or
-  excluded path starts no unused ACP client. Two identical classifier processes
-  for one session indicate a scope/prewarm bug.
-- Prewarm is limited to an active project and must not rotate or close a live
-  Manager state concurrently. It runs asynchronously: a message sent
-  immediately after project selection may race it. Successful completed prewarm
-  removes process startup cost; it does not promise to remove the first full
-  SELF logical-session creation or the model/tool reasoning time of a complex
-  answer.
+- Every Manager call, the front-door classifier and full SELF included, is a
+  one-shot CLI turn; a conversation continues by resuming its provider session.
+  The classifier uses the compact model/effort and no tools; full SELF uses the
+  configured Manager model, effort, workspace, and tool policy. When Copilot no
+  longer offers the configured model, a Manager call runs on the model Copilot
+  selects, and usage records that model.
 - Operator-facing replies identify only as Argus Manager. They never expose the
   backing provider/model/CLI as the product identity and do not narrate Skill
   matching, tool selection, search plans, or intermediate checks unless the
   operator asks for that process.
-- Prewarm logs and status surfaces must not contain prompts, operator messages,
-  credentials, tokens, or tool payloads. If the Manager backend is unavailable,
-  classification fails closed, queues no task, and points the operator to
-  `argus doctor --deep`.
-
-On the local Copilot ACP benchmark used for this contract, fixing scope reuse
-reduced an eight-second-prewarmed `你好` turn from 8.146 seconds to 3.937 seconds
-and reduced duplicate classifier processes from two to one. This measurement is
-diagnostic evidence, not a universal latency promise.
+- If the Manager backend is unavailable, classification fails closed, queues no
+  task, and points the operator to `argus doctor --deep`.
 
 ### Long commands
 
@@ -422,8 +399,6 @@ Implemented controls:
 
 Token controls:
 
-- The active project prewarms both the lean classifier and full SELF ACP
-  transports without spending a model turn.
 - A context-free first SELF reply may use the lean quick path, but still remains
   model-classified.
 - Follow-up SELF turns and turns with learned Skills use the persistent
@@ -533,10 +508,7 @@ Web UI, Manager model, and daemon:
 | Formal domain plus Git metadata correction | `software` wins because the requested action is history maintenance |
 | Legacy attachment metadata | Removed SHA/integrity fields are stripped during read |
 | Greeting followed by first TEAM task, including after Web restart | Greeting does not claim a title; the substantive task names the session |
-| Web or TUI activates a project | Lean classifier and full SELF ACP transports prewarm under the same `manager:<session-id>` scope |
-| Manager uses an explicit role-specific runner binary | Prewarm and message reuse the same Manager ACP client; no duplicate classifier process |
 | Pure greeting | Still model-classified; reply identifies as Argus Manager and does not expose provider identity |
-| First full SELF inspection after completed prewarm | SELF process is initialized; the logical session and model/tool work may still add latency |
 | Default identity template | Excluded from model prompts until the operator edits it |
 | Operator pause | Not captured or replayed as a failure lesson |
 | Planner acceptance check | No unconditional-success or tautological checks |

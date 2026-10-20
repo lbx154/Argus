@@ -439,7 +439,6 @@ def test_web_self_classification_reaches_execution_and_atlas_without_team(tmp_pa
                             skill_store=LayeredSkillStore(project_dir=state / "skills", global_dir=tmp_path / "skills"))
     monkeypatch.setattr(front_door, "_ensure_manager_runner", lambda *_a: runner)
     monkeypatch.setattr(config_intent, "_ensure_manager_runner", lambda *_a: runner)
-    monkeypatch.setattr(manager_state, "schedule_manager_prewarm", lambda *_a, **_kw: None)
     manager_state._STATES.pop(sid, None)
     with TestClient(server.create_app(global_root=tmp_path)) as client:
         result = client.post(f"/api/projects/{sid}/message", json={"text": "Fix this one function"}).json()
@@ -933,14 +932,14 @@ def test_self_grounds_in_operator_workspace_without_moving_state_root(
 
 
 def test_self_timeout_returns_visible_failure_without_second_long_wait() -> None:
-    class _FlakyAcpBackend(_FakeBackend):
+    class _FlakyBackend(_FakeBackend):
         def run_exec(self, **kwargs: Any) -> RunnerResult:
             self.calls.append(dict(kwargs))
             if len(self.calls) == 1:
                 return RunnerResult(
                     exit_code=1,
                     thread_id="stalled-session",
-                    fatal_error="ACP prompt timed out after 300s",
+                    fatal_error="prompt timed out after 300s",
                     input_tokens=7,
                 )
             return RunnerResult(
@@ -951,7 +950,7 @@ def test_self_timeout_returns_visible_failure_without_second_long_wait() -> None
                 output_tokens=5,
             )
 
-    backend = _FlakyAcpBackend()
+    backend = _FlakyBackend()
     runner = _make_runner(backend)
     sink = _RecordingSink()
 
@@ -1041,7 +1040,7 @@ def test_self_does_not_retry_after_tool_activity() -> None:
 
     result = RunnerResult(
         exit_code=1,
-        fatal_error="ACP prompt timed out after 300s",
+        fatal_error="prompt timed out after 300s",
         tool_activity_observed=True,
     )
     assert _self_retryable_transport_failure(result) is False
@@ -1124,7 +1123,7 @@ def test_stall_predicate_ignores_answered_turns_and_other_errors() -> None:
     assert _self_stalled_model_turn(stalled) is True
     answered = RunnerResult(exit_code=1, fatal_error="Forced restart after hard idle timeout (120s).", agent_messages=["done"])
     assert _self_stalled_model_turn(answered) is False
-    assert _self_stalled_model_turn(RunnerResult(exit_code=1, fatal_error="ACP prompt timed out after 300s")) is False
+    assert _self_stalled_model_turn(RunnerResult(exit_code=1, fatal_error="prompt timed out after 300s")) is False
     assert _self_stalled_model_turn(RunnerResult(exit_code=0)) is False
 
 def test_execute_team_answer_uses_full_pipeline() -> None:

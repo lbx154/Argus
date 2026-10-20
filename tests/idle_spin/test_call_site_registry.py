@@ -69,13 +69,8 @@ REGISTRY: tuple[Site, ...] = (
     ),
     Site(
         r"manager-frontdoor-classify", FOREGROUND,
-        "Classifies one operator message. The web prewarm and the ACP front-door session "
-        "use the same label to start the transport, without a model turn.",
-        (
-            "argus/manager/_front_door_ops.py:122",
-            "argus/webapi/manager_state.py:211",
-            "argus/agent_cli/copilot_acp.py:52",
-        ),
+        "Classifies one operator message.",
+        ("argus/manager/_front_door_ops.py:122",),
         ("manager-frontdoor-classify",),
     ),
     Site(
@@ -302,17 +297,14 @@ NOT_MODEL_CALLS = {
 # Functions that pass a caller's label on (or record it) without choosing one.
 PASS_THROUGH = {
     # The backend and its transport.
-    ("argus/adapters/agent_cli_backend/_core.py", "prewarm_acp_client", "run_label"),
     ("argus/adapters/agent_cli_backend/_core.py", "run_exec", "run_label"),
     ("argus/adapters/agent_cli_backend/_exec.py", "_execute_prepared", "run_label"),
     ("argus/adapters/agent_cli_backend/_exec.py", "execute", "run_label"),
     ("argus/adapters/agent_cli_backend/_exec_finalize.py", "finalize_result", "ctx.run_label"),
     ("argus/adapters/agent_cli_backend/_exec_spawn.py", "spawn_and_finish", "ctx.run_label"),
-    ("argus/agent_cli/_acp_routing.py", "_run_exec_acp", "run_label"),
     ("argus/agent_cli/_run_exec.py", "_run_prepared_exec", "run_label"),
     ("argus/agent_cli/_run_exec.py", "_stream_turn_output.check_idle_deadlines", "run_label"),
     ("argus/agent_cli/_run_exec.py", "run_exec", "run_label"),
-    ("argus/agent_cli/copilot_acp.py", "run_prompt._watchdog", "run_label"),
     ("argus/provider_integrations/authorization_retry.py", "run_agent_cli.request", "run_label"),
     ("argus/core/run_gateway.py", "run_exec", "run_label"),
     ("argus/core/cost_events.py", "metered_run_exec.wrapped", "run_label"),
