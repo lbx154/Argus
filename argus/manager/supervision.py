@@ -802,22 +802,24 @@ def supervise(
             latest = _latest_record(root)
             if latest.get("status") == "issued":
                 return _deliver(root, latest.get("source_event", {}), latest, cancelled or (lambda: False))
+            # A stalled turn is reported once per stall and changes no project
+            # file, so it is new evidence by itself.
             if (not observation.incomplete_requirements and latest.get("status") == "applied" and latest.get("evidence_revision") == observation.evidence_revision
+                    and event.get("stall_reason") != "turn_stalled"
                     and observation.control_revision in {
                 latest.get("control_revision"), latest.get("applied_control_revision"),
             }):
                 return latest
             identity = uuid.uuid4().hex
             path = root / "manager-supervision" / f"{identity}.json"
-            # 30 s cut 14 of 72 high-effort calls in s-a43d1018 (median 21 s,
-            # every cut at 30.2-31.0 s), losing the decision each time.
-            deadline = time.monotonic() + 60
 
+            # No deadline: a 30 s cut lost 14 of 72 high-effort decisions in
+            # s-a43d1018 (median 21 s), and a late decision is still checked
+            # against newer evidence and control before it applies. The call
+            # yields to the operator and to cancellation instead.
             def cancellation_code() -> str | None:
                 if cancelled and cancelled():
                     return "cancelled"
-                if time.monotonic() >= deadline:
-                    return "timeout"
                 if manager_session_yield_reason(root):
                     return "superseded"
                 return None
@@ -860,7 +862,6 @@ def supervise(
                 def interrupt_reason() -> str | None:
                     code = interruption_code()
                     return {
-                        "timeout": "Manager supervision timed out",
                         "cancelled": "Manager supervision cancelled",
                         "superseded": "Manager supervision superseded",
                     }.get(code) if code else None
@@ -938,8 +939,6 @@ def supervise(
                 code = code or ("superseded" if isinstance(exc, SupervisionSuperseded) else None)
                 if code:
                     record["error_code"] = code
-                    if code == "timeout" and failure_stage == "provider":
-                        record["stop_kind"] = "transient_error"
                 record["failure_reason"] = _failure_reason(failure_stage, record)
             record["completed_at"] = time.time()
             _write(path, record)
@@ -1155,13 +1154,21 @@ def schedule_supervision(manager: Any, root: Path | str, event: dict[str, Any]) 
                               EventType.LIFE_DAEMON_DEGRADED,
                               EventType.LIFE_RUNTIME_INCIDENT_ESCALATED}
     relevant |= event_type == EventType.ROUND_REVIEW_COMPLETED and event.get("status") in {"continue", "blocked"}
-    relevant |= event_type == EventType.ROUND_STALL and _round(event.get("semantic_stall_streak")) >= STALL_BACKSTOP_STREAK
+    turn_stalled = event_type == EventType.ROUND_STALL and event.get("stall_reason") == "turn_stalled"
+    relevant |= turn_stalled or (
+        event_type == EventType.ROUND_STALL and _round(event.get("semantic_stall_streak")) >= STALL_BACKSTOP_STREAK
+    )
     if not relevant or not callable(getattr(getattr(manager, "runner", None), "fork", None)):
         return False
     project_root = Path(root)
     reason: str | None = None
     if event_type == EventType.ROUND_REVIEW_COMPLETED:
         reason = _review_consult_reason(project_root, event)
+    elif turn_stalled:
+        reason = (
+            f"{event.get('text')}; CONTINUE keeps waiting on that turn, STEER stops it "
+            "and restarts the Engineer with your directive"
+        )
     elif event_type == EventType.ROUND_STALL:
         reason = f"{_round(event.get('semantic_stall_streak'))} rounds without forward progress"
     elif event_type == EventType.LIFE_MISSION_COMPLETED:

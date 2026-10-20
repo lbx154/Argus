@@ -58,3 +58,4 @@ class InactivitySnapshot:
     stdout_tail: list[str]
     stderr_tail: list[str]
     run_label: str | None = None
+    running_tool: str = ""

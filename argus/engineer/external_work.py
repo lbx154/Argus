@@ -306,16 +306,25 @@ def _canonical_status(
 def _direct_silence(record: dict[str, Any], now: float) -> float:
     """How long a direct subagent's command has written nothing; 0 without logs.
 
-    Silence is judged only from the output logs the worker records, starting
-    no earlier than the launch.
+    Writing is judged from the output logs the worker records and from the run
+    directory and its entries -- a training step that checkpoints without
+    printing is busy, not hung -- starting no earlier than the launch.
     """
     logs = [record.get(key) for key in ("stdout_log", "stderr_log") if record.get(key)]
     if not logs:
         return 0.0
-    stamps = [_coerce_float(record.get("started_at"), 0.0)]
-    for log_path in logs:
+    paths = [Path(str(log_path)) for log_path in logs]
+    if record.get("run_dir"):
+        run_dir = Path(str(record.get("cwd") or ".")) / str(record["run_dir"])
+        paths.append(run_dir)
         try:
-            stamps.append(Path(str(log_path)).stat().st_mtime)
+            paths.extend(run_dir.iterdir())
+        except OSError:
+            pass
+    stamps = [_coerce_float(record.get("started_at"), 0.0)]
+    for path in paths:
+        try:
+            stamps.append(path.stat().st_mtime)
         except OSError:
             pass
     return max(0.0, now - max(stamps))

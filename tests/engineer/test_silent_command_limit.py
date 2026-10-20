@@ -1,4 +1,4 @@
-"""A command that prints nothing for the idle limit is stopped, named, and not repeated as it was."""
+"""A turn is never stopped on a timer by default; a stopped turn names its command so it is not repeated as it was."""
 from __future__ import annotations
 
 import json
@@ -26,11 +26,13 @@ REASON = (
 )
 
 
-def test_engineer_turns_have_a_default_silence_limit(monkeypatch) -> None:
+def test_engineer_turns_have_no_default_hard_stop(monkeypatch) -> None:
     monkeypatch.delenv("ARGUS_SKILL_RUNNER_HARD_IDLE_SECONDS", raising=False)
-    assert SupervisedConfig().runner_hard_idle_seconds == 1800
-    monkeypatch.setenv("ARGUS_SKILL_RUNNER_HARD_IDLE_SECONDS", "0")
+    monkeypatch.delenv("ARGUS_SKILL_RUNNER_STALLED_IDLE_SECONDS", raising=False)
     assert SupervisedConfig().runner_hard_idle_seconds == 0
+    assert SupervisedConfig().runner_stalled_idle_seconds == 1800
+    monkeypatch.setenv("ARGUS_SKILL_RUNNER_HARD_IDLE_SECONDS", "1800")
+    assert SupervisedConfig().runner_hard_idle_seconds == 1800
 
 
 def test_the_stopped_turn_names_the_command_and_says_what_to_do_instead() -> None:
@@ -94,7 +96,7 @@ def test_finishing_one_call_does_not_hide_another_with_the_same_title() -> None:
     assert turn.running_tool == ""
 
 
-def _capture_engineer_options(monkeypatch, hard_idle: int):
+def _capture_engineer_options(monkeypatch, **config):
     from argus.core.models import RunnerResult
     from argus.engineer import runner as runner_module
 
@@ -115,19 +117,24 @@ def _capture_engineer_options(monkeypatch, hard_idle: int):
         prompt="p",
         workdir=Path("."),
         run_label="r",
-        supervised_config=SupervisedConfig(runner_hard_idle_seconds=hard_idle),
+        supervised_config=SupervisedConfig(**config),
     )
     return captured[0]
 
 
-def test_turning_the_hard_stop_off_keeps_the_stalled_alert(monkeypatch) -> None:
-    options = _capture_engineer_options(monkeypatch, 0)
+def test_a_default_engineer_turn_is_never_stopped_and_its_stall_goes_to_the_manager(monkeypatch) -> None:
+    """Thirty minutes without progress asks the Manager to look; it stops nothing."""
+    from argus.engineer.turn_stall import LOOK_SECONDS, TurnStallWatch
+
+    options = _capture_engineer_options(monkeypatch, runner_hard_idle_seconds=0, runner_stalled_idle_seconds=1800)
     assert options.watchdog_hard_idle_seconds == 0
-    # None leaves the backend's own likely-stalled alert in place; 0 would turn it off.
-    assert options.watchdog_stalled_idle_seconds is None
-    options = _capture_engineer_options(monkeypatch, 1800)
+    assert options.watchdog_stalled_idle_seconds == 1800
+    assert isinstance(options.inactivity_callback, TurnStallWatch)
+    assert options.inactivity_callback.stall_seconds == 1800
+    assert options.watchdog_soft_idle_seconds == LOOK_SECONDS
+    options = _capture_engineer_options(monkeypatch, runner_hard_idle_seconds=1800, runner_stalled_idle_seconds=0)
     assert options.watchdog_hard_idle_seconds == 1800
-    assert 0 < options.watchdog_stalled_idle_seconds < 1800
+    assert options.inactivity_callback is None and options.watchdog_stalled_idle_seconds == 0
 
 
 def _exec_stop(command: str | None) -> str:

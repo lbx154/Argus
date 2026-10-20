@@ -330,6 +330,39 @@ def test_a_direct_subagent_without_a_timeout_that_falls_silent_is_stalled(
     assert status.waitable is (expected is ExternalWorkState.RUNNING_HEALTHY)
 
 
+def test_a_direct_subagent_writing_its_run_dir_is_not_silent(tmp_path: Path) -> None:
+    """A training step that checkpoints without printing is busy, not hung."""
+    now = 1_000_000.0
+    log = tmp_path / "direct-job.out"
+    log.write_text("epoch 1\n", encoding="utf-8")
+    os.utime(log, (now - 7 * 3600, now - 7 * 3600))
+    run_dir = tmp_path / "runs" / "r1"
+    run_dir.mkdir(parents=True)
+    (run_dir / "metrics.jsonl").write_text("{}\n", encoding="utf-8")
+    os.utime(run_dir, (now - 7 * 3600, now - 7 * 3600))
+    os.utime(run_dir / "metrics.jsonl", (now - 60, now - 60))
+    registry = tmp_path / ".argus_subagents"
+    registry.mkdir()
+    (registry / "direct-job.json").write_text(
+        json.dumps({
+            "task_id": "direct-job",
+            "mode": "direct",
+            "state": "running",
+            "worker_pid": os.getpid(),
+            "started_at": now - 8 * 3600,
+            "timeout_seconds": None,
+            "stdout_log": str(log),
+            "cwd": str(tmp_path),
+            "run_dir": "runs/r1",
+        }),
+        encoding="utf-8",
+    )
+
+    status = inspect_external_work(tmp_path, "direct-job", now=now)
+
+    assert status is not None and status.state is ExternalWorkState.RUNNING_HEALTHY
+
+
 def test_direct_subagent_with_dead_owner_is_stalled(tmp_path: Path) -> None:
     registry = tmp_path / ".argus_subagents"
     registry.mkdir()

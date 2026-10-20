@@ -143,3 +143,36 @@ def test_reviewer_waits_out_a_running_job_and_reads_its_result_once(tmp_path, mo
     assert sum(event["type"] == "round.review.skipped_unchanged" for event in events) == 1
     assert len(list(trainer.run.glob("ckpt-*.pt"))) == trainer.step == 8
     assert (workdir / "REPORT.md").read_text() == "Final loss 0.1250\n"
+
+
+def test_a_ledger_that_cannot_be_written_never_stops_the_round(tmp_path, monkeypatch):
+    """Bookkeeping never blocks work: without the record the Reviewer is only asked again."""
+    from argus.engineer import runner
+
+    def full_disk(*_args: Any, **_kwargs: Any) -> None:
+        raise OSError(28, "No space left on device")
+
+    monkeypatch.setattr(runner, "record_holder", full_disk)
+    packet = tmp_path / "state" / "handoffs" / "m1" / "mission.json"
+    packet.parent.mkdir(parents=True)
+    packet.write_text(json.dumps({"mission_id": "m1"}), encoding="utf-8")
+    workdir = tmp_path / "work"
+    workdir.mkdir()
+    trainer = Trainer(workdir)
+    reviewer = Reviewer(trainer)
+    loop = cast(Any, SupervisedEngineer.__new__(SupervisedEngineer))
+    loop.engineer_runner, loop.reviewer = Engineer(trainer, workdir), reviewer
+    loop.engineer_config, loop.reviewer_config = EngineerConfig(model="stub"), ReviewerConfig(model="stub")
+    events: list[dict] = []
+
+    result = loop.run(
+        objective="Train a policy and report its final loss", workdir=workdir,
+        engineer_prompt_builder=lambda action, include_static=True: action or "Start",
+        supervised_config=SupervisedConfig(max_rounds=2, require_independent_review=True, context_packet_path=packet),
+        on_event=events.append,
+    )
+
+    # The rounds end on the Reviewer's own verdicts, not on the failed write.
+    assert result[0] == "no_progress"
+    assert reviewer.saw_result == [False, False]
+    assert not any(event["type"] == "round.review.skipped_unchanged" for event in events)

@@ -192,7 +192,7 @@ _UNJUDGED_LINES = {
     ),
     "silent_command": (
         "Round 2 was not reviewed: Argus stopped the Engineer's session after a "
-        "command stayed silent for the whole idle limit."
+        "command made no progress for a long time."
     ),
 }
 

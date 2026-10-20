@@ -158,10 +158,7 @@ def self_retryable_transport_failure(result: Any) -> bool:
     return any(marker in fatal for marker in _SELF_RETRYABLE_TRANSPORT_ERRORS)
 
 
-_SELF_STALL_MARKERS = (
-    "hard idle timeout",
-    "restart requested by stall sub-agent",
-)
+_SELF_STALL_MARKERS = ("forced restart after",)
 
 
 def self_stalled_model_turn(result: Any) -> bool:
@@ -400,7 +397,7 @@ class SelfReplyMixin:
                     dangerous_yolo=not safe_mode,
                     working_dir=str(workdir),
                     watchdog_hard_idle_seconds=env_int(
-                        "ARGUS_SKILL_SELF_HARD_IDLE_SECONDS", 120
+                        "ARGUS_SKILL_SELF_HARD_IDLE_SECONDS", 0
                     ),
                 ),
                 run_label="router-classify",
@@ -950,7 +947,7 @@ class SelfReplyMixin:
             skill_paths=native_skill_paths,
             extra_args=extra_args,
             watchdog_hard_idle_seconds=env_int(
-                "ARGUS_SKILL_SELF_HARD_IDLE_SECONDS", 120
+                "ARGUS_SKILL_SELF_HARD_IDLE_SECONDS", 0
             ),
             watchdog_soft_idle_seconds=env_int(
                 "ARGUS_SKILL_SELF_SOFT_IDLE_SECONDS", 5

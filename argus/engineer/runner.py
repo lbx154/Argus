@@ -78,6 +78,7 @@ from .round_stop_signals import (
     should_clear_thread_id_after_outcome,
 )
 from .round_waits import RoundWaitsMixin
+from .turn_stall import LOOK_SECONDS, TurnStallWatch
 
 # The next Reviewer reads at most this many earlier unreviewed Engineer
 # accounts, each kept to its head and tail when longer than the char bound.
@@ -549,13 +550,18 @@ class SupervisedEngineer(
             review = control.payload
             if ledger is not None and (review.review_source or "reviewer") == "reviewer":
                 # Read after the review, so its own writes are not news next round.
-                record_holder(
-                    ledger, "reviewer",
-                    change_facts(
-                        workdir, state_root=supervised_config.operator_question_policy_root,
-                    ),
-                    round=round_index,
-                )
+                try:
+                    record_holder(
+                        ledger, "reviewer",
+                        change_facts(
+                            workdir, state_root=supervised_config.operator_question_policy_root,
+                        ),
+                        round=round_index,
+                    )
+                except OSError:
+                    # Bookkeeping never blocks the round; without the record the
+                    # Reviewer may be called once more on unchanged facts.
+                    log.exception("failed to record the Reviewer's held facts")
 
             if review_before_wait:
                 from .external_work import inspect_external_work, parse_external_wait_request
@@ -628,15 +634,17 @@ class SupervisedEngineer(
     ) -> tuple[RunnerResult, int]:
         hard_idle_seconds: int | None = None
         stalled_idle_seconds: int | None = None
+        stall_watch: TurnStallWatch | None = None
         if supervised_config is not None:
             hard_idle_seconds = int(supervised_config.runner_hard_idle_seconds or 0)
-            # Say which command is silent well before it is stopped, so the
-            # operator's status line can show where the round is stuck.
-            # With the hard stop off, leave the backend's own likely-stalled
-            # alert in place (None = backend default) rather than disabling it.
-            stalled_idle_seconds = (
-                min(600, max(1, hard_idle_seconds // 3)) if hard_idle_seconds > 0 else None
-            )
+            stalled_idle_seconds = int(supervised_config.runner_stalled_idle_seconds or 0)
+            if stalled_idle_seconds > 0:
+                stall_watch = TurnStallWatch(
+                    stall_seconds=stalled_idle_seconds,
+                    state_root=supervised_config.operator_question_policy_root,
+                    run_label=run_label,
+                    on_event=on_event,
+                )
         try:
             result = gateway_run_exec(
                 self.engineer_runner,
@@ -667,6 +675,8 @@ class SupervisedEngineer(
                     # watchdog. Do not infer semantic progress from project
                     # mtimes or provider-private session files.
                     external_interrupt_reason_provider=None,
+                    inactivity_callback=stall_watch,
+                    watchdog_soft_idle_seconds=LOOK_SECONDS if stall_watch else None,
                     watchdog_stalled_idle_seconds=stalled_idle_seconds,
                     watchdog_hard_idle_seconds=hard_idle_seconds,
                     extension_env=(

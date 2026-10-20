@@ -19,6 +19,11 @@ from dataclasses import dataclass, field
 from pathlib import Path
 
 from ..core.control_state_guard import mark_role_process_env
+from ..core.process_progress import (
+    CPU_PROGRESS_SECONDS,
+    CPU_SAMPLE_SECONDS,
+    process_tree_cpu_seconds,
+)
 from ..core.runner_receipts import PROVIDER_BACKGROUND_WAIT_RECEIPT
 from ..core.windows_job import spawn_owned_process, terminate_owned_process
 from ._env import (
@@ -43,6 +48,7 @@ from ._idle_watchdog import (
     TERMINATE_STAGE,
     WARNING_STAGE,
     IdleEscalation,
+    requested_restart,
     running_tool_after_event,
 )
 from ._process_control import background_subprocess_kwargs
@@ -482,6 +488,8 @@ class RunExecMixin:
         turn_wall_clock_seconds = _turn_wall_clock_seconds(run_label)
         provider_turn_cap = _provider_turn_cap(run_label)
         last_soft_check_at = last_activity_at
+        cpu_seconds = process_tree_cpu_seconds(getattr(process, "pid", None))
+        cpu_sampled_at = last_activity_at
         provider_exited_at: float | None = None
         stdout_closed = False
         stderr_closed = False
@@ -581,11 +589,21 @@ class RunExecMixin:
             return True
 
         def check_idle_deadlines() -> None:
-            """Escalate on model-stream silence; a no-op once the run is over."""
-            nonlocal last_soft_check_at
+            """Escalate when the turn stops progressing; a no-op once the run is over.
+
+            Progress is a model stream event or CPU time spent by the CLI and
+            the commands it runs: a live process alone is not progress.
+            """
+            nonlocal last_soft_check_at, last_activity_at, cpu_seconds, cpu_sampled_at
             if state.watchdog_terminated or process.poll() is not None:
                 return
             now = time.monotonic()
+            if now - cpu_sampled_at >= CPU_SAMPLE_SECONDS:
+                previous, cpu_seconds = cpu_seconds, process_tree_cpu_seconds(getattr(process, "pid", None))
+                cpu_sampled_at = now
+                if cpu_seconds - previous >= CPU_PROGRESS_SECONDS:
+                    last_activity_at = now
+                    idle_escalation.reset()
             idle_seconds = now - last_activity_at
 
             check_external_interrupt()
@@ -610,12 +628,15 @@ class RunExecMixin:
                     stdout_tail=list(state.stdout_lines)[-50:],
                     stderr_tail=list(state.stderr_lines)[-50:],
                     run_label=run_label,
+                    running_tool=state.running_tool,
                 )
-                decision = options.inactivity_callback(snapshot)
-                if decision == "restart":
-                    state.watchdog_reason = (
-                        f"Restart requested by stall sub-agent after {int(idle_seconds)}s idle."
-                    )
+                restart = requested_restart(
+                    options.inactivity_callback(snapshot),
+                    idle_seconds=idle_seconds,
+                    running_tool=state.running_tool,
+                )
+                if restart:
+                    state.watchdog_reason = restart
                     self._emit(
                         self._stream_name("stderr", run_label),
                         f"[watchdog] {state.watchdog_reason}",
@@ -649,11 +670,10 @@ class RunExecMixin:
                     self._emit(
                         self._stream_name("stderr", run_label),
                         "[watchdog] Model call is likely stalled after "
-                        f"{int(idle_seconds)}s without a stream event "
+                        f"{int(idle_seconds)}s without progress "
                         f"(threshold {stalled_idle}s, pid={process.pid}); "
                         f"stdout_lines={state.stdout_line_count}, "
-                        f"stderr_lines={state.stderr_line_count}; continuing "
-                        "until the hard deadline.",
+                        f"stderr_lines={state.stderr_line_count}; still waiting.",
                     )
                 elif stage == TERMINATE_STAGE:
                     # Name the command the call was waiting on when the
@@ -667,7 +687,7 @@ class RunExecMixin:
                     )
                     state.watchdog_reason = (
                         "Forced restart after hard idle timeout "
-                        f"({hard_idle}s without a model stream event{waiting_on}"
+                        f"({hard_idle}s without progress{waiting_on}"
                     )
                     self._emit(
                         self._stream_name("stderr", run_label),

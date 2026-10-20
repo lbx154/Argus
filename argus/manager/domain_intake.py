@@ -94,8 +94,7 @@ def manager_intake_decision(mem: Any, chat_state: dict, message: str, *,
             conversation_backend(runner), prompt=prompt,
             options=RunnerOptions(model=resolve_manager_reply_model(), skip_git_repo_check=True,
                                   disable_tools=True, sandbox_mode="read-only", force_safe_mode=True,
-                                  working_dir=str(getattr(manager, "execution_workdir", mem.project_root)),
-                                  watchdog_hard_idle_seconds=120),
+                                  working_dir=str(getattr(manager, "execution_workdir", mem.project_root))),
             run_label="manager-domain-dialogue",
         )
     if getattr(result, "exit_code", 0) != 0 or getattr(result, "fatal_error", None):
