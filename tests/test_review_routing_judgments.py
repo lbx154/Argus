@@ -1,6 +1,6 @@
 """A host intervention sits beside a Reviewer verdict and keeps its judgments.
 
-``manager_attention`` and ``learning`` describe the verdict the Reviewer wrote.
+``learning`` describes the verdict the Reviewer wrote.
 The host no longer rewrites that verdict: an intervention records what the
 host did beside it, so the Reviewer's routing judgments still apply. Only a
 review the host must retry, because its venue assessment is missing, drops
@@ -21,10 +21,7 @@ from argus.core.venue_review import (
 )
 from argus.skills.vertical_select import persist_vertical
 
-JUDGED = {
-    "manager_attention": "not_needed", "manager_attention_reason": "Clear repair.",
-    "learning": "nothing_new", "learning_reason": "Routine.",
-}
+JUDGED = {"learning": "nothing_new", "learning_reason": "Routine."}
 
 
 def _review(status: str, **report) -> ReviewDecision:
@@ -36,7 +33,7 @@ def _review(status: str, **report) -> ReviewDecision:
 
 def _assert_kept(review: ReviewDecision) -> None:
     assert {key: review.planner_report[key] for key in JUDGED} == JUDGED
-    assert review.to_event_payload()["manager_attention"] == "not_needed"
+    assert review.to_event_payload()["learning"] == "nothing_new"
 
 
 def test_the_operator_question_policy_keeps_the_verdict_and_its_judgments():
@@ -103,4 +100,4 @@ def test_a_missing_venue_assessment_drops_the_judgments(paper):
 
     assert review.status == "blocked"
     assert not set(REVIEW_ROUTING_JUDGMENTS) & set(review.planner_report)
-    assert "manager_attention" not in review.to_event_payload()
+    assert "learning" not in review.to_event_payload()

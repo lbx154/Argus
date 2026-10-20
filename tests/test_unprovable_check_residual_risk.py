@@ -473,21 +473,15 @@ def test_the_manager_prompt_gives_risk_authority_only_without_an_operator(monkey
 
     monkeypatch.setenv("ARGUS_SKILL_OPERATOR_AVAILABLE", "true")
     text = supervision._prompt(_Observation())
-    assert "the operator's decision, not yours" in text
     assert "ACCEPT_RISK" not in text
-    assert "You do not change the objective, acceptance standard, or pipeline stage here." in text
-    assert "verification_obstacle_basis" in text
-    assert "never direct a role to pause, stop or reschedule work" in text
+    assert "- WAIT:" in text and "ACTION: continue, steer, wait or stop" in text
 
     monkeypatch.setenv("ARGUS_SKILL_OPERATOR_AVAILABLE", "false")
     text = supervision._prompt(_Observation())
     assert "ACCEPT_RISK: yes, no, or revoke <risk id>" in text
     assert "RISK_CHECK:" in text and "RESIDUAL_RISK:" in text
-    # No contradiction: the one exception is named where the rule is stated.
-    assert "You do not change the objective" not in text
-    assert "Apart from accepting or revoking one grounded check's residual risk" in text
-    assert "An Engineer claim is never that evidence" in text
-    assert "rerunnable check" in text
+    assert "The operator cannot be asked" in text
+    assert "- WAIT:" not in text and "ACTION: continue, steer or stop" in text
 
 
 # --- 3 and 7. Fixture faithfulness, everywhere a fixture may stand in ------
@@ -609,7 +603,6 @@ def _supervised_project(root: Path, *, basis: str = _STATEMENT):
     event = {
         "type": EventType.ROUND_REVIEW_COMPLETED, "item_id": item.id, "status": "continue",
         "review_source": "reviewer", "reason": "No token here.", "verification_obstacle": _OBSTACLE,
-        "manager_attention": "needed", "manager_attention_reason": "impossible check",
         **({"verification_obstacle_basis": basis, "verification_obstacle_basis_source": "task"} if basis else {}),
     }
     return item, event

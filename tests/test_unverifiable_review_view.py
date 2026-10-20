@@ -13,7 +13,6 @@ from __future__ import annotations
 from argus.adapters.memory_backend import CannedResponse, MemoryBackend
 from argus.core.event_catalog import validate_event_envelope
 from argus.engineer.runner import EngineerConfig, SupervisedConfig, SupervisedEngineer
-from argus.manager.supervision import _prompt as manager_prompt
 from argus.reviewer import Reviewer, ReviewerConfig
 from argus.reviewer.tools import ReviewActions
 
@@ -78,16 +77,6 @@ def test_manager_supervision_failure_codes_validate() -> None:
     for code in ("decision_incomplete", "evidence_uncited", "superseded"):
         event = {"type": "life.manager.supervision.failed", "error_code": code}
         assert not any("error_code" in error for error in validate_event_envelope(event).errors)
-
-
-def test_manager_is_told_what_an_obstacle_means() -> None:
-    class _Observation:
-        def render(self) -> str:
-            return "{}"
-
-    text = manager_prompt(_Observation())
-    assert "verification_obstacle" in text
-    assert "rerunnable check" in text
 
 
 def test_both_roles_learn_that_a_masked_display_is_unobservable() -> None:

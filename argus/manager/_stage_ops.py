@@ -188,16 +188,13 @@ class _StageDecisionMixin:
             "challenge",
             "alternative",
             "authority_impact",
-            # Routing judgments for supervision and reflection; they say
-            # nothing about whether the stage is accepted.
-            "manager_attention",
-            "manager_attention_reason",
+            # The reflection judgment says nothing about whether the stage is accepted.
             "learning",
             "learning_reason",
         }
         if not set(planner_report).issubset(allowed_plan_fields):
             return False
-        for name in ("manager_attention", "manager_attention_reason", "learning", "learning_reason"):
+        for name in ("learning", "learning_reason"):
             if name in planner_report and not isinstance(planner_report[name], str):
                 return False
         if "plan_signal" in planner_report:
