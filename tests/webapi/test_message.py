@@ -832,7 +832,7 @@ def test_natural_pause_is_frontdoor_control_after_pending_question_manager_check
         assert text == "停一下，你在干什么？"
         return None, "pause", "simple"
 
-    monkeypatch.setattr(front_door, "manager_triage", triage)
+    monkeypatch.setattr(front_door, "manager_judgment", triage)
     monkeypatch.setattr(config_intent, "_front_door_classify", classify)
 
     result = manager_bridge.manager_message(
@@ -1843,7 +1843,7 @@ def test_manager_message_resolves_single_pending_question(
     LifeMemory.open(life).backlog.add(blocked)
     monkeypatch.setattr(
         front_door,
-        "manager_triage",
+        "manager_judgment",
         lambda *args, **kwargs: json.dumps({
             "is_answer": True,
             "resolved": True,
@@ -1875,16 +1875,14 @@ def test_non_answer_message_falls_through_without_clearing_pending_question(
     blocked.status = "paused_operator"
     blocked.pending_question = "Which GPU may I use?"
     LifeMemory.open(life).backlog.add(blocked)
-    monkeypatch.setattr(
-        front_door,
-        "manager_triage",
-        lambda *args, **kwargs: json.dumps({
-            "is_answer": False,
-            "resolved": False,
-            "decision": "",
-            "reply": "",
-        }),
-    )
+    not_an_answer = json.dumps({
+        "is_answer": False,
+        "resolved": False,
+        "decision": "",
+        "reply": "",
+    })
+    monkeypatch.setattr(front_door, "manager_judgment", lambda *args, **kwargs: not_an_answer)
+    monkeypatch.setattr(front_door, "manager_triage", lambda *args, **kwargs: not_an_answer)
 
     result = manager_bridge.manager_message(
         "s-msgtest0",
@@ -1917,6 +1915,7 @@ def test_unclassified_message_stays_in_conversation_without_research_directive(
             raise RuntimeError("classification unavailable")
         return "IS_ANSWER=maybe\nRESOLVED=false\nDECISION=\nREPLY="
 
+    monkeypatch.setattr(front_door, "manager_judgment", interpret)
     monkeypatch.setattr(front_door, "manager_triage", interpret)
     result = manager_bridge.manager_message("s-msgtest0", question, global_root=tmp_path)
 
@@ -1944,7 +1943,7 @@ def test_manager_keeps_pending_question_when_answer_is_insufficient(
     LifeMemory.open(life).backlog.add(blocked)
     monkeypatch.setattr(
         front_door,
-        "manager_triage",
+        "manager_judgment",
         lambda *args, **kwargs: json.dumps({
             "is_answer": True,
             "resolved": False,

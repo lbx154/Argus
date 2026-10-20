@@ -172,7 +172,7 @@ def test_repeated_decision_is_idempotent_across_reopened_memory(
     mem, card = _bound_blocked_project(tmp_path)
     monkeypatch.setattr(
         front_door,
-        "manager_triage",
+        "manager_judgment",
         lambda *_args, **_kwargs: (_ for _ in ()).throw(
             AssertionError("explicit decisions must not require a model call")
         ),
@@ -225,7 +225,7 @@ def test_campaign_generation_change_does_not_block_pending_decision(
     )
     monkeypatch.setattr(
         front_door,
-        "manager_triage",
+        "manager_judgment",
         lambda *_args, **_kwargs: (_ for _ in ()).throw(
             AssertionError("explicit decisions must not require a model call")
         ),
@@ -252,7 +252,7 @@ def test_concurrent_same_decision_returns_accepted_and_already_applied(
     mem, card = _bound_blocked_project(tmp_path)
     monkeypatch.setattr(
         front_door,
-        "manager_triage",
+        "manager_judgment",
         lambda *_args, **_kwargs: (_ for _ in ()).throw(
             AssertionError("explicit decisions must not require a model call")
         ),

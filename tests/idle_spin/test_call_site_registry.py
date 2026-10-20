@@ -125,10 +125,16 @@ REGISTRY: tuple[Site, ...] = (
         ("planner-preview",),
     ),
     Site(
-        r"simple-1|manager-quick-reply|self-(?!learning-review$)[\w-]+", FOREGROUND,
+        r"simple-1|manager-quick-reply|self-[\w-]+", FOREGROUND,
         "Answers one operator message, retried at most once for a stalled or tool-less turn.",
         ("argus/apps/_self_reply.py:921", "argus/webapi/manager_state.py:221"),
         ("simple-1", "manager-quick-reply", "self-micro", "self-implement"),
+    ),
+    Site(
+        r"manager-pending-answer", FOREGROUND,
+        "Reads one operator message against the one question a parked task is waiting on.",
+        ("argus/webapi/manager_pending_question.py:735",),
+        ("manager-pending-answer",),
     ),
     Site(
         r"router-classify", FOREGROUND,
@@ -300,6 +306,7 @@ PASS_THROUGH = {
     ("argus/manager/_stage_ops.py", "_build_stage_run_exec", "run_label"),
     ("argus/manager/_stage_ops.py", "_build_stage_run_exec._run_exec", "run_label"),
     ("argus/manager/_stage_ops.py", "run_turn", "run_label"),
+    ("argus/manager/front_door.py", "manager_judgment", "run_label"),
     ("argus/manager/_stage_ops.py", "write_prose", "run_label"),
     ("argus/manager/_vertical_ops.py", "_decide_vertical_once.invoke_grounded_route", "run_label"),
     ("argus/manager/plan_mode.py", "_resolve_run_exec._call", "run_label"),

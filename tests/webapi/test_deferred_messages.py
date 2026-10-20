@@ -219,7 +219,7 @@ def test_a_saved_message_is_checked_against_the_same_question_once(tmp_path, mon
         state["_frontdoor_failure"] = "provider concurrency limit reached (2 active calls); retry shortly"
         return None, None, "simple"
 
-    monkeypatch.setattr(front_door, "manager_triage", triage)
+    monkeypatch.setattr(front_door, "manager_judgment", triage)
     monkeypatch.setattr(config_intent, "_front_door_classify", classify)
 
     def send(**retry):
