@@ -15,6 +15,7 @@ import {
   X,
 } from "lucide-react";
 import { isPauseStatus } from "../../../core/src/missionOutcome";
+import { plainStopKind } from "../lib/plainStatus";
 import { MarkdownExcerpt } from "../components/MarkdownExcerpt";
 import { Button } from "../components/primitives";
 import { MapReaderContent, type MapReaderSelection } from "./MapReaderContent";
@@ -333,6 +334,8 @@ export const MacroTaskNode = memo(function MacroTaskNode({
     ? zh ? "当次结束 · 当时目标未完成" : "Execution ended · goal incomplete then"
     : task.turn_kind === 'qa' && ['done', 'running', 'cancelled', 'failed'].includes(state)
     ? ({ done: ['已回答', 'Answered'], running: ['正在回答', 'Answering'], cancelled: ['已中断', 'Interrupted'], failed: ['回答失败', 'Answer failed'] } as Record<string, string[]>)[state][zh ? 0 : 1]
+    : state === "paused" && task.park_reason
+    ? `${stateLabel(state)} · ${plainStopKind(task.park_reason, zh ? "zh-CN" : "en")}`
     : stateLabel(state);
   return (
     <article

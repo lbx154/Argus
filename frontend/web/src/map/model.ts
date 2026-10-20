@@ -10,6 +10,8 @@ export interface MapTask
   content_revision?: string;
   /** The backlog's last recorded error, e.g. why a stage was held. */
   last_error?: string;
+  /** Why a ``parked`` task is waiting. */
+  park_reason?: string;
   ts?: number;
   started_ts?: number | null;
   finished_ts?: number | null;

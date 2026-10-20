@@ -12,7 +12,8 @@ import { layoutGraph } from "./graphLayout";
 import { completionScope } from "./status";
 import { humanizeHarnessNote, TECHNICAL_MARKER_PREFIX } from "../lib/harnessNotes";
 import { visibleAgentText } from "../../../core/src/events";
-import { isPauseStatus } from "../../../core/src/missionOutcome";
+import { isPauseStatus, parkReason } from "../../../core/src/missionOutcome";
+import { plainStopSentence } from "../lib/plainStatus";
 export { humanizeHarnessNote, TECHNICAL_MARKER } from "../lib/harnessNotes";
 
 export const MAP_FRAME = { width: 1440, height: 1080 };
@@ -137,12 +138,15 @@ function describeRecord(event: MapEvent, status: string, zh: boolean): string {
       return event.role === "reviewer"
         ? zh ? "审阅者打开了工程师的工作，开始核查。" : "The Reviewer opened the Engineer's work to check it."
         : "";
-    case "life.mission.completed":
+    case "life.mission.completed": {
+      const reason = parkReason(status, event.park_reason);
       return completionScope(event, zh) || (status === "done"
         ? zh ? "任务完成，结果已经记录在案。" : "The task was finished; its result is on record."
         : isPauseStatus(status)
-          ? zh ? "这项任务的工作暂停了。" : "Work on this task was paused."
+          ? reason ? plainStopSentence(reason, zh ? "zh-CN" : "en")
+            : zh ? "这项任务的工作暂停了。" : "Work on this task was paused."
           : zh ? "任务到此结束。" : "The task ended here.");
+    }
     case "life.mission.failed":
       return zh ? "任务没有达到目标就结束了。" : "The task ended without reaching its goal.";
     default:
@@ -354,6 +358,16 @@ function outcomeSentence(status: string, zh: boolean): string {
   }
 }
 
+/** What was said about a task by those not working on it: the question put
+ * to the operator and its answer, the Observer's remarks, the Manager's
+ * direction. Each is a step of its own, in the words recorded. */
+const SAID: Record<string, { kind: StepKind; title: [string, string] }> = {
+  "life.operator_question.pending": { kind: "plan", title: ["向你提问", "A question for you"] },
+  "life.operator_question.answered": { kind: "plan", title: ["你的答复", "Your answer"] },
+  "life.observer.note": { kind: "revision", title: ["监督者的提醒", "The Observer's note"] },
+  "life.manager.supervision.applied": { kind: "plan", title: ["经理的督导", "The Manager's direction"] },
+};
+
 /** Display observations, including their evidence strength; never fill a missing stage with success. */
 export function buildSubmap(
   task: MapTask,
@@ -398,6 +412,26 @@ export function buildSubmap(
         status: e.status || "done",
         ts: e.ts,
         source: "event",
+        eventIds: [e.id],
+      });
+      continue;
+    }
+    const said = SAID[e.type];
+    if (said) {
+      const record = readableRecord(e.text);
+      rows.push({
+        id: e.id,
+        kind: said.kind,
+        // The Manager may answer in the operator's place; that is not the operator's answer.
+        title: e.type.endsWith(".answered") && e.role !== "operator"
+          ? zh ? "Argus 代你答复" : "Argus answered for you"
+          : said.title[zh ? 0 : 1],
+        summary: clipSentence(record) || undefined,
+        detail: record || noDetails(zh),
+        status: "recorded",
+        ts: e.ts,
+        episode,
+        source: e.association === "single_active_window" ? "interval" : "event",
         eventIds: [e.id],
       });
       continue;

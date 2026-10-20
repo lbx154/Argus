@@ -11,7 +11,7 @@ from ..core.json_codec import loads_finite_json
 from ..core.progress_step import plain_step_label
 from ..core.secret_guard import redact_secrets_text
 from ..core.session import read_session_meta
-from ..life.memory import LifeMemory, _jsonl_history_paths
+from ..life.memory import LifeMemory, _jsonl_history_paths, park_reason
 from .map_outcomes import project_map_outcomes, public_outcome
 
 TASK_FIELDS = (
@@ -50,6 +50,17 @@ EVENT_PREFIXES = (
     "round.main.completed",
     "round.review.",
     "agent.message",
+    # What the operator was asked and answered, the Observer's remarks and the
+    # Manager's supervision: why work waited and what it went on with.
+    "life.operator_question.",
+    "life.observer.note",
+    "life.manager.supervision.applied",
+)
+# Records that name no task belong to the one mission running when they were
+# written, when exactly one is.
+WINDOW_PREFIXES = (
+    "round.", "life.phase.", "agent.message", "engineer.progress",
+    "life.observer.note", "life.manager.supervision.applied",
 )
 
 # The agent's own words while it works. A narration opens a work segment; the
@@ -265,11 +276,7 @@ def normalize_events(
         if kind == "life.mission.started" and owner:
             active.add(owner)
         association = "explicit"
-        if (
-            not owner
-            and kind.startswith(("round.", "life.phase.", "agent.message", "engineer.progress"))
-            and len(active) == 1
-        ):
+        if not owner and kind.startswith(WINDOW_PREFIXES) and len(active) == 1:
             owner = next(iter(active))
             association = "single_active_window"
         if segments is not None and owner in task_ids:
@@ -287,6 +294,7 @@ def normalize_events(
                 "role": str(
                     row.get("agent_layer")
                     or row.get("role")
+                    or row.get("decided_by")
                     or ("reviewer" if "review" in kind else "engineer")
                 ),
                 "text": text(
@@ -295,6 +303,8 @@ def normalize_events(
                     or row.get("text")
                     or row.get("last_message")
                     or row.get("message")
+                    or row.get("manager_decision")
+                    or row.get("question")
                 ),
                 "status": text(row.get("status"), 40),
                 "next_action": text(row.get("next_action")),
@@ -309,6 +319,8 @@ def normalize_events(
                 e["attempt"] = row["attempt"]
             if isinstance(row.get("review_source"), str):
                 e["review_source"] = text(row["review_source"], 120)
+            if row.get("park_reason"):
+                e["park_reason"] = text(row["park_reason"], 80)
             if isinstance(row.get("outcome"), dict):
                 e["outcome"] = public_outcome(row["outcome"])
             outcome = row.get("outcome")
@@ -555,9 +567,16 @@ def read_map(
 ) -> dict:
     memory = LifeMemory.open(life_dir)
     tasks = []
+    # An answered question's work goes on in a new task: the answer is what
+    # that task is built on, drawn as its dependency.
+    continues = {}
     for item in memory.backlog.history():
         raw = item.to_jsonable()
+        if continuation := (raw.get("operator_decision") or {}).get("continuation_item_id"):
+            continues[continuation] = item.id
         task = {k: raw[k] for k in TASK_FIELDS if k in raw}
+        if reason := park_reason(item):
+            task["park_reason"] = reason
         display_objective = (raw.get("manager_decision") or {}).get("display_objective")
         if isinstance(display_objective, str) and display_objective.strip():
             task["objective"] = display_objective
@@ -571,8 +590,11 @@ def read_map(
                 task[k] = [text(x) if isinstance(x, str) else x for x in v]
         task["summary"] = task.get("last_error") or task.get("notes") or ""
         task["role"] = "engineer"
-        task["revision"] = facts(task)
         tasks.append(task)
+    for task in tasks:
+        if task["id"] in continues:
+            task["deps"] = [*task.get("deps", []), continues[task["id"]]]
+        task["revision"] = facts(task)
     tasks.sort(key=lambda t: (t.get("ts") or 0, t["id"]))
     rows = []
     path = life_dir / "events.jsonl"
