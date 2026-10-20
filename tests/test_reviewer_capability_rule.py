@@ -29,7 +29,7 @@ from argus.core.model_visible_text import (
 )
 from argus.reviewer import Reviewer
 from argus.reviewer import tools as review_tools
-from argus.reviewer.tools import ReviewActions, reviewer_can_execute, reviewer_evidence_mode
+from argus.reviewer.tools import reviewer_can_execute, reviewer_evidence_mode
 from argus.reviewer.validation import IMAGE_ENV
 
 _RULES = (REVIEW_EVIDENCE_RULE_EXECUTING, REVIEW_EVIDENCE_RULE_READ_ONLY, REVIEW_EVIDENCE_RULE_UNRECORDED)
@@ -145,12 +145,3 @@ def test_the_masked_display_sentence_follows_each_form() -> None:
         assert "proves neither a defect nor a fix" in display
         assert "settle it the same way" in display
         assert "rerunnable assertion on a placeholder value" in display
-
-
-def test_manager_attention_keeps_operator_evidence_and_drops_missing_checks() -> None:
-    tools = {tool["name"]: tool for tool in ReviewActions().tools}
-    description = tools["revise_review"]["inputSchema"]["properties"]["manager_attention"]["description"]
-    assert "evidence you cannot observe" not in description
-    assert "evidence only the operator can supply (credentials, hardware, human judgment)" in description
-    assert "A check you lack is not one: run it if you can, else ask the Engineer for it" in description
-    assert "agreement on something unverified" in description

@@ -1,8 +1,8 @@
 """Host rewrites of a Reviewer verdict drop the Reviewer's routing judgments.
 
-``manager_attention`` and ``learning`` describe the verdict the Reviewer wrote.
-When the host changes that verdict's status or strips its signals, they no
-longer apply, so they are read as absent: the Manager looks, reflection runs.
+``learning`` describes the verdict the Reviewer wrote. When the host changes
+that verdict's status or strips its signals, it no longer applies, so it is
+read as absent: reflection runs.
 """
 from __future__ import annotations
 
@@ -19,10 +19,7 @@ from argus.core.venue_review import (
 )
 from argus.skills.vertical_select import persist_vertical
 
-JUDGED = {
-    "manager_attention": "not_needed", "manager_attention_reason": "Clear repair.",
-    "learning": "nothing_new", "learning_reason": "Routine.",
-}
+JUDGED = {"learning": "nothing_new", "learning_reason": "Routine."}
 
 
 def _review(status: str, **report) -> ReviewDecision:
@@ -34,7 +31,7 @@ def _review(status: str, **report) -> ReviewDecision:
 
 def _assert_dropped(review: ReviewDecision) -> None:
     assert not set(REVIEW_ROUTING_JUDGMENTS) & set(review.planner_report)
-    assert "manager_attention" not in review.to_event_payload()
+    assert "learning" not in review.to_event_payload()
 
 
 def test_the_operator_question_policy_drops_the_judgments():
@@ -74,7 +71,7 @@ def test_the_reviewer_s_own_continue_keeps_its_judgments():
 
     _keep_final_repairs_in_place(review)
 
-    assert review.planner_report["manager_attention"] == "not_needed"
+    assert review.planner_report["learning"] == "nothing_new"
 
 
 @pytest.fixture

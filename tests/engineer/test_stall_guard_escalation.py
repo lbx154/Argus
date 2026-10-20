@@ -19,7 +19,6 @@ from argus.core.event_catalog import EventType
 from argus.core.models import ReviewDecision, RunnerResult
 from argus.engineer.round_state import EngineerTurnOutcome, RoundLoopState
 from argus.engineer.runner import EngineerConfig, SupervisedConfig, SupervisedEngineer
-from argus.manager import supervision
 from argus.reviewer import Reviewer, ReviewerConfig
 
 
@@ -32,8 +31,6 @@ def mission(tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
     packet.parent.mkdir(parents=True)
     packet.write_text(json.dumps({"mission_id": "m1"}), encoding="utf-8")
     asked: list[str] = []
-    monkeypatch.setattr(supervision, "_admit", lambda _m, _r, event: asked.append(event["consult_reason"]) or True)
-    manager = SimpleNamespace(runner=SimpleNamespace(fork=lambda: None))
     engineer = SupervisedEngineer(
         engineer_runner=MemoryBackend(),
         reviewer=Reviewer(runner=MemoryBackend()),
@@ -70,9 +67,7 @@ def mission(tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
             on_event=events.append,
         )
         seen.extend(events)
-        for event in events:
-            if event["type"] == EventType.ROUND_STALL:
-                supervision.schedule_supervision(manager, tmp_path / "state", event)
+        asked.extend(event["consult"] for event in events if event["type"] == EventType.ROUND_STALL and event.get("consult"))
         return control
 
     return SimpleNamespace(settle=settle, asked=asked, state=state, workdir=workdir, events=seen)

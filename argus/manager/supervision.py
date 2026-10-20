@@ -20,7 +20,6 @@ from ..core.models import RunnerOptions
 from ..core.run_gateway import run_exec, run_interrupt_scope
 from ..core.workspace_facts import fact_text
 from ..daemon.state import _fsync_directory, compare_and_swap_continuous_config
-from ..engineer.change_facts import held_facts, holds_unchanged, record_holder
 from ._helpers import _manager_backend_failure
 from ._session_ops import (
     _ManagerSession,
@@ -421,95 +420,41 @@ def _manager_holds_operator_authority(root: Path | str | None = None) -> bool:
     return not operator_questions_can_be_asked(root)
 
 
-def _risk_authority_rule(root: Path | str | None = None) -> str:
+def _prompt(observation: ManagerObservation, consult_reason: str = "") -> str:
     from ..core.model_visible_text import FIXTURE_EVIDENCE_RULE
 
-    if not _manager_holds_operator_authority(root):
-        return (
-            "Leaving such a check unverified changes the acceptance standard, so it is "
-            "the operator's decision, not yours: the Reviewer asks them. Meanwhile steer "
-            "toward the best evidence reachable here. "
-            + FIXTURE_EVIDENCE_RULE + "\n"
-        )
-    return (
-        "The operator cannot be asked, so you hold their authority: for such a check "
-        "you decide whether to leave it "
-        "unverified: when the Reviewer has read the best evidence reachable here, "
-        "accept that one check's residual risk with ACCEPT_RISK: yes; when that "
-        "evidence is still missing, steer the Engineer to build it. "
-        + FIXTURE_EVIDENCE_RULE
-        + " An Engineer claim is never that evidence, and an acceptance covers only "
-        "the named check: the Reviewer still judges completion. Revoke an acceptance "
-        "that no longer holds with ACCEPT_RISK: revoke <risk id>.\n"
-    )
-
-
-def _standard_rule(root: Path | str | None = None) -> str:
-    if _manager_holds_operator_authority(root):
-        return (
-            "Apart from accepting or revoking one grounded check's residual risk as "
-            "above, you do not change the objective, acceptance standard, or pipeline "
-            "stage here. "
-        )
-    return "You do not change the objective, acceptance standard, or pipeline stage here. "
-
-
-def _risk_fields(root: Path | str | None = None) -> str:
-    if not _manager_holds_operator_authority(root):
-        return ""
-    return (
-        "ACCEPT_RISK: yes, no, or revoke <risk id>\n"
-        "RISK_CHECK: the one check left unverified (only with yes)\n"
-        "RESIDUAL_RISK: the risk that leaves (only with yes)\n"
-    )
-
-
-def _prompt(observation: ManagerObservation, consult_reason: str = "") -> str:
     asked = f"You are consulted now because of: {consult_reason}.\n" if consult_reason else ""
     # Who decides in the operator's place depends on this project's question policy.
-    root = getattr(observation, "root", None)
-    holds = _manager_holds_operator_authority(root)
+    holds = _manager_holds_operator_authority(getattr(observation, "root", None))
     return (
-        "You are the persistent project Manager, supervising the team's progress toward the "
-        "operator's actual objective. Assess the concrete evidence below. A successful tool "
-        "call or an unchanged review is not progress. Preserve the user's requirements and "
-        "acceptance criteria. Do not rerun reviews or planning while awaiting the same missing "
-        "human facts. Separate unreviewed Engineer claims from verified results. When the "
-        "Engineer and Reviewer report conflicting values for the same checkable fact, that is "
-        "a dispute: neither side is verified by its role. Decide it by whose evidence carries "
-        "its own labels and a reproducible command; if neither does, steer both to produce "
-        "that evidence rather than adopting either side's number. A review's "
-        "verification_obstacle names a decisive check that cannot happen here; more "
-        "rounds of the same request cannot settle it. If the fact is only hidden "
-        "(e.g. a masked display), steer toward a rerunnable check whose result both "
-        "can see. A check is impossible here only when the Reviewer quoted the task, "
-        "packet or environment saying what it needs exists only at grading or deploy "
-        "time (verification_obstacle_basis, quoted from verification_obstacle_basis_source); "
-        "without that quote it is missing, so "
-        "steer toward it. "
-        + _risk_authority_rule(root)
-        + "Choose CONTINUE if the current course is justified; STEER to give a concrete corrected "
-        "instruction through the persistent Manager direction read at the team's next boundary"
+        "You are the persistent project Manager.\n"
+        + asked
+        + "Judge from the evidence below whether the team's course serves the operator's "
+        "objective, and decide one of:\n"
+        "- CONTINUE: the course is right;\n"
+        "- STEER: give the team a concrete corrected instruction, read at its next boundary;\n"
+        + ("" if holds else "- WAIT: pause automatic planning until the operator answers the pending question;\n")
+        + "- STOP: park this mission; changing direction will not help.\n"
         + (
-            ". There is no WAIT: nobody waits on the operator, and a parked operator "
-            "question is yours to decide. "
-            if holds
-            else "; WAIT only when a persisted operator question prevents further work. "
-            "WAIT pauses automatic planning and preserves the task and question. Do not "
-            "use WAIT for ordinary implementation failures; steer a fix. "
+            "The operator cannot be asked, so a check the Reviewer showed impossible here "
+            "is yours to leave unverified: when the Reviewer read the best evidence reachable "
+            "here, accept that one check's residual risk with ACCEPT_RISK: yes. "
+            + FIXTURE_EVIDENCE_RULE
+            + " Revoke an acceptance that no longer holds with ACCEPT_RISK: revoke <risk id>.\n"
+            if holds else ""
         )
-        + "Choose STOP when the work is clearly stuck and changing direction will not help. "
-        + _standard_rule(root)
-        + "Scheduling belongs to Argus and its operator: never direct a role to pause, "
-        "stop or reschedule work by editing Argus's own state.\n"
-        "End your reply with these fields, each on its own line in the form KEY: value:\n"
+        + "End your reply with these fields, each on its own line in the form KEY: value:\n"
         + f"ACTION: {'continue, steer or stop' if holds else 'continue, steer, wait or stop'} (the single word)\n"
         "REASON: the decisive observed condition and what should happen next\n"
         "EVIDENCE_REFS: semicolon-separated paths from evidence_refs\n"
         "DIRECTIVE: the corrected team instruction (only for STEER)\n"
-        + _risk_fields(root)
+        + (
+            "ACCEPT_RISK: yes, no, or revoke <risk id>\n"
+            "RISK_CHECK: the one check left unverified (only with yes)\n"
+            "RESIDUAL_RISK: the risk that leaves (only with yes)\n"
+            if holds else ""
+        )
         + "\n"
-        + asked
         + observation.render()
     )
 
@@ -692,7 +637,6 @@ def _deliver(
         record["effects"] = _apply(root, event, record, cancelled=cancelled)
         record["status"] = "applied"
         record["applied_at"] = time.time()
-        _record_look(root, record.get("trigger") or {})
         record["completed_at"] = time.time()
         for key in ("failure_reason", "failure_stage", "error", "error_type", "error_code", "error_message", "stop_kind"):
             record.pop(key, None)
@@ -735,16 +679,14 @@ def _deliver(
     return record
 
 
-def _looks_path(root: Path) -> Path:
-    return root / "manager-supervision" / "looks.json"
+def _active_tasks(root: Path) -> list[Any]:
+    from ..life.memory import Backlog
 
-
-#: Missions remembered in the look index; the least recently judged go first.
-MAX_REMEMBERED_LOOKS = 500
+    return list(Backlog(root / "backlog.jsonl").active())
 
 
 def _attempt_key(root: Path, item_id: str) -> str:
-    """Which run of a mission this is: rounds restart at 1 on every run.
+    """Which run of a mission this is, so a STOP parks only the run it judged.
 
     A re-queue, an orphan retry or a retry after failure claims the item again
     (a new ``started_ts``) or advances its ``attempt``; either changes the key.
@@ -755,56 +697,6 @@ def _attempt_key(root: Path, item_id: str) -> str:
     if task is None:
         return ""
     return f"{int(getattr(task, 'attempt', 1) or 1)}:{getattr(task, 'started_ts', None) or ''}"
-
-
-def _read_looks(root: Path) -> dict[str, dict[str, Any]]:
-    looks: dict[str, dict[str, Any]] = {}
-    for item_id, value in _read(_looks_path(root)).items():
-        if isinstance(value, int):  # an index written before attempts were kept
-            value = {"round": value, "attempt": "", "ts": 0.0}
-        if isinstance(value, dict) and isinstance(value.get("round"), int):
-            looks[str(item_id)] = value
-    return looks
-
-
-def _record_look(root: Path, trigger: dict[str, Any]) -> None:
-    """Remember the reviewed round of a mission run the Manager effectively judged."""
-    item_id = str(trigger.get("item_id") or "")
-    round_index = _round(trigger.get("round_index"))
-    if not item_id or round_index <= 0:
-        return
-    path = _looks_path(root)
-    looks = _read_looks(root)
-    looks[item_id] = {
-        "round": round_index, "attempt": str(trigger.get("attempt_key") or ""), "ts": time.time(),
-    }
-    if len(looks) > MAX_REMEMBERED_LOOKS:
-        recent = sorted(looks, key=lambda key: float(looks[key].get("ts") or 0.0))[-MAX_REMEMBERED_LOOKS:]
-        looks = {key: looks[key] for key in recent}
-    temporary = path.with_name(f".{path.name}.{uuid.uuid4().hex}.tmp")
-    try:
-        path.parent.mkdir(parents=True, exist_ok=True)
-        temporary.write_text(json.dumps(looks), encoding="utf-8")
-        os.replace(temporary, path)
-    except OSError:
-        LOG.warning("Manager look index is unavailable", exc_info=True)
-    finally:
-        temporary.unlink(missing_ok=True)
-
-
-def _last_look(root: Path, item_id: str, *, attempt: str = "", round_index: int = 0) -> int:
-    """The last judged round of this run of the mission, or 0 when none.
-
-    A look from another run never counts: its attempt key differs, or, when the
-    key is unknown, the current round is below the recorded one, which only a
-    restarted run can produce.
-    """
-    look = _read_looks(root).get(item_id) if item_id else None
-    if not look:
-        return 0
-    if str(look.get("attempt") or "") != attempt or (round_index and round_index < look["round"]):
-        return 0
-    return int(look["round"])
 
 
 def _is_busy_control(exc: BaseException) -> bool:
@@ -861,7 +753,7 @@ def supervise(
                 "version": 1, "id": identity,
                 "evidence_revision": observation.evidence_revision,
                 "control_revision": observation.control_revision,
-                "trigger": {key: event[key] for key in ("type", "item_id", "event_id", "round_index", "consult_reason", "attempt_key") if key in event},
+                "trigger": {key: event[key] for key in ("type", "item_id", "event_id", "round_index", "consult_reason") if key in event},
                 "source_event": (observation.facts["recent_events"][-1]
                                  if observation.facts["recent_events"] else {
                     key: event[key] for key in ("type", "item_id", "event_id", "agent_layer", "round_index") if key in event
@@ -1035,222 +927,55 @@ def _dispatch_pending() -> None:
 #: turn, or the Observer telling the Manager that the work looks off.
 _REPORTED_ONCE = frozenset({"turn_stalled", "observer"})
 
-#: Within a mission the Manager judges at least once every this many reviewed
-#: rounds, whatever the Reviewer said, so a confidently wrong Reviewer is caught.
-REVIEW_CHECKPOINT_ROUNDS = 3
-#: Reviewer authority impacts that put the decision beyond the Engineer.
-_ESCALATED_AUTHORITY = frozenset({"manager_contract", "operator"})
-
-
-def _flag(value: Any) -> bool | None:
-    if isinstance(value, bool):
-        return value
-    text = str(value if value is not None else "").strip().lower()
-    return True if text == "true" else False if text == "false" else None
-
-
-def _round(value: Any) -> int:
-    try:
-        return int(value or 0)
-    except (TypeError, ValueError):
-        return 0
-
-
-def _active_tasks(root: Path) -> list[Any]:
-    from ..life.memory import Backlog
-
-    return list(Backlog(root / "backlog.jsonl").active())
-
-
-def _safety_net(root: Path) -> str:
-    """Pending things a Reviewer cannot see from its round; never a judgment."""
-    if _latest_record(root).get("status") == "issued":
-        return "issued decision awaiting delivery"
-    if any(task.pending_question for task in _active_tasks(root)):
-        return "operator question pending"
-    return ""
-
-
-def _reviewer_signal(event: dict[str, Any]) -> str:
-    """A structured Reviewer signal that already means the Manager is wanted."""
-    plan_signal = str(event.get("plan_signal") or "").strip().lower()
-    if plan_signal and plan_signal != "continue":
-        return f"reviewer plan signal: {plan_signal}"
-    if str(event.get("plan_challenge") or "").strip():
-        return "reviewer challenges the plan"
-    if str(event.get("authority_impact") or "").strip().lower() in _ESCALATED_AUTHORITY:
-        return "decision beyond the engineer's authority"
-    if _flag(event.get("checkpoint_recommended")):
-        return "reviewer recommends a checkpoint"
-    signal = event.get("session_signal")
-    if isinstance(signal, dict) and str(signal.get("kind") or "").strip():
-        return "reviewer session signal"
-    if str(event.get("verification_obstacle") or "").strip():
-        return "evidence the reviewer cannot observe"
-    return ""
-
-
-def _attention_reason(event: dict[str, Any]) -> str:
-    """Whether the Reviewer asked for the Manager; absent means it did.
-
-    A verdict the host wrote or rewrote (any source other than the Reviewer)
-    carries no Reviewer judgment, so it reads as absent.
-    """
-    source = str(event.get("review_source") or "reviewer").strip().lower()
-    attention = str(event.get("manager_attention") or "").strip().lower() if source == "reviewer" else ""
-    if attention == "not_needed":
-        return _reviewer_signal(event)
-    if attention == "needed":
-        why = " ".join(str(event.get("manager_attention_reason") or "").split())[:200]
-        return f"reviewer asks for the Manager: {why}" if why else "reviewer asks for the Manager"
-    return _UNSTATED_ATTENTION
-
-
-_UNSTATED_ATTENTION = "reviewer did not say whether the Manager is needed"
+#: Boundaries that deliver a decision issued while the daemon was busy.
+_DELIVERY_BOUNDARIES = frozenset({
+    EventType.ROUND_REVIEW_COMPLETED, EventType.LIFE_MISSION_COMPLETED, EventType.LIFE_PLANNER_VERDICT,
+})
 
 
 def _review_consult_reason(root: Path, event: dict[str, Any]) -> str:
-    """Why a mid-mission review needs the Manager's judgment, or "" when it does not.
+    """What a review puts to the Manager, or "" when nothing.
 
-    The Reviewer, which already judges the round, says in ``manager_attention``
-    whether the course needs a Manager look, and its other structured signals
-    (a plan challenge, an authority question, a checkpoint, a session problem,
-    unobservable evidence) count as asking. Only safety nets it cannot see or
-    that are no judgment run regardless: a blocked review or operator question,
-    a missing or unusable verdict, and a pending Manager decision. A run of
-    no-progress verdicts reaches the Manager through ``round.stall``, and the
-    Manager judges at least every ``REVIEW_CHECKPOINT_ROUNDS`` reviewed rounds.
-    A Reviewer that did not say, and the periodic look, ask only on facts the
-    Manager has not yet been asked on: on the same facts it could only repeat
-    its last ruling.
+    An Engineer's ``→ manager``, or a check the Reviewer cannot make here while
+    the operator cannot be asked, so accepting its risk falls to the Manager.
+    A blocked verdict goes to the stage decision, a question to the operator,
+    and how the work flows is the Observer's to report.
     """
-    if event.get("status") == "blocked":
-        return "blocked review"
-    if str(event.get("operator_question") or "").strip():
-        return "operator question"
-    if _flag(event.get("review_skipped")) or _flag(event.get("backend_unavailable")):
-        return "review verdict unavailable"
-    reason = _safety_net(root) or _attention_reason(event)
-    if reason and reason != _UNSTATED_ATTENTION:
-        return reason
-    if not _reviewed_facts_are_news(event):
-        return ""
-    if reason:
-        return reason
-    # A sparse check that does not depend on the Reviewer being right: within a
-    # mission the Manager judges at least every few reviewed rounds. Only a
-    # decision that took effect counts as having looked.
-    round_index = _round(event.get("round_index"))
-    item_id = str(event.get("item_id") or "")
-    last = _last_look(root, item_id, attempt=_attempt_key(root, item_id), round_index=round_index)
-    if round_index - last >= REVIEW_CHECKPOINT_ROUNDS:
-        return "periodic checkpoint"
+    if event.get("review_source") == "engineer_handoff":
+        why = " ".join(str(event.get("reason") or "").split())[:200]
+        return f"the Engineer handed the work to you: {why}"
+    if str(event.get("verification_obstacle") or "").strip() and _manager_holds_operator_authority(root):
+        return "a check the Reviewer cannot make here, whose risk is yours to accept or not"
     return ""
 
 
-def _reviewed_facts_are_news(event: dict[str, Any]) -> bool:
-    """Whether the Manager has yet to hold the facts this review judged.
-
-    The mission's holder ledger (``holder_ledger``) has them: the Reviewer's
-    entry is what the review saw, the Manager's what it was last asked on.
-    """
-    ledger = str(event.get("holder_ledger") or "")
-    if not ledger:
-        return True
-    try:
-        return not holds_unchanged(Path(ledger), "manager", held_facts(Path(ledger), "reviewer"))
-    except (KeyError, TypeError):  # no readable reviewed facts: unknown, so ask
-        return True
-
-
-def _hold_reviewed_facts(ledger: Path, event: dict[str, Any]) -> None:
-    """The Manager, now asked about this review, holds the facts it judged."""
-    try:
-        record_holder(ledger, "manager", held_facts(ledger, "reviewer"),
-                      round=_round(event.get("round_index")), reason=event.get("consult_reason", ""))
-    except OSError:  # an unwritten ledger only means the next look asks again
-        LOG.warning("could not record the facts the Manager was asked on", exc_info=True)
-
-
-def _latest_review(root: Path, item_id: str = "") -> dict[str, Any]:
-    from ..life.memory import _read_jsonl_tail_history
-
-    for row in reversed(_read_jsonl_tail_history(root / "events.jsonl", 400)):
-        if row.get("type") == EventType.ROUND_REVIEW_COMPLETED and (
-            not item_id or row.get("item_id") == item_id
-        ):
-            return row
-    return {}
-
-
-def _settled_consult_reason(root: Path, event: dict[str, Any]) -> str | None:
-    """Whether a reviewed success needs the Manager.
-
-    ``None`` means the event is not a reviewed success. A bounded run that is
-    ending has no course to steer, and a check started now races orderly
-    daemon shutdown. In continuous mode the final review's
-    ``manager_attention`` decides, as during the mission; without it the
-    Manager looks. Planner verdicts are always supervised.
-    """
-    from ..daemon.state import read_continuous_state
-
-    if event.get("type") != EventType.LIFE_MISSION_COMPLETED or not (
-        event.get("success") is True and event.get("status") == "done"
-    ):
-        return None
-    net = _safety_net(root)
-    if net or _active_tasks(root):
-        return net or "work remains after the mission"
-    if not read_continuous_state(root).enabled:
-        return ""
-    review = _latest_review(root, str(event.get("item_id") or ""))
-    return _attention_reason(review) if review else "no final review to consult"
-
-
 def schedule_supervision(manager: Any, root: Path | str, event: dict[str, Any]) -> bool:
-    """Coalesce new evidence with bounded workers and bounded project admission."""
-    event_type = event.get("type")
-    relevant = event_type in {EventType.LIFE_MISSION_COMPLETED, EventType.LIFE_PLANNER_VERDICT,
-                              EventType.LIFE_DAEMON_DEGRADED,
-                              EventType.LIFE_RUNTIME_INCIDENT_ESCALATED}
-    relevant |= event_type == EventType.ROUND_REVIEW_COMPLETED and event.get("status") in {"continue", "blocked"}
-    # The round loop asks only on facts the Manager has not yet ruled on; a
-    # stalled turn is reported once per stall.
-    turn_stalled = event_type == EventType.ROUND_STALL and event.get("stall_reason") == "turn_stalled"
-    relevant |= turn_stalled or (event_type == EventType.ROUND_STALL and bool(event.get("consult")))
-    # The Observer speaks to the Manager when what it saw needs a decision.
-    remark = event_type == EventType.LIFE_OBSERVER_NOTE and event.get("to") == "manager"
-    relevant |= remark
-    if not relevant or not callable(getattr(getattr(manager, "runner", None), "fork", None)):
+    """Admit what is put to the Manager, with bounded workers and project admission."""
+    if not callable(getattr(getattr(manager, "runner", None), "fork", None)):
         return False
+    event_type = event.get("type")
     project_root = Path(root)
-    reason: str | None = None
-    if event_type == EventType.ROUND_REVIEW_COMPLETED:
+    reason: str | None = ""
+    if event_type in {EventType.LIFE_DAEMON_DEGRADED, EventType.LIFE_RUNTIME_INCIDENT_ESCALATED}:
+        reason = None
+    elif event_type == EventType.ROUND_REVIEW_COMPLETED and event.get("status") in {"continue", "blocked"}:
         reason = _review_consult_reason(project_root, event)
-    elif turn_stalled:
+    elif event_type == EventType.ROUND_STALL and event.get("stall_reason") == "turn_stalled":
         reason = (
             f"{event.get('text')}; CONTINUE keeps waiting on that turn, STEER stops it "
             "and restarts the Engineer with your directive"
         )
-    elif event_type == EventType.ROUND_STALL:
-        reason = str(event["consult"])
-    elif remark:
+    elif event_type == EventType.LIFE_OBSERVER_NOTE and event.get("to") == "manager":
         reason = f"the Observer, who watches how the team works, says: {event.get('text')}"
         event = {**event, "stall_reason": "observer"}
-    elif event_type == EventType.LIFE_MISSION_COMPLETED:
-        reason = _settled_consult_reason(project_root, event)
     if reason == "":
-        LOG.debug("Manager supervision not requested for %s", event_type)
-        return False
+        # Nothing is put to the Manager; a boundary only delivers its issued decision.
+        if event_type not in _DELIVERY_BOUNDARIES or _latest_record(project_root).get("status") != "issued":
+            return False
+        reason = None
     if reason:
         event = {**event, "consult_reason": reason}
-    if event_type == EventType.ROUND_REVIEW_COMPLETED:
-        # Lets an applied decision record which run of the mission it judged.
-        event = {**event, "attempt_key": _attempt_key(project_root, str(event.get("item_id") or ""))}
-    admitted = _admit(manager, root, event)
-    if admitted and event.get("holder_ledger"):
-        _hold_reviewed_facts(Path(event["holder_ledger"]), event)
-    return admitted
+    return _admit(manager, root, event)
 
 
 def _admit(manager: Any, root: Path | str, event: dict[str, Any]) -> bool:

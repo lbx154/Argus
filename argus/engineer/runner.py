@@ -28,12 +28,7 @@ from ..core.secret_guard import (
 )
 from ..core.workspace_snapshot import WorkspaceSnapshots
 from ..reviewer import Reviewer, ReviewerConfig
-from .change_facts import (
-    change_facts,
-    mission_ledger,
-    mission_lineage,
-    record_holder,
-)
+from .change_facts import mission_lineage
 from .checkpoint import resolve_shared_checkpoint
 
 log = logging.getLogger(__name__)
@@ -379,7 +374,6 @@ class SupervisedEngineer(
                 _carry_unreviewed_turn(state, round_index, outcome.engineer_message)
                 continue
 
-            ledger = mission_ledger(supervised_config.context_packet_path)
             if _paper_unchanged_since_venue_review(state.rounds, workdir):
                 control = self._settle_round(
                     review=ReviewDecision(
@@ -424,21 +418,6 @@ class SupervisedEngineer(
             if control.action == "continue_loop":
                 continue
             review = control.payload
-            if ledger is not None and (review.review_source or "reviewer") == "reviewer":
-                # Read after the review, so its own writes are not news next round.
-                try:
-                    record_holder(
-                        ledger, "reviewer",
-                        change_facts(
-                            workdir, state_root=supervised_config.operator_question_policy_root,
-                        ),
-                        round=round_index,
-                    )
-                except OSError:
-                    # Bookkeeping never blocks the round; without the record the
-                    # Reviewer may be called once more on unchanged facts.
-                    log.exception("failed to record the Reviewer's held facts")
-
             control = self._settle_round(
                 review=review,
                 round_index=round_index,

@@ -130,7 +130,7 @@ not guess on the model's behalf whether there is progress. The full design is in
 - Today: when the Reviewer cannot read files or has no command line, all it can do is send the work back to an Engineer
   who is just as stuck, and the two spin in circles (17 of the 59).
 - Do: let the Reviewer report an obstacle to the system (missing permission, missing tool) or to the owner of the
-  contract (requirements that contradict each other), reusing the existing `manager_attention`; in that case, do not
+  contract (requirements that contradict each other), handing it on with `→ manager`; in that case, do not
   rerun the Engineer. Let a domain declare "does review at this stage need to run code itself": if yes, turn on the
   existing read-only validation sandbox; if no, remove the rerun demands from the prompt.
 - Done when: in tests, after the Reviewer reports it cannot read files, the task goes to escalation with no further

@@ -47,36 +47,18 @@ _ACTIONS: dict[str, tuple[ReviewStatus, str]] = {
 }
 
 
-#: Verdicts whose Manager supervision follows the Reviewer's attention
-#: judgment; a blocked or replanning verdict always reaches the Manager.
-_ATTENTION_ACTIONS = frozenset({"approve_review", "revise_review", "defer_review"})
-
-
-def _judgment_fields() -> dict[str, dict[str, Any]]:
-    """Optional routing judgments; a malformed one is ignored, never fatal."""
-    def judgment(description: str, verdicts: list[str]) -> dict[str, Any]:
-        return {
-            "type": "object", "description": description,
-            "properties": {"verdict": {"enum": verdicts}, "reason": {"type": "string"}},
-            "required": ["verdict", "reason"], "additionalProperties": False,
-        }
-
-    return {
-        "manager_attention": judgment(
-            "Does the course need the Manager now: stuck, looping or drifting, plan "
-            "doubt, agreement on something unverified, evidence only the operator "
-            "can supply (credentials, hardware, human judgment), or scope or "
-            "authority? A check you lack is not one: run it if you can, else ask "
-            "the Engineer for it. When unsure, needed.",
-            ["needed", "not_needed"],
-        ),
-        "learning": judgment(
-            "Is anything from this task worth keeping for later work: a failure, a "
-            "correction, a surprise, a new technique, a reusable pattern? When "
-            "unsure, worth_reflecting.",
-            ["worth_reflecting", "nothing_new"],
-        ),
-    }
+#: An optional routing judgment on the accepting verdict; a malformed one is
+#: ignored, never fatal.
+_LEARNING_FIELD: dict[str, Any] = {
+    "type": "object",
+    "description": (
+        "Is anything from this task worth keeping for later work: a failure, a "
+        "correction, a surprise, a new technique, a reusable pattern? When "
+        "unsure, worth_reflecting."
+    ),
+    "properties": {"verdict": {"enum": ["worth_reflecting", "nothing_new"]}, "reason": {"type": "string"}},
+    "required": ["verdict", "reason"], "additionalProperties": False,
+}
 
 
 @dataclass(frozen=True)
@@ -232,7 +214,6 @@ class ReviewActions:
             "additionalProperties": False,
         }
         tools = []
-        judgments = _judgment_fields()
         for name, (_, description) in _ACTIONS.items():
             fields: dict[str, Any] = {
                 "review": {"type": "string", "minLength": 1, "description": "Your complete natural-language review, including evidence and any next steps. No template or status footer."},
@@ -277,12 +258,8 @@ class ReviewActions:
                     "additionalProperties": False,
                 },
             }
-            # Only where the host uses them: attention on verdicts that do not
-            # already reach the Manager, learning on the accepting verdict.
-            if name in _ATTENTION_ACTIONS:
-                fields["manager_attention"] = judgments["manager_attention"]
             if name == "approve_review":
-                fields["learning"] = judgments["learning"]
+                fields["learning"] = _LEARNING_FIELD
             # A replanning Reviewer can be stopped by the same obstacle; one
             # task replanned four times over a token only its grader receives.
             if _ACTIONS[name][0] in {"continue", "replan_requested"}:
@@ -411,15 +388,13 @@ class ReviewActions:
             self.decision = None
         properties = tool["inputSchema"].get("properties", {})
         payload = dict(payload)
-        for key in ("manager_attention", "learning"):
-            if key not in payload:
-                continue
+        if "learning" in payload:
             try:
-                validate(payload[key], properties[key])
+                validate(payload["learning"], properties["learning"])
             except (KeyError, ValidationError):
                 # Absent rather than fatal: the verdict itself stands, and an
-                # absent judgment means the Manager looks and reflection runs.
-                payload.pop(key)
+                # absent judgment means reflection runs.
+                payload.pop("learning")
         try:
             validate(payload, tool["inputSchema"])
         except ValidationError as exc:
@@ -467,11 +442,10 @@ class ReviewActions:
             decision.planner_report["forward_progress"] = payload["forward_progress"]
         if action == "request_review_decision" and payload.get("operator_need"):
             decision.planner_report["operator_need"] = payload["operator_need"]
-        for key in ("manager_attention", "learning"):
-            judged = payload.get(key)
-            if isinstance(judged, dict):
-                decision.planner_report[key] = judged["verdict"]
-                decision.planner_report[f"{key}_reason"] = str(judged.get("reason") or "")[:500]
+        judged = payload.get("learning")
+        if isinstance(judged, dict):
+            decision.planner_report["learning"] = judged["verdict"]
+            decision.planner_report["learning_reason"] = str(judged.get("reason") or "")[:500]
         decision.verification_obstacle = str(payload.get("unverifiable") or "").strip()
         basis = payload.get("impossible_because")
         if isinstance(basis, dict):

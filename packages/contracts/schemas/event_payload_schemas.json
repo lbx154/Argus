@@ -1773,16 +1773,6 @@
         "residual_risk_detail": {
           "type": "object"
         },
-        "manager_attention": {
-          "type": "string",
-          "enum": [
-            "needed",
-            "not_needed"
-          ]
-        },
-        "manager_attention_reason": {
-          "type": "string"
-        },
         "learning": {
           "type": "string",
           "enum": [
