@@ -112,10 +112,10 @@ def test_an_undelivered_decision_is_still_delivered_on_the_next_review(admitted,
     assert admitted(_review(1, **_not_needed()))["consult_reason"] == "issued decision awaiting delivery"
 
 
-def test_a_no_progress_streak_reaches_the_manager_even_when_not_asked(admitted):
-    stall = {"type": EventType.ROUND_STALL, "round_index": 2, "semantic_stall_streak": 1}
-    assert admitted(stall) is None
-    event = admitted({**stall, "round_index": 3, "semantic_stall_streak": 2})
+def test_a_stall_reaches_the_manager_only_when_the_round_loop_asks(admitted):
+    stall = {"type": EventType.ROUND_STALL, "round_index": 3, "semantic_stall_streak": 2}
+    assert admitted({**stall, "consult": ""}) is None
+    event = admitted({**stall, "consult": "2 rounds without forward progress"})
     assert event["consult_reason"] == "2 rounds without forward progress"
 
 

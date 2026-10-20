@@ -1010,9 +1010,6 @@ def _dispatch_pending() -> None:
 #: Within a mission the Manager judges at least once every this many reviewed
 #: rounds, whatever the Reviewer said, so a confidently wrong Reviewer is caught.
 REVIEW_CHECKPOINT_ROUNDS = 3
-#: Consecutive no-progress verdicts after which the Manager is asked even when
-#: the Reviewer did not ask; half the default stall limit, so it can still act.
-STALL_BACKSTOP_STREAK = 2
 #: Reviewer authority impacts that put the decision beyond the Engineer.
 _ESCALATED_AUTHORITY = frozenset({"manager_contract", "operator"})
 
@@ -1155,7 +1152,8 @@ def schedule_supervision(manager: Any, root: Path | str, event: dict[str, Any]) 
                               EventType.LIFE_DAEMON_DEGRADED,
                               EventType.LIFE_RUNTIME_INCIDENT_ESCALATED}
     relevant |= event_type == EventType.ROUND_REVIEW_COMPLETED and event.get("status") in {"continue", "blocked"}
-    relevant |= event_type == EventType.ROUND_STALL and _round(event.get("semantic_stall_streak")) >= STALL_BACKSTOP_STREAK
+    # The round loop asks only on facts the Manager has not yet ruled on.
+    relevant |= event_type == EventType.ROUND_STALL and bool(event.get("consult"))
     if not relevant or not callable(getattr(getattr(manager, "runner", None), "fork", None)):
         return False
     project_root = Path(root)
@@ -1163,7 +1161,7 @@ def schedule_supervision(manager: Any, root: Path | str, event: dict[str, Any]) 
     if event_type == EventType.ROUND_REVIEW_COMPLETED:
         reason = _review_consult_reason(project_root, event)
     elif event_type == EventType.ROUND_STALL:
-        reason = f"{_round(event.get('semantic_stall_streak'))} rounds without forward progress"
+        reason = str(event["consult"])
     elif event_type == EventType.LIFE_MISSION_COMPLETED:
         reason = _settled_consult_reason(project_root, event)
     if reason == "":
