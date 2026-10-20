@@ -1,29 +1,26 @@
 """What the Observer is told each time it looks.
 
 The stable sections come first, so a resumed session receives only the last
-one, which says where it stopped, why it is called now, and what it already
-said.
+one: the turns that just ended and what it already said.
 """
 from __future__ import annotations
 
 from datetime import datetime
 from pathlib import Path
-from typing import Sequence
+from typing import Any, Sequence
 
 
 def build_observer_prompt(
-    *, root: Path, workdir: Path, since: float, reason: str,
+    *, root: Path, workdir: Path, turns: Sequence[dict[str, Any]],
     said: Sequence[tuple[str, str]],
 ) -> str:
-    if since > 0:
-        stamp = datetime.fromtimestamp(since).astimezone().isoformat(timespec="seconds")
-        start = (
-            f"You last looked at {stamp} (ts {since:.0f}). Read on from there: rows of "
-            f"events.jsonl and agent_io.jsonl with `ts` >= {since:.0f}, rows of usage.jsonl "
-            f"with `completed_at` >= {since:.0f}."
-        )
-    else:
-        start = "This is your first look. Start from the recent end of the record."
+    ended = "\n".join(
+        f"- the {turn['role'].capitalize()}: call `{turn['call_id']}`, run label "
+        f"`{turn['run_label']}`, finished at "
+        f"{datetime.fromtimestamp(float(turn['ts'])).astimezone().isoformat(timespec='seconds')} "
+        f"(ts {float(turn['ts']):.0f})"
+        for turn in turns
+    )
     earlier = "\n".join(f"→ {to}: {text}" for to, text in said) or "(none)"
     return (
         "## The Observer\n"
@@ -53,10 +50,14 @@ def build_observer_prompt(
         "- `usage.jsonl`: one line per model call with `call_id`, `run_label`, "
         "`started_at`, `completed_at` and `cost_usd`.\n"
         f"The work itself is in `{workdir}`.\n"
-        "These files are large: never read one whole. Find the stretch you need with "
-        "grep, tail and jq (or your search tool) and read only that. Check what a role said "
-        "against what it did: a reported check against the commands in its calls, a wait "
-        "against the state of what it waits on, the spending against what changed.\n\n"
+        "These files are large: never read one whole, and never page through one from the "
+        "top. Search instead, with grep, tail and jq or your search tool: a turn's lines in "
+        "agent_io.jsonl carry its call_id, and its tool calls, their results and its messages "
+        "(frames such as `tool.execution_start`, `tool.execution_complete`, "
+        "`assistant.message`) are what you need. An `agent.io.start` line holds the whole "
+        "prompt; skip it unless you need the task itself. Check what a role said against "
+        "what it did: a reported check against the commands in its calls and their output, "
+        "a wait against the state of what it waits on, the spending against what changed.\n\n"
         "## Reply\n"
         "When the work looks like real work, say so in a few words and write no arrow line.\n"
         "When something is off, write one line for each role that needs to hear it:\n"
@@ -66,8 +67,11 @@ def build_observer_prompt(
         "as redirecting, pausing or stopping; to the operator only for what only a person "
         "can settle. Say a thing once: repeat an earlier remark only with new evidence.\n\n"
         "## This look\n"
-        f"{start}\n"
-        f"You are called now because {reason}.\n"
+        "These turns just ended. Look at what each did, not at the whole history; read "
+        "earlier rows only to understand them. A turn's trajectory is the agent_io.jsonl "
+        "rows with its call_id; what it reported, and what followed, is in events.jsonl up "
+        "to and just after its ts.\n"
+        f"{ended}\n"
         f"Your earlier remarks:\n{earlier}\n"
     )
 

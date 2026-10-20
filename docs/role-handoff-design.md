@@ -359,9 +359,9 @@ but it moves nothing. It enters the handoff as input for whoever it names:
 Each remark is one `life.observer.note` event; when all is well there is none.
 A remark advances the operator context, so under invariant 3 it is new operator
 input and the holder is asked once more; it never counts as a change of the
-candidate. The
-Observer is woken only by the other roles' calls and spending and never repeats
-a remark, so it cannot keep a handoff going on its own.
+candidate. The Observer looks once at each turn the Engineer, Reviewer or
+Planner ends, never at its own, and never repeats a remark, so it cannot keep a
+handoff going on its own.
 
 ## What is deleted
 

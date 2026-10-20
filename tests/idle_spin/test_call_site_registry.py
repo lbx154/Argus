@@ -260,10 +260,9 @@ REGISTRY: tuple[Site, ...] = (
     ),
     Site(
         r"observer", EVENT,
-        "Only after ARGUS_SKILL_OBSERVER_CALLS model calls or ARGUS_SKILL_OBSERVER_SPEND_USD of "
-        "spending by the other roles since its last look, or a delivery after any new call; its "
-        "own calls never count, so it cannot wake itself, and one look runs at a time.",
-        ("argus/life/observer.py:144",),
+        "Once per Engineer, Reviewer or Planner call, when its role.session.turn ends the turn; "
+        "its own calls end none, and turns that end during a look share the next one.",
+        ("argus/life/observer.py:127",),
         ("observer",),
     ),
     Site(

@@ -188,8 +188,6 @@ KNOBS: tuple[Knob, ...] = (
         "mission",
     ),
     Knob("ARGUS_SKILL_MAX_ROUNDS", "0", "optional engineer-round cap per mission; disabled by default", "mission"),
-    Knob("ARGUS_SKILL_OBSERVER_CALLS", "10", "model calls by the other roles since the Observer last looked that wake it to look again; 0 turns this trigger off", "mission"),
-    Knob("ARGUS_SKILL_OBSERVER_SPEND_USD", "2", "spend in USD by the other roles since the Observer last looked that wakes it; 0 turns this trigger off, and with both at 0 the Observer never looks", "mission"),
     Knob(
         "ARGUS_SKILL_VENUE_REVIEW_MAX_ROUNDS",
         "6",

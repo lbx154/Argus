@@ -299,20 +299,21 @@ not guess on the model's behalf whether there is progress. The full design is in
   died, drifts off the task, or spends too fast, unless someone happens to read the project logs. On the live trial
   that someone was Claude Code, which found the Planner idling every five minutes.
 - Do: an Observer role (`observer` in code, shown as 监督者) on the same backends as the others, with the Reviewer's
-  read-only tools. It wakes only for work: after `ARGUS_SKILL_OBSERVER_CALLS` (10) model calls or
-  `ARGUS_SKILL_OBSERVER_SPEND_USD` ($2) of spending by the other roles since its last look, counted from
-  `usage.jsonl`, and once more when a result is delivered. Its own calls never count; with nothing new it never
-  wakes. Its prompt gives only where the record is (`events.jsonl`, `agent_io.jsonl`, `usage.jsonl`), where it
-  stopped and why it is called; it searches the rest itself and checks what the roles said against what they did.
-  Its persistent role session lets it read on from where it stopped. When all is well it says nothing and writes no
+  read-only tools. Like a person glancing over when an agent stops and says it is done, it looks once at each turn
+  the Engineer, Reviewer or Planner ends (each model call of theirs ends one); a delivery ends a turn, so it is
+  covered. Its own turns end none. Its prompt gives only where the record is (`events.jsonl`,
+  `agent_io.jsonl`, `usage.jsonl`) and the call id and run label of each turn that just ended; it searches that
+  turn's trajectory itself and checks what the role said against what it did. Its persistent role session
+  carries it from one look to the next. When all is well it says nothing and writes no
   event. Otherwise it writes `→ engineer|planner|reviewer|manager|operator: <one sentence and where it saw it>`: a
   role reads it in its next prompt through the operator's channel, marked as the Observer's; the Manager hears it
   through its supervision and decides whether to pause; the operator gets an alert. Each remark is one
   `life.observer.note` event and is never made twice. Its model is `ARGUS_SKILL_OBSERVER_MODEL`, by default the
   Reviewer's.
-- Done when: tests show it does not wake without new work, wakes once at a threshold, stays silent when all is well,
+- Done when: tests show it looks once at each ended turn and never at its own, stays silent when all is well,
   delivers a remark marked as its own, never repeats one, and that a failed look leaves the work running.
-- Status: implemented on `feat/observer`; not yet merged or run on a live project.
+- Status: implemented on `feat/observer`. On a small task on the real Copilot backend it stayed silent on real work and
+  caught an Engineer turn whose final words were doctored to claim checks it never ran. Not yet merged.
 ---
 
 ### Theme CO: Reliability and the core — failures you can see, a structure you can follow
