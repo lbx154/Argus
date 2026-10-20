@@ -99,12 +99,19 @@ not guess on the model's behalf whether there is progress. The full design is in
 `0.2` · `S` · Depends on: none · good first issue
 - Today: no tool can tell us "how many times each passed task was reviewed, and how many of those reviews were wasted".
   Every later improvement needs this number.
-- Do: in `argus/tools/` (see `cache_hit_report.py`), write a read-only report that reads a project's `events.jsonl` and
+- Do: in `argus/tools/`, write a read-only report that reads a project's `events.jsonl` and
   round handoff files and outputs, for each passed task: Reviewer calls, how many of them saw an unchanged candidate,
   "continue" reasons by category, time taken, tokens, and model calls.
 - Done when: given a fixed event log, a test gets the expected numbers; this document shows the command to run it.
 - Split into: HO-1a count calls and time; HO-1b spot "reviewed again with no change"; HO-1c categorize reasons (for the
   report, a rough split is fine); HO-1d command line and instructions.
+- Run: `python -m argus.tools.efficiency_report <project-state-dir> [--json]` (read-only; it reads only `events.jsonl`,
+  since the round events carry every verdict the handoff files hold). It also lists calls, tokens, cache reads and
+  writes, and cost share by role; the calls that brought no new information (a Planner turn that only kept waiting, a
+  Manager supervision that was not applied or kept the course, a review while background work was still running) and
+  the calls skipped because nothing changed; the context-length spread and how it grows with session turns; and what
+  failures and retries cost.
+- Status: implemented and tested on `feat/ho1-report`, not in `dev` yet.
 
 #### HO-2 Don't review again when nothing changed
 `0.2` · `M` · Depends on: none
