@@ -13,7 +13,6 @@ import pytest
 from argus.apps.cli import _follow
 from argus.core import daemon_lock
 from argus.life import answer_learning
-from argus.tools import gpu_lease
 
 
 @pytest.fixture
@@ -48,10 +47,3 @@ def test_follow_reads_daemon_liveness_without_signalling_it(tmp_path, monkeypatc
     monkeypatch.setattr(daemon_lock, "is_pid_running", lambda pid: pid == 4242)
 
     assert _follow._daemon_alive_for_events_path(Path(tmp_path) / "events.jsonl") is True
-
-
-def test_gpu_lease_owner_liveness_never_signals(monkeypatch, no_signals):
-    monkeypatch.setattr(daemon_lock, "is_pid_running", lambda pid: pid == 77)
-
-    assert gpu_lease._alive(77) is True
-    assert gpu_lease._alive(78) is False

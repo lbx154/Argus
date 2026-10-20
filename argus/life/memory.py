@@ -836,10 +836,9 @@ GPU_UNFITTABLE_PREFIX = "gpus: "
 def _gpu_cards() -> tuple[tuple[int, bool], ...] | None:
     """``(index, busy)`` per GPU on this machine, or ``None`` when none is visible.
 
-    Busy uses the thresholds the GPU lease uses for "not idle": over 5 %
-    utilisation or over 2 GiB in use, whichever process holds the card. The
-    probe is a subprocess and this is consulted on every claim, so its answer
-    is kept for ten seconds.
+    A card is busy over 5 % utilisation or over 2 GiB in use, whichever
+    process holds it. The nvidia-smi probe is consulted on every claim, so its
+    answer is kept for ten seconds.
     """
     global _GPU_PROBE_CACHE
     now = time.monotonic()
@@ -847,18 +846,22 @@ def _gpu_cards() -> tuple[tuple[int, bool], ...] | None:
         cached = _GPU_PROBE_CACHE
         if cached is not None and now - cached[0] < _GPU_PROBE_TTL_S:
             return cached[1]
-    from ..tools.gpu_lease import gpu_snapshot
-
-    snapshot = gpu_snapshot()
-    value: tuple[tuple[int, bool], ...] | None = None
-    if snapshot:
-        value = tuple(
-            (
-                int(gpu["index"]),
-                gpu["util_pct"] > 5 or gpu["mem_used_mib"] > 2048,
-            )
-            for gpu in snapshot
-        )
+    try:
+        output = subprocess.run(
+            ["nvidia-smi", "--query-gpu=index,memory.used,utilization.gpu",
+             "--format=csv,noheader,nounits"],
+            capture_output=True, text=True, timeout=15, check=True,
+        ).stdout
+    except (OSError, subprocess.SubprocessError):
+        output = ""
+    cards: list[tuple[int, bool]] = []
+    for line in output.splitlines():
+        try:
+            index, mem_used_mib, util_pct = (int(part) for part in line.split(","))
+        except ValueError:
+            continue
+        cards.append((index, util_pct > 5 or mem_used_mib > 2048))
+    value = tuple(cards) or None
     with _GPU_PROBE_LOCK:
         _GPU_PROBE_CACHE = (now, value)
     return value

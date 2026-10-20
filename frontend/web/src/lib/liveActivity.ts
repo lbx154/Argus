@@ -129,7 +129,6 @@ export function liveActivity(
   events: EventMsg[],
   nowSeconds: number,
   locale: Locale,
-  gpu: { position: number; waitedSeconds: number | null } | null = null,
 ): LiveActivity {
   const zh = locale === 'zh-CN';
   const status = currentWorkStatus(snapshot, view, events, nowSeconds);
@@ -156,12 +155,7 @@ export function liveActivity(
   const quietFor = lastAt === null ? null : nowSeconds - lastAt;
   let tone: LiveActivity['tone'] = status.state === 'running' ? 'working' : 'waiting';
   let note = '';
-  if (gpu) {
-    tone = 'waiting';
-    note = zh
-      ? `排队等 GPU：第 ${gpu.position} 位${gpu.waitedSeconds ? `，已等 ${minutes(gpu.waitedSeconds, zh)}` : ''}`
-      : `Queued for a GPU: position ${gpu.position}${gpu.waitedSeconds ? `, waiting ${minutes(gpu.waitedSeconds, zh)}` : ''}`;
-  } else if (status.reason === 'provider_wait') {
+  if (status.reason === 'provider_wait') {
     note = zh ? '模型服务这次没有完成请求，Argus 会自动重试，不需要你操作。' : 'The model service did not complete the request; Argus retries on its own.';
   } else if (lastLine?.running && quietFor !== null) {
     note = zh ? `命令仍在运行，已运行 ${minutes(nowSeconds - lastLine.ts, zh)}` : `The command is still running (${minutes(nowSeconds - lastLine.ts, zh)})`;

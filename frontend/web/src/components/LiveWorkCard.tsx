@@ -1,10 +1,8 @@
 import { createContext, useContext, useEffect, useMemo, useState } from 'react';
 import { ChevronDown, ChevronUp, FilePen, Flag, Loader2, MessageSquareText, Search, SquareTerminal } from 'lucide-react';
 import type { EventMsg, MissionView, Snapshot } from '../../../core/src/types';
-import type { ResourceStatus } from '../../../core/src/resourceStatus.generated';
 import { useI18n } from '../i18n';
 import { clockLabel, liveActivity, type LiveLine } from '../lib/liveActivity';
-import { gpuWait } from '../lib/projectOverview';
 import { progressAgeLabel } from '../lib/workStatus';
 import './liveWork.css';
 
@@ -54,11 +52,10 @@ function LineRow({ line, zh, roleName }: { line: LiveLine; zh: boolean; roleName
  * the current step, who is on it, its latest actions, and plainly why it is
  * not moving when that is the case.
  */
-export function LiveWorkCard({ snapshot, view, events, resources, onPause }: {
+export function LiveWorkCard({ snapshot, view, events, onPause }: {
   snapshot: Snapshot;
   view: MissionView | null | undefined;
   events: EventMsg[];
-  resources?: ResourceStatus | null;
   onPause?: () => void;
 }) {
   const { locale } = useI18n();
@@ -71,12 +68,8 @@ export function LiveWorkCard({ snapshot, view, events, resources, onPause }: {
     const timer = setInterval(() => setNow(Date.now() / 1000), 5_000);
     return () => clearInterval(timer);
   }, [snapshot.daemon.alive]);
-  const workdirName = String(snapshot.session.workdir || '').split(/[\\/]/).filter(Boolean).at(-1) || '';
-  const gpu = gpuWait(resources, [snapshot.session.id, workdirName].filter(Boolean));
-  const activity = useMemo(() => liveActivity(snapshot, view, events, now, locale, gpu),
-    // gpu is derived from resources on every render; its fields are what matter.
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-    [snapshot, view, events, now, locale, gpu?.position, gpu?.waitedSeconds]);
+  const activity = useMemo(() => liveActivity(snapshot, view, events, now, locale),
+    [snapshot, view, events, now, locale]);
   if (!activity.show) return null;
   const roleName = (role: string) => (zh ? ROLE_NAMES_ZH : ROLE_NAMES_EN)[role] ?? 'Argus';
   const visible = expanded ? activity.lines : activity.lines.slice(-COLLAPSED_LINES);

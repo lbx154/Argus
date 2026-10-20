@@ -22,8 +22,8 @@ def resolve_auto_mission_width() -> int:
 
     ``auto`` is an upper bound, not a target. How many missions actually run
     together is decided at claim time: helpers only take ready, parallel-safe
-    items whose dependencies are met (the Planner's DAG), and each job's GPU
-    needs are admitted by the shared resource ledger. The bound is the cores
+    items whose dependencies are met (the Planner's DAG), and a task that
+    declares GPUs waits for free cards. The bound is the cores
     this process may use (a mission needs at least one), capped at four
     because more workers share one provider session budget and one
     operator's attention. GPU count does not set it: CPU-only campaigns are
@@ -52,8 +52,8 @@ class LifeWorkerConfig:
     engineer_reasoning_effort: str = "xhigh"
     reviewer_reasoning_effort: str = "high"
     # An integer, or "auto": a ceiling of up to four workers bounded by the
-    # usable cores, resolved when the config is built; the ready DAG and the
-    # resource ledger decide how many of them run at once.
+    # usable cores, resolved when the config is built; the ready DAG and free
+    # GPUs decide how many of them run at once.
     mission_width: int | str = 2
     planner_task_iteration_max_cycles: int = 0
     poll_interval: float = 5.0

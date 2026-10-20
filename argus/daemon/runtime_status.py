@@ -129,8 +129,8 @@ def observe_runtime_status(project_root: Path | str, mode: str) -> dict[str, Any
     return result
 
 
-# A GPU counts as idle below these thresholds, the same ones the GPU lease
-# uses before it hands cards to a job.
+# A GPU counts as idle below these thresholds, the same ones task admission
+# uses before it hands cards to a job (``life.memory._gpu_cards``).
 _GPU_IDLE_UTIL_PCT = 5
 _GPU_IDLE_MEM_MIB = 2048
 

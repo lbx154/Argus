@@ -13,13 +13,6 @@
     "source": "argus/builtin_skills/engineer/minimal-coding-agent.md",
     "sourceBytes": 2672
   },
-  "global/engineer/pdf-chat.md": {
-    "title": "分段阅读 PDF",
-    "summary": "按页或章节阅读并核对版本、页码；图片和版式需查看实际页面，回答只依据相关证据。",
-    "originalName": "Progressive PDF Reading",
-    "source": "argus/builtin_skills/engineer/pdf-chat.md",
-    "sourceBytes": 2101
-  },
   "global/engineer/presentation-master.md": {
     "title": "可编辑演示文稿",
     "summary": "使用已有 PPT Master 工具制作或修改可编辑演示文稿和原生 PPT 图，经指定解释器运行并核对导出效果；科研绘图路线由科研垂域决定。",
@@ -606,7 +599,7 @@
     "summary": "忠实保留命题与范围，诚实区分结果类别；需要 Lean 证据时实际编译，不虚构证明。",
     "originalName": "Math Research Execution",
     "source": "argus/verticals/math/skills/engineer/math-research-execution.md",
-    "sourceBytes": 16600
+    "sourceBytes": 16046
   },
   "vertical/math/manager/math-research-manager.md": {
     "title": "数学研究任务协调",
@@ -627,7 +620,7 @@
     "summary": "检查正确性、新意、意义、命题忠实性和真实形式化证据，不以叙述代替证明。",
     "originalName": "Math Research Review",
     "source": "argus/verticals/math/skills/reviewer/math-research-review.md",
-    "sourceBytes": 7408
+    "sourceBytes": 6811
   },
   "vertical/math/scientist/math-research-adaptation.md": {
     "title": "改进数学研究方法",

@@ -1,8 +1,5 @@
-"""Atomic JSON writes + flock helper, shared across the team package.
-
-Mirrors the tmp+os.replace and fcntl.flock patterns of tools/gpu_lease.py;
-centralised here so the task board, roster, registry, and pool do not each
-re-roll them.
+"""Atomic JSON writes + flock helper, shared across the team package so the
+task board, roster, registry, and pool do not each re-roll them.
 """
 from __future__ import annotations
 
