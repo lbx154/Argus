@@ -142,7 +142,7 @@ function supervisionFailure(event: TypedArgusEvent, context: RenderContext): { t
   if (status === 'cancelled' || status === 'superseded') {
     return { text: localized(context, 'This Manager check was cancelled.', '这次 Manager 检查已取消。'), tone: 'dim' };
   }
-  const text = stage === 'commit' && ['continue', 'wait', 'steer'].includes(stringField(event, 'action'))
+  const text = stage === 'commit' && ['continue', 'wait', 'steer', 'stop'].includes(stringField(event, 'action'))
     ? localized(context, 'Manager reached a decision, but the team adjustment could not be applied.', 'Manager 已作出判断，但团队调整未能生效。')
     : stage === 'decision'
       ? localized(context, 'Manager returned a decision that could not be validated.', 'Manager 返回的判断或引用依据未通过核验。')

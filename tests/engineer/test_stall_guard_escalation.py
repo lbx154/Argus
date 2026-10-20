@@ -42,6 +42,7 @@ def mission(tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
     )
     state = RoundLoopState()
     rounds = iter(range(1, 100))
+    seen: list[dict] = []
 
     def settle(*, manager_supervised: bool = True, progress: bool | None = False):
         events: list[dict] = []
@@ -68,12 +69,13 @@ def mission(tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
             continue_adaptor=None,
             on_event=events.append,
         )
+        seen.extend(events)
         for event in events:
             if event["type"] == EventType.ROUND_STALL:
                 supervision.schedule_supervision(manager, tmp_path / "state", event)
         return control
 
-    return SimpleNamespace(settle=settle, asked=asked, state=state, workdir=workdir)
+    return SimpleNamespace(settle=settle, asked=asked, state=state, workdir=workdir, events=seen)
 
 
 def test_a_tripped_guard_asks_the_manager_once_per_set_of_facts(mission):
@@ -107,3 +109,12 @@ def test_without_a_manager_the_guard_still_ends_the_run(mission):
     assert status == "no_progress"
     assert reason.startswith("Reviewer reported no forward progress for 4 consecutive rounds.")
     assert mission.asked == []
+
+
+def test_a_supervised_review_names_the_ledger_its_periodic_look_reads(mission):
+    mission.settle()
+    mission.settle(manager_supervised=False)
+
+    reviews = [event for event in mission.events if event["type"] == EventType.ROUND_REVIEW_COMPLETED]
+    assert reviews[0]["holder_ledger"].endswith("lineage-m1/holders.json")
+    assert "holder_ledger" not in reviews[1]

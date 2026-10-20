@@ -17,6 +17,7 @@ import pytest
 from argus.core.event_catalog import EventType
 from argus.core.models import RunnerResult
 from argus.daemon.state import write_continuous_config
+from argus.engineer.change_facts import record_holder
 from argus.life.memory import Backlog, BacklogItem
 from argus.manager import Manager, supervision
 
@@ -119,6 +120,16 @@ def test_a_stall_reaches_the_manager_only_when_the_round_loop_asks(admitted):
     assert event["consult_reason"] == "2 rounds without forward progress"
 
 
+def test_the_periodic_check_skips_facts_the_manager_already_holds(admitted, tmp_path):
+    ledger = tmp_path / "handoffs" / "lineage-grouped" / "holders.json"
+    record_holder(ledger, "reviewer", {"workspace": [["solver.py", 10, 1.0]]})
+    review = lambda round_index: _review(round_index, holder_ledger=str(ledger), **_not_needed())  # noqa: E731
+    asked = [round_index for round_index in range(1, 11) if admitted(review(round_index))]
+    assert asked == [3]  # the first look; nothing changed after it
+    record_holder(ledger, "reviewer", {"workspace": [["solver.py", 12, 2.0]]})
+    assert [round_index for round_index in range(11, 16) if admitted(review(round_index))] == [11]
+
+
 def test_a_failed_check_does_not_count_as_the_manager_having_looked(tmp_path):
     """The next trigger on the same evidence asks again after a failed or superseded check."""
     write_continuous_config(tmp_path, enabled=True, objective="Produce a validated grouped summary")
@@ -185,7 +196,7 @@ def test_the_consult_reason_reaches_the_prompt_and_the_receipt(tmp_path):
     record = supervision.supervise(Manager(tmp_path, runner=backend, memory_maintenance_enabled=False), tmp_path, event)
     assert record["status"] == "applied"
     assert "consulted now because of: reviewer asks for the Manager" in backend.prompts[0]
-    assert "ACTION: continue, steer or wait" in backend.prompts[0]
+    assert "ACTION: continue, steer, wait or stop" in backend.prompts[0]
     assert record["trigger"]["round_index"] == 2
     assert record["trigger"]["consult_reason"] == "reviewer asks for the Manager"
 

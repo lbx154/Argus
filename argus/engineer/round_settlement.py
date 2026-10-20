@@ -623,14 +623,18 @@ class RoundSettlementMixin:
             else now_monotonic
         )
         if on_event:
-            on_event(
-                _review_event_payload(
-                    review,
-                    round_index=round_index,
-                    round_max=supervised_config.max_rounds,
-                    text=f"review: {review.status} — {review.reason}",
-                )
+            payload = _review_event_payload(
+                review,
+                round_index=round_index,
+                round_max=supervised_config.max_rounds,
+                text=f"review: {review.status} — {review.reason}",
             )
+            if supervised_config.manager_supervised and (
+                ledger := mission_ledger(supervised_config.context_packet_path)
+            ):
+                # Where the Manager's periodic look finds the facts it last held.
+                payload["holder_ledger"] = str(ledger)
+            on_event(payload)
         record = RoundRecord(
             round_index=round_index,
             engineer_message=engineer_message,
