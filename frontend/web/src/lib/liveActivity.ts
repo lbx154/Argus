@@ -2,7 +2,7 @@ import type { EventMsg, MissionView, Snapshot } from '../../../core/src/types';
 import type { Locale } from '../i18n';
 import { pairCalls, plainToolLabel, renderFeedRows, toolName, type FeedStep } from './feedSteps';
 import { shortWorkText } from './taskLanguage';
-import { backgroundWaitLabel, currentWorkStartedAt, currentWorkStatus, eventTaskId, type WorkStatus } from './workStatus';
+import { currentWorkStartedAt, currentWorkStatus, eventTaskId, type WorkStatus } from './workStatus';
 
 /** One thing the team did, as a person would say it. */
 export interface LiveLine {
@@ -101,7 +101,6 @@ export function liveLines(events: EventMsg[], taskId: string, since: number, loc
 
 function headlineFor(status: WorkStatus, zh: boolean, title: string): string {
   const task = shortWorkText(title, 60);
-  if (status.reason === 'background_work') return zh ? '正在等后台任务' : 'Waiting on background work';
   if (status.reason === 'provider_wait') return zh ? '模型服务繁忙，稍后自动重试' : 'The model service is busy; retrying shortly';
   if (status.reason === 'no_recent_progress') return zh ? '暂时没有新进展' : 'No new progress for a while';
   switch (status.role) {
@@ -162,8 +161,6 @@ export function liveActivity(
     note = zh
       ? `排队等 GPU：第 ${gpu.position} 位${gpu.waitedSeconds ? `，已等 ${minutes(gpu.waitedSeconds, zh)}` : ''}`
       : `Queued for a GPU: position ${gpu.position}${gpu.waitedSeconds ? `, waiting ${minutes(gpu.waitedSeconds, zh)}` : ''}`;
-  } else if (status.reason === 'background_work') {
-    note = backgroundWaitLabel(status, locale);
   } else if (status.reason === 'provider_wait') {
     note = zh ? '模型服务这次没有完成请求，Argus 会自动重试，不需要你操作。' : 'The model service did not complete the request; Argus retries on its own.';
   } else if (lastLine?.running && quietFor !== null) {

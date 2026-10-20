@@ -4,7 +4,7 @@
     "summary": "判断何时值得并行工作，按文件与职责拆分协作，并独立审查汇总结果；不替代原有角色与授权。",
     "originalName": "Agent Team Lead",
     "source": "argus/builtin_skills/agent-team-lead.md",
-    "sourceBytes": 6933
+    "sourceBytes": 6816
   },
   "global/engineer/minimal-coding-agent.md": {
     "title": "最小且严谨的软件修改",
@@ -718,7 +718,7 @@
     "summary": "训练或大规模推理需要框架时，用实时来源调查候选、在隔离环境中试装并剖析一步真实更新、以官方配方为锚每次只改一个因素，并把结论写成带日期的项目决策记录；评测证据完整保留，训练流按种子/索引、标量和抽样输入保存并验证可再生，开跑前估算磁盘占用。",
     "originalName": "Training infrastructure: choosing, standing up and tuning it",
     "source": "argus/verticals/research/skills/engineer/training-infrastructure.md",
-    "sourceBytes": 12552
+    "sourceBytes": 12455
   },
   "vertical/research/engineer/venue-format-preflight.md": {
     "title": "投稿前的编译与泄露检查",
@@ -746,7 +746,7 @@
     "summary": "忠实实现已选想法，先跑通一个小而完整、记录了耗时与算力的闭环，再通过适应性实验形成足以支撑论文的证据；经独立审核的阶段成果可以先作为阶段包交付。",
     "originalName": "Developing an idea through experiments",
     "source": "argus/verticals/research/skills/research-experiment-playbook.md",
-    "sourceBytes": 34434
+    "sourceBytes": 34251
   },
   "vertical/research/research-idea-playbook.md": {
     "title": "寻找并选择研究想法",

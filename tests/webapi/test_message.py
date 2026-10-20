@@ -535,21 +535,16 @@ def test_explicit_authorization_persists_current_blocker_and_never_dispatches(
     validator = workdir / "tests" / "test_terminal_contract.py"
     validator.parent.mkdir()
     validator.write_text("def test_contract(): pass\n", encoding="utf-8")
-    store.clear_wait_for_new_evidence(
+    store.commit_revision(
         identity=identity,
-        terminal_evidence=[{
-            "failure_source": "validator_defect",
-            "validator_id": "terminal-contract",
-            "repair_paths": ["tests/test_terminal_contract.py"],
-        }],
+        updates={
+            "terminal_evidence": [{
+                "failure_source": "validator_defect",
+                "validator_id": "terminal-contract",
+                "repair_paths": ["tests/test_terminal_contract.py"],
+            }],
+        },
         reason="Reviewer diagnosed validator defect",
-    )
-    store.activate_wait(
-        identity=identity,
-        wait_id="wait-1",
-        blocker_fingerprint="validator:terminal-contract",
-        recheck_token="validator-v1",
-        watched_paths=["research/RESULT.json"],
     )
     manager_state._STATES.clear()
 
@@ -595,7 +590,7 @@ def test_explicit_authorization_persists_current_blocker_and_never_dispatches(
     assert LifeMemory.open(life).backlog.all() == []
 
 
-def test_validator_authorization_allows_exact_repair_under_watched_parent(
+def test_validator_authorization_allows_exact_repair_only(
     tmp_path: Path, monkeypatch,
 ) -> None:
     sid = "s-authorization-parent"
@@ -614,21 +609,16 @@ def test_validator_authorization_allows_exact_repair_under_watched_parent(
     )
     store = CampaignControlStore(life, project_root=workdir)
     identity = store.campaign_identity()
-    store.clear_wait_for_new_evidence(
+    store.commit_revision(
         identity=identity,
-        terminal_evidence=[{
-            "failure_source": "validator_defect",
-            "validator_id": "terminal-contract",
-            "repair_paths": ["tests/test_terminal_contract.py"],
-        }],
+        updates={
+            "terminal_evidence": [{
+                "failure_source": "validator_defect",
+                "validator_id": "terminal-contract",
+                "repair_paths": ["tests/test_terminal_contract.py"],
+            }],
+        },
         reason="Reviewer diagnosed validator defect",
-    )
-    store.activate_wait(
-        identity=identity,
-        wait_id="wait-parent",
-        blocker_fingerprint="validator:terminal-contract",
-        recheck_token="validator-v1",
-        watched_paths=["tests"],
     )
     manager_state._STATES.clear()
 
@@ -676,7 +666,7 @@ def test_authorization_without_current_blocker_fails_closed(
     )
 
     assert result["control"] == "authorization_rejected"
-    assert "no current Manager-bound blocker" in result["reply"]
+    assert "no current Reviewer finding" in result["reply"]
     assert LifeMemory.open(life).backlog.all() == []
 
 

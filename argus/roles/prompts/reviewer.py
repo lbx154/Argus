@@ -665,26 +665,11 @@ def render_reviewer_prompt(
             + sanitize_model_visible_text(str(source_cache.resolve()))
             + "\n" + REVIEWER_SOURCE_HANDOFF + "\n"
         )
-    # Background-subagent context (rendered by the engineer/runner from the
-    # live ``.argus_subagents`` registry). Present only when this mission has
-    # in-flight subagents. A SUPERVISED subagent advancing on its own is NOT
-    # by itself the engineer's forward progress, so we steer next_action away
-    # from "poll again" toward independent work (or an explicit cadence
-    # yield) without forcing a forward_progress value.
-    background_block = ""
-    if background_context.strip():
-        background_block = (
-            "\n"
-            + sanitize_model_visible_text(background_context.strip())
-            + "\n\n"
-            "Reviewer note on the above: these are SUPERVISED subagents with "
-            "their own independent supervisor, so their autonomous progress is "
-            "NOT by itself the engineer's forward progress. If the engineer only "
-            "re-polled a healthy self-watched subagent this round, steer "
-            "`next_action` to advance independent work that does not depend on "
-            "it. If nothing else can proceed, return `continue` and state what "
-            "evidence the next round should wait for.\n"
-        )
+    background_block = (
+        "\n" + sanitize_model_visible_text(background_context.strip()) + "\n"
+        if background_context.strip()
+        else ""
+    )
     # The shared Markdown checkpoint is the live handoff. ``prior_checkpoint``
     # remains accepted for callers that have not migrated to the file path.
     _ = prior_checkpoint

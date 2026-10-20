@@ -275,24 +275,26 @@ not guess on the model's behalf whether there is progress. The full design is in
   whose process is alive but whose heartbeat stopped still counts as running; answering a question after a pause
   reopens the campaign.
 - Do: close each one according to the four invariants in the "baton" section of the
-  [handoff design](role-handoff-design.md): one holder per item; every wait has a deadline and a fallback; an unchanged
-  return climbs; authority never vanishes.
+  [handoff design](role-handoff-design.md): one holder per item; waiting happens in the holder's own turn and the
+  backend handles it; an unchanged return climbs; authority never vanishes.
 - Done when: each case above has a test (`tests/test_liveness_*.py`) that reaches done, dropped, or an explicit climb.
 - Status: all in `dev`. The first upgrade of a daemon from an
-  old release should still stop the service before starting the new one.
+  old release should still stop the service before starting the new one. The Planner waiting contract, the Engineer
+  wait line and the host's background-job waits are deleted: Argus keeps no waiting state.
 
 #### HO-16 The baton: one handoff line instead of footers and many pause states
 `0.4` · `L` · Depends on: HO-2, HO-12, HO-15
 - Today: the Engineer hands off with seven footer keys, a Planner wait needs a fingerprint, a token, and a recheck
   condition, and there are eleven `paused_*` statuses, each with its own resume logic.
 - Do: per the handoff design, a handoff is a prose note plus one line
-  `→ engineer|reviewer|planner|manager|operator: <question>|wait: <what>|done`; the host enforces only the four
-  invariants; the eleven pauses become one park whose reason is data; the host supplies wait deadlines and
-  fingerprints; an unchanged return climbs instead of calling the same model again.
+  `→ engineer|reviewer|planner|manager|operator: <question>|done`; the host enforces only the four
+  invariants; the eleven pauses become one park whose reason is data; waiting stays inside the holder's turn; an
+  unchanged return climbs instead of calling the same model again.
 - Done when: an architecture test confirms only this handoff format and one park status remain; HO-1 shows the number
   of model calls made without a change never exceeds the height of the ladder.
 - Can be split into: HO-16a read the line leniently (an unreadable line never means done); HO-16b merge the pause
-  states; HO-16c host-supplied wait deadlines; HO-16d unchanged return climbs; HO-16e delete the old footers and states.
+  states; HO-16c (dropped: waits stay in the holder's turn, no `wait:` line); HO-16d unchanged return climbs; HO-16e
+  delete the old footers and states.
 ---
 
 ### Theme CO: Reliability and the core — failures you can see, a structure you can follow

@@ -13,7 +13,7 @@ from pathlib import Path
 
 import pytest
 
-from argus.core.stop_kinds import PARK_STATUSES, park_reason_of, park_rule
+from argus.core.stop_kinds import PARK_STATUSES, park_reason_of
 from argus.life.memory import (
     Backlog,
     BacklogItem,
@@ -76,15 +76,11 @@ def test_a_parked_row_carries_its_reason_and_survives_a_reload(tmp_path: Path) -
 def test_a_parked_row_keeps_its_rule(tmp_path: Path) -> None:
     backlog = Backlog(tmp_path / "backlog.jsonl")
     held = _parked(backlog, "external_work", node_key="train")
-    backlog.add(BacklogItem.new(title="again", objective="o", node_key="train"))
     research = _parked(backlog, "research_open")
     fence = _parked(backlog, "provider_fence")
     question = _parked(backlog, "research_open")
     backlog.update(question.id, pending_question="Which split?")
 
-    # External work keeps its reservation, so the same node is not claimed twice.
-    assert park_rule(park_reason(held)).holds_resources
-    assert backlog.claim_next(owner="worker-2") is None
     # Only parks nobody else releases are the Planner's to retire.
     assert planner_may_retire_park(_row(backlog, research.id))
     assert not planner_may_retire_park(_row(backlog, fence.id))

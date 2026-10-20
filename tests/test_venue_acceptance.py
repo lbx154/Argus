@@ -404,7 +404,7 @@ def _final_review(paper: Path, *, revise: bool):
     supervised = cast(Any, SupervisedEngineer.__new__(SupervisedEngineer))
     supervised.engineer_runner, supervised.engineer_config = engineer, EngineerConfig(model="stub")
     supervised.reviewer, supervised.reviewer_config = reviewer, ReviewerConfig(model="stub")
-    config = SupervisedConfig(checkpoint_path=paper / "CHECKPOINT.md", background_subagent_advisory=False)
+    config = SupervisedConfig(checkpoint_path=paper / "CHECKPOINT.md")
     configure_venue_revisions(config)
     status, _rounds, _final, reason, _thread = supervised.run(
         objective="Bring the paper to the venue bar in final Review",

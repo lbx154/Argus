@@ -68,9 +68,6 @@ export type MacroData = MapCard & {
   revealing?: boolean;
   /** The role at work on this card right now, when the session is live. */
   phase?: string;
-  /** The one sentence for a task waiting on its background team; the same
-   * words the sidebar and the conversation header show at that moment. */
-  waiting?: string;
   readOnly: boolean;
   source: string;
   quote: (ref: CardReference) => void;
@@ -500,18 +497,15 @@ export const MacroTaskNode = memo(function MacroTaskNode({
             </div>
           )}
           {(() => {
-            const waiting = isLastPart && data.live && data.waiting;
-            const live = !waiting && isLastPart && data.live && !data.paused && ACTIVE.has(task.status);
+            const live = isLastPart && data.live && !data.paused && ACTIVE.has(task.status);
             // The state is on the chip at the top of the card; it is not said
             // again down here unless the card has no chip.
             const chip = state !== "recorded" || !!data.completionScope;
             const team = !!data.historyCount && teamSteps.length > 0;
-            if (!live && !waiting && isLastPart && chip && !team) return null;
+            if (!live && isLastPart && chip && !team) return null;
             return (
               <div className="map-card-stages">
-                {waiting
-                  ? <LiveLine text={data.waiting} zh={zh} />
-                  : live
+                {live
                   ? <LiveLine role={data.phase ?? task.role} since={task.started_ts} zh={zh} />
                   : isLastPart && chip ? null
                   : <span className="map-card-recorded">{isLastPart ? taskStateLabel : (zh ? "历史记录 · 非当前执行" : "History · not current execution")}</span>}

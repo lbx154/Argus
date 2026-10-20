@@ -124,7 +124,6 @@ def test_a_reviewer_that_never_answered_is_not_credited_or_staged(tmp_path: Path
         engineer_prompt_builder=lambda next_action, include_static=True: "WORK",
         supervised_config=SupervisedConfig(
             max_rounds=4, backend_failure_threshold=2, backend_failure_backoff_seconds=0,
-            background_subagent_advisory=False,
         ),
         workdir=tmp_path,
     )

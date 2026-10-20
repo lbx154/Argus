@@ -206,7 +206,6 @@ def test_oauth_failure_pauses_once_without_opening_a_new_round(tmp_path: Path) -
             max_rounds=10,
             backend_failure_threshold=2,
             backend_failure_backoff_seconds=0.0,
-            background_subagent_advisory=False,
         ),
         workdir=tmp_path,
     )
@@ -244,7 +243,6 @@ def test_forbidden_policy_strips_stop_kind_operator_question(
         supervised_config=SupervisedConfig(
             max_rounds=2,
             operator_question_policy_root=tmp_path,
-            background_subagent_advisory=False,
         ),
         workdir=tmp_path,
     )
@@ -285,7 +283,6 @@ def test_forbidden_policy_strips_model_question_event(tmp_path: Path) -> None:
         supervised_config=SupervisedConfig(
             max_rounds=2,
             operator_question_policy_root=tmp_path,
-            background_subagent_advisory=False,
         ),
         workdir=tmp_path,
         on_event=events.append,

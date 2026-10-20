@@ -71,7 +71,6 @@ def _assemble(
     )
     config = SimpleNamespace(
         compact_continuation_prompts=compact_continuation_prompts,
-        background_subagent_advisory=False,
         max_rounds=8,
         context_packet_path=str(mission_path or ""),
         engineer_full_round_policy=full_round_policy,

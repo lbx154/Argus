@@ -154,7 +154,6 @@ def test_unavailable_engineer_model_pauses_for_provider_cooldown(
         supervised_config=SupervisedConfig(
             max_rounds=10,
             backend_failure_backoff_seconds=0,
-            background_subagent_advisory=False,
         ),
         workdir=tmp_path,
         on_event=events.append,
@@ -210,7 +209,6 @@ def test_provider_startup_refusal_pauses_instead_of_consuming_missions(
         supervised_config=SupervisedConfig(
             max_rounds=10,
             backend_failure_backoff_seconds=0,
-            background_subagent_advisory=False,
         ),
         workdir=tmp_path,
         on_event=events.append,
@@ -273,7 +271,6 @@ def test_loop_escalates_to_error_on_reviewer_backend_death(tmp_path: Path) -> No
         max_rounds=10,
         backend_failure_threshold=2,
         backend_failure_backoff_seconds=0.0,
-        background_subagent_advisory=False,
     )
     status, rounds, _final_msg, reason, _tid = engine.run(
         objective="minimize val_bpb",
@@ -327,7 +324,6 @@ def test_reviewer_outage_names_the_model_service_as_the_stop(tmp_path: Path) -> 
             max_rounds=10,
             backend_failure_threshold=2,
             backend_failure_backoff_seconds=0.0,
-            background_subagent_advisory=False,
         ),
         workdir=tmp_path,
         on_event=lambda _event: None,
@@ -406,7 +402,6 @@ def test_watchdog_timeout_retries_once_from_checkpoint_in_fresh_session(
             backend_failure_threshold=2,
             backend_failure_backoff_seconds=0,
             checkpoint_path=checkpoint,
-            background_subagent_advisory=False,
         ),
         workdir=tmp_path,
         on_event=events.append,
@@ -444,7 +439,6 @@ def test_watchdog_retry_exhaustion_fails_loudly(tmp_path: Path) -> None:
             backend_failure_threshold=5,
             backend_failure_backoff_seconds=0,
             checkpoint_path=checkpoint,
-            background_subagent_advisory=False,
         ),
         workdir=tmp_path,
         on_event=events.append,
@@ -507,7 +501,6 @@ def test_loop_recovers_when_reviewer_backend_comes_back(tmp_path: Path) -> None:
         max_rounds=10,
         backend_failure_threshold=2,
         backend_failure_backoff_seconds=0.0,
-        background_subagent_advisory=False,
     )
     status, rounds, _final_msg, _reason, _tid = engine.run(
         objective="minimize val_bpb",
@@ -555,7 +548,6 @@ def test_reviewer_flake_does_not_rerun_engineer(tmp_path: Path) -> None:
         max_rounds=10,
         backend_failure_threshold=2,
         backend_failure_backoff_seconds=0.0,
-        background_subagent_advisory=False,
     )
     status, rounds, _final_msg, _reason, _tid = engine.run(
         objective="minimize val_bpb",

@@ -320,13 +320,13 @@ class PlannerFailureBackoffMixin:
         if getattr(state, "added_titles", None) or getattr(state, "completion_accepted", False):
             return True
         verdict = getattr(state, "verdict", None)
-        # An intentional wait is a decision, not a failure; the unchanged-input
-        # skip already keeps such a wait from being re-bought at model price.
+        # A handoff without new work is a decision, not a failure; the
+        # unchanged-input skip already keeps it from being re-bought at model price.
         return bool(
             result == PLAN_AWAITING
             and verdict is not None
             and not getattr(verdict, "error", "")
-            and getattr(verdict, "waiting", False)
+            and getattr(verdict, "handoff", "")
         )
 
     def _record_planner_turn_outcome(self, state: Any, result: Any) -> None:
@@ -524,7 +524,7 @@ class PlannerFailureBackoffMixin:
         )
         if self._should_journal_idle_repeat("planner_failure_hold"):
             if record.get("alerted_at") is not None:
-                # Reported as degraded by the alert; a waiting event here
+                # Reported as degraded by the alert; an idle event here
                 # would make the held daemon look healthy and idle.
                 self._emit_status(
                     "planner: still holding after repeated failures; "
@@ -532,7 +532,7 @@ class PlannerFailureBackoffMixin:
                 )
             else:
                 self._emit({
-                    "type": EventType.LIFE_PLANNER_WAITING,
+                    "type": EventType.LIFE_PLANNER_IDLE,
                     "cycle": getattr(self, "_planning_cycles", 0),
                     "reason": "backing off after repeated failed Planner turns",
                     "consecutive_failures": streak,

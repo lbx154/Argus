@@ -179,10 +179,10 @@ def _corpus() -> dict[str, Any]:
             "type": "engineer.progress", "kind": "command_execution", "agent_layer": "engineer",
             "status": "failed", "text": "npm test", "action_summary": "run tests",
         }),
-        _fixture("life.planner.waiting.waiting-resource", {
-            "type": "life.planner.waiting", "cycle": 2,
-            "reason": "subagent state waiting_resource is a healthy resource wait",
-            "waiting_contract": {"wait_id": "subagent-1", "recheck_condition": "state leaves waiting_resource", "wait_mode": "event", "wake_on": ["subagent_state"], "observed_revision": "waiting_resource"},
+        _fixture("life.planner.idle.handoff", {
+            "type": "life.planner.idle", "cycle": 2,
+            "reason": "the running evaluation decides the next step",
+            "handoff": "engineer",
         }),
     ]
     fixtures.extend(extras)

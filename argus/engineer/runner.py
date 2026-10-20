@@ -2,7 +2,6 @@
 from __future__ import annotations
 
 import itertools
-import json
 import logging
 from dataclasses import replace
 from pathlib import Path
@@ -15,7 +14,6 @@ from ..core.models import (
     RoundRecord,
     RunnerOptions,
     RunnerResult,
-    without_routing_judgments,
 )
 from ..core.ports import RunnerBackend
 from ..core.role_session import (
@@ -32,13 +30,11 @@ from ..core.workspace_snapshot import WorkspaceSnapshots
 from ..reviewer import Reviewer, ReviewerConfig
 from .change_facts import (
     change_facts,
-    holds_unchanged,
     mission_ledger,
     mission_lineage,
     record_holder,
 )
 from .checkpoint import resolve_shared_checkpoint
-from .external_work import scan_external_work
 
 log = logging.getLogger(__name__)
 # Config dataclasses are re-exported here for historical/test imports.
@@ -64,11 +60,9 @@ from .round_settlement import (
 # patch them through ``argus.engineer.runner``.
 from .round_signals import (
     _apply_round_secret_guard,  # noqa: F401
-    _pause_decision_clock,  # noqa: F401
     _review_event_payload,  # noqa: F401
-    _run_external_work_wait,  # noqa: F401
 )
-from .round_state import RoundControl, RoundLoopState, control_proceed
+from .round_state import RoundLoopState
 from .round_stop_signals import (
     backend_failure_review_decision,
     daemon_stop_review_decision,
@@ -83,7 +77,6 @@ from .round_stop_signals import (
     runner_result_is_backend_failure,
     should_clear_thread_id_after_outcome,
 )
-from .round_waits import RoundWaitsMixin
 from .turn_stall import LOOK_SECONDS, TurnStallWatch
 
 # The next Reviewer reads at most this many earlier unreviewed Engineer
@@ -106,33 +99,6 @@ def _carry_unreviewed_turn(state: RoundLoopState, round_index: int, message: str
     del state.unreviewed_engineer_accounts[:-_UNREVIEWED_ACCOUNT_TURNS]
 
 
-def hold_review_for_pending_background_run(review: ReviewDecision) -> ReviewDecision:
-    """Keep a ``done`` open while a declared background run has no result.
-
-    The Reviewer's own words are preserved in ``reviewer_words`` and the
-    host's change is recorded separately, so later rounds never present the
-    host's sentence as the Reviewer's judgment. The Reviewer's routing
-    judgments no longer describe this verdict and are dropped (read as absent).
-    """
-    return replace(
-        review, status="continue",
-        planner_report=without_routing_judgments(review.planner_report),
-        reason=review.reason + " The declared background run still has no terminal result.",
-        next_action="Await the declared background run, then inspect its result before completing the mission.",
-        reviewer_words=review.reviewer_words or {
-            "status": review.status,
-            "reason": review.reason,
-            "next_action": review.next_action,
-        },
-        host_notes=[
-            *review.host_notes,
-            "the review was held open because a declared background run is "
-            "still pending (your `done` became `continue`, and the host asked "
-            "the Engineer to await the run)",
-        ],
-    )
-
-
 def _paper_unchanged_since_venue_review(rounds: list[RoundRecord], workdir: Path) -> bool:
     """Whether the paper the last venue review judged is still the paper here.
 
@@ -149,7 +115,6 @@ def _paper_unchanged_since_venue_review(rounds: list[RoundRecord], workdir: Path
 class SupervisedEngineer(
     RoundPromptMixin,
     RoundExecutionMixin,
-    RoundWaitsMixin,
     RoundSelfReviewMixin,
     RoundReviewerMixin,
     RoundSettlementMixin,
@@ -172,55 +137,6 @@ class SupervisedEngineer(
         self.reviewer = reviewer
         self.engineer_config = engineer_config
         self.reviewer_config = reviewer_config
-
-    def _wait_instead_of_unchanged_review(
-        self,
-        *,
-        ledger: Path,
-        round_index: int,
-        supervised_config: SupervisedConfig,
-        workdir: Path,
-        state: RoundLoopState,
-        on_event: Callable[[dict], None] | None,
-    ) -> RoundControl:
-        """Wait for running work rather than review what the Reviewer already judged.
-
-        A Reviewer called on the facts it last held can only repeat its verdict
-        (HO-2). While background work still runs, the round waits on it instead,
-        exactly as if the Engineer had asked to wait; its result is new.
-        """
-        work = scan_external_work(workdir)
-        target = next(
-            (
-                status for status in work
-                if status.waitable
-                and (status.source != "subagent" or supervised_config.background_subagent_advisory)
-            ),
-            None,
-        )
-        if target is None or not holds_unchanged(ledger, "reviewer", change_facts(
-            workdir, state_root=supervised_config.operator_question_policy_root, statuses=work,
-        )):
-            return control_proceed()
-        if on_event:
-            on_event({
-                "type": "round.review.skipped_unchanged",
-                "round_index": round_index,
-                "work_id": target.work_id,
-                "text": (
-                    f"Nothing changed since the last review; waiting for {target.work_id} "
-                    "instead of reviewing again."
-                ),
-            })
-        kind = "subagent" if target.source == "subagent" else "external_work"
-        return self._handle_agent_driven_wait(
-            round_index=round_index,
-            supervised_config=supervised_config,
-            raw_engineer_message=json.dumps({"wait_for": kind, "wait_id": target.work_id}),
-            workdir=workdir,
-            state=state,
-            on_event=on_event,
-        )
 
     def run(
         self,
@@ -396,16 +312,6 @@ class SupervisedEngineer(
             paused = manager_wait_terminal(supervised_config, state)
             if paused is not None:
                 return paused
-            control = self._handle_runtime_team_wait(
-                supervised_config=supervised_config,
-                workdir=workdir,
-                state=state,
-            )
-            if control.action == "return":
-                return enforce_terminal_question_policy(
-                    control.terminal,
-                    supervised_config,
-                )
             engineer_resume_id = state.engineer_session.prepare(
                 max_turns=supervised_config.role_session_max_turns,
                 max_input_tokens=supervised_config.role_session_max_input_tokens,
@@ -420,9 +326,9 @@ class SupervisedEngineer(
                 role_session=state.engineer_session,
                 on_event=on_event,
             )
-            if state.pending_external_work_followup:
-                engineer_prompt += "\n\n" + state.pending_external_work_followup
-                state.pending_external_work_followup = ""
+            if state.pending_engineer_followup:
+                engineer_prompt += "\n\n" + state.pending_engineer_followup
+                state.pending_engineer_followup = ""
 
             outcome = self._run_engineer_turn(
                 round_index=round_index,
@@ -453,30 +359,6 @@ class SupervisedEngineer(
             paused = manager_wait_terminal(supervised_config, state)
             if paused is not None:
                 return paused
-            wait_message = (
-                outcome.engineer_result.last_agent_message or outcome.raw_engineer_message
-            )
-            review_before_wait = self._external_wait_needs_review(
-                supervised_config=supervised_config,
-                raw_engineer_message=wait_message,
-                workdir=workdir,
-                state=state,
-                on_event=on_event,
-            )
-            if not review_before_wait:
-                control = self._handle_agent_driven_wait(
-                    round_index=round_index,
-                    supervised_config=supervised_config,
-                    raw_engineer_message=wait_message,
-                    workdir=workdir,
-                    state=state,
-                    on_event=on_event,
-                )
-                if control.action == "return":
-                    return enforce_terminal_question_policy(control.terminal, supervised_config)
-                if control.action == "continue_loop":
-                    _carry_unreviewed_turn(state, round_index, outcome.engineer_message)
-                    continue
 
             control = self._handle_progress_and_self_review(
                 round_index=round_index,
@@ -498,21 +380,6 @@ class SupervisedEngineer(
                 continue
 
             ledger = mission_ledger(supervised_config.context_packet_path)
-            if ledger is not None and not review_before_wait:
-                control = self._wait_instead_of_unchanged_review(
-                    ledger=ledger,
-                    round_index=round_index,
-                    supervised_config=supervised_config,
-                    workdir=workdir,
-                    state=state,
-                    on_event=on_event,
-                )
-                if control.action == "return":
-                    return enforce_terminal_question_policy(control.terminal, supervised_config)
-                if control.action == "continue_loop":
-                    _carry_unreviewed_turn(state, round_index, outcome.engineer_message)
-                    continue
-
             if _paper_unchanged_since_venue_review(state.rounds, workdir):
                 control = self._settle_round(
                     review=ReviewDecision(
@@ -571,18 +438,6 @@ class SupervisedEngineer(
                     # Bookkeeping never blocks the round; without the record the
                     # Reviewer may be called once more on unchanged facts.
                     log.exception("failed to record the Reviewer's held facts")
-
-            if review_before_wait:
-                from .external_work import inspect_external_work, parse_external_wait_request
-
-                request = parse_external_wait_request(wait_message)
-                waiting = inspect_external_work(workdir, request[1]) if request else None
-                if review.status == "done" and waiting is not None and waiting.waitable:
-                    review = hold_review_for_pending_background_run(review)
-                self._acknowledge_external_wait_review(
-                    supervised_config=supervised_config, state=state,
-                    review=review, on_event=on_event,
-                )
 
             control = self._settle_round(
                 review=review,

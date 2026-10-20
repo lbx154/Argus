@@ -13,7 +13,6 @@ from argus.life.event_log import JsonlEventSink
 from argus.skills import builtins
 from argus.skills.role_library import role_skill_libraries
 from argus.skills.store import SkillStore
-from argus.tools.subagent import _direct_run
 
 
 @pytest.mark.parametrize("verbosity,expected", [("full", 1), ("signal", 0)])
@@ -56,15 +55,12 @@ def test_discovery_never_reads_or_preinjects_bodies_based_on_keyword_overlap(tmp
     assert "NEVER INJECT" not in result.block
 
 
-def test_moved_research_skills_are_available_only_in_their_library_and_supervisor(tmp_path, monkeypatch):
+def test_moved_research_skills_are_available_only_in_their_library(tmp_path):
     relative = "engineer/rl-training-collapse-diagnosis.md"
     assert relative not in dict(builtins.iter_builtin_skill_texts())
     source = dict(builtins.iter_vertical_skill_texts("research"))[relative]
     builtins.seed_context_skills(tmp_path, "research")
     assert (tmp_path / relative).read_text() == source
-    monkeypatch.setattr(_direct_run, "_RL_COLLAPSE_GUIDANCE_CACHE", None)
-    assert _direct_run._rl_collapse_guidance_for("python train_grpo.py") == _direct_run._strip_skill_frontmatter(source).strip()
-    assert _direct_run._rl_collapse_guidance_for("python evaluate.py") == ""
 
 
 def test_vertical_refresh_preserves_learning_and_updates_only_factory_copies(tmp_path, monkeypatch):

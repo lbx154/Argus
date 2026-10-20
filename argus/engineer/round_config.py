@@ -16,7 +16,7 @@ from dataclasses import dataclass, field
 from dataclasses import replace as dataclass_replace
 from functools import wraps
 from pathlib import Path
-from typing import Any, Callable
+from typing import Any
 
 from ..core.knobs import env_int
 from ..core.role_session import (
@@ -26,10 +26,6 @@ from ..core.role_session import (
 
 _RUNNER_STALLED_IDLE_ENV = "ARGUS_SKILL_RUNNER_STALLED_IDLE_SECONDS"
 _DECISION_PROGRESS_TIMEOUT_ENV = "ARGUS_SKILL_DECISION_PROGRESS_TIMEOUT_SECONDS"
-# Toggle for the background-subagent advisory + agent-driven cadence wait. When
-# unset/true, each round surfaces in-flight supervised subagents so the engineer
-# does not babysit a self-watched run. Set to 0 to disable (e.g. tests).
-_BG_SUBAGENT_ADVISORY_ENV = "ARGUS_SKILL_BG_SUBAGENT_ADVISORY"
 _COMPACT_CONTINUATION_PROMPTS_ENV = "ARGUS_SKILL_COMPACT_CONTINUATION_PROMPTS"
 _ENGINEER_FULL_ROUND_POLICY_ENV = "ARGUS_SKILL_ENGINEER_FULL_ROUND_POLICY"
 #: ``session`` re-sends the full static task text only to a provider session
@@ -380,18 +376,6 @@ class SupervisedConfig:
             _RUNNER_DEFAULT_STALLED_IDLE_SECONDS,
         )
     )
-    # Surface in-flight SUPERVISED subagents (read from
-    # ``<workdir>/.argus_subagents``) in the engineer prompt each round so the
-    # agent does not burn rounds babysitting a self-watched long job, and can
-    # yield through the exact final-line JSON wait request instead of
-    # busy-polling. Env
-    # override: ARGUS_SKILL_BG_SUBAGENT_ADVISORY (0 disables).
-    background_subagent_advisory: bool = field(
-        default_factory=lambda: _env_bool(_BG_SUBAGENT_ADVISORY_ENV, True)
-    )
-    review_background_launches: bool = field(
-        default_factory=lambda: _env_bool("ARGUS_SKILL_REVIEW_BACKGROUND_LAUNCHES", False)
-    )
     operator_questions_allowed: bool = True
     operator_question_policy_root: Path | None = None
     # A Reviewer stall ends the mission with a question to the operator
@@ -402,12 +386,6 @@ class SupervisedConfig:
     # tripped stall guard asks it instead of ending the mission. Teammate and
     # CLI runs have nobody above them, so there the guard still ends the run.
     manager_supervised: bool = False
-    # While the Engineer waits on work it started itself, the round keeps the
-    # mission slot for as long as this answers True, instead of pausing after
-    # one cadence and paying a Planner turn and a session restart to be resumed
-    # minutes later. The daemon answers from its backlog and inbox. None keeps
-    # the single-cadence pause for callers that run one mission at a time.
-    external_wait_hold: Callable[[], bool] | None = None
 
     def __post_init__(self) -> None:
         """Keep the round-budget guards reachable when ``max_rounds`` shrinks.

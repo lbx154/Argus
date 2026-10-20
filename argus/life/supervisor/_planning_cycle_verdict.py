@@ -3,13 +3,12 @@
 Covers building the planner prompt context and calling ``planner.plan_next()``
 (with exception handling), then ``verdict.error`` /
 operator-external-blocker-defer / independent-overlap-task normalization that
-happens before any waiting/project_done interpretation.
+happens before any handoff/project_done interpretation.
 """
 
 from __future__ import annotations
 
 import logging
-from dataclasses import replace
 from pathlib import Path
 from typing import Any
 
@@ -100,8 +99,35 @@ class PlanningCycleVerdictMixin:
             + "Please tell Argus what direction to try next, provide the missing "
             "decision/resource, or say that this campaign should stop."
         )
+        self._enter_pause_backoff()
+        if not self._park_planner_question(state, question, reason):
+            self._emit_status(
+                "planner still has no concrete task; the operator question stays open"
+            )
+            return PLAN_AWAITING
+        self._emit({
+            "type": EventType.LIFE_PLANNER_ERROR,
+            "cycle": self._planning_cycles,
+            "error": verdict.error,
+            "raw_text": verdict.raw_text,
+            "operator_alert": True,
+            "recoverable": True,
+            "stop_kind": "operator_input_required",
+        })
+        self._emit_status("planner has no concrete task; the operator is asked for direction")
+        return PLAN_AWAITING
+
+    def _park_planner_question(
+        self, state: _PlanCycleState | None, question: str, reason: str,
+    ) -> bool:
+        """Put the planning slot's question to the operator on its one card.
+
+        The card is the operator's to answer, or the Manager's while the
+        operator cannot be asked, like any parked question. Returns False when
+        the same question is already open.
+        """
         item = None
-        revision = state.revision_request or {}
+        revision = getattr(state, "revision_request", None) or {}
         item_id = str(revision.get("item_id") or "")
         if item_id:
             item = next(
@@ -110,7 +136,7 @@ class PlanningCycleVerdictMixin:
             )
         if item is None:
             # One open question per campaign: a Planner that keeps coming back
-            # empty refreshes the question it already asked instead of adding
+            # refreshes the question it already asked instead of adding
             # another unanswered row every cycle.
             item = next(
                 (
@@ -123,11 +149,10 @@ class PlanningCycleVerdictMixin:
                 ),
                 None,
             )
-            already_asked = item is not None and str(
+            if item is not None and str(
                 getattr(item, "pending_question", "") or ""
-            ).strip() == question
-        else:
-            already_asked = False
+            ).strip() == question:
+                return False
         if item is None:
             from ..memory import BacklogItem
 
@@ -139,19 +164,13 @@ class PlanningCycleVerdictMixin:
                     iterate=False,
                 )
             )
-        self._enter_pause_backoff()
-        if already_asked:
-            self._emit_status(
-                "planner still has no concrete task; the operator question stays open"
-            )
-            return PLAN_AWAITING
         try:
             from ...core.operator_decision import build_operator_decision
 
             card = build_operator_decision(
                 item_id=item.id,
                 title=item.title,
-                reason=reason or "Planner produced no executable task.",
+                reason=reason or question,
                 question=question,
                 project_id=self.memory.root.name,
                 previous_decision=item.operator_decision,
@@ -172,17 +191,7 @@ class PlanningCycleVerdictMixin:
             "question": question,
             "agent_layer": "planner",
         })
-        self._emit({
-            "type": EventType.LIFE_PLANNER_ERROR,
-            "cycle": self._planning_cycles,
-            "error": verdict.error,
-            "raw_text": verdict.raw_text,
-            "operator_alert": True,
-            "recoverable": True,
-            "stop_kind": "operator_input_required",
-        })
-        self._emit_status("planner has no concrete task; waiting for operator direction")
-        return PLAN_AWAITING
+        return True
 
     def _pc_invoke_planner(self, state: _PlanCycleState) -> Any | None:
         if state.verdict is not None:
@@ -202,15 +211,12 @@ class PlanningCycleVerdictMixin:
             getattr(self, "_planner_session_research_plan", "") or ""
         )
 
-        runtime_note = self._planner_runtime_with_idle_note()
+        runtime_note = self._planner_runtime_notes()
         revision_note = (
             _render_revision_request(revision_request, state.revision_active_items)
             if revision_request is not None
             else ""
         )
-
-        state.subagent_family_failures = self._recent_subagent_family_failures()
-        stuck_families_note = self._stuck_subagent_families_note(state.subagent_family_failures)
 
         try:
             from ...planner import Planner
@@ -270,7 +276,6 @@ class PlanningCycleVerdictMixin:
                                 self.config.continuous_objective,
                             ),
                             self._planner_authorization_prompt_block(),
-                            stuck_families_note,
                             runtime_note,
                             revision_note,
                             *state.operator_messages,
@@ -445,58 +450,6 @@ class PlanningCycleVerdictMixin:
                 "diagnostic": str(diagnostic),
             })
 
-        if verdict.waiting_contract is not None:
-            # The Planner names what it waits for; the host binds that to what
-            # it can watch once, here, so every later step sees one binding.
-            verdict = replace(
-                verdict, waiting_contract=self._bind_planner_wait(verdict.waiting_contract),
-            )
-        if getattr(verdict, "waiting", False) and list(
-            getattr(verdict, "new_tasks", []) or []
-        ):
-            # A wait that comes with concrete work is not a wait. The waiting
-            # phase records the wait and returns before the build phase, so
-            # these tasks were silently dropped and the unchanged-input skip
-            # then armed on the "wait". Dropping the wait first lets the
-            # live-job normalization below fold status-only probes back into a
-            # real wait while keeping every task that is actual work.
-            # Two facts a wait can carry are not about this cycle lacking
-            # work: that only the operator can end part of it, and that the
-            # Planner asks the Manager to reconcile the stage. Those stay
-            # beside the tasks; the waiting phase records them. While the
-            # operator cannot be asked the Manager decides the next bare wait
-            # for them instead (_settle_operator_wait_without_operator), so it
-            # is not kept.
-            from ...core.autonomy import operator_questions_can_be_asked
-
-            contract = verdict.waiting_contract
-            if bool(getattr(contract, "stage_reconciliation_required", False)) or (
-                bool(getattr(contract, "operator_action_required", False))
-                and operator_questions_can_be_asked(self._project_state_root())
-            ):
-                state.carried_wait = verdict
-            self._emit({
-                "type": "life.planner.normalized",
-                "cycle": self._planning_cycles,
-                "diagnostic": (
-                    "waiting declared with tasks; tasks kept and the wait "
-                    + ("kept beside them" if state.carried_wait is not None else "dropped")
-                ),
-            })
-            verdict = replace(
-                verdict,
-                waiting=False,
-                waiting_reason="",
-                waiting_contract=None,
-            )
-
-        if revision_request is None:
-            verdict = self._normalize_live_subagent_wait(verdict)
-            if state.carried_wait is not None and verdict.waiting:
-                # Every task was a status probe of live work, so the wait the
-                # Planner declared is the real one, tasks dropped as before.
-                verdict = replace(state.carried_wait, new_tasks=[])
-                state.carried_wait = None
         verdict = self._defer_project_done_for_operator_external_blocker(verdict)
         state.verdict = verdict
         return None

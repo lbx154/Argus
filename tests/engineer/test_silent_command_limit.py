@@ -200,7 +200,6 @@ def _run_loop(tmp_path: Path, engineer: _SilentCommandsEngineer):
             backend_failure_threshold=2,
             backend_failure_backoff_seconds=0,
             checkpoint_path=tmp_path / "CHECKPOINT.md",
-            background_subagent_advisory=False,
         ),
         workdir=tmp_path,
     )

@@ -36,13 +36,11 @@ from argus.core.vertical_contract import (
     VerticalContractError,
     vertical_contract,
 )
-from argus.engineer import external_work
 from argus.life.memory import Backlog, BacklogItem
 from argus.reviewer import parse_decision_text
 from argus.roles.prompts.registry import PROMPT_CATALOG, resolve_role_prompt
 from argus.roles.prompts.types import RoleName, RolePromptRequest
 from argus.skills.stage_machine import ChecklistItem
-from argus.tools.subagent import _registry as subagent_registry
 from argus.verticals import _registry as vertical_registry
 
 ARGUS = Path(argus.__file__).resolve().parent
@@ -905,90 +903,6 @@ def test_one_dead_route_permanently_disqualifies_a_consumer_of_both(
 
 
 # ---------------------------------------------------------------------------
-# 7. .argus_external_work is an observation protocol
-# ---------------------------------------------------------------------------
-
-def test_the_external_work_protocol_has_no_writer_while_its_supervisor_does() -> None:
-    """Observing external work and launching it are two different mechanisms.
-
-    ``.argus_external_work`` describes work some *other* process already
-    started: the runtime reads liveness records it did not author. Adding a
-    submit path here would make the runtime both producer and consumer of its
-    own heartbeats, and a job that died would be indistinguishable from one the
-    runtime simply forgot to update -- the exact failure the stale-heartbeat
-    check exists to catch. Launching, PIDs, and reconciliation already live in
-    the subagent registry, which is asserted here as the positive control: the
-    probe below really does detect writers.
-    """
-    reader = Path(external_work.__file__).resolve()
-    supervisor = Path(subagent_registry.__file__).resolve()
-
-    assert _write_calls(reader) == []
-    assert _write_calls(supervisor), "the write probe no longer detects a known writer"
-    assert external_work.EXTERNAL_WORK_REGISTRY != str(subagent_registry.REGISTRY_DIR)
-
-
-def test_reading_external_work_leaves_the_project_tree_byte_identical(
-    tmp_path: Path,
-) -> None:
-    """The observer must not touch what it observes, including by accident.
-
-    An external process owns these records. If a read path created the registry
-    directory, rewrote a record to normalize it, or dropped a lock file, it
-    would race the owner and could resurrect a record the owner had just
-    removed. Comparing the whole tree before and after covers the paths a
-    verb-level source scan cannot see -- a write inside a helper, a library
-    call, a tempfile left behind.
-    """
-    registry = tmp_path / external_work.EXTERNAL_WORK_REGISTRY
-    registry.mkdir()
-    (registry / "job-1.json").write_text(json.dumps({
-        "version": external_work.EXTERNAL_WORK_PROTOCOL_VERSION,
-        "work_id": "job-1",
-        "state": "running_healthy",
-        "heartbeat_at": 100.0,
-        "stale_after_seconds": 60.0,
-        "poll_after_seconds": 30.0,
-        "description": "an experiment this runtime did not start",
-        "evidence_paths": ["experiments/result.json"],
-    }), encoding="utf-8")
-
-    def snapshot() -> dict[str, bytes]:
-        return {
-            path.relative_to(tmp_path).as_posix(): path.read_bytes()
-            for path in sorted(tmp_path.rglob("*")) if path.is_file()
-        }
-
-    before = snapshot()
-    assert list(external_work.scan_external_work(tmp_path, now=110))
-    assert external_work.inspect_external_work(tmp_path, "job-1", now=110) is not None
-    assert external_work.render_external_work_advisory(tmp_path, now=110)
-    external_work.wait_for_external_work_cadence(
-        tmp_path, "job-1", sleep=lambda seconds: None, poll_interval=1, now=lambda: 200.0
-    )
-
-    assert snapshot() == before
-
-
-def test_an_absent_registry_is_read_as_no_work_rather_than_created(
-    tmp_path: Path,
-) -> None:
-    """Most projects never have this directory, and observing must not mint one.
-
-    A reader that calls ``mkdir(exist_ok=True)`` to simplify its glob leaves an
-    empty ``.argus_external_work`` in every project it ever looked at. That
-    directory is a protocol marker: its presence tells a reader that someone
-    intends to report external work here, so creating it on read makes the
-    signal meaningless.
-    """
-    assert list(external_work.scan_external_work(tmp_path, now=110)) == []
-    assert external_work.inspect_external_work(tmp_path, "job-1", now=110) is None
-    assert external_work.render_external_work_advisory(tmp_path, now=110) == ""
-
-    assert list(tmp_path.iterdir()) == []
-
-
-# ---------------------------------------------------------------------------
 # 8. Declared layering
 # ---------------------------------------------------------------------------
 #
@@ -1127,12 +1041,10 @@ MODULE_LEVEL_UPWARD_ALLOWLIST: frozenset[str] = frozenset({
     "tools/manager_live_view.py -> life",
     "tools/manager_live_view.py -> manager",
     "tools/peer.py -> messaging",
-    "tools/subagent/_direct_run.py -> daemon",
     "tools/team.py -> team",
     "verticals/research/idea_portfolio.py -> team",
     # The research vertical registers its round-log evidence provider with
-    # the vertical-blind registry when the package loads, the same shape as
-    # team/external_work.py registering with the engineer; the engineer
+    # the vertical-blind registry when the package loads; the engineer
     # itself never names the vertical.
     "verticals/research/round_log.py -> engineer",
 })
@@ -1197,8 +1109,6 @@ FUNCTION_BODY_UPWARD_ALLOWLIST: frozenset[str] = frozenset({
     "life/supervisor/_core.py -> daemon",
     "life/supervisor/_idle_cycle.py -> apps",
     "life/supervisor/_idle_cycle.py -> daemon",
-    "life/supervisor/_planning_context.py -> <root>",
-    "life/supervisor/_planning_context.py -> apps",
     "life/supervisor/_planning_cycle_intake.py -> apps",
     "life/supervisor/_planning_cycle_verdict.py -> daemon",
     "manager/_session_ops.py -> daemon",
@@ -1224,7 +1134,6 @@ FUNCTION_BODY_UPWARD_ALLOWLIST: frozenset[str] = frozenset({
     "skills/vertical_select.py -> verticals",
     "team/teammate_entry.py -> apps",
     "tools/setup.py -> trial",
-    "tools/subagent/_reporting.py -> apps",
     "verticals/research/idea_portfolio.py -> manager",
     "verticals/research/second_reading.py -> manager",
 })
@@ -1253,7 +1162,6 @@ PRIVATE_IMPORT_ALLOWLIST: frozenset[str] = frozenset({
     "daemon -> argus.agent_cli._process_control",
     "daemon -> argus.apps._inbox",
     "daemon -> argus.apps._runtime",
-    "daemon -> argus.life.supervisor._config",
     "daemon -> argus.manager._session_ops",
     "daemon -> argus.skills.vertical_select._persisted_domain",
     "daemon -> argus.skills.vertical_select._persisted_vertical",
@@ -1271,7 +1179,6 @@ PRIVATE_IMPORT_ALLOWLIST: frozenset[str] = frozenset({
     "life -> argus.manager.front_door._accepts_parameter",
     "life -> argus.planner.planner._GLOBAL_KEY_VALUE_KEYS",
     "life -> argus.roles.prompts.manager._IDENTITY_GUARD",
-    "life -> argus.tools.subagent._registry",
     "life -> argus.verticals._base",
     "life -> argus.verticals._data_domain",
     "life -> argus.webapi.manager_bridge._answer_inline",
@@ -1305,8 +1212,6 @@ PRIVATE_IMPORT_ALLOWLIST: frozenset[str] = frozenset({
     "team -> argus.daemon.state._terminate_windows_process_tree",
     "team -> argus.verticals._base",
     "tools -> argus.agent_cli._process_control",
-    "tools -> argus.apps._inbox",
-    "tools -> argus.daemon.state._terminate_windows_process_tree",
     "trial -> argus.agent_cli.copilot_home._read_managed_config",
     "trial -> argus.tools.setup._verify_setup_smoke",
     "verticals -> argus.adapters.agent_cli_backend._strip_legacy_codex_profile_args",
@@ -1688,13 +1593,13 @@ def test_file_name_exemption_keeps_dotted_modules_checked() -> None:
     assert scan("see argus.plugin.service and argus.advisor.service") == [
         "argus.plugin.service", "argus.advisor.service",
     ]
-    assert scan("python -m argus_skill.tools.subagent") == ["argus_skill.tools.subagent"]
+    assert scan("python -m argus_skill.tools.team") == ["argus_skill.tools.team"]
 
 
 def test_module_paths_cited_by_prompts_and_skills_resolve() -> None:
     """A path the model is told to run must be a path that exists.
 
-    Skills and role prompts say ``python -m argus.tools.subagent`` and
+    Skills and role prompts say ``python -m argus.tools.team`` and
     ``argus.verticals.math.citation_check`` in prose the runtime never
     parses. When a module moves, nothing fails at import time -- the Engineer
     fails at mission time, after burning a round on ``No module named``, and
@@ -1720,7 +1625,6 @@ def test_module_paths_cited_by_prompts_and_skills_resolve() -> None:
 # and are therefore matched back by string in a *different* process.
 SUBPROCESS_REENTRY_MODULES = (
     "argus.team.teammate_entry",
-    "argus.tools.subagent",
     "argus.daemon.spawn_helper",
     "argus.reviewer.review_file",
     "argus.tools.manager_live_view",
@@ -1759,7 +1663,7 @@ def test_subprocess_reentry_module_paths_stay_importable() -> None:
 def test_pre_rename_subprocess_reentry_module_paths_still_resolve() -> None:
     """A daemon or Skill copy from before the rename must still find its modules.
 
-    ``python -m argus_skill.tools.subagent`` is what an operator-edited Skill
+    ``python -m argus_skill.tools.team`` is what an operator-edited Skill
     copy under ``~/.argus-skill/skills`` says today, and the old daemon's
     handoff spawns ``-c "from argus_skill.daemon.life_worker import ..."``
     into the new tree. Resolving these through ``find_spec`` proves the
@@ -1925,7 +1829,7 @@ def _ratchet_report(name: str, baseline: int, per_file: dict[str, int], constant
 # Retired spellings of "the project state directory" (canonical: ``life_dir``
 # and ``core.paths.project_state_root``). Whole-word occurrence counts, today.
 RETIRED_NAME_OCCURRENCES: dict[str, int] = {
-    "life_root": 13,
+    "life_root": 10,
     "memory_root": 42,
     # 41 on both origin/main and dev on 2026-09-16 with the same four files
     # (apps/_runtime_construction 7, apps/_self_reply 15, manager/front_door 10,
@@ -1940,7 +1844,7 @@ RETIRED_NAME_OCCURRENCES: dict[str, int] = {
     # 20 after the cost-control layer left (its own host-wide ledger walk is
     # gone; core/usage.py now holds the one daily roll-up across projects).
     "session_states_root": 20,
-    "session_state_root": 31,
+    "session_state_root": 25,
 }
 
 # Prose that describes a runtime this tree no longer contains.
@@ -1993,7 +1897,7 @@ def test_retired_names_do_not_spread() -> None:
 # signature (_idle_cycle.py) and the venue acceptance check (_core.py) now
 # take LifeSupervisor._project_state_root(), because handing the host root to
 # a vertical lookup answered "undecided" for a classified project.
-MEMORY_ROOT_READS = 75
+MEMORY_ROOT_READS = 71
 def test_memory_root_reads_do_not_grow() -> None:
     """``MemoryBundle.root`` returns the *host* root; every reader of it is a trap.
 

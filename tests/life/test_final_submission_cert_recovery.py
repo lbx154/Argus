@@ -274,7 +274,6 @@ def test_completion_uses_separate_execution_workdir(
         state = _PlanCycleState(None)
         state.verdict = PlannerVerdict(
             project_done=True,
-            waiting=False,
             new_tasks=[],
             reason="The current final submission is independently certified.",
         )

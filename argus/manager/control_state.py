@@ -1,7 +1,7 @@
 """Manager-owned campaign revisions and durable operator authorizations.
 
 A revision snapshot is immutable. ``HEAD.json`` is replaced last and is the sole
-current-state commit point, so stale waiting contracts and authorizations cannot
+current-state commit point, so stale review evidence and authorizations cannot
 be mistaken for current control-plane state after a restart.
 """
 
@@ -305,7 +305,6 @@ class CampaignControlStore:
             "state_revision": revision,
             "reason": str(reason or "manager control update")[:500],
             "committed_at": time.time(),
-            "active_wait": None,
             "authorization_ids": [],
             "active_capability": None,
             "stage_projection": {},
@@ -313,7 +312,6 @@ class CampaignControlStore:
         }
         if previous is not None:
             for field_name in (
-                "active_wait",
                 "authorization_ids",
                 "active_capability",
                 "stage_projection",
@@ -351,62 +349,7 @@ class CampaignControlStore:
                 reason=reason,
             )
 
-    def activate_wait(
-        self,
-        *,
-        identity: CampaignIdentity,
-        wait_id: str,
-        blocker_fingerprint: str,
-        recheck_token: str,
-        watched_paths: Iterable[str] = (),
-    ) -> ControlHead:
-        active_wait = {
-            "wait_id": str(wait_id),
-            "blocker_fingerprint": str(blocker_fingerprint),
-            "recheck_token": str(recheck_token),
-            "watched_paths": [_safe_relative_path(path) for path in watched_paths],
-        }
-        with self.locked():
-            current = self.read_head()
-            snapshot = self.read_snapshot(current)
-            # The same wait persisted again is no new revision: moving HEAD
-            # would make an authorization issued against it stale.
-            if (
-                current is not None
-                and snapshot is not None
-                and (current.campaign_id, current.objective, current.campaign_epoch)
-                == (identity.campaign_id, identity.objective, identity.campaign_epoch)
-                and snapshot.get("active_wait") == active_wait
-            ):
-                return current
-            head, _ = self._next_revision_unlocked(
-                identity=identity,
-                updates={"active_wait": active_wait},
-                reason="planner waiting contract activated",
-            )
-        return head
-
-    def clear_wait_for_new_evidence(
-        self,
-        *,
-        identity: CampaignIdentity,
-        stage_projection: dict[str, Any] | None = None,
-        terminal_evidence: Iterable[dict[str, Any]] | None = None,
-        reason: str,
-    ) -> ControlHead:
-        updates: dict[str, Any] = {"active_wait": None}
-        if stage_projection is not None:
-            updates["stage_projection"] = dict(stage_projection)
-        if terminal_evidence is not None:
-            updates["terminal_evidence"] = [dict(row) for row in terminal_evidence]
-        head, _ = self.commit_revision(
-            identity=identity,
-            updates=updates,
-            reason=reason,
-        )
-        return head
-
-    def clear_wait_for_new_evidence_if_current(
+    def record_review_evidence_if_current(
         self,
         *,
         identity: CampaignIdentity,
@@ -425,43 +368,12 @@ class CampaignControlStore:
             head, _ = self._next_revision_unlocked(
                 identity=identity,
                 updates={
-                    "active_wait": None,
                     "stage_projection": dict(stage_projection),
                     "terminal_evidence": [dict(row) for row in terminal_evidence],
                 },
                 reason=reason,
             )
             return head
-
-    def clear_wait_if_current(
-        self,
-        *,
-        identity: CampaignIdentity,
-        expected_state_revision: int,
-        expected_wait_id: str,
-        reason: str,
-    ) -> ControlHead | None:
-        """Atomically clear one exact active wait, or leave newer state intact."""
-        with self.locked():
-            head = self.read_head()
-            snapshot = self.read_snapshot(head)
-            active = snapshot.get("active_wait") if snapshot else None
-            if (
-                head is None
-                or head.campaign_id != identity.campaign_id
-                or head.objective != identity.objective
-                or head.campaign_epoch != identity.campaign_epoch
-                or head.state_revision != int(expected_state_revision)
-                or not isinstance(active, dict)
-                or active.get("wait_id") != str(expected_wait_id)
-            ):
-                return None
-            cleared_head, _ = self._next_revision_unlocked(
-                identity=identity,
-                updates={"active_wait": None},
-                reason=reason,
-            )
-            return cleared_head
 
     def issue_authorization(
         self,
@@ -480,7 +392,6 @@ class CampaignControlStore:
         acceptance_retries: int = 0,
         metadata: dict[str, Any] | None = None,
         expected_state_revision: int | None = None,
-        expected_wait_id: str = "",
     ) -> Authorization:
         actions = tuple(
             dict.fromkeys(
@@ -528,17 +439,6 @@ class CampaignControlStore:
                 current is None or current.state_revision != int(expected_state_revision)
             ):
                 raise ValueError("Manager HEAD changed before authorization issuance")
-            if expected_wait_id:
-                current_snapshot = self.read_snapshot(current)
-                active_wait = (
-                    current_snapshot.get("active_wait") if current_snapshot is not None else None
-                )
-                if (
-                    not isinstance(active_wait, dict)
-                    or active_wait.get("wait_id") != expected_wait_id
-                    or active_wait.get("blocker_fingerprint") != blocker
-                ):
-                    raise ValueError("Manager wait changed before authorization issuance")
             next_revision = (current.state_revision + 1) if current else 1
             authorization = Authorization(
                 authorization_id=f"auth-{uuid.uuid4().hex[:16]}",
@@ -569,10 +469,7 @@ class CampaignControlStore:
             )
             head, _ = self._next_revision_unlocked(
                 identity=identity,
-                updates={
-                    "active_wait": None,
-                    "authorization_ids": [authorization.authorization_id],
-                },
+                updates={"authorization_ids": [authorization.authorization_id]},
                 reason="Manager issued operator authorization",
             )
             if head.state_revision != authorization.state_revision:
@@ -1069,21 +966,3 @@ class CampaignControlStore:
             if consumed_head.state_revision != consumed["consumed_state_revision"]:
                 raise RuntimeError("authorization consumption revision mismatch")
             return consumed
-
-    def is_wait_current(
-        self,
-        *,
-        campaign_epoch: int,
-        state_revision: int,
-        wait_id: str,
-    ) -> bool:
-        head = self.read_head()
-        snapshot = self.read_snapshot(head)
-        active = snapshot.get("active_wait") if snapshot else None
-        return bool(
-            head is not None
-            and head.campaign_epoch == int(campaign_epoch)
-            and head.state_revision == int(state_revision)
-            and isinstance(active, dict)
-            and active.get("wait_id") == wait_id
-        )

@@ -95,7 +95,6 @@ class _MissionRunner:
             supervised_config=SupervisedConfig(
                 max_rounds=10,
                 backend_failure_backoff_seconds=0,
-                background_subagent_advisory=False,
             ),
             workdir=self.workdir,
             on_event=self.events.append,

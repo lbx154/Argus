@@ -71,11 +71,10 @@ def _render_revision_request(
         "validators are revisable working choices. Compare the proposed alternative "
         "against the user objective instead of preserving stale mission wording. "
         "Do not return project_done. Exception: if "
-        "current_stage itself makes the prerequisite repair illegal, return "
-        "waiting=true with a waiting_contract whose "
-        "stage_reconciliation_required=true; emit no replacement tasks and let the "
-        "Manager decide HOLD versus ROLLBACK. Never use this exception for polling "
-        "or an ordinary implementation blocker."
+        "current_stage itself makes the prerequisite repair illegal, emit no "
+        "replacement tasks and end with `→ manager` so the Manager decides HOLD "
+        "versus ROLLBACK. Never use this exception for an ordinary "
+        "implementation blocker."
     )
     return "\n".join(lines)
 
@@ -433,7 +432,6 @@ class _PlanCycleState:
         self.manager_intent: Any = None
 
         # Set by the planner-invocation phase.
-        self.subagent_family_failures: dict[str, Any] = {}
         self.verdict: Any = None
         self.planner_invoked = False
         # The durable generation that authorized this invocation. A late host
@@ -448,10 +446,6 @@ class _PlanCycleState:
         # Set by the unchanged-input gate in the intake phase; empty when the
         # cycle's inputs could not be fingerprinted (skip stays disabled).
         self.planner_input_signature: str = ""
-        # Set when the Planner declared a wait alongside concrete tasks and
-        # the wait carries an operator or stage-reconciliation fact; the
-        # tasks are enqueued and this wait is recorded beside them.
-        self.carried_wait: Any = None
 
         # Set by the dedupe/enqueue phases.
         self.existing_items: list[BacklogItem] = []
@@ -465,7 +459,6 @@ class _PlanCycleState:
         # for tasks that actually commit, so dedup-skipped proposals do not
         # spam the journal on replan loops.
         self.dropped_parallel: list[tuple[str, str]] = []
-        self.skipped_subagent_family_failure_titles: list[str] = []
         self.skipped_task_feedback: list[dict[str, str]] = []
         self.new_plan_id: str = ""
         self.new_plan_version: int = 1

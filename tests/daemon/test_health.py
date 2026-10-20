@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-import json
 import time
 from pathlib import Path
 
@@ -59,41 +58,12 @@ def test_intentional_wait_is_not_mislabeled_as_stalled(
     tracker = DaemonHealthTracker(tmp_path, pid=123)
     old = time.time() - 20
     tracker.observe({"type": "round.start", "ts": old - 1})
-    tracker.observe({"type": "life.planner.waiting", "ts": old})
+    tracker.observe({"type": "life.planner.idle", "ts": old})
 
     health = read_daemon_health(tmp_path, pid=123, alive=True)
 
     assert health["state"] == "waiting"
     assert health["stalled"] is False
-
-
-def test_waiting_for_background_work_is_a_wait_not_a_stall(
-    tmp_path: Path,
-    monkeypatch,
-) -> None:
-    # The lead watches its team's task board for up to an hour without a
-    # model call, and that wait writes no events; the 2026-09-30 trial read
-    # that hour as "no new progress". Healthy work in the project says why.
-    monkeypatch.setenv("ARGUS_SKILL_DAEMON_STALL_SECONDS", "10")
-    tracker = DaemonHealthTracker(tmp_path, pid=123)
-    old = time.time() - 40
-    tracker.observe({"type": "round.start", "ts": old})
-    # Journals from before the wait went quiet still hold these lines.
-    tracker.observe({"type": "round.external_work_wait.started", "ts": old, "work_id": "job"})
-    workdir = tmp_path / "work"
-    registry = workdir / ".argus_external_work"
-    registry.mkdir(parents=True)
-
-    assert read_daemon_health(tmp_path, pid=123, alive=True, workdir=workdir)["stalled"] is True
-
-    (registry / "job.json").write_text(json.dumps({
-        "version": 1, "work_id": "job", "state": "running_healthy", "heartbeat_at": time.time(),
-    }))
-    health = read_daemon_health(tmp_path, pid=123, alive=True, workdir=workdir)
-
-    assert health["state"] == "waiting"
-    assert health["stalled"] is False
-    assert health["last_progress_event"] == "round.start"
 
 
 def test_progress_event_clears_stall_age(tmp_path: Path, monkeypatch) -> None:

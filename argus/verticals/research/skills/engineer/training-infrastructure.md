@@ -96,8 +96,8 @@ shortlisted candidate:
   allowance but on the executed path: the same trainer, objective, engine and
   launcher the full run would use, because a pilot that takes a different path
   measures a different system;
-- launch it through the durable runner so the logs are attributable:
-  `python -m argus.tools.subagent submit ... --intent 'stand-up pilot: <candidate>@<sha>'`;
+- launch it detached with its own log and exit-code file named after the
+  candidate (`<candidate>@<sha>`), so the logs are attributable;
 - keep the effort proportional to what a stand-up can tell you. A candidate
   that does not reach one valid update after its pin conflicts and errors have
   been worked through is recorded with the exact error text and the install
@@ -152,9 +152,8 @@ reward normalization) because nothing else matters while the signal is dead;
 learning rate, KL coefficient and clip range are touched only when the
 gradient-norm, KL or entropy traces ask for it; throughput knobs (batching,
 engine memory fraction, parallelism) come last and must leave the objective
-unchanged, which a pilot shows by unchanged loss terms. Run pilots under the
-durable runner's supervised mode with `engineer/rl-training-collapse-diagnosis.md`
-as the reference for reading the traces, and record one row per pilot (factor,
+unchanged, which a pilot shows by unchanged loss terms. Read pilot traces with
+`engineer/rl-training-collapse-diagnosis.md` as the reference, and record one row per pilot (factor,
 value, contrast fraction, gradient-norm and KL ranges, seconds per step, peak
 memory, verdict) in the decision record. Put a provenance comment beside each
 changed value so the diff still explains itself a month later.
@@ -192,8 +191,8 @@ Keep the user-selected model and the frozen baseline protocol; substitute only
 within existing authority and disclose any consequential change. Reuse the
 framework's own logging, checkpoints and launcher; a custom loop is justified
 only by the method or an unsupported operation, and then it is validated
-against a trusted reference on a small case. Submit through the durable runner
-with disjoint allocations and keep the executable configuration, command,
+against a trusted reference on a small case. Launch runs with disjoint device
+allocations and keep the executable configuration, command,
 device visibility and evaluator output with the run outputs. Before
 interpreting any result, confirm that the intended path ran. For
 policy-gradient health read `engineer/rl-training-collapse-diagnosis.md`; SFT

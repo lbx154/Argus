@@ -25,13 +25,9 @@ process creation; Python's `Popen` does not expose that attribute. This contract
 does not claim to be a security sandbox. Deliberately cooperating children can
 request breakaway because the Job allows explicit `BREAKAWAY_OK`.
 
-Argus's two durable launch boundaries are the Windows subagent worker launcher
-and the durable command launcher. They request `CREATE_BREAKAWAY_FROM_JOB` only
-after verifying membership in the inherited Argus turn Job. Their existing
-registry, redirected logs and exit-status sidecar provide independent ownership.
-Descendants of an already-detached worker do not request another breakaway.
-An outer host Job that prohibits breakaway causes a visible launch failure;
-Argus does not silently launch work that would be killed with the provider.
+Argus has no durable launcher of its own. A job a role starts with
+`Start-Process` stays in the turn Job and ends with the turn, which is where the
+role waits for it (`Wait-Process`).
 
 Prompt stdin uses a finite temporary file so startup output cannot deadlock a
 synchronous prompt write before watchdog monitoring begins. Output reader
@@ -41,7 +37,7 @@ late output without closing another thread's descriptor under a blocking read.
 
 Native Windows checks live in
 `tests/agent_cli/test_windows_turn_ownership.py`. They launch synthetic Python
-and PowerShell processes through the actual runner and both durable launchers;
+and PowerShell processes through the actual runner;
 they cover children, grandchildren, parent-first exit, natural completion,
 stop, watchdog, host exit, setup failures and unrelated processes. Assertions
 and fallback fixture cleanup use handles retained before the tested action.

@@ -7,8 +7,7 @@ raw-evidence slot and summarised for the next Engineer round. Nothing here
 blocks a stage, admits or rejects a task, or overrides a role's judgment.
 
 This module knows nothing about what the evidence is. A vertical (or any
-other package above this one) registers a provider at import time, the same
-way ``team/external_work.py`` registers its external-work source; the round
+other package above this one) registers a provider at import time; the round
 loop calls :func:`collect_round_evidence` once per completed Engineer turn and
 stages whatever comes back. The registry is fail-soft: a provider that raises
 is logged and skipped, and the others still run. Keeping a provider within a

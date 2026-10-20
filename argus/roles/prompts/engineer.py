@@ -24,15 +24,19 @@ NARRATIVE_EDIT = "narrative_edit"
 OPERATIONS = frozenset({MISSION, AUTHOR_DRAFT, NARRATIVE_EDIT})
 _MANAGER_GROUNDING_HEADER = "\n\n## Manager project grounding (advisory evidence)\n"
 
+# A long job runs inside the Engineer's own turn: Argus does not wait for it.
+# One blocking call is one model call, so the turn waits in as few as the
+# backend's shell allows (Copilot about ten minutes a call, Codex about five).
 _POSIX_LONG_EXPERIMENT_RULE = (
-    "For commands over two minutes, use Argus's durable runner: "
-    "`\"${ARGUS_SKILL_PYTHON:-python3}\" -m "
-    "argus.tools.subagent submit --task-id <id> --mode direct "
-    "--command '<command>'`. Use `--mode supervised` only for "
-    "semantic monitoring. Never `task(mode=\"background\")` or a session-owned "
-    "background shell. Keep the `state=submitted`, `task_id`, `run_id` and "
-    "`check_with` response; on `state=discussing` answer with `reply_with` "
-    "and do not poll in the foreground."
+    "For commands over two minutes, start them detached so they outlive your "
+    "shell, keeping the exit code: `setsid nohup sh -c '<command>; echo $? > "
+    "<run>/exit_code' > <run>/log 2>&1 < /dev/null &`. Then wait for them in this "
+    "turn with blocking calls as long as your shell tool allows (Copilot: "
+    "`initial_wait` or `read_bash` delay 600; Codex: `write_stdin` with empty "
+    "input and `yield_time_ms` 300000) on `timeout 590 sh -c 'until [ -e "
+    "<run>/exit_code ]; do sleep 30; done'`, repeated until it exits. Every check "
+    "is a full model call: never poll in short loops, and do not end the turn "
+    "waiting for a notification. Meanwhile do work that does not need the result."
 )
 # The baton line of docs/role-handoff-design.md: prose for the next holder,
 # then one line naming it. The host routes the work by that line alone.
@@ -43,8 +47,8 @@ _HANDOFF_RULE = (
     "naming that holder:\n"
     "→ reviewer\n"
     "Or `→ done` (milestone complete), `→ engineer` (keep working), `→ planner` "
-    "(task mis-scoped), `→ manager` (obstacle only it can remove), "
-    "`→ operator: <one question>`, or `→ wait: <task-id>` (submitted job)."
+    "(task mis-scoped), `→ manager` (obstacle only it can remove), or "
+    "`→ operator: <one question>`."
 )
 
 
@@ -81,41 +85,22 @@ _PERFORMANCE_DIAGNOSTIC_RULE = (
     "processes; free memory or a zero-utilization snapshot does not prove isolation. "
     "Independent process repetitions can run sequentially on a released device."
 )
-_ACCELERATOR_ADMISSION_RULE = (
-    "For GPU jobs, add `--accelerator cuda` (or `rocm`), `--gpu-count <count>`, "
-    "`--gpu-mem-mib <peak-MiB>`, `--expected-duration <duration>` and "
-    "`--intent '<purpose>'` to submit; add `--checkpointable` only when supported. "
-    "Use the allocator's visibility mask and logical device indices; do not "
-    "override CUDA_VISIBLE_DEVICES/ROCR_VISIBLE_DEVICES inside the command. "
-    "The shared ledger coordinates cooperating tasks, not unmanaged external "
-    "processes. `waiting_resource` is a healthy queue; continue independent "
-    "work while it waits. Never put nvidia-smi/GPU polling in the command."
-)
-_DURABLE_WAIT_RULE = (
-    "After submit, do independent work. If only a healthy running or resource-queued "
-    "job remains, save the checkpoint and hand off with `→ wait: <task-id>`, using "
-    "its existing ID, including jobs submitted during this same turn. "
-    "Do not foreground-poll or relaunch. "
-    "Argus resumes this task on state change; validate outputs. Waiting is not "
-    "milestone completion or paper review."
-)
 _EXPERIMENT_PREREQUISITE_RULE = (
-    "Block dependents on failed readiness. Use --depends-on for prerequisites, "
-    "--rerun-reason for retries; keep attempt outputs separate."
+    "Block dependents on failed readiness; keep each attempt's outputs separate."
 )
 _DESIGN_SYMPTOM_RULE = (
     "Fix reported symptoms within design rules; intended behavior needs task-text support."
 )
 
 _WINDOWS_LONG_EXPERIMENT_RULE = (
-    "For commands over two minutes on native Windows, use Windows PowerShell 5.1 syntax "
-    "and Argus's durable runner: "
-    "`& '.\\.venv\\Scripts\\python.exe' -m argus.tools.subagent submit "
-    "--task-id '<id>' --mode direct --command '<command>'`. "
-    "Use `--mode supervised` only for semantic monitoring. Do not use "
-    "`task(mode=\"background\")` or a session-owned background shell. Keep the "
-    "`state=submitted`, `task_id`, `run_id`, and `check_with` response. On "
-    "`state=discussing`, answer with `reply_with`; do not poll in the foreground."
+    "For commands over two minutes on native Windows, use Windows PowerShell 5.1 "
+    "syntax: start them detached with `Start-Process -PassThru -WindowStyle Hidden "
+    "-FilePath <exe> -ArgumentList <args> -RedirectStandardOutput <run>\\log.txt "
+    "-RedirectStandardError <run>\\err.txt`, "
+    "keep the process id, then wait for it in this turn with blocking calls of "
+    "`Wait-Process -Id <pid> -Timeout 590`, repeated until it exits. Every check "
+    "is a full model call: never poll in short loops, and do not end the turn "
+    "waiting for a notification. Meanwhile do work that does not need the result."
 )
 
 def _long_experiment_rule() -> str:
@@ -125,8 +110,7 @@ def _long_experiment_rule() -> str:
         else _POSIX_LONG_EXPERIMENT_RULE
     )
     return " ".join((
-        shell_rule, _ACCELERATOR_ADMISSION_RULE, _EXPERIMENT_PREREQUISITE_RULE,
-        experiment_evidence_contract(), _DURABLE_WAIT_RULE,
+        shell_rule, _EXPERIMENT_PREREQUISITE_RULE, experiment_evidence_contract(),
     ))
 
 
@@ -158,7 +142,6 @@ def assemble_round_prompt(
     role_context: str = "",
     checkpoint_block: str = "",
     background_advisory: str = "",
-    external_work_advisory: str = "",
 ) -> str:
     """Append all dynamic Engineer round fragments in one stable order.
 
@@ -177,12 +160,7 @@ def assemble_round_prompt(
         separator, operator_tail = "", ""
     tail = [
         sanitize_model_visible_text(block)
-        for block in (
-            role_context,
-            checkpoint_block,
-            background_advisory,
-            external_work_advisory,
-        )
+        for block in (role_context, checkpoint_block, background_advisory)
         if block
     ]
     if separator:
