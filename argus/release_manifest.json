@@ -1,7 +1,7 @@
 {
-  "git_commit": "d615561d7daf348471cedd90c0031d909f35c1bb",
+  "git_commit": "55855f4939aacfd06613ba7872e64be1492abbaa",
   "package_version": "0.1.8",
-  "release_id": "0.1.8+d615561d7daf",
+  "release_id": "0.1.8+55855f4939aa",
   "schema_version": 2,
   "source_files": {
     ".agents/plugins/marketplace.json": 350,
@@ -435,7 +435,7 @@
     "argus/messaging/store.py": 11596,
     "argus/messaging/transport.py": 2721,
     "argus/planner/__init__.py": 517,
-    "argus/planner/planner.py": 55987,
+    "argus/planner/planner.py": 57285,
     "argus/plugin/__init__.py": 182,
     "argus/plugin/mcp_server.py": 1901,
     "argus/plugin/service.py": 10515,
