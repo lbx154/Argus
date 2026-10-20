@@ -35,7 +35,7 @@ def change_facts(
     work = list(scan_external_work(workdir) if statuses is None else statuses)
     try:
         operator = OperatorContextStore(state_root).revision if state_root else 0
-    except Exception:  # noqa: BLE001 - an unreadable ledger is a stable fact, not news
+    except Exception:  # noqa: BLE001 - unknown, see ``holds_unchanged``
         operator = -1
     return {
         "workspace": workspace_facts(
@@ -82,6 +82,16 @@ def held_facts(ledger: Path | None, role: str) -> Any:
     return entry.get("facts") if isinstance(entry, dict) else None
 
 
+def holds_unchanged(ledger: Path | None, role: str, facts: dict[str, Any]) -> bool:
+    """Whether ``role`` already held exactly ``facts``.
+
+    Facts that could not be read are unknown, so they never match: one more
+    call costs less than a holder skipped on news nobody could see.
+    """
+    known = facts["operator_revision"] != -1 and "unavailable" not in facts["workspace"]
+    return known and facts == held_facts(ledger, role)
+
+
 def record_holder(ledger: Path | None, role: str, facts: Any, **context: Any) -> None:
     """Record that ``role`` has now held the work on ``facts``."""
     if ledger is None:
@@ -101,6 +111,7 @@ __all__ = [
     "LEDGER_FILENAME",
     "change_facts",
     "held_facts",
+    "holds_unchanged",
     "lineage_ledger",
     "mission_ledger",
     "record_holder",

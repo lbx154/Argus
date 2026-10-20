@@ -18,7 +18,7 @@ log = logging.getLogger(__name__)
 
 
 class PeerResponseInterrupted(RuntimeError):
-    """The receiving Manager was stopped or yielded; the request waits, no attempt spent."""
+    """The receiving Manager was stopped; the request waits, no attempt spent."""
 
 
 def respond_peer(manager: Any, message: dict[str, Any], cancelled: Callable[[], bool]) -> dict[str, str]:
@@ -26,7 +26,6 @@ def respond_peer(manager: Any, message: dict[str, Any], cancelled: Callable[[], 
     from ..core.knobs import resolve_role_model, resolve_role_reasoning_effort
     from ..manager._session_ops import _ManagerSession
     from ..manager.observation import observe_project
-    from ..manager.session_context import manager_session_yield_reason
     from ..manager.stage_decider import extract_answer
 
     root = Path(manager.manager_session_root)
@@ -38,8 +37,7 @@ def respond_peer(manager: Any, message: dict[str, Any], cancelled: Callable[[], 
     def interrupted() -> str | None:
         if cancelled():
             return "Peer response cancelled"
-        inherited = inherited_interrupt() if callable(inherited_interrupt) else None
-        return inherited or manager_session_yield_reason(root)
+        return inherited_interrupt() if callable(inherited_interrupt) else None
 
     session: Any
     fork = getattr(backend, "fork", None)

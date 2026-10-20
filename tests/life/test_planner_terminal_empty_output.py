@@ -84,6 +84,59 @@ def test_operator_behind_native_host_reports_reaches_planner_before_completion(
         receiver.release_pending()
 
 
+def test_held_lock_skips_one_inbox_read_alerts_once_and_loses_no_message(
+    tmp_path: Path, monkeypatch,
+) -> None:
+    import threading
+
+    from argus.apps._inbox import queue_inbox_message
+    from argus.apps._inbox_delivery import DurableInboxReceiver
+    from argus.core import file_lock
+    from argus.core.operator_context import IntakeDecision
+
+    supervisor, _backend, sink = _make_supervisor(tmp_path, monkeypatch, terminal_stage_done=False)
+    receiver = DurableInboxReceiver(
+        supervisor.memory.root, consumer="planner",
+        project_root=Path(supervisor.config.artifact_root),
+    )
+    callback = lambda: None
+    monkeypatch.setattr(callback, "operator_receiver", receiver, raising=False)
+    supervisor.config.user_inbox = callback
+    monkeypatch.setattr(
+        "argus.apps._inbox_delivery.classify_operator_message",
+        lambda *args, **kwargs: IntakeDecision(kind="ephemeral"),
+    )
+    monkeypatch.setattr(file_lock, "DEFAULT_FILE_LOCK_TIMEOUT_SECONDS", 0.2)
+    instruction = "Also report the p95 latency."
+    queue_inbox_message(supervisor.memory.root, instruction, source="operator")
+
+    holding, release = threading.Event(), threading.Event()
+
+    def hold() -> None:
+        with supervisor.memory.backlog._locked():
+            holding.set()
+            release.wait(30)
+
+    holder = threading.Thread(target=hold)
+    holder.start()
+    assert holding.wait(5)
+    try:
+        # Someone else holds the lock: planning goes on without the message.
+        started = time.monotonic()
+        assert supervisor._drain_user_inbox() == []
+        assert supervisor._drain_user_inbox() == []
+        assert time.monotonic() - started < 10
+    finally:
+        release.set()
+        holder.join()
+    alerts = [event for event in sink.events if event.get("operator_alert")]
+    assert [alert["reason"] for alert in alerts] == ["operator_inbox_unread"]
+    try:
+        assert supervisor._drain_user_inbox() == [instruction]
+    finally:
+        receiver.release_pending()
+
+
 class _RecordingSink:
     def __init__(self) -> None:
         self.events: list[dict[str, Any]] = []

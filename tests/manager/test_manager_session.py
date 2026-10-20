@@ -4,7 +4,8 @@ Covers the four guarantees of ``_ManagerSession``:
 
   * continuation + persistence — incoming turns resume the stored thread_id and
     the new thread_id is written back to ``<root>/.manager_session.json``;
-  * cross-process serialization — advisory locking keeps turns from interleaving;
+  * one holder — the turn continuing the shared thread holds it; another
+    turn answers at once on a fresh thread instead of waiting;
   * setup recovery — a session setup error permits one plain call, while an
     uncertain provider failure never replays inference or tool effects;
   * Manager wiring — the Manager LLM calls (is_conversational / divide) actually
@@ -14,7 +15,6 @@ from __future__ import annotations
 
 import json
 import threading
-import time
 
 import portalocker
 import pytest
@@ -199,50 +199,46 @@ def test_session_ignores_incoming_resume_thread_id(tmp_path):
 
 
 # ---------------------------------------------------------------------------
-# 5. flock serialization — concurrent turns must not interleave
+# 5. one turn holds the shared thread; another never waits for it
 # ---------------------------------------------------------------------------
-class _SlowRunner:
-    """Asserts non-overlap: increments a shared counter on entry, sleeps, and
-    fails the test if a second call entered the critical section meanwhile."""
+class _GatedRunner:
+    """The ``hold`` turn stays inside its model call until released."""
 
-    def __init__(self, hold: float) -> None:
-        self.hold = hold
-        self.inside = 0
-        self.max_concurrent = 0
-        self._n = 0
-        self._lock = threading.Lock()
+    def __init__(self) -> None:
+        self.entered, self.release = threading.Event(), threading.Event()
+        self.calls: list[tuple[str, str | None]] = []
 
     def run_exec(self, *, prompt, options, run_label, resume_thread_id=None):
-        with self._lock:
-            self.inside += 1
-            self.max_concurrent = max(self.max_concurrent, self.inside)
-        time.sleep(self.hold)
-        with self._lock:
-            self.inside -= 1
-            self._n += 1
-            n = self._n
-        return _Result(thread_id=f"t{n}")
+        self.calls.append((run_label, resume_thread_id))
+        if run_label == "hold":
+            self.entered.set()
+            assert self.release.wait(timeout=5.0)
+            return _Result(thread_id="T-next")
+        return _Result(thread_id="T-fresh")
 
 
 @pytest.mark.integration
-def test_two_sessions_same_root_do_not_interleave(tmp_path):
+def test_a_busy_shared_thread_does_not_hold_up_another_turn(tmp_path):
     # Two independent _ManagerSession objects over the SAME project_root model
-    # the REPL front-end and the daemon: .manager_session.lock must
-    # serialize them so a turn never overlaps another turn.
-    runner = _SlowRunner(hold=0.25)
-    s_repl = _ManagerSession(runner, tmp_path)
-    s_daemon = _ManagerSession(runner, tmp_path)
-
+    # the REPL front-end and the daemon. While one turn continues the shared
+    # thread, the other answers at once on a fresh thread instead of waiting.
+    (tmp_path / _SESSION_FILE).write_text(json.dumps({"thread_id": "T-shared"}))
+    runner = _GatedRunner()
     t = threading.Thread(
-        target=lambda: s_repl.run_exec(prompt="a", options=None, run_label="x")
+        target=lambda: _ManagerSession(runner, tmp_path).run_exec(prompt="a", options=None, run_label="hold")
     )
     t.start()
-    time.sleep(0.05)  # let the first turn enter and hold the lock
-    s_daemon.run_exec(prompt="b", options=None, run_label="x")
-    t.join()
+    assert runner.entered.wait(timeout=2.0)
+    try:
+        result = _ManagerSession(runner, tmp_path).run_exec(prompt="b", options=None, run_label="x")
+    finally:
+        runner.release.set()
+        t.join()
 
-    # If the lock worked, the runner never saw two callers inside at once.
-    assert runner.max_concurrent == 1
+    assert result.thread_id == "T-fresh"
+    assert runner.calls == [("hold", "T-shared"), ("x", None)]
+    # Only the holder moved the shared thread on.
+    assert json.loads((tmp_path / _SESSION_FILE).read_text())["thread_id"] == "T-next"
 
 
 @pytest.mark.integration

@@ -17,7 +17,6 @@ from argus.core.models import RunnerOptions, RunnerResult
 from argus.core.operator_context import OperatorContextStore, append_directive, append_revoke
 from argus.daemon.state import write_continuous_config
 from argus.life.memory import Backlog, BacklogItem
-from argus.manager import _session_ops
 from argus.manager._session_ops import ManagerLockCancelled, _ManagerSession
 from argus.manager.directive import (
     clear_active_manager_directive,
@@ -309,30 +308,20 @@ def test_scope_changed_directive_is_not_revived_on_rotation(tmp_path):
     assert current["continuous"]["objective"] == "New objective"
 
 
-def test_rotation_refreshes_operator_permission_after_waiting_for_session_lock(tmp_path, monkeypatch):
+def test_a_turn_beside_a_busy_session_carries_the_current_operator_permission(tmp_path):
     granted = append_directive(tmp_path, "OLD_PERMISSION_ONLY: source writes allowed.", expected_revision=0, applies_to_roles=("manager",))
     backend = Backend()
     for _ in range(4):
         turn(tmp_path, backend)
-    entered = threading.Event()
-    original = _session_ops._acquire_session_lock
-
-    def observe_wait(*args, **kwargs):
-        entered.set()
-        return original(*args, **kwargs)
-
-    monkeypatch.setattr(_session_ops, "_acquire_session_lock", observe_wait)
+    revoked = append_revoke(tmp_path, granted.revision, reason="Permission changed", expected_revision=granted.revision)
+    append_directive(tmp_path, "NEW_PERMISSION_ONLY: read only.", expected_revision=revoked.revision, applies_to_roles=("manager",))
     with (tmp_path / ".manager_session.lock").open("a+b") as lock:
         portalocker.lock(lock, portalocker.LOCK_EX)
-        with ThreadPoolExecutor(max_workers=1) as pool:
-            pending = pool.submit(turn, tmp_path, backend)
-            try:
-                assert entered.wait(2)
-                revoked = append_revoke(tmp_path, granted.revision, reason="Permission changed", expected_revision=granted.revision)
-                append_directive(tmp_path, "NEW_PERMISSION_ONLY: read only.", expected_revision=revoked.revision, applies_to_roles=("manager",))
-            finally:
-                portalocker.unlock(lock)
-            pending.result(timeout=3)
+        try:
+            turn(tmp_path, backend)
+        finally:
+            portalocker.unlock(lock)
+    assert "another Manager turn holds the shared thread" in backend.calls[-1]["prompt"]
     assert "NEW_PERMISSION_ONLY" in backend.calls[-1]["prompt"]
     assert "OLD_PERMISSION_ONLY" not in backend.calls[-1]["prompt"]
 

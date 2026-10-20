@@ -153,15 +153,12 @@ def test_timeouts_are_provider_failures_without_applying_a_late_decision(tmp_pat
     assert controls(tmp_path) == before and len(backend.calls) == 1
 
 
-@pytest.mark.parametrize("origin", ["callback", "foreground-yield", "operator_abort", "operator_pause", "daemon_shutdown", "external-prefix"])
-def test_external_cancellation_has_its_own_code_and_preserves_prior_control(tmp_path, monkeypatch, origin):
+@pytest.mark.parametrize("origin", ["callback", "operator_abort", "operator_pause", "daemon_shutdown", "external-prefix"])
+def test_external_cancellation_has_its_own_code_and_preserves_prior_control(tmp_path, origin):
     event = project(tmp_path)
     before = controls(tmp_path)
     cancelled = [False]
-    if origin == "foreground-yield":
-        monkeypatch.setattr(supervision, "manager_session_yield_reason",
-                            lambda root: "Interactive Manager request is waiting" if cancelled[0] else None)
-    canonical = origin not in {"callback", "foreground-yield"}
+    canonical = origin != "callback"
     kind = "operator_abort" if origin == "external-prefix" else origin
     fatal = "External interrupt: operator abort requested: " if origin == "external-prefix" else "Trusted runner cancellation: "
     outcome = RunnerResult(exit_code=130, fatal_error=fatal + PROMPT_MARKER,
@@ -171,7 +168,7 @@ def test_external_cancellation_has_its_own_code_and_preserves_prior_control(tmp_
                                    cancelled=lambda: origin == "callback" and cancelled[0])
     assert record["status"] == ("failed" if canonical else "superseded")
     assert not record.get("decision")
-    assert_failure(tmp_path, record, stage="provider", code="superseded" if origin == "foreground-yield" else "cancelled",
+    assert_failure(tmp_path, record, stage="provider", code="cancelled",
                    stop_kind=kind if canonical else None,
                    exit_code=130 if canonical else 0, call_id=CALL_ID)
     assert controls(tmp_path) == before and len(backend.calls) == 1

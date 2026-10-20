@@ -13,6 +13,8 @@ import time
 from pathlib import Path
 from typing import Any, cast
 
+import pytest
+
 from argus.core.models import ReviewDecision, RunnerResult
 from argus.engineer.change_facts import held_facts, mission_ledger
 from argus.engineer.runner import EngineerConfig, SupervisedConfig, SupervisedEngineer
@@ -86,14 +88,37 @@ class Reviewer:
                               next_action="Report the result when training finishes.")
 
 
-def test_reviewer_waits_out_a_running_job_and_reads_its_result_once(tmp_path, monkeypatch):
-    from argus.engineer import runner
+def _supervise(
+    engineer: Engineer, reviewer: Reviewer, workdir: Path, packet: Path, *, max_rounds: int,
+) -> tuple[Any, list[dict]]:
+    loop = cast(Any, SupervisedEngineer.__new__(SupervisedEngineer))
+    loop.engineer_runner, loop.reviewer = engineer, reviewer
+    loop.engineer_config, loop.reviewer_config = EngineerConfig(model="stub"), ReviewerConfig(model="stub")
+    events: list[dict] = []
+    result = loop.run(
+        objective="Train a policy and report its final loss", workdir=workdir,
+        engineer_prompt_builder=lambda action, include_static=True: action or "Start",
+        supervised_config=SupervisedConfig(
+            max_rounds=max_rounds, require_independent_review=True, context_packet_path=packet,
+        ),
+        on_event=events.append,
+    )
+    return result, events
 
+
+def _mission(tmp_path: Path) -> tuple[Path, Path]:
     packet = tmp_path / "state" / "handoffs" / "m1" / "mission.json"
     packet.parent.mkdir(parents=True)
     packet.write_text(json.dumps({"mission_id": "m1"}), encoding="utf-8")
     workdir = tmp_path / "work"
     workdir.mkdir()
+    return packet, workdir
+
+
+def test_reviewer_waits_out_a_running_job_and_reads_its_result_once(tmp_path, monkeypatch):
+    from argus.engineer import runner
+
+    packet, workdir = _mission(tmp_path)
     trainer = Trainer(workdir)
     reviewer = Reviewer(trainer)
     engineer = Engineer(trainer, workdir)
@@ -110,19 +135,7 @@ def test_reviewer_waits_out_a_running_job_and_reads_its_result_once(tmp_path, mo
     monkeypatch.setattr(runner, "_run_external_work_wait", wait)
 
     def run() -> tuple[Any, list[dict]]:
-        loop = cast(Any, SupervisedEngineer.__new__(SupervisedEngineer))
-        loop.engineer_runner, loop.reviewer = engineer, reviewer
-        loop.engineer_config, loop.reviewer_config = EngineerConfig(model="stub"), ReviewerConfig(model="stub")
-        events: list[dict] = []
-        result = loop.run(
-            objective="Train a policy and report its final loss", workdir=workdir,
-            engineer_prompt_builder=lambda action, include_static=True: action or "Start",
-            supervised_config=SupervisedConfig(
-                max_rounds=4, require_independent_review=True, context_packet_path=packet,
-            ),
-            on_event=events.append,
-        )
-        return result, events
+        return _supervise(engineer, reviewer, workdir, packet, max_rounds=4)
 
     first, events = run()
     # The launch is reviewed; the next turn has nothing new, so the round
@@ -143,3 +156,30 @@ def test_reviewer_waits_out_a_running_job_and_reads_its_result_once(tmp_path, mo
     assert sum(event["type"] == "round.review.skipped_unchanged" for event in events) == 1
     assert len(list(trainer.run.glob("ckpt-*.pt"))) == trainer.step == 8
     assert (workdir / "REPORT.md").read_text() == "Final loss 0.1250\n"
+
+
+@pytest.mark.skipif(os.name == "nt", reason="the hung git stand-in is a POSIX script")
+def test_a_hung_git_leaves_the_facts_unknown_and_the_reviewer_still_decides(tmp_path, monkeypatch):
+    import importlib
+
+    hung = tmp_path / "bin" / "git"
+    hung.parent.mkdir()
+    hung.write_text("#!/bin/sh\nexec sleep 60\n", encoding="utf-8")
+    hung.chmod(0o755)
+    monkeypatch.setenv("PATH", f"{hung.parent}{os.pathsep}{os.environ['PATH']}")
+    monkeypatch.setattr(
+        importlib.import_module("argus.core.workspace_facts"), "GIT_TIMEOUT_SECONDS", 0.2,
+    )
+    packet, workdir = _mission(tmp_path)
+    (workdir / ".git").mkdir()
+    trainer = Trainer(workdir)
+    reviewer = Reviewer(trainer)
+
+    started = time.monotonic()
+    _result, events = _supervise(Engineer(trainer, workdir), reviewer, workdir, packet, max_rounds=2)
+
+    # The job still runs and the Reviewer saw the launch, but with git silent
+    # nobody can tell the facts are unchanged: the Reviewer is asked again.
+    assert reviewer.saw_result == [False, False]
+    assert not any(event["type"] == "round.review.skipped_unchanged" for event in events)
+    assert time.monotonic() - started < 30

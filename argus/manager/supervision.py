@@ -33,7 +33,6 @@ from .observation import (
     control_identity,
     observe_project,
 )
-from .session_context import manager_session_yield_reason
 from .stage_decider import extract_answer
 from .supervision_errors import _failure_reason, _provider_failure_metadata
 
@@ -818,8 +817,6 @@ def supervise(
                     return "cancelled"
                 if time.monotonic() >= deadline:
                     return "timeout"
-                if manager_session_yield_reason(root):
-                    return "superseded"
                 return None
 
             def cancelled_or_expired() -> bool:

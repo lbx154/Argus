@@ -155,9 +155,9 @@ def test_wrong_project_manager_cannot_author_a_reply(tmp_path):
     assert sender.status(message["message_id"])["reply"] is None
 
 
-@pytest.mark.parametrize("stopped,foreground", [(False, False), (True, False), (False, True)])
-def test_reply_fork_isolates_streams_and_preserves_parent_interrupt(tmp_path, monkeypatch, stopped, foreground):
-    from argus.manager import _session_ops, session_context
+@pytest.mark.parametrize("stopped", [False, True])
+def test_reply_fork_isolates_streams_and_preserves_parent_interrupt(tmp_path, monkeypatch, stopped):
+    from argus.manager import _session_ops
 
     root = projects(tmp_path)
     receiver = root / "projects/project-b"
@@ -176,7 +176,7 @@ def test_reply_fork_isolates_streams_and_preserves_parent_interrupt(tmp_path, mo
 
         def run_exec(self, **kwargs):
             reason = kwargs["options"].external_interrupt_reason_provider()
-            assert reason == ("goal changed" if stopped else "foreground request waiting" if foreground else None)
+            assert reason == ("goal changed" if stopped else None)
             return RunnerResult(exit_code=-1 if reason else 0, agent_messages=["Evidence reply"], fatal_error=reason)
 
     class Parent:
@@ -188,10 +188,9 @@ def test_reply_fork_isolates_streams_and_preserves_parent_interrupt(tmp_path, mo
             return Child()
 
     monkeypatch.setattr(_session_ops, "_ManagerSession", lambda backend, _root: backend)
-    monkeypatch.setattr(session_context, "manager_session_yield_reason", lambda _root: "foreground request waiting" if foreground else None)
     manager = fake_manager(receiver)
     manager.runner = Parent()
-    assert process_peer_messages(receiver, manager) == (0 if stopped or foreground else 1)
+    assert process_peer_messages(receiver, manager) == (0 if stopped else 1)
     # An interrupted answer waits for the next boundary without spending an attempt.
     assert sender.status(message["message_id"])["message"]["attempts"] == 0
     assert fork_options[0]["event_callback"] is None

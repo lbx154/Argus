@@ -30,7 +30,7 @@ from ..core.secret_guard import (
     redact_secrets_record,
 )
 from ..reviewer import Reviewer, ReviewerConfig
-from .change_facts import change_facts, held_facts, mission_ledger, record_holder
+from .change_facts import change_facts, holds_unchanged, mission_ledger, record_holder
 from .checkpoint import resolve_shared_checkpoint
 from .external_work import scan_external_work
 
@@ -191,9 +191,9 @@ class SupervisedEngineer(
             ),
             None,
         )
-        if target is None or change_facts(
+        if target is None or not holds_unchanged(ledger, "reviewer", change_facts(
             workdir, state_root=supervised_config.operator_question_policy_root, statuses=work,
-        ) != held_facts(ledger, "reviewer"):
+        )):
             return control_proceed()
         if on_event:
             on_event({
