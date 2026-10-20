@@ -442,9 +442,6 @@ class _PlanCycleState:
         self.completion_accepted = False
         self.certified_operator_wait = False
 
-        # Set when this cycle turned an unusable Planner answer into an
-        # operator question; the next Planner call then waits for a change.
-        self.planner_asked_operator: bool = False
         # Set when the turn ended in something other than a Planner failure
         # (the Manager reconciled an empty plan), so it does not count.
         self.planner_turn_not_failed: bool = False

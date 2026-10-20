@@ -139,7 +139,6 @@ class PlanningCycleVerdictMixin:
                     iterate=False,
                 )
             )
-        state.planner_asked_operator = True
         self._enter_pause_backoff()
         if already_asked:
             self._emit_status(

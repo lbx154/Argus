@@ -1585,12 +1585,9 @@ def test_bounded_continuous_campaign_replays_deferred_stage_review(
         assert backend.manager_calls == 1
     elif wait_kind == "operator":
         # The stage the Planner reads moved, which is new evidence even for a
-        # wait only the operator can end: one turn, then nothing new, no call.
+        # wait only the operator can end.
         assert supervisor._plan_next_work() == PLAN_AWAITING
         assert backend.planner_calls > 0
-        calls = backend.planner_calls
-        assert supervisor._plan_next_work() == PLAN_AWAITING
-        assert backend.planner_calls == calls
     elif wait_kind != "none":
         assert supervisor._plan_next_work() == PLAN_AWAITING
         assert backend.planner_calls == 0

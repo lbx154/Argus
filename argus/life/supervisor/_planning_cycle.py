@@ -938,11 +938,7 @@ class PlanningCycleMixin(
         if state.planner_invoked:
             self._record_planner_last_turn()
         self._arm_unchanged_planner_skip(state, result)
-        self._record_planner_turn_outcome(
-            state,
-            result,
-            operator_asked=bool(getattr(state, "planner_asked_operator", False)),
-        )
+        self._record_planner_turn_outcome(state, result)
         return result
 
     def _pc_reconcile_reviewed_stage(
