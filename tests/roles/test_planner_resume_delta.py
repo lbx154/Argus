@@ -58,3 +58,19 @@ def test_resume_delta_stays_quiet_when_the_vertical_has_no_altitude(
     rendered = _resume(tmp_path, "", monkeypatch)
     assert "Accepted same-area papers" not in rendered
     assert "Continued Planner cycle" in rendered
+
+
+def test_resume_delta_says_files_opened_earlier_are_still_in_context(
+    tmp_path, monkeypatch
+) -> None:
+    """A resumed Planner must not reopen the playbook it already holds.
+
+    The delta repeats the stage playbook's "Open `…` before acting" line (inline
+    when the section is under the elision threshold). In argus-trial
+    (2026-10-17 release) all 153 resumed Planner cycles spent their first turn
+    reopening that byte-identical playbook, re-sending the whole thread once more.
+    """
+    rendered = _resume(tmp_path, "", monkeypatch)
+    header = rendered.split("\n## ", 1)[0]
+    assert "already opened in this session" in header
+    assert "open it again only if its text is no longer in your context" in header
