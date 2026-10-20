@@ -99,9 +99,6 @@ class EngineerConfig:
     initial_reasoning_effort: str | None = None
     extra_args: list[str] | None = None
     skill_paths: list[str] | None = None
-    # Directories outside the workdir the Engineer may read: the libraries
-    # its recalled knowledge points at. A sandboxed backend reads nothing else.
-    add_dirs: list[str] | None = None
     full_auto: bool = True
     skip_git_repo_check: bool = True
     dangerous_yolo: bool = False
@@ -115,6 +112,9 @@ class EngineerConfig:
     # State root that owns the pipeline stage used by the live-search gate.
     # Execution may happen in a separate workdir.
     vertical_state_root: Path | None = None
+    # Directories outside the workdir the Engineer may read: the libraries
+    # its recalled knowledge points at. A sandboxed backend reads nothing else.
+    add_dirs: list[str] | None = None
     # ``dataclasses.replace`` reconstructs an instance by passing every init
     # field back to ``__init__``. Keeping provenance as a keyword-only init
     # field lets that replay carry the original state instead of mistaking the
