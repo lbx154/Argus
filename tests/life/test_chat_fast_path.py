@@ -592,19 +592,21 @@ def test_local_worker_modes_get_narrow_tools_and_prompts(
 def test_local_worker_mode_reads_what_argus_already_knows() -> None:
     backend = _FakeBackend(response_message="done")
     runner = _make_runner(backend)
-    asked: list[str] = []
+    asked: list[tuple[str, str, str]] = []
 
-    def recall(objective: str) -> str:
-        asked.append(objective)
+    def recall(objective: str, *, role: str, mission_id: str) -> str:
+        asked.append((objective, role, mission_id))
         return "### What Argus already knows (advisory)\n- page: `/wiki/pages/scheduler.md`"
 
     runner._args.manager_memory = SimpleNamespace(render_recall_context=recall)
 
     runner._simple_quick_reply(
         objective="design the scheduler", sink=_RecordingSink(), execute_mode="implement",
+        root_task_id="turn-7",
     )
 
-    assert asked == ["design the scheduler"]
+    # The SELF turn's recall is recorded as the Manager's, for this task.
+    assert asked == [("design the scheduler", "manager", "turn-7")]
     assert backend.calls[-1]["options"].add_dirs == []
     assert backend.calls[-1]["prompt"].startswith(
         "### What Argus already knows (advisory)\n- page: `/wiki/pages/scheduler.md`"

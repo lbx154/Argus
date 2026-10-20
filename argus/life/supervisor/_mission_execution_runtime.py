@@ -124,7 +124,7 @@ def _mission_memory_prelude(memory: Any, item: BacklogItem, *, stop_event: Any =
     ):
         try:
             try:
-                return memory.render_prelude(objective=item.objective)
+                return memory.render_prelude(objective=item.objective, mission_id=item.id)
             except TypeError:
                 # Compatibility with narrow host-provided memory views.
                 return memory.render_prelude()

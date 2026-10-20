@@ -199,13 +199,14 @@ class PlanningCycleVerdictMixin:
             return None
         revision_request = state.revision_request
         journal_window = self._planner_journal_window()
+        recall = None if journal_window is None else self._planner_recall_context()
         journal_tail = (
             ""
             if journal_window is None
-            else self._render_journal_entries_for_planner(journal_window)
+            else self._render_journal_entries_for_planner(journal_window, recall)
         )
         journal_delta, journal_window_keys = self._render_journal_delta_for_planner(
-            journal_window
+            journal_window, recall
         )
         research_plan = self._render_research_plan_for_planner()
         research_plan_unchanged = research_plan == str(

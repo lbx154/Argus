@@ -740,13 +740,17 @@ class SelfReplyMixin:
             )
             # Finite work keeps its compact prompt, not at the cost of what
             # Argus already knows about it.
-            recalled = memory.render_recall_context(objective) if memory is not None else ""
+            recalled = memory.render_recall_context(
+                objective, role="manager", mission_id=root_task_id or "",
+            ) if memory is not None else ""
             prompt = "\n\n".join(block for block in (libraries.block, recalled, prompt) if block)
             read_dirs = [str(path) for path in libraries.library_roots]
             native_skill_paths = [str(path) for path in libraries.native_paths]
         else:
             memory_prelude = (
-                memory.render_prelude(objective=objective)
+                memory.render_prelude(
+                    objective=objective, role="manager", mission_id=root_task_id or "",
+                )
                 if memory is not None
                 else ""
             )
