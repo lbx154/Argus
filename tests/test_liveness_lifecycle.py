@@ -720,3 +720,32 @@ def test_an_unchanged_handoff_costs_no_more_calls_than_the_ladder_is_high(
 
     assert len(manager.calls) == 1
     assert len(planner.calls) == MANAGER_FEEDBACK_REPLAN_LIMIT
+
+
+def test_planner_and_manager_read_the_answer_beside_the_objective_it_settles(
+    tmp_path: Path, monkeypatch,
+) -> None:
+    """2026-10-20: after the operator chose A, the Manager's stage decision
+    still held for "your choice between A and B is missing": it read only the
+    objective written before the question."""
+    from argus.core.operator_decision import build_operator_decision
+    from argus.manager import Manager
+
+    project = _project(tmp_path, monkeypatch)
+    supervisor = _supervisor(project, tmp_path / "life", _PlannerBackend([]))
+    backlog = supervisor.memory.backlog
+    asked = backlog.add(BacklogItem.new(title="truncate", objective="wait for my choice of A or B"))
+    backlog.update(
+        asked.id, park_reason="operator_question", pending_question="Keep A or B?",
+        operator_decision=build_operator_decision(
+            item_id=asked.id, title=asked.title, reason="conflict", question="Keep A or B?",
+        ),
+    )
+    backlog.resume_with_operator_reply(asked.id, "A", manager_decision="Keep A; drop B.")
+
+    answer = "Keep A or B? → Keep A; drop B. (the operator)"
+    assert f"- operator_answers (their later word wherever the objective says otherwise): {answer}" in (
+        supervisor._planner_current_reality_note()
+    )
+    manager = Manager(project, runner=None, manager_session_root=supervisor.memory.root)
+    assert manager._stage_operator_answers() == [answer]

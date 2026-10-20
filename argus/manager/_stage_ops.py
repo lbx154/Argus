@@ -96,6 +96,17 @@ class _StageDecisionMixin:
         )
         return context
 
+    def _stage_operator_answers(self) -> list[str]:
+        """What the operator answered since the objective was written."""
+        from ..core.operator_decision import operator_answers
+        from ..life.memory import Backlog
+
+        path = Path(self.manager_session_root) / "backlog.jsonl"
+        try:
+            return operator_answers(Backlog(path).history()) if path.is_file() else []
+        except Exception:  # noqa: BLE001 - context only; the decision stands without it
+            return []
+
     def _stage_context_facts(self, root: Path) -> dict[str, Any]:
         """Bind a verdict to the pipeline and campaign that supplied its evidence."""
         from ..core.pipeline_state import read_pipeline_state
@@ -1083,6 +1094,7 @@ class _StageDecisionMixin:
                     continuous_objective=continuous_objective,
                     allow_rollback=stage_rollback_error(root) is None,
                     allow_early_completion=allow_direct_completion,
+                    operator_answers=self._stage_operator_answers(),
                 ),
                 role_banner=prompt_context.role_banner,
                 role_skill_block=self._role_skill_block(

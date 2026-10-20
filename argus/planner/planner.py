@@ -1189,6 +1189,9 @@ def _planner_verdict_from_fields(
 
     baton = read_baton_line(text)
     handoff = baton.holder if baton is not None and baton.holder in {"engineer", "manager", "operator"} else ""
+    if project_done and handoff == "manager":
+        # Completion goes to the Manager anyway; the line only names it.
+        handoff = ""
 
     new_tasks: list[TaskSpec] = []
     for task_index, row in enumerate(task_rows):
