@@ -18,7 +18,6 @@ from .operator_context_storage import (
     MAX_OPERATOR_DELIVERY_RECEIPTS,
     MAX_OPERATOR_DELIVERY_STREAMS,
     MAX_SOURCE_BYTES,
-    NO_MISSION as _NO_MISSION,
     RECEIPT_FORMAT,
     ContextDocument,
     bounded_mission,
@@ -30,6 +29,9 @@ from .operator_context_storage import (
     read_document,
     settled_revisions,
     write_checkpoint,
+)
+from .operator_context_storage import (
+    NO_MISSION as _NO_MISSION,
 )
 
 LEDGER_FILENAME = "operator_context.jsonl"
