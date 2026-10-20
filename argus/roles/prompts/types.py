@@ -40,7 +40,7 @@ class RolePromptRequest:
     checklist_mode: ChecklistMode = ChecklistMode.NONE
     checklist_role: RoleName | None = None
     include_search_altitude: bool = False
-    # The vertical's per-turn facts (research notes, GPU memory in use). They
+    # The vertical's per-turn facts (the research notes). They
     # change between rounds, so they never enter ``role_banner``; a builder
     # that asks for them places ``role_context`` after its stable prompt.
     include_role_context: bool = False

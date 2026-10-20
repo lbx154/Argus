@@ -2,10 +2,6 @@
 
 from __future__ import annotations
 
-import os
-import shutil
-import subprocess
-import time
 from pathlib import Path
 
 from .library_preparation import STAGE_PLAYBOOK_PATHS
@@ -13,148 +9,6 @@ from .notes import RESEARCH_NOTES_FILENAME, read_research_notes
 
 _NOTES_STAGES = frozenset({"idea", "experiment", "paper"})
 _CONTEXT_CHAR_LIMIT = 32_000
-
-# Stages whose work actually touches compute: sizing an idea, then building
-# and running experiments. Paper/review prose does not need it.
-_COMPUTE_STAGES = frozenset({"idea", "experiment"})
-_HARDWARE_CACHE_SECONDS = 60.0
-# One nvidia-smi reading feeds both the static inventory and the live usage
-# lines, so the two never describe different moments.
-_hardware_cache: tuple[float, list[tuple[str, str, float, float]]] | None = None
-# Local checkpoint inventory: scanning a few cache directories is cheap, but
-# not so cheap that every prompt render should redo it.
-# Prompt budget: the largest checkpoints are the ones a claim about scale
-# needs; beyond this many the list stops informing and starts crowding.
-
-
-def _query_local_gpus() -> list[tuple[str, str, float, float]]:
-    """``(index, name, total_gb, used_gb)`` per GPU, cached briefly.
-
-    Fail-soft to an empty list on machines without GPUs or ``nvidia-smi``.
-    """
-    global _hardware_cache
-    now = time.monotonic()
-    if _hardware_cache is not None and now - _hardware_cache[0] < _HARDWARE_CACHE_SECONDS:
-        return _hardware_cache[1]
-    rows: list[tuple[str, str, float, float]] = []
-    if shutil.which("nvidia-smi") is not None:
-        try:
-            proc = subprocess.run(
-                [
-                    "nvidia-smi",
-                    "--query-gpu=index,name,memory.total,memory.used",
-                    "--format=csv,noheader,nounits",
-                ],
-                capture_output=True,
-                text=True,
-                timeout=10,
-                check=False,
-            )
-        except (OSError, subprocess.SubprocessError):
-            proc = None
-        for row in (proc.stdout if proc is not None else "").strip().splitlines():
-            parts = [part.strip() for part in row.split(",")]
-            if len(parts) != 4:
-                continue
-            index, name, total_mib, used_mib = parts
-            try:
-                total_gb = int(total_mib) / 1024
-                used_gb = int(used_mib) / 1024
-            except ValueError:
-                continue
-            rows.append((index, name, total_gb, used_gb))
-    _hardware_cache = (now, rows)
-    return rows
-
-
-def local_hardware_block() -> str:
-    """Describe the compute this machine actually has, so ideas and
-    experiments are sized to it.
-
-    Purely informational — it never blocks anything. Only the inventory is
-    listed here — device names, total memory, CPU count — because this block
-    sits in the cacheable prompt prefix; the memory free and in use right now
-    is rendered by ``local_hardware_usage_block`` for the per-turn tail.
-    Fail-soft to an empty string on machines without GPUs or ``nvidia-smi``.
-    """
-    gpus = _query_local_gpus()
-    if not gpus:
-        return ""
-    cpu_count = os.cpu_count() or 0
-    cpu_line = f"- {cpu_count} CPU cores" if cpu_count else ""
-    gpu_lines = [
-        f"- GPU {index}: {name}, {total_gb:.0f} GB memory"
-        for index, name, total_gb, _used_gb in gpus
-    ]
-    return (
-        "## Compute available on this machine\n"
-        + "\n".join(line for line in (*gpu_lines, cpu_line) if line)
-        + "\n\n"
-        "Experiments run locally on this hardware. Size the work to it rather "
-        "than assuming a small machine: real training and evaluation runs on "
-        "these GPUs are expected, several GPUs can be used at once when a run "
-        "benefits, and batch sizes, model scale, and evaluation sets should "
-        "use the memory that is actually free. Prefer the GPUs with the most "
-        "free memory and leave others' running jobs undisturbed. The inventory "
-        "uses physical GPU indices; a configuration's cuda:0 names the first "
-        "device visible to that process. Keep any assigned CUDA_VISIBLE_DEVICES "
-        "mask. When selecting an authorized free physical GPU yourself, include "
-        "the corresponding mask in the command you actually launch and use its "
-        "logical device index in the configuration. A mask written only in a "
-        "reproduction example does not configure the running process. Confirm "
-        "the actual mapping before a long run and retain it with the run command."
-    )
-
-
-def local_hardware_usage_block() -> str:
-    """The numbers that change from turn to turn: memory free and in use per GPU.
-
-    Rendered apart from the inventory so the inventory can sit in the
-    cacheable prompt prefix while these lines ride in the per-turn tail.
-    """
-    gpus = _query_local_gpus()
-    if not gpus:
-        return ""
-    return "Memory in use right now, by physical GPU index:\n" + "\n".join(
-        f"- GPU {index}: {max(total_gb - used_gb, 0.0):.0f} GB free, "
-        f"{used_gb:.0f} GB in use by running jobs"
-        for index, _name, total_gb, used_gb in gpus
-    )
-
-
-def _hardware_block_for_stage(stage: str, project_root: Path | None = None) -> str:
-    """The static compute inventory for a compute stage.
-
-    The list of every model checkpoint cached on the host used to follow the
-    GPU lines. It grew with the cache (five thousand characters of Qwen
-    snapshots and dataset names on the trial host), was repeated in every
-    Planner and Engineer call of the idea and experiment stages, and nothing
-    in the pipeline read it back; the roles inspect the cache themselves when
-    an experiment actually needs a checkpoint.
-    """
-    del project_root
-    if stage not in _COMPUTE_STAGES:
-        return ""
-    return local_hardware_block()
-
-
-def _hardware_usage_for_stage(stage: str) -> str:
-    """The live GPU memory numbers for a compute stage."""
-    if stage not in _COMPUTE_STAGES:
-        return ""
-    return local_hardware_usage_block()
-
-
-def research_runtime_context(stage: str, project_root: Path | None = None) -> str:
-    """Live resource facts for a Reviewer's delta, outside its policy hash."""
-    return "\n\n".join(
-        block
-        for block in (
-            _hardware_block_for_stage(stage, project_root),
-            _hardware_usage_for_stage(stage),
-        )
-        if block
-    )
 
 
 def active_context_paths(stage: str) -> tuple[str, ...]:
@@ -451,13 +305,12 @@ def _method_card_planner_block(stage: str) -> str:
 
 
 def _planner_fragment(stage: str, project_root: Path | None) -> str:
-    # The research notes and the GPU memory in use change between cycles;
-    # ``render_role_prompt_context`` carries them, after this static policy.
+    # The research notes change between cycles; ``render_role_prompt_context``
+    # carries them, after this static policy.
     return "\n\n".join(
         block
         for block in (
             _stage_playbook_block(stage),
-            _hardware_block_for_stage(stage, project_root),
             _method_card_planner_block(stage),
             _attainment_block_for_planner(stage, project_root),
             (
@@ -549,12 +402,6 @@ def _narrative_editor_block() -> str:
 def _engineer_notes_stage(stage: str, operation: str) -> str:
     """The stage whose research notes the Engineer reads for ``operation``."""
     return "paper" if operation == "narrative_edit" else stage
-
-
-def _engineer_compute_stage(stage: str, operation: str) -> str:
-    """The stage whose compute inventory the Engineer sees for ``operation``."""
-    scientific_revision = stage == "review" and operation != "narrative_edit"
-    return "experiment" if scientific_revision else stage
 
 
 _FIGURE_LINT_CLI = "python -m argus.verticals.research.figure_lint"
@@ -700,9 +547,6 @@ def _engineer_fragment(
         block
         for block in (
             _stage_playbook_block(stage),
-            _hardware_block_for_stage(
-                _engineer_compute_stage(stage, operation), project_root
-            ),
             _engineer_figure_block(stage, operation),
             _method_card_engineer_block(stage, operation),
             _research_learning_block("engineer", stage, operation),
@@ -907,7 +751,7 @@ def render_role_prompt_context(
     """Keep changing research evidence in the round delta, not the static policy.
 
     Everything here changes between turns of one campaign — the research
-    notes, the GPU memory in use — so a role places it after the policy that
+    notes, the date — so a role places it after the policy that
     ``render_role_prompt_fragment`` renders once per stage.
     """
     normalized_role = str(role or "").strip().lower()
@@ -930,22 +774,15 @@ def render_role_prompt_context(
             packet = "\n".join(packet_lines[: REVIEWER_MAX_LINES + 1])
         blocks = (
             active_research_context(normalized_stage, project_root),
-            research_runtime_context(normalized_stage, project_root),
             packet,
         )
     elif normalized_role == "planner":
-        blocks = (
-            active_research_context(normalized_stage, project_root),
-            _hardware_usage_for_stage(normalized_stage),
-        )
+        blocks = (active_research_context(normalized_stage, project_root),)
     elif normalized_role == "engineer":
         blocks = (
             active_research_context(
                 _engineer_notes_stage(normalized_stage, normalized_operation),
                 project_root,
-            ),
-            _hardware_usage_for_stage(
-                _engineer_compute_stage(normalized_stage, normalized_operation)
             ),
         )
     elif normalized_role == "manager":
@@ -1014,9 +851,6 @@ __all__ = [
     "paper_writing_standard",
     "active_research_context",
     "active_context_paths",
-    "local_hardware_block",
-    "local_hardware_usage_block",
-    "research_runtime_context",
     "render_role_prompt_fragment",
     "render_role_prompt_context",
     "STAGE_PLAYBOOK_PATHS",

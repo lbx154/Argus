@@ -2843,16 +2843,6 @@
     },
     {
       "event": {
-        "objective": "Repeat certification review",
-        "reason": "the current manuscript already has a completed independent review",
-        "skip_category": "paper_review_purchase_deferred",
-        "title": "Purchase another paper review",
-        "type": "life.planner.task_skipped"
-      },
-      "id": "life.planner.task_skipped.review-purchase-deferred"
-    },
-    {
-      "event": {
         "cycle": 2,
         "handoff": "engineer",
         "reason": "the running evaluation decides the next step",

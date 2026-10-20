@@ -554,37 +554,6 @@ class PlanningCycleEnqueueMixin:
                 else None
             )
             duplicate_item = node_key_duplicate or state.seen_signatures.get(signature)
-            review_purchase = policy_contract.review_purchase(
-                project_root=policy_root,
-                task=task,
-                existing_items=state.existing_items,
-                semantic_duplicate=duplicate_item,
-            )
-            review_purchase_reason = (
-                review_purchase.defer_reason if review_purchase is not None else ""
-            )
-            if review_purchase_reason:
-                state.skipped_certification_reproposal_titles.append(task.title)
-                state.skipped_certification_reproposal_reasons.append(
-                    review_purchase_reason
-                )
-                _record_filtered_task(
-                    state,
-                    title=task.title,
-                    category="paper_review_purchase_deferred",
-                    reason=review_purchase_reason,
-                )
-                self._emit({
-                    "type": EventType.LIFE_PLANNER_TASK_SKIPPED,
-                    "cycle": self._planning_cycles,
-                    "title": task.title,
-                    "objective": task.objective,
-                    "impact_score": task.impact_score,
-                    "impact_area": task.impact_area,
-                    "skip_category": "paper_review_purchase_deferred",
-                    "reason": review_purchase_reason,
-                })
-                continue
             if (
                 duplicate_item is not None
                 and node_key_duplicate is None
@@ -791,8 +760,8 @@ class PlanningCycleEnqueueMixin:
         """Hold back tasks whose in-batch parent was filtered out of this batch.
 
         A dependency key that names a sibling task of the same verdict is real,
-        required work. When a filter (policy, review purchase,
-        authorization) removed that sibling, its key never reached ``key_map``
+        required work. When a filter (policy, authorization) removed that
+        sibling, its key never reached ``key_map``
         and pass 2 dropped it like a hallucinated key, so the child ran without
         its parent. Hold the child (and, transitively, whatever needs it) with
         a reason instead; the Planner sees it in the filtered-task feedback.
@@ -1126,18 +1095,9 @@ class PlanningCycleEnqueueMixin:
             task_count=len(verdict.new_tasks),
             enqueued_tasks=len(state.added_titles),
             skipped_duplicate_tasks=len(state.skipped_duplicate_titles),
-            skipped_certification_reproposal_tasks=len(
-                state.skipped_certification_reproposal_titles
-            ),
             enqueued_titles=state.added_titles,
             enqueued_impact_scores=state.added_impact_scores,
             skipped_duplicate_titles=state.skipped_duplicate_titles,
-            skipped_certification_reproposal_titles=(
-                state.skipped_certification_reproposal_titles
-            ),
-            skipped_certification_reproposal_reasons=(
-                state.skipped_certification_reproposal_reasons
-            ),
             manager_intent=state.manager_intent,
         )
         if not delivered:

@@ -396,9 +396,6 @@ class SelfReplyMixin:
                     skip_git_repo_check=True,
                     dangerous_yolo=not safe_mode,
                     working_dir=str(workdir),
-                    watchdog_hard_idle_seconds=env_int(
-                        "ARGUS_SKILL_SELF_HARD_IDLE_SECONDS", 0
-                    ),
                 ),
                 run_label="router-classify",
                 resume_thread_id=None,
@@ -946,9 +943,6 @@ class SelfReplyMixin:
             add_dirs=read_dirs,
             skill_paths=native_skill_paths,
             extra_args=extra_args,
-            watchdog_hard_idle_seconds=env_int(
-                "ARGUS_SKILL_SELF_HARD_IDLE_SECONDS", 0
-            ),
             watchdog_soft_idle_seconds=env_int(
                 "ARGUS_SKILL_SELF_SOFT_IDLE_SECONDS", 5
             ),

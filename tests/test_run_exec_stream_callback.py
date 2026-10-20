@@ -15,11 +15,7 @@ import time
 import pytest
 
 from argus.agent_cli import _run_exec
-from argus.agent_cli.agent_cli_runner import (
-    AgentCliRunner,
-    RunnerOptions,
-    _turn_wall_clock_seconds,
-)
+from argus.agent_cli.agent_cli_runner import AgentCliRunner, RunnerOptions
 from argus.agent_cli.runner_backend import BACKEND_CLAUDE, BACKEND_COPILOT
 
 
@@ -493,57 +489,3 @@ def test_runner_keeps_usage_bearing_delta_for_accounting() -> None:
         )
         is False
     )
-
-
-def test_engineer_turn_wall_clock_default_and_override(monkeypatch) -> None:
-    monkeypatch.delenv("ARGUS_SKILL_ENGINEER_TURN_MAX_SECONDS", raising=False)
-    assert _turn_wall_clock_seconds("engineer-r1") == 0
-    assert _turn_wall_clock_seconds("reviewer") == 0
-    monkeypatch.setenv("ARGUS_SKILL_ENGINEER_TURN_MAX_SECONDS", "90")
-    assert _turn_wall_clock_seconds("engineer-r7") == 90
-    monkeypatch.setenv("ARGUS_SKILL_ENGINEER_TURN_MAX_SECONDS", "0")
-    assert _turn_wall_clock_seconds("engineer-r7") == 0
-
-
-@pytest.mark.parametrize(
-    "run_label",
-    [
-        "manager-classify-grounded",
-        "manager.skill_placement",
-        "router-classify",
-        "simple-1",
-        "chat-1",
-        "self-debug",
-        "self-implement",
-        "self-micro",
-        "self-review",
-        "self-synthesize",
-    ],
-)
-def test_manager_turn_wall_clock_is_unbounded_by_default(monkeypatch, run_label: str) -> None:
-    monkeypatch.delenv("ARGUS_SKILL_MANAGER_TURN_MAX_SECONDS", raising=False)
-
-    assert _turn_wall_clock_seconds(run_label) == 0
-
-    monkeypatch.setenv("ARGUS_SKILL_MANAGER_TURN_MAX_SECONDS", "45")
-    assert _turn_wall_clock_seconds(run_label) == 45
-    monkeypatch.setenv("ARGUS_SKILL_MANAGER_TURN_MAX_SECONDS", "0")
-    assert _turn_wall_clock_seconds(run_label) == 0
-
-
-@pytest.mark.parametrize("run_label", ["planner-bounded-plan", "planner-preview"])
-def test_planner_turn_wall_clock_is_unbounded(monkeypatch, run_label: str) -> None:
-    monkeypatch.setenv("ARGUS_SKILL_MANAGER_TURN_MAX_SECONDS", "1")
-    assert _turn_wall_clock_seconds(run_label) == 0
-
-
-def test_scientist_skill_distill_wall_clock_is_opt_in(monkeypatch) -> None:
-    monkeypatch.delenv("ARGUS_SKILL_SCIENTIST_TURN_MAX_SECONDS", raising=False)
-    monkeypatch.setenv("ARGUS_SKILL_ENGINEER_TURN_MAX_SECONDS", "0")
-
-    assert _turn_wall_clock_seconds("scientist.skill_distill") == 0
-
-    monkeypatch.setenv("ARGUS_SKILL_SCIENTIST_TURN_MAX_SECONDS", "45")
-    assert _turn_wall_clock_seconds("scientist.skill_distill") == 45
-    monkeypatch.setenv("ARGUS_SKILL_SCIENTIST_TURN_MAX_SECONDS", "0")
-    assert _turn_wall_clock_seconds("scientist.skill_distill") == 0

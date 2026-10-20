@@ -24,7 +24,6 @@ from ..core.role_session import (
     configured_role_session_policy,
 )
 
-_RUNNER_HARD_IDLE_ENV = "ARGUS_SKILL_RUNNER_HARD_IDLE_SECONDS"
 _RUNNER_STALLED_IDLE_ENV = "ARGUS_SKILL_RUNNER_STALLED_IDLE_SECONDS"
 _DECISION_PROGRESS_TIMEOUT_ENV = "ARGUS_SKILL_DECISION_PROGRESS_TIMEOUT_SECONDS"
 _COMPACT_CONTINUATION_PROMPTS_ENV = "ARGUS_SKILL_COMPACT_CONTINUATION_PROMPTS"
@@ -44,8 +43,7 @@ _DEFAULT_DECISION_PROGRESS_TIMEOUT_SECONDS = 0
 # of work, but silence is not proof of a hang either. A turn that makes no
 # progress (no model stream event, no CPU time in its commands) for the stalled
 # limit is reported to the Manager once, and stopped only if the Manager
-# decides so. ARGUS_SKILL_RUNNER_HARD_IDLE_SECONDS opts into a hard stop.
-_RUNNER_DEFAULT_HARD_IDLE_SECONDS = 0
+# decides so.
 _RUNNER_DEFAULT_STALLED_IDLE_SECONDS = 30 * 60
 # Framework-owned fallback for ``EngineerConfig.live_search_stages``: the
 # research stage, where idea discovery / literature grounding happens. A
@@ -372,12 +370,6 @@ class SupervisedConfig:
     checkpoint_path: Path | None = None
     # Mission-level canonical packet. Round handoffs are written beside it.
     context_packet_path: str = ""
-    runner_hard_idle_seconds: int = field(
-        default_factory=lambda: env_int(
-            _RUNNER_HARD_IDLE_ENV,
-            _RUNNER_DEFAULT_HARD_IDLE_SECONDS,
-        )
-    )
     runner_stalled_idle_seconds: int = field(
         default_factory=lambda: env_int(
             _RUNNER_STALLED_IDLE_ENV,

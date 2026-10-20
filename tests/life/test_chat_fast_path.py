@@ -657,8 +657,8 @@ def test_execute_self_path_one_turn_no_reviewer(tmp_path: Path) -> None:
     assert len(backend.calls) == 1
     assert backend.calls[0]["run_label"] == "simple-1"
     # The operator can cancel an interactive turn; no timer stops it.
-    assert backend.classify_calls[0]["options"].watchdog_hard_idle_seconds == 0
-    assert backend.calls[0]["options"].watchdog_hard_idle_seconds == 0
+    assert not backend.classify_calls[0]["options"].watchdog_hard_idle_seconds
+    assert not backend.calls[0]["options"].watchdog_hard_idle_seconds
     assert backend.calls[0]["options"].watchdog_soft_idle_seconds == 5
     assert callable(backend.calls[0]["options"].inactivity_callback)
     assert backend.calls[0]["options"].sandbox_mode is None

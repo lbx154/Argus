@@ -1,37 +1,23 @@
-"""Bounded retry pacing for Planner calls that keep failing.
+"""Bounded retry pacing for Planner calls whose backend keeps failing.
 
-A Planner turn can fail without anything being wrong with the daemon: the
-backend errors, the reply cannot be read, or it says "not done" without a
-single task. Each of those paths already settles its own cycle, but several
-of them hand the daemon a zero or base-length sleep, so a Planner that keeps
-failing was re-asked every few seconds until the provider's daily call cap.
-Every one of those calls is billed.
+Argus launches the Planner's backend, so only Argus can handle that backend
+failing: the call errored, timed out, produced nothing, or Argus's own code
+raised while making it. Several of those paths hand the daemon a zero or
+base-length sleep, so a failing backend was re-asked every few seconds until
+the provider's daily call cap. Every one of those calls is billed.
 
-This module paces the *call*, not the content. It never judges what the
-Planner said; it only counts consecutive Planner turns that failed and spaces
-the next turn out with capped exponential backoff and jitter. Two kinds of
-failure are kept apart because they recover differently:
-
-* **Backend failures** (the call errored, timed out, or produced nothing)
-  usually clear on their own. They back off to the cap and keep re-probing at
-  the cap; a configuration change wakes them at once. The operator and
-  Manager supervision are told once the outage has lasted
-  ``PLANNER_BACKEND_ALERT_AFTER_SECONDS``.
-* **Unusable decisions** (the Planner answered, but nothing usable came of
-  it) repeat as long as nothing the Planner reads changes. After
-  ``PLANNER_FAILURE_ALERT_AFTER`` identical ones, or once the failure became
-  an operator question, the operator and Manager supervision are told once
-  and the Planner waits for a change: operator input, a Manager directive,
-  backlog, journal, project evidence, or Planner configuration. The wait is
-  at most ``PLANNER_FAILURE_HOLD_MAX_SECONDS``.
+This module paces the *call*. It counts consecutive Planner turns whose call
+failed and spaces the next turn out with capped exponential backoff and
+jitter; a configuration change wakes it at once. The operator and Manager
+supervision are told once the failure has lasted
+``PLANNER_FAILURE_ALERT_AFTER_SECONDS``.
 
 Retrying on time alone lasts ``AUTOMATIC_RETRY_WINDOW_SECONDS`` from the first
 failure of a streak. After that the operator is told once and the Planner is
-asked again only by an operator message, a Planner configuration change, or
-(for unusable decisions) a change in what it reads.
+asked again only by an operator message or a Planner configuration change.
 
-Before the alert, a change in those inputs (a mission or job finishing) wakes
-an unusable-decision backoff early. Operator messages always bypass every
+What the Planner said is never judged here: a turn whose backend answered
+ends the streak, whatever the answer. Operator messages always bypass every
 hold. A readable decision the Host declines, a superseded turn, and an empty
 plan the Manager reconciled are not failures and leave the streak alone.
 
@@ -68,19 +54,14 @@ log = logging.getLogger(__name__)
 PLANNER_FAILURE_BACKOFF_FREE_ATTEMPTS = 2
 PLANNER_FAILURE_BACKOFF_BASE_SECONDS = 30.0
 PLANNER_FAILURE_BACKOFF_CAP_SECONDS = 1800.0
-# Identical unusable decisions in a row before the operator and Manager are told.
-PLANNER_FAILURE_ALERT_AFTER = 3
-# Continuous backend failure before the operator and Manager are told.
-PLANNER_BACKEND_ALERT_AFTER_SECONDS = PLANNER_FAILURE_BACKOFF_CAP_SECONDS
-# After the alert, unchanged inputs keep the Planner quiet at most this long.
-PLANNER_FAILURE_HOLD_MAX_SECONDS = PLANNER_FAILURE_BACKOFF_CAP_SECONDS
+# Continuous failure before the operator and Manager are told.
+PLANNER_FAILURE_ALERT_AFTER_SECONDS = PLANNER_FAILURE_BACKOFF_CAP_SECONDS
 
 FAILURE_KIND_BACKEND = "backend"
-FAILURE_KIND_DECISION = "decision"
 # Argus's own code raised while asking the Planner: neither the backend nor
-# the model is at fault, and waiting for a change will not fix it.
+# the model is at fault.
 FAILURE_KIND_INTERNAL = "internal"
-_FAILURE_KINDS = frozenset({FAILURE_KIND_BACKEND, FAILURE_KIND_DECISION, FAILURE_KIND_INTERNAL})
+_FAILURE_KINDS = frozenset({FAILURE_KIND_BACKEND, FAILURE_KIND_INTERNAL})
 _CREDENTIAL_PARTS = ("AUTH", "KEY", "TOKEN", "SECRET", "PASSWORD", "CREDENTIAL")
 
 # A clock that stepped back can leave recorded times in the future; anything
@@ -92,15 +73,6 @@ _EVENT_SCAN_LINES = 5000
 
 _STATE_FILENAME = "planner-failure-backoff.json"
 _STATE_VERSION = 1
-
-# Noise that differs between otherwise identical failures.
-_QUOTED = re.compile(r"'[^']*'|\"[^\"]*\"|`[^`]*`")
-_UUID = re.compile(r"\b[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}\b")
-_ID_ASSIGN = re.compile(r"\b[\w.-]*(?:id|request|req|trace|span|call)[\w.-]*\s*[:=]\s*\S+")
-_ID_TOKEN = re.compile(r"\b(?:req|request|trace|call|run|msg|chatcmpl|resp)[_-][\w-]+")
-_HEXISH = re.compile(r"\b(?=[\w-]*\d)[\w-]{6,}\b")
-_NUMBERS = re.compile(r"\d+")
-_SPACE = re.compile(r"\s+")
 
 
 def planner_failure_backoff_seconds(
@@ -124,15 +96,6 @@ def planner_failure_backoff_seconds(
     return nominal / 2.0 + jitter * nominal / 2.0
 
 
-def normalize_failure_text(text: str) -> str:
-    """The failure with ids, quoted values, hashes and counters removed."""
-    value = " ".join(str(text or "").casefold().split())
-    for pattern in (_QUOTED, _UUID, _ID_ASSIGN, _ID_TOKEN, _HEXISH):
-        value = pattern.sub(" ", value)
-    value = _NUMBERS.sub("#", value)
-    return _SPACE.sub(" ", value).strip()[:300]
-
-
 # Exceptions that only Argus's own code raises; a provider fault surfaces as
 # an exit code, an OSError family member, a timeout, or a RuntimeError.
 _INTERNAL_EXCEPTIONS = re.compile(
@@ -144,7 +107,7 @@ _INTERNAL_EXCEPTIONS = re.compile(
 
 
 def planner_failure_kind(verdict: Any) -> str:
-    """Whether the backend failed, Argus failed, or the Planner answered unusably."""
+    """Whether the backend failed or Argus failed; "" when the backend answered."""
     if verdict is None:
         # The supervisor's own planning code raised before a verdict existed.
         return FAILURE_KIND_INTERNAL
@@ -154,28 +117,7 @@ def planner_failure_kind(verdict: Any) -> str:
         return FAILURE_KIND_INTERNAL
     if reason.startswith(("planner backend", "planner execution host")):
         return FAILURE_KIND_BACKEND
-    return FAILURE_KIND_DECISION
-
-
-def planner_failure_key(result: Any, verdict: Any) -> str:
-    """Stable identity of one failed Planner outcome.
-
-    Request ids, quoted values, hashes and counters are dropped so backend
-    noise does not make the same failure look new; when nothing is left, the
-    failure's kind and outcome are its identity.
-    """
-    text = ""
-    if verdict is not None:
-        text = str(getattr(verdict, "error", "") or getattr(verdict, "reason", "") or "")
-    kind = planner_failure_kind(verdict)
-    normalized = normalize_failure_text(text)
-    if kind == FAILURE_KIND_INTERNAL:
-        # The exception class is the identity of an internal fault.
-        normalized = normalized.split(":", 1)[0]
-    if kind == FAILURE_KIND_BACKEND:
-        # Backend errors are one class: their wording is provider noise.
-        normalized = ""
-    return f"{kind}\n{result}\n{normalized}"
+    return ""
 
 
 def _finite(value: Any) -> float:
@@ -193,29 +135,25 @@ def _sanitized_state(payload: Any) -> dict[str, Any]:
     """
     if not isinstance(payload, dict) or not payload:
         return {}
+    if str(payload.get("kind") or "") not in _FAILURE_KINDS:
+        # Includes a streak of unusable answers an older version paced.
+        return {}
     try:
         streak = int(payload.get("streak", 0) or 0)
         if streak <= 0:
             return {}
-        kind = str(payload.get("kind") or FAILURE_KIND_DECISION)
-        if kind not in _FAILURE_KINDS:
-            raise ValueError(f"unknown failure kind {kind!r}")
         alerted_at = payload.get("alerted_at")
         alert = payload.get("alert")
         if alert is not None and not isinstance(alert, dict):
             raise ValueError("alert must be an object")
         clean = {
             "streak": streak,
-            "same": max(1, int(payload.get("same", 1) or 1)),
-            "key": str(payload.get("key") or ""),
-            "kind": kind,
+            "kind": str(payload["kind"]),
             "first_failed_at": _finite(payload["first_failed_at"]),
             "last_failed_at": _finite(payload["last_failed_at"]),
             "not_before": _finite(payload["not_before"]),
             "alerted_at": None if alerted_at is None else _finite(alerted_at),
-            "signature": str(payload.get("signature") or ""),
             "config_signature": str(payload.get("config_signature") or ""),
-            "operator_asked": bool(payload.get("operator_asked")),
             "alert": dict(alert) if alert else None,
             "alert_pending": bool(payload.get("alert_pending")),
         }
@@ -374,40 +312,6 @@ class PlannerFailureBackoffMixin:
             payload["config"] = ""
         return fact_text(payload)
 
-    def _planner_failure_input_signature(self, state: Any) -> str:
-        """Everything a fresh Planner call could act on, except configuration."""
-        parts: dict[str, Any] = {}
-        signer = getattr(self, "_planner_visible_input_signature", None)
-        if callable(signer):
-            try:
-                parts["inputs"] = str(
-                    signer(
-                        operator_context_revision=int(
-                            getattr(state, "operator_context_revision", 0) or 0
-                        )
-                    )
-                    or ""
-                )
-            except Exception:  # noqa: BLE001 - other parts still sign the inputs
-                parts["inputs"] = ""
-        try:
-            from ...core.operator_context import operator_context_state_root
-            from ...manager.directive import load_active_manager_directive
-
-            directive = load_active_manager_directive(
-                operator_context_state_root(self.memory)
-            )
-            parts["directive"] = str(getattr(directive, "revision", "") or "")
-        except Exception:  # noqa: BLE001
-            parts["directive"] = ""
-        evidence = getattr(self, "_manager_feedback_evidence_signature", None)
-        if callable(evidence):
-            try:
-                parts["evidence"] = str(evidence() or "")
-            except Exception:  # noqa: BLE001
-                parts["evidence"] = ""
-        return fact_text(parts)
-
     # -- recording ---------------------------------------------------------
 
     def _planner_turn_was_productive(self, state: Any, result: Any) -> bool:
@@ -425,13 +329,7 @@ class PlannerFailureBackoffMixin:
             and getattr(verdict, "handoff", "")
         )
 
-    def _record_planner_turn_outcome(
-        self,
-        state: Any,
-        result: Any,
-        *,
-        operator_asked: bool = False,
-    ) -> None:
+    def _record_planner_turn_outcome(self, state: Any, result: Any) -> None:
         """Update the shared streak after a cycle that actually called the Planner."""
         if not bool(getattr(state, "planner_invoked", False)):
             return
@@ -454,64 +352,50 @@ class PlannerFailureBackoffMixin:
         if error.startswith(PLANNER_SUPERSEDED_ERROR):
             return
         kind = planner_failure_kind(verdict)
-        key = planner_failure_key(result, verdict)
-        # Signing reads the project tree; do it before taking the shared lock.
-        signature = self._planner_failure_input_signature(state)
+        if not kind:
+            # The backend answered; what it said is the Planner's business.
+            self._reset_planner_failure_streak()
+            return
         config_signature = self._planner_failure_config_signature()
         with self._planner_failure_lock():
             previous = self._load_planner_failure_state()
             now = time.time()
             _clamped_to_now(previous, now)
             streak = int(previous.get("streak", 0)) + 1
-            same = int(previous.get("same", 0)) + 1 if previous.get("key") == key else 1
             delay = planner_failure_backoff_seconds(streak)
             alerted_at = previous.get("alerted_at")
             first_failed_at = float(previous.get("first_failed_at") or now)
             record = {
                 "streak": streak,
-                "same": same,
-                "key": key,
                 "kind": kind,
                 "first_failed_at": first_failed_at,
                 "last_failed_at": now,
                 "not_before": now + delay,
                 "alerted_at": alerted_at,
-                # What the Planner would read next, after this cycle's own
-                # writes (an operator-direction row, journal lines) landed.
-                "signature": signature,
                 "config_signature": config_signature,
-                "operator_asked": bool(operator_asked or previous.get("operator_asked")),
                 "alert": previous.get("alert"),
                 "alert_pending": bool(previous.get("alert_pending")),
             }
-            if alerted_at is None:
-                if kind == FAILURE_KIND_BACKEND:
-                    due = now - first_failed_at >= PLANNER_BACKEND_ALERT_AFTER_SECONDS
-                else:
-                    due = same >= PLANNER_FAILURE_ALERT_AFTER
-                if operator_asked and kind == FAILURE_KIND_DECISION:
-                    # The operator now holds the decision; the question is the alert.
-                    record["alerted_at"] = now
-                elif due:
-                    # Persisted as pending first: a crash before it is emitted
-                    # leaves it to be sent on the next start, never dropped.
-                    record["alerted_at"] = now
-                    record["alert_pending"] = True
-                    record["alert"] = {
-                        "id": f"planner-alert-{uuid.uuid4().hex}",
-                        "kind": kind,
-                        "same": same,
-                        "delay": delay,
-                        "failing_for": now - first_failed_at,
-                        "detail": " ".join(
-                            str(
-                                getattr(verdict, "error", "")
-                                or getattr(verdict, "reason", "")
-                                or result
-                                or ""
-                            ).split()
-                        )[:300],
-                    }
+            if alerted_at is None and now - first_failed_at >= PLANNER_FAILURE_ALERT_AFTER_SECONDS:
+                # Persisted as pending first: a crash before it is emitted
+                # leaves it to be sent on the next start, never dropped.
+                record["alerted_at"] = now
+                record["alert_pending"] = True
+                record["alert"] = {
+                    "id": f"planner-alert-{uuid.uuid4().hex}",
+                    "kind": kind,
+                    "streak": streak,
+                    "delay": delay,
+                    "failing_for": now - first_failed_at,
+                    "detail": " ".join(
+                        str(
+                            getattr(verdict, "error", "")
+                            or getattr(verdict, "reason", "")
+                            or result
+                            or ""
+                        ).split()
+                    )[:300],
+                }
             self._save_planner_failure_state(record)
         if delay > 0:
             self._suggested_sleep_s = max(
@@ -519,10 +403,9 @@ class PlannerFailureBackoffMixin:
             )
         self._flush_pending_planner_alert()
         log.info(
-            "planner turn failed (%s, streak=%d same=%d); next call in >= %.0fs",
+            "planner turn failed (%s, streak=%d); next call in >= %.0fs",
             kind,
             streak,
-            same,
             delay,
         )
 
@@ -553,26 +436,19 @@ class PlannerFailureBackoffMixin:
             self._save_planner_failure_state(record)
 
     def _alert_repeated_planner_failure(self, alert: dict[str, Any]) -> None:
-        kind = str(alert.get("kind") or FAILURE_KIND_DECISION)
+        kind = str(alert.get("kind") or FAILURE_KIND_BACKEND)
         detail = str(alert.get("detail") or "")
         try:
-            same = int(alert.get("same") or 0)
+            streak = int(alert.get("streak") or 0)
             delay = float(alert.get("delay") or 0.0)
             failing_for = float(alert.get("failing_for") or 0.0)
         except (TypeError, ValueError):
-            same, delay, failing_for = 0, 0.0, 0.0
-        if kind == FAILURE_KIND_BACKEND:
+            streak, delay, failing_for = 0, 0.0, 0.0
+        minutes = int(failing_for // 60)
+        if kind == FAILURE_KIND_INTERNAL:
             text = (
-                f"The Planner's backend has been failing for {int(failing_for // 60)} "
-                "minutes"
-                + (f" ({detail})" if detail else "")
-                + ". Argus keeps retrying at a slow pace; check the backend or "
-                "switch the Planner model in Settings."
-            )
-        elif kind == FAILURE_KIND_INTERNAL:
-            text = (
-                f"Argus hit the same internal error {same} times while asking the "
-                "Planner"
+                f"Argus has been hitting an internal error for {minutes} minutes "
+                "while asking the Planner"
                 + (f" ({detail})" if detail else "")
                 + ". This is a fault in Argus itself, not in the model or its "
                 "backend; Argus keeps retrying at a slow pace. Please report it "
@@ -580,10 +456,10 @@ class PlannerFailureBackoffMixin:
             )
         else:
             text = (
-                f"The Planner returned the same unusable answer {same} times in a row"
+                f"The Planner's backend has been failing for {minutes} minutes"
                 + (f" ({detail})" if detail else "")
-                + ". Argus stopped re-asking it and will try again when something "
-                "changes: send guidance, change the task, or fix the backend."
+                + ". Argus keeps retrying at a slow pace; check the backend or "
+                "switch the Planner model in Settings."
             )
         alert_id = str(alert.get("id") or "")
         self._emit({
@@ -594,7 +470,7 @@ class PlannerFailureBackoffMixin:
             "recoverable": True,
             "stop_kind": "planner_repeated_failure",
             "failure_kind": kind,
-            "consecutive_failures": same,
+            "consecutive_failures": streak,
             "suggested_sleep_s": delay,
             "alert_id": alert_id,
         })
@@ -608,7 +484,7 @@ class PlannerFailureBackoffMixin:
             "reason": "planner_repeated_failure",
             "agent_layer": "planner",
             "failure_kind": kind,
-            "consecutive_failures": same,
+            "consecutive_failures": streak,
             "error": detail,
             "text": text,
             "alert_id": alert_id,
@@ -617,7 +493,7 @@ class PlannerFailureBackoffMixin:
 
     # -- holding -------------------------------------------------------------
 
-    def _maybe_hold_failing_planner(self, state: Any) -> str | None:
+    def _maybe_hold_failing_planner(self) -> str | None:
         """Skip the model call while repeated failed turns are backing off.
 
         Runs after operator intake; a cycle that drained operator messages
@@ -632,35 +508,22 @@ class PlannerFailureBackoffMixin:
         if _clamped_to_now(record, now):
             with self._planner_failure_lock():
                 self._save_planner_failure_state(record)
-        kind = str(record.get("kind") or FAILURE_KIND_DECISION)
-        alerted_at = record.get("alerted_at")
-        not_before = float(record.get("not_before"))
         if self._planner_failure_config_signature() != record.get("config_signature"):
             return None  # a new backend or model deserves a try at once
-        if kind == FAILURE_KIND_DECISION and (
-            self._planner_failure_input_signature(state) != record.get("signature")
-        ):
-            return None  # something the Planner reads has changed
         if now - float(record.get("first_failed_at")) >= AUTOMATIC_RETRY_WINDOW_SECONDS:
-            return self._planner_retries_stopped(record, kind)
-        # Inside the window backend and internal faults re-probe at the
-        # backoff cap; an alerted unusable decision also waits out the hold.
-        hold_until = not_before
-        if kind == FAILURE_KIND_DECISION and alerted_at is not None:
-            hold_until = max(
-                hold_until,
-                float(record.get("last_failed_at")) + PLANNER_FAILURE_HOLD_MAX_SECONDS,
-            )
-        # Never longer than the cap, whatever the clock or the file says.
-        remaining = min(hold_until - now, PLANNER_FAILURE_HOLD_MAX_SECONDS)
+            return self._planner_retries_stopped(record)
+        # Inside the window the call re-probes at the backoff cap at most,
+        # whatever the clock or the file says.
+        remaining = min(
+            float(record.get("not_before")) - now, PLANNER_FAILURE_BACKOFF_CAP_SECONDS
+        )
         if remaining <= 0:
             return None
         self._suggested_sleep_s = max(
-            float(getattr(self, "_suggested_sleep_s", 0.0) or 0.0),
-            min(remaining, PLANNER_FAILURE_BACKOFF_CAP_SECONDS),
+            float(getattr(self, "_suggested_sleep_s", 0.0) or 0.0), remaining
         )
         if self._should_journal_idle_repeat("planner_failure_hold"):
-            if alerted_at is not None and not record.get("operator_asked"):
+            if record.get("alerted_at") is not None:
                 # Reported as degraded by the alert; an idle event here
                 # would make the held daemon look healthy and idle.
                 self._emit_status(
@@ -681,7 +544,7 @@ class PlannerFailureBackoffMixin:
                 )
         return PLAN_AWAITING
 
-    def _planner_retries_stopped(self, record: dict[str, Any], kind: str) -> str:
+    def _planner_retries_stopped(self, record: dict[str, Any]) -> str:
         """Keep a Planner that failed for the whole retry window quiet."""
         self._suggested_sleep_s = max(
             float(getattr(self, "_suggested_sleep_s", 0.0) or 0.0),
@@ -693,17 +556,7 @@ class PlannerFailureBackoffMixin:
             told = self._planner_stop_notices = set()
         if notice not in told:
             told.add(notice)
-            if kind == FAILURE_KIND_DECISION:
-                english = (
-                    "The Planner kept giving unusable answers for three hours, so Argus "
-                    "stopped asking it again. It will try again when something changes: "
-                    "send guidance, change the task, or switch the Planner model in Settings."
-                )
-                chinese = (
-                    "Planner 连续三小时给出无法使用的答复，Argus 已停止重复询问。"
-                    "情况有变化时会再试：发送指导、修改任务，或在设置中更换 Planner 模型。"
-                )
-            elif kind == FAILURE_KIND_INTERNAL:
+            if record.get("kind") == FAILURE_KIND_INTERNAL:
                 english = (
                     "Argus kept hitting an internal error while asking the Planner for three "
                     "hours, so it stopped retrying. Send a message to try again, and please "
@@ -729,16 +582,11 @@ class PlannerFailureBackoffMixin:
 
 __all__ = [
     "FAILURE_KIND_BACKEND",
-    "FAILURE_KIND_DECISION",
     "FAILURE_KIND_INTERNAL",
-    "PLANNER_BACKEND_ALERT_AFTER_SECONDS",
-    "PLANNER_FAILURE_ALERT_AFTER",
+    "PLANNER_FAILURE_ALERT_AFTER_SECONDS",
     "PLANNER_FAILURE_BACKOFF_BASE_SECONDS",
     "PLANNER_FAILURE_BACKOFF_CAP_SECONDS",
-    "PLANNER_FAILURE_HOLD_MAX_SECONDS",
     "PlannerFailureBackoffMixin",
-    "normalize_failure_text",
     "planner_failure_backoff_seconds",
     "planner_failure_kind",
-    "planner_failure_key",
 ]
