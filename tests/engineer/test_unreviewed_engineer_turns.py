@@ -1,7 +1,6 @@
 """The Reviewer judges every Engineer turn since its last review, not only the last."""
 from __future__ import annotations
 
-import time
 from pathlib import Path
 
 from argus.adapters.memory_backend import CannedResponse, MemoryBackend
@@ -23,24 +22,30 @@ def _reviewer_prompts(backend: MemoryBackend) -> list[str]:
     return [prompt for label, prompt, _options in backend.history if label == "reviewer"]
 
 
-def _modified_files_line(prompt: str) -> str:
-    return next(line for line in prompt.splitlines() if "Workspace files modified" in line)
+def _changed_files(prompt: str) -> str:
+    return prompt.split("## Workspace changes under review", 1)[1].split("Diff excerpt:", 1)[0]
+
+
+def _config(tmp_path: Path) -> SupervisedConfig:
+    return SupervisedConfig(
+        max_rounds=4, require_independent_review=True, session_id="m1",
+        operator_question_policy_root=tmp_path / "state",
+    )
 
 
 def test_reviewer_sees_the_self_handoff_turn_before_the_final_one(tmp_path: Path) -> None:
+    work = tmp_path / "work"
+    work.mkdir()
+
     def round_one(_prompt, _options) -> str:
-        # File timestamps come from a coarse kernel clock; a write in the same
-        # tick the window opened can read as older than it.
-        time.sleep(0.05)
-        (tmp_path / "evaluate.py").write_text("SPLIT = 'train'\n")
+        (work / "evaluate.py").write_text("SPLIT = 'train'\n")
         return (
             "Switched evaluate.py to score on the train split (MARKER_R1).\n"
             "MILESTONE_STATUS=continue\nNEXT_OWNER=engineer"
         )
 
     def round_two(_prompt, _options) -> str:
-        time.sleep(0.05)
-        (tmp_path / "report.md").write_text("accuracy 0.99\n")
+        (work / "report.md").write_text("accuracy 0.99\n")
         return "Wrote report.md with accuracy 0.99.\nMILESTONE_STATUS=done\nNEXT_OWNER=reviewer"
 
     backend = MemoryBackend()
@@ -54,27 +59,29 @@ def test_reviewer_sees_the_self_handoff_turn_before_the_final_one(tmp_path: Path
     status, _rounds, *_ = _engineer(backend).run(
         objective="train and report accuracy",
         engineer_prompt_builder=lambda _na, _include_static=True: "Do the task.",
-        supervised_config=SupervisedConfig(max_rounds=4, require_independent_review=True),
-        workdir=tmp_path,
+        supervised_config=_config(tmp_path),
+        workdir=work,
     )
 
     assert status == "done"
     [prompt] = _reviewer_prompts(backend)
     assert "Earlier Engineer turns since the last review" in prompt
     assert "MARKER_R1" in prompt
-    modified = _modified_files_line(prompt)
-    assert "evaluate.py" in modified
-    assert "report.md" in modified
+    changed = _changed_files(prompt)
+    assert "- evaluate.py: +1 -0" in changed
+    assert "- report.md: +1 -0" in changed
 
 
-def test_a_completed_review_closes_the_window(tmp_path: Path) -> None:
+def test_a_later_review_still_sees_the_whole_task(tmp_path: Path) -> None:
+    work = tmp_path / "work"
+    work.mkdir()
+
     def round_one(_prompt, _options) -> str:
-        (tmp_path / "evaluate.py").write_text("SPLIT = 'test'\n")
+        (work / "evaluate.py").write_text("SPLIT = 'test'\n")
         return "Fixed the split (MARKER_R1).\nMILESTONE_STATUS=continue\nNEXT_OWNER=reviewer"
 
     def round_two(_prompt, _options) -> str:
-        time.sleep(0.05)
-        (tmp_path / "report.md").write_text("accuracy 0.81\n")
+        (work / "report.md").write_text("accuracy 0.81\n")
         return "Wrote report.md.\nMILESTONE_STATUS=done\nNEXT_OWNER=reviewer"
 
     backend = MemoryBackend()
@@ -89,16 +96,18 @@ def test_a_completed_review_closes_the_window(tmp_path: Path) -> None:
     status, *_ = _engineer(backend).run(
         objective="fix the split and report accuracy",
         engineer_prompt_builder=lambda _na, _include_static=True: "Do the task.",
-        supervised_config=SupervisedConfig(max_rounds=4, require_independent_review=True),
-        workdir=tmp_path,
+        supervised_config=_config(tmp_path),
+        workdir=work,
     )
 
     assert status == "done"
     second = _reviewer_prompts(backend)[1]
+    # The accounts a review has read are not repeated, but the diff still runs
+    # from the task's start: only a pass may move the baseline (HO-7c).
     assert "Earlier Engineer turns since the last review" not in second
-    modified = _modified_files_line(second)
-    assert "report.md" in modified
-    assert "evaluate.py" not in modified
+    changed = _changed_files(second)
+    assert "- evaluate.py: +1 -0" in changed
+    assert "- report.md: +1 -0" in changed
 
 
 def test_unreviewed_turn_evidence_waits_for_the_reviewer(

@@ -4,7 +4,6 @@ from __future__ import annotations
 import itertools
 import json
 import logging
-import time
 from dataclasses import replace
 from pathlib import Path
 from typing import Callable
@@ -29,8 +28,15 @@ from ..core.secret_guard import (
     known_secret_values,
     redact_secrets_record,
 )
+from ..core.workspace_snapshot import WorkspaceSnapshots
 from ..reviewer import Reviewer, ReviewerConfig
-from .change_facts import change_facts, held_facts, mission_ledger, record_holder
+from .change_facts import (
+    change_facts,
+    held_facts,
+    mission_ledger,
+    mission_lineage,
+    record_holder,
+)
 from .checkpoint import resolve_shared_checkpoint
 from .external_work import scan_external_work
 
@@ -290,6 +296,13 @@ class SupervisedEngineer(
             state.obstacle_stall_root, state.obstacle_stall_objective,
             threshold=int(getattr(supervised_config, "stall_threshold", 0) or 0),
         )
+        lineage = mission_lineage(supervised_config.context_packet_path) or state.mission_ref
+        if state.obstacle_stall_root is not None and lineage:
+            snapshots = WorkspaceSnapshots(
+                state.obstacle_stall_root / "snapshots.git", Path(workdir).resolve(), lineage,
+            )
+            # The task's baseline stays when the same work resumes or is replanned.
+            state.snapshots = snapshots if snapshots.take("baseline", keep=True) else None
         if seed_thread_id:
             state.engineer_thread_ids.add(str(seed_thread_id))
         checkpoint_path = resolve_shared_checkpoint(supervised_config.checkpoint_path)
@@ -412,8 +425,6 @@ class SupervisedEngineer(
                 engineer_prompt += "\n\n" + state.pending_external_work_followup
                 state.pending_external_work_followup = ""
 
-            if state.round_started_wall is None:
-                state.round_started_wall = time.time()
             outcome = self._run_engineer_turn(
                 round_index=round_index,
                 engineer_prompt=engineer_prompt,

@@ -11,6 +11,7 @@ from ...core.model_visible_text import (
     review_evidence_rule,
     sanitize_model_visible_text,
 )
+from ...core.workspace_snapshot import WorkspaceSnapshots
 from ..task_contract import (
     EFFECTIVE_TASK_CONTRACT,
     experiment_evidence_contract,
@@ -165,62 +166,70 @@ def _audit_integrity_directive(context: str) -> str:
     )
 
 
-_ARTIFACT_SCAN_SKIP_DIRS = frozenset(
-    {".git", ".argus", "node_modules", "__pycache__", ".venv", "venv", ".cache"}
-)
-_ARTIFACT_SCAN_MAX_ENTRIES = 50_000
+# The Reviewer starts from the diff instead of re-reading the workspace to find
+# what moved. Past these bounds a file is listed by name and line counts only.
+_DIFF_FILE_LINES = 60
+_DIFF_TOTAL_LINES = 300
+_DIFF_LINE_CHARS = 240
+_DIFF_LISTED_FILES = 80
 
 
-def _changed_artifact_block(
-    working_dir: str | Path | None, since_ts: float | None
-) -> str:
-    """List workspace files modified since the round started.
-
-    Mission workspaces are usually not git repositories, so this reads file
-    modification times under the workspace itself rather than version control.
-    Paths are relative to the workspace and never leave it.
-    """
-    if since_ts is None or working_dir is None:
+def _change_block(snapshots: WorkspaceSnapshots | None) -> str:
+    """What the task changed in the workspace, from its baseline to this candidate."""
+    changes = snapshots.changes("baseline", "candidate") if snapshots else None
+    if changes is None:
         return ""
-    root = Path(working_dir).expanduser()
-    if not root.is_dir():
-        return ""
-    changed: list[tuple[float, str]] = []
-    seen = 0
-    stack = [root]
-    while stack and seen < _ARTIFACT_SCAN_MAX_ENTRIES:
-        current = stack.pop()
-        try:
-            entries = list(os.scandir(current))
-        except OSError:
-            continue
-        for entry in entries:
-            seen += 1
-            try:
-                if entry.is_symlink():
-                    continue
-                if entry.is_dir():
-                    if entry.name not in _ARTIFACT_SCAN_SKIP_DIRS:
-                        stack.append(Path(entry.path))
-                    continue
-                mtime = entry.stat().st_mtime
-            except OSError:
-                continue
-            if mtime >= since_ts:
-                rel = Path(entry.path).relative_to(root).as_posix()
-                changed.append((mtime, rel))
-    if not changed:
-        return ""
-    changed.sort(reverse=True)
-    paths = [rel for _, rel in changed]
-    shown = ", ".join(paths[:20])
-    if len(paths) > 20:
-        shown += f", +{len(paths) - 20} more"
-    return (
-        "\nWorkspace files modified during this round, newest first (open the "
-        "ones a claim rests on; the account above is a summary): "
-        f"{sanitize_model_visible_text(shown)}\n"
+    block = (
+        "\n## Workspace changes under review\n"
+        "The workspace from the task's start to now, leaving out ignored files, "
+        "`.argus`, environments, caches and nested repositories.\n"
     )
+    if not changes:
+        return block + "Nothing in it has changed.\n"
+    budget, chosen = _DIFF_TOTAL_LINES, []
+    for change in changes:
+        lines = (change.added or 0) + (change.deleted or 0)
+        if lines and budget > 0:
+            chosen.append(change.path)
+            budget -= min(lines, _DIFF_FILE_LINES)
+    excerpt, shown, budget = [], {}, _DIFF_TOTAL_LINES
+    for path, hunk in zip(chosen, snapshots.hunks("baseline", "candidate", chosen)):
+        room = min(_DIFF_FILE_LINES, budget)
+        if room > 0:
+            excerpt += [f"--- {path}", *(line[:_DIFF_LINE_CHARS] for line in hunk[:room])]
+            shown[path] = len(hunk) <= room
+            budget -= min(room, len(hunk))
+    rows = []
+    for change in changes[:_DIFF_LISTED_FILES]:
+        if change.sizes is not None:
+            before, after = (
+                "absent" if size is None else f"{size:,} bytes" for size in change.sizes
+            )
+            rows.append(f"- {change.path}: large file, {before} -> {after}, not diffed")
+        elif change.added is None:
+            rows.append(f"- {change.path}: binary")
+        else:
+            note = (
+                "" if shown.get(change.path) or not change.added + change.deleted
+                else ", excerpt cut" if change.path in shown else ", not excerpted"
+            )
+            rows.append(f"- {change.path}: +{change.added} -{change.deleted}{note}")
+    rest = changes[_DIFF_LISTED_FILES:]
+    if rest:
+        rows.append(
+            f"- and {len(rest)} more files: +{sum(change.added or 0 for change in rest)} "
+            f"-{sum(change.deleted or 0 for change in rest)}"
+        )
+    block += (
+        f"{len(changes)} files changed, +{sum(change.added or 0 for change in changes)} "
+        f"-{sum(change.deleted or 0 for change in changes)}:\n" + "\n".join(rows) + "\n"
+        "Start the review from this diff and open a file only to check a specific "
+        "claim; do not re-explore the workspace. Read a file marked cut or not "
+        "excerpted yourself if you need it.\n"
+    )
+    if excerpt:
+        block += "\nDiff excerpt:\n" + "\n".join(excerpt) + "\n"
+    return sanitize_model_visible_text(block)
 
 
 def _prompt_block_stats(blocks: Mapping[str, str]) -> dict[str, dict[str, int]]:
@@ -303,7 +312,7 @@ def render_reviewer_prompt(
     vertical_state_root: str | Path | None = None,
     vertical: str = "",
     workflow_mode: str | None = None,
-    round_started_ts: float | None = None,
+    snapshots: WorkspaceSnapshots | None = None,
     previous_findings: str = "",
     evidence_mode: str = "",
 ) -> tuple[str, str]:
@@ -643,9 +652,9 @@ def render_reviewer_prompt(
         else ""
     )
     # Given only the Engineer's summary, reviewers missed evaluation on the
-    # training split; given the artifacts, they caught it. Point at the files
-    # this round touched so the Reviewer opens them rather than the account.
-    artifact_block = _changed_artifact_block(working_dir, round_started_ts)
+    # training split; given the artifacts, they caught it. The diff comes first,
+    # then the recorded commands, and the account last.
+    change_block = _change_block(snapshots)
     # Source handoff is a workspace fact, not another unconditional role rule.
     # Keep ordinary reviews small and the static prefix stable across projects.
     source_block = ""
@@ -845,12 +854,12 @@ def render_reviewer_prompt(
         + f"{incremental_review_block}"
         + previous_findings_block
         + f"{background_block}"
+        + change_block
+        + f"{evidence_block}"
         + f"Main agent fatal error: {error_text}\n\n"
         + "## Engineer's account of this round\n"
         + engineer_account
         + "\n\n"
-        + f"{evidence_block}"
-        + artifact_block
         + source_block
         # OperatorContext is intentionally the final live-facts block: this
         # preserves the static cache prefix and improves steering recency.
@@ -879,7 +888,7 @@ def render_reviewer_prompt(
             ),
             "main_summary": main_summary,
             "raw_evidence": evidence_block,
-            "changed_artifacts": artifact_block,
+            "workspace_changes": change_block,
             "web_sources": source_block,
         }
     )

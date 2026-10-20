@@ -416,7 +416,7 @@ def test_reviewer_checks_metric_split_and_requested_deliverable(monkeypatch):
     assert "operator's own words" not in flat
 
 
-def _artifact_prompt(workdir, round_started_ts):
+def _change_prompt(snapshots, raw_evidence=""):
     r = Reviewer(runner=None, skill_store=None)
     return r._build_prompt(
         objective="evaluate the model",
@@ -427,40 +427,75 @@ def _artifact_prompt(workdir, round_started_ts):
         main_summary="accuracy 0.93",
         main_error=None,
         prior_checkpoint={},
-        working_dir=str(workdir),
-        round_started_ts=round_started_ts,
+        raw_evidence=raw_evidence,
+        snapshots=snapshots,
     )
 
 
-def test_reviewer_receives_files_modified_this_round_without_git(tmp_path):
-    """Mission workspaces are not git repositories; the list must still appear,
-    scoped to the workspace and to this round."""
-    import os
-    import time
+def _task(tmp_path):
+    from argus.core.workspace_snapshot import WorkspaceSnapshots
 
     workspace = tmp_path / "my project"
-    (workspace / "results").mkdir(parents=True)
-    old = workspace / "train.py"
-    old.write_text("x", encoding="utf-8")
-    hidden = workspace / ".argus" / "state.json"
-    hidden.parent.mkdir()
-    hidden.write_text("{}", encoding="utf-8")
-    long_ago = time.time() - 3600
-    os.utime(old, (long_ago, long_ago))
-    round_start = time.time() - 60
-    (workspace / "results" / "eval results.json").write_text("{}", encoding="utf-8")
-    (tmp_path / "outside.txt").write_text("x", encoding="utf-8")
-
-    prompt = _artifact_prompt(workspace, round_start)
-
-    line = next(row for row in prompt.splitlines() if "modified during this round" in row)
-    assert "results/eval results.json" in line
-    assert "train.py" not in line
-    assert ".argus" not in line
-    assert "outside.txt" not in line
+    workspace.mkdir()
+    (workspace / "train.py").write_text("split = 'test'\n", encoding="utf-8")
+    snapshots = WorkspaceSnapshots(tmp_path / "state" / "snapshots.git", workspace, "m1")
+    assert snapshots.take("baseline")
+    return workspace, snapshots
 
 
-def test_reviewer_artifact_list_absent_without_round_start(tmp_path):
-    (tmp_path / "eval.json").write_text("{}", encoding="utf-8")
+def test_reviewer_starts_from_the_diff_then_the_commands_then_the_account(tmp_path):
+    workspace, snapshots = _task(tmp_path)
+    (workspace / "train.py").write_text("split = 'train'\n", encoding="utf-8")
+    (workspace / "results").mkdir()
+    (workspace / "results" / "eval results.json").write_text('{"acc": 0.93}\n', encoding="utf-8")
+    (workspace / ".argus").mkdir()
+    (workspace / ".argus" / "state.json").write_text("{}", encoding="utf-8")
+    assert snapshots.take("candidate")
 
-    assert "modified during this round" not in _artifact_prompt(tmp_path, None)
+    prompt = _change_prompt(snapshots, raw_evidence="$ pytest -q\n3 passed")
+
+    block = prompt.split("## Workspace changes under review\n", 1)[1].split("Raw verification", 1)[0]
+    assert "2 files changed, +2 -1:" in block
+    assert "- results/eval results.json: +1 -0\n" in block
+    assert "- train.py: +1 -1\n" in block
+    assert "do not re-explore the workspace" in block
+    assert "--- train.py\n@@ -1 +1 @@\n-split = 'test'\n+split = 'train'\n" in block
+    assert ".argus" not in block.split("caches and nested repositories.", 1)[1]
+    order = [
+        prompt.index("## Workspace changes under review"),
+        prompt.index("Raw verification evidence"),
+        prompt.index("## Engineer's account of this round"),
+    ]
+    assert order == sorted(order)
+
+
+def test_a_very_large_change_is_listed_by_counts_beyond_the_caps(tmp_path):
+    from argus.roles.prompts import reviewer as prompts
+
+    workspace, snapshots = _task(tmp_path)
+    for index in range(150):
+        lines = "".join(f"value_{index}_{line} = {'x' * 400}\n" for line in range(200))
+        (workspace / f"module_{index:03d}.py").write_text(lines, encoding="utf-8")
+    assert snapshots.take("candidate")
+
+    prompt = _change_prompt(snapshots)
+
+    block = prompt.split("## Workspace changes under review\n", 1)[1].split("Main agent fatal", 1)[0]
+    excerpt = block.split("\nDiff excerpt:\n", 1)[1].splitlines()
+    assert len(excerpt) <= prompts._DIFF_TOTAL_LINES + prompts._DIFF_TOTAL_LINES // prompts._DIFF_FILE_LINES
+    assert max(len(line) for line in excerpt) <= prompts._DIFF_LINE_CHARS
+    assert "- module_000.py: +200 -0, excerpt cut\n" in block
+    assert "- module_079.py: +200 -0, not excerpted\n" in block
+    assert "- and 70 more files: +14000 -0" in block
+    assert "module_080.py" not in block.split("\nDiff excerpt:\n", 1)[0]
+    assert "150 files changed, +30000 -0:" in block
+    assert "Read a file marked cut or not excerpted yourself" in block
+    assert len(block) < 90_000
+
+
+def test_an_unchanged_workspace_says_so_and_no_snapshots_say_nothing(tmp_path):
+    _, snapshots = _task(tmp_path)
+    assert snapshots.take("candidate")
+
+    assert "Nothing in it has changed." in _change_prompt(snapshots)
+    assert "## Workspace changes under review" not in _change_prompt(None)
