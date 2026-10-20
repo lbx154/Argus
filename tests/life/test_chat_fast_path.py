@@ -432,6 +432,11 @@ def test_web_self_classification_reaches_execution_and_atlas_without_team(tmp_pa
                     "INTAKE_TYPE: OBJECTIVE_AMENDMENT\nDOMAIN_ACTION: NONE\nSKILL_VERTICAL: software\n"
                     "NAME: Correct a function\n",
                 ])
+            # The runner's stream relay, as the real backend's event callback drives it.
+            runner._stream_progress_relay(runner._current_sink, None, f"{kwargs['run_label']}.stdout", json.dumps({
+                "type": "tool.execution_start",
+                "data": {"toolCallId": "call-1", "toolName": "bash", "arguments": {"command": "pytest -q"}},
+            }))
             return super().run_exec(**kwargs)
 
     sid = "s-self-vertical"
@@ -442,6 +447,9 @@ def test_web_self_classification_reaches_execution_and_atlas_without_team(tmp_pa
     write_session_meta(tmp_path, SessionMeta(id=sid, cwd=str(workspace), workdir=str(workspace)))
     backend = Backend(response_message="Fixed and checked the function.")
     runner = _make_runner(backend)
+    from argus.adapters.stream_progress import StreamProgressRelay
+
+    runner._stream_progress_relay = StreamProgressRelay()
     runner._args.workdir = str(workspace)
     runner._manager_session_root = state
     runner.manager = Manager(state, runner=backend, execution_workdir=workspace,
@@ -463,6 +471,10 @@ def test_web_self_classification_reaches_execution_and_atlas_without_team(tmp_pa
     assert len(backend.classify_calls) == 1 and len(backend.calls) == 1
     assert "single-agent task: software" in backend.calls[0]["prompt"]
     assert f"`{workspace / '.agents' / 'skills'}/<name>/SKILL.md`" in backend.calls[0]["prompt"]
+    # The self-implement turn's tool call is on record as a step of its turn.
+    events = [json.loads(line) for line in (state / "events.jsonl").read_text(encoding="utf-8").splitlines()]
+    steps = [event for event in events if event.get("turn_step")]
+    assert steps and {(event["agent_layer"], event["kind"]) for event in steps} == {("manager", "command_execution")}
     assert str(tmp_path / "skills/_shared_verticals/software/engineer") in backend.calls[0]["options"].skill_paths
     assert not (state / "backlog.jsonl").exists() or not (state / "backlog.jsonl").read_text().strip()
     manager_state._STATES.pop(sid, None)
