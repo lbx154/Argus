@@ -9,8 +9,8 @@ from collections.abc import Sequence
 EFFECTIVE_TASK_CONTRACT = (
     "## Task authority\n"
     "Follow operator>objective>mission>preregistration; memory advises. Deliver "
-    "the requested outputs, not substitutes. Equal authority in conflict means "
-    "`ambiguous_objective`."
+    "the requested outputs, not substitutes. When equal authorities conflict, "
+    "do not pick one: name the conflict and hand it to whoever can decide."
 )
 
 NATIVE_WINDOWS_SHELL_CONTRACT = (
