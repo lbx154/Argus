@@ -87,6 +87,17 @@ def test_environments_caches_argus_state_and_ignored_files_are_left_out(tmp_path
     assert [change.path for change in snapshots.changes("baseline", "candidate")] == ["src/model.py"]
 
 
+def test_a_work_tree_holding_the_repository_never_records_it(tmp_path):
+    _write(tmp_path, "main.py")
+    snapshots = _snapshots(tmp_path, tmp_path)
+    assert snapshots.take("baseline")
+    _write(tmp_path, "src/model.py")
+    assert snapshots.take("candidate")
+
+    assert _stored(snapshots, "candidate") == ["main.py", "src/model.py"]
+    assert [change.path for change in snapshots.changes("baseline", "candidate")] == ["src/model.py"]
+
+
 def test_nested_repositories_are_their_own(tmp_path):
     work = tmp_path / "work"
     _write(work, "main.py")
