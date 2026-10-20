@@ -10,13 +10,13 @@ IDLE_BACKOFF_CAP_SECONDS = 300.0
 # These are fact-emission cadences so indefinite waits remain observable.
 PLANNER_IDLE_JOURNAL_HEARTBEAT_SECONDS = 1800.0
 LIFECYCLE_BLOCK_HEARTBEAT_SECONDS = 1800.0
-# A cycle whose Planner-visible inputs are byte-identical to those of the last
-# Planner call keeps that call's waiting decision without a new model call.
-# After this much wall clock the Planner is called anyway: elapsed time is
-# itself an input a standing campaign may act on (a long silence can justify
-# escalation or a probe), so unchanged files must not silence it forever. The
-# cadence matches the idle journal heartbeat above.
-PLANNER_UNCHANGED_SKIP_MAX_SECONDS = 1800.0
+# Model attempts at one project completion report. Each failure backs off;
+# after the last the operator gets the stage summary Argus can state without
+# the model, so a broken backend cannot keep the report loop calling it.
+PROJECT_REPORT_MODEL_ATTEMPTS = 3
+# Manager attempts at one parked card it decides in the operator's place. After
+# the last the card waits, with a notice, until it changes or the operator returns.
+PROXY_DECISION_ATTEMPTS = 3
 PLAN_TERMINAL_IDLE = "planner_terminal_idle"
 PLAN_AWAITING = "awaiting_external"
 PLAN_ERROR = "planner_error"
@@ -174,7 +174,6 @@ __all__ = [
     "IDLE_BACKOFF_BASE_SECONDS",
     "IDLE_BACKOFF_CAP_SECONDS",
     "PLANNER_IDLE_JOURNAL_HEARTBEAT_SECONDS",
-    "PLANNER_UNCHANGED_SKIP_MAX_SECONDS",
     "LIFECYCLE_BLOCK_HEARTBEAT_SECONDS",
     "PLANNER_SCOPE_BOUNDED",
     "PLANNER_SCOPE_FINAL_SUBMISSION",

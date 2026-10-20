@@ -17,6 +17,12 @@ RECOMMENDATIONS = (
 )
 ACCEPTED_RECOMMENDATIONS = frozenset({"weak_accept", "accept", "strong_accept", "best_paper"})
 FINAL_REVIEW_FEEDBACK_CHARS = 12_000
+# A venue revision has no round ceiling, but rounds the Reviewer judges to make
+# no progress do not go on without end: after this many in a row the mission
+# stops and asks the operator how to continue, and a question left unanswered
+# this long is decided by the Manager. Operator decision, 2026-10-19.
+VENUE_STALL_ROUNDS = 5
+VENUE_STALL_DECISION_SECONDS = 12 * 3600.0
 
 
 def requires_venue_review(*, vertical: str, stage: str, scope: str = "", operation: str = "evaluate") -> bool:
@@ -73,7 +79,9 @@ def configure_venue_revisions(config: Any) -> None:
     Each round of a final Review pays for a venue-scale review, so revision runs
     to a budget (the smaller of the mission cap and
     ``ARGUS_SKILL_VENUE_REVIEW_MAX_ROUNDS``) rather than until convergence is
-    guessed; spending it hands the paper to the Manager.
+    guessed; spending it hands the paper to the Manager. Rounds the Reviewer
+    judges to make no progress stop sooner, with a question to the operator
+    (VENUE_STALL_ROUNDS).
     """
     caps = [cap for cap in (int(config.max_rounds or 0), venue_review_round_budget()) if cap > 0]
     config.max_rounds = min(caps, default=0)
@@ -81,7 +89,8 @@ def configure_venue_revisions(config: Any) -> None:
     # scientific revision. A long figure/experiment repair can need more than
     # three fresh sessions before it is ready for independent review.
     config.provider_turn_cap_streak_limit = 0
-    config.stall_threshold = 0
+    config.stall_threshold = VENUE_STALL_ROUNDS
+    config.stall_asks_operator = True
     config.soft_round_limit = 0
     config.hard_escalate_rounds = 0
     config.decision_progress_timeout_seconds = 0

@@ -328,3 +328,26 @@ def test_the_existing_preconditions_still_hold(field: str, open_ended: bool) -> 
 
     assert probe._reconcile(_verdict(waiting_contract=contract, **overrides)) == ""
     assert probe.manager_calls == 0
+
+
+def _file_wait():
+    from argus.planner import WaitingContract
+
+    return WaitingContract(
+        blocker_fingerprint="results-file",
+        recheck_condition="results/metrics.json is written",
+        recheck_token="tok-1",
+        wake_on=("artifact_revision",),
+        watched_paths=("results/metrics.json",),
+    )
+
+
+def test_an_unchanged_wait_gets_one_manager_ruling() -> None:
+    """Re-asking every few idle cycles was a Manager call every twenty minutes."""
+    probe = _Probe()
+    verdict = _verdict(waiting_contract=_file_wait())
+
+    for _ in range(200):
+        probe._reconcile(verdict)
+
+    assert probe.manager_calls == 1

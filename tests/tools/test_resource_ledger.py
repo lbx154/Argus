@@ -443,3 +443,72 @@ def test_skipped_any_waiter_still_holds_back_later_specific_kind(tmp_path: Path)
     # The rocm card is one the earlier any-kind waiter could use, so the later
     # request must not jump ahead of it.
     assert later_rocm["state"] == "queued"
+
+
+def test_more_cards_or_memory_than_the_host_has_is_unsatisfiable(tmp_path: Path) -> None:
+    root = tmp_path / "ledger"
+    root.mkdir()
+    ledger = ResourceLedger(root, probe=lambda: _snapshot())
+
+    two_cards = ledger.acquire(dict(_demand("two"), device_count=2), owner=_owner(tmp_path, "two"))
+    big_card = ledger.acquire(
+        dict(_demand("big"), mem_mib_estimate=200), owner=_owner(tmp_path, "big"),
+    )
+
+    assert two_cards["state"] == big_card["state"] == "unsatisfiable"
+    assert "2 device(s)" in two_cards["unsatisfiable_reason"]
+    assert "200 MiB" in big_card["unsatisfiable_reason"]
+    assert list((root / "queue").glob("*.json")) == []
+
+
+def test_unknown_card_memory_never_makes_a_demand_unsatisfiable(tmp_path: Path) -> None:
+    snapshot = _snapshot()
+    snapshot["accelerators"][0]["devices"][0]["total_memory_mib"] = 0
+    ledger = ResourceLedger(tmp_path / "ledger", probe=lambda: snapshot)
+
+    result = ledger.acquire(dict(_demand("big"), mem_mib_estimate=200), owner=_owner(tmp_path, "big"))
+
+    assert result["state"] != "unsatisfiable"
+
+
+def test_a_long_queue_wait_is_told_once_and_ends_at_the_job_timeout(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from types import SimpleNamespace
+
+    from argus.core.transcript import read_turns
+
+    monkeypatch.chdir(tmp_path)
+    ledger = ResourceLedger(tmp_path / "ledger", probe=lambda: _snapshot())
+    holder = ledger.acquire(
+        dict(_demand("long training"), expected_duration_seconds=600),
+        owner=_owner(tmp_path, "holder"),
+    )
+    assert holder["state"] == "granted"
+    monkeypatch.setattr(_resource_admission, "ResourceLedger", lambda: ledger)
+    base, elapsed = time.time(), [0.0]
+    monkeypatch.setattr(_resource_admission, "time", SimpleNamespace(
+        monotonic=lambda: elapsed[0],
+        time=lambda: base + elapsed[0],
+        sleep=lambda seconds: elapsed.__setitem__(0, elapsed[0] + seconds),
+    ))
+    life = tmp_path / "life"
+    _write_task("waiter", {
+        "state": "starting",
+        "task_id": "waiter",
+        "run_id": "waiter-run",
+        "description": "evaluate the checkpoint",
+        "owner_session_root": str(life),
+        "resource_demand": dict(_demand("eval"), expected_duration_seconds=60),
+    })
+
+    with pytest.raises(_resource_admission.ResourceQueueTimeout, match="--timeout"):
+        _resource_admission.acquire_for_task(
+            "waiter", mode="direct", project_root=tmp_path, timeout=7200,
+        )
+
+    assert 7200 <= elapsed[0] < 7300
+    assert ledger.status(refresh_probe=False)["queue"] == []
+    notices = [turn for turn in read_turns(life) if turn.get("message_id") == "gpu-queue-wait-waiter"]
+    assert len(notices) == 1
+    assert "holder (held 1.0 h, estimate 0.2 h)" in notices[0]["text"]

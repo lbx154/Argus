@@ -282,6 +282,7 @@ def test_gate_applies_to_final_papers_only():
 
 
 def test_quality_revision_runs_to_a_round_budget_without_disabling_stops():
+    from argus.core.venue_review import VENUE_STALL_ROUNDS
     from argus.engineer.round_config import SupervisedConfig
     from argus.engineer.round_settlement import RoundSettlementMixin
 
@@ -290,15 +291,19 @@ def test_quality_revision_runs_to_a_round_budget_without_disabling_stops():
     assert config.max_rounds == 6  # the venue-review budget, smaller than the mission cap
     assert config.provider_turn_cap_streak_limit == 0
     assert config.require_independent_review
+    # Operator decision, 2026-10-19: fruitless rounds stop after five and ask.
+    assert config.stall_threshold == VENUE_STALL_ROUNDS and config.stall_asks_operator
     kwargs = {
         "no_progress_streak": 0, "no_progress_threshold": config.no_progress_threshold,
-        "semantic_stall_streak": 100, "stall_threshold": config.stall_threshold,
-        "round_index": 100, "max_rounds": config.max_rounds,
+        "semantic_stall_streak": VENUE_STALL_ROUNDS - 1, "stall_threshold": config.stall_threshold,
+        "round_index": config.max_rounds - 1, "max_rounds": config.max_rounds,
         "hard_escalate_rounds": config.hard_escalate_rounds,
         "decision_idle_seconds": 100000, "decision_timeout_seconds": config.decision_progress_timeout_seconds,
     }
     rejecting = ReviewDecision(status="continue", reason="Still below weak accept.", next_action="Run the missing matched control.")
     assert RoundSettlementMixin._classify(review=rejecting, **kwargs) == (None, "")
+    stalled = dict(kwargs, semantic_stall_streak=VENUE_STALL_ROUNDS)
+    assert RoundSettlementMixin._classify(review=rejecting, **stalled)[0] == "no_progress"
     stopped = ReviewDecision(status="blocked", reason="Operator stopped this work.", next_action="", operator_question="Wait for the operator.")
     assert RoundSettlementMixin._classify(review=stopped, **kwargs)[0] == "blocked"
     unavailable = ReviewDecision(status="blocked", reason="Provider unavailable.", next_action="Retry provider.", backend_unavailable=True)

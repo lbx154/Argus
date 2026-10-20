@@ -23,6 +23,7 @@ from argus.core.operator_decision import build_operator_decision
 from argus.daemon.state import read_continuous_state, write_continuous_config
 from argus.life.memory import Backlog, BacklogItem, LifeMemory
 from argus.life.supervisor import LifeSupervisor, LifeSupervisorConfig
+from argus.life.supervisor._constants import PROXY_DECISION_ATTEMPTS
 from argus.manager import config_intent, front_door
 from argus.manager.directive import set_active_manager_directive
 from argus.webapi import manager_bridge, manager_pending_question, manager_state
@@ -746,6 +747,14 @@ def test_a_choice_outside_the_card_is_asked_again_only_after_a_backoff(
     assert len(manager.prompts) == 1
     parked = next(row for row in LifeMemory.open(life).backlog.history() if row.id == item.id)
     assert parked.status == "paused_operator"
+
+    # A card the Manager keeps failing gets a bounded number of tries.
+    for _ in range(10):
+        supervisor._proxy_retry = {
+            key: (attempts, 0.0) for key, (attempts, _retry_at) in supervisor._proxy_retry.items()
+        }
+        assert supervisor._decide_parked_questions() is False
+    assert len(manager.prompts) == PROXY_DECISION_ATTEMPTS
 
 
 def test_the_manager_cannot_answer_a_card_the_operator_can_be_asked(

@@ -269,7 +269,50 @@ def daemon_dict(status: DaemonStatus, *, life_dir: Path | None = None) -> dict[s
         "runtime": status.runtime,
         "protocol_compatible": protocol_compatible,
         "protocol_error": protocol_error,
+        # A "pause after the current task" request is still being honoured.
+        "draining": bool(alive and life_dir is not None and _drain_pid(life_dir) == status.pid),
     }
+
+
+def _goal_text(life_dir: Path) -> str:
+    """The committed operator objective, without appended launch settings."""
+    try:
+        from ..core.project_contract import load_contract
+
+        contract = load_contract(life_dir)
+    except Exception:  # noqa: BLE001 - the overview falls back to other titles
+        return ""
+    if contract is None:
+        return ""
+    text = contract.objective
+    for marker in ("\n\n【开工设置", "\n\n[Launch settings"):
+        text = text.split(marker, 1)[0]
+    return text.strip()[:600]
+
+
+def _storage_view(session: dict[str, Any], life_dir: Path) -> dict[str, Any] | None:
+    """Free space on the disk that holds the project's outputs (a statvfs call)."""
+    import shutil
+
+    for candidate in (session.get("workdir"), life_dir):
+        if not candidate:
+            continue
+        try:
+            usage = shutil.disk_usage(str(candidate))
+        except OSError:
+            continue
+        return {
+            "total_bytes": usage.total,
+            "free_bytes": usage.free,
+            "used_fraction": round(1 - usage.free / usage.total, 4) if usage.total else None,
+        }
+    return None
+
+
+def _drain_pid(life_dir: Path) -> int | None:
+    from ..daemon.state import daemon_drain_pid
+
+    return daemon_drain_pid(life_dir)
 
 
 def diagnostic(section: str, exc: BaseException) -> dict[str, str]:
@@ -390,8 +433,11 @@ def compact_backlog_item(item: Any) -> dict[str, Any]:
         "iterate": item.iterate,
         "pending_question": item.pending_question[:500],
         "operator_decision": dict(item.operator_decision),
+        "ts": item.ts,
         "started_ts": item.started_ts,
         "finished_ts": item.finished_ts,
+        # The first line of why a task stopped, for status summaries.
+        "last_error": " ".join(str(item.last_error or "").split())[:300],
         "deps": [str(dep) for dep in item.deps],
         "iteration_max_cycles": item.iteration_max_cycles,
         "iteration_cycles_done": item.iteration_cycles_done,
@@ -745,6 +791,20 @@ def build_snapshot(
 
     if card := intake_card(read_intake(life_dir)):
         snapshot["pending_questions"].insert(0, {"operator_decision": card})
+    snapshot["storage"] = _storage_view(session, life_dir)
+    snapshot["goal"] = _goal_text(life_dir)
+    try:
+        from .launch_hold import launch_hold_view
+
+        snapshot["launch_hold"] = launch_hold_view(
+            life_dir,
+            daemon_alive=bool(daemon.get("alive")),
+            backlog=items,
+            continuous_enabled=bool(continuous_payload.get("enabled")),
+        )
+    except Exception as exc:  # noqa: BLE001
+        snapshot["launch_hold"] = None
+        diagnostics.append(diagnostic("launch_hold", exc))
     snapshot["partial"] = bool(diagnostics)
     snapshot["diagnostics"] = diagnostics
     return snapshot

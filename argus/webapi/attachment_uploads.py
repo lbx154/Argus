@@ -18,6 +18,7 @@ import ijson
 
 from ..core.file_lock import exclusive_file_lock
 from . import attachments as store
+from . import staged_attachments
 from .artifacts import project_workspace
 
 CHUNK_BYTES = 4 * 1024 * 1024
@@ -214,7 +215,7 @@ def _validate_file(handle, metadata: dict[str, Any], cancelled: Callable[[], boo
         decoder.decode(b"", final=True)
     except UnicodeDecodeError as exc:
         raise UploadError(f"{name} must be UTF-8 text") from exc
-    if suffix == ".json":
+    if suffix in {".json", ".ipynb"}:
         handle.seek(0)
         if handle.read(3) != codecs.BOM_UTF8:
             handle.seek(0)
@@ -300,6 +301,7 @@ class AttachmentUploads:
             return
         with self._locked(self.roots[0]):
             self._cleanup()
+        staged_attachments.sweep(self.roots)
 
     def begin(self, root: Path, sid: str, name: str, mime: str, size: int) -> dict[str, Any]:
         workspace = project_workspace(sid, global_root=root)
@@ -411,6 +413,11 @@ class AttachmentUploads:
                             directory.rename(_PART, metadata["stored_name"])
                         metadata.pop("updated_at", None)
                         directory.write("metadata.json", metadata)
+                        # A draft upload until a message carries it.
+                        try:
+                            staged_attachments.stage(root, sid, [attachment_id])
+                        except (OSError, ValueError, TimeoutError):
+                            pass
                         return {"attachment_id": attachment_id, "offset": actual, "size_bytes": actual,
                                 "complete": True, "attachment": metadata}
                     return {"attachment_id": attachment_id, "offset": actual,

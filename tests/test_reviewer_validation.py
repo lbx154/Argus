@@ -3,6 +3,7 @@ from __future__ import annotations
 import errno
 import json
 import os
+import re
 import shlex
 import subprocess
 import sys
@@ -36,6 +37,7 @@ from argus.reviewer.validation import (
     configured_read_dirs,
 )
 from argus.skills.store import SkillStore
+from argus.skills.vertical_select import persist_vertical
 
 # The sandbox mounts host paths at identical container paths, runs as the host
 # uid/gid and requires a local Unix-socket daemon. On other hosts the product
@@ -342,6 +344,49 @@ def test_copilot_reviewer_gets_skill_and_operator_read_roots(tmp_path, monkeypat
     assert options.sandbox_mode == "read-only"
     assert options.force_safe_mode
     assert not options.dangerous_yolo
+
+
+def test_research_reviewer_is_granted_the_playbook_its_prompt_names(tmp_path):
+    # Project s-a43d1018: 22 of 40 review rounds could not open the stage
+    # playbook the prompt required, because only profile skill roots were
+    # granted. The named path must reach the CLI as a read-only --add-dir.
+    persist_vertical(tmp_path, "research")
+    state = tmp_path / ".argus" / "PIPELINE_STATE.json"
+    payload = json.loads(state.read_text(encoding="utf-8"))
+    payload["current_stage"] = "experiment"
+    state.write_text(json.dumps(payload), encoding="utf-8")
+    backend = MemoryBackend()
+    backend.backend = "copilot"
+    backend.queue("reviewer", CannedResponse(
+        review_action=("revise_review", {"review": "One check remains."}),
+    ))
+
+    Reviewer(backend, skill_store=SkillStore(tmp_path / "skills")).evaluate(
+        objective="Review the experiment", round_index=1, session_id=None,
+        main_summary="Results are ready.", main_error=None,
+        config=ReviewerConfig(working_dir=str(tmp_path), active_vertical="research"),
+    )
+
+    _label, prompt, options = backend.history[0]
+    named = Path(re.search(r"Open `([^`]+research-experiment-playbook\.md)`", prompt).group(1))
+    assert named.is_file()
+    with review_action_tools(
+        SimpleNamespace(backend="copilot"), options, venue="", venue_required=False,
+    ) as (_actions, final):
+        argv = AgentCliRunner(agent_bin="copilot", backend="copilot")._build_command(
+            resume_thread_id=None,
+            options=NativeOptions(
+                sandbox_mode=final.sandbox_mode, force_safe_mode=final.force_safe_mode,
+                extra_args=final.extra_args, trusted_tool_names=final.trusted_tool_names,
+                extension_env=final.extension_env, add_dirs=final.add_dirs,
+            ),
+        )
+    granted = [argv[index + 1] for index, arg in enumerate(argv) if arg == "--add-dir"]
+    assert str(named.parent) in granted
+    # Only the vertical's skill directory, never the package or release root.
+    assert str(named.parents[3]) not in granted
+    assert "bash" not in argv[argv.index("--available-tools") + 1].split(",")
+    assert options.sandbox_mode == "read-only"
 
 
 @pytest.mark.parametrize("backend_name", ["copilot", "memory"])

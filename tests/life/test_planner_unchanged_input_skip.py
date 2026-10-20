@@ -14,9 +14,9 @@ from __future__ import annotations
 
 import json
 import time
+from pathlib import Path
 
 import pytest
-from pathlib import Path
 
 from argus.apps._inbox import queue_inbox_message
 from argus.apps._inbox_delivery import DurableInboxReceiver

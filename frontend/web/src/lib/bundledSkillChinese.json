@@ -655,7 +655,7 @@
     "summary": "在 METHOD.md 中写清方法、组件、协议和证伪条件；以钉版参考实现为底把方法写成 diff；先写 tests/spec 再跑承载论断的实验；用代码锚点让不在场的审阅者找到机制；规划者据此写实现简报。",
     "originalName": "Method card (METHOD.md), executable spec and review anchors",
     "source": "argus/verticals/research/skills/engineer/method-card.md",
-    "sourceBytes": 20305
+    "sourceBytes": 20533
   },
   "vertical/research/engineer/novelty-check.md": {
     "title": "检验研究想法的新意",
@@ -694,10 +694,10 @@
   },
   "vertical/research/engineer/research-grind.md": {
     "title": "沿诊断阶梯打磨研究结果",
-    "summary": "把首次实现当作草稿，在固定声明下沿诊断阶梯逐级排查；结果异常先怀疑设置；从原始逐种子行算数；依据证据而非尝试次数判断何时足够。",
+    "summary": "把首次实现当作草稿，在当前声明下沿诊断阶梯逐级排查；结果异常先怀疑设置；从原始逐种子行算数；依据证据而非尝试次数判断何时足够。",
     "originalName": "Working a research result into shape",
     "source": "argus/verticals/research/skills/engineer/research-grind.md",
-    "sourceBytes": 18770
+    "sourceBytes": 19184
   },
   "vertical/research/engineer/rl-training-collapse-diagnosis.md": {
     "title": "强化学习训练健康诊断",
@@ -715,10 +715,10 @@
   },
   "vertical/research/engineer/training-infrastructure.md": {
     "title": "训练基础设施的选择、搭建与调参",
-    "summary": "训练或大规模推理需要框架时，用实时来源调查候选、在隔离环境中试装并剖析一步真实更新、以官方配方为锚每次只改一个因素，并把结论写成带日期的项目决策记录；不按记忆推荐技术栈。",
+    "summary": "训练或大规模推理需要框架时，用实时来源调查候选、在隔离环境中试装并剖析一步真实更新、以官方配方为锚每次只改一个因素，并把结论写成带日期的项目决策记录；评测证据完整保留，训练流按种子/索引、标量和抽样输入保存并验证可再生，开跑前估算磁盘占用。",
     "originalName": "Training infrastructure: choosing, standing up and tuning it",
     "source": "argus/verticals/research/skills/engineer/training-infrastructure.md",
-    "sourceBytes": 11575
+    "sourceBytes": 12552
   },
   "vertical/research/engineer/venue-format-preflight.md": {
     "title": "投稿前的编译与泄露检查",
@@ -743,17 +743,17 @@
   },
   "vertical/research/research-experiment-playbook.md": {
     "title": "通过实验发展研究想法",
-    "summary": "忠实实现已选想法，通过适应性实验形成足以支撑论文的证据，而不是只完成首次运行。",
+    "summary": "忠实实现已选想法，先跑通一个小而完整、记录了耗时与算力的闭环，再通过适应性实验形成足以支撑论文的证据；经独立审核的阶段成果可以先作为阶段包交付。",
     "originalName": "Developing an idea through experiments",
     "source": "argus/verticals/research/skills/research-experiment-playbook.md",
-    "sourceBytes": 32233
+    "sourceBytes": 34531
   },
   "vertical/research/research-idea-playbook.md": {
     "title": "寻找并选择研究想法",
-    "summary": "从来源中发现候选可能性，经独立审查后作最终选择，不把构思直接当作实验结果。",
+    "summary": "从来源中发现候选可能性，估算每条路线拿到决定性证据所需的时间与算力，经独立审查后作最终选择，不把构思直接当作实验结果。",
     "originalName": "Finding a research idea",
     "source": "argus/verticals/research/skills/research-idea-playbook.md",
-    "sourceBytes": 5566
+    "sourceBytes": 6027
   },
   "vertical/research/research-paper-playbook.md": {
     "title": "撰写完整研究论文",
@@ -785,10 +785,10 @@
   },
   "vertical/research/reviewer/experiment-results-review.md": {
     "title": "判断实验真正说明了什么",
-    "summary": "亲自读代码、配置、评测器和原始行，判断证据对固定声明的支持与缺口；低于基线的结果在阶梯未走完前是修复请求；训练类实验另核对基础设施决策记录。",
+    "summary": "亲自读代码、配置、评测器和原始行，判断证据对当前声明的支持与缺口；低于基线的结果在阶梯未走完前是修复请求；训练类实验另核对基础设施决策记录。",
     "originalName": "What the experiments establish",
     "source": "argus/verticals/research/skills/reviewer/experiment-results-review.md",
-    "sourceBytes": 10192
+    "sourceBytes": 10435
   },
   "vertical/research/reviewer/strongest-argument-against.md": {
     "title": "寻找最有力的科学反对意见",

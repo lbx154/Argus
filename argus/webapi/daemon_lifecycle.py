@@ -235,6 +235,10 @@ def start_project_daemon(
     life_dir = project_life_dir(sid, global_root=global_root)
     if life_dir is None:
         return None
+    # Any explicit start supersedes a first task held for confirmation.
+    from .launch_hold import clear_launch_hold
+
+    clear_launch_hold(life_dir)
     root = _global_root(global_root)
     st = daemon_worker.read_daemon_status(life_dir)
     if st.alive:
@@ -755,6 +759,7 @@ def set_project_workdir(
 def stop_project_daemon(
     sid: str, *, drain: bool = False, force: bool = False,
     global_root: Path | str | None = None,
+    drain_timeout: float | None = None,
 ) -> dict[str, Any] | None:
     """Stop this project's daemon. Blocking (waits up to the drain timeout) —
     call from a threadpool in the async endpoint."""
@@ -779,5 +784,6 @@ def stop_project_daemon(
         timeout=1.0 if force else 10.0,
         drain=drain,
         force=force,
+        **({"drain_timeout": drain_timeout} if drain_timeout is not None else {}),
     )
     return {"rc": rc, "forced": force}

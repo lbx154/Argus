@@ -12,6 +12,7 @@ from starlette.concurrency import run_in_threadpool
 
 from ..attachment_uploads import CHUNK_BYTES, JSON_TOKEN_BYTES, AttachmentUploads, UploadError
 from ..attachments import attachment_limits
+from ..staged_attachments import StagedAttachmentError, discard
 
 
 class UploadIn(BaseModel):
@@ -46,7 +47,7 @@ def register_attachment_upload_routes(app, ctx):
     async def call(function, *args, **kwargs):
         try:
             return await run_in_threadpool(function, *args, **kwargs)
-        except UploadError as exc:
+        except (UploadError, StagedAttachmentError) as exc:
             raise HTTPException(exc.status, str(exc)) from exc
         except FileNotFoundError as exc:
             raise HTTPException(404, "upload not found for this project") from exc
@@ -94,3 +95,8 @@ def register_attachment_upload_routes(app, ctx):
     @app.delete("/api/projects/{sid}/attachments/uploads/{attachment_id}", dependencies=[Depends(ctx.require_auth)])
     async def cancel(sid: str, attachment_id: str):
         return await call(uploads.cancel, ctx.project_root_or_404(sid), sid, attachment_id)
+
+    @app.delete("/api/projects/{sid}/attachments/{attachment_id}", dependencies=[Depends(ctx.require_auth)])
+    async def discard_draft_attachment(sid: str, attachment_id: str):
+        """Delete a file the operator removed from the draft before sending it."""
+        return await call(discard, ctx.project_root_or_404(sid), sid, attachment_id)

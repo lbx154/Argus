@@ -12,7 +12,9 @@ export function WorkStatusBar({ snapshot, view, events = [], connected, compact 
   const [now, setNow] = useState(() => Date.now() / 1000);
   useEffect(() => { const timer = window.setInterval(() => setNow(Date.now() / 1000), 10_000); return () => window.clearInterval(timer); }, []);
   const status = currentWorkStatus(snapshot, view, events, now);
-  const next = status.reason === 'operator_input'
+  const next = status.reason === 'launch_confirm'
+    ? zh ? '核对上方卡片里的理解和计划，点“开始执行”后才会开始。' : 'Check the plan in the card above; work starts only when you press Start.'
+    : status.reason === 'operator_input'
     ? zh ? '需要你的决定。查看下方问题，确认后继续。' : 'Your decision is needed. Review the question below to continue.'
     : status.reason === 'task_failed'
       ? zh ? '这次工作未完成。已有记录和文件仍保留，可在对话中调整要求或请求继续。' : 'This work did not finish. Existing records and files are retained; adjust the request or ask to continue in the conversation.'
@@ -31,7 +33,7 @@ export function WorkStatusBar({ snapshot, view, events = [], connected, compact 
         : (zh ? `${Math.floor(seconds / 3600)} 小时前有进展` : `Progress ${Math.floor(seconds / 3600)} hr ago`);
   return <div className="shrink-0 border-b border-line/60 bg-panel px-4 py-2.5 text-xs" data-testid="work-status" data-state={status.state}>
     <div className="flex flex-wrap items-center gap-x-2 gap-y-1">
-      <span className={`h-1.5 w-1.5 shrink-0 rounded-full ${!connected ? 'bg-warn' : status.state === 'running' ? 'bg-blue' : 'bg-ink-faint'}`} aria-hidden="true" />
+      <span className={`h-1.5 w-1.5 shrink-0 rounded-full ${!connected ? 'bg-warn' : status.state === 'running' ? 'bg-blue animate-pulse motion-reduce:animate-none' : status.state === 'waiting' ? 'bg-warn' : 'bg-ink-faint'}`} aria-hidden="true" />
       <span className="font-medium text-ink">{workStatusLabel(status, locale, connected)}</span>
       {age ? <time className="text-ink-faint" dateTime={status.activityAt ? new Date(status.activityAt * 1000).toISOString() : undefined}>{age}</time> : null}
     </div>

@@ -2,18 +2,12 @@ export const MESSAGE_TEXT_MAX_CHARS = 32_000;
 export const MESSAGE_ATTACHMENT_MAX_COUNT = 5;
 export const MESSAGE_ATTACHMENT_MAX_BYTES = 100 * 1024 * 1024;
 export const MESSAGE_ATTACHMENT_TOTAL_MAX_BYTES = 500 * 1024 * 1024;
-export const MESSAGE_ATTACHMENT_ACCEPT = [
-  '.png',
-  '.jpg',
-  '.jpeg',
-  '.webp',
-  '.pdf',
-  '.md',
-  '.markdown',
-  '.txt',
-  '.json',
-  '.csv',
-].join(',');
+// Mirrors the server's upload specs: each suffix carries the MIME the server expects.
+const CODE_TEXT_SUFFIXES = [
+  '.py', '.tex', '.bib', '.sty', '.cls', '.yaml', '.yml', '.toml', '.ini', '.cfg', '.sh',
+  '.js', '.mjs', '.ts', '.tsx', '.jsx', '.java', '.c', '.h', '.cpp', '.hpp', '.cc', '.cu',
+  '.go', '.rs', '.rb', '.r', '.m', '.jl', '.sql', '.html', '.css', '.xml', '.tsv', '.log', '.rst',
+];
 
 const ATTACHMENT_MIME_BY_SUFFIX: Record<string, string> = {
   '.png': 'image/png',
@@ -26,7 +20,17 @@ const ATTACHMENT_MIME_BY_SUFFIX: Record<string, string> = {
   '.txt': 'text/plain',
   '.json': 'application/json',
   '.csv': 'text/csv',
+  '.ipynb': 'application/x-ipynb+json',
+  '.zip': 'application/zip',
+  '.gz': 'application/gzip',
+  '.tgz': 'application/gzip',
+  '.xlsx': 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+  '.docx': 'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
+  '.pptx': 'application/vnd.openxmlformats-officedocument.presentationml.presentation',
+  ...Object.fromEntries(CODE_TEXT_SUFFIXES.map((suffix) => [suffix, 'text/plain'])),
 };
+
+export const MESSAGE_ATTACHMENT_ACCEPT = Object.keys(ATTACHMENT_MIME_BY_SUFFIX).join(',');
 
 export type ComposerAttachmentIssue =
   | { code: 'unsupported'; fileName: string }

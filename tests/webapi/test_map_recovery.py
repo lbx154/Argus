@@ -178,3 +178,30 @@ def test_provider_output_length_is_validated_not_just_requested(tmp_path, monkey
                                 project_root=tmp_path, global_root=tmp_path)
     assert not list((tmp_path / "map-presentation").glob("generation-*"))
 
+
+
+def test_a_failing_input_is_retried_twice_then_left_to_the_reader(tmp_path, monkeypatch):
+    """An open reader once retried a failing explanation every five minutes."""
+    data = dataset()
+    calls = []
+    monkeypatch.setattr(map_narrative, "configured", lambda: True)
+
+    def fail(*args, **kwargs):
+        calls.append(1)
+        raise map_model.MapGenerationError("map_timeout")
+
+    monkeypatch.setattr(map_narrative, "generate", fail)
+    path = map_narrative.cache_path(tmp_path, data["id"] + ":en-US")
+    for _ in range(10):
+        result = map_narrative.enrich(tmp_path, data, requests(data), "en-US", project_root=tmp_path)
+        saved = json.loads(path.read_text())
+        saved["retry_at"] = 0  # every cooldown has passed
+        map_narrative._write_cache(path, saved)
+    assert len(calls) == map_narrative.MAP_AUTOMATIC_RETRIES + 1
+    assert result["generation_error"]["manual_retry"] is True and result["retry_after"] == 0
+
+    map_narrative.enrich(tmp_path, data, requests(data), "en-US", project_root=tmp_path, manual_retry=True)
+    assert len(calls) == map_narrative.MAP_AUTOMATIC_RETRIES + 2, "the reader may always ask"
+    data["tasks"][0]["objective"] = "A new claim to explain"
+    map_narrative.enrich(tmp_path, data, requests(data), "en-US", project_root=tmp_path)
+    assert len(calls) == map_narrative.MAP_AUTOMATIC_RETRIES + 3, "new input is tried again"

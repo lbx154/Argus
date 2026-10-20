@@ -17,6 +17,7 @@ from urllib.parse import quote
 
 import portalocker
 
+from ..core.autonomy import AUTOMATIC_RETRY_WINDOW_SECONDS
 from ..core.operator_messages import publish_operator_message, uses_cjk
 
 log = logging.getLogger(__name__)
@@ -126,6 +127,18 @@ class DeferredMessages:
                                  message_id=f"{request['turn_id']}-interrupted",
                                  event_fields={"success": False, "user_action_required": True})
 
+    def _expired(self, life_dir: Path, path: Path, record: dict) -> None:
+        record["status"] = "needs_attention"
+        _write_record(path, record)
+        request = record["request"]
+        reply = ("模型调用名额连续三小时都没有空出来，这条消息已停止自动重试，原消息已保留。请稍后再发送一次。"
+                 if uses_cjk(request["text"]) else
+                 "Model capacity stayed busy for three hours, so Argus stopped retrying this message. "
+                 "It is saved; please send it again later.")
+        publish_operator_message(life_dir, text=reply,
+                                 message_id=f"{request['turn_id']}-busy-expired",
+                                 event_fields={"success": False, "user_action_required": True})
+
     def _drain(self, life_dir: Path) -> None:
         directory = life_dir / "manager-deferred"
         drained = False
@@ -164,9 +177,19 @@ class DeferredMessages:
                         finally:
                             PRESHOWN_OPERATOR_IDS.reset(token)
                         if result.get("kind") == "provider_busy":
+                            # Each busy answer waits twice as long as the last
+                            # (up to five minutes); after the automatic-retry
+                            # window the message waits for the operator.
+                            now = time.time()
+                            busy_since = float(record.get("busy_since") or now)
+                            busy_count = int(record.get("busy_count") or 0) + 1
+                            record.update(busy_since=busy_since, busy_count=busy_count)
+                            if now - busy_since >= AUTOMATIC_RETRY_WINDOW_SECONDS:
+                                self._expired(life_dir, path, record)
+                                continue
                             record["status"] = "waiting"
                             _write_record(path, record)
-                            self.stop.wait(self.retry_seconds)
+                            self.stop.wait(min(300.0, self.retry_seconds * 2 ** (busy_count - 1)))
                         else:
                             record["status"] = "completed"
                             record["result_kind"] = result.get("kind")

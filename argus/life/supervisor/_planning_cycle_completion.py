@@ -29,6 +29,7 @@ from ._constants import (
     PLAN_RETRY,
     PLAN_TERMINAL_IDLE,
     PLANNER_TASKS_FILTERED_DIAGNOSTIC,
+    PROJECT_REPORT_MODEL_ATTEMPTS,
 )
 from ._planning_cycle_helpers import (
     _PlanCycleState,
@@ -404,7 +405,19 @@ class PlanningCycleCompletionMixin:
             return "reported"
 
         report = str(record.get("report") or "")
-        if not report:
+        # A backend that keeps failing gets PROJECT_REPORT_MODEL_ATTEMPTS tries
+        # at one completion; then the operator gets the stage summary Argus can
+        # state without the model.
+        fallback = not report and int(record.get("failures") or 0) >= PROJECT_REPORT_MODEL_ATTEMPTS
+        if fallback:
+            from ...manager import fallback_project_report
+
+            report = fallback_project_report(context, self.config.continuous_objective)
+            self._emit_status(
+                "Manager could not write the project completion report after "
+                f"{PROJECT_REPORT_MODEL_ATTEMPTS} attempts; sending the stage summary instead"
+            )
+        elif not report:
             try:
                 report = str(self._bound_manager().report_project_completion(
                     completion_context=context,
@@ -452,6 +465,7 @@ class PlanningCycleCompletionMixin:
             "transition_count": len(context["stage_history"]),
             "rollback_count": len(context["rollback_history"]),
             "message_id": message_id,
+            **({"fallback": True} if fallback else {}),
         })
         self._clear_manager_planner_feedback()
         return "reported"

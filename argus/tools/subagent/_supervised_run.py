@@ -23,6 +23,7 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
+from ...core.autonomy import AUTOMATIC_RETRY_WINDOW_SECONDS
 from ...core.file_facts import file_facts
 from ._cpu_admission import cpu_admission_lock
 from ._direct_run import (
@@ -59,6 +60,7 @@ from ._registry import (
 from ._reporting import _alert_engineer
 from ._resource_admission import (
     ResourceLease,
+    ResourceQueueTimeout,
     acquire_for_task,
     command_env,
     record_renewal_failure,
@@ -198,13 +200,15 @@ def _supervisor_inputs(paths: tuple[Path, ...]) -> list[list[int]]:
     return [file_facts(path) if path.is_file() else [] for path in paths]
 
 
-def _record_next_check(task_id: str, run_id: str, interval: float) -> None:
+def _record_next_check(task_id: str, run_id: str, interval: float) -> float:
     """Renew the running record: its next check time is the worker's heartbeat."""
+    next_check_at = time.time() + interval
     task = _read_task(task_id) or {}
     if str(task.get("run_id") or "") == run_id and task.get("state") == "running":
         task["current_monitor_interval"] = interval
-        task["next_check_at"] = time.time() + interval
+        task["next_check_at"] = next_check_at
         _write_task(task_id, task)
+    return next_check_at
 
 
 def _supervisor_check_with_usage(
@@ -219,6 +223,7 @@ def _supervisor_check_with_usage(
     cwd: str,
     run_dir: str | None = None,
     thread_id: str | None = None,
+    silent_seconds: float = 0.0,
 ) -> SupervisorCheck:
     """Call codex to check training/eval progress.
 
@@ -273,6 +278,12 @@ def _supervisor_check_with_usage(
             "and release it or continue; a request alone is never a reason to stop. "
             "If continuing, give the Engineer a concrete reason to record with "
             "resource-ledger yield-response.\n\n"
+        )
+
+    if silent_seconds > 0:
+        prompt += (
+            f"=== no new output for {silent_seconds / 60:.0f} minutes: these run "
+            "signals are unchanged since your previous check ===\n\n"
         )
 
     if full_rules:
@@ -391,6 +402,7 @@ def _supervised_do_one_check(
     supervisor_log: Path,
     supervisor_thread_id: str | None,
     supervisor_usage_totals: tuple[int, int, int, int],
+    silent_seconds: float = 0.0,
 ) -> tuple[
     int,  # check_number (may have incremented for confirm re-check)
     str,  # decision
@@ -416,6 +428,7 @@ def _supervised_do_one_check(
         task_id, command, description,
         stdout_path, stderr_path, elapsed, check_number,
         model, cwd, resolved_run_dir, supervisor_thread_id,
+        silent_seconds=silent_seconds,
     )
     decision = check.decision
     health = check.health
@@ -467,6 +480,7 @@ def _supervised_do_one_check(
             stdout_path, stderr_path,
             time.time() - start_time, check_number,
             model, cwd, resolved_run_dir, supervisor_thread_id,
+            silent_seconds=silent_seconds,
         )
         c_decision = confirmation.decision
         c_health = confirmation.health
@@ -840,6 +854,7 @@ def _run_supervised(
             task_id,
             mode="supervised",
             project_root=Path.cwd(),
+            timeout=timeout,
         )
         with stdout_path.open("w") as out, stderr_path.open("w") as err:
             with cpu_admission_lock(Path.cwd()):
@@ -857,13 +872,12 @@ def _run_supervised(
                 )
             command_identity = _process_identity(proc.pid)
             current_interval = max(monitor_interval, 1)
-            if resource_lease is not None:
-                # Lease renewal is a crash-cleanup fact, so polling cannot outgrow it.
-                current_interval = min(
-                    current_interval,
-                    max(1.0, resource_lease.ttl_seconds / 3.0),
-                )
             next_check_at = time.time() + current_interval
+            # Lease renewal is a crash-cleanup fact with its own cadence; it no
+            # longer caps the check interval, which held every healthy GPU run
+            # at a model check per ttl/3.
+            renew_every = max(1.0, resource_lease.ttl_seconds / 3.0) if resource_lease is not None else 0.0
+            next_renew_at = time.time() + renew_every if resource_lease is not None else None
             running_task = _apply_supervisor_usage_fields({
                 "state": "running", "task_id": task_id, "run_id": run_id,
                 "description": description, "command": command,
@@ -890,32 +904,40 @@ def _run_supervised(
             # below (the loop may never run if the process exits immediately).
             decision, health, concern = "continue", "unknown", ""
             consecutive_supervisor_failures = 0
+            supervisor_failing_since: float | None = None
             supervision_alerted = False
-            # The supervisor is asked only about inputs it has not yet judged.
-            # Output silent past the stale rule external work applies to a
-            # silent owner is itself news, worth exactly one more look. A failed
-            # look judged nothing, so it is retried.
+            # The supervisor is asked only about inputs it has not yet judged:
+            # the run's files and the yield requests on its lease. Output silent
+            # past the stale rule external work applies to a silent owner is
+            # itself news, worth exactly one more look. A failed look judged
+            # nothing, so it is retried within the automatic-retry window; past
+            # it, a dead backend is asked again only about new inputs.
             watched = (stdout_path, stderr_path, *_run_signal_paths(resolved_run_dir, cwd))
-            last_inputs: list[list[int]] | None = None
+            last_inputs: tuple | None = None
             moved_at = start_time
             quiet_after = max(monitor_interval, 900) * 2.0
-            judged: tuple[list[list[int]], bool] | None = None
+            judged: tuple[tuple, bool] | None = None
             # Health-adaptive backoff: start at the configured interval,
             # then double while healthy (save supervisor tokens), snap back to the
             # base interval the moment health degrades.
             while True:
-                elapsed = time.time() - start_time
-                wait_for = current_interval
+                now = time.time()
+                elapsed = now - start_time
+                # Lease renewal keeps its own cadence; waking for it is no look.
+                renewal_wake = next_renew_at is not None and next_renew_at < next_check_at
+                wait_for = max(1.0, (next_renew_at if renewal_wake else next_check_at) - now)
                 if timeout is not None:
                     remaining = timeout - elapsed
-                    wait_for = min(current_interval, max(1, int(remaining)))
+                    wait_for = min(wait_for, max(1, int(remaining)))
                 try:
                     proc.wait(timeout=wait_for)
                     break  # Process exited
                 except subprocess.TimeoutExpired:
-                    pass  # Still running, do supervisor check
-                if resource_lease is not None and not resource_lease.renew():
-                    record_renewal_failure(task_id, resource_lease)
+                    pass  # Still running
+                if renewal_wake:
+                    if not resource_lease.renew():
+                        record_renewal_failure(task_id, resource_lease)
+                    next_renew_at = time.time() + renew_every
 
                 elapsed = time.time() - start_time
                 if timeout is not None and elapsed > timeout:
@@ -943,12 +965,15 @@ def _run_supervised(
                     _persist_experiment_record(task_id, "TIMEOUT", td, cwd, report)
                     return
 
-                inputs = _supervisor_inputs(watched)
+                if renewal_wake:
+                    continue
+                inputs = (_supervisor_inputs(watched), yield_facts_for_task(task_id))
                 if inputs != last_inputs:
                     last_inputs, moved_at = inputs, time.time()
-                quiet = time.time() - moved_at >= quiet_after
+                silent_seconds = time.time() - moved_at
+                quiet = silent_seconds >= quiet_after
                 if judged is not None and judged[0] == inputs and (judged[1] or not quiet):
-                    _record_next_check(task_id, run_id, current_interval)
+                    next_check_at = _record_next_check(task_id, run_id, current_interval)
                     continue
 
                 # Supervisor LLM check (+ optional concern confirmation).
@@ -977,12 +1002,13 @@ def _run_supervised(
                     supervisor_log=supervisor_log,
                     supervisor_thread_id=supervisor_thread_id,
                     supervisor_usage_totals=supervisor_usage_totals,
+                    silent_seconds=silent_seconds if quiet else 0.0,
                 )
 
-                if health != "supervisor_unavailable":
-                    judged = (inputs, quiet)
                 if health == "supervisor_unavailable":
                     consecutive_supervisor_failures += 1
+                    if supervisor_failing_since is None:
+                        supervisor_failing_since = time.time()
                     if (
                         consecutive_supervisor_failures
                         >= _SUPERVISOR_FAILURE_THRESHOLD
@@ -998,8 +1024,12 @@ def _run_supervised(
                             "SUPERVISION-UNAVAILABLE",
                             task,
                         )
+                    if time.time() - supervisor_failing_since >= AUTOMATIC_RETRY_WINDOW_SECONDS:
+                        judged = (inputs, quiet)
                 else:
                     consecutive_supervisor_failures = 0
+                    supervisor_failing_since = None
+                    judged = (inputs, quiet)
 
                 if stop_now:
                     _supervised_handle_early_stop(
@@ -1028,12 +1058,7 @@ def _run_supervised(
                 current_interval = _next_monitor_interval(
                     health, current_interval, monitor_interval,
                 )
-                if resource_lease is not None:
-                    current_interval = min(
-                        current_interval,
-                        max(1.0, resource_lease.ttl_seconds / 3.0),
-                    )
-                _record_next_check(task_id, run_id, current_interval)
+                next_check_at = _record_next_check(task_id, run_id, current_interval)
 
             # Process exited naturally.
             elapsed = round(time.time() - start_time, 1)
@@ -1079,9 +1104,14 @@ def _run_supervised(
         }
         if isinstance(exc, PrerequisiteError):
             td["preflight"] = True
+        if isinstance(exc, ResourceQueueTimeout):
+            td.update(state="timeout", timeout_message=str(exc))
         _apply_supervisor_usage_fields(td, model=model, totals=supervisor_usage_totals)
         _write_task(task_id, td)
-        event = "PREFLIGHT-REJECTED" if isinstance(exc, PrerequisiteError) else "CRASHED"
+        event = (
+            "PREFLIGHT-REJECTED" if isinstance(exc, PrerequisiteError)
+            else "TIMEOUT" if isinstance(exc, ResourceQueueTimeout) else "CRASHED"
+        )
         report = _alert_engineer(task_id, event, td)
         _persist_experiment_record(task_id, event, td, cwd, report)
     finally:

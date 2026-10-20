@@ -61,13 +61,17 @@ def _resource_status_payload(snapshot: dict[str, Any], *, now: float) -> dict[st
     queue = []
     for position, record in enumerate(snapshot["queue"], start=1):
         owner = record["owner"]
-        queue.append({
+        row = {
             "position": position,
             "project": Path(owner["project_root"]).name,
             "task_id": owner["task_id"],
             "intent": record["demand"]["intent"],
             "ttl_seconds": _remaining_ttl(record, now),
-        })
+        }
+        if record.get("created_at"):
+            # How long this request has waited, so the UI can say so.
+            row["waited_seconds"] = max(0.0, now - float(record["created_at"]))
+        queue.append(row)
     return validate_resource_status({
         "schema_version": 1,
         "enforcement": probe["enforcement"],

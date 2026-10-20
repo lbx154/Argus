@@ -116,6 +116,7 @@ def test_registry_covers_the_active_team_knobs() -> None:
         "ARGUS_SKILL_ALLOW_NESTED_TEAM",
     ):
         assert must in names, must
+    assert "ARGUS_SKILL_CURATOR_DISTILL_INTERVAL_S" not in names
     assert "ARGUS_TEAMMATE_FORCE_RESEARCH" not in names
     assert "ARGUS_TEAMMATE_FORCE_PROFILE" not in names
 

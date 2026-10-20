@@ -116,6 +116,9 @@ export function useMapCopy(
   const [generating, setGenerating] = useState(false);
   const mounted = useRef(true);
   const inflight = useRef<Promise<unknown> | null>(null);
+  // Set by the retry button for the next request only: once the server has
+  // spent its automatic retries on an input, only the reader asks again.
+  const manualRetry = useRef(false);
   const eventIndex = useMemo(
     () => new Map(data.events.map((e) => [e.id, e])),
     [data.events],
@@ -146,8 +149,11 @@ export function useMapCopy(
       })));
       let result: MapCopy;
       try {
+        const manual = manualRetry.current;
+        manualRetry.current = false;
         result = await api.generateMapCopy(source, name, { cards, locale,
-          ...(foundationId ? { foundation_id: foundationId } : {}) }, undefined, sessionId, preview, observed.update);
+          ...(foundationId ? { foundation_id: foundationId } : {}),
+          ...(manual ? { manual_retry: true } : {}) }, undefined, sessionId, preview, observed.update);
       } finally {
         observed.finish();
       }
@@ -223,6 +229,7 @@ export function useMapCopy(
   const busy = generating || generation.isFetching || activeGenerations > 0;
   const retry = async () => {
     if (!allowGeneration || foundationRequired || !copy.data?.available || !cards.length || busy || inflight.current) return;
+    manualRetry.current = true;
     await startGeneration().catch(() => undefined);
   };
   return { copy: copy.data, generating: busy, ready: copy.isFetched,

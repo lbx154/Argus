@@ -619,7 +619,8 @@ class PlanningCycleEnqueueMixin:
                         else (
                             "TASK_PARALLEL_SAFE was set without usable "
                             "TASK_OWNS_PATHS — literal relative paths, no "
-                            "wildcards — so the task will run serially"
+                            "wildcards — so the task will run serially "
+                            f"(received: {list(getattr(task, 'owns_paths', []) or [])!r})"
                         )
                     ),
                 ))

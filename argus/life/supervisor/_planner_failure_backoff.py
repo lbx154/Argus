@@ -16,15 +16,19 @@ failure are kept apart because they recover differently:
   usually clear on their own. They back off to the cap and keep re-probing at
   the cap; a configuration change wakes them at once. The operator and
   Manager supervision are told once the outage has lasted
-  ``PLANNER_BACKEND_ALERT_AFTER_SECONDS``. They are never held beyond the cap.
+  ``PLANNER_BACKEND_ALERT_AFTER_SECONDS``.
 * **Unusable decisions** (the Planner answered, but nothing usable came of
   it) repeat as long as nothing the Planner reads changes. After
   ``PLANNER_FAILURE_ALERT_AFTER`` identical ones, or once the failure became
   an operator question, the operator and Manager supervision are told once
   and the Planner waits for a change: operator input, a Manager directive,
   backlog, journal, project evidence, or Planner configuration. The wait is
-  at most ``PLANNER_UNCHANGED_SKIP_MAX_SECONDS``, the same ceiling the
-  unchanged-input skip uses.
+  at most ``PLANNER_FAILURE_HOLD_MAX_SECONDS``.
+
+Retrying on time alone lasts ``AUTOMATIC_RETRY_WINDOW_SECONDS`` from the first
+failure of a streak. After that the operator is told once and the Planner is
+asked again only by an operator message, a Planner configuration change, or
+(for unusable decisions) a change in what it reads.
 
 Before the alert, a change in those inputs (a mission or job finishing) wakes
 an unusable-decision backoff early. Operator messages always bypass every
@@ -50,10 +54,11 @@ from contextlib import contextmanager
 from pathlib import Path
 from typing import Any, Callable, Iterator
 
+from ...core.autonomy import AUTOMATIC_RETRY_WINDOW_SECONDS
 from ...core.event_catalog import EventType
 from ...core.file_facts import file_facts
 from ...core.workspace_facts import fact_text
-from ._constants import PLAN_AWAITING, PLANNER_UNCHANGED_SKIP_MAX_SECONDS
+from ._constants import PLAN_AWAITING
 
 log = logging.getLogger(__name__)
 
@@ -62,13 +67,13 @@ log = logging.getLogger(__name__)
 # consecutive one on, the next call waits base * 2**(n-3), capped, jittered.
 PLANNER_FAILURE_BACKOFF_FREE_ATTEMPTS = 2
 PLANNER_FAILURE_BACKOFF_BASE_SECONDS = 30.0
-PLANNER_FAILURE_BACKOFF_CAP_SECONDS = PLANNER_UNCHANGED_SKIP_MAX_SECONDS
+PLANNER_FAILURE_BACKOFF_CAP_SECONDS = 1800.0
 # Identical unusable decisions in a row before the operator and Manager are told.
 PLANNER_FAILURE_ALERT_AFTER = 3
 # Continuous backend failure before the operator and Manager are told.
-PLANNER_BACKEND_ALERT_AFTER_SECONDS = PLANNER_UNCHANGED_SKIP_MAX_SECONDS
+PLANNER_BACKEND_ALERT_AFTER_SECONDS = PLANNER_FAILURE_BACKOFF_CAP_SECONDS
 # After the alert, unchanged inputs keep the Planner quiet at most this long.
-PLANNER_FAILURE_HOLD_MAX_SECONDS = PLANNER_UNCHANGED_SKIP_MAX_SECONDS
+PLANNER_FAILURE_HOLD_MAX_SECONDS = PLANNER_FAILURE_BACKOFF_CAP_SECONDS
 
 FAILURE_KIND_BACKEND = "backend"
 FAILURE_KIND_DECISION = "decision"
@@ -632,20 +637,20 @@ class PlannerFailureBackoffMixin:
         not_before = float(record.get("not_before"))
         if self._planner_failure_config_signature() != record.get("config_signature"):
             return None  # a new backend or model deserves a try at once
-        if kind != FAILURE_KIND_DECISION:
-            # Backend and internal faults do not wait for a change; they
-            # re-probe at the backoff cap.
-            hold_until = not_before
-        else:
-            if self._planner_failure_input_signature(state) != record.get("signature"):
-                return None  # something the Planner reads has changed
-            hold_until = not_before
-            if alerted_at is not None:
-                hold_until = max(
-                    hold_until,
-                    float(record.get("last_failed_at"))
-                    + PLANNER_FAILURE_HOLD_MAX_SECONDS,
-                )
+        if kind == FAILURE_KIND_DECISION and (
+            self._planner_failure_input_signature(state) != record.get("signature")
+        ):
+            return None  # something the Planner reads has changed
+        if now - float(record.get("first_failed_at")) >= AUTOMATIC_RETRY_WINDOW_SECONDS:
+            return self._planner_retries_stopped(record, kind)
+        # Inside the window backend and internal faults re-probe at the
+        # backoff cap; an alerted unusable decision also waits out the hold.
+        hold_until = not_before
+        if kind == FAILURE_KIND_DECISION and alerted_at is not None:
+            hold_until = max(
+                hold_until,
+                float(record.get("last_failed_at")) + PLANNER_FAILURE_HOLD_MAX_SECONDS,
+            )
         # Never longer than the cap, whatever the clock or the file says.
         remaining = min(hold_until - now, PLANNER_FAILURE_HOLD_MAX_SECONDS)
         if remaining <= 0:
@@ -674,6 +679,51 @@ class PlannerFailureBackoffMixin:
                 self._emit_status(
                     "planner: holding the next call after repeated failed turns"
                 )
+        return PLAN_AWAITING
+
+    def _planner_retries_stopped(self, record: dict[str, Any], kind: str) -> str:
+        """Keep a Planner that failed for the whole retry window quiet."""
+        self._suggested_sleep_s = max(
+            float(getattr(self, "_suggested_sleep_s", 0.0) or 0.0),
+            PLANNER_FAILURE_BACKOFF_CAP_SECONDS,
+        )
+        notice = f"planner-retries-stopped-{int(float(record.get('first_failed_at')))}"
+        told = getattr(self, "_planner_stop_notices", None)
+        if told is None:
+            told = self._planner_stop_notices = set()
+        if notice not in told:
+            told.add(notice)
+            if kind == FAILURE_KIND_DECISION:
+                english = (
+                    "The Planner kept giving unusable answers for three hours, so Argus "
+                    "stopped asking it again. It will try again when something changes: "
+                    "send guidance, change the task, or switch the Planner model in Settings."
+                )
+                chinese = (
+                    "Planner 连续三小时给出无法使用的答复，Argus 已停止重复询问。"
+                    "情况有变化时会再试：发送指导、修改任务，或在设置中更换 Planner 模型。"
+                )
+            elif kind == FAILURE_KIND_INTERNAL:
+                english = (
+                    "Argus kept hitting an internal error while asking the Planner for three "
+                    "hours, so it stopped retrying. Send a message to try again, and please "
+                    "report it with the daemon log."
+                )
+                chinese = (
+                    "Argus 调用 Planner 时连续三小时遇到内部错误，已停止自动重试。"
+                    "发送一条消息即可重新尝试，并请附上后台日志反馈这个问题。"
+                )
+            else:
+                english = (
+                    "The Planner's model backend kept failing for three hours, so Argus "
+                    "stopped retrying it. Send a message, or switch the Planner model in "
+                    "Settings, to try again."
+                )
+                chinese = (
+                    "Planner 的模型后端已连续失败三小时，Argus 已停止自动重试。"
+                    "发送一条消息，或在设置中更换 Planner 模型，即可重新尝试。"
+                )
+            self._tell_operator(notice, english, chinese)
         return PLAN_AWAITING
 
 

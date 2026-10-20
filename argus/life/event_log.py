@@ -37,6 +37,7 @@ from collections.abc import Iterator
 from pathlib import Path
 from typing import Any, Protocol
 
+from ..core import call_guard
 from ..core.event_catalog import (
     SIGNAL_EVENT_TYPES,
     EventType,
@@ -200,6 +201,7 @@ class JsonlEventSink:
     # --- Sink protocol -----------------------------------------------
 
     def handle_event(self, event: dict[str, Any]) -> bool:
+        call_guard.observe(event)
         safe_event = self._normalize(event)
         if safe_event.get("transient") is True:
             persisted = True
@@ -259,6 +261,7 @@ class JsonlEventSink:
     # --- public so tests / migrations can drop one-shot lines --------
 
     def append(self, event: dict[str, Any]) -> bool:
+        call_guard.observe(event)
         return self._append(dict(event))
 
     # --- helpers -----------------------------------------------------

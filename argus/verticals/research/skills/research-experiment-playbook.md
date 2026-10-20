@@ -111,7 +111,7 @@ from full-loop performance. Start with a meaningful pilot of that interface.
    where the implementation must simplify the route, say so in the card's
    Notes column and mark the entry point `# @simplified` before running
    anything that bears a claim. Each implementation task arrives as a brief
-   (the implementation brief in `engineer/method-card.md`): claim verbatim from `METHOD.md`,
+   (the implementation brief in `engineer/method-card.md`): the claim named from `METHOD.md`,
    the components this task builds with their entry points, interfaces,
    the `tests/spec` ids that must pass, data and scale as the route states
    them, commands, environment prerequisites and an executable definition
@@ -167,11 +167,11 @@ from full-loop performance. Start with a meaningful pilot of that interface.
    Persist raw measurements as cases finish, independently of final summary
    assembly. A metadata or exporter failure should be repairable from saved
    measurements rather than forcing the scientific computation to run again.
-8. Treat weak results as optimization signals against a fixed claim. Work
-   the diagnosis ladder below in order, one diagnosed change per attempt,
-   and record each rung's evidence — the design and the runs live together
-   here precisely so this iteration is cheap. The claim itself does not
-   move.
+8. Treat weak results as optimization signals against the claim in
+   `METHOD.md`. Work the diagnosis ladder below in order, one diagnosed
+   change per attempt, and record each rung's evidence — the design and the
+   runs live together here precisely so this iteration is cheap. The claim
+   moves only as "The claim: iterate, then revise or report" below allows.
 9. Separate small engineering diagnostics from claim-bearing experiments.
    Stop repeating micro-benchmarks once they no longer change the next decision.
 10. Use held-out confirmation after method and evaluation choices stabilize.
@@ -303,15 +303,37 @@ the expanded experiment is reviewed, not by rerunning an unchanged inspection.
 Do not replace this check with a narrower paper claim or a standalone
 validation-only mission.
 
-### Fixed claim: iterate until it works
+### First loop and stage package
 
-The claim in `METHOD.md` is fixed at Idea selection. Only the operator may
-change it; no role rewrites it to fit the code, the data that happened to be
-at hand, or the first result. A negative or weak result is an optimization
-signal, the way a failing test is for infrastructure: the implementation,
-the setup or the recipe is wrong until diagnosed otherwise. Work this ladder
-in order, one rung per attempt, and record the evidence for each rung in the
-run records before moving to the next:
+After the shared runner exists, the first claim-free milestone is a small but
+complete loop on the operator's real data: read, train or fit, the strongest
+same-information baseline, exported predictions, and the one check that
+decides whether the idea can work at all (learnability, transfer). Record wall
+time, GPU memory and bytes written per step beside it, and size the full run
+from those numbers. It is development evidence, not a claim-bearing result.
+
+Once a real comparison on the operator's data has been reviewed, the Planner
+schedules one stage package task (`TASK_STAGE_PACKAGE=true`) before more
+diagnosis: the results table with its sources, the current method, the
+command that reproduces each number, what failed and why, which operator
+requirements remain unmet, and what the next round would test. Its Reviewer
+checks every number against its source file. The package is labelled "stage
+package, overall goal not complete", earns a non-terminal delivery, and the
+campaign continues; it never changes the publication target or completes the
+goal. Schedule another only when the evidence has materially changed.
+
+### The claim: iterate, then revise or report
+
+Who chose the idea decides who may change the claim in `METHOD.md`. When the
+operator named it (`research_direction_mode=locked`, or no mode recorded), only
+the operator changes the claim. When Argus selected it from a broad request
+(`broad`), the claim is a working hypothesis that the Planner may revise as
+described below. Either way, no role rewrites it to fit the code, the data that
+happened to be at hand, or the first result. A negative or weak result is first
+an optimization signal, the way a failing test is for infrastructure: the
+implementation, the setup or the recipe is wrong until diagnosed otherwise.
+Work this ladder in order, one rung per attempt, and record the evidence for
+each rung in the run records before moving to the next:
 
 1. **Implementation fidelity** against the method card: every component
    anchored and reached on the executed path, knockouts that fail in the
@@ -337,12 +359,26 @@ things at once, or the same comparison repeated on the same panels, is not a
 diagnosed attempt however many cycles it took. A method is below its baseline
 for a reason you can name, and the ladder is worked until that reason is found
 or the rungs that remain could not change the claim's standing; that is when
-the work stops, not when a count of tries is reached. Escalation is then an
-operator question carrying that evidence — a blocking question or
-`operator_options` with the diagnosed rungs, the numbers and the candidate
-changes to the claim — never a narrowed claim, never a "restricted case" or
-"negative result" paper, never a variant scheduled under a new title. A further
-attempt needs a concrete, diagnosed cause from the ladder.
+the work stops, not when a count of tries is reached. What follows depends on
+who owns the claim:
+
+- **Operator-locked**: an operator question carrying that evidence — a blocking
+  question or `operator_options` with the diagnosed rungs, the numbers and the
+  candidate changes to the claim. With no operator available, deliver a stage
+  package that reports the negative result instead of asking.
+- **Argus-selected (`broad`)**: the Planner may revise the working hypothesis
+  inside Experiment, as one reviewed task: record the refuting evidence and the
+  exhausted rungs under Dead ends in `RESEARCH_NOTES.md`, keep the earlier
+  results and their configurations, and write the revised statement and its
+  falsifier into `METHOD.md` before any run that tests it. Data already used to
+  choose or revise counts as development data, never as independent
+  confirmation. Idea selection is not reopened and the stage does not move
+  back.
+
+Never a narrowed claim presented as the original, never a "restricted case" or
+"negative result" paper presented as meeting the operator's publication
+target, never a variant scheduled under a new title. A further attempt needs a
+concrete, diagnosed cause from the ladder.
 
 Plan only on resources that are actually in hand. Human participants, ethics
 approval, paid annotation, credentials, external services, or compute the
@@ -368,8 +404,8 @@ make the project look robust.
 
 Do not freeze a global experiment plan, reopen Idea selection, hide relevant
 losses, or present unfinished development as a negative result. The paper
-argues the claim as stated in `METHOD.md`; a negative or boundary paper exists
-only after the operator has changed that claim.
+argues the claim as stated in `METHOD.md`, including any recorded revision; a
+negative or boundary paper exists only after the claim's owner has changed it.
 
 ### Real system, not a stand-in
 

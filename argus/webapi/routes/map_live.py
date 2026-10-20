@@ -28,6 +28,8 @@ class MapCopyIn(BaseModel):
     cards: list[MapCardIn] = Field(min_length=1, max_length=16)
     locale: Literal["zh-CN", "en-US"] = "zh-CN"
     foundation_id: str | None = Field(default=None, min_length=1, max_length=80)
+    # The reader pressed retry; automatic requests leave a spent input alone.
+    manual_retry: bool = False
 
 
 class MapQuestionSourceIn(BaseModel):
@@ -327,6 +329,7 @@ def register_map_live_routes(app, ctx, read_dataset):
             try:
                 result = map_narrative.enrich(
                     root, value, cards, body.locale, project_root=project_root,
+                    **({"manual_retry": True} if body.manual_retry else {}),
                     **({"preview": preview} if preview else {}),
                     **({"on_progress": on_progress} if on_progress is not None else {}),
                     **({"foundation": foundation} if foundation is not None else {}),

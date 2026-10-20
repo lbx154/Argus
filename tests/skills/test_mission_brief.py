@@ -22,6 +22,7 @@ from argus.verticals.research.mission_brief import (
     DEFINITION_OF_DONE,
     FIXED_CLAIM_SENTENCE,
     MAX_BRIEF_LINES,
+    WORKING_HYPOTHESIS_SENTENCE,
     prepare_mission,
 )
 
@@ -319,6 +320,33 @@ def test_project_without_a_card_falls_back_to_the_selected_idea(tmp_path: Path) 
     assert FIXED_CLAIM_SENTENCE in lines
     assert "### Components now" not in lines
     assert "### Since last time" not in lines
+
+
+@pytest.mark.parametrize(("mode", "heading", "sentence"), [
+    ("broad", "### Claim (working hypothesis selected by Argus)", WORKING_HYPOTHESIS_SENTENCE),
+    ("locked", "### Claim (fixed)", FIXED_CLAIM_SENTENCE),
+    (None, "### Claim (fixed)", FIXED_CLAIM_SENTENCE),
+])
+def test_claim_ownership_follows_the_research_direction_mode(tmp_path: Path, mode, heading, sentence) -> None:
+    # s-a43d1018 was broad: Argus picked the route, yet every brief told the
+    # Engineer that only the operator could change it.
+    root = tmp_path / "bare"
+    state = tmp_path / "state"
+    (root / ".argus").mkdir(parents=True)
+    (state / ".argus").mkdir(parents=True)
+    (root / ".argus" / "PIPELINE_STATE.json").write_text(
+        json.dumps({"selected_idea": {"route_id": "route-02", "rationale": "Strongest direct case."}}),
+        encoding="utf-8",
+    )
+    (state / ".argus" / "PIPELINE_STATE.json").write_text(
+        json.dumps({"research_direction_mode": mode} if mode else {}), encoding="utf-8",
+    )
+
+    lines = prepare_mission(stage="experiment", project_root=root, state_root=state, mission=_mission()).splitlines()
+
+    assert heading in lines
+    assert sentence in lines
+    assert ({FIXED_CLAIM_SENTENCE, WORKING_HYPOTHESIS_SENTENCE} - {sentence}).isdisjoint(lines)
 
 
 def test_project_with_nothing_yields_nothing(tmp_path: Path) -> None:

@@ -231,10 +231,9 @@ not guess on the model's behalf whether there is progress. The full design is in
   claimed twice". The code that maintains these rules and the related rewrites is about 2,000 to 2,500 lines.
 - Do: turn rounds, time, and spending into a task budget set by the Manager or the operator; when it runs out, stop and
   record it, and let the Manager decide what's next; delete the rules above (including "hand back to itself at most 2
-  times in a row", added in the 2026-10-16 fixes); stop explaining system mechanics in the Reviewer prompt. One
-  timer still re-asks a waiting Planner: unchanged inputs keep it quiet for at most 30 minutes
-  (`PLANNER_UNCHANGED_SKIP_MAX_SECONDS`). Replace it with the Planner's own declared recheck time
-  (`RECHECK_AFTER_SECONDS`) plus the task budget; the operator-wait and spare-slot timers already ask only on new facts.
+  times in a row", added in the 2026-10-16 fixes); stop explaining system mechanics in the Reviewer prompt. No timer
+  re-asks a waiting Planner any more: unchanged inputs keep it quiet until they change, and the operator-wait and
+  spare-slot paths also ask only on new facts.
 - Done when: an architecture test lists which system guards are allowed; HO-1 shows success rate and cost did not get
   worse.
 

@@ -295,3 +295,42 @@ def test_supervisor_does_not_auto_resume_operator_pause(tmp_path) -> None:
     assert stored.status == "paused_operator"
     assert runner.calls == 0
     assert summary["missions_run"] == 0
+
+
+def test_a_task_out_of_automatic_retries_holds_new_tasks_until_run(tmp_path) -> None:
+    from argus.core.autonomy import RETRY_WINDOW_SPENT_REASON
+
+    memory = LifeMemory.open(tmp_path / "life")
+    held = BacklogItem.new(
+        title="outage held",
+        objective="wait for recovery",
+        manager_decision={"routed": True, "vertical": "software"},
+    )
+    held.status = "paused_provider_fence"
+    held.last_error = f"{RETRY_WINDOW_SPENT_REASON} (HTTP 503)."
+    memory.backlog.add(held)
+    ready = memory.backlog.add(BacklogItem.new(
+        title="next",
+        objective="next work",
+        manager_decision={"routed": True, "vertical": "software"},
+    ))
+    runner = _CompleteRunner()
+    supervisor = LifeSupervisor(
+        memory=memory,
+        runner=runner,
+        sink=_Sink(),
+        config=LifeSupervisorConfig(poll_interval_seconds=0.0),
+    )
+
+    for _ in range(3):
+        assert supervisor.run()["stopped_by"] == "infra_blocked"
+    assert runner.calls == 0
+
+    # The operator's explicit Run releases the fence and the held work.
+    memory.backlog.resume_paused_statuses({"paused_provider_fence"})
+    supervisor.run()
+
+    stored = {item.id: item for item in memory.backlog.all()}
+    assert stored[held.id].status == "done"
+    assert stored[ready.id].status == "done"
+    assert runner.calls == 2

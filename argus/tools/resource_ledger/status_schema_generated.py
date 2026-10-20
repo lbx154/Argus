@@ -90,8 +90,9 @@ RESOURCE_STATUS_SCHEMA: dict[str, Any] = {'$schema': 'https://json-schema.org/dr
                                                   'project': {'type': 'string'},
                                                   'task_id': {'type': 'string'},
                                                   'intent': {'type': 'string'},
-                                                  'ttl_seconds': {'type': 'number',
-                                                                  'minimum': 0}}}}}
+                                                  'ttl_seconds': {'type': 'number', 'minimum': 0},
+                                                  'waited_seconds': {'type': 'number',
+                                                                     'minimum': 0}}}}}
 _VALIDATOR = Draft202012Validator(RESOURCE_STATUS_SCHEMA)
 
 

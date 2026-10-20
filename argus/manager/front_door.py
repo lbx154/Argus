@@ -524,6 +524,7 @@ def _record_goal_contract(mem: Any, body: str, decision: Any) -> None:
     """
     try:
         from ..core.project_contract import (
+            AUTHORITY_MANAGER,
             AUTHORITY_OPERATOR,
             CLAUSE_PRECISE,
             CLAUSE_SEMANTIC,
@@ -542,11 +543,17 @@ def _record_goal_contract(mem: Any, body: str, decision: Any) -> None:
         for text in getattr(decision, "precise_constraints", ()) or ():
             clauses.append(make_clause(CLAUSE_PRECISE, text))
         target = str(getattr(decision, "research_target_level", "") or "").strip()
-        if target:
-            clauses.append(
-                make_clause(CLAUSE_SEMANTIC, f"research target level: {target}", AUTHORITY_OPERATOR)
-            )
         venue = str(getattr(decision, "target_venue", "") or "").strip()
+        if target:
+            # The Manager always picks a level; it is the operator's only when
+            # the operator named a venue or chose the level in launch settings.
+            from ..core.launch_settings import launch_target_level_stated
+
+            stated = bool(venue) or launch_target_level_stated(body)
+            clauses.append(make_clause(
+                CLAUSE_SEMANTIC, f"research target level: {target}",
+                AUTHORITY_OPERATOR if stated else AUTHORITY_MANAGER,
+            ))
         if venue:
             clauses.append(make_clause(CLAUSE_SEMANTIC, f"target venue: {venue}", AUTHORITY_OPERATOR))
         exclusions = tuple(getattr(decision, "exclusions", ()) or ())

@@ -123,7 +123,7 @@ def test_continuous_mission_only_delivers_after_project_done(tmp_path) -> None:
         json.loads(line)
         for line in (memory.root / "transcript.jsonl").read_text(encoding="utf-8").splitlines()
     ]
-    assert "Task continued" in turns[-1]["text"]
+    assert "Step done" in turns[-1]["text"]
     assert turns[-1].get("delivery") is None
 
     delivery = supervisor._build_terminal_project_delivery("All planned work is done.")

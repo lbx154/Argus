@@ -893,6 +893,57 @@ def test_backlog_rewrites_without_scheduling_changes_are_not_new_evidence(tmp_pa
     assert supervisor._waiting_backlog_revision() not in {before, after_add}
 
 
+def test_planner_operator_wait_with_empty_backlog_never_regrants_on_age(
+    tmp_path: Path,
+    monkeypatch,
+) -> None:
+    """The Planner's own operator-only wait, with nothing parked in the backlog,
+    is the same "only the operator can move this" state as a parked question.
+    It once re-granted a full Planner call every five minutes on unchanged
+    inputs for as long as nobody answered. Changed inputs still earn the turn."""
+    project = tmp_path / "project"
+    project.mkdir()
+    life = tmp_path / "life"
+    calls = 0
+
+    def _plan_next(_planner, **_kwargs):
+        nonlocal calls
+        calls += 1
+        return PlannerVerdict(
+            project_done=False,
+            reason="the operator confirms the dataset licence",
+            waiting=True,
+            waiting_reason="the operator confirms the dataset licence",
+            waiting_contract=WaitingContract(
+                blocker_fingerprint="dataset-licence",
+                recheck_condition="the operator confirms the dataset licence",
+                recheck_token="dataset-licence-v1",
+                wake_on=("authorization",),
+                operator_action_required=True,
+            ),
+        )
+
+    monkeypatch.setattr("argus.planner.Planner.plan_next", _plan_next)
+    supervisor = _supervisor(project, life)
+    assert supervisor.memory.backlog.active() == []
+
+    assert supervisor._plan_next_work() == PLAN_AWAITING
+    assert calls == 1
+    assert supervisor._plan_next_work() == PLAN_AWAITING
+    assert calls == 2
+    now = time.time()
+    for day in range(1, 13):
+        monkeypatch.setattr(time, "time", lambda day=day: now + day * 86400)
+        assert supervisor._plan_next_work() == PLAN_AWAITING
+    assert calls == 2, "an aged wait on unchanged inputs is not news"
+
+    monkeypatch.setattr(
+        supervisor, "_current_planner_input_signature", lambda: "something-moved"
+    )
+    assert supervisor._plan_next_work() == PLAN_AWAITING
+    assert calls == 3
+
+
 def test_open_operator_question_with_unchanged_inputs_never_regrants_on_age(
     tmp_path: Path,
     monkeypatch,

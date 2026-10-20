@@ -240,6 +240,67 @@ def register_workitem_routes(app, ctx: ServerContext) -> None:
             manager_rewrite, sid, body.text, global_root=project_root,
         )
 
+    @app.post("/api/projects/{sid}/launch/confirm", dependencies=[Depends(ctx.require_auth)])
+    async def _confirm_launch(sid: str) -> dict[str, Any]:
+        """Start work the operator held for confirmation before its first run."""
+        import time
+
+        from ...core.operator_messages import publish_operator_message, uses_cjk
+        from ...daemon.commands import daemon_command_execution_lock
+        from ..launch_hold import clear_launch_hold, read_launch_hold
+
+        life_dir = ctx.resolve_or_404(sid)
+        project_root = ctx.project_root_or_404(sid)
+        record = read_launch_hold(life_dir)
+        if record is None:
+            raise HTTPException(status_code=409, detail="Nothing is waiting to start.")
+
+        def _start() -> dict[str, Any]:
+            with daemon_command_execution_lock(life_dir, blocking=False) as acquired:
+                if not acquired:
+                    raise HTTPException(status_code=409, detail="Daemon control is busy; retry shortly.")
+                started = ctx.daemon_services.start(
+                    sid, global_root=project_root,
+                    resume_continuous=bool(record.get("continuous")), reclaim_idle=True,
+                )
+                clear_launch_hold(life_dir)
+            zh = uses_cjk(str(record.get("request") or record.get("title") or ""))
+            title = str(record.get("title") or "").strip()
+            text = (f"已开始执行：{title}" if title else "已开始执行。") if zh else (
+                f"Started: {title}" if title else "Started.")
+            publish_operator_message(life_dir, text=text, message_id=f"launch-{time.time_ns()}")
+            return {"ok": True, "daemon": started}
+
+        result = await run_in_threadpool(_start)
+        ctx.invalidate_read_caches()
+        return result
+
+    @app.post("/api/projects/{sid}/launch/discard", dependencies=[Depends(ctx.require_auth)])
+    def _discard_launch(sid: str) -> dict[str, Any]:
+        """Drop held, never-started work so the operator can rewrite the request."""
+        import time
+
+        from ...core.operator_messages import publish_operator_message, uses_cjk
+        from ...daemon.life_worker import read_daemon_status
+        from ..launch_hold import discard_held_work, read_launch_hold
+
+        life_dir = ctx.resolve_or_404(sid)
+        record = read_launch_hold(life_dir)
+        if record is None:
+            raise HTTPException(status_code=409, detail="Nothing is waiting to start.")
+        if read_daemon_status(life_dir).alive:
+            raise HTTPException(status_code=409, detail="This work has already started; use Stop instead.")
+        result = discard_held_work(life_dir)
+        zh = uses_cjk(str(record.get("request") or record.get("title") or ""))
+        publish_operator_message(
+            life_dir,
+            text=("已放弃这个任务，没有开始执行。你可以修改要求后重新发送。" if zh else
+                  "Discarded before it started. Edit the request and send it again."),
+            message_id=f"launch-discard-{time.time_ns()}",
+        )
+        ctx.invalidate_read_caches()
+        return {"ok": True, **result, "request": str(record.get("request") or "")}
+
     @app.post("/api/projects/{sid}/backlog/{item_id}/dispose", dependencies=[Depends(ctx.require_auth)])
     def _dispose(sid: str, item_id: str, body: DisposeIn) -> dict[str, Any]:
         if body.op not in ("done", "skip", "rm"):

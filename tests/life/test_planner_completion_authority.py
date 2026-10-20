@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from types import SimpleNamespace
 
-from argus.life.supervisor._constants import PLAN_RETRY
+from argus.life.supervisor._constants import PLAN_RETRY, PROJECT_REPORT_MODEL_ATTEMPTS
 from argus.life.supervisor._planning_context import PlanningContextMixin
 from argus.life.supervisor._planning_cycle_completion import (
     PlanningCycleCompletionMixin,
@@ -283,8 +283,10 @@ def test_a_failing_manager_report_backs_off_and_alerts_once(tmp_path) -> None:
 
     attempts = harness.retry_for(3600)
 
-    # At the daemon's 5 s poll this was 720 Manager calls an hour.
-    assert attempts == harness.manager_calls <= 20
+    # At the daemon's 5 s poll this was 720 Manager calls an hour. The Manager
+    # gets its attempts; the next one sends the stage summary without it.
+    assert harness.manager_calls == PROJECT_REPORT_MODEL_ATTEMPTS
+    assert attempts == harness.manager_calls + 1
     assert len(_alerts(harness)) == 1
 
 

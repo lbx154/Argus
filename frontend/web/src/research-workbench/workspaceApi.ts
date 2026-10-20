@@ -107,6 +107,15 @@ export const workspaceApi = {
     get<LiteratureIndex>('/api/v2/workspace/literature', context(sid, workspaceId), signal),
   rawUrl: (sid: string, workspaceId: string, path: string) =>
     `/api/v2/workspace/raw?${new URLSearchParams({ ...context(sid, workspaceId), path })}`,
+  /** Any regular workspace file as a download (credential-like names are refused). */
+  downloadBlob: async (sid: string, workspaceId: string, path: string, signal?: AbortSignal) => {
+    const response = await fetch(`/api/v2/workspace/download?${new URLSearchParams({ ...context(sid, workspaceId), path })}`, { headers: apiAuthHeaders(), signal, cache: 'no-store' });
+    if (!response.ok) {
+      const payload = await response.json().catch(() => ({})) as { detail?: string };
+      throw new Error(payload.detail || `download failed (${response.status})`);
+    }
+    return response.blob();
+  },
   rawBlob: async (sid: string, workspaceId: string, path: string, signal?: AbortSignal) => {
     const response = await fetch(`/api/v2/workspace/raw?${new URLSearchParams({ ...context(sid, workspaceId), path })}`, { headers: apiAuthHeaders(), signal, cache: 'no-store' });
     if (!response.ok) {
@@ -136,6 +145,21 @@ export function paperAssets(entries: WorkspaceEntry[]): WorkspaceEntry[] {
 }
 
 export interface FileTreeNode extends WorkspaceEntry { children: FileTreeNode[] }
+
+/** Internal state (dot-directories such as `.argus`) and skipped heavy folders stay out of the default view. */
+export function isInternalEntry(entry: Pick<WorkspaceEntry, 'path'> & { skipped?: boolean }): boolean {
+  return Boolean(entry.skipped) || entry.path.split('/').some((part) => part.startsWith('.'));
+}
+
+export function visibleEntries(entries: WorkspaceEntry[], showInternal: boolean): WorkspaceEntry[] {
+  return showInternal ? entries : entries.filter((entry) => !isInternalEntry(entry));
+}
+
+export function searchEntries(entries: WorkspaceEntry[], query: string, limit = 200): WorkspaceEntry[] {
+  const needle = query.trim().toLowerCase();
+  if (!needle) return [];
+  return entries.filter((entry) => entry.type === 'file' && entry.path.toLowerCase().includes(needle)).slice(0, limit);
+}
 export function buildFileTree(entries: WorkspaceEntry[]): FileTreeNode[] {
   const nodes = new Map<string, FileTreeNode>();
   entries.forEach((entry) => nodes.set(entry.path, { ...entry, children: [] }));

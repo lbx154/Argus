@@ -1276,11 +1276,14 @@ def test_run_supervised_persists_supervisor_usage_totals(monkeypatch, tmp_path) 
     assert record["supervisor_reasoning_output_tokens"] == 6
 
 
-def _supervisor_looks(monkeypatch, tmp_path, *, waits: int, inputs_at) -> list[float]:
+def _supervisor_looks(
+    monkeypatch, tmp_path, *, waits: int, inputs_at, health: str = "healthy",
+) -> list[float]:
     """Run a supervised job for ``waits`` monitor waits on a fake clock.
 
-    ``inputs_at(now)`` stands for what the supervisor reads at that moment;
-    the result is the clock time of every supervisor model call.
+    ``inputs_at(now)`` stands for what the supervisor reads at that moment and
+    every look answers ``health``; the result is the clock time of every
+    supervisor model call.
     """
     monkeypatch.chdir(tmp_path)
     _skip_supervisor_summary(monkeypatch)
@@ -1304,7 +1307,7 @@ def _supervisor_looks(monkeypatch, tmp_path, *, waits: int, inputs_at) -> list[f
     def _check(*args, **kwargs):
         looks.append(clock[0])
         return _sub._supervised_run.SupervisorCheck(
-            decision="continue", health="healthy", concern="",
+            decision="continue", health=health, concern="",
             thread_id="t", usage=(1, 0, 1, 0), error=None,
         )
 
@@ -1345,6 +1348,20 @@ def test_silent_output_earns_one_look_past_the_quiet_deadline(monkeypatch, tmp_p
     looks = _supervisor_looks(monkeypatch, tmp_path, waits=40, inputs_at=lambda now: [[10, 1, 1]])
     assert len(looks) == 2
     assert looks[1] - looks[0] >= 1800
+
+
+def test_a_dead_supervisor_backend_is_retried_only_within_the_retry_window(
+    monkeypatch, tmp_path,
+) -> None:
+    # Unchanged output and a backend that never answers: failed looks are
+    # retried for the automatic-retry window, then not again until the output
+    # moves (the look past the quiet deadline is already behind it).
+    monkeypatch.setattr(_sub._supervised_run, "AUTOMATIC_RETRY_WINDOW_SECONDS", 3600.0)
+    looks = _supervisor_looks(
+        monkeypatch, tmp_path, waits=200, inputs_at=lambda now: [[10, 1, 1]],
+        health="supervisor_unavailable",
+    )
+    assert looks and looks[-1] <= 3600 + 2 * 120
 
 
 def test_supervisor_inputs_are_the_file_facts_of_what_it_reads(tmp_path) -> None:

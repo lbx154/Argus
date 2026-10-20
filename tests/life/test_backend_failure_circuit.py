@@ -715,3 +715,142 @@ def test_repeating_non_model_cooldowns_keep_the_ordinary_auto_resume(
             == expected_streak
         )
     assert _fresh_item(memory, item.id).status != "paused_operator"
+
+
+# --------------------------------------------------------------------------- #
+# Automatic retries stop after the retry window
+# --------------------------------------------------------------------------- #
+
+
+class _BoundedEngineer(_ScriptedEngineer):
+    """Fails the same way every time; a loop that never stops fails the test."""
+
+    def run_exec(self, **kwargs) -> RunnerResult:
+        assert self.calls < 100, "the hold never stopped retrying"
+        return super().run_exec(**kwargs)
+
+
+def test_a_same_cause_hold_retries_for_three_hours_then_fences_the_task(
+    tmp_path: Path, monkeypatch,
+) -> None:
+    from argus.core.autonomy import AUTOMATIC_RETRY_WINDOW_SECONDS, RETRY_WINDOW_SPENT_REASON
+
+    clock = [1_000.0]
+
+    def sleep(seconds: float) -> None:
+        clock[0] += seconds
+
+    monkeypatch.setattr(
+        round_execution_module,
+        "time",
+        SimpleNamespace(time=lambda: clock[0], monotonic=real_time.monotonic, sleep=sleep),
+    )
+    engineer = _BoundedEngineer([_rate_limited(7)])
+    engine = SupervisedEngineer(
+        engineer_runner=engineer,
+        reviewer=_DoneReviewer(),
+        engineer_config=EngineerConfig(model="gpt-5.5"),
+        reviewer_config=ReviewerConfig(model="gpt-5.5"),
+    )
+    status, rounds, _message, reason, _tid = engine.run(
+        objective="run the benchmark",
+        engineer_prompt_builder=lambda _next, _static=True: "run it",
+        supervised_config=SupervisedConfig(
+            max_rounds=0,
+            backend_failure_threshold=2,
+            backend_failure_backoff_seconds=15.0,
+            background_subagent_advisory=False,
+        ),
+        workdir=tmp_path,
+        on_event=lambda _event: None,
+    )
+
+    assert status == "paused_provider_fence"
+    assert rounds[-1].stop_kind == "provider_fence"
+    assert reason.startswith(RETRY_WINDOW_SPENT_REASON)
+    assert clock[0] - 1_000.0 >= AUTOMATIC_RETRY_WINDOW_SECONDS
+    # Backing off to the hour scale, three hours hold about ten attempts.
+    assert engineer.calls == 11
+
+
+def _settle_cooldown(memory: LifeMemory, item_id: str, state: _MissionRunState) -> None:
+    """What the pause settlement writes after the parking check."""
+    from argus.life.mission_outcome import mission_outcome_dimensions
+
+    status = "paused_provider_fence" if state.stop_kind == "provider_fence" else (
+        "paused_provider_cooldown"
+    )
+    memory.backlog.update(
+        item_id,
+        status=status,
+        last_error=state.stop_reason,
+        outcome=mission_outcome_dimensions(
+            status=status, success=False, stop_kind=state.stop_kind, resumable=True,
+        ),
+    )
+
+
+def _cooldown_until_fenced(memory, harness, item_id, clock, *, rounds=1) -> int:
+    attempts = 0
+    while True:
+        attempts += 1
+        assert attempts < 1000, "auto-resume never stopped"
+        state = _cooldown_state(_fresh_item(memory, item_id), "provider capacity exhausted")
+        state.rounds = rounds
+        assert harness._maybe_park_permanent_provider_failure(state) is None
+        _settle_cooldown(memory, item_id, state)
+        if state.stop_kind == "provider_fence":
+            return attempts
+        memory.backlog.resume_paused_statuses({"paused_provider_cooldown"})
+        clock[0] += 300.0
+
+
+def test_cooldown_pauses_without_progress_stop_auto_resuming_after_three_hours(
+    tmp_path: Path, monkeypatch,
+) -> None:
+    from argus.core.autonomy import RETRY_WINDOW_SPENT_REASON
+    from argus.life.supervisor import _mission_execution_runtime as runtime_module
+
+    clock = [1_000.0]
+    monkeypatch.setattr(runtime_module, "time", SimpleNamespace(time=lambda: clock[0]))
+    memory = LifeMemory.open(tmp_path)
+    memory.init()
+    item = memory.backlog.add(BacklogItem.new(title="prove the bound", objective="prove it"))
+    harness = _RuntimeHarness(memory)
+
+    attempts = _cooldown_until_fenced(memory, harness, item.id, clock)
+
+    # One attempt every five minutes for three hours, then none.
+    assert attempts == 37
+    fenced = _fresh_item(memory, item.id)
+    assert fenced.status == "paused_provider_fence"
+    assert fenced.last_error.startswith(RETRY_WINDOW_SPENT_REASON)
+    assert memory.backlog.resume_paused_statuses({"paused_provider_cooldown"}) == []
+
+
+def test_a_completed_round_restarts_the_cooldown_window(tmp_path: Path, monkeypatch) -> None:
+    from argus.life.supervisor import _mission_execution_runtime as runtime_module
+
+    clock = [1_000.0]
+    monkeypatch.setattr(runtime_module, "time", SimpleNamespace(time=lambda: clock[0]))
+    memory = LifeMemory.open(tmp_path)
+    memory.init()
+    item = memory.backlog.add(BacklogItem.new(title="prove the bound", objective="prove it"))
+    harness = _RuntimeHarness(memory)
+
+    for _ in range(30):
+        state = _cooldown_state(_fresh_item(memory, item.id), "provider capacity exhausted")
+        state.rounds = 1
+        harness._maybe_park_permanent_provider_failure(state)
+        _settle_cooldown(memory, item.id, state)
+        clock[0] += 300.0
+    # The next attempt finishes two rounds before the service turns it away.
+    state = _cooldown_state(_fresh_item(memory, item.id), "provider capacity exhausted")
+    state.rounds = 3
+    harness._maybe_park_permanent_provider_failure(state)
+    _settle_cooldown(memory, item.id, state)
+    clock[0] += 300.0
+
+    assert _fresh_item(memory, item.id).provider_cooldown_since == clock[0] - 300.0
+    # Three fresh hours from the attempt that made progress.
+    assert _cooldown_until_fenced(memory, harness, item.id, clock) == 36

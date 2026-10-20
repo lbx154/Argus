@@ -961,12 +961,15 @@ class RoundReviewerMixin:
             ):
                 # Failing loud: record this round (with the in-hand engineer
                 # output) and stop — do not run the completion gate blind.
+                # The stop kind tells the host the model service failed, so a
+                # run of such tasks is bounded like any automatic retry.
                 state.rounds.append(RoundRecord(
                     round_index=round_index,
                     engineer_message=engineer_message,
                     engineer_exit_code=engineer_result.exit_code,
                     review=_no_reviewer_judgment(review),
                     fatal_error=engineer_result.fatal_error,
+                    stop_kind=reviewer_stop_kind or "backend_unavailable",
                 ))
                 # Said in the language of the task, since this sentence is
                 # what the operator reads when the task stops.

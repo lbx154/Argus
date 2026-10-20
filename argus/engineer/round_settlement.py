@@ -392,6 +392,52 @@ _STALL_REDIRECT = (
 )
 
 
+def _venue_stall_question(
+    review: ReviewDecision, reason: str, rounds: int, *, language_hint: str,
+) -> ReviewDecision:
+    """The Reviewer's last verdict, turned into the stall question for the operator."""
+    from ..core.operator_messages import uses_cjk
+
+    if uses_cjk(language_hint):
+        question = f"论文已连续 {rounds} 轮复审没有看到向投稿标准的进展。接下来怎么做？"
+        options = [
+            ("change_approach", "换一种思路继续修改", "保持投稿标准，用新的方法处理剩下的问题。"),
+            ("accept_current", "接受当前版本", "停止修改，按现状交付论文，并列出仍未解决的问题。"),
+            ("lower_bar", "降低标准或换投稿目标", "选一个当前工作能够达到的目标。"),
+        ]
+    else:
+        question = (
+            f"The paper has gone {rounds} review rounds without the Reviewer seeing "
+            "progress toward the venue bar. How should Argus continue?"
+        )
+        options = [
+            ("change_approach", "Revise with a different approach",
+             "Keep the venue bar and attack the remaining issues in a new way."),
+            ("accept_current", "Accept the current version",
+             "Stop revising and deliver the paper as it stands, with the open issues listed."),
+            ("lower_bar", "Lower the bar or change the venue",
+             "Pick a target the current work can reach."),
+        ]
+    return replace(
+        review,
+        status="blocked",
+        reason=reason,
+        next_action="Resume after the operator decides how to continue.",
+        operator_question=question,
+        operator_options=[
+            {"id": option_id, "label": label, "description": description}
+            for option_id, label, description in options
+        ],
+        review_source="venue_stall",
+        planner_report={
+            **dict(review.planner_report or {}),
+            "challenge": question,
+            "authority_impact": "operator",
+            "operator_need": "scope_or_authority",
+        },
+    )
+
+
 class RoundSettlementMixin:
     """Mixin providing ``SupervisedEngineer``'s round-settlement phase and
     the ``_classify`` terminal-status decision gate."""
@@ -697,6 +743,20 @@ class RoundSettlementMixin:
                 from .obstacle_stall import clear_obstacle_stall
 
                 clear_obstacle_stall(state.obstacle_stall_root, state.obstacle_stall_objective)
+                if (
+                    terminal_status == "no_progress"
+                    and supervised_config.stall_asks_operator
+                    and _operator_questions_allowed(supervised_config)
+                    and state.rounds
+                ):
+                    # A stalled venue revision would otherwise be resumed on
+                    # the Reviewer's "continue" and stall again, for as long
+                    # as the bar stayed out of reach: the operator decides.
+                    state.rounds[-1].review = _venue_stall_question(
+                        review, reason, state.semantic_stall_streak,
+                        language_hint=f"{review.reason}\n{engineer_message}",
+                    )
+                    terminal_status = "blocked"
             return control_return(
                 (
                     terminal_status,

@@ -396,6 +396,10 @@ class SupervisedConfig:
     )
     operator_questions_allowed: bool = True
     operator_question_policy_root: Path | None = None
+    # A Reviewer stall ends the mission with a question to the operator
+    # instead of a plain no-progress stop (venue revisions; see
+    # ``core.venue_review.configure_venue_revisions``).
+    stall_asks_operator: bool = False
     # While the Engineer waits on work it started itself, the round keeps the
     # mission slot for as long as this answers True, instead of pausing after
     # one cadence and paying a Planner turn and a session restart to be resumed

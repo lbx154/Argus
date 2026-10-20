@@ -7,7 +7,7 @@ the lesson pages changed since the last pass, asks a model once to rewrite
 least two lesson pages. The result is checked before it is kept; a reply that
 does not hold up restores the previous file and is noted in the receipt.
 
-Everything that can be deterministic is: page listing, the lesson digest,
+Everything that can be deterministic is: page listing, the lesson file facts,
 the receipt, the index text and the validation are plain functions over the
 filesystem. The single model call sits behind :func:`_run_principles_model`
 so tests can stand in for it. Nothing here blocks a mission or a reply; the
@@ -29,6 +29,7 @@ from typing import Any, Callable
 import yaml
 
 from ..core import paths as core_paths
+from ..core.autonomy import AUTOMATIC_RETRY_WINDOW_SECONDS
 from ..core.event_catalog import EventType
 from ..core.file_facts import file_facts
 from ..core.file_lock import FileLockCancelled, exclusive_file_lock
@@ -54,6 +55,7 @@ MAX_LESSONS_IN_PROMPT = 40
 LESSON_BODY_CHARS = 600
 MIN_EVIDENCE_LINKS = 2
 RUN_LABEL = "knowledge-consolidation"
+NO_PRINCIPLES = "no numbered principles found"
 
 PAGE_KINDS = ("lesson", "fact", "survey", "page")
 _SECTION_TITLES = {
@@ -246,7 +248,9 @@ class Receipt:
 
     ``last_ts`` is the last attempt; ``lessons_compiled`` is the lesson files
     at the last successful compile and only moves on success, so a failed pass
-    is retried after the next interval.
+    is retried after the next interval. ``failed_lessons`` and ``failed_since``
+    name the lessons a pass first failed on and when: those are retried only
+    within the automatic-retry window, then left until the lessons change.
     """
 
     vertical: str = ""
@@ -258,6 +262,8 @@ class Receipt:
     failure: str = ""
     compiled_at: str = ""
     updated_at: str = ""
+    failed_lessons: list[Any] = field(default_factory=list)
+    failed_since: float = 0.0
     history: list[dict[str, Any]] = field(default_factory=list)
 
 
@@ -276,12 +282,14 @@ def read_receipt(root: Path) -> Receipt:
     receipt = Receipt()
     for name in ("vertical", "outcome", "failure", "compiled_at", "updated_at"):
         setattr(receipt, name, str(data.get(name) or ""))
-    compiled = data.get("lessons_compiled")
-    receipt.lessons_compiled = compiled if isinstance(compiled, list) else []
-    try:
-        receipt.last_ts = float(data.get("last_ts") or 0.0)
-    except (TypeError, ValueError):
-        receipt.last_ts = 0.0
+    for name in ("lessons_compiled", "failed_lessons"):
+        value = data.get(name)
+        setattr(receipt, name, value if isinstance(value, list) else [])
+    for name in ("last_ts", "failed_since"):
+        try:
+            setattr(receipt, name, float(data.get(name) or 0.0))
+        except (TypeError, ValueError):
+            setattr(receipt, name, 0.0)
     for name in ("lesson_count", "principle_count"):
         try:
             setattr(receipt, name, int(data.get(name) or 0))
@@ -402,7 +410,7 @@ def validate_principles(text: str, *, root: Path) -> PrinciplesCheck:
     before, history = _split_sections(page.content)
     principles = parse_principles("\n".join(before))
     if not principles:
-        return PrinciplesCheck(ok=False, reason="no numbered principles found")
+        return PrinciplesCheck(ok=False, reason=NO_PRINCIPLES)
     if len(principles) > MAX_PRINCIPLES:
         return PrinciplesCheck(
             ok=False,
@@ -714,7 +722,7 @@ def consolidate_knowledge(
     """One consolidation pass for ``vertical``; cheap when there is nothing to do.
 
     Order of checks: the receipt's ``last_ts`` (at most one attempt per
-    interval), then the lesson count (at least three), then the lesson digest
+    interval), then the lesson count (at least three), then the lesson file facts
     (unchanged since the last compile means nothing to learn). Past those the
     index is rebuilt, the model is asked once, the reply is checked, and the
     result is kept or the previous file restored. The returned dict says what
@@ -806,10 +814,23 @@ def _consolidate_locked(
             result["failure"] = failure
         return result
 
+    def _failed(failure: str) -> dict[str, Any]:
+        if receipt.failed_lessons != seen:
+            receipt.failed_lessons, receipt.failed_since = seen, now
+        return _finish("failed", failure)
+
     if len(lessons) < MIN_LESSONS:
         return _finish("skipped_few_lessons")
     if seen == receipt.lessons_compiled:
         return _finish("skipped_unchanged")
+    # The same lessons get the same answer: a pass that keeps failing on them
+    # is retried within the automatic-retry window, then left until they
+    # change, instead of costing a model call every interval.
+    if (
+        seen == receipt.failed_lessons
+        and now - receipt.failed_since >= AUTOMATIC_RETRY_WINDOW_SECONDS
+    ):
+        return _finish("skipped_failed_unchanged")
 
     result["index_rebuilt"] = rebuild_index(root, pages, vertical=vertical)
     principles_path = root / PRINCIPLES_FILENAME
@@ -826,16 +847,21 @@ def _consolidate_locked(
     except Exception as exc:  # noqa: BLE001 - a failed call is recorded, never raised
         log.warning("consolidation: model call failed for %s: %s", vertical, exc)
         _restore_principles(root, snapshot)
-        return _finish("failed", f"{type(exc).__name__}: {exc}")
+        return _failed(f"{type(exc).__name__}: {exc}")
 
     candidate = _candidate_text(root, snapshot, reply)
     if not candidate:
         _restore_principles(root, snapshot)
-        return _finish("failed", "the reply held no principles.md document")
+        return _failed("the reply held no principles.md document")
     check = validate_principles(candidate, root=root)
     if not check.ok:
         _restore_principles(root, snapshot)
-        return _finish("failed", check.reason)
+        if check.reason == NO_PRINCIPLES:
+            # "These lessons share no principle yet" is an answer, not a
+            # failure: keep the current file and wait for new lessons.
+            receipt.lessons_compiled = seen
+            return _finish("no_principles")
+        return _failed(check.reason)
 
     final = render_principles(
         check,
@@ -848,11 +874,12 @@ def _consolidate_locked(
         _atomic_write_text(principles_path, final)
     except OSError as exc:
         _restore_principles(root, snapshot)
-        return _finish("failed", f"could not write principles.md: {exc}")
+        return _failed(f"could not write principles.md: {exc}")
     result["principles"] = len(check.principles)
     result["changed"] = final != snapshot
     result["title"] = check.title
     receipt.lessons_compiled = seen
+    receipt.failed_lessons, receipt.failed_since = [], 0.0
     receipt.principle_count = len(check.principles)
     receipt.compiled_at = _iso(now)
     rebuild_index(root, pages, vertical=vertical)

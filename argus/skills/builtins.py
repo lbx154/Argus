@@ -260,6 +260,18 @@ def _vertical_skill_roots(vertical: str) -> list[Traversable]:
     return roots
 
 
+def vertical_skill_read_dirs(vertical: str) -> list[str]:
+    """Skill directories a read-only role must be able to open for ``vertical``.
+
+    Stage prompts name the vertical's packaged playbooks by absolute path. A
+    Reviewer or Planner told to open one but granted only the profile skill
+    roots was refused 22 times in project s-a43d1018 and re-ran its round.
+    """
+    if not vertical:
+        return []
+    return [str(root) for root in _vertical_skill_roots(vertical) if isinstance(root, Path)]
+
+
 def iter_vertical_skill_texts(vertical: str) -> Iterable[tuple[str, str]]:
     """Yield ``(relative_filename, markdown)`` for a vertical's own skills.
 

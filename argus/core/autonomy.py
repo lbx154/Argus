@@ -86,6 +86,15 @@ BOUNDED_OPERATOR_WAIT_EXIT_KNOB = "ARGUS_SKILL_BOUNDED_OPERATOR_WAIT_EXIT_MIN"
 BOUNDED_OPERATOR_WAIT_EXIT_DEFAULT_MINUTES = 30.0
 AUTONOMOUS_ASSUMPTIONS_FILENAME = "autonomous_assumptions.jsonl"
 OPERATOR_WAIT_EXIT_FILENAME = "operator_wait_exit.json"
+# How long Argus keeps retrying an outside failure on its own (a provider
+# outage, a rate limit, an unreachable backend) before it stops retrying and
+# tells the operator. Operator decision, 2026-10-19: three hours.
+AUTOMATIC_RETRY_WINDOW_SECONDS = 3 * 3600.0
+# The stop reason of a task whose automatic retries used the whole window. It
+# waits for an explicit Run, and no other task starts while it does.
+RETRY_WINDOW_SPENT_REASON = (
+    "Automatic retries ran for three hours and the model service did not recover"
+)
 
 # Model-visible instruction for a question of meaning the operator would
 # normally settle, in a run where the operator cannot be asked.

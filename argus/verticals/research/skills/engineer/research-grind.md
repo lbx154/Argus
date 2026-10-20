@@ -1,6 +1,6 @@
 ---
 name: "Working a research result into shape"
-description: "Treat the first implementation as a first draft and work down the gap over many rounds against a fixed claim: suspect the setup before the idea, read every result against the claim as stated in METHOD.md, work the diagnosis ladder one rung at a time, stay with the flat stretches, and let the implementation change as you learn. Use this whenever a number comes back wrong, a method falls short of its baseline, or the project is deciding whether it has done enough."
+description: "Treat the first implementation as a first draft and work down the gap over many rounds against the claim in METHOD.md: suspect the setup before the idea, read every result against the claim as stated in METHOD.md, work the diagnosis ladder one rung at a time, stay with the flat stretches, and let the implementation change as you learn. Use this whenever a number comes back wrong, a method falls short of its baseline, or the project is deciding whether it has done enough."
 ---
 
 # Working a research result into shape
@@ -25,8 +25,10 @@ Bring the same persistence to the experiment that you bring to infrastructure.
 
 A first implementation is a first draft. An unfavorable first measurement needs
 an explanation, and the claim in `METHOD.md` is not the thing that changes to
-supply one. The claim was fixed at Idea selection; the results do not choose
-the claim, they choose the next change to the implementation. Work the
+supply one: the results do not choose the claim, they choose the next change to
+the implementation. Only once the ladder is worked does the claim's owner
+decide (research-experiment-playbook.md, "The claim: iterate, then revise or
+report"). Work the
 diagnosis ladder in order, one rung per attempt, and write down each rung's
 evidence in the run records before moving to the next:
 
@@ -262,8 +264,10 @@ What does not change is the claim in `METHOD.md`: the components the idea
 prescribes, the protocol, the falsifier. When a repair would change what the
 method *is* (a different objective, a different intervention point, a
 mechanism the card does not name) that is not a repair. Stop, record what the
-evidence shows, and put the change to the operator as a question with the
-evidence (`operator_options`). Only the operator edits the claim.
+evidence shows, and hand it to the Planner: for an operator-locked idea that is
+an operator question with the evidence (`operator_options`); for a working
+hypothesis Argus selected it is a revision task a Reviewer accepts. The
+Engineer never edits the claim on its own.
 
 So when the number finally lands, stop and look at what you are holding:
 
@@ -309,9 +313,10 @@ A failed attempt is not a publishable contribution, and neither is a restated
 claim. Continue feasible, high-value improvements within the claim as stated
 and the current stage. When rigorous controls still contradict the claim after
 the ladder has been worked, each rung diagnosed with its evidence and no rung
-left that could change the standing of the claim, escalate to the operator with
-the evidence and the options; do not write a restricted-case or negative-result
-paper on your own authority. Preserving an adverse result and pursuing the
+left that could change the standing of the claim, hand the evidence to the
+claim's owner as the playbook describes (an operator question when the operator
+locked the idea, a recorded revision when Argus selected it); do not write a
+restricted-case or negative-result paper on your own authority. Preserving an adverse result and pursuing the
 claim belong together. The independent Reviewer decides whether the actual
 evidence meets the claim, the selected venue and the operator's completion
 standard.
@@ -319,8 +324,9 @@ standard.
 ## The short version
 
 Implement, measure, diagnose, fix, measure again, against a claim that does
-not move. Suspect the setup before the idea. Expect it to take far more rounds
-than feels reasonable. Sit through the flat parts. Let the implementation
+not move while you implement. Suspect the setup before the idea. Expect more
+rounds than feels reasonable, and stop when no remaining rung could change the
+conclusion. Sit through the flat parts. Let the implementation
 become whatever it needs to become to satisfy the card, then look honestly at
 what you built and write about that. Preserve all outcomes, escalate with
 evidence rather than rewording, and confirm the resulting scientific argument

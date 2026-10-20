@@ -41,6 +41,7 @@ from ._registry import (
 from ._reporting import _alert_engineer
 from ._resource_admission import (
     ResourceLease,
+    ResourceQueueTimeout,
     acquire_for_task,
     command_env,
     record_renewal_failure,
@@ -562,6 +563,7 @@ def _run_direct(
             task_id,
             mode="direct",
             project_root=Path.cwd(),
+            timeout=timeout,
         )
         with stdout_path.open("w") as out, stderr_path.open("w") as err:
             with cpu_admission_lock(Path.cwd()):
@@ -705,10 +707,15 @@ def _run_direct(
         }
         if isinstance(exc, PrerequisiteError):
             td["preflight"] = True
+        if isinstance(exc, ResourceQueueTimeout):
+            td.update(state="timeout", timeout_message=str(exc))
         _apply_supervisor_usage_fields(td, model="", totals=_ZERO_USAGE_TUPLE)
         _write_task(task_id, td)
         _alert_engineer(
-            task_id, "PREFLIGHT-REJECTED" if isinstance(exc, PrerequisiteError) else "CRASHED", td,
+            task_id,
+            "PREFLIGHT-REJECTED" if isinstance(exc, PrerequisiteError)
+            else "TIMEOUT" if isinstance(exc, ResourceQueueTimeout) else "CRASHED",
+            td,
         )
     finally:
         if resource_lease is not None:

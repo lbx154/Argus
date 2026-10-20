@@ -138,7 +138,7 @@ def test_timeouts_are_provider_failures_without_applying_a_late_decision(tmp_pat
     now = [100.0]
     if origin == "host-deadline":
         monkeypatch.setattr(supervision.time, "monotonic", lambda: now[0])
-        backend = Backend(reply(), before_return=lambda: now.__setitem__(0, 131.0))
+        backend = Backend(reply(), before_return=lambda: now.__setitem__(0, 161.0))
     elif origin == "trusted-timeout":
         backend = Backend(RunnerResult(exit_code=1, stop_kind="transient_error", call_id=CALL_ID,
                                        fatal_error="HTTP 504 Gateway Timeout: " + SECRET + " " + PROMPT_MARKER))
@@ -335,7 +335,7 @@ def test_commit_deadline_keeps_the_existing_superseded_fence(tmp_path, monkeypat
     original = supervision._apply
 
     def expire_before_delivery(*args, **kwargs):
-        now[0] = 131.0
+        now[0] = 161.0
         return original(*args, **kwargs)
 
     monkeypatch.setattr(supervision, "_apply", expire_before_delivery)

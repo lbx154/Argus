@@ -4,6 +4,7 @@ from __future__ import annotations
 import json
 import logging
 import re
+import time
 from pathlib import Path
 from typing import Any, Callable
 
@@ -13,6 +14,12 @@ from . import _store, leaderboard, roster, task_board
 log = logging.getLogger(__name__)
 _STATE_FILE = "completion_summary.json"
 _TERMINAL_STATES = frozenset({"done", "failed", "blocked"})
+# A delivery that failed waits 1 minute, doubling to an hour, before the next
+# try; the Curator ticks every few seconds. The summary and the wait are kept
+# in this process: a disk that cannot take the message cannot take them.
+_DELIVERY_RETRY_BASE_SECONDS = 60.0
+_DELIVERY_RETRY_CAP_SECONDS = 3600.0
+_UNDELIVERED: dict[str, tuple[str, int, float]] = {}  # -> (summary, failures, retry at)
 
 
 def _payload(root: Path, marker: dict[str, Any]) -> dict[str, Any] | None:
@@ -159,24 +166,35 @@ def publish_if_complete(
         and all(prior.get(key) == value for key, value in outcome.items())
     ):
         return False
-    summary = ""
-    if summarize is not None:
+    # The same outcome keeps its id, so a retry after a crash is not a second message.
+    message_id = "team-summary-" + "-".join(str(value) for value in outcome.values())
+    key = f"{state_path}:{message_id}"
+    summary, failures, retry_at = _UNDELIVERED.get(key, ("", 0, 0.0))
+    if time.time() < retry_at:
+        return False
+    if not summary and summarize is not None:
         try:
             summary = str(summarize(_prompt(payload)) or "").strip()
         except Exception:  # noqa: BLE001 - deterministic fallback must still notify
             log.exception("team completion Manager summary failed for %s", root)
     if not summary:
         summary = _fallback(payload)
-    # The same outcome keeps its id, so a retry after a crash is not a second message.
-    message_id = "team-summary-" + "-".join(str(value) for value in outcome.values())
-    publish_operator_message(
-        conversation_root,
-        text=summary,
-        message_id=message_id,
-        event_fields={
-        "team_id": payload["team_id"],
-        "team_completion": True,
-        },
-    )
-    _store.atomic_write_json(state_path, {**outcome, "summary": summary, "delivered": True})
+    try:
+        publish_operator_message(
+            conversation_root,
+            text=summary,
+            message_id=message_id,
+            event_fields={
+            "team_id": payload["team_id"],
+            "team_completion": True,
+            },
+        )
+        _store.atomic_write_json(state_path, {**outcome, "summary": summary, "delivered": True})
+    except Exception:
+        # A failed delivery is retried with the same summary, never a new Manager call.
+        _UNDELIVERED[key] = (summary, failures + 1, time.time() + min(
+            _DELIVERY_RETRY_CAP_SECONDS, _DELIVERY_RETRY_BASE_SECONDS * 2 ** min(failures, 10),
+        ))
+        raise
+    _UNDELIVERED.pop(key, None)
     return True

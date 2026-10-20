@@ -398,6 +398,36 @@ def test_a_failed_model_call_is_recorded_and_retried_after_the_interval(tmp_path
     assert len(calls) == 2
 
 
+def test_failing_on_the_same_lessons_stops_after_the_retry_window(tmp_path: Path, monkeypatch) -> None:
+    """An hourly retry on unchanged lessons was a model call every hour, forever."""
+    from argus.core.autonomy import AUTOMATIC_RETRY_WINDOW_SECONDS
+
+    home, root = _home(tmp_path)
+    _three_lessons(root)
+    calls = _stub_model(monkeypatch, RuntimeError("provider unavailable"))
+    outcomes = [_run(home, now=NOW + hours * HOUR + 1)["outcome"] for hours in range(0, 24 * 7)]
+
+    assert len(calls) == AUTOMATIC_RETRY_WINDOW_SECONDS / HOUR
+    assert outcomes[-1] == "skipped_failed_unchanged"
+    _lesson(root, "20260918-new", "A new lesson")
+    _run(home, now=NOW + 24 * 7 * HOUR + 1)
+    assert len(calls) == AUTOMATIC_RETRY_WINDOW_SECONDS / HOUR + 1, "new lessons are new input"
+
+
+def test_lessons_that_share_no_principle_are_an_answer_not_a_failure(
+    tmp_path: Path, monkeypatch,
+) -> None:
+    home, root = _home(tmp_path)
+    _three_lessons(root)
+    calls = _stub_model(monkeypatch, _principles_doc([]))
+
+    result = _run(home)
+    assert result["outcome"] == "no_principles"
+    assert not (root / "principles.md").exists()
+    assert _run(home, now=NOW + 5 * HOUR)["outcome"] == "skipped_unchanged"
+    assert len(calls) == 1
+
+
 def test_a_reply_without_a_document_fails_cleanly(tmp_path: Path, monkeypatch) -> None:
     home, root = _home(tmp_path)
     _three_lessons(root)

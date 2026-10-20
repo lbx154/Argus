@@ -10,6 +10,7 @@ import type {
   Daemon,
   EventMsg,
   GitDiffView,
+  LaunchSettings,
   ProjectRow,
   ProjectCostRow,
   ProgressSourceRef,
@@ -848,11 +849,13 @@ function messageBody(
   attachments?: MessageAttachmentRef[],
   routeOverride?: MessageRouteOverride,
   requestId?: string,
+  launch?: LaunchSettings,
 ): Record<string, unknown> {
   const body: Record<string, unknown> = { text };
   if (attachments?.length) body.attachments = attachments;
   if (routeOverride && routeOverride !== 'auto') body.route_override = routeOverride;
   if (requestId) body.request_id = requestId;
+  if (launch) body.launch = launch;
   return body;
 }
 
@@ -1045,7 +1048,7 @@ export const api = {
   mapQuestionSource: (sid: string, body: { card_key: string; task_id: string; locale: 'zh-CN' | 'en-US'; preview?: ReaderPreview; foundation_id?: string }, signal?: AbortSignal) =>
     postJson<ProgressSourceRef>(`/api/map-question-source/project/${encodeURIComponent(sid)}?session_id=${encodeURIComponent(sid)}`,
       { ...body, preview: body.preview === 'source-first' ? true : body.preview ?? false }, signal),
-  generateMapCopy: (source: string, name: string, body: {cards: import('./map/presentation').CardRequest[]; locale: string; foundation_id?: string}, signal?: AbortSignal, sessionId?: string, preview?: ReaderPreview, onProgress?: (phase: ExplanationPhase) => void): Promise<import('./map/presentation').MapCopy> =>
+  generateMapCopy: (source: string, name: string, body: {cards: import('./map/presentation').CardRequest[]; locale: string; foundation_id?: string; manual_retry?: boolean}, signal?: AbortSignal, sessionId?: string, preview?: ReaderPreview, onProgress?: (phase: ExplanationPhase) => void): Promise<import('./map/presentation').MapCopy> =>
     explanationResponse(mapCopyPath(source, name, { stream: 'true' }, sessionId, preview, body.foundation_id), body, signal, onProgress),
   generateReaderFoundation: (sid: string, body: { request_id: string; question: string; locale: 'zh-CN' | 'en-US'; source_task_id?: string; progress_source?: Pick<ProgressSourceRef, 'source_id'> }, onProgress?: (phase: ExplanationPhase) => void): Promise<ArtifactInfo> =>
     explanationResponse(P(sid, '/reader-foundation?stream=true'), body, undefined, onProgress),
@@ -1186,6 +1189,9 @@ export const api = {
   artifactPreview: (sid: string, path: string, signal?: AbortSignal) =>
     getJson<{ html: string; warnings: string[]; file_count: number; served_page?: boolean }>(
       P(sid, `/artifact/preview?${new URLSearchParams({ path })}`), signal),
+  /** One zip of listed results (each path passes the artifact allowlist). */
+  artifactsBundle: async (sid: string, paths: string[], name = '', summary = '', signal?: AbortSignal) =>
+    (await postResponse(P(sid, '/artifacts/bundle'), { paths, name, summary }, signal)).blob(),
   artifactBundle: (sid: string, path: string, signal?: AbortSignal) =>
     getBlob(P(sid, `/artifact/bundle?${new URLSearchParams({ path })}`), signal),
   artifactBlob: (
@@ -1417,6 +1423,9 @@ export const api = {
     }
     return { attachments, limits };
   },
+  /** Delete a file the operator removed from the draft before sending it. */
+  discardAttachment: (sid: string, attachmentId: string) =>
+    uploadRequest<{ discarded: boolean; attachment_id: string }>('DELETE', P(sid, `/attachments/${encodeURIComponent(attachmentId)}`)),
   answerDomain: (sid: string, id: string, optionId: string, note: string) =>
     postJson<{ kind: string; reply?: string; resolved?: boolean; daemon?: { rc?: number; error?: string } }>(
       P(sid, '/message'), { text: note || optionId, domain_answer: { id, option_id: optionId, note } },
@@ -1485,13 +1494,15 @@ export const api = {
       attachments?: MessageAttachmentRef[];
       routeOverride?: MessageRouteOverride;
       requestId?: string;
+      launch?: LaunchSettings;
     },
   ): Promise<void> => {
     const signal = isAbortSignal(signalOrOptions) ? signalOrOptions : signalOrOptions?.signal;
     const attachments = isAbortSignal(signalOrOptions) ? undefined : signalOrOptions?.attachments;
     const routeOverride = isAbortSignal(signalOrOptions) ? undefined : signalOrOptions?.routeOverride;
     const requestId = isAbortSignal(signalOrOptions) ? undefined : signalOrOptions?.requestId;
-    const res = await postResponse(P(sid, '/message/stream'), messageBody(text, attachments, routeOverride, requestId), signal);
+    const launch = isAbortSignal(signalOrOptions) ? undefined : signalOrOptions?.launch;
+    const res = await postResponse(P(sid, '/message/stream'), messageBody(text, attachments, routeOverride, requestId, launch), signal);
     const dispatch = (f: SSEFrame) => {
       if (signal?.aborted) return;
       if (f.type === 'phase') {
@@ -1528,6 +1539,12 @@ export const api = {
     };
     await readSSE(res, 'Manager stream', dispatch, signal);
   },
+  /** Start a first task that was planned and held for confirmation. */
+  confirmLaunch: (sid: string) =>
+    postJson<{ ok: boolean; daemon?: { rc?: number; error?: string; admission_required?: boolean } }>(P(sid, '/launch/confirm'), {}),
+  /** Drop held, never-started work; returns the original request for editing. */
+  discardLaunch: (sid: string) =>
+    postJson<{ ok: boolean; skipped: string[]; request: string }>(P(sid, '/launch/discard'), {}),
   nudge: (sid: string, text: string) => postJson(P(sid, '/nudge'), { text }),
   /** A message typed while a Manager reply runs: shown now, answered as the next turn. */
   queueFollowup: (sid: string, text: string, routeOverride: MessageRouteOverride = 'auto') =>
@@ -1591,9 +1608,11 @@ export const api = {
     drain = false,
     expectedRevision?: number,
     force = false,
+    afterCurrent = false,
   ) => postJson(P(sid, '/daemon/stop'), {
     drain,
     force,
+    ...(afterCurrent ? { after_current: true } : {}),
     command_id: commandId(),
     expected_revision: expectedRevision,
   }).then(requireDaemonCommand),

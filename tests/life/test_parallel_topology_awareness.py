@@ -14,6 +14,8 @@ from __future__ import annotations
 import json
 from pathlib import Path
 
+import pytest
+
 from argus.core.models import RunnerResult
 from argus.life.event_log import JsonlEventSink
 from argus.life.memory import BacklogItem, LifeMemory
@@ -262,6 +264,136 @@ def test_glob_owned_paths_never_advertise_a_slot(tmp_path: Path) -> None:
     note = supervisor._planner_dropped_parallel_runtime_note()
     assert "Sweep the source tree" in note
     assert "wildcards" in note
+
+
+def _two_arm_plan(path_a: str, path_b: str) -> str:
+    return "\n".join([
+        "PROJECT_DONE=false",
+        "REASON=run both arms on the shared implementation",
+        "TASK_KEY=arm-cpc",
+        "TASK_TITLE=Run the CPC arm",
+        "TASK_OBJECTIVE=Train and evaluate the CPC arm.",
+        "TASK_ACCEPTANCE_CHECK=analysis.json for the CPC arm exists",
+        "TASK_PARALLEL_SAFE=true",
+        f"TASK_OWNS_PATHS={path_a}",
+        "TASK_KEY=arm-general",
+        "TASK_TITLE=Run the general arm",
+        "TASK_OBJECTIVE=Train and evaluate the general arm.",
+        "TASK_ACCEPTANCE_CHECK=analysis.json for the general arm exists",
+        "TASK_PARALLEL_SAFE=true",
+        f"TASK_OWNS_PATHS={path_b}",
+    ])
+
+
+def test_json_array_owned_paths_co_run_through_parse_enqueue_and_claim(
+    tmp_path: Path,
+) -> None:
+    project = tmp_path / "project"
+    project.mkdir()
+    planner = _PlannerBackend([_two_arm_plan(
+        '[".argus/runs/transfer/cpc"]', '[".argus/runs/transfer/general"]',
+    )])
+    supervisor = _supervisor(project, tmp_path / "life", planner, mission_slots=2)
+
+    assert supervisor._plan_next_work() is True
+    assert supervisor._planner_dropped_parallel_runtime_note() == ""
+
+    backlog = supervisor.memory.backlog
+    first = backlog.claim_next(respect_running=True)
+    second = backlog.claim_next(parallel_only=True, respect_running=True)
+    assert first is not None and second is not None
+    assert {first.title, second.title} == {"Run the CPC arm", "Run the general arm"}
+    assert {tuple(first.owns_paths), tuple(second.owns_paths)} == {
+        (".argus/runs/transfer/cpc",), (".argus/runs/transfer/general",),
+    }
+
+
+def test_nested_owned_paths_stay_serial_after_claim(tmp_path: Path) -> None:
+    project = tmp_path / "project"
+    project.mkdir()
+    planner = _PlannerBackend([_two_arm_plan(
+        '[".argus/runs/transfer"]', '[".argus/runs/transfer/general"]',
+    )])
+    supervisor = _supervisor(project, tmp_path / "life", planner, mission_slots=2)
+
+    assert supervisor._plan_next_work() is True
+
+    backlog = supervisor.memory.backlog
+    assert backlog.claim_next(respect_running=True) is not None
+    assert backlog.claim_next(parallel_only=True, respect_running=True) is None
+
+
+def test_dropped_parallel_note_shows_what_was_received(tmp_path: Path) -> None:
+    project = tmp_path / "project"
+    project.mkdir()
+    planner = _PlannerBackend([_two_arm_plan("/abs/cpc", "runs/general")])
+    supervisor = _supervisor(project, tmp_path / "life", planner, mission_slots=2)
+
+    assert supervisor._plan_next_work() is True
+
+    note = supervisor._planner_dropped_parallel_runtime_note()
+    assert "Run the CPC arm" in note
+    assert "'/abs/cpc'" in note
+
+
+def test_digest_renders_ownership_in_the_footer_syntax(tmp_path: Path) -> None:
+    project = tmp_path / "project"
+    project.mkdir()
+    supervisor = _supervisor(
+        project, tmp_path / "life", _PlannerBackend([]), mission_slots=2
+    )
+    running = BacklogItem.new(
+        title="two-path lane",
+        objective="write both outputs",
+        parallel_safe=True,
+        owns_paths=["runs/a", "runs/b"],
+    )
+    supervisor.memory.backlog.add(running)
+    supervisor.memory.backlog.mark_running(running.id)
+
+    note = supervisor._planner_current_reality_note()
+
+    line = next(line for line in note.splitlines() if "two-path lane" in line)
+    assert "owns_paths=runs/a|runs/b;" in line
+
+
+def test_stage_package_flag_reaches_the_backlog_tags(tmp_path: Path) -> None:
+    project = tmp_path / "project"
+    project.mkdir()
+    planner = _PlannerBackend(["\n".join([
+        "PROJECT_DONE=false",
+        "REASON=package the first real comparison for the operator",
+        "TASK_TITLE=Package round one",
+        "TASK_OBJECTIVE=Assemble the reviewed results, failures and unmet requirements.",
+        "TASK_ACCEPTANCE_CHECK=every number cites its source file",
+        "TASK_STAGE_PACKAGE=true",
+    ])])
+    supervisor = _supervisor(project, tmp_path / "life", planner)
+
+    assert supervisor._plan_next_work() is True
+
+    (item,) = supervisor.memory.backlog.pending()
+    assert "stage_package" in item.tags
+    assert "review:required" in item.tags
+
+
+@pytest.mark.parametrize(("mode", "phrase"), [
+    ("broad", "working hypothesis you may revise"),
+    ("locked", "only the operator changes its claim"),
+])
+def test_digest_states_who_owns_the_research_idea(tmp_path: Path, mode, phrase) -> None:
+    project = tmp_path / "project"
+    project.mkdir()
+    supervisor = _supervisor(project, tmp_path / "life", _PlannerBackend([]))
+    state = project / ".argus" / "PIPELINE_STATE.json"
+    payload = json.loads(state.read_text(encoding="utf-8"))
+    payload["research_direction_mode"] = mode
+    state.write_text(json.dumps(payload), encoding="utf-8")
+
+    note = supervisor._planner_current_reality_note()
+
+    line = next(line for line in note.splitlines() if "research_direction_mode" in line)
+    assert mode in line and phrase in line
 
 
 def test_continuous_prompt_states_what_unlocks_a_slot() -> None:

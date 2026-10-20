@@ -87,7 +87,9 @@ describe('shared frontend core', () => {
     expect(html).toContain('role="alert"');
     expect(html).toContain('not paired with Argus');
     expect(html).toContain('valid pairing link for this Argus site');
-    expect(html).toContain('Pair again');
+    // The paste box is open at once, with who to ask when there is no link.
+    expect(html).toContain('id="pairing-link"');
+    expect(html).toContain('Ask the person who invited you');
   });
 
   it('accepts a fresh pairing token or extracts one from a pairing link', () => {
@@ -112,7 +114,9 @@ describe('shared frontend core', () => {
     }));
 
     expect(html).toContain('local Argus service is unavailable');
-    expect(html).toContain('Argus Desktop running');
+    // A browser tab is not the desktop shell: no advice to keep a desktop app open.
+    expect(html).toContain('may be restarting');
+    expect(html).not.toContain('Argus Desktop running');
     expect(html).toContain('Retry');
   });
 

@@ -40,6 +40,10 @@ from .map_view import facts, task_content_revision, text
 
 PROMPT_VERSION = 26
 ACTIVE_REFRESH_SECONDS = 600
+# Automatic retries of a failed explanation on unchanged input. After them the
+# reader asks for another try itself (``manual_retry``): an open panel once
+# retried every five minutes for as long as it stayed open.
+MAP_AUTOMATIC_RETRIES = 2
 Preview = bool | Literal["learning-path", "question-foundation"]
 _LOCK = threading.Lock()
 _SOURCES: WeakValueDictionary = WeakValueDictionary()
@@ -318,11 +322,14 @@ def _failure_metadata(cache: dict) -> dict:
     except (TypeError, ValueError, OverflowError):
         remaining = 0
     error = cache.get("generation_error")
-    if isinstance(error, dict) and remaining > 0:
+    manual = isinstance(error, dict) and bool(error.get("manual_retry"))
+    if isinstance(error, dict) and (remaining > 0 or manual):
         code = error.get("code")
         if code not in {"map_timeout", "cost_unreconciled", "budget_exhausted", "invalid_response", "provider_error", "map_input_too_large"}:
             code = "provider_error"
         error = {"code": code, "message": "Map summary unavailable; existing evidence and cached text are retained."}
+        if manual:
+            error["manual_retry"] = True
     else:
         # A failure is news for as long as its cooldown lasts. After that the
         # next request simply tries again; showing "unavailable" for hours
@@ -454,6 +461,7 @@ def enrich(
     preview: Preview = False,
     on_progress: MapProgress | None = None,
     foundation: dict | None = None,
+    manual_retry: bool = False,
 ) -> dict:
     documents = card_evidence(dataset, cards)
     foundation_ref = None
@@ -507,6 +515,15 @@ def enrich(
         if not todo:
             return {"cards": existing, "relations": cache.get("relations", []), "cached": True,
                     **metadata, **_failure_metadata(cache)}
+        todo_input = sorted(fingerprints[d["key"]] for d in todo)
+        error = cache.get("generation_error")
+        if (
+            isinstance(error, dict) and error.get("manual_retry") and not manual_retry
+            and cache.get("failed_input") == todo_input
+        ):
+            # The automatic retries on this input are spent; the reader asks.
+            return {"cards": existing, "relations": cache.get("relations", []),
+                    "cached": bool(existing), "available": True, **metadata, **_failure_metadata(cache)}
         if project_root is None or not configured():
             return {"cards": existing, "relations": cache.get("relations", []), "available": False, **metadata}
         # Coalesce rapid progress updates and multiple open browser tabs.
@@ -601,11 +618,20 @@ def enrich(
                 "invalid_response" if isinstance(exc, ValueError) else "provider_error"
             )
             log.warning("map copy generation failed (%s): %s", code, exc)
+            failures = (
+                int(cache.get("failure_count") or 0) + 1
+                if cache.get("failed_input") == todo_input else 1
+            )
+            manual = failures > MAP_AUTOMATIC_RETRIES
             cache.update(
-                retry_at=time.time() + map_limit("ARGUS_SKILL_MAP_RETRY_SECONDS", "300"),
+                retry_at=0 if manual else time.time() + map_limit("ARGUS_SKILL_MAP_RETRY_SECONDS", "300"),
                 # ``detail`` is for the operator reading the cache; readers get
                 # the fixed message from ``_failure_metadata``.
-                generation_error={"code": code, "detail": str(exc)[:200]},
+                generation_error={
+                    "code": code, "detail": str(exc)[:200], **({"manual_retry": True} if manual else {}),
+                },
+                failed_input=todo_input,
+                failure_count=failures,
             )
             _write_cache(path, cache)
             return {"cards": existing, "relations": cache.get("relations", []),
@@ -686,6 +712,8 @@ def enrich(
             cache_revision=cache.get("cache_revision", 0) + 1,
             generation_error=None,
             retry_at=0,
+            failed_input="",
+            failure_count=0,
             cards=existing,
             # Expanding a child card must not redraw the outer graph. Reconsider
             # presentation links only when the task structure/content changes.

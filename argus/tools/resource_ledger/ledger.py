@@ -268,6 +268,35 @@ class ResourceLedger:
             return True
         return all(item.get("status") == "absent" for item in relevant)
 
+    @classmethod
+    def _unsatisfiable_reason(cls, snapshot: Mapping[str, Any], demand: Mapping[str, Any]) -> str:
+        """Why waiting can never satisfy ``demand`` on this host, or ``""``.
+
+        Beyond absent hardware, a demand for more devices than an accelerator
+        has, or more memory than any of its devices holds, cannot be met by
+        any holder finishing. Unknown device memory never counts against it.
+        """
+        kind = str(demand["accelerator"])
+        if cls._kind_unsatisfiable(snapshot, kind):
+            return f"host has no {kind} hardware; waiting cannot satisfy this demand"
+        accelerators = cls._accelerator(snapshot, kind)
+        if kind == "none" or snapshot.get("enforcement") == "advisory" or not accelerators:
+            return ""
+        count = int(demand["device_count"])
+        estimate = int(demand["mem_mib_estimate"])
+        for accelerator in accelerators:
+            fitting = [
+                device for device in accelerator.get("devices", [])
+                if isinstance(device, dict)
+                and not 0 < int(device.get("total_memory_mib") or 0) < estimate
+            ]
+            if len(fitting) >= count:
+                return ""
+        return (
+            f"host has no {kind} accelerator with {count} device(s) of at least "
+            f"{estimate} MiB each; waiting cannot satisfy this demand"
+        )
+
     @staticmethod
     def _accelerator(snapshot: Mapping[str, Any], kind: str) -> list[dict[str, Any]]:
         accelerators = snapshot.get("accelerators")
@@ -328,6 +357,7 @@ class ResourceLedger:
         devices, env = selected or ([], {})
         record = dict(request)
         record["state"] = "granted"
+        record.setdefault("granted_at", now)
         record["renewed_at"] = now
         record["expires_at"] = now + float(record["ttl_seconds"])
         record["enforcement"] = "advisory" if advisory else "strict"
@@ -392,6 +422,7 @@ class ResourceLedger:
                 "intent": item.get("demand", {}).get("intent", ""),
                 "demand": item.get("demand"),
                 "expires_at": item.get("expires_at"),
+                "granted_at": item.get("granted_at"),
             }
             for item in holders
         ]
@@ -442,12 +473,10 @@ class ResourceLedger:
                         or queued.get("owner") != actual_owner
                     ):
                         raise ValueError("queued request identity or demand does not match")
-                    if self._kind_unsatisfiable(snapshot, str(normalized["accelerator"])):
+                    reason = self._unsatisfiable_reason(snapshot, normalized)
+                    if reason:
                         self._record_path(self.queue_dir, request_id).unlink(missing_ok=True)
-                        queued["unsatisfiable_reason"] = (
-                            f"host has no {normalized['accelerator']} hardware; "
-                            "waiting cannot satisfy this demand"
-                        )
+                        queued["unsatisfiable_reason"] = reason
                         return self._facts("unsatisfiable", queued, snapshot)
                     queued["renewed_at"] = now
                     queued["expires_at"] = now + ttl_seconds
@@ -471,11 +500,9 @@ class ResourceLedger:
                 "expires_at": now + ttl_seconds,
                 "ttl_seconds": ttl_seconds,
             }
-            if self._kind_unsatisfiable(snapshot, str(normalized["accelerator"])):
-                request["unsatisfiable_reason"] = (
-                    f"host has no {normalized['accelerator']} hardware; "
-                    "waiting cannot satisfy this demand"
-                )
+            reason = self._unsatisfiable_reason(snapshot, normalized)
+            if reason:
+                request["unsatisfiable_reason"] = reason
                 return self._facts("unsatisfiable", request, snapshot)
             earlier_queue = bool(self._records(self.queue_dir))
             grants = self._records(self.grants_dir)

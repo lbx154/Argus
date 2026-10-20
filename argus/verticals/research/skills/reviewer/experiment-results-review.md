@@ -11,7 +11,7 @@ config changes and the files changed this round), then `METHOD.md`, then
 direct code, configuration, raw results, positive controls, evaluator outputs,
 and strong baseline results. Do not write a separate result-review file.
 
-The claim is the one in `METHOD.md`, fixed at Idea selection. You judge whether
+The claim is the one in `METHOD.md`, including any recorded revision. You judge whether
 the implementation and the evidence satisfy that claim; you never accept claim
 drift. A result presented against a narrower claim than the card states, or as
 a "restricted case", is a repair request. So is a negative result while a rung
@@ -22,8 +22,11 @@ change the outcome: return `continue`, name that rung, and say what evidence
 would settle it. The number of attempts is not the test; what matters is
 whether every rung that could explain the gap has been worked with evidence.
 Once that is true and the evidence still contradicts the claim, say so plainly
-so the Planner can raise the operator question with the evidence. Only the
-operator changes the claim.
+so the Planner can act under experiment.repair: an operator question for an
+operator-locked idea, a recorded revision for a working hypothesis Argus
+selected. You never change the claim, and you accept a revision task only when
+it records the refuting evidence, keeps the earlier results, and fixes the new
+falsifier before the new test.
 
 ## Questions that determine the next experiment
 

@@ -816,6 +816,7 @@ class Reviewer:
             selected_venue,
             venue_review_instruction,
         )
+        from ..skills.builtins import vertical_skill_read_dirs
         from ..skills.vertical_select import resolve_vertical_if_decided
 
         artifact_root = Path(config.artifact_root or config.working_dir or ".")
@@ -961,13 +962,10 @@ class Reviewer:
             ]
             if config.vertical_state_root:
                 prompt_dirs.append(Path(config.vertical_state_root).expanduser().resolve())
-            if vertical:
-                from ..skills.builtins import vertical_skill_source_path
-
-                prompt_dirs.append(vertical_skill_source_path(vertical))
             read_dirs = list(dict.fromkeys([
                 *(str(path) for path in review_libraries.library_roots),
                 *(str(path) for path in prompt_dirs if path.is_dir()),
+                *vertical_skill_read_dirs(vertical),
             ]))
 
         try:

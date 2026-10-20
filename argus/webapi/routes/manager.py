@@ -182,7 +182,8 @@ def register_manager_routes(app, ctx: ServerContext) -> None:
         if result.get("kind") == "provider_busy":
             return result
         return _finish_message(sid, result, generation, global_root=root,
-                               text=saved["text"], request_cancelled=cancelled)
+                               text=saved["text"], request_cancelled=cancelled,
+                               launch=saved.get("launch"))
 
     deferred = DeferredMessages(_retry_message, cancelled=_deferred_cancelled)
     app.state.deferred_messages = deferred
@@ -278,6 +279,7 @@ def register_manager_routes(app, ctx: ServerContext) -> None:
     def _finish_message(
         sid: str, result: dict[str, Any], generation: int, *,
         global_root, text: str, request_cancelled, on_fragment=None,
+        launch: dict[str, Any] | None = None,
     ) -> dict[str, Any]:
         """Deliver the handoff without restarting work superseded by Stop.
 
@@ -341,7 +343,27 @@ def register_manager_routes(app, ctx: ServerContext) -> None:
         with daemon_command_execution_lock(ctx.resolve_or_404(sid), blocking=False) as acquired:
             if superseded():
                 return result
-            if not acquired and starts_executor:
+            hold = (
+                bool(launch and launch.get("hold"))
+                and result.get("kind") == "task"
+                and starts_executor
+                and not result.get("daemon_alive")
+                and result.get("dispatch_state") != "already_queued"
+            )
+            if hold:
+                # The operator asked to confirm before work starts: queue and
+                # plan as usual, record the hold, and leave the executor idle.
+                from ...core.launch_settings import normalize_launch_settings
+                from ..launch_hold import write_launch_hold
+
+                try:
+                    result["launch_hold"] = write_launch_hold(
+                        ctx.resolve_or_404(sid), result, normalize_launch_settings(launch),
+                        operator_text=text,
+                    )
+                except OSError as exc:
+                    result["launch_hold"] = {"error": f"{type(exc).__name__}: {exc}"}
+            elif not acquired and starts_executor:
                 result["daemon"] = {
                     "rc": 3, "control_busy": True, "error": "Daemon control is busy; retry shortly.",
                 }
@@ -384,7 +406,7 @@ def register_manager_routes(app, ctx: ServerContext) -> None:
         from ..attachments import resolve_attachment_refs
 
         try:
-            return await run_in_threadpool(
+            resolved = await run_in_threadpool(
                 resolve_attachment_refs,
                 sid,
                 [row.model_dump() for row in body.attachments],
@@ -392,6 +414,14 @@ def register_manager_routes(app, ctx: ServerContext) -> None:
             )
         except (OSError, RuntimeError, ValueError) as exc:
             raise HTTPException(status_code=400, detail=str(exc)) from exc
+        # A message now carries these files: they are no longer draft uploads.
+        from ..staged_attachments import unstage
+
+        try:
+            await run_in_threadpool(unstage, global_root, sid, [str(row["attachment_id"]) for row in resolved])
+        except (OSError, ValueError, TimeoutError):
+            pass
+        return resolved
 
     @app.post("/api/projects/{sid}/attachments", dependencies=[Depends(ctx.require_auth)])
     async def _upload_attachments(
@@ -403,7 +433,7 @@ def register_manager_routes(app, ctx: ServerContext) -> None:
 
         try:
             payload = await _read_uploaded_attachments(files)
-            return await run_in_threadpool(
+            result = await run_in_threadpool(
                 upload_attachments,
                 sid,
                 payload,
@@ -411,6 +441,15 @@ def register_manager_routes(app, ctx: ServerContext) -> None:
             )
         except (OSError, RuntimeError, ValueError) as exc:
             raise HTTPException(status_code=400, detail=str(exc)) from exc
+        from ..staged_attachments import stage
+
+        try:
+            await run_in_threadpool(
+                stage, project_root, sid, [str(row.get("attachment_id") or "") for row in result.get("attachments", [])],
+            )
+        except (OSError, ValueError, TimeoutError):
+            pass
+        return result
 
     @app.post("/api/projects/{sid}/message", dependencies=[Depends(ctx.require_auth)])
     async def _post_message(sid: str, body: MessageIn) -> dict[str, Any]:
@@ -424,6 +463,7 @@ def register_manager_routes(app, ctx: ServerContext) -> None:
         generation = manager_control_generation(sid)
         project_root = ctx.project_root_or_404(sid)
         from ..manager_bridge import manager_message
+        launch = body.launch.model_dump() if body.launch is not None else None
         lease = _begin_message(sid, body.request_id)
         handoff = threading.Lock()
         started = abandoned = False
@@ -438,7 +478,7 @@ def register_manager_routes(app, ctx: ServerContext) -> None:
                 result = manager_message(sid, body.text, **kwargs)
                 return _finish_message(
                     sid, result, generation, global_root=project_root,
-                    text=body.text, request_cancelled=lease.cancelled,
+                    text=body.text, request_cancelled=lease.cancelled, launch=launch,
                 )
             finally:
                 # HTTP cancellation can leave this thread running. Its request
@@ -458,6 +498,8 @@ def register_manager_routes(app, ctx: ServerContext) -> None:
                 kwargs["route_override"] = body.route_override
             if body.domain_answer is not None:
                 kwargs["domain_answer"] = body.domain_answer.model_dump()
+            if launch is not None:
+                kwargs["launch"] = launch
 
             return await run_in_threadpool(_run)
         except BaseException:
@@ -529,6 +571,8 @@ def register_manager_routes(app, ctx: ServerContext) -> None:
                     kwargs["route_override"] = body.route_override
                 if body.domain_answer is not None:
                     kwargs["domain_answer"] = body.domain_answer.model_dump()
+                if body.launch is not None:
+                    kwargs["launch"] = body.launch.model_dump()
                 result = manager_message(
                     sid,
                     body.text,
@@ -537,6 +581,7 @@ def register_manager_routes(app, ctx: ServerContext) -> None:
                 result = _finish_message(
                     sid, result, generation, global_root=project_root, text=body.text, on_fragment=_on_fragment,
                     request_cancelled=lease.cancelled,
+                    launch=body.launch.model_dump() if body.launch is not None else None,
                 )
                 _on_terminal({"type": "done", "result": result})
             except Exception as exc:  # noqa: BLE001

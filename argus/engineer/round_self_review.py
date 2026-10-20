@@ -27,7 +27,7 @@ if TYPE_CHECKING:
 
 # Consecutive unjudged Engineer turns (NEXT_OWNER=engineer, or an unfinished
 # self-reviewed milestone) allowed before the Reviewer judges.
-_ENGINEER_SELF_HANDOFF_LIMIT = 2
+ENGINEER_SELF_HANDOFF_LIMIT = 2
 
 
 def _unjudged_turns_capped(supervised_config: "SupervisedConfig") -> bool:
@@ -270,14 +270,20 @@ class RoundSelfReviewMixin:
             # A self-handoff skips the Reviewer and, with it, every round guard
             # (those are evaluated at settlement). Where the run is capped (see
             # _unjudged_turns_capped), two in a row continue and the third goes
-            # to the Reviewer, so the Engineer cannot run unjudged.
-            if (
+            # to the Reviewer; a turn after rounds that produced nothing goes
+            # on too, so the Engineer cannot run unjudged or spin on itself.
+            stalled = (
+                supervised_config.no_progress_threshold > 0
+                and state.no_progress_streak >= supervised_config.no_progress_threshold
+            )
+            if not stalled and (
                 not _unjudged_turns_capped(supervised_config)
-                or state.engineer_self_handoffs < _ENGINEER_SELF_HANDOFF_LIMIT
+                or state.engineer_self_handoffs < ENGINEER_SELF_HANDOFF_LIMIT
             ):
                 state.engineer_self_handoffs += 1
                 return control_continue_loop()
-            return control_proceed()
+            if supervised_config.require_independent_review:
+                return control_proceed()
         if not supervised_config.require_independent_review and successful_work:
             if milestone_done:
                 return self._settle_round(
@@ -304,7 +310,7 @@ class RoundSelfReviewMixin:
             # Reviewer judges the turn and settlement's round guards apply.
             if (
                 not _unjudged_turns_capped(supervised_config)
-                or state.engineer_self_handoffs < _ENGINEER_SELF_HANDOFF_LIMIT
+                or state.engineer_self_handoffs < ENGINEER_SELF_HANDOFF_LIMIT
             ):
                 state.engineer_self_handoffs += 1
                 return control_continue_loop()

@@ -56,6 +56,7 @@ def append_turn(
                 "delivery_id",
                 "delivery",
                 "steps",
+                "campaign_continues",
             ):
                 if key in metadata:
                     rec[key] = metadata[key]

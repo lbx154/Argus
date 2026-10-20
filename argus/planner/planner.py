@@ -135,6 +135,9 @@ class TaskSpec:
     allow_skill_changes: bool = False
     parallel_safe: bool = False
     owns_paths: list[str] = field(default_factory=list)
+    # A reviewed interim package for the operator while the campaign goes on;
+    # it earns a non-terminal ``stage_package`` delivery, never completion.
+    stage_package: bool = False
     # GPUs the task holds while it runs; claimed only when that many are free.
     gpu_count: int = 0
     # CPU cores the task keeps busy; claimed only when that many are free.
@@ -633,6 +636,7 @@ _TASK_KEY_VALUE_FIELDS = (
     "SCOPE",
     "PARALLEL_SAFE",
     "OWNS_PATHS",
+    "STAGE_PACKAGE",
     "GPUS",
     "CPUS",
     "VERTICAL",
@@ -1094,6 +1098,7 @@ def parse_planner_payload(payload: Mapping[str, Any]) -> PlannerVerdict:
                     key=key,
                     deps=deps,
                     parallel_safe=boolean(raw_task, "parallel_safe"),
+                    stage_package=boolean(raw_task, "stage_package"),
                     require_independent_review=review_boolean(
                         raw_task, "require_independent_review"
                     ),
@@ -1266,6 +1271,34 @@ def _planner_verdict_from_fields(
             diagnostics.append(
                 f"task {task_index + 1} unsupported scope defaulted to bounded"
             )
+        raw_owns_paths = row.get("TASK_OWNS_PATHS", "").strip()
+        if raw_owns_paths.startswith("["):
+            # Planners write the JSON ``owns_paths`` array on this line too.
+            # Read as one pipe-separated path it carried ``[`` and was dropped
+            # downstream, so project s-a43d1018 lost 19 parallel plans.
+            try:
+                owns_paths = json.loads(raw_owns_paths)
+            except json.JSONDecodeError:
+                owns_paths = None
+            if not isinstance(owns_paths, list) or not all(
+                isinstance(path, str) for path in owns_paths
+            ):
+                message = (
+                    f"task {task_index + 1} TASK_OWNS_PATHS must be "
+                    "path|path or a JSON array of path strings, got: "
+                    f"{raw_owns_paths[:200]}"
+                )
+                return PlannerVerdict(
+                    project_done=False,
+                    reason=message,
+                    raw_text=text,
+                    error=message,
+                )
+            owns_paths = [path.strip() for path in owns_paths if path.strip()]
+        else:
+            owns_paths = [
+                path.strip() for path in raw_owns_paths.split("|") if path.strip()
+            ]
         new_tasks.append(
             TaskSpec(
                 title=title,
@@ -1294,11 +1327,8 @@ def _planner_verdict_from_fields(
                     row.get("TASK_REQUIRE_INDEPENDENT_REVIEW", ""),
                     default=True,
                 ),
-                owns_paths=[
-                    path.strip()
-                    for path in row.get("TASK_OWNS_PATHS", "").split("|")
-                    if path.strip()
-                ],
+                owns_paths=owns_paths,
+                stage_package=_key_value_bool(row.get("TASK_STAGE_PACKAGE", "")),
                 gpu_count=max(0, _key_value_int(row.get("TASK_GPUS", ""))),
                 cpu_count=max(0, _key_value_int(row.get("TASK_CPUS", ""))),
                 vertical=row.get("TASK_VERTICAL", "").strip(),

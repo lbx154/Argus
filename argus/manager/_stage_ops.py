@@ -29,6 +29,38 @@ from ._helpers import (
 
 _log = logging.getLogger(__name__)
 
+
+def fallback_project_report(
+    completion_context: Mapping[str, Any], continuous_objective: str = "",
+) -> str:
+    """The completion report Argus can state without the Manager model."""
+    from ..core.operator_messages import uses_cjk
+
+    stages = completion_context.get("stages")
+    stage_names = list(stages) if isinstance(stages, dict) else []
+    route = " -> ".join(stage_names)
+    increment = completion_context.get("completion_scope") == "certified_increment"
+    if uses_cjk(continuous_objective):
+        return (
+            (
+                "本次增量已认证完成；长期目标仍然有效。Manager 已收到完整阶段记录"
+                if increment else "项目已完成。Manager 已收到完整阶段记录"
+            )
+            + (f"（{route}）。" if route else "。")
+            + " Manager 后端不可用，未检查当前交付成果的详细证据。"
+        )
+    return (
+        (
+            "Certified increment completed; the standing objective remains "
+            "active. Manager received the full stage ledger"
+            if increment else "Project completed. Manager received the full stage ledger"
+        )
+        + (f" ({route})." if route else ".")
+        + " The Manager backend is unavailable; detailed current artifact "
+        "evidence was not inspected."
+    )
+
+
 _MISSING_REVIEW_FIELD = object()
 _NEUTRAL_REVIEW_TEXT = {
     "",
@@ -484,31 +516,7 @@ class _StageDecisionMixin:
             None, on_event, run_label="manager-project-report",
         )
         if hold is not None or run_exec is None:
-            from ..core.operator_messages import uses_cjk
-
-            stages = completion_context.get("stages")
-            stage_names = list(stages) if isinstance(stages, dict) else []
-            route = " -> ".join(stage_names)
-            increment = completion_context.get("completion_scope") == "certified_increment"
-            if uses_cjk(continuous_objective):
-                return (
-                    (
-                        "本次增量已认证完成；长期目标仍然有效。Manager 已收到完整阶段记录"
-                        if increment else "项目已完成。Manager 已收到完整阶段记录"
-                    )
-                    + (f"（{route}）。" if route else "。")
-                    + " Manager 后端不可用，未检查当前交付成果的详细证据。"
-                )
-            return (
-                (
-                    "Certified increment completed; the standing objective remains "
-                    "active. Manager received the full stage ledger"
-                    if increment else "Project completed. Manager received the full stage ledger"
-                )
-                + (f" ({route})." if route else ".")
-                + " The Manager backend is unavailable; detailed current artifact "
-                "evidence was not inspected."
-            )
+            return fallback_project_report(completion_context, continuous_objective)
         raw = self._run_stage_model(run_exec, prompt, root_task_id)
         if not raw.strip():
             return ""

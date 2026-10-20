@@ -949,6 +949,34 @@ def _seed_board(
     leaderboard.fold(root)
 
 
+def test_tick_keeps_a_settled_campaign_without_any_model_work(tmp_path: Path) -> None:
+    """A finished leaderboard is not new input: a day of ticks writes nothing.
+
+    The Curator once re-asked a model for a "strategy" every 21 minutes per
+    campaign whatever the leaderboard held, and nothing read the answer. Its
+    upkeep is deterministic now, so an unchanged campaign costs no model call
+    and leaves no strategy file behind.
+    """
+    root = tmp_path / "team"
+    registry.write_marker(
+        tmp_path,
+        team_id="t1",
+        team_root=root,
+        cwd=tmp_path,
+        now=1.0,
+    )
+    pool.update(root, width=0, state="running")
+    _seed_board(root)
+    board_before = (root / "leaderboard.json").read_text(encoding="utf-8")
+    curator = _fake_curator(tmp_path)
+
+    for now in range(1000, 1000 + 24 * 3600, 600):
+        curator._tick(now=float(now))
+
+    assert not (root / "strategy.md").exists()
+    assert (root / "leaderboard.json").read_text(encoding="utf-8") == board_before
+
+
 def test_twelve_candidate_tasks_do_not_spawn_twelve_workers_by_default(tmp_path, monkeypatch):
     monkeypatch.delenv("ARGUS_TEAM_MAX_TOTAL_IN_FLIGHT", raising=False)
     root = tmp_path / "team"

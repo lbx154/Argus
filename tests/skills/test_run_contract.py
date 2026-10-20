@@ -20,7 +20,6 @@ from argus.skills.run_contract import (
     validate_feasibility_packet,
 )
 
-
 TASKS = sorted(f"math_{i}" for i in range(1200))
 FEW_TASKS = sorted(f"math_{i}" for i in range(50))
 

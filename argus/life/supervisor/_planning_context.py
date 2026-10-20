@@ -76,6 +76,8 @@ class PlanningContextMixin:
             tags.append("skill_changes:allowed")
         if bool(getattr(task, "parallel_safe", False)):
             tags.append("parallel_safe")
+        if bool(getattr(task, "stage_package", False)):
+            tags.append("stage_package")
         # Bind Planner work to the stage in which it was proposed.  This is
         # host-owned routing metadata, not a model judgement.  It lets the
         # enqueue boundary distinguish "re-run the same certification" from
@@ -1022,8 +1024,7 @@ class PlanningContextMixin:
         so a second model call can only repeat the first answer. Wall-clock
         facts (operator presence, log churn from healthy live jobs, git status
         noise) are deliberately left out: live jobs rewrite their own files
-        continuously, and ``PLANNER_UNCHANGED_SKIP_MAX_SECONDS`` bounds how
-        long unchanged inputs may keep the Planner silent.
+        continuously. Unchanged inputs keep the Planner silent until they change.
 
         Fail-soft: an empty string disables the unchanged-input skip for this
         cycle rather than guessing.
