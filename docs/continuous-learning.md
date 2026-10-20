@@ -103,11 +103,10 @@ ran beside the `SKILL.md` when a step is better run than read. A value read
 from code goes into the Wiki with the layer it belongs to, the value that
 takes effect on the usual path, what decides it and why, and may link a small
 check in the Wiki's `checks/` that a later project reruns against another
-version. Nothing imports these
-files: roles of the same project discover them, recall shows them to later
-projects (a learning project's to projects of every vertical, as pointers that
-name the code), and the post-mission review offers a workspace Skill for the
-vertical's shared library like any project Skill, with its code.
+version. Nothing imports these files: roles of the same project discover them,
+recall shows them to later projects of any vertical (as pointers that name the
+code), and the post-mission review offers a workspace Skill for the vertical's
+shared library like any project Skill, with its code.
 
 Quality checks cover a changed factual conclusion reaching the next recall,
 unrelated English/Chinese questions, repeated findings and methods, partially

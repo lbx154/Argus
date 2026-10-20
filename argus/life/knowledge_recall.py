@@ -7,10 +7,9 @@ The index stores lexical terms/vectors, never an authoritative copy of the prose
 Recall reads four tiers of knowledge: this project's Wiki and Skills, the
 shared Wiki of the project's vertical (with its ``principles.md``), the
 host-wide shared Wiki, and -- on a single-operator host -- the Wikis and
-Skills of earlier projects of the same vertical. What a learning mission keeps
-is meant for later work in every field, so the learning vertical's shared Wiki
-and earlier learning projects are read beside every project's own vertical.
-Every shown page is described (title, description, kind, source, date, and the
+Skills of earlier projects. Other verticals' shared Wikis and earlier projects
+of any vertical take part like the project's own: what matches the work is
+shown, whatever field it was learned in. Every shown page is described (title, description, kind, source, date, and the
 code it carries) so a role can decide whether to open it, and every recall is
 noted in the knowledge journal and the project event stream.
 """
@@ -49,10 +48,9 @@ _PAGE_KINDS = ("fact", "lesson", "survey", "principles", "note", "profile", "pag
 _SCOPES = ("project", "vertical", "global")
 _DESCRIPTION_CHARS = 160
 _FRONT_MATTER_CHARS = 4000
-_LEARNING_VERTICAL = "learning"
 _MAX_CODE_FILES = 4
 _MAX_CODE_SCAN = 64
-_MAX_SIBLING_ROOTS = 12
+_MAX_SIBLING_ROOTS = 8
 _MAX_SIBLING_PROJECTS = 64
 _MAX_PROJECT_ENTRIES = 256
 _OBJECTIVE_EXCERPT_CHARS = 200
@@ -418,18 +416,17 @@ def _same_path(left: Path, right: Path) -> bool:
         return False
 
 
-def _sibling_roots(global_root: Path, state: Path, workspace: Path,
-                   verticals: list[str]) -> list[KnowledgeRoot]:
-    """Wikis and Skills of earlier projects in one of ``verticals``, newest first.
+def _sibling_roots(global_root: Path, state: Path, workspace: Path) -> list[KnowledgeRoot]:
+    """Wikis and Skills of earlier projects, newest first.
 
-    A project is read where the host keeps it: the Manager's pipeline state
-    and record in its state directory under ``projects/``, its Wikis and Agent
-    Skills in the workspace its session names. Of the state directory only the
-    Engineer procedures are read; a project's SELF and Manager Skills hold its
-    operator's preferences and stay in it.
+    A project is read where the host keeps it: its state directory under
+    ``projects/`` and the workspace its session names, with its Wikis and
+    Agent Skills. Of the state directory only the Engineer procedures are read;
+    a project's SELF and Manager Skills hold its operator's preferences and
+    stay in it.
     """
     projects = global_root / "projects"
-    if not verticals or not _contained(projects, global_root) or not projects.is_dir():
+    if not _contained(projects, global_root) or not projects.is_dir():
         return []
     candidates: list[tuple[float, Path]] = []
     try:
@@ -462,8 +459,7 @@ def _sibling_roots(global_root: Path, state: Path, workspace: Path,
             sibling = resolve_session_workdir(meta, state_dir=candidate)
         except (OSError, RuntimeError, ValueError):
             continue
-        vertical = _resolve_vertical(sibling, candidate)
-        if vertical not in verticals or _same_path(sibling, workspace):
+        if _same_path(sibling, workspace):
             continue
         found = [(f"earlier project Wiki ({sid})", wiki / "pages", sibling, wiki)
                  for wiki in _bounded_wiki_roots(sibling)]
@@ -472,8 +468,7 @@ def _sibling_roots(global_root: Path, state: Path, workspace: Path,
                                          (sibling / ".agents" / "skills", sibling))
                   if path.is_dir()]
         for kind, path, boundary, library in found:
-            roots.append(KnowledgeRoot(kind, path, boundary, scope="project", vertical=vertical,
-                                       library=library, source=sid))
+            roots.append(KnowledgeRoot(kind, path, boundary, scope="project", library=library, source=sid))
             if len(roots) >= _MAX_SIBLING_ROOTS:
                 return roots
     return roots
@@ -740,14 +735,19 @@ def _operator_roots(global_root: Path) -> list[KnowledgeRoot]:
 
 
 def _shared_wiki_roots(global_root: Path, vertical: str) -> list[KnowledgeRoot]:
-    """The vertical's shared Wiki (pages and principles), the learning vertical's
-    pages and the host-wide shared Wiki."""
+    """Every vertical's shared Wiki pages, the project's own first with its
+    principles, and the host-wide shared Wiki."""
     from ..core.paths import global_wiki_root, shared_vertical_wiki_root, shared_wiki_root
+    from ..wiki.promote import SHARED_VERTICALS_DIRNAME
 
     roots: list[KnowledgeRoot] = []
     try:
         boundary = shared_wiki_root(global_root).absolute()
-        for name in dict.fromkeys(filter(None, (vertical, _LEARNING_VERTICAL))):
+        verticals = boundary / SHARED_VERTICALS_DIRNAME
+        names = sorted(path.name for path in verticals.iterdir()
+                       if not path.name.startswith(".") and path.is_dir() and not path.is_symlink()
+                       ) if verticals.is_dir() else []
+        for name in dict.fromkeys(filter(None, (vertical, *names))):
             vertical_root = shared_vertical_wiki_root(name, global_root).absolute()
             roots.append(KnowledgeRoot(
                 f"{name} knowledge", vertical_root / "pages", boundary,
@@ -812,9 +812,7 @@ def knowledge_recall_for_memory(memory: Any, *, worktree: Path | None = None,
         # should fit the person before it fits the field.
         roots[0:0] = _operator_roots(global_root)
         if workspace is not None and _sibling_wikis_enabled():
-            # What a learning mission keeps is meant for later work in every field.
-            verticals = [name for name in dict.fromkeys((vertical, _LEARNING_VERTICAL)) if name]
-            roots.extend(_sibling_roots(global_root, state, workspace, verticals))
+            roots.extend(_sibling_roots(global_root, state, workspace))
     # A subordinate can keep its derived index isolated while using the same
     # explicit canonical source and embedding policy/budget as its parent.
     from .recall_embedding import configured_embedder

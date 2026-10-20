@@ -104,7 +104,7 @@ def root_kinds(recall: MarkdownKnowledgeRecall) -> list[str]:
     return [root.kind for root in recall.roots]
 
 
-def test_roots_include_shared_tiers_principles_and_same_vertical_siblings_only(tenant, tmp_path):
+def test_roots_include_shared_tiers_principles_and_every_earlier_project(tenant, tmp_path):
     workspace = workspace_with_vertical(tenant / "workspaces" / "current", VERTICAL)
     same = tmp_path / "work" / "earlier-same"
     other = tmp_path / "work" / "earlier-other"
@@ -126,26 +126,22 @@ def test_roots_include_shared_tiers_principles_and_same_vertical_siblings_only(t
     by_kind = {root.kind: root for root in recall.roots}
 
     assert kinds[:2] == ["about the operator", "notes about the operator"]
-    assert kinds[2:7] == ["project Wiki", f"{VERTICAL} knowledge", "principles", "learning knowledge",
-                          "shared knowledge"]
+    assert kinds[2:6] == ["project Wiki", f"{VERTICAL} knowledge", "principles", "shared knowledge"]
     assert by_kind[f"{VERTICAL} knowledge"].path == vertical_root / "pages"
     assert by_kind[f"{VERTICAL} knowledge"].scope == "vertical"
     assert by_kind["principles"].path == vertical_root / "principles.md"
     assert by_kind["shared knowledge"].path == global_wiki_root(tenant) / "pages"
     assert by_kind["shared knowledge"].scope == "global"
-    siblings = [root for root in recall.roots if root.kind.startswith("earlier project")]
-    assert [root.kind for root in siblings] == ["earlier project Wiki (s-same)"]
-    assert siblings[0].path == same / ".autors" / "same" / "wiki" / "pages"
-    assert siblings[0].source == "s-same" and siblings[0].scope == "project"
-    assert siblings[0].vertical == VERTICAL
-    assert all(str(other) not in str(root.path) for root in recall.roots)
-    assert all(str(undecided) not in str(root.path) for root in recall.roots)
+    siblings = {root.kind: root for root in recall.roots if root.kind.startswith("earlier project")}
+    assert set(siblings) == {f"earlier project Wiki ({sid})" for sid in ("s-same", "s-other", "s-none")}
+    assert siblings["earlier project Wiki (s-other)"].path == other / ".autors" / "other" / "wiki" / "pages"
+    assert {(root.source, root.scope) for root in siblings.values()} == {
+        ("s-same", "project"), ("s-other", "project"), ("s-none", "project")}
     assert [root.kind for root in recall.roots if str(root.path).startswith(str(workspace))] == [
         "project Wiki", "native project Skill",
     ]
     context = recall.render_context("quartz")
-    assert "earlier project Wiki (s-same)" in context and "quartz same" not in context
-    assert str(other) not in context
+    assert "earlier project Wiki (s-" in context and "quartz same" not in context
 
 
 def test_earlier_projects_are_found_where_the_host_keeps_them(tenant, tmp_path):
@@ -177,7 +173,7 @@ def test_earlier_projects_are_found_where_the_host_keeps_them(tenant, tmp_path):
     assert "operator-taste" not in context
 
 
-def test_what_a_learning_project_kept_is_read_by_projects_of_every_vertical(tenant, tmp_path):
+def test_what_a_learning_project_kept_is_recalled_in_every_vertical(tenant, tmp_path):
     learned = tmp_path / "work" / "learn"
     earlier_project(tenant, "s-learned", "learning", learned)
     project_wiki(learned, "learn", "engine-scheduler.md",
@@ -200,7 +196,7 @@ def test_what_a_learning_project_kept_is_read_by_projects_of_every_vertical(tena
         assert learned / ".autors" / "learn" / "wiki" / "pages" / "engine-scheduler.md" in shown, vertical
         assert any(hit.document.vertical == "learning" and hit.document.meta.page_kind == "lesson"
                    for hit in result.hits)
-        # The learning vertical's principles govern learning missions, not this one.
+        # Another vertical's principles govern its own missions, not this one.
         assert "Learning rule" not in result.text
 
 
@@ -231,8 +227,8 @@ def test_sibling_roots_are_capped_newest_first_and_roots_stay_bounded(tenant, tm
     recall = knowledge_recall_for_memory(bundle(tenant, workspace))
     siblings = [root.kind for root in recall.roots if root.kind.startswith("earlier project")]
 
-    assert len(siblings) == 12
-    assert siblings[0] == "earlier project Wiki (s-15)" and siblings[-1] == "earlier project Wiki (s-04)"
+    assert len(siblings) == 8
+    assert siblings[0] == "earlier project Wiki (s-15)" and siblings[-1] == "earlier project Wiki (s-08)"
     assert len(recall.roots) <= 32
 
 
