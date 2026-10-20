@@ -100,7 +100,7 @@ def test_engineer_learning_targets_engineer_bucket(tmp_path) -> None:
     )
 
     assert f"Engineer Skill directory (project layer only): {skill_dir}" in prompt
-    assert 'Add no unrelated cleanup, hardening, or substitute outputs' in prompt
+    assert 'Deliver the requested outputs, not substitutes' in prompt
     assert "Keep only reusable role learning here" in prompt
     assert "route durable project facts" in prompt
     assert "never write shared/global layers" in prompt

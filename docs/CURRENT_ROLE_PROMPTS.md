@@ -559,7 +559,7 @@ PREVIOUS_ANSWER:
 
 ~~~~text
 ## 有效任务契约
-Current operator > objective > mission > preregistration；memory 仅供参考。不要添加无关清理或加固。指定输出并不授权替换既有文件。验证一次。同层级冲突时报告 `ambiguous_objective`。
+Current operator > objective > mission > preregistration；memory 仅供参考。交付所要求的输出，不拿替代品顶替。同层级冲突时报告 `ambiguous_objective`。
 
 仅在 native Windows 主机上插入：`Win PS5.1: no ||; npm.cmd/npx.cmd.`
 
@@ -649,7 +649,7 @@ CHECKPOINT.md 把你的状态从一轮带到下一轮。Host 只在需要时调�
 {{RESEARCH_TARGET_CONTRACT}}
 
 ## 有效任务契约
-Current operator > objective > mission > preregistration；memory 仅供参考。不要添加无关清理或加固。指定输出并不授权替换既有文件。验证一次。同层级冲突时报告 `ambiguous_objective`。
+Current operator > objective > mission > preregistration；memory 仅供参考。交付所要求的输出，不拿替代品顶替。同层级冲突时报告 `ambiguous_objective`。
 
 仅在 native Windows 主机上插入：`Win PS5.1: no ||; npm.cmd/npx.cmd.`
 

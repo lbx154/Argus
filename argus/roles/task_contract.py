@@ -8,10 +8,9 @@ from collections.abc import Sequence
 
 EFFECTIVE_TASK_CONTRACT = (
     "## Task authority\n"
-    "Follow operator>objective>mission>preregistration; memory advises. Add no "
-    "unrelated cleanup, hardening, or substitute outputs. Recheck material changes, "
-    "never unchanged work. Limit output; no `.git` or Git retries. "
-    "Equal authority in conflict means `ambiguous_objective`."
+    "Follow operator>objective>mission>preregistration; memory advises. Deliver "
+    "the requested outputs, not substitutes. Equal authority in conflict means "
+    "`ambiguous_objective`."
 )
 
 NATIVE_WINDOWS_SHELL_CONTRACT = (
