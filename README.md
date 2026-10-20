@@ -739,7 +739,7 @@ service id, and the other on-disk markers (`/tmp/argus-skill-role-slots`,
 **Kept for one release.** `import argus_skill` is the same package object as
 `import argus` (a two-file alias, not a copy), `python -m argus_skill ...` runs
 the same modules, the `argus-skill` command still exists and prints one
-deprecation line on stderr, teammates and trial containers started under the
+deprecation line on stderr, trial containers started under the
 old name are still recognised, and community verticals registered under the
 pre-rename entry-point group are still discovered (with a warning).
 
@@ -825,7 +825,7 @@ logs.
 - `argus/verticals/`, `domains/`, `builtin_skills/` — domain knowledge: the 7 built-in verticals (17 more arrive as entry points from `argus-verticals`), overlays, seeded Skills.
 - `argus/roles/`, `planner/`, `engineer/`, `reviewer/` — the persistent roles: the prompt catalog (`roles/`) plus the Planner, Engineer and Reviewer code (the Manager's code is in `manager/`).
 - `argus/life/`, `manager/`, `messaging/` — runtime: project memory, backlog, supervisor, the Manager control plane, cross-project messages.
-- `argus/daemon/`, `team/` — the detached 7x24 worker and agent teams.
+- `argus/daemon/` — the detached 7x24 worker.
 - `argus/apps/`, `webapi/`, `plugin/`, `maintenance/`, `trial/` — delivery: CLI, web API, host plugin, Doctor, hosted trial.
 - `frontend/` — Ink terminal cockpit (`tui`), React web cockpit (`web`), shared TypeScript (`core`).
 - `desktop-tauri/` — Tauri desktop shell (Windows release; four CI targets); `plugins/` — installable host plugin; `tests/` — pytest suite.

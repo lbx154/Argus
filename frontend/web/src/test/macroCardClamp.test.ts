@@ -39,13 +39,8 @@ describe("atlas overview card text is line-clamped", () => {
   it("keeps the fixed-height overview card from bleeding", () => {
     expect(rule(".argus-map .macro-summary .map-card", design)).toMatch(/overflow:\s*hidden/);
   });
-  it.each(["map", "atlas", "design", "alive", "branch"])("has no zoom-dependent text rules in %s.css", (name) => {
+  it.each(["map", "atlas", "design", "alive"])("has no zoom-dependent text rules in %s.css", (name) => {
     const css = readFileSync(new URL(`../map/${name}.css`, import.meta.url), "utf8");
     expect(css).not.toMatch(/data-overview-density|data-copy-lines|data-course|--overview-type|--summary-scale|--title-lines|--copy-lines/);
-  });
-  it("keeps folded-group typography fixed too", () => {
-    const branch = readFileSync(new URL("../map/branch.css", import.meta.url), "utf8");
-    expect(rule(".map-branch-group", branch)).toMatch(/--group-type:\s*46px/);
-    expect(branch).not.toContain("--map-zoom-step");
   });
 });

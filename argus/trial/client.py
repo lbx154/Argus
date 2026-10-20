@@ -242,7 +242,7 @@ def validate_role_overrides() -> None:
 
     settings = {**read_persisted_knobs(), **os.environ}
     conflicts = []
-    for role in ("MANAGER", "PLANNER", "ENGINEER", "REVIEWER", "CURATOR", "SUPERVISOR"):
+    for role in ("MANAGER", "PLANNER", "ENGINEER", "REVIEWER", "SUPERVISOR"):
         backend = str(settings.get(f"ARGUS_SKILL_{role}_BACKEND", "")).strip().lower()
         model_key = "PLAN" if role == "PLANNER" else role
         model = str(settings.get(f"ARGUS_SKILL_{model_key}_MODEL", "")).strip().lower()

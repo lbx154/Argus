@@ -25,7 +25,7 @@ export function mapStatusSentence(input: {
   role?: string;
   /** A recorded action from the current task, already in the display language. */
   current?: string;
-  /** The one sentence for a task waiting on its background team; wins over the role. */
+  /** The one sentence for a task waiting on its background work; wins over the role. */
   waiting?: string;
   zh: boolean;
 }): string {

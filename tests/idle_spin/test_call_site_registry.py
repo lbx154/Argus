@@ -240,12 +240,6 @@ REGISTRY: tuple[Site, ...] = (
         ("manager-second-reading",),
     ),
     Site(
-        r"manager\.team_summary", EVENT,
-        "Once per team-completion fingerprint; the summary is cached before it is published.",
-        ("argus/daemon/life_worker.py:367",),
-        ("manager.team_summary",),
-    ),
-    Site(
         r"manager\.reviewed_facts", EVENT,
         "Once per Reviewer-confirmed research result at mission settlement.",
         ("argus/manager/reviewed_facts.py:290",),

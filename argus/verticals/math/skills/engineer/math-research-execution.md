@@ -193,9 +193,8 @@ anyone starts — `$S route --id R1 --goal C1 --obligation L1` — because an
 unrecorded alternative is one the next worker re-derives from scratch, and a
 route that dies without `$S retire-route` is one that gets retried.
 
-Then dispatch them. `argus_builtin_skills/agent-team-lead.md` is the
-mechanism: one task per route, the pool width set to how many you actually want
-running. How many that is, is your judgement. The test is not how much compute
+Then dispatch them, one task per route, through your backend's own parallel
+workers. How many run at once is your judgement. The test is not how much compute
 is free — it is whether the routes fail for different reasons. Two routes that
 die to the same obstruction were one route dispatched twice, and you wait for
 both.
@@ -203,30 +202,27 @@ both.
 Whoever picks up a route is the one thinking about it. Give them the goal, the
 route's obligations, and what is already known not to work; do not hand over a
 decomposition into steps, because that decomposition is the mathematics you were
-asking somebody else to do. Put the goal claim's id in the task's
-`acceptance_check` and name that one claim there and no other — that field is
-what hands the worker everything already recorded about the claim, including
-which of its citations somebody has been to the source for, and a field naming
-two ids resolves to none. A route objective naturally says "reduce C1 to L2",
-which names two, so the terser field is the one that has to carry it. What comes
-back is a result or a reason the route is dead, and the reason goes into
+asking somebody else to do. Name the goal claim's id and no other; the ledger
+already holds everything recorded about it, including which of its citations
+somebody has been to the source for. What comes back is a result or a reason
+the route is dead, and the reason goes into
 `$S retire-route --id R1 --because "..."` in your words, since you are the one
 holding the OR and the next planner reads it there.
 It is written once: a route you come to believe in again is a new plan with a
 new id, not a rewritten reason on the old one.
 
-Dispatching a team requires non-overlapping writable paths, and here they overlap in
+Parallel workers need non-overlapping writable paths, and here they overlap in
 exactly one place: `research/MATH_STATE.json`. That one is safe to share. Every
 write takes an exclusive lock before it reads, and each worker records its own
 claims, assumptions, and evidence, so concurrent recording is what the ledger
 was built for. What must not be shared is a working file — a proof draft, a Lean
 source, a `statement_fidelity.md` — where two workers overwrite each other with
 no lock and no merge. Give each route its own directory *inside* the project
-tree, name it in the task's `owns_paths`, and leave the task's `cwd` at the
-project root. `$S` writes to `research/MATH_STATE.json` under whatever directory
-it runs in, so a route dispatched into its own `cwd` quietly gets a private
-ledger nobody reads — every claim it records, every citation it checks, and the
-OR you are holding all stop meeting anywhere.
+tree, and keep the worker running from the project root. `$S` writes to
+`research/MATH_STATE.json` under whatever directory it runs in, so a route
+worker run from its own directory quietly gets a private ledger nobody reads —
+every claim it records, every citation it checks, and the OR you are holding
+all stop meeting anywhere.
 
 ## Checking what you cited
 

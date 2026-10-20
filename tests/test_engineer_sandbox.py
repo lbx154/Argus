@@ -698,7 +698,7 @@ def test_no_hardcoded_bypass_left_in_subagent_spawns():
 def test_no_raw_codex_spawn_bypasses_gate_anywhere():
     """Repo-wide invariant (not just one file): the literal dangerous bypass may
     appear ONLY in the runner/policy (the gated default-OFF fallback). Every
-    other module that spawns codex (e.g. team/teammate_entry.py) must go through
+    other module that spawns codex must go through
     codex_sandbox_args/codex_sandbox_env, so enabling the gate contains them too.
     Guards against a future raw spawn re-opening the hole the PR closed.
 
@@ -723,16 +723,6 @@ def test_no_raw_codex_spawn_bypasses_gate_anywhere():
         ):
             offenders.append(rel)
     assert offenders == [], f"raw codex bypass outside the gated chokepoint: {offenders}"
-
-
-def test_teammate_has_no_harness_forced_research_spawn():
-    """Teammates use the normal reviewed mission path, not a second CLI spawn."""
-    import argus.team.teammate_entry as te
-
-    src = Path(te.__file__).read_text(encoding="utf-8")
-    assert "_forced_web_research" not in src
-    assert "codex_sandbox_args" not in src
-    assert "--dangerously-bypass-approvals-and-sandbox" not in src
 
 
 # ── default-OFF inertness (must stay byte-for-byte legacy) ────────────────────

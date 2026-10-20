@@ -1006,7 +1006,7 @@ class PlanningCycleEnqueueMixin:
             )
             if unknown_keys:
                 # The planner named something that is neither a backlog node
-                # nor a durable job: usually a team id, a task label it saw in
+                # nor a durable job: usually a task label it saw in
                 # evidence, or a node it meant to create. Rejecting the whole
                 # plan over it used to stall campaigns for dozens of identical
                 # cycles. Drop the key, enqueue the task, and tell the planner.

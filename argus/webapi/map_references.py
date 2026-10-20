@@ -74,8 +74,6 @@ class CardReference:
     part: int | None = None
     step_id: str = ""
     step_title: str = ""
-    team_id: str = ""
-    team_task_id: str = ""
     # Locale the operator quoted under; old markers carry none and stay zh.
     lang: str = "zh"
 
@@ -124,7 +122,7 @@ def parse_card_reference(line: str) -> CardReference | None:
         isinstance(part, bool) or not isinstance(part, int) or part <= 0
     ):
         return None
-    for key in ("step_id", "step_title", "team_id", "team_task_id", "lang"):
+    for key in ("step_id", "step_title", "lang"):
         value = raw.get(key)
         if value is not None and not isinstance(value, str):
             return None
@@ -141,8 +139,6 @@ def parse_card_reference(line: str) -> CardReference | None:
         part=part,
         step_id=str(raw.get("step_id") or ""),
         step_title=str(raw.get("step_title") or ""),
-        team_id=str(raw.get("team_id") or ""),
-        team_task_id=str(raw.get("team_task_id") or ""),
         lang="en" if raw.get("lang") == "en" else "zh",
     )
 

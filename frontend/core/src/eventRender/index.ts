@@ -572,20 +572,6 @@ export function renderEvent(event: TypedArgusEvent, context: RenderContext): Ren
       return model('system', 'role.system', '⚠', `${localized(context, "the review of Argus's own conversation habits failed", '对 Argus 自身对话习惯的复盘失败')} · ${clean(stringField(event, 'error'), 140)}`, 'warn');
     case 'domain.promotion':
       return model('manager', 'role.manager', '★', clean(stringField(event, 'text'), 180), 'dim');
-    case 'idea.portfolio.formed': {
-      const selection = row(event).selection;
-      const routeId = selection && typeof selection === 'object'
-        ? String((selection as Record<string, unknown>).route_id ?? '')
-        : '';
-      const routes = Number(row(event).route_count || 0);
-      const said = clean(stringField(event, 'text'), 180);
-      const formed = routes > 0
-        ? localized(context, `formed an idea portfolio of ${count(routes, 'route')}`, `组成了 ${routes} 条思路的组合`)
-        : localized(context, 'formed an idea portfolio', '组成了思路组合');
-      return model('engineer', 'role.engineer', '💡', routeId
-        ? localized(context, `chose route ${routeId} from the idea portfolio`, `从思路组合中选定了路线 ${routeId}`)
-        : said || formed, 'accent');
-    }
     case 'user.note': {
       const tags = Array.isArray(row(event).tags) ? (row(event).tags as unknown[]).map(String) : [];
       // A chat config change already answers in the conversation; its note is
@@ -620,7 +606,7 @@ export function renderEvent(event: TypedArgusEvent, context: RenderContext): Ren
     case 'life.manager.plan_challenge.decided': case 'life.vertical.resolved':
     case 'life.manager.backend_resolved': case 'life.planner.backend_resolved':
     case 'life.planner.dependency_dropped': case 'life.planner.parallel_dropped':
-    case 'life.engineer.backend_resolved': case 'life.reviewer.backend_resolved': case 'life.curator.backend_resolved':
+    case 'life.engineer.backend_resolved': case 'life.reviewer.backend_resolved':
     case 'life.runtime_failure.circuit_opened': case 'life.runtime_failure.circuit_blocked': case 'life.runtime_failure.canary_passed':
     case 'life.runtime.incident.detected': case 'life.runtime.incident.recovered': case 'life.runtime.incident.escalated':
     case 'life.plan.revision.proposed': case 'life.plan.revision.rejected': case 'life.plan.revision.committed': case 'life.plan.node.superseded':
@@ -644,7 +630,7 @@ export function renderEvent(event: TypedArgusEvent, context: RenderContext): Ren
     case 'life.planner.external_poll_suppressed': case 'life.planner.waiting_contract.normalized':
     case 'life.daemon.ready': case 'plan.draft.start':
     case 'team.learning.review.skipped': case 'self.learning.review.started': case 'self.learning.review.completed':
-    case 'manager.live_view.updated': case 'manager.live_view.rejected': case 'idea.portfolio.nested_skipped':
+    case 'manager.live_view.updated': case 'manager.live_view.rejected':
     case 'manager.turn.started': case 'manager.turn.cancelled': case 'life.config.parse_failed':
       return fallback(event, context);
     default: {

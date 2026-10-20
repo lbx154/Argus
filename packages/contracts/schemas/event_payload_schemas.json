@@ -3723,28 +3723,6 @@
         }
       }
     },
-    "life.curator.backend_resolved": {
-      "version": 1,
-      "required": [
-        "role",
-        "backend",
-        "source"
-      ],
-      "properties": {
-        "role": {
-          "type": "string",
-          "minLength": 1
-        },
-        "backend": {
-          "type": "string",
-          "minLength": 1
-        },
-        "source": {
-          "type": "string",
-          "minLength": 1
-        }
-      }
-    },
     "codex.util.completed": {
       "version": 1,
       "properties": {
@@ -5729,53 +5707,6 @@
         },
         "error": {
           "type": "string"
-        },
-        "text": {
-          "type": "string"
-        }
-      }
-    },
-    "idea.portfolio.formed": {
-      "version": 1,
-      "required": [
-        "route_count"
-      ],
-      "properties": {
-        "team_root": {
-          "type": "string"
-        },
-        "width": {
-          "type": "integer",
-          "minimum": 0
-        },
-        "route_count": {
-          "type": "integer",
-          "minimum": 0
-        },
-        "task_count": {
-          "type": "integer",
-          "minimum": 0
-        },
-        "selection": {
-          "type": "object"
-        },
-        "policy": {
-          "type": "string"
-        },
-        "text": {
-          "type": "string"
-        }
-      }
-    },
-    "idea.portfolio.nested_skipped": {
-      "version": 1,
-      "required": [
-        "team_task_id"
-      ],
-      "properties": {
-        "team_task_id": {
-          "type": "string",
-          "minLength": 1
         },
         "text": {
           "type": "string"

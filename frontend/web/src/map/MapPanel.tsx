@@ -28,11 +28,9 @@ import {
   useNodesState,
   useNodesInitialized,
   type Edge,
-  type OnNodesChange,
 } from "@xyflow/react";
 import {
   ArrowLeft,
-  Check,
   ChevronLeft,
   ChevronRight,
   Clock3,
@@ -50,14 +48,13 @@ import {
 import { api, type Snapshot, type MessageRouteOverride } from "../api";
 import { readLocalStorage, writeLocalStorage } from "../lib/storage";
 import { useI18n } from "../i18n";
-import { ACTIVE, TEAM_BRANCH_CAP, attentionTasks, buildMap, connectMap, unstatedPairs, currentTask, foldTeamBranches, formationWidths, promoteTeamBranches, statusKey, taskDependencies, latestCertifiedTask, type Dataset, type MapTask } from "./model";
+import { ACTIVE, attentionTasks, buildMap, connectMap, unstatedPairs, currentTask, statusKey, taskDependencies, latestCertifiedTask, type Dataset, type MapTask } from "./model";
 import { layoutScene } from "./submap";
-import { edgeLanes, layoutGraph, relationPorts } from "./graphLayout";
-import { MacroTaskNode, MapArtifactContext, MapNotesContext, type MacroData, type MacroNode } from "./MacroTaskNode";
+import { edgeLanes, relationPorts } from "./graphLayout";
+import { MacroTaskNode, MapArtifactContext, MapNotesContext, type MacroNode } from "./MacroTaskNode";
 import { ZoomStepContext } from "./zoomStep";
 import { groupNotesByNode } from "./notes";
 import "./notes.css";
-import { BranchNode, BRANCH_FRAME, GROUP_FRAME, type BranchFlowNode } from "./BranchNode";
 import { INITIAL_VIEWPORT, useSemanticCamera } from "./useSemanticCamera";
 import { useMapCopy } from "./useMapCopy";
 import { useMapLines } from "./useMapLines";
@@ -70,7 +67,6 @@ import "@xyflow/react/dist/style.css";
 import "./map.css";
 import "./submap.css";
 import "./atlas.css";
-import "./branch.css";
 import "./design.css";
 import { MapRelationEdge } from "./MapRelationEdge";
 import { MapHistoryChoice } from "./MapHistoryChoice";
@@ -90,9 +86,8 @@ interface MapWorkspaceActions {
   onAnswer: () => void;
 }
 
-const NODE_TYPES = { task: MacroTaskNode, branch: BranchNode };
+const NODE_TYPES = { task: MacroTaskNode };
 const EDGE_TYPES = { relation: MapRelationEdge };
-type AtlasNode = MacroNode | BranchFlowNode;
 // Minimap fills echo the card state palette a step lighter, so the overview
 // inset reads as a status heatmap instead of undifferentiated confetti.
 const MINIMAP_STATUS: Record<string, string> = {
@@ -108,23 +103,6 @@ const MINIMAP_STATUS: Record<string, string> = {
   skipped: "#c6c8cb",
   missing: "#c6c8cb",
 };
-
-/** The subtask tally lives in the map options menu: the cards and the folded
- * group nodes already say how the subtasks stand, so this line is for a
- * reader who wants the numbers in one place. */
-export function MapTeamProgress({ events, zh }: { events: Dataset['events']; zh: boolean }) {
-  const team = [...new Map(events.filter((event) => event.type === 'team.task').map((event) => [event.id, event])).values()];
-  if (!team.length) return null;
-  const complete = team.filter((event) => event.status === 'done').length;
-  const running = team.filter((event) => ACTIVE.has(event.status || '')).length;
-  const failed = team.filter((event) => event.status === 'failed').length;
-  return <div className="map-team-progress" role="status" aria-label={zh ? '子任务进度' : 'Subtask progress'}>
-    <strong>{zh ? '子任务' : 'Subtasks'}</strong>
-    <span><Check size={12} /><b>{complete}/{team.length}</b> {zh ? '已完成' : 'completed'}</span>
-    <span><b>{running}</b> {zh ? '进行中' : 'running'}</span>
-    <span><b>{failed}</b> {zh ? '失败' : 'failed'}</span>
-  </div>;
-}
 
 export function MapCanvas({
   data,
@@ -148,7 +126,7 @@ export function MapCanvas({
   zh: boolean;
   composer: MapComposerProps;
   activePhase?: string;
-  /** The task waiting on its background team and the one sentence saying so;
+  /** The task waiting on its background work and the one sentence saying so;
    * the heading and that task's card show it instead of a role at work. */
   waiting?: { taskId: string; sentence: string };
   snapshot: Snapshot;
@@ -178,16 +156,6 @@ export function MapCanvas({
     lastOperatorMessage.current = operatorMessageId;
     wasPending.current = composer.pending;
   }, [operatorMessageId, composer.pending, data.kind, readOnly]);
-  // Folded subtask groups the reader has unfolded, by group node id.
-  const [openGroups, setOpenGroups] = useState<ReadonlySet<string>>(() => new Set());
-  const toggleGroup = useCallback((id: string) => {
-    setOpenGroups((current) => {
-      const next = new Set(current);
-      if (next.has(id)) next.delete(id);
-      else next.add(id);
-      return next;
-    });
-  }, []);
   const [flight, setFlight] = useState<MapDispatchFlight | null>(null);
   const dispatchSerial = useRef(0);
   const alive = useRef(true);
@@ -282,91 +250,16 @@ export function MapCanvas({
     sceneCache.current = replaceEqualDeep(sceneCache.current, next);
     return sceneCache.current;
   }, [graph, data.events, zh, links, expandedMissions, narrow]);
-  // Team fan-out promotion: parallel `team.task` work leaves its owning card
-  // as small branch pills and returns to it, instead of hiding as steps.
-  // Subtasks that share a state are then folded into one sentence-labelled
-  // node, so a wide portfolio does not spray two dozen identical pills across
-  // the canvas; the fold leaves room for a whole portfolio before the
-  // overflow pill takes over.
-  const promotedCache = useRef<ReturnType<typeof promoteTeamBranches> | null>(null);
-  const promoted = useMemo(() => {
-    promotedCache.current = replaceEqualDeep(
-      promotedCache.current,
-      foldTeamBranches(
-        promoteTeamBranches(graph, data.events, zh, TEAM_BRANCH_CAP * 3),
-        openGroups,
-        zh,
-      ),
-    );
-    return promotedCache.current!;
-  }, [graph, data.events, zh, openGroups]);
-  // Compose cards and branch pills into one geometry. Same caching discipline
-  // as layoutScene: streaming prose/status changes never re-run the search.
-  const atlasCache = useRef<{
-    structure: string;
-    positions: Record<string, { x: number; y: number }>;
-  } | null>(null);
-  const atlas = useMemo(() => {
-    const branches = promoted.tasks.filter((task) => task.branch);
-    if (!branches.length)
-      return {
-        links: scene.links,
-        positions: scene.positions,
-        frames: scene.frames,
-        structure: scene.structure,
-        branches,
-        branchAnchor: new Map<string, string>(),
-      };
-    // The fan attaches to the task's last card, matching how layoutScene
-    // re-anchors outgoing task links on multi-part cards.
-    const anchor = new Map<string, string>();
-    for (const card of scene.cards) anchor.set(card.task.id, card.id);
-    const branchAnchor = new Map(
-      branches.map((task) => [task.id, anchor.get(task.parent_id!) ?? task.parent_id!]),
-    );
-    const frames: typeof scene.frames = { ...scene.frames };
-    for (const task of branches)
-      frames[task.id] = { ...(task.group ? GROUP_FRAME : BRANCH_FRAME), scale: 1 };
-    const atlasLinks = [
-      ...scene.links,
-      ...promoted.links
-        .filter((link) => link.kind === "fanout" || link.kind === "fanin")
-        .map((link) => ({
-          ...link,
-          source: anchor.get(link.source) ?? link.source,
-          target: anchor.get(link.target) ?? link.target,
-        })),
-    ];
-    // Branch pills join the layout right after their owning card, keeping the
-    // rank layout's chronological frontier truthful.
-    const byCard = new Map<string, string[]>();
-    for (const task of branches) {
-      const card = branchAnchor.get(task.id)!;
-      byCard.set(card, [...(byCard.get(card) ?? []), task.id]);
-    }
-    const ids = scene.cards.flatMap((card) => [card.id, ...(byCard.get(card.id) ?? [])]);
-    const structure = JSON.stringify([
-      ids.map((id) => [id, frames[id].width, frames[id].height]),
-      atlasLinks.map((link) => [link.source, link.target, link.kind]),
-    ]);
-    const positions =
-      atlasCache.current?.structure === structure
-        ? atlasCache.current.positions
-        : layoutGraph(ids, atlasLinks, frames);
-    atlasCache.current = { structure, positions };
-    return { links: atlasLinks, positions, frames, structure, branches, branchAnchor };
-  }, [scene, promoted]);
   // Cards glide to a re-laid-out place; relations follow through the store.
-  const positions = useSettledPositions(atlas.positions, camera.reducedMotion);
+  const positions = useSettledPositions(scene.positions, camera.reducedMotion);
   const [hoverId, setHoverId] = useState<string | null>(null);
-  const lit = useMemo(() => spotlight(atlas.links, hoverId), [atlas.links, hoverId]);
+  const lit = useMemo(() => spotlight(scene.links, hoverId), [scene.links, hoverId]);
   // A first opening composes the map in reading order; a replay walks a live
   // session's history the way the datasets already can.
   const [arriving, setArriving] = useState(false);
   const [replaying, setReplaying] = useState(false);
   const ordinalOf = useMemo(() => new Map(scene.cards.map((card) => [card.id, card.ordinal])), [scene.cards]);
   const growth = useMapGrowth(scene, !!data.history_loading);
-  const plannedWidths = useMemo(() => formationWidths(data.events), [data.events]);
   const submitFromMap: MapSend = async (text, files = [], _observe, options) => {
     // A note for the running turn has no flight of its own; it joins that turn.
     if (options?.whileRunning) return composer.onSend(text, files, undefined, options);
@@ -435,7 +328,7 @@ export function MapCanvas({
     if (!nodesReady) return;
     const frame = requestAnimationFrame(camera.fitUpdatedScene);
     return () => cancelAnimationFrame(frame);
-  }, [atlas.structure, nodesReady, camera.fitUpdatedScene]);
+  }, [scene.structure, nodesReady, camera.fitUpdatedScene]);
   const composerRef = useRef(composer);
   composerRef.current = composer;
   const quote = useCallback(
@@ -632,7 +525,6 @@ export function MapCanvas({
           restoring: !!savedView.current?.camera && !initialFit.current,
           layout: scene.layouts[card.id],
           frame: scene.frames[card.id],
-          plannedWidth: plannedWidths.get(card.task.id),
           focused: false,
           detailed: false,
         },
@@ -641,7 +533,6 @@ export function MapCanvas({
   }, [
     graph,
     scene,
-    atlas,
     positions,
     zh,
     setNodes,
@@ -656,7 +547,6 @@ export function MapCanvas({
     readOnly,
     paused,
     seenCards,
-    plannedWidths,
   ]);
   useEffect(() => {
     setVisibleCount((c) => Math.min(Math.max(c, 1), graph.tasks.length));
@@ -684,20 +574,14 @@ export function MapCanvas({
     return () => window.clearTimeout(timer);
   }, [replaying, playing, visibleCount, graph.tasks.length]);
   const visibleIds = useMemo(
-    () => {
-      const visible = new Set(
-        scene.cards
-          .filter(
-            (card) => (data.kind === "live" && !replaying) || card.ordinal <= visibleCount,
-          )
-          .map((card) => card.id),
-      );
-      // A branch pill appears and disappears with its owning card.
-      for (const [id, card] of atlas.branchAnchor)
-        if (visible.has(card)) visible.add(id);
-      return visible;
-    },
-    [scene.cards, visibleCount, data.kind, replaying, atlas.branchAnchor],
+    () => new Set(
+      scene.cards
+        .filter(
+          (card) => (data.kind === "live" && !replaying) || card.ordinal <= visibleCount,
+        )
+        .map((card) => card.id),
+    ),
+    [scene.cards, visibleCount, data.kind, replaying],
   );
   const previousDisplay = useRef<MacroNode[]>([]);
   const displayNodes = useMemo(
@@ -772,80 +656,24 @@ export function MapCanvas({
       waiting,
     ],
   );
-  // Branch pills are display/navigation only; structural sharing keeps their
-  // node data identities stable so idle pills never re-render.
-  const previousBranchNodes = useRef<BranchFlowNode[]>([]);
-  const branchNodes = useMemo(
-    () => {
-      // Fan ordinals: "3/5" on a pill tells how wide this parallel push is.
-      // A folded group is a bracket around pills, not one of them.
-      const fanTotal = new Map<string, number>();
-      for (const task of atlas.branches) {
-        if (task.group) continue;
-        const owner = task.parent_id ?? "";
-        fanTotal.set(owner, (fanTotal.get(owner) ?? 0) + 1);
-      }
-      const fanSeen = new Map<string, number>();
-      const next = atlas.branches.map<BranchFlowNode>((task) => {
-        const owner = task.parent_id ?? "";
-        const frame = atlas.frames[task.id];
-        const ordinal = task.group ? undefined : (fanSeen.get(owner) ?? 0) + 1;
-        if (ordinal !== undefined) fanSeen.set(owner, ordinal);
-        return {
-          id: task.id,
-          type: "branch",
-          position: positions[task.id] ?? { x: 0, y: 0 },
-          width: frame.width,
-          height: frame.height,
-          style: {
-            width: frame.width, height: frame.height,
-            opacity: traceTasks && !traceTasks.has(owner) ? 0.22 : 1,
-          },
-          hidden: !visibleIds.has(task.id),
-          draggable: false,
-          selectable: false,
-          focusable: false,
-          data: {
-            task,
-            zh,
-            parentCardId: atlas.branchAnchor.get(task.id)!,
-            open: openCard,
-            toggleGroup,
-            fanIndex: ordinal,
-            fanCount: ordinal === undefined ? undefined : fanTotal.get(owner)!,
-          },
-        };
-      });
-      previousBranchNodes.current = replaceEqualDeep(previousBranchNodes.current, next);
-      return previousBranchNodes.current;
-    },
-    [atlas, positions, visibleIds, zh, openCard, toggleGroup, traceTasks],
-  );
-  const flowNodes = useMemo<AtlasNode[]>(
-    () => (branchNodes.length ? [...displayNodes, ...branchNodes] : displayNodes),
-    [displayNodes, branchNodes],
-  );
   const edges: Edge[] = useMemo(
     () => {
-      const visibleLinks = atlas.links.filter(
+      const visibleLinks = scene.links.filter(
         (e) =>
           visibleIds.has(e.source) &&
           visibleIds.has(e.target) &&
           (e.kind !== "replacement" || showReplacements),
       );
-      // Single pass over the visible links, covering all edge kinds including
-      // the promoted fanout/fanin edges; no per-edge rescans.
+      // Single pass over the visible links, covering all edge kinds; no
+      // per-edge rescans.
       const lanes = edgeLanes(visibleLinks);
       const taskByCard = new Map(scene.cards.map((card) => [card.id, card.task]));
       const activeTargets = new Set<string>();
       if (data.kind === "live" && !paused) {
         for (const card of scene.cards)
           if (ACTIVE.has(card.task.status)) activeTargets.add(card.id);
-        for (const task of atlas.branches)
-          if (ACTIVE.has(task.status)) activeTargets.add(task.id);
       }
       return visibleLinks.map((e, index) => {
-        const fan = e.kind === "fanout" || e.kind === "fanin";
         const sourceTask = taskByCard.get(e.source)?.id;
         const targetTask = taskByCard.get(e.target)?.id;
         const highlighted = !!tracedTask && e.kind === "dependency" &&
@@ -857,8 +685,8 @@ export function MapCanvas({
           source: e.source,
           target: e.target,
           ...relationPorts(
-            { ...positions[e.source], ...atlas.frames[e.source] },
-            { ...positions[e.target], ...atlas.frames[e.target] },
+            { ...positions[e.source], ...scene.frames[e.source] },
+            { ...positions[e.target], ...scene.frames[e.target] },
           ),
           type: "relation",
           data: {
@@ -883,22 +711,19 @@ export function MapCanvas({
             quiet: !e.stated && (e.kind === "context" || (e.kind === "dependency" && !e.label)),
           },
           className: `map-edge-${e.kind}${lit.edges.has(e.id) ? " is-lit" : ""}`,
-          // Fan edges carry no label: the pill itself names the branch.
-          label: fan
-            ? undefined
-            : e.label ||
-              (e.kind === "replacement"
-                ? (taskByCard.get(e.source)?.superseded_reason || "")
-                    .replace(/\s+/g, " ")
-                    .slice(0, 60) ||
-                  (zh ? "转入新计划" : "New plan")
-                : e.kind === "dependency"
-                  ? zh
-                    ? "依赖"
-                    : "Dependency"
-                  : zh
-                    ? "同一研究"
-                    : "Related work"),
+          label: e.label ||
+            (e.kind === "replacement"
+              ? (taskByCard.get(e.source)?.superseded_reason || "")
+                  .replace(/\s+/g, " ")
+                  .slice(0, 60) ||
+                (zh ? "转入新计划" : "New plan")
+              : e.kind === "dependency"
+                ? zh
+                  ? "依赖"
+                  : "Dependency"
+                : zh
+                  ? "同一研究"
+                  : "Related work"),
           labelStyle: {
             fontSize: 30,
             fill: e.kind === "replacement" ? "#95809f" : "#6685a4",
@@ -915,15 +740,15 @@ export function MapCanvas({
                 : e.kind === "dependency"
                   ? "#527fa7"
                   : "#7594ad",
-            // Dependencies stay the strongest line; fan edges are thinner and
-            // translucent (branch.css), context is a fainter, sparser dash.
-            strokeWidth: highlighted ? 2.6 : e.kind === "dependency" ? 2 : fan ? 1.1 : 1.6,
+            // Dependencies stay the strongest line; context is a fainter,
+            // sparser dash.
+            strokeWidth: highlighted ? 2.6 : e.kind === "dependency" ? 2 : 1.6,
             vectorEffect: "non-scaling-stroke",
             // The order work happened in is the spine of most maps, so it is
             // a continuous line; a dash is kept for "related work", which is
             // an association and not a path.
             strokeDasharray:
-              e.kind === "dependency" || e.kind === "context" || e.kind === "continuation" || fan
+              e.kind === "dependency" || e.kind === "context" || e.kind === "continuation"
                 ? undefined
                 : "5 6",
           },
@@ -935,16 +760,15 @@ export function MapCanvas({
           },
           ariaLabel:
             e.evidence ||
-            (fan
-              ? `Team branch: ${e.source} → ${e.target}`
-              : e.kind === "dependency"
-                ? `Dependency: ${e.source} → ${e.target}`
-                : `Plan replacement: ${e.source} → ${e.target_plan_id} (${e.target_count} tasks, representative ${e.target})`),
+            (e.kind === "dependency"
+              ? `Dependency: ${e.source} → ${e.target}`
+              : `Plan replacement: ${e.source} → ${e.target_plan_id} (${e.target_count} tasks, representative ${e.target})`),
         };
       });
     },
     [
-      atlas,
+      scene.links,
+      scene.frames,
       visibleIds,
       showReplacements,
       zh,
@@ -1444,12 +1268,12 @@ export function MapCanvas({
               ]).map(([label, prompt]) => <button key={label} type="button" onClick={() => { composer.onChange(prompt); requestAnimationFrame(() => canvasRef.current?.querySelector('textarea')?.focus()); }}>{label} ↗</button>)}</div>}
             </div>
           ) : (
-            <ReactFlow<AtlasNode>
-              nodes={flowNodes}
+            <ReactFlow<MacroNode>
+              nodes={displayNodes}
               edges={edges}
               nodeTypes={NODE_TYPES}
               edgeTypes={EDGE_TYPES}
-              onNodesChange={onNodesChange as OnNodesChange<AtlasNode>}
+              onNodesChange={onNodesChange}
               onNodeMouseEnter={(_, node) => setHoverId(node.id)}
               onNodeMouseLeave={() => setHoverId(null)}
               onMove={camera.onMove}
@@ -1485,12 +1309,9 @@ export function MapCanvas({
                   duration: camera.reducedMotion ? 0 : 320,
                 }}
               />
-              <MiniMap
+              <MiniMap<MacroNode>
                 nodeColor={(n) =>
-                  n.type === "branch"
-                    ? "#cfd2d5"
-                    : MINIMAP_STATUS[statusKey((n.data as MacroData).task)] ??
-                      "#c6c8cb"
+                  MINIMAP_STATUS[statusKey(n.data.task)] ?? "#c6c8cb"
                 }
                 maskColor="var(--map-minimap-mask)"
                 maskStrokeColor="#6d737a"
@@ -1816,8 +1637,8 @@ export const MapPanel = memo(function MapPanel({
   });
   const paused = source === "live" && mapIsPaused(snapshot);
   // One runtime status for the whole page: the same reading the sidebar and
-  // the conversation header make, so a task waiting on its team reads the
-  // same way here as there.
+  // the conversation header make, so a task waiting on background work reads
+  // the same way here as there.
   const work = currentWorkStatus(snapshot, snapshot.mission_view, events);
   const waitingSentence = work.reason === "background_work" && work.taskId
     ? workStatusLabel(work, zh ? "zh-CN" : "en") : "";
@@ -1828,7 +1649,7 @@ export const MapPanel = memo(function MapPanel({
     [source, paused, work.taskId, waitingSentence],
   );
   const latestMapEvent = events.filter((e) => e.run_label !== "map-summary" &&
-    /^(life\.(mission\.|phase\.|planner\.task_added)|manager\.turn\.|round\.|agent\.message|engineer\.progress|ui\.argus|team\.|idea\.portfolio\.)/.test(String(e.type))).at(-1);
+    /^(life\.(mission\.|phase\.|planner\.task_added)|manager\.turn\.|round\.|agent\.message|engineer\.progress|ui\.argus)/.test(String(e.type))).at(-1);
   const updateKey = JSON.stringify([
     latestMapEvent?.ts,
     latestMapEvent?.event_id || latestMapEvent?.id,
@@ -1949,7 +1770,6 @@ export const MapPanel = memo(function MapPanel({
             <SlidersHorizontal size={16} />
           </summary>
           <div className="map-more-menu">
-            {data && <MapTeamProgress events={data.events} zh={zh} />}
             <div className="map-dataset-bar">
               <Compass size={15} />
               <select

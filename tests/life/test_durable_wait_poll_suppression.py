@@ -17,7 +17,6 @@ from argus.life.supervisor._planning_context import PlanningContextMixin
 from argus.life.supervisor._planning_cycle import PlanningCycleMixin
 from argus.planner import PlannerVerdict, TaskSpec, WaitingContract
 from argus.skills.vertical_select import persist_vertical
-from argus.team import pool, registry, task_board
 
 
 class _Runner:
@@ -798,34 +797,6 @@ def test_watched_paths_stay_confined_to_the_project(
         for event in events
     )
     assert list((tmp_path / "life").glob("planner-waiting-contract*.json")) == []
-
-
-def test_team_wait_id_is_a_host_observed_event_source(tmp_path: Path) -> None:
-    """A persisted Planner wait on `team:<id>` becomes an event wait that wakes
-    when the team's projected state changes, not a bounded poll."""
-    project = tmp_path / "project"
-    project.mkdir()
-    supervisor = _supervisor(project, tmp_path / "life")
-    team_id = "research-idea-pipeline-v8-g1"
-    root = project / ".argus" / "teams" / team_id
-    task_board.form(root, [{"task_id": f"{team_id}-route-01", "title": "r", "objective": "o", "acceptance_check": "c"}])
-    # A running task's own heartbeat is what shows its teammate is alive.
-    now = time.time()
-    task_board._mutate(root, f"{team_id}-route-01", state="running", owner="w1", claim_ts=now, heartbeat_ts=now)
-    pool.update(root, width=1, state="running")
-    registry.write_marker(project, team_id=team_id, team_root=root, cwd=project, now=now, owner="runtime")
-
-    contract = WaitingContract(recheck_condition=f"the route workers of {team_id} finish")
-    state = supervisor._persist_planner_waiting_contract(contract)
-    assert state is not None
-    assert state["blocker_fingerprint"] == f"live-subagents:team:{team_id}"
-    assert state["wake_on"] == ["subagent_state"]
-    assert state["observed_revision"]
-    rows = supervisor._external_work_state_rows(project)
-    assert rows == [{"work_id": f"team:{team_id}", "run_id": "", "state": "running_healthy"}]
-
-    task_board._mutate(root, f"{team_id}-route-01", state="done")
-    assert supervisor._external_work_state_rows(project)[0]["state"] == "terminal"
 
 
 def _park_one_mission(supervisor: LifeSupervisor) -> BacklogItem:

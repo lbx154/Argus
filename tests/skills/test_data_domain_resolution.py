@@ -32,7 +32,7 @@ def test_undecided_legacy_project_keeps_research_seed(tmp_path, monkeypatch):
     body_a = sc.format_full_pipeline_checklist(role="reviewer", project_root=a)
     body_b = sc.format_full_pipeline_checklist(role="reviewer", project_root=b)
     assert body_a == body_b
-    assert "idea.portfolio" in body_a
+    assert "idea.selection" in body_a
     assert "review.terminal" in body_a
     assert "submission.readiness" not in body_a
 
@@ -157,5 +157,5 @@ def test_store_custom_item_is_ignored_for_five_stage_research(tmp_path, monkeypa
     )
     body = sc.format_stage_checklist("idea", role="reviewer", project_root=tmp_path)
     assert "idea.custom" not in body
-    assert "idea.portfolio" in body
+    assert "idea.selection" in body
     assert (tmp_path / "research" / "CHECKLISTS.json").is_file()

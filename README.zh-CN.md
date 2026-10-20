@@ -661,7 +661,7 @@ git -C "$HOME/Argus" pull --ff-only
 
 **保留一个发布周期。** `import argus_skill` 与 `import argus` 是同一个包对象(两文件别名,不是副本),
 `python -m argus_skill ...` 运行同样的模块,`argus-skill` 命令仍然存在(stderr 打一行弃用提示),
-旧名字启动的 teammate 与 trial 容器仍被识别,注册在旧 entry-point 组下的社区垂直仍会被发现(带 warning)。
+旧名字启动的 trial 容器仍被识别,注册在旧 entry-point 组下的社区垂直仍会被发现(带 warning)。
 
 **迁移已有安装。** 先卸载旧发行再装新发行,然后重启正在运行的守护进程或 `--web` 服务:
 
@@ -734,7 +734,7 @@ Linux 请先停止 Argus、保留所需工作，再删除 `$HOME/Argus` checkout
 - `argus/verticals/`、`domains/`、`builtin_skills/` —— 领域知识：7 个内置垂直（另外 17 个由 `argus-verticals` 以 entry point 接入）、overlay、种子 Skill。
 - `argus/roles/`、`planner/`、`engineer/`、`reviewer/` —— 持久角色：提示词目录（`roles/`）加 Planner、Engineer、Reviewer 的代码（Manager 的代码在 `manager/`）。
 - `argus/life/`、`manager/`、`messaging/` —— 运行时：项目记忆、backlog、supervisor、Manager 控制面与跨项目消息。
-- `argus/daemon/`、`team/` —— 脱离终端的 7x24 worker 与 Agent Teams。
+- `argus/daemon/` —— 脱离终端的 7x24 worker。
 - `argus/apps/`、`webapi/`、`plugin/`、`maintenance/`、`trial/` —— 交付面：CLI、Web API、宿主插件、Doctor、托管试用。
 - `frontend/` —— Ink 终端 cockpit（`tui`）、React Web cockpit（`web`）、共享 TypeScript（`core`）。
 - `desktop-tauri/` —— Tauri 桌面壳（发布 Windows 版；CI 四个目标）；`plugins/` —— 可安装的宿主插件；`tests/` —— pytest 测试。

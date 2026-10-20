@@ -5,8 +5,8 @@ Layer: delivery
 Belongs here: the argparse CLI (``apps/cli``), the TUI launcher
 (``tui_launcher``), the updater (``update*``, ``package_update``), and
 ``--watch``. Also present today, pending phase 5 (see docs/LAYOUT.md): the
-mission runtime (``_runtime*.py``, ``_self_reply.py``) shared by the daemon,
-the teammate runner and the Manager front door, plus the operator inbox and
+mission runtime (``_runtime*.py``, ``_self_reply.py``) shared by the daemon
+and the Manager front door, plus the operator inbox and
 life actions (``_inbox.py``, ``_life_actions.py``, phase 4 -> ``life/``).
 
 Does not belong here (and where it goes): anything a lower layer has to

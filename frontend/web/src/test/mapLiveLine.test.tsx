@@ -24,8 +24,8 @@ describe("the living status line", () => {
 describe("the waiting line", () => {
   it("says the sentence it is given, with no clock of its own", () => {
     let root!: ReturnType<typeof create>;
-    act(() => { root = create(<LiveLine text="正在等待后台团队：3 条研究路线全部完成" since={Date.now() / 1000 - 90} zh />); });
-    expect(text(root)).toBe("正在等待后台团队：3 条研究路线全部完成");
+    act(() => { root = create(<LiveLine text="正在等待后台任务完成" since={Date.now() / 1000 - 90} zh />); });
+    expect(text(root)).toBe("正在等待后台任务完成");
     expect(root.root.findByType("div").props["data-waiting"]).toBe(true);
     act(() => root.unmount());
   });

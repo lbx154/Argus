@@ -1234,67 +1234,9 @@ def _terminate_windows_process_tree(
         return False
 
 
-#: Teammate entry modules by argv token. Teammates spawned before the
-#: 2026-09-14 package rename still carry the ``argus_skill`` spelling; both
-#: are recognised for one release.
-_TEAMMATE_ENTRY_MODULES = ("argus.team.teammate_entry", "argus_skill.team.teammate_entry")
-
-
-def _process_argv(pid: int) -> list[str]:
-    """Return a live process's argv; ``/proc`` on Linux, the kernel's process table elsewhere."""
-    proc = Path(f"/proc/{pid}/cmdline")
-    if proc.parent.parent.is_dir() and Path("/proc/self/cmdline").exists():
-        return [value.decode("utf-8", "replace") for value in proc.read_bytes().split(b"\0") if value]
-    import psutil
-
-    try:
-        argv = list(psutil.Process(pid).cmdline())
-    except psutil.NoSuchProcess as error:
-        raise ProcessLookupError(pid) from error
-    except psutil.Error:
-        argv = []
-    if argv:
-        return argv
-    # The argument area can be briefly unreadable (macOS KERN_PROCARGS2);
-    # ps reads the same table and its whitespace split keeps module tokens.
-    completed = subprocess.run(
-        ["ps", "-ww", "-o", "command=", "-p", str(pid)],
-        capture_output=True, text=True, timeout=5, check=False,
-    )
-    if completed.returncode != 0 or not completed.stdout.strip():
-        raise ProcessLookupError(pid)
-    return completed.stdout.split()
-
-
-def _teammate_process_group_ids(pids: Iterable[int]) -> tuple[int, ...]:
-    """Return verified POSIX process groups led by Team teammate entries."""
-    if os.name == "nt":
-        return ()
-    groups: list[int] = []
-    for pid in pids:
-        try:
-            argv = _process_argv(int(pid))
-            pgid = os.getpgid(int(pid))
-        except (OSError, ValueError, subprocess.SubprocessError):
-            continue
-        if (
-            any(module in argv for module in _TEAMMATE_ENTRY_MODULES)
-            and pgid == int(pid)
-            and pgid > 1
-        ):
-            groups.append(pgid)
-    return tuple(dict.fromkeys(groups))
-
-
 def _terminate_captured_descendants(pids: Iterable[int]) -> None:
     """Terminate descendants captured while they still belonged to a daemon."""
     ordered = tuple(dict.fromkeys(int(pid) for pid in pids if int(pid) > 1))
-    teammate_groups = _teammate_process_group_ids(ordered)
-    for group in teammate_groups:
-        try:
-            os.killpg(group, signal.SIGTERM)
-        except (ProcessLookupError, PermissionError, OSError):
-            continue
     for child in ordered:
         try:
             os.kill(child, signal.SIGTERM)
@@ -1310,14 +1252,6 @@ def _terminate_captured_descendants(pids: Iterable[int]) -> None:
             continue
         try:
             os.kill(child, getattr(signal, "SIGKILL", signal.SIGTERM))
-        except (ProcessLookupError, PermissionError, OSError):
-            continue
-    for group in teammate_groups:
-        try:
-            os.killpg(
-                group,
-                getattr(signal, "SIGKILL", signal.SIGTERM),
-            )
         except (ProcessLookupError, PermissionError, OSError):
             continue
 
@@ -1589,8 +1523,8 @@ def stop_daemon(
             return 0
         # Capture again at the escalation boundary so children started after
         # the initial SIGTERM cannot escape by being reparented to PID 1. Stop
-        # the daemon first so its Curator cannot spawn between this final
-        # snapshot and root termination.
+        # the daemon first so it cannot spawn between this final snapshot and
+        # root termination.
         try:
             os.kill(pid, signal.SIGSTOP)
         except ProcessLookupError:

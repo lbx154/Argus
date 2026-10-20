@@ -1,11 +1,4 @@
 {
-  "global/agent-team-lead.md": {
-    "title": "多智能体团队协作",
-    "summary": "判断何时值得并行工作，按文件与职责拆分协作，并独立审查汇总结果；不替代原有角色与授权。",
-    "originalName": "Agent Team Lead",
-    "source": "argus/builtin_skills/agent-team-lead.md",
-    "sourceBytes": 6933
-  },
   "global/engineer/minimal-coding-agent.md": {
     "title": "最小且严谨的软件修改",
     "summary": "用足够小的改动实现、修复或重构软件与界面，保留既有行为，避免无依据的抽象和新增依赖。",
@@ -606,7 +599,7 @@
     "summary": "忠实保留命题与范围，诚实区分结果类别；需要 Lean 证据时实际编译，不虚构证明。",
     "originalName": "Math Research Execution",
     "source": "argus/verticals/math/skills/engineer/math-research-execution.md",
-    "sourceBytes": 16600
+    "sourceBytes": 16237
   },
   "vertical/math/manager/math-research-manager.md": {
     "title": "数学研究任务协调",
@@ -676,7 +669,7 @@
     "summary": "按表达内容选渲染路线：数据图走 SciencePlots/Matplotlib，概念与框架图默认以图像蓝图重建为可编辑 PPT，无图像接口时直接原生绘制；生成图像只用于不承载论断的部分。",
     "originalName": "Composing a conceptual paper figure",
     "source": "argus/verticals/research/skills/engineer/paper-framework-figure-studio.md",
-    "sourceBytes": 26228
+    "sourceBytes": 25858
   },
   "vertical/research/engineer/references/ideation/ideation-patterns/overview.md": {
     "title": "研究构思模式总览",
@@ -753,7 +746,7 @@
     "summary": "从来源中发现候选可能性，估算每条路线拿到决定性证据所需的时间与算力，经独立审查后作最终选择，不把构思直接当作实验结果。",
     "originalName": "Finding a research idea",
     "source": "argus/verticals/research/skills/research-idea-playbook.md",
-    "sourceBytes": 6027
+    "sourceBytes": 5604
   },
   "vertical/research/research-paper-playbook.md": {
     "title": "撰写完整研究论文",

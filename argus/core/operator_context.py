@@ -37,7 +37,7 @@ log = logging.getLogger(__name__)
 
 Scope = Literal["mission", "project", "global"]
 Lifetime = Literal["standing", "bounded_increment", "once"]
-Role = Literal["manager", "planner", "engineer", "reviewer", "teammate"]
+Role = Literal["manager", "planner", "engineer", "reviewer"]
 PreferenceKind = Literal["autonomy", "interaction", "workflow"]
 IntakeKind = Literal[
     "ephemeral",
@@ -51,6 +51,7 @@ AppliesToRoles: TypeAlias = tuple[str, ...] | Literal["all"]
 
 _SCOPES = frozenset({"mission", "project", "global"})
 _LIFETIMES = frozenset({"standing", "bounded_increment", "once"})
+# "teammate" is retired but still named by records written before Agent Teams went.
 _ROLES = frozenset({"manager", "planner", "engineer", "reviewer", "teammate"})
 _PREFERENCE_KINDS = frozenset({"autonomy", "interaction", "workflow"})
 _SCOPE_ORDER = {"global": 0, "project": 1, "mission": 2}
@@ -1249,7 +1250,7 @@ def build_operator_context_block(
         # The Manager sees the revision so "取消"/"cancel that" can name it.
         revision = f"; revision {directive.revision}" if role == "manager" else ""
         lines.append(f"- directive [{directive.scope}{revision}{flag}]: {directive.text}")
-    if role in {"planner", "engineer", "teammate"}:
+    if role in {"planner", "engineer"}:
         from ..manager.directive import load_active_manager_directive
 
         active = load_active_manager_directive(life_dir)
@@ -1267,7 +1268,6 @@ def build_operator_context_block(
         "manager": {"interaction"},
         "planner": {"autonomy", "workflow"},
         "engineer": {"autonomy", "workflow"},
-        "teammate": {"autonomy", "workflow"},
         "reviewer": {"interaction", "workflow"},
     }[role]
     for index, preference in enumerate(projection.preferences):
@@ -1286,7 +1286,7 @@ def build_operator_context_block(
                 f"- {preference.kind} preference [{label}]: {preference.value} "
                 f"(revision {preference.revision} in {origin} preference ledger)"
             )
-    if role in {"engineer", "teammate"}:
+    if role == "engineer":
         for capability in projection.capabilities:
             lines.append(
                 f"- capability {capability.kind}: "

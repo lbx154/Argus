@@ -138,7 +138,6 @@ class EventType(StrEnum):
     LIFE_PLANNER_BACKEND_RESOLVED = "life.planner.backend_resolved"
     LIFE_ENGINEER_BACKEND_RESOLVED = "life.engineer.backend_resolved"
     LIFE_REVIEWER_BACKEND_RESOLVED = "life.reviewer.backend_resolved"
-    LIFE_CURATOR_BACKEND_RESOLVED = "life.curator.backend_resolved"
     LIFE_PLANNER_START = "life.planner.start"
     LIFE_PLANNER_PREVIEW_SKIPPED = "life.planner.preview_skipped"
     LIFE_PLANNER_NORMALIZED = "life.planner.normalized"
@@ -200,8 +199,6 @@ class EventType(StrEnum):
     IDEA_SEARCH_STARTED = "idea.search.started"
     IDEA_SEARCH_COMPLETED = "idea.search.completed"
     IDEA_SEARCH_SKIPPED = "idea.search.skipped"
-    IDEA_PORTFOLIO_FORMED = "idea.portfolio.formed"
-    IDEA_PORTFOLIO_NESTED_SKIPPED = "idea.portfolio.nested_skipped"
     VENUE_RESEARCH_STARTED = "venue.research.started"
     VENUE_RESEARCH_COMPLETED = "venue.research.completed"
     RESEARCH_ACHIEVEMENT_CERTIFIED = "research.achievement.certified"
@@ -269,7 +266,6 @@ SIGNAL_EVENT_TYPES: frozenset[str] = frozenset({
     EventType.LIFE_PLANNER_BACKEND_RESOLVED,
     EventType.LIFE_ENGINEER_BACKEND_RESOLVED,
     EventType.LIFE_REVIEWER_BACKEND_RESOLVED,
-    EventType.LIFE_CURATOR_BACKEND_RESOLVED,
     EventType.LOOP_START,
     EventType.LOOP_DONE,
     EventType.ROUND_START,
@@ -395,7 +391,6 @@ SIGNAL_EVENT_TYPES: frozenset[str] = frozenset({
     EventType.ROUND_EXTERNAL_WORK_REVIEW_COMPLETED,
     EventType.ROUND_REVIEW_SKIPPED_UNCHANGED,
     EventType.LIFE_DAEMON_DEGRADED,
-    EventType.IDEA_PORTFOLIO_FORMED,
     EventType.TEAM_LEARNING_REVIEW_STARTED,
     EventType.TEAM_LEARNING_REVIEW_COMPLETED,
     EventType.TEAM_LEARNING_REVIEW_FAILED,

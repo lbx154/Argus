@@ -14,12 +14,13 @@ from argus.skills.vertical_select import persist_vertical
 @pytest.mark.parametrize(
     ("workflow_mode", "target_level", "direction"),
     [
+        ("staged", "publishable", "broad"),
         ("staged", "publishable", "locked"),
         ("staged", "exploratory", "broad"),
         ("direct", "publishable", "broad"),
     ],
 )
-def test_no_portfolio_requirement_does_not_certify_unfinished_idea(
+def test_research_idea_never_certifies_itself(
     tmp_path: Path,
     workflow_mode: str,
     target_level: str,
@@ -38,7 +39,7 @@ def test_no_portfolio_requirement_does_not_certify_unfinished_idea(
         research_direction_mode=direction,
     )
     # This empty gate caused a failed Idea mission's recovery plan to be
-    # discarded. These paths still need a real Reviewer/Manager decision.
+    # discarded. Every path still needs a real Reviewer/Manager decision.
     assert stage_completion_issues("idea", workdir, state_root=state_root) == ()
     assert not module._automatic_stage_target(
         state_root=state_root,
@@ -80,34 +81,6 @@ def test_research_first_stage_ready_when_provider_gate_is_empty(
         "project_root": evidence_root,
         "state_root": state_root,
     }
-
-
-def test_required_portfolio_still_needs_completed_evidence(
-    tmp_path: Path, monkeypatch,
-) -> None:
-    from argus.verticals.research import stages
-
-    state_root, workdir = tmp_path / "state", tmp_path / "workdir"
-    workdir.mkdir()
-    persist_vertical(
-        state_root, "research", workflow_mode="staged",
-        research_target_level="publishable", research_direction_mode="broad",
-    )
-    assert not stages.automatic_stage_completion_ready(
-        stage="idea", project_root=workdir, state_root=state_root,
-    )
-    assert module._automatic_stage_target(state_root=state_root, evidence_root=workdir) == ""
-
-    monkeypatch.setattr(stages, "stage_completion_issues", lambda *_args, **_kwargs: ())
-    assert stages.automatic_stage_completion_ready(
-        stage="idea", project_root=workdir, state_root=state_root,
-    )
-    assert module._automatic_stage_target(
-        state_root=state_root, evidence_root=workdir,
-    ) == stages.CHECKLIST_STAGE_ORDER[1]
-    assert not stages.automatic_stage_completion_ready(
-        stage="build", project_root=workdir, state_root=state_root,
-    )
 
 
 @pytest.mark.parametrize("current,target", [

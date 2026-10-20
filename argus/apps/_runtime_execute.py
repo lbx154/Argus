@@ -1017,8 +1017,8 @@ class SkillLoopExecuteMixin:
             ))
             if _decided_vertical(config, workdir) == "research":
                 # The research Planner's own cycle plans the campaign minutes
-                # later with the stage playbook, and the idea stage forms its
-                # portfolio without reading this outline. On the stable web
+                # later with the stage playbook, and the idea stage never
+                # reads this outline. On the stable web
                 # trial (2026-09-16) this preview ran at every attempt with
                 # repository tools and no turn cap; on an empty workspace it
                 # wandered the host for nineteen turns (361k input tokens)

@@ -7,7 +7,6 @@ in this generic layer.
 from __future__ import annotations
 
 import logging
-import os
 from pathlib import Path
 
 from ..core.vertical_contract import VerticalLibraryContext
@@ -67,9 +66,6 @@ class SkillLibraryMixin:
                 ),
                 workflow_mode=self.config.workflow_mode,
                 paper_mission=self.config.paper_mission,
-                team_task_id=(
-                    os.environ.get("ARGUS_SKILL_TEAM_TASK_ID", "").strip() or None
-                ),
                 runner=self.engineer_runner,
                 model=self.config.engineer_model,
                 emit=self._emit,

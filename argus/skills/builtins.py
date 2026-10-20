@@ -175,6 +175,8 @@ _RETIRED_BUILTIN_SEEDS = frozenset({
     "planner/software-project-grounding.md",
     "engineer/learning-curation.md",
     "reviewer/curation-review.md",
+    # Agent Teams removed on 2026-10-20.
+    "agent-team-lead.md",
 })
 
 

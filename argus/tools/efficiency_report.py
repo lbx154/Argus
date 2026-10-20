@@ -29,7 +29,7 @@ from typing import Any, Iterable, Iterator
 from ..core.json_codec import loads_finite_json
 from ..core.jsonl_reader import retained_jsonl_paths
 
-ROLES = ("planner", "reviewer", "engineer", "manager", "curator")
+ROLES = ("planner", "reviewer", "engineer", "manager")
 TOKENS = ("input_tokens", "cached_input_tokens", "cache_write_tokens", "output_tokens")
 TURN_BUCKETS = ((1, "1"), (3, "2-3"), (7, "4-7"), (15, "8-15"), (math.inf, "16+"))
 

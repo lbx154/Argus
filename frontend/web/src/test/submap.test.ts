@@ -128,70 +128,6 @@ describe("task submap evidence", () => {
   });
 });
 
-describe('parallel Team task evidence', () => {
-  const worker = (index: number, review = false, extra: Partial<MapEvent> = {}): MapEvent => {
-    const route = `route-${String(index).padStart(2, '0')}`;
-    return event(`team:${route}${review ? '-review' : ''}`, 'team.task', {
-      ts: 10, team_id: 'ideas', team_task_id: `ideas-${route}${review ? '-review' : ''}`,
-      team_role: review ? 'idea-review' : 'idea-route', role: review ? 'reviewer' : 'engineer',
-      title: review ? 'Review route' : 'Investigate route', text: 'Source-grounded investigation',
-      status: review ? 'pending' : 'running', deps: review ? [`team:${route}`] : [],
-      ...extra,
-    });
-  };
-  const activeTask = { ...task, status: 'running' };
-
-  it('preserves every worker and its real failure while the parent is running', () => {
-    const rows = buildSubmap(activeTask, [
-      worker(1, false, { status: 'failed', reason: 'Required source report is missing.' }),
-      worker(1, true), worker(2), worker(2, true),
-      worker(3, false, { item_id: 'another-project-task' }),
-    ], true);
-    const workers = rows.filter((row) => row.source === 'team');
-    expect(workers).toHaveLength(4);
-    expect(workers[0]).toMatchObject({
-      id: 'team:route-01', title: '研究路线 01', status: 'failed',
-      teamId: 'ideas', teamTaskId: 'ideas-route-01', eventIds: ['team:route-01'],
-    });
-    expect(workers[0].detail).toContain('Required source report is missing.');
-    expect(workers[1]).toMatchObject({ title: '独立复核 01', kind: 'review', status: 'pending' });
-    expect(workers[1].detail).toContain('依赖: 研究路线 01');
-    expect(rows.some((row) => row.teamRole === 'idea-selector')).toBe(false);
-  });
-
-  it('draws recorded route/review dependencies without serializing independent routes', () => {
-    const rows = buildSubmap(activeTask, [worker(1), worker(1, true), worker(2), worker(2, true)], true);
-    const links = submapLinks(rows, true);
-    expect(links.filter((link) => link.relation === 'dependency').map((link) => [link.source, link.target])).toEqual([
-      ['team:route-01', 'team:route-01-review'], ['team:route-02', 'team:route-02-review'],
-    ]);
-    expect(links.filter((link) => link.source === `${task.id}:brief`)).toHaveLength(2);
-    expect(links.filter((link) => link.source === `${task.id}:brief`).every((link) => link.contextual)).toBe(true);
-    expect(links.some((link) => link.source === 'team:route-01-review' && link.target === 'team:route-02')).toBe(false);
-  });
-
-  it('keeps twelve route/review pairs readable across cards and stable on status updates', () => {
-    const observations = [event('e1', 'life.mission.started'), event('e2', 'round.start', { round_index: 1 }),
-      ...Array.from({ length: 12 }, (_, index) => [worker(index + 1), worker(index + 1, true)]).flat()];
-    const graph = buildMap([activeTask]);
-    const scene = layoutScene(graph, observations, true);
-    expect(scene.cards).toHaveLength(3);
-    expect(Object.values(scene.layouts).flatMap((layout) => layout.steps).filter((row) => row.source === 'team')).toHaveLength(24);
-    for (const layout of Object.values(scene.layouts)) {
-      expect(layout.steps.length).toBeLessThanOrEqual(12);
-      const ids = new Set(layout.steps.map((step) => step.id));
-      for (const step of layout.steps.filter((row) => row.source === 'team'))
-        expect((step.deps || []).every((id) => ids.has(id))).toBe(true);
-    }
-    expect(scene.cards[1].start).toBe(scene.cards[0].end + 1);
-    expect(scene.cards[2].start).toBe(scene.cards[1].end + 1);
-    const completed = layoutScene(graph, observations.map((row) => row.id === 'team:route-01'
-      ? { ...row, status: 'done', revision: 'finished', updated_ts: 90 } : row), true, scene);
-    expect(completed.positions).toBe(scene.positions);
-    expect(Object.values(completed.layouts).flatMap((layout) => layout.steps).find((row) => row.id === 'team:route-01')?.status).toBe('done');
-  });
-});
-
 describe("semantic zoom focus geometry", () => {
   const nodes = [
     { id: "a", position: { x: 344, y: 0 }, width: 272, height: 212 },
@@ -588,66 +524,35 @@ it("stacks a short card into one column on a narrow canvas so the answer is not 
   expect(tall.height).toBeGreaterThan(layoutSubmap(long, rounds, true).height);
 });
 
-describe("what a subtask concluded, and where the task stands", () => {
+describe("where the task stands", () => {
   const parent: MapTask = { id: "m", title: "Choose an idea", objective: "Compare routes", status: "running", deps: [] };
-  const team = (id: string, extra: Partial<MapEvent>): MapEvent =>
-    ({ id, item_id: "m", type: "team.task", ts: 10, text: "", status: "done", ...extra });
-  const portfolio = [
-    team("team:r1", { team_task_id: "p-route-01", team_role: "idea-route",
-      team_outcome: { kind: "route", title: "Paired mode factorization", verdict: "rejected", selected: false, rejection: "Rejected because the comparison cannot isolate the mechanism." } }),
-    team("team:v1", { team_task_id: "p-route-01-review", team_role: "idea-review", deps: ["team:r1"],
-      team_outcome: { kind: "review", verdict: "rejected", summary: "The conflict signal is parameterization-dependent. More follows.", concerns: 2 } }),
-    team("team:r2", { team_task_id: "p-route-02", team_role: "idea-route",
-      team_outcome: { kind: "route", title: "Latent particle filtering", verdict: "qualified", selected: true } }),
-    team("team:v2", { team_task_id: "p-route-02-review", team_role: "idea-review", deps: ["team:r2"],
-      team_outcome: { kind: "review", verdict: "qualified", summary: "Qualified.", concerns: 0 } }),
-    team("team:sel", { team_task_id: "p-evidence-selector", team_role: "idea-selector",
-      team_outcome: { kind: "selection", selected_route: "route-02", selected_title: "Latent particle filtering", rationale: "Only route two survived.", rejected: ["route-01"] } }),
-  ];
 
-  it("says the verdict instead of 'completed' on each finished subtask", () => {
-    const rows = buildSubmap(parent, portfolio, true);
-    const summary = (id: string) => rows.find((row) => row.id === id)!.summary;
-    expect(summary("team:r1")).toBe("「Paired mode factorization」被独立复核驳回。Rejected because the comparison cannot isolate the mechanism.");
-    expect(summary("team:v1")).toBe("复核结论：驳回。The conflict signal is parameterization-dependent.");
-    expect(summary("team:r2")).toBe("「Latent particle filtering」通过独立复核，被选为唯一方案");
-    expect(summary("team:v2")).toBe("复核结论：通过。Qualified.");
-    expect(summary("team:sel")).toBe("选定研究路线 02（Latent particle filtering），驳回路线 01");
-    expect(rows.find((row) => row.id === "team:r1")!.teamOutcome?.verdict).toBe("rejected");
-    const english = buildSubmap(parent, portfolio, false);
-    expect(english.find((row) => row.id === "team:r2")!.summary).toBe("“Latent particle filtering” passed its independent review and was chosen");
-    expect(english.find((row) => row.id === "team:sel")!.summary).toBe("Chose route 02 (Latent particle filtering); rejected route 01");
-  });
-
-  it("writes one conclusion line: the route chosen, what the review asked for, the round under way", () => {
+  it("writes one conclusion line: what the review asked for, the round under way", () => {
     const rounds: MapEvent[] = [
       { id: "s", item_id: "m", type: "life.mission.started", ts: 20, text: "" },
       { id: "e1", item_id: "m", type: "round.main.completed", ts: 30, text: "Wrote RESEARCH_NOTES.md", round_index: 1, status: "done" },
       { id: "v1", item_id: "m", type: "round.review.completed", ts: 40, text: "Needs another pass", round_index: 1, status: "continue", next_action: "Add the model card" },
       { id: "e2", item_id: "m", type: "round.start", ts: 50, text: "", round_index: 2 },
     ];
-    const steps = buildSubmap(parent, [...portfolio, ...rounds], true);
-    expect(taskConclusion(steps, true)).toBe("当前结论：已选定研究路线 02（Latent particle filtering）；路线 01 被驳回；复核要求再改一轮；第 2 轮进行中");
-    expect(taskConclusion(buildSubmap(parent, [...portfolio, ...rounds], false), false))
-      .toBe("So far: route 02 chosen (Latent particle filtering); route 01 rejected; the review asked for another pass; round 2 under way");
-    // Before the selection: the verdicts so far, and that a choice is pending.
-    const unchosen = portfolio.slice(0, 4).map((event) => ({ ...event, team_outcome: { ...event.team_outcome!, selected: undefined } }));
-    expect(taskConclusion(buildSubmap(parent, unchosen, true), true)).toBe("当前结论：复核结果：1 条路线通过、1 条驳回，等待选择");
+    const steps = buildSubmap(parent, rounds, true);
+    expect(taskConclusion(steps, true)).toBe("当前结论：复核要求再改一轮；第 2 轮进行中");
+    expect(taskConclusion(buildSubmap(parent, rounds, false), false))
+      .toBe("So far: the review asked for another pass; round 2 under way");
     expect(taskConclusion(buildSubmap(parent, rounds.slice(0, 1), true), true)).toBe("");
     // A task that is not running has no round "under way", whatever its last step says.
-    expect(taskConclusion(steps, true, false)).toBe("当前结论：已选定研究路线 02（Latent particle filtering）；路线 01 被驳回；复核要求再改一轮");
-    // Every part of a long task carries the line, since the team steps may sit on part one.
-    const scene = layoutScene(buildMap([parent]), [...portfolio, ...rounds], true);
+    expect(taskConclusion(steps, true, false)).toBe("当前结论：复核要求再改一轮");
+    // Every part of a long task carries the line.
+    const scene = layoutScene(buildMap([parent]), rounds, true);
     expect(new Set(scene.cards.map((card) => card.conclusion))).toEqual(new Set([taskConclusion(steps, true)]));
   });
 
-  it("describes a mission parked on its team as waiting, not paused", () => {
+  it("describes a mission parked on background work as waiting, not paused", () => {
     const rows = buildSubmap({ ...parent, status: "paused_external_work" }, [
       { id: "s", item_id: "m", type: "life.mission.started", ts: 20, text: "" },
       { id: "p", item_id: "m", type: "life.mission.completed", ts: 30, text: "", status: "paused_external_work", success: false },
     ], true);
     const result = rows.find((row) => row.kind === "result")!;
-    expect(result.title).toBe("等待后台团队");
-    expect(result.detail).toBe("这项任务在等待后台团队的结果；结果就绪后会自动继续。");
+    expect(result.title).toBe("等待后台任务");
+    expect(result.detail).toBe("这项任务在等待后台任务的结果；结果就绪后会自动继续。");
   });
 });

@@ -175,8 +175,8 @@ def test_general_native_root_requires_a_direct_skill(tmp_path: Path) -> None:
 
 def test_general_skill_is_visible_to_every_runtime_role(tmp_path: Path) -> None:
     store = SkillStore(tmp_path / "skills")
-    common = store.skills_dir / "agent-team-lead.md"
-    common.write_text("shared Team contract", encoding="utf-8")
+    common = store.skills_dir / "project-venv-package-management.md"
+    common.write_text("shared environment guidance", encoding="utf-8")
 
     for role in ("self", "manager", "planner", "engineer", "reviewer"):
         libraries = role_skill_libraries(store, role=role)

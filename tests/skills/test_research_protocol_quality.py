@@ -68,14 +68,14 @@ def test_idea_is_source_only_and_never_reselects_after_implementation_failure() 
     idea = _stage("idea")
     playbook = _playbook("idea")
 
-    assert "candidate execution is forbidden" in idea
+    assert "source-only routes" in idea
     assert "do not execute candidate code" in playbook
-    assert "one selector after all route and review tasks finish" in playbook
-    assert "do not reopen the portfolio" in playbook
+    assert "have each one reviewed independently" in playbook
+    assert "do not reopen the choice" in playbook
     assert "operator-locked paper direction" in playbook
-    assert "without creating a portfolio" in playbook
+    assert "without selecting a replacement" in playbook
     assert "exploratory target" in playbook
-    assert "manufacture a route portfolio" in playbook
+    assert "manufacture routes or a paper" in playbook
     assert "direct idea-only request" in playbook
     assert "do not continue into experiment" in playbook
 
@@ -150,7 +150,6 @@ def test_review_loads_its_single_stage_playbook(tmp_path: Path) -> None:
             direction="selected",
             workflow_mode="staged",
             paper_mission=True,
-            team_task_id=None,
             runner=None,
             model=None,
             emit=lambda _event: None,
@@ -173,7 +172,6 @@ def test_each_stage_requires_exactly_one_shared_playbook(tmp_path: Path) -> None
                 direction="selected",
                 workflow_mode="staged",
                 paper_mission=True,
-                team_task_id="existing-worker",
                 runner=None,
                 model=None,
                 emit=lambda _event: None,

@@ -635,7 +635,7 @@ def test_map_summary_does_not_hide_the_engineers_open_call(tmp_path):
 
 @pytest.mark.parametrize(
     "run_label",
-    ["map-summary", "curator.distill", "reflection", "answer-learning", "team-learning-review"],
+    ["map-summary", "reflection", "answer-learning", "team-learning-review"],
 )
 def test_background_calls_are_not_engineer_work(tmp_path, run_label):
     now = time.time()

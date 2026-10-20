@@ -1,8 +1,8 @@
 """Liveness of concurrent handoffs: every wait has a deadline and a fallback.
 
 Regression tests for the concurrency audit: blue/green daemon handoff, stale
-external-work heartbeats, the team-task orphan budget, subagent terminal-state
-names, the Curator's stop/tick race, and discussion-blocker scoping.
+external-work heartbeats, subagent terminal-state names, and discussion-blocker
+scoping.
 """
 from __future__ import annotations
 
@@ -24,9 +24,6 @@ from argus.daemon.config import config_payload as _config_payload
 from argus.daemon.life_worker import LifeWorker, LifeWorkerConfig
 from argus.engineer.external_work import ExternalWorkState, inspect_external_work
 from argus.life.memory import BacklogItem, LifeMemory
-from argus.team import curator as cur
-from argus.team import external_work as team_work
-from argus.team import pool, registry, task_board
 from argus.tools import subagent as sa
 
 # ---------------------------------------------------------------------------
@@ -307,103 +304,6 @@ def test_stale_resource_wait_is_stalled_but_long_direct_run_is_not(tmp_path: Pat
     assert training is not None and training.state is ExternalWorkState.RUNNING_HEALTHY
 
 
-def _team(project: Path, *states: str, team_id: str = "t") -> Path:
-    root = project / ".argus" / "teams" / team_id
-    task_board.form(root, [
-        {"task_id": f"{team_id}-{index}", "objective": "o"}
-        for index in range(1, len(states) + 1)
-    ])
-    for index, state in enumerate(states, 1):
-        changes: dict[str, Any] = {"state": state}
-        if state in {"claimed", "running"}:
-            changes.update(owner=f"w{index}", claim_ts=1_000.0, heartbeat_ts=1_500.0)
-        if state == "waiting_external":
-            changes.update(
-                external_wait={"kind": "subagent", "work_id": "job", "workdir": str(project)},
-                finished_ts=1_500.0,
-            )
-        task_board._mutate(root, f"{team_id}-{index}", **changes)
-    pool.update(root, width=1, state="running")
-    registry.write_marker(project, team_id=team_id, team_root=root, cwd=project, now=900.0)
-    return root
-
-
-def test_team_with_only_waiting_tasks_is_not_terminal(tmp_path: Path) -> None:
-    _team(tmp_path, "waiting_external", "done")
-    status = inspect_external_work(tmp_path, "team:t", now=time.time())
-
-    assert status is not None
-    assert status.state is ExternalWorkState.RUNNING_HEALTHY
-    assert "1 waiting on external work" in status.description
-
-
-def test_team_board_stale_past_its_limit_is_stalled(tmp_path: Path) -> None:
-    _team(tmp_path, "running", "pending")
-    later = time.time() + team_work._TEAM_STALE_AFTER_SECONDS + 3600.0
-
-    status = inspect_external_work(tmp_path, "team:t", now=later)
-
-    assert status is not None and status.state is ExternalWorkState.STALLED
-    assert "has not changed" in status.reason
-    # A parked task's own work has its own staleness; the board does not judge it.
-    _team(tmp_path, "waiting_external", "done", team_id="p")
-    parked = inspect_external_work(tmp_path, "team:p", now=later)
-    assert parked is not None and parked.state is ExternalWorkState.RUNNING_HEALTHY
-    # Nor does a parked or finished sibling vouch for a wedged running task,
-    # however fresh its own stamps are.
-    root = _team(tmp_path, "running", "waiting_external", "done", team_id="w")
-    task_board._mutate(root, "w-2", heartbeat_ts=later, finished_ts=later)
-    task_board._mutate(root, "w-3", finished_ts=later)
-    masked = inspect_external_work(tmp_path, "team:w", now=later)
-    assert masked is not None and masked.state is ExternalWorkState.STALLED
-    # Pending work queues for the Curator (its in-flight cap, a daemon
-    # restart); nothing claimed it, so nothing is wedged.
-    _team(tmp_path, "pending", "pending", team_id="q")
-    queued = inspect_external_work(tmp_path, "team:q", now=later)
-    assert queued is not None and queued.state is ExternalWorkState.RUNNING_HEALTHY
-
-
-# ---------------------------------------------------------------------------
-# R4 — a teammate that keeps dying exhausts the mission orphan budget
-# ---------------------------------------------------------------------------
-
-
-def test_team_task_fails_after_the_orphan_budget(tmp_path: Path) -> None:
-    task_board.form(tmp_path, [{"task_id": "a", "objective": "x"}])
-    now = 0.0
-    for orphaning in range(1, task_board.ORPHAN_RETRY_BUDGET + 1):
-        now += 1_000.0
-        assert task_board.claim_top(tmp_path, f"w{orphaning}", now=now) is not None
-        assert task_board.reassign_stale(tmp_path, ttl=180.0, now=now + 500.0) == ["a"]
-        task = task_board.snapshot(tmp_path)[0]
-        assert task["state"] == "pending" and task["orphan_retries"] == orphaning
-
-    task_board.claim_top(tmp_path, "w-last", now=now + 1_000.0)
-    assert task_board.reassign_stale(tmp_path, ttl=180.0, now=now + 1_500.0) == ["a"]
-
-    task = task_board.snapshot(tmp_path)[0]
-    assert task["state"] == "failed"
-    assert "orphan budget 3" in task["reason"]
-    assert task_board.claim_top(tmp_path, "w-again", now=now + 2_000.0) is None
-
-
-def test_clean_stop_requeue_and_lead_retry_do_not_spend_the_orphan_budget(
-    tmp_path: Path,
-) -> None:
-    task_board.form(tmp_path, [{"task_id": "a", "objective": "x"}])
-    for round_index in range(5):
-        task_board.claim_top(tmp_path, f"w{round_index}", now=float(round_index))
-        task_board.reassign_stale(
-            tmp_path, ttl=-1.0, now=float(round_index), orphan_budget=None,
-        )
-    task = task_board.snapshot(tmp_path)[0]
-    assert task["state"] == "pending" and task["orphan_retries"] == 0
-
-    task_board._mutate(tmp_path, "a", state="failed", orphan_retries=4)
-    assert task_board.retry_terminal(tmp_path, "a", reason="redo")
-    assert task_board.snapshot(tmp_path)[0]["orphan_retries"] == 0
-
-
 # ---------------------------------------------------------------------------
 # R5 — the daemon recognizes the terminal states subagent writers write
 # ---------------------------------------------------------------------------
@@ -446,76 +346,6 @@ def test_parent_is_requeued_after_owned_subagent_settles(
     stored = next(row for row in memory.backlog.active() if row.id == item.id)
     assert stored.status == "pending"
     assert stored.outcome["external_wait"]["work_id"] == "job"
-
-
-# ---------------------------------------------------------------------------
-# R6 — nothing is spawned once the Curator is stopping
-# ---------------------------------------------------------------------------
-
-
-class _FakeProc:
-    pid = 91_000
-
-    def poll(self) -> int | None:
-        return None
-
-    def wait(self, timeout: float | None = None) -> int:
-        return 0
-
-
-def test_curator_spawns_nothing_after_stop_is_requested(tmp_path: Path) -> None:
-    made: list[str] = []
-    curator = cur.Curator(
-        project_root=tmp_path,
-        make_proc=lambda _root, member_id, *_a: made.append(member_id) or _FakeProc(),
-    )
-    curator._stop.set()
-
-    assert curator._spawn_tracked(tmp_path, member_id="w1", task_id="a", cwd=tmp_path) == 0
-    assert made == [] and curator._children == {}
-
-
-def test_curator_adopts_nothing_after_stop_is_requested(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    root = tmp_path / "team"
-    cur.roster.add_member(root, {"id": "w1", "pid": 4242, "cwd": str(tmp_path),
-                                 "task_id": "a", "status": "running"})
-    monkeypatch.setattr(cur, "_pid_is_teammate", lambda pid, _mid, _root=None: pid == 4242)
-    curator = cur.Curator(project_root=tmp_path, make_proc=lambda *_a: _FakeProc())
-    # stop() already tore ``_children`` down; an adoption now would leave the
-    # teammate owned by nobody, so the next daemon's Curator adopts it instead.
-    curator._stop.set()
-
-    assert curator._adopt_orphans(root, now=100.0) == []
-    assert curator._children == {}
-
-
-def test_claim_raced_by_stop_is_handed_back(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    root = tmp_path / "team"
-    task_board.form(root, [{"task_id": "a", "objective": "x"}])
-    made: list[str] = []
-    curator = cur.Curator(
-        project_root=tmp_path,
-        make_proc=lambda _root, member_id, *_a: made.append(member_id) or _FakeProc(),
-    )
-    real_claim = task_board.claim_top
-
-    def claim_then_stop(*args: Any, **kwargs: Any) -> Any:
-        claimed = real_claim(*args, **kwargs)
-        curator._stop.set()  # stop() lands while the tick holds the claim
-        return claimed
-
-    monkeypatch.setattr(cur.task_board, "claim_top", claim_then_stop)
-
-    result = curator._refill(root, width=2, cwd=tmp_path, now=100.0)
-
-    assert result["spawned"] == [] and made == []
-    task = task_board.snapshot(root)[0]
-    assert task["state"] == "pending" and task["owner"] == ""
-    assert float(task["retry_after_ts"]) <= 100.0
 
 
 # ---------------------------------------------------------------------------

@@ -362,7 +362,7 @@ def test_no_framework_package_imports_a_named_vertical() -> None:
     """
     offenders = _concrete_vertical_imports(_python_files(
         "core", "life", "engineer", "reviewer", "planner", "manager",
-        "roles", "skills", "daemon", "team", "webapi", "wiki",
+        "roles", "skills", "daemon", "webapi", "wiki",
         "tools", "adapters", "agent_cli", "provider_integrations", "plugin",
         "maintenance", "trial", "release_tools", "cli", "integrations", "proof_ledger",
     ))
@@ -1009,7 +1009,7 @@ LAYERS: dict[str, tuple[str, ...]] = {
     "domain": ("verticals", "domains", "builtin_skills"),
     "roles": ("roles", "planner", "engineer", "reviewer"),
     "runtime": ("life", "manager", "messaging"),
-    "process": ("daemon", "team"),
+    "process": ("daemon",),
     "delivery": (
         "apps", "webapi", "plugin", "maintenance", "trial", "integrations", "release_tools",
     ),
@@ -1128,11 +1128,8 @@ MODULE_LEVEL_UPWARD_ALLOWLIST: frozenset[str] = frozenset({
     "tools/manager_live_view.py -> manager",
     "tools/peer.py -> messaging",
     "tools/subagent/_direct_run.py -> daemon",
-    "tools/team.py -> team",
-    "verticals/research/idea_portfolio.py -> team",
     # The research vertical registers its round-log evidence provider with
-    # the vertical-blind registry when the package loads, the same shape as
-    # team/external_work.py registering with the engineer; the engineer
+    # the vertical-blind registry when the package loads; the engineer
     # itself never names the vertical.
     "verticals/research/round_log.py -> engineer",
 })
@@ -1222,7 +1219,6 @@ FUNCTION_BODY_UPWARD_ALLOWLIST: frozenset[str] = frozenset({
     "skills/stage_machine.py -> verticals",
     "skills/vertical_select.py -> domains",
     "skills/vertical_select.py -> verticals",
-    "team/teammate_entry.py -> apps",
     "tools/setup.py -> trial",
     "tools/subagent/_reporting.py -> apps",
     "verticals/research/idea_portfolio.py -> manager",
@@ -1300,10 +1296,6 @@ PRIVATE_IMPORT_ALLOWLIST: frozenset[str] = frozenset({
     "skills -> argus.verticals._data_domain",
     "skills -> argus.verticals._registry",
     "skills -> argus.wiki.store._atomic_write_text",
-    "team -> argus.apps._runtime",
-    "team -> argus.apps._runtime_supervisor",
-    "team -> argus.daemon.state._terminate_windows_process_tree",
-    "team -> argus.verticals._base",
     "tools -> argus.agent_cli._process_control",
     "tools -> argus.apps._inbox",
     "tools -> argus.daemon.state._terminate_windows_process_tree",
@@ -1719,7 +1711,6 @@ def test_module_paths_cited_by_prompts_and_skills_resolve() -> None:
 # Module paths that appear on a ``python -m`` / argv line somewhere in the tree
 # and are therefore matched back by string in a *different* process.
 SUBPROCESS_REENTRY_MODULES = (
-    "argus.team.teammate_entry",
     "argus.tools.subagent",
     "argus.daemon.spawn_helper",
     "argus.reviewer.review_file",
@@ -1731,7 +1722,7 @@ SUBPROCESS_REENTRY_MODULES = (
 
 
 # The same names as processes started before the 2026-09-14 rename spell them
-# (``argus_skill`` was the package): teammates, trial containers and seeded
+# (``argus_skill`` was the package): trial containers and seeded
 # Skill copies still carry these on their command lines. The alias package
 # ``argus_skill/`` must resolve every one for one release.
 LEGACY_SUBPROCESS_REENTRY_MODULES = tuple(
@@ -1742,9 +1733,8 @@ LEGACY_SUBPROCESS_REENTRY_MODULES = tuple(
 def test_subprocess_reentry_module_paths_stay_importable() -> None:
     """These names cross a process boundary as strings, so a move is invisible to Python.
 
-    The daemon spawns ``python -m argus.daemon.spawn_helper``; teammates
-    re-enter through ``team.teammate_entry``; liveness checks match those same
-    strings against ``argv`` of running processes. Rename one and the
+    The daemon spawns ``python -m argus.daemon.spawn_helper``; liveness checks
+    match those same strings against ``argv`` of running processes. Rename one and the
     importer-side tests stay green while the live system either fails to
     spawn or -- worse -- stops recognising its own workers as its own.
     """

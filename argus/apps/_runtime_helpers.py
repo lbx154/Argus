@@ -75,12 +75,6 @@ def _project_state_dir_for(args: argparse.Namespace, workdir: Path) -> Path | No
 
 def _checkpoint_path_for(args: argparse.Namespace, workdir: Path) -> Path | None:
     """Shared checkpoint in internal project state, never the output workdir."""
-    explicit = str(getattr(args, "checkpoint_path", "") or "").strip()
-    if explicit:
-        # A caller that owns its continuation note names it directly. A team
-        # worker does this: its siblings share the project tree, so the note
-        # must stay private even where project-state persistence is off.
-        return Path(explicit).expanduser()
     if not _env_flag("ARGUS_SKILL_CHECKPOINT_PERSIST", True):
         return None
     try:
@@ -186,18 +180,18 @@ def _should_run_stage_transition(
     whether this process is the project's stage writer at all, and it is
     checked before everything else. The other parameters all describe *which
     kind of work* a mission is doing, and every one of them assumes the mission
-    belongs to the Manager that owns the pipeline. A dispatched teammate breaks
+    belongs to the Manager that owns the pipeline. A parallel worker breaks
     that assumption: it runs in the project root — deliberately, so it reads
     the one shared ledger rather than a private copy nobody reads — but it
     holds only the single task it was handed and none of the campaign's own
-    review, while N of its siblings run concurrently against the same file.
+    review, while its siblings run concurrently against the same file.
 
     Kept distinct from ``skip_stage_transition`` because that flag is not a
     general off switch: :mod:`argus.manager.dispatch` *rejects* a Planner
     node that sets it without ``require_independent_review``, so it only ever
     means "this reviewed node settles itself and must not move the stage", and
-    the guard below reads it that way. Widening that guard to cover a teammate
-    would change what the review-only contract means for every vertical, to
+    the guard below reads it that way. Widening that guard to cover a parallel
+    worker would change what the review-only contract means for every vertical, to
     express something it was not asked about.
     """
     if not holds_stage_authority:

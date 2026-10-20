@@ -188,60 +188,19 @@ describe('call status across concurrent tasks', () => {
   });
 });
 
-describe('a task waiting on its background team', () => {
-  const team = {
-    work_id: 'team:routes', team_id: 'routes', owner: 'runtime', state: 'running',
-    total: 6, done: 5, running: 1, pending: 0, attention: 0,
-    parts: [
-      { role: 'idea-route', total: 3, done: 3, running: 0, attention: 0 },
-      { role: 'idea-review', total: 3, done: 2, running: 1, attention: 0 },
-    ],
-    started_ts: 100, last_progress_ts: 820, waited_by: ['mission'],
-  };
-
-  it('reads as one wait with the team’s progress, whether parked or waiting inside a round', () => {
-    const snapshot = fixture();
-    snapshot.background_work = [team];
-    snapshot.roles = [{ role: 'engineer', active: true, backend: 'pi', backend_label: 'Pi', model: 'model', effort: 'high', label: 'waiting', status: 'running', age_s: 1 }];
-    snapshot.backlog = [{ id: 'mission', title: 'Choose an idea', objective: '', status: 'running', priority: 1, started_ts: 200 }];
-    const inRound = currentWorkStatus(snapshot, null, [], 1000);
-    expect(inRound).toMatchObject({ state: 'waiting', reason: 'background_work', role: '', activityAt: 820, activityAgeSeconds: 180 });
-    expect(inRound.waitingOn).toMatchObject({ workId: 'team:routes', done: 5, total: 6 });
-    expect(workStatusLabel(inRound, 'zh-CN')).toBe('正在等待后台团队：3 条研究路线全部完成、3 次独立复核中 2 次完成，最近一次进展在 3 分钟前');
-    expect(workStatusLabel(inRound, 'en')).toBe('Waiting for the background team: all 3 research routes done, 2 of 3 independent reviews done, last progress 3 min ago');
-
-    snapshot.backlog[0] = { ...snapshot.backlog[0], status: 'paused_external_work', started_ts: null,
-      outcome: { execution_status: 'paused', review_status: 'not_assessed', stage_certification: 'not_assessed', interruption_kind: 'none', resumable: true,
-        external_wait: { kind: 'external_work', work_id: 'team:routes' } } };
-    const parked = currentWorkStatus(snapshot, null, [], 1000);
-    expect(parked).toMatchObject({ state: 'waiting', reason: 'background_work', activityAt: 820 });
-    expect(workStatusLabel(parked, 'zh-CN')).toBe(workStatusLabel(inRound, 'zh-CN'));
-  });
-
-  it('ends when the snapshot stops naming the task, ignores old wait lines, and needs a live daemon', () => {
-    const snapshot = fixture();
-    snapshot.background_work = [{ ...team, state: 'done', waited_by: [] }];
-    snapshot.roles = [{ role: 'engineer', active: true, backend: 'pi', backend_label: 'Pi', model: 'model', effort: 'high', label: 'working', status: 'running', age_s: 1 }];
-    snapshot.backlog = [{ id: 'mission', title: 'Choose an idea', objective: '', status: 'running', priority: 1, started_ts: 200 }];
-    const resumed = currentWorkStatus(snapshot, null, [
-      { type: 'round.external_work_wait.started', item_id: 'mission', work_id: 'team:routes', ts: 700 },
-    ], 1000);
-    expect(resumed).toMatchObject({ state: 'running', role: 'engineer' });
-    const stopped = fixture(false);
-    stopped.background_work = [team];
-    stopped.backlog = [{ ...snapshot.backlog[0], status: 'paused_external_work' }];
-    expect(currentWorkStatus(stopped, null, [], 1000)).toMatchObject({ state: 'paused', reason: 'not_running' });
-  });
-
-  it('still names the wait when the snapshot has not read the team yet', () => {
+describe('a task waiting on background work', () => {
+  it('names the wait for a parked task while the daemon runs, and needs a live daemon', () => {
     const snapshot = fixture();
     snapshot.backlog = [{ id: 'mission', title: 'Choose an idea', objective: '', status: 'paused_external_work', priority: 1,
       outcome: { execution_status: 'paused', review_status: 'not_assessed', stage_certification: 'not_assessed', interruption_kind: 'none', resumable: true,
-        external_wait: { kind: 'external_work', work_id: 'team:routes' } } }];
+        external_wait: { kind: 'external_work', work_id: 'job:1' } } }];
     const status = currentWorkStatus(snapshot, null, [], 1000);
-    expect(status.reason).toBe('background_work');
-    expect(workStatusLabel(status, 'zh-CN')).toBe('正在等待后台团队完成工作');
-    expect(workStatusLabel(status, 'en')).toBe('Waiting for the background team to finish');
+    expect(status).toMatchObject({ state: 'waiting', reason: 'background_work', role: '' });
+    expect(workStatusLabel(status, 'zh-CN')).toBe('正在等待后台任务完成');
+    expect(workStatusLabel(status, 'en')).toBe('Waiting for background work to finish');
+    const stopped = fixture(false);
+    stopped.backlog = snapshot.backlog;
+    expect(currentWorkStatus(stopped, null, [], 1000)).toMatchObject({ state: 'paused', reason: 'not_running' });
   });
 
   it('does not call the Manager’s own tidying “your request”', () => {

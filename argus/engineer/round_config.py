@@ -407,8 +407,8 @@ class SupervisedConfig:
     # ``core.venue_review.configure_venue_revisions``).
     stall_asks_operator: bool = False
     # A Manager supervises this run (daemon and LifeSupervisor missions): a
-    # tripped stall guard asks it instead of ending the mission. Teammate and
-    # CLI runs have nobody above them, so there the guard still ends the run.
+    # tripped stall guard asks it instead of ending the mission. CLI runs have
+    # nobody above them, so there the guard still ends the run.
     manager_supervised: bool = False
     # While the Engineer waits on work it started itself, the round keeps the
     # mission slot for as long as this answers True, instead of pausing after

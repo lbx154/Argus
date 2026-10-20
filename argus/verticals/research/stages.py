@@ -7,15 +7,13 @@ while the evidence comes in.
 """
 from __future__ import annotations
 
-import logging
-import os
 import re
 from pathlib import Path
 from typing import Any
 
 from ...core.vertical_contract import IterationAssessment
 from ...skills.stage_machine import ChecklistItem
-from . import idea_portfolio, library_preparation
+from . import library_preparation
 from .mission_brief import prepare_mission
 from .prompt_policy import render_role_prompt_context, render_role_prompt_fragment
 from .review_purchase import review_purchase_policy
@@ -23,10 +21,7 @@ from .task_routes import (
     model_route_for_task,  # noqa: F401 - the host reads this hook off the vertical module
 )
 
-log = logging.getLogger(__name__)
-
 LIBRARY_PREPARER = library_preparation.prepare_skill_libraries
-BACKGROUND_RECONCILER = idea_portfolio.reconcile_idea_portfolio_campaign
 
 CANONICAL_STAGE_ORDER: tuple[str, ...] = (
     "idea",
@@ -56,31 +51,19 @@ def _checklist(*items: ChecklistItem) -> tuple[ChecklistItem, ...]:
 STAGE_CHECKLISTS: dict[str, tuple[ChecklistItem, ...]] = {
     "idea": _checklist(
         ChecklistItem(
-            id="idea.portfolio",
-            statement=(
-                "For a new broad publishable or doctoral paper mission, complete exactly "
-                "the configured number of source-only routes (default three; operators "
-                "set ARGUS_RESEARCH_PORTFOLIO_ROUTES), one independent review per route, "
-                "and one selector. Candidate execution is forbidden during selection. Full "
-                "working outputs stay under internal `.argus` team storage."
-            ),
-            evidence_hint="internal `.argus/teams/...` task outputs",
-        ),
-        ChecklistItem(
             id="idea.selection",
             statement=(
-                "For a staged broad paper mission, the selector makes one resumable "
-                "choice; the project-root research notes, `RESEARCH_NOTES.md`, carry "
-                "the winner into Experiment, with a one-line reason for setting aside "
-                "every other route. For a staged direction the operator has fixed, the "
-                "research notes instead examine and position the supplied idea without "
-                "inventing a selector or routes that were set aside. The notes replace "
-                "the previous text rather than accumulating history. The selection "
-                "itself completes this stage; missing or thin notes are written on the "
-                "way out and are never a reason to hold. A direct Idea-only request "
-                "returns its independently reviewed result without writing that file."
+                "For a staged broad paper mission, compare several source-only routes "
+                "and choose one; the project-root research notes, `RESEARCH_NOTES.md`, "
+                "carry the winner into Experiment, with a one-line reason for setting "
+                "aside every other route. For a staged direction the operator has fixed, "
+                "the research notes instead examine and position the supplied idea "
+                "without inventing routes that were set aside. The notes replace the "
+                "previous text rather than accumulating history. A direct Idea-only "
+                "request returns its independently reviewed result without writing "
+                "that file."
             ),
-            evidence_hint="the selected idea in the project's stage record",
+            evidence_hint="RESEARCH_NOTES.md",
         ),
     ),
     "experiment": _checklist(
@@ -524,29 +507,9 @@ def stage_completion_issues(
 ) -> tuple[str, ...]:
     normalized = str(stage or "").strip().lower()
     root = Path(project_root)
-    if normalized == "idea":
-        from ...core.pipeline_state import pipeline_state_exists
-        from .idea_portfolio import idea_portfolio_completion_issues
-
-        resolved_state_root = Path(state_root or root)
-        if not pipeline_state_exists(resolved_state_root):
-            log.warning(
-                "idea-stage requirements cannot be determined: "
-                "PIPELINE_STATE.json is missing at resolved state root %s",
-                resolved_state_root,
-            )
-            return (
-                "idea-stage requirements cannot be determined because "
-                "PIPELINE_STATE.json is missing at the resolved state root",
-            )
-        portfolio_issues = idea_portfolio_completion_issues(
-            root,
-            state_root=resolved_state_root,
-        )
-        return tuple(portfolio_issues)
-    if normalized == "experiment":
-        # Experiment is judged on its evidence by the Reviewer and Manager; the
-        # research notes are context for Paper, not a completion condition.
+    if normalized in {"idea", "experiment"}:
+        # Idea and Experiment are judged on their evidence by the Reviewer and
+        # Manager; the research notes are context, not a completion condition.
         return ()
     if normalized == "paper":
         return _paper_issue(root)
@@ -560,26 +523,6 @@ def stage_completion_issues(
             )
         )
     return ()
-
-
-def automatic_stage_completion_ready(
-    *,
-    stage: str,
-    project_root: Path,
-    state_root: Path,
-) -> bool:
-    """Only a completed mandatory portfolio closes without Manager judgment."""
-    from .idea_portfolio import portfolio_required
-
-    return bool(
-        str(stage or "").strip().lower() == "idea"
-        and portfolio_required(state_root)
-        and not stage_completion_issues(
-            stage,
-            project_root,
-            state_root=state_root,
-        )
-    )
 
 
 def iteration_assessment(
@@ -682,8 +625,6 @@ _PLANNER_RESEARCH_ORCHESTRATION = (
     "paper/main.tex, its rendered output and direct dependencies, and paper/REVIEW.md."
 )
 
-_TEAM_TASK_ENV = "ARGUS_SKILL_TEAM_TASK_ID"
-
 _ENGINEER_RESEARCH_METHOD = (
     _AMBITIOUS_RESEARCH_POLICY
     + " Verify current models, benchmark versions, and APIs from live sources instead "
@@ -699,18 +640,6 @@ _ENGINEER_RESEARCH_EXECUTION = (
     _ENGINEER_RESEARCH_METHOD
     + " and rewrite the research notes, RESEARCH_NOTES.md, with only what the next "
     "stage needs."
-)
-
-# One worker among several in a shared project tree. Every sibling rewriting
-# the project-root notes left each of them reading another route's account and
-# spending rounds repairing the wrong task.
-_ENGINEER_TEAM_RESEARCH_EXECUTION = (
-    _ENGINEER_RESEARCH_METHOD
-    + ". You are one of several workers sharing this project tree: write only the "
-    "files your task names and your own continuation note. The project-root research "
-    "notes, RESEARCH_NOTES.md, belong to the mission that dispatched this work; read "
-    "them for context and leave them unchanged. Read the method card, METHOD.md, the "
-    "same way: it tells you what the method is, and only the lead edits it."
 )
 
 _REVIEWER_RESEARCH_JUDGEMENT = (
@@ -746,7 +675,7 @@ def import_legacy_state(*, source_root: object, state_root: object) -> None:
     Runs once, right after legacy Manager state naming this vertical is copied
     into the new state root: old stage names are rewritten to the current
     four-stage order, and any idea-selection record made under the legacy
-    layout is brought along so the campaign does not reopen its portfolio.
+    layout is brought along so the campaign keeps its chosen idea.
     """
     from ...skills.stage_machine import migrate_legacy_research_stage
     from .idea_portfolio import migrate_legacy_idea_selection
@@ -765,53 +694,7 @@ def search_altitude_context(project_root: object) -> str:
     return ""
 
 
-def planner_task_issues(
-    stage: str,
-    project_root: Path,
-    task: object,
-) -> tuple[str, ...]:
-    """Keep Planner tasks from competing with the runtime-owned Idea portfolio."""
-    _ = project_root
-    if str(stage or "").strip().lower() != "idea":
-        return ()
-    owns_paths = tuple(
-        str(path or "").strip().replace("\\", "/")
-        for path in (getattr(task, "owns_paths", ()) or ())
-    )
-    if not any(
-        path == ".argus/teams" or path.startswith(".argus/teams/")
-        for path in owns_paths
-    ):
-        return ()
-    contract = " ".join(
-        [
-            *(
-                str(getattr(task, field, "") or "")
-                for field in ("title", "objective", "acceptance_check")
-            ),
-            *owns_paths,
-        ]
-    ).lower()
-    explicitly_portfolio = any(
-        marker in contract
-        for marker in ("portfolio", "tournament", "idea-pipeline")
-    )
-    portfolio_shaped = (
-        "route" in contract
-        and ("review" in contract or "selector" in contract)
-        and re.search(r"\b(?:twelve|\d{1,2}) (?:[a-z-]+ ){0,3}routes?\b", contract) is not None
-    )
-    if not explicitly_portfolio and not portfolio_shaped:
-        return ()
-    return (
-        "the research runtime owns the canonical Idea portfolio; omit all "
-        "`.argus/teams/...` paths and let the runtime-provided portfolio complete",
-    )
-
-
 def role_banner(role: str = "engineer") -> str:
-    if role == "engineer" and os.environ.get(_TEAM_TASK_ENV, "").strip():
-        return _ENGINEER_TEAM_RESEARCH_EXECUTION
     return {
         "planner": _PLANNER_RESEARCH_ORCHESTRATION,
         "reviewer": _REVIEWER_RESEARCH_JUDGEMENT,
@@ -838,7 +721,6 @@ __all__ = [
     "ENGINEER_STAGE_OPERATIONS",
     "REQUIRE_INDEPENDENT_REVIEW",
     "role_banner",
-    "planner_task_issues",
     "import_legacy_state",
     "prepare_mission",
     "search_altitude_context",
@@ -846,7 +728,6 @@ __all__ = [
     "render_role_prompt_context",
     "review_purchase_policy",
     "stage_completion_issues",
-    "automatic_stage_completion_ready",
     "iteration_assessment",
     "completion_gate",
     "PAPER_MISSION",

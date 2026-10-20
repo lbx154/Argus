@@ -5,7 +5,7 @@ import { roleActionLabel } from '../lib/taskLanguage';
 /** One quiet sentence on the card being worked on right now: who is at it and
  * for how long this run. The clock ticks on its own so the rest of the card
  * stays still. Given `text`, the line says that instead: the same sentence
- * the sidebar and the conversation header use for a task waiting on its team. */
+ * the sidebar and the conversation header use for a task waiting on background work. */
 export function LiveLine({ role, since, zh, text }: { role?: string; since?: number | null; zh: boolean; text?: string }) {
   const [now, setNow] = useState(() => Date.now() / 1000);
   useEffect(() => {

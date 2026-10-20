@@ -9,8 +9,8 @@ assumes the project is producing a research paper:
   ``academic_language_review``, ``paper_layout_review``,
   ``paper_infrastructure_review``, plus their shared
   ``_review_contract_constants``;
-* supporting facilities such as ``method_differentiation``, ``method_freeze``
-  and the idea portfolio.
+* supporting facilities such as ``method_differentiation`` and
+  ``method_freeze``.
 
 Quality judgment belongs to the Reviewer reading the actual paper, code and
 raw results — not to deterministic validators; ``figure_lint`` is an advisory

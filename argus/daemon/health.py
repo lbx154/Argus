@@ -179,7 +179,6 @@ class DaemonHealthTracker:
 def _waits_on_healthy_work(workdir: Path | str | None) -> bool:
     if not workdir:
         return False
-    from .. import team  # noqa: F401 - registers the team projection
     from ..engineer.external_work import scan_external_work
 
     try:

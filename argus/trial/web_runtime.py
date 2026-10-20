@@ -50,7 +50,7 @@ def configure_provider(root: Path, config: dict) -> None:
             "ARGUS_TRAINING_BRIDGE_SOCKET": "/run/argus-web/training.sock",
         })
         knobs["ARGUS_SKILL_PI_PROVIDER"] = "argus"
-        for name in ("ENGINEER", "REVIEWER", "PLANNER", "MANAGER", "SUPERVISOR", "CURATOR"):
+        for name in ("ENGINEER", "REVIEWER", "PLANNER", "MANAGER", "SUPERVISOR"):
             knobs[f"ARGUS_SKILL_{name}_BACKEND"] = "pi"
     knobs.update({knob.name: REASONING_EFFORT for knob in KNOBS
                   if knob.name.endswith("_REASONING_EFFORT") and knob.name not in MAP_REASONING_DEFAULTS})

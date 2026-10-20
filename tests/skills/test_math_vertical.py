@@ -321,7 +321,7 @@ def test_parallel_routes_are_dispatched_without_a_prescribed_width() -> None:
     how many routes are worth opening is a mathematical judgement about
     whether they fail for different reasons, and a fixed width would turn a
     judgement into a quota. And it must say which file the workers legitimately
-    share, because the generic team gate asks for disjoint writable paths and a
+    share, because parallel workers need disjoint writable paths and a
     reader who applies that literally will either serialize the ledger or, worse,
     give each route its own copy and lose the OR.
     """
@@ -334,7 +334,7 @@ def test_parallel_routes_are_dispatched_without_a_prescribed_width() -> None:
 
     assert "one task per route" in engineer
     assert "fail for different reasons" in engineer
-    assert "agent-team-lead.md" in engineer
+    assert "your backend's own parallel" in engineer
     # The dispatcher describes the goal; the worker does the thinking.
     assert "do not hand over a\ndecomposition into steps" in engineer
     # Shared ledger, private working files.

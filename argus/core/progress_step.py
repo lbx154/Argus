@@ -103,11 +103,10 @@ _PATCH_FILE = re.compile(r"\*\*\* (?:Update|Add|Delete) File:\s*(\S+)")
 
 
 # Path segments that only Argus' own plumbing uses: session stores, shared
-# skill libraries, team shards, handoff checkpoints, the shipped verticals.
-# A team's artifacts (routes, reviews) are work products and keep their names.
+# skill libraries, handoff checkpoints, the shipped verticals.
 _PLUMBING_SEGMENTS = (
     ("state", "projects"), ("state", "skills"), ("state", "workspaces", "*", ".autors"),
-    ("argus", "verticals"), (".argus", "teams", "*", "shards"), (".autors",),
+    ("argus", "verticals"), (".autors",),
     ("role-sessions",), ("copilot-home",),
 )
 
@@ -123,8 +122,8 @@ def _is_plumbing(parts: list[str]) -> bool:
 def _short_name(path: str, workspace: str = "") -> str:
     """Return a path the operator can read: a basename, never an absolute path.
 
-    Files of Argus' own plumbing (session stores, skill libraries, team
-    shards) are named as such rather than spelled out. Any other file --
+    Files of Argus' own plumbing (session stores, skill libraries) are named
+    as such rather than spelled out. Any other file --
     including a repository outside the session workspace that the operator
     asked about -- is named by its file name, because reading it is the work.
     """

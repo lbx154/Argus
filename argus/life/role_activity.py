@@ -34,7 +34,6 @@ def _tail_jsonl(path: Path, *, limit: int = 500) -> list[dict[str, Any]]:
 
 _BACKGROUND_RUN_LABELS = (
     "map-summary",
-    "curator.",
     "reflection",
     "answer-learning",
     "self-learning-review",

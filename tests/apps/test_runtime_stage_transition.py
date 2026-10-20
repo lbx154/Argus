@@ -356,23 +356,3 @@ def test_bounded_direct_runtime_path_retains_manager_adjudication(tmp_path) -> N
 
     assert decision["action"] == "hold"
     assert decision["source"] == "manager_llm"
-
-
-def test_teammate_entry_withholds_stage_authority_from_its_mission() -> None:
-    """The flag is only worth having if the teammate actually passes it.
-
-    Asserted against the real ``execute`` signature rather than a stub, because
-    the previous attempt at this fix passed a keyword the runner accepted and
-    then ignored — the failure mode is silent, so a hand-written double would
-    have reproduced the bug rather than caught it.
-    """
-    import inspect
-
-    from argus.apps._runtime_execute import SkillLoopExecuteMixin
-    from argus.team import teammate_entry
-
-    assert "holds_stage_authority" in inspect.signature(
-        SkillLoopExecuteMixin.execute
-    ).parameters
-    source = inspect.getsource(teammate_entry.run_one_engineer_mission)
-    assert "holds_stage_authority=False" in source
