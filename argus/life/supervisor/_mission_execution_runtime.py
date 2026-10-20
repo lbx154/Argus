@@ -155,10 +155,10 @@ class MissionExecutionRuntimeMixin:
     # ------------------------------------------------------------------
 
     def _build_mission_prelude(
-        self, item: BacklogItem, *, for_planner: bool = False, defer_memory: bool = False,
+        self, item: BacklogItem, *, defer_memory: bool = False,
     ) -> str:
-        refresh_per_round = not for_planner and (
-            defer_memory or _refreshes_mission_prelude(getattr(self, "runner", None))
+        refresh_per_round = defer_memory or _refreshes_mission_prelude(
+            getattr(self, "runner", None)
         )
         # Mutable recall and operator projections must not become immutable
         # mission text. Capable runners read recall at each Engineer boundary;
@@ -171,10 +171,8 @@ class MissionExecutionRuntimeMixin:
             operator_context_state_root,
         )
 
-        # Bounded Planner projects its own current OperatorContext immediately
-        # before drafting. Never mix in this Engineer-role snapshot.
         operator_context = ""
-        if not for_planner and not refresh_per_round:
+        if not refresh_per_round:
             operator_context, _revision = build_operator_context_block(
                 "engineer",
                 operator_context_state_root(self.memory),
@@ -213,27 +211,9 @@ class MissionExecutionRuntimeMixin:
             prelude = (
                 item_metadata + "\n---\n\n" + prelude if prelude else item_metadata
             )
-        rt = "" if for_planner else self.config.runtime_context
+        rt = self.config.runtime_context
         if rt:
             prelude = rt + "\n---\n\n" + prelude if prelude else rt
-        return prelude
-
-    def _build_planner_continuation_context(self, item: BacklogItem) -> str:
-        """Project shared memory/history, excluding execution-only policy."""
-        prelude = self._build_mission_prelude(item, for_planner=True)
-        # Read the project journal, never the global/cross-project timeline.
-        # Settlement retrieval ignores planning chatter and retains the latest
-        # completed/failed/replanned work even on a busy resumed mission.
-        try:
-            entries = self.memory.journal.tail_settlements(3)
-        except (AttributeError, OSError, ValueError):
-            entries = []
-        if entries:
-            history = "## Recent project outcomes (non-authoritative)\n" + "\n".join(
-                f"- {entry.title} ({entry.kind}): {entry.summary[:2000]}"
-                for entry in entries
-            )
-            prelude = prelude + "\n\n---\n\n" + history if prelude else history
         return prelude
 
     def _resolve_mission_workdir(self, item: BacklogItem) -> Path:
@@ -771,14 +751,6 @@ class MissionExecutionRuntimeMixin:
                         ) if block)
 
                     execute_kwargs["prelude_context_provider"] = current_prelude
-                if "planner_context_provider" in params:
-                    execute_kwargs["planner_context_provider"] = (
-                        lambda: self._build_planner_continuation_context(item)
-                    )
-                elif "planner_context" in params or _accepts_kw:
-                    execute_kwargs["planner_context"] = (
-                        self._build_planner_continuation_context(item)
-                    )
                 if "preplanned" in params or _accepts_kw:
                     execute_kwargs["preplanned"] = any(
                         str(tag).strip().lower() == "planner"

@@ -199,9 +199,8 @@ is common), in which case the old hardcoded default was already wrong.
 
 ## Related: the cheap control-plane routes
 
-Four routes deliberately use a smaller model than the role's own: Manager
-front-door classification, bounded-DAG decomposition, `/plan` preview, and
-interactive prompt rewrite. Copilot uses an OpenAI catalog default; Codex and
+Three routes deliberately use a smaller model than the role's own: Manager
+front-door classification, `/plan` preview, and interactive prompt rewrite. Copilot uses an OpenAI catalog default; Codex and
 provider-agnostic backends fall back to the role's configured model. Codex may
 authenticate through a ChatGPT account whose catalog does not include Argus's
 historical cheap model ids.
@@ -213,6 +212,5 @@ that your provider supports:
 | Route | Knob |
 |---|---|
 | Manager front-door classify | `ARGUS_SKILL_FRONTDOOR_MODEL` |
-| Bounded-DAG decomposition | `ARGUS_SKILL_BOUNDED_DAG_MODEL` |
 | `/plan` preview | `ARGUS_SKILL_PLAN_PREVIEW_MODEL` |
 | Prompt rewrite | `ARGUS_SKILL_REWRITE_MODEL` |

@@ -531,7 +531,7 @@ def test_manager_turn_wall_clock_is_unbounded_by_default(monkeypatch, run_label:
     assert _turn_wall_clock_seconds(run_label) == 0
 
 
-@pytest.mark.parametrize("run_label", ["planner-bounded-plan", "planner-preview"])
+@pytest.mark.parametrize("run_label", ["planner.cycle0", "planner-preview"])
 def test_planner_turn_wall_clock_is_unbounded(monkeypatch, run_label: str) -> None:
     monkeypatch.setenv("ARGUS_SKILL_MANAGER_TURN_MAX_SECONDS", "1")
     assert _turn_wall_clock_seconds(run_label) == 0

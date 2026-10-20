@@ -1,6 +1,6 @@
 """Execute-lifecycle mixin: ``SkillLoopExecuteMixin`` — the
 ``_SkillLoopRunner.execute()`` orchestrator and its lifecycle-phase helper
-methods (config build, mission-context prep, bounded planning, loop
+methods (config build, mission-context prep, loop
 invocation, outcome-field extraction, stage-transition decision, outcome
 assembly).
 """
@@ -16,7 +16,6 @@ import time
 from pathlib import Path
 from typing import Callable
 
-from ..core.knobs import resolve_role_reasoning_effort
 from ..core.ports import EventSink
 from ..core.role_handoff import strip_handoff
 from ..core.runner_errors import is_execution_host_startup_error
@@ -32,10 +31,6 @@ from ._runtime_helpers import (
 )
 
 log = logging.getLogger(__name__)
-
-# The advisory Planner preview outlines; a preview that is still running after
-# this long is exploring, which is the Engineer's job.
-_PLANNER_PREVIEW_MAX_SECONDS = 180
 
 
 def _engineer_model_for_task(default: str, vertical: str, task_text: str, project_root: Path | None) -> str:
@@ -65,25 +60,6 @@ def _engineer_model_for_task(default: str, vertical: str, task_text: str, projec
     if chosen != default:
         log.info("engineer model for this task: %s (route %s)", chosen, route)
     return chosen
-
-
-def _decided_vertical(config: object, workdir: Path) -> str:
-    """The Manager-classified vertical of this mission, or "" when undecided.
-
-    Role-prompt resolution falls back to research for an unclassified
-    workspace, so it cannot tell a research campaign from a task nobody has
-    classified yet; the mission's own classification can.
-    """
-    active = str(getattr(config, "active_vertical", "") or "").strip().lower()
-    if active:
-        return active
-    from ..skills.vertical_select import resolve_vertical_if_decided
-
-    state_root = getattr(config, "vertical_state_root", None) or workdir
-    try:
-        return str(resolve_vertical_if_decided(Path(state_root)) or "").strip().lower()
-    except Exception:  # noqa: BLE001 — undecided is the safe reading
-        return ""
 
 
 def _execution_host_blocked_outcome(outcome: object) -> bool:
@@ -503,8 +479,6 @@ class SkillLoopExecuteMixin:
         preload_injects: list[str] | None = None,  # noqa: ARG002 — protocol parity
         prelude_context: str = "",
         prelude_context_provider: Callable[[], str] | None = None,
-        planner_context: str = "",
-        planner_context_provider: Callable[[], str] | None = None,
         seed_thread_id: str | None = None,
         scope: str = "",
         preplanned: bool = False,
@@ -547,10 +521,6 @@ class SkillLoopExecuteMixin:
 
             ex_state = _ExecuteState()
             ex_state.prelude_context_provider = prelude_context_provider
-            # This is an explicitly shared projection. Engineer prelude_context may
-            # contain role-exclusive runtime instructions and must never be reused.
-            ex_state.planner_context = planner_context
-            ex_state.planner_context_provider = planner_context_provider
             self._build_execute_config(
                 ex_state,
                 working_dir_override=working_dir_override,
@@ -577,7 +547,6 @@ class SkillLoopExecuteMixin:
                 sink=sink,
                 objective=objective,
                 original_objective=original_objective,
-                preplanned=preplanned,
                 mission_id=mission_id,
                 usage_mission_id=usage_mission_id,
             )
@@ -949,158 +918,6 @@ class SkillLoopExecuteMixin:
         ex_state.seed = seed
         ex_state.mission_scope = mission_scope
 
-    def _run_bounded_planning(
-        self,
-        ex_state: "_ExecuteState",
-        *,
-        sink: EventSink,
-        objective: str,
-        original_objective: str,
-        preplanned: bool,
-        mission_id: str | None,
-    ) -> None:
-        """Draft the advisory Planner execution plan for bounded (non-direct,
-        non-preplanned) work and fold it into ``ex_state.full_task``.
-
-        User-authored bounded work now follows the full team chain:
-        Manager → Planner → Engineer → Reviewer. Planner-authored backlog
-        items set ``preplanned=True`` and skip this call, avoiding a second
-        redundant planning pass. The plan is advisory context, not a gate:
-        if drafting fails, Engineer still receives the immutable objective.
-        """
-        args = self._args
-        workdir = ex_state.workdir
-        config = ex_state.config
-        if preplanned or getattr(config, "workflow_mode", "staged") == "direct":
-            return
-        try:
-            from ..core.planner_verdict import (
-                PlannerVerdictStatus,
-                build_planner_verdict_event,
-            )
-            from ..manager.plan_mode import draft_plan
-            from ..roles.prompts import resolve_role_prompt
-            from ..roles.prompts.planner import PLAN_PREVIEW, continuous_request
-            from ._runtime_planning_context import bounded_planner_request
-
-            preview_prompt = resolve_role_prompt(continuous_request(
-                getattr(config, "vertical_state_root", None) or workdir,
-                operation=PLAN_PREVIEW,
-                include_search_altitude=False,
-                altitude_root=workdir,
-            ))
-            if _decided_vertical(config, workdir) == "research":
-                # The research Planner's own cycle plans the campaign minutes
-                # later with the stage playbook, and the idea stage forms its
-                # portfolio without reading this outline. On the stable web
-                # trial (2026-09-16) this preview ran at every attempt with
-                # repository tools and no turn cap; on an empty workspace it
-                # wandered the host for nineteen turns (361k input tokens)
-                # before the provider cut it off, and its output was unused.
-                sink.handle_event(
-                    {
-                        "type": "life.planner.preview_skipped",
-                        "agent_layer": "planner",
-                        "vertical": "research",
-                        "text": (
-                            "Planner preview skipped: the research Planner cycle "
-                            "owns the campaign plan"
-                        ),
-                    }
-                )
-                return
-            planner_role_banner = preview_prompt.role_banner
-            sink.handle_event(
-                {
-                    "type": "life.planner.start",
-                    "agent_layer": "planner",
-                    "objective": objective,
-                    "completion_required": True,
-                    "text": "Planner project grounding and decomposition started",
-                }
-            )
-            shared_context = ex_state.planner_context
-            context_provider = getattr(ex_state, "planner_context_provider", None)
-            if context_provider is not None:
-                try:
-                    shared_context = str(context_provider() or "").strip()
-                except Exception:  # noqa: BLE001 — never fall back to old recalled claims
-                    log.warning("current Planner memory unavailable", exc_info=True)
-                    shared_context = "Current shared memory is unavailable."
-                shared_context = (
-                    "## Current shared Planner context\n"
-                    "This projection replaces earlier recalled memory for this request. "
-                    "An omitted experience requires a fresh read of its current state "
-                    "and revision before reuse; omission alone does not mean revocation.\n\n"
-                    + (shared_context or "No current shared memory.")
-                )
-            plan = draft_plan(
-                getattr(self, "planner_backend", None) or self._backend,
-                bounded_planner_request(
-                    objective,
-                    shared_context=shared_context,
-                    checkpoint_path=getattr(config, "checkpoint_path", None),
-                    operator_state_root=getattr(
-                        config, "operator_question_policy_root", None
-                    ),
-                    mission_id=str(mission_id or ""),
-                ),
-                sink=sink,
-                model=getattr(args, "plan_model", None),
-                reasoning_effort=resolve_role_reasoning_effort(
-                    "ARGUS_SKILL_PLANNER_REASONING_EFFORT"
-                ),
-                run_label="planner-bounded-plan",
-                role_banner=planner_role_banner,
-                working_dir=str(workdir),
-                dangerous_yolo=True,
-                # An outline for the operator, not an investigation: the
-                # Engineer inspects the repository itself a moment later.
-                allow_repository_inspection=False,
-                max_seconds=_PLANNER_PREVIEW_MAX_SECONDS,
-            )
-            if plan.steps:
-                lines = ["## Planner execution plan (advisory)"]
-                for index, step in enumerate(plan.steps, 1):
-                    detail = f" — {step.detail}" if step.detail else ""
-                    lines.append(f"{index}. {step.title}{detail}")
-                if plan.notes:
-                    lines.append("Notes: " + "; ".join(plan.notes))
-                ex_state.full_task += "\n\n---\n" + "\n".join(lines)
-                sink.handle_event(
-                    build_planner_verdict_event(
-                        status=PlannerVerdictStatus.PLANNED,
-                        reason=(
-                            "Grounded bounded plan completed with "
-                            f"{len(plan.steps)} step(s)"
-                        ),
-                        project_id=str(workdir),
-                        mission_id=str(mission_id or ""),
-                        agent_layer="planner",
-                        project_done=False,
-                        steps=len(plan.steps),
-                        text="Planner grounding and decomposition completed",
-                    )
-                )
-            else:
-                sink.handle_event(
-                    {
-                        "type": "life.planner.error",
-                        "agent_layer": "planner",
-                        "error": plan.error or "bounded plan unavailable",
-                        "text": plan.error or "bounded plan unavailable; Engineer continues",
-                    }
-                )
-        except Exception as exc:  # noqa: BLE001 — planning is advisory
-            sink.handle_event(
-                {
-                    "type": "life.planner.error",
-                    "agent_layer": "planner",
-                    "error": f"{type(exc).__name__}: {exc}",
-                    "text": "bounded plan unavailable; Engineer continues",
-                }
-            )
-
     def _invoke_execute_loop(
         self,
         ex_state: "_ExecuteState",
@@ -1108,13 +925,11 @@ class SkillLoopExecuteMixin:
         sink: EventSink,
         objective: str,
         original_objective: str,
-        preplanned: bool,
         mission_id: str | None,
         usage_mission_id: str | None,
     ) -> None:
-        """Run the mission through ``SkillLoop.run``, sandwiched between the
-        advisory bounded-planning pass and this call's sink/usage-context
-        teardown.
+        """Run the mission through ``SkillLoop.run`` and this call's
+        sink/usage-context teardown.
         """
         self._current_sink = sink
         self._current_failure_ledger = None
@@ -1149,14 +964,6 @@ class SkillLoopExecuteMixin:
                     )
                 )
             execution_started = True
-            self._run_bounded_planning(
-                ex_state,
-                sink=sink,
-                objective=objective,
-                original_objective=original_objective,
-                preplanned=preplanned,
-                mission_id=mission_id,
-            )
 
             def _pre_settlement_guard(
                 _mission: object,
@@ -1513,10 +1320,9 @@ class SkillLoopExecuteMixin:
             workflow_skips_stage_transition
             or (skip_stage_transition and not stage_closing)
         )
-        # Direct workflow skips an extra planning pass, not Manager stage
-        # authority. Review-only tasks and ordinary non-stage-closing Planner
-        # nodes suppress the stage writer; Reviewer-requested replans still
-        # reach Manager through planning-cycle reconciliation.
+        # Review-only tasks and ordinary non-stage-closing Planner nodes
+        # suppress the stage writer; Reviewer-requested replans still reach
+        # Manager through planning-cycle reconciliation.
         if (
             not maintenance_mission
             and not workflow_skips_stage_transition

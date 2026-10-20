@@ -943,8 +943,8 @@ def parse_planner_payload(payload: Mapping[str, Any]) -> PlannerVerdict:
         return value
 
     def review_boolean(source: Mapping[str, Any], name: str) -> bool:
-        # Mirrors the bounded-DAG validation contract: a structured boolean or
-        # the literal strings "true"/"false"; anything else is a metadata error.
+        # A structured boolean or the literal strings "true"/"false"; anything
+        # else is a metadata error.
         value = source.get(name, True)
         if isinstance(value, bool):
             return value

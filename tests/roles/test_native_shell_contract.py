@@ -7,7 +7,6 @@ import sys
 import pytest
 
 from argus.roles.prompts import engineer as engineer_prompts
-from argus.roles.prompts import planner as planner_prompts
 from argus.roles.task_contract import (
     format_native_shell_command,
     native_shell_contract,
@@ -40,12 +39,11 @@ def test_windows_command_formatter_uses_call_operator_and_powershell_quotes() ->
     )
 
 
-def test_engineer_and_bounded_planner_receive_windows_contract(monkeypatch) -> None:
+def test_engineer_receives_windows_contract(monkeypatch) -> None:
     contract = native_shell_contract(platform_name="nt")
     summary = native_shell_summary(platform_name="nt")
     monkeypatch.setattr(engineer_prompts, "native_shell_contract", lambda: contract)
     monkeypatch.setattr(engineer_prompts, "native_shell_summary", lambda: summary)
-    monkeypatch.setattr(planner_prompts, "native_shell_contract", lambda: contract)
 
     engineer = engineer_prompts.build_mission_prompt(
         task="repair the Windows command path",
@@ -58,12 +56,10 @@ def test_engineer_and_bounded_planner_receive_windows_contract(monkeypatch) -> N
         next_action=None,
         include_static=False,
     )
-    planner = planner_prompts.build_bounded_dag_prompt("repair the command path")
 
     assert summary in engineer
     assert contract not in engineer
     assert contract in continuation
-    assert contract in planner
 
 
 @pytest.mark.skipif(os.name != "nt", reason="native PowerShell integration test")

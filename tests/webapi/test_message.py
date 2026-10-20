@@ -1119,17 +1119,13 @@ def test_cancel_during_handoff_stops_before_backlog_commit(
         lambda *args, **kwargs: (None, None, "complex"),
     )
     monkeypatch.setattr(front_door, "manager_triage", lambda *args, **kwargs: None)
-    monkeypatch.setattr(
-        dispatch,
-        "maybe_promote_to_continuous",
-        lambda *args, **kwargs: False,
-    )
 
-    def handoff(mem, body, state, persist, **kwargs):
+    def handoff(mem, body, state, *, persist, **kwargs):
         cancelled.set()
-        return persist("safe task", None)
+        persist("safe task", None)
+        return "safe task"
 
-    monkeypatch.setattr(front_door, "manager_bounded_handoff", handoff)
+    monkeypatch.setattr(front_door, "manager_continuous_handoff", handoff)
 
     result = manager_bridge.manager_message(
         sid,
@@ -1341,16 +1337,11 @@ def test_active_mission_team_message_uses_continuous_dispatch(
     monkeypatch.setattr(config_intent, "_front_door_classify", classify)
     monkeypatch.setattr(front_door, "manager_triage", lambda *args, **kwargs: None)
 
-    def promote(mem, body, chat_state, **kwargs):
-        seen["promoted"] = body
-        chat_state.setdefault("config", {})["continuous"] = True
-        return True
-
     def enqueue(mem, body, chat_state, **kwargs):
         seen["enqueued"] = body
+        chat_state.setdefault("config", {})["continuous"] = True
         return None, True, 123
 
-    monkeypatch.setattr(dispatch, "maybe_promote_to_continuous", promote)
     monkeypatch.setattr(dispatch, "enqueue_mission", enqueue)
 
     result = manager_bridge.manager_message(
@@ -1362,9 +1353,8 @@ def test_active_mission_team_message_uses_continuous_dispatch(
     assert result["kind"] == "task"
     assert result["continuous"] is True
     assert seen["classify"] == 1
-    assert "last_team_task: finish current work" in seen["promoted"]
-    assert "[CURRENT OPERATOR MESSAGE]\n你怎么不动了？" in seen["promoted"]
-    assert seen["enqueued"] == seen["promoted"]
+    assert "last_team_task: finish current work" in seen["enqueued"]
+    assert "[CURRENT OPERATOR MESSAGE]\n你怎么不动了？" in seen["enqueued"]
     assert len(memory.backlog.all()) == 1
 
 
@@ -1387,20 +1377,11 @@ def test_mission_claimed_during_classification_still_uses_continuous_dispatch(
     monkeypatch.setattr(config_intent, "_front_door_classify", classify)
     monkeypatch.setattr(front_door, "manager_triage", lambda *a, **k: None)
 
-    def promote(mem, body, chat_state, **kwargs):
+    def enqueue(mem, body, chat_state, **kwargs):
         chat_state.setdefault("config", {})["continuous"] = True
-        return True
+        return None, True, 456
 
-    monkeypatch.setattr(
-        dispatch,
-        "maybe_promote_to_continuous",
-        promote,
-    )
-    monkeypatch.setattr(
-        dispatch,
-        "enqueue_mission",
-        lambda *a, **k: (None, True, 456),
-    )
+    monkeypatch.setattr(dispatch, "enqueue_mission", enqueue)
 
     result = manager_bridge.manager_message(
         sid,
@@ -1537,17 +1518,11 @@ def test_team_message_validates_lifecycle_before_workflow_and_enqueue(
     )
     monkeypatch.setattr(front_door, "manager_triage", lambda *args, **kwargs: None)
 
-    def promote(mem, body, chat_state, **kwargs):
-        assert seen["order"] == ["lifecycle"]
-        seen["order"].append("promote")
-        seen["promoted_body"] = body
-        seen["root_task_id"] = kwargs.get("root_task_id")
-        chat_state.setdefault("config", {})["continuous"] = True
-        return True
-
     def enqueue(mem, body, chat_state, **kwargs):
-        assert seen["order"] == ["lifecycle", "promote"]
+        assert seen["order"] == ["lifecycle"]
         seen["order"].append("enqueue")
+        seen["enqueued_body"] = body
+        seen["root_task_id"] = kwargs.get("root_task_id")
         seen["continuous_at_enqueue"] = chat_state["config"]["continuous"]
         return None, False, None
 
@@ -1556,7 +1531,6 @@ def test_team_message_validates_lifecycle_before_workflow_and_enqueue(
         seen["resumed"] = True
         return False
 
-    monkeypatch.setattr(dispatch, "maybe_promote_to_continuous", promote)
     monkeypatch.setattr(dispatch, "resume_done_lifecycle_for_team_dispatch", resume)
     monkeypatch.setattr(dispatch, "enqueue_mission", enqueue)
 
@@ -1566,17 +1540,17 @@ def test_team_message_validates_lifecycle_before_workflow_and_enqueue(
         global_root=tmp_path,
     )
 
-    assert seen["promoted_body"] == "keep researching this conjecture"
+    assert seen["enqueued_body"] == "keep researching this conjecture"
     assert seen["root_task_id"]
     assert seen["resumed"] is True
     assert seen["continuous_at_enqueue"] is True
-    assert seen["order"] == ["lifecycle", "promote", "enqueue"]
+    assert seen["order"] == ["lifecycle", "enqueue"]
     assert result["kind"] == "task"
     assert result["item"] is None
     assert result["continuous"] is True
 
 
-def test_finite_staged_paper_request_does_not_enter_bounded_dag(
+def test_finite_staged_paper_request_runs_as_a_finite_campaign(
     tmp_path: Path,
     monkeypatch,
 ) -> None:
@@ -1623,13 +1597,6 @@ def test_finite_staged_paper_request_does_not_enter_bounded_dag(
         "_ensure_manager_runner",
         lambda *_args, **_kwargs: SimpleNamespace(manager=_StagedResearchManager()),
     )
-    monkeypatch.setattr(
-        dispatch,
-        "_plan_bounded_execution",
-        lambda *args, **kwargs: (_ for _ in ()).throw(
-            AssertionError("staged paper must not be collapsed into a bounded DAG")
-        ),
-    )
 
     objective = "给我写个论文 iclr的 我要投稿"
     result = manager_bridge.manager_message(sid, objective, global_root=tmp_path)
@@ -1645,6 +1612,7 @@ def test_finite_staged_paper_request_does_not_enter_bounded_dag(
     assert "operator_priority" in queued[0].tags
     continuous = json.loads((life / "continuous.json").read_text(encoding="utf-8"))
     assert continuous["enabled"] is True
+    assert continuous["open_ended"] is False
     assert continuous["objective"] == objective
 
 
@@ -1682,44 +1650,10 @@ def test_manager_decided_math_vertical_web_enqueue_enters_backlog(
     )
     monkeypatch.setattr(front_door, "manager_triage", lambda *args, **kwargs: None)
 
-    class _PlannerBackend:
-        def run_exec(self, **_kwargs):
-            return SimpleNamespace(
-                exit_code=0,
-                fatal_error=None,
-                agent_messages=[
-                    "\n".join([
-                        "PLAN_REASON=one bounded proof task",
-                        "TASK_KEY=proof",
-                        "TASK_DEPS=",
-                        "TASK_TITLE=Prove the bounded integer lemma",
-                        f"TASK_OBJECTIVE={objective}",
-                        "TASK_HYPOTHESIS=The stated proof route can close the lemma.",
-                        "TASK_GOAL_CONTRIBUTION=Produce the bounded proof the user requested.",
-                        "TASK_EXPECTED_REGRESSIONS=Intermediate obligations may temporarily reopen.",
-                        "TASK_DECISION_RULE=Replan if a counterexample refutes the proof route.",
-                        "TASK_SCOPE=bounded",
-                        "TASK_STAGE_CLOSING=false",
-                        "TASK_REQUIRE_INDEPENDENT_REVIEW=false",
-                        "TASK_SKIP_STAGE_TRANSITION=false",
-                        "TASK_OPERATOR_APPROVAL_REQUIRED=false",
-                        "TASK_ALLOW_SKILL_CHANGES=false",
-                    ])
-                ],
-            )
-
     monkeypatch.setattr(
         front_door,
         "_ensure_manager_runner",
-        lambda chat_state, mem: SimpleNamespace(
-            manager=manager,
-            planner_backend=_PlannerBackend(),
-        ),
-    )
-    monkeypatch.setattr(
-        dispatch,
-        "maybe_promote_to_continuous",
-        lambda *args, **kwargs: False,
+        lambda chat_state, mem: SimpleNamespace(manager=manager),
     )
     monkeypatch.setattr(
         daemon_lifecycle,

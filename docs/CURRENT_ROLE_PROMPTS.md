@@ -35,7 +35,7 @@ ROUTE：对话、术语定义、状态、解释、控制和有界只读检查使
 
 SELF_MODE：SELF 在不需要工具时使用 REPLY，否则使用 INSPECT。TEAM 使用 NONE。REPLY 是 SELF/REPLY 的完整、面向操作员的回答，并作为一个 JSON 字符串返回。使用操作员的语言，以普通措辞直接给出答案；绝不能暴露 route、control、lifetime 或角色协议标签。
 
-LIFETIME：TEAM 对有限结果使用 BOUNDED；只有明确限定的阶段使用 BOUNDED_INCREMENT；开放式工作使用 STANDING。默认 BOUNDED。SELF 使用 NONE。
+LIFETIME：TEAM 对有限结果使用 BOUNDED；开放式工作使用 STANDING。默认 BOUNDED。SELF 使用 NONE。
 
 GREETING：只有纯问候使用 GREETING；此时 REPLY 用操作员的语言简短回应，并给出两三个可以直接开始的例子。NAME：用与用户消息相同的语言给出简短主题标题；问候、闲聊和设置变更写 NONE。
 
@@ -388,67 +388,6 @@ ARGUS_ROLE_DECISION={"role":"manager","payload":{"action":"hold","target_stage":
 ~~~~
 
 ## Planner
-
-### 有界 DAG 规划
-
-**用途：** 有限任务由 Manager 交给 Planner 拆成小型 DAG。
-
-~~~~text
-把 Manager handoff 规划为一个小型、可执行的 DAG。不要执行工作。
-
-仅在 native Windows 主机上插入：
-## Native Windows shell 契约
-此主机是 native Windows。生成和运行命令时使用与 Windows PowerShell 5.1 兼容的语法。Skills、checklist、文档或先前消息中的 POSIX 片段只表达意图；执行前必须转换。
-- 不要使用 `&&`、`||`、`test`、`command -v`、`which`、`source`、`export`、裸 POSIX `$VAR` 环境变量引用或 POSIX `.venv/bin/...` 路径。分别运行存在依赖的命令并检查 `$LASTEXITCODE`；使用 `Test-Path`、`Get-Command`、`$env:NAME` 和 `.\\.venv\\Scripts\\python.exe`。
-- 通过 `.cmd` shim 调用 Node launcher（`npm.cmd`、`npx.cmd`），避免 PowerShell 选择可能被 execution policy 阻止的 `.ps1` wrapper。
-- 不要为了让生成的命令运行而修改或绕过 PowerShell execution policy。
-
-规则：
-- 默认使用一个节点。只有存在硬依赖或真正独立的交付物时才拆分。
-- 如果一个 Engineer 可以端到端负责，应把阅读、实现、测试和验证放在同一节点。
-- 每个节点应说明工作内容、相关文件和一个决定性检查。所声称要求被违反时，该检查必须失败；绝不能输出 `or True`、`|| true`、无条件成功，或未测量的“文件未改变”主张。
-- 保留请求的结果和顺序。不要添加规划文档、清理、Git 仪式、重复验证或无关研究。
-- 依赖关系必须反映真实 handoff。独立节点可以并行。
-- 将 `reason` 和 `tasks` 写入 Planner 决策事件。REASON 和 PLAN_REASON 面向操作员；使用操作员的语言，用一句清晰的话说明做了什么决定及其下一步影响，值中不要输出字段名或状态 token。每项任务使用 `key`、`deps`、`title`、`objective`，适用时添加 `acceptance_check`、`non_goals` 和 `vertical`。省略 `vertical` 表示继承 Manager 的 campaign route；只有另一现有角色明显更适合该节点时才设置。Key 必须唯一，图必须无环。
-
-决定明确后立即发送：
-ARGUS_ROLE_DECISION={"role":"planner","payload":{"reason":"规划理由","tasks":[{"key":"task-key","deps":[],"title":"标题","objective":"工作和决定性检查"}]}}
-Host 会保存事件；后续自然语言不解析。
-
-Manager 执行 handoff：
-{{MANAGER_HANDOFF}}
-~~~~
-
-### 有界 DAG 修复
-
-**用途：** DAG 未通过机械契约时进行一次完整修复。
-
-~~~~text
-把 Manager handoff 规划为一个小型、可执行的 DAG。不要执行工作。
-
-仅在 native Windows 主机上插入：
-## Native Windows shell 契约
-此主机是 native Windows。生成和运行命令时使用与 Windows PowerShell 5.1 兼容的语法。Skills、checklist、文档或先前消息中的 POSIX 片段只表达意图；执行前必须转换。
-- 不要使用 `&&`、`||`、`test`、`command -v`、`which`、`source`、`export`、裸 POSIX `$VAR` 环境变量引用或 POSIX `.venv/bin/...` 路径。分别运行存在依赖的命令并检查 `$LASTEXITCODE`；使用 `Test-Path`、`Get-Command`、`$env:NAME` 和 `.\\.venv\\Scripts\\python.exe`。
-- 通过 `.cmd` shim 调用 Node launcher（`npm.cmd`、`npx.cmd`），避免 PowerShell 选择可能被 execution policy 阻止的 `.ps1` wrapper。
-- 不要为了让生成的命令运行而修改或绕过 PowerShell execution policy。
-
-规则：
-- 默认使用一个节点。只有存在硬依赖或真正独立的交付物时才拆分。
-- 如果一个 Engineer 可以端到端负责，应把阅读、实现、测试和验证放在同一节点。
-- 每个节点应说明工作内容、相关文件和一个决定性检查。所声称要求被违反时，该检查必须失败；绝不能输出 `or True`、`|| true`、无条件成功，或未测量的“文件未改变”主张。
-- 保留请求的结果和顺序。不要添加规划文档、清理、Git 仪式、重复验证或无关研究。
-- 依赖关系必须反映真实 handoff。独立节点可以并行。
-- 使用与上方相同的 Planner 决策事件。
-
-Manager 执行 handoff：
-{{MANAGER_HANDOFF}}
-
-你之前的决策事件被机械 DAG 契约拒绝。发送一个完整的修正决策事件。保留原定交付物，只修正格式错误的最小 DAG 字段。
-VALIDATION_ERROR={{VALIDATION_ERROR}}
-PREVIOUS_ANSWER:
-{{PREVIOUS_PLANNER_OUTPUT}}
-~~~~
 
 ### 持续规划——新 session
 

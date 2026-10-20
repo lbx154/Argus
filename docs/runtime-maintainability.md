@@ -97,9 +97,11 @@ Reviewer 的语义判断和 Host 的状态提交发生在不同位置；定位�
 工程证书和任务终态保持不变；尚未被 Planner 处理的原生收件仍可按同一身份重入。
 没有新输入的已验收有限任务仍可直接结束，不强制购买额外 Planner 调用。
 
-有限任务的 Planner 预览也通过角色目录读取会话 state root 中选定的 vertical
-和阶段，并接收该领域的阶段规则；工作目录只作为代码、数据和执行位置，
-不能因为它没有 `PIPELINE_STATE.json` 就回退到 research。
+操作者的每个 TEAM 任务都只走一种派发：Manager 把它写成一个经过评审的操作者任务，
+放进由 Planner 逐轮推进的 campaign。没有运行中的 campaign 时，任务开启一个有限
+campaign（前门判为 STANDING 时开放式），Planner 认定完成后停止；`direct` 任务
+加入运行中的 campaign 而不替换它，分阶段或 STANDING 任务替换其目标。旧版本留下的
+DAG 节点仍按普通 Planner 节点执行。
 
 ## 单任务执行顺序
 

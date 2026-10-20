@@ -203,15 +203,6 @@ def test_planner_keeps_operator_actions_ahead_of_optional_hardening(
     assert 'Add no cleanup, docs, rechecks or optional hardening to completed finite work' in flat
 
 
-def test_bounded_planner_rejects_tautological_acceptance_checks() -> None:
-    from argus.roles.prompts.planner import build_bounded_dag_prompt
-
-    prompt = build_bounded_dag_prompt("Create exact.txt without changing README.")
-
-    assert "must fail when its claimed requirement is violated" in prompt
-    assert "never emit `or True`, `|| true`, unconditional success" in prompt
-
-
 def test_research_prompt_carries_no_final_submission_scope_machinery(
     tmp_path,
     monkeypatch,

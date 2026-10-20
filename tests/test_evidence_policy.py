@@ -17,7 +17,6 @@ from argus.core.round_policy import RoundPolicy, explain_round_policy
 from argus.reviewer import Reviewer
 from argus.roles.prompts.engineer import build_mission_prompt
 from argus.roles.prompts.manager import build_stage_decision_prompt
-from argus.roles.prompts.planner import build_bounded_dag_prompt, build_bounded_single_task_prompt
 from argus.roles.task_contract import experiment_evidence_contract
 
 KNOB = "ARGUS_SKILL_EVIDENCE_POLICY"
@@ -53,8 +52,6 @@ def test_saved_policy_reaches_configuration_and_all_roles(monkeypatch, tmp_path,
         build_mission_prompt(
             task="Repair the failing setup step.", skill_text="", next_action=None, compact_team=True,
         ),
-        build_bounded_single_task_prompt("Repair the failing setup step."),
-        build_bounded_dag_prompt("Repair the failing setup step."),
         build_stage_decision_prompt(
             current_stage="implement", next_stage="verify", earlier_stages=[],
             checklist_md="Check this stage's actual deliverable.",

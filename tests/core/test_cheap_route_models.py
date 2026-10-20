@@ -1,13 +1,13 @@
 """The cheap control-plane routes must not name an OpenAI model on a backend
 that does not serve the OpenAI catalog.
 
-Four routes — Manager front-door classify, bounded-DAG decomposition, ``/plan``
-preview, and interactive prompt rewrite — want a *small* model rather than the
+Three routes — Manager front-door classify, ``/plan`` preview, and
+interactive prompt rewrite — want a *small* model rather than the
 role's full-strength one. Pi has a provider-defined catalog, while Codex may
 authenticate through a ChatGPT account with a restricted catalog. Neither may
 receive an assumed cheap OpenAI model id.
 
-These pin the shared helper and all four call sites: Copilot keeps its cheap
+These pin the shared helper and all three call sites: Copilot keeps its cheap
 id, Codex and provider-agnostic backends fall back to the role model, and an
 explicit knob always wins.
 """
@@ -250,19 +250,6 @@ def test_front_door_classify_route_uses_the_shared_rule(monkeypatch) -> None:
 
     monkeypatch.setenv("ARGUS_SKILL_LIFE_BACKEND", "codex")
     assert resolve_manager_classify_model() == "deepseek-chat"
-
-
-def test_bounded_dag_route_uses_the_shared_rule(monkeypatch) -> None:
-    from argus.manager.dispatch import _bounded_dag_model
-
-    monkeypatch.setenv("ARGUS_SKILL_LIFE_BACKEND", "pi")
-    monkeypatch.setenv("ARGUS_SKILL_PLAN_MODEL", "deepseek-chat")
-    monkeypatch.delenv("ARGUS_SKILL_BOUNDED_DAG_MODEL", raising=False)
-
-    assert _bounded_dag_model() == "deepseek-chat"
-
-    monkeypatch.setenv("ARGUS_SKILL_LIFE_BACKEND", "copilot")
-    assert _bounded_dag_model() == "gpt-6.1-sol"
 
 
 def test_plan_preview_route_uses_the_shared_rule(monkeypatch) -> None:

@@ -777,8 +777,8 @@ class LifeWorkerRunMixin:
                                 )
                             ):
                                 self._adopted_continuous_generation = None
-                    # A bounded worker owns one finite queue. Plain bounded DAGs
-                    # finish with ``backlog_empty``; finite staged campaigns end
+                    # A bounded worker owns one finite queue. A plain backlog
+                    # finishes with ``backlog_empty``; a finite campaign ends
                     # with ``project_done``. Both must release the process slot.
                     # A standing campaign that was enabled while this worker was
                     # alive remains resident even if the launch itself was bounded.

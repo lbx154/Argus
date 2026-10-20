@@ -43,9 +43,8 @@ flowchart TD
     SLR --> IDLE
 
     F -->|TEAM| M[Manager initial vertical, workflow, lifetime]
-    M -->|Bounded direct| BP[Planner bounded DAG]
-    M -->|Staged or standing| CP[Continuous Planner cycle]
-    BP --> Q[Durable backlog]
+    M -->|operator item| Q[Durable backlog]
+    M -->|finite stops when done, standing keeps going| CP[Planner-run campaign]
     CP --> PV[Planner selects next mission and optional node vertical]
     PV --> Q
     Q --> E[Engineer mission]

@@ -1,16 +1,17 @@
-"""Characterization of the operator-visible TEAM lifetime contract.
+"""Characterization of the operator-visible TEAM dispatch contract.
 
-The merged front-door call distinguishes an explicit bounded increment, a
-finite complete outcome, and standing work, while the normal Manager decision
-independently chooses direct versus staged workflow. Explicit increments and
-finite direct work enter the bounded DAG path; standing or finite staged work
-uses the durable campaign supervisor.
+There is one dispatch topology: every TEAM task runs in a Planner-run
+campaign. The merged front-door call contributes one bit, whether the
+campaign stops when done (BOUNDED, the default) or keeps going (STANDING).
 """
 
 from __future__ import annotations
 
+from types import SimpleNamespace
+
 import pytest
 
+from argus.daemon.life_worker import read_continuous_state, write_continuous_config
 from argus.life import MemoryBundle
 from argus.manager import dispatch, front_door
 
@@ -26,86 +27,73 @@ def memory(tmp_path):
     return mem
 
 
+@pytest.fixture(autouse=True)
+def manager_runner(monkeypatch):
+    class Manager:
+        def decide_vertical(self, body, **kwargs):
+            return SimpleNamespace(execution_task=f"managed: {body}")
+
+        def commit_vertical_decision(self, body, decision, **kwargs):
+            return decision
+
+    monkeypatch.setattr(
+        front_door,
+        "_ensure_manager_runner",
+        lambda state, mem: SimpleNamespace(manager=Manager()),
+    )
+
+
 @pytest.mark.parametrize(
-    ("hint", "expected_continuous"),
+    ("hint", "open_ended"),
     [
         pytest.param(None, False, id="missing-defaults-bounded"),
         pytest.param("standing", True, id="standing"),
         pytest.param("bounded", False, id="bounded"),
-        pytest.param("bounded_increment", False, id="bounded-increment"),
+        pytest.param("bounded_increment", False, id="legacy-increment-is-bounded"),
         pytest.param("garbage", False, id="malformed-defaults-bounded"),
     ],
 )
-def test_team_lifetime_controls_dispatch_mode(memory, hint, expected_continuous):
+def test_team_lifetime_only_sets_whether_the_campaign_stops(memory, hint, open_ended):
     state = {"backend": "codex"}
     if hint is not None:
         state["_frontdoor_lifetime"] = hint
 
-    promoted = dispatch.maybe_promote_to_continuous(memory, "do the work", state)
+    dispatch.enqueue_mission(memory, "do the work", state)
 
-    assert promoted is expected_continuous
-    assert state["config"]["continuous"] is expected_continuous
+    campaign = read_continuous_state(front_door._life_dir_for(memory))
+    assert campaign.enabled is True
+    assert campaign.open_ended is open_ended
+    assert state["config"]["continuous"] is True
     assert "_frontdoor_lifetime" not in state
 
 
-def test_bounded_lifetime_spends_no_second_model_call(memory, monkeypatch):
-    monkeypatch.setattr(
-        front_door,
-        "_ensure_manager_runner",
-        lambda *a, **k: (_ for _ in ()).throw(
-            AssertionError("dispatch must reuse the merged front-door verdict")
-        ),
-    )
-    state = {"backend": "codex", "_frontdoor_lifetime": "bounded"}
-
-    assert dispatch.maybe_promote_to_continuous(memory, "one report", state) is False
-    assert state["config"]["continuous"] is False
-
-
-def test_standing_dispatch_uses_continuous_handoff(memory, monkeypatch):
+@pytest.mark.parametrize("hint", ["bounded", "standing"])
+def test_every_lifetime_uses_the_campaign_handoff(memory, monkeypatch, hint):
     used: list[str] = []
 
-    def _continuous(*args, **kwargs):
+    def _continuous(*args, persist, **kwargs):
         used.append("continuous")
+        persist("managed objective", None)
         return "managed objective"
 
     def _bounded(*args, **kwargs):
-        used.append("bounded")
-        raise AssertionError("standing work must not take the bounded path")
+        raise AssertionError("a new task must arm a campaign")
 
     monkeypatch.setattr(front_door, "manager_continuous_handoff", _continuous)
     monkeypatch.setattr(front_door, "manager_bounded_handoff", _bounded)
-    state = {"backend": "codex", "_frontdoor_lifetime": "standing"}
+    state = {"backend": "codex", "_frontdoor_lifetime": hint}
 
-    assert dispatch.maybe_promote_to_continuous(memory, "keep improving", state)
     dispatch.enqueue_mission(memory, "keep improving", state)
 
     assert used == ["continuous"]
 
 
-def test_existing_campaign_is_reused_for_standing_work(memory):
-    from argus.daemon.life_worker import write_continuous_config
-
+def test_standing_work_replaces_the_running_campaign(memory):
     life_dir = front_door._life_dir_for(memory)
     write_continuous_config(life_dir, enabled=True, objective="existing campaign")
     state = {"backend": "codex", "_frontdoor_lifetime": "standing"}
 
-    assert dispatch.maybe_promote_to_continuous(memory, "more work", state) is True
-    assert state["continuous_objective"] == "existing campaign"
-    assert "_continuous_pending_manager_handoff" not in state
+    dispatch.enqueue_mission(memory, "more work", state)
 
-
-def test_bounded_supplement_does_not_replace_existing_campaign(memory):
-    from argus.daemon.life_worker import (
-        read_continuous_state,
-        write_continuous_config,
-    )
-
-    life_dir = front_door._life_dir_for(memory)
-    write_continuous_config(life_dir, enabled=True, objective="existing campaign")
-    state = {"backend": "codex", "_frontdoor_lifetime": "bounded"}
-
-    assert dispatch.maybe_promote_to_continuous(memory, "one finite check", state) is False
-    persisted = read_continuous_state(life_dir)
-    assert persisted.enabled is True
-    assert persisted.objective == "existing campaign"
+    assert read_continuous_state(life_dir).objective == "managed: more work"
+    assert state["continuous_objective"] == "managed: more work"

@@ -14,7 +14,6 @@ from argus.planner.planner import (
     parse_task_scope,
 )
 from argus.roles.prompts.planner import (
-    _BOUNDED_DAG_FOOTER,
     _PLANNER_CORE_CONTRACT,
     _PLANNER_DECISION_FOOTER,
 )
@@ -450,13 +449,8 @@ def test_planner_prompt_requires_read_only_delegation_and_minimal_footer() -> No
     assert 'official code' in _PLANNER_CORE_CONTRACT
 
 
-@pytest.mark.parametrize(
-    "footer",
-    [_PLANNER_DECISION_FOOTER, _BOUNDED_DAG_FOOTER],
-)
-def test_planner_footer_example_is_an_ambitious_experiment_program(
-    footer: str,
-) -> None:
+def test_planner_footer_example_is_an_ambitious_experiment_program() -> None:
+    footer = _PLANNER_DECISION_FOOTER
     assert (
         "TASK_TITLE=Launch the strongest untested attack on the core hypothesis"
         in footer

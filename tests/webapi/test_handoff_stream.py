@@ -16,7 +16,6 @@ def test_dispatch_emits_real_handoff_wait_phase_and_forwards_cancellation(tmp_pa
     prepared = SimpleNamespace(decision=SimpleNamespace(workflow_mode="staged"))
     monkeypatch.setattr(front_door, "prepare_manager_execution_task", lambda *args, **kwargs: prepared)
     monkeypatch.setattr(dispatch, "resume_done_lifecycle_for_team_dispatch", lambda *args: False)
-    monkeypatch.setattr(dispatch, "maybe_promote_to_continuous", lambda *args, **kwargs: True)
     check = lambda: False
 
     def enqueue(*args, **kwargs):

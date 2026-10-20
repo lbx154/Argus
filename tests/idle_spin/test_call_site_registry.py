@@ -139,18 +139,6 @@ REGISTRY: tuple[Site, ...] = (
         ("planner-preview",),
     ),
     Site(
-        r"planner-bounded-plan", FOREGROUND,
-        "The outline of one dispatched mission, drafted once when it starts.",
-        ("argus/apps/_runtime_execute.py:1061",),
-        ("planner-bounded-plan",),
-    ),
-    Site(
-        r"planner\.bounded_dag(\.repair)?", FOREGROUND,
-        "Plans the task graph for one operator task, with at most one repair.",
-        ("argus/planner/bounded_dag.py:338",),
-        ("planner.bounded_dag", "planner.bounded_dag.repair"),
-    ),
-    Site(
         r"simple-1|manager-quick-reply|self-(?!learning-review$)[\w-]+", FOREGROUND,
         "Answers one operator message, retried at most once for a stalled or tool-less turn.",
         ("argus/apps/_self_reply.py:921", "argus/webapi/manager_state.py:221"),

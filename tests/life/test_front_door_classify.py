@@ -126,7 +126,7 @@ def test_front_door_prompt_has_a_strict_token_efficiency_budget(tmp_path) -> Non
     assert "DEBUG" in prompt
     assert "REVIEW" in prompt
     assert "SYNTHESIZE" in prompt
-    assert "BOUNDED_INCREMENT" in prompt
+    assert "BOUNDED_INCREMENT" not in prompt
     assert "BOUNDED" in prompt
     assert "STANDING" in prompt
     assert "default BOUNDED" in prompt
@@ -300,7 +300,7 @@ def test_front_door_preserves_bounded_lifetime_for_team() -> None:
     assert lifetimes == ["bounded"]
 
 
-def test_front_door_preserves_explicit_bounded_increment_for_team() -> None:
+def test_front_door_reads_a_legacy_bounded_increment_as_bounded() -> None:
     lifetimes: list[str] = []
     decision = classify_front_door(
         "只完成 research 阶段，不要进入后续阶段",
@@ -312,7 +312,7 @@ def test_front_door_preserves_explicit_bounded_increment_for_team() -> None:
     )
 
     assert decision == (None, None, "complex")
-    assert lifetimes == ["bounded_increment"]
+    assert lifetimes == ["bounded"]
 
 
 def test_front_door_missing_lifetime_defaults_team_to_bounded() -> None:
