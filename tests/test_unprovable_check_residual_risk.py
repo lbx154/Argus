@@ -541,15 +541,14 @@ def _accepted_store(root: Path) -> Path:
     return root
 
 
-def test_the_planner_and_manager_no_operator_paths_carry_the_carve_out() -> None:
+def test_the_manager_no_operator_path_carries_the_carve_out() -> None:
     import inspect
 
-    from argus.life.supervisor import _core, _planning_context
+    from argus.life.supervisor import _core
 
-    # Both paths hand AUTONOMOUS_ASSUMPTION_INSTRUCTION itself to the role, so
-    # the carve-out and its faithfulness clause reach the Planner and Manager.
-    for module in (_core, _planning_context):
-        assert "AUTONOMOUS_ASSUMPTION_INSTRUCTION" in inspect.getsource(module)
+    # The path hands AUTONOMOUS_ASSUMPTION_INSTRUCTION itself to the role, so
+    # the carve-out and its faithfulness clause reach the Manager.
+    assert "AUTONOMOUS_ASSUMPTION_INSTRUCTION" in inspect.getsource(_core)
     assert "is test evidence, not a substitute, and counts only if it" in AUTONOMOUS_ASSUMPTION_INSTRUCTION
     assert "does not say it arrives only at grading or deploy time" in AUTONOMOUS_ASSUMPTION_INSTRUCTION
 

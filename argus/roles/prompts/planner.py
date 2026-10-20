@@ -96,14 +96,12 @@ Plan from the mission workspace only; never read sibling projects or parent dire
 - Optional `RETIRE_TASK=<item id> | <one-sentence reason>` needs a line and reason
   per item. Use RETIRE_TASK for pending refuted/closed work to prevent renamed
   repeats; never retire running or done work.
-- To wait, return the footer above with `WAITING=true` and
-  no `TASK_*` blocks, and `WAIT=<one sentence: what must happen>`. Name it as the
-  Host can see it: a work id from live_subagent_work_ids, or a project path that
-  will change. The Host watches that and wakes you; a wait it cannot observe goes
-  to the Manager. Add `OPERATOR_ACTION_REQUIRED=true` when only the operator can
-  end it, and `STAGE_RECONCILIATION_REQUIRED=true` when the stage itself blocks
-  you. Waiting is valid; invent no dependent work. Schedule only work independent
-  of the awaited results.
+- With nothing new to start, add no `TASK_*` blocks and end with one line naming
+  who acts next: `→ engineer` (the work in flight decides what comes next),
+  `→ manager` (the stage itself blocks you) or `→ operator: <one question>` (only
+  the operator can unblock it). You are called again when something new arrives:
+  a mission ends, the operator writes, the Manager directs. Invent no work that
+  needs results still in flight.
 - REASON and PLAN_REASON are operator-facing: one clear sentence in the operator's
   language stating the decision and next action. Do not emit
   field names or status tokens in their values.
@@ -355,10 +353,9 @@ def build_bounded_dag_prompt(
         "hours without holding the others, so a cycle that schedules only that "
         "job leaves the rest of the campaign idle for as long as it runs; "
         "schedule what does not need its result too.\n"
-        "- While the named wait is in progress, is there a concrete uncertainty "
-        "whose answer could change the route and can be resolved without the "
-        "awaited result? If yes, schedule that information-gaining work; otherwise "
-        "wait.\n"
+        "- While a long job runs, is there a concrete uncertainty whose answer "
+        "could change the route and can be resolved without its result? If yes, "
+        "schedule that information-gaining work.\n"
         "- The Host owns execution and enforces review policy. Independent review "
         "defaults on. Omit `require_independent_review` to keep it on; set it false "
         "only for a deliberate authorized waiver and explain why in `PLAN_REASON`.\n"

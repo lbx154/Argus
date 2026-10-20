@@ -52,15 +52,6 @@ def test_the_operator_question_policy_drops_the_judgments():
     _assert_dropped(rewritten)
 
 
-def test_a_declared_background_run_override_drops_the_judgments():
-    from argus.engineer.runner import hold_review_for_pending_background_run
-
-    rewritten = hold_review_for_pending_background_run(_review("done"))
-
-    assert rewritten.status == "continue"
-    _assert_dropped(rewritten)
-
-
 def test_a_final_review_replan_kept_in_place_drops_the_judgments():
     review = _review("replan_requested", plan_signal="reconsider", challenge="Wrong baseline.")
 

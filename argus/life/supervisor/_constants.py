@@ -28,18 +28,12 @@ PLANNER_DEDUP_STATUSES = frozenset({
     "paused_provider_cooldown",
     "paused_provider_fence",
     "paused_daemon_shutdown",
-    "paused_external_work",
     "paused_operator",
     "research_incomplete",
     "paused_no_breakthrough",
     "exhausted_current_methods",
     "infra_blocked",
 })
-# A Planner wait on project files that have not changed for this long climbs
-# to the Manager; a wait on live work or the operator has its own wake.
-FILE_WAIT_CLIMB_SECONDS = 1800.0
-# The binding of a Planner wait the host cannot observe; it climbs to the Manager.
-UNOBSERVED_WAIT = "unobserved"
 STALL_ESCALATION_AFTER_NO_PROGRESS_MISSIONS = 3
 MANAGER_FEEDBACK_REPLAN_LIMIT = 3
 # Consecutive planner completion attempts turned back for the SAME reason
@@ -79,8 +73,6 @@ __all__ = [
     "PLAN_ERROR",
     "PLAN_RETRY",
     "PLANNER_DEDUP_STATUSES",
-    "FILE_WAIT_CLIMB_SECONDS",
-    "UNOBSERVED_WAIT",
     "STALL_ESCALATION_AFTER_NO_PROGRESS_MISSIONS",
     "MANAGER_FEEDBACK_REPLAN_LIMIT",
     "COMPLETION_REJECTION_CIRCUIT_THRESHOLD",

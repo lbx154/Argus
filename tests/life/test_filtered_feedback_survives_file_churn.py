@@ -23,7 +23,7 @@ from argus.life.supervisor._planning_cycle_completion import (
     PlanningCycleCompletionMixin,
 )
 from argus.life.supervisor._planning_cycle_helpers import _PlanCycleState
-from argus.planner import PlannerVerdict, WaitingContract
+from argus.planner import PlannerVerdict
 
 
 class _Harness(PlanningContextMixin):
@@ -92,8 +92,8 @@ def test_filtered_feedback_survives_project_file_churn(tmp_path) -> None:
     )
 
 
-class _WaitingHarness(_Harness, PlanningCycleCompletionMixin):
-    """Enough of the supervisor to run the waiting-verdict feedback gate."""
+class _HandoffHarness(_Harness, PlanningCycleCompletionMixin):
+    """Enough of the supervisor to run the handoff feedback gate."""
 
     def __init__(self, tmp_path, backlog_rows) -> None:
         _Harness.__init__(self, tmp_path, backlog_rows)
@@ -109,39 +109,34 @@ class _WaitingHarness(_Harness, PlanningCycleCompletionMixin):
     def _enter_idle_backoff(self) -> None:
         self.backoff_entries += 1
 
-    def _reconcile_open_ended_planner_waiting(self, verdict) -> bool:
+    def _reconcile_planner_handoff(self, verdict) -> bool:
         return False
 
-    def _record_planner_waiting(self, verdict):
-        return "waiting-recorded"
+    def _record_planner_handoff(self, verdict, state=None):
+        return "handoff-recorded"
 
     def _maybe_dispatch_verification_probe(self, verdict) -> bool:
         return False
 
 
-def _waiting_state():
+def _handoff_state():
     state = _PlanCycleState(revision_request=None)
     state.planner_invoked = True
     state.verdict = PlannerVerdict(
-        project_done=False, reason="wait for the live Route 09 finalizer",
-        waiting=True, waiting_reason="the Route 09 finalizer is still running",
-        waiting_contract=WaitingContract(
-            blocker_fingerprint="route09-finalizer",
-            recheck_condition="finalizer exits", recheck_token="running",
-            operator_action_required=False,
-        ),
+        project_done=False, reason="the live Route 09 finalizer decides what comes next",
+        handoff="engineer",
     )
     return state
 
 
-def test_waiting_verdict_resolves_filtered_feedback(tmp_path) -> None:
+def test_a_handoff_without_new_work_resolves_filtered_feedback(tmp_path) -> None:
     """Regression for the run-08 planner deadlock: with filtered-task
-    feedback active, every waiting verdict was rejected as "planner ignored
-    unresolved Manager feedback", so the planner's correct answer (wait for
-    the live finalizer) could never land and it replanned forever. A wait is
-    the resolution of "everything you proposed already exists": the feedback
-    must be cleared and the waiting contract installed."""
-    harness = _WaitingHarness(
+    feedback active, every turn without new work was rejected as "planner
+    ignored unresolved Manager feedback", so the planner's correct answer (the
+    live finalizer goes on) could never land and it replanned forever. Adding
+    nothing is the resolution of "everything you proposed already exists": the
+    feedback must be cleared and the handoff recorded."""
+    harness = _HandoffHarness(
         tmp_path, [SimpleNamespace(id="confirm-route09", status="running")]
     )
     assert harness._persist_manager_planner_feedback(
@@ -150,18 +145,18 @@ def test_waiting_verdict_resolves_filtered_feedback(tmp_path) -> None:
         diagnostic=PLANNER_TASKS_FILTERED_DIAGNOSTIC,
     )
 
-    state = _waiting_state()
-    result = harness._pc_handle_waiting(state)
+    state = _handoff_state()
+    result = harness._pc_handle_handoff(state)
 
-    assert result == "waiting-recorded"
+    assert result == "handoff-recorded"
     assert harness._load_manager_planner_feedback() is None
     assert harness.backoff_entries == 0
-    assert state.verdict.waiting
+    assert state.verdict.handoff == "engineer"
     assert not state.certified_operator_wait
 
 
-def test_waiting_verdict_still_rejected_for_other_feedback(tmp_path) -> None:
-    harness = _WaitingHarness(
+def test_a_handoff_is_still_rejected_for_other_feedback(tmp_path) -> None:
+    harness = _HandoffHarness(
         tmp_path, [SimpleNamespace(id="confirm-route09", status="running")]
     )
     assert harness._persist_manager_planner_feedback(
@@ -170,7 +165,7 @@ def test_waiting_verdict_still_rejected_for_other_feedback(tmp_path) -> None:
         diagnostic="stage_completion_gate_failed",
     )
 
-    result = harness._pc_handle_waiting(_waiting_state())
+    result = harness._pc_handle_handoff(_handoff_state())
 
     assert result == PLAN_ERROR
     assert harness._load_manager_planner_feedback() is not None

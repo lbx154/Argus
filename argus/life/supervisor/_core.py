@@ -189,14 +189,11 @@ class LifeSupervisor(
         # emits except on change or a slow heartbeat.
         self._last_lifecycle_block_sig: tuple[str, str] | None = None
         self._last_lifecycle_block_at = 0.0
-        # Planner idle/waiting log-hygiene (same family as the lifecycle-block
-        # heartbeat above): suppress repeated identical planner_waiting /
-        # planner_idle events.
+        # Planner idle log-hygiene (same family as the lifecycle-block
+        # heartbeat above): suppress repeated identical planner_idle events.
         self._last_planner_idle_sig: str | None = None
         self._last_planner_idle_at = 0.0
-        self._last_planner_wait_reconciliation_key: (
-            tuple[str, str, str, bool] | None
-        ) = None
+        self._last_planner_handoff_key: tuple[str, str] | None = None
         # Consecutive missions that COMPLETED with the reviewer judging
         # forward_progress=false; when it crosses the threshold the harness
         # escalates to the operator (surface, don't loop invisibly).
@@ -470,80 +467,16 @@ class LifeSupervisor(
         }
         # Work paused by the retired spending checks resumes like any other
         # paused work: spending is recorded, never a reason to hold a mission.
-        statuses.update({"paused_budget", "paused_cost"})
+        # So does work an older release parked on a background job it watched
+        # for the Engineer, who now waits on its own jobs in its turn.
+        statuses.update({"paused_budget", "paused_cost", "paused_external_work"})
         resumed = self.memory.backlog.resume_paused_statuses(statuses)
-        from ...engineer.external_work import inspect_external_work
-
-        # Subagent records are reconciled only by the interactive CLI listing,
-        # so unattended nobody ever notices a job whose process is gone: run-01
-        # held darc-v9-full915-claim-run-r2 as `running` for eight hours after
-        # its pid died, and a paused mission kept reserving paths on its
-        # behalf. Reconciling here costs a stat per record and is the same
-        # check the CLI already makes.
-        self._reconcile_dead_subagent_records()
-
-        for item in self.memory.backlog.active():
-            if item.status != "paused_external_work":
-                continue
-            wait = (
-                item.outcome.get("external_wait")
-                if isinstance(item.outcome, dict)
-                else None
-            )
-            if not isinstance(wait, dict):
-                ready = True
-            else:
-                work_id = str(wait.get("work_id") or "")
-                workdir = Path(str(wait.get("workdir") or self._project_workdir()))
-                status = inspect_external_work(workdir, work_id) if work_id else None
-                ready = status is None or not status.waitable
-            if ready:
-                resumed_item = self.memory.backlog.resume_paused(item.id)
-                if resumed_item is not None:
-                    resumed.append(resumed_item)
         if resumed:
             self._emit_status(
                 "auto-resumed recoverable mission(s): "
                 + ", ".join(item.id for item in resumed)
             )
         return resumed
-
-    def _reconcile_dead_subagent_records(self) -> None:
-        """Mark subagent records whose process is gone, fail-soft throughout."""
-        try:
-            import json
-
-            from ...tools.subagent._registry import reconcile_terminal_task
-
-            root = (
-                Path(self._project_workdir()).expanduser().resolve(strict=False)
-                / ".argus_subagents"
-            )
-            if not root.is_dir():
-                return
-            for record_path in root.glob("*.json"):
-                try:
-                    record = json.loads(record_path.read_text(encoding="utf-8"))
-                except (OSError, ValueError):
-                    continue
-                if not isinstance(record, dict):
-                    continue
-                if record.get("state") not in {"starting", "preflight", "running"}:
-                    continue
-                before = record.get("state")
-                task_id = str(record.get("task_id") or record_path.stem)
-                updated = reconcile_terminal_task(
-                    task_id,
-                    dict(record),
-                    registry_root=root,
-                )
-                if updated.get("state") != before:
-                    self._emit_status(
-                        f"external job {record_path.stem} is {updated.get('state')}: "
-                        "its process is gone"
-                    )
-        except Exception:  # noqa: BLE001 - reconciliation never blocks work
-            log.exception("life supervisor: subagent reconciliation failed")
 
     def _adjudicate_mission_challenge(self, outcome: dict[str, Any]) -> str:
         """Persist the Manager authority decision before Planner sees a challenge."""
@@ -968,20 +901,6 @@ class LifeSupervisor(
                     else self.memory.backlog.next_pending()
                 )
                 if next_item is None:
-                    # A finite queue can be temporarily unclaimable while a
-                    # durable job owns its next step. The daemon exits on
-                    # backlog_empty, so preserve its wake loop until that
-                    # external condition settles, even without continuous mode.
-                    if any(
-                        item.status == "paused_external_work"
-                        for item in self.memory.backlog.active()
-                    ):
-                        self._enter_pause_backoff()
-                        self._emit_status(
-                            "waiting for background results; the task will resume automatically"
-                        )
-                        stopped_by = _PLAN_AWAITING
-                        break
                     self._emit_status("backlog empty; exiting")
                     stopped_by = "backlog_empty"
                     break
@@ -1004,7 +923,6 @@ class LifeSupervisor(
                 "paused_provider_cooldown",
                 "paused_provider_fence",
                 "paused_daemon_shutdown",
-                "paused_external_work",
                 "paused_operator",
                 "iteration_cap",
                 "lifecycle_block",
@@ -1929,27 +1847,6 @@ class LifeSupervisor(
                         "mission_result": True, "item_id": item_id, "status": status,
                         "success": success, "campaign_continues": True,
                         "overall_complete": False, "user_action_required": False,
-                    },
-                )
-                return
-            if status == "paused_external_work" and not success:
-                wait = event.get("external_wait") or outcome.get("external_wait")
-                wait = wait if isinstance(wait, dict) else {}
-                work_id = str(wait.get("work_id") or "background")
-                publish_operator_message(
-                    life_dir,
-                    text=render_operator_update(
-                        title=title,
-                        status=status,
-                        language_hint=language_hint,
-                    ),
-                    message_id=_message_id(f"mission-wait-{item_id}-{work_id}"),
-                    event_fields={
-                        "mission_result": False,
-                        "item_id": item_id,
-                        "status": status,
-                        "external_wait": wait,
-                        "user_action_required": False,
                     },
                 )
                 return

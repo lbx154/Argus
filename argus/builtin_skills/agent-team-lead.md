@@ -72,7 +72,7 @@ Use `python -m argus.tools.team`.
    cleanup does not block review. Reviewer validates the durable project
    files and does not need a live Team runtime.
 
-The lead never manually spawns, claims, waits for, reassigns, or kills teammates. Those are Curator responsibilities.
+The lead never manually spawns, claims, reassigns, or kills teammates. Those are Curator responsibilities. It waits for their results in its own turn: between status checks it blocks with `sleep 590`, never short polls.
 
 ## Task-objective contract
 Every task must state:

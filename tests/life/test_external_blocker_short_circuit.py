@@ -89,12 +89,12 @@ def test_picks_most_recent_when_multiple(tmp_path: Path):
     assert paths[0] == p2
 
 
-def test_short_circuit_emits_waiting_without_calling_planner(
+def test_short_circuit_asks_the_operator_without_calling_planner(
     tmp_path: Path,
     monkeypatch,
 ):
     """If an external blocker artifact is present, supervisor must not call
-    planner.plan_next this cycle; it should emit a waiting decision."""
+    planner.plan_next this cycle; it hands the question to the operator."""
     monkeypatch.chdir(tmp_path)
     _write_blocker(
         tmp_path,
@@ -112,12 +112,9 @@ def test_short_circuit_emits_waiting_without_calling_planner(
         project_root=tmp_path,
     )
     assert short_circuit is not None
-    assert getattr(short_circuit, "waiting", False) is True
-    assert "operator-only" in (
-        getattr(short_circuit, "waiting_reason", "")
-        or getattr(short_circuit, "reason", "")
-    )
-    assert getattr(short_circuit, "task_count", 0) == 0
+    assert short_circuit.handoff == "operator"
+    assert "operator-only" in short_circuit.operator_question
+    assert short_circuit.new_tasks == []
 
 
 def test_short_circuit_returns_none_without_blocker(
@@ -188,14 +185,14 @@ def test_plan_next_work_short_circuits_before_planner_runner(tmp_path: Path):
     # and the operator-external-blocker short-circuit fires (fail-hard resolve
     # keeps the gate False until a vertical is persisted). The capturing sink is
     # teed through JsonlEventSink so mem.journal (an EventJournal over
-    # events.jsonl) sees the emitted life.planner.waiting event.
+    # events.jsonl) sees the emitted life.planner.idle event.
     persist_vertical(sup._artifact_root(), "research")
 
     result = sup._plan_next_work()
 
     assert result == "awaiting_external"
-    assert any(e.get("type") == "life.planner.waiting" for e in events)
-    assert mem.journal.tail(1)[0].kind == "planner_waiting"
+    assert any(e.get("type") == "life.planner.idle" for e in events)
+    assert "planner_idle" in [entry.kind for entry in mem.journal.tail(5)]
 
 
 def test_blocker_waits_until_all_targets_present(tmp_path: Path):
@@ -310,6 +307,6 @@ def test_bounded_mission_does_not_short_circuit_on_external_blocker(tmp_path: Pa
 
     # Short-circuit bypassed: NOT awaiting_external / planner_waiting.
     assert result != "awaiting_external"
-    assert not any(e.get("type") == "life.planner.waiting" for e in events)
+    assert not any(e.get("type") == "life.planner.idle" for e in events)
     tail = mem.journal.tail(1)
     assert not tail or tail[0].kind != "planner_waiting"

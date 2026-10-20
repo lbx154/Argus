@@ -266,7 +266,7 @@ class RoundSelfReviewMixin:
                 continue_adaptor=continue_adaptor,
                 on_event=on_event,
             )
-        if handoff.next_owner == "engineer" and not state.pending_external_wait_review:
+        if handoff.next_owner == "engineer":
             # A self-handoff skips the Reviewer and, with it, every round guard
             # (those are evaluated at settlement). Where the run is capped (see
             # _unjudged_turns_capped), two in a row continue and the third goes

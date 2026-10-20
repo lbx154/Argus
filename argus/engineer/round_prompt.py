@@ -2,9 +2,8 @@
 
 Owns deciding whether one round re-sends the full static task/skill contract
 or the compact Reviewer-delta continuation (``full_prompt_decision``),
-building that prompt, attaching the shared CHECKPOINT.md and the
-background-subagent / external-work
-advisories, and emitting the ``round.start`` event. This is purely prompt
+building that prompt, attaching the shared CHECKPOINT.md, and emitting the
+``round.start`` event. This is purely prompt
 text assembly — it makes no completion or control-flow decisions.
 """
 from __future__ import annotations
@@ -17,7 +16,6 @@ from ..core.event_catalog import EventType
 from ..life.context_packet import render_mission_brief
 from ..roles.prompts.engineer import MISSION, assemble_round_prompt
 from .checkpoint import shared_checkpoint_instructions
-from .external_work import render_external_work_advisory
 
 if TYPE_CHECKING:
     from ..core.role_session import RoleSessionCapsule
@@ -283,10 +281,6 @@ class RoundPromptMixin:
             )
             if block
         )
-        external_work_advisory = render_external_work_advisory(
-            workdir,
-            include_subagents=supervised_config.background_subagent_advisory,
-        )
         engineer_prompt = assemble_round_prompt(
             engineer_prompt,
             role_context=self._vertical_role_context(
@@ -294,8 +288,6 @@ class RoundPromptMixin:
                 workdir=workdir,
             ),
             checkpoint_block=checkpoint_block,
-            background_advisory="",
-            external_work_advisory=external_work_advisory,
         )
         if on_event:
             on_event({

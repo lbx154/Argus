@@ -17,18 +17,14 @@ from ...core.workspace_facts import fact_text
 from ...engineer.change_facts import held_facts, lineage_ledger, record_holder
 from ..memory import BacklogItem
 from ._constants import (
-    FILE_WAIT_CLIMB_SECONDS,
     PLAN_AWAITING,
-    PLAN_ERROR,
     PLAN_RETRY,
     PLANNER_SCOPE_BOUNDED,
     PLANNER_SCOPE_FINAL_SUBMISSION,
     PLANNER_TASKS_FILTERED_DIAGNOSTIC,
     STALL_ESCALATION_AFTER_NO_PROGRESS_MISSIONS,
-    UNOBSERVED_WAIT,
 )
 from ._helpers import _operator_only_external_blocker_wait_reason_for_project
-from ._planning_cycle import HOST_OBSERVED_WAIT_SOURCES
 
 log = logging.getLogger(__name__)
 
@@ -536,7 +532,7 @@ class PlanningContextMixin:
         return True
 
     def _operator_only_external_blocker_wait_reason(self) -> str:
-        """Return a waiting reason for an operator-only external blocker.
+        """Return the reason only the operator can remove an external blocker.
 
         Generic: scans for operator-only external blocker artifacts,
         validates that local engineering is exhausted, and returns a human
@@ -547,24 +543,20 @@ class PlanningContextMixin:
 
     @staticmethod
     def _operator_external_blocker_short_circuit_decision(*, project_root: Path) -> Any | None:
-        """Return a waiting verdict before planner runs when operator-only
-        external artifacts are still absent.
+        """Hand the slot to the operator before the planner runs when
+        operator-only external artifacts are still absent.
         """
         reason = _operator_only_external_blocker_wait_reason_for_project(project_root)
         if not reason:
             return None
-        from ...planner.planner import PlannerVerdict, WaitingContract
+        from ...planner.planner import PlannerVerdict
 
         reason = f"{reason}; skipping planner cycle to avoid impossible repair-task loop"
         return PlannerVerdict(
             project_done=False,
             reason=reason,
-            waiting=True,
-            waiting_reason=reason,
-            waiting_contract=WaitingContract(
-                recheck_condition=reason, operator_action_required=True,
-            ),
-            new_tasks=[],
+            handoff="operator",
+            operator_question=reason,
         )
 
     def _defer_project_done_for_operator_external_blocker(self, verdict: Any) -> Any:
@@ -577,19 +569,14 @@ class PlanningContextMixin:
         wait_reason = self._operator_only_external_blocker_wait_reason()
         if not wait_reason:
             return verdict
-        from ...planner.planner import WaitingContract
-
         # Only the operator can supply these artifacts; while they cannot be
-        # asked the Manager decides this wait in their place.
+        # asked the Manager decides in their place.
         return replace(
             verdict,
             project_done=False,
-            waiting=True,
-            waiting_reason=wait_reason,
             reason=wait_reason,
-            waiting_contract=self._bind_planner_wait(WaitingContract(
-                recheck_condition=wait_reason, operator_action_required=True,
-            )),
+            handoff="operator",
+            operator_question=wait_reason,
             new_tasks=[],
         )
 
@@ -759,177 +746,37 @@ class PlanningContextMixin:
     # Planner — continuous improvement mode
     # ------------------------------------------------------------------
 
-    def _record_planner_waiting(self, verdict: Any) -> str:
-        contract = self._bind_planner_wait(getattr(verdict, "waiting_contract", None))
-        settled = self._settle_operator_wait_without_operator(verdict, contract)
-        if settled:
-            return settled
-        contract_state = (
-            self._persist_planner_waiting_contract(contract) if contract is not None else None
-        )
-        # A declared external wait is active campaign work, not terminal
-        # inactivity. Keep exponential polling without arming daemon idle-exit.
+    def _record_planner_handoff(self, verdict: Any, state: Any = None) -> str:
+        """The Planner adds no work now and names who acts next.
+
+        Nothing is watched on its behalf: it is called again when something
+        new is handed to it -- a mission ends, the operator writes, the Manager
+        directs -- because its inputs then differ from the turn it answered.
+        A question for the operator goes on the planning slot's card, which the
+        operator answers, or the Manager while the operator cannot be asked.
+        """
+        reason = str(verdict.reason or verdict.operator_question or "").strip()
+        if verdict.handoff == "operator":
+            self._park_planner_question(
+                state, str(verdict.operator_question or reason), reason,
+            )
         sleep_s = self._enter_pause_backoff()
-        reason = verdict.waiting_reason or verdict.reason or "awaiting external dependency"
         self._emit(
             {
-                "type": EventType.LIFE_PLANNER_WAITING,
+                "type": EventType.LIFE_PLANNER_IDLE,
                 "cycle": self._planning_cycles,
                 "reason": reason,
+                "handoff": str(verdict.handoff or ""),
                 "consecutive_idle_cycles": self._consecutive_idle_planner_cycles,
                 "suggested_sleep_s": sleep_s,
-                "waiting_contract": self._waiting_contract_event_payload(
-                    contract_state,
-                    contract,
-                ),
-                "waiting_contract_persisted": (contract is None or contract_state is not None),
             }
         )
-        self._emit_status(f"awaiting external dependency: {reason}")
+        self._emit_status(f"planner: nothing new to start — {reason}")
         return PLAN_AWAITING
 
-    def _settle_operator_wait_without_operator(
-        self, verdict: Any, contract: Any
-    ) -> str:
-        """While the operator cannot be asked, the Manager decides a wait only they could end.
-
-        The Manager answers the wait as it answers a parked card, in the
-        operator's place; the decision is recorded for the run report and the
-        Planner is asked once more with it as Manager feedback. If the Manager
-        names no decision, or the Planner still waits on the same blocker after
-        one, the wait is recorded.
-        """
-        if contract is None or not bool(getattr(contract, "operator_action_required", False)):
-            return ""
-        from ...core.autonomy import (
-            AUTONOMOUS_ASSUMPTION_INSTRUCTION,
-            operator_available,
-            operator_questions_can_be_asked,
-            read_autonomous_assumptions,
-            record_autonomous_assumption,
-        )
-
-        root = self._project_state_root()
-        if operator_questions_can_be_asked(root):
-            return ""
-        key = "|".join(self._waiting_contract_key(contract))
-        condition = str(
-            getattr(contract, "recheck_condition", "")
-            or getattr(verdict, "waiting_reason", "")
-            or getattr(verdict, "reason", "")
-            or ""
-        ).strip()
-        if not condition or any(
-            row.get("key") == key and row.get("source") == "manager_decision"
-            for row in read_autonomous_assumptions(root)
-        ):
-            return ""
-        from ...core.operator_decision import build_operator_decision, selected_decision_text
-        from ...manager.proxy_decision import decide_for_operator
-
-        card = build_operator_decision(
-            item_id="planner-wait", title="Planner wait", reason=condition, question=condition,
-        )
-        choice = decide_for_operator(
-            self._bound_manager(),
-            card,
-            why=(
-                "The operator asked not to be asked"
-                if operator_available()
-                else "This run has no operator"
-            ),
-            context=f"Campaign objective: {str(self.config.continuous_objective or '')[:2000]}",
-            on_event=getattr(self.sink, "handle_event", None),
-        )
-        if choice is None:
-            return ""
-        decision = selected_decision_text(card, choice.option, choice.note)
-        record_autonomous_assumption(
-            root,
-            item_id="",
-            conflict=condition,
-            reading=f"{decision} (why: {choice.reason})",
-            source="manager_decision",
-            key=key,
-            evidence_refs=choice.evidence_refs,
-        )
-        persisted = self._persist_manager_planner_feedback(
-            stage=str(self._current_pipeline_stage() or ""),
-            reason=(
-                "You waited for an operator decision (" + condition[:600] + "), but "
-                "the operator cannot be asked, so the Manager decided in their "
-                f"place: {decision} Why: {choice.reason} Plan the work on that "
-                "decision now; what it leaves open about the meaning of a "
-                "requirement you settle yourself. "
-                + AUTONOMOUS_ASSUMPTION_INSTRUCTION
-            ),
-            diagnostic="manager_decided_for_operator",
-        )
-        if not persisted:
-            return ""
-        self._emit({
-            "type": EventType.LIFE_MANAGER_PLAN_CHALLENGE_DECIDED,
-            "item_id": "",
-            "manager_action": "revise",
-            "manager_reason": choice.reason,
-            "challenge": condition,
-            "alternative": decision,
-            "authority_impact": "operator",
-            "source": "manager_decided_planner_wait",
-            "text": "Manager decided in the operator's place instead of waiting: " + condition[:240],
-        })
-        self._reset_idle_backoff()
-        return PLAN_RETRY
-
-    def _planner_waiting_contract_path(self) -> Path:
-        root = Path(
-            getattr(self.config, "project_state_dir", None)
-            or getattr(self.memory, "root", None)
-            or "."
-        )
-        return root / "planner-waiting-contract.json"
-
-    def _planner_waiting_objective_fingerprint(self) -> str:
+    def _planner_objective_fingerprint(self) -> str:
         """The campaign a durable record belongs to: its objective, compared as text."""
         return str(getattr(self.config, "continuous_objective", "") or "")
-
-    @staticmethod
-    def _planner_waiting_runtime_revision() -> str:
-        """Identify the runtime policy that authored a durable wait."""
-        from ...core.runtime_identity import source_root
-        from ...release import release_identity
-
-        identity = release_identity(source_root())
-        return str(
-            identity.get("runtime_source_digest")
-            or identity.get("manifest_source_digest")
-            or identity.get("release_id")
-            or "unknown"
-        )
-
-    def _clear_planner_wait_control_binding(
-        self,
-        payload: dict[str, Any],
-        *,
-        reason: str,
-    ) -> None:
-        if payload.get("state_revision") is None:
-            return
-        from ...manager.control_state import CampaignControlStore
-
-        control = CampaignControlStore(
-            Path(self.memory.root),
-            project_root=self._project_workdir(),
-        )
-        identity = control.campaign_identity(
-            objective=str(getattr(self.config, "continuous_objective", "") or "")
-        )
-        control.clear_wait_if_current(
-            identity=identity,
-            expected_state_revision=int(payload.get("state_revision") or 0),
-            expected_wait_id=str(payload.get("wait_id") or ""),
-            reason=reason,
-        )
 
     def _manager_planner_feedback_path(self) -> Path:
         root = Path(
@@ -969,7 +816,7 @@ class PlanningContextMixin:
             return None
         if (
             str(payload.get("objective_fingerprint") or "")
-            != self._planner_waiting_objective_fingerprint()
+            != self._planner_objective_fingerprint()
         ):
             return None
         if not bool(payload.get("active")):
@@ -1020,7 +867,7 @@ class PlanningContextMixin:
 
         Two cycles with equal inputs would hand the Planner the same
         objective, backlog, journal window, research plan, standing operator
-        context, Manager feedback, persisted wait, and background-job states —
+        context, Manager feedback, and background-job states —
         so a second model call can only repeat the first answer. Wall-clock
         facts (operator presence, log churn from healthy live jobs, git status
         noise) are deliberately left out: live jobs rewrite their own files
@@ -1034,7 +881,6 @@ class PlanningContextMixin:
             if entries is None:
                 return ""
             feedback = self._load_manager_planner_feedback()
-            contract_state = self._load_planner_waiting_contract_state()
             payload = {
                 "objective": str(self.config.continuous_objective or ""),
                 "stage": str(self._current_pipeline_stage() or ""),
@@ -1057,19 +903,6 @@ class PlanningContextMixin:
                         int(feedback.get("attempts") or 0),
                     ]
                 ),
-                "waiting_contract": (
-                    None
-                    if contract_state is None
-                    else [
-                        bool(contract_state.get("active")),
-                        str(contract_state.get("blocker_fingerprint") or ""),
-                        str(contract_state.get("recheck_token") or ""),
-                        isinstance(contract_state.get("manager_resolution"), dict),
-                    ]
-                ),
-                "external_jobs": self._external_work_state_rows(
-                    self._project_workdir()
-                ),
                 "dropped_dependency_note": bool(
                     getattr(self, "_planner_dropped_dependency_keys", []) or []
                 ),
@@ -1083,19 +916,19 @@ class PlanningContextMixin:
         return fact_text(payload)
 
     def _maybe_skip_unchanged_planner_cycle(self, state: Any) -> str | None:
-        """Keep the last waiting decision when nothing the Planner reads moved.
+        """Keep the last decision without new work when nothing the Planner reads moved.
 
         The previous Planner call already answered exactly this input state
-        with an intentional wait; asking again buys the same answer at model
-        price. This gate runs only after every earlier intake short circuit
-        (operator drain, event waits, in-flight dependency waits) has declined;
-        elapsed time alone is not news. Returns the plan-cycle outcome when skipping, else
+        with no new work; asking again buys the same answer at model price.
+        This is how the Planner is called only when something is handed to it.
+        The gate runs only after every earlier intake short circuit has
+        declined; elapsed time alone is not news. Returns the plan-cycle outcome when skipping, else
         ``None`` — and always leaves the freshly computed signature on
         ``state`` so the cycle's real outcome can arm the next skip.
 
         Unlike the operator-hold gates (:meth:`_record_planner_last_turn`)
-        this record stays in memory: a plain wait never acknowledges the
-        operator input it read, so it is reconsidered after a restart, and a
+        this record stays in memory: a turn without new work never acknowledges
+        the operator input it read, so it is reconsidered after a restart, and a
         turn that carried operator words does not arm it.
         """
         current = self._planner_visible_input_signature(
@@ -1125,7 +958,7 @@ class PlanningContextMixin:
             sleep_s = self._enter_pause_backoff()
         self._emit(
             {
-                "type": EventType.LIFE_PLANNER_WAITING,
+                "type": EventType.LIFE_PLANNER_IDLE,
                 "cycle": self._planning_cycles,
                 "reason": (
                     "nothing the Planner reads has changed since its last "
@@ -1166,12 +999,12 @@ class PlanningContextMixin:
         """Record what the Planner has now seen, after a real model call.
 
         One durable fact answers "has anything the Planner reads changed since
-        it last looked?" for both holds only the operator can end: a Manager
-        WAIT, and a Planner wait with operator_action_required. It is
+        it last looked?" for the hold only the operator can end, a Manager
+        WAIT. It is
         fingerprinted after the turn, so the Planner's own writes during it
         are not mistaken for new input, and kept on disk, so a restart (a
         crash-looping daemon included) does not buy a call on inputs the
-        Planner has already answered. Neither hold is consulted while operator
+        Planner has already answered. The hold is not consulted while operator
         input is unhandled, so a restart cannot hide new operator words.
         """
         from ._planning_cycle_intake import _UNREADABLE_WAIT_INPUT
@@ -1189,8 +1022,8 @@ class PlanningContextMixin:
     def _arm_unchanged_planner_skip(self, state: Any, result: Any) -> None:
         """Record or clear the unchanged-input skip after a real Planner call.
 
-        Armed only when the model was actually called this cycle and answered
-        with an intentional wait: that is the one outcome a byte-identical
+        Armed only when the model was actually called this cycle and added no
+        work, naming who acts next: that is the one outcome a byte-identical
         input state is guaranteed to reproduce. Every other invoked outcome —
         tasks enqueued, retirements, completion, errors (which may be
         transient) — clears the record. Cycles that never reached the model,
@@ -1205,7 +1038,7 @@ class PlanningContextMixin:
             and str(getattr(state, "planner_input_signature", "") or "")
             and verdict is not None
             and not getattr(verdict, "error", "")
-            and bool(getattr(verdict, "waiting", False))
+            and getattr(verdict, "handoff", "")
         ):
             self._planner_unchanged_skip_signature = state.planner_input_signature
         else:
@@ -1272,7 +1105,7 @@ class PlanningContextMixin:
             {
                 "version": 1,
                 "active": True,
-                "objective_fingerprint": self._planner_waiting_objective_fingerprint(),
+                "objective_fingerprint": self._planner_objective_fingerprint(),
                 "stage": stage,
                 "reason": reason,
                 "diagnostic": diagnostic,
@@ -1384,8 +1217,8 @@ class PlanningContextMixin:
             task_instruction = (
                 "Existing live backlog work still owns completion. Do not create "
                 "duplicate tasks for those rows. Plan only independent work that "
-                "can proceed now, or return a structured wait for the durable "
-                "work already in flight."
+                "can proceed now, or end with `→ engineer` while the work in "
+                "flight goes on."
             )
         else:
             task_instruction = (
@@ -1404,797 +1237,12 @@ class PlanningContextMixin:
             "verdict without new evidence."
         )
 
-    @staticmethod
-    def _waiting_contract_key(contract: Any) -> tuple[str, str]:
-        return (
-            str(getattr(contract, "blocker_fingerprint", "") or "").strip(),
-            str(getattr(contract, "recheck_token", "") or "").strip(),
-        )
-
-    def _load_planner_waiting_contract_state(self) -> dict[str, Any] | None:
-        path = self._planner_waiting_contract_path()
-        try:
-            payload = json.loads(path.read_text(encoding="utf-8"))
-        except FileNotFoundError:
-            return None
-        except (OSError, TypeError, ValueError):
-            log.warning("planner waiting contract is unreadable: %s", path, exc_info=True)
-            return None
-        if not isinstance(payload, dict):
-            return None
-        if payload.get("version") != 2 or payload.get("objective") != str(
-            getattr(self.config, "continuous_objective", "") or ""
-        ):
-            return None
-        runtime_revision = self._planner_waiting_runtime_revision()
-        authored_revision = str(payload.get("runtime_revision") or "")
-        if authored_revision != runtime_revision:
-            if bool(payload.get("active")):
-                try:
-                    self._clear_planner_wait_control_binding(
-                        payload,
-                        reason="planner wait invalidated by runtime revision change",
-                    )
-                except (OSError, TypeError, ValueError):
-                    log.warning(
-                        "failed to clear stale planner wait control binding: %s",
-                        path,
-                        exc_info=True,
-                    )
-                payload["active"] = False
-                payload["wake_reason"] = "runtime_revision_changed"
-                payload["authored_runtime_revision"] = authored_revision
-                payload["superseded_by_runtime_revision"] = runtime_revision
-                payload["updated_at"] = time.time()
-                self._write_planner_waiting_contract_state(payload)
-                self._emit(
-                    {
-                        "type": EventType.LIFE_PLANNER_WAITING_WOKEN,
-                        "blocker_fingerprint": payload.get("blocker_fingerprint"),
-                        "recheck_token": payload.get("recheck_token"),
-                        "wake_reason": "runtime_revision_changed",
-                        "authored_runtime_revision": authored_revision,
-                        "current_runtime_revision": runtime_revision,
-                    }
-                )
-            return None
-        if not str(payload.get("blocker_fingerprint") or "").strip():
-            return None
-        if not str(payload.get("recheck_token") or "").strip():
-            return None
-        if payload.get("state_revision") is not None:
-            try:
-                from ...manager.control_state import CampaignControlStore
-
-                control = CampaignControlStore(
-                    Path(self.memory.root),
-                    project_root=self._project_workdir(),
-                )
-                if not control.is_wait_current(
-                    campaign_epoch=int(payload.get("campaign_epoch") or 0),
-                    state_revision=int(payload.get("state_revision") or 0),
-                    wait_id=str(payload.get("wait_id") or ""),
-                ):
-                    return None
-            except (OSError, TypeError, ValueError):
-                log.warning(
-                    "planner waiting contract revision is invalid: %s",
-                    path,
-                    exc_info=True,
-                )
-                return None
-        return payload
-
-    def _write_planner_waiting_contract_state(
-        self,
-        payload: dict[str, Any],
-    ) -> bool:
-        path = self._planner_waiting_contract_path()
-        # The one Planner turn granted per wait belongs to the blocker, not to
-        # the contract object: the suppression path rebuilds the contract each
-        # cycle, and a flag stored on the instance would be reissued every time
-        # -- which is the poll this short circuit exists to avoid. Carry it
-        # across rewrites for as long as the same blocker is being waited on.
-        try:
-            if not payload.get("idle_capacity_turn_used") and path.is_file():
-                previous = json.loads(path.read_text(encoding="utf-8"))
-                same_blocker = str(previous.get("blocker_fingerprint") or "") == str(
-                    payload.get("blocker_fingerprint") or ""
-                )
-                if same_blocker and previous.get("idle_capacity_turn_used"):
-                    payload["idle_capacity_turn_used"] = True
-                    for carried in ("idle_capacity_backlog_revision",):
-                        if carried in previous:
-                            payload[carried] = previous[carried]
-        except (OSError, ValueError):
-            pass
-        path.parent.mkdir(parents=True, exist_ok=True)
-        tmp = path.with_name(f"{path.name}.tmp-{os.getpid()}-{time.time_ns()}")
-        try:
-            tmp.write_text(
-                json.dumps(payload, indent=2, sort_keys=True) + "\n",
-                encoding="utf-8",
-            )
-            os.replace(tmp, path)
-            return True
-        except OSError:
-            log.exception("failed to persist planner waiting contract: %s", path)
-            return False
-        finally:
-            try:
-                tmp.unlink()
-            except FileNotFoundError:
-                pass
-
-    @staticmethod
-    def _waiting_revision_file(path: Path) -> dict[str, Any]:
-        try:
-            stat = path.stat()
-        except OSError:
-            return {"path": str(path), "exists": False}
-        return {
-            "path": str(path),
-            "exists": True,
-            "size": int(stat.st_size),
-            "mtime_ns": int(stat.st_mtime_ns),
-        }
-
-    def _nothing_queued_behind_the_wait(self) -> bool:
-        """True when no mission is waiting its turn behind the blocked one.
-
-        The mission that owns the wait is itself ``running``, so the question is
-        whether anything is queued after it. Nothing queued means the campaign's
-        other mission slots will sit empty for as long as the external job runs.
-
-        This reports a fact and concludes nothing from it: a campaign may well
-        have nothing worth starting, and that judgement is the Planner's. It
-        just cannot make it while a wait contract skips its turn. Fail-safe: an
-        unreadable backlog keeps the existing skip rather than waking the
-        Planner every cycle.
-        """
-        try:
-            # A pending item the parallel worker cannot claim is not work
-            # waiting its turn -- it is the fact Planner must be allowed to
-            # see and replace. Counting it here left run-01 idling and
-            # respawning every 34 minutes behind a path conflict.
-            return self.memory.backlog.next_pending(parallel_only=True) is None
-        except Exception:  # noqa: BLE001 - visibility must not break planning
-            return False
-
-    @staticmethod
-    def _external_work_state_rows(project_root: Path) -> list[dict[str, str]]:
-        """Registered background jobs as (work_id, run_id, state) rows.
-
-        This is the wait-relevant view of the external-work registry: it moves
-        when a job starts, completes, or fails, and stays put while a healthy
-        job merely appends to its own logs. An unreadable registry contributes
-        a stable empty view rather than churn.
-        """
-        try:
-            from ...engineer.external_work import external_work_rows, scan_external_work
-
-            return external_work_rows(
-                status for status in scan_external_work(project_root)
-                if status.source in HOST_OBSERVED_WAIT_SOURCES
-            )
-        except Exception:  # noqa: BLE001 - wait evaluation must stay stable
-            log.debug("external-work registry scan failed", exc_info=True)
-            return []
-
-    def _planner_waiting_observed_revision(
-        self,
-        *,
-        wake_on: list[str] | tuple[str, ...],
-        watched_paths: list[str] | tuple[str, ...],
-    ) -> str:
-        """The facts behind a wait's wake sources, as readable JSON compared whole."""
-        wake_sources = set(wake_on)
-        project_root = self._project_workdir()
-        revision: dict[str, Any] = {"wake_on": sorted(wake_sources)}
-        if "authorization" not in wake_sources:
-            # Accepted review can move the stage after the watched job stops changing.
-            revision["planning_stage"] = str(self._current_pipeline_stage() or "")
-        else:
-            # An authorization wait watched only the Manager control-state log,
-            # which nothing writes unless the operator drives that API -- in
-            # three live campaigns the file did not exist at all. Answering the
-            # documented way, `argus --notify` into inbox.jsonl, changed
-            # nothing, so run-04 sat on wake_on ["authorization"] for fifteen
-            # hours after being answered. The operator acted either way; both
-            # records count.
-            root = Path(self.memory.root)
-            from ...apps._inbox import latest_durable_inbox_timestamp
-
-            revision["authorization"] = [
-                self._waiting_revision_file(root / "operator-authorizations.jsonl"),
-                self._waiting_revision_file(root / "inbox.jsonl"),
-                latest_durable_inbox_timestamp(root),
-            ]
-        if "manager_stage" in wake_sources:
-            from ...core.pipeline_state import pipeline_state_path
-
-            revision["manager_stage"] = self._waiting_revision_file(
-                pipeline_state_path(project_root)
-            )
-        if "artifact_revision" in wake_sources:
-            revision["artifacts"] = [
-                self._waiting_revision_file(project_root / path)
-                for path in watched_paths
-            ]
-        if "subagent_state" in wake_sources:
-            revision["subagent_state"] = self._external_work_state_rows(
-                project_root
-            )
-        if "planner_input" in wake_sources:
-            revision["planner_input"] = self._current_planner_input_signature()
-        return json.dumps(revision, sort_keys=True, separators=(",", ":"))
-
-    def _planner_event_wait_outcome(self) -> str:
-        state = self._load_planner_waiting_contract_state()
-        if state is None or not bool(state.get("active")):
-            return ""
-        expires_at = float(state.get("expires_at") or 0.0)
-        if expires_at and time.time() >= expires_at:
-            return self._climb_expired_planner_wait(state)
-        current_revision = self._planner_waiting_observed_revision(
-            wake_on=list(state.get("wake_on") or []),
-            watched_paths=list(state.get("watched_paths") or []),
-        )
-        observed_revision = str(state.get("observed_revision") or "")
-        if observed_revision and current_revision != observed_revision:
-            state["active"] = False
-            state["superseded_by_revision"] = current_revision
-            state["wake_reason"] = "revision_changed"
-            state["updated_at"] = time.time()
-            if not self._write_planner_waiting_contract_state(state):
-                self._emit({
-                    "type": EventType.LIFE_PLANNER_ERROR,
-                    "error": "failed to persist event-wait wake",
-                    "blocker_fingerprint": state.get("blocker_fingerprint"),
-                    "recheck_token": state.get("recheck_token"),
-                })
-                self._enter_pause_backoff()
-                return PLAN_ERROR
-            self._emit(
-                {
-                    "type": EventType.LIFE_PLANNER_WAITING_WOKEN,
-                    "blocker_fingerprint": state.get("blocker_fingerprint"),
-                    "recheck_token": state.get("recheck_token"),
-                    "wake_reason": "revision_changed",
-                    "observed_revision": observed_revision,
-                    "current_revision": current_revision,
-                }
-            )
-            self._reset_idle_backoff()
-            return ""
-        if not observed_revision:
-            state["observed_revision"] = current_revision
-            state["updated_at"] = time.time()
-            self._write_planner_waiting_contract_state(state)
-
-        # A wait contract silences the Planner until the watched revision moves
-        # or the contract expires. On a multi-hour GPU job that is hours of not
-        # being asked anything, and campaigns run fewer missions than they have
-        # slots, so the rest of the campaign idles for exactly as long.
-        #
-        # The Planner was asked once, when the contract was created, and that
-        # turn is where it proposed only a status probe. The suppression reply
-        # telling it that independent work is still schedulable therefore
-        # arrives with no turn left to act on. Grant exactly one more turn per
-        # contract, and only while nothing is queued behind the wait. One turn,
-        # not one per cycle: waking it repeatedly is the token-burning poll this
-        # short circuit exists to prevent.
-        # One turn is the right budget for a wait that ends by itself. A wait
-        # that ends only when the operator acts can last overnight: run-04
-        # spent fifteen hours on wake_on ["authorization"] having used its
-        # single turn in the first minute. For those waits the turn is
-        # re-granted whenever anything the Planner reads has changed since the
-        # last one, beside the backlog-revision and authorization-event wakes.
-        # It is not re-granted on elapsed time: the operator already sees the
-        # wait, and a call on the same inputs can only repeat its answer.
-        if self._planner_turn_available_during_wait(state):
-            state["idle_capacity_turn_used"] = True
-            state["idle_capacity_backlog_revision"] = (
-                self._waiting_backlog_revision()
-            )
-            state["updated_at"] = time.time()
-            self._write_planner_waiting_contract_state(state)
-            # This grant IS the decision to spend one Planner call — the
-            # unchanged-input gate downstream must not answer it from memory.
-            self._planner_unchanged_skip_signature = ""
-            return ""
-
-        sleep_s = self._enter_pause_backoff()
-        self._emit(
-            {
-                "type": EventType.LIFE_PLANNER_WAITING,
-                "cycle": self._planning_cycles,
-                "reason": state.get("recheck_condition") or "awaiting event",
-                "suggested_sleep_s": sleep_s,
-                "model_call_skipped": True,
-                "observed_revision": current_revision,
-                "waiting_contract": self._waiting_contract_event_payload(state, None),
-            }
-        )
-        self._emit_status("awaiting declared event; Planner call skipped")
-        return PLAN_AWAITING
-
-    def _climb_expired_planner_wait(self, state: dict[str, Any]) -> str:
-        """A watched source that stayed still past its deadline goes to the Manager.
-
-        The wait is not handed back to the Planner that declared it -- asking
-        again on the same files buys the same answer. It becomes a wait the
-        host cannot observe, which the Manager reconciles and which wakes when
-        anything the Planner reads changes.
-        """
-        from ...planner import PlannerVerdict, WaitingContract
-
-        condition = str(state.get("recheck_condition") or "")
-        contract = WaitingContract(
-            recheck_condition=condition,
-            stage_reconciliation_required=bool(state.get("stage_reconciliation_required")),
-            blocker_fingerprint=UNOBSERVED_WAIT,
-            recheck_token=condition,
-            wake_on=("planner_input",),
-        )
-        self._emit(
-            {
-                "type": EventType.LIFE_PLANNER_WAITING_WOKEN,
-                "blocker_fingerprint": state.get("blocker_fingerprint"),
-                "recheck_token": state.get("recheck_token"),
-                "wake_reason": "expired",
-            }
-        )
-        verdict = PlannerVerdict(
-            project_done=False,
-            reason=condition,
-            waiting=True,
-            waiting_reason=condition,
-            waiting_contract=contract,
-        )
-        if self._reconcile_open_ended_planner_waiting(verdict):
-            return PLAN_RETRY
-        return self._record_planner_waiting(verdict)
-
-    def _waiting_backlog_revision(self) -> str:
-        """A stable revision of the facts that can change scheduling.
-
-        Only which items exist and whether they are claimable count. The file
-        itself is rewritten by heartbeats, receipts and the cycle's own
-        bookkeeping while a job runs, and a revision read from its mtime made
-        every rewrite look like new evidence: a campaign on 2026-09-30 spent
-        four Planner turns in two minutes re-answering one live-job wait.
-        """
-        try:
-            rows = sorted(
-                (
-                    str(item.id),
-                    str(item.status),
-                    tuple(str(dep) for dep in getattr(item, "deps", ()) or ()),
-                    int(getattr(item, "priority", 0) or 0),
-                )
-                for item in self.memory.backlog.active()
-            )
-        except Exception:  # noqa: BLE001 - an unreadable backlog is not new evidence
-            return ""
-        return repr(rows)
-
-    def _planner_turn_available_during_wait(self, state: dict) -> bool:
-        """Is the Planner owed a turn while this wait contract holds?
-
-        Never while other work is queued behind the wait -- the campaign is
-        already busy and waking the Planner would only burn tokens. Otherwise
-        once per contract, again when the backlog's scheduling facts change,
-        and, for a wait only the operator can end, again whenever anything the
-        Planner reads has changed. Elapsed time alone never earns a turn.
-        """
-        if not self._nothing_queued_behind_the_wait():
-            return False
-        if not state.get("idle_capacity_turn_used"):
-            return True
-        # New backlog state is new evidence, not another poll of the same
-        # blocker. Re-grant one turn so the Planner can route around a task that
-        # arrived after the original opportunity or became unclaimable.
-        if (
-            "idle_capacity_backlog_revision" in state
-            and state.get("idle_capacity_backlog_revision")
-            != self._waiting_backlog_revision()
-        ):
-            return True
-        if not state.get("operator_action_required"):
-            return False
-        # Compared with what the Planner saw at its last turn, the same fact a
-        # Manager WAIT holds on. An unreadable input state ("") is not news
-        # either; the backlog and authorization wakes still apply.
-        current = self._current_planner_input_signature()
-        return bool(current) and current != str(
-            getattr(self, "_planner_last_turn_signature", "") or ""
-        )
-
     def _current_planner_input_signature(self) -> str:
         """The Planner-visible inputs now, for deciding whether to ask again."""
         return self._planner_visible_input_signature(
             operator_context_revision=int(
                 getattr(self, "_planning_operator_context_revision", 0) or 0
             )
-        )
-
-    def _confined_planner_wait_paths(self, values: list[str]) -> list[str]:
-        """Validate watched paths before they can influence revision reads."""
-        if not values:
-            return []
-        root = self._project_workdir().expanduser().resolve(strict=False)
-        confined: list[str] = []
-        seen: set[str] = set()
-        for raw in values:
-            value = str(raw or "").strip().replace("\\", "/")
-            path = Path(value)
-            if (
-                not value
-                or "\x00" in value
-                or path.is_absolute()
-                or ".." in path.parts
-                or value in {".", "./"}
-            ):
-                raise ValueError(f"watched path must be a project child: {value!r}")
-            normalized = Path(*path.parts).as_posix()
-            candidate = (root / normalized).resolve(strict=False)
-            try:
-                candidate.relative_to(root)
-            except ValueError as exc:
-                raise ValueError(
-                    f"watched path escapes the project root: {value!r}"
-                ) from exc
-            if normalized not in seen:
-                seen.add(normalized)
-                confined.append(normalized)
-        return confined
-
-    def _bind_planner_wait(self, contract: Any) -> Any:
-        """Bind a Planner wait to what the host can watch, read from its own words.
-
-        The Planner names what it waits for; the host decides how to observe it,
-        first match wins: only operator input (authorization events), live work
-        the sentence names, project paths it names, and otherwise the Planner's
-        own inputs -- a wait the host cannot observe, which climbs to the
-        Manager. A contract the host already bound is returned unchanged.
-        """
-        if contract is None or getattr(contract, "blocker_fingerprint", ""):
-            return contract
-        what = " ".join(str(contract.recheck_condition or "").split())
-        stage = ("manager_stage",) if contract.stage_reconciliation_required else ()
-        if contract.operator_action_required:
-            return replace(
-                contract,
-                recheck_condition=what,
-                blocker_fingerprint="operator",
-                recheck_token=what,
-                wake_on=("authorization",),
-            )
-        from ...engineer.external_work import names_external_work
-
-        named_jobs = [
-            job
-            for job in self._waitable_subagent_jobs()
-            if names_external_work(what, job.work_id)
-        ]
-        live = self._live_subagent_event_wait_contract(named_jobs) if named_jobs else None
-        if live is not None:
-            return replace(
-                live,
-                recheck_condition=what or live.recheck_condition,
-                stage_reconciliation_required=contract.stage_reconciliation_required,
-                wake_on=(*live.wake_on, *stage),
-            )
-        paths = self._project_paths_named_in(what)
-        if paths:
-            return replace(
-                contract,
-                recheck_condition=what,
-                blocker_fingerprint="artifacts:" + ",".join(paths),
-                recheck_token=what,
-                wake_on=("artifact_revision", *stage),
-                watched_paths=tuple(paths),
-                expires_at=time.time() + FILE_WAIT_CLIMB_SECONDS,
-            )
-        return replace(
-            contract,
-            recheck_condition=what,
-            blocker_fingerprint=UNOBSERVED_WAIT,
-            recheck_token=what,
-            wake_on=("planner_input", *stage),
-        )
-
-    def _project_paths_named_in(self, text: str) -> list[str]:
-        """Existing project files or directories a sentence names verbatim.
-
-        The external-work registry is left out: a job rewrites its own logs and
-        heartbeats for as long as it runs, so a path there would wake the wait
-        every cycle; its registered state is the fact to wait on.
-        """
-        root = self._project_workdir()
-        paths: list[str] = []
-        for word in str(text or "").split():
-            word = word.strip("`'\"()[]{}<>,;:!?。，；：").rstrip(".")
-            if not ("/" in word or "." in word) or word.startswith(".argus_subagents"):
-                continue
-            try:
-                (path,) = self._confined_planner_wait_paths([word])
-            except ValueError:
-                continue
-            if path not in paths and (root / path).exists():
-                paths.append(path)
-        return paths
-
-    def _persist_planner_waiting_contract(
-        self,
-        contract: Any,
-    ) -> dict[str, Any] | None:
-        contract = self._bind_planner_wait(contract)
-        blocker_fingerprint, recheck_token = self._waiting_contract_key(contract)
-        recheck_condition = str(getattr(contract, "recheck_condition", "") or "").strip()
-        if not blocker_fingerprint or not recheck_token or not recheck_condition:
-            return None
-        try:
-            watched_paths = self._confined_planner_wait_paths(list(contract.watched_paths))
-        except ValueError as exc:
-            self._emit({
-                "type": EventType.LIFE_PLANNER_ERROR,
-                "error": "planner wait has unsafe watched path",
-                "detail": str(exc),
-                "blocker_fingerprint": blocker_fingerprint,
-                "recheck_token": recheck_token,
-            })
-            return None
-        previous = self._load_planner_waiting_contract_state() or {}
-        same_condition = (
-            previous.get("blocker_fingerprint") == blocker_fingerprint
-            and previous.get("recheck_token") == recheck_token
-        )
-        wake_on = list(contract.wake_on)
-        observed_revision = str(contract.observed_revision or "")
-        # The Planner's own inputs include this contract, so a wait on them is
-        # observed on the first check after it is written, not before.
-        if "planner_input" not in wake_on:
-            current = self._planner_waiting_observed_revision(
-                wake_on=wake_on, watched_paths=watched_paths,
-            )
-            if observed_revision and current != observed_revision:
-                self._emit(
-                    {
-                        "type": EventType.LIFE_PLANNER_WAITING_WOKEN,
-                        "blocker_fingerprint": blocker_fingerprint,
-                        "recheck_token": recheck_token,
-                        "wake_reason": "revision_changed_before_persist",
-                        "observed_revision": observed_revision,
-                        "current_revision": current,
-                    }
-                )
-                return None
-            observed_revision = current
-        wait_id = f"{blocker_fingerprint}|{recheck_token}"
-        control_binding: dict[str, Any] = {}
-        try:
-            from ...manager.control_state import CampaignControlStore
-
-            control = CampaignControlStore(
-                Path(self.memory.root),
-                project_root=self._project_workdir(),
-            )
-            identity = control.campaign_identity(
-                objective=str(getattr(self.config, "continuous_objective", "") or "")
-            )
-            control_head = control.activate_wait(
-                identity=identity,
-                wait_id=wait_id,
-                blocker_fingerprint=blocker_fingerprint,
-                recheck_token=recheck_token,
-                watched_paths=watched_paths,
-            )
-            control_binding = {
-                "campaign_id": control_head.campaign_id,
-                "campaign_epoch": control_head.campaign_epoch,
-                "state_revision": control_head.state_revision,
-            }
-        except (OSError, TypeError, ValueError):
-            log.warning(
-                "failed to bind planner wait to Manager control revision",
-                exc_info=True,
-            )
-        now = time.time()
-        payload = {
-            "version": 2,
-            "objective": str(getattr(self.config, "continuous_objective", "") or ""),
-            "runtime_revision": self._planner_waiting_runtime_revision(),
-            "blocker_fingerprint": blocker_fingerprint,
-            "recheck_condition": recheck_condition,
-            "recheck_token": recheck_token,
-            "stage_reconciliation_required": bool(contract.stage_reconciliation_required),
-            "operator_action_required": bool(contract.operator_action_required),
-            "wake_on": wake_on,
-            "watched_paths": watched_paths,
-            "expires_at": (
-                float(previous.get("expires_at") or 0.0)
-                if same_condition
-                else float(contract.expires_at or 0.0)
-            ),
-            **control_binding,
-            "wait_id": wait_id,
-            "observed_revision": observed_revision,
-            "first_observed_at": (
-                float(previous.get("first_observed_at") or now) if same_condition else now
-            ),
-            "updated_at": now,
-            "manager_resolution": (
-                previous.get("manager_resolution")
-                if same_condition and isinstance(previous.get("manager_resolution"), dict)
-                else None
-            ),
-            # The one Planner turn granted during this wait is spent when the
-            # same wait is persisted again after it; handing it out afresh on
-            # every re-persist is the per-cycle poll the grant rules out.
-            **(
-                {
-                    key: previous[key]
-                    for key in (
-                        "idle_capacity_turn_used",
-                        "idle_capacity_backlog_revision",
-                    )
-                    if key in previous
-                }
-                if same_condition
-                else {}
-            ),
-            # Declared again after the Manager ruled on it: the turn that read
-            # the ruling is the turn the grant would give.
-            **(
-                {
-                    "idle_capacity_turn_used": True,
-                    "idle_capacity_backlog_revision": self._waiting_backlog_revision(),
-                }
-                if same_condition and isinstance(previous.get("manager_resolution"), dict)
-                else {}
-            ),
-            "active": True,
-        }
-        if not self._write_planner_waiting_contract_state(payload):
-            return None
-        return payload
-
-    def _deactivate_planner_waiting_contract(self) -> None:
-        state = self._load_planner_waiting_contract_state()
-        if state is None or not bool(state.get("active")):
-            return
-        state["active"] = False
-        state["updated_at"] = time.time()
-        self._write_planner_waiting_contract_state(state)
-
-    def _resolve_planner_waiting_contract(
-        self,
-        *,
-        manager_reason: str,
-        target_stage: str,
-    ) -> None:
-        """Persist an authoritative Manager resolution for the next Planner.
-
-        Deactivating the stale contract alone is insufficient: Manager stage
-        decisions are event-sourced but are not part of the Planner journal
-        rendered in the immediate retry. Persist the exact ruling beside the
-        objective-scoped waiting contract so the next fresh Planner session sees
-        the new authority without mutating the operator objective or project
-        evidence.
-        """
-        state = self._load_planner_waiting_contract_state()
-        if state is None:
-            return
-        now = time.time()
-        state["active"] = False
-        state["manager_resolution"] = {
-            "reason": str(manager_reason or "").strip(),
-            "target_stage": str(target_stage or "").strip(),
-            "resolved_at": now,
-            "blocker_fingerprint": str(state.get("blocker_fingerprint") or ""),
-            "recheck_condition": str(state.get("recheck_condition") or ""),
-        }
-        state["resolution_retry_count"] = 0
-        state["updated_at"] = now
-        self._write_planner_waiting_contract_state(state)
-
-    def _planner_wait_resolution_runtime_note(self) -> str:
-        state = self._load_planner_waiting_contract_state()
-        if state is None:
-            return ""
-        resolution = state.get("manager_resolution")
-        if not isinstance(resolution, dict):
-            return ""
-        reason = str(resolution.get("reason") or "").strip()
-        if not reason:
-            return ""
-        return (
-            "AUTHORITATIVE MANAGER WAIT RESOLUTION (current objective):\n"
-            f"- stage remains: {resolution.get('target_stage') or '(unchanged)'}\n"
-            "- prior recheck condition: "
-            f"{resolution.get('recheck_condition') or ''}\n"
-            f"- Manager directive: {reason}\n"
-            "The Manager set `resolves_wait=true`; do not claim this Manager "
-            "authorization/directive is absent. Plan the smallest lawful work "
-            "within it, or identify a materially different blocker."
-        )
-
-    def _clear_planner_wait_resolution(self) -> None:
-        state = self._load_planner_waiting_contract_state()
-        if state is None or not isinstance(state.get("manager_resolution"), dict):
-            return
-        state["manager_resolution"] = None
-        state["resolution_retry_count"] = 0
-        state["updated_at"] = time.time()
-        self._write_planner_waiting_contract_state(state)
-
-    @staticmethod
-    def _waiting_contract_event_payload(
-        state: dict[str, Any] | None,
-        contract: Any,
-    ) -> dict[str, Any] | None:
-        source = state if state is not None else (
-            None if contract is None else {
-                key: getattr(contract, key)
-                for key in (
-                    "blocker_fingerprint",
-                    "recheck_condition",
-                    "recheck_token",
-                    "stage_reconciliation_required",
-                    "operator_action_required",
-                    "wake_on",
-                    "watched_paths",
-                    "expires_at",
-                )
-            }
-        )
-        if source is None:
-            return None
-        return {
-            key: list(value) if isinstance(value, tuple) else value
-            for key, value in source.items()
-            if key in {
-                "blocker_fingerprint",
-                "recheck_condition",
-                "recheck_token",
-                "runtime_revision",
-                "stage_reconciliation_required",
-                "operator_action_required",
-                "wake_on",
-                "watched_paths",
-                "expires_at",
-                "campaign_epoch",
-                "campaign_id",
-                "state_revision",
-                "wait_id",
-                "observed_revision",
-                "superseded_by_revision",
-                "superseded_by_runtime_revision",
-                "wake_reason",
-                "first_observed_at",
-            }
-        }
-
-    def _planner_waiting_contract_runtime_note(self) -> str:
-        state = self._load_planner_waiting_contract_state()
-        if state is None or not bool(state.get("active")):
-            return ""
-        return (
-            "PERSISTED PLANNER WAIT (your prior verdict):\n"
-            f"- WAIT: {state.get('recheck_condition') or ''}\n"
-            f"- the Host watches: {', '.join(state.get('wake_on') or []) or 'nothing'}\n"
-            "- stage_reconciliation_required: "
-            f"{bool(state.get('stage_reconciliation_required'))}\n"
-            "- operator_action_required: "
-            f"{bool(state.get('operator_action_required'))}\n"
-            "If current evidence does not satisfy it, wait again with the same WAIT "
-            "sentence and do not queue an equivalent polling task; change the "
-            "sentence only when concrete current evidence changes. While the named "
-            "wait is in progress, is there a concrete uncertainty whose answer could "
-            "change the route and can be resolved without the awaited result? If "
-            "yes, schedule that information-gaining work; otherwise wait."
         )
 
     def _update_no_progress_streak(self, *, kind: str, report: Any) -> None:
@@ -2272,12 +1320,10 @@ class PlanningContextMixin:
             enqueued_tasks=1,
             skipped_duplicate_tasks=0,
             skipped_recent_failure_tasks=0,
-            skipped_subagent_family_failure_tasks=0,
             enqueued_titles=[item.title],
             enqueued_impact_scores=[task.impact_score],
             skipped_duplicate_titles=[],
             skipped_recent_failure_titles=[],
-            skipped_subagent_family_failure_titles=[],
             input_tokens=0,
             cached_input_tokens=0,
             output_tokens=0,

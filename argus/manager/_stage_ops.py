@@ -452,7 +452,7 @@ class _StageDecisionMixin:
 
         return strip_control_footer(
             raw,
-            ("ACTION", "TARGET_STAGE", "REASON", "RESOLVES_WAIT"),
+            ("ACTION", "TARGET_STAGE", "REASON"),
         ).strip()
 
     def _run_stage_model(
@@ -524,7 +524,7 @@ class _StageDecisionMixin:
 
         return strip_control_footer(
             raw,
-            ("ACTION", "TARGET_STAGE", "REASON", "RESOLVES_WAIT"),
+            ("ACTION", "TARGET_STAGE", "REASON"),
         ).strip()
 
     def _parse_and_finalize_stage_decision(
@@ -535,7 +535,7 @@ class _StageDecisionMixin:
         review: Any,
         open_ended: bool,
         mission_scope: str,
-        planner_wait_reconciliation: bool,
+        planner_handoff: bool,
         checklist_contract: Any,
         root: Path,
         on_event: Any,
@@ -579,15 +579,15 @@ class _StageDecisionMixin:
             from .stage_decider import StageDecision
 
             if (
-                planner_wait_reconciliation
+                planner_handoff
                 and (not open_ended or resolve_workflow_mode(root) != "direct")
                 and decision.action in {"advance", "complete"}
             ):
                 decision = StageDecision(
                     "hold",
                     cur,
-                    "planner waiting cannot advance without reviewer evidence",
-                    "planner_wait_advance_rejected",
+                    "a Planner handoff cannot advance without reviewer evidence",
+                    "planner_handoff_advance_rejected",
                 )
             return decision
 
@@ -766,15 +766,15 @@ class _StageDecisionMixin:
                 decision = StageDecision("hold", cur, str(error), error.diagnostic)
 
         if (
-            planner_wait_reconciliation
+            planner_handoff
             and (not open_ended or resolve_workflow_mode(root) != "direct")
             and decision.action in {"advance", "complete"}
         ):
             decision = StageDecision(
                 "hold",
                 cur,
-                "planner waiting cannot advance without reviewer evidence",
-                "planner_wait_advance_rejected",
+                "a Planner handoff cannot advance without reviewer evidence",
+                "planner_handoff_advance_rejected",
             )
         return decision
 
@@ -818,8 +818,7 @@ class _StageDecisionMixin:
                     diagnostic="stage_write_illegal_target",
                 )
             return StageTransition("advance", decision.target_stage, decision.reason,
-                                   cur, source, decision.diagnostic,
-                                   decision.resolves_wait)
+                                   cur, source, decision.diagnostic)
 
         if decision.action == "complete":
             from ..skills.vertical_select import resolve_workflow_mode
@@ -850,8 +849,7 @@ class _StageDecisionMixin:
                     diagnostic="stage_write_illegal_target",
                 )
             return StageTransition("complete", decision.target_stage, decision.reason,
-                                   cur, source, decision.diagnostic,
-                                   decision.resolves_wait)
+                                   cur, source, decision.diagnostic)
 
         if decision.action == "rollback":
             try:
@@ -870,12 +868,10 @@ class _StageDecisionMixin:
                     diagnostic="stage_write_illegal_target",
                 )
             return StageTransition("rollback", decision.target_stage, decision.reason,
-                                   cur, source, decision.diagnostic,
-                                   decision.resolves_wait)
+                                   cur, source, decision.diagnostic)
 
         return StageTransition("hold", cur, decision.reason or "manager held",
-                               cur, source, decision.diagnostic,
-                               decision.resolves_wait)
+                               cur, source, decision.diagnostic)
 
     # ------------------------------------------------------------------
     # Public interface
@@ -946,29 +942,21 @@ class _StageDecisionMixin:
             and order
             and cur == order[-1]
         )
-        planner_wait_reconciliation = bool(
-            (
-                open_ended
-                or bool(getattr(
-                    getattr(planner_verdict, "waiting_contract", None),
-                    "stage_reconciliation_required",
-                    False,
-                ))
-            )
-            and review is None
+        planner_handoff = bool(
+            review is None
             and planner_verdict is not None
-            and bool(getattr(planner_verdict, "waiting", False))
+            and getattr(planner_verdict, "handoff", "") == "manager"
             and not bool(getattr(planner_verdict, "project_done", False))
             and not list(getattr(planner_verdict, "new_tasks", []) or [])
         )
 
         # --- Phase 4: Handle no-review (early hold or build synthetic review) ---
         # No reviewer feedback normally means no stage transition. Structured
-        # open-ended terminal and Planner-wait reconciliations are the exceptions.
+        # open-ended terminal reconciliation and a Planner handoff are the exceptions.
         if review is None:
             if not (
                 open_ended_terminal_reconciliation
-                or planner_wait_reconciliation
+                or planner_handoff
             ):
                 return StageTransition(
                     "hold", cur, "no reviewer feedback", current_stage=cur,
@@ -977,7 +965,7 @@ class _StageDecisionMixin:
             planner_reason = str(
                 getattr(planner_verdict, "reason", "") or planner_verdict
             )
-            if planner_wait_reconciliation:
+            if planner_handoff:
                 review = SimpleNamespace(
                     status="blocked",
                     reason=(
@@ -1228,7 +1216,7 @@ class _StageDecisionMixin:
                 review=review,
                 open_ended=open_ended,
                 mission_scope=mission_scope,
-                planner_wait_reconciliation=planner_wait_reconciliation,
+                planner_handoff=planner_handoff,
                 checklist_contract=checklist_contract,
                 root=root,
                 on_event=on_event,

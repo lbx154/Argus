@@ -2,8 +2,7 @@
 
 A role ends its turn with prose and one line naming the next holder, the
 baton line of docs/role-handoff-design.md: ``→ reviewer``, ``→ engineer``,
-``→ planner``, ``→ manager``, ``→ operator: <question>``, ``→ wait: <task id>``
-or ``→ done``. The older ``NEXT_OWNER=`` footer is still read when no such line
+``→ planner``, ``→ manager``, ``→ operator: <question>`` or ``→ done``. The older ``NEXT_OWNER=`` footer is still read when no such line
 is present.
 """
 from __future__ import annotations
@@ -15,7 +14,7 @@ from typing import Literal, Mapping, Sequence
 from .operator_decision import normalize_agent_options, parse_agent_operator_options
 
 HandoffOwner = Literal[
-    "engineer", "reviewer", "planner", "manager", "operator", "done", "wait"
+    "engineer", "reviewer", "planner", "manager", "operator", "done"
 ]
 
 _EMPTY_VALUES = frozenset({"", "none", "n/a", "na", "null"})
@@ -43,7 +42,6 @@ _HOLDERS = {
     "planner": "planner", "规划": "planner",
     "manager": "manager", "统筹": "manager",
     "operator": "operator", "操作员": "operator",
-    "wait": "wait", "等待": "wait",
     "done": "done", "完成": "done",
 }
 # One holder after an arrow, optionally with ``: <argument>``; a bullet, bold,
@@ -73,8 +71,6 @@ class EngineerHandoff:
     # The Engineer's own answer to "why can only the operator decide this?"
     # (one of ``core.autonomy.OPERATOR_NEEDS``), or "" when it named none.
     operator_need: str = ""
-    # What a ``→ wait:`` line waits on, as written.
-    waits_on: str = ""
 
     @property
     def waits_for_operator(self) -> bool:
@@ -167,8 +163,8 @@ def read_baton_line(text: str) -> EngineerHandoff | None:
     Only the decision region is read: after the last ``Decision:``, else the
     last five non-empty lines, so an arrow quoted from the task cannot route
     the work. An unknown holder, two lines that disagree, a ``NEXT_OWNER=``
-    footer naming someone else, or ``operator:``/``wait:`` with nothing after
-    it falls back to the Reviewer. Nothing unreadable is ever ``done``.
+    footer naming someone else, or ``operator:`` with nothing after it falls
+    back to the Reviewer. Nothing unreadable is ever ``done``.
     """
     from .role_reply import decision_footer_text
 
@@ -189,7 +185,7 @@ def read_baton_line(text: str) -> EngineerHandoff | None:
     ((owner, argument),) = named
     footer_owner = _named_value(footer, "NEXT_OWNER", limit=32).casefold()
     disagrees = footer_owner and footer_owner != {"done": "reviewer"}.get(owner, owner)
-    if not owner or disagrees or (owner in {"operator", "wait"} and not argument):
+    if not owner or disagrees or (owner == "operator" and not argument):
         return fallback
     if owner == "operator":
         return EngineerHandoff(
@@ -199,8 +195,7 @@ def read_baton_line(text: str) -> EngineerHandoff | None:
             source="structured",
             operator_need=_named_value(footer, "OPERATOR_NEED", limit=64, keep_none=True),
         )
-    waits_on = argument[:200] if owner == "wait" else ""
-    return EngineerHandoff(owner, source="structured", waits_on=waits_on)
+    return EngineerHandoff(owner, source="structured")
 
 
 def strip_handoff(text: str) -> str:

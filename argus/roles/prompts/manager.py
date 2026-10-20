@@ -85,7 +85,7 @@ _IDENTITY_GUARD = (
     "only when the operator asks who or what you are; otherwise answer directly "
     "without a self-introduction. The operator changes model, backend, and effort "
     "by saying so in this chat; earlier advice in this conversation to use slash "
-    "commands or settings files for that is outdated. Long commands use Argus's durable runner.\n\n"
+    "commands or settings files for that is outdated.\n\n"
 )
 
 OPERATIONS = frozenset(
@@ -898,16 +898,6 @@ def build_stage_decision_prompt(
     status = str(getattr(review, "status", "") or "")
     reason = str(getattr(review, "reason", "") or "")
     review_source = str(getattr(review, "review_source", "reviewer") or "reviewer").strip()
-    planner_waiting = bool(getattr(planner_verdict, "waiting", False))
-    waiting_contract = getattr(planner_verdict, "waiting_contract", None)
-    waiting_reason = str(
-        getattr(planner_verdict, "waiting_reason", "")
-        or getattr(planner_verdict, "reason", "")
-        or ""
-    ).strip()
-    recheck_condition = str(getattr(waiting_contract, "recheck_condition", "") or "").strip()
-    operator_action_required = bool(getattr(waiting_contract, "operator_action_required", False))
-
     source_instructions = ""
     if review_source == "engineer_self_review":
         source_instructions = (
@@ -970,33 +960,6 @@ def build_stage_decision_prompt(
             f"{rollback_sentence}"
             "ADVANCE only when independent review finds every current-stage requirement met. "
             "Do not rewrite implementation details yourself.\n\n"
-        )
-
-    wait_resolution_block = ""
-    if planner_waiting:
-        operator_boundary = (
-            "Work cannot resume without fresh OPERATOR action. You cannot create or "
-            "expand operator authorization; set `resolves_wait=false`. "
-            if operator_action_required
-            else "You may set `resolves_wait=true` only when PRE-EXISTING operator "
-            "authority already shown below or concrete changed evidence satisfies "
-            "the recheck condition. Inside an open-ended standing objective, a new "
-            "mechanism, benchmark, or evidence-supported framing is an ordinary "
-            "route decision, not scope expansion. Never invent credentials, legal "
-            "permission, irreversible external authority, or work outside the "
-            "operator objective. "
-        )
-        wait_resolution_block = (
-            "## Planner-wait reconciliation\n"
-            f"Waiting reason: {waiting_reason or '(none)'}\n"
-            f"Declared recheck condition: {recheck_condition or '(none)'}\n"
-            f"{operator_boundary}"
-            "If this Manager ruling identifies such existing authority or changed "
-            "evidence, keep the stage on HOLD and set `resolves_wait=true` so "
-            "the Planner immediately replans without the outdated reason for waiting. "
-            "This does not advance the stage or establish that its requirements are met. Set "
-            "`resolves_wait=false` when the obstacle remains unchanged.\n"
-            "Include `resolves_wait` when the Planner is waiting for a stated condition.\n\n"
         )
 
     actions = "ADVANCE, HOLD, ROLLBACK, or COMPLETE" if allow_rollback else (
@@ -1084,7 +1047,6 @@ def build_stage_decision_prompt(
         f"{rollback_targets}"
         "## What the current stage requires\n"
         f"{checklist_md}\n\n"
-        f"{wait_resolution_block}"
         f"{mission_scope_block}"
         "## Latest completion evidence\n"
         f"source: {review_source}\n"

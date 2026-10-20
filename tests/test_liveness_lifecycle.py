@@ -23,7 +23,11 @@ from argus.life.runtime_failure_circuit import (
     runtime_failure_canary_cooldown_seconds,
 )
 from argus.life.supervisor import LifeBudget, LifeSupervisor, LifeSupervisorConfig
-from argus.life.supervisor._constants import PLAN_AWAITING, PLAN_RETRY
+from argus.life.supervisor._constants import (
+    MANAGER_FEEDBACK_REPLAN_LIMIT,
+    PLAN_AWAITING,
+    PLAN_RETRY,
+)
 from argus.planner import PlannerConfig, parse_planner_text
 from argus.skills.vertical_select import persist_vertical
 
@@ -465,18 +469,17 @@ def test_rows_derived_from_a_canary_do_not_inherit_its_tag(tmp_path: Path) -> No
 # Lossy handoffs.
 
 
-def test_waiting_verdict_with_concrete_tasks_enqueues_the_tasks(
+def test_handoff_with_concrete_tasks_enqueues_the_tasks(
     tmp_path: Path, monkeypatch,
 ) -> None:
     project = _project(tmp_path, monkeypatch)
     planner = _PlannerBackend(["\n".join([
         "PROJECT_DONE=false",
-        "REASON=Wait for the sweep but write the analysis harness meanwhile.",
-        "WAITING=true",
-        "WAITING_REASON=The sweep is still running.",
+        "REASON=The sweep is still running; write the analysis harness meanwhile.",
         "TASK_KEY=harness",
         "TASK_TITLE=Write the analysis harness",
         "TASK_OBJECTIVE=Write the harness that reads the sweep output schema.",
+        "→ engineer",
     ])])
     supervisor = _supervisor(project, tmp_path / "life", planner)
 
@@ -487,62 +490,33 @@ def test_waiting_verdict_with_concrete_tasks_enqueues_the_tasks(
     ]
 
 
-def _wait_with_task(*fields: str) -> str:
+def _handoff_with_task(baton: str) -> str:
     return "\n".join([
         "PROJECT_DONE=false",
-        "REASON=The release waits; write the changelog meanwhile.",
-        "WAITING=true",
-        "WAITING_REASON=The release is held.",
-        "WAIT=The release hold is lifted",
-        *fields,
+        "REASON=The release is held; write the changelog meanwhile.",
         "TASK_KEY=changelog",
         "TASK_TITLE=Write the changelog",
         "TASK_OBJECTIVE=Write the changelog for the held release.",
+        baton,
     ])
 
 
-def _active_wait(life: Path) -> dict:
-    paths = list(life.glob("planner-waiting-contract*.json"))
-    if not paths:
-        return {}
-    state = json.loads(paths[0].read_text(encoding="utf-8"))
-    return state if state.get("active") else {}
-
-
-def test_operator_wait_declared_with_tasks_is_kept_beside_them(
+def test_operator_question_with_tasks_is_asked_beside_them(
     tmp_path: Path, monkeypatch,
 ) -> None:
     monkeypatch.setenv("ARGUS_SKILL_OPERATOR_AVAILABLE", "true")
     project = _project(tmp_path, monkeypatch)
     life = tmp_path / "life"
-    planner = _PlannerBackend([_wait_with_task("OPERATOR_ACTION_REQUIRED=true")])
+    planner = _PlannerBackend([_handoff_with_task("→ operator: Is the release hold lifted?")])
     supervisor = _supervisor(project, life, planner)
 
     assert supervisor._plan_next_work() is True
 
-    assert [item.title for item in supervisor.memory.backlog.pending()] == [
-        "Write the changelog"
-    ]
-    wait = _active_wait(life)
-    assert wait["operator_action_required"] is True
-    assert wait["recheck_condition"] == "The release hold is lifted"
-
-
-def test_operator_wait_with_tasks_and_no_operator_is_left_to_the_next_bare_wait(
-    tmp_path: Path, monkeypatch,
-) -> None:
-    monkeypatch.setenv("ARGUS_SKILL_OPERATOR_AVAILABLE", "false")
-    project = _project(tmp_path, monkeypatch)
-    life = tmp_path / "life"
-    planner = _PlannerBackend([_wait_with_task("OPERATOR_ACTION_REQUIRED=true")])
-    supervisor = _supervisor(project, life, planner)
-
-    assert supervisor._plan_next_work() is True
-
-    assert [item.title for item in supervisor.memory.backlog.pending()] == [
-        "Write the changelog"
-    ]
-    assert _active_wait(life) == {}
+    backlog = supervisor.memory.backlog
+    assert [item.title for item in backlog.pending()] == ["Write the changelog"]
+    [card] = [item for item in backlog.active() if item.status == "paused_operator"]
+    assert card.pending_question == "Is the release hold lifted?"
+    assert not list(life.glob("planner-waiting-contract*.json"))
 
 
 class _StageManager:
@@ -563,7 +537,6 @@ def _stage_decision(**overrides) -> SimpleNamespace:  # noqa: ANN003
         "current_stage": "",
         "source": "manager_llm",
         "diagnostic": "",
-        "resolves_wait": False,
     }
     fields.update(overrides)
     return SimpleNamespace(**fields)
@@ -576,7 +549,7 @@ def test_stage_reconciliation_request_with_tasks_reaches_the_manager_and_replans
     beside it do not swallow the request; the Manager's repair is planned."""
     project = _project(tmp_path, monkeypatch)
     life = tmp_path / "life"
-    planner = _PlannerBackend([_wait_with_task("STAGE_RECONCILIATION_REQUIRED=true")])
+    planner = _PlannerBackend([_handoff_with_task("→ manager")])
     supervisor = _supervisor(project, life, planner)
     manager = _StageManager(_stage_decision())
     supervisor._bound_manager = lambda: manager  # type: ignore[method-assign]
@@ -591,12 +564,12 @@ def test_stage_reconciliation_request_with_tasks_reaches_the_manager_and_replans
     assert feedback["diagnostic"] == "manager_hold_requires_stage_repair"
 
 
-def test_stage_reconciliation_request_held_by_the_manager_keeps_tasks_and_wait(
+def test_stage_reconciliation_request_held_by_a_failsafe_keeps_tasks(
     tmp_path: Path, monkeypatch,
 ) -> None:
     project = _project(tmp_path, monkeypatch)
     life = tmp_path / "life"
-    planner = _PlannerBackend([_wait_with_task("STAGE_RECONCILIATION_REQUIRED=true")])
+    planner = _PlannerBackend([_handoff_with_task("→ manager")])
     supervisor = _supervisor(project, life, planner)
     manager = _StageManager(_stage_decision(source="no_review_hold"))
     supervisor._bound_manager = lambda: manager  # type: ignore[method-assign]
@@ -607,7 +580,6 @@ def test_stage_reconciliation_request_held_by_the_manager_keeps_tasks_and_wait(
     assert [item.title for item in supervisor.memory.backlog.pending()] == [
         "Write the changelog"
     ]
-    assert _active_wait(life)["stage_reconciliation_required"] is True
 
 
 def test_child_of_a_filtered_in_batch_parent_is_held_not_run_without_it(
@@ -804,8 +776,7 @@ def test_an_unreadable_last_turn_record_allows_one_planner_call(
     wait = "\n".join([
         "PROJECT_DONE=false",
         "REASON=Nothing to do until the operator picks the venue.",
-        "WAITING=true",
-        "WAITING_REASON=The venue is undecided.",
+        "→ engineer",
     ])
     planner = _PlannerBackend([wait, wait])
     life = tmp_path / "life"
@@ -826,104 +797,31 @@ def test_an_unreadable_last_turn_record_allows_one_planner_call(
 
 
 
-# I2/I3: a Planner wait is bound by the host and climbs instead of being re-asked.
+# I2/I3: a Planner that hands the stage to the Manager is answered once.
 
-_UNOBSERVED_WAIT = "\n".join([
+_MANAGER_HANDOFF = "\n".join([
     "PROJECT_DONE=false",
-    "REASON=The vendor has not published the dataset.",
-    "WAITING=true",
-    "WAIT=the vendor publishes the new dataset",
+    "REASON=The vendor has not published the dataset the stage needs.",
+    "→ manager",
 ])
 
 
 @pytest.mark.parametrize("open_ended", [False, True])
-def test_an_unchanged_wait_costs_no_more_calls_than_the_ladder_is_high(
+def test_an_unchanged_handoff_costs_no_more_calls_than_the_ladder_is_high(
     tmp_path: Path, monkeypatch, open_ended: bool,
 ) -> None:
-    """Planner waits, the Manager confirms the wait stands, the Planner sees
-    that ruling once -- and then nothing is called while nothing changes."""
+    """The Planner hands the stage to the Manager, the Manager holds it and
+    says why, and a Planner that answers the same way again is bounded by the
+    Manager-feedback limit -- then nothing is called while nothing changes."""
     project = _project(tmp_path, monkeypatch)
-    planner = _PlannerBackend([_UNOBSERVED_WAIT] * 10)
+    planner = _PlannerBackend([_MANAGER_HANDOFF] * 10)
     supervisor = _supervisor(project, tmp_path / "life", planner)
     supervisor.config.open_ended = open_ended
-    manager = _StageManager(_stage_decision(resolves_wait=True))
+    manager = _StageManager(_stage_decision())
     supervisor._bound_manager = lambda: manager  # type: ignore[method-assign]
 
     for _ in range(10):
         supervisor._plan_next_work()
 
     assert len(manager.calls) == 1
-    assert len(planner.calls) == 2
-
-
-def test_a_file_wait_that_outlives_its_deadline_climbs_to_the_manager(
-    tmp_path: Path, monkeypatch,
-) -> None:
-    from argus.life.supervisor._constants import FILE_WAIT_CLIMB_SECONDS
-    from argus.planner import WaitingContract
-
-    project = _project(tmp_path, monkeypatch)
-    (project / "results").mkdir()
-    (project / "results" / "sweep.json").write_text("{}", encoding="utf-8")
-    supervisor = _supervisor(project, tmp_path / "life")
-    manager = _StageManager(_stage_decision())
-    supervisor._bound_manager = lambda: manager  # type: ignore[method-assign]
-    assert supervisor._persist_planner_waiting_contract(
-        WaitingContract(recheck_condition="results/sweep.json gets the final row")
-    ) is not None
-
-    supervisor._planner_event_wait_outcome()  # the one idle-capacity turn
-    assert supervisor._planner_event_wait_outcome() == PLAN_AWAITING
-    assert manager.calls == []
-
-    later = time.time() + FILE_WAIT_CLIMB_SECONDS + 1
-    monkeypatch.setattr(time, "time", lambda: later)
-    supervisor._planner_event_wait_outcome()
-
-    assert len(manager.calls) == 1
-    assert manager.calls[0]["planner_verdict"].waiting_contract.blocker_fingerprint == (
-        "unobserved"
-    )
-    assert any(
-        event.get("wake_reason") == "expired" for event in _events(supervisor)
-    )
-
-
-def test_a_wait_persisted_again_keeps_the_authorization_bound_to_it(
-    tmp_path: Path, monkeypatch,
-) -> None:
-    """The operator reads the wait, the Planner declares it again, and the
-    authorization issued against what the operator read still lands."""
-    from argus.manager.control_state import CampaignControlStore
-    from argus.planner import WaitingContract
-
-    project = _project(tmp_path, monkeypatch)
-    supervisor = _supervisor(project, tmp_path / "life")
-    wait = WaitingContract(
-        recheck_condition="the operator approves the extra GPU budget",
-        operator_action_required=True,
-    )
-    first = supervisor._persist_planner_waiting_contract(wait)
-    store = CampaignControlStore(supervisor.memory.root, project_root=project)
-    head = store.read_head()
-    read_by_operator = store.read_snapshot(head)["active_wait"]
-
-    second = supervisor._persist_planner_waiting_contract(wait)
-
-    assert first is not None and second is not None
-    for key in ("blocker_fingerprint", "recheck_token", "wait_id", "state_revision"):
-        assert second[key] == first[key]
-    assert read_by_operator["wait_id"] == second["wait_id"]
-    assert supervisor._load_planner_waiting_contract_state() is not None
-    authorization = store.issue_authorization(
-        identity=store.campaign_identity(objective=supervisor.config.continuous_objective),
-        blocker_fingerprint=read_by_operator["blocker_fingerprint"],
-        allowed_actions=["resume_blocked_work"],
-        scope="active_blocker",
-        evidence_paths=[],
-        source_channel="web",
-        source_message_id="turn-1",
-        expected_state_revision=head.state_revision,
-        expected_wait_id=read_by_operator["wait_id"],
-    )
-    assert authorization.blocker_fingerprint == "operator"
+    assert len(planner.calls) == MANAGER_FEEDBACK_REPLAN_LIMIT

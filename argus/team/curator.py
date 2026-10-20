@@ -800,10 +800,6 @@ class Curator:
         root = Path(marker["team_root"])
         cwd = Path(marker.get("cwd") or root)
         self._adopt_orphans(root, now=now)  # reclaim prior-daemon teammates first
-        task_board.resume_finished_external_waits(
-            root,
-            default_workdir=cwd,
-        )
         if self._campaign_reconcile_fn is not None:
             self._campaign_reconcile_fn(marker)
         if task_board.count_in_flight(root) == 0 and not self.live_owner_ids(root):

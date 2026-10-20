@@ -191,7 +191,6 @@ def _run(
             max_rounds=max_rounds,
             backend_failure_threshold=2,
             backend_failure_backoff_seconds=backoff_seconds,
-            background_subagent_advisory=False,
         ),
         workdir=tmp_path,
         on_event=events.append,
@@ -326,70 +325,6 @@ def test_a_successful_round_restarts_the_same_cause_count(
     assert status == "done"
     assert engineer.calls == 6
     assert reviewer.calls == 2
-    assert [e["same_cause_streak"] for e in _backoff_events(events)] == [1, 2, 1, 2]
-    assert all(not e.get("operator_alert") for e in _backoff_events(events))
-    assert sum(sleeps) == pytest.approx(2.0)
-    assert all(0 < seconds <= 0.2 for seconds in sleeps)
-
-
-def test_a_wait_round_restarts_the_same_cause_count(
-    tmp_path: Path, monkeypatch,
-) -> None:
-    import json
-    import time as _time
-
-    from argus.engineer import runner as runner_module
-
-    registry = tmp_path / ".argus_external_work"
-    registry.mkdir()
-    (registry / "job-1.json").write_text(json.dumps({
-        "version": 1,
-        "work_id": "job-1",
-        "state": "running_healthy",
-        "heartbeat_at": _time.time(),
-        "stale_after_seconds": 300,
-        "poll_after_seconds": 30,
-        "description": "benchmark",
-    }), encoding="utf-8")
-    # The wait ends because the external work finished, not because the
-    # cadence ran out, so the round loop continues in the same mission.
-    monkeypatch.setattr(
-        runner_module,
-        "_run_external_work_wait",
-        lambda **_kwargs: ("succeeded", 5.0),
-    )
-    engineer = _ScriptedEngineer([
-        _rate_limited(7),
-        _rate_limited(12),
-        RunnerResult(
-            exit_code=0,
-            agent_messages=[
-                "benchmark launched; waiting on it\n"
-                '{"wait_for": "external_work", "wait_id": "job-1"}'
-            ],
-        ),
-        _rate_limited(30),
-        _rate_limited(45),
-        RunnerResult(exit_code=0, agent_messages=["collected the results"]),
-    ])
-    reviewer = _DoneReviewer()
-    status, events, sleeps, engineer = _run(
-        tmp_path,
-        monkeypatch,
-        engineer=engineer,
-        reviewer=reviewer,
-        max_rounds=8,
-        backoff_seconds=0.5,
-    )
-
-    # The round that asked to wait on job-1 completed its turn; it was not a
-    # backend failure, so the run of identical rate-limit failures ended
-    # there. When the same signature returns after the wait, it is a new
-    # count starting at one — the circuit stays closed and no hour-scale
-    # hold opens for these scattered accidents.
-    assert status == "done"
-    assert engineer.calls == 6
-    assert reviewer.calls == 1
     assert [e["same_cause_streak"] for e in _backoff_events(events)] == [1, 2, 1, 2]
     assert all(not e.get("operator_alert") for e in _backoff_events(events))
     assert sum(sleeps) == pytest.approx(2.0)
@@ -759,7 +694,6 @@ def test_a_same_cause_hold_retries_for_three_hours_then_fences_the_task(
             max_rounds=0,
             backend_failure_threshold=2,
             backend_failure_backoff_seconds=15.0,
-            background_subagent_advisory=False,
         ),
         workdir=tmp_path,
         on_event=lambda _event: None,

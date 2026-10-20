@@ -121,7 +121,6 @@ def _done_state() -> _PlanCycleState:
     state = _PlanCycleState(None)
     state.verdict = PlannerVerdict(
         project_done=True,
-        waiting=False,
         new_tasks=[],
         reason="The paper is complete.",
     )
@@ -254,8 +253,6 @@ class _IntakeHarness(PlanningContextMixin, PlanningCycleIntakeMixin):
         drained, self.inbox = list(self.inbox), []
         return drained
 
-    def _deactivate_planner_waiting_contract(self) -> None:
-        pass
 
     def _emit(self, event) -> None:
         self.events.append(dict(event))

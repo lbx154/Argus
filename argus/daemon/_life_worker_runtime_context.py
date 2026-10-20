@@ -162,15 +162,6 @@ def _worker_runtime_context(
         "  when absent and install only dependencies required by the task.\n"
         "- NEVER install torch/diffusers in the argus venv\n"
         "- See global skill: project-venv-package-management.md\n"
-        "\n"
-        "## Sub-agents for GPU tasks (CRITICAL — do NOT block on long tasks)\n"
-        "- ANY command >30s (training, inference, evaluation) MUST use subagent:\n"
-        "  `python -m argus.tools.subagent submit --task-id <id> "
-        "--description '<desc>' --command '.venv/bin/python code/train.py ...'`\n"
-        "- After submitting, continue other work (write code, prepare analysis, draft paper sections)\n"
-        "- Check status: `python -m argus.tools.subagent status --task-id <id>`\n"
-        "- List all: `python -m argus.tools.subagent list`\n"
-        "- You are NEVER blocked waiting for GPU experiments — submit and move on\n"
     )
     if gpu_context:
         runtime_context += "\n" + gpu_context + "\n"
@@ -207,8 +198,6 @@ def _build_supervisor_config(
     return LifeSupervisorConfig(
         budget=LifeBudget(max_missions=0),
         planner_task_iteration_max_cycles=cfg.planner_task_iteration_max_cycles,
-        subagent_family_failure_streak_limit=cfg.subagent_family_failure_streak_limit,
-        subagent_family_failure_window_hours=cfg.subagent_family_failure_window_hours,
         poll_interval_seconds=2.0,
         project_worktree=cfg.project_workdir,
         stop_event=stop_event,

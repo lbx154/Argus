@@ -506,38 +506,6 @@ def _parse_named_verdict(text: str) -> ReviewDecision | None:
     )
 
 
-def decision_from_deferred_wait(messages: list[str]) -> ReviewDecision | None:
-    """Read a reply that closes on the Engineer's wait line as a deferral.
-
-    Asked to judge a round that had sent a benchmark to the background, the
-    Reviewer wrote that every clause depended on the run finishing and closed
-    with the Engineer's own wait line instead of the Decision block — twice in
-    a row, and the mission was stopped as a backend failure while the run kept
-    going (trial project s-fb4716b7, task 4). The reply is a judgment: what was
-    launched stands, and nothing can be settled until the run returns. Read it
-    as ``continue`` against that run. A bare wait line with no prose says
-    nothing and stays unreadable.
-    """
-    from ..core.role_handoff import strip_handoff
-    from ..engineer.external_work import parse_external_wait_request, strip_external_wait_footer
-
-    text = "\n".join(str(m or "") for m in messages).strip()
-    request = parse_external_wait_request(text)
-    if request is None:
-        return None
-    work_id = request[1]
-    prose = strip_handoff(strip_external_wait_footer(text)).strip()
-    if not prose:
-        return None
-    return decision_from_payload({
-        "status": "continue",
-        "reason": prose,
-        "next_action": (
-            f"Await `{work_id}`, then inspect its result before completing the mission."
-        ),
-    })
-
-
 def describe_unparsed_verdict(messages: list[str]) -> str:
     """Say what was wrong with an unreadable verdict, in the operator's terms.
 

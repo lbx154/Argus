@@ -67,14 +67,13 @@ def prepare_skill_libraries(context: VerticalLibraryContext) -> None:
         "- If the mission contract names another team path, that path is stale and "
         "does not authorize a replacement; the canonical runtime-owned path above "
         "takes precedence.\n"
-        "- While its workers run, Argus waits for them itself and calls you only "
-        "when the team has finished or needs attention (see External work "
-        "status). Do not poll `team status`, tail worker logs, inspect Argus's "
-        "own source, or resize the pool; its width is fixed by the host's "
+        "- The resident Curator staffs it; do not tail worker logs, inspect "
+        "Argus's own source, or resize the pool; its width is fixed by the host's "
         "provider capacity.\n"
-        "- Do not launch a shell command or background subagent that polls for the "
-        "selector. The resident Curator owns portfolio progress. When it is still "
-        "running, report its exact durable state and yield the turn."
+        "- While its workers run, wait for them in this turn: read `python -m "
+        "argus.tools.team status --root <team root>` and, while any task is still "
+        "pending, claimed or running, block with `sleep 590` before reading it "
+        "again. Settle failed or blocked tasks as soon as you see them."
     )
     selection = idea_portfolio_selection(
         context.workdir,

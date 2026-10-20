@@ -228,55 +228,10 @@ def _review_forward_progress(review: ReviewDecision) -> bool | None:
     return value if isinstance(value, bool) else None
 
 
-def _other_missions_subagents(workdir: Path, mission_id: str) -> set[str]:
-    """Subagent work ids that another mission's Engineer submitted.
-
-    The subagent registry records ``owner_mission_id`` from the submitting
-    Engineer's environment, where the round loop puts its session id. A record
-    that names no mission cannot be attributed and stays countable, the rule
-    ``scan_external_work`` applies inside a mission process.
-    """
-    if not mission_id:
-        return set()
-    from .external_work import _read_record, _registry_files
-
-    foreign: set[str] = set()
-    for path in _registry_files(workdir, ".argus_subagents"):
-        record = _read_record(path)
-        if record is None:
-            continue
-        owner = str(record.get("owner_mission_id") or "").strip()
-        if owner and owner != mission_id:
-            foreign.add(str(record.get("task_id") or path.stem).strip())
-    return foreign
-
-
-def _blocked_on_healthy_work(workdir: Path, mission_id: str = "") -> bool:
-    """True while a job this mission launched is still running and healthy.
-
-    A healthy subagent another mission submitted is that mission's wait, not
-    this one's: counting it let any busy neighbour excuse this mission's
-    stall indefinitely. External-work registrations and teams record no
-    mission, so they still count, as before.
-    """
-    from .external_work import scan_external_work
-
-    try:
-        foreign = _other_missions_subagents(workdir, mission_id)
-        return any(
-            status.waitable
-            and not (status.source == "subagent" and status.work_id in foreign)
-            for status in scan_external_work(workdir)
-        )
-    except Exception:  # noqa: BLE001 — an unreadable registry is not a stall claim
-        return False
-
-
 def _next_semantic_stall_streak(
     review: ReviewDecision,
     current_streak: int,
     *,
-    blocked_on_healthy_work: bool = False,
     obstacle_streak: int = 0,
 ) -> tuple[int, bool | None]:
     """Count consecutive explicit no-progress ``continue`` verdicts.
@@ -285,20 +240,11 @@ def _next_semantic_stall_streak(
     of a stall. Resetting on unknown makes this guard fail open and prevents the
     harness from replacing the Reviewer's judgment with an inference of its own.
 
-    Waiting is not stalling. While a healthy job the mission launched is still
-    running, no round can show forward progress, so four such rounds retired the
-    mission for doing exactly what it was asked to do -- seven missions across
-    six campaigns in ninety minutes, including the MATH-500 gate the whole run-03
-    paper rests on. Work that is stalled or needs attention still counts, so a
-    dead job cannot buy unlimited rounds, and the round budget is untouched.
-
     ``obstacle_streak`` is the current run of rounds naming one obstacle
     (:func:`_advance_obstacle_run`), which a replan does not reset and which
     may continue an earlier mission's run (``obstacle_stall.py``).
     """
     forward_progress = _review_forward_progress(review)
-    if blocked_on_healthy_work:
-        return 0, forward_progress
     obstacle_streak = max(0, int(obstacle_streak))
     if review.status == "continue" and forward_progress is False:
         return max(max(0, int(current_streak)) + 1, obstacle_streak), forward_progress
@@ -311,8 +257,6 @@ def _advance_obstacle_run(
     state: RoundLoopState,
     review: ReviewDecision,
     forward_progress: bool | None,
-    *,
-    blocked_on_healthy_work: bool = False,
 ) -> None:
     """Extend, restart or end the run of rounds that name one obstacle.
 
@@ -326,8 +270,7 @@ def _advance_obstacle_run(
 
     obstacle = sanitize_text(review.verification_obstacle, MAX_OBSTACLE_CHARS)
     if (
-        blocked_on_healthy_work
-        or (review.review_source or "reviewer") != "reviewer"
+        (review.review_source or "reviewer") != "reviewer"
         or forward_progress is not False
         or not obstacle
         or review.status not in {"continue", "replan_requested"}
@@ -487,7 +430,6 @@ class RoundSettlementMixin:
         policy_retry: bool = False,
         soft_limit_stalled: bool = False,
         soft_round_limit: int = 0,
-        blocked_on_healthy_work: bool = False,
     ) -> tuple[LoopStatus | None, str]:
         if review.status == "done":
             return "done", review.reason or "Reviewer judged the objective complete."
@@ -502,21 +444,9 @@ class RoundSettlementMixin:
             )
         if policy_retry:
             return None, ""
-        # Empty Engineer turns are a harness count. A job the mission launched
-        # can advance while the Engineer says nothing, so the Reviewer's
-        # explicit progress judgment outranks the count -- but only while such
-        # a job is actually running and healthy. A progress claim with nothing
-        # running cannot be backed by anything, and without this floor a
-        # Reviewer that always says ``true`` would loop an empty Engineer
-        # forever in runs that have no Manager checkpoint (teammates, CLI).
-        if (
-            no_progress_threshold > 0
-            and no_progress_streak >= no_progress_threshold
-            and not (
-                blocked_on_healthy_work
-                and _review_forward_progress(review) is True
-            )
-        ):
+        # Empty Engineer turns are a harness count. The Engineer waits for its
+        # own jobs inside its turn, so an empty turn is never a wait.
+        if no_progress_threshold > 0 and no_progress_streak >= no_progress_threshold:
             return (
                 "no_progress",
                 "Engineer produced no effective output for "
@@ -590,22 +520,15 @@ class RoundSettlementMixin:
             and review.review_source in OPERATOR_QUESTION_POLICY_REVIEW_SOURCES
         )
         explicit_forward_progress = _review_forward_progress(review)
-        healthy_work = _blocked_on_healthy_work(
-            workdir, str(getattr(supervised_config, "session_id", "") or "")
-        )
         if policy_retry and explicit_forward_progress is None:
             next_semantic_stall_streak = state.semantic_stall_streak
             forward_progress = None
         else:
-            _advance_obstacle_run(
-                state, review, explicit_forward_progress,
-                blocked_on_healthy_work=healthy_work,
-            )
+            _advance_obstacle_run(state, review, explicit_forward_progress)
             next_semantic_stall_streak, forward_progress = (
                 _next_semantic_stall_streak(
                     review,
                     state.semantic_stall_streak,
-                    blocked_on_healthy_work=healthy_work,
                     obstacle_streak=state.obstacle_streak,
                 )
             )
@@ -707,7 +630,6 @@ class RoundSettlementMixin:
                 )
             ),
             soft_round_limit=supervised_config.soft_round_limit,
-            blocked_on_healthy_work=healthy_work,
         )
         stall_reached = (
             supervised_config.stall_threshold > 0
