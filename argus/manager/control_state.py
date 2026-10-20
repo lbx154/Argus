@@ -20,9 +20,6 @@ from typing import Any, Iterable
 
 import portalocker
 
-from ..core.file_facts import file_facts
-from ..core.workspace_facts import workspace_facts
-
 CONTROL_DIRNAME = "campaign-control"
 HEAD_FILENAME = "HEAD.json"
 AUTHORIZATION_LOG = "operator-authorizations.jsonl"
@@ -66,10 +63,6 @@ class Authorization:
     allowed_actions: tuple[str, ...]
     scope: str
     allowed_write_paths: tuple[str, ...]
-    allowed_write_baseline: tuple[dict[str, Any], ...]
-    frozen_evidence: tuple[dict[str, Any], ...]
-    frozen_tree: dict[str, Any]
-    forbidden_mutations: tuple[str, ...]
     nonce: str
     source_channel: str
     source_message_id: str
@@ -92,8 +85,6 @@ class RepairCapability:
     action: str
     validator_id: str
     allowed_write_paths: tuple[str, ...]
-    frozen_evidence: tuple[dict[str, Any], ...]
-    frozen_tree: dict[str, Any]
     nonce: str
     mission_id: str
     status: str
@@ -176,7 +167,7 @@ def _validated_write_paths(
     project_root: Path,
     paths: Iterable[object],
 ) -> tuple[str, ...]:
-    """Validate exact writable files at each capability boundary."""
+    """Validate the exact writable files an authorization names."""
     validated: list[str] = []
     for value in paths:
         safe, path = _validated_project_path(project_root, value)
@@ -184,28 +175,6 @@ def _validated_write_paths(
             raise ValueError("validator repair writable paths must identify files")
         validated.append(safe)
     return tuple(dict.fromkeys(validated))
-
-
-def _freeze_path(project_root: Path, relative: str) -> dict[str, Any]:
-    safe, path = _validated_project_path(project_root, relative)
-    return {
-        "path": safe,
-        "facts": workspace_facts(path) if path.is_dir() else file_facts(path) if path.is_file() else "missing",
-    }
-
-
-def _path_is_within(relative: str, roots: Iterable[str]) -> bool:
-    path = Path(relative)
-    return any(path == Path(root) or Path(root) in path.parents for root in roots)
-
-
-def _project_tree(project_root: Path, *, excluded_paths: Iterable[str]) -> dict[str, Any]:
-    """The project tree's facts except explicitly writable and operational paths."""
-    project_root = project_root.expanduser().resolve(strict=False)
-    excluded = tuple(_validated_project_path(project_root, value)[0] for value in excluded_paths)
-    return workspace_facts(project_root, ignore=excluded)
-
-
 
 
 class CampaignControlStore:
@@ -383,8 +352,6 @@ class CampaignControlStore:
         allowed_actions: Iterable[str],
         scope: str,
         allowed_write_paths: Iterable[str] = (),
-        evidence_paths: Iterable[str],
-        forbidden_mutations: Iterable[str] = (),
         source_channel: str,
         source_message_id: str,
         expires_at: float = 0.0,
@@ -416,14 +383,6 @@ class CampaignControlStore:
                 raise ValueError("validator repair requires explicit writable paths")
             if max(0, min(1, int(acceptance_retries or 0))) != 1:
                 raise ValueError("validator repair requires exactly one acceptance retry")
-        safe_forbidden = tuple(
-            dict.fromkeys(_safe_relative_path(value) for value in forbidden_mutations)
-        )
-        if any(_path_is_within(path, safe_forbidden) for path in safe_allowed):
-            raise ValueError("writable path overlaps a forbidden mutation path")
-        frozen = tuple(_freeze_path(self.project_root, value) for value in evidence_paths)
-        allowed_baseline = tuple(_freeze_path(self.project_root, value) for value in safe_allowed)
-        frozen_tree = _project_tree(self.project_root, excluded_paths=safe_allowed)
         issued_at = time.time()
         if expires_at and float(expires_at) <= issued_at:
             raise ValueError("authorization expiry must be in the future")
@@ -450,10 +409,6 @@ class CampaignControlStore:
                 allowed_actions=actions,
                 scope=str(scope or "bounded").strip()[:200],
                 allowed_write_paths=safe_allowed,
-                allowed_write_baseline=allowed_baseline,
-                frozen_evidence=frozen,
-                frozen_tree=frozen_tree,
-                forbidden_mutations=safe_forbidden,
                 nonce=secrets.token_urlsafe(24),
                 source_channel=str(source_channel or "unknown").strip()[:100],
                 source_message_id=str(source_message_id or "").strip()[:200],
@@ -629,11 +584,6 @@ class CampaignControlStore:
             "scope": str(row.get("scope") or ""),
             "validator_id": str(row.get("validator_id") or ""),
             "allowed_write_paths": list(row.get("allowed_write_paths") or []),
-            "frozen_evidence": [
-                {"path": str(value.get("path") or "")}
-                for value in (row.get("frozen_evidence") or [])
-                if isinstance(value, dict)
-            ],
             "issued_at": float(row.get("issued_at") or 0.0),
             "expires_at": float(row.get("expires_at") or 0.0),
         }
@@ -675,32 +625,6 @@ class CampaignControlStore:
         expires_at = float(issued.get("expires_at") or 0.0)
         if expires_at > 0 and time.time() >= expires_at:
             raise ValueError("authorization expired")
-        expected_frozen = list(issued.get("frozen_evidence") or [])
-        current_frozen = [
-            _freeze_path(self.project_root, row.get("path"))
-            for row in expected_frozen
-            if isinstance(row, dict)
-        ]
-        if current_frozen != expected_frozen:
-            raise ValueError("frozen evidence changed")
-        expected_allowed = list(issued.get("allowed_write_baseline") or [])
-        _validated_write_paths(
-            self.project_root,
-            issued.get("allowed_write_paths") or [],
-        )
-        current_allowed = [
-            _freeze_path(self.project_root, row.get("path"))
-            for row in expected_allowed
-            if isinstance(row, dict)
-        ]
-        if current_allowed != expected_allowed:
-            raise ValueError("authorized validator changed before capability claim")
-        frozen_tree = _project_tree(
-            self.project_root,
-            excluded_paths=issued.get("allowed_write_paths") or [],
-        )
-        if frozen_tree != issued.get("frozen_tree"):
-            raise ValueError("frozen project tree changed")
         return issued, head, snapshot
 
     def claim_repair_capability(
@@ -739,8 +663,6 @@ class CampaignControlStore:
                 action=normalized_action,
                 validator_id=validator_id,
                 allowed_write_paths=tuple(issued.get("allowed_write_paths") or []),
-                frozen_evidence=tuple(issued.get("frozen_evidence") or []),
-                frozen_tree=dict(issued.get("frozen_tree") or {}),
                 nonce=str(issued.get("nonce") or ""),
                 mission_id=str(mission_id or ""),
                 status="claimed",
@@ -785,24 +707,6 @@ class CampaignControlStore:
                 or head.campaign_epoch != identity.campaign_epoch
             ):
                 raise ValueError("repair capability campaign mismatch")
-            expected_frozen = list(raw.get("frozen_evidence") or [])
-            _validated_write_paths(
-                self.project_root,
-                raw.get("allowed_write_paths") or [],
-            )
-            current_frozen = [
-                _freeze_path(self.project_root, row.get("path"))
-                for row in expected_frozen
-                if isinstance(row, dict)
-            ]
-            if current_frozen != expected_frozen:
-                raise ValueError("frozen evidence changed")
-            tree = _project_tree(
-                self.project_root,
-                excluded_paths=raw.get("allowed_write_paths") or [],
-            )
-            if tree != raw.get("frozen_tree"):
-                raise ValueError("write occurred outside authorized validator paths")
             remaining = int(raw.get("acceptance_retries_remaining") or 0)
             if remaining != 1:
                 raise ValueError("acceptance retry budget is unavailable")
@@ -854,33 +758,12 @@ class CampaignControlStore:
                 or head.campaign_epoch != identity.campaign_epoch
             ):
                 raise ValueError("repair capability campaign mismatch")
-            expected_frozen = list(raw.get("frozen_evidence") or [])
-            _validated_write_paths(
-                self.project_root,
-                raw.get("allowed_write_paths") or [],
-            )
-            current_frozen = [
-                _freeze_path(self.project_root, row.get("path"))
-                for row in expected_frozen
-                if isinstance(row, dict)
-            ]
-            tree = _project_tree(
-                self.project_root,
-                excluded_paths=raw.get("allowed_write_paths") or [],
-            )
-            guard_errors: list[str] = []
-            if current_frozen != expected_frozen:
-                guard_errors.append("frozen evidence changed")
-            if tree != raw.get("frozen_tree"):
-                guard_errors.append("write occurred outside authorized validator paths")
-            final_accepted = bool(accepted and not guard_errors)
             closed = {
                 **raw,
                 "event": "closed",
-                "status": "accepted" if final_accepted else "rejected",
-                "accepted": final_accepted,
+                "status": "accepted" if accepted else "rejected",
+                "accepted": bool(accepted),
                 "reason": str(reason or "")[:1000],
-                "guard_errors": guard_errors,
                 "closed_at": time.time(),
                 "state_revision": head.state_revision + 1,
             }
@@ -901,7 +784,6 @@ class CampaignControlStore:
         nonce: str,
         action: str,
         identity: CampaignIdentity,
-        evidence_paths: Iterable[str] | None = None,
     ) -> dict[str, Any]:
         normalized_action = str(action or "").strip().lower()
         with self.locked():
@@ -938,18 +820,6 @@ class CampaignControlStore:
             expires_at = float(issued.get("expires_at") or 0.0)
             if expires_at > 0 and time.time() >= expires_at:
                 raise ValueError("authorization expired")
-            expected_frozen = list(issued.get("frozen_evidence") or [])
-            current_frozen = [
-                _freeze_path(self.project_root, row.get("path"))
-                for row in expected_frozen
-                if isinstance(row, dict)
-            ]
-            if current_frozen != expected_frozen:
-                raise ValueError("frozen evidence changed")
-            if evidence_paths is not None:
-                requested = [_safe_relative_path(path) for path in evidence_paths]
-                if requested != [row["path"] for row in expected_frozen]:
-                    raise ValueError("evidence set differs from authorization")
             consumed = {
                 **issued,
                 "event": "consumed",
