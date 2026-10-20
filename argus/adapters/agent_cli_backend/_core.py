@@ -32,10 +32,8 @@ log = logging.getLogger(__name__)
 
 _RUNNER_SOFT_IDLE_ENV = "ARGUS_SKILL_RUNNER_SOFT_IDLE_SECONDS"
 _RUNNER_STALLED_IDLE_ENV = "ARGUS_SKILL_RUNNER_STALLED_IDLE_SECONDS"
-_RUNNER_HARD_IDLE_ENV = "ARGUS_SKILL_RUNNER_HARD_IDLE_SECONDS"
 _RUNNER_DEFAULT_SOFT_IDLE_SECONDS = 10 * 60
 _RUNNER_DEFAULT_STALLED_IDLE_SECONDS = 30 * 60
-_RUNNER_DEFAULT_HARD_IDLE_SECONDS = 0
 _INHERIT_EVENT_CALLBACK = object()
 class _RepeatedToolCallGuard:
     """Interrupt a factually repeating identical tool-call livelock."""
@@ -138,7 +136,7 @@ class AgentCliBackend:
         default_interrupt_reason_provider=None,
         default_watchdog_soft_idle_seconds: int = _RUNNER_DEFAULT_SOFT_IDLE_SECONDS,
         default_watchdog_stalled_idle_seconds: int = (_RUNNER_DEFAULT_STALLED_IDLE_SECONDS),
-        default_watchdog_hard_idle_seconds: int = _RUNNER_DEFAULT_HARD_IDLE_SECONDS,
+        default_watchdog_hard_idle_seconds: int = 0,
         before_exec=None,
         event_callback=None,
         known_secret_values_override: Iterable[str] | None = None,
@@ -463,16 +461,16 @@ class AgentCliBackend:
             # dsh's headless runner emits nothing until the final assistant
             # text, so byte-level inactivity is NOT a health signal: a long
             # tool-heavy turn looks identical to a hung one. Several callers
-            # pass streaming-assuming thresholds (the SELF reply path uses
-            # 5s/120s for progress display and stuck-turn killing; subagents
-            # pass their own timeout), any of which would kill healthy dsh
-            # turns. The ONLY knob that re-enables the stages for dsh is the
-            # operator's explicit ARGUS_SKILL_RUNNER_*_IDLE_SECONDS; caller
-            # options are ignored, and hung turns are bounded by dsh's own
-            # internal request/tool timeouts instead.
+            # pass streaming-assuming thresholds (the SELF reply path uses 5s
+            # for progress display), any of which would misreport or stop
+            # healthy dsh turns. The ONLY knobs that re-enable the diagnostic
+            # stages for dsh are the operator's explicit
+            # ARGUS_SKILL_RUNNER_{SOFT,STALLED}_IDLE_SECONDS; caller options
+            # are ignored, and hung turns are bounded by dsh's own internal
+            # request/tool timeouts instead.
             soft_idle = env_int("ARGUS_SKILL_RUNNER_SOFT_IDLE_SECONDS", 0)
             stalled_idle = env_int("ARGUS_SKILL_RUNNER_STALLED_IDLE_SECONDS", 0)
-            hard_idle = env_int("ARGUS_SKILL_RUNNER_HARD_IDLE_SECONDS", 0)
+            hard_idle = 0
         return CliRunnerOptions(
             model=options.model,
             reasoning_effort=options.reasoning_effort,
@@ -539,8 +537,6 @@ def build_agent_cli_backend_from_env(*, role: str | None = None) -> AgentCliBack
         default 600 seconds.
       * ``ARGUS_SKILL_RUNNER_STALLED_IDLE_SECONDS`` — likely-stalled warning,
         default 1800 seconds.
-      * ``ARGUS_SKILL_RUNNER_HARD_IDLE_SECONDS`` — terminate only the current
-        model process group when explicitly configured; disabled by default.
     """
     import shlex
 
@@ -564,9 +560,5 @@ def build_agent_cli_backend_from_env(*, role: str | None = None) -> AgentCliBack
         default_watchdog_stalled_idle_seconds=env_int(
             _RUNNER_STALLED_IDLE_ENV,
             _RUNNER_DEFAULT_STALLED_IDLE_SECONDS,
-        ),
-        default_watchdog_hard_idle_seconds=env_int(
-            _RUNNER_HARD_IDLE_ENV,
-            _RUNNER_DEFAULT_HARD_IDLE_SECONDS,
         ),
     )

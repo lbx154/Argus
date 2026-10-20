@@ -1784,7 +1784,6 @@ def test_build_agent_cli_backend_from_env_uses_env(monkeypatch):
     monkeypatch.setenv("ARGUS_SKILL_RUNNER_EXTRA_ARGS", '-c "model_profile=fast"')
     monkeypatch.setenv("ARGUS_SKILL_RUNNER_SOFT_IDLE_SECONDS", "120")
     monkeypatch.setenv("ARGUS_SKILL_RUNNER_STALLED_IDLE_SECONDS", "600")
-    monkeypatch.setenv("ARGUS_SKILL_RUNNER_HARD_IDLE_SECONDS", "900")
     monkeypatch.delenv("ARGUS_SKILL_RUNNER_BIN", raising=False)
 
     backend = build_agent_cli_backend_from_env()
@@ -1794,7 +1793,7 @@ def test_build_agent_cli_backend_from_env_uses_env(monkeypatch):
     assert inner.default_extra_args == ["-c", "model_profile=fast"]
     assert backend._default_watchdog_soft_idle_seconds == 120
     assert backend._default_watchdog_stalled_idle_seconds == 600
-    assert backend._default_watchdog_hard_idle_seconds == 900
+    assert backend._default_watchdog_hard_idle_seconds == 0
 
 
 def test_fork_creates_independent_runner_with_same_usage_context(tmp_path: Path) -> None:
@@ -1859,7 +1858,6 @@ def test_build_agent_cli_backend_from_env_defaults(monkeypatch):
         "ARGUS_SKILL_RUNNER_EXTRA_ARGS",
         "ARGUS_SKILL_RUNNER_SOFT_IDLE_SECONDS",
         "ARGUS_SKILL_RUNNER_STALLED_IDLE_SECONDS",
-        "ARGUS_SKILL_RUNNER_HARD_IDLE_SECONDS",
     ):
         monkeypatch.delenv(name, raising=False)
     backend = build_agent_cli_backend_from_env()

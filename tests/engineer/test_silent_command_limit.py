@@ -26,13 +26,10 @@ REASON = (
 )
 
 
-def test_engineer_turns_have_no_default_hard_stop(monkeypatch) -> None:
-    monkeypatch.delenv("ARGUS_SKILL_RUNNER_HARD_IDLE_SECONDS", raising=False)
+def test_engineer_turns_have_no_hard_stop(monkeypatch) -> None:
     monkeypatch.delenv("ARGUS_SKILL_RUNNER_STALLED_IDLE_SECONDS", raising=False)
-    assert SupervisedConfig().runner_hard_idle_seconds == 0
+    assert not hasattr(SupervisedConfig(), "runner_hard_idle_seconds")
     assert SupervisedConfig().runner_stalled_idle_seconds == 1800
-    monkeypatch.setenv("ARGUS_SKILL_RUNNER_HARD_IDLE_SECONDS", "1800")
-    assert SupervisedConfig().runner_hard_idle_seconds == 1800
 
 
 def test_the_stopped_turn_names_the_command_and_says_what_to_do_instead() -> None:
@@ -126,14 +123,14 @@ def test_a_default_engineer_turn_is_never_stopped_and_its_stall_goes_to_the_mana
     """Thirty minutes without progress asks the Manager to look; it stops nothing."""
     from argus.engineer.turn_stall import LOOK_SECONDS, TurnStallWatch
 
-    options = _capture_engineer_options(monkeypatch, runner_hard_idle_seconds=0, runner_stalled_idle_seconds=1800)
-    assert options.watchdog_hard_idle_seconds == 0
+    options = _capture_engineer_options(monkeypatch, runner_stalled_idle_seconds=1800)
+    assert not options.watchdog_hard_idle_seconds
     assert options.watchdog_stalled_idle_seconds == 1800
     assert isinstance(options.inactivity_callback, TurnStallWatch)
     assert options.inactivity_callback.stall_seconds == 1800
     assert options.watchdog_soft_idle_seconds == LOOK_SECONDS
-    options = _capture_engineer_options(monkeypatch, runner_hard_idle_seconds=1800, runner_stalled_idle_seconds=0)
-    assert options.watchdog_hard_idle_seconds == 1800
+    options = _capture_engineer_options(monkeypatch, runner_stalled_idle_seconds=0)
+    assert not options.watchdog_hard_idle_seconds
     assert options.inactivity_callback is None and options.watchdog_stalled_idle_seconds == 0
 
 
@@ -203,7 +200,6 @@ def _run_loop(tmp_path: Path, engineer: _SilentCommandsEngineer):
             backend_failure_threshold=2,
             backend_failure_backoff_seconds=0,
             checkpoint_path=tmp_path / "CHECKPOINT.md",
-            runner_hard_idle_seconds=0,
             background_subagent_advisory=False,
         ),
         workdir=tmp_path,
