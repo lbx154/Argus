@@ -13,9 +13,9 @@ Chinese version: [PRINCIPLES.zh-CN.md](PRINCIPLES.zh-CN.md)
 ## 1. Agents judge meaning; the runtime guarantees mechanics
 
 Value, strategy, priority, completion quality, and the meaning of evidence
-require context and belong to agents. Process exit, file existence, budget,
-path ownership, irreversibility, and concurrency are mechanical facts and
-belong to the runtime.
+require context and belong to agents. Permission, budget, irreversibility,
+ownership of a path, and the truth of records are boundaries an agent cannot
+vouch for itself; the runtime guarantees them.
 
 The runtime surfaces facts an agent cannot observe directly. It does not make
 research judgments through regexes, counters, fixed thresholds, or schemas.
@@ -33,6 +33,17 @@ judgment instead of editing or imitating it. Whether work is progressing is a
 judgment too: the runtime enforces the budgets a principal set, not its own
 estimate of progress. Summaries, checkpoints, and "latest" views are
 projections rebuilt from these records, never a second source of truth.
+
+The runtime is not a parent. What an agent backend (Copilot, Codex, and the
+like) can do itself, the runtime does not do for it with built-in tools or
+mechanisms: starting and waiting on long jobs, deciding what to wait for and
+for how long, polling, judging whether it is stuck, deciding whether to look
+again. Nor do prompts forbid the backend from doing these its own way. The
+runtime does only what a backend cannot: hand work between roles, deliver new
+messages, keep the records, and hold the permission and irreversibility
+boundaries. A mechanism that only does for an agent what the agent could do
+itself is deleted; the mistakes it meant to prevent are pointed out by an
+observer watching the work, not prevented by more rules.
 
 ## 2. Core provides capability; Verticals provide domain policy
 
@@ -200,7 +211,7 @@ Implementations may change while the principles remain. When an implementation
 conflicts with a principle, change the implementation instead of adding an
 exception.
 
-## Six design questions
+## Seven design questions
 
 1. Is this a semantic judgment or a mechanical fact only the runtime can know?
 2. Is this domain policy or a capability every Vertical needs?
@@ -210,6 +221,7 @@ exception.
 5. Will this work advance the programme's final outcome?
 6. Who is the only author of this record, and does the judgment that uses it
    read the evidence itself rather than someone's account of it?
+7. Could the agent backend do this itself? If so, do not do it for it.
 
 If a mechanism repeatedly cannot answer these questions, delete it rather than
 adding another layer to protect it.
