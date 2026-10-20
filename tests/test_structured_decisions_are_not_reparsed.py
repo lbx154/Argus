@@ -165,51 +165,6 @@ def test_a_plain_prose_answer_is_still_read_line_by_line() -> None:
     assert route == "simple"
 
 
-def test_a_reviewer_decision_is_read_without_a_json_round_trip() -> None:
-    """The flat event shape is what the Reviewer is asked for; read it as such."""
-    from argus.reviewer._parsing import decision_from_payload
-
-    decision = decision_from_payload({
-        "status": "continue",
-        "reason": "Each round repairs a different symptom of one protocol.",
-        "next_action": "Certify per cell instead of per cohort.",
-        "plan_signal": "reconsider",
-        "plan_challenge": "The all-or-nothing cohort rule is self-imposed.",
-    })
-
-    assert decision is not None
-    assert decision.planner_report["plan_signal"] == "reconsider"
-
-
-def test_string_options_in_a_reviewer_decision_are_normalized() -> None:
-    from argus.reviewer._parsing import decision_from_payload
-
-    decision = decision_from_payload({
-        "status": "blocked",
-        "reason": "The operator owns the implementation order.",
-        "next_action": "Resume after the operator chooses.",
-        "operator_question": "Choose A or B.",
-        "operator_options": ["A: dependency first", "B: quality first"],
-    })
-
-    assert decision is not None
-    assert [option["id"] for option in decision.operator_options] == [
-        "option-1",
-        "option-2",
-    ]
-    assert [option["label"] for option in decision.operator_options] == [
-        "A: dependency first",
-        "B: quality first",
-    ]
-
-
-def test_a_reviewer_payload_missing_a_control_field_yields_no_verdict() -> None:
-    from argus.reviewer._parsing import decision_from_payload
-
-    assert decision_from_payload({"status": "done", "reason": "", "next_action": ""}) is None
-    assert decision_from_payload({"status": "invented", "reason": "x", "next_action": ""}) is None
-
-
 def test_tool_stdout_decision_cannot_override_the_roles_own_message() -> None:
     role_message = encode_role_decision(
         "reviewer",

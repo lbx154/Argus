@@ -17,7 +17,6 @@ from __future__ import annotations
 import ast
 import functools
 import importlib.util
-import json
 import re
 import subprocess
 import sys
@@ -30,6 +29,7 @@ import pytest
 
 import argus
 from argus.core import project_api
+from argus.core.models import ReviewDecision
 from argus.core.research_contract import normalize_research_result
 from argus.core.stop_kinds import PARK_STATUSES
 from argus.core.vertical_contract import (
@@ -38,7 +38,7 @@ from argus.core.vertical_contract import (
     vertical_contract,
 )
 from argus.life.memory import Backlog, BacklogItem
-from argus.reviewer import parse_decision_text
+from argus.reviewer.tools import ReviewActions
 from argus.roles.prompts.registry import PROMPT_CATALOG, resolve_role_prompt
 from argus.roles.prompts.types import RoleName, RolePromptRequest
 from argus.skills.stage_machine import ChecklistItem
@@ -727,17 +727,7 @@ def test_every_in_tree_prelude_provider_declares_the_four_names_keyword_only() -
 # 5. The Reviewer's structured payload channel
 # ---------------------------------------------------------------------------
 
-def _verdict(research_result: str = "") -> str:
-    body = (
-        "STATUS=done\n"
-        "REASON=The synthesis is supported by the cited sources.\n"
-        "NEXT_ACTION=\n"
-        "FORWARD_PROGRESS=true\n"
-    )
-    return body + (f"RESEARCH_RESULT={research_result}\n" if research_result else "")
-
-
-_WELL_FORMED = json.dumps({
+_WELL_FORMED = {
     "result_class": "literature_review",
     "correctness_status": "verified",
     "novelty_status": "known",
@@ -745,20 +735,29 @@ _WELL_FORMED = json.dumps({
     "statement_fidelity_status": "verified",
     "evidence": ["source audit"],
     "limitations": [],
-})
+}
+
+
+def _submit(research_result: dict) -> ReviewDecision | None:
+    actions = ReviewActions()
+    actions.dispatch("submit_review", {
+        "review": "The synthesis is supported by the cited sources.\n→ done",
+        "research_result": research_result,
+    })
+    return actions.decision
 
 
 def test_a_structured_result_reaches_the_event_payload_as_its_own_copy() -> None:
-    """Parsing the field is only half the channel; consumers read the event.
+    """Accepting the field is only half the channel; consumers read the event.
 
     ``research_result`` is the one structured thing the Reviewer can say beyond
-    a status line -- what kind of result this is, and how correct, novel, and
-    significant it is. A field that parses but is dropped during serialization
+    its handoff line -- what kind of result this is, and how correct, novel, and
+    significant it is. A field that is accepted but dropped during serialization
     is invisible to every ledger and digest downstream, and the loss looks
     exactly like a Reviewer that never filled it in. The copy matters too: a
     shared dict lets a downstream consumer edit the Reviewer's finding in place.
     """
-    decision = parse_decision_text(_verdict(_WELL_FORMED))
+    decision = _submit(_WELL_FORMED)
     assert decision is not None
     assert decision.research_result is not None
 
@@ -769,34 +768,28 @@ def test_a_structured_result_reaches_the_event_payload_as_its_own_copy() -> None
     assert decision.research_result["correctness_status"] == "verified"
 
 
-def test_an_invented_result_vocabulary_is_dropped_without_voiding_the_verdict() -> None:
-    """The status line is the verdict; the payload is a claim about its shape.
+def test_an_invented_result_vocabulary_is_refused_at_submission() -> None:
+    """The assessment speaks the framework's vocabulary or is not recorded.
 
     If unknown vocabulary passed through, a vertical could mint its own result
     classes and correctness levels, and everything downstream would key off
     strings the framework assigns no meaning to -- a "proved" that no part of
-    the runtime knows how to weigh. Dropping the payload is the fail-closed
-    choice. Invalidating the whole verdict is not: the Reviewer's decision
-    about whether the work is done stands on its own.
+    the runtime knows how to weigh. The submission is refused, and the refusal
+    goes back to the Reviewer as the tool's error, so it can say it again in
+    words the runtime can weigh.
     """
-    invented = json.dumps({
-        # Every other field below is drawn from the framework's vocabulary, so
-        # this payload is rejected for the result class alone.
+    invented = {
+        **_WELL_FORMED,
+        # Every other field is drawn from the framework's vocabulary, so this
+        # assessment is refused for the result class alone.
         "result_class": "proved_the_riemann_hypothesis",
-        "correctness_status": "verified",
-        "novelty_status": "verified_new",
-        "significance_status": "publishable",
-        "statement_fidelity_status": "verified",
-    })
+    }
 
-    decision = parse_decision_text(_verdict(invented))
-
-    assert decision is not None
-    assert decision.status == "done"
-    assert decision.research_result is None
+    with pytest.raises(ValueError):
+        _submit(invented)
 
 
-def test_a_half_filled_result_is_discarded_rather_than_completed_with_defaults() -> None:
+def test_a_half_filled_result_is_refused_rather_than_completed_with_defaults() -> None:
     """Five judgments, and none of them may be inferred on the Reviewer's behalf.
 
     Correctness, novelty, significance, statement fidelity, and result class
@@ -805,16 +798,11 @@ def test_a_half_filled_result_is_discarded_rather_than_completed_with_defaults()
     Reviewer never made, and downstream nothing can tell an inferred field from
     a stated one. Refusing the partial payload keeps the omission visible.
     """
-    partial = json.dumps({
-        "result_class": "literature_review",
-        "correctness_status": "verified",
-        "novelty_status": "known",
-        "statement_fidelity_status": "verified",
-    })
+    partial = {key: value for key, value in _WELL_FORMED.items() if key != "significance_status"}
 
-    assert normalize_research_result(json.loads(partial)) is None
-    decision = parse_decision_text(_verdict(partial))
-    assert decision is not None and decision.research_result is None
+    assert normalize_research_result(partial) is None
+    with pytest.raises(ValueError):
+        _submit(partial)
 
 
 # ---------------------------------------------------------------------------
@@ -1183,7 +1171,6 @@ PRIVATE_IMPORT_ALLOWLIST: frozenset[str] = frozenset({
     "manager -> argus.verticals._base",
     "manager -> argus.verticals._data_domain",
     "messaging -> argus.manager._session_ops",
-    "reviewer -> argus.core.role_reply._line_pattern",
     "reviewer -> argus.roles.prompts.reviewer._REEVALUATE_HEADER",
     "reviewer -> argus.roles.prompts.reviewer._load_wiki_curator_skill_if_present",
     "reviewer -> argus.roles.prompts.reviewer._verification_directive",

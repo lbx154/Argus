@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-import json
 from pathlib import Path
 
 import pytest
@@ -20,7 +19,6 @@ from argus.core.venue_review import (
 )
 from argus.engineer.round_settlement import RoundSettlementMixin
 from argus.reviewer import Reviewer, ReviewerConfig
-from argus.reviewer._parsing import decision_from_payload, parse_decision_text
 from argus.skills.vertical_select import persist_vertical
 
 
@@ -169,15 +167,9 @@ def test_a_final_reviews_own_routing_stands(paper):
     assert not review.final_submission_certified
 
 
-def test_named_and_structured_reviews_preserve_rating_but_not_model_claimed_bindings():
+def test_a_review_keeps_its_rating_but_not_a_model_claimed_binding():
     report = {**assessment(), "sha256": "model-invented"}
-    footer = "STATUS=done\nREASON=Reviewed paper.\nNEXT_ACTION=\nVENUE_REVIEW=" + json.dumps(report, indent=2)
-    named = parse_decision_text(footer)
-    structured = decision_from_payload({"status": "done", "reason": "Reviewed paper.", "next_action": "", "venue_review": report, "venue_review_passed": True})
-    assert named is not None and structured is not None
-    assert named.venue_review == structured.venue_review == assessment()
-    assert not structured.venue_review_passed
-    assert structured.venue_review_snapshot is None
+    assert normalize_venue_review(report) == assessment()
     assert normalize_venue_review({**report, "recommendation": "borderline_accept"}) is None
 
 

@@ -147,6 +147,7 @@ not guess on the model's behalf whether there is progress. The full design is in
   `reviewer/_parsing.py` that nothing calls anymore.
 - Done when: in tests, prose only the first time and a normal submission the second time lets the task continue instead
   of failing.
+- Status: the prose-parsing code is deleted with HO-16e (`reviewer/_parsing.py` is gone); the retry message is not done.
 
 #### HO-5 A Manager "hold on" must not throw away a result that already passed
 `0.2` · `M` · Depends on: none

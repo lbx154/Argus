@@ -17,7 +17,6 @@ RECOMMENDATIONS = (
     "weak_accept", "accept", "strong_accept", "best_paper",
 )
 ACCEPTED_RECOMMENDATIONS = frozenset({"weak_accept", "accept", "strong_accept", "best_paper"})
-FINAL_REVIEW_FEEDBACK_CHARS = 12_000
 #: The intervention that keeps a finished verdict open below the operator's bar.
 ACCEPTANCE_BAR_POLICY = "operator_acceptance_bar"
 

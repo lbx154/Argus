@@ -5,9 +5,7 @@ Manager decides whose authority it touches, and the Planner is handed the
 challenged assumption with its next cycle. The channel was nonetheless
 unreachable in practice. Its only key is ``plan_signal="reconsider"``, a word
 that appeared in no prompt, and the one example the Reviewer was shown offered
-an invalid ``keep``. On top of that the Reviewer's decision event is flat while
-the JSON parser read the plan fields only from a nested ``planner_report``, so
-a correctly formed challenge was dropped before anyone could route it.
+an invalid ``keep``.
 
 The result was a campaign that could close round after locally correct round
 with no way to question the design producing them. These tests pin the channel
@@ -16,11 +14,8 @@ open from prompt to Manager decision.
 
 from __future__ import annotations
 
-import json
-
 from argus.manager.plan_challenge import adjudicate_plan_challenge
 from argus.reviewer import Reviewer
-from argus.reviewer._parsing import parse_decision_text
 from argus.reviewer.tools import ReviewActions
 from argus.skills.store import SkillStore
 
@@ -73,72 +68,3 @@ def test_the_reviewer_is_told_an_owners_commitment_goes_to_its_owner(tmp_path) -
     prompt = _reviewer_prompt(tmp_path)
     assert "a commitment of the Manager or the operator goes to them" in prompt
     assert "`→ manager`" in prompt and "`→ operator: <one question>`" in prompt
-
-
-def test_a_flat_decision_event_carries_the_challenge_to_the_manager() -> None:
-    """The documented event shape must survive parsing and reach a decision."""
-    decision = parse_decision_text(json.dumps({
-        "status": "replan_requested",
-        "reason": "Each round repairs a different symptom of one cohort protocol.",
-        "next_action": "Certify per cell instead of per cohort.",
-        "plan_signal": "reconsider",
-        "plan_challenge": "The all-or-nothing cohort rule is self-imposed.",
-        "plan_alternative": "Certify admissible cells and narrow the claim.",
-        "authority_impact": "technical",
-    }))
-
-    assert decision is not None
-    assert decision.planner_report["plan_signal"] == "reconsider"
-    routed = adjudicate_plan_challenge(
-        decision.planner_report,
-        reviewer_status=decision.status,
-    )
-    assert routed.action == "replace"
-    assert routed.alternative == "Certify admissible cells and narrow the claim."
-
-
-def test_done_verdict_keeps_plan_challenge_advisory() -> None:
-    decision = parse_decision_text(json.dumps({
-        "status": "done",
-        "reason": "The new result lowers the current plan's expected value.",
-        "next_action": "Reassess the remaining route from the new evidence.",
-        "plan_signal": "reconsider",
-        "plan_challenge": "The current mechanism no longer explains the result.",
-        "authority_impact": "technical",
-    }))
-
-    assert decision is not None
-    routed = adjudicate_plan_challenge(
-        decision.planner_report,
-        reviewer_status=decision.status,
-    )
-    assert routed.action == "keep"
-    assert routed.alternative == ""
-
-
-def test_the_nested_shape_still_parses() -> None:
-    """Output already in flight against the older schema must keep working."""
-    decision = parse_decision_text(json.dumps({
-        "status": "done",
-        "reason": "complete",
-        "next_action": "",
-        "planner_report": {"plan_signal": "continue"},
-    }))
-
-    assert decision is not None
-    assert decision.planner_report == {
-        "plan_signal": "continue",
-    }
-
-
-def test_an_unrecognised_signal_is_dropped_rather_than_trusted() -> None:
-    decision = parse_decision_text(json.dumps({
-        "status": "done",
-        "reason": "complete",
-        "next_action": "",
-        "plan_signal": "keep",
-    }))
-
-    assert decision is not None
-    assert "plan_signal" not in decision.planner_report
-    assert adjudicate_plan_challenge(decision.planner_report).action == "keep"
