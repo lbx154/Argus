@@ -99,12 +99,19 @@ not guess on the model's behalf whether there is progress. The full design is in
 `0.2` · `S` · Depends on: none · good first issue
 - Today: no tool can tell us "how many times each passed task was reviewed, and how many of those reviews were wasted".
   Every later improvement needs this number.
-- Do: in `argus/tools/` (see `cache_hit_report.py`), write a read-only report that reads a project's `events.jsonl` and
+- Do: in `argus/tools/`, write a read-only report that reads a project's `events.jsonl` and
   round handoff files and outputs, for each passed task: Reviewer calls, how many of them saw an unchanged candidate,
   "continue" reasons by category, time taken, tokens, and model calls.
 - Done when: given a fixed event log, a test gets the expected numbers; this document shows the command to run it.
 - Split into: HO-1a count calls and time; HO-1b spot "reviewed again with no change"; HO-1c categorize reasons (for the
   report, a rough split is fine); HO-1d command line and instructions.
+- Run: `python -m argus.tools.efficiency_report <project-state-dir> [--json]` (read-only; it reads only `events.jsonl`,
+  since the round events carry every verdict the handoff files hold). It also lists calls, tokens, cache reads and
+  writes, and cost share by role; the calls that brought no new information (a Planner turn that only kept waiting, a
+  Manager supervision that was not applied or kept the course, a review while background work was still running) and
+  the calls skipped because nothing changed; the context-length spread and how it grows with session turns; and what
+  failures and retries cost.
+- Status: done (`7a2432b5`).
 
 #### HO-2 Don't review again when nothing changed
 `0.2` · `M` · Depends on: none
@@ -161,8 +168,7 @@ not guess on the model's behalf whether there is progress. The full design is in
 - Done when: when the policy is "no questions", the Reviewer's tool description no longer says "ask the operator"; no
   code path waits for the operator or ends as "needs operator"; the Manager can answer only the cards handed to it;
   the delivery report lists each decision it took.
-- Status: the single policy is done on `fix/liveness-adopt`; the Manager taking over the operator's authority is being
-  implemented on the same branch. Neither is in `dev` yet.
+- Status: the single policy and the Manager taking over the operator's authority are both in `dev`.
 
 #### HO-7 Show the Reviewer a real diff
 `0.3` · `L` · Depends on: none
@@ -183,6 +189,8 @@ not guess on the model's behalf whether there is progress. The full design is in
     modification time.
 - Done when: non-git directories, git directories, nested `.git`, large files, and excluded directories all have tests;
   a "pass" covers the whole task's changes.
+- Status: HO-7a and HO-7b are done (`247b432c`), and the window based on modification time went with them; HO-7c and
+  the rest of HO-7d remain.
 
 #### HO-8 Record what someone said under their own name
 `0.3` · `L` · Depends on: none
@@ -229,13 +237,19 @@ not guess on the model's behalf whether there is progress. The full design is in
 - Today: the system makes judgments for the model with rules like "a non-empty message counts as progress", "two
   passages sharing 60% of their words means stuck on the same problem", and "after round 12, stop if progress wasn't
   claimed twice". The code that maintains these rules and the related rewrites is about 2,000 to 2,500 lines.
-- Do: turn rounds, time, and spending into a task budget set by the Manager or the operator; when it runs out, stop and
-  record it, and let the Manager decide what's next; delete the rules above (including "hand back to itself at most 2
+- Do: turn rounds, time, and spending into a task budget set by the Manager or the operator; when it runs out, record it
+  and let the Manager decide what's next, never killing live work; delete the rules above (including "hand back to itself at most 2
   times in a row", added in the 2026-10-16 fixes); stop explaining system mechanics in the Reviewer prompt. No timer
   re-asks a waiting Planner any more: unchanged inputs keep it quiet until they change, and the operator-wait and
   spare-slot paths also ask only on new facts.
 - Done when: an architecture test lists which system guards are allowed; HO-1 shows success rate and cost did not get
   worse.
+- Status: the first step is done. The guards above no longer stop a task themselves: while the facts are unchanged
+  they wait, and on new facts they hand the task to the Manager once; the Manager may choose to stop, which parks the
+  task and keeps its workspace. The hard timeouts that killed processes are gone: a turn is stuck only when there is
+  neither model output nor CPU use in its process tree, and then it is reported to the Manager once. Background jobs
+  follow the same rule: `subagent submit` takes no `--timeout`, and a job with neither output nor CPU use for 30 min is
+  reported once, never killed. The budgets and deleting the guards remain.
 
 #### HO-13 Review only when work is handed in
 `0.4` · `M` · Depends on: HO-2, HO-7, HO-12
@@ -264,7 +278,7 @@ not guess on the model's behalf whether there is progress. The full design is in
   [handoff design](role-handoff-design.md): one holder per item; every wait has a deadline and a fallback; an unchanged
   return climbs; authority never vanishes.
 - Done when: each case above has a test (`tests/test_liveness_*.py`) that reaches done, dropped, or an explicit climb.
-- Status: fully implemented and tested on `fix/liveness-adopt`, not in `dev` yet. The first upgrade of a daemon from an
+- Status: all in `dev`. The first upgrade of a daemon from an
   old release should still stop the service before starting the new one.
 
 #### HO-16 The baton: one handoff line instead of footers and many pause states

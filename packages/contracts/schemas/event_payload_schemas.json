@@ -3903,7 +3903,9 @@
           "type": "string",
           "enum": [
             "no_forward_progress",
-            "unverifiable_through_view"
+            "unverifiable_through_view",
+            "turn_stalled",
+            "background_work_stalled"
           ]
         },
         "text": {
@@ -5630,65 +5632,6 @@
         "operator_alert": {
           "type": "boolean",
           "const": true
-        },
-        "text": {
-          "type": "string"
-        }
-      }
-    },
-    "round.external_work_wait.started": {
-      "version": 1,
-      "required": [
-        "round_index",
-        "work_id"
-      ],
-      "properties": {
-        "round_index": {
-          "type": "integer",
-          "minimum": 1
-        },
-        "round_max": {
-          "type": "integer",
-          "minimum": 0
-        },
-        "work_id": {
-          "type": "string",
-          "minLength": 1
-        },
-        "waited_total_s": {
-          "type": "number",
-          "minimum": 0
-        },
-        "text": {
-          "type": "string"
-        }
-      }
-    },
-    "round.external_work_wait.completed": {
-      "version": 1,
-      "required": [
-        "round_index",
-        "work_id"
-      ],
-      "properties": {
-        "round_index": {
-          "type": "integer",
-          "minimum": 1
-        },
-        "round_max": {
-          "type": "integer",
-          "minimum": 0
-        },
-        "work_id": {
-          "type": "string",
-          "minLength": 1
-        },
-        "reason": {
-          "type": "string"
-        },
-        "waited_total_s": {
-          "type": "number",
-          "minimum": 0
         },
         "text": {
           "type": "string"

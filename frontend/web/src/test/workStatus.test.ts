@@ -204,8 +204,7 @@ describe('a task waiting on its background team', () => {
     snapshot.background_work = [team];
     snapshot.roles = [{ role: 'engineer', active: true, backend: 'pi', backend_label: 'Pi', model: 'model', effort: 'high', label: 'waiting', status: 'running', age_s: 1 }];
     snapshot.backlog = [{ id: 'mission', title: 'Choose an idea', objective: '', status: 'running', priority: 1, started_ts: 200 }];
-    const events = [{ type: 'round.external_work_wait.started', item_id: 'mission', work_id: 'team:routes', ts: 700 }];
-    const inRound = currentWorkStatus(snapshot, null, events, 1000);
+    const inRound = currentWorkStatus(snapshot, null, [], 1000);
     expect(inRound).toMatchObject({ state: 'waiting', reason: 'background_work', role: '', activityAt: 820, activityAgeSeconds: 180 });
     expect(inRound.waitingOn).toMatchObject({ workId: 'team:routes', done: 5, total: 6 });
     expect(workStatusLabel(inRound, 'zh-CN')).toBe('正在等待后台团队：3 条研究路线全部完成、3 次独立复核中 2 次完成，最近一次进展在 3 分钟前');
@@ -219,14 +218,13 @@ describe('a task waiting on its background team', () => {
     expect(workStatusLabel(parked, 'zh-CN')).toBe(workStatusLabel(inRound, 'zh-CN'));
   });
 
-  it('ends with the wait’s completion event and needs a live daemon', () => {
+  it('ends when the snapshot stops naming the task, ignores old wait lines, and needs a live daemon', () => {
     const snapshot = fixture();
-    snapshot.background_work = [team];
+    snapshot.background_work = [{ ...team, state: 'done', waited_by: [] }];
     snapshot.roles = [{ role: 'engineer', active: true, backend: 'pi', backend_label: 'Pi', model: 'model', effort: 'high', label: 'working', status: 'running', age_s: 1 }];
     snapshot.backlog = [{ id: 'mission', title: 'Choose an idea', objective: '', status: 'running', priority: 1, started_ts: 200 }];
     const resumed = currentWorkStatus(snapshot, null, [
       { type: 'round.external_work_wait.started', item_id: 'mission', work_id: 'team:routes', ts: 700 },
-      { type: 'round.external_work_wait.completed', item_id: 'mission', work_id: 'team:routes', ts: 900 },
     ], 1000);
     expect(resumed).toMatchObject({ state: 'running', role: 'engineer' });
     const stopped = fixture(false);

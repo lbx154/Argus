@@ -55,7 +55,7 @@ _POISONED_SESSION_FATAL_ERROR_PATTERNS: tuple[str, ...] = (
 # and retried with backoff; the streak threshold still terminates a session
 # that keeps dying.
 _SESSION_DEATH_FATAL_ERROR_PATTERNS: tuple[str, ...] = (
-    "forced restart after hard idle timeout",
+    "forced restart after",
     "hard idle timeout",
     "acp prompt timed out",
     "acp process died",
@@ -434,7 +434,9 @@ def should_clear_thread_id_after_outcome(
     )
 
 
-_IDLE_TERMINATION_MARKER = "hard idle timeout"
+# Argus stopped the turn: past the opt-in hard idle limit, or because the
+# Manager decided to restart a turn that stopped progressing.
+_IDLE_TERMINATION_MARKER = "forced restart after"
 _RUNNING_TOOL_MARKER = "running tool: "
 
 
@@ -464,12 +466,13 @@ def idle_termination_review_decision(
     streak: int,
     threshold: int,
 ) -> ReviewDecision:
-    """The skipped-review record for a turn Argus stopped for silence.
+    """The skipped-review record for a turn Argus stopped for making no progress.
 
     Unlike a backend failure, nothing broke on the provider's side: a
-    command ran for the whole idle limit without finishing or printing. The
-    next round must not repeat it as it was, so the sentence names the
-    command when the transport recorded it and says what to do instead.
+    command made no progress until the Manager decided to restart the turn
+    (or the opt-in idle limit passed). The next round must not repeat it as
+    it was, so the sentence names the command when the transport recorded it
+    and says what to do instead.
     """
     error_text = str(fatal_error or f"exit={exit_code}").strip()
     tool = idle_termination_running_tool(fatal_error)
@@ -481,20 +484,17 @@ def idle_termination_review_decision(
         status="continue",
         reason=(
             "Argus stopped the Engineer's session because neither the model nor "
-            f"{what} produced anything for the whole idle limit; nothing was "
-            "judged. "
+            f"{what} made any progress for a long time; nothing was judged. "
             f"Technical record: consecutive failures={streak}, "
             f"limit={threshold}, error={error_text}"
         ),
         next_action=(
-            f"Argus stopped {what} after it stayed silent for the whole idle "
-            "limit. "
+            f"Argus stopped {what} after it made no progress for a long time. "
             "Read CHECKPOINT.md, then continue in a fresh session without "
             "repeating that command as it was: give it a time limit (for example "
             "`timeout 10m ...`), narrow it to the directories that matter instead "
             "of the whole machine, or start it as a background job and wait for "
-            "the job. A command that stays silent for the whole limit is stopped "
-            "again."
+            "the job."
         ),
     )
 

@@ -444,7 +444,7 @@ def test_inactivity_callback_is_reached_during_stderr_chatter() -> None:
 
     def on_idle(snapshot):
         snapshots.append(snapshot)
-        return "restart"
+        return "restart: the Manager decided to restart the stalled turn"
 
     state, events = _run_stream_with_chatter(
         "chatter(2.6)\n",
@@ -455,7 +455,6 @@ def test_inactivity_callback_is_reached_during_stderr_chatter() -> None:
     assert len(snapshots) == 1
     assert snapshots[0].idle_seconds >= 1
     assert snapshots[0].stderr_tail
-    assert "stall sub-agent" in str(state.watchdog_reason)
+    assert str(state.watchdog_reason).startswith("Forced restart after 1s without progress (the Manager decided")
     # The restart reason is final: no later stage may emit or overwrite it.
-    assert sum("stall sub-agent" in line for line in _watchdog_lines(events)) == 1
-    assert not any("Forced restart" in line for line in _watchdog_lines(events))
+    assert sum("Forced restart" in line for line in _watchdog_lines(events)) == 1

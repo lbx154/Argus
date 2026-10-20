@@ -17,6 +17,7 @@ import pytest
 from argus.core.event_catalog import EventType
 from argus.core.models import RunnerResult
 from argus.daemon.state import write_continuous_config
+from argus.engineer.change_facts import record_holder
 from argus.life.memory import Backlog, BacklogItem
 from argus.manager import Manager, supervision
 
@@ -112,11 +113,65 @@ def test_an_undelivered_decision_is_still_delivered_on_the_next_review(admitted,
     assert admitted(_review(1, **_not_needed()))["consult_reason"] == "issued decision awaiting delivery"
 
 
-def test_a_no_progress_streak_reaches_the_manager_even_when_not_asked(admitted):
-    stall = {"type": EventType.ROUND_STALL, "round_index": 2, "semantic_stall_streak": 1}
-    assert admitted(stall) is None
-    event = admitted({**stall, "round_index": 3, "semantic_stall_streak": 2})
+def test_a_stall_reaches_the_manager_only_when_the_round_loop_asks(admitted):
+    stall = {"type": EventType.ROUND_STALL, "round_index": 3, "semantic_stall_streak": 2}
+    assert admitted({**stall, "consult": ""}) is None
+    event = admitted({**stall, "consult": "2 rounds without forward progress"})
     assert event["consult_reason"] == "2 rounds without forward progress"
+
+
+def _facts(size: int) -> dict:
+    return {"workspace": [["solver.py", size, 1.0]], "external": [], "operator_revision": 0}
+
+
+@pytest.mark.parametrize(("attention", "first"), [(_not_needed(), 3), ({}, 1)])
+def test_a_look_on_facts_the_manager_already_holds_is_skipped(admitted, tmp_path, attention, first):
+    """The periodic look, and a Reviewer that did not say, ask once per set of facts."""
+    ledger = tmp_path / "handoffs" / "lineage-grouped" / "holders.json"
+    record_holder(ledger, "reviewer", _facts(10))
+    review = lambda round_index: _review(round_index, holder_ledger=str(ledger), **attention)  # noqa: E731
+    assert [round_index for round_index in range(1, 11) if admitted(review(round_index))] == [first]
+    record_holder(ledger, "reviewer", _facts(12))
+    assert [round_index for round_index in range(11, 16) if admitted(review(round_index))] == [11]
+    record_holder(ledger, "reviewer", {**_facts(12), "operator_revision": -1})  # unreadable: ask
+    assert admitted(review(16)) is not None
+
+
+_TURN_STALL = {
+    "type": EventType.ROUND_STALL, "stall_reason": "turn_stalled", "item_id": "grouped",
+    "idle_seconds": 1800, "running_tool": "sleep 9999",
+    "text": "the Engineer's turn has made no progress for 30 min while running `sleep 9999`",
+}
+
+
+def test_a_stalled_turn_reaches_the_manager_with_its_choices(admitted):
+    event = admitted(_TURN_STALL)
+    assert event["consult_reason"].startswith("the Engineer's turn has made no progress for 30 min")
+    assert "CONTINUE keeps waiting on that turn, STEER stops it" in event["consult_reason"]
+
+
+def test_newer_evidence_does_not_drop_a_pending_stall_report(admitted, tmp_path):
+    """The stall is sent once; the event that replaces it in the queue asks for both."""
+    key = str(tmp_path.resolve())
+    supervision._PENDING[key] = (None, tmp_path, {**_TURN_STALL, "consult_reason": "stalled"})
+    supervision._admit(None, tmp_path, _review(4, consult_reason="review"))
+    merged = supervision._PENDING.pop(key)[2]
+    assert merged["type"] == EventType.ROUND_REVIEW_COMPLETED and merged["stall_reason"] == "turn_stalled"
+    assert merged["consult_reason"] == "stalled; review"
+
+
+def test_a_stalled_turn_is_judged_even_when_the_project_files_are_unchanged(tmp_path):
+    """The stall is the news: an applied look at the same files does not answer it."""
+    write_continuous_config(tmp_path, enabled=True, objective="Produce a validated grouped summary")
+    Backlog(tmp_path / "backlog.jsonl").add(BacklogItem.new(item_id="grouped", title="t", objective="o"))
+    backend = _Backend(json.dumps({"action": "continue", "reason": "The run is still plausible.", "evidence_refs": ["backlog.jsonl"]}))
+    manager = Manager(tmp_path, runner=backend, memory_maintenance_enabled=False)
+    first = supervision.supervise(manager, tmp_path, _review(2, forward_progress=False))
+    assert first["status"] == "applied" and len(backend.prompts) == 1
+    assert supervision.supervise(manager, tmp_path, _review(2, forward_progress=False)) == first
+    stalled = supervision.supervise(manager, tmp_path, {**_TURN_STALL, "consult_reason": "stalled"})
+    assert stalled["status"] == "applied" and stalled["id"] != first["id"]
+    assert len(backend.prompts) == 2 and "consulted now because of: stalled" in backend.prompts[1]
 
 
 def test_a_failed_check_does_not_count_as_the_manager_having_looked(tmp_path):
@@ -185,7 +240,7 @@ def test_the_consult_reason_reaches_the_prompt_and_the_receipt(tmp_path):
     record = supervision.supervise(Manager(tmp_path, runner=backend, memory_maintenance_enabled=False), tmp_path, event)
     assert record["status"] == "applied"
     assert "consulted now because of: reviewer asks for the Manager" in backend.prompts[0]
-    assert "ACTION: continue, steer or wait" in backend.prompts[0]
+    assert "ACTION: continue, steer, wait or stop" in backend.prompts[0]
     assert record["trigger"]["round_index"] == 2
     assert record["trigger"]["consult_reason"] == "reviewer asks for the Manager"
 

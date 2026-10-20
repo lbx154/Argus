@@ -293,18 +293,21 @@ def test_direct_subagent_is_waitable_while_its_owner_is_alive(tmp_path: Path) ->
 
 
 @pytest.mark.parametrize(
-    ("timeout_seconds", "silent_for", "expected"),
+    ("silent_for", "extra", "expected"),
     [
-        (None, 7 * 3600, ExternalWorkState.STALLED),
-        (None, 60, ExternalWorkState.RUNNING_HEALTHY),
-        (86_400, 7 * 3600, ExternalWorkState.RUNNING_HEALTHY),
+        (31 * 60, {}, ExternalWorkState.STALLED),
+        (60, {}, ExternalWorkState.RUNNING_HEALTHY),
+        # CPU use its worker noted is work, even with nothing written.
+        (7 * 3600, {"cpu_progress_at": 1_000_000.0 - 60}, ExternalWorkState.RUNNING_HEALTHY),
+        # A time limit on an old record is ignored: it no longer ends anything.
+        (7 * 3600, {"timeout_seconds": 86_400}, ExternalWorkState.STALLED),
     ],
 )
-def test_a_direct_subagent_without_a_timeout_that_falls_silent_is_stalled(
-    tmp_path: Path, timeout_seconds, silent_for, expected,
+def test_a_direct_subagent_with_no_cpu_and_no_output_is_stalled(
+    tmp_path: Path, silent_for, extra, expected,
 ) -> None:
-    """A hung command keeps its process alive; with no timeout to end it, a
-    long silence on its output is what ends the wait on it."""
+    """A hung command keeps its process alive and nothing ends it; half an
+    hour with neither CPU use nor output is what ends the wait on it."""
     now = 1_000_000.0
     log = tmp_path / "direct-job.out"
     log.write_text("epoch 1\n", encoding="utf-8")
@@ -318,8 +321,8 @@ def test_a_direct_subagent_without_a_timeout_that_falls_silent_is_stalled(
             "state": "running",
             "worker_pid": os.getpid(),
             "started_at": now - 8 * 3600,
-            "timeout_seconds": timeout_seconds,
             "stdout_log": str(log),
+            **extra,
         }),
         encoding="utf-8",
     )
@@ -328,6 +331,38 @@ def test_a_direct_subagent_without_a_timeout_that_falls_silent_is_stalled(
 
     assert status is not None and status.state is expected
     assert status.waitable is (expected is ExternalWorkState.RUNNING_HEALTHY)
+
+
+def test_a_direct_subagent_writing_its_run_dir_is_not_silent(tmp_path: Path) -> None:
+    """A training step that checkpoints without printing is busy, not hung."""
+    now = 1_000_000.0
+    log = tmp_path / "direct-job.out"
+    log.write_text("epoch 1\n", encoding="utf-8")
+    os.utime(log, (now - 7 * 3600, now - 7 * 3600))
+    run_dir = tmp_path / "runs" / "r1"
+    run_dir.mkdir(parents=True)
+    (run_dir / "metrics.jsonl").write_text("{}\n", encoding="utf-8")
+    os.utime(run_dir, (now - 7 * 3600, now - 7 * 3600))
+    os.utime(run_dir / "metrics.jsonl", (now - 60, now - 60))
+    registry = tmp_path / ".argus_subagents"
+    registry.mkdir()
+    (registry / "direct-job.json").write_text(
+        json.dumps({
+            "task_id": "direct-job",
+            "mode": "direct",
+            "state": "running",
+            "worker_pid": os.getpid(),
+            "started_at": now - 8 * 3600,
+            "stdout_log": str(log),
+            "cwd": str(tmp_path),
+            "run_dir": "runs/r1",
+        }),
+        encoding="utf-8",
+    )
+
+    status = inspect_external_work(tmp_path, "direct-job", now=now)
+
+    assert status is not None and status.state is ExternalWorkState.RUNNING_HEALTHY
 
 
 def test_direct_subagent_with_dead_owner_is_stalled(tmp_path: Path) -> None:

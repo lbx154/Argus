@@ -441,7 +441,7 @@ def test_parent_is_requeued_after_owned_subagent_settles(
         sink=SimpleNamespace(handle_event=lambda _event: None),
     )
 
-    assert worker._fail_stalled_running_items(state) == [item.id]
+    assert worker._recover_stalled_running_items(state) == [item.id]
 
     stored = next(row for row in memory.backlog.active() if row.id == item.id)
     assert stored.status == "pending"

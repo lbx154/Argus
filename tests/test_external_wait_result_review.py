@@ -43,9 +43,10 @@ class Reviewer:
 def execute(tmp_path, monkeypatch, reviewer, *, independent=True, rounds=4, launch_review=True):
     from argus.engineer import runner
 
+    events = []
+
     def wait(**kw):
-        if kw.get("on_event"):
-            kw["on_event"]({"type": "test.wait"})
+        events.append({"type": "test.wait"})
         return "cadence_elapsed", 30.0
 
     monkeypatch.setattr(runner, "_run_external_work_wait", wait)
@@ -61,7 +62,6 @@ def execute(tmp_path, monkeypatch, reviewer, *, independent=True, rounds=4, laun
         review_background_launches=launch_review,
         context_packet_path=tmp_path / "handoff" / "mission.json",
     )
-    events = []
     result = value.run(
         objective="Train and evaluate a useful policy", workdir=tmp_path,
         engineer_prompt_builder=lambda action, include_static=True: action or "Start",

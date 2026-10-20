@@ -25,6 +25,7 @@ from ..core.role_session import (
 )
 
 _RUNNER_HARD_IDLE_ENV = "ARGUS_SKILL_RUNNER_HARD_IDLE_SECONDS"
+_RUNNER_STALLED_IDLE_ENV = "ARGUS_SKILL_RUNNER_STALLED_IDLE_SECONDS"
 _DECISION_PROGRESS_TIMEOUT_ENV = "ARGUS_SKILL_DECISION_PROGRESS_TIMEOUT_SECONDS"
 # Toggle for the background-subagent advisory + agent-driven cadence wait. When
 # unset/true, each round surfaces in-flight supervised subagents so the engineer
@@ -43,14 +44,13 @@ _NARRATIVE_REVIEW_ENFORCEMENT_ENV = "ARGUS_SKILL_NARRATIVE_REVIEW_ENFORCEMENT"
 _CONTINUE_WORK_SENTINEL = "CONTINUE_WORK:"
 _CONTINUE_WORK_MAX_CHARS = 500
 _DEFAULT_DECISION_PROGRESS_TIMEOUT_SECONDS = 0
-# A turn in which neither the model nor the command it is running has
-# produced anything for this long is stopped, and the next round is told which
-# command was running. The ACP transport delivers a command's output only when
-# the command ends, so this is in effect the time limit of one foreground
-# command: on 2026-09-23 a `find /` over a 19 TB volume and four network
-# mounts held a project for over half an hour with nothing to show. Long work
-# belongs in a background job, which the Engineer is told to use.
-_RUNNER_DEFAULT_HARD_IDLE_SECONDS = 1800
+# A turn is never stopped by a timer by default: a live process is not proof
+# of work, but silence is not proof of a hang either. A turn that makes no
+# progress (no model stream event, no CPU time in its commands) for the stalled
+# limit is reported to the Manager once, and stopped only if the Manager
+# decides so. ARGUS_SKILL_RUNNER_HARD_IDLE_SECONDS opts into a hard stop.
+_RUNNER_DEFAULT_HARD_IDLE_SECONDS = 0
+_RUNNER_DEFAULT_STALLED_IDLE_SECONDS = 30 * 60
 # Framework-owned fallback for ``EngineerConfig.live_search_stages``: the
 # research stage, where idea discovery / literature grounding happens. A
 # vertical that owns a different pipeline (math runs scope/solve/review and has
@@ -382,6 +382,12 @@ class SupervisedConfig:
             _RUNNER_DEFAULT_HARD_IDLE_SECONDS,
         )
     )
+    runner_stalled_idle_seconds: int = field(
+        default_factory=lambda: env_int(
+            _RUNNER_STALLED_IDLE_ENV,
+            _RUNNER_DEFAULT_STALLED_IDLE_SECONDS,
+        )
+    )
     # Surface in-flight SUPERVISED subagents (read from
     # ``<workdir>/.argus_subagents``) in the engineer prompt each round so the
     # agent does not burn rounds babysitting a self-watched long job, and can
@@ -400,6 +406,10 @@ class SupervisedConfig:
     # instead of a plain no-progress stop (venue revisions; see
     # ``core.venue_review.configure_venue_revisions``).
     stall_asks_operator: bool = False
+    # A Manager supervises this run (daemon and LifeSupervisor missions): a
+    # tripped stall guard asks it instead of ending the mission. Teammate and
+    # CLI runs have nobody above them, so there the guard still ends the run.
+    manager_supervised: bool = False
     # While the Engineer waits on work it started itself, the round keeps the
     # mission slot for as long as this answers True, instead of pausing after
     # one cadence and paying a Planner turn and a session restart to be resumed

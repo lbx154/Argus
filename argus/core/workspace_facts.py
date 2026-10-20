@@ -33,6 +33,9 @@ IGNORED_NAMES = frozenset({
     "node_modules",
     "venv",
 })
+# A git that has not answered by then (a stale lock, a hung mount) leaves the
+# facts unknown; the work it describes goes on without them.
+GIT_TIMEOUT_SECONDS = 10.0
 
 
 def fact_text(value: Any) -> str:
@@ -62,7 +65,7 @@ def _facts(path: Path) -> list[int]:
 
 def _git(root: Path, *args: str, check: bool = True) -> str:
     return subprocess.run(
-        ["git", *args], cwd=root, check=check, capture_output=True,
+        ["git", *args], cwd=root, check=check, capture_output=True, timeout=GIT_TIMEOUT_SECONDS,
     ).stdout.decode("utf-8", errors="surrogateescape")
 
 
@@ -111,7 +114,8 @@ def workspace_facts(root: Path | str, *, ignore: Iterable[str] = ()) -> dict[str
     """What ``root`` looks like now, leaving out ``ignore`` (relative files or dirs).
 
     Only ``stat`` is read, so a large dataset or checkpoint costs nothing
-    extra. An unreadable workspace is a stable fact of its own, not churn.
+    extra. A workspace that cannot be read in time is ``{"unavailable": True}``:
+    unknown, never evidence that nothing changed.
     """
     root = Path(root)
     try:

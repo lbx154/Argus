@@ -10,6 +10,7 @@ from typing import TYPE_CHECKING, Any, Callable
 
 from ..core.event_catalog import EventType
 from ..core.models import LoopStatus, ReviewDecision, RoundRecord, without_routing_judgments
+from .change_facts import change_facts, holds_unchanged, mission_ledger, record_holder
 from .checkpoint import resolve_shared_checkpoint
 from .reviewer_findings import reviewer_authored_rounds
 from .round_config import (
@@ -390,6 +391,34 @@ _STALL_REDIRECT = (
     "failing to move, then take a different route to the same question — "
     "changing the question is how a campaign loses its paper."
 )
+# The Reviewer's own verdicts; any other terminal ``_classify`` returns is a
+# count guard's guess that progress stopped.
+_REVIEWER_VERDICTS = frozenset({"done", "blocked", "replan_requested"})
+#: Consecutive no-progress verdicts after which the Manager is asked even when
+#: the Reviewer did not ask; half the default stall limit, so it looks before
+#: any guard trips.
+STALL_BACKSTOP_STREAK = 2
+
+
+def _manager_consult(
+    config: "SupervisedConfig", workdir: Path, reason: str, round_index: int,
+) -> str:
+    """``reason`` unless the Manager already ruled on the mission's current facts.
+
+    Its ruling (continue, steer or wait) stands until the workspace, the
+    background work or the operator's context changes: asked again on the same
+    facts it can only repeat itself, and the stall would just move from the
+    Engineer to the Manager.
+    """
+    ledger = mission_ledger(config.context_packet_path)
+    try:
+        facts = change_facts(workdir, state_root=config.operator_question_policy_root)
+        if holds_unchanged(ledger, "manager", facts):
+            return ""
+        record_holder(ledger, "manager", facts, round=round_index, reason=reason)
+    except Exception:  # noqa: BLE001 - an unreadable ledger asks rather than stalls
+        log.warning("could not compare the Manager's held facts", exc_info=True)
+    return reason
 
 
 def _venue_stall_question(
@@ -491,14 +520,13 @@ class RoundSettlementMixin:
             return (
                 "no_progress",
                 "Engineer produced no effective output for "
-                f"{no_progress_streak} consecutive rounds." + _STALL_REDIRECT,
+                f"{no_progress_streak} consecutive rounds.",
             )
         if soft_limit_stalled:
             return (
                 "no_progress",
                 f"Soft round limit {soft_round_limit} passed and neither of the "
-                "Reviewer's last two judgments reported forward progress."
-                + _STALL_REDIRECT,
+                "Reviewer's last two judgments reported forward progress.",
             )
         if (
             stall_threshold > 0
@@ -508,7 +536,7 @@ class RoundSettlementMixin:
             return (
                 "no_progress",
                 "Reviewer reported no forward progress for "
-                f"{semantic_stall_streak} consecutive rounds." + _STALL_REDIRECT,
+                f"{semantic_stall_streak} consecutive rounds.",
             )
         if (
             decision_timeout_seconds > 0
@@ -518,7 +546,7 @@ class RoundSettlementMixin:
             return (
                 "no_progress",
                 f"Reached {decision_timeout_seconds} seconds without decision "
-                "progress." + _STALL_REDIRECT,
+                "progress.",
             )
         if (
             hard_escalate_rounds > 0
@@ -595,14 +623,18 @@ class RoundSettlementMixin:
             else now_monotonic
         )
         if on_event:
-            on_event(
-                _review_event_payload(
-                    review,
-                    round_index=round_index,
-                    round_max=supervised_config.max_rounds,
-                    text=f"review: {review.status} — {review.reason}",
-                )
+            payload = _review_event_payload(
+                review,
+                round_index=round_index,
+                round_max=supervised_config.max_rounds,
+                text=f"review: {review.status} — {review.reason}",
             )
+            if supervised_config.manager_supervised and (
+                ledger := mission_ledger(supervised_config.context_packet_path)
+            ):
+                # Where the Manager's periodic look finds the facts it last held.
+                payload["holder_ledger"] = str(ledger)
+            on_event(payload)
         record = RoundRecord(
             round_index=round_index,
             engineer_message=engineer_message,
@@ -650,11 +682,62 @@ class RoundSettlementMixin:
             0.0,
             now_monotonic - state.last_decision_progress_at,
         )
-        if (
-            on_event
-            and state.semantic_stall_streak > 0
-            and not (policy_retry and forward_progress is None)
-        ):
+        terminal_status, reason = self._classify(
+            review=review,
+            no_progress_streak=state.no_progress_streak,
+            no_progress_threshold=supervised_config.no_progress_threshold,
+            semantic_stall_streak=state.semantic_stall_streak,
+            stall_threshold=supervised_config.stall_threshold,
+            round_index=round_index,
+            max_rounds=supervised_config.max_rounds,
+            hard_escalate_rounds=supervised_config.hard_escalate_rounds,
+            decision_idle_seconds=decision_idle_seconds,
+            decision_timeout_seconds=(supervised_config.decision_progress_timeout_seconds),
+            policy_retry=policy_retry,
+            # The Reviewer's last two judgments, not the last two records:
+            # a host placeholder for an unjudged turn carries no progress
+            # judgment and must not push a real one out of the window.
+            soft_limit_stalled=bool(
+                supervised_config.soft_round_limit > 0
+                and round_index > supervised_config.soft_round_limit
+                and len(reviewer_rounds := reviewer_authored_rounds(state.rounds)) >= 2
+                and all(
+                    _review_forward_progress(row.review) is not True
+                    for row in reviewer_rounds[-2:]
+                )
+            ),
+            soft_round_limit=supervised_config.soft_round_limit,
+            blocked_on_healthy_work=healthy_work,
+        )
+        stall_reached = (
+            supervised_config.stall_threshold > 0
+            and state.semantic_stall_streak >= supervised_config.stall_threshold
+        )
+        venue_question = bool(
+            terminal_status == "no_progress"
+            and stall_reached
+            and supervised_config.stall_asks_operator
+            and _operator_questions_allowed(supervised_config)
+            and state.rounds
+        )
+        counted_stall = state.semantic_stall_streak > 0 and not (
+            policy_retry and forward_progress is None
+        )
+        consult = ""
+        if supervised_config.manager_supervised and not venue_question:
+            if terminal_status is not None and review.status not in _REVIEWER_VERDICTS:
+                # A guard's guess does not end a supervised mission; the
+                # Manager decides, and the mission runs on its ruling.
+                consult, terminal_status = reason, None
+            elif (
+                terminal_status is None
+                and counted_stall
+                and state.semantic_stall_streak >= STALL_BACKSTOP_STREAK
+            ):
+                consult = f"{state.semantic_stall_streak} rounds without forward progress"
+            if consult:
+                consult = _manager_consult(supervised_config, workdir, consult, round_index)
+        if on_event and (consult or counted_stall):
             on_event(
                 {
                     "type": EventType.ROUND_STALL,
@@ -672,7 +755,9 @@ class RoundSettlementMixin:
                     "semantic_stall_streak": state.semantic_stall_streak,
                     "stall_threshold": supervised_config.stall_threshold,
                     "decision_idle_seconds": round(decision_idle_seconds, 1),
-                    "text": (
+                    # Set only when the Manager is to be asked now.
+                    "consult": consult,
+                    "text": consult or (
                         "reviewer reported no forward progress "
                         f"{state.semantic_stall_streak}/"
                         f"{supervised_config.stall_threshold} rounds"
@@ -706,49 +791,16 @@ class RoundSettlementMixin:
         paused = manager_wait_terminal(supervised_config, state)
         if paused is not None:
             return control_return(paused)
-        terminal_status, reason = self._classify(
-            review=review,
-            no_progress_streak=state.no_progress_streak,
-            no_progress_threshold=supervised_config.no_progress_threshold,
-            semantic_stall_streak=state.semantic_stall_streak,
-            stall_threshold=supervised_config.stall_threshold,
-            round_index=round_index,
-            max_rounds=supervised_config.max_rounds,
-            hard_escalate_rounds=supervised_config.hard_escalate_rounds,
-            decision_idle_seconds=decision_idle_seconds,
-            decision_timeout_seconds=(supervised_config.decision_progress_timeout_seconds),
-            policy_retry=policy_retry,
-            # The Reviewer's last two judgments, not the last two records:
-            # a host placeholder for an unjudged turn carries no progress
-            # judgment and must not push a real one out of the window.
-            soft_limit_stalled=bool(
-                supervised_config.soft_round_limit > 0
-                and round_index > supervised_config.soft_round_limit
-                and len(reviewer_rounds := reviewer_authored_rounds(state.rounds)) >= 2
-                and all(
-                    _review_forward_progress(row.review) is not True
-                    for row in reviewer_rounds[-2:]
-                )
-            ),
-            soft_round_limit=supervised_config.soft_round_limit,
-            blocked_on_healthy_work=healthy_work,
-        )
         if terminal_status is not None:
-            if (
-                supervised_config.stall_threshold > 0
-                and state.semantic_stall_streak >= supervised_config.stall_threshold
-            ):
+            if terminal_status == "no_progress":
+                reason += _STALL_REDIRECT
+            if stall_reached:
                 # The stall fired: the Manager now sees it. One firing per
                 # obstacle, so the next mission does not inherit it.
                 from .obstacle_stall import clear_obstacle_stall
 
                 clear_obstacle_stall(state.obstacle_stall_root, state.obstacle_stall_objective)
-                if (
-                    terminal_status == "no_progress"
-                    and supervised_config.stall_asks_operator
-                    and _operator_questions_allowed(supervised_config)
-                    and state.rounds
-                ):
+                if venue_question:
                     # A stalled venue revision would otherwise be resumed on
                     # the Reviewer's "continue" and stall again, for as long
                     # as the bar stayed out of reach: the operator decides.

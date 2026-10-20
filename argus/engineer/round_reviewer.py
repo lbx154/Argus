@@ -499,7 +499,11 @@ class RoundReviewerMixin:
                     self.reviewer_config,
                     working_dir=str(workdir),
                     artifact_root=str(workdir),
-                    round_started_ts=state.round_started_wall,
+                    snapshots=(
+                        state.snapshots
+                        if state.snapshots and state.snapshots.take("candidate")
+                        else None
+                    ),
                     engineer_records_commands=backend_records_command_results(
                         getattr(self, "engineer_runner", None)
                     ),
@@ -546,7 +550,6 @@ class RoundReviewerMixin:
             state.pending_round_evidence.clear()
             state.unreviewed_engineer_accounts.clear()
             state.engineer_self_handoffs = 0
-            state.round_started_wall = None
             # Provenance: only this call's own judgment becomes a finding
             # carried forward to later rounds.
             review.reviewer_authored = True

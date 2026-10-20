@@ -74,7 +74,7 @@ def _failure_reason(stage: str, metadata: dict[str, Any], *, issued: bool = Fals
     if code == "cancelled":
         return "The Manager evidence check was cancelled; prior controls remain authoritative."
     if code == "superseded":
-        return "Newer control, evidence, or a foreground conversation superseded this check; the older Manager decision was not applied."
+        return "Newer control or evidence superseded this check; the older Manager decision was not applied."
     clause = stop_kind_clause(metadata.get("stop_kind"))
     if clause:
         return f"The Manager evidence check stopped because {clause}; prior controls remain authoritative."

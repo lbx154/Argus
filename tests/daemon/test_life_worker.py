@@ -969,7 +969,7 @@ def test_daemon_sink_counts_life_mission_completed() -> None:
     assert worker._missions_completed == 1
 
 
-def test_daemon_fails_running_item_when_executor_thread_dead(
+def test_daemon_requeues_running_item_when_executor_thread_dead(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
@@ -996,17 +996,15 @@ def test_daemon_fails_running_item_when_executor_thread_dead(
 
     worker._start_running_stall_watcher(state)
     try:
-        _wait_for_backlog_item_status(memory, item.id, "failed", timeout=1.0)
+        _wait_for_backlog_item_status(memory, item.id, "pending", timeout=1.0)
     finally:
         worker._stop_running_stall_watcher()
 
-    stored = next(row for row in memory.backlog.history() if row.id == item.id)
-    assert stored.status == "failed"
+    stored = next(row for row in memory.backlog.active() if row.id == item.id)
+    assert stored.status == "pending"
+    assert stored.attempt == 2
     assert stored.last_error == "executor exited without completing the task"
-    assert len(events) == 1
-    assert events[0]["type"] == "life.mission.completed"
-    assert events[0]["success"] is False
-    assert events[0]["status"] == "failed"
+    assert events == []
 
 
 def test_daemon_requeues_running_item_when_owned_subagent_finished(
@@ -1043,7 +1041,7 @@ def test_daemon_requeues_running_item_when_owned_subagent_finished(
         sink=SimpleNamespace(handle_event=events.append),
     )
 
-    assert worker._fail_stalled_running_items(state) == [item.id]
+    assert worker._recover_stalled_running_items(state) == [item.id]
 
     stored = next(row for row in memory.backlog.active() if row.id == item.id)
     assert stored.status == "pending"
@@ -1091,7 +1089,7 @@ def test_daemon_keeps_parent_parked_when_any_owned_subagent_is_active(
         sink=SimpleNamespace(handle_event=lambda _event: None),
     )
 
-    assert worker._fail_stalled_running_items(state) == [item.id]
+    assert worker._recover_stalled_running_items(state) == [item.id]
 
     stored = next(row for row in memory.backlog.active() if row.id == item.id)
     assert stored.status == "paused_external_work"
@@ -1132,7 +1130,7 @@ def test_daemon_parks_running_item_on_owned_active_subagent(
         sink=SimpleNamespace(handle_event=events.append),
     )
 
-    assert worker._fail_stalled_running_items(state) == [item.id]
+    assert worker._recover_stalled_running_items(state) == [item.id]
 
     stored = next(row for row in memory.backlog.active() if row.id == item.id)
     assert stored.status == "paused_external_work"
@@ -1170,7 +1168,7 @@ def test_daemon_does_not_fail_quiet_item_while_supervisor_is_running(
     )
     worker._supervisor_execution_active.set()
 
-    assert worker._fail_stalled_running_items(state) == []
+    assert worker._recover_stalled_running_items(state) == []
     stored = next(row for row in memory.backlog.active() if row.id == item.id)
     assert stored.status == "running"
     assert events == []

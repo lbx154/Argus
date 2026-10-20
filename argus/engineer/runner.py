@@ -4,7 +4,6 @@ from __future__ import annotations
 import itertools
 import json
 import logging
-import time
 from dataclasses import replace
 from pathlib import Path
 from typing import Callable
@@ -29,8 +28,15 @@ from ..core.secret_guard import (
     known_secret_values,
     redact_secrets_record,
 )
+from ..core.workspace_snapshot import WorkspaceSnapshots
 from ..reviewer import Reviewer, ReviewerConfig
-from .change_facts import change_facts, held_facts, mission_ledger, record_holder
+from .change_facts import (
+    change_facts,
+    holds_unchanged,
+    mission_ledger,
+    mission_lineage,
+    record_holder,
+)
 from .checkpoint import resolve_shared_checkpoint
 from .external_work import scan_external_work
 
@@ -78,6 +84,7 @@ from .round_stop_signals import (
     should_clear_thread_id_after_outcome,
 )
 from .round_waits import RoundWaitsMixin
+from .turn_stall import LOOK_SECONDS, TurnStallWatch
 
 # The next Reviewer reads at most this many earlier unreviewed Engineer
 # accounts, each kept to its head and tail when longer than the char bound.
@@ -191,9 +198,9 @@ class SupervisedEngineer(
             ),
             None,
         )
-        if target is None or change_facts(
+        if target is None or not holds_unchanged(ledger, "reviewer", change_facts(
             workdir, state_root=supervised_config.operator_question_policy_root, statuses=work,
-        ) != held_facts(ledger, "reviewer"):
+        )):
             return control_proceed()
         if on_event:
             on_event({
@@ -290,6 +297,13 @@ class SupervisedEngineer(
             state.obstacle_stall_root, state.obstacle_stall_objective,
             threshold=int(getattr(supervised_config, "stall_threshold", 0) or 0),
         )
+        lineage = mission_lineage(supervised_config.context_packet_path) or state.mission_ref
+        if state.obstacle_stall_root is not None and lineage:
+            snapshots = WorkspaceSnapshots(
+                state.obstacle_stall_root / "snapshots.git", Path(workdir).resolve(), lineage,
+            )
+            # The task's baseline stays when the same work resumes or is replanned.
+            state.snapshots = snapshots if snapshots.take("baseline", keep=True) else None
         if seed_thread_id:
             state.engineer_thread_ids.add(str(seed_thread_id))
         checkpoint_path = resolve_shared_checkpoint(supervised_config.checkpoint_path)
@@ -383,11 +397,9 @@ class SupervisedEngineer(
             if paused is not None:
                 return paused
             control = self._handle_runtime_team_wait(
-                round_index=round_index,
                 supervised_config=supervised_config,
                 workdir=workdir,
                 state=state,
-                on_event=on_event,
             )
             if control.action == "return":
                 return enforce_terminal_question_policy(
@@ -412,8 +424,6 @@ class SupervisedEngineer(
                 engineer_prompt += "\n\n" + state.pending_external_work_followup
                 state.pending_external_work_followup = ""
 
-            if state.round_started_wall is None:
-                state.round_started_wall = time.time()
             outcome = self._run_engineer_turn(
                 round_index=round_index,
                 engineer_prompt=engineer_prompt,
@@ -549,13 +559,18 @@ class SupervisedEngineer(
             review = control.payload
             if ledger is not None and (review.review_source or "reviewer") == "reviewer":
                 # Read after the review, so its own writes are not news next round.
-                record_holder(
-                    ledger, "reviewer",
-                    change_facts(
-                        workdir, state_root=supervised_config.operator_question_policy_root,
-                    ),
-                    round=round_index,
-                )
+                try:
+                    record_holder(
+                        ledger, "reviewer",
+                        change_facts(
+                            workdir, state_root=supervised_config.operator_question_policy_root,
+                        ),
+                        round=round_index,
+                    )
+                except OSError:
+                    # Bookkeeping never blocks the round; without the record the
+                    # Reviewer may be called once more on unchanged facts.
+                    log.exception("failed to record the Reviewer's held facts")
 
             if review_before_wait:
                 from .external_work import inspect_external_work, parse_external_wait_request
@@ -628,15 +643,17 @@ class SupervisedEngineer(
     ) -> tuple[RunnerResult, int]:
         hard_idle_seconds: int | None = None
         stalled_idle_seconds: int | None = None
+        stall_watch: TurnStallWatch | None = None
         if supervised_config is not None:
             hard_idle_seconds = int(supervised_config.runner_hard_idle_seconds or 0)
-            # Say which command is silent well before it is stopped, so the
-            # operator's status line can show where the round is stuck.
-            # With the hard stop off, leave the backend's own likely-stalled
-            # alert in place (None = backend default) rather than disabling it.
-            stalled_idle_seconds = (
-                min(600, max(1, hard_idle_seconds // 3)) if hard_idle_seconds > 0 else None
-            )
+            stalled_idle_seconds = int(supervised_config.runner_stalled_idle_seconds or 0)
+            if stalled_idle_seconds > 0:
+                stall_watch = TurnStallWatch(
+                    stall_seconds=stalled_idle_seconds,
+                    state_root=supervised_config.operator_question_policy_root,
+                    run_label=run_label,
+                    on_event=on_event,
+                )
         try:
             result = gateway_run_exec(
                 self.engineer_runner,
@@ -667,6 +684,8 @@ class SupervisedEngineer(
                     # watchdog. Do not infer semantic progress from project
                     # mtimes or provider-private session files.
                     external_interrupt_reason_provider=None,
+                    inactivity_callback=stall_watch,
+                    watchdog_soft_idle_seconds=LOOK_SECONDS if stall_watch else None,
                     watchdog_stalled_idle_seconds=stalled_idle_seconds,
                     watchdog_hard_idle_seconds=hard_idle_seconds,
                     extension_env=(

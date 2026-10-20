@@ -342,13 +342,29 @@ class IdleCycleMixin:
         except Exception:  # noqa: BLE001 - durable peers retry at the next boundary
             log.warning("peer inbox remains pending", exc_info=True)
 
+    def _operator_inbox_unread(self, exc: Exception) -> None:
+        log.warning("operator inbox unread; planning goes on without it", exc_info=True)
+        if getattr(self, "_operator_inbox_alerted", False):
+            return
+        self._operator_inbox_alerted = True
+        self._emit({
+            "type": EventType.OPERATOR_ALERT,
+            "operator_alert": True,
+            "reason": "operator_inbox_unread",
+            "text": (
+                f"Operator messages could not be read ({exc}); they stay queued and "
+                "are delivered once the inbox reads again. Work goes on meanwhile."
+            ),
+        })
+
     def _drain_user_inbox(self, *, max_messages: int = 10) -> list[str]:
         """Pull all pending operator nudges from the configured inbox.
 
         Returns up to ``max_messages`` lines (oldest-first). Empty list
-        if no inbox is configured or nothing is pending. Any exception
-        from the user-supplied callable is swallowed — a flaky bus
-        must never break a mission.
+        if no inbox is configured, nothing is pending, or the inbox cannot
+        be read now — a flaky bus must never break a mission. An unread
+        message stays leased in the durable inbox and is delivered at a
+        later boundary; the operator hears once that it is waiting.
         """
         self._drain_peer_inbox()
         cb = getattr(self.config, "user_inbox", None)
@@ -356,8 +372,8 @@ class IdleCycleMixin:
             return []
         receiver = getattr(cb, "operator_receiver", None)
         if receiver is not None:
-            from ...core.file_lock import FileLockCancelled, bounded_file_lock_wait
-            from ...core.operator_context import OperatorContextUnavailable, _current_mission_id
+            from ...core.file_lock import DEFAULT_FILE_LOCK_TIMEOUT_SECONDS, bounded_file_lock_wait
+            from ...core.operator_context import _current_mission_id
             from ...core.run_gateway import current_run_interrupt_reason
 
             stop = getattr(self.config, "stop_event", None)
@@ -372,18 +388,19 @@ class IdleCycleMixin:
                     return None
 
             try:
-                with bounded_file_lock_wait(timeout_seconds=float("inf"), cancelled=cancelled):
+                with bounded_file_lock_wait(
+                    timeout_seconds=DEFAULT_FILE_LOCK_TIMEOUT_SECONDS, cancelled=cancelled,
+                ):
                     mission_id = _current_mission_id(receiver.root)
                     received = receiver.receive(
                         manager=manager_factory, mission_id=mission_id,
                         limit=max_messages, cancelled=cancelled,
                     )
-            except FileLockCancelled:
-                if cancelled():
-                    return []
-                raise
-            except Exception as exc:
-                raise OperatorContextUnavailable("Supervisor operator inbox remains pending") from exc
+            except Exception as exc:  # noqa: BLE001 - read again at the next boundary
+                if not cancelled():
+                    self._operator_inbox_unread(exc)
+                return []
+            self._operator_inbox_alerted = False
             if received:
                 self._emit({
                     "type": EventType.LIFE_INBOX_DRAINED,

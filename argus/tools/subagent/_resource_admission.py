@@ -16,7 +16,7 @@ log = logging.getLogger(__name__)
 _DIRECT_TTL_SECONDS = 120.0
 _SUPERVISED_TTL_SECONDS = 1800.0
 # A queue wait longer than this, or four times the job's own estimate, is told
-# to the operator once. Only the job's --timeout ends the wait.
+# to the operator once. The wait itself ends only with a grant.
 _LONG_QUEUE_WAIT_SECONDS = 3600.0
 
 
@@ -82,10 +82,6 @@ class UnsatisfiableResourceDemand(RuntimeError):
     """The demanded hardware does not exist on this host; waiting cannot help."""
 
 
-class ResourceQueueTimeout(RuntimeError):
-    """The job's --timeout ran out while it waited for hardware."""
-
-
 def _tell_long_queue_wait(
     task_id: str, task: Mapping[str, Any], holders: list[dict[str, Any]], waited: float,
 ) -> None:
@@ -136,12 +132,10 @@ def acquire_for_task(
     *,
     mode: str,
     project_root: Path | str | None = None,
-    timeout: float | None = None,
 ) -> ResourceLease | None:
     """Wait for and validate this worker's declared grant, or no-op if undeclared.
 
-    The job's ``timeout`` also bounds the wait; a wait past the long-wait mark
-    is told to the operator once.
+    A wait past the long-wait mark is told to the operator once.
     """
     from ._registry import _process_identity, _read_task, _write_task  # noqa: PLC0415
 
@@ -213,12 +207,6 @@ def acquire_for_task(
             for item in result.get("holders", [])
         ]
         waited = time.monotonic() - started
-        if timeout is not None and waited >= timeout:
-            ledger.release(request_id)
-            raise ResourceQueueTimeout(
-                f"Waited {waited:.0f} seconds for hardware without a grant; "
-                "this was the configured --timeout limit."
-            )
         if not told and waited >= long_wait:
             told = True
             _tell_long_queue_wait(task_id, task, holders, waited)
@@ -242,7 +230,7 @@ def acquire_for_task(
         })
         task.setdefault("pid", os.getpid())
         _write_task(task_id, task)
-        time.sleep(poll_after if timeout is None else min(poll_after, max(0.0, timeout - waited)))
+        time.sleep(poll_after)
 
 
 def command_env(lease: ResourceLease | None) -> dict[str, str] | None:
@@ -314,7 +302,6 @@ def yield_facts_for_task(task_id: str) -> list[dict[str, Any]]:
 
 __all__ = [
     "ResourceLease",
-    "ResourceQueueTimeout",
     "acquire_for_task",
     "command_env",
     "record_renewal_failure",

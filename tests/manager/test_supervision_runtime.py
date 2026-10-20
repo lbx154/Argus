@@ -503,40 +503,42 @@ def test_model_change_rotates_provider_identity_with_a_durable_conversation_hand
     assert state["rotation_reason"] == "the configured model or backend changed"
 
 
-def test_background_yields_the_shared_session_when_an_interactive_ask_arrives(tmp_path, monkeypatch):
+def test_an_interactive_ask_neither_waits_for_nor_interrupts_a_background_turn(tmp_path, monkeypatch):
     from argus.manager import front_door
     from argus.webapi import manager_bridge
 
     project(tmp_path)
-    entered = threading.Event()
+    entered, release = threading.Event(), threading.Event()
 
-    class Cooperative(EvidenceBackend):
+    class Background(EvidenceBackend):
         def run_exec(self, **kwargs):
             if kwargs["run_label"] == "manager-supervision":
                 entered.set()
-                deadline = time.monotonic() + 2
-                while time.monotonic() < deadline:
-                    reason = kwargs["options"].external_interrupt_reason_provider()
-                    if reason:
-                        return RunnerResult(exit_code=1, fatal_error=reason, thread_id="late-background-id")
-                    time.sleep(0.005)
-                raise AssertionError("Foreground conversation did not interrupt background Manager")
+                assert release.wait(5)
+                assert not kwargs["options"].external_interrupt_reason_provider()
             return super().run_exec(**kwargs)
 
-    backend = Cooperative()
+    backend = Background()
     manager = Manager(tmp_path, runner=backend, memory_maintenance_enabled=False)
     monkeypatch.setattr(front_door, "_ensure_manager_runner", lambda *args: SimpleNamespace(manager=manager, _backend=backend))
     assert "grouped-mean" in manager_bridge._answer_inline("priority-sid", tmp_path, "What is the task?")
     with ThreadPoolExecutor(max_workers=1) as pool:
         background = pool.submit(supervise, manager, tmp_path, {"type": EventType.LIFE_MISSION_COMPLETED})
         assert entered.wait(1)
-        started = time.monotonic()
-        assert "grouped-mean" in manager_bridge._answer_inline("priority-sid", tmp_path, "Please answer now")
-        assert time.monotonic() - started < 1
-        assert background.result(timeout=1)["status"] == "superseded"
-    assert backend.calls[-1][1] == "persistent-manager"
+        try:
+            started = time.monotonic()
+            assert "grouped-mean" in manager_bridge._answer_inline("priority-sid", tmp_path, "Please answer now")
+            assert time.monotonic() - started < 1
+        finally:
+            release.set()
+        assert background.result(timeout=5)["status"] == "applied"
+    # The ask answered on a fresh thread; the background turn kept the shared one.
+    resumes = {label: [] for _prompt, _resume, label in backend.calls}
+    for _prompt, resume, label in backend.calls:
+        resumes[label].append(resume)
+    assert resumes["manager-ask"] == [None, None]
+    assert resumes["manager-supervision"] == ["persistent-manager"]
     assert manager._session.thread_id == "persistent-manager"
-    assert not list((tmp_path / ".manager_session_foreground").glob("*.json"))
 
 
 @pytest.mark.parametrize("failure_point", ["directive", "continuous", "final_receipt"])

@@ -35,7 +35,7 @@ def change_facts(
     work = list(scan_external_work(workdir) if statuses is None else statuses)
     try:
         operator = OperatorContextStore(state_root).revision if state_root else 0
-    except Exception:  # noqa: BLE001 - an unreadable ledger is a stable fact, not news
+    except Exception:  # noqa: BLE001 - unknown, see ``holds_unchanged``
         operator = -1
     return {
         "workspace": workspace_facts(
@@ -53,19 +53,25 @@ def lineage_ledger(handoffs_root: Path | str, lineage: str) -> Path:
     )
 
 
+def mission_lineage(context_packet_path: str | os.PathLike[str] | None) -> str:
+    """The lineage of the mission whose context packet is ``context_packet_path``, or ""."""
+    if not context_packet_path:
+        return ""
+    try:
+        mission = json.loads(Path(context_packet_path).expanduser().read_text(encoding="utf-8"))
+    except (OSError, ValueError):
+        return ""
+    if not isinstance(mission, dict):
+        return ""
+    return str(mission.get("node_key") or "").strip() or str(mission.get("mission_id") or "").strip()
+
+
 def mission_ledger(context_packet_path: str | os.PathLike[str] | None) -> Path | None:
     """The ledger of the mission whose context packet is ``context_packet_path``."""
-    if not context_packet_path:
+    lineage = mission_lineage(context_packet_path)
+    if not lineage:
         return None
-    packet = Path(context_packet_path).expanduser()
-    try:
-        mission = json.loads(packet.read_text(encoding="utf-8"))
-    except (OSError, ValueError):
-        return None
-    if not isinstance(mission, dict):
-        return None
-    lineage = str(mission.get("node_key") or "").strip() or str(mission.get("mission_id") or "").strip()
-    return lineage_ledger(packet.parent.parent, lineage) if lineage else None
+    return lineage_ledger(Path(context_packet_path).expanduser().parent.parent, lineage)
 
 
 def _read(ledger: Path) -> dict[str, Any]:
@@ -80,6 +86,16 @@ def held_facts(ledger: Path | None, role: str) -> Any:
     """The facts ``role`` last held on this lineage, or ``None``."""
     entry = _read(ledger).get(role) if ledger is not None else None
     return entry.get("facts") if isinstance(entry, dict) else None
+
+
+def holds_unchanged(ledger: Path | None, role: str, facts: dict[str, Any]) -> bool:
+    """Whether ``role`` already held exactly ``facts``.
+
+    Facts that could not be read are unknown, so they never match: one more
+    call costs less than a holder skipped on news nobody could see.
+    """
+    known = facts["operator_revision"] != -1 and "unavailable" not in facts["workspace"]
+    return known and facts == held_facts(ledger, role)
 
 
 def record_holder(ledger: Path | None, role: str, facts: Any, **context: Any) -> None:
@@ -101,7 +117,9 @@ __all__ = [
     "LEDGER_FILENAME",
     "change_facts",
     "held_facts",
+    "holds_unchanged",
     "lineage_ledger",
     "mission_ledger",
+    "mission_lineage",
     "record_holder",
 ]

@@ -71,7 +71,6 @@ def _run(
         "training",
         "python train.py",
         "long GPU run",
-        timeout=None,
         monitor_interval=monitor_interval,
         model="model",
         cwd=str(tmp_path),

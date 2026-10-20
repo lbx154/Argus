@@ -693,13 +693,9 @@ def set_project_workdir(
         project_workdir=target,
         project_fingerprint=sid,
     )
-    from ..manager._session_ops import manager_pipeline_lock, manager_session_lock
+    from ..manager._session_ops import manager_pipeline_lock
 
-    with (
-        session_lifecycle_lock(root, sid),
-        manager_pipeline_lock(life_dir),
-        manager_session_lock(life_dir),
-    ):
+    with session_lifecycle_lock(root, sid), manager_pipeline_lock(life_dir):
         spawn_lock = _acquire_daemon_spawn_lock(config)
         workspace_lease = None
         try:

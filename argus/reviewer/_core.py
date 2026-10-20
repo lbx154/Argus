@@ -22,6 +22,7 @@ from ..core.operator_messages import uses_cjk
 from ..core.ports import RunnerBackend
 from ..core.run_gateway import run_exec as gateway_run_exec
 from ..core.stop_kinds import StopKind, normalize_stop_kind
+from ..core.workspace_snapshot import WorkspaceSnapshots
 from .tools import review_action_tools, reviewer_evidence_mode
 
 log = logging.getLogger(__name__)
@@ -625,9 +626,9 @@ class ReviewerConfig:
     isolate_workdir: bool = False
     working_dir: str | None = None
     artifact_root: str | None = None
-    # Wall-clock start of the Engineer turn under review; workspace files
-    # modified since then are listed for the Reviewer to open.
-    round_started_ts: float | None = None
+    # The task's snapshots, its candidate just taken: the Reviewer starts from
+    # the diff from baseline to candidate.
+    snapshots: WorkspaceSnapshots | None = None
     vertical_state_root: str | None = None
     narrative_snapshot_root: str | None = None
     review_policy_context: str = ""
@@ -869,7 +870,7 @@ class Reviewer:
             vertical_state_root=config.vertical_state_root,
             vertical=config.active_vertical,
             workflow_mode=config.workflow_mode,
-            round_started_ts=config.round_started_ts,
+            snapshots=config.snapshots,
             previous_findings=previous_findings,
             evidence_mode=reviewer_evidence_mode(
                 self.runner, engineer_records_commands=config.engineer_records_commands,
@@ -1135,7 +1136,7 @@ class Reviewer:
         vertical_state_root: str | Path | None = None,
         vertical: str = "",
         workflow_mode: str | None = None,
-        round_started_ts: float | None = None,
+        snapshots: WorkspaceSnapshots | None = None,
         previous_findings: str = "",
         evidence_mode: str = "",
     ) -> tuple[str, str]:
@@ -1175,7 +1176,7 @@ class Reviewer:
             vertical_state_root=vertical_state_root,
             vertical=vertical,
             workflow_mode=workflow_mode,
-            round_started_ts=round_started_ts,
+            snapshots=snapshots,
             previous_findings=previous_findings,
             evidence_mode=evidence_mode,
         )

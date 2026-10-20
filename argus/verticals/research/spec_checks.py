@@ -58,9 +58,8 @@ log = logging.getLogger(__name__)
 
 SPEC_CHECKS_KNOB = "ARGUS_RESEARCH_SPEC_CHECKS"
 SPEC_CHECK_TIMEOUT_KNOB = "ARGUS_RESEARCH_SPEC_CHECK_TIMEOUT_SECONDS"
-DEFAULT_CHECK_TIMEOUT_S = 600.0
+DEFAULT_CHECK_TIMEOUT_S = 1800.0
 MIN_CHECK_TIMEOUT_S = 30.0
-MAX_CHECK_TIMEOUT_S = 3600.0
 
 #: Project-relative directories the host runs. ``tests/spec`` must exist for
 #: the checks to run at all; the others are added when present.
@@ -164,7 +163,13 @@ def spec_checks_enabled(env: dict[str, str] | None = None) -> bool:
 
 
 def configured_spec_check_timeout_s(env: dict[str, str] | None = None) -> float:
-    """``ARGUS_RESEARCH_SPEC_CHECK_TIMEOUT_SECONDS`` clamped to 30..3600."""
+    """``ARGUS_RESEARCH_SPEC_CHECK_TIMEOUT_SECONDS``: how long the suite may make
+    no progress, at least 30 seconds; 0 never stops it.
+
+    The limit is on progress, not on duration: a long training-backed check
+    runs as long as it keeps using CPU, while a deadlocked or hung one is
+    stopped and shown to the Reviewer as evidence.
+    """
     from ...core.knobs import resolve_knob
 
     raw = resolve_knob(
@@ -174,7 +179,7 @@ def configured_spec_check_timeout_s(env: dict[str, str] | None = None) -> float:
         value = float(raw)
     except ValueError:
         value = DEFAULT_CHECK_TIMEOUT_S
-    return min(MAX_CHECK_TIMEOUT_S, max(MIN_CHECK_TIMEOUT_S, value))
+    return max(MIN_CHECK_TIMEOUT_S, value) if value > 0 else 0.0
 
 
 def spec_check_dirs(workdir: Path) -> list[str]:
@@ -394,6 +399,29 @@ def write_check_json(workdir: Path, report: SpecCheckReport) -> str:
     return str(round_path)
 
 
+def _communicate_while_progressing(process: subprocess.Popen, limit_s: float) -> str:
+    """The suite's output once it ends.
+
+    Raises ``TimeoutExpired`` once the suite's processes have used no CPU time
+    for ``limit_s``; 0 waits as long as it lives.
+    """
+    from ...core import process_progress
+
+    if limit_s <= 0:
+        return process.communicate()[0]
+    sample_s = min(process_progress.CPU_SAMPLE_SECONDS, limit_s / 2)
+    cpu, progressed_at = 0.0, time.monotonic()
+    while True:
+        try:
+            return process.communicate(timeout=sample_s)[0]
+        except subprocess.TimeoutExpired:
+            previous, cpu = cpu, process_progress.process_tree_cpu_seconds(process.pid)
+            if cpu - previous >= process_progress.CPU_PROGRESS_SECONDS:
+                progressed_at = time.monotonic()
+            elif time.monotonic() - progressed_at >= limit_s:
+                raise
+
+
 def _kill_process_group(process: subprocess.Popen) -> None:
     if os.name == "nt":
         process.kill()
@@ -476,7 +504,7 @@ def _run_spec_checks(
         start_new_session=os.name != "nt",
     )
     try:
-        output, _ = process.communicate(timeout=effective_timeout)
+        output = _communicate_while_progressing(process, effective_timeout)
     except subprocess.TimeoutExpired:
         timed_out = True
         _kill_process_group(process)
@@ -514,7 +542,7 @@ def _run_spec_checks(
         f"# cwd: {workdir}\n"
         f"# command: {' '.join(command)}\n"
         f"# exit_code: {exit_code} timed_out: {timed_out} "
-        f"duration_s: {duration_s:.1f} timeout_s: {effective_timeout:.0f}\n\n"
+        f"duration_s: {duration_s:.1f} no_progress_limit_s: {effective_timeout:.0f}\n\n"
     )
     log_path.write_text(header + output, encoding="utf-8")
 
@@ -562,8 +590,9 @@ def _counts_line(report: SpecCheckReport) -> str:
 def _status_line(report: SpecCheckReport) -> str:
     if report.timed_out:
         return (
-            f"Result: TIMED OUT after {report.timeout_s:.0f}s; the host killed the "
-            "whole process group. No test outcome below is complete."
+            f"Result: TIMED OUT after {report.timeout_s:.0f}s without progress (no CPU "
+            "time); the host killed the whole process group. No test outcome below "
+            "is complete."
         )
     return f"Exit code: {report.exit_code} (duration {report.duration_s:.1f}s)"
 

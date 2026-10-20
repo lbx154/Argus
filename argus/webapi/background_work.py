@@ -17,8 +17,6 @@ import time
 from pathlib import Path
 from typing import Any
 
-from ..core.event_catalog import EventType
-
 WAITING_STATUSES = frozenset({"paused_external_work", "running"})
 TEAM_WORK_PREFIX = "team:"
 _IN_FLIGHT = frozenset({"claimed", "running"})
@@ -37,42 +35,17 @@ def _number(value: Any) -> float:
     return result if math.isfinite(result) and result >= 0 else 0.0
 
 
-def waited_work_ids(items: list[dict], recent_events: list[dict]) -> dict[str, list[str]]:
-    """Which mission waits on which work: the parked wait on the backlog item,
-    or the in-round wait the journal tail records for a running mission."""
-    latest: dict[str, tuple[float, str, str]] = {}
-    for event in recent_events:
-        if not isinstance(event, dict):
-            continue
-        kind = str(event.get("type") or "")
-        if kind not in (
-            EventType.ROUND_EXTERNAL_WORK_WAIT_STARTED,
-            EventType.ROUND_EXTERNAL_WORK_WAIT_COMPLETED,
-        ):
-            continue
-        item_id = str(event.get("item_id") or "")
-        ts = _number(event.get("ts"))
-        if item_id and ts >= latest.get(item_id, (0.0, "", ""))[0]:
-            latest[item_id] = (ts, kind, str(event.get("work_id") or ""))
+def waited_work_ids(items: list[dict]) -> dict[str, list[str]]:
+    """Which parked mission waits on which work, from the wait on its backlog item."""
     waits: dict[str, list[str]] = {}
     for item in items:
-        if not isinstance(item, dict):
+        if not isinstance(item, dict) or item.get("status") != "paused_external_work":
             continue
+        outcome = item.get("outcome")
+        wait = outcome.get("external_wait") if isinstance(outcome, dict) else None
+        work_id = str(wait.get("work_id") or "") if isinstance(wait, dict) else ""
         item_id = str(item.get("id") or "")
-        status = str(item.get("status") or "")
-        if not item_id or status not in WAITING_STATUSES:
-            continue
-        work_id = ""
-        if status == "paused_external_work":
-            outcome = item.get("outcome")
-            wait = outcome.get("external_wait") if isinstance(outcome, dict) else None
-            if isinstance(wait, dict):
-                work_id = str(wait.get("work_id") or "")
-        else:
-            ts, kind, recorded = latest.get(item_id, (0.0, "", ""))
-            if kind == EventType.ROUND_EXTERNAL_WORK_WAIT_STARTED and ts >= _number(item.get("started_ts")):
-                work_id = recorded
-        if work_id:
+        if item_id and work_id:
             waits.setdefault(work_id, []).append(item_id)
     return waits
 
@@ -139,7 +112,6 @@ def team_progress(board: Path, marker: dict | None = None, *, now: float | None 
 def background_work(
     workdir: Path | str | None,
     items: list[dict],
-    recent_events: list[dict],
     *,
     now: float | None = None,
 ) -> list[dict[str, Any]]:
@@ -147,8 +119,8 @@ def background_work(
 
     Empty unless a mission is running or parked on background work, so a
     finished project costs nothing. Registered teams are listed even when no
-    mission is known to wait on them yet: the page keeps a longer journal than
-    the snapshot and may know the wait the snapshot tail no longer shows.
+    mission is known to wait on them. A running mission waits on a running
+    runtime-owned team: its lead holds the round for it (``engineer/round_waits.py``).
     """
     if not workdir:
         return []
@@ -160,7 +132,11 @@ def background_work(
     from ..team import registry
 
     root = Path(str(workdir)).expanduser()
-    waits = waited_work_ids(items, recent_events)
+    waits = waited_work_ids(items)
+    running = [
+        str(item["id"]) for item in items
+        if isinstance(item, dict) and item.get("status") == "running" and item.get("id")
+    ]
     markers: dict[str, dict] = {}
     try:
         for marker in registry.list_markers(root):
@@ -185,6 +161,8 @@ def background_work(
         if progress is None:
             continue
         progress["waited_by"] = list(waits.get(progress["work_id"], ()))
+        if progress["owner"] == "runtime" and progress["state"] == "running":
+            progress["waited_by"] += running
         entries.append(progress)
     entries.sort(key=lambda entry: (not entry["waited_by"], entry.get("started_ts") or 0.0, entry["team_id"]))
     return entries

@@ -46,7 +46,7 @@ def test_cli_prerequisites_block_failure_and_run_after_real_success(tmp_path: Pa
     def submit(task_id: str, launch: str, *extra: str) -> subprocess.CompletedProcess[str]:
         return subprocess.run(
             [sys.executable, "-m", "argus.tools.subagent", "submit",
-             "--task-id", task_id, "--command", launch, "--timeout", "10", *extra],
+             "--task-id", task_id, "--command", launch, *extra],
             cwd=tmp_path, env=env, text=True, capture_output=True, timeout=15, check=False,
         )
 
@@ -91,8 +91,6 @@ def test_direct_job_survives_worker_owner_death(tmp_path: Path) -> None:
             "owner-loss test",
             "--command",
             "sleep 2; printf survived",
-            "--timeout",
-            "20",
         ],
         cwd=tmp_path,
         env=env,
@@ -168,8 +166,6 @@ def test_windows_direct_worker_owner_loss_reconciles_exit_sidecar(
             "owner-loss test",
             "--command",
             command,
-            "--timeout",
-            "20",
             "--cwd",
             str(tmp_path),
         ],
@@ -277,8 +273,6 @@ def test_windows_submit_cwd_keeps_registry_in_submitter_cwd(
             "different cwd registry test",
             "--command",
             command,
-            "--timeout",
-            "20",
             "--cwd",
             str(workload),
         ],
@@ -367,8 +361,6 @@ def test_subagent_cpu_lease_is_inherited_by_command(tmp_path: Path) -> None:
             command,
             "--cpu-ids",
             str(selected),
-            "--timeout",
-            "20",
         ],
         cwd=tmp_path,
         env=env,
@@ -406,8 +398,6 @@ def test_submit_releases_capture_pipes_before_long_job_finishes(tmp_path: Path) 
             "detached-capture",
             "--command",
             "sleep 2; printf done",
-            "--timeout",
-            "20",
         ],
         cwd=tmp_path,
         env=env,

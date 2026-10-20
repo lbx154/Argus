@@ -60,7 +60,6 @@ from ._registry import (
 from ._reporting import _alert_engineer
 from ._resource_admission import (
     ResourceLease,
-    ResourceQueueTimeout,
     acquire_for_task,
     command_env,
     record_renewal_failure,
@@ -644,7 +643,6 @@ def _run_supervised(
     task_id: str,
     command: str,
     description: str,
-    timeout: int | None,
     monitor_interval: int,
     model: str,
     cwd: str,
@@ -668,12 +666,9 @@ def _run_supervised(
     stdout_path = log_dir / "stdout.log"
     stderr_path = log_dir / "stderr.log"
     supervisor_log = log_dir / "supervisor.jsonl"
-    run_fields = {
-        "timeout_seconds": timeout,
-        **{key: submitted_task[key] for key in (
-            "prerequisites", "previous_run_id", "rerun_reason",
-        ) if key in submitted_task},
-    }
+    run_fields = {key: submitted_task[key] for key in (
+        "prerequisites", "previous_run_id", "rerun_reason",
+    ) if key in submitted_task}
     worker_identity = _process_identity(os.getpid())
     claim_owner = f"{run_id}:{os.getpid()}:{time.time_ns()}"
     supervisor_thread_id: str | None = None
@@ -854,7 +849,6 @@ def _run_supervised(
             task_id,
             mode="supervised",
             project_root=Path.cwd(),
-            timeout=timeout,
         )
         with stdout_path.open("w") as out, stderr_path.open("w") as err:
             with cpu_admission_lock(Path.cwd()):
@@ -922,13 +916,9 @@ def _run_supervised(
             # base interval the moment health degrades.
             while True:
                 now = time.time()
-                elapsed = now - start_time
                 # Lease renewal keeps its own cadence; waking for it is no look.
                 renewal_wake = next_renew_at is not None and next_renew_at < next_check_at
                 wait_for = max(1.0, (next_renew_at if renewal_wake else next_check_at) - now)
-                if timeout is not None:
-                    remaining = timeout - elapsed
-                    wait_for = min(wait_for, max(1, int(remaining)))
                 try:
                     proc.wait(timeout=wait_for)
                     break  # Process exited
@@ -938,34 +928,6 @@ def _run_supervised(
                     if not resource_lease.renew():
                         record_renewal_failure(task_id, resource_lease)
                     next_renew_at = time.time() + renew_every
-
-                elapsed = time.time() - start_time
-                if timeout is not None and elapsed > timeout:
-                    _terminate_proc(proc)
-                    td = {
-                        "state": "timeout", "task_id": task_id, "run_id": run_id,
-                        "description": description, "command": command,
-                        "pid": proc.pid, "worker_pid": os.getpid(),
-                        "process_identity": command_identity,
-                        "worker_process_identity": worker_identity,
-                        **run_fields,
-                        "timeout_message": (
-                            f"Hard timeout reached after {timeout} seconds; "
-                            "this was the configured --timeout limit."
-                        ),
-                        "elapsed_seconds": round(elapsed, 1),
-                        "completed_at": time.time(), "mode": "supervised",
-                        "run_dir": resolved_run_dir,
-                        "supervisor_log": str(supervisor_log),
-                        **guard_status_fields,
-                    }
-                    _apply_supervisor_usage_fields(td, model=model, totals=supervisor_usage_totals)
-                    _write_task(task_id, td)
-                    report = _alert_engineer(task_id, "TIMEOUT", td)
-                    _persist_experiment_record(task_id, "TIMEOUT", td, cwd, report)
-                    return
-
-                if renewal_wake:
                     continue
                 inputs = (_supervisor_inputs(watched), yield_facts_for_task(task_id))
                 if inputs != last_inputs:
@@ -1104,14 +1066,9 @@ def _run_supervised(
         }
         if isinstance(exc, PrerequisiteError):
             td["preflight"] = True
-        if isinstance(exc, ResourceQueueTimeout):
-            td.update(state="timeout", timeout_message=str(exc))
         _apply_supervisor_usage_fields(td, model=model, totals=supervisor_usage_totals)
         _write_task(task_id, td)
-        event = (
-            "PREFLIGHT-REJECTED" if isinstance(exc, PrerequisiteError)
-            else "TIMEOUT" if isinstance(exc, ResourceQueueTimeout) else "CRASHED"
-        )
+        event = "PREFLIGHT-REJECTED" if isinstance(exc, PrerequisiteError) else "CRASHED"
         report = _alert_engineer(task_id, event, td)
         _persist_experiment_record(task_id, event, td, cwd, report)
     finally:

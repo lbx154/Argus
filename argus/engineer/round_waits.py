@@ -15,6 +15,7 @@ from pathlib import Path
 from typing import TYPE_CHECKING, Callable
 
 from ..core import process_stop
+from ..core.event_catalog import EventType
 from .external_work import (
     ExternalWorkState,
     ExternalWorkStatus,
@@ -22,6 +23,7 @@ from .external_work import (
     parse_external_wait_request,
     scan_external_work,
 )
+from .round_settlement import _manager_consult
 from .round_signals import _pause_decision_clock
 from .round_state import (
     RoundControl,
@@ -102,17 +104,45 @@ def runtime_team_wait_target(workdir: Path) -> ExternalWorkStatus | None:
     return None
 
 
+def _ask_manager_about_stalled_work(
+    config: "SupervisedConfig", workdir: Path, work: ExternalWorkStatus,
+    round_index: int, on_event: Callable[[dict], None] | None,
+) -> None:
+    """A stalled job is the Manager's to judge, asked once; nothing stops it.
+
+    The Engineer gets the job back with its follow-up either way. The
+    Manager's ledger of held facts keeps the same stall from being asked
+    about twice: it is asked again only once the work or workspace changes.
+    """
+    if on_event is None or not getattr(config, "manager_supervised", False):
+        return
+    consult = _manager_consult(
+        config, workdir,
+        f"background job `{work.work_id}` has stalled: {work.reason}. Nothing stops it "
+        "on its own; CONTINUE leaves it to the Engineer, STEER tells the Engineer what to do with it",
+        round_index,
+    )
+    if consult:
+        on_event({
+            "type": EventType.ROUND_STALL,
+            "round_index": round_index,
+            "round_max": config.max_rounds,
+            "stall_reason": "background_work_stalled",
+            "work_id": work.work_id,
+            "consult": consult,
+            "text": consult,
+        })
+
+
 class RoundWaitsMixin:
     """Mixin providing ``SupervisedEngineer``'s agent-driven wait phase."""
 
     def _handle_runtime_team_wait(
         self,
         *,
-        round_index: int,
         supervised_config: "SupervisedConfig",
         workdir: Path,
         state: RoundLoopState,
-        on_event: Callable[[dict], None] | None,
     ) -> RoundControl:
         """Wait for a runtime-owned team before spending an Engineer round.
 
@@ -141,32 +171,22 @@ class RoundWaitsMixin:
         thread_id = str(getattr(session, "thread_id", "") or "") or None
         budget = _external_wait_hold_max_seconds()
         started = time.monotonic()
-        waited_total = 0.0
-        current: ExternalWorkStatus | None = target
-        while True:
-            wait_reason, waited_s = _runner_module._run_external_work_wait(
-                workdir=workdir,
-                work_id=target.work_id,
-                round_index=round_index,
-                round_max=supervised_config.max_rounds,
-                on_event=on_event,
-                waited_total_s=waited_total,
-            )
-            waited_total += waited_s
-            state.last_decision_progress_at = _pause_decision_clock(
-                state.last_decision_progress_at, waited_s,
-            )
-            if wait_reason == "stop_requested" or process_stop.stop_requested():
-                return control_return((
-                    "paused_daemon_shutdown", state.rounds, state.last_engineer_message,
-                    f"daemon shutdown requested while waiting for {target.work_id}",
-                    thread_id,
-                ))
-            current = inspect_external_work(workdir, target.work_id)
-            if current is None or not current.waitable:
-                break
-            if wait_reason == "cadence_elapsed" and time.monotonic() - started < budget:
-                continue
+        wait_reason, waited_s = _runner_module._run_external_work_wait(
+            workdir=workdir,
+            work_id=target.work_id,
+            keep_waiting=lambda: time.monotonic() - started < budget,
+        )
+        state.last_decision_progress_at = _pause_decision_clock(
+            state.last_decision_progress_at, waited_s,
+        )
+        if wait_reason == "stop_requested" or process_stop.stop_requested():
+            return control_return((
+                "paused_daemon_shutdown", state.rounds, state.last_engineer_message,
+                f"daemon shutdown requested while waiting for {target.work_id}",
+                thread_id,
+            ))
+        current = inspect_external_work(workdir, target.work_id)
+        if current is not None and current.waitable:
             # Hand the wait to the daemon: it resumes the mission once the team
             # settles, and the mission slot is free meanwhile.
             return control_return((
@@ -324,81 +344,45 @@ class RoundWaitsMixin:
         ):
             return control_proceed()
         external_work_id = external_work.work_id
+        thread_id = str(getattr(state.engineer_session, "thread_id", "") or "") or None
+        shutdown = control_return((
+            "paused_daemon_shutdown", state.rounds, raw_engineer_message,
+            "daemon shutdown requested during external-work wait", thread_id,
+        ))
         if not external_work.waitable:
             if process_stop.stop_requested():
-                session = state.engineer_session
-                return control_return((
-                    "paused_daemon_shutdown", state.rounds, raw_engineer_message,
-                    "daemon shutdown requested during external-work wait",
-                    str(getattr(session, "thread_id", "") or "") or None,
-                ))
-            key = self._external_work_resume_key(external_work)
-            if key not in state.external_work_resumptions:
-                self._prepare_external_work_followup(state, external_work)
-                if on_event:
-                    on_event({
-                        "type": "round.external_work_wait.completed",
-                        "round_index": round_index,
-                        "round_max": supervised_config.max_rounds,
-                        "work_id": external_work.work_id,
-                        "reason": "work_already_changed",
-                        "waited_total_s": 0.0,
-                        "text": (
-                            "The requested background work changed before the wait; "
-                            "Engineer will handle its current result before review."
-                        ),
-                    })
-                return control_continue_loop()
-        if external_work.waitable:
+                return shutdown
+            if self._external_work_resume_key(external_work) in state.external_work_resumptions:
+                return control_proceed()
+            current = external_work
+        else:
             from . import runner as _runner_module
 
             hold = getattr(supervised_config, "external_wait_hold", None)
             hold_budget = _external_wait_hold_max_seconds()
             hold_started = time.monotonic()
-            waited_total = 0.0
-            while True:
-                wait_reason, waited_s = _runner_module._run_external_work_wait(
-                    workdir=workdir,
-                    work_id=external_work.work_id,
-                    round_index=round_index,
-                    round_max=supervised_config.max_rounds,
-                    on_event=on_event,
-                    waited_total_s=waited_total,
-                )
-                waited_total += waited_s
-                state.last_decision_progress_at = _pause_decision_clock(
-                    state.last_decision_progress_at,
-                    waited_s,
-                )
-                if wait_reason != "cadence_elapsed" or process_stop.stop_requested():
-                    break
-                if _keep_holding_external_wait(
+            wait_reason, waited_s = _runner_module._run_external_work_wait(
+                workdir=workdir,
+                work_id=external_work_id,
+                keep_waiting=lambda: _keep_holding_external_wait(
                     hold,
                     elapsed_s=time.monotonic() - hold_started,
                     budget_s=hold_budget,
                     workdir=workdir,
-                    work_id=external_work.work_id,
-                ):
-                    continue
-                session = state.engineer_session
-                return control_return((
-                    "paused_external_work",
-                    state.rounds,
-                    raw_engineer_message,
-                    (
-                        f"healthy {external_work.source} {external_work.work_id} is still "
-                        "running; released the mission slot"
-                    ),
-                    str(getattr(session, "thread_id", "") or "") or None,
-                ))
+                    work_id=external_work_id,
+                ),
+            )
+            state.last_decision_progress_at = _pause_decision_clock(
+                state.last_decision_progress_at, waited_s,
+            )
             if wait_reason == "stop_requested" or process_stop.stop_requested():
-                session = state.engineer_session
+                return shutdown
+            if wait_reason == "cadence_elapsed":
                 return control_return((
-                    "paused_daemon_shutdown",
-                    state.rounds,
-                    raw_engineer_message,
-                    "daemon shutdown requested during external-work wait",
-                    str(getattr(session, "thread_id", "") or "") or None,
+                    "paused_external_work", state.rounds, raw_engineer_message,
+                    f"healthy {external_work.source} {external_work_id} is still "
+                    "running; released the mission slot",
+                    thread_id,
                 ))
             # The wait ended because the external work changed state, so this
             # round completed without touching the self-review phase — the
@@ -408,8 +392,10 @@ class RoundWaitsMixin:
             # signature ever returns. Without this reset, a rate limit after
             # the wait would read as the continuation of an outage that ended
             # rounds ago and open the hold on an isolated accident.
-            self._prepare_external_work_followup(
-                state, inspect_external_work(workdir, external_work_id) or external_work,
+            current = inspect_external_work(workdir, external_work_id) or external_work
+        self._prepare_external_work_followup(state, current)
+        if current.state is ExternalWorkState.STALLED:
+            _ask_manager_about_stalled_work(
+                supervised_config, workdir, current, round_index, on_event,
             )
-            return control_continue_loop()
-        return control_proceed()
+        return control_continue_loop()

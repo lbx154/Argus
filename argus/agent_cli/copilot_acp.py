@@ -36,6 +36,7 @@ from ._idle_watchdog import (
     TERMINATE_STAGE,
     WARNING_STAGE,
     IdleEscalation,
+    requested_restart,
 )
 from ._process_control import background_subprocess_kwargs
 from .models import AgentRunResult, InactivitySnapshot
@@ -818,13 +819,8 @@ class CopilotAcpClient:
         if not sid:
             raise RuntimeError("session/new returned no sessionId")
         sid = str(sid)
+        # The session runs on whatever model Copilot selected; usage records it.
         self._remember_session(sid, resp.get("result") or {})
-        selected_model = self._session_models.get(sid, "")
-        if self._model and selected_model and selected_model != self._model:
-            self._invalidate_session(sid)
-            raise RuntimeError(
-                f"session/new selected {selected_model!r}, expected {self._model!r}"
-            )
         return sid
 
     def _session_for(
@@ -989,15 +985,16 @@ class CopilotAcpClient:
                                     stdout_tail=[],
                                     stderr_tail=[],
                                     run_label=run_label,
+                                    running_tool=turn.running_tool,
                                 )
                             )
                         except Exception:  # noqa: BLE001
                             decision = None
-                        if decision == "restart":
-                            _cancel(
-                                "ACP restart requested after "
-                                f"{int(idle_seconds)}s without an ACP stream event"
-                            )
+                        restart = requested_restart(
+                            decision, idle_seconds=idle_seconds, running_tool=turn.running_tool,
+                        )
+                        if restart:
+                            _cancel(restart)
                             return
 
                     for stage in idle_escalation.newly_due(idle_seconds):
