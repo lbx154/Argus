@@ -28,10 +28,7 @@ from argus.core.role_handoff import (
     decision_engineer_handoff,
     parse_engineer_handoff,
 )
-from argus.engineer.round_self_review import (
-    _milestone_is_done,
-    _round_handoff,
-)
+from argus.engineer.round_self_review import _round_handoff
 from argus.life.router import classify_front_door
 
 
@@ -188,7 +185,6 @@ def test_engineer_prose_cannot_close_a_milestone_the_decision_left_open() -> Non
         {"status": "continue", "result": "Partial fix.", "next_owner": "engineer"},
     )
 
-    assert _milestone_is_done(outcome) is False
     assert _round_handoff(outcome).next_owner == "engineer"
 
 
@@ -199,7 +195,7 @@ def test_engineer_prose_cannot_park_a_round_on_the_operator() -> None:
     )
     handoff = _round_handoff(outcome)
 
-    assert handoff.next_owner == "reviewer"
+    assert handoff.next_owner == "done"
     assert handoff.waits_for_operator is False
 
 
@@ -263,7 +259,6 @@ def test_string_options_in_an_engineer_decision_reach_the_decision_card() -> Non
 def test_a_round_without_a_decision_falls_back_to_its_message() -> None:
     outcome = _outcome("Done.\nMILESTONE_STATUS=done\nNEXT_OWNER=reviewer", None)
 
-    assert _milestone_is_done(outcome) is True
     assert _round_handoff(outcome).next_owner == "reviewer"
 
 
@@ -276,7 +271,6 @@ def test_fallback_handoff_reads_only_the_explicit_footer() -> None:
         None,
     )
 
-    assert _milestone_is_done(outcome) is True
     assert _round_handoff(outcome).next_owner == "reviewer"
     assert _round_handoff(outcome).waits_for_operator is False
 

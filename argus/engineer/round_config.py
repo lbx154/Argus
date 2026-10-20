@@ -36,19 +36,6 @@ _RUNNER_DEFAULT_STALLED_IDLE_SECONDS = 30 * 60
 # no research stage at all) declares its own set through the vertical contract;
 # this stays the answer for every vertical that declares nothing.
 DEFAULT_LIVE_SEARCH_STAGES: frozenset[str] = frozenset({"research"})
-OPERATOR_QUESTION_FORBIDDEN_NEXT_ACTION = (
-    "Continue autonomously: solve reversible environment, tool, worktree, and "
-    "dependency issues with available capabilities; do not ask the operator. "
-    "Where the question was about what a requirement means, choose the most "
-    "defensible interpretation and record that assumption, with the conflict "
-    "behind it, in CHECKPOINT.md and the run report, never inside a "
-    "machine-graded deliverable; never assume facts, data, or results. "
-    "If only irreversible authority or unavailable credentials remain, preserve "
-    "the current state and report blocked without an operator question."
-)
-#: The intervention recorded beside a verdict whose question the operator may
-#: not be asked (``round_settlement._apply_operator_question_policy``).
-QUESTION_POLICY = "operator_questions_forbidden"
 # Records the host writes for a round nobody judged: the Engineer turn ended
 # before review, or the Reviewer leg rendered no verdict. They sit in the round
 # list beside real verdicts but carry no review judgment of any kind.

@@ -130,7 +130,7 @@ Reviewer 的判决不是第七种动作：`continue` 是退回，`replan_request
 ### Reviewer 的决定
 
 - 验收标准通过引用来自任务契约，由写下它的一方拥有（Planner、Manager 或操作员，见 [goal-contract-authority.md](goal-contract-authority.md)）。
-- `approve_review` 和 `revise_review` 对每条标准给出状态。只有每条标准都满足，或被其主人明确接受，才能批准。
+- 交给 `→ done` 或 `→ engineer` 的审阅对每条标准给出状态。只有每条标准都满足，或被其主人明确接受，才能批准。
 - 标准之外的顾虑是后续事项：记录下来，转给 Planner 或 Manager，不阻塞。违反真实性底线（虚假声明、伪造证据、来源断裂）始终阻塞。
 - 拒绝要说明什么能改变判决。
 - Engineer 无法排除的障碍，例如缺少访问权限、缺少工具或契约冲突，上报给宿主或契约主人，而不是退回给 Engineer。

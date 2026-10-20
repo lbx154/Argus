@@ -1,4 +1,4 @@
-"""Call-bound review actions. Review prose is evidence, never a wire protocol."""
+"""The call-bound review action. Review prose is evidence; its closing baton line routes."""
 from __future__ import annotations
 
 import json
@@ -13,29 +13,26 @@ from typing import Any, Iterator, Mapping
 from jsonschema import ValidationError, validate
 
 from ..core.model_visible_text import FIXTURE_EVIDENCE_RULE
-from ..core.models import ReviewDecision, ReviewStatus, RunnerOptions
-from ..core.operator_decision import normalize_agent_options, normalize_option_id
+from ..core.models import ReviewDecision, RunnerOptions
+from ..core.operator_decision import normalize_agent_options
 from ..core.research_contract import RESULT_FIELD_CHOICES, normalize_research_result
+from ..core.role_handoff import HANDOFF_STATUS, read_baton_line, strip_handoff
 from ..core.role_tool_bridge import CallBoundBridge, bridge_request
 from ..core.venue_review import ACCEPTED_RECOMMENDATIONS, RECOMMENDATIONS
 
 PREFIX = "ARGUS_PLUGIN_REVIEW"
 SERVER = "argus_review_actions"
-_ACTIONS: dict[str, tuple[ReviewStatus, str]] = {
-    "approve_review": (
-        "done",
-        "The current task is complete; no required repair remains. Only after you "
-        "checked each requirement and symptom the task (this increment) states, and "
-        "each acceptance criterion, against the deliverable: tests the Engineer wrote "
-        "show the code matches its reading of the task, not that the reading is "
-        "right, and a stated symptom called intended or out of scope needs support "
-        "in the task text itself.",
-    ),
-    "revise_review": ("continue", "Return concrete in-scope repairs to Engineer."),
-    "defer_review": ("continue", "Defer judgment until already-running work or missing external evidence returns. This is not failure or acceptance."),
-    "request_review_decision": ("blocked", "Ask an actual operator-owned question; ordinary technical repairs use revise_review."),
-    "replan_review": ("replan_requested", "Challenge the current plan or scope with evidence and a proposed alternative."),
-}
+#: The one review action. The review names the next holder in its closing line,
+#: as every handoff does (docs/role-handoff-design.md, "The baton"); the fields
+#: beside it are the payloads a side effect needs.
+ACTION = "submit_review"
+HANDOFF_LINE = (
+    "End the review with one line naming who holds the work next: `→ done` "
+    "accepts this candidate; `→ engineer` returns concrete in-scope repairs; "
+    "`→ planner` the task or plan is wrong; `→ manager` an obstacle or a conflict "
+    "in the acceptance criteria only the Manager can settle; `→ operator: <one "
+    "question>` a decision only the operator can make."
+)
 
 
 #: An optional routing judgment on the accepting verdict; a malformed one is
@@ -202,193 +199,174 @@ class ReviewActions:
             "required": [key for key, _ in RESULT_FIELD_CHOICES[:4]],
             "additionalProperties": False,
         }
-        tools = []
-        for name, (_, description) in _ACTIONS.items():
-            fields: dict[str, Any] = {
-                "review": {"type": "string", "minLength": 1, "description": "Your complete natural-language review, including evidence and any next steps. No template or status footer."},
-                "research_result": research,
-                "session_signal": {
-                    "type": "object",
-                    "description": "An observed role-session quality problem, not an ordinary task repair.",
-                    "properties": {
-                        "kind": {"enum": ["repeated_contradiction", "reviewer_confusion", "quality_degradation"]},
-                        "target": {"enum": ["planner", "engineer", "reviewer"]},
-                        "detail": {"type": "string"},
-                    },
-                    "required": ["kind", "target", "detail"],
-                    "additionalProperties": False,
+        fields: dict[str, Any] = {
+            "review": {
+                "type": "string", "minLength": 1,
+                "description": (
+                    "Your complete natural-language review, including evidence and what "
+                    "the next holder needs. " + HANDOFF_LINE
+                ),
+            },
+            "research_result": research,
+            "session_signal": {
+                "type": "object",
+                "description": "An observed role-session quality problem, not an ordinary task repair.",
+                "properties": {
+                    "kind": {"enum": ["repeated_contradiction", "reviewer_confusion", "quality_degradation"]},
+                    "target": {"enum": ["planner", "engineer", "reviewer"]},
+                    "detail": {"type": "string"},
                 },
-            }
-            if name == "approve_review":
-                fields["learning"] = _LEARNING_FIELD
+                "required": ["kind", "target", "detail"],
+                "additionalProperties": False,
+            },
+            "learning": _LEARNING_FIELD,
             # A replanning Reviewer can be stopped by the same obstacle; one
             # task replanned four times over a token only its grader receives.
-            if _ACTIONS[name][0] in {"continue", "replan_requested"}:
-                fields["unverifiable"] = {
-                    "type": "string",
-                    "description": (
-                        "A decisive check that cannot happen here, and the risk left. " + (
-                            "Leaving it unverified is the operator's decision: ask them "
-                            "with request_review_decision (operator_need "
-                            "scope_or_authority, accept_risk)."
-                            if self.grounding.operator_available else
-                            "The operator cannot be asked, so the Manager sees this "
-                            "and decides whether to accept that risk."
-                        )
-                    ),
-                }
-                fields["impossible_because"] = _basis_field()
-            if name == "approve_review":
-                fields["residual_risk"] = {
-                    "type": "object",
-                    "description": (
-                        "Only when one decisive check stays unverified because it is "
-                        "impossible here and leaving it so was accepted: by the operator "
-                        "choosing to accept it on the request_review_decision you raised "
-                        "with accept_risk, or, in a run with no operator, by the Manager "
-                        "(cite the risk id listed under Accepted residual risk). Name the "
-                        "check exactly as accepted. Without that acceptance, do not "
-                        "approve. The evidence you judged "
-                        "it from must be something you read yourself. "
-                        + FIXTURE_EVIDENCE_RULE
-                        + " The Engineer's word alone is never that evidence."
-                    ),
-                    "properties": {
-                        "check": {"type": "string", "minLength": 3},
-                        "evidence": {"type": "string", "minLength": 3},
-                        "risk": {"type": "string", "minLength": 3},
-                        "impossible_because": _basis_field(),
-                        "accepted_by": {"enum": ["operator", "manager"]},
-                        "acceptance": {
-                            "type": "string", "minLength": 3,
-                            "description": (
-                                "The Manager's risk id, or the operator's decision id; the host "
-                                "checks the recorded choice, not this text."
-                            ),
-                        },
+            "unverifiable": {
+                "type": "string",
+                "description": (
+                    "Not with `→ done`: a decisive check that cannot happen here, and the "
+                    "risk left. " + (
+                        "Leaving it unverified is the operator's decision: ask them with "
+                        "`→ operator: <question>` and accept_risk."
+                        if self.grounding.operator_available else
+                        "The operator cannot be asked, so the Manager sees this and "
+                        "decides whether to accept that risk."
+                    )
+                ),
+            },
+            "impossible_because": _basis_field(),
+            "residual_risk": {
+                "type": "object",
+                "description": (
+                    "Only with `→ done`, when one decisive check stays unverified because "
+                    "it is impossible here and leaving it so was accepted: by the operator "
+                    "choosing to accept it on the question you raised with accept_risk, "
+                    "or, in a run with no operator, by the Manager (cite the risk id "
+                    "listed under Accepted residual risk). Name the check exactly as "
+                    "accepted. Without that acceptance, do not accept the candidate. "
+                    "The evidence you judged it from must be something you read yourself. "
+                    + FIXTURE_EVIDENCE_RULE
+                    + " The Engineer's word alone is never that evidence."
+                ),
+                "properties": {
+                    "check": {"type": "string", "minLength": 3},
+                    "evidence": {"type": "string", "minLength": 3},
+                    "risk": {"type": "string", "minLength": 3},
+                    "impossible_because": _basis_field(),
+                    "accepted_by": {"enum": ["operator", "manager"]},
+                    "acceptance": {
+                        "type": "string", "minLength": 3,
+                        "description": (
+                            "The Manager's risk id, or the operator's decision id; the host "
+                            "checks the recorded choice, not this text."
+                        ),
                     },
-                    "required": [
-                        "check", "evidence", "risk", "impossible_because", "accepted_by", "acceptance",
-                    ],
-                    "additionalProperties": False,
-                }
-            required = ["review"]
-            if self.venue_required and name in {"approve_review", "revise_review"}:
-                fields["recommendation"] = {
-                    "type": "string", "enum": list(RECOMMENDATIONS),
-                    "description": f"Your actual current recommendation for {self.venue}, not a future aspiration.",
-                }
-                required.append("recommendation")
-            if name == "request_review_decision":
-                fields["question"] = {"type": "string", "minLength": 1}
-                fields["options"] = {"type": "array", "items": {
-                    "type": "object",
-                    "properties": {
-                        "id": {"type": "string"}, "label": {"type": "string"},
-                        "description": {"type": "string"}, "requires_note": {"type": "boolean"},
-                    },
-                    "required": ["id", "label", "description"],
-                    "additionalProperties": False,
-                }}
-                fields["operator_need"] = {
-                    "type": "string",
-                    "enum": [
-                        "credentials", "spending", "irreversible_or_external",
-                        "scope_or_authority", "none",
-                    ],
-                    "description": (
-                        "Why only the operator can decide: credentials (real secrets the "
-                        "work needs), spending, irreversible_or_external, or "
-                        "scope_or_authority; none if the team can decide."
-                    ),
-                }
-                fields["accept_risk"] = {
-                    "type": "object",
-                    "description": (
-                        "When the question is whether to leave one check impossible here "
-                        "unverified: name the check and the risk. The host adds the choice to "
-                        "accept that risk or keep the check; only choosing it accepts."
-                    ),
-                    "properties": {
-                        "check": {"type": "string", "minLength": 3},
-                        "risk": {"type": "string", "minLength": 3},
-                    },
-                    "required": ["check", "risk"],
-                    "additionalProperties": False,
-                }
-                required.append("question")
-            if name == "replan_review":
-                fields["alternative"] = {"type": "string"}
-                fields["authority_impact"] = {"type": "string", "enum": ["technical", "manager_contract", "operator"]}
-                required.append("authority_impact")
-            tools.append({
-                "name": name, "description": description,
-                "inputSchema": {"type": "object", "properties": fields, "required": required, "additionalProperties": False},
-            })
-        return tools
+                },
+                "required": [
+                    "check", "evidence", "risk", "impossible_because", "accepted_by", "acceptance",
+                ],
+                "additionalProperties": False,
+            },
+            "accept_risk": {
+                "type": "object",
+                "description": (
+                    "With `→ operator`, when the question is whether to leave one check "
+                    "impossible here unverified: name the check and the risk. The host adds "
+                    "the choice to accept that risk or keep the check; only choosing it accepts."
+                ),
+                "properties": {
+                    "check": {"type": "string", "minLength": 3},
+                    "risk": {"type": "string", "minLength": 3},
+                },
+                "required": ["check", "risk"],
+                "additionalProperties": False,
+            },
+        }
+        if self.venue_required:
+            fields["recommendation"] = {
+                "type": "string", "enum": list(RECOMMENDATIONS),
+                "description": (
+                    f"Your actual current recommendation for {self.venue}, not a future "
+                    "aspiration. Required with `→ done` and `→ engineer`."
+                ),
+            }
+        return [{
+            "name": ACTION,
+            "description": (
+                "Submit your judgment of this candidate. `→ done` accepts it only after you "
+                "checked each requirement and symptom the task (this increment) states, and "
+                "each acceptance criterion, against the deliverable: tests the Engineer wrote "
+                "show the code matches its reading of the task, not that the reading is "
+                "right, and a stated symptom called intended or out of scope needs support "
+                "in the task text itself."
+            ),
+            "inputSchema": {
+                "type": "object", "properties": fields, "required": ["review"],
+                "additionalProperties": False,
+            },
+        }]
 
     def dispatch(self, action: str, payload: dict[str, Any]) -> dict[str, Any]:
         if action == "tools":
             return {"tools": self.tools}
-        tool = next((tool for tool in self.tools if tool["name"] == action), None)
-        if tool is None:
+        if action != ACTION:
             raise ValueError(f"Unknown review action: {action}")
-        if action in _ACTIONS and self.decision is not None and self.decision.status == "done":
-            # A new verdict replaces an approval. If this one is refused, the
-            # turn must not settle on the approval it was correcting; any other
+        if self.decision is not None and self.decision.status == "done":
+            # A new verdict replaces an acceptance. If this one is refused, the
+            # turn must not settle on the acceptance it was correcting; any other
             # earlier verdict keeps the round open and may stand.
             self.decision = None
-        properties = tool["inputSchema"].get("properties", {})
+        schema = self.tools[0]["inputSchema"]
         payload = dict(payload)
         if "learning" in payload:
             try:
-                validate(payload["learning"], properties["learning"])
-            except (KeyError, ValidationError):
+                validate(payload["learning"], _LEARNING_FIELD)
+            except ValidationError:
                 # Absent rather than fatal: the verdict itself stands, and an
                 # absent judgment means reflection runs.
                 payload.pop("learning")
         try:
-            validate(payload, tool["inputSchema"])
+            validate(payload, schema)
         except ValidationError as exc:
             raise ValueError(exc.message) from exc
         review = payload["review"]
-        if not review.strip():
+        prose = strip_handoff(review).strip()
+        if not prose:
             raise ValueError("The review must explain the judgment.")
-        question = payload.get("question", "")
-        if action == "request_review_decision" and not question.strip():
-            raise ValueError("State the operator-owned question.")
+        handoff = read_baton_line(review)
+        holder = handoff.next_owner if handoff is not None and handoff.source == "structured" else ""
+        if holder not in HANDOFF_STATUS:
+            raise ValueError(HANDOFF_LINE)
+        if holder != "done" and "residual_risk" in payload:
+            raise ValueError("residual_risk records an accepted risk: it goes with `→ done`.")
+        if holder == "done" and ("unverifiable" in payload or "impossible_because" in payload):
+            raise ValueError("A check left unverified on `→ done` is a residual_risk.")
+        if holder != "operator" and "accept_risk" in payload:
+            raise ValueError("accept_risk belongs to a question: end with `→ operator: <question>`.")
+        if self.venue_required and holder in {"done", "engineer"} and "recommendation" not in payload:
+            raise ValueError(f"State your current recommendation for {self.venue}.")
         research = normalize_research_result(payload.get("research_result"))
         if "research_result" in payload and research is None:
             raise ValueError("The research assessment is incomplete.")
         self._check_grounding(payload)
-        status = _ACTIONS[action][0]
-        options = [
-            option for option in payload.get("options", [])
-            # Only the host offers an acceptance choice, bound to its check. Judged
-            # on the id the card will carry, so "_accept-risk-…" or "Accept Risk …"
-            # cannot pass here and become the host's id after normalisation.
-            if not normalize_option_id(option.get("id")).startswith("accept-risk")
-        ]
+        status = HANDOFF_STATUS[holder]
+        options = []
         if isinstance(payload.get("accept_risk"), dict):
             from ..core.residual_risk import acceptance_options
 
-            options = [
-                *acceptance_options(payload["accept_risk"]["check"], payload["accept_risk"]["risk"]),
-                *options,
-            ]
+            options = acceptance_options(payload["accept_risk"]["check"], payload["accept_risk"]["risk"])
         decision = ReviewDecision(
-            status=status, reason=review,
-            next_action="" if status == "done" else review,
-            operator_question=question,
+            status=status, reason=prose,
+            next_action="" if status == "done" else prose,
+            operator_question=handoff.operator_question if holder == "operator" else "",
             operator_options=normalize_agent_options(options),
             research_result=research,
-            planner_report={"plan_signal": "continue"},
+            planner_report={"plan_signal": "reconsider" if holder == "planner" else "continue"},
             session_signal=payload.get("session_signal", {}),
         )
-        if action == "request_review_decision" and payload.get("operator_need"):
-            decision.planner_report["operator_need"] = payload["operator_need"]
         judged = payload.get("learning")
-        if isinstance(judged, dict):
+        if holder == "done" and isinstance(judged, dict):
             decision.planner_report["learning"] = judged["verdict"]
             decision.planner_report["learning_reason"] = str(judged.get("reason") or "")[:500]
         decision.verification_obstacle = str(payload.get("unverifiable") or "").strip()
@@ -401,24 +379,18 @@ class ReviewActions:
             decision.residual_risk, decision.residual_risk_detail = _residual_risk_record(
                 risk, self._acceptance_record(risk),
             )
-        if action == "replan_review":
-            decision.planner_report.update(
-                plan_signal="reconsider", challenge=review,
-                alternative=payload.get("alternative", ""),
-                authority_impact=payload["authority_impact"],
-            )
         if "recommendation" in payload:
             recommendation = payload["recommendation"]
             decision.venue_review = {
                 "venue": self.venue, "recommendation": recommendation,
                 "acceptance_clear": recommendation in ACCEPTED_RECOMMENDATIONS,
-                "rationale": review, "blocking_issues": [],
-                "revision_required": action != "approve_review",
+                "rationale": prose, "blocking_issues": [],
+                "revision_required": holder != "done",
             }
         # A native action belongs to this call. Prose, tool output printed in a
         # message, and saved project files cannot manufacture this assignment.
         self.decision = decision
-        return {"recorded": action}
+        return {"recorded": holder}
 
     def _check_grounding(self, payload: dict[str, Any]) -> None:
         """Refuse an ungrounded "impossible here" or an unaccepted residual risk.
@@ -445,7 +417,7 @@ class ReviewActions:
         if problem:
             raise ValueError(
                 f"residual_risk.impossible_because: {problem}. Without that statement the "
-                "check is missing, not impossible: revise instead of approving."
+                "check is missing, not impossible: return it to the Engineer instead of accepting."
             )
         self._acceptance_record(risk)
 
@@ -458,7 +430,7 @@ class ReviewActions:
             if grounding.operator_available:
                 raise ValueError(
                     "The operator can be asked, so accepting this risk is theirs to decide: "
-                    "ask with request_review_decision (operator_need scope_or_authority, accept_risk)."
+                    "ask them with `→ operator: <question>` and accept_risk."
                 )
             wanted = str(risk["acceptance"]).strip().strip("[]")
             row = next((
@@ -473,13 +445,13 @@ class ReviewActions:
             if not same_check(row.get("check"), risk["check"]):
                 raise ValueError(
                     f"{wanted} accepts the check \"{row.get('check')}\", not this one; name that "
-                    "check exactly, or revise."
+                    "check exactly, or return the work to the Engineer."
                 )
             return f"{wanted}: accepted by the Manager"
         if not grounding.operator_available:
             raise ValueError(
                 "The operator cannot be asked in this run; only the Manager can accept "
-                "this risk. Name it in unverifiable on a revise_review instead."
+                "this risk. Name it in unverifiable and hand the work on instead."
             )
         card = next((
             card for card in reversed(grounding.operator_decisions) if operator_accepted(card, risk["check"])
@@ -487,9 +459,9 @@ class ReviewActions:
         if card is None:
             raise ValueError(
                 "The operator has not accepted this check: only their choice of "
-                f"\"{ACCEPT_OPTION_LABEL}\" on a request_review_decision raised with "
-                "accept_risk naming this exact check accepts it; their other words do not. "
-                "Ask them, or revise."
+                f"\"{ACCEPT_OPTION_LABEL}\" on a question raised with accept_risk naming "
+                "this exact check accepts it; their other words do not. Ask them, or "
+                "return the work to the Engineer."
             )
         return f"{card.get('id') or 'decision'}: the operator chose \"{ACCEPT_OPTION_LABEL}\""
 

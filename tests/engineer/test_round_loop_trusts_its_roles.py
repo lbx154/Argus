@@ -32,7 +32,7 @@ def test_an_engineer_keeps_the_work_until_it_hands_it_over(tmp_path: Path) -> No
         )
     backend.queue("engineer-r8", CannedResponse(message="Finished and verified."))
     backend.queue("reviewer", CannedResponse(review_action=(
-        "approve_review", {"review": "The objective is verified complete."},
+        "submit_review", {"review": "The objective is verified complete.\n→ done"},
     )))
 
     status, _rounds, _final, _reason, _thread = _engineer(backend).run(
@@ -56,11 +56,11 @@ def test_continue_verdicts_never_end_the_mission_by_count(tmp_path: Path) -> Non
     for index in range(1, rounds):
         backend.queue(f"engineer-r{index}", CannedResponse(message=f"round {index} changed nothing"))
         backend.queue("reviewer", CannedResponse(review_action=(
-            "revise_review", {"review": "The residual did not move.\nTry another route."},
+            "submit_review", {"review": "The residual did not move.\nTry another route.\n→ engineer"},
         )))
     backend.queue(f"engineer-r{rounds}", CannedResponse(message="Found the bug."))
     backend.queue("reviewer", CannedResponse(review_action=(
-        "approve_review", {"review": "The residual is gone."},
+        "submit_review", {"review": "The residual is gone.\n→ done"},
     )))
     events: list[dict] = []
 

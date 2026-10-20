@@ -15,7 +15,7 @@ from argus.planner import Planner, PlannerConfig
 
 
 def _review(status: str) -> tuple[str, dict]:
-    return (('approve_review' if status == 'done' else 'revise_review'), {'review': (f'review-{status}') + '\n\n' + ('finish' if status == 'continue' else 'none')})
+    return "submit_review", {'review': f'review-{status}\n\n' + ('finish\n→ engineer' if status == 'continue' else 'none\n→ done')}
 
 
 def _context(tmp_path: Path) -> tuple[Path, Path]:
@@ -362,7 +362,7 @@ def test_explicit_reviewer_quality_signal_rotates_only_target_role(tmp_path: Pat
     backend.queue(
         "reviewer",
         CannedResponse(
-            review_action=('revise_review', {'review': ('The Engineer repeated an obsolete repair.') + '\n\n' + ('Use the current frontier and repair the active cluster.'), 'session_signal': {'kind': 'quality_degradation', 'target': 'engineer', 'detail': 'Repeated the obsolete repair after a current handoff.'}}),
+            review_action=("submit_review", {'review': (('The Engineer repeated an obsolete repair.') + '\n\n' + ('Use the current frontier and repair the active cluster.')) + "\n→ engineer", 'session_signal': {'kind': 'quality_degradation', 'target': 'engineer', 'detail': 'Repeated the obsolete repair after a current handoff.'}}),
             thread_id="v1",
         ),
     )
@@ -440,7 +440,7 @@ def test_reviewer_planner_signal_rotates_the_project_planner_capsule(tmp_path: P
     backend.queue(
         "reviewer",
         CannedResponse(
-            review_action=('approve_review', {'review': 'The plan step is complete.', 'session_signal': {'kind': 'repeated_contradiction', 'target': 'planner', 'detail': 'The plan keeps asserting a stage that the record contradicts.'}}),
+            review_action=("submit_review", {'review': 'The plan step is complete.\n→ done', 'session_signal': {'kind': 'repeated_contradiction', 'target': 'planner', 'detail': 'The plan keeps asserting a stage that the record contradicts.'}}),
             thread_id="v1",
         ),
     )

@@ -55,8 +55,8 @@ class Backend:
             return RunnerResult(exit_code=1, fatal_error=REVIEW_FAILURE)
         from argus.core.role_tool_bridge import bridge_request
 
-        bridge_request("ARGUS_PLUGIN_REVIEW", "approve_review", {
-            "review": "The local result was independently checked.",
+        bridge_request("ARGUS_PLUGIN_REVIEW", "submit_review", {
+            "review": "The local result was independently checked.\n→ done",
         }, env=_kwargs["options"].extension_env)
         return RunnerResult(exit_code=0)
 

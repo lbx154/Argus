@@ -1,27 +1,19 @@
-"""Settle a round from the Reviewer's minimal verdict."""
+"""Settle a round on the handoff that ends it."""
 
 from __future__ import annotations
 
 import logging
-import time
-from dataclasses import replace
 from pathlib import Path
 from typing import TYPE_CHECKING, Callable
 
 from ..core.models import LoopStatus, ReviewDecision, RoundRecord
 from ..core.venue_review import ACCEPTANCE_BAR_POLICY
 from .checkpoint import resolve_shared_checkpoint
-from .round_config import (
-    HOST_PLACEHOLDER_REVIEW_SOURCES,
-    OPERATOR_QUESTION_FORBIDDEN_NEXT_ACTION,
-    QUESTION_POLICY,
-)
 from .round_signals import _review_event_payload
 from .round_state import (
     EngineerTurnOutcome,
     RoundControl,
     RoundLoopState,
-    control_continue_loop,
     control_proceed,
     control_return,
 )
@@ -44,121 +36,13 @@ def _operator_questions_allowed(supervised_config: "SupervisedConfig") -> bool:
     )
 
 
-def _operator_only_action(review: ReviewDecision) -> bool:
-    """Whether the question asks for an action only the operator could approve.
-
-    Such a question is never settled on an assumption: it stays a question, and
-    while the operator cannot be asked the Manager decides it in their place
-    once the mission parks on it.
-    """
-    from ..core.autonomy import OPERATOR_ACTION_NEEDS, normalize_operator_need
-
-    report = review.planner_report if isinstance(review.planner_report, dict) else {}
-    return normalize_operator_need(report.get("operator_need")) in OPERATOR_ACTION_NEEDS
-
-
-def _record_forbidden_question(
-    review: ReviewDecision,
-    supervised_config: "SupervisedConfig",
-) -> None:
-    """Keep the record the run report is built from.
-
-    The team now settles the question itself; it is logged as a conflict whose
-    chosen reading the Engineer states (``ASSUMPTION=``) and CHECKPOINT.md keeps.
-    """
-    from ..core.autonomy import record_autonomous_assumption
-
-    root = getattr(supervised_config, "operator_question_policy_root", None)
-    if root is None:
-        return
-    record_autonomous_assumption(
-        root,
-        item_id="",
-        conflict=review.operator_question,
-        source="round_question",
-    )
-
-
-def _question_withheld(review: ReviewDecision, supervised_config: "SupervisedConfig") -> bool:
-    """Whether this verdict's question may not go to the operator."""
-    return bool(
-        review.operator_question
-        and not review.intervention(QUESTION_POLICY)
-        and not _operator_questions_allowed(supervised_config)
-        and not _operator_only_action(review)
-    )
-
-
-def _withheld(review: ReviewDecision, action: str, outcome: str) -> ReviewDecision:
-    """The verdict as written, with the question-policy intervention beside it."""
-    return replace(review, interventions=[*review.interventions, {
-        "policy": QUESTION_POLICY,
-        "action": action,
-        "at": time.time(),
-        "note": "the operator may not be asked in this mission, so the question was not sent; "
-        + outcome,
-    }])
-
-
-def _apply_operator_question_policy(
-    review: ReviewDecision,
-    *,
-    supervised_config: "SupervisedConfig",
-    state: RoundLoopState,
-) -> ReviewDecision:
-    """Record beside the verdict that its question was not sent to the operator.
-
-    The verdict stays as its author wrote it. The intervention names the
-    policy, what the host did instead of asking, and when: the team first
-    carries the obstacle on; when that did not clear it, the mission ends and
-    the Manager decides in the operator's place.
-    """
-    if not _question_withheld(review, supervised_config):
-        return review
-    # A turn nobody judged (a turn-limit restart, a dropped session) between
-    # two forbidden questions does not make the second one new.
-    judged = [
-        record for record in state.rounds
-        if record.review.review_source not in HOST_PLACEHOLDER_REVIEW_SOURCES
-    ]
-    _record_forbidden_question(review, supervised_config)
-    if judged and judged[-1].review.intervention(QUESTION_POLICY):
-        return _withheld(
-            review, "manager",
-            "carrying the obstacle on did not clear it, so the Manager decides in the "
-            "operator's place",
-        )
-    return _withheld(
-        review, "continue",
-        "the team carries the obstacle on and settles it on the most defensible reading",
-    )
-
-
-def withhold_terminal_question(terminal: tuple, supervised_config: "SupervisedConfig") -> tuple:
-    """Record beside a final record whose question may not go out that it was not sent.
-
-    Host stop records (an expired login, say) reach the end of a run without
-    settlement; the outcome reads this intervention and sends no question.
-    """
-    rounds = terminal[1]
-    if rounds and _question_withheld(rounds[-1].review, supervised_config):
-        rounds[-1] = replace(
-            rounds[-1],
-            review=_withheld(rounds[-1].review, "not_sent", "the run ends without it"),
-        )
-    return terminal
-
-
 def _next_engineer_action(review: ReviewDecision) -> str | None:
     """What the next Engineer turn works from: the verdict, and an intervention that kept the work going."""
-    if review.intervention(QUESTION_POLICY):
-        parts: tuple[str, ...] = (review.next_action, OPERATOR_QUESTION_FORBIDDEN_NEXT_ACTION)
-    elif review.status == "continue":
+    if review.status == "continue":
         return review.next_action
-    elif review.intervention(ACCEPTANCE_BAR_POLICY):
-        parts = (review.reason, review.next_action, *(row["note"] for row in review.interventions))
-    else:
+    if not review.intervention(ACCEPTANCE_BAR_POLICY):
         return None
+    parts = (review.reason, review.next_action, *(row["note"] for row in review.interventions))
     return "\n\n".join(part.strip() for part in parts if str(part or "").strip())
 
 
@@ -225,11 +109,6 @@ class RoundSettlementMixin:
         review_completed_hook,
         on_event: Callable[[dict], None] | None,
     ) -> RoundControl:
-        review = _apply_operator_question_policy(
-            review,
-            supervised_config=supervised_config,
-            state=state,
-        )
         engineer_result = outcome.engineer_result
         engineer_message = outcome.engineer_message
         state.reviewer_backend_failure_streak = 0
@@ -284,19 +163,6 @@ class RoundSettlementMixin:
                 log.warning("review completion hook failed", exc_info=True)
 
         terminal_status, reason = self._classify(review=review)
-        withheld = review.intervention(QUESTION_POLICY)
-        if withheld is not None:
-            terminal_status, reason = (
-                (
-                    "blocked",
-                    "Operator questions are forbidden and carrying the obstacle on did "
-                    "not clear it; the Manager decides in the operator's place: "
-                    + review.operator_question
-                    + ("\n\nThe review's own findings:\n" + review.reason if review.reason else ""),
-                )
-                if withheld["action"] == "manager"
-                else (None, "")
-            )
         from .round_manager_wait import manager_wait_terminal
 
         paused = manager_wait_terminal(supervised_config, state)
@@ -312,6 +178,4 @@ class RoundSettlementMixin:
                     None,
                 )
             )
-        if withheld is not None:
-            return control_continue_loop()
         return control_proceed()

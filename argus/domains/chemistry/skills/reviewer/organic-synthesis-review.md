@@ -31,14 +31,14 @@ materials processing, MOF assembly, or crystal refinement.
 
 ## Rejection conditions
 
-Return `replan_requested` when a key step lacks applicable precedent or a
+Hand the work to the Planner (`→ planner`) when a key step lacks applicable precedent or a
 credible de-risking experiment, identity or stereochemistry is unresolved,
 route ranking hides hard constraints, a model output is presented as synthetic
 validation, or physical execution lacks authorization and safety controls.
 
 ## Done standard
 
-Return `done` only at the requested evidence level. State whether the result is a
+Hand off `→ done` only at the requested evidence level. State whether the result is a
 well-supported conceptual route, a precedent-backed execution candidate, or an
 experimentally demonstrated sequence. Do not certify full-route feasibility
 from isolated validation of one step.

@@ -1,8 +1,10 @@
-"""The baton line: one closing ``→ <holder>`` line routes an Engineer's turn.
+"""The baton line: one closing ``→ <holder>`` line routes a turn.
 
-docs/role-handoff-design.md, "The baton". The older ``NEXT_OWNER=`` footer is
-still read where no line is present, so each case pins the line against the
-footer it replaces, or a reading the round loop now relies on.
+docs/role-handoff-design.md, "The baton". The Engineer's and the Reviewer's
+line is where the work goes; the host never sends it elsewhere. The older
+``NEXT_OWNER=`` footer is still read where no line is present, so each case
+pins the line against the footer it replaces, or a reading the round loop now
+relies on.
 """
 from __future__ import annotations
 
@@ -13,7 +15,7 @@ import pytest
 from argus.adapters.memory_backend import CannedResponse, MemoryBackend
 from argus.core.models import RunnerResult
 from argus.core.role_handoff import parse_engineer_handoff, read_baton_line, strip_handoff
-from argus.engineer.round_self_review import _milestone_is_done
+from argus.engineer.round_self_review import _round_handoff
 from argus.engineer.round_state import EngineerTurnOutcome
 from argus.engineer.runner import EngineerConfig, SupervisedConfig, SupervisedEngineer
 from argus.reviewer import Reviewer, ReviewerConfig
@@ -67,10 +69,10 @@ def test_a_baton_line_reads_as_the_footer_it_replaces(footer: str, line: str) ->
     )
 
 
-def test_done_reads_the_same_as_the_footer_did() -> None:
-    assert _milestone_is_done(_outcome("Fixed.\nDecision:\nMILESTONE_STATUS=done"))
-    assert _milestone_is_done(_outcome("Fixed.\n→ done"))
-    assert not _milestone_is_done(_outcome("Fixed.\n→ reviewer"))
+def test_only_the_line_says_done() -> None:
+    assert _round_handoff(_outcome("Fixed.\n→ done")).next_owner == "done"
+    assert _round_handoff(_outcome("Fixed.\n→ reviewer")).next_owner == "reviewer"
+    assert _round_handoff(_outcome("Fixed.\nDecision:\nMILESTONE_STATUS=done")).next_owner == "reviewer"
 
 
 @pytest.mark.parametrize("line, owner", [
@@ -105,7 +107,7 @@ def test_decoration_case_and_the_operator_facing_names_are_read(line: str, owner
 def test_an_unreadable_or_conflicting_line_falls_back_to_the_reviewer(text: str) -> None:
     handoff = read_baton_line(text)
     assert handoff is not None and (handoff.next_owner, handoff.source) == ("reviewer", "default")
-    assert not _milestone_is_done(_outcome(text))
+    assert _round_handoff(_outcome(text)).next_owner == "reviewer"
 
 
 def test_an_arrow_quoted_from_the_task_does_not_route() -> None:
@@ -149,11 +151,58 @@ def test_done_under_required_review_still_reaches_the_reviewer(tmp_path: Path) -
     result, rounds, labels = _run(
         tmp_path,
         ("engineer-r1", CannedResponse(message="Fixed the parser; its tests pass.\n→ done")),
-        ("reviewer", CannedResponse(review_action=("approve_review", {"review": "Holds."}))),
+        ("reviewer", CannedResponse(review_action=("submit_review", {"review": "Holds.\n→ done"}))),
     )
     assert labels == ["engineer-r1", "reviewer"]
     assert result == "done"
     assert rounds[0].review.review_source == "reviewer"
+
+
+def test_an_operator_question_parks_however_it_is_worded(tmp_path: Path) -> None:
+    """The Engineer named the operator; no word list sends it to the Reviewer instead."""
+    result, rounds, labels = _run(
+        tmp_path,
+        ("engineer-r1", CannedResponse(message="Two parsers fit.\n→ operator: Keep the old date format?")),
+    )
+    assert labels == ["engineer-r1"]
+    assert result == "blocked"
+    review = rounds[0].review
+    assert (review.status, review.review_source) == ("blocked", "engineer_handoff")
+    assert review.operator_question == "Keep the old date format?"
+
+
+@pytest.mark.parametrize("message", ["Built the parser.\n→ reviewer", "Built the parser."])
+def test_the_reviewer_is_reached_even_where_review_is_optional(tmp_path: Path, message: str) -> None:
+    """Optional review only lets the Engineer accept; it never turns a handoff back."""
+    result, _rounds, labels = _run(
+        tmp_path,
+        ("engineer-r1", CannedResponse(message=message)),
+        ("reviewer", CannedResponse(review_action=("submit_review", {"review": "Holds.\n→ done"}))),
+        review=False,
+    )
+    assert (result, labels) == ("done", ["engineer-r1", "reviewer"])
+
+
+@pytest.mark.parametrize("line, status, question", [
+    ("→ planner", "replan_requested", ""),
+    ("→ manager", "blocked", ""),
+    ("→ operator: Which licence may the dataset use?", "blocked", "Which licence may the dataset use?"),
+])
+def test_the_reviewer_hands_the_work_on_with_the_same_line(
+    tmp_path: Path, line: str, status: str, question: str,
+) -> None:
+    result, rounds, labels = _run(
+        tmp_path,
+        ("engineer-r1", CannedResponse(message="Built the parser.\n→ reviewer")),
+        ("reviewer", CannedResponse(review_action=(
+            "submit_review", {"review": f"The criteria contradict each other.\n{line}"},
+        ))),
+    )
+    assert labels == ["engineer-r1", "reviewer"]
+    assert result == status
+    review = rounds[0].review
+    assert (review.status, review.review_source, review.operator_question) == (status, "reviewer", question)
+    assert review.reason == "The criteria contradict each other."
 
 
 def test_done_without_required_review_settles_on_the_line(tmp_path: Path) -> None:

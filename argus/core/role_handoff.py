@@ -11,11 +11,19 @@ import re
 from dataclasses import dataclass
 from typing import Literal, Mapping, Sequence
 
+from .models import ReviewStatus
 from .operator_decision import normalize_agent_options, parse_agent_operator_options
 
 HandoffOwner = Literal[
     "engineer", "reviewer", "planner", "manager", "operator", "done"
 ]
+#: How a round settles on each holder a handoff names: the Engineer works on,
+#: the Planner replans, the Manager or the operator decides, or the candidate
+#: is accepted. The Reviewer is reached inside the round.
+HANDOFF_STATUS: dict[str, ReviewStatus] = {
+    "engineer": "continue", "planner": "replan_requested",
+    "manager": "blocked", "operator": "blocked", "done": "done",
+}
 
 _EMPTY_VALUES = frozenset({"", "none", "n/a", "na", "null"})
 
@@ -243,6 +251,7 @@ def parse_engineer_handoff(message: str) -> EngineerHandoff:
 
 __all__ = [
     "FOOTER_KEYS",
+    "HANDOFF_STATUS",
     "EngineerHandoff",
     "HandoffOwner",
     "baton_lines",

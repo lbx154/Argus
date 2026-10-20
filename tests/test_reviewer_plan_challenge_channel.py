@@ -42,29 +42,37 @@ def _reviewer_prompt(tmp_path) -> str:
     )
 
 
-def test_plan_challenge_is_a_native_action_with_explicit_authority(
-    tmp_path,
-) -> None:
-    assert "replan_review" in _reviewer_prompt(tmp_path)
-    tool = next(tool for tool in ReviewActions().tools if tool["name"] == "replan_review")
-    assert tool["inputSchema"]["properties"]["authority_impact"]["enum"] == [
-        "technical", "manager_contract", "operator",
-    ]
+def test_a_plan_challenge_is_the_reviewers_line_to_the_planner(tmp_path) -> None:
+    assert "`→ planner`" in _reviewer_prompt(tmp_path)
+    actions = ReviewActions()
+    assert "authority_impact" not in actions.tools[0]["inputSchema"]["properties"]
+    actions.dispatch("submit_review", {
+        "review": "Each round repairs a symptom of one cohort rule; certify per cell.\n→ planner",
+    })
+    assert actions.decision.status == "replan_requested"
+    assert actions.decision.planner_report["plan_signal"] == "reconsider"
+    routed = adjudicate_plan_challenge(
+        actions.decision.planner_report,
+        reviewer_status=actions.decision.status,
+        review_reason=actions.decision.reason,
+        next_action=actions.decision.next_action,
+    )
+    assert routed.action == "replace"
 
 
 def test_the_reviewer_is_told_the_word_that_challenges_the_plan(tmp_path) -> None:
     prompt = _reviewer_prompt(tmp_path)
-    assert "replan_review" in prompt
+    assert "`→ planner`" in prompt
     assert "failed assumption" in prompt
     assert "alternative" in prompt
     assert "STATUS=" not in prompt
 
 
-def test_the_reviewer_is_told_a_team_authored_plan_is_revisable(tmp_path) -> None:
-    """Authority, not effort, decides what may be replaced."""
+def test_the_reviewer_is_told_an_owners_commitment_goes_to_its_owner(tmp_path) -> None:
+    """Authority, not effort, decides who may replace a commitment."""
     prompt = _reviewer_prompt(tmp_path)
-    assert 'working choices and team plans' in prompt
-    assert "manager_contract" in prompt
+    assert "a commitment of the Manager or the operator goes to them" in prompt
+    assert "`→ manager`" in prompt and "`→ operator: <one question>`" in prompt
 
 
 def test_a_flat_decision_event_carries_the_challenge_to_the_manager() -> None:

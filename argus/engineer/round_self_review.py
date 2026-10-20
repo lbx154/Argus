@@ -1,4 +1,4 @@
-"""Route an Engineer turn by its handoff, and settle optional low-risk self-review."""
+"""Route an Engineer turn by its baton line: the holder it names is where the work goes."""
 
 from __future__ import annotations
 
@@ -7,10 +7,9 @@ from typing import TYPE_CHECKING, Callable
 
 from ..core.models import ReviewDecision
 from ..core.role_handoff import (
+    HANDOFF_STATUS,
     EngineerHandoff,
-    decision_engineer_handoff,
     parse_engineer_handoff,
-    read_baton_line,
     strip_handoff,
 )
 from .round_state import (
@@ -24,45 +23,37 @@ from .round_state import (
 if TYPE_CHECKING:
     from .runner import SupervisedConfig
 
-def _round_handoff(outcome: EngineerTurnOutcome) -> EngineerHandoff:
-    """Who owns the work next, read from the decision the Engineer recorded.
 
-    Falling back to the round message is for a turn that recorded no decision
-    at all. When one exists it is the answer, so a sentence in the narrative
-    cannot nominate a different owner than the Engineer chose.
+def _round_handoff(outcome: EngineerTurnOutcome) -> EngineerHandoff:
+    """The handoff the Engineer's turn ends with.
+
+    A recorded decision is read as the line it renders, the one the Reviewer
+    and the journal see, so a sentence in the narrative cannot name another
+    holder. A missing or unreadable line names the Reviewer: never done.
     """
     if isinstance(outcome.decision, dict):
-        return decision_engineer_handoff(outcome.decision)
+        from .round_execution import _engineer_decision_message
+
+        return parse_engineer_handoff(_engineer_decision_message(outcome.decision))
     return parse_engineer_handoff(outcome.engineer_message)
 
 
-def _milestone_status(outcome: EngineerTurnOutcome) -> str:
-    """The milestone status the Engineer stated: its decision, its baton line, else its footer.
+def _handoff_record(holder: str, outcome: EngineerTurnOutcome) -> ReviewDecision:
+    """The round's record of the Engineer handing the work past the Reviewer.
 
-    A baton line says ``done`` only as ``→ done``; any other line, or one that
-    could not be read, leaves the milestone open. The footer is read with the
-    reader every other role decision uses, so ``MILESTONE_STATUS: done``, a
-    bullet, bold or backticks all say ``done``.
+    The Engineer's own words, under its own source: the host writes no verdict
+    for it. ``done`` is the Engineer accepting where no review is required.
     """
-    if isinstance(outcome.decision, dict):
-        return str(outcome.decision.get("status") or "").strip().lower()
-    baton = read_baton_line(outcome.engineer_message)
-    if baton is not None:
-        return "done" if baton.next_owner == "done" else ""
-    from ..core.role_reply import decision_footer_text, read_key_values
-
-    found = read_key_values(
-        decision_footer_text(outcome.engineer_message), ("MILESTONE_STATUS",)
+    handoff = _round_handoff(outcome)
+    why = strip_handoff(outcome.engineer_message)[-1200:]
+    return ReviewDecision(
+        status=HANDOFF_STATUS[holder],
+        reason=why or f"Engineer handed the work to the {holder}.",
+        next_action="",
+        operator_question=handoff.operator_question,
+        operator_options=list(handoff.operator_options),
+        review_source="engineer_self_review" if holder == "done" else "engineer_handoff",
     )
-    return str(found.get("MILESTONE_STATUS") or "").strip("`*_. ").casefold()
-
-
-def _milestone_is_done(outcome: EngineerTurnOutcome) -> bool:
-    return _milestone_status(outcome) == "done"
-
-
-def _milestone_is_blocked(outcome: EngineerTurnOutcome) -> bool:
-    return _milestone_status(outcome) == "blocked"
 
 
 def _footer_block(footer: str, name: str, *, limit: int = 2400) -> str:
@@ -115,7 +106,7 @@ def _record_stated_assumption(
 
 
 class RoundSelfReviewMixin:
-    """Route an Engineer turn and settle low-risk work without another model."""
+    """Hand an Engineer turn to the holder its baton line names."""
 
     def _handle_progress_and_self_review(
         self,
@@ -137,121 +128,24 @@ class RoundSelfReviewMixin:
         state.backend_failure_signature = ""
         state.backend_failure_same_cause_streak = 0
         _record_stated_assumption(outcome, supervised_config)
-        handoff = _round_handoff(outcome)
-        if handoff.waits_for_operator:
-            from ..core.autonomy import assess_operator_intervention
-            from .round_settlement import _operator_questions_allowed
-
-            # The Engineer classified its own question; words in the question
-            # or the round message are not consulted. An explicit
-            # NEXT_OWNER=operator it did not classify fails safe and goes to
-            # the operator, when one may be asked. A question without that
-            # explicit handoff (or a run where questions cannot be asked) is
-            # a technical fact for the Reviewer.
-            intervention = assess_operator_intervention(
-                question=handoff.operator_question,
-                operator_need=handoff.operator_need,
-                unclassified_requires_operator=(
-                    handoff.source == "structured"
-                    and _operator_questions_allowed(supervised_config)
-                ),
-            )
-            if not intervention.required:
-                # The Reviewer sees the Engineer's question in the ordinary
-                # round record and can return it to Planner as a technical fact.
-                return control_proceed()
-            return self._settle_round(
-                review=ReviewDecision(
-                    status="blocked",
-                    reason="Engineer requires an operator-owned decision before continuing.",
-                    next_action="Resume after the operator answers the pending question.",
-                    operator_question=handoff.operator_question,
-                    operator_options=list(handoff.operator_options),
-                    review_source="engineer_operator_question",
-                    planner_report={
-                        "plan_signal": "continue",
-                        "challenge": handoff.operator_question,
-                        "authority_impact": "operator",
-                        "operator_need": intervention.operator_need,
-                    },
-                ),
-                round_index=round_index,
-                supervised_config=supervised_config,
-                workdir=workdir,
-                outcome=outcome,
-                state=state,
-                review_completed_hook=review_completed_hook,
-                on_event=on_event,
-            )
-        if handoff.next_owner in {"planner", "manager"}:
-            # Routing is the Engineer's: a mis-scoped task goes to the Planner,
-            # an obstacle only the Manager can remove goes to the Manager.
-            # Neither accepts work, so no review stands in between.
-            why = strip_handoff(outcome.engineer_message)[-1200:]
-            return self._settle_round(
-                review=ReviewDecision(
-                    status="replan_requested" if handoff.next_owner == "planner" else "blocked",
-                    reason=why or f"Engineer handed the work to the {handoff.next_owner}.",
-                    next_action="",
-                    review_source="engineer_handoff",
-                ),
-                round_index=round_index,
-                supervised_config=supervised_config,
-                workdir=workdir,
-                outcome=outcome,
-                state=state,
-                review_completed_hook=review_completed_hook,
-                on_event=on_event,
-            )
-        if (
-            not supervised_config.require_independent_review
-            and _milestone_is_blocked(outcome)
-        ):
-            result = (
-                str(outcome.decision.get("result") or "").strip()
-                if isinstance(outcome.decision, dict)
-                else ""
-            )
-            return self._settle_round(
-                review=ReviewDecision(
-                    status="blocked",
-                    reason=result or "Engineer reported an obstacle it could not clear.",
-                    next_action="",
-                    review_source="engineer_self_review",
-                ),
-                round_index=round_index,
-                supervised_config=supervised_config,
-                workdir=workdir,
-                outcome=outcome,
-                state=state,
-                review_completed_hook=review_completed_hook,
-                on_event=on_event,
-            )
-        if handoff.next_owner == "engineer":
-            # The Engineer keeps the work; the Reviewer judges when it hands over.
+        holder = _round_handoff(outcome).next_owner
+        if holder == "done" and supervised_config.require_independent_review:
+            # Accepting a candidate is the Reviewer's where review is required.
+            holder = "reviewer"
+        if holder == "engineer":
             return control_continue_loop()
-        if not supervised_config.require_independent_review:
-            if not _milestone_is_done(outcome):
-                return control_continue_loop()
-            return self._settle_round(
-                review=ReviewDecision(
-                    status="done",
-                    reason=(
-                        "Engineer reported the requested milestone complete; "
-                        "independent review was not required for this mission."
-                    ),
-                    next_action="",
-                    review_source="engineer_self_review",
-                ),
-                round_index=round_index,
-                supervised_config=supervised_config,
-                workdir=workdir,
-                outcome=outcome,
-                state=state,
-                review_completed_hook=review_completed_hook,
-                on_event=on_event,
-            )
-        return control_proceed()
+        if holder == "reviewer":
+            return control_proceed()
+        return self._settle_round(
+            review=_handoff_record(holder, outcome),
+            round_index=round_index,
+            supervised_config=supervised_config,
+            workdir=workdir,
+            outcome=outcome,
+            state=state,
+            review_completed_hook=review_completed_hook,
+            on_event=on_event,
+        )
 
 
 __all__ = ["RoundSelfReviewMixin"]

@@ -44,7 +44,7 @@ from .round_manager_wait import manager_wait_terminal
 from .round_prompt import RoundPromptMixin
 from .round_reviewer import RoundReviewerMixin
 from .round_self_review import RoundSelfReviewMixin
-from .round_settlement import RoundSettlementMixin, withhold_terminal_question
+from .round_settlement import RoundSettlementMixin
 
 # These round-signal helpers remain module attributes because callers and tests
 # patch them through ``argus.engineer.runner``.
@@ -316,7 +316,7 @@ class SupervisedEngineer(
                 on_event=on_event,
             )
             if control.action == "return":
-                return withhold_terminal_question(control.terminal, supervised_config)
+                return control.terminal
             if control.action == "continue_loop":
                 continue
 
@@ -334,7 +334,7 @@ class SupervisedEngineer(
                 on_event=on_event,
             )
             if control.action == "return":
-                return withhold_terminal_question(control.terminal, supervised_config)
+                return control.terminal
             if control.action == "continue_loop":
                 _carry_unreviewed_turn(state, round_index, outcome.engineer_message)
                 continue
@@ -358,7 +358,7 @@ class SupervisedEngineer(
                     review_completed_hook=review_completed_hook,
                         on_event=on_event,
                 )
-                return withhold_terminal_question(control.terminal, supervised_config)
+                return control.terminal
 
             control = self._invoke_reviewer_with_retry(
                 objective=objective,
@@ -375,7 +375,7 @@ class SupervisedEngineer(
                 on_event=on_event,
             )
             if control.action == "return":
-                return withhold_terminal_question(control.terminal, supervised_config)
+                return control.terminal
             if control.action == "continue_loop":
                 continue
             review = control.payload
@@ -390,22 +390,19 @@ class SupervisedEngineer(
                 on_event=on_event,
             )
             if control.action == "return":
-                return withhold_terminal_question(control.terminal, supervised_config)
+                return control.terminal
             if control.action == "continue_loop":
                 continue
             # else "proceed": fall through to the next round.
 
         # Only an explicit positive max_rounds can exhaust the finite range.
-        return withhold_terminal_question(
-            (
-                "max_rounds",
-                state.rounds,
-                state.last_engineer_message,
-                f"Hit max_rounds={supervised_config.max_rounds} without "
-                "reviewer-confirmed completion.",
-                None,
-            ),
-            supervised_config,
+        return (
+            "max_rounds",
+            state.rounds,
+            state.last_engineer_message,
+            f"Hit max_rounds={supervised_config.max_rounds} without "
+            "reviewer-confirmed completion.",
+            None,
         )
 
     def _run_engineer(

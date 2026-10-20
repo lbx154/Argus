@@ -521,110 +521,6 @@ class MissionExecutionSettlementMixin:
         operator_question = str(
             getattr(outcome, "operator_question", "") or ""
         ).strip()
-        cannot_ask = False
-        if operator_question:
-            from ...core.autonomy import (
-                NO_OPERATOR_NEED,
-                OPERATOR_ACTION_NEEDS,
-                assess_operator_intervention,
-                normalize_operator_need,
-                operator_questions_can_be_asked,
-                technical_continuation,
-            )
-
-            cannot_ask = not operator_questions_can_be_asked()
-
-            raised_need = normalize_operator_need(
-                (getattr(outcome, "final_planner_report", {}) or {}).get("operator_need")
-                if isinstance(getattr(outcome, "final_planner_report", None), dict)
-                else ""
-            )
-            if (
-                cannot_ask
-                # The raiser itself said the team can decide this.
-                or raised_need == NO_OPERATOR_NEED
-            ):
-                planner_report = dict(
-                    getattr(outcome, "final_planner_report", {}) or {}
-                )
-                intervention = assess_operator_intervention(
-                    question=operator_question,
-                    reason=str(
-                        getattr(outcome, "final_review_reason", "") or ""
-                    ),
-                    next_action=str(
-                        getattr(outcome, "final_review_next_action", "") or ""
-                    ),
-                    planner_report=planner_report,
-                )
-                if not intervention.required:
-                    continuation = technical_continuation(
-                        question=operator_question,
-                        reason=str(
-                            getattr(outcome, "final_review_reason", "") or ""
-                        ),
-                        next_action=str(
-                            getattr(outcome, "final_review_next_action", "") or ""
-                        ),
-                    )
-                    planner_report.update({
-                        "plan_signal": "reconsider",
-                        "challenge": str(
-                            planner_report.get("challenge")
-                            or getattr(outcome, "final_review_reason", "")
-                            or operator_question
-                        ),
-                        "alternative": continuation,
-                        "authority_impact": "technical",
-                        "auto_continued": True,
-                    })
-                    # Runner and guard outcomes have different concrete shapes;
-                    # keep policy write-back as explicit duck-typed adaptation.
-                    setattr(outcome, "final_planner_report", planner_report)
-                    setattr(outcome, "operator_question", "")
-                    self._emit({
-                        "type": EventType.LIFE_MANAGER_PLAN_CHALLENGE_DECIDED,
-                        "item_id": item.id,
-                        "manager_action": "replace",
-                        "manager_reason": intervention.reason,
-                        "challenge": operator_question,
-                        "alternative": continuation,
-                        "authority_impact": "technical",
-                        "source": "pragmatic_autonomy_policy",
-                        "text": (
-                            "Argus kept a reversible technical choice inside the team "
-                            "instead of interrupting the operator."
-                        ),
-                    })
-                    operator_question = ""
-                    if status in {"blocked", "replan_requested"}:
-                        status = "replan_requested"
-                elif (
-                    cannot_ask
-                    and status in {"blocked", "replan_requested"}
-                    and intervention.operator_need not in OPERATOR_ACTION_NEEDS
-                ):
-                    # The operator cannot be asked, and the raising role named
-                    # no action only they could approve: the question is one
-                    # of scope or interpretation. Hand it to the Manager as an
-                    # operator-owned challenge without a question; the Manager
-                    # settles it on the most defensible reading and the
-                    # Planner records that assumption. An action stays a
-                    # question, which the Manager decides in the operator's
-                    # place once it is parked.
-                    planner_report.update({
-                        "plan_signal": "reconsider",
-                        "challenge": str(
-                            planner_report.get("challenge") or operator_question
-                        ),
-                        "authority_impact": "operator",
-                        "operator_need": intervention.operator_need,
-                    })
-                    setattr(outcome, "final_planner_report", planner_report)
-                    setattr(outcome, "operator_question", "")
-                    setattr(outcome, "operator_options", [])
-                    operator_question = ""
-                    status = "replan_requested"
         research_pause = status in {
             "research_incomplete",
             "paused_no_breakthrough",
@@ -632,12 +528,6 @@ class MissionExecutionSettlementMixin:
             "infra_blocked",
         }
         replan_requested = status == "replan_requested"
-        if replan_requested and operator_question:
-            # A replacement plan cannot authorize a semantic boundary decision.
-            # Route the question through the durable operator-answer path instead
-            # of immediately asking Planner to redispatch the same mission.
-            status = "blocked"
-            replan_requested = False
         intentional_abort = status == "aborted" or state.stop_kind == "operator_abort"
         if intentional_abort:
             success = False
@@ -991,10 +881,10 @@ class MissionExecutionSettlementMixin:
         else:
             fail(error=err, outcome=outcome_dimensions)
 
-        # A "blocked" verdict means the REVIEWER stopped progress because it
-        # needs the OPERATOR to make a call — not a bug/crash. This includes a
-        # replan verdict carrying an operator question, normalized above so
-        # Planner cannot proceed without authorization. Persist the question
+        # A "blocked" round with a question is a role handing the work to the
+        # OPERATOR (``→ operator: <question>``) — not a bug/crash; while the
+        # operator cannot be asked, the Manager decides the parked card in
+        # their place. Persist the question
         # onto the (now-terminal) item so it outlives this one event:
         # /status can list every currently-unanswered question across ALL
         # projects/restarts, not just whatever a cockpit happened to be tailing

@@ -90,7 +90,7 @@ class RuntimeRunner(SkillLoopExecuteMixin):
 
 def verdict(status="done"):
     return CannedResponse(
-        review_action=(('approve_review' if status == 'done' else 'revise_review'), {'review': ('Synthetic bounded check.') + '\n\n' + ('Check the next bounded observation.' if status == 'continue' else '')}),
+        review_action=("submit_review", {'review': 'Synthetic bounded check.\n\n' + ('Check the next bounded observation.\n→ engineer' if status == 'continue' else '→ done')}),
         thread_id="offline-reviewer",
     )
 

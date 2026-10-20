@@ -89,8 +89,8 @@ def test_native_action_succeeds_without_final_reviewer_message() -> None:
         def run_exec(self, **_kwargs):
             from argus.core.role_tool_bridge import bridge_request
 
-            bridge_request("ARGUS_PLUGIN_REVIEW", "approve_review", {
-                "review": "The focused check passed.",
+            bridge_request("ARGUS_PLUGIN_REVIEW", "submit_review", {
+                "review": "The focused check passed.\n→ done",
             }, env=_kwargs["options"].extension_env)
             return RunnerResult(
                 exit_code=0,

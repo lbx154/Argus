@@ -190,10 +190,10 @@ class _Runner:
 
     def run_exec(self, **kwargs):
         self.prompt = kwargs["prompt"]
-        payload = {"review": "Assessed current paper."}
+        payload = {"review": "Assessed current paper.\n→ done"}
         if self.report:
             payload["recommendation"] = self.report["recommendation"]
-        bridge_request("ARGUS_PLUGIN_REVIEW", "approve_review", payload, env=kwargs["options"].extension_env)
+        bridge_request("ARGUS_PLUGIN_REVIEW", "submit_review", payload, env=kwargs["options"].extension_env)
         return RunnerResult(exit_code=0)
 
 

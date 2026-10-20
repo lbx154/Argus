@@ -10,22 +10,10 @@ from pathlib import Path
 import pytest
 
 from argus.adapters.memory_backend import CannedResponse, MemoryBackend
-from argus.core.models import RunnerResult
 from argus.core.role_handoff import decision_engineer_handoff, parse_engineer_handoff
 from argus.engineer.round_execution import _engineer_decision_message
-from argus.engineer.round_self_review import _milestone_is_blocked, _milestone_is_done
-from argus.engineer.round_state import EngineerTurnOutcome
 from argus.engineer.runner import EngineerConfig, SupervisedConfig, SupervisedEngineer
 from argus.reviewer import Reviewer, ReviewerConfig
-
-
-def _outcome(message: str, decision: dict | None = None) -> EngineerTurnOutcome:
-    return EngineerTurnOutcome(
-        engineer_result=RunnerResult(exit_code=0, agent_messages=[message]),
-        round_thread_id=None, fatal_error=None, safe_fatal_error=None, stop_kind=None,
-        raw_engineer_message=message, engineer_message=message,
-        process_ownership_note="", round_started_at=0.0, decision=decision,
-    )
 
 
 def _engineer(backend: MemoryBackend) -> SupervisedEngineer:
@@ -41,36 +29,12 @@ def _labels(backend: MemoryBackend) -> list[str]:
     return [label for label, _prompt, _options in backend.history]
 
 
-# --- 1. Self-review mode: the Engineer finishes, footers read tolerantly ---
-
-
-@pytest.mark.parametrize("footer", [
-    "MILESTONE_STATUS=done",
-    "MILESTONE_STATUS: done",
-    "- MILESTONE_STATUS=done",
-    "**MILESTONE_STATUS**: done",
-    "**MILESTONE_STATUS=done**",
-    "`MILESTONE_STATUS=done`",
-    "MILESTONE_STATUS = Done.",
-    "Decision:\nMILESTONE_STATUS: done\nNEXT_OWNER=reviewer",
-])
-def test_a_decorated_milestone_footer_still_says_done(footer: str) -> None:
-    outcome = _outcome("Implemented the bounded fix; 3 tests pass.\n" + footer)
-    assert _milestone_is_done(outcome) is True
-    assert _milestone_is_blocked(outcome) is False
-
-
-def test_the_milestone_reader_keeps_blocked_apart_and_ignores_quoted_examples() -> None:
-    assert _milestone_is_blocked(_outcome("Credentials are missing.\n- MILESTONE_STATUS: blocked"))
-    # A quoted instruction mid-sentence is not a verdict.
-    quoted = _outcome("The task says to end with `MILESTONE_STATUS=done|continue` later.")
-    assert _milestone_is_done(quoted) is False
-    assert _milestone_is_done(_outcome("Half done.\nMILESTONE_STATUS=done|continue")) is False
+# --- 1. Self-review mode: the Engineer finishes on its own line ---------
 
 
 def test_a_decorated_done_finishes_a_self_reviewed_mission(tmp_path: Path) -> None:
     backend = MemoryBackend()
-    backend.queue("engineer-r1", CannedResponse(message="Fixed it; tests pass.\nMILESTONE_STATUS: done"))
+    backend.queue("engineer-r1", CannedResponse(message="Fixed it; tests pass.\n**→ done**"))
 
     status, rounds, _final, _reason, _tid = _engineer(backend).run(
         objective="low-risk repair",
@@ -84,14 +48,14 @@ def test_a_decorated_done_finishes_a_self_reviewed_mission(tmp_path: Path) -> No
     assert rounds[0].review.review_source == "engineer_self_review"
 
 
-@pytest.mark.parametrize("footer", ["MILESTONE_STATUS=continue", "NEXT_OWNER=engineer"])
+@pytest.mark.parametrize("footer", ["→ engineer", "NEXT_OWNER=engineer"])
 def test_unfinished_self_reviewed_turns_go_on_until_the_engineer_says_done(
     tmp_path: Path, footer: str,
 ) -> None:
     backend = MemoryBackend()
     for index in (1, 2, 3):
         backend.queue(f"engineer-r{index}", CannedResponse(message=f"Step {index} written.\n{footer}"))
-    backend.queue("engineer-r4", CannedResponse(message="All steps hold.\nMILESTONE_STATUS=done"))
+    backend.queue("engineer-r4", CannedResponse(message="All steps hold.\n→ done"))
 
     status, rounds, _final, _reason, _tid = _engineer(backend).run(
         objective="low-risk repair",
@@ -105,7 +69,7 @@ def test_unfinished_self_reviewed_turns_go_on_until_the_engineer_says_done(
     assert [record.review.review_source for record in rounds] == ["engineer_self_review"]
 
 
-@pytest.mark.parametrize("footer", ["MILESTONE_STATUS=continue", "NEXT_OWNER=engineer"])
+@pytest.mark.parametrize("footer", ["→ engineer", "NEXT_OWNER=engineer"])
 def test_a_round_capped_self_reviewed_mission_adds_no_reviewer_call(
     tmp_path: Path, footer: str,
 ) -> None:
@@ -151,8 +115,8 @@ def test_a_continue_decision_without_an_owner_renders_the_reviewer() -> None:
 def test_a_rendered_decision_is_done_only_when_the_decision_is(status: str) -> None:
     """The Reviewer reads ``→ done`` exactly when the round loop settles done."""
     decision = {"status": status, "result": "Credentials are missing."}
-    rendered = _outcome(_engineer_decision_message(decision))
-    assert _milestone_is_done(rendered) is _milestone_is_done(_outcome("", decision))
+    rendered = parse_engineer_handoff(_engineer_decision_message(decision))
+    assert (rendered.next_owner == "done") is (status == "done")
 
 
 

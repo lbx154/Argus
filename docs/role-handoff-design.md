@@ -220,7 +220,7 @@ A record without a known author is a defect, not a Reviewer verdict.
 - The acceptance criteria come from the mission contract, by reference, owned
   by whoever wrote them (Planner, Manager, or operator, per
   [goal-contract-authority.md](goal-contract-authority.md)).
-- `approve_review` and `revise_review` state a status for each criterion.
+- A review handing off `→ done` or `→ engineer` states a status for each criterion.
   Approval requires every criterion to be met or explicitly accepted by its
   owner.
 - A concern outside the criteria is a follow-up: recorded, routed to the

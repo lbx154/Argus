@@ -3,9 +3,9 @@ from __future__ import annotations
 
 from pathlib import Path
 
+import pytest
+
 from argus.adapters.memory_backend import CannedResponse, MemoryBackend
-from argus.core.models import RunnerResult
-from argus.engineer.round_config import QUESTION_POLICY
 from argus.engineer.runner import (
     EngineerConfig,
     SupervisedConfig,
@@ -16,7 +16,7 @@ from argus.reviewer import Reviewer, ReviewerConfig
 
 
 def _done_review() -> tuple[str, dict]:
-    return "approve_review", {"review": "reviewed"}
+    return "submit_review", {"review": "reviewed\n→ done"}
 
 
 def _engineer(backend: MemoryBackend) -> SupervisedEngineer:
@@ -79,7 +79,7 @@ def test_low_risk_task_can_finish_with_engineer_self_review(tmp_path: Path) -> N
         CannedResponse(
             message=(
                 "Implemented the bounded fix.\n## Verification\n3 tests passed\n"
-                "`MILESTONE_STATUS=done`"
+                "`→ done`"
             ),
             thread_id="t1",
         ),
@@ -103,8 +103,7 @@ def test_low_risk_task_can_finish_with_engineer_self_review(tmp_path: Path) -> N
     assert rounds[0].review.review_source == "engineer_self_review"
     review_events = [event for event in events if event["type"] == "round.review.completed"]
     assert review_events[0]["review_source"] == "engineer_self_review"
-    assert "independent review was not required" in reason
-    assert "Host-defined" not in reason
+    assert reason == "Implemented the bounded fix.\n## Verification\n3 tests passed"
     assert tid is None
 
 
@@ -113,14 +112,14 @@ def test_engineer_continues_milestone_without_reviewer(tmp_path: Path) -> None:
     backend.queue(
         "engineer-r1",
         CannedResponse(
-            message="Captured the signal.\nMILESTONE_STATUS=continue",
+            message="Captured the signal.\n→ engineer",
             thread_id="t1",
         ),
     )
     backend.queue(
         "engineer-r2",
         CannedResponse(
-            message="Made the keep/reject decision.\nMILESTONE_STATUS=done",
+            message="Made the keep/reject decision.\n→ done",
             thread_id="t2",
         ),
     )
@@ -175,14 +174,13 @@ def test_engineer_operator_question_parks_without_reviewer(tmp_path: Path) -> No
     assert [label for label, _prompt, _options in backend.history] == ["engineer-r1"]
     assert status == "blocked"
     assert len(rounds) == 1
-    assert rounds[0].review.review_source == "engineer_operator_question"
+    assert rounds[0].review.review_source == "engineer_handoff"
     assert rounds[0].review.operator_question == "Is publishing route A or B acceptable?"
     assert [option["label"] for option in rounds[0].review.operator_options] == [
         "选择 A",
         "选择 B",
     ]
-    assert rounds[0].review.planner_report["authority_impact"] == "operator"
-    assert "operator-owned decision" in reason
+    assert reason == "The required choice belongs to the operator."
     review_events = [event for event in events if event["type"] == "round.review.completed"]
     assert review_events[0]["operator_question"] == (
         "Is publishing route A or B acceptable?"
@@ -190,62 +188,16 @@ def test_engineer_operator_question_parks_without_reviewer(tmp_path: Path) -> No
     assert review_events[0]["operator_options"][0]["id"] == "route-a"
 
 
-def test_project_local_paper_edit_question_reaches_reviewer_not_operator_pause(
-    tmp_path: Path,
-) -> None:
+def test_a_question_nobody_may_be_asked_parks_for_the_manager(tmp_path: Path) -> None:
+    """The Engineer named the operator; with none to ask, the Manager decides the card."""
     backend = MemoryBackend()
     backend.queue(
         "engineer-r1",
         CannedResponse(
-            message=(
-                "The scoped result is ready to write.\n"
-                "MILESTONE_STATUS=continue\n"
-                "NEXT_OWNER=operator\n"
-                "OPERATOR_QUESTION=Should I edit project-local paper/main.tex "
-                "to present the scoped result?\n"
-                # The Engineer's own classification: not an operator decision.
-                "OPERATOR_NEED=none"
-            ),
+            message="Git is not available in the current shell.\n→ operator: Can you provide Git?",
             thread_id="t1",
         ),
     )
-    backend.queue("reviewer", CannedResponse(review_action=_done_review(), thread_id="v1"))
-
-    status, rounds, _final, _reason, _tid = _engineer(backend).run(
-        objective="Update paper/main.tex with the reviewed scoped result.",
-        engineer_prompt_builder=lambda _na, _include_static=True: "Do the task.",
-        supervised_config=SupervisedConfig(
-            max_rounds=2,
-            require_independent_review=True,
-        ),
-        workdir=tmp_path,
-    )
-
-    assert status == "done"
-    assert [label for label, _prompt, _options in backend.history] == [
-        "engineer-r1",
-        "reviewer",
-    ]
-    assert rounds[0].review.review_source == "reviewer"
-    assert all(record.review.operator_question == "" for record in rounds)
-
-
-def test_forbidden_engineer_question_becomes_autonomous_continuation(
-    tmp_path: Path,
-) -> None:
-    backend = MemoryBackend()
-    backend.queue(
-        "engineer-r1",
-        CannedResponse(
-            message=(
-                "Git is not available in the current shell.\n"
-                "NEXT_OWNER=operator\n"
-                "OPERATOR_QUESTION=Can you provide Git?"
-            ),
-            thread_id="t1",
-        ),
-    )
-    backend.queue("reviewer", CannedResponse(review_action=_done_review(), thread_id="v1"))
 
     status, rounds, _final, _reason, _tid = _engineer(backend).run(
         objective="complete and review the work",
@@ -259,113 +211,29 @@ def test_forbidden_engineer_question_becomes_autonomous_continuation(
         workdir=tmp_path,
     )
 
-    assert status == "done"
-    assert [record.review.operator_question for record in rounds] == [""]
-    assert [label for label, _prompt, _options in backend.history] == [
-        "engineer-r1",
-        "reviewer",
-    ]
-
-
-def test_inflight_forbid_takes_effect_at_engineer_boundary(tmp_path: Path) -> None:
-    from argus.core.knob_store import write_persisted_knob
-
-    write_persisted_knob("ARGUS_SKILL_OPERATOR_AVAILABLE", "1")
-    backend = MemoryBackend()
-
-    def forbid_during_turn(_prompt, _options):
-        write_persisted_knob("ARGUS_SKILL_OPERATOR_AVAILABLE", "0")
-        return "NEXT_OWNER=operator\nOPERATOR_QUESTION=Can you configure Git?"
-
-    backend.queue(
-        "engineer-r1",
-        CannedResponse(message_factory=forbid_during_turn, thread_id="t1"),
-    )
-    backend.queue("reviewer", CannedResponse(review_action=_done_review(), thread_id="v1"))
-
-    status, rounds, _final, _reason, _tid = _engineer(backend).run(
-        objective="finish without waiting",
-        engineer_prompt_builder=lambda next_action, _include_static=True: (
-            next_action or "Do the task."
-        ),
-        supervised_config=SupervisedConfig(
-            max_rounds=3,
-            operator_question_policy_root=tmp_path,
-        ),
-        workdir=tmp_path,
-    )
-
-    assert status == "done"
-    assert rounds[0].review.status == "done"
-    assert [label for label, _prompt, _options in backend.history] == [
-        "engineer-r1",
-        "reviewer",
-    ]
-    assert all(not record.review.operator_question for record in rounds)
-
-
-def test_inflight_allow_reenables_engineer_question_boundary(tmp_path: Path) -> None:
-    from argus.core.knob_store import write_persisted_knob
-
-    write_persisted_knob("ARGUS_SKILL_OPERATOR_AVAILABLE", "0")
-    backend = MemoryBackend()
-
-    def allow_during_turn(_prompt, _options):
-        write_persisted_knob("ARGUS_SKILL_OPERATOR_AVAILABLE", "1")
-        return (
-            "NEXT_OWNER=operator\n"
-            "OPERATOR_QUESTION=Is route A or B acceptable under the operator "
-            "acceptance contract?\n"
-            "OPERATOR_NEED=scope_or_authority"
-        )
-
-    backend.queue(
-        "engineer-r1",
-        CannedResponse(message_factory=allow_during_turn, thread_id="t1"),
-    )
-
-    status, rounds, _final, _reason, _tid = _engineer(backend).run(
-        objective="use the operator-selected route",
-        engineer_prompt_builder=lambda _next_action, _include_static=True: "Do it.",
-        supervised_config=SupervisedConfig(
-            max_rounds=3,
-            operator_question_policy_root=tmp_path,
-        ),
-        workdir=tmp_path,
-    )
-
     assert status == "blocked"
-    assert rounds[0].review.operator_question.startswith("Is route A or B acceptable")
+    assert [label for label, _prompt, _options in backend.history] == ["engineer-r1"]
+    assert [record.review.operator_question for record in rounds] == ["Can you provide Git?"]
 
 
-def test_forbidden_reviewer_question_preserves_telemetry_and_continues(
+def test_a_reviewer_question_nobody_may_be_asked_parks_with_its_telemetry(
     tmp_path: Path,
 ) -> None:
     backend = MemoryBackend()
     backend.queue(
         "engineer-r1",
-        CannedResponse(
-            message="Prepared the change.\nNEXT_OWNER=reviewer",
-            thread_id="t1",
-        ),
+        CannedResponse(message="Prepared the change.\n→ reviewer", thread_id="t1"),
     )
     backend.queue(
         "reviewer",
         CannedResponse(
-            review_action=('request_review_decision', {'review': ('The environment needs repair.') + '\n\n' + ('Ask the operator.'), 'question': 'Can you repair the environment?'}),
+            review_action=("submit_review", {
+                "review": "The environment needs repair.\n→ operator: Can you repair the environment?",
+            }),
             input_tokens=17,
             output_tokens=9,
             thread_id="v1",
         ),
-        CannedResponse(review_action=_done_review(), thread_id="v2"),
-    )
-    backend.queue(
-        "engineer-r2",
-        CannedResponse(
-            message="Repaired the environment and verified the change.\n"
-            "MILESTONE_STATUS=done\nNEXT_OWNER=reviewer",
-            thread_id="t2",
-        ),
     )
 
     status, rounds, _final, _reason, _tid = _engineer(backend).run(
@@ -380,124 +248,22 @@ def test_forbidden_reviewer_question_preserves_telemetry_and_continues(
         workdir=tmp_path,
     )
 
-    assert status == "done"
+    assert status == "blocked"
     kept = rounds[0].review
-    # The Reviewer's verdict stands; the intervention beside it says the
-    # question was not sent and the work went on.
-    assert kept.status == "blocked"
-    assert kept.operator_question == "Can you repair the environment?"
-    assert kept.intervention(QUESTION_POLICY)["action"] == "continue"
-    assert kept.input_tokens == 17
-    assert kept.output_tokens == 9
-    engineer_prompts = [prompt for label, prompt, _options in backend.history if label == "engineer-r2"]
-    assert "solve reversible environment, tool, worktree" in engineer_prompts[0]
-
-
-def test_repeated_forbidden_reviewer_question_ends_blocked_without_asking(
-    tmp_path: Path,
-) -> None:
-    backend = MemoryBackend()
-    for round_index in (1, 2):
-        backend.queue(
-            f"engineer-r{round_index}",
-            CannedResponse(
-                message="Preserved the current state.\nNEXT_OWNER=reviewer",
-                thread_id=f"t{round_index}",
-            ),
-        )
-    blocked_review = CannedResponse(
-        review_action=('request_review_decision', {'review': ('Irreversible authority is required.') + '\n\n' + ('Ask for authority.'), 'question': 'May I perform the irreversible action?'})
+    assert (kept.status, kept.operator_question, kept.interventions) == (
+        "blocked", "Can you repair the environment?", [],
     )
-    backend.queue("reviewer", blocked_review, blocked_review)
-
-    status, rounds, _final, _reason, _tid = _engineer(backend).run(
-        objective="perform only authorized work",
-        engineer_prompt_builder=lambda next_action, _include_static=True: (
-            next_action or "Do the task."
-        ),
-        supervised_config=SupervisedConfig(
-            max_rounds=3,
-            operator_questions_allowed=False,
-        ),
-        workdir=tmp_path,
-    )
-
-    assert status == "blocked"
-    assert "the Manager decides in the operator's place" in _reason
-    assert [record.review.status for record in rounds] == ["blocked", "blocked"]
-    assert all(
-        record.review.operator_question == "May I perform the irreversible action?"
-        for record in rounds
-    )
-    assert [record.review.intervention(QUESTION_POLICY)["action"] for record in rounds] == [
-        "continue", "manager",
-    ]
+    assert (kept.input_tokens, kept.output_tokens) == (17, 9)
+    assert [label for label, _prompt, _options in backend.history] == ["engineer-r1", "reviewer"]
 
 
-class _StructuredBlockedEngineer:
-    backend = "memory"
-
-    def __init__(self) -> None:
-        self.calls = 0
-
-    def run_exec(self, **_kwargs) -> RunnerResult:
-        self.calls += 1
-        return RunnerResult(
-            exit_code=0,
-            agent_messages=["Blocked after preserving the worktree."],
-            role_decisions=[{
-                "role": "engineer",
-                "payload": {
-                    "status": "blocked",
-                    "result": "Only unavailable credentials remain; state preserved.",
-                    "next_owner": "reviewer",
-                },
-            }],
-        )
-
-
-class _NoReviewExpected:
-    def evaluate(self, **_kwargs):
-        raise AssertionError("independent review is disabled")
-
-
-def test_no_review_structured_engineer_blocked_settles_immediately(
-    tmp_path: Path,
-) -> None:
-    backend = _StructuredBlockedEngineer()
-    engine = SupervisedEngineer(
-        engineer_runner=backend,
-        reviewer=_NoReviewExpected(),
-        engineer_config=EngineerConfig(model="m"),
-        reviewer_config=ReviewerConfig(model="m"),
-    )
-
-    status, rounds, _final, reason, _tid = engine.run(
-        objective="perform credential-gated work",
-        engineer_prompt_builder=lambda _next_action, _include_static=True: "Do it.",
-        supervised_config=SupervisedConfig(
-            max_rounds=4,
-            require_independent_review=False,
-        ),
-        workdir=tmp_path,
-    )
-
-    assert status == "blocked"
-    assert backend.calls == 1
-    assert len(rounds) == 1
-    assert rounds[0].review.operator_question == ""
-    assert reason == "Only unavailable credentials remain; state preserved."
-
-
-def test_no_review_legacy_blocked_marker_settles_immediately(
+def test_without_review_the_engineers_manager_handoff_settles_immediately(
     tmp_path: Path,
 ) -> None:
     backend = MemoryBackend()
     backend.queue(
         "engineer-r1",
-        CannedResponse(
-            message="Preserved the current worktree.\nMILESTONE_STATUS=blocked"
-        ),
+        CannedResponse(message="Only unavailable credentials remain; state preserved.\n→ manager"),
     )
 
     status, rounds, _final, reason, _tid = _engineer(backend).run(
@@ -514,42 +280,7 @@ def test_no_review_legacy_blocked_marker_settles_immediately(
     assert [label for label, _prompt, _options in backend.history] == ["engineer-r1"]
     assert len(rounds) == 1
     assert rounds[0].review.operator_question == ""
-    assert reason == "Engineer reported an obstacle it could not clear."
-
-
-def test_legacy_reviewer_request_without_owner_reaches_reviewer(
-    tmp_path: Path,
-) -> None:
-    backend = MemoryBackend()
-    backend.queue(
-        "engineer-r1",
-        CannedResponse(
-            message=(
-                "Completed the artifact and its check script.\n"
-                "MILESTONE_STATUS=continue\n"
-                "OPERATOR_QUESTION=Please invoke the independent hostile Reviewer "
-                "to review this artifact.\n"
-                "OPERATOR_OPTIONS=review :: Invoke hostile Reviewer :: "
-                "Run the standard independent review."
-            ),
-            thread_id="t1",
-        ),
-    )
-    backend.queue("reviewer", CannedResponse(review_action=_done_review(), thread_id="v1"))
-    status, rounds, _final, _reason, _tid = _engineer(backend).run(
-        objective="complete and independently review the artifact",
-        engineer_prompt_builder=lambda _na, _include_static=True: "Do the task.",
-        supervised_config=SupervisedConfig(max_rounds=2, require_independent_review=True),
-        workdir=tmp_path,
-    )
-
-    assert [label for label, _prompt, _options in backend.history] == [
-        "engineer-r1",
-        "reviewer",
-    ]
-    assert status == "done"
-    assert rounds[0].review.review_source == "reviewer"
-    assert rounds[0].review.operator_question == ""
+    assert reason == "Only unavailable credentials remain; state preserved."
 
 
 def test_structured_reviewer_handoff_is_authoritative_over_summary_vocabulary(
@@ -584,72 +315,6 @@ def test_structured_reviewer_handoff_is_authoritative_over_summary_vocabulary(
     ]
     assert status == "done"
     assert rounds[0].review.review_source == "reviewer"
-    assert rounds[0].review.operator_question == ""
-
-
-def test_internal_review_request_is_not_operator_authority(
-    tmp_path: Path,
-) -> None:
-    backend = MemoryBackend()
-    backend.queue(
-        "engineer-r1",
-        CannedResponse(
-            message=(
-                "MILESTONE_STATUS=continue\n"
-                "NEXT_OWNER=operator\n"
-                "OPERATOR_QUESTION=Please authorize invoking the independent Reviewer.\n"
-                "OPERATOR_NEED=none\n"
-                "OPERATOR_OPTIONS=approve :: Approve :: Grant authorization."
-            ),
-            thread_id="t1",
-        ),
-    )
-    backend.queue("reviewer", CannedResponse(review_action=_done_review(), thread_id="v1"))
-
-    status, rounds, _final, _reason, _tid = _engineer(backend).run(
-        objective="perform an authorization-gated review",
-        engineer_prompt_builder=lambda _na, _include_static=True: "Do the task.",
-        supervised_config=SupervisedConfig(max_rounds=2, require_independent_review=True),
-        workdir=tmp_path,
-    )
-
-    assert [label for label, _prompt, _options in backend.history] == [
-        "engineer-r1",
-        "reviewer",
-    ]
-    assert status == "done"
-    assert rounds[0].review.operator_question == ""
-
-
-def test_legacy_internal_review_request_is_not_operator_authority(
-    tmp_path: Path,
-) -> None:
-    backend = MemoryBackend()
-    backend.queue(
-        "engineer-r1",
-        CannedResponse(
-            message=(
-                "MILESTONE_STATUS=continue\n"
-                "OPERATOR_QUESTION=Request the independent Reviewer after operator approval.\n"
-                "OPERATOR_OPTIONS=approve :: Approve review :: Grant approval."
-            ),
-            thread_id="t1",
-        ),
-    )
-    backend.queue("reviewer", CannedResponse(review_action=_done_review(), thread_id="v1"))
-
-    status, rounds, _final, _reason, _tid = _engineer(backend).run(
-        objective="perform an approval-gated review",
-        engineer_prompt_builder=lambda _na, _include_static=True: "Do the task.",
-        supervised_config=SupervisedConfig(max_rounds=2, require_independent_review=True),
-        workdir=tmp_path,
-    )
-
-    assert [label for label, _prompt, _options in backend.history] == [
-        "engineer-r1",
-        "reviewer",
-    ]
-    assert status == "done"
     assert rounds[0].review.operator_question == ""
 
 
@@ -727,67 +392,13 @@ def _freight_question_round(tmp_path: Path, *, need_line: str = ""):
     return backend, status, rounds
 
 
-def test_a_negated_credential_mention_does_not_park_a_run_without_operator(
-    tmp_path: Path, monkeypatch
+@pytest.mark.parametrize("available", ["true", "false"])
+def test_an_explicit_operator_handoff_parks_the_round(
+    tmp_path: Path, monkeypatch, available: str,
 ) -> None:
-    monkeypatch.setenv("ARGUS_SKILL_OPERATOR_AVAILABLE", "false")
-    backend, status, rounds = _freight_question_round(tmp_path)
-    assert [label for label, _prompt, _options in backend.history] == [
-        "engineer-r1",
-        "reviewer",
-    ]
-    assert status == "done"
-
-
-def test_the_engineers_none_classification_sends_the_question_to_the_reviewer(
-    tmp_path: Path, monkeypatch
-) -> None:
-    monkeypatch.setenv("ARGUS_SKILL_OPERATOR_AVAILABLE", "true")
-    backend, status, rounds = _freight_question_round(
-        tmp_path, need_line="\nOPERATOR_NEED=none"
-    )
-    assert [label for label, _prompt, _options in backend.history] == [
-        "engineer-r1",
-        "reviewer",
-    ]
-    assert status == "done"
-
-
-def test_an_unclassified_explicit_operator_handoff_fails_safe_to_the_operator(
-    tmp_path: Path, monkeypatch
-) -> None:
-    # The word "credentials" plays no part: the explicit handoff without a
-    # classification is what routes it to the operator.
-    monkeypatch.setenv("ARGUS_SKILL_OPERATOR_AVAILABLE", "true")
+    # No word in the question routes it: the line named the operator.
+    monkeypatch.setenv("ARGUS_SKILL_OPERATOR_AVAILABLE", available)
     backend, status, rounds = _freight_question_round(tmp_path)
     assert [label for label, _prompt, _options in backend.history] == ["engineer-r1"]
     assert status == "blocked"
-    assert rounds[0].review.review_source == "engineer_operator_question"
-
-
-def test_a_classified_credential_need_still_parks_the_round(tmp_path: Path) -> None:
-    backend = MemoryBackend()
-    backend.queue(
-        "engineer-r1",
-        CannedResponse(
-            message=(
-                "MILESTONE_STATUS=blocked\n"
-                "NEXT_OWNER=operator\n"
-                "OPERATOR_QUESTION=Provide the deployment key for the staging registry.\n"
-                "OPERATOR_NEED=credentials"
-            ),
-            thread_id="t1",
-        ),
-    )
-
-    status, rounds, _final, _reason, _tid = _engineer(backend).run(
-        objective="deploy to staging",
-        engineer_prompt_builder=lambda _na, _include_static=True: "Do the task.",
-        supervised_config=SupervisedConfig(max_rounds=2, require_independent_review=True),
-        workdir=tmp_path,
-    )
-
-    assert [label for label, _prompt, _options in backend.history] == ["engineer-r1"]
-    assert status == "blocked"
-    assert rounds[0].review.review_source == "engineer_operator_question"
-    assert rounds[0].review.planner_report["operator_need"] == "credentials"
+    assert rounds[0].review.review_source == "engineer_handoff"

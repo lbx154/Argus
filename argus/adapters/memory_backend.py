@@ -70,9 +70,9 @@ class MemoryBackend:
         backend.queue("matcher", CannedResponse(message='{"matched": []}'))
         backend.queue("distiller", CannedResponse(message_factory=lambda p, o: SKILL_MD))
         backend.queue("engineer-r1", CannedResponse(message="round 1 work"))
-        backend.queue("reviewer", CannedResponse(review_action=("revise_review", {"review": "Repair the failing check."})))
+        backend.queue("reviewer", CannedResponse(review_action=("submit_review", {"review": "Repair the failing check.\n→ engineer"})))
         backend.queue("engineer-r2", CannedResponse(message="round 2 work"))
-        backend.queue("reviewer", CannedResponse(review_action=("approve_review", {"review": "The check passes."})))
+        backend.queue("reviewer", CannedResponse(review_action=("submit_review", {"review": "The check passes.\n→ done"})))
 
     Calls without a queued response return ``default``.
     """

@@ -18,7 +18,7 @@ a "restricted case", is a repair request. So is a negative result while a rung
 of the diagnosis ladder in `engineer/research-grind.md` (implementation
 fidelity, setup and evaluator, hyperparameters and recipe, scale and data,
 baseline fairness, a faithful method variant) is still untested and could
-change the outcome: return `continue`, name that rung, and say what evidence
+change the outcome: hand it back with `→ engineer`, name that rung, and say what evidence
 would settle it. The number of attempts is not the test; what matters is
 whether every rung that could explain the gap has been worked with evidence.
 Once that is true and the evidence still contradicts the claim, say so plainly

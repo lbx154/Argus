@@ -127,9 +127,9 @@ def test_direct_fresh_retry_forwards_reviewer_action_through_skill_loop(tmp_path
     feedback = "Keep the requested search.py file on disk after verification."
     backend = MemoryBackend()
     backend.queue("engineer-r1", CannedResponse(message="first result"))
-    backend.queue("reviewer", CannedResponse(review_action=('revise_review', {'review': ('search.py is missing') + '\n\n' + (feedback)})))
+    backend.queue("reviewer", CannedResponse(review_action=("submit_review", {'review': (('search.py is missing') + '\n\n' + (feedback)) + "\n→ engineer"})))
     backend.queue("engineer-r2", CannedResponse(message="corrected result"))
-    backend.queue("reviewer", CannedResponse(review_action=('approve_review', {'review': 'requested files present'})))
+    backend.queue("reviewer", CannedResponse(review_action=("submit_review", {'review': 'requested files present\n→ done'})))
     loop = SkillLoop(
         skills_dir=tmp_path / "skills",
         engineer_runner=backend,

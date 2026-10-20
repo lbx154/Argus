@@ -53,7 +53,7 @@ def test_reviewer_sees_the_self_handoff_turn_before_the_final_one(tmp_path: Path
     backend.queue("engineer-r2", CannedResponse(message_factory=round_two, thread_id="t2"))
     backend.queue(
         "reviewer",
-        CannedResponse(review_action=("approve_review", {"review": "ok"}), thread_id="v1"),
+        CannedResponse(review_action=("submit_review", {"review": "ok\n→ done"}), thread_id="v1"),
     )
 
     status, _rounds, *_ = _engineer(backend).run(
@@ -89,9 +89,9 @@ def test_a_later_review_still_sees_the_whole_task(tmp_path: Path) -> None:
     backend.queue("engineer-r2", CannedResponse(message_factory=round_two, thread_id="t2"))
     backend.queue(
         "reviewer",
-        CannedResponse(review_action=("revise_review", {"review": "Now write the report."})),
+        CannedResponse(review_action=("submit_review", {"review": "Now write the report.\n→ engineer"})),
     )
-    backend.queue("reviewer", CannedResponse(review_action=("approve_review", {"review": "ok"})))
+    backend.queue("reviewer", CannedResponse(review_action=("submit_review", {"review": "ok\n→ done"})))
 
     status, *_ = _engineer(backend).run(
         objective="fix the split and report accuracy",
@@ -128,7 +128,7 @@ def test_unreviewed_turn_evidence_waits_for_the_reviewer(
         "engineer-r2",
         CannedResponse(message="Step two.\nMILESTONE_STATUS=done\nNEXT_OWNER=reviewer"),
     )
-    backend.queue("reviewer", CannedResponse(review_action=("approve_review", {"review": "ok"})))
+    backend.queue("reviewer", CannedResponse(review_action=("submit_review", {"review": "ok\n→ done"})))
 
     status, *_ = _engineer(backend).run(
         objective="two-step task",
@@ -152,7 +152,7 @@ def test_the_reviewer_judges_every_turn_the_engineer_kept_for_itself(tmp_path: P
             CannedResponse(message=f"step {index} written\nMILESTONE_STATUS=continue\nNEXT_OWNER=engineer"),
         )
     backend.queue("engineer-r3", CannedResponse(message="all steps written and checked"))
-    backend.queue("reviewer", CannedResponse(review_action=("approve_review", {"review": "ok"})))
+    backend.queue("reviewer", CannedResponse(review_action=("submit_review", {"review": "ok\n→ done"})))
 
     status, rounds, *_ = _engineer(backend).run(
         objective="keep going",

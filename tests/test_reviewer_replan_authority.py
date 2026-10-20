@@ -11,11 +11,8 @@ from argus.reviewer import Reviewer, ReviewerConfig
 
 
 def _review_action(status: str, reason: str, *, next_action: str = "") -> tuple[str, dict]:
-    payload = {"review": "\n\n".join(filter(None, (reason, next_action)))}
-    action = {"done": "approve_review", "continue": "revise_review", "replan_requested": "replan_review"}[status]
-    if status == "replan_requested":
-        payload["authority_impact"] = "technical"
-    return action, payload
+    holder = {"done": "done", "continue": "engineer", "replan_requested": "planner"}[status]
+    return "submit_review", {"review": "\n\n".join(filter(None, (reason, next_action, f"→ {holder}")))}
 
 
 def _engineer(backend: MemoryBackend) -> SupervisedEngineer:
@@ -81,8 +78,8 @@ def test_explicit_reviewer_replan_verdict_is_authoritative(tmp_path) -> None:
 def test_locally_done_result_is_not_overridden_by_plan_advice(tmp_path) -> None:
     backend = MemoryBackend()
     backend.queue("engineer-r1", CannedResponse(message="implemented skip-zero"))
-    backend.queue("reviewer", CannedResponse(review_action=("approve_review", {
-        "review": "The skip-zero candidate works, but later evidence refutes its necessity. Consider the no-gap validator alternative.",
+    backend.queue("reviewer", CannedResponse(review_action=("submit_review", {
+        "review": "The skip-zero candidate works, but later evidence refutes its necessity. Consider the no-gap validator alternative.\n→ done",
     })))
 
     status, rounds, _final, reason, _thread = _engineer(backend).run(

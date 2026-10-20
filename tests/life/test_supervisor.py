@@ -1086,7 +1086,7 @@ def test_blocked_verdict_persists_operator_question_onto_backlog_item(
     assert pending_events[-1]["question"] == "fp16 精度损失可以接受吗，还是必须 fp32？"
 
 
-def test_late_forbid_prevents_custom_runner_question_from_parking(
+def test_late_forbid_still_parks_the_question_for_the_manager(
     tmp_path,
 ) -> None:
     mem = LifeMemory.open(tmp_path / "life")
@@ -1108,19 +1108,12 @@ def test_late_forbid_prevents_custom_runner_question_from_parking(
     result = sup.tick()
 
     assert result is not None
-    # The runner's question carries no classification, so with an operator
-    # present but questions forbidden it continues autonomously, as on dev
-    # without the old keyword match: replanned, neither parked nor failed.
-    assert result["status"] == "replan_requested"
-    assert not result.get("operator_question")
+    # The role named the operator. With nobody to ask, the card parks and the
+    # Manager decides it in the operator's place; the host never reroutes it.
+    assert result["status"] == "blocked"
     stored = next(row for row in mem.backlog.all() if row.id == item.id)
-    assert stored.status != "paused_operator"
-    assert stored.pending_question == ""
-    assert stored.operator_decision == {}
-    assert not any(
-        event["type"] == "life.operator_question.pending"
-        for event in sink.events
-    )
+    assert stored.status == "paused_operator"
+    assert stored.pending_question
 
 
 class _TechnicalQuestionRunner:
@@ -1175,7 +1168,7 @@ def test_explicit_operator_question_parks_while_the_operator_can_be_asked(
     )
 
 
-def test_no_operator_replans_technical_question_without_pausing(
+def test_no_operator_parks_the_question_for_the_manager(
     tmp_path,
     monkeypatch,
 ) -> None:
@@ -1197,19 +1190,12 @@ def test_no_operator_replans_technical_question_without_pausing(
 
     result = sup.tick()
 
-    assert result is not None and result["status"] == "replan_requested"
+    assert result is not None and result["status"] == "blocked"
     stored = next(row for row in mem.backlog.all() if row.id == item.id)
-    assert stored.status == "pending"
-    assert stored.pending_question == ""
-    assert not stored.operator_decision
-    decisions = [
-        event
-        for event in sink.events
-        if event.get("type") == EventType.LIFE_MANAGER_PLAN_CHALLENGE_DECIDED
-        and event.get("source") == "pragmatic_autonomy_policy"
-    ]
-    assert decisions
-    assert decisions[-1]["authority_impact"] == "technical"
+    assert stored.status == "paused_operator"
+    assert stored.pending_question == (
+        "Should the benchmark use a smaller diagnostic shape?"
+    )
 
 
 def test_pending_wait_status_is_not_repeated_across_supervisor_restarts(
@@ -1306,19 +1292,19 @@ class _CountingReplanRunner:
         return outcome
 
 
-class _ReplanQuestionRunner:
-    """Requests a replacement plan that requires an operator decision first."""
+class _QuestionRunner:
+    """Hands the work to the operator with a question."""
 
     def execute(self, **kwargs: Any) -> _Outcome:
         return _Outcome(
             success=False,
-            status="replan_requested",
+            status="blocked",
             stop_reason="the approved trust boundary is ambiguous",
             operator_question="May this function be added to the trusted boundary?",
         )
 
 
-def test_replan_with_operator_question_uses_durable_answer_path(tmp_path) -> None:
+def test_a_question_uses_the_durable_answer_path(tmp_path) -> None:
     mem = LifeMemory.open(tmp_path / "life")
     sink = _RecordingSink(mem.root)
     cfg = LifeSupervisorConfig(
@@ -1326,7 +1312,7 @@ def test_replan_with_operator_question_uses_durable_answer_path(tmp_path) -> Non
         poll_interval_seconds=0.01,
     )
     sup = LifeSupervisor(
-        memory=mem, runner=_ReplanQuestionRunner(), sink=sink, config=cfg,
+        memory=mem, runner=_QuestionRunner(), sink=sink, config=cfg,
     )
     item = mem.backlog.add(BacklogItem.new(
         title="Resolve boundary", objective="verify the reachable call chain",
@@ -1387,7 +1373,7 @@ def test_operator_question_pauses_its_item_not_the_campaign(tmp_path) -> None:
     )
     sup = LifeSupervisor(
         memory=mem,
-        runner=_ReplanQuestionRunner(),
+        runner=_QuestionRunner(),
         sink=_RecordingSink(mem.root),
         config=cfg,
     )

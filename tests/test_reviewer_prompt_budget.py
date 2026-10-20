@@ -202,14 +202,14 @@ def test_ceremonial_frontier_footer_fields_are_not_requested(monkeypatch):
     ):
         assert field not in prompt
 
-    # These affect round settlement or Manager plan routing and remain requested.
+    # The handoff line routes the round; a plan challenge still names its alternative.
     assert "forward_progress" not in prompt
-    assert "replan_review" in prompt
+    assert "`→ planner`" in prompt
     assert "alternative" in prompt
 
 
 def test_the_verdict_vocabulary_is_stated_once(monkeypatch):
-    # `done`/`continue`/`replan_requested`/`blocked` used to be defined twice —
+    # The holders a review hands to used to be defined twice —
     # once in the role block and again, at greater length, in the handoff
     # policy. Two definitions of the same four words is the redundancy this
     # budget exists to catch, and it cost more than the sentence it funded.
@@ -358,8 +358,8 @@ def test_reviewer_prompt_uses_native_actions_without_a_prose_footer(monkeypatch)
 
     assert "ARGUS_ROLE_DECISION=" not in prompt
     assert "review naturally" in prompt
-    assert "approve_review" in prompt
-    assert "defer_review" in prompt
+    assert "submit_review" in prompt
+    assert "`→ operator: <one question>`" in prompt
     assert "STATUS=" not in prompt
     assert "REASON=" not in prompt
     assert "JSON Schema" not in prompt
@@ -373,7 +373,7 @@ def test_reviewer_accepts_implementation_grounding_proportionally(
 
     assert 'Use primary sources for external claims' in prompt
     assert 'community code may ground implementation details' in prompt
-    assert "`replan_requested` for a wrong target" in prompt
+    assert "`→ planner` for a wrong target" in prompt
     assert 'Stay within this profile; require no future-proofing' in prompt
     assert 'require experimental or research feedback' in prompt
 

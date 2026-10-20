@@ -1,4 +1,4 @@
-"""Reviewer sub-agent: graded "done / continue / blocked" judgment.
+"""Reviewer sub-agent: one judgment per candidate, handed on by its baton line.
 
 Provenance: vendored from ``ArgusBot/agent_cli/reviewer.py``. The
 substantive change is decoupling: the original took a ``AgentCliRunner``
@@ -6,8 +6,9 @@ directly; this version takes any ``RunnerBackend`` (see
 ``argus.core.ports``) so it works with any supported agent CLI or the
 in-memory test stub equally well.
 
-``Reviewer.evaluate(...) -> ReviewDecision`` receives a native tool action,
-not a verdict parsed from the model's prose.
+``Reviewer.evaluate(...) -> ReviewDecision`` receives a native tool action:
+the review and the line closing it that names the next holder, never a reply
+the host reads for a verdict.
 """
 from __future__ import annotations
 
@@ -990,8 +991,7 @@ class Reviewer:
                     ),
                     next_action=(
                         "Ask the independent Reviewer to submit its judgment through "
-                        "approve_review, revise_review, defer_review, "
-                        "request_review_decision, or replan_review."
+                        "submit_review."
                     ),
                     backend_unavailable=True,
                     backend_stop_kind="backend_unavailable",
