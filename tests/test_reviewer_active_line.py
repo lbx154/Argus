@@ -61,11 +61,10 @@ def test_checkpoint_state_is_not_copied_into_the_prompt():
     assert "tried_and_failed" not in p
 
 
-def test_reviewer_handoff_uses_actions_and_preserves_progress_guidance():
+def test_reviewer_handoff_uses_actions():
     p = _prompt()
 
     for field in (
-        "forward_progress",
         "replan_review",
         "alternative",
         "authority",

@@ -44,15 +44,12 @@ _SESSION_SIGNAL_ROLES = {"planner", "engineer", "reviewer"}
 
 def _planner_report(
     *,
-    forward_progress: Any = None,
     plan_signal: Any = None,
     challenge: Any = None,
     alternative: Any = None,
     authority_impact: Any = None,
 ) -> dict[str, Any]:
     report: dict[str, Any] = {}
-    if isinstance(forward_progress, bool):
-        report["forward_progress"] = forward_progress
     signal = str(plan_signal or "").strip().lower()
     if signal in _PLAN_SIGNALS:
         report["plan_signal"] = signal
@@ -92,7 +89,6 @@ def _planner_report_from_payload(parsed: Mapping[str, Any]) -> dict[str, Any]:
         return None
 
     return _planner_report(
-        forward_progress=field("forward_progress"),
         plan_signal=field("plan_signal"),
         challenge=field("challenge", "plan_challenge"),
         alternative=field("alternative", "plan_alternative"),
@@ -353,6 +349,7 @@ _VERDICT_KEYS = (
     "CHECKPOINT_RECOMMENDED",
     "RESEARCH_RESULT",
     "VENUE_REVIEW",
+    # Retired; still a key so a legacy line ends the block before it.
     "FORWARD_PROGRESS",
     "PLAN_SIGNAL",
     "PLAN_CHALLENGE",
@@ -466,13 +463,6 @@ def _parse_named_verdict(text: str) -> ReviewDecision | None:
             research_result=research_result,
             venue_review=venue_review,
             planner_report=_planner_report(
-                forward_progress=(
-                    True
-                    if read_optional(values, "FORWARD_PROGRESS").casefold() == "true"
-                    else False
-                    if read_optional(values, "FORWARD_PROGRESS").casefold() == "false"
-                    else None
-                ),
                 plan_signal=read_optional(values, "PLAN_SIGNAL"),
                 challenge=read_block(text, "PLAN_CHALLENGE", _VERDICT_KEYS),
                 alternative=read_block(text, "PLAN_ALTERNATIVE", _VERDICT_KEYS),

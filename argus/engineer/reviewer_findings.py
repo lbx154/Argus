@@ -142,16 +142,6 @@ def _unjudged_line(record: RoundRecord) -> str:
     index = record.round_index
     if review.host_placeholder in _UNJUDGED:
         return f"Round {index} was not reviewed: {_UNJUDGED[review.host_placeholder]}."
-    if review.host_placeholder == "operator_question_policy":
-        line = (
-            f"Round {index}: the host replaced the review because operator "
-            "questions are not allowed in this mission."
-        )
-        if review.reviewer_words:
-            # Only the routing was replaced; the findings were still yours.
-            _, reason, _ = reviewer_words_of(review)
-            line += f" Your findings then: {_one_line(reason, _ITEM_LIMIT)}"
-        return line
     if (review.review_source or "reviewer") == "engineer_self_review":
         return f"Round {index} was checked only by the Engineer's self-review, not by you."
     return f"Round {index} has no judgment of yours; the host recorded it."
@@ -162,8 +152,8 @@ def _host_facts(rounds: Sequence[RoundRecord], latest: RoundRecord | None) -> li
     if latest is not None:
         facts.extend(
             f"After your round {latest.round_index} judgment, the host noted: "
-            + _one_line(note, _ITEM_LIMIT) + "."
-            for note in latest.review.host_notes if str(note or "").strip()
+            + _one_line(row.get("note"), _ITEM_LIMIT) + "."
+            for row in latest.review.interventions if str(row.get("note") or "").strip()
         )
     start = latest.round_index if latest is not None else 0
     facts.extend(

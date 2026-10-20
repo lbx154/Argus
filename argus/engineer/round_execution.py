@@ -579,7 +579,6 @@ class RoundExecutionMixin:
 
         if is_provider_background_wait_receipt(fatal_error):
             engineer_session.rotate("provider_background_wait")
-            state.no_progress_streak = 0
             state.backend_failure_streak = 0
             state.backend_failure_signature = ""
             state.backend_failure_same_cause_streak = 0
@@ -735,7 +734,6 @@ class RoundExecutionMixin:
                 state.backend_failure_signature = signature
                 state.backend_failure_same_cause_streak = 1
                 state.backend_failure_since = time.time()
-            state.no_progress_streak = 0
             configured_threshold = max(
                 1, int(supervised_config.backend_failure_threshold or 1)
             )

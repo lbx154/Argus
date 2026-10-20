@@ -118,7 +118,7 @@ def _mission(tmp_path: Path, *, objective: str, original_objective: str | None, 
         engineer_prompt_builder=lambda _next, _static=True: build_mission_prompt(
             task=objective, skill_text="", next_action=None, include_static=True,
         ),
-        supervised_config=SupervisedConfig(max_rounds=1, decision_progress_timeout_seconds=0),
+        supervised_config=SupervisedConfig(max_rounds=1),
         workdir=workdir,
     )
     prompts = {label: prompt for label, prompt, _options in backend.history}
@@ -131,7 +131,6 @@ def test_a_round_sends_the_coverage_rule_to_both_roles_and_the_verdict_still_dec
         verdict=("revise_review", {
             "review": "The second symptom is stated, and DESIGN.md does not call the stall "
                       "intended; fix it within the minimum-across-sources rule.",
-            "forward_progress": True,
         }),
     )
     reviewer = _flat(prompts["reviewer"])
@@ -154,7 +153,6 @@ def test_a_sub_task_reviewer_is_held_to_its_increment_not_the_whole_request(tmp_
         tmp_path, objective=increment, original_objective=original,
         verdict=("approve_review", {
             "review": "Read the late-event test and its recorded run; the increment's symptom is fixed.",
-            "forward_progress": True,
         }),
     )
     reviewer = _flat(prompts["reviewer"])

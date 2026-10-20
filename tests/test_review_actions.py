@@ -155,11 +155,10 @@ def test_action_preserves_explicit_session_and_frontier_signals():
     frontier = {"change": "risk_reduced", "resolved_obligations": ["bounded check"]}
     actions.dispatch("revise_review", {
         "review": "Use the current evidence.", "session_signal": signal,
-        "frontier_report": frontier, "forward_progress": False,
+        "frontier_report": frontier,
     })
     assert actions.decision.session_signal == signal
     assert actions.decision.frontier_report == frontier
-    assert actions.decision.planner_report["forward_progress"] is False
 
 
 def test_pi_extension_invokes_the_host_action():
@@ -350,7 +349,7 @@ def test_judgments_do_not_break_the_reviewer_acceptance_shortcut():
 
     actions = ReviewActions()
     actions.dispatch("approve_review", {
-        "review": "Complete with evidence.", "forward_progress": True,
+        "review": "Complete with evidence.",
         "manager_attention": {"verdict": "needed", "reason": "Worth a final look."},
         "learning": {"verdict": "nothing_new", "reason": "Routine."},
     })

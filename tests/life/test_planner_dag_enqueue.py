@@ -6,7 +6,7 @@ from types import SimpleNamespace
 import pytest
 
 from argus.core.event_catalog import EventType
-from argus.life.memory import Backlog, BacklogItem, EventJournal
+from argus.life.memory import Backlog, BacklogItem
 from argus.life.supervisor._constants import PLAN_RETRY
 from argus.life.supervisor._helpers import (
     _resolve_task_dep_ids,
@@ -15,7 +15,6 @@ from argus.life.supervisor._helpers import (
 from argus.life.supervisor._planning_cycle_enqueue import (
     PlanningCycleEnqueueMixin,
     _apply_planner_stage_request,
-    _latest_planner_forward_progress,
 )
 from argus.life.supervisor._planning_cycle_helpers import _PlanCycleState
 
@@ -448,90 +447,6 @@ def test_rejected_stage_request_is_returned_to_planner(
         "diagnostic": "stage_completion_gate_failed",
     }]
     assert events[-1]["skip_category"] == "invalid_stage_transition_request"
-
-
-@pytest.mark.parametrize(
-    ("forward_progress", "expected_resets"),
-    [(False, 0), (True, 1)],
-)
-def test_enqueued_task_resets_idle_backoff_only_after_forward_progress(
-    forward_progress: bool,
-    expected_resets: int,
-) -> None:
-    entry = SimpleNamespace(
-        kind="mission_complete",
-        extra={"planner_report": {"forward_progress": forward_progress}},
-    )
-
-    class Harness(PlanningCycleEnqueueMixin):
-        _planning_cycles = 3
-        memory = SimpleNamespace(
-            journal=SimpleNamespace(
-                tail_settlements=lambda _count, *, kinds=None: [entry],
-            ),
-        )
-        resets = 0
-
-        def _emit_planner_verdict(self, **_kwargs: object) -> bool:
-            return True
-
-        def _clear_manager_planner_feedback(self) -> None:
-            return None
-
-        def _reset_idle_backoff(self) -> None:
-            self.resets += 1
-
-        def _enter_idle_backoff(self) -> float:
-            raise AssertionError("a successfully enqueued task is not an idle verdict")
-
-    state = _PlanCycleState(None)
-    state.verdict = SimpleNamespace(
-        new_tasks=[SimpleNamespace(title="next")],
-        project_done=False,
-        reason="schedule the next experiment",
-    )
-    state.added_titles = ["next"]
-    state.added_impact_scores = [1]
-
-    harness = Harness()
-    assert harness._pc_emit_final_verdict(state) is True
-    assert harness.resets == expected_resets
-
-
-def test_forward_progress_reads_the_latest_settlement_through_heartbeat_floods(
-    tmp_path: Path,
-) -> None:
-    """32+ heartbeats after the settlement must not erase forward progress.
-
-    The lookup used to be ``journal.tail(32)`` — enough waiting heartbeats
-    landed after the settlement to push it out of the window entirely, and the
-    supervisor conservatively judged "no forward progress" against the
-    Reviewer's explicit verdict.
-    """
-    import json
-
-    path = tmp_path / "events.jsonl"
-    with path.open("w", encoding="utf-8") as fh:
-        fh.write(json.dumps({
-            "type": "life.mission.completed",
-            "item_id": "aaaa1111bbbb",
-            "ts": 1.0,
-            "success": True,
-            "status": "done",
-            "title": "settled",
-            "summary": "landed",
-            "planner_report": {"forward_progress": True},
-        }) + "\n")
-        for index in range(40):
-            fh.write(json.dumps({
-                "type": "life.planner.waiting",
-                "ts": 2.0 + index,
-                "reason": "heartbeat",
-            }) + "\n")
-
-    memory = SimpleNamespace(journal=EventJournal(path))
-
-    assert _latest_planner_forward_progress(memory, None) is True
 
 
 def test_all_filtered_tasks_persist_feedback_for_next_planner_cycle() -> None:

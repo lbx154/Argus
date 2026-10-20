@@ -244,7 +244,7 @@ def test_self_reviews_are_not_reviewer_findings() -> None:
 # --- host rewrites keep the Reviewer's own words ------------------------------
 
 
-def test_operator_question_policy_replacement_is_not_a_reviewer_finding(
+def test_a_withheld_question_stays_the_reviewers_finding_beside_the_host_fact(
     monkeypatch,
 ) -> None:
     import argus.engineer.round_settlement as settlement
@@ -254,14 +254,14 @@ def test_operator_question_policy_replacement_is_not_a_reviewer_finding(
         status="blocked", reason="REAL: the operator must pick dataset A or B",
         next_action="REAL: pick", operator_question="A or B?", reviewer_authored=True,
     )
-    replaced = settlement._enforce_operator_question_policy(
+    recorded = settlement._apply_operator_question_policy(
         asked, supervised_config=SimpleNamespace(), state=RoundLoopState(),
     )
-    assert replaced.reviewer_authored is False
-    findings = render_previous_findings([_record(1, replaced)], round_index=2)
-    assert not findings.has_reviewer_findings
-    assert "Operator questions are forbidden" not in findings.text
-    assert "the host replaced the review because operator questions" in findings.text
+    assert recorded.reviewer_authored is True
+    text = render_previous_findings([_record(1, recorded)], round_index=2).text
+    findings, host = text.split("## Host facts since then (not your words)\n", 1)
+    assert "REAL: the operator must pick dataset A or B" in findings
+    assert "the question was not sent" in host
 
 
 def test_venue_enforcement_keeps_the_reviewer_words_and_labels_the_host_change(
@@ -302,15 +302,15 @@ def test_venue_enforcement_keeps_the_reviewer_words_and_labels_the_host_change(
             working_dir=str(tmp_path), vertical_state_root=str(tmp_path),
         ),
     )
-    assert review.status == "continue"
-    assert review.next_action.startswith("The operator requires actual strong accept")
+    # The verdict stays the Reviewer's; the operator's bar is the host's fact beside it.
+    assert review.status == "done"
+    assert review.next_action == ""
     review.reviewer_authored = True
     text = render_previous_findings([_record(1, review)], round_index=2).text
     findings, host = text.split("## Host facts since then (not your words)\n", 1)
     assert f"Your judgment in round 1 (`done`):\n{prose}" in findings
-    assert "The operator requires actual strong accept" not in findings
-    assert "selected-venue acceptance check changed this judgment" in host
-    assert "your `done` became `continue`" in host
+    assert "strong accept or better" not in findings
+    assert "the operator's bar (strong accept or better) is not met" in host
 
 
 # --- earlier words are open to correction -------------------------------------

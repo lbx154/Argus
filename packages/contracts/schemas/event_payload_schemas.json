@@ -1643,9 +1643,6 @@
         "review_source": {
           "type": "string"
         },
-        "forward_progress": {
-          "type": "boolean"
-        },
         "plan_signal": {
           "type": "string"
         },
@@ -1764,6 +1761,12 @@
         },
         "learning_reason": {
           "type": "string"
+        },
+        "interventions": {
+          "type": "array",
+          "items": {
+            "type": "object"
+          }
         }
       }
     },
@@ -3847,32 +3850,6 @@
         }
       }
     },
-    "round.escalated": {
-      "version": 1,
-      "properties": {
-        "round_index": {
-          "type": "integer",
-          "minimum": 1
-        },
-        "soft_round_limit": {
-          "type": "integer",
-          "minimum": 1
-        },
-        "hard_escalate_rounds": {
-          "type": "integer",
-          "minimum": 1
-        },
-        "forward_progress": {
-          "type": "boolean"
-        },
-        "continuation_reason": {
-          "type": "string"
-        },
-        "text": {
-          "type": "string"
-        }
-      }
-    },
     "round.stall": {
       "version": 1,
       "properties": {
@@ -3883,21 +3860,6 @@
         "round_max": {
           "type": "integer",
           "minimum": 0
-        },
-        "semantic_stall_streak": {
-          "type": "integer",
-          "minimum": 0
-        },
-        "stall_threshold": {
-          "type": "integer",
-          "minimum": 0
-        },
-        "decision_idle_seconds": {
-          "type": "number",
-          "minimum": 0
-        },
-        "forward_progress": {
-          "type": "boolean"
         },
         "stall_reason": {
           "type": "string",
@@ -4195,24 +4157,6 @@
             "object",
             "null"
           ]
-        }
-      }
-    },
-    "life.planner.stall_escalation": {
-      "version": 1,
-      "properties": {
-        "objective": {
-          "type": "string"
-        },
-        "consecutive_no_progress_missions": {
-          "type": "integer",
-          "minimum": 1
-        },
-        "reason": {
-          "type": "string"
-        },
-        "text": {
-          "type": "string"
         }
       }
     },

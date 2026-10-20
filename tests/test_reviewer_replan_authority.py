@@ -11,7 +11,7 @@ from argus.reviewer import Reviewer, ReviewerConfig
 
 
 def _review_action(status: str, reason: str, *, next_action: str = "") -> tuple[str, dict]:
-    payload = {"review": "\n\n".join(filter(None, (reason, next_action))), "forward_progress": status == "continue"}
+    payload = {"review": "\n\n".join(filter(None, (reason, next_action)))}
     action = {"done": "approve_review", "continue": "revise_review", "replan_requested": "replan_review"}[status]
     if status == "replan_requested":
         payload["authority_impact"] = "technical"
@@ -50,10 +50,7 @@ def test_repeated_reviewer_prose_does_not_force_harness_replan(tmp_path) -> None
     status, rounds, _final, _reason, _thread = _engineer(backend).run(
         objective="certify baseline",
         engineer_prompt_builder=lambda _next, _static=True: "Do the task.",
-        supervised_config=SupervisedConfig(
-            max_rounds=4,
-            stall_threshold=0,
-        ),
+        supervised_config=SupervisedConfig(max_rounds=4),
         workdir=tmp_path,
     )
 
@@ -86,7 +83,6 @@ def test_locally_done_result_is_not_overridden_by_plan_advice(tmp_path) -> None:
     backend.queue("engineer-r1", CannedResponse(message="implemented skip-zero"))
     backend.queue("reviewer", CannedResponse(review_action=("approve_review", {
         "review": "The skip-zero candidate works, but later evidence refutes its necessity. Consider the no-gap validator alternative.",
-        "forward_progress": True,
     })))
 
     status, rounds, _final, reason, _thread = _engineer(backend).run(

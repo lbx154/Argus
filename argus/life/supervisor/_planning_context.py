@@ -22,7 +22,6 @@ from ._constants import (
     PLANNER_SCOPE_BOUNDED,
     PLANNER_SCOPE_FINAL_SUBMISSION,
     PLANNER_TASKS_FILTERED_DIAGNOSTIC,
-    STALL_ESCALATION_AFTER_NO_PROGRESS_MISSIONS,
 )
 from ._helpers import _operator_only_external_blocker_wait_reason_for_project
 
@@ -66,8 +65,6 @@ class PlanningContextMixin:
             tags.append("review:waived")
         if bool(getattr(task, "skip_stage_transition", False)):
             tags.append("stage_transition:skip")
-        if bool(getattr(task, "stage_repair", False)):
-            tags.append("stage_repair")
         if bool(getattr(task, "allow_skill_changes", False)):
             tags.append("skill_changes:allowed")
         if bool(getattr(task, "parallel_safe", False)):
@@ -1245,41 +1242,6 @@ class PlanningContextMixin:
             )
         )
 
-    def _update_no_progress_streak(self, *, kind: str, report: Any) -> None:
-        """Track consecutive 'completed but no forward progress' missions and,
-        once the reviewer-judged streak crosses a threshold, emit an operator
-        attention event (NOT a mission, NOT a verdict).
-
-        Domain-agnostic by construction: it counts ONLY the L2 reviewer's own
-        ``forward_progress`` boolean (agent judgment). The harness never decides
-        what progress is — it only refuses to let the agent system do hollow work
-        forever without surfacing the stall to its human operator. So a project
-        that keeps completing no-score / blocked-archive refuges cannot loop
-        invisibly: after N such missions the operator is pinged.
-        """
-        if kind != "mission_complete":
-            return
-        fp = report.get("forward_progress") if isinstance(report, dict) else None
-        if fp is True:
-            self._consecutive_no_progress_missions = 0
-            return
-        if fp is not False:
-            return  # unknown / not reported — do not punish missing data
-        n = int(getattr(self, "_consecutive_no_progress_missions", 0)) + 1
-        self._consecutive_no_progress_missions = n
-        if n < STALL_ESCALATION_AFTER_NO_PROGRESS_MISSIONS:
-            return
-        # Threshold crossed: surface to the operator, then reset so the alert
-        # re-fires after another N (not on every subsequent mission).
-        self._consecutive_no_progress_missions = 0
-        self._emit(
-            {
-                "type": EventType.LIFE_PLANNER_STALL_ESCALATION,
-                "consecutive_no_progress_missions": n,
-                "objective": (self.config.continuous_objective or "")[:200],
-            }
-        )
-
     def _wiki_collect_task_if_due_under_blocker(self) -> Any | None:
         """No automatic Wiki collection: Agents maintain semantic pages in missions."""
         return None
@@ -1319,11 +1281,9 @@ class PlanningContextMixin:
             task_count=1,
             enqueued_tasks=1,
             skipped_duplicate_tasks=0,
-            skipped_recent_failure_tasks=0,
             enqueued_titles=[item.title],
             enqueued_impact_scores=[task.impact_score],
             skipped_duplicate_titles=[],
-            skipped_recent_failure_titles=[],
             input_tokens=0,
             cached_input_tokens=0,
             output_tokens=0,

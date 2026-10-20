@@ -155,7 +155,7 @@ KNOBS: tuple[Knob, ...] = (
         "ARGUS_SKILL_EVIDENCE_POLICY",
         "standard",
         "evidence depth: progress-first | standard | strict; progress-first favors "
-        "targeted development checks and earlier no-progress replanning, never weaker correctness",
+        "targeted development checks, never weaker correctness",
         "mission",
         cockpit=True,
     ),
@@ -179,16 +179,6 @@ KNOBS: tuple[Knob, ...] = (
         "mission",
     ),
     Knob("ARGUS_SKILL_MAX_ROUNDS", "0", "optional engineer-round cap per mission; disabled by default", "mission"),
-    Knob(
-        "ARGUS_SKILL_VENUE_REVIEW_MAX_ROUNDS",
-        "6",
-        "reviewed rounds a research paper's final Review may buy (each pays for a venue-scale review) before the Manager decides whether to fund more, settle, or stop; 0 is no cap",
-        "mission",
-    ),
-    Knob("ARGUS_SKILL_STALL_THRESHOLD", "(vertical)", "consecutive Reviewer no-progress verdicts that end a mission; overrides every vertical's round_policy; 0 disables; 'vertical' hands control back", "mission", cockpit=True),
-    Knob("ARGUS_SKILL_NO_PROGRESS_THRESHOLD", "(vertical)", "consecutive empty Engineer turns that end a mission unless the Reviewer reports progress; overrides every vertical's round_policy; 0 disables; 'vertical' hands control back", "mission", cockpit=True),
-    Knob("ARGUS_SKILL_SOFT_ROUND_LIMIT", "(vertical)", "round after which two verdicts without forward progress end a mission; overrides every vertical's round_policy; 0 disables; 'vertical' hands control back", "mission", cockpit=True),
-    Knob("ARGUS_SKILL_HARD_ESCALATE_ROUNDS", "(vertical)", "round from which a missing Reviewer progress judgement ends a mission; overrides every vertical's round_policy; 0 disables; 'vertical' hands control back", "mission", cockpit=True),
     Knob("ARGUS_SKILL_REVIEWER_READ_DIRS", "[]", "JSON array of absolute input directories for scoped Reviewer reads", "mission"),
     Knob("ARGUS_SKILL_REVIEWER_VALIDATION_IMAGE", "(unset)", "local Docker image for opt-in read-only Reviewer command checks; empty disables", "mission"),
     Knob("ARGUS_SKILL_ROUND_CHECKPOINT", "off", "record private git refs for Reviewer-recommended round checkpoints", "mission"),
@@ -200,7 +190,6 @@ KNOBS: tuple[Knob, ...] = (
     Knob("ARGUS_SKILL_RUNNER_SOFT_IDLE_SECONDS", "600", "model stream inactivity before a diagnostic warning (0=off)", "mission"),
     Knob("ARGUS_SKILL_RUNNER_STALLED_IDLE_SECONDS", "1800", "seconds a model turn may make no progress (no model stream event, no CPU time in its commands) before it is reported as likely stalled; an Engineer turn is then reported to the Manager once, which decides whether to keep waiting or restart it (0=off)", "mission"),
     Knob("ARGUS_SKILL_RUNNER_HARD_IDLE_SECONDS", "0", "seconds a model turn may make no progress before Argus stops it and tells the next round which command was running; 0 (the default) never stops a turn on a timer", "mission"),
-    Knob("ARGUS_SKILL_DECISION_PROGRESS_TIMEOUT_SECONDS", "0", "optional round-boundary limit without reviewer-classified decision/evidence progress; disabled by default", "mission"),
     Knob("ARGUS_SKILL_CHECKPOINT_PERSIST", "true", "persist the reviewer checkpoint across missions/restarts", "mission"),
     Knob("ARGUS_SKILL_COMPACT_CONTINUATION_PROMPTS", "true", "send the full Engineer task/skill contract only on round 1; later rounds use reviewer guidance plus CHECKPOINT.md", "mission"),
     Knob("ARGUS_SKILL_ENGINEER_LEAN_TOOLS", "true", "leave the Engineer agent CLI's unused own tools out of every model request (Copilot CLI: session SQL database and CLI self-documentation; built-in MCP servers stay); false restores them", "mission"),
@@ -299,13 +288,6 @@ _TOGGLE_KNOBS = frozenset(
     }
 )
 _NON_NEGATIVE_INT_KNOBS = frozenset({"ARGUS_SKILL_MAX_ACTIVE_DAEMONS"})
-# Mission round guards (core/round_policy.py); "vertical" defers to the vertical.
-_ROUND_GUARD_KNOBS = frozenset({
-    "ARGUS_SKILL_STALL_THRESHOLD",
-    "ARGUS_SKILL_NO_PROGRESS_THRESHOLD",
-    "ARGUS_SKILL_SOFT_ROUND_LIMIT",
-    "ARGUS_SKILL_HARD_ESCALATE_ROUNDS",
-})
 # A path knob names one absolute filesystem location. ``~`` expands at persist
 # time; a relative path would silently depend on whichever cwd the reading
 # process was started from. Existence is deliberately NOT required: the
@@ -454,20 +436,6 @@ def normalize_cockpit_knob_value(name: str, value: str) -> str:
         if mode not in {"progress-first", "standard", "strict"}:
             raise ValueError(f"{name} must be progress-first, standard, or strict")
         return mode
-    if name in _ROUND_GUARD_KNOBS:
-        if raw.lower() in {"vertical", "(vertical)", "default", "inherit"}:
-            return "vertical"
-        try:
-            guard = int(raw)
-        except ValueError as exc:
-            raise ValueError(
-                f"{name} must be a non-negative integer (0 disables) or 'vertical'"
-            ) from exc
-        if not 0 <= guard <= 1_000_000:
-            raise ValueError(
-                f"{name} must be a non-negative integer (0 disables) or 'vertical'"
-            )
-        return str(guard)
     if name in _NON_NEGATIVE_INT_KNOBS:
         try:
             number = int(raw)

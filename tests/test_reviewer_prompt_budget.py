@@ -226,7 +226,7 @@ def test_ceremonial_frontier_footer_fields_are_not_requested(monkeypatch):
         assert field not in prompt
 
     # These affect round settlement or Manager plan routing and remain requested.
-    assert "forward_progress" in prompt
+    assert "forward_progress" not in prompt
     assert "replan_review" in prompt
     assert "alternative" in prompt
 
