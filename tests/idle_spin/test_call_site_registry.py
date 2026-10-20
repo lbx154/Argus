@@ -262,7 +262,7 @@ REGISTRY: tuple[Site, ...] = (
         r"observer", EVENT,
         "Once per Engineer, Reviewer or Planner call, when its role.session.turn ends the turn; "
         "its own calls end none, and turns that end during a look share the next one.",
-        ("argus/life/observer.py:150",),
+        ("argus/life/observer.py:91",),
         ("observer",),
     ),
     Site(

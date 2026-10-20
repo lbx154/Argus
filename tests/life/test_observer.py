@@ -1,16 +1,15 @@
-"""The Observer watches the team work and speaks up only when something is off.
+"""The Observer glances at how the work flows and speaks up only when it does not.
 
-Each time another role ends a turn it looks at that turn's record with
-read-only tools, in a fresh session, says nothing when all is well, and
-delivers a remark as one event on a channel its hearer already reads, to
-whoever holds the work now. A look that fails is skipped and never holds up
-the work.
+Each time another role ends a turn it reads the task's events with read-only
+tools, in a fresh session, says nothing when the flow is fine, and otherwise
+gives the Manager one remark through its supervision; with no Manager, or once
+the task is delivered, the operator gets an alert. A look that fails is skipped
+and never holds up the work.
 """
 from __future__ import annotations
 
 import threading
 import time
-import uuid
 from pathlib import Path
 from types import SimpleNamespace
 
@@ -18,18 +17,15 @@ import pytest
 
 from argus.core.event_catalog import EventType
 from argus.core.models import RunnerResult
-from argus.core.operator_context import build_operator_context_block
 from argus.life import observer
 from argus.life.event_log import JsonlEventSink
 from argus.life.memory import LifeMemory
 from argus.life.observer import remarks
 from argus.life.supervisor import LifeSupervisor, LifeSupervisorConfig
+from argus.manager import supervision
 
-QUIET = "Nothing to add: the engineer ran the tests it reported."
-SPIN = "→ planner: you woke 14 times in 70 min on the same running job (events.jsonl ts 1760000000)"
-
-#: The run label of each watched role's calls.
-LABELS = {"engineer": "engineer-r3", "reviewer": "reviewer", "planner": "planner.cycle12"}
+QUIET = "The flow is fine: the Engineer handed over and the Reviewer took it."
+SPIN = "→ manager: the Planner woke 14 times in 70 min only to keep waiting (events.jsonl ts 1760000000)"
 
 
 class _Backend:
@@ -72,7 +68,8 @@ class _Feed:
 
 
 @pytest.fixture()
-def team(tmp_path):
+def team(tmp_path, monkeypatch):
+    monkeypatch.setattr(supervision, "_dispatch_pending", lambda: None)
     memory = LifeMemory.open(tmp_path / "life")
     feed = _Feed(memory.root)
     backend = _Backend()
@@ -83,56 +80,72 @@ def team(tmp_path):
         config=LifeSupervisorConfig(project_worktree=tmp_path),
         reviewer_model="reviewer-model",
     )
-    return SimpleNamespace(root=Path(memory.root), feed=feed, backend=backend, supervisor=supervisor)
+    manager = SimpleNamespace(runner=SimpleNamespace(fork=lambda: None), manager_session_root=memory.root)
+    manager.bind_execution_workdir = lambda workdir: manager
+    supervisor.manager = manager
+    yield SimpleNamespace(root=Path(memory.root), feed=feed, backend=backend, supervisor=supervisor)
+    supervision._PENDING.pop(str(Path(memory.root).resolve()), None)
 
 
-def _call(team, label: str, thread: str = "") -> str:
-    """One finished model call: its frames in agent_io.jsonl, its end in events.jsonl."""
-    call_id = f"call-{uuid.uuid4().hex[:8]}"
-    with (team.root / "agent_io.jsonl").open("a", encoding="utf-8") as raw:
-        raw.write("".join(f'{{"call_id":"{call_id}","line":"frame {n}"}}\n' for n in range(2)))
-    team.feed.log.handle_event({"type": EventType.AGENT_IO_COMPLETE, "call_id": call_id, "run_label": label,
-                                "thread_id": thread or f"thread-of-{call_id}"})
-    return call_id
-
-
-def _ends(team, role: str, call_id: str = "", item: str = "") -> None:
-    """``role`` ends the turn of that call (its thread), as every role call does."""
-    thread = f"thread-of-{call_id}" if call_id else ""
-    team.supervisor._emit({"type": EventType.ROLE_SESSION_TURN, "role": role, "policy": "fresh",
-                           "action": "fresh", "session_id": thread, **({"item_id": item} if item else {})})
+def _ends(team, role: str, item: str = "", via=None) -> None:
+    """``role`` ends a turn on task ``item``, as every role call does."""
+    (via or team.supervisor)._emit({"type": EventType.ROLE_SESSION_TURN, "role": role, "policy": "fresh",
+                                    "action": "fresh", **({"item_id": item} if item else {})})
 
 
 def _settle(team) -> None:
     """Wait for the look under way, if any, to finish."""
-    watch = observer._WATCHES.get(str(team.root.resolve()))
-    if watch is not None and watch.looking is not None:
-        watch.looking.join(10)
+    observer.settle(threading.Event())
 
 
-def _turn(team, role: str = "engineer") -> str:
-    """``role`` makes one model call and ends its turn; any look it starts finishes."""
-    call_id = _call(team, LABELS[role])
-    _ends(team, role, call_id)
+def _turn(team, role: str = "engineer", item: str = "m-1") -> None:
+    """``role`` ends one turn; any look it starts finishes."""
+    _ends(team, role, item if role != "planner" else "")
     _settle(team)
-    return call_id
+
+
+def _asked(team) -> str:
+    """What the Manager's supervision was asked about, if anything."""
+    pending = supervision._PENDING.get(str(team.root.resolve()))
+    return pending[2].get("consult_reason", "") if pending else ""
 
 
 def test_each_turn_another_role_ends_is_looked_at_once(team):
     for event in ({"type": EventType.ROUND_START, "round_index": 1}, {"type": EventType.ROUND_MAIN_COMPLETED, "round_index": 1}):
         team.supervisor._emit(event)
     assert team.backend.calls == []
-    for count, role in enumerate(LABELS, start=1):
-        call_id = _turn(team, role)
+    for count, role in enumerate(("engineer", "reviewer", "planner"), start=1):
+        _turn(team, role)
         assert len(team.backend.calls) == count
-        prompt = team.backend.calls[-1]["prompt"]
-        assert f"the {role.capitalize()}: call `{call_id}`, run label `{LABELS[role]}`" in prompt
+    engineer, _, planner = (call["prompt"] for call in team.backend.calls)
+    assert "- the Engineer, on task `m-1`, at " in engineer
+    assert "- the Planner, planning for the whole project, at " in planner
 
 
-def test_the_prompt_says_where_the_turn_s_rows_are(team):
-    (team.root / "agent_io.jsonl").write_text('{"call_id":"someone-else"}\n', encoding="utf-8")
+def test_only_the_engineer_reviewer_and_planner_wake_it(team):
+    team.supervisor._emit({"type": EventType.LIFE_OBSERVER_NOTE, "agent_layer": "observer", "to": "manager", "text": "x"})
+    _ends(team, "manager")
+    _settle(team)
+    assert team.backend.calls == []
+
+
+def test_a_look_reads_only_the_events_with_read_only_tools_at_low_effort(team, monkeypatch):
     _turn(team)
-    assert "its rows are within lines 2-3 of agent_io.jsonl" in team.backend.calls[0]["prompt"]
+    call = team.backend.calls[0]
+    assert call["label"] == "observer" and call["options"].sandbox_mode == "read-only"
+    assert (call["options"].model, call["options"].reasoning_effort) == ("reviewer-model", "low")
+    assert f"`{team.root / 'events.jsonl'}`" in call["prompt"] and "agent_io" not in call["prompt"]
+    monkeypatch.setenv("ARGUS_SKILL_OBSERVER_MODEL", "observer-model")
+    _turn(team, "reviewer")
+    assert team.backend.calls[1]["options"].model == "observer-model"
+
+
+def test_each_look_is_a_fresh_session(team):
+    team.backend.backend = "codex"
+    _turn(team)
+    _turn(team, "reviewer")
+    assert [call["resume"] for call in team.backend.calls] == [None, None]
+    assert all("## Where the record is" in call["prompt"] for call in team.backend.calls)
 
 
 def test_it_speaks_the_operator_s_language(team):
@@ -145,102 +158,32 @@ def test_it_speaks_the_operator_s_language(team):
     assert "in Chinese, the operator's language" in second
 
 
-def test_the_turn_is_the_call_on_its_own_thread(team):
-    mine = _call(team, "engineer-r2")
-    _call(team, "engineer-r5")  # a parallel mission's Engineer, finished later
-    _ends(team, "engineer", mine)
-    _settle(team)
-    assert f"call `{mine}`" in team.backend.calls[0]["prompt"]
-
-
-def test_its_own_turns_and_the_manager_s_never_wake_it(team):
-    _call(team, "observer")
-    team.supervisor._emit({"type": EventType.LIFE_OBSERVER_NOTE, "agent_layer": "observer", "to": "planner", "text": "x"})
-    _ends(team, "manager", _call(team, "manager-supervision"))
-    _ends(team, "engineer")  # a turn with no call recorded
-    _settle(team)
-    assert team.backend.calls == []
-
-
-def test_a_look_reads_the_turn_with_read_only_tools_and_the_reviewer_s_model(team, monkeypatch):
-    _turn(team)
-    call = team.backend.calls[0]
-    assert call["label"] == "observer" and call["options"].sandbox_mode == "read-only"
-    assert call["options"].model == "reviewer-model"
-    assert f"`{team.root}`" in call["prompt"]
-    assert all(name in call["prompt"] for name in ("events.jsonl", "agent_io.jsonl", "usage.jsonl"))
-    monkeypatch.setenv("ARGUS_SKILL_OBSERVER_MODEL", "observer-model")
-    _turn(team, "reviewer")
-    assert team.backend.calls[1]["options"].model == "observer-model"
-
-
-def test_all_well_leaves_no_event_and_no_message(team):
+def test_a_smooth_flow_leaves_no_event_and_asks_nobody(team):
     _turn(team)
     assert len(team.backend.calls) == 1
-    assert team.feed.notes() == []
-    assert "From the Observer" not in build_operator_context_block("engineer", team.root, consume_once=False)[0]
+    assert team.feed.notes() == [] and _asked(team) == ""
 
 
-@pytest.mark.parametrize("role", ["engineer", "planner", "reviewer"])
-def test_a_remark_reaches_that_role_s_next_prompt_marked_as_the_observer_s(team, role):
-    text = "you said the tests pass but no test command ran (agent_io.jsonl call_id c-7)"
-    team.backend.replies = [f"One thing.\n→ {role}: {text}"]
-    _turn(team)
-    (note,) = team.feed.notes()
-    assert (note["to"], note["text"], note["agent_layer"]) == (role, text, "observer")
-    block = build_operator_context_block(role, team.root, consume_once=False)[0]
-    assert "## From the Observer" in block and text in block
-    assert "not an operator instruction" in block
-    assert "Operator steering" not in block
-    other = next(name for name in ("engineer", "reviewer") if name != role)
-    assert text not in build_operator_context_block(other, team.root, consume_once=False)[0]
-
-
-@pytest.mark.parametrize(("since", "hearer"), [
-    ((), "engineer"),
-    ((EventType.ROUND_REVIEW_STARTED,), "reviewer"),
-    ((EventType.ROUND_REVIEW_STARTED, EventType.ROUND_START), "engineer"),
-])
-def test_a_remark_goes_to_whoever_holds_the_work_now(team, since, hearer):
-    text = "the handoff claims 15 tests; the run shows 9 (agent_io.jsonl line 1252)"
-    team.backend.replies = [f"→ engineer: {text}"]
-    team.backend.release.clear()
-    team.feed.log.handle_event({"type": EventType.ROUND_START, "item_id": "m-1"})
-    team.feed.log.handle_event({"type": EventType.ROUND_REVIEW_STARTED, "item_id": "m-2"})
-    _ends(team, "engineer", _call(team, "engineer-r1"), item="m-1")
-    for kind in since:
-        team.feed.log.handle_event({"type": kind, "item_id": "m-1"})
-    team.backend.release.set()
-    _settle(team)
-    (note,) = team.feed.notes()
-    assert note["to"] == hearer
-    for role in ("engineer", "reviewer"):
-        assert (text in build_operator_context_block(role, team.root, consume_once=False)[0]) is (role == hearer)
-
-
-def test_a_remark_is_heard_once(team):
-    team.backend.replies = ["→ engineer: rerun the failing check (agent_io.jsonl call_id c-1)"]
-    _turn(team)
-    assert "rerun the failing check" in build_operator_context_block("engineer", team.root)[0]
-    assert "rerun the failing check" not in build_operator_context_block("engineer", team.root)[0]
-
-
-def test_a_remark_to_the_operator_is_an_alert_and_to_the_manager_goes_to_its_supervision(team, monkeypatch):
-    from argus.manager import supervision
-
-    monkeypatch.setattr(supervision, "_dispatch_pending", lambda: None)
-    manager = SimpleNamespace(runner=SimpleNamespace(fork=lambda: None), manager_session_root=team.root)
-    manager.bind_execution_workdir = lambda workdir: manager
-    team.supervisor.manager = manager
-    team.backend.replies = ["→ operator: $40 an hour on a planner that only waits (usage.jsonl)\n"
-                            "→ manager: pause planning until job 7 ends (events.jsonl ts 1760000000)"]
+def test_a_remark_goes_to_the_manager_s_supervision(team):
+    team.backend.replies = [f"The Planner spins.\n{SPIN}"]
     _turn(team, "planner")
-    operator, to_manager = team.feed.notes()
-    assert operator["to"] == "operator" and operator["operator_alert"] is True
-    assert to_manager["to"] == "manager" and "operator_alert" not in to_manager
-    asked = supervision._PENDING.pop(str(team.root.resolve()))[2]
-    assert asked["consult_reason"].endswith("says: pause planning until job 7 ends (events.jsonl ts 1760000000)")
-    supervision.shutdown_supervision(team.root)
+    (note,) = team.feed.notes()
+    assert (note["to"], note["agent_layer"], note["text"]) == ("manager", "observer", SPIN.split(": ", 1)[1])
+    assert "operator_alert" not in note
+    assert _asked(team).endswith("says: " + note["text"])
+
+
+@pytest.mark.parametrize("delivered", [False, True])
+def test_with_no_manager_or_once_delivered_the_operator_is_alerted(team, delivered):
+    if delivered:
+        team.feed.log.handle_event({"type": EventType.LIFE_MISSION_COMPLETED, "item_id": "m-1", "status": "done"})
+    else:
+        team.supervisor.manager = None
+    team.backend.replies = [SPIN]
+    _turn(team)
+    (note,) = team.feed.notes()
+    assert note["to"] == "operator" and note["operator_alert"] is True
+    assert _asked(team) == ""
 
 
 def test_the_same_remark_is_not_made_twice(team):
@@ -251,15 +194,14 @@ def test_the_same_remark_is_not_made_twice(team):
     assert [note["text"] for note in team.feed.notes()] == [
         SPIN.split(": ", 1)[1], SPIN.replace("14 times", "20 times").split(": ", 1)[1],
     ]
-    assert "→ planner: you woke 14 times" in team.backend.calls[1]["prompt"]
+    assert SPIN in team.backend.calls[1]["prompt"]
 
 
 @pytest.mark.parametrize("failure", [None, RuntimeError("provider down")])
 def test_a_failed_look_is_skipped_and_the_work_goes_on(team, failure):
     team.backend.replies = [failure, SPIN]
-    call_id = _call(team, "engineer-r3")
     assert team.supervisor._emit({"type": EventType.ROLE_SESSION_TURN, "role": "engineer", "policy": "fresh",
-                                  "action": "fresh", "session_id": f"thread-of-{call_id}"}) is True
+                                  "action": "fresh", "item_id": "m-1"}) is True
     _settle(team)
     assert team.feed.notes() == []
     _turn(team, "planner")
@@ -268,17 +210,17 @@ def test_a_failed_look_is_skipped_and_the_work_goes_on(team, failure):
 
 def test_turns_that_end_during_a_look_wait_for_the_next_one_without_holding_up_the_team(team):
     team.backend.release.clear()
-    _ends(team, "engineer", _call(team, "engineer-r3"))
+    _ends(team, "engineer", "m-1")
     started = time.monotonic()
-    later = [_call(team, "reviewer"), _call(team, "planner.cycle12")]
-    _ends(team, "reviewer", later[0])
-    _ends(team, "planner", later[1])
+    _ends(team, "reviewer", "m-1")
+    _ends(team, "planner")
     assert time.monotonic() - started < 5
     assert len(team.backend.calls) <= 1
     team.backend.release.set()
     _settle(team)
     assert len(team.backend.calls) == 2
-    assert all(call_id in team.backend.calls[1]["prompt"] for call_id in later)
+    assert "the Reviewer, on task" in team.backend.calls[1]["prompt"]
+    assert "the Planner, planning" in team.backend.calls[1]["prompt"]
 
 
 def test_one_observer_per_project_however_many_supervisors_run_its_missions(team, tmp_path):
@@ -288,27 +230,16 @@ def test_one_observer_per_project_however_many_supervisors_run_its_missions(team
         sink=team.feed, config=LifeSupervisorConfig(project_worktree=tmp_path),
     )
     team.backend.release.clear()
-    _ends(team, "engineer", _call(team, "engineer-r3"))
-    reviewer = _call(team, "reviewer")
-    helper._emit({"type": EventType.ROLE_SESSION_TURN, "role": "reviewer", "policy": "fresh", "action": "fresh",
-                  "session_id": f"thread-of-{reviewer}"})
+    _ends(team, "engineer", "m-1")
+    _ends(team, "reviewer", "m-2", via=helper)
     team.backend.release.set()
     _settle(team)
     assert len(team.backend.calls) == 2 and helper_backend.calls == []
 
 
-def test_each_look_is_a_fresh_session(team):
-    team.backend.backend = "codex"
-    _turn(team)
-    _turn(team, "reviewer")
-    assert [call["resume"] for call in team.backend.calls] == [None, None]
-    assert all("## Where the record is" in call["prompt"] for call in team.backend.calls)
-    assert not (team.root / "role-sessions").exists()
-
-
 def test_the_process_waits_for_the_last_look_unless_stopped(team):
     team.backend.release.clear()
-    _ends(team, "engineer", _call(team, "engineer-r1"))
+    _ends(team, "engineer", "m-1")
     stop = threading.Event()
     stop.set()
     observer.settle(stop)
@@ -319,14 +250,13 @@ def test_the_process_waits_for_the_last_look_unless_stopped(team):
     assert len(team.backend.calls) == 1
 
 
-def test_remarks_are_read_from_baton_lines_only():
+def test_a_remark_is_the_last_line_for_the_manager():
     reply = (
-        "The planner spins.\n"
-        "- → **planner**: wait on job 7 instead (events.jsonl)\n"
-        "→ 执行：先跑一遍测试\n"
-        "→ wait: job 7\n"
-        "→ nobody: nothing\n"
+        "The Planner spins.\n"
+        "- → **manager**: pause planning until job 7 ends (events.jsonl)\n"
+        "→ planner: wait on job 7 instead\n"
         "→ manager:\n"
-        "see → reviewer: inline arrows are prose\n"
+        "see → manager: inline arrows are prose\n"
     )
-    assert remarks(reply) == [("planner", "wait on job 7 instead (events.jsonl)"), ("engineer", "先跑一遍测试")]
+    assert remarks(reply) == ["pause planning until job 7 ends (events.jsonl)"]
+    assert remarks("The flow is fine.") == []

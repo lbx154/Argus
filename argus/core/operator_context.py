@@ -55,8 +55,6 @@ _ROLES = frozenset({"manager", "planner", "engineer", "reviewer", "teammate"})
 _PREFERENCE_KINDS = frozenset({"autonomy", "interaction", "workflow"})
 _SCOPE_ORDER = {"global": 0, "project": 1, "mission": 2}
 _NO_MISSION = "__no_mission__"
-#: The source of a remark the Observer addressed to one role (``life.observer``).
-OBSERVER_SOURCE = "observer"
 
 
 class OperatorContextUnavailable(RuntimeError):
@@ -178,9 +176,6 @@ class OperatorContextProjection:
     capabilities: tuple[CapabilityRecord, ...]
     global_revision: int = 0
     preference_sources: tuple[str, ...] = ()
-    # What the Observer told this role. It travels the operator's channel to
-    # the role's next prompt, but it is a remark, not operator authority.
-    remarks: tuple[DirectiveRecord, ...] = ()
 
 
 @dataclass(frozen=True)
@@ -814,10 +809,9 @@ class OperatorContextStore:
                     capabilities.setdefault(record.kind, record)
             return OperatorContextProjection(
                 doc.revision,
-                tuple(record for record in directives if record.source != OBSERVER_SOURCE),
+                tuple(directives),
                 tuple(preferences.values()),
                 tuple(capabilities.values()),
-                remarks=tuple(record for record in directives if record.source == OBSERVER_SOURCE),
             )
 
     def project(
@@ -1255,14 +1249,6 @@ def build_operator_context_block(
         # The Manager sees the revision so "取消"/"cancel that" can name it.
         revision = f"; revision {directive.revision}" if role == "manager" else ""
         lines.append(f"- directive [{directive.scope}{revision}{flag}]: {directive.text}")
-    if projection.remarks:
-        lines.append("## From the Observer")
-        lines.append(
-            "The Observer watches how the team works and speaks only when something "
-            "looks off. This is what it saw, not an operator instruction: check it, "
-            "and act on it if it holds."
-        )
-        lines.extend(f"- {remark.text}" for remark in projection.remarks)
     if role in {"planner", "engineer", "teammate"}:
         from ..manager.directive import load_active_manager_directive
 
@@ -1376,7 +1362,6 @@ __all__ = [
     "JUDGMENT_INSTRUCTION",
     "IntakeDecision",
     "LEDGER_FILENAME",
-    "OBSERVER_SOURCE",
     "OWNERSHIP_FILENAME",
     "OperatorContextProjection",
     "OperatorContextCapacityError",

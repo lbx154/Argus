@@ -295,29 +295,28 @@ not guess on the model's behalf whether there is progress. The full design is in
 
 #### HO-17 The Observer: watching in the person's place
 `0.4` · `M` · Depends on: HO-16
-- Today: nobody notices when a role goes round in circles, reports a test it never ran, waits on a job that already
-  died, drifts off the task, or spends too fast, unless someone happens to read the project logs. On the live trial
-  that someone was Claude Code, which found the Planner idling every five minutes.
+- Today: nobody notices when a role goes round in circles, a wait drags on with nobody moving, the work drifts off
+  the task, or money goes out faster than anything changes, unless someone happens to read the project logs. On the
+  live trial that someone was Claude Code, which found the Planner idling every five minutes.
 - Do: an Observer role (`observer` in code, shown as 监督者) on the same backends as the others, with the Reviewer's
-  read-only tools. Like a person glancing over when an agent stops and says it is done, it looks once at each turn
-  the Engineer, Reviewer or Planner ends (each model call of theirs ends one); a delivery ends a turn, so it is
-  covered. Its own turns end none. Each look is a fresh session: the prompt gives where the record is
-  (`events.jsonl`, `agent_io.jsonl`, `usage.jsonl`), the call id and run label of each turn that just ended and the
-  lines of `agent_io.jsonl` that hold it, found by the host from the call id, and its earlier remarks. It reads only
-  those lines, cutting long ones short with rg, and checks what the role said against what it did. When all is well
-  it says nothing and writes no event. Otherwise it writes, in the operator's language,
-  `→ engineer|planner|reviewer|manager|operator: <one sentence and where it saw it>`: a role reads it in its next
-  prompt through the operator's channel, marked as the Observer's, and if that role has since passed the work on,
-  whoever holds it now reads it instead; the Manager hears it through its supervision and decides whether to pause;
-  the operator gets an alert. Each remark is one `life.observer.note` event and is never made twice. A delivery
-  does not wait for it, but a bounded daemon waits for its look at the last turns before it exits. Its model is
-  `ARGUS_SKILL_OBSERVER_MODEL`, by default the Reviewer's.
-- Done when: tests show it looks once at each ended turn and never at its own, in a fresh session, stays silent when
-  all is well, delivers a remark marked as its own to whoever holds the work, never repeats one, and that a failed
-  look leaves the work running.
+  read-only tools and low reasoning effort. It watches only whether the work flows; whether the work is right stays
+  the Reviewer's to judge. Each time the Engineer, Reviewer or Planner ends a turn (each model call of theirs ends
+  one; a delivery ends a turn, so it is covered) it looks once, in a fresh session, at how that task has flowed so
+  far: who held the baton and whom it passed to, how long each turn took and what it cost, a role called again and
+  again with nothing new, idling, and drift from the task. Its own turns end none. Its prompt gives only where
+  `events.jsonl` is, the task id of each turn that just ended, the event types that carry the flow, and its earlier
+  remarks; it takes the task's events itself with rg and reads nothing else. When the flow is fine it says nothing
+  and writes no event. Otherwise it writes `→ manager: <one sentence and where it saw it>`, in the operator's
+  language, as one `life.observer.note` event: the Manager hears it through its supervision and decides what to
+  do; with no Manager, or once the task is delivered, the operator gets it as an alert. It never makes a remark
+  twice. A delivery does not wait for it, but a bounded daemon waits for its look at the last turns before it exits.
+  Its model is `ARGUS_SKILL_OBSERVER_MODEL`, by default the Reviewer's.
+- Done when: tests show it looks once at each ended turn and never at its own, in a fresh session, reads only the
+  events, stays silent when the flow is fine, gives a remark to the Manager's supervision or else alerts the
+  operator, never repeats one, and that a failed look leaves the work running.
 - Known gaps: the Manager's turns are not watched yet.
-- Status: implemented on `feat/observer`. On a small task on the real Copilot backend it stayed silent on real work and
-  caught an Engineer turn whose final words were doctored to claim checks it never ran. Not yet merged.
+- Status: implemented on `feat/observer`; tried on small tasks on the real Copilot backend and on a copied stretch
+  of a live project where the Planner kept waiting. Not yet merged.
 ---
 
 ### Theme CO: Reliability and the core — failures you can see, a structure you can follow

@@ -744,9 +744,6 @@
         "to": {
           "type": "string",
           "enum": [
-            "engineer",
-            "planner",
-            "reviewer",
             "manager",
             "operator"
           ]

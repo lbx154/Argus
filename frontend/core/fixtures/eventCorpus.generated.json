@@ -251,7 +251,7 @@
         "operator_alert": true,
         "payload_schema_version": 1,
         "text": "Renderer event detail",
-        "to": "engineer",
+        "to": "manager",
         "ts": 1700000009,
         "type": "life.observer.note"
       },

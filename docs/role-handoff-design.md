@@ -338,32 +338,21 @@ changed candidate goes to the Reviewer, and an unchanged one climbs.
 ### The Observer
 
 The baton moves between the four roles, the operator, and the world. The Observer
-never holds it. It is the person who used to sit beside the screen: it watches how
-the holders work, and when something is off (a role going round in circles, a
-claim the record does not bear out, a wait on something already gone, a course
-drifting from the task, spending that outruns change) it says one sentence to
-whoever can act on it. It decides nothing: the Reviewer still accepts
-candidates, and stopping a mission is still the Manager's or the operator's.
+never holds it. It is the person who used to sit beside the screen, glancing at
+whether the work flows: who holds the baton and whom it passed to, how long each
+turn took and what it cost, a role called again and again with nothing new, a
+wait that goes on with nobody moving, a course drifting from the task. Whether
+the work is right stays the Reviewer's to judge. It decides nothing: stopping or
+redirecting a mission is still the Manager's or the operator's.
 
-A remark is written like a baton line,
-`→ engineer|planner|reviewer|manager|operator: <sentence and where it was seen>`,
-but it moves nothing. It enters the handoff as input for whoever it names:
-
-- the Engineer, Planner, or Reviewer reads it in its next prompt, brought by the
-  operator's channel and marked as the Observer's, not as an operator
-  instruction; it weighs the remark like any other evidence. If the role named
-  has since passed the work on, whoever holds it now reads it instead: a remark
-  on the Engineer's handoff goes to the Reviewer that took it over;
-- the Manager hears it through its supervision, as news reported once, like a
-  stalled turn, and decides whether to steer, pause, or stop;
-- the operator gets an alert.
-
-Each remark is one `life.observer.note` event; when all is well there is none.
-A remark advances the operator context, so under invariant 3 it is new operator
-input and the holder is asked once more; it never counts as a change of the
-candidate. The Observer looks once at each turn the Engineer, Reviewer or
-Planner ends, never at its own, and never repeats a remark, so it cannot keep a
-handoff going on its own.
+It looks once at each turn the Engineer, Reviewer or Planner ends, never at its
+own, reading only the task's events. When the flow is off it writes one line,
+`→ manager: <sentence and where it was seen>`, as one `life.observer.note`
+event. The Manager hears it through its supervision, as news reported once,
+like a stalled turn, and decides whether to steer, pause, or stop; with no
+Manager, or once the task is delivered, the operator gets an alert. The remark
+moves no baton and changes no candidate, and the Observer never repeats one,
+so it cannot keep a handoff going on its own.
 
 ## What is deleted
 

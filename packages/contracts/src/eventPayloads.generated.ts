@@ -203,7 +203,7 @@ export interface LifeObserverNoteEvent extends EventMsg {
   type: "life.observer.note";
   payload_schema_version?: 1;
   "agent_layer": "observer";
-  "to": "engineer" | "planner" | "reviewer" | "manager" | "operator";
+  "to": "manager" | "operator";
   "text": string;
   "operator_alert"?: boolean;
 }
