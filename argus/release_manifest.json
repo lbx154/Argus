@@ -1,7 +1,7 @@
 {
-  "git_commit": "4a173b11669ba2c7e0531cb1147d18d61a32c5b3",
+  "git_commit": "fdab44c7d6dd6a8e8f54279f01145e5958996cd0",
   "package_version": "0.1.8",
-  "release_id": "0.1.8+4a173b11669b",
+  "release_id": "0.1.8+fdab44c7d6dd",
   "schema_version": 2,
   "source_files": {
     ".agents/plugins/marketplace.json": 350,
@@ -144,7 +144,7 @@
     "argus/core/mission_view/_wording.py": 21519,
     "argus/core/model_visible_text.py": 7489,
     "argus/core/models.py": 19739,
-    "argus/core/operator_context.py": 61852,
+    "argus/core/operator_context.py": 61894,
     "argus/core/operator_context_storage.py": 14607,
     "argus/core/operator_decision.py": 7887,
     "argus/core/operator_messages.py": 9272,
