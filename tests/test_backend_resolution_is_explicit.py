@@ -99,7 +99,6 @@ def test_the_refusal_is_actionable_without_reading_source() -> None:
     # the role that failed
     assert "reviewer" in message
     # every knob that was checked, so they know where a value may go
-    assert "ARGUS_SKILL_REVIEWER_BACKEND" in message
     assert "ARGUS_SKILL_RUNNER_BACKEND" in message
     assert "ARGUS_SKILL_LIFE_BACKEND" in message
     # and the file the persisted layer lives in
@@ -137,18 +136,19 @@ def test_an_empty_default_is_not_a_default() -> None:
 def test_configured_value_outranks_the_default() -> None:
     backend, source = resolve_role_backend_with_source(
         "reviewer",
-        env={"ARGUS_SKILL_REVIEWER_BACKEND": "claude"},
+        env={"ARGUS_SKILL_RUNNER_BACKEND": "claude"},
         default="copilot",
     )
-    assert (backend, source) == ("claude", "env:ARGUS_SKILL_REVIEWER_BACKEND")
+    assert (backend, source) == ("claude", "env:ARGUS_SKILL_RUNNER_BACKEND")
 
 
 # ---------------------------------------------------------------------------
-# 3. Provenance for each of the four chain positions
+# 3. Provenance for each chain position; a retired per-role knob is ignored
 # ---------------------------------------------------------------------------
 
 
-def test_source_tag_role_env() -> None:
+def test_a_retired_role_knob_is_ignored() -> None:
+    _persist(ARGUS_SKILL_REVIEWER_BACKEND="copilot")
     assert resolve_role_backend_with_source(
         "reviewer",
         env={
@@ -156,7 +156,7 @@ def test_source_tag_role_env() -> None:
             "ARGUS_SKILL_RUNNER_BACKEND": "claude",
             "ARGUS_SKILL_LIFE_BACKEND": "pi",
         },
-    ) == ("copilot", "env:ARGUS_SKILL_REVIEWER_BACKEND")
+    ) == ("claude", "env:ARGUS_SKILL_RUNNER_BACKEND")
 
 
 def test_source_tag_shared_runner_env() -> None:
@@ -173,19 +173,19 @@ def test_source_tag_life_env() -> None:
 
 
 def test_source_tag_persisted_knob() -> None:
-    _persist(ARGUS_SKILL_REVIEWER_BACKEND="copilot")
+    _persist(ARGUS_SKILL_RUNNER_BACKEND="copilot")
     assert resolve_role_backend_with_source("reviewer", env={}) == (
         "copilot",
-        "persisted:ARGUS_SKILL_REVIEWER_BACKEND",
+        "persisted:ARGUS_SKILL_RUNNER_BACKEND",
     )
 
 
 def test_env_outranks_the_persisted_knob() -> None:
     """A deliberate one-off export must not be shadowed by last week's switch."""
-    _persist(ARGUS_SKILL_REVIEWER_BACKEND="copilot")
+    _persist(ARGUS_SKILL_RUNNER_BACKEND="copilot")
     assert resolve_role_backend_with_source(
-        "reviewer", env={"ARGUS_SKILL_REVIEWER_BACKEND": "claude"}
-    ) == ("claude", "env:ARGUS_SKILL_REVIEWER_BACKEND")
+        "reviewer", env={"ARGUS_SKILL_RUNNER_BACKEND": "claude"}
+    ) == ("claude", "env:ARGUS_SKILL_RUNNER_BACKEND")
 
 
 def test_the_source_vocabulary_matches_resolve_backend_profile() -> None:
@@ -205,7 +205,7 @@ def test_the_source_vocabulary_matches_resolve_backend_profile() -> None:
 
 
 def test_resolve_role_backend_is_a_thin_wrapper() -> None:
-    env = {"ARGUS_SKILL_ENGINEER_BACKEND": "grok"}
+    env = {"ARGUS_SKILL_RUNNER_BACKEND": "grok"}
     assert resolve_role_backend("engineer", env=env) == (
         resolve_role_backend_with_source("engineer", env=env)[0]
     )
@@ -247,7 +247,7 @@ def test_normalize_still_accepts_every_supported_backend_and_the_legacy_alias() 
 def test_a_typo_in_a_knob_reaches_the_operator() -> None:
     """The end-to-end shape of the typo case: knob -> resolver -> normalizer."""
     requested = resolve_role_backend(
-        "reviewer", env={"ARGUS_SKILL_REVIEWER_BACKEND": "copilto"}
+        "reviewer", env={"ARGUS_SKILL_RUNNER_BACKEND": "copilto"}
     )
     with pytest.raises(ValueError, match="copilto"):
         normalize_runner_backend(requested)
@@ -376,13 +376,13 @@ def test_an_explicit_env_override_still_outranks_the_flag(
     assert resolve_role_backend("reviewer") == "claude"
 
 
-def test_a_role_specific_knob_still_outranks_the_flag(
+def test_a_retired_role_specific_knob_cannot_outrank_the_flag(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     monkeypatch.setenv("ARGUS_SKILL_REVIEWER_BACKEND", "claude")
     _worker(tmp_path, "copilot")._rf_export_configured_backend()
-    assert resolve_role_backend("reviewer") == "claude"
+    assert resolve_role_backend("reviewer") == "copilot"
     assert resolve_role_backend("engineer") == "copilot"
 
 

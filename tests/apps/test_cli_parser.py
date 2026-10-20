@@ -799,7 +799,7 @@ def test_config_help_reports_the_backend_selected_by_setup(
         "ARGUS_SKILL_RUNNER_BACKEND  (default: codex)  = pi (persisted)"
         in help_text
     )
-    assert "ARGUS_SKILL_ENGINEER_BACKEND  (default: (=RUNNER_BACKEND))" in help_text
+    assert "ARGUS_SKILL_ENGINEER_BACKEND" not in help_text
 
 
 def test_a_missing_web_dependency_is_reported_not_raised(

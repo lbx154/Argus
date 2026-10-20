@@ -235,81 +235,9 @@ class _RunnerConstructionMixin:
         # building a second codex process.
         self.backend = self._backend
 
-        # Per-role backends. Each agent role (engineer / reviewer / planner /
-        # manager) can be pinned to its OWN backend via
-        # ``ARGUS_SKILL_{ROLE}_BACKEND`` (codex / claude / copilot / cursor /
-        # opencode / pi / grok) plus an
-        # optional ``ARGUS_SKILL_{ROLE}_RUNNER_BIN``. When neither is set the
-        # role SHARES the single default backend above — so the common case
-        # still builds exactly one CLI process and behaviour is unchanged. Set
-        # an override only when you want, e.g., the reviewer on a different
-        # provider than the engineer.
-        def _role_backend(role: str):
-            role_backend_name = _resolve_role_runner_backend_name(
-                role,
-                backend_name,
-            )
-            bin_env = resolve_runner_bin_setting(
-                role,
-                backend=role_backend_name,
-            )
-            from ..agent_cli.runner_backend import (
-                normalize_runner_backend,
-                resolve_available_runner,
-            )
-
-            requested = normalize_runner_backend(role_backend_name)
-            same_type = normalize_runner_backend(backend_name) == requested
-            if same_type and not bin_env:
-                return self._backend
-            chosen, role_bin = resolve_available_runner(
-                role_backend_name,
-                bin_env or None,
-            )
-            if chosen != requested:
-                log.warning(
-                    "%s %s runner is unavailable; using %s at %s",
-                    role,
-                    requested,
-                    chosen,
-                    role_bin,
-                )
-            if (
-                chosen == normalize_runner_backend(backend_name)
-                and not bin_env
-                and role_bin == runner_bin
-            ):
-                return self._backend
-            return AgentCliBackend(
-                backend=chosen,
-                runner_bin=role_bin,
-                default_extra_args=(
-                    extra
-                    if chosen == normalize_runner_backend(backend_name)
-                    else (
-                        ["--bare"]
-                        if chosen == "claude" and os.environ.get("ANTHROPIC_API_KEY")
-                        else None
-                    )
-                ),
-                default_interrupt_reason_provider=(
-                    _stop_reason if stop_event is not None else None
-                ),
-                default_watchdog_soft_idle_seconds=_env_int(
-                    "ARGUS_SKILL_RUNNER_SOFT_IDLE_SECONDS",
-                    10 * 60,
-                ),
-                default_watchdog_stalled_idle_seconds=_env_int(
-                    "ARGUS_SKILL_RUNNER_STALLED_IDLE_SECONDS",
-                    30 * 60,
-                ),
-                event_callback=_trampoline,
-            )
-
-        self.engineer_backend = _role_backend("engineer")
-        self.reviewer_backend = _role_backend("reviewer")
-        self.planner_backend = _role_backend("planner")
-        self.manager_backend = _role_backend("manager")
+        # Every role runs on the one shared backend.
+        self.engineer_backend = self.reviewer_backend = self._backend
+        self.planner_backend = self.manager_backend = self._backend
         self._args = args
         self._role_memory_maintenance_enabled = (
             SkillLoopConfig().require_post_task_learning
@@ -609,23 +537,6 @@ def _resolve_runner_backend_name(
     if resolved in ("codex", "claude", "copilot", "cursor", "opencode", "pi", "grok", "qoder", "dsh"):
         return resolved
     return None
-
-
-def _resolve_role_runner_backend_name(
-    role: str,
-    default_backend: str | None,
-    *,
-    env: Mapping[str, str] | None = None,
-) -> str:
-    """Resolve one role override while preserving the caller's shared default.
-
-    The chain lives in ``core.knobs``; this used to walk its own copy, which
-    consulted the persisted store for the ROLE name only. A ``/backend`` switch
-    persists the shared name, so that copy could not see one.
-    """
-    from ..core.knobs import resolve_role_backend
-
-    return resolve_role_backend(role, env=env, default=default_backend or "codex")
 
 
 def build_life_runner(args: argparse.Namespace, *, seed_thread_id: str | None = None):

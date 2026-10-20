@@ -198,11 +198,10 @@ what made that possible.
 
 ## Choosing the backend and model
 
-Argus resolves the backend and model for each role separately, and every
-resolution follows the same order:
+Every role runs on one shared backend; each role may pick its own model.
+Both resolve in the same order:
 
-1. an environment variable for that role (`ARGUS_SKILL_ENGINEER_BACKEND`,
-   `ARGUS_SKILL_ENGINEER_MODEL`, ...),
+1. for a model, the role's own variable (`ARGUS_SKILL_ENGINEER_MODEL`, ...),
 2. the shared variable (`ARGUS_SKILL_RUNNER_BACKEND`, `ARGUS_SKILL_MODEL`),
 3. the same names in the persisted settings file `~/.argus-skill/config.json`,
    which is what `argus --setup`, `/backend`, `/config key=value` and a
@@ -220,7 +219,6 @@ a file you can attach to a report.
 | Setting | Default | Notes |
 |---|---|---|
 | `ARGUS_SKILL_RUNNER_BACKEND` | `codex` | `codex`, `claude`, `copilot`, `cursor`, `opencode`, `pi`, `grok`, `qoder`, `dsh` |
-| `ARGUS_SKILL_<ROLE>_BACKEND` | inherits | `ENGINEER`, `REVIEWER`, `PLANNER`, `MANAGER`, `SUPERVISOR` |
 | `ARGUS_SKILL_MODEL` | `auto` | a bare model id (`gpt-5.6-sol`, `copilot/opus-5`); free text reaches the CLI verbatim and every call then fails |
 | `ARGUS_SKILL_<ROLE>_MODEL` | `auto` | `ENGINEER`, `REVIEWER`, `PLAN`, `MANAGER`, `SUPERVISOR` |
 | `ARGUS_SKILL_FRONTDOOR_MODEL` | `auto` | the classifier that reads every message (`gpt-6.1-sol` on Copilot) |

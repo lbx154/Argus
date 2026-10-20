@@ -172,7 +172,7 @@ configuration too, set `PI_CODING_AGENT_DIR` before login and throughout the tri
 
 **2. Configure this trial terminal.** Still at the checkout root, set the following
 process-local variables, replacing **`provider/model`** with your selected model.
-Remove any inherited per-role backend/model/runner overrides in this terminal;
+Remove any inherited per-role model overrides in this terminal;
 they can take precedence over the shared settings. Do not put these trial settings
 in your shell startup files or persistent system environment.
 

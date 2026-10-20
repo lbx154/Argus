@@ -668,7 +668,6 @@ def _build_worker_config(args: argparse.Namespace):
     from ...daemon.life_worker import LifeWorkerConfig
     bundle = _resolve_project_bundle(args)
     from ...core.knobs import resolve_role_backend
-    from .._runtime_construction import _resolve_role_runner_backend_name
 
     # See main(): the typed flag wins, then the chain, then an explicit codex.
     # value becomes LifeWorkerConfig.backend, which the daemon now exports as
@@ -684,8 +683,6 @@ def _build_worker_config(args: argparse.Namespace):
     backend = getattr(args, "backend", None) or resolve_role_backend(
         "", default="codex"
     )
-    engineer_backend = _resolve_role_runner_backend_name("engineer", backend)
-    reviewer_backend = _resolve_role_runner_backend_name("reviewer", backend)
     from ...core.knobs import (
         resolve_role_model,
         resolve_role_reasoning_effort,
@@ -701,12 +698,12 @@ def _build_worker_config(args: argparse.Namespace):
         engineer_model=resolve_role_model(
             "engineer",
             role_env="ARGUS_SKILL_ENGINEER_MODEL",
-            backend=engineer_backend,
+            backend=backend,
         ),
         reviewer_model=resolve_role_model(
             "reviewer",
             role_env="ARGUS_SKILL_REVIEWER_MODEL",
-            backend=reviewer_backend,
+            backend=backend,
         ),
         engineer_reasoning_effort=resolve_role_reasoning_effort(
             "ARGUS_SKILL_ENGINEER_REASONING_EFFORT"

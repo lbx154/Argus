@@ -237,19 +237,18 @@ def connect(url: str, *, non_interactive: bool = False, api_key: str | None = No
 
 
 def validate_role_overrides() -> None:
-    """Reject incompatible explicit roles; never erase the user's own choices."""
+    """Reject incompatible explicit role models; never erase the user's own choices."""
     from ..core.knob_store import read_persisted_knobs
 
     settings = {**read_persisted_knobs(), **os.environ}
     conflicts = []
-    for role in ("MANAGER", "PLANNER", "ENGINEER", "REVIEWER", "SUPERVISOR"):
-        backend = str(settings.get(f"ARGUS_SKILL_{role}_BACKEND", "")).strip().lower()
+    for role in ("MANAGER", "PLANNER", "ENGINEER", "REVIEWER"):
         model_key = "PLAN" if role == "PLANNER" else role
         model = str(settings.get(f"ARGUS_SKILL_{model_key}_MODEL", "")).strip().lower()
-        if backend and backend != "copilot" or model and model not in {"auto", CLIENT_MODEL, MODEL}:
+        if model and model not in {"auto", CLIENT_MODEL, MODEL}:
             conflicts.append(role.lower())
     if conflicts:
-        raise ValueError("以下角色有与试用不兼容的独立后端或模型设置：" + ", ".join(conflicts)
+        raise ValueError("以下角色有与试用不兼容的独立模型设置：" + ", ".join(conflicts)
                          + "。请先在模型设置中调整；现有配置不会被自动覆盖。")
 
 

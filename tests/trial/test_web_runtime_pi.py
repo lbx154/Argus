@@ -31,8 +31,6 @@ def test_pi_profile_selects_all_roles_and_own_provider(tmp_path, monkeypatch):
     assert saved["ARGUS_SKILL_COPILOT_TRIAL"] == "0"
     assert saved["ARGUS_SKILL_RUNNER_BIN"] == "/usr/local/bin/argus-pi"
     assert saved["ARGUS_SKILL_BACKEND_AUTH_MODE"] == "subscription_cli"
-    assert all(saved[f"ARGUS_SKILL_{role}_BACKEND"] == "pi"
-               for role in ("MANAGER", "PLANNER", "ENGINEER", "REVIEWER", "SUPERVISOR"))
     path = tmp_path / "argus-pi/models.json"
     provider = json.loads(path.read_text())["providers"]["argus"]
     assert provider["apiKey"] == "test-only-credential"

@@ -15,12 +15,6 @@ from .front_door import (
     _maybe_name_session,
 )
 
-_ROLE_BACKEND_ENVS: dict[str, str] = {
-    "manager": "ARGUS_SKILL_MANAGER_BACKEND",
-    "planner": "ARGUS_SKILL_PLANNER_BACKEND",
-    "engineer": "ARGUS_SKILL_ENGINEER_BACKEND",
-    "reviewer": "ARGUS_SKILL_REVIEWER_BACKEND",
-}
 _ROLE_EFFORT_ENVS: dict[str, str] = {
     "manager": "ARGUS_SKILL_MANAGER_REASONING_EFFORT",
     "planner": "ARGUS_SKILL_PLANNER_REASONING_EFFORT",
@@ -340,31 +334,25 @@ def _front_door_classify(
 _MODEL_SENTINELS = frozenset({"auto", "inherit", "default"})
 
 
-def _target_backends(entry: Any, entries: list[Any]) -> list[str]:
-    """The backend each role this model change targets will run on.
+def _target_backends(entries: list[Any]) -> list[str]:
+    """The backend this model change will run on (every role shares one).
 
-    A backend change in the same message wins over the role's current backend,
-    so ``SET backend ALL copilot; SET model ALL x`` vets ``x`` against Copilot.
+    A backend change in the same message wins over the current backend, so
+    ``SET backend - copilot; SET model ALL x`` vets ``x`` against Copilot.
     """
-    from ..core.knobs import resolve_role_backend_with_source
+    from ..core.knobs import resolve_role_backend
 
-    pending: dict[str, str] = {}
-    for other in entries:
-        if str(getattr(other, "knob", "")) == "backend":
-            for role in (list(other.roles) or list(_ROLE_BACKEND_ENVS)):
-                pending[role] = str(other.value).strip().lower()
-    backends: list[str] = []
-    for role in list(entry.roles) or list(_ROLE_MODEL_ENVS):
-        backend = pending.get(role)
-        if not backend:
-            try:
-                backend = resolve_role_backend_with_source(role, default="codex")[0]
-            except Exception:  # noqa: BLE001 - an unreadable store never blocks a change
-                backend = ""
-        backend = str(backend or "").strip().lower()
-        if backend and backend not in backends:
-            backends.append(backend)
-    return backends
+    backend = next(
+        (str(other.value) for other in entries if str(getattr(other, "knob", "")) == "backend"),
+        "",
+    )
+    if not backend:
+        try:
+            backend = resolve_role_backend("", default="codex")
+        except Exception:  # noqa: BLE001 - an unreadable store never blocks a change
+            backend = ""
+    backend = backend.strip().lower()
+    return [backend] if backend else []
 
 
 def _vet_model_value(
@@ -491,7 +479,7 @@ def _apply_config_intent(
     for entry in entries:
         if str(getattr(entry, "knob", "")) == "model":
             model_value, refusal = _vet_model_value(
-                entry.value, _target_backends(entry, entries), model_catalog, chat_state
+                entry.value, _target_backends(entries), model_catalog, chat_state
             )
             if refusal is not None:
                 refusals.append(refusal)  # the other settings still apply
@@ -526,21 +514,12 @@ def _apply_config_intent(
                 knob = str(entry.knob)
                 roles = list(entry.roles)
                 if knob == "backend":
-                    names = (
-                        [_ROLE_BACKEND_ENVS[role] for role in roles]
-                        if roles else [
-                            "ARGUS_SKILL_RUNNER_BACKEND",
-                            *_ROLE_BACKEND_ENVS.values(),
-                        ]
+                    value = normalize_cockpit_knob_value(
+                        "ARGUS_SKILL_RUNNER_BACKEND", entry.value
                     )
-                    value = normalize_cockpit_knob_value(names[0], entry.value)
-                    updates.update({name: value for name in names})
-                    if not roles or "manager" in roles:
-                        manager_backend = value
-                    confirmations.append(
-                        f"Set {' / '.join(r.title() for r in roles) if roles else 'all Argus roles'} "
-                        f"CLI backend to {value}."
-                    )
+                    updates["ARGUS_SKILL_RUNNER_BACKEND"] = value
+                    manager_backend = value
+                    confirmations.append(f"Set all Argus roles' CLI backend to {value}.")
                 elif knob == "model":
                     names = (
                         [_ROLE_MODEL_ENVS[role] for role in roles]
@@ -595,27 +574,15 @@ def _apply_config_intent(
     if knob == "backend":
         from ..core.knobs import normalize_cockpit_knob_value
 
-        names = [_ROLE_BACKEND_ENVS[r] for r in roles] if roles else [
-            "ARGUS_SKILL_RUNNER_BACKEND",
-            *_ROLE_BACKEND_ENVS.values(),
-        ]
         try:
-            value = normalize_cockpit_knob_value(names[0], intent.value)
+            value = normalize_cockpit_knob_value("ARGUS_SKILL_RUNNER_BACKEND", intent.value)
         except ValueError as exc:
             _confirm(f"Could not apply backend; nothing changed: {exc}")
             return True
-        if roles:
-            if not _set({_ROLE_BACKEND_ENVS[role]: value for role in roles}):
-                return True
-            _confirm(f"Set {' / '.join(r.title() for r in roles)} CLI backend to {value}.")
-        else:
-            if not _set({name: value for name in names}):
-                return True
-            _confirm(f"Set all Argus roles' CLI backend to {value}.")
-        _invalidate_manager_runner(
-            chat_state,
-            backend=(value if not roles or "manager" in roles else None),
-        )
+        if not _set({"ARGUS_SKILL_RUNNER_BACKEND": value}):
+            return True
+        _confirm(f"Set all Argus roles' CLI backend to {value}.")
+        _invalidate_manager_runner(chat_state, backend=value)
         return True
 
     if knob == "model":

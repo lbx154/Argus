@@ -90,17 +90,14 @@ def test_backend_display_falls_back_when_codex_binary_is_missing(
     assert c.backend_label == "Copilot"
 
 
-def test_per_role_backend_overrides_runner_and_life():
+def test_every_role_runs_on_the_shared_backend():
     env = {
         "ARGUS_SKILL_LIFE_BACKEND": "codex",
         "ARGUS_SKILL_RUNNER_BACKEND": "claude",
-        "ARGUS_SKILL_REVIEWER_BACKEND": "copilot",
+        "ARGUS_SKILL_REVIEWER_BACKEND": "copilot",  # retired, ignored
     }
-    assert resolve_role_config("reviewer", env=env).backend_label == "Copilot"
-    # engineer has no per-role override → falls back to RUNNER_BACKEND (claude)
-    assert resolve_role_config("engineer", env=env).backend_label == "Claude Code"
-    # planner also falls back to RUNNER_BACKEND
-    assert resolve_role_config("planner", env=env).backend == "claude"
+    for role in ("manager", "planner", "engineer", "reviewer"):
+        assert resolve_role_config(role, env=env).backend_label == "Claude Code"
 
 
 def test_life_backend_is_last_resort():

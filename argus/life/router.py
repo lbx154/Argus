@@ -206,9 +206,10 @@ def _first_alpha_token(text: str) -> str:
 # switch). The merged front-door call is biased hard toward None so real work
 # is never swallowed as a config change.
 
-_CONFIG_ROLE_KNOBS = frozenset({"backend", "model", "effort"})
+_CONFIG_ROLE_KNOBS = frozenset({"model", "effort"})
 _CONFIG_GLOBAL_KNOBS = frozenset(
     {
+        "backend",
         "global_daily_cap",
         "max_daemons",
         "codex_daily_requests",

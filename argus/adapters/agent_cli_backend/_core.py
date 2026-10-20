@@ -486,7 +486,7 @@ class AgentCliBackend:
 # --- Convenience factory ---------------------------------------------------
 
 
-def build_agent_cli_backend_from_env(*, role: str | None = None) -> AgentCliBackend:
+def build_agent_cli_backend_from_env() -> AgentCliBackend:
     """Build a AgentCliBackend from environment variables.
 
     Honours:
@@ -506,12 +506,9 @@ def build_agent_cli_backend_from_env(*, role: str | None = None) -> AgentCliBack
     import shlex
 
     backend = os.environ.get("ARGUS_SKILL_RUNNER_BACKEND", "").strip() or "codex"
-    if role:
-        from ...core.role_config import resolve_role_config
-        backend = resolve_role_config(role).backend
     from ...core.knobs import resolve_runner_bin_setting
 
-    runner_bin = resolve_runner_bin_setting(role=role, backend=backend) or None
+    runner_bin = resolve_runner_bin_setting(backend=backend) or None
     raw_extra = os.environ.get("ARGUS_SKILL_RUNNER_EXTRA_ARGS", "").strip()
     extra = _strip_legacy_codex_profile_args(shlex.split(raw_extra) if raw_extra else None)
     return AgentCliBackend(

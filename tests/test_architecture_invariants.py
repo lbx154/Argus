@@ -1176,7 +1176,6 @@ PRIVATE_IMPORT_ALLOWLIST: frozenset[str] = frozenset({
     "manager -> argus.apps._inbox",
     "manager -> argus.apps._life_actions",
     "manager -> argus.apps._runtime",
-    "manager -> argus.apps._runtime_construction",
     "manager -> argus.apps.cli._follow",
     "manager -> argus.daemon.state._fsync_directory",
     "manager -> argus.life.memory._TERMINAL_STATUSES",

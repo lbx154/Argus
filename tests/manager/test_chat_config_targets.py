@@ -9,7 +9,6 @@ import pytest
 from argus.core.knob_store import read_persisted_knobs
 from argus.life.router import ConfigIntent, _parse_config_decision
 from argus.manager.config_intent import (
-    _ROLE_BACKEND_ENVS,
     _ROLE_EFFORT_ENVS,
     _ROLE_MODEL_ENVS,
     _apply_config_intent,
@@ -17,7 +16,7 @@ from argus.manager.config_intent import (
 
 _ENV = (
     "ARGUS_SKILL_MODEL", "ARGUS_SKILL_RUNNER_BACKEND", "ARGUS_SKILL_LIFE_BACKEND",
-    *_ROLE_BACKEND_ENVS.values(), *_ROLE_EFFORT_ENVS.values(), *_ROLE_MODEL_ENVS.values(),
+    *_ROLE_EFFORT_ENVS.values(), *_ROLE_MODEL_ENVS.values(),
 )
 
 
@@ -67,8 +66,9 @@ def test_model_is_vetted_against_the_backend_switched_to_in_the_same_message(hom
     assert any("house-a" in line and "copilot" in line for line in lines)
 
 
-def test_role_model_is_vetted_against_that_roles_own_backend(home, monkeypatch) -> None:
-    monkeypatch.setenv(_ROLE_BACKEND_ENVS["planner"], "pi")
+def test_role_model_is_vetted_against_the_shared_backend(home, monkeypatch) -> None:
+    monkeypatch.setenv("ARGUS_SKILL_PLANNER_BACKEND", "pi")  # retired, ignored
+    monkeypatch.setenv("ARGUS_SKILL_RUNNER_BACKEND", "pi")
     intent = ConfigIntent(knob="model", roles=("planner",), value="local-m")
     lines: list[str] = []
 
@@ -77,11 +77,22 @@ def test_role_model_is_vetted_against_that_roles_own_backend(home, monkeypatch) 
     assert read_persisted_knobs()[_ROLE_MODEL_ENVS["planner"]] == "local-m", lines
     assert os.environ[_ROLE_MODEL_ENVS["planner"]] == "local-m"
 
-    # The shared backend's model is not one the planner's backend accepts.
     other = ConfigIntent(knob="model", roles=("planner",), value="house-a")
     assert _apply_config_intent(home, other, {}, on_confirm=lines.append, model_catalog=_catalog)
     assert read_persisted_knobs()[_ROLE_MODEL_ENVS["planner"]] == "local-m"
     assert "pi" in lines[-1]
+
+
+def test_a_backend_change_is_one_setting_for_every_role(home) -> None:
+    intent = _parse_config_decision("SET backend reviewer copilot")
+    lines: list[str] = []
+
+    assert _apply_config_intent(home, intent, {}, on_confirm=lines.append, model_catalog=_catalog)
+
+    stored = read_persisted_knobs()
+    assert stored["ARGUS_SKILL_RUNNER_BACKEND"] == "copilot"
+    assert "ARGUS_SKILL_REVIEWER_BACKEND" not in stored
+    assert lines == ["Set all Argus roles' CLI backend to copilot."]
 
 
 def test_refusal_names_the_backend_whose_list_lacks_the_model(home) -> None:

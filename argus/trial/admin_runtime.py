@@ -49,9 +49,6 @@ def configure_provider(root: Path, agent_bin: Path, vault: Vault, *, tenant: str
         **map_reasoning_knobs(),
         **{knob.name: DEFAULT_UPSTREAM_MODEL for knob in KNOBS if knob.name.endswith("_MODEL")},
     }
-    for role in ("ENGINEER", "REVIEWER", "PLANNER", "MANAGER", "SUPERVISOR"):
-        knobs[f"ARGUS_SKILL_{role}_BACKEND"] = "pi"
-        knobs[f"ARGUS_SKILL_{role}_RUNNER_BIN"] = str(agent_bin)
     os.environ.update({
         **knobs,
         "PI_CODING_AGENT_DIR": str(agent_dir),

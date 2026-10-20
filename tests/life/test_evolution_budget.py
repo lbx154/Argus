@@ -4,9 +4,9 @@ from dataclasses import dataclass
 
 import pytest
 
+from argus.core.knobs import learning_enabled
 from argus.life.memory import BacklogItem, LifeMemory
 from argus.life.supervisor import LifeBudget, LifeSupervisor, LifeSupervisorConfig
-from argus.core.knobs import learning_enabled
 
 
 @dataclass

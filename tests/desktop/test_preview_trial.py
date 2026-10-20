@@ -68,10 +68,12 @@ def test_failed_prepare_leaves_personal_configuration_intact(home, monkeypatch):
 
 
 def test_incompatible_role_is_rejected_without_overwriting(home, monkeypatch):
-    monkeypatch.setenv("ARGUS_SKILL_MANAGER_BACKEND", "pi")
+    monkeypatch.setenv("ARGUS_SKILL_MANAGER_BACKEND", "pi")  # retired, ignored
+    client.validate_role_overrides()
+    monkeypatch.setenv("ARGUS_SKILL_MANAGER_MODEL", "other-model")
     with pytest.raises(ValueError, match="manager"):
         client.validate_role_overrides()
-    assert os.environ["ARGUS_SKILL_MANAGER_BACKEND"] == "pi"
+    assert os.environ["ARGUS_SKILL_MANAGER_MODEL"] == "other-model"
 
 
 def test_personal_mode_does_not_load_trial_profile(home):

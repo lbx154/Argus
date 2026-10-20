@@ -157,8 +157,8 @@ node packages/coding-agent/dist/bundle/cli.js --list-models
 如果也想隔离 Pi 自身的配置，请在登录前及整个试用期间设置 `PI_CODING_AGENT_DIR`。
 
 **2. 配置当前试用终端。** 保持在刚才的源码目录根部，设置以下临时环境变量，将
-**`provider/model`** 替换为选好的模型。如果原来设置了每角色的 backend、model
-或 runner 环境覆盖，先在该终端清除，否则可能优先于通用配置。
+**`provider/model`** 替换为选好的模型。如果原来设置了每角色的 model
+环境覆盖，先在该终端清除，否则可能优先于通用配置。
 不要把这些试用设置写入 shell 启动文件或系统持久环境变量。
 
 macOS / Linux：

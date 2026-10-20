@@ -364,10 +364,10 @@ def _preflight_route_on_codex(route: str) -> bool:
     """Will this preflight route actually run on the codex/Azure backend?
 
     EN: Uses the SAME canonical resolution as the role runners
-    (``core.knobs.resolve_role_backend``: ``ARGUS_SKILL_{ROLE}_BACKEND`` →
+    (``core.knobs.resolve_role_backend``:
     ``ARGUS_SKILL_RUNNER_BACKEND`` → ``ARGUS_SKILL_LIFE_BACKEND`` → persisted
     knob store → the default this call site names, which is codex — see the
-    comment on the resolve below). A role pinned to copilot/claude/opencode/pi authenticates through
+    comment on the resolve below). A copilot/claude/opencode/pi backend authenticates through
     its OWN CLI (the copilot subscription / claude), NOT the ``model_api`` vault
     — so probing its Azure route is a FALSE gate. Reading the resolver (not raw
     ``os.environ``) is load-bearing: a non-interactive launcher (the web
@@ -376,7 +376,7 @@ def _preflight_route_on_codex(route: str) -> bool:
     invisible here and the daemon would wrongly probe — and fail on — the codex
     vault. The persisted ``/backend`` switch is honoured for exactly this case.
     Unknown/typo'd values fall back to codex so the safety probe is preserved.
-    中文：与角色 runner 用同一套规范解析（``resolve_role_backend``：角色 env →
+    中文：与角色 runner 用同一套规范解析（``resolve_role_backend``：
     RUNNER_BACKEND → LIFE_BACKEND → 持久化 knob → 本调用点显式传入的默认值，
     此处为 codex）。读解析后的后端而非裸
     ``os.environ`` 是关键：web/tmux 这类非交互启动器不 source ``.bashrc``，只写在
@@ -412,12 +412,7 @@ def _preflight_route_on_codex(route: str) -> bool:
         "dsh",
     }:
         return True
-    role_bin = (
-        os.environ.get(f"ARGUS_SKILL_{role.upper()}_RUNNER_BIN", "").strip()
-        if role
-        else ""
-    )
-    configured = role_bin or os.environ.get("ARGUS_SKILL_RUNNER_BIN", "").strip()
+    configured = os.environ.get("ARGUS_SKILL_RUNNER_BIN", "").strip()
     try:
         effective, _runner_bin = resolve_available_runner(
             chosen,

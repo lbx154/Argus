@@ -690,10 +690,6 @@ def get_identity(sid: str, *, global_root: Path | str | None = None) -> str | No
 
 _CONFIG_ALIASES = {
     "backend": "ARGUS_SKILL_RUNNER_BACKEND",
-    "engineer_backend": "ARGUS_SKILL_ENGINEER_BACKEND",
-    "reviewer_backend": "ARGUS_SKILL_REVIEWER_BACKEND",
-    "planner_backend": "ARGUS_SKILL_PLANNER_BACKEND",
-    "manager_backend": "ARGUS_SKILL_MANAGER_BACKEND",
     # Which provider catalog the multi-provider CLIs buy from. Without these
     # the operator can pick the backend from the cockpit but not the account
     # behind it, which is how a Pi pointed at a non-default provider ends up
@@ -747,18 +743,9 @@ def role_model_pins(persisted: Mapping[str, str] | None = None) -> dict[str, str
     return pins
 
 
-_BACKEND_CONFIG_KNOBS = frozenset(
-    {
-        "ARGUS_SKILL_RUNNER_BACKEND", "ARGUS_SKILL_ENGINEER_BACKEND",
-        "ARGUS_SKILL_REVIEWER_BACKEND", "ARGUS_SKILL_PLANNER_BACKEND",
-        "ARGUS_SKILL_MANAGER_BACKEND",
-    }
-)
-
-
 # Runner and model choices: what the operator saves wins over the deployment
 # environment the server was started with, which is only a default.
-_SAVED_OVER_DEPLOYMENT_ENV = _BACKEND_CONFIG_KNOBS | {"ARGUS_SKILL_MODEL"}
+_SAVED_OVER_DEPLOYMENT_ENV = frozenset({"ARGUS_SKILL_RUNNER_BACKEND", "ARGUS_SKILL_MODEL"})
 
 
 def prefer_saved_over_deployment_env(env: MutableMapping[str, str] | None = None) -> list[str]:
@@ -788,8 +775,8 @@ def _effective_knob(env_name: str) -> Any:
 
     knob = next((row for row in KNOBS if row.name == env_name), None)
     if knob is None or knob.default.startswith("("):
-        # A per-role knob without its own setting follows the shared one; only
-        # an explicit value counts as "in effect" for it.
+        # A knob without a concrete default (a path, a provider) is "in
+        # effect" only when it has an explicit value.
         resolved = resolve_knob(env_name, "")
         return resolved if resolved.value else None
     return resolve_knob(env_name, knob.default)
@@ -812,7 +799,7 @@ def set_operator_config(
     if env_name not in allowed:
         raise ValueError(f"config key is not cockpit-editable: {raw}")
     val = normalize_cockpit_knob_value(env_name, value)
-    if env_name in _BACKEND_CONFIG_KNOBS:
+    if env_name == "ARGUS_SKILL_RUNNER_BACKEND":
         # A form that re-submits the backend it was showing must not turn the
         # effective choice (often from the deployment environment) into a saved
         # one. Nothing to write only when the saved value already equals the

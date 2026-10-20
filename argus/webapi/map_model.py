@@ -84,15 +84,8 @@ MAP_MODEL_BACKEND_KNOB = "ARGUS_SKILL_MAP_MODEL_BACKEND"
 
 
 def map_base_role() -> tuple[str, RoleConfig]:
-    """The role whose runner writes map text: the front door, else the engineer."""
-    base = resolve_role_config(MAP_AUTO_ROLE)
-    if base.backend == "memory":
-        # A front door without a real runner cannot write map text; the map
-        # keeps the research runner rather than going dark.
-        research = resolve_role_config("engineer")
-        if research.backend != "memory":
-            return "engineer", research
-    return MAP_AUTO_ROLE, base
+    """The role whose runner writes map text: the front door."""
+    return MAP_AUTO_ROLE, resolve_role_config(MAP_AUTO_ROLE)
 
 
 def pinned_map_model_unavailable(model: str, backend: str, *, global_root: Path | None = None) -> str:
@@ -143,7 +136,7 @@ def resolve_map_model(*, global_root: Path | None = None) -> MapModel:
             model = "auto"
     effort = resolve_knob("ARGUS_SKILL_MAP_REASONING_EFFORT", "auto").value
     review_effort = resolve_knob("ARGUS_SKILL_MAP_REVIEW_REASONING_EFFORT", "auto").value
-    runner = resolve_runner_bin_setting(role, backend=base.backend)
+    runner = resolve_runner_bin_setting(backend=base.backend)
     if not runner and base.backend != "memory":
         runner = default_runner_bin(normalize_runner_backend(base.backend))
     reasoning = base.effort is not None or model.lower() != "auto"

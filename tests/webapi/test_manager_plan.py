@@ -85,7 +85,7 @@ def test_plan_preview_auto_inherits_planner_model_on_claude(
     (tmp_path / "projects" / sid).mkdir(parents=True)
     manager_state._STATES.clear()
     monkeypatch.setenv("ARGUS_SKILL_HOME", str(tmp_path))
-    monkeypatch.setenv("ARGUS_SKILL_PLANNER_BACKEND", "claude")
+    monkeypatch.setenv("ARGUS_SKILL_RUNNER_BACKEND", "claude")
     monkeypatch.setenv("ARGUS_SKILL_PLAN_MODEL", "claude-sonnet-test")
     monkeypatch.delenv("ARGUS_SKILL_PLAN_PREVIEW_MODEL", raising=False)
     monkeypatch.setattr(

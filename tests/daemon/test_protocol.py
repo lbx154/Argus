@@ -89,7 +89,6 @@ def test_daemon_status_reports_copilot_when_codex_is_missing(
     monkeypatch.setenv("HOME", str(tmp_path))
     monkeypatch.setenv("PATH", str(tmp_path))
     monkeypatch.delenv("ARGUS_SKILL_RUNNER_BACKEND", raising=False)
-    monkeypatch.delenv("ARGUS_SKILL_ENGINEER_BACKEND", raising=False)
     monkeypatch.setattr(
         "argus.core.knob_store.read_persisted_knobs",
         lambda: {},

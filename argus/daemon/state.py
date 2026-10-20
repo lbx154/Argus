@@ -778,10 +778,7 @@ def _daemon_status_payload(config: Any, *, started_at_iso: str) -> dict[str, Any
         requested = resolve_role_backend(
             "engineer", default=str(config.backend or "") or None
         )
-        configured = (
-            os.environ.get("ARGUS_SKILL_ENGINEER_RUNNER_BIN", "").strip()
-            or os.environ.get("ARGUS_SKILL_RUNNER_BIN", "").strip()
-        )
+        configured = os.environ.get("ARGUS_SKILL_RUNNER_BIN", "").strip()
         backend, _runner_bin = resolve_available_runner(
             requested,
             configured or None,

@@ -289,28 +289,18 @@ def _ensure_manager_runner(chat_state: dict[str, Any], mem: Any) -> Any:
         if cached is not None:
             chat_state.pop("manager_runner", None)
             chat_state.pop("manager_runner_workdir", None)
-        from ..apps._runtime_construction import _resolve_role_runner_backend_name
-
         runner_backend = backend or "codex"
-        engineer_backend = _resolve_role_runner_backend_name(
-            "engineer",
-            runner_backend,
-        )
-        reviewer_backend = _resolve_role_runner_backend_name(
-            "reviewer",
-            runner_backend,
-        )
         ns = argparse.Namespace(
             backend=runner_backend,
             engineer_model=resolve_role_model(
                 "engineer",
                 role_env="ARGUS_SKILL_ENGINEER_MODEL",
-                backend=engineer_backend,
+                backend=runner_backend,
             ),
             reviewer_model=resolve_role_model(
                 "reviewer",
                 role_env="ARGUS_SKILL_REVIEWER_MODEL",
-                backend=reviewer_backend,
+                backend=runner_backend,
             ),
             engineer_reasoning_effort=os.environ.get(
                 "ARGUS_SKILL_ENGINEER_REASONING_EFFORT", "xhigh"

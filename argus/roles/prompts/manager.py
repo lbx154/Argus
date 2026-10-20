@@ -294,7 +294,7 @@ def build_front_door_prompt(text: str, *, active_mission: bool = False, allow_re
         "or PREFERENCE|CREDENTIAL_GRANT|REVOCATION. Unsure: EPHEMERAL.\n\n"
         "CONFIG: setting as `SET model ALL <id>`, `SET effort planner,engineer "
         "high`: roles ALL or some of manager,planner,engineer,"
-        "reviewer for backend|model|effort; `-` for global_daily_cap,max_daemons,"
+        "reviewer for model|effort; `-` for backend,global_daily_cap,max_daemons,"
         "codex_daily_requests,copilot_daily_requests,copilot_daily_premium,safe_mode,"
         "show_reasoning,telegram. Questions/task-local: NONE. Join with `; `.\n\n"
         "CONTROL: PAUSE=stop campaign; ABORT=end current mission; NO_DISPATCH=no new work; "

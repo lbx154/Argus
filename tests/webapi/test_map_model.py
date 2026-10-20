@@ -120,7 +120,7 @@ def test_markdown_accepts_the_complete_local_limit_without_truncation():
 
 
 def test_map_auto_follows_front_door_and_persisted_overrides(monkeypatch):
-    monkeypatch.setenv("ARGUS_SKILL_MANAGER_BACKEND", "copilot")
+    monkeypatch.setenv("ARGUS_SKILL_RUNNER_BACKEND", "copilot")
     monkeypatch.setenv("ARGUS_SKILL_MANAGER_MODEL", "gpt-5.4-mini")
     monkeypatch.setenv("ARGUS_SKILL_ENGINEER_MODEL", "gpt-5.5")
     monkeypatch.setenv("ARGUS_SKILL_MODEL", "gpt-5.5")
@@ -148,7 +148,7 @@ def test_saved_map_pin_from_another_runner_follows_auto_with_a_note(tmp_path, mo
     """A pin saved under one runner (or seeded with no runner at all) must not
     be sent to a runner that never offered it: it follows auto and says why."""
     monkeypatch.setenv("ARGUS_SKILL_HOME", str(tmp_path))
-    monkeypatch.setenv("ARGUS_SKILL_MANAGER_BACKEND", "codex")
+    monkeypatch.setenv("ARGUS_SKILL_RUNNER_BACKEND", "codex")
     monkeypatch.setenv("ARGUS_SKILL_MANAGER_MODEL", "front-door-model")
     monkeypatch.delenv("ARGUS_SKILL_MAP_MODEL", raising=False)
     monkeypatch.delenv("ARGUS_SKILL_MAP_MODEL_BACKEND", raising=False)
@@ -169,7 +169,7 @@ def test_saved_map_pin_from_another_runner_follows_auto_with_a_note(tmp_path, mo
 
 def test_saved_map_pin_is_checked_against_a_runner_that_lists_its_models(tmp_path, monkeypatch):
     monkeypatch.setenv("ARGUS_SKILL_HOME", str(tmp_path))
-    monkeypatch.setenv("ARGUS_SKILL_MANAGER_BACKEND", "copilot")
+    monkeypatch.setenv("ARGUS_SKILL_RUNNER_BACKEND", "copilot")
     monkeypatch.setenv("ARGUS_SKILL_MANAGER_MODEL", "front-door-model")
     monkeypatch.delenv("ARGUS_SKILL_MAP_MODEL", raising=False)
     from argus.webapi import mission_items
@@ -191,7 +191,7 @@ def test_map_pin_saved_in_settings_follows_auto_after_switching_runner(tmp_path,
     server process: the pin is checked against the new runner, whatever
     source the knob resolver reports for it."""
     monkeypatch.setenv("ARGUS_SKILL_HOME", str(tmp_path))
-    monkeypatch.setenv("ARGUS_SKILL_MANAGER_BACKEND", "copilot")
+    monkeypatch.setenv("ARGUS_SKILL_RUNNER_BACKEND", "copilot")
     monkeypatch.setenv("ARGUS_SKILL_MANAGER_MODEL", "front-door-model")
     monkeypatch.setenv("ARGUS_SKILL_MAP_MODEL", "auto")
     monkeypatch.delenv("ARGUS_SKILL_MAP_MODEL_BACKEND", raising=False)
@@ -207,7 +207,7 @@ def test_map_pin_saved_in_settings_follows_auto_after_switching_runner(tmp_path,
         assert saved.status_code == 200
         pinned = map_model.resolve_map_model(global_root=tmp_path)
         assert (pinned.backend, pinned.model, pinned.note) == ("copilot", "first-runner-model", "")
-        runner = client.post(path, json={"name": "ARGUS_SKILL_MANAGER_BACKEND", "value": "codex"},
+        runner = client.post(path, json={"name": "ARGUS_SKILL_RUNNER_BACKEND", "value": "codex"},
                              headers=headers)
         assert runner.status_code == 200
         switched = map_model.resolve_map_model(global_root=tmp_path)
@@ -439,14 +439,3 @@ def test_historical_generation_requires_an_owning_session(tmp_path, monkeypatch)
     with TestClient(create_app(global_root=tmp_path)) as client:
         response = client.post("/api/map-copy/dataset/history", json={"cards": [{"key": "a", "task_id": "a", "kind": "task"}]})
         assert response.status_code == 422
-
-
-def test_map_keeps_the_research_runner_when_the_front_door_has_none(monkeypatch, tmp_path):
-    monkeypatch.setenv("ARGUS_SKILL_HOME", str(tmp_path))
-    monkeypatch.setenv("ARGUS_SKILL_MANAGER_BACKEND", "memory")
-    monkeypatch.setenv("ARGUS_SKILL_ENGINEER_BACKEND", "codex")
-    monkeypatch.setenv("ARGUS_SKILL_ENGINEER_RUNNER_BIN", sys.executable)
-    config = map_model.resolve_map_model()
-    assert config.backend == "codex"
-    assert config.runner_bin == sys.executable
-    assert config.available

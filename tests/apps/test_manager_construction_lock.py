@@ -203,7 +203,7 @@ def test_self_question_completes_during_a_peer_mission(
     task = memory.backlog.add(BacklogItem.new(title="CTB experiment", objective="Run the CTB experiment"))
     memory.backlog.mark_running(task.id)
     backlog_before = (state / "backlog.jsonl").read_bytes()
-    monkeypatch.setenv("ARGUS_SKILL_MANAGER_BACKEND", "copilot")
+    monkeypatch.setenv("ARGUS_SKILL_RUNNER_BACKEND", "copilot")
     monkeypatch.setattr(manager_state, "_STATES", {})
     monkeypatch.setattr(
         "argus.agent_cli.runner_backend.resolve_available_runner",

@@ -66,9 +66,11 @@ def test_registry_covers_the_key_operator_knobs() -> None:
         "ARGUS_SKILL_LETTER_INTERVAL_HOURS",
     ):
         assert must in names
-    # HAPI's per-role backend knobs are registered too (so they stop being invisible).
-    assert "ARGUS_SKILL_REVIEWER_BACKEND" in names
-    assert "ARGUS_SKILL_PLANNER_RUNNER_BIN" in names
+    # Every role runs on the one shared backend.
+    assert "ARGUS_SKILL_RUNNER_BACKEND" in names
+    assert not [name for name in names if name.endswith(("_RUNNER_BIN", "_BACKEND"))
+                and name not in {"ARGUS_SKILL_RUNNER_BIN", "ARGUS_SKILL_RUNNER_BACKEND",
+                                 "ARGUS_SKILL_LIFE_BACKEND", "ARGUS_SKILL_MAP_MODEL_BACKEND"}]
 
 
 def test_mission_round_default_is_unbounded_and_consistent() -> None:
@@ -133,18 +135,14 @@ def test_cockpit_value_normalization_is_typed() -> None:
     assert normalize_cockpit_knob_value(
         "ARGUS_SKILL_AUTONOMY_MODE", "PRAGMATIC"
     ) == "pragmatic"
-    assert normalize_cockpit_knob_value("ARGUS_SKILL_ENGINEER_BACKEND", "COPILOT") == "copilot"
-    assert normalize_cockpit_knob_value("ARGUS_SKILL_ENGINEER_BACKEND", "CURSOR") == "cursor"
-    assert normalize_cockpit_knob_value("ARGUS_SKILL_ENGINEER_BACKEND", "opencod") == "opencode"
-    assert normalize_cockpit_knob_value("ARGUS_SKILL_ENGINEER_BACKEND", "PI") == "pi"
-    assert normalize_cockpit_knob_value("ARGUS_SKILL_ENGINEER_BACKEND", "GROK") == "grok"
-    assert normalize_cockpit_knob_value("ARGUS_SKILL_ENGINEER_BACKEND", "QODER") == "qoder"
-    assert normalize_cockpit_knob_value("ARGUS_SKILL_ENGINEER_BACKEND", "DSH") == "dsh"
+    for raw, backend in (("COPILOT", "copilot"), ("CURSOR", "cursor"), ("opencod", "opencode"),
+                         ("PI", "pi"), ("GROK", "grok"), ("QODER", "qoder"), ("DSH", "dsh")):
+        assert normalize_cockpit_knob_value("ARGUS_SKILL_RUNNER_BACKEND", raw) == backend
     with pytest.raises(
         ValueError,
         match="codex, claude, copilot, cursor, opencode, pi, grok, qoder, dsh",
     ):
-        normalize_cockpit_knob_value("ARGUS_SKILL_ENGINEER_BACKEND", "magic")
+        normalize_cockpit_knob_value("ARGUS_SKILL_RUNNER_BACKEND", "magic")
     with pytest.raises(ValueError, match="non-negative integer"):
         normalize_cockpit_knob_value("ARGUS_SKILL_MAX_ACTIVE_DAEMONS", "-1")
     with pytest.raises(ValueError, match="cautious, pragmatic, or autonomous"):

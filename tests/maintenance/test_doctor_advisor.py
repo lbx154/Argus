@@ -123,7 +123,7 @@ def test_doctor_advisor_uses_configured_manager_executable(monkeypatch) -> None:
     )
     monkeypatch.setattr(
         "argus.core.knobs.resolve_runner_bin_setting",
-        lambda _role, *, backend: (
+        lambda *, backend: (
             "/opt/agents/claude-custom" if backend == "claude" else ""
         ),
     )
@@ -156,7 +156,7 @@ def test_doctor_advisor_accepts_qoder_and_dsh(monkeypatch) -> None:
     )
     monkeypatch.setattr(
         "argus.core.knobs.resolve_runner_bin_setting",
-        lambda _role, *, backend: "",
+        lambda *, backend: "",
     )
     monkeypatch.setattr(
         "argus.agent_cli.runner_backend.resolve_runner_bin",
@@ -178,7 +178,7 @@ def test_doctor_advisor_retries_path_when_configured_executable_is_stale(
     )
     monkeypatch.setattr(
         "argus.core.knobs.resolve_runner_bin_setting",
-        lambda _role, *, backend: (
+        lambda *, backend: (
             "/missing/claude" if backend == "claude" else ""
         ),
     )
@@ -207,7 +207,7 @@ def test_doctor_advisor_uses_configured_codex_for_repair(
     )
     monkeypatch.setattr(
         "argus.core.knobs.resolve_runner_bin_setting",
-        lambda _role, *, backend: "",
+        lambda *, backend: "",
     )
     monkeypatch.setattr(
         "argus.agent_cli.runner_backend.resolve_runner_bin",

@@ -90,14 +90,6 @@ KNOBS: tuple[Knob, ...] = (
     Knob("ARGUS_SKILL_PI_SESSION_DIR", "(~/.argus-skill/pi-sessions)", "Argus-owned Pi session storage, separate from interactive Pi history", "backend"),
     Knob("ARGUS_SKILL_PI_PROVIDER", "(unset — Pi resolves the id itself)", "provider prefix for bare model ids on the Pi backend; set it only to disambiguate an id two authenticated Pi catalogs both carry", "backend", cockpit=True),
     Knob("ARGUS_SKILL_OPENCODE_PROVIDER", "(unset — model is dropped)", "provider prefix for bare model ids on the OpenCode backend; `opencode run --model` needs provider/id, so without this the configured model has no effect", "backend", cockpit=True),
-    Knob("ARGUS_SKILL_ENGINEER_BACKEND", "(=RUNNER_BACKEND)", "per-role backend override for the engineer", "backend", cockpit=True),
-    Knob("ARGUS_SKILL_REVIEWER_BACKEND", "(=RUNNER_BACKEND)", "per-role backend override for the reviewer", "backend", cockpit=True),
-    Knob("ARGUS_SKILL_PLANNER_BACKEND", "(=RUNNER_BACKEND)", "per-role backend override for the planner", "backend", cockpit=True),
-    Knob("ARGUS_SKILL_MANAGER_BACKEND", "(=RUNNER_BACKEND)", "per-role backend override for the manager", "backend", cockpit=True),
-    Knob("ARGUS_SKILL_ENGINEER_RUNNER_BIN", "(=RUNNER_BIN)", "per-role CLI binary for the engineer", "backend"),
-    Knob("ARGUS_SKILL_REVIEWER_RUNNER_BIN", "(=RUNNER_BIN)", "per-role CLI binary for the reviewer", "backend"),
-    Knob("ARGUS_SKILL_PLANNER_RUNNER_BIN", "(=RUNNER_BIN)", "per-role CLI binary for the planner", "backend"),
-    Knob("ARGUS_SKILL_MANAGER_RUNNER_BIN", "(=RUNNER_BIN)", "per-role CLI binary for the manager", "backend"),
     # --- models ---
     Knob("ARGUS_SKILL_MODEL", "auto", "shared model override; auto uses the selected backend's default", "models", cockpit=True),
     Knob("ARGUS_SKILL_MANAGER_MODEL", "auto", "model for the Manager; auto uses the selected backend's default", "models", cockpit=True),
@@ -221,15 +213,8 @@ _PROVIDER_KNOBS = frozenset(
     }
 )
 _PROVIDER_ID_RE = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._+-]{0,63}$")
-_BACKEND_KNOBS = frozenset(
-    {
-        "ARGUS_SKILL_RUNNER_BACKEND",
-        "ARGUS_SKILL_ENGINEER_BACKEND",
-        "ARGUS_SKILL_REVIEWER_BACKEND",
-        "ARGUS_SKILL_PLANNER_BACKEND",
-        "ARGUS_SKILL_MANAGER_BACKEND",
-    }
-)
+#: Every role runs on the one shared backend; the legacy name is still read.
+_BACKEND_KNOBS = ("ARGUS_SKILL_RUNNER_BACKEND", "ARGUS_SKILL_LIFE_BACKEND")
 _EFFORT_KNOBS = frozenset(
     {
         "ARGUS_SKILL_MANAGER_REASONING_EFFORT",
@@ -296,65 +281,34 @@ def resolve_knob(
 
 
 def resolve_runner_bin_setting(
-    role: str | None = None,
     *,
     backend: str | None = None,
     env: Mapping[str, str] | None = None,
     persisted: Mapping[str, str] | None = None,
 ) -> str:
-    """Resolve a runner path without crossing persisted backend bindings."""
+    """The agent CLI path: the environment's, else the saved one when it was
+    saved for the backend now requested."""
     env_map = env if env is not None else os.environ
+    explicit = str(env_map.get("ARGUS_SKILL_RUNNER_BIN", "") or "").strip()
+    if explicit:
+        return explicit
     if persisted is None:
         from .knob_store import read_persisted_knobs
 
         persisted = read_persisted_knobs()
-    role_name = str(role or "").strip().upper()
-    role_key = f"ARGUS_SKILL_{role_name}_RUNNER_BIN" if role_name else ""
-    for key in (role_key, "ARGUS_SKILL_RUNNER_BIN"):
-        if not key:
-            continue
-        value = str(env_map.get(key, "") or "").strip()
-        if value:
-            return value
-
+    saved = str(persisted.get("ARGUS_SKILL_RUNNER_BIN", "") or "").strip()
+    if not saved:
+        return ""
     from ..agent_cli.runner_backend import normalize_runner_backend
 
-    def normalized(value: object) -> str:
-        text = str(value or "").strip()
+    def first_backend(source: Mapping[str, str]) -> str:
+        text = next((str(source.get(k) or "").strip() for k in _BACKEND_KNOBS if source.get(k)), "")
         return normalize_runner_backend(text) if text else ""
 
-    requested_backend = normalized(backend)
-    if not requested_backend:
-        for key in (
-            f"ARGUS_SKILL_{role_name}_BACKEND" if role_name else "",
-            "ARGUS_SKILL_RUNNER_BACKEND",
-            "ARGUS_SKILL_LIFE_BACKEND",
-        ):
-            requested_backend = normalized(env_map.get(key))
-            if requested_backend:
-                break
-
-    shared_backend = normalized(
-        persisted.get("ARGUS_SKILL_RUNNER_BACKEND")
-        or persisted.get("ARGUS_SKILL_LIFE_BACKEND")
+    requested = (
+        normalize_runner_backend(backend) if str(backend or "").strip() else first_backend(env_map)
     )
-    role_backend = normalized(
-        persisted.get(f"ARGUS_SKILL_{role_name}_BACKEND")
-        if role_name
-        else ""
-    ) or shared_backend
-    for key, configured_backend in (
-        (role_key, role_backend),
-        ("ARGUS_SKILL_RUNNER_BIN", shared_backend),
-    ):
-        if not key:
-            continue
-        value = str(persisted.get(key, "") or "").strip()
-        if value and (
-            not requested_backend or requested_backend == configured_backend
-        ):
-            return value
-    return ""
+    return saved if not requested or requested == first_backend(persisted) else ""
 
 
 def normalize_cockpit_knob_value(name: str, value: str) -> str:
@@ -400,7 +354,7 @@ def normalize_cockpit_knob_value(name: str, value: str) -> str:
         if not path.is_absolute():
             raise ValueError(f"{name} must be an absolute path; got {raw!r}")
         return str(path)
-    if name in _BACKEND_KNOBS:
+    if name == "ARGUS_SKILL_RUNNER_BACKEND":
         backend = raw.lower()
         if backend == "opencod":
             backend = "opencode"
@@ -617,23 +571,6 @@ class BackendResolutionError(RuntimeError):
     """
 
 
-def _role_backend_knobs(role: str) -> list[str]:
-    """The env-var names checked for ``role``, most specific first.
-
-    The persisted knob store is consulted for the SAME names in the SAME order,
-    so this one list defines all four positions of the precedence chain.
-    """
-    return [
-        name
-        for name in (
-            f"ARGUS_SKILL_{role.upper()}_BACKEND" if role else "",
-            "ARGUS_SKILL_RUNNER_BACKEND",
-            "ARGUS_SKILL_LIFE_BACKEND",
-        )
-        if name
-    ]
-
-
 def resolve_role_backend_with_source(
     role: str,
     *,
@@ -648,11 +585,12 @@ def resolve_role_backend_with_source(
     cockpit can render provenance from either resolver without a second
     dialect.
 
-    Precedence (unchanged): role-specific override
-    (``ARGUS_SKILL_<ROLE>_BACKEND``) -> shared ``ARGUS_SKILL_RUNNER_BACKEND``
-    -> shared ``ARGUS_SKILL_LIFE_BACKEND`` -> persisted switch (the same three
-    vars, same order — a prior ``/backend`` switch or natural-language
-    "engineer 用 claude") -> ``default``.
+    Every role runs on the one shared backend. Precedence:
+    ``ARGUS_SKILL_RUNNER_BACKEND`` -> legacy ``ARGUS_SKILL_LIFE_BACKEND`` ->
+    persisted switch (the same two names, same order — a prior ``/backend``
+    switch or a natural-language one) -> ``default``. ``role`` only names the
+    caller in errors; a retired per-role ``ARGUS_SKILL_<ROLE>_BACKEND`` is
+    ignored.
 
     ``default`` is REQUIRED to be a non-empty string if the caller wants a
     fallback; there is no implicit one. When the chain is empty and no default
@@ -665,7 +603,7 @@ def resolve_role_backend_with_source(
     existing caller of this precedence already does.
     """
     env_map = env if env is not None else os.environ
-    candidates = _role_backend_knobs(role)
+    candidates = _BACKEND_KNOBS
     for var in candidates:
         val = str(env_map.get(var, "") or "").strip()
         if val:

@@ -22,15 +22,8 @@ from argus.daemon.life_worker import (
 
 _BACKEND_ENVS = (
     "ARGUS_SKILL_RUNNER_BACKEND",
-    "ARGUS_SKILL_ENGINEER_BACKEND",
     "ARGUS_SKILL_REVIEWER_BACKEND",
-    "ARGUS_SKILL_PLANNER_BACKEND",
-    "ARGUS_SKILL_MANAGER_BACKEND",
     "ARGUS_SKILL_RUNNER_BIN",
-    "ARGUS_SKILL_ENGINEER_RUNNER_BIN",
-    "ARGUS_SKILL_REVIEWER_RUNNER_BIN",
-    "ARGUS_SKILL_PLANNER_RUNNER_BIN",
-    "ARGUS_SKILL_MANAGER_RUNNER_BIN",
     "ARGUS_SKILL_BACKEND_AUTH_MODE",
 )
 
@@ -84,19 +77,12 @@ def test_persisted_copilot_skips_without_env(monkeypatch) -> None:
     assert required_codex_routes() == []
 
 
-def test_mixed_probes_only_codex_roles(monkeypatch) -> None:
-    # engineer on copilot, reviewer left on codex default → probe only reviewer+text.
-    monkeypatch.setenv("ARGUS_SKILL_BACKEND_AUTH_MODE", "model_api")
-    monkeypatch.setenv("ARGUS_SKILL_ENGINEER_BACKEND", "copilot")
-    assert required_codex_routes() == ["reviewer", "text"]
-
-
-def test_per_role_override_beats_runner_default(monkeypatch) -> None:
-    # runner default copilot, but reviewer explicitly forced back to codex.
+def test_a_retired_role_backend_cannot_bring_back_a_codex_probe(monkeypatch) -> None:
     monkeypatch.setenv("ARGUS_SKILL_BACKEND_AUTH_MODE", "model_api")
     monkeypatch.setenv("ARGUS_SKILL_RUNNER_BACKEND", "copilot")
     monkeypatch.setenv("ARGUS_SKILL_REVIEWER_BACKEND", "codex")
-    assert required_codex_routes() == ["reviewer"]
+    assert required_codex_routes() == []
+    assert life_worker._worker_vault_preflight_routes("copilot") == []
 
 
 def test_claude_backend_also_skips(monkeypatch) -> None:
@@ -121,7 +107,7 @@ def test_grok_backend_also_skips(monkeypatch) -> None:
 
 def test_unknown_value_fails_closed_to_probe(monkeypatch) -> None:
     # A typo'd backend must NOT silently disable the safety probe.
-    monkeypatch.setenv("ARGUS_SKILL_ENGINEER_BACKEND", "coldex")
+    monkeypatch.setenv("ARGUS_SKILL_RUNNER_BACKEND", "coldex")
     assert _preflight_route_on_codex("engineer") is True
 
 
@@ -156,12 +142,3 @@ def test_text_route_follows_runner_default(monkeypatch) -> None:
     assert _preflight_route_on_codex("text") is True
     monkeypatch.setenv("ARGUS_SKILL_RUNNER_BACKEND", "copilot")
     assert _preflight_route_on_codex("text") is False
-
-
-def test_copilot_worker_still_preflights_codex_role(monkeypatch) -> None:
-    monkeypatch.setenv("ARGUS_SKILL_BACKEND_AUTH_MODE", "model_api")
-    monkeypatch.setenv("ARGUS_SKILL_RUNNER_BACKEND", "copilot")
-    monkeypatch.setenv("ARGUS_SKILL_ENGINEER_BACKEND", "codex")
-
-    assert life_worker._worker_vault_preflight_routes("copilot") == ["engineer"]
-    assert life_worker._worker_vault_preflight_routes("memory") == []
