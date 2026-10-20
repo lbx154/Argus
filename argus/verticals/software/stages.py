@@ -25,9 +25,6 @@ completion_gate = "none"
 MISSION_KIND = "software"
 GROUND_BEFORE_HANDOFF = True
 COMPLETION_CONTRACT_VERSION = 1
-# Safe fallback for old callers that have not yet read the Manager-persisted
-# workflow_mode. Runtime orchestration uses resolve_workflow_mode(project_root).
-WORKFLOW_MODE = "staged"
 
 # The build gate is irreducible. Planner checklist ops may extend this contract
 # but may never delete or weaken these ids.

@@ -41,7 +41,6 @@ from argus.skills.vertical_select import (
     persist_vertical,
     require_vertical,
     reset_stage_for_new_intent,
-    resolve_evidence_mode,
     resolve_vertical,
     resolve_workflow_mode,
     vertical_reached_own_terminal_stage,
@@ -97,13 +96,15 @@ def test_research_vertical_review_checklist_is_loaded_and_required(
     assert len(contract.items) > 0
 
 
-def test_research_vertical_defaults_to_proportional_evidence_reuse(
+def test_research_vertical_states_evidence_reuse_in_its_own_guidance(
     tmp_path: Path,
 ) -> None:
+    from argus.verticals._base import load_vertical_contract
+
     persist_vertical(tmp_path, "research")
 
     assert resolve_workflow_mode(tmp_path) == "staged"
-    assert resolve_evidence_mode(tmp_path) == "proportional"
+    assert "reuse reviewed evidence" in load_vertical_contract("research").banner("planner")
 
 
 def test_persist_vertical_records_explicit_target_venue(tmp_path: Path) -> None:
@@ -121,16 +122,14 @@ def test_explicit_staged_mode_overrides_research_vertical_default(
     persist_vertical(tmp_path, "research", workflow_mode="staged")
 
     assert resolve_workflow_mode(tmp_path) == "staged"
-    assert resolve_evidence_mode(tmp_path) == "proportional"
 
 
-def test_direct_orchestration_overrides_proportional_evidence_default(
+def test_direct_orchestration_overrides_the_research_default(
     tmp_path: Path,
 ) -> None:
     persist_vertical(tmp_path, "research", workflow_mode="direct")
 
     assert resolve_workflow_mode(tmp_path) == "direct"
-    assert resolve_evidence_mode(tmp_path) == "direct"
 
 
 # --- resolve_vertical precedence: env > state > research --------------------

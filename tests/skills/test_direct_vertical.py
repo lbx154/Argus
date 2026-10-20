@@ -15,7 +15,7 @@ from argus.skills.vertical_select import (
     VERTICALS,
     persist_vertical,
 )
-from argus.verticals._base import _contract, load_vertical, load_vertical_contract
+from argus.verticals._base import load_vertical, load_vertical_contract
 
 
 def test_software_vertical_is_separate_from_direct_workflow(tmp_path) -> None:
@@ -25,7 +25,6 @@ def test_software_vertical_is_separate_from_direct_workflow(tmp_path) -> None:
     module = load_vertical("software", project_root=tmp_path)
     assert module.STAGE_ORDER == ["delivery"]
     assert module.completion_gate == "none"
-    assert _contract(module).workflow_mode == "staged"
 
 
 def test_runtime_resolves_direct_workflow(tmp_path) -> None:

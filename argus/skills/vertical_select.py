@@ -468,28 +468,6 @@ def resolve_workflow_mode(project_root: object = ".") -> str:
     return "staged"
 
 
-def resolve_evidence_mode(project_root: object = ".") -> str:
-    """Return direct/staged/proportional evidence policy for agent prompts.
-
-    ``workflow_mode`` is a Manager-owned orchestration axis (direct vs staged).
-    ``WORKFLOW_MODE = "proportional"`` on a vertical is an evidence-reuse policy,
-    not a request to bypass stage orchestration. A direct Manager decision still
-    wins; otherwise the vertical may choose proportional evidence inside its
-    staged pipeline.
-    """
-    orchestration = resolve_workflow_mode(project_root)
-    if orchestration == "direct":
-        return "direct"
-    try:
-        from ..verticals._base import load_vertical_contract
-
-        vertical = resolve_vertical(project_root)
-        mode = load_vertical_contract(vertical, project_root=project_root).workflow_mode
-        return "proportional" if mode == "proportional" else "staged"
-    except Exception:  # noqa: BLE001 — evidence policy must not break prompts
-        return "staged"
-
-
 def resolve_vertical_if_decided(project_root: object = ".") -> str | None:
     """Return the Manager-decided vertical, or ``None`` without a fallback."""
     return _persisted_vertical(project_root)
@@ -1304,7 +1282,6 @@ __all__ = [
     "resolve_vertical_if_decided",
     "resolve_vertical",
     "resolve_workflow_mode",
-    "resolve_evidence_mode",
     "persist_vertical",
     "vertical_has_current_completion_certificate",
     "vertical_reached_own_terminal_stage",

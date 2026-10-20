@@ -67,7 +67,6 @@ class ResolvedRolePrompt:
     stage_order: tuple[str, ...]
     completion_gate: str
     paper_mission: bool
-    workflow_mode: str
     verification_stage_profiles: dict[str, str]
     requires_independent_review: bool
     search_altitude: str

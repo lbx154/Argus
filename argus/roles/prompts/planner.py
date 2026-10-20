@@ -206,10 +206,7 @@ def build_continuous_prompt(
     from ...core.project import resolve_project_root
     from ...core.research_contract import resolve_research_target_level
     from ...skills.ground_truth import ground_truth_mandate
-    from ...skills.vertical_select import (
-        resolve_evidence_mode,
-        resolve_workflow_mode,
-    )
+    from ...skills.vertical_select import resolve_workflow_mode
     from .registry import resolve_role_prompt
 
     cycle_line = f"This is planning cycle #{planning_cycle + 1}."
@@ -441,10 +438,7 @@ def build_continuous_prompt(
     # blocks that move — live vertical facts, altitude, journal, plan,
     # runtime digest, cycle counter, operator context — close the prompt.
     return _join_prompt_blocks(
-        ground_truth_mandate(
-            "planner",
-            workflow_mode=resolve_evidence_mode(_proot),
-        ),
+        ground_truth_mandate("planner", workflow_mode=workflow_mode),
         optimize_banner,
         research_target_block,
         standing_continuous_block,

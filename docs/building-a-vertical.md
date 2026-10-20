@@ -38,7 +38,6 @@ The names the contract reads:
 | `completion_gate` | yes | `"none"`, `"metric"` or `"certified"` |
 | `CHECKLIST_OPTIONAL_STAGES` | no | stages that may have no checklist |
 | `STAGE_ALIASES` | no | `{"experiment": "measure"}`: other names the Manager may use for a stage |
-| `WORKFLOW_MODE` | no | `"staged"`, `"direct"` or `"proportional"`; does not pick orchestration (the Manager chooses `direct` or `staged` per task, and with no stored choice the run is `staged`); only `"proportional"` has an effect, as the evidence-reuse policy inside a staged run |
 | `MISSION_KIND` | no | `"custom"`, `"optimize"`, `"research"` or `"software"` |
 | `REQUIRE_INDEPENDENT_REVIEW` | no | defaults to `True` |
 | `role_banner(role)` | no | a paragraph each role reads before its task |
@@ -75,7 +74,6 @@ CHECKLIST_STAGE_ORDER = tuple(STAGE_ORDER)
 CHECKLIST_OPTIONAL_STAGES: tuple[str, ...] = ()
 completion_gate = "none"
 MISSION_KIND = "software"
-WORKFLOW_MODE = "staged"
 
 PROTECTED_ITEM_IDS = frozenset({"delivery.builds", "delivery.tests-executed"})
 ```
@@ -96,8 +94,7 @@ CANONICAL_STAGE_ORDER: tuple[str, ...] = ("idea", "experiment", "paper", "review
 STAGE_ALIASES = {"research": "idea", "plan": "experiment", ..., "submission": "review"}
 ```
 
-with `completion_gate = "certified"`, `WORKFLOW_MODE = "proportional"`, role
-prompts in `prompt_policy.py`, a `prepare_mission` hook in `mission_brief.py`,
+with `completion_gate = "certified"`, role prompts in `prompt_policy.py`, a `prepare_mission` hook in `mission_brief.py`,
 and some forty engineer skills plus seven reviewer skills. It shows where a
 vertical can grow; it is not where one should start.
 
@@ -143,7 +140,6 @@ CHECKLIST_OPTIONAL_STAGES: tuple[str, ...] = ()
 STAGE_ALIASES = {"experiment": "measure", "writeup": "report"}
 
 completion_gate = "none"
-WORKFLOW_MODE = "staged"
 MISSION_KIND = "custom"
 REQUIRE_INDEPENDENT_REVIEW = True
 
@@ -193,18 +189,13 @@ Why these particular choices:
   stage's checklist is met. `"metric"` is for verticals whose completion is a
   number reaching a target; `"certified"` adds an explicit certification step,
   which the research vertical uses for papers. A notebook entry needs neither.
-- `WORKFLOW_MODE = "staged"` says the vertical moves through its stages in
-  order. `"proportional"` keeps that staged pipeline but lets agents reuse
-  evidence in proportion to the task. Start with `staged`; the aliases let a
-  Manager that says "experiment" land on `measure`.
-- `WORKFLOW_MODE` does not choose between direct and staged orchestration. The
+- The aliases let a Manager that says "experiment" land on `measure`.
+- A vertical does not choose between direct and staged orchestration. The
   Manager decides `workflow_mode` for every task it routes and persists it in
-  `.argus/PIPELINE_STATE.json`; when no decision is stored the run is `staged`,
-  whatever the vertical declares (`resolve_workflow_mode` in
-  `argus/skills/vertical_select.py`; `_workflow_mode_for_project_root` in
-  `argus/apps/_runtime_supervisor.py` also falls back to `staged` on errors).
-  The vertical's value is read only for the evidence policy of a staged run
-  (`resolve_evidence_mode`), so declaring `"direct"` there does not make runs direct. A small request ("measure one thing and
+  `.argus/PIPELINE_STATE.json`; when no decision is stored the run is `staged`
+  (`resolve_workflow_mode` in `argus/skills/vertical_select.py`). How much
+  evidence to reuse belongs in your `role_banner`, as the research vertical
+  does. A small request ("measure one thing and
   write it down") is usually routed `direct`. In direct mode the Reviewer gets
   no stage checklist (`argus/roles/prompts/reviewer.py` clears it) and judges
   the task against its own requirements, so your checklist ids are not in the
@@ -229,7 +220,7 @@ p = pathlib.Path('examples/verticals/argus_verticals/lab_notebook/stages.py')
 spec = importlib.util.spec_from_file_location('lab_notebook_stages', p)
 m = importlib.util.module_from_spec(spec); spec.loader.exec_module(m)
 c = vertical_contract('lab_notebook', m)
-print(c.stage_order, c.completion_gate, c.workflow_mode)
+print(c.stage_order, c.completion_gate)
 "
 ```
 

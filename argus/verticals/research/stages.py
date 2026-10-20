@@ -576,7 +576,6 @@ ALLOW_STAGE_ROLLBACK = False
 completion_gate = "certified"
 MISSION_KIND = "research"
 PAPER_MISSION = True
-WORKFLOW_MODE = "proportional"
 VERIFICATION_STAGE_PROFILES = {
     "idea": "explore",
     "experiment": "develop",
@@ -608,7 +607,10 @@ _PLANNER_RESEARCH_ORCHESTRATION = (
     "are the sole normal cross-stage context until Review, with one named exception: "
     "the method card, METHOD.md, is a work product every role reads and its claim "
     "changes only as the experiment.repair item allows. Review uses "
-    "paper/main.tex, its rendered output and direct dependencies, and paper/REVIEW.md."
+    "paper/main.tex, its rendered output and direct dependencies, and paper/REVIEW.md. "
+    "Verify the current claim or delta and reuse reviewed evidence unless a "
+    "dependency changed or conflicts; do not rebuild snapshots, manifests, or audit "
+    "packets by default."
 )
 
 _ENGINEER_RESEARCH_METHOD = (
@@ -701,7 +703,6 @@ __all__ = [
     "render_full_checklist_body",
     "CHECKLIST_STAGE_ORDER",
     "CHECKLIST_ITEMS",
-    "WORKFLOW_MODE",
     "VERIFICATION_STAGE_PROFILES",
     "ENGINEER_LIVE_SEARCH_STAGES",
     "ENGINEER_STAGE_OPERATIONS",

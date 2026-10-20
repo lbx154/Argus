@@ -368,7 +368,7 @@ def test_research_planner_receives_the_stage_playbook(tmp_path) -> None:
     assert "vertical:research:prompt:planner:continuous" in context.fragment_ids
 
 
-def test_research_planner_prompt_keeps_proportional_stage_checklist(tmp_path) -> None:
+def test_research_planner_prompt_keeps_its_stage_checklist(tmp_path) -> None:
     persist_vertical(tmp_path, "research")
     _set_stage(tmp_path, "research")
 

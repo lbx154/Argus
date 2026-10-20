@@ -5,7 +5,6 @@ from ...skills.stage_machine import ChecklistItem
 
 STAGE_ORDER = ["inspect", "change", "verify"]
 CHECKLIST_STAGE_ORDER = tuple(STAGE_ORDER)
-WORKFLOW_MODE = "staged"
 VERIFICATION_STAGE_PROFILES = {
     "inspect": "explore",
     "change": "develop",
@@ -72,7 +71,6 @@ __all__ = [
     "CHECKLIST_ITEMS",
     "CHECKLIST_STAGE_ORDER",
     "STAGE_ORDER",
-    "WORKFLOW_MODE",
     "VERIFICATION_STAGE_PROFILES",
     "completion_gate",
     "role_banner",

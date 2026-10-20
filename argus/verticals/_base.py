@@ -39,8 +39,6 @@ class ScopedVertical:
             return self._argus_contract.stage_order
         if name == "CHECKLIST_ITEMS":
             return self._argus_contract.checklist_items
-        if name == "WORKFLOW_MODE":
-            return self._argus_contract.workflow_mode
         return getattr(self.provider, name)
 
 
@@ -186,10 +184,6 @@ def vertical_completion_contract_version(mod: VerticalDefinition) -> int:
     """Return the optional versioned final-stage completion contract."""
     return _contract(mod).completion_contract_version
 
-def vertical_workflow_mode(mod: VerticalDefinition) -> str:
-    """Return the vertical's supported workflow mode."""
-    return _contract(mod).workflow_mode
-
 def vertical_search_altitude(mod: VerticalDefinition, project_root: object) -> str:
     return _contract(mod).altitude(project_root)
 
@@ -232,5 +226,4 @@ __all__ = [
     "vertical_search_altitude",
     "vertical_stage_completion_issues",
     "vertical_stage_primary_deliverables",
-    "vertical_workflow_mode",
 ]

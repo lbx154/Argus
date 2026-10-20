@@ -28,7 +28,6 @@ STAGE_ALIASES = {"experiment": "measure", "writeup": "report"}
 # "none": the project is complete when the last stage's checklist is met.
 # "metric" and "certified" are the other two values the contract accepts.
 completion_gate = "none"
-WORKFLOW_MODE = "staged"      # staged | direct | proportional
 MISSION_KIND = "custom"       # custom | optimize | research | software
 REQUIRE_INDEPENDENT_REVIEW = True
 

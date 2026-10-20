@@ -60,7 +60,6 @@ from .mission_brief import prepare_mission
 from .stages import (
     CHECKLIST_ITEMS,
     STAGE_ORDER,
-    WORKFLOW_MODE,
     stage_completion_issues,
 )
 
@@ -83,7 +82,6 @@ __all__ = [
     # pipeline stages
     "CHECKLIST_ITEMS",
     "STAGE_ORDER",
-    "WORKFLOW_MODE",
     "stage_completion_issues",
     # advisory figure checks
     "figure_lint_issues",

@@ -13,7 +13,6 @@ from typing import Any, Callable, Protocol
 
 VERTICAL_CONTRACT_VERSION = 1
 _COMPLETION_GATES = frozenset({"none", "metric", "certified"})
-_WORKFLOW_MODES = frozenset({"staged", "direct", "proportional"})
 _MISSION_KINDS = frozenset({"custom", "optimize", "research", "software"})
 _VERIFICATION_PROFILES = frozenset({"explore", "develop", "certify"})
 
@@ -166,7 +165,6 @@ class VerticalContract:
     requires_independent_review: bool = False
     completion_contract_version: int = 0
     research_target_levels: tuple[str, ...] = ()
-    workflow_mode: str = "staged"
     verification_stage_profiles: dict[str, str] | None = None
     checklist_optional_stages: frozenset[str] = frozenset()
     stage_aliases: dict[str, str] | None = None
@@ -244,7 +242,6 @@ class VerticalContract:
             checklist_items={stage: self.checklist_items.get(stage, ()) for stage in stages},
             checklist_optional_stages=self.checklist_optional_stages.intersection(stages),
             workflow_profile=name,
-            workflow_mode="staged",
             workflow_requested_stages=requested,
         )
 
@@ -645,11 +642,6 @@ def vertical_contract(name: str, provider: Any) -> VerticalContract:
                 if dependency not in seen:
                     seen.add(dependency)
                     pending.extend(requirements[dependency])
-    mode = str(getattr(provider, "WORKFLOW_MODE", "staged") or "staged").strip().lower()
-    if mode not in _WORKFLOW_MODES:
-        raise VerticalContractError(
-            f"vertical {name!r} has unsupported workflow mode {mode!r}"
-        )
     allow_stage_rollback = getattr(provider, "ALLOW_STAGE_ROLLBACK", True)
     if not isinstance(allow_stage_rollback, bool):
         raise VerticalContractError(
@@ -811,7 +803,6 @@ def vertical_contract(name: str, provider: Any) -> VerticalContract:
             for level in (getattr(provider, "RESEARCH_TARGET_LEVELS", ()) or ())
             if str(level).strip()
         ),
-        workflow_mode=mode,
         verification_stage_profiles=verification_stage_profiles,
         checklist_optional_stages=optional_stages,
         stage_aliases=aliases,

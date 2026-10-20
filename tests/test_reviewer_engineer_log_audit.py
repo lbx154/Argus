@@ -38,18 +38,10 @@ def _build(
     path: str,
     *,
     call_id: str = "",
-    monkeypatch=None,
-    workflow_mode: str | None = "staged",
     scope: str = "",
     main_error: str | None = None,
     objective: str = "implement and verify the kernel",
 ) -> str:
-    if monkeypatch is not None:
-        if workflow_mode is not None:
-            monkeypatch.setattr(
-                "argus.skills.vertical_select.resolve_evidence_mode",
-                lambda _root: workflow_mode,
-            )
     r = Reviewer(runner=None, skill_store=None)
     return r._build_prompt(
         objective=objective,
@@ -69,8 +61,8 @@ def _build(
 # --------------------------------------------------------------------------- #
 # Prompt shape: present when path set, absent (legacy) when empty
 # --------------------------------------------------------------------------- #
-def test_audit_section_present_when_log_path_set(monkeypatch) -> None:
-    p = _build(_LOG_PATH, monkeypatch=monkeypatch)
+def test_audit_section_present_when_log_path_set() -> None:
+    p = _build(_LOG_PATH)
     assert "The event log is at" in p
     assert _LOG_PATH in p
     assert "if the Engineer's account seems wrong" in p
@@ -78,13 +70,13 @@ def test_audit_section_present_when_log_path_set(monkeypatch) -> None:
     assert "use_attach" not in p
 
 
-def test_no_audit_section_when_log_path_empty(monkeypatch) -> None:
-    p = _build("", monkeypatch=monkeypatch)
+def test_no_audit_section_when_log_path_empty() -> None:
+    p = _build("")
     assert "Engineer execution-log audit" not in p
     assert "events.jsonl" not in p
 
 
-def test_engineer_account_is_labeled_and_capped_at_6000_chars(monkeypatch) -> None:
+def test_engineer_account_is_labeled_and_capped_at_6000_chars() -> None:
     reviewer = Reviewer(runner=None, skill_store=None)
     prompt = reviewer._build_prompt(
         objective="implement and verify the kernel",
@@ -103,10 +95,9 @@ def test_engineer_account_is_labeled_and_capped_at_6000_chars(monkeypatch) -> No
     assert "…[middle omitted 1100 characters]…" in account and len(account) <= 6000
 
 
-def test_reviewer_rejects_retroactive_audit_reconstruction(monkeypatch) -> None:
+def test_reviewer_rejects_retroactive_audit_reconstruction() -> None:
     p = _build(
         "",
-        monkeypatch=monkeypatch,
         objective="Review an append-only audit ledger and exact COMMAND_LOG.",
     )
 
@@ -117,11 +108,10 @@ def test_reviewer_rejects_retroactive_audit_reconstruction(monkeypatch) -> None:
     assert "missing byte-faithful command" in p
 
 
-def test_log_pointer_scopes_to_current_engineer_call_without_recipe(monkeypatch) -> None:
+def test_log_pointer_scopes_to_current_engineer_call_without_recipe() -> None:
     p = _build(
         _LOG_PATH,
         call_id=_CALL_ID,
-        monkeypatch=monkeypatch,
         scope="final_submission",
         main_error="suspicious execution",
     )
@@ -133,10 +123,9 @@ def test_log_pointer_scopes_to_current_engineer_call_without_recipe(monkeypatch)
     assert "\n    grep -nE 'pytest" not in p
 
 
-def test_missing_call_id_does_not_invite_unscoped_keyword_scan(monkeypatch) -> None:
+def test_missing_call_id_does_not_invite_unscoped_keyword_scan() -> None:
     p = _build(
         _LOG_PATH,
-        monkeypatch=monkeypatch,
         scope="final_submission",
         main_error="suspicious execution",
     )
@@ -145,21 +134,6 @@ def test_missing_call_id_does_not_invite_unscoped_keyword_scan(monkeypatch) -> N
     assert "The event log is at" in p
     assert "grep -nE 'use_attach" not in p
     assert "grep -nE 'pytest" not in p
-
-
-def test_proportional_research_uses_compact_on_demand_audit(monkeypatch) -> None:
-    p = _build(
-        _LOG_PATH,
-        call_id=_CALL_ID,
-        monkeypatch=monkeypatch,
-        workflow_mode="proportional",
-    )
-
-    assert "The event log is at" in p
-    assert "if the Engineer's account seems wrong" in p
-    assert _CALL_ID in p
-    assert "use_attach" not in p
-    assert "grep recipes" not in p.lower()
 
 
 def test_manager_staged_research_uses_compact_on_demand_audit(
@@ -172,8 +146,6 @@ def test_manager_staged_research_uses_compact_on_demand_audit(
     p = _build(
         _LOG_PATH,
         call_id=_CALL_ID,
-        monkeypatch=monkeypatch,
-        workflow_mode=None,
     )
 
     assert "The event log is at" in p
@@ -197,10 +169,9 @@ def test_empty_path_is_byte_for_byte_legacy_prompt() -> None:
     assert r._build_prompt(engineer_log_path="", **common) == r._build_prompt(**common)
 
 
-def test_final_submission_uses_on_demand_process_audit(monkeypatch) -> None:
+def test_final_submission_uses_on_demand_process_audit() -> None:
     p = _build(
         _LOG_PATH,
-        monkeypatch=monkeypatch,
         scope="final_submission",
     )
     assert "The event log is at" in p
@@ -208,10 +179,9 @@ def test_final_submission_uses_on_demand_process_audit(monkeypatch) -> None:
     assert "use_attach" not in p
 
 
-def test_engineer_error_still_uses_one_line_log_pointer(monkeypatch) -> None:
+def test_engineer_error_still_uses_one_line_log_pointer() -> None:
     p = _build(
         _LOG_PATH,
-        monkeypatch=monkeypatch,
         main_error="worker exited unexpectedly",
     )
     assert "The event log is at" in p
