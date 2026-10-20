@@ -89,23 +89,26 @@ class _StageDecisionMixin:
     # ------------------------------------------------------------------
 
     def _stage_operator_context(self) -> str:
+        """What the operator has said, with the answers they gave since the objective was written."""
         from ..core.operator_context import build_operator_context_block
-
-        context, _revision = build_operator_context_block(
-            "manager", self.manager_session_root, consume_once=False,
-        )
-        return context
-
-    def _stage_operator_answers(self) -> list[str]:
-        """What the operator answered since the objective was written."""
         from ..core.operator_decision import operator_answers
         from ..life.memory import Backlog
 
-        path = Path(self.manager_session_root) / "backlog.jsonl"
+        root = Path(self.manager_session_root)
+        context, _revision = build_operator_context_block("manager", root, consume_once=False)
         try:
-            return operator_answers(Backlog(path).history()) if path.is_file() else []
+            backlog = root / "backlog.jsonl"
+            answers = operator_answers(Backlog(backlog).history()) if backlog.is_file() else []
         except Exception:  # noqa: BLE001 - context only; the decision stands without it
-            return []
+            answers = []
+        if not answers:
+            return context
+        return "\n\n".join(part for part in (
+            context,
+            "## The operator's answers since the objective\n"
+            "Wherever the objective says otherwise, these are the later word.\n"
+            + "".join(f"- {answer}\n" for answer in answers),
+        ) if part)
 
     def _stage_context_facts(self, root: Path) -> dict[str, Any]:
         """Bind a verdict to the pipeline and campaign that supplied its evidence."""
@@ -1094,7 +1097,6 @@ class _StageDecisionMixin:
                     continuous_objective=continuous_objective,
                     allow_rollback=stage_rollback_error(root) is None,
                     allow_early_completion=allow_direct_completion,
-                    operator_answers=self._stage_operator_answers(),
                 ),
                 role_banner=prompt_context.role_banner,
                 role_skill_block=self._role_skill_block(

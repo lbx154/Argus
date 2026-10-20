@@ -551,18 +551,3 @@ def test_final_stage_completion_requires_manager_decision(
         expected_status
     )
 
-
-def test_stage_prompt_reads_the_operator_answers_beside_the_objective() -> None:
-    prompt = build_stage_decision_prompt(
-        current_stage="delivery",
-        next_stage=None,
-        earlier_stages=(),
-        checklist_md="Deliver the chosen behaviour.",
-        review=_review(),
-        continuous_objective="Wait for my choice of A or B, then implement it.",
-        operator_answers=["Keep A or B? → Keep A; drop B. (the operator)"],
-    )
-
-    objective, answers = prompt.index("## Operator objective"), prompt.index("## The operator's answers since")
-    assert objective < answers
-    assert "- Keep A or B? → Keep A; drop B. (the operator)" in prompt[answers:]

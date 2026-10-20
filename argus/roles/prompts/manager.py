@@ -886,7 +886,6 @@ def build_stage_decision_prompt(
     continuous_objective: str = "",
     allow_rollback: bool = True,
     allow_early_completion: bool = False,
-    operator_answers: Sequence[str] = (),
 ) -> str:
     """Build the Manager's stage-transition prompt with a concrete target example."""
     # Normalize a stray string to one stage instead of iterating over its characters.
@@ -941,13 +940,6 @@ def build_stage_decision_prompt(
         if continuous_objective.strip()
         else ""
     )
-    if operator_answers:
-        objective_block += (
-            "## The operator's answers since\n"
-            "Wherever the objective says otherwise, these are the later word.\n"
-            + "".join(f"- {answer}\n" for answer in operator_answers)
-            + "\n"
-        )
     objective_block += EXPERIMENT_EVIDENCE_CONTRACT + "\n\n"
 
     harness_control = getattr(review, "harness_control", None)

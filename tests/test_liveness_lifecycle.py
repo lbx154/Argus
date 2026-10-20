@@ -748,4 +748,5 @@ def test_planner_and_manager_read_the_answer_beside_the_objective_it_settles(
         supervisor._planner_current_reality_note()
     )
     manager = Manager(project, runner=None, manager_session_root=supervisor.memory.root)
-    assert manager._stage_operator_answers() == [answer]
+    context = manager._stage_operator_context()
+    assert "## The operator's answers since the objective" in context and f"- {answer}" in context
