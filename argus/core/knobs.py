@@ -201,8 +201,6 @@ KNOBS: tuple[Knob, ...] = (
     Knob("ARGUS_SKILL_REVIEW_BACKGROUND_LAUNCHES", "off", "opt in to reviewing background launches before their results return; final independent review remains required", "mission"),
     Knob("ARGUS_SKILL_REVIEWER_VALIDATION_IMAGE", "(unset)", "local Docker image for opt-in read-only Reviewer command checks; empty disables", "mission"),
     Knob("ARGUS_SKILL_ROUND_CHECKPOINT", "off", "record private git refs for Reviewer-recommended round checkpoints", "mission"),
-    Knob("ARGUS_RESEARCH_SPEC_CHECKS", "on", "research vertical: after each Engineer round the host runs the project's own tests/spec (and tests/parity) suite with zero model tokens and shows the outcome to the Reviewer and next Engineer round as evidence, never as a gate; off disables", "mission"),
-    Knob("ARGUS_RESEARCH_SPEC_CHECK_TIMEOUT_SECONDS", "1800", "research vertical: seconds a host-run spec check may make no progress (no CPU time) before its process group is killed and the stop reported to the Reviewer as evidence (at least 30; 0 never stops it); a check that keeps working is never stopped", "mission"),
     Knob("ARGUS_SKILL_REQUIRE_POST_TASK_LEARNING", "1", "enable selective project-layer Skill maintenance for all four roles (default ON)", "mission"),
     Knob("ARGUS_SKILL_BOUNDED_DAG_MODEL", "auto", "compact model for decomposing Manager bounded tasks into backlog DAG nodes: gpt-5.4-mini on copilot (follows an environment model of auto), planner model otherwise", "mission"),
     Knob("ARGUS_SKILL_BOUNDED_DAG_REASONING_EFFORT", "low", "reasoning effort for bounded DAG decomposition", "mission"),

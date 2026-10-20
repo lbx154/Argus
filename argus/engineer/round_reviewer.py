@@ -510,7 +510,7 @@ class RoundReviewerMixin:
                     mission_grounding=_mission_grounding(supervised_config, state),
                 ),
                 prev_review_summary=_previous_review_summary(state),
-                # Host-gathered round evidence (e.g. a vertical's spec checks):
+                # Host-gathered round evidence (e.g. the research round log):
                 # facts the Reviewer weighs, rendered as raw evidence rather
                 # than as supervised-subagent chatter.
                 raw_evidence="\n\n".join(state.pending_round_evidence),

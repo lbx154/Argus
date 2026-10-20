@@ -2,8 +2,8 @@
 
 The oracle is the route's equations transcribed into slow float64 functions,
 one per equation, with no code shared with the implementation. Tag each test
-with the METHOD.md component whose equation it checks; a component is derived
-as ``proven`` only once a knockout or differential test tagged with it passes.
+with the METHOD.md component whose equation it checks; a component counts as
+shown only once a knockout or differential test tagged with it passes.
 """
 from __future__ import annotations
 
