@@ -169,7 +169,9 @@ contract does not require one.
 - A model service that turns a task away past its automatic retries (the task
   parks on `provider_fence`) opens the same circuit: it would turn every other
   call away too, so Planner turns and task dispatch wait the same way. The
-  operator's explicit Run also ends this circuit.
+  operator's explicit Run ends this circuit, and so does any call a half-open
+  window lets through (the canary's or the Planner's) that the service
+  answers; the tasks it fenced then go back to the queue on their own.
 
 Explicit pause stops the current mission and daemon while preserving the goal
 and backlog. An explicit resume that runs commands or changes artifacts is TEAM
@@ -523,7 +525,7 @@ Web UI, Manager model, and daemon:
 | Planner acceptance check | No unconditional-success or tautological checks |
 | Successful Pi turn with no `CHECKPOINT.md` | Mission remains successful; empty open-item metadata and a persistence warning only when needed |
 | Same uncaught runtime exception under rephrased missions | One durable circuit opens; later Planner/Engineer dispatch waits for changed runtime facts |
-| Model service down past the automatic-retry window | The same circuit opens; Planner turns and dispatch wait for Run, a backend or model switch, operator input, or a passing canary |
+| Model service down past the automatic-retry window | The same circuit opens; Planner turns and dispatch wait for Run or a half-open window (a backend or model switch, operator input, the timed fallback); the first answered call there closes it and requeues the fenced tasks |
 | Frozen Desktop framework repair request | Reports release-update mode and never runs `git rev-parse` against `_internal` |
 
 ## 10. Project lifecycle

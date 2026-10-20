@@ -305,8 +305,9 @@ not guess on the model's behalf whether there is progress. The full design is in
   clear, an answer ends a question, and the Planner retires the parks it owns. One task's park no longer holds other
   tasks or planning: the three project-wide holds (provider fence, spent retry window, execution host that could not
   start) are gone. A model service that outlasts the automatic retries opens the runtime-failure circuit instead, which
-  holds every role's model calls until the operator's Run, a backend or model switch, operator input, or a passing
-  canary; an explicit Run wakes a sleeping daemon at once. Older `paused_*` rows and events still read, shown by their
+  holds every role's model calls until the operator's Run or until a call a half-open window lets through (opened by a
+  backend or model switch, operator input, or the timed fallback) is answered; then the fenced tasks go back to the
+  queue on their own. An explicit Run wakes a sleeping daemon at once. Older `paused_*` rows and events still read, shown by their
   reason. An architecture test confirms no writer writes an old status.
 
 #### HO-17 The Observer: watching in the person's place

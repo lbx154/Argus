@@ -7,7 +7,9 @@ fence: every other call would be turned away too. A single provider failure is
 a normal mission outcome and does not belong here. While the circuit is open,
 Planner turns and task dispatch (and with it every role's model calls) are
 held until the runtime, relevant source, checkpoint contract, or an explicit
-canary result changes; the operator's Run also ends a provider outage.
+canary result changes. A provider outage ends sooner: on the operator's Run,
+or on any call a half-open window lets through that the model service
+answers, the canary's or the Planner's.
 """
 from __future__ import annotations
 
@@ -32,11 +34,12 @@ CIRCUIT_FILENAME = "runtime-failure-circuit.json"
 PROVIDER_OUTAGE = "provider_outage"
 # Half-open recovery. A window admits one canary mission (and, while nothing is
 # queued, one Planner turn to produce work for it); a reviewed canary pass
-# clears the circuit. A window opens when a fact the caller watches changes
-# (a backend switch, new operator input). A new Argus runtime needs no window:
-# it clears the circuit outright. For a recovery nothing announces (a provider
-# or disk coming back) a timed window is the fallback, its wait doubling after
-# each window that ends without a pass. Nothing used to produce a canary, so
+# clears the circuit, and for a provider outage so does any answer. A window
+# opens when a fact the caller watches changes (a backend switch, new operator
+# input). A new Argus runtime needs no window: it clears the circuit outright.
+# For a recovery nothing announces (a provider or disk coming back) a timed
+# window is the fallback, its wait doubling after each window that ends
+# without a pass. Nothing used to produce a canary, so
 # only a changed runtime could close a circuit.
 CANARY_COOLDOWN_KNOB = "ARGUS_SKILL_RUNTIME_CANARY_COOLDOWN_MIN"
 CANARY_COOLDOWN_DEFAULT_MINUTES = 30.0

@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
+from types import SimpleNamespace
 from typing import Any
 
 import pytest
@@ -360,3 +361,54 @@ def test_a_task_out_of_automatic_retries_holds_new_tasks_until_run(tmp_path) -> 
     assert stored[ready.id].status == "done"
     assert runner.calls == 3
     assert active_runtime_failure_circuit(tmp_path / "life") is None
+
+
+def test_a_canary_the_model_service_answers_ends_the_outage_whatever_its_review(
+    tmp_path,
+) -> None:
+    import json
+    import time
+
+    from argus.life.runtime_failure_circuit import CIRCUIT_FILENAME
+
+    life = tmp_path / "life"
+    memory = LifeMemory.open(life)
+    held = memory.backlog.add(BacklogItem.new(
+        title="outage held",
+        objective="wait for recovery",
+        manager_decision={"routed": True, "vertical": "software"},
+    ))
+    canary = memory.backlog.add(BacklogItem.new(
+        title="next",
+        objective="next work",
+        manager_decision={"routed": True, "vertical": "software"},
+    ))
+    outcomes = [
+        _Outcome(
+            success=False, status="parked", park_reason="provider_fence",
+            stop_kind="provider_fence", stop_reason=f"{RETRY_WINDOW_SPENT_REASON} (HTTP 503).",
+        ),
+        # The Reviewer turned the work down: the service answered all the same.
+        _Outcome(success=False, status="failed", stop_reason="review: not done"),
+        _Outcome(success=True, status="done"),
+    ]
+    runner = SimpleNamespace(execute=lambda **_kwargs: outcomes.pop(0))
+    supervisor = LifeSupervisor(
+        memory=memory,
+        runner=runner,
+        sink=_Sink(),
+        config=LifeSupervisorConfig(poll_interval_seconds=0.0),
+    )
+    assert supervisor.run()["stopped_by"] == "parked"
+    assert supervisor.run()["stopped_by"] == "runtime_block"
+
+    state = json.loads((life / CIRCUIT_FILENAME).read_text())
+    state["canary_due_at"] = time.time() - 1
+    (life / CIRCUIT_FILENAME).write_text(json.dumps(state))
+    supervisor.run()
+
+    stored = {item.id: item for item in memory.backlog.all()}
+    assert stored[canary.id].status == "failed"
+    assert (stored[held.id].status, stored[held.id].attempt) == ("done", 2)
+    assert outcomes == []
+    assert active_runtime_failure_circuit(life) is None

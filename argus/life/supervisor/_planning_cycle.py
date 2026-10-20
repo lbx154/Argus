@@ -12,7 +12,7 @@ from ._constants import (
     PLAN_ERROR,
     PLAN_RETRY,
 )
-from ._planner_failure_backoff import PlannerFailureBackoffMixin
+from ._planner_failure_backoff import PlannerFailureBackoffMixin, planner_failure_kind
 from ._planning_cycle_completion import PlanningCycleCompletionMixin
 from ._planning_cycle_enqueue import PlanningCycleEnqueueMixin
 from ._planning_cycle_helpers import (
@@ -616,6 +616,12 @@ class PlanningCycleMixin(
                 return PLAN_ERROR
         if state.planner_invoked:
             self._record_planner_last_turn()
+            if state.verdict is not None and not planner_failure_kind(state.verdict):
+                # The model service answered: an outage holding every call is over.
+                self._close_runtime_failure_circuit(
+                    reason=f"planner cycle {self._planning_cycles} reached the model service",
+                    outage_only=True,
+                )
         self._arm_unchanged_planner_skip(state)
         self._record_planner_turn_outcome(state, result)
         return result

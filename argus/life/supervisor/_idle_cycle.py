@@ -209,6 +209,44 @@ class IdleCycleMixin:
         except Exception:  # noqa: BLE001 - unreadable facts open no window
             return {}
 
+    def _close_runtime_failure_circuit(
+        self, *, reason: str, canary_item_id: str = "", outage_only: bool = False,
+    ) -> bool:
+        """Close the circuit after a call got through; whether one closed.
+
+        Any answer from the model service ends a provider outage, and the work
+        the outage fenced goes back to the queue. A failure in Argus's own code
+        closes only on a reviewed canary pass (``outage_only`` false).
+        """
+        from ..runtime_failure_circuit import PROVIDER_OUTAGE, clear_runtime_failure_circuit
+
+        root = self.memory.root
+        try:
+            if not clear_runtime_failure_circuit(
+                root, reason=reason, fingerprint=PROVIDER_OUTAGE,
+                canary_item_id=canary_item_id,
+            ):
+                return not outage_only and clear_runtime_failure_circuit(
+                    root, reason=reason, canary_item_id=canary_item_id,
+                )
+            resumed = self.memory.backlog.resume_parked({"provider_fence"})
+        except Exception:  # noqa: BLE001 - the circuit stays open for the next window
+            log.exception("failed to close the runtime failure circuit")
+            return False
+        if resumed:
+            # Ready work: the daemon comes back for it instead of backing off.
+            self._reset_idle_backoff()
+        self._emit_status(
+            "the model service answers again; "
+            + (
+                "resumed the tasks it had turned away: "
+                + ", ".join(row.id for row in resumed)
+                if resumed
+                else "model calls go ahead"
+            )
+        )
+        return True
+
     def _execution_host_failure_block(
         self, *, item: Any | None = None,
     ) -> dict[str, Any] | None:

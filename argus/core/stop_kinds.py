@@ -150,6 +150,8 @@ _PARK_RULES: dict[str, ParkRule] = {
     "provider_cooldown": ParkRule("world", auto_resume=True),
     # An older release parked work on a job it watched; it resumes at once.
     "external_work": ParkRule("runtime", auto_resume=True),
+    # The operator's Run ends it, and so does the model service answering
+    # again (the outage circuit it opened closing: life/runtime_failure_circuit.py).
     "provider_fence": ParkRule("operator"),
     "operator_pause": ParkRule("operator"),
     "operator_question": ParkRule("operator"),

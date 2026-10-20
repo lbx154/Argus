@@ -872,22 +872,6 @@ class MissionExecutionSettlementMixin:
             })
         elif success:
             commit(status="done", finished_ts=time.time(), outcome=outcome_dimensions)
-            if "runtime_failure_canary" in state.item_tags:
-                try:
-                    from ..runtime_failure_circuit import clear_runtime_failure_circuit
-
-                    circuit_cleared = clear_runtime_failure_circuit(
-                        self.memory.root,
-                        reason=f"reviewed runtime canary passed in mission {item.id}",
-                        canary_item_id=item.id,
-                    )
-                    self._emit({
-                        "type": EventType.LIFE_RUNTIME_FAILURE_CANARY_PASSED,
-                        "item_id": item.id,
-                        "circuit_cleared": circuit_cleared,
-                    })
-                except Exception:  # noqa: BLE001 - canary result remains successful
-                    log.exception("failed to clear runtime circuit after canary")
         elif status == "blocked" and operator_question:
             from ...core.operator_decision import build_operator_decision
 
@@ -954,6 +938,26 @@ class MissionExecutionSettlementMixin:
             )
         else:
             fail(error=err, outcome=outcome_dimensions)
+
+        # A canary that ran without a stop reached the model service, which
+        # ends a provider outage; a failure in Argus's own code needs its
+        # reviewed pass.
+        answered = not state.exc_str and state.stop_kind is None
+        if "runtime_failure_canary" in state.item_tags and (success or answered):
+            circuit_cleared = self._close_runtime_failure_circuit(
+                reason=(
+                    f"runtime canary {'passed review' if success else 'reached the model service'}"
+                    f" in mission {item.id}"
+                ),
+                canary_item_id=item.id,
+                outage_only=not success,
+            )
+            if success or circuit_cleared:
+                self._emit({
+                    "type": EventType.LIFE_RUNTIME_FAILURE_CANARY_PASSED,
+                    "item_id": item.id,
+                    "circuit_cleared": circuit_cleared,
+                })
 
         # A "blocked" verdict means the REVIEWER stopped progress because it
         # needs the OPERATOR to make a call — not a bug/crash. This includes a
