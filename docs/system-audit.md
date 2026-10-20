@@ -170,7 +170,7 @@ says so:
 
 | Concern | Implementations |
 | --- | --- |
-| Ledgers | `core/evidence_ledger.py`, `verticals/quant/search_ledger.py`, `verticals/research/literature_ledger.py` |
+| Ledgers | `verticals/quant/search_ledger.py`, `verticals/research/literature_ledger.py` |
 | Locks / leases | `core/daemon_lock.py`, `core/file_lock.py`, `core/workspace_lease.py` |
 | State persistence | `core/pipeline_state.py`, `core/knob_store.py`, `daemon/state.py`, `life/memory.py`, `webapi/project_state.py` |
 

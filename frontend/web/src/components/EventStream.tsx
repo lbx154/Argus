@@ -35,7 +35,6 @@ import { WorkStatusBar } from './WorkStatusBar';
 import { StepProcessContext, StepProcessDisclosure } from './LiveWorkCard';
 import { liveLines, type LiveLine } from '../lib/liveActivity';
 import { ProjectOverviewStrip, type NotificationControl } from './ProjectOverviewStrip';
-import type { ResourceStatus } from '../../../core/src/resourceStatus.generated';
 export { activeProviderRequest } from '../lib/workStatus';
 import { splitDraft } from '../map/presentation';
 import type { ConversationHistoryStatus } from '../useConversationHistory';
@@ -731,7 +730,6 @@ export function EventStream({
   onRetryHistory,
   onCompose,
   notifications,
-  resources,
   latestDelivery,
   rememberPosition = false,
 }: {
@@ -755,7 +753,6 @@ export function EventStream({
   onCompose?: (text: string) => void;
   rememberPosition?: boolean;
   notifications?: NotificationControl;
-  resources?: ResourceStatus | null;
   latestDelivery?: DeliveryReceipt | null;
 }) {
   const { locale, t } = useI18n();
@@ -964,7 +961,7 @@ export function EventStream({
           </div>
         }
       />}
-      {snapshot ? <ProjectOverviewStrip snapshot={snapshot} view={missionView} onOpenDelivery={onOpenDelivery} notifications={notifications} resources={resources} latestDelivery={latestDelivery} /> : null}
+      {snapshot ? <ProjectOverviewStrip snapshot={snapshot} view={missionView} onOpenDelivery={onOpenDelivery} notifications={notifications} latestDelivery={latestDelivery} /> : null}
       {snapshot ? <WorkStatusBar snapshot={snapshot} view={missionView} events={deferredEvents} connected={connected} compact /> : activeProvider ? (
         <div className="flex h-9 shrink-0 items-center gap-2 border-b border-line/60 bg-blue-deep/5 px-4 text-xs text-ink-dim">
           <span className="h-2 w-2 animate-pulse rounded-full bg-blue-sky" />

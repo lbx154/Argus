@@ -10,7 +10,7 @@ from pathlib import Path
 import pytest
 
 from argus.core.timeline import estimate
-from argus.verticals.research.timeline_store import record
+from argus.core.timeline_store import record
 
 
 def task(key, hours, *, deps=(), resources=None, **kwargs):
@@ -273,7 +273,7 @@ def test_failed_publication_keeps_last_complete_revision(tmp_path, monkeypatch):
     def fail(*args):
         raise OSError("disk unavailable")
 
-    monkeypatch.setattr("argus.verticals.research.timeline_store.os.replace", fail)
+    monkeypatch.setattr("argus.core.timeline_store.os.replace", fail)
     with pytest.raises(OSError, match="disk unavailable"):
         record(tmp_path, data, expected_version=1, reason="Update")
     paths = list((tmp_path / ".argus" / "timeline").glob("*.json"))

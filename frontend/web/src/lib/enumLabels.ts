@@ -205,7 +205,3 @@ export function acceleratorLabel(value: string, t: Translate): string {
 export function enforcementLabel(value: string, t: Translate): string {
   return t(value === 'strict' ? 'label.resource.enforced' : 'label.resource.advisory');
 }
-
-export function yieldDecisionLabel(value: string, t: Translate): string {
-  return t(value === 'yield' ? 'label.resource.released' : 'label.resource.kept');
-}

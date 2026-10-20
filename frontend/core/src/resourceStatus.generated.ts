@@ -6,7 +6,6 @@ export interface ResourceDeviceStatus {
   readonly "total_memory_mib": number;
   readonly "used_memory_mib": number;
   readonly "utilization_percent": number;
-  readonly "reserved": boolean;
 }
 
 export interface ResourceAcceleratorStatus {
@@ -17,38 +16,8 @@ export interface ResourceAcceleratorStatus {
   readonly "devices"?: ReadonlyArray<ResourceDeviceStatus>;
 }
 
-export interface ResourceYieldResponse {
-  readonly "decision": "decline" | "yield";
-  readonly "reason": string;
-}
-
-export interface ResourceYieldRequest {
-  readonly "reason": string;
-  readonly "response": ResourceYieldResponse | null;
-}
-
-export interface ResourceHolderStatus {
-  readonly "project": string;
-  readonly "task_id": string;
-  readonly "intent": string;
-  readonly "ttl_seconds": number;
-  readonly "device_count": number;
-  readonly "yield_requests": ReadonlyArray<ResourceYieldRequest>;
-}
-
-export interface ResourceQueueStatus {
-  readonly "position": number;
-  readonly "project": string;
-  readonly "task_id": string;
-  readonly "intent": string;
-  readonly "ttl_seconds": number;
-  readonly "waited_seconds"?: number;
-}
-
 export interface ResourceStatus {
   readonly "schema_version": 1;
   readonly "enforcement": "strict" | "advisory";
   readonly "accelerators": ReadonlyArray<ResourceAcceleratorStatus>;
-  readonly "holders": ReadonlyArray<ResourceHolderStatus>;
-  readonly "queue": ReadonlyArray<ResourceQueueStatus>;
 }

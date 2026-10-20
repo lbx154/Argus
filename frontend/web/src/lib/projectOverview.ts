@@ -1,5 +1,4 @@
 import type { DeliveryReceipt, MissionView, Snapshot } from '../../../core/src/types';
-import type { ResourceStatus } from '../../../core/src/resourceStatus.generated';
 import { stripLaunchNote } from './launch';
 
 const ACTIVE = new Set(['pending', 'running', 'in_progress', 'claimed']);
@@ -73,17 +72,5 @@ export function diskView(storage: Snapshot['storage'], zh: boolean, format: (byt
     text: warn
       ? (zh ? `磁盘已用 ${used}%，只剩 ${free}，大文件可能写不下` : `Disk ${used}% full, ${free} left; large outputs may not fit`)
       : (zh ? `磁盘剩余 ${free}` : `${free} disk free`),
-  };
-}
-
-/** This project's place in the shared GPU queue, how long it has waited, and when the earliest lease ends. */
-export function gpuWait(resources: ResourceStatus | null | undefined, projectNames: string[]): { position: number; waitedSeconds: number | null; etaSeconds: number | null } | null {
-  const entry = resources?.queue.find((row) => projectNames.includes(row.project));
-  if (!entry) return null;
-  const leases = (resources?.holders ?? []).map((holder) => holder.ttl_seconds).filter((value) => value > 0);
-  return {
-    position: entry.position,
-    waitedSeconds: typeof entry.waited_seconds === 'number' ? entry.waited_seconds : null,
-    etaSeconds: leases.length ? Math.min(...leases) : null,
   };
 }

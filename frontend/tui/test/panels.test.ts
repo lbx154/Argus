@@ -335,7 +335,7 @@ test('operations panel owns cost, pid, backend, and model details', async () => 
   assert.ok(output.split('\n').every((line) => stringWidth(line) <= 60));
 });
 
-test('status panel renders degraded and contended resource status', async () => {
+test('status panel renders degraded resource status', async () => {
   const status: StatusView = {
     identity: '',
     backlog_pending: [],
@@ -359,24 +359,6 @@ test('status panel renders degraded and contended resource status', async () => 
       { kind: 'cuda', status: 'degraded', device_count: 1, detail: 'could not parse one telemetry row' },
       { kind: 'rocm', status: 'absent', device_count: 0, detail: 'rocm-smi is not installed' },
     ],
-    holders: [{
-      project: 'training',
-      task_id: 'train-1',
-      intent: 'train the reranker',
-      ttl_seconds: 90,
-      device_count: 1,
-      yield_requests: [{
-        reason: 'checkpoint for an urgent evaluation',
-        response: { decision: 'decline', reason: 'unsafe checkpoint boundary' },
-      }],
-    }],
-    queue: [{
-      position: 1,
-      project: 'evaluation',
-      task_id: 'eval-2',
-      intent: 'run the held-out evaluation',
-      ttl_seconds: 45,
-    }],
   };
 
   const output = await renderPanel({ kind: 'status', data: [status, resources] }, 70, { viewportRows: 40 });
@@ -384,11 +366,6 @@ test('status panel renders degraded and contended resource status', async () => 
   assert.match(output, /resources\s+advisory mode/);
   assert.match(output, /CUDA\s+degraded · 1 devices/);
   assert.match(output, /could not parse one telemetry row/);
-  assert.match(output, /training · train-1 · 1 devices · 1m 30s left/);
-  assert.match(output, /train the reranker/);
-  assert.match(output, /yield request · checkpoint for an urgent evaluation/);
-  assert.match(output, /decline · unsafe checkpoint boundary/);
-  assert.match(output, /#1 · evaluation · eval-2 · 45s left/);
   assert.ok(output.split('\n').every((line) => stringWidth(line) <= 70));
 });
 

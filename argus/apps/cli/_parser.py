@@ -284,8 +284,8 @@ def build_parser() -> argparse.ArgumentParser:
         default=2,
         help="concurrent mission workers: 0 pauses, 1 is serial, N enables "
              "path-disjoint parallel Planner tasks, auto is a ceiling of up to "
-             "4 bounded by usable cores; ready tasks and the resource ledger "
-             "decide how many run (default: 2)",
+             "4 bounded by usable cores; ready tasks and free GPUs decide how "
+             "many run (default: 2)",
     )
 
     cockpit_grp = parser.add_argument_group("cockpit")

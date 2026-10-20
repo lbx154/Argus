@@ -62,10 +62,10 @@ npm run build
 
 ```bash
 python -m argus.core.timeline \
-  --input argus/verticals/research/timeline_example.json
+  --input argus/core/timeline_example.json
 ```
 
-[完整示例](../argus/verticals/research/timeline_example.json)包括实现难度、idea 验证、主实验、
+[完整示例](../argus/core/timeline_example.json)包括实现难度、idea 验证、主实验、
 消融、held-out 确认、分析、写作与审阅，以及一个备选 proposal。
 所有示例数字均为演示估计，不是该模型或研究方法的实测工期。
 

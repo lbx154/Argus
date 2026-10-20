@@ -971,62 +971,26 @@ def test_system_doctor_probes_its_bound_address_not_default_or_host_header(
     assert web["evidence"]["port"] == 55418
 
 
-def test_system_resources_requires_auth_and_redacts_status(
+def test_system_resources_requires_auth_and_hides_device_identity(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    from argus.tools.resource_ledger import ledger as resource_ledger
+    from argus.tools.resource_ledger import probe
 
-    now = time.time()
-    long_reason = "please   release\n" + "x" * 400
     snapshot = {
-        "probe": {
-            "enforcement": "advisory",
-            "accelerators": [{
-                "kind": "cuda",
-                "status": "degraded",
-                "devices": [{"identity": "GPU-abcdef0123456789", "index": "3", "name": "NVIDIA A100",
-                             "total_memory_mib": 40960, "used_memory_mib": 12000, "utilization_percent": 75}],
-                "detail": "partial telemetry",
-            }],
-        },
-        "grants": [{
-            "id": "deadbeef",
-            "owner": {
-                "unix_user": "alice",
-                "project_root": "/home/alice/private/alpha",
-                "task_id": "train",
-            },
-            "demand": {"intent": "train model"},
-            "expires_at": now + 120,
-            "grant": {"devices": [{"identity": "GPU-abcdef0123456789"}]},
-            "yield_requests": [{
-                "reason": long_reason,
-                "requester": {"unix_user": "bob"},
-                "response": {
-                    "decision": "decline",
-                    "reason": "unsafe   checkpoint\nnow",
-                },
-            }],
+        "enforcement": "advisory",
+        "accelerators": [{
+            "kind": "cuda",
+            "status": "degraded",
+            "visibility_env": "CUDA_VISIBLE_DEVICES",
+            "devices": [{"identity": "GPU-abcdef0123456789", "index": "3", "name": "NVIDIA A100",
+                         "total_memory_mib": 40960, "used_memory_mib": 12000,
+                         "utilization_percent": 75, "visibility": "3"}],
+            "detail": "partial telemetry",
         }],
-        "queue": [{
-            "id": "cafe1234",
-            "owner": {
-                "unix_user": "bob",
-                "project_root": "/srv/users/bob/beta",
-                "task_id": "evaluate",
-            },
-            "demand": {"intent": "run evaluation"},
-            "expires_at": now + 60,
-        }],
+        "cpu_memory": {"status": "available"},
     }
-
-    class StubLedger:
-        def status(self) -> dict:
-            return snapshot
-
-    ledger = StubLedger()
-    monkeypatch.setattr(resource_ledger, "ResourceLedger", lambda: ledger)
+    monkeypatch.setattr(probe.ResourceProbe, "snapshot", lambda self: snapshot)
     app = server.create_app(global_root=tmp_path, auth_token="secret")
     route = next(
         route for route in app.routes
@@ -1039,39 +1003,20 @@ def test_system_resources_requires_auth_and_redacts_status(
     assert rejected.value.status_code == 401
     assert auth("Bearer secret") is None
 
-    monkeypatch.setattr("argus.webapi.routes.meta.time.time", lambda: now)
     payload = route.endpoint()
-    assert payload["schema_version"] == 1
-    assert payload["enforcement"] == "advisory"
-    assert payload["accelerators"] == [{
-        "kind": "cuda",
-        "status": "degraded",
-        "device_count": 1,
-        "detail": "partial telemetry",
-        "devices": [{"index": "3", "name": "NVIDIA A100", "total_memory_mib": 40960,
-                     "used_memory_mib": 12000, "utilization_percent": 75, "reserved": True}],
-    }]
-    assert payload["holders"][0]["project"] == "alpha"
-    assert payload["holders"][0]["device_count"] == 1
-    assert payload["holders"][0]["ttl_seconds"] == pytest.approx(120, abs=2)
-    request = payload["holders"][0]["yield_requests"][0]
-    assert len(request["reason"]) == 300
-    assert request["reason"].endswith("…")
-    assert request["response"] == {
-        "decision": "decline",
-        "reason": "unsafe checkpoint now",
+    assert payload == {
+        "schema_version": 1,
+        "enforcement": "advisory",
+        "accelerators": [{
+            "kind": "cuda",
+            "status": "degraded",
+            "device_count": 1,
+            "detail": "partial telemetry",
+            "devices": [{"index": "3", "name": "NVIDIA A100", "total_memory_mib": 40960,
+                         "used_memory_mib": 12000, "utilization_percent": 75}],
+        }],
     }
-    assert payload["queue"] == [{
-        "position": 1,
-        "project": "beta",
-        "task_id": "evaluate",
-        "intent": "run evaluation",
-        "ttl_seconds": pytest.approx(60, abs=2),
-    }]
-    encoded = json.dumps(payload)
-    assert all(secret not in encoded for secret in (
-        "alice", "bob", "/home/", "/srv/", "deadbeef", "cafe1234", "abcdef0123456789",
-    ))
+    assert "abcdef0123456789" not in json.dumps(payload)
 
 
 def test_metrics_endpoints_expose_json_slo_and_prometheus(client: TestClient) -> None:

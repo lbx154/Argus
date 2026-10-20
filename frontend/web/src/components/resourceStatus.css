@@ -9,12 +9,11 @@
 .gpu-device-status i { width: 5px; height: 5px; border-radius: 50%; background: currentColor; }
 .gpu-device-card[data-gpu-state=computing] { border-color: rgb(var(--blue) / .4); background: rgb(var(--blue) / .035); }
 .gpu-device-card[data-gpu-state=computing] .gpu-device-icon, .gpu-device-card[data-gpu-state=computing] .gpu-device-status { color: rgb(var(--blue)); background: rgb(var(--blue) / .08); }
-.gpu-device-card[data-gpu-state=reserved] .gpu-device-status, .gpu-device-card[data-gpu-state=allocated] .gpu-device-status { color: rgb(var(--warn)); background: rgb(var(--warn) / .1); }
+.gpu-device-card[data-gpu-state=allocated] .gpu-device-status { color: rgb(var(--warn)); background: rgb(var(--warn) / .1); }
 .gpu-device-meter { margin-top: 16px; font-size: 11px; color: rgb(var(--ink-faint)); }
 .gpu-device-meter > div:first-child { display: flex; justify-content: space-between; gap: 8px; margin-bottom: 6px; }
 .gpu-device-meter strong { font-weight: 500; font-variant-numeric: tabular-nums; color: rgb(var(--ink-dim)); }
 .gpu-device-meter [role=meter] { height: 5px; overflow: hidden; border-radius: 9px; background: rgb(var(--line) / .65); }
 .gpu-device-meter [role=meter] i { display: block; height: 100%; border-radius: inherit; background: rgb(var(--blue)); transition: width 240ms cubic-bezier(.32,.72,0,1); }
-.gpu-device-note { margin-top: 10px; font-size: 10px; color: rgb(var(--ink-faint)); }
 @media (max-width: 640px) { .gpu-device-grid { grid-template-columns: minmax(0, 1fr); } }
 @media (prefers-reduced-motion: reduce) { .gpu-device-meter [role=meter] i { transition: none; } }

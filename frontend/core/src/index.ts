@@ -7,7 +7,6 @@ export * from './eventCatalog.js';
 export * from './eventPayloads.generated.js';
 export * from './eventRender/index.js';
 export * from './resourceStatus.generated.js';
-export * from './resourceStatus.js';
 export * from './projects.js';
 export * from './mission.js';
 export * from './missionView.js';
