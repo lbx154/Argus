@@ -632,7 +632,6 @@ def read_map(
     for task in tasks:
         if task["id"] in continues:
             task["deps"] = [*task.get("deps", []), continues[task["id"]]]
-        task["revision"] = facts(task)
     tasks.sort(key=lambda t: (t.get("ts") or 0, t["id"]))
     rows = []
     path = life_dir / "events.jsonl"
