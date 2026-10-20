@@ -301,17 +301,21 @@ not guess on the model's behalf whether there is progress. The full design is in
 - Do: an Observer role (`observer` in code, shown as 监督者) on the same backends as the others, with the Reviewer's
   read-only tools. Like a person glancing over when an agent stops and says it is done, it looks once at each turn
   the Engineer, Reviewer or Planner ends (each model call of theirs ends one); a delivery ends a turn, so it is
-  covered. Its own turns end none. Its prompt gives only where the record is (`events.jsonl`,
-  `agent_io.jsonl`, `usage.jsonl`) and the call id and run label of each turn that just ended; it searches that
-  turn's trajectory itself and checks what the role said against what it did. Its persistent role session
-  carries it from one look to the next. When all is well it says nothing and writes no
-  event. Otherwise it writes `→ engineer|planner|reviewer|manager|operator: <one sentence and where it saw it>`: a
-  role reads it in its next prompt through the operator's channel, marked as the Observer's; the Manager hears it
-  through its supervision and decides whether to pause; the operator gets an alert. Each remark is one
-  `life.observer.note` event and is never made twice. Its model is `ARGUS_SKILL_OBSERVER_MODEL`, by default the
-  Reviewer's.
-- Done when: tests show it looks once at each ended turn and never at its own, stays silent when all is well,
-  delivers a remark marked as its own, never repeats one, and that a failed look leaves the work running.
+  covered. Its own turns end none. Each look is a fresh session: the prompt gives where the record is
+  (`events.jsonl`, `agent_io.jsonl`, `usage.jsonl`), the call id and run label of each turn that just ended and the
+  lines of `agent_io.jsonl` that hold it, found by the host from the call id, and its earlier remarks. It reads only
+  those lines, cutting long ones short with rg, and checks what the role said against what it did. When all is well
+  it says nothing and writes no event. Otherwise it writes, in the operator's language,
+  `→ engineer|planner|reviewer|manager|operator: <one sentence and where it saw it>`: a role reads it in its next
+  prompt through the operator's channel, marked as the Observer's, and if that role has since passed the work on,
+  whoever holds it now reads it instead; the Manager hears it through its supervision and decides whether to pause;
+  the operator gets an alert. Each remark is one `life.observer.note` event and is never made twice. A delivery
+  does not wait for it, but a bounded daemon waits for its look at the last turns before it exits. Its model is
+  `ARGUS_SKILL_OBSERVER_MODEL`, by default the Reviewer's.
+- Done when: tests show it looks once at each ended turn and never at its own, in a fresh session, stays silent when
+  all is well, delivers a remark marked as its own to whoever holds the work, never repeats one, and that a failed
+  look leaves the work running.
+- Known gaps: the Manager's turns are not watched yet.
 - Status: implemented on `feat/observer`. On a small task on the real Copilot backend it stayed silent on real work and
   caught an Engineer turn whose final words were doctored to claim checks it never ran. Not yet merged.
 ---

@@ -194,7 +194,7 @@ Reviewer 的判决不是第七种动作：`continue` 是退回，`replan_request
 
 插话写成和交接行一样的格式：`→ engineer|planner|reviewer|manager|operator: <一句话和证据位置>`，但它不移动接力棒，只作为输入进入交接：
 
-- 给 Engineer、Planner、Reviewer 的，经操作员通道进入那个角色下一次的提示，标明来自监督者、不是操作员指令；持棒者像对待其他证据一样掂量它；
+- 给 Engineer、Planner、Reviewer 的，经操作员通道进入那个角色下一次的提示，标明来自监督者、不是操作员指令；持棒者像对待其他证据一样掂量它。被点名的角色若已把棒交出去，就送给现在接棒的人：说 Engineer 交接的话，送到接手验收的 Reviewer；
 - 给 Manager 的，走督导通道，和"一轮卡住"一样算一次只报一遍的新情况，由 Manager 决定继续、纠偏、暂停还是停；
 - 给操作员的，走提醒。
 

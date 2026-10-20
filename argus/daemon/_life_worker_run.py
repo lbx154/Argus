@@ -1035,6 +1035,11 @@ class LifeWorkerRunMixin:
                         and not rf_state.cfg.continuous_open_ended
                         and not standing_enabled
                     ):
+                        from ..life.observer import settle
+
+                        # The delivery did not wait for the Observer; the
+                        # process waits for its look at the last turns.
+                        settle(self._stop)
                         log.info("daemon: bounded work completed; exiting cleanly")
                         break
                     # A bounded worker parked behind an open runtime failure

@@ -351,7 +351,9 @@ but it moves nothing. It enters the handoff as input for whoever it names:
 
 - the Engineer, Planner, or Reviewer reads it in its next prompt, brought by the
   operator's channel and marked as the Observer's, not as an operator
-  instruction; it weighs the remark like any other evidence;
+  instruction; it weighs the remark like any other evidence. If the role named
+  has since passed the work on, whoever holds it now reads it instead: a remark
+  on the Engineer's handoff goes to the Reviewer that took it over;
 - the Manager hears it through its supervision, as news reported once, like a
   stalled turn, and decides whether to steer, pause, or stop;
 - the operator gets an alert.

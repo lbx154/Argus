@@ -11,12 +11,13 @@ stop to whoever may make it.
 The Observer is that person as a role, on the same backends as the others.
 Whenever the Engineer, Reviewer or Planner ends a turn, it reads that turn's
 real record, the raw stream of its model call and the events around it, with
-the Reviewer's read-only tools. It is a bystander: the Manager decides the direction and
-keeps the authority, the Reviewer judges the results. When all is well it
-says nothing and leaves no record of its own. A remark is one
-``life.observer.note`` event, delivered through a channel that already exists:
-the operator's channel into one role's next prompt, the Manager's
-supervision, or an operator alert.
+the Reviewer's read-only tools, in a fresh session each time. It is a
+bystander: the Manager decides the direction and keeps the authority, the
+Reviewer judges the results. When all is well it says nothing and leaves no
+record of its own. A remark is one ``life.observer.note`` event, delivered
+through a channel that already exists: the operator's channel into the next
+prompt of the role holding the work, the Manager's supervision, or an
+operator alert.
 """
 from __future__ import annotations
 
@@ -40,9 +41,8 @@ RUN_LABEL = "observer"
 PROMPTED_ROLES = ("engineer", "planner", "reviewer")
 HEARERS = (*PROMPTED_ROLES, "manager", "operator")
 MODEL_KNOB = "ARGUS_SKILL_OBSERVER_MODEL"
-#: The Planner's rolling-session budget: the Observer reads on from where it
-#: stopped for as long as the Planner plans on in one session.
-_SESSION_TURNS = 20
+#: Who takes a mission's baton when each of these starts.
+_TAKES_BATON = {EventType.ROUND_START: "engineer", EventType.ROUND_REVIEW_STARTED: "reviewer"}
 #: Earlier remarks shown with each look, so that none is made twice.
 _REMEMBERED = 12
 
@@ -74,7 +74,38 @@ def _ended_turn(root: Path, event: dict[str, Any]) -> dict[str, Any] | None:
         and str(row.get("run_label") or "").startswith(role)
         and (not thread or row.get("thread_id") == thread),
     )
-    return {"role": role, **{key: rows[-1].get(key) for key in ("call_id", "run_label", "ts")}} if rows else None
+    return {"role": role, "item_id": event.get("item_id"),
+            **{key: rows[-1].get(key) for key in ("call_id", "run_label", "ts")}} if rows else None
+
+
+def _spans(path: Path, call_ids: list[str]) -> dict[str, tuple[int, int]]:
+    """The first and last line of each call in ``agent_io.jsonl``."""
+    spans: dict[str, tuple[int, int]] = {}
+    needles = [(call_id, call_id.encode()) for call_id in call_ids]
+    try:
+        with path.open("rb") as handle:
+            for number, line in enumerate(handle, 1):
+                for call_id, needle in needles:
+                    if needle in line:
+                        spans[call_id] = (spans.get(call_id, (number, number))[0], number)
+    except OSError:
+        pass
+    return spans
+
+
+def _holder(root: Path, turns: list[dict[str, Any]], role: str) -> str:
+    """Who holds the work ``role`` had in its turn: on that mission, whoever took the baton last."""
+    from .memory import _read_jsonl_tail_history
+
+    item = next((turn["item_id"] for turn in reversed(turns) if turn["role"] == role and turn.get("item_id")), None)
+    if item is None:
+        return role
+    rows = _read_jsonl_tail_history(
+        root / "events.jsonl", 1,
+        raw_markers=tuple(kind.value.encode() for kind in _TAKES_BATON),
+        predicate=lambda row: row.get("item_id") == item and row.get("type") in _TAKES_BATON,
+    )
+    return _TAKES_BATON[rows[-1]["type"]] if rows else role
 
 
 def _earlier_remarks(root: Path) -> list[tuple[str, str]]:
@@ -101,32 +132,22 @@ def look(
 ) -> list[tuple[str, str]]:
     """One look at the turns that just ended: the remarks worth making, none made before.
 
-    Raises when the call fails; the caller then skips these turns.
+    Each look is a fresh session: the turns, where their record lies, and the
+    remarks already made are all it needs. Raises when the call fails; the
+    caller then skips these turns.
     """
     from ..core.knobs import resolve_role_reasoning_effort
-    from ..core.role_session import (
-        RoleSessionCapsule,
-        configured_role_session_policy,
-        effective_role_session_policy,
-    )
-    from ..planner import configured_role_session_max_input_tokens
+    from ..core.mission_view import load_mission_view
     from ..roles.prompts.observer import build_observer_prompt
 
     said = _earlier_remarks(root)
-    name = str(getattr(backend, "backend", type(backend).__name__))
-    policy = effective_role_session_policy(configured_role_session_policy(), name)
-    session = RoleSessionCapsule.open(
-        role=RUN_LABEL, policy=policy, objective_revision="", workdir=workdir,
-        backend=name, model=model, checkpoint_path=None,
-        path=None if policy == "fresh" else root / "role-sessions" / f"{RUN_LABEL}.json",
+    spans = _spans(root / "agent_io.jsonl", [turn["call_id"] for turn in turns])
+    prompt = build_observer_prompt(
+        root=root, workdir=workdir, said=said, chinese=load_mission_view(root).get("language") == "zh",
+        turns=[{**turn, "lines": spans.get(turn["call_id"])} for turn in turns],
     )
-    thread = session.prepare(
-        max_turns=_SESSION_TURNS, max_input_tokens=configured_role_session_max_input_tokens(),
-    )
-    prompt = build_observer_prompt(root=root, workdir=workdir, turns=turns, said=said)
     result = run_exec(
-        backend, prompt=session.resume_prompt(prompt), run_label=RUN_LABEL,
-        resume_thread_id=thread,
+        backend, prompt=prompt, run_label=RUN_LABEL,
         options=RunnerOptions(
             model=model or None,
             reasoning_effort=resolve_role_reasoning_effort(
@@ -138,10 +159,8 @@ def look(
         ),
     )
     if int(getattr(result, "exit_code", 0) or 0) != 0 or getattr(result, "fatal_error", None):
-        session.rotate("backend_failure")
         raise RuntimeError(f"the Observer's call ended with exit code {getattr(result, 'exit_code', '?')}")
     reply = "\n".join(getattr(result, "agent_messages", None) or [])
-    session.complete(result, decisive_output=reply, prompt=prompt)
     return [remark for remark in remarks(reply) if remark not in said]
 
 
@@ -156,6 +175,15 @@ class _Watch:
 #: One Observer per project, however many supervisors run its missions.
 _WATCHES: dict[str, _Watch] = {}
 _GUARD = threading.Lock()
+
+
+def settle(stop: threading.Event) -> None:
+    """Wait until the Observer has looked at every turn that has ended, or ``stop`` is set."""
+    with _GUARD:
+        looks = [watch.looking for watch in _WATCHES.values() if watch.looking is not None]
+    for looking in looks:
+        while looking.is_alive() and not stop.is_set():
+            looking.join(1)
 
 
 class ObserverSink:
@@ -234,7 +262,7 @@ class ObserverSink:
                 close()
         for to, text in heard:
             try:
-                self._say(root, to, text)
+                self._say(root, _holder(root, turns, to) if to in PROMPTED_ROLES else to, text)
             except Exception:  # noqa: BLE001 - an unsaid remark is not recorded as said
                 LOG.warning("the Observer's remark to the %s was not delivered", to, exc_info=True)
 
@@ -254,4 +282,4 @@ class ObserverSink:
         self.supervisor._emit(event)
 
 
-__all__ = ["ObserverSink", "RUN_LABEL", "look", "remarks"]
+__all__ = ["ObserverSink", "RUN_LABEL", "look", "remarks", "settle"]
