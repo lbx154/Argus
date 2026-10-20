@@ -109,6 +109,12 @@ After it expires, open an Issue and ask the maintainers for the latest code.
 
 ## Quick Install
 
+**New to Argus?** The step-by-step tutorial site in [`site/`](site/index.html)
+(Chinese) walks from installation to a first finished task, covers best practices,
+and builds the example vertical in [`docs/examples/verticals/data_report/`](docs/examples/verticals/data_report/)
+from zero. Preview it with `python -m http.server -d site` and open
+<http://127.0.0.1:8000>.
+
 Choose the section for your operating system. Do not mix commands between
 platforms. All platforms need Node.js **22.12+** from
 [nodejs.org](https://nodejs.org/en/download) and one authenticated Agent CLI.

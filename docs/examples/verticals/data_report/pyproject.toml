@@ -1,0 +1,19 @@
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "argus-vertical-data-report"
+version = "0.1.0"
+description = "Example Argus vertical: a checkable analysis report for one dataset."
+requires-python = ">=3.11"
+
+[project.entry-points."argus.verticals"]
+data_report = "argus_verticals.data_report.stages"
+
+[tool.setuptools.packages.find]
+include = ["argus_verticals*"]
+namespaces = true
+
+[tool.setuptools.package-data]
+"argus_verticals.data_report" = ["skills/**/*.md"]

@@ -99,6 +99,8 @@ Manager/Planner/Engineer/Reviewer 运行时作为自定义 Agent 直接调用。
 
 ## 快速安装
 
+**第一次用 Argus？** [`site/`](site/index.html) 里有一步一步的教程网站：从安装到跑完第一个任务、最佳实践，以及从零做一个纵向（完整例子在 [`docs/examples/verticals/data_report/`](docs/examples/verticals/data_report/)）。本地预览：`python -m http.server -d site`，然后打开 <http://127.0.0.1:8000>。
+
 请只使用当前操作系统对应的一组命令，不要混用。所有平台都需要从
 [nodejs.org](https://nodejs.org/en/download) 安装 Node.js **22.12+**，并准备一个
 已完成鉴权的 Agent CLI。直接复用你日常使用的 CLI；Argus 没有单独账户。
