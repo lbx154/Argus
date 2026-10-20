@@ -101,6 +101,66 @@ def test_retire_tasks_use_only_the_footer_before_plan_update() -> None:
     assert verdict.retire_tasks == (("item-a", "The hypothesis was refuted."),)
 
 
+@pytest.mark.parametrize(
+    ("lines", "expected"),
+    [
+        ("SETTLE_INSTRUCTION=7", (7,)),
+        ("SETTLE_INSTRUCTION=7\nSETTLE_INSTRUCTION=revision 9", (7, 9)),
+        ("SETTLE_INSTRUCTION=7 | 9, 7", (7, 9)),
+        ("SETTLE_INSTRUCTION=12 carried out by task k1", (12,)),
+        ("SETTLE_INSTRUCTION=7 9", (7, 9)),
+        ("SETTLE_INSTRUCTION=7 and revision 9", (7, 9)),
+        ("SETTLE_INSTRUCTION=7 handled by the new task, 9 is still open", (7,)),
+        ("SETTLE_INSTRUCTION=revision 12 is done", (12,)),
+        ("SETTLE_INSTRUCTION=Revision: 7", (7,)),
+        ("SETTLE_INSTRUCTION=#7; 9.", (7, 9)),
+        ("SETTLE_INSTRUCTION=7 ②", (7,)),
+        ("SETTLE_INSTRUCTION=②", ()),
+        ("SETTLE_INSTRUCTION=the parser instruction", ()),
+        ("SETTLE_INSTRUCTION=0", ()),
+    ],
+)
+def test_parse_settled_instructions(lines: str, expected: tuple) -> None:
+    verdict = parse_planner_text(
+        "PROJECT_DONE=false\nREASON=Evaluate the parser.\n"
+        "TASK_TITLE=Evaluate parser\nTASK_OBJECTIVE=Compare both parsers.\n" + lines
+    )
+
+    assert verdict.error == ""
+    assert verdict.settled_instructions == expected
+    assert [task.objective for task in verdict.new_tasks] == ["Compare both parsers."]
+
+
+def test_long_settle_value_parses_in_linear_time() -> None:
+    import time
+
+    value = "   ".join(["1"] * 5000) + " done"
+    started = time.monotonic()
+    verdict = parse_planner_text(
+        "PROJECT_DONE=false\nREASON=Evaluate the parser.\n"
+        "TASK_TITLE=Evaluate parser\nTASK_OBJECTIVE=Compare both parsers.\n"
+        f"SETTLE_INSTRUCTION={value}"
+    )
+
+    assert time.monotonic() - started < 1.0
+    assert verdict.settled_instructions == (1,)
+
+
+def test_settled_instructions_use_only_the_footer_before_plan_update() -> None:
+    verdict = parse_planner_text(
+        "SETTLE_INSTRUCTION=3\n"
+        "Decision:\nPROJECT_DONE=false\nREASON=Evaluate the parser.\n"
+        "TASK_TITLE=Evaluate parser\nTASK_OBJECTIVE=Compare both parsers.\n"
+        "SETTLE_INSTRUCTION=5\n"
+        "PLAN_UPDATE=# Research plan\n"
+        "TASK_TITLE=Plan prose, not a task\n"
+        "SETTLE_INSTRUCTION=8"
+    )
+
+    assert verdict.settled_instructions == (5,)
+    assert [task.title for task in verdict.new_tasks] == ["Evaluate parser"]
+
+
 def test_structured_planner_payload_preserves_list_item_text() -> None:
     verdict = parse_planner_payload({
         "project_done": False,
@@ -704,6 +764,37 @@ def test_plan_next_disables_schema_and_forces_read_only_tools(monkeypatch) -> No
     assert options.full_auto is False
     assert options.sandbox_mode == "read-only"
     assert options.add_dirs == ["/tmp/project-state"]
+
+
+@pytest.mark.parametrize("offered", [(), (7, 9)])
+def test_plan_next_names_settle_line_last_only_when_entries_are_offered(
+    monkeypatch, offered,
+) -> None:
+    # The shared footer asks for "only the Host actions below"; without this
+    # closing line a live Planner offered tagged entries settled none of them.
+    runner = _Runner()
+    monkeypatch.setattr(
+        Planner,
+        "_build_planner_prompt",
+        staticmethod(lambda **kwargs: "planner prompt"),
+    )
+
+    Planner(runner).plan_next(
+        continuous_objective="keep improving",
+        config=PlannerConfig(
+            working_dir="/tmp/project", settleable_instructions=offered,
+        ),
+    )
+
+    prompt = runner.calls[0]["prompt"]
+    if offered:
+        assert prompt.endswith(
+            "(for a subagent report) has already taken into account; omit "
+            "the line when none does."
+        )
+        assert "`SETTLE_INSTRUCTION=N M` (space-separated revisions)" in prompt
+    else:
+        assert "SETTLE_INSTRUCTION" not in prompt
 
 
 def test_plan_next_defaults_to_read_only_tool_access(monkeypatch) -> None:
@@ -1570,3 +1661,70 @@ def test_planner_reads_the_cores_a_task_keeps_busy() -> None:
     })
     assert [t.cpu_count for t in payload.new_tasks] == [16, 0]
     assert any("task 3 skipped: cpu_count" in d for d in payload.diagnostics)
+
+
+@pytest.mark.parametrize(
+    ("fields", "expected"),
+    [
+        ({"settle_instructions": [7, "revision 9", "x", 7.0, 2.5, True]}, (7, 9)),
+        ({"settle_instructions": None, "settle_instruction": 7}, (7,)),
+    ],
+)
+def test_structured_payload_carries_settled_instructions(fields, expected) -> None:
+    verdict = parse_planner_payload({
+        "project_done": False,
+        "reason": "Evaluate the parser.",
+        "tasks": [{"title": "Evaluate parser", "objective": "Compare both parsers."}],
+        **fields,
+    })
+
+    assert verdict.error == ""
+    assert verdict.settled_instructions == expected
+
+
+def test_repair_prompt_asks_to_repeat_settlements_only_when_present() -> None:
+    from argus.planner.planner import _build_no_task_repair_prompt
+
+    with_settle = _build_no_task_repair_prompt(
+        previous_raw_text="PROJECT_DONE=false\nSETTLE_INSTRUCTION=7",
+        previous_error="planner returned no concrete tasks",
+    )
+    without = _build_no_task_repair_prompt(
+        previous_raw_text="PROJECT_DONE=false",
+        previous_error="planner returned no concrete tasks",
+    )
+
+    assert "Repeat each `SETTLE_INSTRUCTION` line" in with_settle
+    assert "Repeat each `SETTLE_INSTRUCTION` line" not in without
+
+
+def test_plan_update_keeps_a_quoted_settle_line_as_plan_text(tmp_path) -> None:
+    from types import SimpleNamespace
+
+    from argus.life.research_plan import research_plan_path
+    from argus.life.supervisor._planner_rendering import PlannerRenderingMixin
+
+    class _Probe(PlannerRenderingMixin):
+        def __init__(self) -> None:
+            self.memory = SimpleNamespace(root=tmp_path)
+            self.events: list[dict] = []
+
+        def _emit(self, event: dict) -> None:
+            self.events.append(event)
+
+    plan = (
+        "# Research plan\nShip the faster parser.\n"
+        "## Central hypotheses\n- The parser is the bottleneck.\n"
+        "## Experiment program\n- Compare both parsers.\n"
+        "SETTLE_INSTRUCTION=7\n"
+        "## Established results\n- None yet.\n"
+        "## Dead ends\n- None yet.\n"
+        "## Next milestone\n- Parser comparison recorded."
+    )
+
+    assert _Probe()._apply_research_plan_update(
+        "Decision:\nPROJECT_DONE=false\nREASON=Plan the comparison.\nPLAN_UPDATE=" + plan
+    )
+    saved = research_plan_path(tmp_path).read_text(encoding="utf-8")
+    assert "## Next milestone" in saved
+    assert "SETTLE_INSTRUCTION=7" in saved

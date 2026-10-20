@@ -826,7 +826,12 @@ class PlanningCycleCompletionMixin:
                     skipped_duplicate_titles=[],
                     open_ended_objective=True,
                     **(
-                        {"handled_operator_context_revision": state.operator_context_revision}
+                        {
+                            "handled_operator_context_revision": state.operator_context_revision,
+                            "settled_operator_instructions": sorted(
+                                state.operator_settlements()
+                            ),
+                        }
                         if state.certified_operator_wait else {}
                     ),
                 )

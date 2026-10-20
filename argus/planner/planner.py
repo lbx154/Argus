@@ -11,7 +11,7 @@ from pathlib import Path
 from typing import Any
 
 from ..core.event_catalog import EventType
-from ..core.models import RunnerOptions
+from ..core.models import READING_ROLE_UNUSED_COPILOT_TOOLS, RunnerOptions
 from ..core.ports import RunnerBackend
 from ..core.role_decision import (
     decision_footer_instruction,
@@ -23,7 +23,10 @@ from ..core.role_session import (
     role_session_policy,
 )
 from ..core.run_gateway import run_exec as gateway_run_exec
-from ..core.runner_errors import is_execution_host_startup_error
+from ..core.runner_errors import (
+    is_execution_host_startup_error,
+    result_has_missing_resume_target,
+)
 
 TASK_SCOPE_BOUNDED = "bounded"
 TASK_SCOPE_FINAL_SUBMISSION = "final_submission"
@@ -36,6 +39,17 @@ OPEN_ENDED_PROJECT_DONE_ERROR = (
 PLANNER_SUPERSEDED_ERROR = "planner superseded by newer continuous generation"
 _PLANNER_REPAIR_ATTEMPTS = 1
 _PLANNER_REPAIR_TEXT_LIMIT = 8000
+# The decision footer asks for "only the Host actions below" and never names
+# SETTLE_INSTRUCTION. A live Planner offered 52 tagged entries (2026-10-20)
+# followed that list and settled none, so a turn that offers some says so last.
+_SETTLE_FOOTER_REMINDER = (
+    "Decision footer addition: before any PLAN_UPDATE, add one line "
+    "`SETTLE_INSTRUCTION=N M` (space-separated revisions) naming each "
+    "OperatorContext entry tagged `revision N` that this decision carries out, "
+    "rules out, or (for a subagent report) has already taken into account; omit "
+    "the line when none does."
+)
+
 
 @dataclass
 class PlannerConfig:
@@ -59,6 +73,8 @@ class PlannerConfig:
     on_event: Any = None
     require_stage_decision: bool = False
     current_stage: str = ""
+    # Idle OperatorContext revisions this turn offers for SETTLE_INSTRUCTION.
+    settleable_instructions: tuple[int, ...] = ()
 
 
 @dataclass(frozen=True)
@@ -139,6 +155,9 @@ class PlannerVerdict:
     # planning round.
     diagnostics: tuple[str, ...] = ()
     retire_tasks: tuple[tuple[str, str], ...] = ()
+    # Idle operator instructions (``SETTLE_INSTRUCTION=<revision>``) this
+    # decision handles; the host settles them only when it applies the decision.
+    settled_instructions: tuple[int, ...] = ()
 
 
 class Planner:
@@ -211,29 +230,39 @@ class Planner:
             ),
         )
         resume_thread_id = session.prepare()
-        prompt_builder = (
-            self._build_resumed_planner_prompt
-            if resume_thread_id
-            else self._build_planner_prompt
-        )
-        prompt = prompt_builder(
-            continuous_objective=continuous_objective,
-            journal_tail=journal_tail,
-            research_plan=research_plan,
-            planning_cycle=planning_cycle,
-            runtime_change_summary=runtime_change_summary,
-            mission=self.mission,
-            open_ended=cfg.open_ended,
-            memory_maintenance_enabled=self.memory_maintenance_enabled,
-            project_root=workdir,
-            state_root=cfg.state_root,
-            journal_delta=journal_delta,
-            research_plan_unchanged=research_plan_unchanged,
-        )
-        if session.prompt_block():
-            prompt = session.prompt_block() + "\n\n" + prompt
-        full_prompt = prompt
-        prompt = session.resume_prompt(full_prompt)
+
+        def render(resumed: bool) -> tuple[str, str]:
+            """The prompt the session records, and the one sent to the provider."""
+            prompt_builder = (
+                self._build_resumed_planner_prompt
+                if resumed
+                else self._build_planner_prompt
+            )
+            prompt = prompt_builder(
+                continuous_objective=continuous_objective,
+                journal_tail=journal_tail,
+                research_plan=research_plan,
+                planning_cycle=planning_cycle,
+                runtime_change_summary=runtime_change_summary,
+                mission=self.mission,
+                open_ended=cfg.open_ended,
+                memory_maintenance_enabled=self.memory_maintenance_enabled,
+                project_root=workdir,
+                state_root=cfg.state_root,
+                journal_delta=journal_delta,
+                research_plan_unchanged=research_plan_unchanged,
+            )
+            if session.prompt_block():
+                prompt = session.prompt_block() + "\n\n" + prompt
+            full_prompt = prompt
+            prompt = session.resume_prompt(full_prompt)
+            # Appended after elision and kept out of the session's record: a resumed
+            # thread would otherwise see it as an unchanged section and drop it.
+            if cfg.settleable_instructions:
+                prompt += "\n\n" + _SETTLE_FOOTER_REMINDER
+            return full_prompt, prompt
+
+        full_prompt, prompt = render(bool(resume_thread_id))
         planner_options = RunnerOptions(
             model=cfg.model,
             reasoning_effort=cfg.reasoning_effort or "xhigh",
@@ -245,6 +274,12 @@ class Planner:
             dangerous_yolo=False,
             full_auto=False,
             sandbox_mode="read-only",
+            # The global yolo policy lifts the read-only mode above, which
+            # would hand this call the CLI's whole tool surface. GitHub/web
+            # search and apply_patch stay: the contract sends the Planner to
+            # primary sources, and wiki upkeep edits pages.
+            lean_tool_surface=True,
+            excluded_tools=READING_ROLE_UNUSED_COPILOT_TOOLS,
             skip_git_repo_check=cfg.skip_git_repo_check,
             extra_args=list(cfg.extra_args) if cfg.extra_args else None,
             skill_paths=[
@@ -260,7 +295,24 @@ class Planner:
                 resume_thread_id=resume_thread_id,
                 options=planner_options,
                 run_label=f"planner.cycle{planning_cycle}",
+                # A lost thread restarts below with the full prompt.
+                fresh_on_missing_resume=False,
             )
+            if resume_thread_id and result_has_missing_resume_target(result):
+                # The provider no longer has the thread (Copilot prunes sessions
+                # idle past its retention window). The resume delta assumes the
+                # contract and older journal are in the session, so a fresh
+                # thread gets the full prompt instead.
+                session.rotate("missing_provider_session")
+                session.prepare()
+                full_prompt, prompt = render(False)
+                result = gateway_run_exec(
+                    self.runner,
+                    prompt=prompt,
+                    resume_thread_id=None,
+                    options=planner_options,
+                    run_label=f"planner.cycle{planning_cycle}",
+                )
         except Exception as exc:  # noqa: BLE001
             session.rotate("backend_exception")
             exc_text = f"{type(exc).__name__}: {exc}"
@@ -548,6 +600,7 @@ _GLOBAL_KEY_VALUE_KEYS = (
     "SUMMARY",
     "ADVANCE_TO_STAGE",
     "RETIRE_TASK",
+    "SETTLE_INSTRUCTION",
     "PLAN_UPDATE",
 )
 _TASK_KEY_VALUE_FIELDS = (
@@ -607,13 +660,16 @@ OBJECTIVE_CONTINUATION_CHARS = 8000
 
 def _planner_key_values(
     text: str,
-) -> tuple[dict[str, str], list[dict[str, str]], tuple[tuple[str, str], ...]]:
-    """Parse global fields, repeated task blocks, and task retirements."""
+) -> tuple[
+    dict[str, str], list[dict[str, str]], tuple[tuple[str, str], ...], tuple[int, ...]
+]:
+    """Parse global fields, task blocks, task retirements and settled instructions."""
     from ..core.role_reply import decision_footer_text
 
     values: dict[str, str] = {}
     tasks: list[dict[str, str]] = []
     retire_tasks: list[tuple[str, str]] = []
+    settled_instructions: list[int] = []
     numbered_tasks: dict[str, dict[str, str]] = {}
     current_task: dict[str, str] | None = None
     # The objective a following non-field line extends, as (row, field).
@@ -639,6 +695,9 @@ def _planner_key_values(
             item_id, separator, reason = value.partition("|")
             if separator and item_id.strip() and reason.strip():
                 retire_tasks.append((item_id.strip(), reason.strip()))
+            continue
+        if key == "SETTLE_INSTRUCTION":
+            settled_instructions.extend(_settled_instruction_revisions(value))
             continue
         numbered_match = _NUMBERED_TASK_KEY.match(key)
         if numbered_match is not None:
@@ -666,7 +725,7 @@ def _planner_key_values(
     for row in tasks:
         if "TASK_OBJECTIVE" in row:
             row["TASK_OBJECTIVE"] = row["TASK_OBJECTIVE"].strip()
-    return values, tasks, tuple(retire_tasks)
+    return values, tasks, tuple(retire_tasks), tuple(dict.fromkeys(settled_instructions))
 
 
 def _key_value_bool(raw: str, default: bool = False) -> bool:
@@ -794,7 +853,14 @@ def _build_no_task_repair_prompt(
         "or `→ operator: <one question>`. Do not invent tasks that depend on "
         "results still in flight.\n"
         "- Do not repeat the rejected launch slogan. Say what failed, why, and what "
-        "should happen next.\n\n"
+        "should happen next.\n"
+        + (
+            "- Repeat each `SETTLE_INSTRUCTION` line the corrected decision still "
+            "handles; an omitted one stays pending.\n"
+            if "settle_instruction" in previous_raw_text.casefold()
+            else ""
+        )
+        + "\n"
         "For authorized work, use a task footer:\n"
         + decision_footer_instruction(
             "PROJECT_DONE=false\n"
@@ -812,6 +878,14 @@ def _build_no_task_repair_prompt(
     )
 def parse_planner_payload(payload: Mapping[str, Any]) -> PlannerVerdict:
     """Validate the structured Planner event without routing it through text."""
+    verdict = _parse_planner_payload_fields(payload)
+    settled = tuple(dict.fromkeys(_settled_instruction_revisions(
+        payload.get("settle_instructions") or payload.get("settle_instruction") or ()
+    )))
+    return replace(verdict, settled_instructions=settled) if settled else verdict
+
+
+def _parse_planner_payload_fields(payload: Mapping[str, Any]) -> PlannerVerdict:
     raw_text = json.dumps(dict(payload), ensure_ascii=False)
     diagnostics: list[str] = []
 
@@ -1054,8 +1128,47 @@ def parse_planner_text(text: str) -> PlannerVerdict:
     payload = _planner_payload_from_text(text)
     if payload is not None:
         return replace(parse_planner_payload(payload), raw_text=text)
-    values, task_rows, retire_tasks = _planner_key_values(text)
-    return _planner_verdict_from_fields(text, values, task_rows, retire_tasks)
+    values, task_rows, retire_tasks, settled = _planner_key_values(text)
+    verdict = _planner_verdict_from_fields(text, values, task_rows, retire_tasks)
+    return replace(verdict, settled_instructions=settled) if settled else verdict
+
+
+_SETTLE_LIST_WORDS = frozenset({"revision", "and", "&"})
+_SETTLE_SEPARATORS = re.compile(r"[|,;:#`]")
+
+
+def _revision_token(token: str) -> int | None:
+    stripped = token.rstrip(".")
+    return int(stripped) if stripped.isascii() and stripped.isdigit() else None
+
+
+def _settled_instruction_revisions(raw: Any) -> list[int]:
+    """Revisions a ``SETTLE_INSTRUCTION`` value (or payload list) names.
+
+    A value made only of revision numbers ("7", "7 9", "#7; 9", "Revision: 7
+    and 9") names all of them. Any other wording names only its leading
+    revision, so prose such as "7 is done, 9 is still open" can never settle 9.
+    """
+    items = raw if isinstance(raw, (list, tuple)) else [raw]
+    revisions: list[int] = []
+    for item in items:
+        if isinstance(item, (int, float)) and not isinstance(item, bool):
+            if float(item).is_integer() and item > 0:
+                revisions.append(int(item))
+            continue
+        tokens = _SETTLE_SEPARATORS.sub(" ", str(item or "")).split()
+        numbers = [_revision_token(token) for token in tokens]
+        if tokens and all(
+            number is not None or token.casefold() in _SETTLE_LIST_WORDS
+            for token, number in zip(tokens, numbers)
+        ):
+            revisions.extend(number for number in numbers if number)
+            continue
+        leading = next((token for token in tokens if token.casefold() != "revision"), "")
+        number = _revision_token(leading)
+        if number:
+            revisions.append(number)
+    return revisions
 
 
 def _planner_verdict_from_fields(

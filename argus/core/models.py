@@ -26,6 +26,22 @@ LoopStatus = Literal[
     "replan_requested",
 ]
 
+# Copilot CLI tools for sub-agents, dynamic workflows, the session store and
+# semantic code search. No Planner or Observer thread called one in the October
+# 2026 six-task, trial and experiment logs, and nothing tells these roles to; on
+# the full tool surface their schemas rode along on every request (10K tool
+# tokens per Planner turn, 3.9K without them).
+READING_ROLE_UNUSED_COPILOT_TOOLS = (
+    "task",
+    "read_agent",
+    "list_agents",
+    "write_agent",
+    "run_dynamic_workflow",
+    "dynamic_workflows_manage",
+    "session_store_sql",
+    "semantic_code_search",
+)
+
 
 @dataclass
 class RunnerOptions:
@@ -68,6 +84,10 @@ class RunnerOptions:
     # the session SQL todo database and the CLI's self-documentation tool;
     # built-in MCP servers stay attached. Other backends ignore it.
     lean_tool_surface: bool = False
+    # Further Copilot CLI tools and built-in MCP servers a role never uses,
+    # dropped together with the lean surface. Other backends ignore them.
+    excluded_tools: tuple[str, ...] = ()
+    disabled_mcp_servers: tuple[str, ...] = ()
     full_auto: bool = False
     dangerous_yolo: bool = False
     # Watchdog hooks — propagated to the codex subprocess so an outer

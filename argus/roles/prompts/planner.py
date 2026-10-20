@@ -555,7 +555,11 @@ def build_continuous_resume_prompt(
         "## Continued Planner cycle\n"
         "You are resuming your own Planner session. The original role "
         "instructions remain binding; do not replay old exploration or rewrite "
-        "the static policy. Current state below supersedes stale session facts.",
+        "the static policy. Current state below supersedes stale session facts. "
+        "A file you already opened in this session, such as the stage playbook "
+        "or a Skill body, is still in your context: an instruction below to open "
+        "it before acting was met then, so open it again only if its text is no "
+        "longer in your context.",
         str(prompt_context.role_banner or ""),
         "## Current workflow stage\n"
         f"- current: `{prompt_context.stage}`\n"

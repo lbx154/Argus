@@ -9,6 +9,7 @@ happens before any handoff/project_done interpretation.
 from __future__ import annotations
 
 import logging
+from dataclasses import replace
 from pathlib import Path
 from typing import Any
 
@@ -261,6 +262,14 @@ class PlanningCycleVerdictMixin:
                 ):
                     return PLAN_RETRY
                 state.planner_invoked = True
+                planner_config = self._planner_config()
+                if state.settleable_operator_revisions:
+                    planner_config = replace(
+                        planner_config,
+                        settleable_instructions=tuple(
+                            sorted(state.settleable_operator_revisions)
+                        ),
+                    )
                 state.verdict = planner.plan_next(
                     continuous_objective=self.config.continuous_objective,
                     journal_tail=journal_tail,
@@ -282,7 +291,7 @@ class PlanningCycleVerdictMixin:
                         )
                         if part
                     ),
-                    config=self._planner_config(),
+                    config=planner_config,
                 )
                 self._apply_research_plan_update(
                     getattr(state.verdict, "raw_text", "") or ""

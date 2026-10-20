@@ -66,11 +66,25 @@ def active_research_context(stage: str, project_root: Path | None) -> str:
         f"Loaded only from `{relative}`:\n\n{text.strip()}\n\n"
         "Treat this as the current upstream summary, not as permission to crawl "
         "historical files. Open an older file only if this document explicitly "
-        "names it for a concrete dispute."
+        "names it for a concrete dispute. This is the current text of "
+        f"`{relative}`: open that file only to edit it, or when this copy is "
+        "marked truncated or omits a value you need."
     )
 
 
-def academic_paper_review_block() -> str:
+def academic_paper_review_block(*, review_preloaded: bool = False) -> str:
+    """The integrated paper-review policy.
+
+    ``review_preloaded`` is set when this prompt already carries paper/REVIEW.md
+    as its Active research context, so the Reviewer need not read it again.
+    """
+    previous_review = (
+        "Use the latest paper/REVIEW.md to close resolved concerns: to recall it, rely "
+        "on its copy under Active research context in this prompt and open the file "
+        "only if that copy is absent or marked truncated; "
+        if review_preloaded
+        else "Read the latest paper/REVIEW.md to close resolved concerns; "
+    )
     return (
         "## Integrated final paper review\n"
         "Act as the independent post-repair Reviewer required by the Review playbook. "
@@ -87,8 +101,9 @@ def academic_paper_review_block() -> str:
         "Perform full conference peer review of contribution, novelty, methodology, "
         "experimental design, results, conclusions, scientific correctness and importance, rendered layout, visual "
         "quality, academic argument and language, and whether the paper follows the "
-        "venue's rules. Read the latest paper/REVIEW.md to close resolved concerns; "
-        "do not load the research notes or crawl other old reports or history. "
+        "venue's rules. "
+        + previous_review
+        + "do not load the research notes or crawl other old reports or history. "
         "Write a natural review with evidence and constructive, actionable guidance; "
         "no fixed fields or review template is required. Engineer implements scientific "
         "repairs, including method changes and new experiments, directly inside this "
@@ -504,9 +519,9 @@ def _engineer_fragment(
     narrative_edit = operation == "narrative_edit"
     scientific_revision = stage == "review" and not narrative_edit
     # The research notes supply evidence roles; current repair feedback arrives through
-    # the normal round context. Do not preload REVIEW.md or historical reports.
-    # The notes change between rounds, so ``render_role_prompt_context``
-    # carries them after this static policy.
+    # the normal round context. This static policy preloads no notes or reports: they
+    # change between rounds, so ``render_role_prompt_context`` carries the notes (in
+    # Review, paper/REVIEW.md) after it. Never preload historical reports.
     handoff = (
         "Finish the method card, the reference clone and the spec suite before "
         "reporting the first round; afterwards, once this round's coherent "
@@ -605,7 +620,11 @@ def _engineer_fragment(
                 "strengthen the contribution. If a real test disproves a claim, keep that "
                 "result, work the playbook's diagnosis ladder, and when no rung remains "
                 "return the evidence for experiment.repair rather than narrowing the claim. "
-                "Read the latest paper/REVIEW.md and confirm which concerns are now resolved. "
+                "Use the latest paper/REVIEW.md to confirm which concerns are now "
+                "resolved: to recall it, rely on its copy under Active research context "
+                "in this prompt and open the file only if that copy is absent, marked "
+                "truncated, or shows `<machine-integrity-metadata omitted>` where you "
+                "need the value. "
                 "When the method, oracle, evaluator or accounting changes, identify the "
                 "affected claims and results before choosing the next runs. Re-establish "
                 "the affected claim's full comparison scope with the current variant; "
@@ -669,8 +688,12 @@ def _reviewer_fragment(
             "Do not edit either snapshot."
         )
     if stage == "review" or scope == "final_submission":
+        # Only an evaluating Reviewer in Review gets paper/REVIEW.md as its
+        # Active research context (render_role_prompt_context).
         policy = (
-            academic_paper_review_block()
+            academic_paper_review_block(
+                review_preloaded=stage == "review" and operation == "evaluate"
+            )
             + "\n\nFinal completion requires your explicit selected-venue "
             "recommendation at or above the operator's current completion standard, "
             "with no reject-level issues. A lower acceptance rating can recognize progress, "

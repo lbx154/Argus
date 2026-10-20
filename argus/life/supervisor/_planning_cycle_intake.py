@@ -224,7 +224,7 @@ class PlanningCycleIntakeMixin:
         revision_request = state.revision_request
         from ...core.operator_context import (
             OperatorContextStore,
-            build_operator_context_block,
+            build_settleable_planner_context_block,
             operator_context_state_root,
         )
 
@@ -252,13 +252,12 @@ class PlanningCycleIntakeMixin:
         # Draining appends fresh messages to the durable ledger. Re-render after
         # the drain so this same planning turn sees the complete standing block
         # as well as the legacy one-shot operator note below.
-        operator_context, _revision = build_operator_context_block(
-            "planner",
+        operator_context, _revision, offered = build_settleable_planner_context_block(
             operator_context_state_root(self.memory),
             live_turn=operator_live_turn(transient_messages),
-            consume_once=False,
         )
         state.operator_context_revision = _revision
+        state.settleable_operator_revisions = offered
         # Bind rejection holds to the input this cycle saw, not a newer ledger
         # revision that might arrive while Planner or Manager is running.
         self._planning_operator_context_revision = _revision

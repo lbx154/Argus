@@ -576,6 +576,7 @@ class PlanningContextMixin:
             handoff="operator",
             operator_question=wait_reason,
             new_tasks=[],
+            settled_instructions=(),
         )
 
     def _manager_intent_context(self) -> dict[str, Any]:

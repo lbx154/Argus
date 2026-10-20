@@ -457,6 +457,8 @@ class PlanningCycleEnqueueMixin:
                     key_map[task.key] = duplicate_item.id
                 state.skipped_duplicate_titles.append(task.title)
                 duplicate_reason = "duplicate pending/running task"
+                if duplicate_item.status in {"pending", "running"}:
+                    state.skipped_live_duplicate_titles.append(task.title)
                 _record_filtered_task(
                     state,
                     title=task.title,
