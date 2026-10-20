@@ -63,11 +63,18 @@ def ephemeral_classifier(calls):
     return classify
 
 
+def _new_work(_prompt, options):
+    # Each run changes the workspace, so no run returns work unchanged.
+    progress = Path(options.working_dir) / "progress.txt"
+    progress.write_text(progress.read_text() + "." if progress.exists() else ".")
+    return "implementation ready"
+
+
 def execute_restarted(case, runtime_helper, monkeypatch, classifier):
     # Construct a new ordinary runner against the same on-disk inbox/state.
     restarted = _runtime._SkillLoopRunner(case.runner._args)
     monkeypatch.setattr(restarted.manager, "classify_front_door", classifier)
-    runtime_helper._queue_success(case.backend)
+    runtime_helper._queue_success(case.backend, first_message=_new_work)
     outcome = restarted.execute(
         objective=case.item.objective,
         sink=SimpleNamespace(handle_event=case.captured["events"].append),

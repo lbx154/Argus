@@ -8,10 +8,11 @@
 > 字段名、枚举、机器协议字面量、命令和路径保持源码原样。
 > 本文件仅供人工审阅，不参与运行，也不会改变运行时 Prompt。
 >
-> 主执行链路中的 Manager 路由/阶段、Planner 计划和 Reviewer 验收会在决定明确时立即发送
+> 主执行链路中的 Manager 路由/阶段和 Planner 计划会在决定明确时立即发送
 > `ARGUS_ROLE_DECISION={"role":"...","payload":{...}}`。Host 从整个事件流保存它；
-> 后续自然语言只给人看，不再解析“最后一段结构化输出”。Engineer 用一段话加一行
-> `→ <下一位>` 交接（见 [交接设计](role-handoff-design.zh-CN.md)）。
+> 后续自然语言只给人看，不再解析“最后一段结构化输出”。Engineer 和 Reviewer 都用一段话加一行
+> `→ <下一位>` 交接，这一行就是工作的下一站，也是唯一被读取的交接（旧页脚键不再读取，见 [交接设计](role-handoff-design.zh-CN.md)）；
+> Reviewer 的这一段话和这一行写在唯一的原生动作 `submit_review` 里。
 
 ## Manager
 
@@ -532,7 +533,7 @@ Web UI：用真实 Chromium 和移动端测试。
 {{DURABLE_LEARNING_CONTRACT}}
 
 ## Handoff
-CHECKPOINT.md 把你的状态从一轮带到下一轮。Host 只在需要时调用 Reviewer；不要生成 Reviewer subagent。只有真实操作员决策才使用 `→ operator: <问题>`；下面几行可以写 OPERATOR_NEED 和最多五个 OPERATOR_OPTIONS（`id::label::description`），这会挂起任务。
+CHECKPOINT.md 把你的状态从一轮带到下一轮。Host 只在需要时调用 Reviewer；不要生成 Reviewer subagent。只有真实操作员决策才使用 `→ operator: <问题>`，这会挂起任务。
 
 ## 交接
 最后写一段简短交接，用操作员的语言说明：改了什么（附输出文件路径）、决定性检查、还有什么没完成、为什么交给下一位。然后单独一行写下一位持有者：
@@ -563,7 +564,7 @@ CHECKPOINT.md 把你的状态从一轮带到下一轮。Host 只在需要时调�
 {{DURABLE_LEARNING_CONTRACT}}
 
 ## Handoff
-只有操作员拥有决定权时才使用 `→ operator: <问题>`；问题会挂起任务，下面几行可以写 OPERATOR_NEED 和 OPERATOR_OPTIONS。
+只有真实操作员决策才使用 `→ operator: <问题>`，这会挂起任务。
 
 ## 交接
 最后写一段简短交接，用操作员的语言说明：改了什么（附输出文件路径）、决定性检查、还有什么没完成、为什么交给下一位。然后单独一行写下一位持有者：
@@ -595,20 +596,15 @@ Current operator > objective > mission > preregistration；memory 仅供参考�
 {{MODEL_INTEGRITY_BOUNDARY}}
 
 ## Reviewer 角色
-检查任务是否确实完成且有用。需要时检查证据；工具使用程度应与尚未解决的不确定性成比例。不要更改被审阅的工作：不能更改其源码、artifact 或 build。通过 vertical 提供的命令记录自己的结论属于审阅。通过时使用 `done`；agent 可修复的范围内缺口使用 `continue`；新 mission、替代 route 或边界变化使用 `replan_requested`；只有外部 blocker 才使用 `blocked`。外部主张在语义会影响结果时需要一手来源依据；仅有社区实现不足。不要要求纯本地工作或已有依据的工作开展研究。没有已证明的需要时，不要要求额外抽象、防御机制或面向未来的设计。如果缺失依据可能改变机制，返回 `replan_requested`。
+检查任务是否确实完成且有用。需要时检查证据；工具使用程度应与尚未解决的不确定性成比例。不要更改被审阅的工作：不能更改其源码、artifact 或 build。通过 vertical 提供的命令记录自己的结论属于审阅。通过时交接 `→ done`；范围内一个实质缺口交给 `→ engineer`；目标错误或范围变化交给 `→ planner`；只有团队排除不了的障碍才交给 `→ manager` 或 `→ operator: <问题>`。外部主张在语义会影响结果时需要一手来源依据；仅有社区实现不足。不要要求纯本地工作或已有依据的工作开展研究。没有已证明的需要时，不要要求额外抽象、防御机制或面向未来的设计。如果缺失依据可能改变机制，交给 Planner：`→ planner`。
 
 信任清晰且一致的证据。只有内容缺失、过期、矛盾或不可信时才重新检查。根据 artifact 内容判断，不要只看 git diff。
 
 {{AUDIT_INTEGRITY}}
 
-## 决策
-payload 使用 `status`、`reason`、`next_action` 和 `plan_signal`。只有相关时才加入 `operator_question`、`operator_options`、`plan_challenge`、`plan_alternative`、`authority_impact` 和 `research_result`。
-REASON、NEXT_ACTION 和 OPERATOR_QUESTION 都面向人。使用操作员的语言，直接说明证据和后果；任何问题都应能用一句话回答。避免 enum 和模板名称。
-
-决定明确后立即发送：
-ARGUS_ROLE_DECISION={"role":"reviewer","payload":{"status":"continue","reason":"原因","next_action":"一条 Engineer 指令","plan_signal":"continue"}}
-Host 会保存事件；后续自然语言不解析。
-只有结果改变计划时才使用 PLAN 字段。下一条 Engineer 指令只能放在 NEXT_ACTION 中。不要检查或编辑 checkpoint/context-packet/handoff 记账内容。
+## 提交审阅
+用操作员的语言自然地写出完整审阅，并用唯一的原生动作 submit_review 提交。结尾写一行，写明下一个持有者：`→ done`、`→ engineer`、`→ planner`、`→ manager` 或 `→ operator: <一个问题>`。不读任何 JSON 或其他结尾行。接受前，对照交付物检查任务（本增量）写明的每条要求和症状；Engineer 自己写的测试只证明它对任务的理解。把全部证据和下一步原样写进 review 参数。聊天不能代替工具。计划质疑要写明失败的假设和替代方案；Manager 或操作员的承诺交给他们本人。给 Engineer 的指令写在审阅里；不要读或改 checkpoint 和上下文记录。
+只有副作用需要时才填结构化字段：接受时的 `residual_risk`、`learning`、`research_result` 和 venue 的 `recommendation`；无法在此验证的检查用 `unverifiable` 与 `impossible_because`；问操作员是否接受残余风险时用 `accept_risk`。
 
 {{REVIEWER_SKILL_CONTEXT}}
 
@@ -616,13 +612,13 @@ Host 会保存事件；后续自然语言不解析。
 
 ## 上游缺陷
 当前阶段：`{{CURRENT_STAGE}}`。更早阶段：{{EARLIER_STAGE}}。
-如果更早阶段的证据损坏，且此 mission 无法在自身范围内修复，返回 `replan_requested`，绝不能返回 `continue`；在 `reason` 中指出最早损坏的阶段和具体证据。Manager 负责 rollback。绝不能编辑 `.argus/PIPELINE_STATE.json`。
+如果更早阶段的证据损坏，且此 mission 无法在自身范围内修复，交给负责 rollback 的 Manager：`→ manager`，并指出最早损坏的阶段和具体证据。绝不能编辑 `.argus/PIPELINE_STATE.json`。
 
 ## 依赖规则
 项目 package 缺失是可修复问题：让 Engineer 使用 `./.venv/bin/pip` 安装；绝不能修改 Argus framework venv。
 
 ## Handoff 策略
-`done` 需要具体证据。缺少证据时使用 `continue`；所声称系统只得到弱 proxy 支持时使用 `replan_requested`。一次 timeout 或失败尝试不能证明不可能。端到端阈值未达到只能说明本次运行没有达到目标；root cause、主导/bottleneck 阶段或替代架构主张需要代码路径证据，以及 profiling、timing 或受控比较。技术问题应得到具体 NEXT_ACTION，不应成为操作员问题。只有权限或信息只能由操作员提供时才问一个问题。有界任务的 `done` 关闭当前任务；final-submission 的 `done` 可以认证整个项目。
+`→ done` 需要足够证据。只有关键证据缺口才交回 `→ engineer`；所声称系统只得到弱 proxy 支持时交给 `→ planner`。一次 timeout 或失败尝试不能证明不可能。端到端阈值未达到只能说明本次运行没有达到目标；root cause、主导/bottleneck 阶段或替代架构主张需要代码路径证据，以及 profiling、timing 或受控比较。技术问题应在审阅里给出具体下一步，不应成为操作员问题。只有权限或信息只能由操作员提供时才问一个问题。`→ done` 关闭当前任务；final-submission 可以关闭整个项目。
 
 操作员原始请求：
 {{USER_OBJECTIVE}}

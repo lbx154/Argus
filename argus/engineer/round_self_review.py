@@ -1,18 +1,20 @@
-"""Route an Engineer turn by its handoff, and settle optional low-risk self-review."""
+"""Route a turn by its baton line: the holder it names is where the work goes.
+
+The host enforces one invariant on the way (docs/role-handoff-design.md, "The
+baton", invariant 3): work that would return to a holder that already held it
+as it is now, with nothing new from outside since, goes one rung up the ladder
+instead of calling that model again.
+"""
 
 from __future__ import annotations
 
+import time
+from dataclasses import replace
 from pathlib import Path
 from typing import TYPE_CHECKING, Callable
 
-from ..core.models import ReviewDecision
-from ..core.role_handoff import (
-    EngineerHandoff,
-    decision_engineer_handoff,
-    parse_engineer_handoff,
-    read_baton_line,
-    strip_handoff,
-)
+from ..core.models import ReviewDecision, RunnerResult
+from ..core.role_handoff import HANDOFF_STATUS, LADDER, read_baton_line, strip_handoff
 from .round_state import (
     EngineerTurnOutcome,
     RoundControl,
@@ -24,98 +26,158 @@ from .round_state import (
 if TYPE_CHECKING:
     from .runner import SupervisedConfig
 
-def _round_handoff(outcome: EngineerTurnOutcome) -> EngineerHandoff:
-    """Who owns the work next, read from the decision the Engineer recorded.
 
-    Falling back to the round message is for a turn that recorded no decision
-    at all. When one exists it is the answer, so a sentence in the narrative
-    cannot nominate a different owner than the Engineer chose.
+def _handoff_record(holder: str, question: str, message: str) -> ReviewDecision:
+    """The round's record of the Engineer handing the work past the Reviewer.
+
+    The Engineer's own words, under its own source: the host writes no verdict
+    for it. ``done`` is the Engineer accepting where no review is required.
     """
-    if isinstance(outcome.decision, dict):
-        return decision_engineer_handoff(outcome.decision)
-    return parse_engineer_handoff(outcome.engineer_message)
-
-
-def _milestone_status(outcome: EngineerTurnOutcome) -> str:
-    """The milestone status the Engineer stated: its decision, its baton line, else its footer.
-
-    A baton line says ``done`` only as ``→ done``; any other line, or one that
-    could not be read, leaves the milestone open. The footer is read with the
-    reader every other role decision uses, so ``MILESTONE_STATUS: done``, a
-    bullet, bold or backticks all say ``done``.
-    """
-    if isinstance(outcome.decision, dict):
-        return str(outcome.decision.get("status") or "").strip().lower()
-    baton = read_baton_line(outcome.engineer_message)
-    if baton is not None:
-        return "done" if baton.next_owner == "done" else ""
-    from ..core.role_reply import decision_footer_text, read_key_values
-
-    found = read_key_values(
-        decision_footer_text(outcome.engineer_message), ("MILESTONE_STATUS",)
+    return ReviewDecision(
+        status=HANDOFF_STATUS[holder],
+        reason=strip_handoff(message)[-1200:] or f"Engineer handed the work to the {holder}.",
+        next_action="",
+        operator_question=question,
+        review_source="engineer_self_review" if holder == "done" else "engineer_handoff",
     )
-    return str(found.get("MILESTONE_STATUS") or "").strip("`*_. ").casefold()
 
 
-def _milestone_is_done(outcome: EngineerTurnOutcome) -> bool:
-    return _milestone_status(outcome) == "done"
+def outside_inputs(state: RoundLoopState) -> list[object] | None:
+    """What reached the work from outside the team.
 
-
-def _milestone_is_blocked(outcome: EngineerTurnOutcome) -> bool:
-    return _milestone_status(outcome) == "blocked"
-
-
-def _footer_block(footer: str, name: str, *, limit: int = 2400) -> str:
-    """A ``NAME=`` footer value with its continuation lines kept whole.
-
-    The value runs until the next ``KEY=`` control line, so a reading the
-    Engineer wrote over several lines is recorded as written.
+    When the operator last wrote, the operator's ledger revision and the
+    Manager's direction revision; ``None`` when any cannot be read, since
+    unknown inputs never count as unchanged.
     """
-    collected: list[str] = []
-    capturing = False
-    for raw_line in str(footer or "").splitlines():
-        line = raw_line.strip().strip("`")
-        key, separator, value = line.partition("=")
-        is_control = bool(separator) and key.strip().isupper() and " " not in key.strip()
-        if is_control:
-            if capturing:
-                break
-            if key.strip() == name:
-                capturing = True
-                collected.append(value.strip())
-            continue
-        if capturing:
-            collected.append(raw_line.rstrip())
-    return "\n".join(part for part in collected).strip()[:limit]
+    from ..core.operator_context import OperatorContextStore
+    from ..core.operator_presence import operator_presence
+    from .round_manager_wait import manager_direction_revision
+
+    root = state.state_root
+    if root is None:
+        return None
+    try:
+        return [
+            operator_presence(root).last_spoke_at,
+            OperatorContextStore(root).revision,
+            manager_direction_revision(root),
+        ]
+    except Exception:  # noqa: BLE001 - an unreadable ledger is not "nothing new"
+        return None
 
 
-def _record_stated_assumption(
-    outcome: EngineerTurnOutcome, supervised_config: "SupervisedConfig"
-) -> None:
-    """Keep the reading the Engineer chose when no operator could be asked.
+def returned_unchanged(holder: str, state: RoundLoopState, label: str) -> bool:
+    """Whether ``holder`` already held this work as snapshot ``label`` shows it, with nothing new since."""
+    return state.snapshots is not None and state.snapshots.held_unchanged(holder, label, outside_inputs(state))
 
-    The run report lists the reading in the Engineer's own words, from its
-    decision (``assumption``) or footer (``ASSUMPTION=``).
+
+def accepted_as_is(state: RoundLoopState, label: str) -> bool:
+    """Whether the Reviewer accepted the work as snapshot ``label`` shows it, with nothing new since."""
+    return returned_unchanged("reviewer", state, label) and bool(
+        state.snapshots is not None and state.snapshots.held_verdict("reviewer")
+    )
+
+
+def no_turn(state: RoundLoopState) -> EngineerTurnOutcome:
+    """The round's Engineer slot when the work climbed past the Engineer: no turn ran."""
+    return EngineerTurnOutcome(
+        engineer_result=RunnerResult(exit_code=0), round_thread_id=None, fatal_error=None,
+        safe_fatal_error=None, stop_kind=None, raw_engineer_message="", engineer_message="",
+        process_ownership_note="", round_started_at=time.time(),
+    )
+
+
+def climb_record(passed: list[str], holder: str, *, handed: ReviewDecision | None = None) -> ReviewDecision:
+    """The host's record that unchanged work climbed past ``passed`` to ``holder``.
+
+    When the Reviewer's verdict ``handed`` it on, the round keeps that one
+    record: the verdict's findings stay, its own words in ``reviewer_words``,
+    and where the work went is the host's.
     """
-    from ..core.autonomy import operator_questions_can_be_asked, record_autonomous_assumption
-    from ..core.role_reply import decision_footer_text
+    who = " and the ".join(passed)
+    reason = (
+        f"Nothing changed since the {who} last held this work, and nothing new "
+        f"arrived from outside, so it went one rung up, to the {holder}."
+    )
+    if handed is not None:
+        reason += f" The Reviewer had handed it to the {passed[0]}: {handed.reason}"
+    return replace(
+        handed or ReviewDecision(status="continue", reason="", next_action=""),
+        status=HANDOFF_STATUS[holder],
+        reason=reason,
+        next_action="",
+        operator_question=(
+            f"Nothing changed since the {who} last held this work. How should it go on?"
+            if holder == "operator" else ""
+        ),
+        review_source="unchanged_return",
+        host_placeholder="unchanged_return",
+        reviewer_authored=False,
+        reviewer_words=None if handed is None else handed.reviewer_words or {
+            "status": handed.status, "reason": handed.reason, "next_action": handed.next_action,
+        },
+    )
 
-    root = getattr(supervised_config, "operator_question_policy_root", None)
-    if root is None or operator_questions_can_be_asked(root):
-        return
-    reading = ""
-    if isinstance(outcome.decision, dict):
-        reading = str(outcome.decision.get("assumption") or "").strip()
-    if not reading:
-        reading = _footer_block(decision_footer_text(outcome.engineer_message), "ASSUMPTION")
-    if reading:
-        record_autonomous_assumption(
-            root, item_id="", reading=reading, source="engineer"
-        )
+
+#: What an accepting verdict decided, kept beside the Reviewer's hold so an
+#: unchanged rerun can stand on it.
+_VERDICT_FIELDS = (
+    "reason", "residual_risk", "residual_risk_detail", "research_result", "venue_review",
+    "venue_review_required", "venue_review_passed", "venue_review_snapshot", "manuscript_snapshot",
+)
+
+
+def accepted_verdict(review: ReviewDecision, round_index: int, state: RoundLoopState) -> dict | None:
+    """The Reviewer's acceptance, kept with its hold, or ``None`` when the verdict accepted nothing."""
+    if review.status != "done" or not review.final_submission_certified:
+        return None
+    return {
+        **{name: getattr(review, name) for name in _VERDICT_FIELDS},
+        "round": round_index, "mission": state.mission_item_id or state.mission_ref, "at": time.time(),
+    }
+
+
+def reused_record(verdict: dict) -> ReviewDecision:
+    """The Reviewer's acceptance of this very candidate, standing again without a model call."""
+    which = f"round {verdict['round']}" + (f" of {verdict['mission']}" if verdict["mission"] else "")
+    when = time.strftime("%Y-%m-%d %H:%M", time.localtime(verdict["at"]))
+    return ReviewDecision(
+        status="done",
+        next_action="",
+        **{name: verdict[name] for name in _VERDICT_FIELDS},
+        interventions=[{
+            "policy": "unchanged_return",
+            "action": "reused_verdict",
+            "at": time.time(),
+            "note": (
+                f"the candidate is unchanged since the Reviewer accepted it in {which} ({when}) "
+                "and nothing new arrived, so that acceptance stands; no model was called"
+            ),
+        }],
+    )
 
 
 class RoundSelfReviewMixin:
-    """Route an Engineer turn and settle low-risk work without another model."""
+    """Hand a turn to the holder its baton line names."""
+
+    def _deliver(self, holder: str, *, state: RoundLoopState, label: str) -> tuple[str, list[str]]:
+        """Where work handed to ``holder`` goes, and the holders it climbed past.
+
+        Up to the operator, each holder that already held the work as snapshot
+        ``label`` shows it, with nothing new since, passes it one rung up;
+        a Reviewer that accepted it as it is sends it to ``done`` instead. The
+        Planner and the Manager hold it from here; the Engineer and the
+        Reviewer record their own hold when their turn completes.
+        """
+        passed: list[str] = []
+        while holder in LADDER[:-1] and returned_unchanged(holder, state, label):
+            if holder == "reviewer" and accepted_as_is(state, label):
+                return "done", passed
+            passed.append(holder)
+            holder = LADDER[LADDER.index(holder) + 1]
+        if holder in {"planner", "manager"} and state.snapshots is not None:
+            state.snapshots.hold(holder, label, outside_inputs(state))
+        return holder, passed
 
     def _handle_progress_and_self_review(
         self,
@@ -127,7 +189,9 @@ class RoundSelfReviewMixin:
         state: RoundLoopState,
         review_completed_hook,
         on_event: Callable[[dict], None] | None,
+        climbed: bool = False,
     ) -> RoundControl:
+        """Route the turn by its line; ``climbed``: no turn ran, the work climbed past the Engineer."""
         state.backend_failure_streak = 0
         # A turn that reached this phase was not a backend failure, so it ends
         # any run of identical failures: the same-cause count restarts from
@@ -136,122 +200,47 @@ class RoundSelfReviewMixin:
         # outage and open the hold on an isolated accident.
         state.backend_failure_signature = ""
         state.backend_failure_same_cause_streak = 0
-        _record_stated_assumption(outcome, supervised_config)
-        handoff = _round_handoff(outcome)
-        if handoff.waits_for_operator:
-            from ..core.autonomy import assess_operator_intervention
-            from .round_settlement import _operator_questions_allowed
-
-            # The Engineer classified its own question; words in the question
-            # or the round message are not consulted. An explicit
-            # NEXT_OWNER=operator it did not classify fails safe and goes to
-            # the operator, when one may be asked. A question without that
-            # explicit handoff (or a run where questions cannot be asked) is
-            # a technical fact for the Reviewer.
-            intervention = assess_operator_intervention(
-                question=handoff.operator_question,
-                operator_need=handoff.operator_need,
-                unclassified_requires_operator=(
-                    handoff.source == "structured"
-                    and _operator_questions_allowed(supervised_config)
-                ),
-            )
-            if not intervention.required:
-                # The Reviewer sees the Engineer's question in the ordinary
-                # round record and can return it to Planner as a technical fact.
-                return control_proceed()
-            return self._settle_round(
-                review=ReviewDecision(
-                    status="blocked",
-                    reason="Engineer requires an operator-owned decision before continuing.",
-                    next_action="Resume after the operator answers the pending question.",
-                    operator_question=handoff.operator_question,
-                    operator_options=list(handoff.operator_options),
-                    review_source="engineer_operator_question",
-                    planner_report={
-                        "plan_signal": "continue",
-                        "challenge": handoff.operator_question,
-                        "authority_impact": "operator",
-                        "operator_need": intervention.operator_need,
-                    },
-                ),
-                round_index=round_index,
-                supervised_config=supervised_config,
-                workdir=workdir,
-                outcome=outcome,
-                state=state,
-                review_completed_hook=review_completed_hook,
-                on_event=on_event,
-            )
-        if handoff.next_owner in {"planner", "manager"}:
-            # Routing is the Engineer's: a mis-scoped task goes to the Planner,
-            # an obstacle only the Manager can remove goes to the Manager.
-            # Neither accepts work, so no review stands in between.
-            why = strip_handoff(outcome.engineer_message)[-1200:]
-            return self._settle_round(
-                review=ReviewDecision(
-                    status="replan_requested" if handoff.next_owner == "planner" else "blocked",
-                    reason=why or f"Engineer handed the work to the {handoff.next_owner}.",
-                    next_action="",
-                    review_source="engineer_handoff",
-                ),
-                round_index=round_index,
-                supervised_config=supervised_config,
-                workdir=workdir,
-                outcome=outcome,
-                state=state,
-                review_completed_hook=review_completed_hook,
-                on_event=on_event,
-            )
-        if (
-            not supervised_config.require_independent_review
-            and _milestone_is_blocked(outcome)
-        ):
-            result = (
-                str(outcome.decision.get("result") or "").strip()
-                if isinstance(outcome.decision, dict)
-                else ""
-            )
-            return self._settle_round(
-                review=ReviewDecision(
-                    status="blocked",
-                    reason=result or "Engineer reported an obstacle it could not clear.",
-                    next_action="",
-                    review_source="engineer_self_review",
-                ),
-                round_index=round_index,
-                supervised_config=supervised_config,
-                workdir=workdir,
-                outcome=outcome,
-                state=state,
-                review_completed_hook=review_completed_hook,
-                on_event=on_event,
-            )
-        if handoff.next_owner == "engineer":
-            # The Engineer keeps the work; the Reviewer judges when it hands over.
+        if not climbed:
+            state.review_unseen = False
+        if state.snapshots is not None:
+            # The Engineer held the work as its turn began.
+            state.snapshots.hold("engineer", "turn", state.handed_inputs)
+        # A missing or unreadable line names the Reviewer: never done.
+        handoff = None if climbed else read_baton_line(outcome.engineer_message)
+        wanted = handoff.holder if handoff else "reviewer"
+        if wanted == "done" and supervised_config.require_independent_review:
+            # Accepting a candidate is the Reviewer's where review is required.
+            wanted = "reviewer"
+        holder, passed = (
+            self._deliver(wanted, state=state, label="now")
+            if state.snapshots is not None and state.snapshots.take("now") else (wanted, [])
+        )
+        passed = ["engineer", *passed] if climbed else passed
+        if holder == "engineer":
             return control_continue_loop()
-        if not supervised_config.require_independent_review:
-            if not _milestone_is_done(outcome):
-                return control_continue_loop()
-            return self._settle_round(
-                review=ReviewDecision(
-                    status="done",
-                    reason=(
-                        "Engineer reported the requested milestone complete; "
-                        "independent review was not required for this mission."
-                    ),
-                    next_action="",
-                    review_source="engineer_self_review",
-                ),
-                round_index=round_index,
-                supervised_config=supervised_config,
-                workdir=workdir,
-                outcome=outcome,
-                state=state,
-                review_completed_hook=review_completed_hook,
-                on_event=on_event,
-            )
-        return control_proceed()
+        if holder == "reviewer":
+            return control_proceed()
+        # Sent to ``done`` past the Reviewer: its acceptance of this candidate stands.
+        verdict = (
+            state.snapshots.held_verdict("reviewer")
+            if holder == "done" and wanted != "done" and state.snapshots else None
+        )
+        if verdict:
+            review = reused_record(verdict)
+        elif passed:
+            review = climb_record(passed, holder)
+        else:
+            review = _handoff_record(holder, handoff.question if handoff else "", outcome.engineer_message)
+        return self._settle_round(
+            review=review,
+            round_index=round_index,
+            supervised_config=supervised_config,
+            workdir=workdir,
+            outcome=outcome,
+            state=state,
+            review_completed_hook=review_completed_hook,
+            on_event=on_event,
+        )
 
 
 __all__ = ["RoundSelfReviewMixin"]

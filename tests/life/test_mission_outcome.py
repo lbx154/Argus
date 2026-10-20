@@ -109,9 +109,8 @@ def test_reviewer_summary_creates_delivery_when_engineer_returns_only_footer(
             final_review_reason="已完整审阅《餐饮企业运营手册.md》；符合交付条件。",
             final_message=(
                 "Decision:\n"
-                "MILESTONE_STATUS=done\n"
                 "RESULT=已完成餐饮企业运营手册。\n"
-                "NEXT_OWNER=reviewer"
+                "→ reviewer"
             ),
         ),
     )
@@ -139,9 +138,8 @@ def test_reviewed_engineer_path_survives_malformed_reviewer_link(tmp_path) -> No
             final_review_reason="team-result.txt` passed independent byte verification.",
             final_message=(
                 "Decision:\n"
-                "MILESTONE_STATUS=done\n"
                 "RESULT=Created `team-result.txt` and verified it.\n"
-                "NEXT_OWNER=reviewer"
+                "→ reviewer"
             ),
         ),
     )
@@ -543,8 +541,7 @@ def test_research_result_survives_runtime_and_mission_event(tmp_path) -> None:
                 round_index=1,
                 engineer_message=(
                     "Wrote the survey and verified every cited source.\n\n"
-                    "MILESTONE_STATUS=done\n"
-                    "OPERATOR_QUESTION=none"
+                    "→ done"
                 ),
                 engineer_exit_code=0,
                 review=ReviewDecision(
@@ -557,8 +554,7 @@ def test_research_result_survives_runtime_and_mission_event(tmp_path) -> None:
         ],
         final_message=(
             "Wrote the survey and verified every cited source.\n\n"
-            "MILESTONE_STATUS=done\n"
-            "OPERATOR_QUESTION=none"
+            "→ done"
         ),
         reason="",
         workdir=str(tmp_path),
@@ -596,10 +592,7 @@ def test_long_engineer_handoff_survives_compact_mission_summary(tmp_path) -> Non
     wire_message = (
         f"{body}\n\n"
         "Decision:\n"
-        "MILESTONE_STATUS=done\n"
-        "NEXT_OWNER=reviewer\n"
-        "OPERATOR_QUESTION=none\n"
-        "OPERATOR_OPTIONS=none"
+        "→ reviewer"
     )
     loop_outcome = LoopOutcome(
         status="done",

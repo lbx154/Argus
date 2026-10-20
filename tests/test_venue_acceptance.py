@@ -190,10 +190,10 @@ class _Runner:
 
     def run_exec(self, **kwargs):
         self.prompt = kwargs["prompt"]
-        payload = {"review": "Assessed current paper."}
+        payload = {"review": "Assessed current paper.\n→ done"}
         if self.report:
             payload["recommendation"] = self.report["recommendation"]
-        bridge_request("ARGUS_PLUGIN_REVIEW", "approve_review", payload, env=kwargs["options"].extension_env)
+        bridge_request("ARGUS_PLUGIN_REVIEW", "submit_review", payload, env=kwargs["options"].extension_env)
         return RunnerResult(exit_code=0)
 
 
@@ -359,15 +359,14 @@ def test_reviewer_verdict_counts_when_no_venue_was_selected(paper, recommendatio
 
 
 class _PaperEngineer:
-    def __init__(self, paper: Path, *, revise: bool) -> None:
-        self.paper, self.revise, self.calls = paper, revise, 0
+    """An Engineer that leaves the paper as it is."""
+
+    def __init__(self) -> None:
+        self.calls = 0
 
     def run_exec(self, *, prompt, options, run_label, resume_thread_id=None):  # noqa: ARG002
         self.calls += 1
-        if self.revise:
-            with (self.paper / "paper/main.tex").open("a", encoding="utf-8") as handle:
-                handle.write(f"\n% revision {self.calls}\n")
-        return RunnerResult(exit_code=0, agent_messages=["Revised the paper; ready for review."])
+        return RunnerResult(exit_code=0, agent_messages=["Looked the paper over; ready for review."])
 
 
 class _BelowBarReviewer:
@@ -384,16 +383,18 @@ class _BelowBarReviewer:
         )
 
 
-def _final_review(paper: Path, *, revise: bool):
+def _final_review(paper: Path, state: Path):
     from typing import Any, cast
 
     from argus.engineer.runner import EngineerConfig, SupervisedConfig, SupervisedEngineer
 
-    engineer, reviewer = _PaperEngineer(paper, revise=revise), _BelowBarReviewer(paper)
+    engineer, reviewer = _PaperEngineer(), _BelowBarReviewer(paper)
     supervised = cast(Any, SupervisedEngineer.__new__(SupervisedEngineer))
     supervised.engineer_runner, supervised.engineer_config = engineer, EngineerConfig(model="stub")
     supervised.reviewer, supervised.reviewer_config = reviewer, ReviewerConfig(model="stub")
-    config = SupervisedConfig(checkpoint_path=paper / "CHECKPOINT.md")
+    config = SupervisedConfig(
+        checkpoint_path=paper / "CHECKPOINT.md", operator_question_policy_root=state, session_id="paper",
+    )
     status, _rounds, _final, reason, _thread = supervised.run(
         objective="Bring the paper to the venue bar in final Review",
         engineer_prompt_builder=lambda next_action, include_static=True: "Revise. " + (next_action or ""),
@@ -402,8 +403,10 @@ def _final_review(paper: Path, *, revise: bool):
     return status, reason, engineer.calls, reviewer.calls
 
 
-def test_an_unchanged_paper_is_not_reviewed_again(paper):
-    status, reason, engineer_calls, reviewer_calls = _final_review(paper, revise=False)
+def test_an_unchanged_paper_is_not_reviewed_again(paper, tmp_path_factory):
+    # The baton's third invariant: the Engineer reads the review once; the
+    # paper coming back unchanged passes the Reviewer and climbs to the Planner.
+    status, reason, engineer_calls, reviewer_calls = _final_review(paper, tmp_path_factory.mktemp("state"))
     assert (engineer_calls, reviewer_calls) == (2, 1)
     assert status == "replan_requested"
-    assert "unchanged since the last venue review" in reason
+    assert "Nothing changed since the reviewer" in reason

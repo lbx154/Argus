@@ -12,7 +12,6 @@ from pathlib import Path
 import pytest
 
 from argus.core.models import RunnerResult
-from argus.engineer.round_config import QUESTION_POLICY
 from argus.engineer.round_stop_signals import (
     authentication_review_decision,
     backend_failure_cause,
@@ -219,7 +218,7 @@ def test_oauth_failure_pauses_once_without_opening_a_new_round(tmp_path: Path) -
     assert reason == "github-copilot: OAuth refresh failed: timeout"
 
 
-def test_forbidden_policy_withholds_a_stop_kind_operator_question(
+def test_a_stop_kind_question_parks_for_the_manager_when_the_operator_cannot_be_asked(
     tmp_path: Path,
 ) -> None:
     from argus.core.knob_store import write_persisted_knob
@@ -244,12 +243,10 @@ def test_forbidden_policy_withholds_a_stop_kind_operator_question(
     )
 
     assert status == "blocked"
-    # The record keeps the host's question; the intervention beside it says
-    # it was not sent, and the outcome reads that.
+    # The question stays the question: the card parks and, with nobody to
+    # ask, the Manager decides it in the operator's place.
     assert rounds[0].review.operator_question.startswith("Authentication blocked")
-    [intervention] = rounds[0].review.interventions
-    assert intervention["policy"] == QUESTION_POLICY
-    assert intervention["action"] == "not_sent"
+    assert rounds[0].review.interventions == []
     assert rounds[0].review.backend_stop_kind == "permanent_error"
     assert rounds[0].stop_kind == "permanent_error"
 

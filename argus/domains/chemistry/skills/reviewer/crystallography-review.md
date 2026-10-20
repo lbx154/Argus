@@ -28,7 +28,7 @@ review. This rubric addresses crystallographic evidence.
 
 ## Rejection conditions
 
-Return `replan_requested` when source data are unavailable for a claim requiring
+Hand the work to the Planner (`→ planner`) when source data are unavailable for a claim requiring
 independent validation, competing models remain unresolved, refinement hides
 misfit with unjustified parameters, composition/symmetry is inconsistent,
 phase quantification lacks an adequate model, or a parseable/generated CIF is
@@ -36,6 +36,6 @@ presented as experimental proof.
 
 ## Done standard
 
-Return `done` only for the structural resolution and evidence actually
+Hand off `→ done` only for the structural resolution and evidence actually
 supported. State unresolved disorder, light atoms, absolute structure, phase
 fraction, local versus average structure, and data-availability limitations.

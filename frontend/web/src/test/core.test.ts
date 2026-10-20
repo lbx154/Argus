@@ -747,7 +747,7 @@ describe('shared frontend core', () => {
         agent_layer: 'engineer',
         kind: 'agent_message',
         final_delivery: true,
-        text: `${fullOutput}\nMILESTONE_STATUS=done\nOPERATOR_QUESTION=none`,
+        text: `${fullOutput}\n→ done`,
       },
       { type: 'life.mission.completed', ts: 4, item_id: 'task-long' },
     ], []);

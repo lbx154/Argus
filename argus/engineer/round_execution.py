@@ -25,8 +25,6 @@ from ..core import command_record
 from ..core.autonomy import AUTOMATIC_RETRY_WINDOW_SECONDS, RETRY_WINDOW_SPENT_REASON
 from ..core.event_catalog import EventType
 from ..core.models import LoopStatus, ReviewDecision, RoundRecord
-from ..core.role_decision import latest_role_decision
-from ..core.role_handoff import decision_engineer_handoff
 from ..core.runner_errors import is_execution_host_startup_error
 from ..core.runner_receipts import is_provider_background_wait_receipt
 from ..core.secret_guard import known_secret_values, redact_secrets_text
@@ -78,37 +76,6 @@ log = logging.getLogger(__name__)
 # stop and abort signals. The hold itself can grow to the hour scale; a
 # shutdown or an abort must not wait behind it.
 _BACKEND_FAILURE_HOLD_SLICE_SECONDS = 0.2
-
-
-def _engineer_decision_message(payload: dict) -> str:
-    """Render a decision event as the baton handoff the round loop acts on.
-
-    The prose, then one line naming the holder control hands the work to
-    (``round_self_review`` reads the same payload), so the Reviewer, the
-    journal and the context packet never read a different holder than the
-    loop used. A question keeps its need and options, which build the card.
-    """
-    result = str(payload.get("result", payload.get("summary", "")) or "").strip()
-    handoff = decision_engineer_handoff(payload)
-    if handoff.waits_for_operator:
-        lines = [result, f"→ operator: {handoff.operator_question}"]
-        if handoff.operator_need:
-            lines.append(f"OPERATOR_NEED={handoff.operator_need}")
-        if handoff.operator_options:
-            # The format the Engineer writes and ``parse_agent_operator_options`` reads.
-            lines.append("OPERATOR_OPTIONS=" + "; ".join(
-                "::".join(str(option.get(field, "") or "").strip()
-                          for field in ("id", "label", "description"))
-                for option in handoff.operator_options
-            ))
-        return "\n".join(line for line in lines if line)
-    done = (
-        str(payload.get("status", "") or "").strip().lower() == "done"
-        and handoff.next_owner == "reviewer"
-    )
-    return "\n".join(
-        line for line in (result, f"→ {'done' if done else handoff.next_owner}") if line
-    )
 
 
 # Longest host-evidence note appended to the next Engineer prompt.
@@ -237,12 +204,7 @@ class RoundExecutionMixin:
             engineer_result.stop_kind
         ) or stop_kind_from_external_interrupt(fatal_error)
         round_thread_id = new_tid
-        process_decision = latest_role_decision(engineer_result, "engineer")
-        raw_engineer_message = (
-            _engineer_decision_message(process_decision)
-            if process_decision is not None
-            else (engineer_result.last_agent_message or "")
-        )
+        raw_engineer_message = engineer_result.last_agent_message or ""
         engineer_message = redact_secrets_text(
             raw_engineer_message,
             known_values=known_secret_values(),
@@ -366,7 +328,6 @@ class RoundExecutionMixin:
             engineer_message=engineer_message,
             process_ownership_note=process_ownership_note,
             round_started_at=round_started_at,
-            decision=process_decision,
         )
 
     def _handle_stop_kind_shortcircuit(

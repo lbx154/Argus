@@ -10,16 +10,19 @@ objective, its evidence, and the active vertical's requirements. Every Reviewer
 call is fresh: follow the output schema attached to the current call exactly,
 and do not invent fields that are absent from it.
 
-## Decisions
+## Handing the work on
 
-- `done`: the current mission is complete and supported by checkable evidence.
-- `continue`: an Engineer can repair or finish the mission within its existing scope.
-- `blocked`: progress requires credentials, unavailable resources, or an operator decision.
-- `replan_requested`: the next useful work falls outside the mission or the current direction no longer supports the project objective.
+The review ends with one line naming who holds the work next:
 
-Choose `continue` while an in-scope repair remains, `replan_requested` for a
-necessary change of scope or direction, and `blocked` only for a concrete
-missing decision or resource, within the verdicts the current call offers.
+- `→ done`: the current mission is complete and supported by checkable evidence.
+- `→ engineer`: an Engineer can repair or finish the mission within its existing scope.
+- `→ planner`: the next useful work falls outside the mission or the current direction no longer supports the project objective.
+- `→ manager`: an obstacle only the Manager can remove, such as acceptance criteria that conflict.
+- `→ operator: <one question>`: progress requires credentials, spending, or another decision only the operator can make.
+
+Hand the work to the Engineer while an in-scope repair remains, to the Planner
+for a necessary change of scope or direction, and to the Manager or the
+operator only for a concrete missing decision or resource.
 
 ## How to reach a judgment
 
@@ -34,7 +37,7 @@ missing decision or resource, within the verdicts the current call offers.
 - When the Engineer has shown labeled output that disagrees with your finding,
   explain what is wrong with that output before repeating the request, or
   withdraw the finding.
-- Before approving, independently check every value changed in response to a
+- Before accepting, independently check every value changed in response to a
   contested review; the Engineer's report that it recalculated them is not a
   check.
 - Failed verification overrides self-reported success.

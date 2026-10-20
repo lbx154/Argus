@@ -38,8 +38,15 @@ class RoundLoopState:
 
     rounds: list[RoundRecord] = field(default_factory=list)
     # The task's workspace snapshots: its baseline, taken before the first
-    # Engineer turn, and the candidate each Reviewer is shown the diff to.
+    # Engineer turn, the candidate each Reviewer is shown the diff to, and
+    # what each holder last held the work as.
     snapshots: WorkspaceSnapshots | None = None
+    # The outside inputs (``round_self_review.outside_inputs``) the current
+    # holder was handed the work under; recorded beside its hold.
+    handed_inputs: list[object] | None = None
+    # A Reviewer's verdict handed the work back to the Engineer, which has not
+    # yet completed a turn on it: new input, so the Engineer's turn runs.
+    review_unseen: bool = False
     # Accounts of Engineer turns that continued without any review, newest
     # last. The next Reviewer reads them beside the final turn's account; a
     # completed review clears them.
@@ -106,10 +113,6 @@ class EngineerTurnOutcome:
     engineer_message: str
     process_ownership_note: str
     round_started_at: float
-    #: The Engineer's decision event, when it recorded one. The round message
-    #: below stays the human-readable narrative; control decisions are read
-    #: from here so the narrative can never answer for them.
-    decision: dict[str, Any] | None = None
 
 
 TerminalResult = tuple[LoopStatus, list[RoundRecord], str, str, str | None]
@@ -120,9 +123,8 @@ class RoundControl:
     """What the driving ``for`` loop in ``run()`` should do next.
 
     ``payload`` optionally carries a phase's non-terminal output when
-    ``action == "proceed"`` — currently only the reviewer-invocation phase
-    uses it, to hand its resulting ``ReviewDecision`` to the settlement
-    phase once a real (non-backend-failure) verdict has been obtained.
+    ``action == "proceed"``: the Engineer turn's outcome, or the Reviewer's
+    ``ReviewDecision`` once a real (non-backend-failure) verdict is in.
     """
 
     action: str  # "return" | "continue_loop" | "proceed"

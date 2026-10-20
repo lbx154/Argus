@@ -21,7 +21,7 @@ def test_runner_process_ownership_fact_reaches_reviewer(tmp_path) -> None:
     )
     backend.queue(
         "reviewer",
-        CannedResponse(review_action=('approve_review', {'review': 'The result is complete.'})),
+        CannedResponse(review_action=("submit_review", {'review': 'The result is complete.\n→ done'})),
     )
     engineer = SupervisedEngineer(
         engineer_runner=backend,

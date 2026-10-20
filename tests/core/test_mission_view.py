@@ -236,7 +236,7 @@ def test_mission_view_preserves_final_engineer_output_beyond_summary(
         agent_layer="engineer",
         kind="agent_message",
         final_delivery=True,
-        text=f"{body}\nMILESTONE_STATUS=done\nOPERATOR_QUESTION=none",
+        text=f"{body}\n→ done",
     )
     view = emit(
         tmp_path,
@@ -260,7 +260,7 @@ def test_final_output_uses_last_delivery_not_later_progress(
     emit(tmp_path, "life.mission.started", 1, item_id="task")
     for ts, final_delivery, text, role in [
         (2, True, "Superseded handoff\n" * 500, "engineer"),
-        (3, True, "# Last handoff\n\nkept\nDecision:\nNEXT_OWNER=reviewer", "main"),
+        (3, True, "# Last handoff\n\nkept\nDecision:\n→ reviewer", "main"),
         (4, False, "Later progress, not a delivery", "engineer"),
         (5, True, "Reviewer response, not Engineer output", "reviewer"),
     ]:
@@ -300,7 +300,7 @@ def test_final_output_never_crosses_mission_boundaries(
     elif boundary == "footer":
         emit(
             tmp_path, "engineer.progress", 3, kind="assistant_message",
-            final_delivery=True, text="Decision:\nMILESTONE_STATUS=done",
+            final_delivery=True, text="Decision:\n→ done",
         )
     item_id = "previous" if boundary in {"resumed", "manager", "footer"} else "current"
     view = emit(

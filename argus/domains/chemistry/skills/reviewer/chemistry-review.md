@@ -21,8 +21,8 @@ Use the specialized reviewer Skill for the task:
 
 For an explicitly matched Chem Playground candidate, use the Chemistry
 Playground Promotion Gate. A valid `promoted`, `retained`, `falsified`, or
-scientifically `blocked` RESULT may complete the bounded mission with Harness
-`done`; none of those statuses changes the formal Research stage.
+scientifically `blocked` RESULT may complete the bounded mission with
+`→ done`; none of those statuses changes the formal Research stage.
 
 For cross-domain claims, apply each relevant standard without double-counting
 the same evidence. Reconstruct chemical/sample/construct identity, units,
@@ -45,9 +45,9 @@ Physical evidence must trace to an identified sample and an authorized facility
 or instrument path. Planning, computation, or simulation cannot be certified as
 physical execution.
 
-Return `done` only at the requested evidence level and state what was retrieved,
+Hand off `→ done` only at the requested evidence level and state what was retrieved,
 predicted, computed, simulated, measured, inferred, reproduced, improved,
-falsified, or unresolved. Return `replan_requested` when identity, primary
+falsified, or unresolved. Hand the work to the Planner (`→ planner`) when identity, primary
 evidence, controls, capability, uncertainty, applicability, or authorization
 cannot support a valuable decision. A bounded negative result may complete its
 experiment but does not automatically complete the research objective.

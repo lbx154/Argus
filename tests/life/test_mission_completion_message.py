@@ -277,9 +277,8 @@ def test_bounded_independent_review_completion_is_natural_and_footer_free(
         "summary": (
             "完成了缓存方案调研并形成报告。\n\n"
             "Decision:\n"
-            "MILESTONE_STATUS=done\n"
             "RESULT=cache research reviewed\n"
-            "NEXT_OWNER=reviewer"
+            "→ done"
         ),
         "independent_review_required": True,
         "overall_complete": True,
@@ -299,7 +298,7 @@ def test_bounded_independent_review_completion_is_natural_and_footer_free(
     assert "实现和测试" not in text
     for internal in (
         "RESULT=",
-        "NEXT_OWNER",
+        "→",
         "review=done",
         "阶段结论",
         "本计划工作项",

@@ -438,7 +438,7 @@ def test_public_skill_loop_brief_preserves_contract_and_advances_current_work(
     def run(context_packet_path: str) -> tuple[object, list[tuple[str, str, object]]]:
         backend = MemoryBackend()
         backend.queue("engineer-r1", CannedResponse(message="public flow exercised"))
-        backend.queue("reviewer", CannedResponse(review_action=('approve_review', {'review': 'public flow verified'})))
+        backend.queue("reviewer", CannedResponse(review_action=("submit_review", {'review': 'public flow verified\n→ done'})))
         outcome = SkillLoop(
             skills_dir=tmp_path / "skills",
             engineer_runner=backend,

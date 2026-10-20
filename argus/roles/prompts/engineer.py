@@ -65,19 +65,16 @@ def engineer_operator_handoff_rule() -> str:
         return (
             "No operator is available in this run; the Manager decides in their "
             "place. Settle what a requirement means yourself, on the most "
-            "defensible reading; record it in CHECKPOINT.md and state it as "
-            "ASSUMPTION=<the reading you chose>. Never assume facts or results, or "
-            "fake credentials or services; if a required input is missing, say what "
-            "and hand off with `→ manager`. Use `→ operator: <question>` only for an "
-            "action only the operator could approve, with OPERATOR_NEED=credentials "
-            "(or spending, irreversible_or_external) and at most five "
-            "OPERATOR_OPTIONS on the lines below; the Manager decides it."
+            "defensible reading, and record it in CHECKPOINT.md. Never assume facts "
+            "or results, or fake credentials or services; if a required input is "
+            "missing, say what and hand off with `→ manager`. Use `→ operator: "
+            "<question>` only for an action only the operator could approve "
+            "(credentials, spending, or an irreversible or external step); the "
+            "Manager decides it."
         )
     return (
-        "Use `→ operator: <question>` only for a real operator decision, with "
-        "OPERATOR_NEED=credentials (or spending, irreversible_or_external, "
-        "scope_or_authority, none) and at most five OPERATOR_OPTIONS on the lines "
-        "below; that parks the task."
+        "Use `→ operator: <question>` only for a real operator decision; that "
+        "parks the task."
     )
 
 
@@ -334,9 +331,7 @@ def build_mission_prompt(
         "CHECKPOINT.md carries your state from one round to the next. Host invokes "
         "Reviewer only when required; do not spawn a Reviewer subagent. "
         + engineer_operator_handoff_rule()
-        + " Options use "
-        "`id::label::description`, or `id::true::label::description` when a note "
-        "is required.\n\n"
+        + "\n\n"
         + RESEARCHER_VOICE + "\n\n"
         + _HANDOFF_RULE
     )
