@@ -77,7 +77,7 @@ def test_explicit_incompatible_control_model_remains_visible_and_is_rejected(mon
 
 def test_personal_mode_preserves_cheap_model_routing(monkeypatch):
     monkeypatch.setenv(client.TRIAL_ENV, "0")
-    assert knobs.resolve_manager_classify_model(backend="copilot") == "gpt-5.4-mini"
+    assert knobs.resolve_manager_classify_model(backend="copilot") == "gpt-6.1-sol"
 
 
 def test_trial_flag_does_not_replace_another_backends_model(monkeypatch):

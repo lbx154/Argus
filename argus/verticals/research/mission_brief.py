@@ -57,8 +57,8 @@ WORKING_HYPOTHESIS_SENTENCE = (
     "earlier results, and fix the new falsifier before running its test."
 )
 DEFINITION_OF_DONE = (
-    "Definition of done: the checks above pass and the host-run tests/spec are "
-    "green for the components this task names."
+    "Definition of done: the checks above pass and tests/spec passes for the "
+    "components this task names."
 )
 
 INTERPRETER_TIMEOUT_S = 5.0
@@ -323,11 +323,11 @@ def _components_section(card: dict[str, Any]) -> list[str]:
     lines = ["### Components now"]
     for entry in components[:COMPONENT_LINES]:
         where = method_card.anchor_location(entry)
-        failing = method_card.failing_test_ids(entry)
-        line = f"- {entry['component']}: {entry['status']}"
+        line = f"- {entry['component']}: " + (
+            method_card.kinds_summary(entry.get("tests") or []) or "no test carries its marker"
+        )
+        line += " (simplified)" if entry.get("simplified") else ""
         line += f" — {where}" if where else " — no `# @component` anchor in the code"
-        if failing:
-            line += "; failing: " + ", ".join(failing[:3])
         lines.append(line)
     if len(components) > COMPONENT_LINES:
         lines.append(f"- ... {len(components) - COMPONENT_LINES} more in METHOD.md")
@@ -622,26 +622,6 @@ def _gpu_line() -> str:
     )
 
 
-def _checks_line(project_root: Path, card: dict[str, Any]) -> str:
-    checks = card.get("checks")
-    if not isinstance(checks, dict):
-        return "- Last host-run tests/spec: none recorded yet"
-    counts = checks.get("counts") or {}
-    count_text = ", ".join(f"{n} {outcome.lower()}" for outcome, n in sorted(counts.items())) or "no tests"
-    contradicted = [
-        entry["component"]
-        for entry in (card.get("components") or [])
-        if str(entry.get("status") or "").startswith("contradicted")
-    ]
-    line = (
-        f"- Last host-run tests/spec: round {checks.get('round_index')}, "
-        f"exit {checks.get('exit_code')}, {count_text}"
-    )
-    if contradicted:
-        line += "; contradicted: " + ", ".join(contradicted[:6])
-    return line
-
-
 MODEL_CACHE_ENTRIES = 8
 
 
@@ -700,7 +680,6 @@ def _environment_section(project_root: Path, card: dict[str, Any]) -> list[str]:
         lambda: _clones_line(project_root, card),
         _gpu_line,
         _model_cache_line,
-        lambda: _checks_line(project_root, card),
     ):
         try:
             line = producer()

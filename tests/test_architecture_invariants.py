@@ -1043,10 +1043,10 @@ MODULE_LEVEL_UPWARD_ALLOWLIST: frozenset[str] = frozenset({
     "tools/peer.py -> messaging",
     "tools/team.py -> team",
     "verticals/research/idea_portfolio.py -> team",
-    # The research vertical registers its host-run spec-check evidence
-    # provider with the vertical-blind registry when the package loads;
-    # the engineer itself never names the vertical.
-    "verticals/research/spec_checks.py -> engineer",
+    # The research vertical registers its round-log evidence provider with
+    # the vertical-blind registry when the package loads; the engineer
+    # itself never names the vertical.
+    "verticals/research/round_log.py -> engineer",
 })
 
 # Deferred imports that point at a higher layer, keyed by (file, target
@@ -1897,7 +1897,7 @@ def test_retired_names_do_not_spread() -> None:
 # signature (_idle_cycle.py) and the venue acceptance check (_core.py) now
 # take LifeSupervisor._project_state_root(), because handing the host root to
 # a vertical lookup answered "undecided" for a classified project.
-MEMORY_ROOT_READS = 72
+MEMORY_ROOT_READS = 71
 def test_memory_root_reads_do_not_grow() -> None:
     """``MemoryBundle.root`` returns the *host* root; every reader of it is a trap.
 

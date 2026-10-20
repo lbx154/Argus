@@ -558,19 +558,13 @@ def _format_follow_planner_task_added(event: dict) -> str:
 
 
 def _format_follow_planner_task_skipped(event: dict) -> str:
-    skip_category = str(event.get("skip_category") or "")
     title = _clean_follow_text(str(event.get("title") or "proposed task"), limit=90)
     reason = _clean_follow_text(str(event.get("reason") or ""), limit=140)
-    if skip_category == "recent_no_progress_failure":
-        text = (
-            f"Planner held “{title}” because the same approach recently made no progress."
-        )
-    else:
-        matched_title = _clean_follow_text(
-            str(event.get("matched_title") or "an existing task"),
-            limit=90,
-        )
-        text = f"Planner skipped “{title}” because “{matched_title}” already covers it."
+    matched_title = _clean_follow_text(
+        str(event.get("matched_title") or "an existing task"),
+        limit=90,
+    )
+    text = f"Planner skipped “{title}” because “{matched_title}” already covers it."
     if reason:
         text += f" {reason}"
     return f"⏭️ [{_follow_layer_label('planner')}] {text}"

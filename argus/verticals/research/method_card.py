@@ -6,9 +6,9 @@ protocol, and what would falsify the claim. Everything that changes from
 round to round is *derived* here at zero model cost and shown next to the
 hand-written card in the Atlas web UI and to the Reviewer:
 
-* per-component test status, from the host-run ``tests/spec`` results
-  (``.argus/round-checks/latest.json``) joined with the component markers the
-  tests carry (``.argus/spec_components.json``, written by the spec conftest);
+* the tests behind each component, from the component markers the spec tests
+  carry (``.argus/spec_components.json``, written by the spec conftest when a
+  role runs the suite; whether they pass is what that role's run reports);
 * reused code, from an ``ast`` import scan of the project's own Python files
   mapped to ``third_party/`` clones (pinned revision, remote) and installed
   packages (version);
@@ -45,15 +45,11 @@ METHOD_FILENAME = "METHOD.md"
 MARKDOWN_LIMIT = 64 * 1024
 
 SPEC_COMPONENTS_PATH = Path(".argus") / "spec_components.json"
-LATEST_CHECKS_PATH = Path(".argus") / "round-checks" / "latest.json"
 HYPERPARAMETER_SNAPSHOT_PATH = Path(".argus") / "method-card" / "hyperparameters.json"
 
 COMPONENTS_HEADING = "components"
 PROTOCOL_HEADING = "protocol"
 FALSIFIERS_HEADING = "what would falsify the claim"
-
-#: Component statuses, in the order the Reviewer should worry about them.
-STATUSES: tuple[str, ...] = ("contradicted", "partial", "untested", "unchecked", "proven")
 
 PROJECT_SCAN_ROOTS = ("src", "scripts")
 SKIPPED_DIR_NAMES = frozenset({"tests", "test", "third_party", "node_modules", "__pycache__"})
@@ -272,7 +268,7 @@ def method_components(markdown: str) -> list[dict[str, str]]:
 
 
 # --------------------------------------------------------------------------
-# JSON fixtures written by the spec conftest and the host-run checks
+# JSON written by the spec conftest
 # --------------------------------------------------------------------------
 
 
@@ -304,101 +300,32 @@ def load_spec_components(workdir: Path) -> dict[str, dict[str, str]]:
     return result
 
 
-def load_latest_checks(workdir: Path) -> dict[str, Any] | None:
-    """The most recent host-run check JSON, or ``None``."""
-    return _load_json(Path(workdir) / LATEST_CHECKS_PATH)
-
-
-def component_status(tests: list[dict[str, Any]]) -> str:
-    """Contradicted if any test failed; proven if all passed and a knockout or
-    differential passed; unchecked when no test has an outcome yet; else partial."""
-    outcomes = [str(test.get("outcome") or "").upper() for test in tests]
-    if not tests:
-        return "untested"
-    if not any(outcomes):
-        return "unchecked"
-    if any(outcome in {"FAILED", "ERROR"} for outcome in outcomes):
-        return "contradicted"
-    if all(outcome == "PASSED" for outcome in outcomes) and any(
-        str(test.get("kind")) in {"knockout", "differential"} for test in tests
-    ):
-        return "proven"
-    return "partial"
-
-
 def _join_components(
     card_rows: list[dict[str, str]],
     markers: dict[str, dict[str, str]],
-    latest: dict[str, Any] | None,
 ) -> tuple[list[dict[str, Any]], list[dict[str, Any]]]:
-    outcomes = latest.get("outcomes") if isinstance(latest, dict) else None
-    outcomes = outcomes if isinstance(outcomes, dict) else {}
-    host_components = latest.get("components") if isinstance(latest, dict) else None
-    host_components = host_components if isinstance(host_components, dict) else {}
-    host_by_key = {normalize_component_name(name): entry for name, entry in host_components.items()}
-
     tests_by_key: dict[str, list[dict[str, Any]]] = {}
     display_name: dict[str, str] = {}
     for nodeid, entry in sorted(markers.items()):
         key = normalize_component_name(entry["component"])
         display_name.setdefault(key, entry["component"])
-        tests_by_key.setdefault(key, []).append(
-            {
-                "id": nodeid,
-                "kind": entry["kind"],
-                "outcome": str(outcomes.get(nodeid) or "") if latest else "",
-            }
-        )
+        tests_by_key.setdefault(key, []).append({"id": nodeid, "kind": entry["kind"]})
 
-    def _entry(key: str) -> tuple[list[dict[str, Any]], str]:
-        tests = tests_by_key.get(key, [])
-        if latest is None:
-            return tests, ("unchecked" if tests else "untested")
-        host = host_by_key.get(key)
-        if isinstance(host, dict) and isinstance(host.get("tests"), list):
-            host_tests = [
-                {
-                    "id": str(test.get("id") or ""),
-                    "kind": str(test.get("kind") or "invariant"),
-                    "outcome": str(test.get("outcome") or ""),
-                }
-                for test in host["tests"]
-                if isinstance(test, dict)
-            ]
-            # Markers added after the last run stay visible, without an outcome.
-            known = {test["id"] for test in host_tests}
-            host_tests.extend(test for test in tests if test["id"] not in known)
-            status = str(host.get("status") or "") or component_status(host_tests)
-            return host_tests, status
-        return tests, component_status(tests)
-
-    components: list[dict[str, Any]] = []
-    named: set[str] = set()
-    for row in card_rows:
-        key = normalize_component_name(row["component"])
-        named.add(key)
-        tests, status = _entry(key)
-        components.append(
-            {
-                "component": row["component"],
-                "prescribes": row.get("prescribes", ""),
-                "notes": row.get("notes", ""),
-                "status": status,
-                "tests": tests,
-            }
-        )
-    unlisted: list[dict[str, Any]] = []
-    for key in sorted(set(tests_by_key) | set(host_by_key)):
-        if key in named:
-            continue
-        tests, status = _entry(key)
-        unlisted.append(
-            {
-                "component": display_name.get(key) or key,
-                "status": status,
-                "tests": tests,
-            }
-        )
+    components = [
+        {
+            "component": row["component"],
+            "prescribes": row.get("prescribes", ""),
+            "notes": row.get("notes", ""),
+            "tests": tests_by_key.get(normalize_component_name(row["component"]), []),
+        }
+        for row in card_rows
+    ]
+    named = {normalize_component_name(row["component"]) for row in card_rows}
+    unlisted = [
+        {"component": display_name[key], "tests": tests}
+        for key, tests in sorted(tests_by_key.items())
+        if key not in named
+    ]
     return components, unlisted
 
 
@@ -1284,18 +1211,12 @@ def _attach_anchors(
         seen.add(key)
         row["anchors"] = by_key.get(key, [])
         row["simplified"] = simplified_by_key.get(key, [])
-        if row["simplified"] and "(simplified)" not in row["status"]:
-            row["status"] = f"{row['status']} (simplified)"
     for key in sorted(set(by_key) | set(simplified_by_key)):
         if key in seen:
             continue
-        status = "untested"
-        if simplified_by_key.get(key):
-            status += " (simplified)"
         unlisted.append(
             {
                 "component": display.get(key) or key,
-                "status": status,
                 "tests": [],
                 "anchors": by_key.get(key, []),
                 "simplified": simplified_by_key.get(key, []),
@@ -1575,23 +1496,10 @@ def _empty_card() -> dict[str, Any]:
         "reuse_anchors": [],
         "hyperparameters": [],
         "change_log": [],
-        "checks": None,
         "stand_ins": [],
         "results_footprint": [],
         "result_tables": [],
         "claim_attainment": [],
-    }
-
-
-def _checks_summary(latest: dict[str, Any] | None) -> dict[str, Any] | None:
-    if not isinstance(latest, dict):
-        return None
-    counts = latest.get("counts")
-    return {
-        "round_index": latest.get("round_index"),
-        "ran_at": latest.get("ran_at"),
-        "exit_code": latest.get("exit_code"),
-        "counts": dict(counts) if isinstance(counts, dict) else {},
     }
 
 
@@ -1624,10 +1532,9 @@ def derive_method_card(workdir: Path) -> dict[str, Any]:
     card["protocol"] = sections.get(PROTOCOL_HEADING, "")
     card["falsifiers"] = sections.get(FALSIFIERS_HEADING, "")
 
-    latest = load_latest_checks(workdir)
     try:
         components, unlisted = _join_components(
-            method_components(markdown), load_spec_components(workdir), latest
+            method_components(markdown), load_spec_components(workdir)
         )
         card["components"], card["unlisted_components"] = components, unlisted
     except Exception:  # noqa: BLE001
@@ -1641,7 +1548,6 @@ def derive_method_card(workdir: Path) -> dict[str, Any]:
         for row in [*card["components"], *card["unlisted_components"]]:
             row.setdefault("anchors", [])
             row.setdefault("simplified", [])
-    card["checks"] = _checks_summary(latest)
     for key, derive in (
         ("reused_code", lambda: reused_code(workdir)),
         ("hyperparameters", lambda: hyperparameters(workdir, card["protocol"])),
@@ -1658,12 +1564,13 @@ def derive_method_card(workdir: Path) -> dict[str, Any]:
     return card
 
 
-def _count_outcomes(tests: list[dict[str, Any]]) -> str:
+def kinds_summary(tests: list[dict[str, Any]]) -> str:
+    """``1 differential, 2 knockout`` for a component's marked tests; '' for none."""
     counts: dict[str, int] = {}
     for test in tests:
-        outcome = str(test.get("outcome") or "no run").lower()
-        counts[outcome] = counts.get(outcome, 0) + 1
-    return ", ".join(f"{n} {outcome}" for outcome, n in sorted(counts.items()))
+        kind = str(test.get("kind"))
+        counts[kind] = counts.get(kind, 0) + 1
+    return ", ".join(f"{n} {kind}" for kind, n in sorted(counts.items()))
 
 
 def anchor_location(entry: dict[str, Any]) -> str:
@@ -1675,14 +1582,6 @@ def anchor_location(entry: dict[str, Any]) -> str:
     symbol = f" ({first['symbol']})" if first.get("symbol") else ""
     more = f" +{len(anchors) - 1} more" if len(anchors) > 1 else ""
     return f"{first['file']}:{first['line']}{symbol}{more}"
-
-
-def failing_test_ids(entry: dict[str, Any]) -> list[str]:
-    return [
-        str(test.get("id") or "")
-        for test in entry.get("tests") or []
-        if str(test.get("outcome") or "").upper() in {"FAILED", "ERROR"}
-    ]
 
 
 def _excerpt_lines(entry: dict[str, Any], budget: int) -> list[str]:
@@ -1700,7 +1599,7 @@ def _excerpt_lines(entry: dict[str, Any], budget: int) -> list[str]:
 def render_for_reviewer(workdir: Path) -> str:
     """The review packet: at most ``REVIEWER_MAX_LINES`` lines beside ``METHOD.md``.
 
-    Per component its status, anchor and failing tests, then the code excerpt
+    Per component its marked tests and anchor, then the code excerpt
     at the anchor (trimmed to fit), then what changed this round: files from
     ``git status``, hyperparameters against the previous snapshot, anchors
     without a card row and card rows without an anchor. '' without a card.
@@ -1716,31 +1615,26 @@ def render_for_reviewer(workdir: Path) -> str:
     excerpt_slots: list[tuple[int, dict[str, Any]]] = []
     if components:
         lines.append(
-            "Component status from tests/spec markers joined with the host-run checks; "
+            "Components with the tests/spec tests that carry their marker; "
             "the anchor is the `# @component` comment in the code:"
         )
         for entry in components[:12]:
             tests = entry["tests"]
-            detail = f" ({len(tests)} tests: {_count_outcomes(tests)})" if tests else ""
+            detail = f" ({kinds_summary(tests)})" if tests else ""
             where = anchor_location(entry)
             lines.append(
-                f"- {entry['component']}: {entry['status']}{detail}"
+                f"- {entry['component']}{detail}"
                 + (f" — {where}" if where else " — no code anchor")
             )
             for note in (entry.get("simplified") or [])[:2]:
                 lines.append(f"  simplified: {note['reason']} ({note['file']}:{note['line']})")
-            failing = failing_test_ids(entry)
-            if failing:
-                lines.append("  failing: " + ", ".join(failing[:5]))
             if entry.get("anchors"):
                 excerpt_slots.append((len(lines), entry))
         if len(components) > 12:
             lines.append(f"- ... {len(components) - 12} more components in METHOD.md")
     else:
         lines.append("METHOD.md has no Components table.")
-    untested = [
-        entry["component"] for entry in components if entry["status"].startswith("untested")
-    ]
+    untested = [entry["component"] for entry in components if not entry["tests"]]
     if untested:
         lines.append("Named in the card, no test carries its marker: " + ", ".join(untested[:10]))
     without_anchor = [entry["component"] for entry in components if not entry.get("anchors")]
@@ -1798,29 +1692,15 @@ def render_for_reviewer(workdir: Path) -> str:
             lines.append(
                 f"- {entry['file']}:{entry['key']} {entry['previous']} -> {entry['value']}{why}"
             )
-    checks = card["checks"]
-    if checks:
-        counts = ", ".join(f"{n} {outcome.lower()}" for outcome, n in sorted(checks["counts"].items()))
-        lines.append(
-            f"Latest host-run check: round {checks['round_index']}, exit {checks['exit_code']}"
-            + (f", {counts}" if counts else "")
-        )
-    else:
-        lines.append("No host-run check recorded yet.")
     lines = lines[:REVIEWER_MAX_LINES]
-    # Code excerpts fill what the cap leaves, contradicted components first,
-    # inserted under their own status line (later slots first so indices hold).
+    # Code excerpts fill what the cap leaves, in card order, inserted under
+    # their own component line (later slots first so indices hold).
     remaining = REVIEWER_MAX_LINES - len(lines)
-    ordered = sorted(
-        excerpt_slots,
-        key=lambda slot: (STATUSES.index(slot[1]["status"].split(" ")[0])
-                          if slot[1]["status"].split(" ")[0] in STATUSES else len(STATUSES)),
-    )
     granted: list[tuple[int, list[str]]] = []
-    for position, entry in ordered:
+    for position, entry in excerpt_slots:
         if remaining <= 2:
             break
-        share = max(3, remaining // max(1, len(ordered) - len(granted)))
+        share = max(3, remaining // max(1, len(excerpt_slots) - len(granted)))
         excerpt = _excerpt_lines(entry, min(share, remaining) - 1)
         if excerpt:
             granted.append((position, excerpt))

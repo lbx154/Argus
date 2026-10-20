@@ -453,10 +453,7 @@ class _PlanCycleState:
         # Set by the dedupe/enqueue phases.
         self.existing_items: list[BacklogItem] = []
         self.seen_signatures: dict[tuple[str, ...], BacklogItem] = {}
-        self.active_base_signatures: dict[tuple[str, ...], BacklogItem] = {}
         self.active_node_keys: dict[str, BacklogItem] = {}
-        self.terminal_blocker_fingerprints: dict[str, BacklogItem] = {}
-        self.recent_failures: dict[Any, Any] = {}
         self.added_titles: list[str] = []
         self.added_impact_scores: list[int] = []
         self.skipped_duplicate_titles: list[str] = []
@@ -467,7 +464,6 @@ class _PlanCycleState:
         self.dropped_parallel: list[tuple[str, str]] = []
         self.skipped_certification_reproposal_titles: list[str] = []
         self.skipped_certification_reproposal_reasons: list[str] = []
-        self.skipped_recent_failure_titles: list[str] = []
         self.skipped_task_feedback: list[dict[str, str]] = []
         self.new_plan_id: str = ""
         self.new_plan_version: int = 1

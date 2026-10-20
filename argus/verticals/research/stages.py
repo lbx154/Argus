@@ -104,8 +104,8 @@ STAGE_CHECKLISTS: dict[str, tuple[ChecklistItem, ...]] = {
                 "differential, knockout and claim-shaped tests) written first."
             ),
             evidence_hint=(
-                "METHOD.md, code, explicit run configuration, host-run tests/spec "
-                "output, and direct smoke output"
+                "METHOD.md, code, explicit run configuration, tests/spec output, "
+                "and direct smoke output"
             ),
         ),
         ChecklistItem(
@@ -120,8 +120,8 @@ STAGE_CHECKLISTS: dict[str, tuple[ChecklistItem, ...]] = {
                 "that fails when that component is disabled."
             ),
             evidence_hint=(
-                "METHOD.md component rows, implemented entry points, and host-run "
-                "tests/spec output"
+                "METHOD.md component rows, implemented entry points, and tests/spec "
+                "output"
             ),
         ),
         ChecklistItem(

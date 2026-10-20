@@ -159,7 +159,7 @@ handoff ends, four classes of defect appear:
 | Class | What happens | Examples |
 | --- | --- | --- |
 | Orphan wait | The holder waits for an event that nobody is obliged to produce, with no deadline | Dependents of a `research_incomplete` or `infra_blocked` item stay pending forever: the cascade fires only on terminal states, and the Planner can retire only pending items. The runtime-failure circuit clears only after a `runtime_failure_canary` mission that nothing creates. A subagent whose process is alive but wedged is healthy forever, because `stale_after` is computed and never compared. A blue/green candidate that cannot take the lock within 60 s exits after the roll request was consumed, leaving no daemon. A Manager WAIT without a mission freezes all planning. |
-| Unbounded return | Work goes back and forth with no mechanical measure of change | Missions with `require_independent_review=False` self-continue without settlement while `max_rounds` defaults to 0. `forward_progress=true` disables the stall guards, and round counters restart on every resume. Each replan creates rows with a fresh counter, and quarantine is keyed on title text. Team tasks retry without a budget. |
+| Unbounded return | Work goes back and forth with no mechanical measure of change | Missions with `require_independent_review=False` self-continue without settlement while `max_rounds` defaults to 0. `forward_progress=true` disables the stall guards, and round counters restart on every resume. Team tasks retry without a budget. |
 | Authority vacuum | A decision has no entitled decider | With an operator available and questions forbidden, nobody may accept a residual risk. The Manager's supervision channel cannot stop a mission. |
 | Lossy handoff | The move is lost or misrouted in translation | A Planner verdict that both waits and proposes tasks drops the tasks. A question raised on an archived item is swallowed. `early_stopped` and `crashed` are not terminal to the daemon. A stale decision card answers a newer question. |
 
@@ -356,9 +356,8 @@ Removed once the replacement is in place, each in its own roadmap item:
 - the prose-parsing paths in `reviewer/_parsing.py` that have no production
   callers;
 - the remaining per-loop counters that stand in for the unchanged-return rule:
-  the empty-turn and stall streaks, `consecutive_replans`,
-  `replan_rejections`, title-keyed quarantine, the Planner's probe missions,
-  and its fixed re-grant cadence;
+  the empty-turn and stall streaks, the Planner's probe missions, and its
+  fixed re-grant cadence;
 - the eleven `paused_*` statuses as separate states, replaced by one park
   record;
 - the Planner's wait-contract fields and the Engineer's footer keys, replaced

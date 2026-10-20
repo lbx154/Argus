@@ -99,8 +99,7 @@ def efficiency_report(life_dir: Path | str) -> dict[str, Any]:
         if kind == "usage.recorded":
             call = str(event.get("call_id") or f"#{len(calls)}")
             calls[call] = event
-            role = role_of(event.get("run_label"))
-            if role == "planner":
+            if role_of(event.get("run_label")) == "planner":
                 planner_cycle.append(call)
         elif kind in ("life.planner.start", "life.planner.verdict"):
             planner_cycle = []

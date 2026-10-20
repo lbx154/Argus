@@ -6,8 +6,8 @@ description: "Read the current experimental evidence yourself, from the review p
 # What the experiments establish
 
 Use this in Experiment. Read the review packet in your context first (the
-component anchors with their code excerpts, the host-run test outcomes, the
-config changes and the files changed this round), then `METHOD.md`, then
+component anchors with their code excerpts and marked tests, the config
+changes and the files changed this round), then `METHOD.md`, then
 direct code, configuration, raw results, positive controls, evaluator outputs,
 and strong baseline results. Do not write a separate result-review file.
 

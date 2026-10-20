@@ -274,7 +274,7 @@ def test_parse_planner_task_ignores_legacy_blocker_fingerprint() -> None:
     )
 
     assert verdict.error == ""
-    assert verdict.new_tasks[0].blocker_fingerprint == ""
+    assert verdict.new_tasks[0].title == "Retry renamed task"
 
 
 def test_parse_numbered_planner_task_fields() -> None:

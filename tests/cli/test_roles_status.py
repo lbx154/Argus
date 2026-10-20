@@ -362,6 +362,22 @@ def test_review_deferral_is_engineer_activity(tmp_path):
     assert acts["reviewer"].active is False
 
 
+def test_old_wait_events_are_ignored(tmp_path):
+    """Rounds no longer write ``round.external_work_wait.*``; old journals still hold them."""
+    now = time.time()
+    work = {"work_id": "team:research-idea-pipeline-v8-g2", "item_id": "mission-1"}
+    _write_events(tmp_path, [
+        {"type": "loop.start", "ts": now - 900, **work},
+        {"type": "round.external_work_wait.started", "ts": now - 5, **work},
+        {"type": "round.external_work_wait.completed", "reason": "cadence_elapsed", "ts": now - 1, **work},
+    ])
+
+    engineer = role_activity(tmp_path, now=now)["engineer"]
+
+    assert engineer.active is False
+    assert engineer.label == "idle"
+
+
 def test_activity_reads_only_the_event_log_tail(tmp_path, monkeypatch):
     events = tmp_path / "events.jsonl"
     events.write_text(

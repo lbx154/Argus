@@ -262,7 +262,7 @@ def test_bounded_dag_route_uses_the_shared_rule(monkeypatch) -> None:
     assert _bounded_dag_model() == "deepseek-chat"
 
     monkeypatch.setenv("ARGUS_SKILL_LIFE_BACKEND", "copilot")
-    assert _bounded_dag_model() == "gpt-5.4-mini"
+    assert _bounded_dag_model() == "gpt-6.1-sol"
 
 
 def test_plan_preview_route_uses_the_shared_rule(monkeypatch) -> None:

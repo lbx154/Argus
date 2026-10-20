@@ -430,7 +430,6 @@ def test_copilot_reviewer_can_read_the_files_its_prompt_names(tmp_path, backend_
         engineer_log,
         checkpoint,
         project_state / "goal_contract.json",
-        handoff / "round-checks" / "round-1.txt",
         vertical_skill_source_path("research") / "research-experiment-playbook.md",
     ):
         assert any(named.resolve().is_relative_to(root) for root in readable), named

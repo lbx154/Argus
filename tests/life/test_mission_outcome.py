@@ -844,39 +844,6 @@ def test_review_continue_does_not_resume_other_terminal_states(
     )["resumable"] is False
 
 
-def test_resumable_mission_is_not_quarantined_from_replanning() -> None:
-    """A stall the Reviewer told to continue must stay replannable.
-
-    ``_is_recent_no_progress_failure`` keyed only on ``terminal_status``, so the
-    mission's own settlement event quarantined its task signature out of the
-    next planning cycle — the mechanism that left the queue empty.
-    """
-    from argus.life.memory import JournalEntry
-    from argus.life.supervisor._helpers import _is_recent_no_progress_failure
-
-    def _entry(extra: dict[str, Any]) -> JournalEntry:
-        return JournalEntry.new(
-            kind="mission_failed", title="t", summary="s", extra=extra
-        )
-
-    unrecoverable = _entry({"terminal_status": "no_progress", "resumable": False})
-    assert _is_recent_no_progress_failure(unrecoverable) is True
-
-    reviewer_said_continue = _entry({
-        "terminal_status": "no_progress",
-        "resumable": True,
-        "outcome": {"execution_status": "paused", "resumable": True},
-    })
-    assert _is_recent_no_progress_failure(reviewer_said_continue) is False
-
-    # The flag is read from the outcome dimensions too: the settlement event
-    # carries it in both places and either one settles the question.
-    outcome_only = _entry({
-        "terminal_status": "no_progress",
-        "outcome": {"execution_status": "paused", "resumable": True},
-    })
-    assert _is_recent_no_progress_failure(outcome_only) is False
-
 
 def test_an_old_background_job_pause_resumes_without_being_watched(tmp_path) -> None:
     """An older release parked a mission on a job it watched for the Engineer.

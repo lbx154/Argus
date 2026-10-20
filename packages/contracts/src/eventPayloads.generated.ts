@@ -1184,7 +1184,7 @@ export interface RoundStallEvent extends EventMsg {
   "stall_threshold"?: number;
   "decision_idle_seconds"?: number;
   "forward_progress"?: boolean;
-  "stall_reason"?: "no_forward_progress" | "unverifiable_through_view";
+  "stall_reason"?: "no_forward_progress" | "unverifiable_through_view" | "turn_stalled" | "background_work_stalled";
   "text"?: string;
 }
 

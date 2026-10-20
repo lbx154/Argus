@@ -8,7 +8,7 @@ from types import SimpleNamespace
 
 import pytest
 
-from argus.team import completion, leaderboard, pool, registry, roster, task_board
+from argus.team import completion, pool, registry, roster, task_board
 from argus.team import curator as cur
 
 
@@ -910,52 +910,23 @@ def test_start_then_stop_runs_ticks_and_reaps_real_child(tmp_path: Path) -> None
     assert task["state"] == "pending" and task["attempts"] == 1
 
 
-def test_tick_folds_leaderboard_when_shards_present(tmp_path: Path) -> None:
-    root = tmp_path / "team"
-    registry.write_marker(tmp_path, team_id="t1", team_root=root, cwd=tmp_path, now=1.0)
-    pool.update(root, width=1, state="running")
-    task_board.form(root, [{"task_id": "t::a", "objective": "x", "target": "kA"}])
-    d = root / "shards"
-    d.mkdir(parents=True, exist_ok=True)
-    (d / "w.jsonl").write_text(json.dumps(
-        {"target": "kA", "metric": 2.0, "mechanism": "fuse", "success": True}) + "\n",
-        encoding="utf-8")
-    c = _fake_curator(tmp_path)
-    c._tick(now=100.0)
-    # the resident Curator maintains the leaderboard deterministically each tick
-    assert leaderboard.read(root)["kA"]["best"] == {"mechanism": "fuse", "metric": 2.0}
-
-
-def _seed_board(
-    root: Path,
-    target: str = "kA",
-    metric: float = 1.2,
-    mechanism: str = "fuse",
-) -> None:
+def _seed_board(root: Path, target: str = "kA", member: str = "w1") -> None:
     shards = root / "shards"
     shards.mkdir(parents=True, exist_ok=True)
-    (shards / f"{mechanism}.jsonl").write_text(
-        json.dumps(
-            {
-                "target": target,
-                "metric": metric,
-                "mechanism": mechanism,
-                "success": True,
-            }
-        )
+    (shards / f"{member}.jsonl").write_text(
+        json.dumps({"member_id": member, "task_id": target, "target": target, "success": True, "status": "done"})
         + "\n",
         encoding="utf-8",
     )
-    leaderboard.fold(root)
 
 
 def test_tick_keeps_a_settled_campaign_without_any_model_work(tmp_path: Path) -> None:
-    """A finished leaderboard is not new input: a day of ticks writes nothing.
+    """A settled campaign is not new input: a day of ticks writes nothing.
 
     The Curator once re-asked a model for a "strategy" every 21 minutes per
-    campaign whatever the leaderboard held, and nothing read the answer. Its
-    upkeep is deterministic now, so an unchanged campaign costs no model call
-    and leaves no strategy file behind.
+    campaign and folded a leaderboard nothing read. Its upkeep is deterministic
+    now, so an unchanged campaign costs no model call and leaves no strategy or
+    leaderboard file behind.
     """
     root = tmp_path / "team"
     registry.write_marker(
@@ -967,14 +938,15 @@ def test_tick_keeps_a_settled_campaign_without_any_model_work(tmp_path: Path) ->
     )
     pool.update(root, width=0, state="running")
     _seed_board(root)
-    board_before = (root / "leaderboard.json").read_text(encoding="utf-8")
+    shard_before = (root / "shards" / "w1.jsonl").read_text(encoding="utf-8")
     curator = _fake_curator(tmp_path)
 
     for now in range(1000, 1000 + 24 * 3600, 600):
         curator._tick(now=float(now))
 
     assert not (root / "strategy.md").exists()
-    assert (root / "leaderboard.json").read_text(encoding="utf-8") == board_before
+    assert not (root / "leaderboard.json").exists()
+    assert (root / "shards" / "w1.jsonl").read_text(encoding="utf-8") == shard_before
 
 
 def test_twelve_candidate_tasks_do_not_spawn_twelve_workers_by_default(tmp_path, monkeypatch):

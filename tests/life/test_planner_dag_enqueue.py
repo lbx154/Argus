@@ -128,7 +128,7 @@ def test_commit_resolves_dependency_from_prior_planning_cycle(tmp_path: Path) ->
     assert persisted.deps == [implementation.id]
 
 
-def test_planner_dedup_index_includes_archived_completed_signature(
+def test_planner_dedup_index_leaves_completed_work_to_the_planner(
     tmp_path: Path,
 ) -> None:
     backlog = Backlog(tmp_path / "backlog.jsonl")
@@ -158,14 +158,10 @@ def test_planner_dedup_index_includes_archived_completed_signature(
         def _item_skips_stage_transition(_item):
             return False
 
-        @staticmethod
-        def _recent_no_progress_failures():
-            return {}
-
     state = _PlanCycleState(None)
     assert Harness()._pc_build_dedupe_index(state) is None
 
-    assert completed.id in {item.id for item in state.seen_signatures.values()}
+    assert completed.id not in {item.id for item in state.seen_signatures.values()}
 
 
 def test_planner_dedup_index_maps_active_planner_node_key(tmp_path: Path) -> None:
@@ -194,10 +190,6 @@ def test_planner_dedup_index_maps_active_planner_node_key(tmp_path: Path) -> Non
         @staticmethod
         def _item_skips_stage_transition(_item):
             return False
-
-        @staticmethod
-        def _recent_no_progress_failures():
-            return {}
 
     state = _PlanCycleState(None)
     Harness()._pc_build_dedupe_index(state)
@@ -574,6 +566,7 @@ def test_all_filtered_tasks_persist_feedback_for_next_planner_cycle() -> None:
         new_tasks=[SimpleNamespace(title="Refresh paper review")],
         project_done=False,
         reason="the existing review is stale",
+        retire_tasks=[],
     )
     state.skipped_certification_reproposal_titles = ["Refresh paper review"]
     state.skipped_certification_reproposal_reasons = [
@@ -581,7 +574,7 @@ def test_all_filtered_tasks_persist_feedback_for_next_planner_cycle() -> None:
     ]
     state.skipped_task_feedback = [{
         "title": "Refresh paper review",
-        "category": "stage_closing_requires_intervening_repair",
+        "category": "paper_review_purchase_deferred",
         "reason": "manuscript is unfrozen; staleness is a planning fact",
     }]
 
@@ -590,12 +583,8 @@ def test_all_filtered_tasks_persist_feedback_for_next_planner_cycle() -> None:
         "stage": "analysis",
         "reason": (
             "Supervisor filtered every task in the previous Planner proposal:\n"
-            "- [stage_closing_requires_intervening_repair] Refresh paper review: "
-            "manuscript is unfrozen; staleness is a planning fact\n"
-            "Return a materially different executable plan that addresses these "
-            "reasons; do not repeat an unchanged filtered proposal. If nothing is "
-            "startable because pending tasks depend on in-flight work, add no "
-            "tasks and end with `→ engineer`."
+            "- [paper_review_purchase_deferred] Refresh paper review: "
+            "manuscript is unfrozen; staleness is a planning fact"
         ),
         "diagnostic": "planner_tasks_filtered",
     }]

@@ -49,22 +49,22 @@ def test_build_curator_never_spends_the_curator_backend(tmp_path: Path) -> None:
     curator = LifeWorker(_cfg(tmp_path, workdir=project))._build_curator(runner)
     assert curator is not None
 
-    from argus.team import leaderboard, pool, registry
+    from argus.team import pool, registry
 
     root = project / ".argus" / "teams" / "t1"
     registry.write_marker(project, team_id="t1", team_root=root, cwd=project, now=1.0)
     pool.update(root, width=0, state="running")
     (root / "shards").mkdir(parents=True, exist_ok=True)
     (root / "shards" / "m1.jsonl").write_text(
-        '{"target": "kA", "metric": 0.5, "mechanism": "m1", "success": true}\n',
+        '{"member_id": "m1", "task_id": "kA", "target": "kA", "success": true, "status": "done"}\n',
         encoding="utf-8",
     )
-    leaderboard.fold(root)
     for now in (1000.0, 3000.0, 90000.0):
         curator._tick(now=now)
 
     assert backend.labels == []
     assert not (root / "strategy.md").exists()
+    assert not (root / "leaderboard.json").exists()
 
 
 def test_build_curator_summary_uses_manager_backend_and_conversation_root(tmp_path: Path) -> None:

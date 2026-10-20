@@ -3903,7 +3903,9 @@
           "type": "string",
           "enum": [
             "no_forward_progress",
-            "unverifiable_through_view"
+            "unverifiable_through_view",
+            "turn_stalled",
+            "background_work_stalled"
           ]
         },
         "text": {
