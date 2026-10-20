@@ -74,8 +74,9 @@ def engineer_operator_handoff_rule() -> str:
             "Manager decides it."
         )
     return (
-        "Use `→ operator: <question>` only for a real operator decision; that "
-        "parks the task."
+        "Use `→ operator: <question>` only for a real operator decision, such as "
+        "a choice between requirements of theirs that conflict; that parks the "
+        "task until they answer."
     )
 
 
@@ -296,7 +297,7 @@ def build_mission_prompt(
             RESEARCHER_VOICE + "\n\n"
             "## Engineer summary\n"
             "Return the material result and decisive check; Reviewer judges whether the work holds.\n\n"
-            + _HANDOFF_RULE
+            + _HANDOFF_RULE + " " + engineer_operator_handoff_rule()
         )
         if skill_text:
             sections.append(skill_text)

@@ -494,3 +494,16 @@ def test_an_old_waiting_contract_file_is_ignored(tmp_path: Path, monkeypatch) ->
 
     assert supervisor._plan_next_work() == PLAN_AWAITING
     assert calls["count"] == 1
+
+
+def test_an_open_question_stays_as_asked_and_gets_no_second_card(tmp_path: Path) -> None:
+    """2026-10-20: every Planner turn reworded its open A-or-B question, each
+    vaguer than the last, beside the task already waiting on that choice."""
+    supervisor = _supervisor(tmp_path / "project", tmp_path / "life")
+    backlog = supervisor.memory.backlog
+    asked = backlog.add(BacklogItem.new(title="truncate", objective="pick A or B"))
+    backlog.update(asked.id, park_reason="operator_question", pending_question="Keep A or B?")
+
+    assert supervisor._park_planner_question(None, "Answer the A/B choice already asked.", "waiting") is False
+
+    assert [(row.id, row.pending_question) for row in backlog.active()] == [(asked.id, "Keep A or B?")]

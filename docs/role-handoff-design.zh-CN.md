@@ -182,6 +182,7 @@ Reviewer 的判决不是第七种动作：`continue` 是退回，`replan_request
 **它替代了什么。**
 
 - `continue` 就是 `→ engineer`，`replan_requested` 就是 `→ planner`，`blocked` 就是 `→` 能排除障碍的一方，`done` 就是接受一个具名候选。
+- 交给 Manager 的任务挂起在它手里，而不是记为失败：Manager 交给操作员的问题挂起的就是这个任务，回答后恢复的也是它，不另开副本。
 - 十一种 `paused_*` 状态合并为一种挂起，原因只是数据。
 - Planner 没有新工作可开时，写明下一个持有者：`→ engineer`（在跑的工作决定下一步）、`→ manager`（阶段卡住了它）或 `→ operator: <问题>`。不再有等待契约。
 - Engineer 的七个 footer 键和等待行变成上面那一行；等待本身移进 Engineer 的回合。

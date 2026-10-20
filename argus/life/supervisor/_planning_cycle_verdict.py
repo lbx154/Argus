@@ -125,7 +125,7 @@ class PlanningCycleVerdictMixin:
 
         The card is the operator's to answer, or the Manager's while the
         operator cannot be asked, like any parked question. Returns False when
-        the same question is already open.
+        a question already waits on the operator: it stays as it was asked.
         """
         item = None
         revision = getattr(state, "revision_request", None) or {}
@@ -136,25 +136,11 @@ class PlanningCycleVerdictMixin:
                 None,
             )
         if item is None:
-            # One open question per campaign: a Planner that keeps coming back
-            # refreshes the question it already asked instead of adding
-            # another unanswered row every cycle.
-            item = next(
-                (
-                    row
-                    for row in self.memory.backlog.active()
-                    if row.title == _OPERATOR_DIRECTION_TITLE
-                    and "operator_decision" in (row.tags or [])
-                    and row.status == "parked"
-                    and row.objective == str(self.config.continuous_objective or row.objective)
-                ),
-                None,
-            )
-            if item is not None and str(
-                getattr(item, "pending_question", "") or ""
-            ).strip() == question:
+            # The operator answers one question at a time, as it was asked: a
+            # Planner that comes back while one waits neither adds a card nor
+            # rewords the open one. Their answer is new input that calls it again.
+            if any(str(row.pending_question or "").strip() for row in self.memory.backlog.active()):
                 return False
-        if item is None:
             from ..memory import BacklogItem
 
             item = self.memory.backlog.add(

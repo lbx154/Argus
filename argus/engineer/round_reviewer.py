@@ -250,9 +250,9 @@ def backlog_history(root: Path | None) -> list[Any] | None:
 def operator_risk_decisions(root: Path | None, item_id: str) -> list[dict[str, Any]]:
     """Resolved operator decision cards on this item and the items it continues.
 
-    An operator's answer resolves the blocked item's card and continues the
-    work as a new item, so the card that answers this mission's question sits
-    on the item it continues.
+    An answer resolves the card on the task it parked, which resumes; an older
+    release continued the work as a new item, whose answering card sits on the
+    item it continues.
     """
     # An unreadable backlog accepts nothing.
     items = backlog_history(root) if item_id else []

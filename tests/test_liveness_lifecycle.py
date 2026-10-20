@@ -450,10 +450,10 @@ def test_rows_derived_from_a_canary_do_not_inherit_its_tag(tmp_path: Path) -> No
     backlog.add(asked)
     backlog.update(asked.id, status="paused_operator", pending_question="Go on?")
 
-    _blocked, continuation = backlog.continue_with_operator_reply(asked.id, "Yes.")
+    resumed, answered = backlog.resume_with_operator_reply(asked.id, "Yes.")
 
-    assert continuation is not None
-    assert CANARY_TAG not in continuation.tags and "planner" in continuation.tags
+    assert answered
+    assert CANARY_TAG not in resumed.tags and "planner" in resumed.tags
 
 
 # Lossy handoffs.

@@ -160,7 +160,7 @@ def test_a_choice_the_operator_reserved_waits_on_them_instead_of_dispatching(
 ) -> None:
     """2026-10-20: the Manager read that only the operator could pick A or B,
     yet an Engineer spent 44 seconds finding that out. The task now waits on
-    the Manager's question and continues like any answered card."""
+    the Manager's question and resumes on the answer."""
     from argus.life.memory import park_reason
 
     _direct_manager(monkeypatch, operator_question="A or B?", adaptation_reason="A and B conflict")
@@ -176,9 +176,9 @@ def test_a_choice_the_operator_reserved_waits_on_them_instead_of_dispatching(
         for event in _events(memory)
     )
 
-    _answered, continuation = memory.backlog.continue_with_operator_reply(item.id, "A")
-    assert memory.backlog.next_pending().id == continuation.id
-    assert "manager_direct" in continuation.tags
+    resumed, _ = memory.backlog.resume_with_operator_reply(item.id, "A")
+    assert memory.backlog.next_pending().id == resumed.id == item.id
+    assert "manager_direct" in resumed.tags
 
 
 @pytest.mark.parametrize(

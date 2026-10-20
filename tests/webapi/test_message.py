@@ -1724,10 +1724,9 @@ def test_explicit_pending_answer_continues_without_a_model_call(
     payload = response.json()
     assert payload["answered_item_id"] == blocked.id
     assert started == ["s-msgtest0"]
-    items = LifeMemory.open(life).backlog.all()
-    original = next(item for item in items if item.id == blocked.id)
-    continuation = next(item for item in items if item.id == payload["item"]["id"])
-    assert original.pending_question == ""
+    (continuation,) = LifeMemory.open(life).backlog.all()
+    assert continuation.id == payload["item"]["id"] == blocked.id
+    assert continuation.pending_question == ""
     assert continuation.objective.startswith(
         "Authoritative Manager operator-answer decision:\n"
         "Yes, include it after the references."
@@ -1754,7 +1753,7 @@ def test_explicit_pending_answer_continues_without_a_model_call(
         json={"text": "A duplicate answer."},
     )
     assert duplicate.status_code == 409
-    assert len(LifeMemory.open(life).backlog.all()) == 2
+    assert len(LifeMemory.open(life).backlog.all()) == 1
 
 
 def test_pending_answer_supersedes_conflicting_inherited_objective(
@@ -1771,7 +1770,7 @@ def test_pending_answer_supersedes_conflicting_inherited_objective(
     blocked.pending_question = "Which renderer should the team use?"
     mem.backlog.add(blocked)
 
-    _, continuation = mem.backlog.continue_with_operator_reply(
+    continuation, _ = mem.backlog.resume_with_operator_reply(
         blocked.id,
         "Use the installed editable renderer instead.",
         manager_decision=(
@@ -1800,7 +1799,7 @@ def test_pending_answer_supersedes_conflicting_inherited_objective(
     )
 
 
-def test_concurrent_pending_answers_create_one_continuation(
+def test_concurrent_pending_answers_resume_the_task_once(
     tmp_path: Path,
     monkeypatch,
 ) -> None:
@@ -1829,7 +1828,7 @@ def test_concurrent_pending_answers_create_one_continuation(
 
     assert sum(bool(result and result.get("item")) for result in results) == 1
     assert sum(bool(result and result.get("error")) for result in results) == 1
-    assert len(LifeMemory.open(life).backlog.all()) == 2
+    assert len(LifeMemory.open(life).backlog.all()) == 1
 
 
 def test_manager_message_resolves_single_pending_question(
@@ -1861,9 +1860,8 @@ def test_manager_message_resolves_single_pending_question(
     assert result["kind"] == "pending_question"
     assert result["resolved"] is True
     assert result["answered_item_id"] == blocked.id
-    rows = LifeMemory.open(life).backlog.all()
-    assert len(rows) == 2
-    assert next(row for row in rows if row.id == blocked.id).pending_question == ""
+    (row,) = LifeMemory.open(life).backlog.all()
+    assert row.id == blocked.id and row.pending_question == ""
 
 
 def test_non_answer_message_falls_through_without_clearing_pending_question(

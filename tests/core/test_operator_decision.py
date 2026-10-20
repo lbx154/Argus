@@ -185,7 +185,7 @@ def test_legacy_agent_option_can_require_guidance() -> None:
     )
 
 
-def test_backlog_persists_and_resolves_card_with_continuation(tmp_path) -> None:
+def test_backlog_resolves_card_and_resumes_the_task_it_parked(tmp_path) -> None:
     backlog = Backlog(tmp_path / "backlog.jsonl")
     item = backlog.add(BacklogItem.new(title="blocked", objective="work", item_id="item"))
     card = build_operator_decision(
@@ -201,21 +201,25 @@ def test_backlog_persists_and_resolves_card_with_continuation(tmp_path) -> None:
         operator_decision=card,
     )
 
-    blocked, continuation = backlog.continue_with_operator_reply(
+    resumed, answered = backlog.resume_with_operator_reply(
         item.id,
         "Use B",
         manager_decision="Use B",
         decision_option="custom",
     )
 
-    assert blocked is not None and continuation is not None
-    assert blocked.operator_decision["status"] == "resolved"
-    assert blocked.operator_decision["selected_option"] == "custom"
-    assert blocked.operator_decision["resolved_from_revision"] == 1
-    assert blocked.operator_decision["continuation_item_id"] == continuation.id
-    assert blocked.operator_decision["resume_requested"] is True
-    assert blocked.operator_decision["resolution_id"] == "decision-item:r1"
-    assert continuation.status == "pending"
+    assert resumed is not None and answered
+    assert resumed.operator_decision["status"] == "resolved"
+    assert resumed.operator_decision["selected_option"] == "custom"
+    assert resumed.operator_decision["resolved_from_revision"] == 1
+    assert resumed.operator_decision["continuation_item_id"] == item.id
+    assert resumed.operator_decision["resume_requested"] is True
+    assert resumed.operator_decision["resolution_id"] == "decision-item:r1"
+    # The task it parked resumes, not failed and not replaced.
+    assert [(row.id, row.status) for row in backlog.all()] == [(item.id, "pending")]
+    assert resumed.pending_question == ""
+    assert resumed.attempt == 2
+    assert "Use B" in resumed.objective
 
 
 def test_decision_identity_mismatch_makes_no_backlog_change(tmp_path) -> None:
@@ -234,7 +238,7 @@ def test_decision_identity_mismatch_makes_no_backlog_change(tmp_path) -> None:
         operator_decision=card,
     )
 
-    blocked, continuation = backlog.continue_with_operator_reply(
+    unchanged, answered = backlog.resume_with_operator_reply(
         item.id,
         "Use B",
         manager_decision="Use B",
@@ -243,7 +247,7 @@ def test_decision_identity_mismatch_makes_no_backlog_change(tmp_path) -> None:
         decision_note="Use B",
     )
 
-    assert blocked is not None and continuation is None
+    assert unchanged is not None and not answered
     rows = backlog.all()
     assert len(rows) == 1
     assert rows[0].pending_question == "choose"
@@ -272,7 +276,7 @@ def test_failed_decision_write_leaves_original_card_retriable(tmp_path, monkeypa
 
     monkeypatch.setattr(backlog, "_save", fail_write)
     with pytest.raises(OSError, match="injected write failure"):
-        backlog.continue_with_operator_reply(
+        backlog.resume_with_operator_reply(
             item.id,
             "Use B",
             manager_decision="Use B",
@@ -287,7 +291,7 @@ def test_failed_decision_write_leaves_original_card_retriable(tmp_path, monkeypa
     assert persisted[0].operator_decision["status"] == "pending"
 
     monkeypatch.setattr(backlog, "_save", original_save)
-    _blocked, continuation = backlog.continue_with_operator_reply(
+    _resumed, answered = backlog.resume_with_operator_reply(
         item.id,
         "Use B",
         manager_decision="Use B",
@@ -295,5 +299,5 @@ def test_failed_decision_write_leaves_original_card_retriable(tmp_path, monkeypa
         decision_id=card["id"],
         decision_note="Use B",
     )
-    assert continuation is not None
-    assert len(backlog.all()) == 2
+    assert answered
+    assert [row.status for row in backlog.all()] == ["pending"]

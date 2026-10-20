@@ -99,8 +99,14 @@ def test_engineer_surfaces_operator_only_blockers_to_host():
         next_action="Ask only if the operator owns the decision.",
         include_static=False,
     )
+    team = SkillLoop._build_engineer_prompt(
+        task="Continue until an operator-owned choice is required.",
+        skill_text="",
+        next_action=None,
+        compact_team=True,
+    )
 
-    for out in (full, compact):
+    for out in (full, compact, team):
         assert "→ operator: <question>" in out
         assert "OPERATOR_OPTIONS" not in out
         assert "→ done" in out

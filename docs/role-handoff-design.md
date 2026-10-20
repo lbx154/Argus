@@ -328,6 +328,9 @@ the ladder's height bounds the number of model calls made without a change.
 - `continue` is `→ engineer`, `replan_requested` is `→ planner`, `blocked` is
   `→` whoever can remove the obstacle, and `done` is acceptance of a named
   candidate.
+- A task handed to the Manager is parked in its hands, not failed: a question
+  the Manager puts to the operator parks that same task, and the answer resumes
+  it, never a copy.
 - The eleven `paused_*` statuses become one park whose reason is data.
 - A Planner with nothing new to start names who acts next: `→ engineer` (the
   work in flight decides what comes next), `→ manager` (the stage blocks it), or

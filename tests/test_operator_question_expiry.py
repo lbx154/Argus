@@ -1,6 +1,6 @@
 """A pending operator card must not outlive the mission that raised it.
 
-Both resolvers -- ``continue_with_operator_reply`` and
+Both resolvers -- ``resume_with_operator_reply`` and
 ``stop_for_operator_decision`` -- refuse an item whose ``pending_question`` is
 empty. So a card left ``pending`` after its item ended is unanswerable, and the
 cockpit keeps offering it. One sat that way on a failed mission for a day.
@@ -49,7 +49,7 @@ def test_a_live_question_survives_every_non_terminal_update(tmp_path):
 def test_answering_still_resolves_rather_than_expires(tmp_path):
     backlog, item_id = _paused_with_card(tmp_path)
 
-    blocked, continuation = backlog.continue_with_operator_reply(item_id, "yes")
+    resumed, answered = backlog.resume_with_operator_reply(item_id, "yes")
 
-    assert continuation is not None
-    assert blocked.operator_decision["status"] == "resolved"
+    assert answered
+    assert resumed.operator_decision["status"] == "resolved"

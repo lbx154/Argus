@@ -122,10 +122,9 @@ def test_pending_question_401_replay_settles_answer_after_persistence(
 
     assert result["resolved"] is True
     assert calls == ["rejected-relay-token", "fresh-relay-token"]
-    rows = mem.backlog.history()
-    blocked = next(row for row in rows if row.id == item.id)
-    assert blocked.pending_question == ""
-    assert len([row for row in rows if row.id != item.id]) == 1
+    (resumed,) = mem.backlog.history()
+    assert resumed.id == item.id and resumed.status == "pending"
+    assert resumed.pending_question == ""
     ledger = OperatorContextStore(tmp_path).records()
     assert [row.text for row in ledger] == [
         "Yes, authorize the requested repair."

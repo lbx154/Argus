@@ -6,9 +6,9 @@ that was the web cockpit, so a daemon could sit blocked for hours on "may I
 install torch?" while `--notify` — which only leaves guidance for the next
 round — appeared to do something and did not.
 
-Clearing the question and resuming the SAME item is the trap: the mission
-re-reads the objective that made it ask and asks again. The answer has to
-arrive as a continuation whose objective carries it as authority.
+Clearing the question and resuming the item as it was is the trap: the
+mission re-reads the objective that made it ask and asks again. The task
+resumes with the answer in its objective, as authority.
 """
 
 from __future__ import annotations
@@ -54,7 +54,7 @@ def _project(tmp_path, monkeypatch):
 
 
 def test_the_answer_reaches_the_round_that_runs_next(_project) -> None:
-    """The mission that asked must not simply run again and re-ask."""
+    """The mission that asked resumes with the answer, so it does not re-ask."""
     backlog = _backlog(_project)
     _paused(backlog, "abc123", "May I create a venv and install torch?")
 
@@ -65,8 +65,7 @@ def test_the_answer_reaches_the_round_that_runs_next(_project) -> None:
     assert not asked.pending_question
 
     runnable = [i for i in backlog.all() if i.status == "pending"]
-    assert len(runnable) == 1
-    assert runnable[0].id != "abc123", "resuming the asker re-asks the question"
+    assert [i.id for i in runnable] == ["abc123"]
     assert "Yes, go ahead." in runnable[0].objective
 
 
