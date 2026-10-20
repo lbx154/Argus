@@ -1146,12 +1146,12 @@ def test_missing_usage_and_unknown_model_are_never_rendered_as_zero(
     assert format_usage_cost(summary) == "partial"
 
 
-def test_copilot_reconcile_prices_a_pending_acp_turn_from_the_session_event_log(
+def test_copilot_reconcile_prices_a_pending_turn_from_the_session_event_log(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    """A warm ``copilot --acp`` turn leaves no store row; the session event log
-    still settles it, so the daemon is not held on a phantom liability."""
+    """A turn the CLI left no store row for is still settled from the session
+    event log, so the daemon is not held on a phantom liability."""
     copilot_home = tmp_path / "copilot"
     copilot_home.mkdir()
     monkeypatch.setenv("COPILOT_HOME", str(copilot_home))
@@ -1236,7 +1236,7 @@ def _interrupt_receipt(for_call: str, **overrides) -> dict:
     return receipt
 
 
-def test_interrupted_empty_acp_turn_settles_as_one_request_when_recorded() -> None:
+def test_interrupted_empty_copilot_turn_settles_as_one_request_when_recorded() -> None:
     from argus.core.pricing import copilot_usd_per_premium_request
     from argus.core.usage import INTERRUPTED_REQUEST_TIER
 
@@ -1266,7 +1266,7 @@ def test_interrupted_empty_acp_turn_settles_as_one_request_when_recorded() -> No
         {"agent_message_chars": 120, "agent_message_count": 1},
         {"tool_activity_observed": True},
         {"premium_requests": 1.0, "premium_requests_present": True},
-        {"fatal_error": "acp prompt ended without a response"},
+        {"fatal_error": "prompt ended without a response"},
         {"call_id": "another-call"},
     ],
 )

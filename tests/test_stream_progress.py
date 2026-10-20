@@ -897,20 +897,20 @@ def test_cursor_failed_tool_call_emits_definite_failure() -> None:
     assert sink.events[-1]["exit_code"] == 1
 
 
-def _acp_line(event: dict[str, Any]) -> str:
+def _stream_line(event: dict[str, Any]) -> str:
     return json.dumps(event, ensure_ascii=False)
 
 
-def test_acp_tool_call_and_result_carry_call_id_kind_and_status() -> None:
+def test_tool_call_and_result_carry_call_id_kind_and_status() -> None:
     sink = _RecordingSink()
     cb = make_stream_progress_callback(sink)
 
-    cb("main.stdout", _acp_line({
+    cb("main.stdout", _stream_line({
         "type": "tool.call",
         "data": {"name": "Count README lines", "kind": "execute", "toolCallId": "t1",
                  "arguments": {"command": "wc -l README.md"}},
     }))
-    cb("main.stdout", _acp_line({
+    cb("main.stdout", _stream_line({
         "type": "tool.result",
         "data": {"content": "Count README lines (completed)", "name": "Count README lines",
                  "status": "completed", "toolCallId": "t1", "output": "1 README.md"},
@@ -929,11 +929,11 @@ def test_acp_tool_call_and_result_carry_call_id_kind_and_status() -> None:
     )
 
 
-def test_acp_non_shell_tool_call_stays_a_tool_use() -> None:
+def test_non_shell_tool_call_stays_a_tool_use() -> None:
     sink = _RecordingSink()
     cb = make_stream_progress_callback(sink)
 
-    cb("main.stdout", _acp_line({
+    cb("main.stdout", _stream_line({
         "type": "tool.call",
         "data": {"name": "Reading state.json", "kind": "read", "toolCallId": "t2",
                  "arguments": {"path": "state.json"}},

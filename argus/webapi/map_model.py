@@ -269,34 +269,31 @@ def _run_map_turn(
     backend.set_usage_context(project_root=project_root, global_root=global_root)
     scratch = global_root / "map-presentation"
     scratch.mkdir(parents=True, exist_ok=True)
-    try:
-        # A separate, read-only turn cannot resume or edit the research conversation.
-        with tempfile.TemporaryDirectory(prefix="generation-", dir=scratch) as workdir:
-            if on_progress is not None:
-                on_progress(phase)
-            result = run_exec(
-                backend,
-                prompt=prompt,
-                options=RunnerOptions(
-                    model=config.model or None,
-                    reasoning_effort=config.effort,
-                    working_dir=workdir,
-                    skip_git_repo_check=True,
-                    sandbox_mode="read-only",
-                    force_safe_mode=True,
-                    disable_tools=True,
-                    output_schema=output_schema if config.backend in {"codex", "pi"} else None,
-                    external_interrupt_reason_provider=lambda: (
-                        "Map text generation timed out" if time.monotonic() >= deadline else None
-                    ),
+    # A separate, read-only turn cannot resume or edit the research conversation.
+    with tempfile.TemporaryDirectory(prefix="generation-", dir=scratch) as workdir:
+        if on_progress is not None:
+            on_progress(phase)
+        result = run_exec(
+            backend,
+            prompt=prompt,
+            options=RunnerOptions(
+                model=config.model or None,
+                reasoning_effort=config.effort,
+                working_dir=workdir,
+                skip_git_repo_check=True,
+                sandbox_mode="read-only",
+                force_safe_mode=True,
+                disable_tools=True,
+                output_schema=output_schema if config.backend in {"codex", "pi"} else None,
+                external_interrupt_reason_provider=lambda: (
+                    "Map text generation timed out" if time.monotonic() >= deadline else None
                 ),
-                run_label=run_label,
-            )
-            if on_result is not None:
-                # Preserve the real call receipt even when execution or output validation fails.
-                on_result(result)
-    finally:
-        backend.close_acp_clients()
+            ),
+            run_label=run_label,
+        )
+        if on_result is not None:
+            # Preserve the real call receipt even when execution or output validation fails.
+            on_result(result)
     if result.exit_code or result.fatal_error:
         reason = str(result.fatal_error or "").lower()
         code = (

@@ -82,7 +82,7 @@ def _schedule_answer_learning(
         return None
     if _frontdoor_says_nothing_to_learn(frontdoor):
         return None
-    state = _chat_state_for(sid, manager_activity=False)
+    state = _chat_state_for(sid)
     backend = getattr(state.get("manager_runner"), "_backend", None)
     vertical = ""
     from ..skills.vertical_select import resolve_project_vertical
@@ -677,10 +677,10 @@ def _manager_message(
         chat_state["_frontdoor_contextual_text"] = body
         chat_state["_frontdoor_dispatch_body"] = routing_body
 
-        # A web-process restart necessarily loses the live ACP process. Resume
-        # seamlessly by opening one new warm conversation session with a
-        # structured handoff built from the transcript that existed BEFORE this
-        # operator turn. A deterministic status read must not consume this seam.
+        # A web-process restart loses the in-process conversation state. Resume
+        # seamlessly by opening one new conversation session with a structured
+        # handoff built from the transcript that existed BEFORE this operator
+        # turn. A deterministic status read must not consume this seam.
         if startup_handoff_pending:
             chat_state.pop("needs_startup_handoff", None)
             if startup_handoff:

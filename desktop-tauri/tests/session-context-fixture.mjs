@@ -14,7 +14,7 @@ export function deferred() {
 }
 
 /** Deterministic HTTP replacement, NOT an Argus/provider process. Even a GET
- * snapshot?prewarm=true only reads these synthetic objects. No CLI discovery,
+ * snapshot only reads these synthetic objects. No CLI discovery,
  * real settings, outbound calls, source updates, daemon or task starts exist. */
 export async function startSessionFixture(options = {}) {
   const checkout = resolve(import.meta.dirname, '../..');

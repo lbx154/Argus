@@ -1128,20 +1128,6 @@ def test_kiosk_blocks_all_non_read_methods_even_without_kiosk_query(provisioned,
         assert not calls
 
 
-def test_kiosk_removes_get_prewarm_side_effect(provisioned):
-    _, vault, store = provisioned
-    calls = []
-
-    def upstream(request):
-        calls.append(request)
-        return httpx.Response(200, stream=Chunks([b"{}"]))
-
-    with client_for(provisioned, upstream) as client:
-        login(client, store, readonly=True)
-        assert client.get("/api/projects/p/snapshot?prewarm=true&compact=true").status_code == 200
-        assert calls[-1].url.query == b"compact=true"
-
-
 def test_csrf_and_logout(provisioned):
     _, vault, store = provisioned
     with client_for(provisioned) as client:

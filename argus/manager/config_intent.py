@@ -40,23 +40,15 @@ def _invalidate_manager_runner(
     *,
     backend: str | None = None,
 ) -> None:
-    """Close stale warm clients after a Manager backend/model knob change."""
+    """Drop the Manager runner after a Manager backend/model knob change."""
     runner = chat_state.pop("manager_runner", None)
     chat_state.pop("manager_runner_workdir", None)
-    chat_state.pop("_manager_acp_prewarmed", None)
     chat_state["last_thread_id"] = None
     if backend:
         chat_state["backend"] = backend
     if runner is None:
         return
     try:
-        for candidate in (
-            getattr(runner, "_backend", None),
-            getattr(runner, "manager_backend", None),
-        ):
-            close_acp = getattr(candidate, "close_acp_clients", None)
-            if callable(close_acp):
-                close_acp()
         reset = getattr(runner, "reset_chat_session", None)
         if callable(reset):
             reset()

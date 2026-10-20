@@ -199,9 +199,9 @@ def copilot_store_supports_token_billing(path: Path | None) -> bool:
 def copilot_usage_store_signature() -> list[dict[str, Any]]:
     """Read-only invalidation key, including uncheckpointed SQLite writes.
 
-    The session-state directory is part of the key because a warm ACP turn's
-    charge lives in a per-session event log that appears when the CLI creates
-    the session, not in the store.
+    The session-state directory is part of the key because a turn the CLI did
+    not record in the store has its charge only in a per-session event log,
+    which appears when the CLI creates the session.
     """
     return [
         {
@@ -234,8 +234,8 @@ def read_copilot_usage_since(
                 session_id=session_id,
             )
         if not rows:
-            # A warm ``copilot --acp`` session never inserts store rows (CLI
-            # 1.0.89); its charge is only in the session event log.
+            # A session the CLI did not record in the store has its charge
+            # only in the session event log.
             event_rows = _session_event_usage_since(cursor, session_id)
             if event_rows:
                 return CopilotCallUsage(tuple(event_rows))
@@ -323,12 +323,12 @@ def _session_event_usage_rows(
 ) -> list[CopilotModelUsage]:
     """Per-turn usage read from ``session-state/<id>/events.jsonl``.
 
-    A warm ``copilot --acp`` session (CLI 1.0.89) inserts no
-    ``assistant_usage_events`` rows; the only durable record of what each turn
-    cost is the cumulative ``session.usage_checkpoint`` event the CLI appends
-    after the turn. Every checkpoint becomes one row whose charge is the
-    difference from the previous checkpoint. Token counts are not reported
-    there, so those fields stay unknown while the AIU charge is exact.
+    When the CLI inserts no ``assistant_usage_events`` rows for a session, the
+    only durable record of what each turn cost is the cumulative
+    ``session.usage_checkpoint`` event the CLI appends after the turn. Every
+    checkpoint becomes one row whose charge is the difference from the
+    previous checkpoint. Token counts are not reported there, so those fields
+    stay unknown while the AIU charge is exact.
     """
     path = session_events_path(home, session_id)
     try:

@@ -150,10 +150,9 @@ class EventConsumerMixin:
     def _event_has_tool_activity(event: dict) -> bool:
         """Detect tool use for every streamed CLI dialect.
 
-        The regular subprocess path previously never set
-        ``tool_activity_observed`` at all; only Copilot ACP did.  Inspect both
-        event names and nested content blocks so Claude ``tool_use``, Codex
-        command/file items, Copilot tool deltas, and OpenCode tool parts count.
+        Inspect both event names and nested content blocks so Claude
+        ``tool_use``, Codex command/file items, Copilot tool deltas, and
+        OpenCode tool parts count.
         """
 
         event_type = str(event.get("type") or "").strip().casefold()

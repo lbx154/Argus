@@ -161,18 +161,6 @@ def test_resumed_call_keeps_its_original_identity_and_gets_no_replacement(
     assert result.thread_id == ORIGINAL and _usage_row(tmp_path)["thread_id"] == ORIGINAL
 
 
-def test_warm_acp_path_owns_its_session_and_is_not_prebound(tmp_path: Path, copilot, monkeypatch) -> None:
-    monkeypatch.setattr(
-        copilot["backend"]._runner.__class__, "_acp_enabled", lambda self, label, options=None: True,
-    )
-    copilot["install"](lambda kwargs: _cli_result(thread_id="acp-session"))
-    result = copilot["backend"].run_exec(
-        prompt="hi", options=RunnerOptions(working_dir=str(tmp_path)), run_label="manager-chat",
-    )
-    assert copilot["options"].provider_session_id is None
-    assert result.thread_id == "acp-session"
-
-
 def test_cli_without_session_id_flag_is_reported_and_lost_identity_is_named(
     tmp_path: Path, copilot, monkeypatch, caplog,
 ) -> None:

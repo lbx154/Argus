@@ -1026,7 +1026,7 @@ def test_copilot_resumed_premium_counter_without_baseline_fails_closed(
     assert complete_rows[1]["premium_requests_present"] is True
 
 
-def test_copilot_acp_session_model_overrides_mislabeled_usage_row(
+def test_copilot_stream_model_overrides_mislabeled_usage_row(
     tmp_path,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
@@ -1819,7 +1819,6 @@ def test_fork_creates_independent_runner_with_same_usage_context(tmp_path: Path)
     assert forked._runner.agent_bin == backend._runner.agent_bin
     assert forked._runner.default_extra_args == ["--trace"]
     assert forked._usage_context_snapshot() == backend._usage_context_snapshot()
-    forked.close_acp_clients()
 
 
 def test_background_forks_do_not_publish_into_the_foreground_role(tmp_path: Path) -> None:
@@ -1833,7 +1832,6 @@ def test_background_forks_do_not_publish_into_the_foreground_role(tmp_path: Path
     for target in (inherited, isolated, redirected):
         target._io_logger.stream_event_callback("engineer.stdout", line, backend_name="pi", known_secret_values=())
         assert target._usage_context_snapshot() == backend._usage_context_snapshot()
-        target.close_acp_clients()
     assert foreground == [("engineer.stdout", line)]
     assert background == [("engineer.stdout", line)]
     assert backend._io_logger.external_event_callback is inherited._io_logger.external_event_callback

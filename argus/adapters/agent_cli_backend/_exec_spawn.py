@@ -106,11 +106,11 @@ def bind_provider_session(ctx: "_ExecContext", cli_options: Any) -> str | None:
     """Bind a NEW Copilot CLI session to this call before the process exists.
 
     Resumed calls keep their original identity and never receive a replacement.
-    The warm ACP path owns its own session, and a CLI whose help text lacks
-    ``--session-id`` cannot honour a pre-allocated identity; both leave the
-    binding unset and are reported, so nothing pretends to be durable. The
-    identity is written to the ``agent.io.start`` row and returned on every
-    exit path, including the ones with no terminal ``result`` (#129).
+    A CLI whose help text lacks ``--session-id`` cannot honour a pre-allocated
+    identity; it leaves the binding unset and is reported, so nothing pretends
+    to be durable. The identity is written to the ``agent.io.start`` row and
+    returned on every exit path, including the ones with no terminal
+    ``result`` (#129).
     """
     backend = ctx.backend
     if not backend._is_copilot or ctx.resume_thread_id:
@@ -122,9 +122,6 @@ def bind_provider_session(ctx: "_ExecContext", cli_options: Any) -> str | None:
             "installed runner options cannot carry a Copilot session identity; "
             "call %s is bound only by its terminal result", ctx.call_id,
         )
-        return None
-    acp_enabled = getattr(runner, "_acp_enabled", None)
-    if callable(acp_enabled) and acp_enabled(ctx.run_label, cli_options):
         return None
     executable = getattr(runner, "agent_bin", None) or "copilot"
     if not copilot_cli_supports_session_id(executable):

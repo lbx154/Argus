@@ -1,7 +1,6 @@
 """A turn is never stopped on a timer by default; a stopped turn names its command so it is not repeated as it was."""
 from __future__ import annotations
 
-import json
 import os
 import subprocess
 import sys
@@ -9,10 +8,8 @@ from pathlib import Path
 
 import pytest
 
-from argus.agent_cli import copilot_acp
 from argus.agent_cli._idle_watchdog import running_tool_after_event
 from argus.agent_cli.agent_cli_runner import AgentCliRunner, RunnerOptions
-from argus.agent_cli.copilot_acp import CopilotAcpClient
 from argus.engineer.round_config import SupervisedConfig
 from argus.engineer.round_stop_signals import (
     fatal_error_is_idle_termination,
@@ -21,8 +18,8 @@ from argus.engineer.round_stop_signals import (
 )
 
 REASON = (
-    "Forced restart after hard idle timeout (1800s without an ACP stream event; "
-    "last event: tool_call; running tool: find / -name '*pdftoppm*')"
+    "Forced restart after hard idle timeout (1800s without progress; "
+    "running tool: find / -name '*pdftoppm*')"
 )
 
 
@@ -51,49 +48,12 @@ def test_the_stopped_turn_names_the_command_and_says_what_to_do_instead() -> Non
     assert "find / -name '*pdftoppm*'" in decision.next_action
 
 
-def test_acp_turn_tracks_the_tool_in_flight() -> None:
-    client = CopilotAcpClient("copilot-bin")
-    emitted: list[str] = []
-    turn = copilot_acp._Turn("s1", None, emitted.append, allow_persistent=True)
-    client._active_turn = turn
-
-    def update(payload: dict) -> None:
-        client._handle_notification("session/update", {"sessionId": "s1", "update": payload})
-
-    assert turn.running_tool == ""
-    update({"sessionUpdate": "tool_call", "toolCallId": "t1", "title": "find / -name '*pdftoppm*'",
-            "kind": "execute", "status": "pending", "rawInput": {"command": "find / -name '*pdftoppm*'"}})
-    assert turn.running_tool == "find / -name '*pdftoppm*'"
-    update({"sessionUpdate": "tool_call_update", "toolCallId": "t1", "status": "in_progress"})
-    assert turn.running_tool == "find / -name '*pdftoppm*'"
-    update({"sessionUpdate": "tool_call_update", "toolCallId": "t1", "status": "completed"})
-    assert turn.running_tool == ""
-    structured = [json.loads(line) for line in emitted if line.startswith("{")]
-    assert [event["type"] for event in structured] == ["tool.call", "tool.result"]
-
-
 def test_running_tool_keeps_commands_that_end_in_a_parenthesis() -> None:
     reason = (
-        "Forced restart after hard idle timeout (1800s without an ACP stream event; "
-        "last event: tool_call; running tool: echo $(date))"
+        "Forced restart after hard idle timeout (1800s without progress; "
+        "running tool: echo $(date))"
     )
     assert idle_termination_running_tool(reason) == "echo $(date)"
-
-
-def test_finishing_one_call_does_not_hide_another_with_the_same_title() -> None:
-    client = CopilotAcpClient("copilot-bin")
-    turn = copilot_acp._Turn("s1", None, lambda _line: None, allow_persistent=True)
-    client._active_turn = turn
-
-    def update(payload: dict) -> None:
-        client._handle_notification("session/update", {"sessionId": "s1", "update": payload})
-
-    update({"sessionUpdate": "tool_call", "toolCallId": "a", "title": "bash", "status": "pending"})
-    update({"sessionUpdate": "tool_call", "toolCallId": "b", "title": "bash", "status": "pending"})
-    update({"sessionUpdate": "tool_call_update", "toolCallId": "b", "status": "completed"})
-    assert turn.running_tool == "bash"
-    update({"sessionUpdate": "tool_call_update", "toolCallId": "a", "status": "completed"})
-    assert turn.running_tool == ""
 
 
 def _capture_engineer_options(monkeypatch, **config):
@@ -138,7 +98,7 @@ def test_a_default_engineer_turn_is_never_stopped_and_its_stall_goes_to_the_mana
 
 
 def _exec_stop(command: str | None) -> str:
-    """The stop record the non-ACP exec transport writes."""
+    """The stop record the exec transport writes."""
     waiting_on = f"; running tool: {command})" if command else ")."
     return f"Forced restart after hard idle timeout (1800s without a model stream event{waiting_on}"
 
@@ -146,10 +106,9 @@ def _exec_stop(command: str | None) -> str:
 class _SilentCommandsEngineer:
     """Each turn hangs on the next listed command; None means a healthy turn."""
 
-    def __init__(self, commands: list, *, exec_transport: bool = False) -> None:
+    def __init__(self, commands: list) -> None:
         self.commands = list(commands)
         self.calls = 0
-        self.exec_transport = exec_transport
 
     def run_exec(self, **_kwargs):
         from argus.core.models import RunnerResult
@@ -158,18 +117,7 @@ class _SilentCommandsEngineer:
         self.calls += 1
         if command is None:
             return RunnerResult(exit_code=0, agent_messages=["done"], thread_id="t")
-        return RunnerResult(
-            exit_code=-15,
-            agent_messages=[],
-            fatal_error=(
-                _exec_stop(command or None)
-                if self.exec_transport
-                else (
-                    "Forced restart after hard idle timeout (1800s without an ACP stream "
-                    f"event; last event: tool_call; running tool: {command})"
-                )
-            ),
-        )
+        return RunnerResult(exit_code=-15, agent_messages=[], fatal_error=_exec_stop(command or None))
 
 
 class _DoneReviewer:
@@ -236,31 +184,16 @@ def test_silence_stops_across_different_commands_are_still_bounded(tmp_path) -> 
     assert engineer.calls == 4
 
 
-def test_exec_transport_stops_with_different_commands_do_not_fail_the_round(tmp_path) -> None:
-    engineer = _SilentCommandsEngineer(["pip install -e .", "python train.py", None], exec_transport=True)
-    status, _rounds, _reason, prompts = _run_loop(tmp_path, engineer)
-    assert status == "done"
-    assert engineer.calls == 3
-    assert "pip install -e ." in prompts[1]
-
-
-def test_exec_transport_same_command_hanging_again_fails_the_round(tmp_path) -> None:
-    engineer = _SilentCommandsEngineer(["pip install -e ."], exec_transport=True)
-    status, _rounds, reason, _prompts = _run_loop(tmp_path, engineer)
-    assert status == "error"
-    assert engineer.calls == 2
-
-
 def test_unnamed_silence_stops_get_generic_guidance_and_are_bounded(tmp_path) -> None:
     # A stream that never names its command cannot show a repeat, so two
     # unnamed stops do not fail the round; the any-command limit still does.
-    engineer = _SilentCommandsEngineer(["", "", None], exec_transport=True)
+    engineer = _SilentCommandsEngineer(["", "", None])
     status, _rounds, _reason, prompts = _run_loop(tmp_path, engineer)
     assert status == "done"
     assert engineer.calls == 3
     assert "background job" in prompts[1] and "the command it was running" in prompts[1]
 
-    engineer = _SilentCommandsEngineer([""], exec_transport=True)
+    engineer = _SilentCommandsEngineer([""])
     status, _rounds, _reason, _prompts = _run_loop(tmp_path / "again", engineer)
     assert status == "error"
     assert engineer.calls == 4

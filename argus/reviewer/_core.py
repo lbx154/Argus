@@ -377,10 +377,6 @@ def _parallel_final_review_passes(
                 )
         except (OSError, RuntimeError) as exc:
             workspace_stack.close()
-            for backend in pass_runners.values():
-                close = getattr(backend, "close_acp_clients", None)
-                if callable(close):
-                    close()
             return ReviewDecision(
                 status="blocked",
                 reason=f"Rendered paper review inputs are unavailable: {exc}",
@@ -407,11 +403,6 @@ def _parallel_final_review_passes(
             run_label=f"reviewer-{label.lower()}",
         )
 
-    created_runners = [
-        backend
-        for backend in pass_runners.values()
-        if backend is not runner
-    ]
     try:
         with ThreadPoolExecutor(
             max_workers=3,
@@ -429,10 +420,6 @@ def _parallel_final_review_passes(
                 except Exception as exc:  # provider boundary
                     errors[label] = exc
     finally:
-        for backend in created_runners:
-            close = getattr(backend, "close_acp_clients", None)
-            if callable(close):
-                close()
         workspace_stack.close()
 
     def total(field: str) -> int:

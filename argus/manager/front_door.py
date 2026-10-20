@@ -339,18 +339,6 @@ def _ensure_manager_runner(chat_state: dict[str, Any], mem: Any) -> Any:
         from ..apps._runtime import build_life_runner
 
         runner = build_life_runner(ns)
-        acp_scope = f"manager:{chat_state.get('session_id') or workspace_key}"
-        backends: list[Any] = []
-        for backend in (
-            getattr(runner, "_backend", None),
-            getattr(runner, "manager_backend", None),
-        ):
-            if backend is not None and not any(backend is item for item in backends):
-                backends.append(backend)
-        for backend in backends:
-            set_acp_scope = getattr(backend, "set_acp_scope", None)
-            if callable(set_acp_scope):
-                set_acp_scope(acp_scope)
     except Exception as exc:  # noqa: BLE001 — retry on the next operator turn
         # Not cached (a transient build failure must not disable triage for the
         # rest of the session), but not silent either. Everything below this

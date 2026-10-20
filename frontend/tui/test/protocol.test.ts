@@ -914,24 +914,3 @@ test('ApiClient validates snapshot schema after the one-time handshake', async (
     globalThis.fetch = originalFetch;
   }
 });
-
-test('ApiClient requests Manager prewarm only when asked', async () => {
-  const originalFetch = globalThis.fetch;
-  const urls: string[] = [];
-  let calls = 0;
-  globalThis.fetch = (async (input) => {
-    calls += 1;
-    urls.push(String(input));
-    if (calls === 1) return Response.json(meta());
-    return Response.json({ schema_version: SNAPSHOT_SCHEMA_VERSION, daemon: {} });
-  }) as typeof fetch;
-  try {
-    const api = new ApiClient({ host: '127.0.0.1', port: 8799, project: 's-test' });
-    await assert.rejects(() => api.snapshot(1, undefined, true), /daemon fields missing/);
-    await assert.rejects(() => api.snapshot(1), /daemon fields missing/);
-    assert.match(urls[1], /events_limit=1&prewarm=true$/);
-    assert.doesNotMatch(urls[2], /prewarm=true/);
-  } finally {
-    globalThis.fetch = originalFetch;
-  }
-});

@@ -51,7 +51,7 @@ def _manager_roots(args: argparse.Namespace) -> tuple[Path, Path, Path]:
     )
 
     # The daemon owns this lock throughout a mission. Ordinary Manager reads
-    # and prewarm must not wait behind it just to perform two no-op migrations.
+    # must not wait behind it just to perform two no-op migrations.
     # Only a real state import/stage migration needs the write boundary. Each
     # migration rereads its inputs under that lock, since the daemon may have
     # updated them while construction was waiting.
