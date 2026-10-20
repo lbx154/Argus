@@ -318,9 +318,14 @@ def _decision(text: str) -> dict[str, Any]:
     try:
         value = json.loads(text)
     except ValueError:
+        from ..core.role_handoff import read_baton_line
+
         fields = read_key_values(text, _DECISION_KEYS)
         fields.update(_bare_named_lines(text))
         value = {key.lower(): val for key, val in fields.items()}
+        handoff = read_baton_line(text)
+        if handoff is not None:
+            value["handoff"] = handoff.holder
     if not isinstance(value, dict):
         raise SupervisionDecisionError("decision_missing", "Manager supervision returned no decision")
     if isinstance(text, str) and "decision" not in value:
@@ -400,6 +405,8 @@ def _validated_decision(value: dict[str, Any]) -> dict[str, Any]:
     if not isinstance(refs, list) or not refs or not all(isinstance(ref, str) for ref in refs):
         raise SupervisionDecisionError("evidence_uncited", "Manager must cite the evidence used for its decision")
     return {"action": action, "reason": reason, "directive": directive,
+            # ``→ planner``: the directive is new planning, so the Planner is asked.
+            "handoff": str(value.get("handoff") or ""),
             "cited_refs": list(dict.fromkeys(refs)),
             "consultation_id": str(value.get("consultation_id") or "")[:128],
             "advisor_disposition": str(value.get("advisor_disposition") or "")[:128],
@@ -454,7 +461,9 @@ def _prompt(observation: ManagerObservation, consult_reason: str = "") -> str:
             "RESIDUAL_RISK: the risk that leaves (only with yes)\n"
             if holds else ""
         )
-        + "\n"
+        + "Add a last line `→ planner` only when a STEER needs new planning (tasks to add, "
+        "retire or replace); otherwise whoever holds the work reads it at their next boundary.\n"
+        "\n"
         + observation.render()
     )
 
@@ -615,6 +624,7 @@ def _apply(
                     directive = set_active_manager_directive(
                         root, decision["directive"], source=source,
                         scope_objective=observation.continuous.objective,
+                        for_planner=decision.get("handoff") == "planner",
                     )
                 effects.update(directive_revision=directive.revision, directive_delivered=True, inbox_queued=False)
                 _apply_risk_decision(root, record, event, observation, effects)

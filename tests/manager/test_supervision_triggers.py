@@ -222,6 +222,12 @@ def test_replies_in_the_shapes_models_actually_wrote_are_read(text, action):
         assert decision["directive"]
 
 
+def test_a_steer_names_the_planner_only_when_it_needs_new_planning():
+    steer = "ACTION: steer\nREASON: char_count runs on its own.\nEVIDENCE_REFS: backlog.jsonl\nDIRECTIVE: Keep A/B parked."
+    assert supervision._decision(steer)["handoff"] == ""
+    assert supervision._decision(steer + "\n→ planner")["handoff"] == "planner"
+
+
 R = "EVIDENCE_REFS: backlog.jsonl"
 
 

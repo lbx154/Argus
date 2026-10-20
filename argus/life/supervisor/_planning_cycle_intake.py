@@ -36,9 +36,6 @@ if TYPE_CHECKING:
     from ._config import _MemoryView
 
 _TERMINAL_TASK_STATUSES = {"done", "failed", "aborted", "skipped", "superseded"}
-# Stands in for a Planner input digest that could not be computed after a
-# turn, so a Manager WAIT still holds after it instead of re-granting one.
-_UNREADABLE_WAIT_INPUT = "planner-input:unreadable"
 
 
 class PlanningCycleIntakeMixin:
@@ -274,18 +271,13 @@ class PlanningCycleIntakeMixin:
             from ...manager.supervision import waiting_for_evidence
 
             if waiting_for_evidence(operator_context_state_root(self.memory)):
-                # The WAIT parks the tasks whose answers it awaits: they are
-                # unclaimable and their dependents unready on their own. It
-                # must not freeze the project, so the Planner gets one turn per
-                # state of its inputs to plan work that does not need the
-                # answer; only a state it has already seen is held without a
-                # call.
-                current = self._current_planner_input_signature()
-                held = str(getattr(self, "_planner_last_turn_signature", "") or "")
-                if held and (current or _UNREADABLE_WAIT_INPUT) == held:
-                    self._enter_idle_backoff()
-                    self._emit_status("Waiting for the requested operator facts; unchanged work is not being reviewed again")
-                    return PLAN_AWAITING
+                # A WAIT is the Manager's answer to exactly the evidence it
+                # judged: keeping work on the operator's question is no new
+                # input for the Planner. It never freezes the project: any
+                # change to that evidence, or operator words, ends it.
+                self._enter_idle_backoff()
+                self._emit_status("Waiting for the requested operator facts; unchanged work is not being reviewed again")
+                return PLAN_AWAITING
         if operator_messages:
             self._clear_manager_planner_feedback()
             self._reset_idle_backoff()

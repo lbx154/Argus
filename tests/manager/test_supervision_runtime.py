@@ -431,18 +431,15 @@ def test_applied_wait_holds_unchanged_planning_until_new_operator_facts(tmp_path
         ),
     )
     supervisor._vertical_resolved = True
-    # The WAIT parks the questioned task, never the project: the Planner gets
-    # one turn to plan work that does not need the answer, and only an
-    # unchanged state is then held without another call.
-    assert supervisor._plan_next_work() == PLAN_ERROR
-    assert len(calls) == 1
+    # The WAIT is the Manager's answer to the evidence it judged: while that
+    # holds, the Planner is not asked; the answer moves it.
     for _ in range(4):
         assert supervisor._plan_next_work() == PLAN_AWAITING
-    assert len(calls) == 1
+    assert calls == []
     backlog.update(item.id, pending_question="")
     assert backlog.resume_parked()
     assert supervisor._plan_next_work() == PLAN_ERROR
-    assert len(calls) == 2
+    assert len(calls) == 1
 
 
 def test_saturated_scheduler_retains_latest_evidence_for_the_waiting_project(tmp_path):

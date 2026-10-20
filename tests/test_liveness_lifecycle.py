@@ -632,15 +632,21 @@ def test_structured_planner_decision_carries_retirements() -> None:
     assert any("retirement 3 skipped" in note for note in verdict.diagnostics)
 
 
-# I2/I1: a Manager WAIT parks its own tasks, never the whole project.
+# I2/I1: a Manager WAIT holds only the evidence it judged.
 
 
-def test_manager_wait_grants_the_planner_one_turn_per_input_state(
+def test_a_manager_wait_is_no_planner_input_until_its_evidence_moves(
     tmp_path: Path, monkeypatch,
 ) -> None:
+    """2026-10-20: the Manager answered a blocked task with WAIT and the Planner
+    was called 25 seconds later only to say it was waiting too. The WAIT is the
+    Manager's answer to the state it judged; once that state moves, the WAIT no
+    longer holds and the Planner plans the work that does not need the answer."""
     project = _project(tmp_path, monkeypatch)
+    waiting = {"now": True}
     monkeypatch.setattr(
-        "argus.manager.supervision.waiting_for_evidence", lambda *_a, **_k: True
+        "argus.manager.supervision.waiting_for_evidence",
+        lambda *_a, **_k: waiting["now"],
     )
     planner = _PlannerBackend(["\n".join([
         "PROJECT_DONE=false",
@@ -654,51 +660,14 @@ def test_manager_wait_grants_the_planner_one_turn_per_input_state(
     question = backlog.add(BacklogItem.new(title="Pick a venue", objective="venue"))
     backlog.update(question.id, status="paused_operator", pending_question="Venue?")
 
-    # Independent work is planned instead of the whole campaign freezing.
+    assert supervisor._plan_next_work() == PLAN_AWAITING
+    assert _supervisor(project, tmp_path / "life", planner)._plan_next_work() == PLAN_AWAITING
+    assert planner.calls == []
+
+    waiting["now"] = False
     assert supervisor._plan_next_work() is True
     assert len(planner.calls) == 1
     assert [item.title for item in backlog.pending()] == ["Benchmark the solver"]
-
-    # Nothing the Planner reads has moved: the WAIT holds without a call.
-    assert supervisor._plan_next_work() == PLAN_AWAITING
-    assert len(planner.calls) == 1
-
-    # A restart (a crash-looping daemon, say) reads what the Planner last saw
-    # back from disk: unchanged inputs still hold without a call.
-    restarted = _supervisor(project, tmp_path / "life", planner)
-    assert restarted._plan_next_work() == PLAN_AWAITING
-    assert len(planner.calls) == 1
-
-
-def test_an_unreadable_last_turn_record_allows_one_planner_call(
-    tmp_path: Path, monkeypatch,
-) -> None:
-    project = _project(tmp_path, monkeypatch)
-    monkeypatch.setattr(
-        "argus.manager.supervision.waiting_for_evidence", lambda *_a, **_k: True
-    )
-    wait = "\n".join([
-        "PROJECT_DONE=false",
-        "REASON=Nothing to do until the operator picks the venue.",
-        "→ engineer",
-    ])
-    planner = _PlannerBackend([wait, wait])
-    life = tmp_path / "life"
-    supervisor = _supervisor(project, life, planner)
-    assert supervisor._plan_next_work() == PLAN_AWAITING
-    assert len(planner.calls) == 1
-    record = life / "handoffs" / "lineage-planning" / "holders.json"
-    assert json.loads(record.read_text(encoding="utf-8"))["planner"]["facts"]
-
-    record.write_text("{not json", encoding="utf-8")
-    restarted = _supervisor(project, life, planner)
-    assert restarted._planner_last_turn_signature == ""
-    assert restarted._plan_next_work() == PLAN_AWAITING
-    assert len(planner.calls) == 2
-    # That call is recorded again, so the next restart holds.
-    assert _supervisor(project, life, planner)._plan_next_work() == PLAN_AWAITING
-    assert len(planner.calls) == 2
-
 
 
 # I2/I3: a Planner that hands the stage to the Manager is answered once.

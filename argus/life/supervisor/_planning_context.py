@@ -14,7 +14,7 @@ from ...core.event_catalog import EventType
 from ...core.operator_context import operator_context_state_root
 from ...core.planner_verdict import PlannerVerdictStatus
 from ...core.workspace_facts import fact_text
-from ..memory import BacklogItem
+from ..memory import _TERMINAL_STATUSES, BacklogItem, manager_direct_in_hand
 from ._constants import (
     PLAN_AWAITING,
     PLAN_RETRY,
@@ -24,7 +24,6 @@ from ._constants import (
 )
 from ._helpers import _operator_only_external_blocker_wait_reason_for_project
 from ._planner_failure_backoff import planner_failure_kind
-from ._planner_ledger import held_facts, lineage_ledger, record_holder
 
 log = logging.getLogger(__name__)
 
@@ -845,17 +844,11 @@ class PlanningContextMixin:
                 pass
 
     def _manager_directive_signature(self) -> list[str]:
+        """The newest Manager directive handed to the Planner, not one for the team."""
         from ...manager.directive import load_active_manager_directive
 
         record = load_active_manager_directive(operator_context_state_root(self.memory))
-        if record is None:
-            return []
-        return [
-            str(record.source or ""),
-            str(record.revision or ""),
-            str(record.set_at or ""),
-            str(record.text or ""),
-        ]
+        return [record.planner_revision] if record is not None and record.planner_revision else []
 
     def _planner_visible_input_signature(
         self,
@@ -919,14 +912,16 @@ class PlanningContextMixin:
 
         The previous Planner call already answered exactly this input state
         with no new work; asking again buys the same answer at model price.
-        This is how the Planner is called only when something is handed to it.
-        The gate runs only after every earlier intake short circuit has
-        declined; elapsed time alone is not news. Returns the plan-cycle outcome when skipping, else
-        ``None`` — and always leaves the freshly computed signature on
+        Nor is anything the Planner's while every live task is one the Manager
+        handed straight to an Engineer, still in that Engineer's or the
+        operator's hands: the Planner hears of it when it ends. This is how the
+        Planner is called only when something is handed to it. The gate runs
+        only after every earlier intake short circuit has declined; elapsed
+        time alone is not news. Returns the plan-cycle outcome when skipping,
+        else ``None`` — and always leaves the freshly computed signature on
         ``state`` so the cycle's real outcome can arm the next skip.
 
-        Unlike the operator-hold gates (:meth:`_record_planner_last_turn`)
-        this record stays in memory: a turn without new work never acknowledges
+        The record stays in memory: a turn without new work never acknowledges
         the operator input it read, so it is reconsidered after a restart, and a
         turn that carried operator words does not arm it.
         """
@@ -944,10 +939,13 @@ class PlanningContextMixin:
         if current and transient_ids:
             current += ":inbox:" + fact_text(sorted(transient_ids))
         state.planner_input_signature = current
-        if not current:
-            return None
+        live = [
+            item for item in self.memory.backlog.active()
+            if item.status not in _TERMINAL_STATUSES
+        ]
+        direct_only = bool(live) and all(manager_direct_in_hand(item) for item in live)
         armed = str(getattr(self, "_planner_unchanged_skip_signature", "") or "")
-        if not armed or current != armed:
+        if not direct_only and (not current or current != armed):
             return None
         # Preserve whichever backoff family the campaign is already in: an
         # armed idle-exit clock keeps running, a recoverable pause stays one.
@@ -960,6 +958,9 @@ class PlanningContextMixin:
                 "type": EventType.LIFE_PLANNER_IDLE,
                 "cycle": self._planning_cycles,
                 "reason": (
+                    "every live task is the Manager's direct handoff; the "
+                    "Planner is asked when one ends"
+                    if direct_only else
                     "nothing the Planner reads has changed since its last "
                     "decision; keeping that decision without another model call"
                 ),
@@ -973,50 +974,6 @@ class PlanningContextMixin:
             "without a model call"
         )
         return PLAN_AWAITING
-
-    def _planning_ledger(self) -> Path:
-        """The planning slot's holder ledger: what the Planner last held."""
-        from ..context_packet import HANDOFF_DIRNAME
-
-        root = Path(
-            getattr(self.config, "project_state_dir", None)
-            or getattr(self.memory, "root", None)
-            or "."
-        )
-        return lineage_ledger(root / HANDOFF_DIRNAME, "planning")
-
-    def _load_planner_last_turn(self) -> None:
-        """Read back what the Planner had seen at its last model call.
-
-        A missing, unreadable, or malformed record is an empty one: the next
-        operator-held cycle may call the Planner once, as a fresh project does.
-        """
-        held = held_facts(self._planning_ledger(), "planner")
-        self._planner_last_turn_signature = held if isinstance(held, str) else ""
-
-    def _record_planner_last_turn(self) -> None:
-        """Record what the Planner has now seen, after a real model call.
-
-        One durable fact answers "has anything the Planner reads changed since
-        it last looked?" for the hold only the operator can end, a Manager
-        WAIT. It is
-        fingerprinted after the turn, so the Planner's own writes during it
-        are not mistaken for new input, and kept on disk, so a restart (a
-        crash-looping daemon included) does not buy a call on inputs the
-        Planner has already answered. The hold is not consulted while operator
-        input is unhandled, so a restart cannot hide new operator words.
-        """
-        from ._planning_cycle_intake import _UNREADABLE_WAIT_INPUT
-
-        self._planner_last_turn_signature = (
-            self._current_planner_input_signature() or _UNREADABLE_WAIT_INPUT
-        )
-        try:
-            record_holder(self._planning_ledger(), "planner", self._planner_last_turn_signature)
-        except OSError:
-            # The in-memory copy still holds for this process; a restart then
-            # reads an older record and may call the Planner once more.
-            log.exception("failed to persist the Planner's last turn")
 
     def _arm_unchanged_planner_skip(self, state: Any) -> None:
         """Record or clear the unchanged-input skip after a real Planner call.
@@ -1052,10 +1009,13 @@ class PlanningContextMixin:
         status. Project files rewritten by live background jobs are not new
         planning evidence for that kind of feedback — judging it by the
         whole-tree signature made the feedback evaporate every cycle and the
-        planner replan blind at the base backoff indefinitely.
+        planner replan blind at the base backoff indefinitely. A task the
+        Manager handed straight to an Engineer counts once it leaves their
+        hands, not while it is queued or worked on.
         """
         rows = sorted(
             f"{item.id}:{item.status}" for item in self.memory.backlog.active()
+            if not manager_direct_in_hand(item)
         )
         return fact_text(rows)
 

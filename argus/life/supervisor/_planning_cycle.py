@@ -620,7 +620,6 @@ class PlanningCycleMixin(
                 self._enter_pause_backoff()
                 return PLAN_ERROR
         if state.planner_invoked:
-            self._record_planner_last_turn()
             if state.verdict is not None and not planner_failure_kind(state.verdict):
                 # The model service answered: an outage holding every call is over.
                 self._close_runtime_failure_circuit(

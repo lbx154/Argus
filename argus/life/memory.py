@@ -790,6 +790,18 @@ def planner_may_retire_park(item: Any) -> bool:
     return not rule.auto_resume and rule.holder != "operator"
 
 
+def manager_direct_in_hand(item: Any) -> bool:
+    """Whether a task the Manager handed straight to an Engineer is still in hand.
+
+    Queued or running, it is the Engineer's; waiting on a question, the
+    operator's. Nothing about it is the Planner's until it leaves their hands.
+    """
+    return "manager_direct" in (getattr(item, "tags", None) or []) and (
+        getattr(item, "status", "") in {"pending", "running"}
+        or bool(str(getattr(item, "pending_question", "") or "").strip())
+    )
+
+
 def _expire_unanswered_operator_question(item: BacklogItem) -> None:
     """A question dies with the mission that asked it.
 

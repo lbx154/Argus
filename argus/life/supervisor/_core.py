@@ -172,11 +172,6 @@ class LifeSupervisor(
         # The facts the last spare-slot Planner call saw: the backlog's running
         # and pending sets and the Planner-visible input digest.
         self._parallel_plan_facts: tuple[Any, ...] | None = None
-        # The Planner-visible input digest at its last model call, read back
-        # from disk so a restart does not re-ask an operator hold on unchanged
-        # inputs. See _record_planner_last_turn.
-        self._planner_last_turn_signature: str = ""
-        self._load_planner_last_turn()
         # Parked cards the Manager could not yet decide in the operator's
         # place: attempts and when to ask again (_decide_parked_questions).
         self._proxy_retry: dict[str, tuple[int, float]] = {}
