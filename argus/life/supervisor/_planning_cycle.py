@@ -413,12 +413,10 @@ class PlanningCycleMixin(
             # Backend/failsafe HOLDs are not authoritative; the next handoff asks again.
             self._last_planner_handoff_key = None
 
+        # Every HOLD the Manager's model chooses parses as ``intentional_hold``.
+        # Unpersisted, the Planner's inputs never move and it is never asked again.
         diagnostic = decision.diagnostic
-        if decision.action == "hold" and decision.source == "manager_llm":
-            diagnostic = diagnostic or "manager_hold_requires_stage_repair"
-        if diagnostic in {
-            "planner_handoff_advance_rejected", "manager_hold_requires_stage_repair",
-        }:
+        if diagnostic in {"planner_handoff_advance_rejected", "intentional_hold"}:
             if not self._persist_manager_planner_feedback(
                 stage=stage, reason=decision.reason, diagnostic=diagnostic,
             ):
