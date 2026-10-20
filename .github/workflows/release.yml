@@ -123,7 +123,7 @@ jobs:
       - uses: actions/setup-python@v5
         with:
           python-version: ${{ runner.os == 'Windows' && '3.11.9' || '3.12' }}
-          cache: pip
+          cache: ${{ runner.os != 'Windows' && 'pip' || '' }}
           cache-dependency-path: |
             pyproject.toml
             uv.lock
