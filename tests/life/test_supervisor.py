@@ -1138,7 +1138,6 @@ class _TechnicalQuestionRunner:
         )
         outcome.final_planner_report = {
             "plan_signal": "reconsider",
-            "authority_impact": "technical",
         }
         return outcome
 

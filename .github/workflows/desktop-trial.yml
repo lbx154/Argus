@@ -2,6 +2,13 @@ name: Desktop trial installers
 
 on:
   workflow_dispatch:
+  # A change pushed straight to dev is checked too, not only one in a PR.
+  push:
+    branches: [dev]
+    paths:
+      - 'argus/trial/**'
+      - 'desktop-tauri/**'
+      - '.github/workflows/desktop-trial.yml'
   pull_request:
     paths:
       - 'argus/trial/**'

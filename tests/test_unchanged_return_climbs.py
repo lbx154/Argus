@@ -16,6 +16,8 @@ from argus.adapters.memory_backend import CannedResponse, MemoryBackend
 from argus.apps._inbox import queue_inbox_message
 from argus.core.operator_context import append_directive
 from argus.engineer.runner import EngineerConfig, SupervisedConfig, SupervisedEngineer
+from argus.life.context_packet import create_mission_context
+from argus.life.memory import Backlog, BacklogItem
 from argus.reviewer import Reviewer, ReviewerConfig
 
 
@@ -33,7 +35,10 @@ def _review(line: str) -> CannedResponse:
     return CannedResponse(review_action=("submit_review", {"review": f"Judged the parser.\n{line}"}))
 
 
-def _run(tmp_path: Path, backend: MemoryBackend, *, snapshots: bool = True, max_rounds: int = 6):
+def _run(
+    tmp_path: Path, backend: MemoryBackend, *, snapshots: bool = True, max_rounds: int = 6,
+    packet: Path | None = None,
+):
     workdir = tmp_path / "work"
     workdir.mkdir(exist_ok=True)
     engineer = SupervisedEngineer(
@@ -49,6 +54,7 @@ def _run(tmp_path: Path, backend: MemoryBackend, *, snapshots: bool = True, max_
             max_rounds=max_rounds,
             operator_question_policy_root=(tmp_path / "state") if snapshots else None,
             session_id="parser-task",
+            context_packet_path=str(packet or ""),
         ),
         workdir=workdir,
     )
@@ -180,6 +186,38 @@ def test_an_unchanged_rerun_of_accepted_work_keeps_its_acceptance(tmp_path: Path
     (reused,) = record.review.interventions
     assert reused["action"] == "reused_verdict"
     assert "accepted it in round 1 of parser-task" in reused["note"]
+
+
+@pytest.mark.parametrize("refuse", [
+    lambda backlog: backlog.mark_failed("parser-1", error="The Manager held the stage."),
+    lambda backlog: backlog.requeue_for_iteration(
+        "parser-1", new_objective="Repair the parser fully.", cost_delta_usd=0.0,
+    ),
+], ids=["failed", "sent-back"])
+def test_an_acceptance_the_host_refused_is_not_reused(tmp_path: Path, refuse) -> None:
+    state = _state(tmp_path)
+    backlog = Backlog(state / "backlog.jsonl")
+    backlog.add(BacklogItem.new(item_id="parser-1", title="Repair the parser", objective="repair the parser"))
+    packet = create_mission_context(
+        life_dir=state, mission_id="parser-1", stage="", objective="repair the parser",
+    )
+    first = MemoryBackend()
+    first.queue("engineer-r1", _write(tmp_path / "work", "v1"))
+    first.queue("reviewer", _review("→ done"))
+    assert _run(tmp_path, first, packet=packet)[0] == "done"
+    refuse(backlog)
+
+    second = MemoryBackend()
+    second.queue("engineer-r1", CannedResponse(message="Nothing to change.\n→ reviewer"))
+    status, rounds, labels = _run(tmp_path, second, packet=packet)
+
+    # The host did not take the acceptance, so it does not stand again; the
+    # Reviewer already judged this very candidate, so the work climbs past it.
+    assert labels == ["engineer-r1"]
+    assert status == "replan_requested"
+    climbed = rounds[-1].review
+    assert climbed.review_source == "unchanged_return"
+    assert "reviewer" in climbed.reason and "planner" in climbed.reason
 
 
 def test_the_top_rung_is_the_operator(tmp_path: Path) -> None:

@@ -632,7 +632,6 @@
     },
     {
       "event": {
-        "authority_impact": "authority impact",
         "backend_unavailable": true,
         "cached_input_tokens": 1,
         "changed_during_review": [
@@ -660,8 +659,6 @@
         "operator_question": "operator question",
         "output_tokens": 1,
         "payload_schema_version": 1,
-        "plan_alternative": "plan alternative",
-        "plan_challenge": "plan challenge",
         "plan_signal": "plan signal",
         "premium_requests": 1.25,
         "prompt_block_stats": {
@@ -1281,7 +1278,6 @@
       "event": {
         "adjudicated_at": 1.25,
         "alternative": "alternative",
-        "authority_impact": "authority impact",
         "challenge": "challenge",
         "item_id": "task-1",
         "manager_action": "keep",

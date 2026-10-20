@@ -461,9 +461,6 @@ export interface RoundReviewCompletedEvent extends EventMsg {
   "operator_options"?: Array<{ "id"?: string; "label"?: string; "description"?: string; "requires_note"?: boolean; }>;
   "review_source"?: string;
   "plan_signal"?: string;
-  "plan_challenge"?: string;
-  "plan_alternative"?: string;
-  "authority_impact"?: string;
   "session_signal"?: Record<string, unknown>;
   "text"?: string;
   "review_skipped"?: boolean;
@@ -712,11 +709,10 @@ export interface LifeManagerPlanChallengeDecidedEvent extends EventMsg {
   type: "life.manager.plan_challenge.decided";
   payload_schema_version?: 1;
   "item_id": string;
-  "manager_action": "keep" | "revise" | "replace" | "ask_operator";
+  "manager_action": "keep" | "revise" | "replace";
   "manager_reason"?: string;
   "challenge": string;
   "alternative"?: string;
-  "authority_impact"?: string;
   "raised_at"?: number;
   "adjudicated_at": number;
   "revision_latency_seconds"?: number;

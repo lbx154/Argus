@@ -286,7 +286,10 @@ invariants, and together they are the whole state machine:
    review handed to it that it has not yet worked on is new input; the next
    unchanged return still stops at the Reviewer. A Reviewer that accepted the
    candidate as it is does not pass it up: its acceptance stands without a
-   model call, and the record names the verdict it reused.
+   model call, and the record names the verdict it reused. The host refusing
+   that acceptance (the task it ended failed, or was sent back to run again)
+   is a new external result: the acceptance no longer stands, and the
+   unchanged candidate climbs past the Reviewer.
 4. **Authority never vanishes.** Every decision type has an owner. When the
    owner cannot be asked, the decision falls to the next permitted rung
    instead of disappearing. Only irreversible decisions may wait on the operator

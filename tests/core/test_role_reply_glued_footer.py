@@ -17,7 +17,7 @@ The footer was there. Eighteen of the nineteen fields parsed. The message ran::
 
 One missing newline. ``read_key_values`` anchors on ``^``, so ``STATUS`` welded
 to the end of the preceding sentence was invisible while every field below it
-on its own line read fine. ``parse_decision_text`` returned ``None``,
+on its own line read fine. The verdict reader returned ``None``,
 ``_core.py`` substituted a hardcoded ``continue``, and the run bought an
 Engineer round and a second Reviewer round to re-derive the verdict it had
 already been handed. Those two rounds changed no product file; the second
@@ -40,10 +40,6 @@ from __future__ import annotations
 import pytest
 
 from argus.core.role_reply import read_block, read_key_values, read_records
-from argus.reviewer._parsing import (
-    _find_decision_in_messages,
-    describe_unparsed_verdict,
-)
 
 #: Verbatim from run 15's ``agent_io.jsonl``, message
 #: ``cceec252-a852-42ab-bd8a-630087b6597e``, abridged in the prose above the
@@ -60,20 +56,6 @@ RUN_15_REVIEW = (
 )
 
 
-def test_run_15s_lost_verdict_is_read() -> None:
-    decision = _find_decision_in_messages([RUN_15_REVIEW])
-
-    assert decision is not None
-    assert decision.status == "done"
-
-
-def test_the_reason_comes_with_it() -> None:
-    """A status with no rationale is refused upstream, so both must survive."""
-    decision = _find_decision_in_messages([RUN_15_REVIEW])
-
-    assert "Final submission gate is satisfied" in decision.reason
-
-
 def test_the_fields_below_the_weld_still_read() -> None:
     """The rescue must not disturb what already worked."""
     values = read_key_values(
@@ -82,23 +64,6 @@ def test_the_fields_below_the_weld_still_read() -> None:
 
     assert values["STATUS"] == "done"
     assert values["OPERATOR_QUESTION"] == "none"
-
-
-@pytest.mark.parametrize("status", ["done", "continue", "blocked", "replan_requested"])
-def test_every_status_survives_the_weld_not_just_the_permissive_one(
-    status: str,
-) -> None:
-    """``blocked`` is the one that costs most to lose.
-
-    An unreadable reply is defaulted to ``continue``, so a welded ``blocked``
-    became "carry on" and the Engineer kept building on rejected work.
-    """
-    text = f"The construction does not hold.STATUS={status}\nREASON=stated above\n"
-
-    decision = _find_decision_in_messages([text])
-
-    assert decision is not None
-    assert decision.status == status
 
 
 @pytest.mark.parametrize(
@@ -176,31 +141,3 @@ def test_the_rescue_never_overrides_a_key_that_already_parsed() -> None:
     text = "Do not confuse this.STATUS=blocked\nSTATUS=done\n"
 
     assert read_key_values(text, ["STATUS"]) == {"STATUS": "done"}
-
-
-def test_an_unreadable_reply_says_which_field_failed() -> None:
-    """"No footer" was printed against a reply with eighteen parsed fields."""
-    text = "REASON=I could not decide\nNEXT_ACTION=keep going\n"
-
-    detail = describe_unparsed_verdict([text])
-
-    assert "no readable STATUS" in detail
-    assert "REASON" in detail
-
-
-def test_an_illegal_status_is_named_with_its_value() -> None:
-    detail = describe_unparsed_verdict(["STATUS=approved\nREASON=looks fine\n"])
-
-    assert "approved" in detail
-    assert "replan_requested" in detail
-
-
-def test_a_verdict_with_no_rationale_says_so() -> None:
-    detail = describe_unparsed_verdict(["STATUS=done\nREASON=\n"])
-
-    assert "REASON" in detail
-    assert "done" in detail
-
-
-def test_empty_output_is_not_described_as_a_footer_problem() -> None:
-    assert "no output" in describe_unparsed_verdict([])

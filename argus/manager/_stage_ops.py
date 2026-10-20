@@ -142,7 +142,7 @@ class _StageDecisionMixin:
         """Whether ``review`` can be committed without another semantic vote.
 
         Missing or malformed control fields are deliberately not normalized here:
-        the Reviewer parser normally supplies every one, so an incomplete object
+        ``submit_review`` normally supplies every one, so an incomplete object
         is ambiguous evidence and must fall through to the Manager model.
         """
 
@@ -185,9 +185,6 @@ class _StageDecisionMixin:
 
         allowed_plan_fields = {
             "plan_signal",
-            "challenge",
-            "alternative",
-            "authority_impact",
             # The reflection judgment says nothing about whether the stage is accepted.
             "learning",
             "learning_reason",
@@ -203,20 +200,6 @@ class _StageDecisionMixin:
                 return False
             signal = signal.strip().lower()
             if signal not in {"", "continue", "reconsider"}:
-                return False
-        for name in ("challenge", "alternative"):
-            if name in planner_report:
-                value = planner_report[name]
-                if not isinstance(value, str):
-                    return False
-        if "authority_impact" in planner_report:
-            authority = planner_report["authority_impact"]
-            if not isinstance(authority, str):
-                return False
-            authority = authority.strip().lower()
-            if authority not in {"", "technical", "manager_contract", "operator"}:
-                return False
-            if authority in {"manager_contract", "operator"}:
                 return False
         return True
 

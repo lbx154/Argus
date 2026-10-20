@@ -58,24 +58,6 @@ def outcome_manuscript_binding(outcome: object) -> dict[str, Any] | None:
     return None
 
 
-
-def _operator_classification(outcome: Any) -> dict[str, str]:
-    report = getattr(outcome, "final_planner_report", None)
-    report = report if isinstance(report, dict) else {}
-    from ...core.autonomy import normalize_operator_need
-
-    fields: dict[str, str] = {}
-    need = normalize_operator_need(report.get("operator_need"))
-    if need:
-        fields["operator_need"] = need
-    authority = str(report.get("authority_impact") or "").strip().lower()
-    if authority:
-        fields["authority_impact"] = authority
-    next_action = str(getattr(outcome, "final_review_next_action", "") or "").strip()
-    if next_action and not bool(getattr(outcome, "success", False)):
-        fields["next_action"] = next_action[:1200]
-    return fields
-
 class MissionExecutionSettlementMixin:
     """Repair settlement, stage guard, final status, and journal emission."""
 
@@ -943,16 +925,12 @@ class MissionExecutionSettlementMixin:
         )
         campaign_continues = bool(status == "stage_continues" or (success and not overall_complete))
 
-        planner_report = dict(
-            getattr(outcome, "final_planner_report", {}) or {}
-        )
         plan_challenge = dict(getattr(outcome, "plan_challenge", {}) or {})
         raw_mission_summary = str(
             getattr(outcome, "summary", "")
             or getattr(outcome, "final_review_reason", "")
             or getattr(outcome, "final_message", "")
             or getattr(outcome, "reason", "")
-            or planner_report.get("summary")
             or ""
         )
         from ...core.role_handoff import strip_handoff
@@ -1052,7 +1030,6 @@ class MissionExecutionSettlementMixin:
             ][:12],
             "outcome_class": mission_outcome_class(status, success, state.park_reason),
             "outcome": state.outcome_dimensions,
-            "planner_report": planner_report,
             "plan_challenge": plan_challenge,
             "plan_revision_witness": (
                 dict(state.plan_revision_witness) if state.replan_requested else {}
@@ -1082,9 +1059,9 @@ class MissionExecutionSettlementMixin:
             "operator_question": str(
                 getattr(outcome, "operator_question", "") or ""
             ).strip(),
-            # The raising role's own classification travels with the outcome
-            # so the operator-facing message can say whose decision this is.
-            **_operator_classification(outcome),
+            "next_action": "" if success else str(
+                getattr(outcome, "final_review_next_action", "") or ""
+            ).strip()[:1200],
             "agent_layer": "engineer",
             "engineer_model": self.engineer_model,
             "reviewer_model": self.reviewer_model,
@@ -1153,7 +1130,6 @@ class MissionExecutionSettlementMixin:
             "overall_complete": overall_complete,
             "campaign_continues": campaign_continues,
             "delivery": delivery,
-            "planner_report": planner_report,
             "plan_challenge": plan_challenge,
             "plan_revision_witness": (
                 dict(state.plan_revision_witness) if state.replan_requested else {}
@@ -1362,8 +1338,7 @@ class MissionExecutionSettlementMixin:
             title=item.title, objective=item.objective, status=status, success=success,
             reviewer_source=str(getattr(outcome, "final_review_source", "") or ""),
             factual_outcome=factual_outcome, final_message=final_message, review_reason=review_reason,
-            planner_report=getattr(outcome, "final_planner_report", {}) or {},
-            stop_kind=str(state.stop_kind or ""), recoverable=state.resumable,
+            stop_kind=str(state.stop_kind or ""),
             concepts=list(item.tags), artifact_refs=[ref for ref in refs if ref],
             non_goals=list(getattr(item, "non_goals", []) or []),
         )

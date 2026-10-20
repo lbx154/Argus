@@ -92,25 +92,6 @@ _LABELED_IDENTIFIER_RE = re.compile(
     """
 )
 _BARE_LONG_HEX_RE = re.compile(r"(?i)(?<![0-9a-f])[0-9a-f]{32,128}(?![0-9a-f])")
-_INTEGRITY_TERM_RE = re.compile(
-    r"(?i)\b(?:sha(?:-?256)?|hash(?:es|ed|ing)?|checksum|digest|fingerprint)\b"
-    r"|哈希|校验和|摘要值"
-)
-_INTEGRITY_JUDGMENT_RE = re.compile(
-    r"(?i)\b(?:match(?:es|ed|ing)?|mismatch(?:es|ed)?|stale|fresh|same|different|"
-    r"changed?|drift(?:ed|ing)?|contradict(?:s|ed|ory)?|invalid|missing|verify|"
-    r"verified|passes?|passed|fails?|failed|refresh(?:ed)?)\b"
-    r"|一致|不一致|陈旧|过期|匹配|不同|变化|漂移|校验|验证|冲突|失效"
-)
-_MATERIAL_BLOCKER_RE = re.compile(
-    r"(?i)\b(?:incomplete|missing|required|must|need(?:s|ed)?|fix|repair|reject|"
-    r"fail(?:s|ed|ure)?|wrong|unsatisfied|unresolved|cannot|can't|blocker|"
-    r"problem|issue|gap|lacks?|unable)\b"
-    r"|\b(?:could\s+not|was\s+not\s+able)\b"
-    r"|not\s+(?:done|complete|completed|satisfied|verified)"
-    r"|does\s+not\s+(?:meet|pass)"
-    r"|未完成|缺失|必须|需要|修复|失败|未满足|阻塞|问题"
-)
 
 
 def sanitize_model_visible_text(value: object) -> str:
@@ -121,42 +102,11 @@ def sanitize_model_visible_text(value: object) -> str:
     return _BARE_LONG_HEX_RE.sub("<machine-integrity-metadata omitted>", text)
 
 
-def contains_integrity_judgment(value: object) -> bool:
-    """Return whether text asks a semantic verdict from opaque identifiers."""
-    text = str(value or "")
-    return bool(_INTEGRITY_TERM_RE.search(text) and _INTEGRITY_JUDGMENT_RE.search(text))
-
-
-def sanitize_model_judgment_text(value: object) -> str:
-    """Remove identifier-based verdict clauses and redact remaining values."""
-    text = str(value or "").strip()
-    if not text:
-        return ""
-    units = re.split(r"(?<=[.!?。！？;；])\s+|\n+", text)
-    kept: list[str] = []
-    for unit in units:
-        cleaned = unit.strip()
-        if not cleaned:
-            continue
-        if _INTEGRITY_TERM_RE.search(cleaned) and _INTEGRITY_JUDGMENT_RE.search(cleaned):
-            continue
-        kept.append(sanitize_model_visible_text(cleaned))
-    return " ".join(kept).strip()
-
-
-def has_material_blocker(value: object) -> bool:
-    """Return whether sanitized prose still names a non-integrity blocker."""
-    return bool(_MATERIAL_BLOCKER_RE.search(str(value or "")))
-
-
 __all__ = [
     "FIXTURE_EVIDENCE_RULE",
     "LABELLED_FIXTURE_CARVE_OUT",
     "MASKED_DISPLAY_ENGINEER_RULE",
     "MODEL_INTEGRITY_BOUNDARY",
     "REVIEW_EVIDENCE_RULE",
-    "contains_integrity_judgment",
-    "has_material_blocker",
-    "sanitize_model_judgment_text",
     "sanitize_model_visible_text",
 ]
